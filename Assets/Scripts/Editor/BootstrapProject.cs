@@ -39,8 +39,18 @@ namespace FarHorizon.EditorTools
             EnsureDirs();
             SetProjectIdentity();
             ConfigureUrp();
-            WriteBuildStamp("boot");
-            BuildBootScene();
+            WriteBuildStamp("zoned");
+            var scene = BuildBootScene();
+
+            // U5 (ticket 86ca86fux): layer the Sponsor-approved Zone-D production environment
+            // (terrain / scatter / water / lighting / fog / post / skybox) onto the boot scene as an
+            // additive "Environment" root, then re-save so it ships in the build. Built AFTER the boot
+            // scene exists so Camera.main is available for camera post-processing. ENVIRONMENT-only —
+            // the player/camera/input systems land separately (U3), independently under their own root.
+            WorldBootstrap.BuildEnvironment();
+            EditorSceneManager.SaveScene(scene, BootScenePath);
+            Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved");
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[BootstrapProject] complete");
@@ -119,26 +129,38 @@ namespace FarHorizon.EditorTools
             }
         }
 
-        // Boot scene authored from code: the movement + camera foundation (U3 — ticket 86ca86fme)
-        // on a flat walkable test ground, plus a directional light + the BootHud/BootScreenshot
-        // object. The orbit camera (MovementCameraScene) replaces the static boot camera; the
-        // player + saved-asset NavMesh ship so click-to-move works in the standalone build.
+        // Boot scene authored from code, then RETURNED so Run() can layer the Zone-D environment
+        // (U5) on top and re-save. Builds, in order:
+        //   1. a base Main Camera + AudioListener + the BootHud/BootScreenshot object;
+        //   2. the U3 movement+camera foundation (MovementCameraScene.Author) — player + orbit
+        //      camera (which UPGRADES the base camera into the orbit rig, superseding any boot-scene
+        //      capture framing) + flat walkable ground + saved-asset NavMesh, so click-to-move ships;
+        //   3. (back in Run) the U5 Zone-D environment under an additive "Environment" root, whose
+        //      camera post-enable lands on the U3 orbit camera (Camera.main) by then.
         //
         // Editor-time authoring (not Awake) is mandatory: the editor-vs-runtime serialization trap
         // (unity-conventions.md) ships Awake-built hierarchies MANGLED. Everything load-bearing is
         // built here + saved into Boot.unity.
-        private static void BuildBootScene()
+        private static UnityEngine.SceneManagement.Scene BuildBootScene()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
+            // Base Main Camera. Deliberately minimal: MovementCameraScene.Author (below) UPGRADES
+            // this exact GameObject into the U3 orbit rig (orbit component + target + URP camera
+            // data), which SUPERSEDES any fixed boot-scene capture framing — the combined scene's
+            // camera is the gameplay orbit camera, not a static capture cam. clearFlags is left at
+            // Skybox so the Zone-D gradient sky reads behind the silhouettes; backgroundColor is the
+            // fallback if the skybox is ever absent.
             var camGo = new GameObject("Main Camera");
             var cam = camGo.AddComponent<Camera>();
             camGo.AddComponent<AudioListener>();
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // deep dusk blue
-            camGo.transform.position = new Vector3(0f, 1f, -10f);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // fallback if no skybox
+            cam.farClipPlane = 400f;
             camGo.tag = "MainCamera";
 
+            // A placeholder directional light so the scene is lit even before the Zone-D environment
+            // layers its warm "Sun" key on top (WorldBootstrap.BuildLighting adds the real key).
             var lightGo = new GameObject("Directional Light");
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Directional;
@@ -160,6 +182,7 @@ namespace FarHorizon.EditorTools
             // Register the boot scene as the (only) build scene.
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(BootScenePath, true) };
             Debug.Log("[BootstrapProject] EditorBuildSettings scene -> " + BootScenePath);
+            return scene;
         }
     }
 }

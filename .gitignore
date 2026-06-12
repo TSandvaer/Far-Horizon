@@ -23,6 +23,7 @@
 *.log
 test-results.xml
 test-results-*.xml
+*-results.xml
 
 # Visual Studio / Rider / VS Code generated project files
 /.vs/
@@ -52,6 +53,12 @@ sysinfo.txt
 crashlog.txt
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Throwaway local verification output (bootstrap/test/build logs + capture PNGs).
+# Author-side shipped-build evidence dirs; never committed (structure_check.sh also blocks
+# Captures/ and *.log/test-results) — capture evidence lives in the PR Self-Test Report.
+/_u5_out/
+/_verify_out/
 
 # OS cruft
 .DS_Store

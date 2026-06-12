@@ -1,0 +1,424 @@
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEngine;
+
+namespace FarHorizon.EditorTools
+{
+    /// <summary>
+    /// PROCEDURAL low-poly smooth-shaded terrain + mesh scatter for the production environment.
+    /// Ported from the eval spike (EmbergraveUnitySlice, Assets/Scripts/Editor/LowPolyZoneGen.cs,
+    /// iter-5/8 — READ-ONLY working spec per ticket 86ca86fux). This is the Sponsor-approved
+    /// "Zone D" look (verbatim: "i love zone D + quality") built as the ACTUAL play space the
+    /// character moves through — NOT a side-by-side A/B/C/D comparison vignette like the spike had.
+    ///
+    /// WHY PROCEDURAL (not a CC0 pack): the spike permitted procedural ("procedural is fine if
+    /// headless pack-import is clunky"). FBX/GLB pack import in -batchmode needs per-mesh import
+    /// settings (normals mode, smoothing angle, material assignment) that are GUI-shaped and fragile
+    /// to drive headlessly. Procedural welded meshes give deterministic, reproducible-from-code
+    /// geometry AND let us control the smooth-shading directly: a WELDED mesh (shared verts at face
+    /// seams) + Mesh.RecalculateNormals() averages vertex normals across faces, which IS the
+    /// technical definition of "low-poly with smooth shading" (averaged vertex normals, NOT
+    /// flat/faceted per-face normals). The Sponsor judges the LOOK; the source is an implementation
+    /// detail a CC0/ArtDrop path can replace later with no scene-shape change.
+    ///
+    /// PALETTE: WARM / LUSH per art-direction.md + inspiration/*.png (sunny survival POC) — sand=warm
+    /// tan, field=warm harmonious greens, water=warm-leaning teal. All sub-1.0 / HDR-safe. This is
+    /// the warm/lush direction, NOT the retired "dark sinister iso building" direction.
+    /// </summary>
+    public static class LowPolyZoneGen
+    {
+        // ---- WARM / LUSH palette (sub-1.0, per art-direction.md survival north-star) ----
+        static readonly Color SandLo = new Color(0.78f, 0.69f, 0.49f); // warm dry tan
+        static readonly Color SandHi = new Color(0.90f, 0.83f, 0.62f); // pale sun-bleached sand
+        static readonly Color SandDamp = new Color(0.66f, 0.58f, 0.42f); // damp shore sand
+        static readonly Color GrassLo = new Color(0.32f, 0.46f, 0.22f); // mid leaf green
+        static readonly Color GrassHi = new Color(0.50f, 0.62f, 0.30f); // sunlit grass
+        static readonly Color GrassRise = new Color(0.40f, 0.54f, 0.26f); // meadow rise
+        static readonly Color RockCol = new Color(0.55f, 0.52f, 0.47f);  // warm grey stone
+        static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
+        static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow
+        static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit
+
+        // Result of building the low-poly zone: the ground GameObject (Ground-layered, NavMesh +
+        // raycast surface) so the caller can parent scatter + bake NavMesh over it.
+        public class ZoneResult
+        {
+            public GameObject root;        // zone container
+            public GameObject ground;      // the terrain mesh (on Ground layer, has MeshCollider)
+        }
+
+        /// <summary>
+        /// Build a low-poly smooth-shaded zone: a height-varied terrain MESH (dunes near the shore
+        /// rising to a gentle meadow inland), vertex-color gradient material (beach->field ramp by
+        /// height + Z), low-poly mesh scatter (trees / rocks / grass clumps), and a simple water plane
+        /// at the beach edge. Smooth normals via welded grid + RecalculateNormals.
+        ///
+        /// PORT NOTE: the spike's per-edge SEAM-FLATTENING (pulling X-edge columns to y=0 so a flat
+        /// NavMesh connector could mate the side-by-side zones) is INTENTIONALLY DROPPED here — there
+        /// is no neighbouring zone to stitch to in the single production play space, so the interior
+        /// dunes + meadow rise are the whole surface. Everything else is carried verbatim.
+        /// </summary>
+        public static ZoneResult BuildZone(
+            GameObject parent, string zoneId, float minX, float maxX,
+            float shoreZ, float inlandFarZ, int seed, Material vertexColorMat, Material waterMat)
+        {
+            var root = new GameObject("Zone_" + zoneId);
+            root.transform.SetParent(parent.transform, false);
+
+            float cx = (minX + maxX) * 0.5f;
+            float width = maxX - minX;
+            float depth = inlandFarZ - shoreZ;
+            float cz = (shoreZ + inlandFarZ) * 0.5f;
+
+            var ground = BuildTerrainMesh(root, "Ground_" + zoneId, vertexColorMat,
+                new Vector3(cx, 0f, cz), width, depth, shoreZ, inlandFarZ, seed);
+
+            var scatterRoot = new GameObject("LowPolyScatter");
+            scatterRoot.transform.SetParent(root.transform, false);
+            ScatterLowPolyProps(scatterRoot, minX, maxX, shoreZ, inlandFarZ, seed,
+                ground.GetComponent<MeshCollider>());
+
+            BuildWaterEdge(root, "Water_" + zoneId, waterMat, cx, width, shoreZ);
+
+            return new ZoneResult { root = root, ground = ground };
+        }
+
+        // ---- Terrain mesh: subdivided welded plane with gentle height (dunes -> meadow rise) ----
+        // Height profile along Z: flat beach near the shore, then a gentle dune ripple, then a
+        // smooth rise into the inland meadow. Plus low-amplitude multi-octave noise so the surface
+        // is organic (no flat tabletop). Vertex colors ramp sand->grass by height+Z so the material
+        // reads beach->field WITHOUT a texture (URP/Lit with vertex color is unreliable; we use a
+        // tiny vertex-color shader material — see WorldBootstrap.MakeTerrainVertexColorMaterial).
+        const int SegX = 40, SegZ = 56; // enough subdivision for smooth slopes + clean NavMesh
+        static GameObject BuildTerrainMesh(GameObject parent, string name, Material mat,
+            Vector3 center, float width, float depth, float shoreZ, float inlandFarZ, int seed)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.position = center;
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            if (groundLayer >= 0) go.layer = groundLayer; // -1 if the project lacks a Ground layer
+
+            var mf = go.AddComponent<MeshFilter>();
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+
+            var rnd = new System.Random(seed);
+            float ox = (float)rnd.NextDouble() * 100f, oz = (float)rnd.NextDouble() * 100f;
+
+            int vCount = (SegX + 1) * (SegZ + 1);
+            var verts = new Vector3[vCount];
+            var cols = new Color[vCount];
+            for (int z = 0; z <= SegZ; z++)
+            for (int x = 0; x <= SegX; x++)
+            {
+                int i = z * (SegX + 1) + x;
+                float fx = (float)x / SegX, fz = (float)z / SegZ;
+                float worldZ = Mathf.Lerp(shoreZ, inlandFarZ, fz);
+                float localX = (fx - 0.5f) * width;
+                float localZ = worldZ - center.z;
+
+                float h = HeightAt(fz, fx, ox, oz);
+                verts[i] = new Vector3(localX, h, localZ);
+                cols[i] = GroundColorAt(fz, h, fx, seed);
+            }
+
+            var tris = new int[SegX * SegZ * 6];
+            int ti = 0;
+            for (int z = 0; z < SegZ; z++)
+            for (int x = 0; x < SegX; x++)
+            {
+                int i = z * (SegX + 1) + x;
+                tris[ti++] = i; tris[ti++] = i + SegX + 1; tris[ti++] = i + 1;
+                tris[ti++] = i + 1; tris[ti++] = i + SegX + 1; tris[ti++] = i + SegX + 2;
+            }
+
+            var mesh = new Mesh { name = name + "_mesh" };
+            mesh.indexFormat = vCount > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.vertices = verts;
+            mesh.colors = cols;
+            mesh.triangles = tris;
+            // SMOOTH SHADING: the grid is WELDED (each interior vertex is shared by its surrounding
+            // faces), so RecalculateNormals AVERAGES the face normals into smooth vertex normals —
+            // the technical "low-poly with smooth shading" look (vs a hard-edged per-face split).
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            mf.sharedMesh = mesh;
+
+            var col = go.AddComponent<MeshCollider>();
+            col.sharedMesh = mesh; // NavMesh bakes on the actual sloped surface
+
+            return go;
+        }
+
+        // Gentle height field. fz=0 shore .. fz=1 deep inland. Returns a small world-Y so the
+        // NavMesh agent (walkable slope) can traverse it. Kept low-amplitude so slopes stay bakeable
+        // (NavMesh default max slope ~45deg) and the character reads grounded on it.
+        static float HeightAt(float fz, float fx, float ox, float oz)
+        {
+            // beach flat near the shore, a gentle dune ripple in the mid-beach, then a meadow rise.
+            float beachFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.06f, 0.20f, fz)); // 0 at shore
+            float dune = Mathf.Sin(fz * 9f) * 0.18f * beachFlat * (1f - fz);                 // small ripple
+            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.95f, fz)) * 1.6f; // meadow rise
+            // organic low-amplitude noise (multi-octave) so nothing is a flat tabletop
+            float n = (Mathf.PerlinNoise(ox + fx * 4f, oz + fz * 4f) - 0.5f) * 0.5f
+                    + (Mathf.PerlinNoise(ox + fx * 9f, oz + fz * 9f) - 0.5f) * 0.22f;
+            return beachFlat * 0.25f + dune + rise + n * (0.3f + rise * 0.4f);
+        }
+
+        // Vertex color ramps warm sand (shore, low) -> warm grass (inland, higher). Multi-tone so
+        // no big region is one flat color (carries the spike's "no flat single-color ground" bar into
+        // the low-poly look). Slight per-vertex hash jitter keeps facets reading distinct.
+        static Color GroundColorAt(float fz, float height, float fx, int seed)
+        {
+            // sand near the shore, blending to grass past the transition band
+            float grassT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.22f, 0.42f, fz));
+            Color sand = Color.Lerp(SandDamp, Color.Lerp(SandLo, SandHi, Mathf.Clamp01(fz * 3f)),
+                                    Mathf.Clamp01(fz * 4f));
+            Color grass = Color.Lerp(GrassLo, GrassHi, Mathf.Clamp01(grassT));
+            // higher ground reads as the sunlit meadow rise
+            grass = Color.Lerp(grass, GrassRise, Mathf.Clamp01((height - 0.6f) * 0.5f));
+            Color c = Color.Lerp(sand, grass, grassT);
+            // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
+            float j = (Hash01(Mathf.RoundToInt(fx * 997f), Mathf.RoundToInt(fz * 991f), seed) - 0.5f) * 0.10f;
+            c.r = Mathf.Clamp01(c.r + j); c.g = Mathf.Clamp01(c.g + j); c.b = Mathf.Clamp01(c.b + j);
+            c.a = 1f;
+            return c;
+        }
+
+        // ---- Low-poly mesh scatter: trees, rocks, grass clumps (all welded smooth-shaded meshes) ----
+        static void ScatterLowPolyProps(GameObject parent, float minX, float maxX,
+            float shoreZ, float inlandFarZ, int seed, MeshCollider groundCol)
+        {
+            var rnd = new System.Random(seed + 555);
+            // Field band (grass): z past the transition. Trees + rocks + grass clumps cluster here.
+            float fieldStartZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.40f);
+
+            // Trees — clustered inland. Density scales gently with the (wider) production extents.
+            int treeClusters = Mathf.RoundToInt(7f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
+            for (int c = 0; c < treeClusters; c++)
+            {
+                float cxp = Mathf.Lerp(minX + 3f, maxX - 3f, (float)rnd.NextDouble());
+                float czp = Mathf.Lerp(fieldStartZ, inlandFarZ - 3f, (float)rnd.NextDouble());
+                int n = 1 + rnd.Next(0, 3);
+                for (int i = 0; i < n; i++)
+                {
+                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 5f;
+                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 5f;
+                    if (x < minX + 1f || x > maxX - 1f) continue;
+                    BuildTree(parent, GroundPoint(groundCol, x, z), 0.85f + (float)rnd.NextDouble() * 0.5f,
+                        rnd, true);
+                }
+            }
+
+            // Rocks — both the beach (near shore) and the field. Smaller near shore.
+            int rocks = Mathf.RoundToInt(22f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
+            for (int i = 0; i < rocks; i++)
+            {
+                float x = Mathf.Lerp(minX + 1.5f, maxX - 1.5f, (float)rnd.NextDouble());
+                float z = Mathf.Lerp(shoreZ + 1.5f, inlandFarZ - 2f, (float)rnd.NextDouble());
+                float scale = 0.4f + (float)rnd.NextDouble() * 0.7f;
+                BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+            }
+
+            // Grass clumps — low spiky low-poly tufts, dense in the field, sparse toward the shore.
+            int clumps = Mathf.RoundToInt(60f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
+            for (int i = 0; i < clumps; i++)
+            {
+                float x = Mathf.Lerp(minX + 1f, maxX - 1f, (float)rnd.NextDouble());
+                float z = Mathf.Lerp(shoreZ + 4f, inlandFarZ - 1f, (float)rnd.NextDouble());
+                float fz = Mathf.InverseLerp(shoreZ, inlandFarZ, z);
+                // density follows the field gradient (probabilistic accept)
+                if (rnd.NextDouble() > Mathf.Clamp01((fz - 0.30f) * 1.6f)) continue;
+                BuildGrassClump(parent, GroundPoint(groundCol, x, z),
+                    0.5f + (float)rnd.NextDouble() * 0.4f, rnd);
+            }
+        }
+
+        // Raycast straight down onto the terrain collider to find the surface Y at (x,z) so props
+        // sit ON the sloped ground (not floating / buried). Falls back to y=0 if the ray misses.
+        static Vector3 GroundPoint(MeshCollider groundCol, float x, float z)
+        {
+            if (groundCol != null)
+            {
+                var ray = new Ray(new Vector3(x, 50f, z), Vector3.down);
+                if (groundCol.Raycast(ray, out RaycastHit hit, 200f))
+                    return hit.point;
+            }
+            return new Vector3(x, 0f, z);
+        }
+
+        // A low-poly tree: tapered trunk (welded cylinder, few sides) + a faceted icosphere-ish
+        // canopy (welded, smooth-normaled). Optional NavMeshObstacle carve so the agent paths around.
+        static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool carve)
+        {
+            var tree = new GameObject("LP_Tree");
+            tree.transform.SetParent(parent.transform, false);
+            tree.transform.position = at;
+            tree.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
+            tree.transform.localScale = Vector3.one * scale;
+
+            float trunkH = 1.6f;
+            var trunk = MakeMeshObject(tree, "Trunk", LowPolyMeshes.TaperedCylinder(0.18f, 0.12f, trunkH, 6),
+                MakeFlatColorMat(TrunkCol, "LPTrunkMat"));
+            trunk.transform.localPosition = Vector3.zero;
+
+            var canopy = MakeMeshObject(tree, "Canopy",
+                LowPolyMeshes.FacetedSphere(1.15f, 1, jitter: 0.18f, seed: rnd.Next()),
+                MakeFlatColorMat(Color.Lerp(LeafLo, LeafHi, (float)rnd.NextDouble()), "LPLeafMat"));
+            canopy.transform.localPosition = new Vector3(0f, trunkH + 0.7f, 0f);
+
+            if (carve)
+            {
+                var obstacle = tree.AddComponent<UnityEngine.AI.NavMeshObstacle>();
+                obstacle.carving = true;
+                obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
+                obstacle.radius = 0.4f;
+                obstacle.height = 2.6f;
+                obstacle.center = new Vector3(0f, 1.3f, 0f);
+            }
+        }
+
+        static void BuildRock(GameObject parent, Vector3 at, float scale, System.Random rnd)
+        {
+            var rock = new GameObject("LP_Rock");
+            rock.transform.SetParent(parent.transform, false);
+            rock.transform.position = at;
+            rock.transform.rotation = Quaternion.Euler(
+                (float)rnd.NextDouble() * 20f, (float)rnd.NextDouble() * 360f, (float)rnd.NextDouble() * 20f);
+            rock.transform.localScale = new Vector3(scale, scale * (0.6f + (float)rnd.NextDouble() * 0.4f), scale);
+            MakeMeshObject(rock, "RockMesh",
+                LowPolyMeshes.FacetedSphere(0.6f, 0, jitter: 0.30f, seed: rnd.Next()),
+                MakeFlatColorMat(RockCol * (0.85f + (float)rnd.NextDouble() * 0.3f), "LPRockMat"));
+        }
+
+        // Grass tufts (the iter-8 dark-shard FIX lives in LowPolyMeshes.GrassClump — up-biased normals
+        // both faces). Blade tint is pulled toward the LIT grass end of the terrain ramp (GrassHi) so
+        // the tuft reads brighter than the ground it sits on (a tuft buried in same-tone ground
+        // disappears).
+        static void BuildGrassClump(GameObject parent, Vector3 at, float scale, System.Random rnd)
+        {
+            var clump = new GameObject("LP_GrassClump");
+            clump.transform.SetParent(parent.transform, false);
+            clump.transform.position = at;
+            clump.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
+            clump.transform.localScale = Vector3.one * scale;
+            // Bias toward GrassHi (sunlit) so the tuft pops off the ground ramp instead of blending in.
+            Color blade = Color.Lerp(GrassLo, GrassHi, 0.55f + (float)rnd.NextDouble() * 0.45f);
+            MakeMeshObject(clump, "Blades",
+                LowPolyMeshes.GrassClump(0.55f, 7, rnd.Next()),
+                MakeFlatColorMat(blade, "LPGrassMat"));
+        }
+
+        static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            return go;
+        }
+
+        // ---- Water plane at the beach edge (warm-leaning teal, glossy) ----
+        static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
+            float cx, float width, float shoreZ)
+        {
+            var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            water.name = name;
+            Object.DestroyImmediate(water.GetComponent<Collider>()); // not walkable / not NavMesh
+            water.layer = 0;
+            // Unity plane is 10x10 at scale 1; cover the zone width + extend out to sea.
+            water.transform.localScale = new Vector3(width / 10f * 1.1f, 1f, 4f);
+            water.transform.position = new Vector3(cx, -0.25f, shoreZ - 14f);
+            water.GetComponent<MeshRenderer>().sharedMaterial = waterMat;
+        }
+
+        // ---- Materials ----
+        // A flat-color URP/Lit material (smooth shading reads via the averaged vertex normals on the
+        // mesh, not via texture). Colors are QUANTIZED to a coarse palette grid before keying so the
+        // cache collapses the per-instance jitter into a SMALL number of shared materials (a few
+        // greens/greys/browns) instead of one .mat per unique jittered color — avoiding asset churn.
+        // The materials are NOT persisted as standalone .mat assets; assigned to sharedMaterial they
+        // serialize INLINE into the saved scene (works in the standalone build). Cached per-bootstrap.
+        static readonly Dictionary<string, Material> _flatCache = new Dictionary<string, Material>();
+        static Material MakeFlatColorMat(Color c, string baseName)
+        {
+            Color q = Quantize(c);
+            string key = baseName + "_" + ColorKey(q);
+            if (_flatCache.TryGetValue(key, out var cached) && cached != null) return cached;
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            mat.name = key;
+            mat.SetColor("_BaseColor", q);
+            mat.SetFloat("_Smoothness", 0.06f); // matte: low-poly reads by shape + shading, not gloss
+            _flatCache[key] = mat;
+            return mat;
+        }
+
+        // Clear the per-bootstrap material cache so a re-run does not return materials owned by a
+        // destroyed scene (the editor keeps the static cache across executeMethod invocations).
+        public static void ResetMaterialCache() => _flatCache.Clear();
+
+        // Snap each channel to a coarse 12-step grid so jittered colors collapse into a small set.
+        static Color Quantize(Color c)
+        {
+            const float steps = 12f;
+            return new Color(
+                Mathf.Round(c.r * steps) / steps,
+                Mathf.Round(c.g * steps) / steps,
+                Mathf.Round(c.b * steps) / steps, 1f);
+        }
+
+        static string ColorKey(Color c) =>
+            Mathf.RoundToInt(c.r * 255) + "_" + Mathf.RoundToInt(c.g * 255) + "_" + Mathf.RoundToInt(c.b * 255);
+
+        // Vertex-color terrain material: URP/Lit does NOT multiply vertex color, so for LIT smooth
+        // shading WITH vertex color we use the tiny custom shader shipped in Assets/Shaders
+        // (LowPolyVertexColor.shader). If that shader resolves, use it; else fall back to URP/Lit
+        // white (still smooth-shaded, just single-tone) so the build never breaks. The shader is
+        // registered in AlwaysIncludedShaders by WorldBootstrap so the standalone build does not
+        // strip it (the spike's magenta lesson).
+        public static Material MakeTerrainVertexColorMaterial(string assetPath)
+        {
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material mat;
+            if (vc != null)
+            {
+                mat = new Material(vc);
+            }
+            else
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                mat.SetColor("_BaseColor", Color.white);
+                mat.SetFloat("_Smoothness", 0.06f);
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; terrain falls back to white URP/Lit");
+            }
+            AssetDatabase.CreateAsset(mat, assetPath);
+            return mat;
+        }
+
+        public static Material MakeWaterMaterial(string assetPath)
+        {
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            mat.SetColor("_BaseColor", new Color(0.20f, 0.46f, 0.52f)); // warm-leaning teal (not dark)
+            mat.SetFloat("_Smoothness", 0.88f);
+            mat.SetFloat("_Metallic", 0.0f);
+            AssetDatabase.CreateAsset(mat, assetPath);
+            return mat;
+        }
+
+        static float Hash01(int x, int y, int seed)
+        {
+            unchecked
+            {
+                int h = seed;
+                h = h * 73856093 ^ x * 19349663 ^ y * 83492791;
+                h = (h ^ (h >> 13)) * 1274126177;
+                return ((h & 0x7fffffff) % 100000) / 100000f;
+            }
+        }
+    }
+}

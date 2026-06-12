@@ -15,6 +15,7 @@ Findings proven empirically during the Embergrave engine-eval spike (`c:/Trunk/P
 - **Awake-built procedural hierarchies don't serialize.** A hierarchy assembled in `Awake()` passes editor/EditMode checks but can ship MANGLED in the player (spike iter6 "legs pointing upwards" incident). Anything that must exist in the build is built editor-time (executeMethod) and saved into the scene/prefab; runtime code only animates what's serialized.
 - **EditMode tests can't see Awake-only structure** — same root cause; give procedural builders an editor-time entry point and test THAT.
 - **Shipped-build capture gate exists because of this class:** editor evidence is necessary, never sufficient — final evidence comes from the built exe.
+- **`VolumeProfile.Add<T>()` components aren't serialized into the profile asset.** Post-processing overrides added via editor code (`profile.Add<Bloom>()` etc.) live only in memory — without `AssetDatabase.AddObjectToAsset(component, profile)` per component plus a save, the profile ships EMPTY and the whole post stack silently goes missing in the build (symptom: bloom/grading/vignette present in the editor, absent in the exe only). Regression-guarded by asserting the saved profile's component count (U5, Far Horizon PR #4).
 
 ## Build stripping & shaders
 
