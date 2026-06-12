@@ -1,0 +1,6 @@
+# Force LF on CI scripts so they execute on the Ubuntu runner (CRLF breaks the
+# shebang + bash parsing). Applies regardless of the committer's autocrlf.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf

@@ -1,0 +1,173 @@
+name: CI
+
+# Far Horizon CI. Two complementary jobs:
+#
+#   structure  — GitHub-hosted ubuntu, NO Unity license. Repo-hygiene + asmdef +
+#                entry-point-method gate. Runs on EVERY push/PR and is the
+#                required status check that protects `main` today (zero Unity
+#                licensing dependency).
+#
+#   unity      — SELF-HOSTED Windows runner with the exact installed editor
+#                (6000.4.10f1, already licensed on this machine — no UNITY_LICENSE
+#                secret, no billed private-repo minutes). Chains
+#                BootstrapProject.Run -> EditMode -> PlayMode -> BuildWindows,
+#                parses the NUnit XML result line (exit codes lie — see
+#                unity-conventions.md), and uploads test XMLs + logs + build
+#                BEFORE the workspace is cleaned (.gitignore eats them otherwise).
+#
+# Route rationale (see PR body): the game-ci docker route is blocked twice over
+# on this repo — (1) no unityci/editor image exists yet for the 6000.4.x stream
+# with the Windows IL2CPP module, (2) it needs a Sponsor-supplied UNITY_LICENSE
+# secret AND bills minutes on a PRIVATE repo. The self-hosted runner sidesteps
+# all three: exact-version match, existing local license, zero billed minutes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save self-hosted runner time.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # License-free gate. This is the one that protects main RIGHT NOW.
+  # ---------------------------------------------------------------------------
+  structure:
+    name: structure (hosted, no license)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # structure_check.sh uses git ls-files across history
+      - name: Run structure check
+        run: |
+          chmod +x .github/workflows/scripts/structure_check.sh
+          .github/workflows/scripts/structure_check.sh
+
+  # ---------------------------------------------------------------------------
+  # Unity gate — self-hosted Windows runner. Skips cleanly (does not fail the
+  # PR) until a runner with the `unity` + `windows` labels is registered and
+  # online; once it is, this becomes a required check too (see PR body for the
+  # branch-protection coordination with U2).
+  # ---------------------------------------------------------------------------
+  unity:
+    name: unity (self-hosted, EditMode + PlayMode + build)
+    runs-on: [self-hosted, windows, unity]
+    timeout-minutes: 40
+    env:
+      UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
+      RESULTS: ${{ github.workspace }}\ci-out
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare output dir
+        shell: bash
+        run: mkdir -p ci-out
+
+      # 1. Bootstrap — establish URP + boot scene + build stamp from code, exactly
+      #    as U1 did. Idempotent; safe to re-run on a fresh CI checkout.
+      - name: Bootstrap project (BootstrapProject.Run)
+        shell: cmd
+        run: >
+          "%UNITY%" -batchmode -quit -nographics
+          -projectPath "%GITHUB_WORKSPACE%"
+          -executeMethod FarHorizon.EditorTools.BootstrapProject.Run
+          -logFile "%RESULTS%\bootstrap.log"
+
+      # 2. EditMode tests. NO -quit with -runTests (unity-conventions.md). The
+      #    runner's exit code is advisory; the XML parser is the real gate.
+      - name: EditMode tests
+        shell: cmd
+        run: >
+          "%UNITY%" -batchmode -nographics
+          -projectPath "%GITHUB_WORKSPACE%"
+          -runTests -testPlatform EditMode
+          -testResults "%RESULTS%\test-results-editmode.xml"
+          -logFile "%RESULTS%\editmode.log"
+        continue-on-error: true
+
+      # 3. PlayMode tests. Same -no-quit rule. Headless: Time.deltaTime~0 per frame
+      #    — the suite samples over a Time.time window, never per-frame deltas.
+      - name: PlayMode tests
+        shell: cmd
+        run: >
+          "%UNITY%" -batchmode -nographics
+          -projectPath "%GITHUB_WORKSPACE%"
+          -runTests -testPlatform PlayMode
+          -testResults "%RESULTS%\test-results-playmode.xml"
+          -logFile "%RESULTS%\playmode.log"
+        continue-on-error: true
+
+      # 4. Windows standalone build. FarHorizonBuilder exits non-zero on a failed
+      #    build, so this step's exit code IS authoritative for the build.
+      - name: Windows build (FarHorizonBuilder.BuildWindows)
+        shell: cmd
+        run: >
+          "%UNITY%" -batchmode -quit -nographics
+          -projectPath "%GITHUB_WORKSPACE%"
+          -executeMethod FarHorizon.EditorTools.FarHorizonBuilder.BuildWindows
+          -logFile "%RESULTS%\build.log"
+
+      # 5. Upload EVERYTHING before any cleanup — .gitignore eats *.log /
+      #    test-results*.xml / Build/, so artifacts are the only way they survive.
+      - name: Upload test results + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-ci-logs-${{ github.sha }}
+          path: |
+            ci-out/*.xml
+            ci-out/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Windows build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-Windows-${{ github.sha }}
+          path: Build/Windows/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      # 6. Authoritative gates — run AFTER upload so evidence is preserved even
+      #    when a gate fails. The XML parser and the log scanner (with the URP
+      #    first-import warning allowlist) decide pass/fail, not the runner exit
+      #    codes from steps 2/3.
+      - name: Console-error gate (URP first-import warnings allowlisted)
+        if: always()
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/check_unity_log.sh
+          .github/workflows/scripts/check_unity_log.sh \
+            ci-out/bootstrap.log ci-out/editmode.log ci-out/playmode.log ci-out/build.log
+
+      - name: EditMode result gate
+        if: always()
+        shell: bash
+        run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-editmode.xml EditMode
+
+      - name: PlayMode result gate
+        if: always()
+        shell: bash
+        run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
+
+      - name: Build-result gate
+        if: always()
+        shell: bash
+        run: |
+          if grep -qE '\[FarHorizonBuilder\] result=Succeeded' ci-out/build.log; then
+            grep -E '\[FarHorizonBuilder\] result=' ci-out/build.log
+            echo "[build-gate] PASSED"
+          else
+            echo "[build-gate] FAILED — no 'result=Succeeded' line in build.log" >&2
+            grep -E '\[FarHorizonBuilder\]' ci-out/build.log || true
+            exit 1
+          fi

@@ -60,3 +60,5 @@ crashlog.txt
 .Trashes
 ehthumbs.db
 [Tt]humbs.db
+__pycache__/
+*.pyc
