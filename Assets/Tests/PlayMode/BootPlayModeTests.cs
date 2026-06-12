@@ -32,6 +32,11 @@ namespace FarHorizon.PlayTests
 
             var shot = Object.FindFirstObjectByType<BootScreenshot>();
             Assert.IsNotNull(shot, "the BootScreenshot capture hook must be live at runtime");
+
+            var gate = Object.FindFirstObjectByType<CaptureGate>();
+            Assert.IsNotNull(gate,
+                "the standard CaptureGate component must be live at runtime (the shipped-build " +
+                "capture gate, 86ca86g7k — inert unless -captureGate, but must ship in the scene)");
         }
 
         [Test]

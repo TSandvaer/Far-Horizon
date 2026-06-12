@@ -178,6 +178,10 @@ namespace FarHorizon.EditorTools
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<BootHud>();
             hudGo.AddComponent<BootScreenshot>();
+            // Standard shipped-build capture component (testing-bar capture gate, 86ca86g7k).
+            // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
+            // serialization trap; inert unless the exe is launched with -captureGate.
+            hudGo.AddComponent<CaptureGate>();
 
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.

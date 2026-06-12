@@ -24,6 +24,7 @@
 *.log
 test-results.xml
 test-results-*.xml
+# NUnit result XMLs written by local -runTests runs (e.g. editmode-results.xml).
 *-results.xml
 
 # Visual Studio / Rider / VS Code generated project files
