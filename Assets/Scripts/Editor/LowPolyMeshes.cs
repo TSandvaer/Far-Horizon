@@ -102,6 +102,123 @@ namespace FarHorizon.EditorTools
             return Finish(verts, baseTris, "LP_Sphere");
         }
 
+        // A BLOB CANOPY (board-v2 tree language, ticket 86ca8ce7j) — a CLUSTER of a few overlapping
+        // faceted spheroids, NOT a single smooth dome. Per inspiration/2026-06-12_21h11_03.png +
+        // 21h10_44 + style-guide-v2 §4: each tree canopy is several low-poly blobs welded into one
+        // mesh, so the silhouette reads as clustered foliage lumps (the "blob canopy" the board
+        // shows 4 variants of). SOLID volumes (welded, RecalculateNormals smooth) — deliberately NOT
+        // thin double-sided cards, which sidesteps the iter-8 thin-foliage near-black-shard normal
+        // trap entirely (unity-conventions.md §Low-poly mesh patterns: "prefer solid blob volumes").
+        //
+        // The multi-VALUE green (the board's "3-4 greens per tree" rule) is NOT in the mesh — it is
+        // a per-blob vertex COLOR baked here so a single inline material renders all blobs (no per-blob
+        // material churn). The caller passes the body/top-lit/shadow greens; each blob is tinted by its
+        // vertical position in the cluster (lower blobs = shadow green, upper = top-lit) plus a small
+        // per-blob jitter, so one welded mesh carries the multi-value read.
+        //
+        //   radius      — overall canopy radius (the cluster roughly fits a sphere of this radius)
+        //   blobs       — how many spheroids cluster (4-6 reads like the board; min 3)
+        //   bodyGreen / topGreen / shadowGreen — the 3-value palette (style-guide §6 anchors)
+        //   seed        — deterministic cluster layout + per-blob jitter
+        public static Mesh BlobCanopy(float radius, int blobs, Color bodyGreen, Color topGreen,
+            Color shadowGreen, int seed)
+        {
+            blobs = Mathf.Max(3, blobs);
+            var rnd = new System.Random(seed);
+            var allVerts = new List<Vector3>();
+            var allCols = new List<Color>();
+            var allTris = new List<int>();
+
+            // Lay the blobs in a loose cluster: a couple low + wide (the canopy body), the rest
+            // stacked up + in toward a slightly-taller crown, so the silhouette is a clustered lump
+            // rising to a top, not a flat ring. Each blob is a coarse faceted spheroid (subdiv 0/1).
+            for (int b = 0; b < blobs; b++)
+            {
+                // Cluster placement: first blob centered+low (the trunk-top body); others offset
+                // around + above it within the canopy radius.
+                float t = b / (float)blobs;
+                float ang = t * Mathf.PI * 2f + (float)rnd.NextDouble() * 1.2f;
+                float ringR = (b == 0) ? 0f : radius * (0.30f + (float)rnd.NextDouble() * 0.38f);
+                float upBias = (b == 0) ? radius * 0.10f
+                                        : radius * (0.18f + (float)rnd.NextDouble() * 0.55f);
+                Vector3 center = new Vector3(Mathf.Cos(ang) * ringR,
+                                             upBias,
+                                             Mathf.Sin(ang) * ringR);
+                float blobR = radius * (0.48f + (float)rnd.NextDouble() * 0.30f);
+
+                // Per-blob green: blend shadow->top by the blob's height in the cluster, plus a small
+                // value jitter so adjacent blobs differ (the multi-value clustering that reads as
+                // foliage, not one green ball — style-guide §4 "3-4 green values per tree").
+                float heightK = Mathf.Clamp01((center.y + blobR) / (radius * 1.4f));
+                Color lo = Color.Lerp(shadowGreen, bodyGreen, Mathf.Clamp01(heightK * 1.6f));
+                Color blobCol = Color.Lerp(lo, topGreen, Mathf.Clamp01((heightK - 0.45f) * 1.8f));
+                float vj = (float)(rnd.NextDouble() - 0.5) * 0.06f;
+                blobCol = new Color(Mathf.Clamp01(blobCol.r + vj),
+                                    Mathf.Clamp01(blobCol.g + vj),
+                                    Mathf.Clamp01(blobCol.b + vj), 1f);
+
+                AppendBlob(allVerts, allCols, allTris, center, blobR,
+                           (b % 2 == 0) ? 1 : 0, jitter: 0.22f, color: blobCol, seed: rnd.Next());
+            }
+
+            var mesh = new Mesh { name = "LP_BlobCanopy" };
+            mesh.indexFormat = allVerts.Count > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.SetVertices(allVerts);
+            mesh.SetColors(allCols);
+            mesh.SetTriangles(allTris, 0);
+            mesh.RecalculateNormals(); // welded-per-blob -> smooth-shaded faceted lumps (solid volume)
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // Append one faceted spheroid blob (subdivided octahedron, radial jitter) into the shared
+        // vert/color/tri lists at `center`, tinted `color`. Each blob's own verts are welded WITHIN
+        // the blob (shared edges -> smooth shading), but blobs do NOT weld to each other (distinct
+        // index ranges) — the cluster reads as overlapping lumps with crisp inter-blob facet seams,
+        // exactly the board's blob-canopy look.
+        static void AppendBlob(List<Vector3> verts, List<Color> cols, List<int> tris,
+            Vector3 center, float radius, int subdiv, float jitter, Color color, int seed)
+        {
+            var baseVerts = new List<Vector3>
+            {
+                new Vector3(0,  1, 0), new Vector3(0, -1, 0),
+                new Vector3( 1, 0, 0), new Vector3(-1, 0, 0),
+                new Vector3(0, 0,  1), new Vector3(0, 0, -1),
+            };
+            var baseTris = new List<int>
+            {
+                0,2,4, 0,4,3, 0,3,5, 0,5,2,
+                1,4,2, 1,3,4, 1,5,3, 1,2,5,
+            };
+            for (int s = 0; s < subdiv; s++)
+            {
+                var newTris = new List<int>();
+                var midCache = new Dictionary<long, int>();
+                for (int t = 0; t < baseTris.Count; t += 3)
+                {
+                    int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                    int ab = Midpoint(baseVerts, midCache, a, b);
+                    int bc = Midpoint(baseVerts, midCache, b, c);
+                    int ca = Midpoint(baseVerts, midCache, c, a);
+                    newTris.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+                }
+                baseTris = newTris;
+            }
+
+            var rnd = new System.Random(seed);
+            int idxOffset = verts.Count;
+            foreach (var v in baseVerts)
+            {
+                Vector3 n = v.normalized;
+                float r = radius * (1f - jitter * 0.5f + (float)rnd.NextDouble() * jitter);
+                verts.Add(center + n * r);
+                cols.Add(color);
+            }
+            foreach (var ti in baseTris) tris.Add(idxOffset + ti);
+        }
+
         // A grass clump: a handful of broad blades fanning out from the base. Reads as a low-poly
         // tuft, NOT dark angular shards. Base at y=0.
         //

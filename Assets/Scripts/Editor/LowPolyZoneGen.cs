@@ -28,16 +28,33 @@ namespace FarHorizon.EditorTools
     public static class LowPolyZoneGen
     {
         // ---- WARM / LUSH palette (sub-1.0, per art-direction.md survival north-star) ----
-        static readonly Color SandLo = new Color(0.78f, 0.69f, 0.49f); // warm dry tan
-        static readonly Color SandHi = new Color(0.90f, 0.83f, 0.62f); // pale sun-bleached sand
-        static readonly Color SandDamp = new Color(0.66f, 0.58f, 0.42f); // damp shore sand
-        static readonly Color GrassLo = new Color(0.32f, 0.46f, 0.22f); // mid leaf green
-        static readonly Color GrassHi = new Color(0.50f, 0.62f, 0.30f); // sunlit grass
-        static readonly Color GrassRise = new Color(0.40f, 0.54f, 0.26f); // meadow rise
+        // FIRST-FRAME WARMTH TUNE (ticket 86ca8ce7j, absorbs pale-shore 86ca8a0u6): the shipped first
+        // frame (capture_00, stamp 659e8d1) read WASHED-OUT — the player spawns on the sand band and the
+        // pale sun-bleached SandHi (0.90,0.83,0.62) + warm fog + bloom + postExposure compounded into a
+        // near-white cream wash. Pull the sand toward a warmer, less-blown tan (more saturated, lower
+        // value) so the shore reads warm-golden, not bleached. The board (21h13_31) shore is a warm
+        // amber-tan, not paper-white. Greens pushed slightly more saturated to ride the board's
+        // saturated-but-warm rule. All still sub-1.0 / HDR-safe.
+        static readonly Color SandLo = new Color(0.74f, 0.62f, 0.40f); // warm golden tan (was .78/.69/.49)
+        static readonly Color SandHi = new Color(0.82f, 0.71f, 0.47f); // sunlit warm sand, NOT bleached (was .90/.83/.62)
+        static readonly Color SandDamp = new Color(0.60f, 0.50f, 0.34f); // damp shore sand (warmer)
+        static readonly Color GrassLo = new Color(0.30f, 0.48f, 0.20f); // mid leaf green (more saturated)
+        static readonly Color GrassHi = new Color(0.48f, 0.64f, 0.28f); // sunlit grass
+        static readonly Color GrassRise = new Color(0.38f, 0.56f, 0.24f); // meadow rise
         static readonly Color RockCol = new Color(0.55f, 0.52f, 0.47f);  // warm grey stone
         static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
-        static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow
-        static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit
+        static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow (legacy)
+        static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit (legacy)
+
+        // ---- BLOB-CANOPY greens (board v2, ticket 86ca8ce7j) — the "3-4 green values per tree" rule.
+        // Anchors from team/uma-ux/style-guide-v2.md §6 (derived by eye from inspiration/21h11_03 +
+        // 21h10_44): vivid mid-green body, brighter top-lit green, deep shadow-side green. Saturated
+        // but warm-leaning + sub-1.0 (HDR-safe). These are the multi-VALUE clustering that makes the
+        // overlapping blobs read as foliage, not a single green ball. Tuned slightly warmer/softer than
+        // the raw guide swatches so they sit in the warm Zone-D key without reading neon.
+        static readonly Color CanopyBody   = new Color(0.30f, 0.58f, 0.24f); // vivid mid-green body
+        static readonly Color CanopyTop    = new Color(0.48f, 0.74f, 0.34f); // bright top-lit green
+        static readonly Color CanopyShadow = new Color(0.18f, 0.40f, 0.17f); // deep shadow-side green
 
         // Result of building the low-poly zone: the ground GameObject (Ground-layered, NavMesh +
         // raycast surface) so the caller can parent scatter + bake NavMesh over it.
@@ -193,8 +210,15 @@ namespace FarHorizon.EditorTools
             float shoreZ, float inlandFarZ, int seed, MeshCollider groundCol)
         {
             var rnd = new System.Random(seed + 555);
-            // Field band (grass): z past the transition. Trees + rocks + grass clumps cluster here.
-            float fieldStartZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.40f);
+            // FIRST-FRAME TUNE (86ca8ce7j, absorbs pale-shore 86ca8a0u6): the shipped first frame read
+            // washed-out because the player spawns at origin (~Z0, the sand band) and the tree band only
+            // started at the 0.40 lerp (~Z+15) — every tree was BEHIND/above the orbit camera's framing,
+            // so the frame was empty pale sand with zero warm/lush content. Bring the field band toward
+            // the shore (0.28 lerp, ~Z+7) so blob canopies fill the spawn frame's mid-ground, and add a
+            // dedicated NEAR-SPAWN hero cluster off to the sides (clear of the loop spots at origin) so
+            // the very first frame reads "a warm wooded shore", not a bleached desert. Trees carve the
+            // NavMesh (the player still paths around them), so density near spawn stays readable.
+            float fieldStartZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.28f);
 
             // Trees — clustered inland. Density scales gently with the (wider) production extents.
             int treeClusters = Mathf.RoundToInt(7f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
@@ -211,6 +235,24 @@ namespace FarHorizon.EditorTools
                     BuildTree(parent, GroundPoint(groundCol, x, z), 0.85f + (float)rnd.NextDouble() * 0.5f,
                         rnd, true);
                 }
+            }
+
+            // NEAR-SPAWN hero trees — trees framed into the first gameplay frame, spread to BOTH sides
+            // and across the inland arc around the spawn (0,0,6) so the warm-wooded-shore read is
+            // BALANCED (not clustered to one corner), while staying clear of the loop spots (craft 8,6 /
+            // tree -9,-7 / fire 4,-8). Z ~ +11..+18 (the grass band ahead of the spawn) so they sit on
+            // green ground in the orbit camera's inland view; a couple wider out frame the edges.
+            (float x, float z)[] heroSpots =
+            {
+                (-13f, 12f), (13f, 12f),   // near, both sides of the inland view
+                (-20f, 16f), (20f, 16f),   // mid, framing the edges
+                (-5f, 18f),  (6f, 17f),    // a pair ahead, flanking the journey forward
+            };
+            foreach (var (hx, hz) in heroSpots)
+            {
+                if (hx < minX + 1f || hx > maxX - 1f) continue;
+                BuildTree(parent, GroundPoint(groundCol, hx, hz), 1.0f + (float)rnd.NextDouble() * 0.45f,
+                    rnd, true);
             }
 
             // Rocks — both the beach (near shore) and the field. Smaller near shore.
@@ -265,10 +307,16 @@ namespace FarHorizon.EditorTools
                 MakeFlatColorMat(TrunkCol, "LPTrunkMat"));
             trunk.transform.localPosition = Vector3.zero;
 
+            // BLOB CANOPY (board v2): a CLUSTER of overlapping faceted spheroids in multi-VALUE greens
+            // (CanopyShadow/Body/Top baked per-blob into vertex color), NOT a single smooth dome. 4-6
+            // blobs per tree reads like inspiration/21h11_03's four variants. Solid volumes -> sidesteps
+            // the thin-foliage normal trap (unity-conventions.md). One shared vertex-color material
+            // renders all blobs' greens (no per-blob material churn).
+            int blobCount = 4 + rnd.Next(0, 3); // 4-6
             var canopy = MakeMeshObject(tree, "Canopy",
-                LowPolyMeshes.FacetedSphere(1.15f, 1, jitter: 0.18f, seed: rnd.Next()),
-                MakeFlatColorMat(Color.Lerp(LeafLo, LeafHi, (float)rnd.NextDouble()), "LPLeafMat"));
-            canopy.transform.localPosition = new Vector3(0f, trunkH + 0.7f, 0f);
+                LowPolyMeshes.BlobCanopy(1.15f, blobCount, CanopyBody, CanopyTop, CanopyShadow, rnd.Next()),
+                CanopyVertexColorMat());
+            canopy.transform.localPosition = new Vector3(0f, trunkH + 0.55f, 0f);
 
             if (carve)
             {
@@ -358,9 +406,35 @@ namespace FarHorizon.EditorTools
             return mat;
         }
 
+        // The blob canopies bake their multi-value greens into per-vertex COLOR, so they need the
+        // vertex-color shader (URP/Lit IGNORES vertex color — unity-conventions.md). One shared, cached,
+        // INLINE material (no .mat asset) renders every tree's canopy; the shader is already registered
+        // in AlwaysIncludedShaders by WorldBootstrap so it doesn't strip in the standalone build. _Tint
+        // stays white so the vertex greens come through unmodified. Falls back to a single mid-green
+        // URP/Lit (vertex color lost, but never magenta/broken) if the shader is somehow unresolved.
+        static Material _canopyMat;
+        static Material CanopyVertexColorMat()
+        {
+            if (_canopyMat != null) return _canopyMat;
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                _canopyMat = new Material(vc) { name = "LPBlobCanopyMat" };
+                if (_canopyMat.HasProperty("_Tint")) _canopyMat.SetColor("_Tint", Color.white);
+            }
+            else
+            {
+                _canopyMat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = "LPBlobCanopyMat" };
+                _canopyMat.SetColor("_BaseColor", CanopyBody);
+                _canopyMat.SetFloat("_Smoothness", 0.06f);
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; blob canopy falls back to flat green");
+            }
+            return _canopyMat;
+        }
+
         // Clear the per-bootstrap material cache so a re-run does not return materials owned by a
         // destroyed scene (the editor keeps the static cache across executeMethod invocations).
-        public static void ResetMaterialCache() => _flatCache.Clear();
+        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; }
 
         // Snap each channel to a coarse 12-step grid so jittered colors collapse into a small set.
         static Color Quantize(Color c)

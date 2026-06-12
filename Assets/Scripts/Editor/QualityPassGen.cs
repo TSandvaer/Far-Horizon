@@ -59,8 +59,13 @@ namespace FarHorizon.EditorTools
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
             RenderSettings.fogColor = new Color(0.80f, 0.80f, 0.74f); // warm haze
-            RenderSettings.fogDensity = 0.006f;                       // gentle global haze
-            Debug.Log("[QualityPassGen] global warm-haze fog enabled (density 0.006)");
+            // FIRST-FRAME TUNE (86ca8ce7j): the board v2 scene refs are CRISP to mid-distance, not
+            // hazy-near (style-guide §4 "fog much lighter / distance-only"). The 0.006 near-field haze
+            // was a top contributor to the washed-out spawn frame (it pales the near sand into the warm
+            // fog colour). Halve it to 0.003 so fog serves only far-horizon depth, not a near-field
+            // wash — the spawn frame stays warm-saturated, the far world still fades to the horizon.
+            RenderSettings.fogDensity = 0.003f;
+            Debug.Log("[QualityPassGen] global warm-haze fog enabled (density 0.003 — distance-only)");
         }
 
         // Build the GLOBAL post-processing Volume for the production play space: Bloom + warm Color
@@ -74,17 +79,24 @@ namespace FarHorizon.EditorTools
             AssetDatabase.CreateAsset(profile, profilePath);
 
             // Bloom — soft glow on the brightest lit facets (the sunlit meadow rise, water glint).
+            // FIRST-FRAME TUNE (86ca8ce7j): board v2 wants bloom DOWN (style-guide §4 — heavy bloom
+            // softens the chunky facet edges + blew the pale sand into a white wash). Pull intensity
+            // 0.55->0.40 and raise the threshold so only genuinely bright highlights bloom, not the
+            // broad pale ground.
             var bloom = profile.Add<Bloom>(true);
-            bloom.intensity.Override(0.55f);
-            bloom.threshold.Override(0.92f);
-            bloom.scatter.Override(0.6f);
+            bloom.intensity.Override(0.40f);
+            bloom.threshold.Override(0.98f);
+            bloom.scatter.Override(0.55f);
 
             // Color grading — warm cinematic lift so the low-poly reads "graded", not raw.
+            // FIRST-FRAME TUNE (86ca8ce7j): drop the +0.15 postExposure to +0.05 (it was over-lifting
+            // the already-pale sand into blow-out) and bump saturation a touch (board v2 is
+            // saturated-but-warm). Keep the warm colour filter — warmth is the hard carry-over.
             var cg = profile.Add<ColorAdjustments>(true);
-            cg.postExposure.Override(0.15f);
+            cg.postExposure.Override(0.05f);
             cg.contrast.Override(12f);
             cg.colorFilter.Override(new Color(1.04f, 1.0f, 0.92f)); // warm filter
-            cg.saturation.Override(8f);
+            cg.saturation.Override(12f);
 
             var wb = profile.Add<WhiteBalance>(true);
             wb.temperature.Override(12f); // warmer

@@ -1,3 +1,4 @@
+using System.Linq;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -52,6 +53,28 @@ namespace FarHorizon.EditTests
             Assert.Greater(tree.chopRadius, 0f, "chopRadius must be positive — a zero radius never chops");
             Assert.Greater(tree.chopsToFell, 0, "chopsToFell must be positive — else the tree fells on chop 0");
             Assert.Greater(tree.woodPerChop, 0, "woodPerChop must be positive — a chop must yield wood");
+        }
+
+        [Test]
+        public void BootScene_ChopTree_HasBlobCanopy_MatchesWorldTreeLanguage()
+        {
+            // Board v2 (ticket 86ca8ce7j): the choppable tree must read in the SAME blob-canopy language
+            // as the scatter trees (a lone single-dome choppable tree next to clustered ones breaks
+            // art-direction fidelity). Its canopy is a multi-blob cluster carrying per-vertex greens.
+            // ChopTree BEHAVIOR is untouched — this guards only the visual mesh shape.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            ChopTree tree = FindInScene<ChopTree>(scene);
+            Assert.IsNotNull(tree, "the Boot scene must carry the ChopTree");
+
+            var canopy = tree.GetComponentsInChildren<MeshFilter>(true)
+                .FirstOrDefault(mf => mf.gameObject.name == "Canopy");
+            Assert.IsNotNull(canopy, "the chop tree must carry a Canopy mesh child");
+            Assert.IsNotNull(canopy.sharedMesh, "the chop tree canopy mesh must be assigned");
+            Assert.Greater(canopy.sharedMesh.vertexCount, 40,
+                "the chop tree canopy must be a multi-blob CLUSTER (>40 verts), not a single-dome sphere " +
+                "— it must match the world's blob-canopy trees (board v2)");
+            Assert.Greater(canopy.sharedMesh.colors.Length, 0,
+                "the chop tree canopy must carry per-vertex green COLORS (the multi-value blob clustering)");
         }
 
         [Test]

@@ -77,6 +77,31 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Trees_BlobCanopies_Present_MultiBlobVolumeWithVertexGreens()
+        {
+            // Board v2 (ticket 86ca8ce7j): the world's trees migrated to the BLOB-CANOPY language —
+            // clustered faceted spheroids in multi-value greens (NOT single-dome FacetedSphere canopies).
+            // The canopy meshes carry their greens in per-vertex COLOR and are solid multi-blob volumes.
+            // Assert the play space actually scatters blob canopies (the headline scope item must be
+            // VISIBLE in the saved scene, not only correct in LowPolyMeshTests).
+            var canopies = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.gameObject.name == "Canopy" && mf.sharedMesh != null)
+                .ToArray();
+            Assert.Greater(canopies.Length, 0,
+                "the play space must scatter blob-canopy trees (Canopy meshes) — the board-v2 tree pass");
+
+            // A blob canopy is a multi-blob cluster: a single subdiv-1 FacetedSphere is 18 verts; a
+            // cluster is well above that. AND it must carry per-vertex green colours (the multi-value rule).
+            var sample = canopies[0].sharedMesh;
+            Assert.Greater(sample.vertexCount, 40,
+                "a Canopy mesh must be a multi-blob CLUSTER (>40 verts), not a single-dome sphere " +
+                "(the pre-board single-FacetedSphere regression)");
+            Assert.Greater(sample.colors.Length, 0,
+                "the blob canopy must carry per-vertex COLORS (the multi-value greens baked into vertex " +
+                "color so one vertex-color material renders the whole canopy)");
+        }
+
+        [Test]
         public void Lighting_SingleWarmDirectionalKey()
         {
             var dirs = Object.FindObjectsByType<Light>(FindObjectsSortMode.None)

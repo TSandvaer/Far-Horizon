@@ -80,6 +80,71 @@ namespace FarHorizon.EditTests
                 "dark) — a low average means a face points away from the overhead key (the shard read)");
         }
 
+        // ---- Blob-canopy guards (board v2 tree language, ticket 86ca8ce7j) ----
+
+        [Test]
+        public void BlobCanopy_IsMultiBlobCluster_NotSingleDome()
+        {
+            // The board's blob canopy is a CLUSTER of several spheroids, NOT one smooth dome
+            // (inspiration/21h11_03). A single FacetedSphere(radius,1) has 18 verts (subdiv-1
+            // octahedron). A 5-blob cluster has far more — assert the vertex count is well above a
+            // single dome so a regression back to one-sphere canopy fails here.
+            var single = LowPolyMeshes.FacetedSphere(1.15f, 1, 0.18f, 1);
+            var canopy = LowPolyMeshes.BlobCanopy(1.15f, 5, Color.green, Color.green, Color.green, 1);
+            Assert.Greater(canopy.vertexCount, single.vertexCount * 2,
+                "a blob canopy must be a multi-blob CLUSTER (far more verts than a single dome) — " +
+                "a single-sphere canopy is the pre-board regression");
+        }
+
+        [Test]
+        public void BlobCanopy_CarriesMultiValueGreens_NotOneFlatGreen()
+        {
+            // The "3-4 green values per tree" rule (style-guide §4) is baked into per-vertex COLOR.
+            // Pass three DISTINCT greens; the mesh must carry more than one distinct vertex colour
+            // (the multi-value clustering that reads as foliage, not a green ball). A regression that
+            // flattens the canopy to one green would have a single distinct colour here.
+            var body = new Color(0.30f, 0.58f, 0.24f);
+            var top = new Color(0.48f, 0.74f, 0.34f);
+            var shadow = new Color(0.18f, 0.40f, 0.17f);
+            var canopy = LowPolyMeshes.BlobCanopy(1.15f, 5, body, top, shadow, 42);
+            var cols = canopy.colors;
+            Assert.AreEqual(canopy.vertexCount, cols.Length, "every canopy vertex must carry a colour");
+            var distinct = new System.Collections.Generic.HashSet<Color>(cols);
+            Assert.Greater(distinct.Count, 1,
+                "the canopy must carry MULTIPLE green values (the multi-value blob clustering) — a " +
+                "single distinct colour is the flat-green-ball regression");
+            // Every colour must be green-dominant (G > R and G > B) — never a magenta/error tint.
+            foreach (var c in distinct)
+                Assert.IsTrue(c.g >= c.r && c.g >= c.b,
+                    $"canopy colour ({c.r:F2},{c.g:F2},{c.b:F2}) must be green-dominant (G largest)");
+        }
+
+        [Test]
+        public void BlobCanopy_IsSolidVolume_AllNormalsUnitLength_NoThinFoliageShards()
+        {
+            // The blob canopy is a SOLID volume (welded spheroids), which is the WHOLE point of the
+            // blob language — it sidesteps the iter-8 thin-foliage near-black-shard normal trap
+            // (unity-conventions.md). Assert every normal is well-formed unit length (no degenerate
+            // cancellation) — a regression to thin double-sided cards would fail here.
+            var canopy = LowPolyMeshes.BlobCanopy(1.15f, 5, Color.green, Color.green, Color.green, 7);
+            var normals = canopy.normals;
+            Assert.AreEqual(canopy.vertexCount, normals.Length, "every canopy vertex must carry a normal");
+            for (int i = 0; i < normals.Length; i++)
+                Assert.AreEqual(1f, normals[i].magnitude, 0.05f,
+                    $"blob-canopy vertex {i} normal must be ~unit length (welded solid volume, smooth " +
+                    "shading) — a near-zero normal is the thin-foliage dark-shard signature");
+        }
+
+        [Test]
+        public void BlobCanopy_IsDeterministic_SameSeedSameMesh()
+        {
+            // Deterministic from seed so the baked scene is reproducible on rebase-regenerate
+            // (binary-scene regenerate-on-rebase relies on stable geometry).
+            var a = LowPolyMeshes.BlobCanopy(1.15f, 5, Color.green, Color.green, Color.green, 123);
+            var b = LowPolyMeshes.BlobCanopy(1.15f, 5, Color.green, Color.green, Color.green, 123);
+            Assert.AreEqual(a.vertexCount, b.vertexCount, "same seed must produce the same vertex count");
+        }
+
         // ---- Smooth-shaded primitive guards (welded -> averaged normals, no degenerates) ----
 
         [Test]
