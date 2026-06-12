@@ -53,7 +53,7 @@ namespace FarHorizon
         // channels sub-1.0 HDR-safe. Identity guard: NOT a dark/ragged survivor — light + fresh.
         [Header("Castaway recolor — per-part palette (U2-6 polish: v4 design reference, brighter/hopeful)")]
         public Color skin    = new Color(0.86f, 0.64f, 0.47f);  // healthy warm tan (Skin/Body/Socks=bare feet)
-        public Color shirt   = new Color(0.82f, 0.72f, 0.52f);  // light warm khaki/sand shirt (rolled sleeves)
+        public Color shirt   = new Color(0.72f, 0.60f, 0.42f);  // warm mid-khaki shirt (rolled sleeves) — U2-6 Uma tune: separates the torso from the bright sandy Zone-D ground (was 0.82,0.72,0.52, merged into the sand at distance); still well above the >0.6 shirt-luminance identity guard (luma 0.615)
         public Color pants   = new Color(0.34f, 0.46f, 0.50f);  // muted teal-blue rolled trousers
         public Color hair    = new Color(0.84f, 0.50f, 0.22f);  // copper/ginger sun-bleached hair
         public Color eyes    = new Color(0.18f, 0.13f, 0.11f);  // dark eyes so the face reads

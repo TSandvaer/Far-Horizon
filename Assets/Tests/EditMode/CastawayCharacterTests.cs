@@ -173,14 +173,14 @@ namespace FarHorizon.EditTests
         {
             // U2-6 polish palette — brighter/higher-key per the v4 design reference (young + hopeful).
             var skin    = new Color(0.86f, 0.64f, 0.47f);
-            var shirt   = new Color(0.82f, 0.72f, 0.52f);
+            var shirt   = new Color(0.72f, 0.60f, 0.42f);  // U2-6 Uma tune: warmer mid-khaki for torso/ground separation; luma 0.615 (still > 0.6 guard)
             var pants   = new Color(0.34f, 0.46f, 0.50f);
             var hair    = new Color(0.84f, 0.50f, 0.22f);
             var eyes    = new Color(0.18f, 0.13f, 0.11f);
             var leather = new Color(0.45f, 0.30f, 0.18f);
 
             Assert.AreEqual(shirt, CastawayCharacter.CastawayColorFor("Shirt", skin, shirt, pants, hair, eyes, leather),
-                "a 'Shirt' material must recolor to the light warm khaki-shirt tone");
+                "a 'Shirt' material must recolor to the warm mid-khaki shirt tone");
             Assert.AreEqual(pants, CastawayCharacter.CastawayColorFor("Pants", skin, shirt, pants, hair, eyes, leather),
                 "a 'Pants' material must recolor to the muted teal-blue rolled-trousers tone");
             Assert.AreEqual(hair, CastawayCharacter.CastawayColorFor("Hair", skin, shirt, pants, hair, eyes, leather),
