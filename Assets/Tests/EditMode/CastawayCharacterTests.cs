@@ -171,31 +171,52 @@ namespace FarHorizon.EditTests
         [Test]
         public void CastawayRecolor_MapsSixPartMaterialsToDistinctPalette()
         {
-            var skin  = new Color(0.80f, 0.56f, 0.40f);
-            var shirt = new Color(0.66f, 0.42f, 0.28f);
-            var pants = new Color(0.32f, 0.23f, 0.15f);
-            var hair  = new Color(0.66f, 0.46f, 0.22f);
-            var eyes  = new Color(0.16f, 0.12f, 0.10f);
+            // U2-6 polish palette — brighter/higher-key per the v4 design reference (young + hopeful).
+            var skin    = new Color(0.86f, 0.64f, 0.47f);
+            var shirt   = new Color(0.72f, 0.60f, 0.42f);  // U2-6 Uma tune: warmer mid-khaki for torso/ground separation; luma 0.615 (still > 0.6 guard)
+            var pants   = new Color(0.34f, 0.46f, 0.50f);
+            var hair    = new Color(0.84f, 0.50f, 0.22f);
+            var eyes    = new Color(0.18f, 0.13f, 0.11f);
+            var leather = new Color(0.45f, 0.30f, 0.18f);
 
-            Assert.AreEqual(shirt, CastawayCharacter.CastawayColorFor("Shirt", skin, shirt, pants, hair, eyes),
-                "a 'Shirt' material must recolor to the warm ragged-shirt tone");
-            Assert.AreEqual(pants, CastawayCharacter.CastawayColorFor("Pants", skin, shirt, pants, hair, eyes),
-                "a 'Pants' material must recolor to the rolled-trousers tone");
-            Assert.AreEqual(hair, CastawayCharacter.CastawayColorFor("Hair", skin, shirt, pants, hair, eyes),
-                "a 'Hair' material must recolor to the sun-bleached hair tone");
-            Assert.AreEqual(eyes, CastawayCharacter.CastawayColorFor("Eyes", skin, shirt, pants, hair, eyes),
+            Assert.AreEqual(shirt, CastawayCharacter.CastawayColorFor("Shirt", skin, shirt, pants, hair, eyes, leather),
+                "a 'Shirt' material must recolor to the warm mid-khaki shirt tone");
+            Assert.AreEqual(pants, CastawayCharacter.CastawayColorFor("Pants", skin, shirt, pants, hair, eyes, leather),
+                "a 'Pants' material must recolor to the muted teal-blue rolled-trousers tone");
+            Assert.AreEqual(hair, CastawayCharacter.CastawayColorFor("Hair", skin, shirt, pants, hair, eyes, leather),
+                "a 'Hair' material must recolor to the copper/ginger hair tone");
+            Assert.AreEqual(eyes, CastawayCharacter.CastawayColorFor("Eyes", skin, shirt, pants, hair, eyes, leather),
                 "an 'Eyes' material must recolor to the dark eye tone (the face must read) — NOT skin");
-            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Skin", skin, shirt, pants, hair, eyes),
-                "a 'Skin' material must recolor to the tan skin tone");
-            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Socks", skin, shirt, pants, hair, eyes),
+            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Skin", skin, shirt, pants, hair, eyes, leather),
+                "a 'Skin' material must recolor to the warm tan skin tone");
+            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Socks", skin, shirt, pants, hair, eyes, leather),
                 "a 'Socks' material reads as bare tan feet (castaway is barefoot) -> skin tone");
-            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Body", skin, shirt, pants, hair, eyes),
+            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Body", skin, shirt, pants, hair, eyes, leather),
                 "an unknown/'Body' material must fall back to skin (never the grey/magenta default)");
+
+            // U2-6 leather accent: a belt / strap / satchel material maps to the leather tone, NOT to
+            // pants or skin — this is the new detail-pass slot (regression guard for the fall-through
+            // order: leather is tested before pants/skin).
+            Assert.AreEqual(leather, CastawayCharacter.CastawayColorFor("Belt", skin, shirt, pants, hair, eyes, leather),
+                "a 'Belt' material must read as warm leather (the U2-6 detail accent), not pants/skin");
+            Assert.AreEqual(leather, CastawayCharacter.CastawayColorFor("Strap", skin, shirt, pants, hair, eyes, leather),
+                "a 'Strap' material must read as warm leather (the crossbody-satchel accent)");
 
             Assert.AreNotEqual(shirt, pants, "shirt and pants must read distinctly");
             Assert.AreNotEqual(shirt, hair, "shirt and hair must read distinctly");
             Assert.AreNotEqual(pants, skin, "pants and skin must read distinctly");
             Assert.AreNotEqual(eyes, skin, "eyes and skin must read distinctly (the face must read)");
+            Assert.AreNotEqual(leather, pants, "leather accent and pants must read distinctly");
+            Assert.AreNotEqual(leather, skin, "leather accent and skin must read distinctly");
+
+            // IDENTITY GUARD (U2-6): the shirt must read LIGHT / high-key, not a dark grizzled-survivor
+            // tone. The iter-8 palette had drifted to a dark rust shirt (~0.42 green); the approved v4
+            // identity is a light warm khaki. Pin the shirt's luminance high so a future dark-drift
+            // regression (the exact failure this ticket corrects) fails CI before a Sponsor soak.
+            float shirtLuma = 0.299f * shirt.r + 0.587f * shirt.g + 0.114f * shirt.b;
+            Assert.Greater(shirtLuma, 0.6f,
+                "the castaway shirt must be a LIGHT warm tone (young/hopeful identity), not a dark " +
+                "grizzled rust — the iter-8 dark-drift is the regression this guard catches");
         }
 
         // Per-part smoothness must DIFFERENTIATE (cloth matte vs skin/hair/eyes glossier) so the
@@ -204,18 +225,20 @@ namespace FarHorizon.EditTests
         [Test]
         public void CastawayRecolor_PerPartSmoothnessIsDifferentiated()
         {
-            float shirtS = CastawayCharacter.SmoothnessFor("Shirt");
-            float pantsS = CastawayCharacter.SmoothnessFor("Pants");
-            float skinS  = CastawayCharacter.SmoothnessFor("Skin");
-            float hairS  = CastawayCharacter.SmoothnessFor("Hair");
-            float eyesS  = CastawayCharacter.SmoothnessFor("Eyes");
+            float shirtS   = CastawayCharacter.SmoothnessFor("Shirt");
+            float pantsS   = CastawayCharacter.SmoothnessFor("Pants");
+            float skinS    = CastawayCharacter.SmoothnessFor("Skin");
+            float hairS    = CastawayCharacter.SmoothnessFor("Hair");
+            float eyesS    = CastawayCharacter.SmoothnessFor("Eyes");
+            float leatherS = CastawayCharacter.SmoothnessFor("Belt");
 
             Assert.AreEqual(shirtS, pantsS, 0.001f, "cloth parts (shirt/pants) share the matte smoothness");
             Assert.Greater(skinS, shirtS, "skin must catch more key light than matte cloth");
             Assert.Greater(eyesS, hairS, "eyes are the glossiest (a small specular dot for life)");
-            var levels = new System.Collections.Generic.HashSet<float> { shirtS, skinS, hairS, eyesS };
-            Assert.GreaterOrEqual(levels.Count, 3,
-                "per-part smoothness must span >=3 levels (a uniformly-matte figure reads undetailed)");
+            Assert.Greater(leatherS, skinS, "leather reads with a soft worn sheen above bare skin");
+            var levels = new System.Collections.Generic.HashSet<float> { shirtS, skinS, hairS, eyesS, leatherS };
+            Assert.GreaterOrEqual(levels.Count, 4,
+                "per-part smoothness must span >=4 levels (a uniformly-matte figure reads undetailed)");
         }
     }
 }
