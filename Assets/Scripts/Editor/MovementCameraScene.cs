@@ -82,6 +82,15 @@ namespace FarHorizon.EditorTools
             // it neither blocks the ground raycast nor the bake — the player walks up to it).
             BuildChopTree(player, groundLayer);
 
+            // U2-4 (86ca8bdep): the campfire — the loop's CLOSE. A human-scale fire pit the castaway
+            // click-moves to; arriving WITH WOOD (from the chop, U2-3) builds + lights it, and the lit
+            // fire RESTORES warmth (U2-1's AddWarmth seam) while the castaway stands by it — warmth decays
+            // -> craft axe -> chop tree -> build campfire -> warm again. Authored editor-time so the fire
+            // mesh + warm Light + Campfire/CampfirePlacement refs SERIALIZE into Boot.unity (editor-vs-runtime
+            // trap). Built AFTER the tree (so the loop reads spawn -> craft -> chop -> build fire) and BEFORE
+            // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
+            BuildCampfire(player, groundLayer);
+
             // Bake AFTER the walkable ground exists, then SAVE the data as an asset so it ships.
             BakeAndSaveNavMesh(ground, groundLayer);
 
@@ -342,6 +351,187 @@ namespace FarHorizon.EditorTools
             cap.inventory = Object.FindObjectOfType<Inventory>();
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // World position of the campfire fire-pit on the flat test ground (U2-4, 86ca8bdep). Distinct from
+        // spawn (origin), the craft spot (8,6) and the tree (-9,-7) so the loop is a real journey: spawn ->
+        // craft axe -> chop tree -> BUILD FIRE. Comfortably inside the GroundHalf=30 walkable extent + on
+        // the NavMesh. CampfireVerifyCapture drives the player here (last) to prove the loop closes in the exe.
+        public static readonly Vector3 FirePitPosition = new Vector3(4f, 0f, -8f);
+
+        // The campfire (U2-4, 86ca8bdep): a HUMAN-SCALE fire pit — a ring of low-poly stones around stacked
+        // logs with a warm flame, lit by a warm point Light into the Zone-D dusk (art board: the fire "sets
+        // the bar the whole world must meet"; warm cohesive palette + human-scale landmark, ~knee-high, NOT a
+        // bonfire monument). It ships UNLIT (flame hidden, light off); reaching the pit WITH WOOD builds +
+        // lights it. NO collider on the pit so it never blocks the ground raycast or the NavMesh (the player
+        // walks up to the fire). Campfire + CampfirePlacement refs are wired editor-time so they serialize
+        // into Boot.unity (editor-vs-runtime trap). We RIDE the established Zone-D welded-smooth-shaded mesh
+        // idiom (stones = faceted spheres, logs = tapered cylinders, flame = a cone) — not a fresh prop style.
+        private static void BuildCampfire(GameObject player, int groundLayer)
+        {
+            var pit = new GameObject("Campfire");
+            pit.transform.position = FirePitPosition;
+
+            var visual = new GameObject("CampfireVisual");
+            visual.transform.SetParent(pit.transform, false);
+            visual.transform.localPosition = Vector3.zero;
+
+            // Palette (Zone-D, sub-1.0 HDR-safe). Stones: cool grey with tonal variation; logs: warm bark
+            // (matches the chop-tree trunk so the wood READS as "the wood you chopped"); flame: saturated
+            // warm orange accent (the controlled accent-for-life the art board calls for).
+            Color stoneCol = new Color(0.50f, 0.52f, 0.50f); // cool low-poly stone grey
+            Color logCol = new Color(0.42f, 0.30f, 0.19f);  // warm bark (== ChopTree trunk)
+            Color flameCol = new Color(0.98f, 0.55f, 0.16f); // saturated ember-orange
+
+            // --- ring of fire-stones (human-scale: ~0.22u stones in a ~0.7u ring, knee-high pit) ---
+            const int stoneCount = 7;
+            const float ringR = 0.62f;
+            for (int i = 0; i < stoneCount; i++)
+            {
+                float a = i / (float)stoneCount * Mathf.PI * 2f;
+                var pos = new Vector3(Mathf.Cos(a) * ringR, 0.10f, Mathf.Sin(a) * ringR);
+                // Per-stone tonal jitter (quantized small, inline material — no asset churn).
+                float j = (i % 3) * 0.03f;
+                var col = new Color(stoneCol.r - j, stoneCol.g - j, stoneCol.b - j);
+                BuildCampfirePart(visual, "Stone" + i,
+                    LowPolyMeshes.FacetedSphere(0.20f + (i % 2) * 0.04f, 0, 0.35f, 4100 + i),
+                    col, pos, 0.06f, "CampfireStoneMat" + i);
+            }
+
+            // --- two crossed logs in the pit (warm bark, the chopped wood) ---
+            BuildCampfireLog(visual, "LogA", logCol, new Vector3(0f, 0.16f, 0f), new Vector3(0f, 0f, 18f), 25f);
+            BuildCampfireLog(visual, "LogB", logCol, new Vector3(0f, 0.18f, 0f), new Vector3(0f, 90f, 18f), -25f);
+
+            // --- the flame (a warm low-poly tongue) — its OWN child so Campfire can toggle it with lit ---
+            var flameGo = new GameObject("Flame");
+            flameGo.transform.SetParent(visual.transform, false);
+            flameGo.transform.localPosition = new Vector3(0f, 0.22f, 0f);
+            BuildCampfirePart(flameGo, "FlameCone", LowPolyMeshes.Cone(0.22f, 0.55f, 7),
+                flameCol, Vector3.zero, 0.0f, "CampfireFlameMat", emissive: true);
+            // A small inner brighter flame for depth (warm yellow core).
+            BuildCampfirePart(flameGo, "FlameCore", LowPolyMeshes.Cone(0.12f, 0.40f, 6),
+                new Color(1f, 0.82f, 0.35f), new Vector3(0f, 0.04f, 0f), 0.0f, "CampfireFlameCoreMat", emissive: true);
+            flameGo.SetActive(false); // ships UNLIT — Campfire shows it on Light()
+
+            // --- the warm point Light (the glow into the Zone-D dusk) — disabled until lit ---
+            var lightGo = new GameObject("FireLight");
+            lightGo.transform.SetParent(pit.transform, false);
+            lightGo.transform.localPosition = new Vector3(0f, 0.6f, 0f);
+            var fireLight = lightGo.AddComponent<Light>();
+            fireLight.type = LightType.Point;
+            fireLight.color = new Color(1f, 0.66f, 0.32f); // warm firelight
+            // Tuned DOWN from the first soak (intensity 3.2/range 9 blew out to a white orb, not a contained
+            // fire — caught in the -verifyLoop loop_warm capture). A knee-high campfire casts a SOFT warm
+            // pool, not a floodlight: lower intensity + tighter range read as "a real little fire" per the
+            // art board (human-scale landmark, controlled warm accent), letting the emissive flame stay the
+            // bright focal point rather than a bloom blob.
+            fireLight.intensity = 1.5f;
+            fireLight.range = 6f;
+            fireLight.shadows = LightShadows.None; // thin: no shadow cost on the placeholder
+            fireLight.enabled = false; // ships off — Campfire enables it on Light()
+
+            // The Campfire component owns the lit state + warmth restore.
+            var fire = pit.AddComponent<Campfire>();
+            fire.warmth = Object.FindObjectOfType<WarmthNeed>();
+            fire.player = player.transform;
+            fire.flameVisual = flameGo;
+            fire.fireLight = fireLight;
+            if (fire.warmth == null)
+                Debug.LogError("[MovementCameraScene] no WarmthNeed in scene to wire Campfire to — " +
+                               "BootstrapProject must add the Survival WarmthNeed before MovementCameraScene.Author");
+
+            // The CampfirePlacement component: the wood-gated build interaction.
+            var place = pit.AddComponent<CampfirePlacement>();
+            place.inventory = Object.FindObjectOfType<Inventory>();
+            place.campfire = fire;
+            place.player = player.transform;
+            place.warmth = fire.warmth;
+            if (place.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire CampfirePlacement to");
+
+            // Wire the verification-only shipped-build LOOP capture (-verifyLoop drives the FULL cycle:
+            // decay -> craft -> chop -> build fire -> warmth restored) onto the Boot object.
+            WireCampfireVerifyCapture(player);
+
+            Debug.Log("[MovementCameraScene] authored Campfire at " + FirePitPosition +
+                      " (ships unlit; warmth wired: " + (fire.warmth != null) +
+                      ", inventory wired: " + (place.inventory != null) + ")");
+        }
+
+        // One log of the campfire: a tapered cylinder laid down (rotated) + tilted, warm bark inline material.
+        private static void BuildCampfireLog(GameObject parent, string name, Color col, Vector3 localPos,
+            Vector3 euler, float tiltX)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            // Lay the cylinder on its side (rotate 90 on Z so its length runs along X) then yaw/tilt per euler.
+            go.transform.localRotation = Quaternion.Euler(euler.x, euler.y, 90f) * Quaternion.Euler(tiltX, 0f, 0f);
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = LowPolyMeshes.TaperedCylinder(0.07f, 0.05f, 0.9f, 6);
+            var mr = go.AddComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = name + "Mat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        // Build one campfire part (stone / flame cone): a child with a welded smooth-shaded mesh + inline
+        // URP/Lit material (serializes into the scene, no .mat churn). emissive=true makes the flame GLOW
+        // (warm emission) so it reads as fire even before the point light, and survives the stripped build
+        // (URP/Lit emission is built-in, no custom shader to strip).
+        private static void BuildCampfirePart(GameObject parent, string name, Mesh mesh, Color color,
+            Vector3 localPos, float smoothness, string matName, bool emissive = false)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = matName };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+                if (emissive)
+                {
+                    mat.EnableKeyword("_EMISSION");
+                    mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                    if (mat.HasProperty("_EmissionColor"))
+                        mat.SetColor("_EmissionColor", color * 1.15f); // warm glow, trimmed so bloom doesn't blow out
+                }
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        private static void WireCampfireVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CampfireVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<CampfireVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<CampfireVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.warmth = Object.FindObjectOfType<WarmthNeed>();
+            cap.campfire = Object.FindObjectOfType<Campfire>();
+            cap.craftSpot = CraftSpotPosition;
+            cap.treeSpot = ChopTreePosition;
+            cap.firePit = FirePitPosition;
+            var place = Object.FindObjectOfType<CampfirePlacement>();
+            if (place != null) cap.woodCost = place.woodCost; // the loop must carry enough wood to the pit
             EditorUtility.SetDirty(bootGo);
         }
 

@@ -84,5 +84,60 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(0, _inv.WoodCount, "WoodCount stays at 0");
             Assert.AreEqual(0, fires, "no Changed event on a no-op add");
         }
+
+        // === SpendWood — the U2-4 campfire BUILD seam (all-or-nothing wood gate) ===
+
+        [Test]
+        public void SpendWood_DebitsAndFires_WhenAffordable()
+        {
+            _inv.AddWood(5);
+            int fires = 0;
+            _inv.Changed += () => fires++;
+
+            Assert.IsTrue(_inv.SpendWood(3), "SpendWood returns true when the wood is affordable");
+            Assert.AreEqual(2, _inv.WoodCount, "wood is debited by exactly the spent amount");
+            Assert.AreEqual(1, fires, "Changed fires once on a real spend (so the HUD wood count drops)");
+        }
+
+        [Test]
+        public void SpendWood_ExactBalance_Succeeds_AndZeroesOut()
+        {
+            _inv.AddWood(3);
+            Assert.IsTrue(_inv.SpendWood(3), "spending the exact balance succeeds");
+            Assert.AreEqual(0, _inv.WoodCount, "spending all wood leaves the ledger at 0");
+        }
+
+        // THE WOOD GATE (negative case) — too little wood -> NOTHING spent, the campfire can't be built.
+        [Test]
+        public void SpendWood_TooLittle_SpendsNothing_ReturnsFalse()
+        {
+            _inv.AddWood(2);
+            int fires = 0;
+            _inv.Changed += () => fires++;
+
+            Assert.IsFalse(_inv.SpendWood(3), "can't afford -> SpendWood returns false (no campfire)");
+            Assert.AreEqual(2, _inv.WoodCount, "a failed spend debits NOTHING — no partial deduction");
+            Assert.AreEqual(0, fires, "no Changed event on a failed (unaffordable) spend");
+        }
+
+        [Test]
+        public void SpendWood_FromEmpty_ReturnsFalse()
+        {
+            Assert.IsFalse(_inv.SpendWood(1), "an empty ledger can't afford any cost");
+            Assert.AreEqual(0, _inv.WoodCount, "still empty after a failed spend");
+        }
+
+        [Test]
+        public void SpendWood_ZeroOrNegative_IsNoOpSuccess()
+        {
+            _inv.AddWood(2);
+            int fires = 0;
+            _inv.Changed += () => fires++;
+
+            Assert.IsTrue(_inv.SpendWood(0), "spending nothing trivially succeeds");
+            Assert.IsTrue(_inv.SpendWood(-1), "a negative cost is treated as nothing (no decrement)");
+            Assert.AreEqual(2, _inv.WoodCount, "WoodCount unchanged by a zero/negative spend");
+            Assert.AreEqual(0, fires, "no Changed event on a zero/negative spend");
+        }
     }
 }

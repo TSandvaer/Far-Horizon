@@ -71,5 +71,23 @@ namespace FarHorizon
             Changed?.Invoke();
             return _woodCount;
         }
+
+        /// <summary>
+        /// Spend wood from the ledger — the seam the campfire (U2-4) consumes to BUILD: a campfire
+        /// costs wood, so placing one debits it here. ALL-OR-NOTHING gate (matches the Don't-Starve
+        /// "you have the mats or you don't" feel): if the ledger holds fewer than <paramref name="amount"/>,
+        /// NOTHING is spent and false is returned (no partial debit, no Changed) — this is the
+        /// load-bearing "no wood -> no campfire" negative case. On success debits the wood, fires
+        /// Changed (so the HUD's wood count drops), and returns true. A zero/negative amount is a
+        /// no-op that returns true (asking to spend nothing always "succeeds", changes nothing).
+        /// </summary>
+        public bool SpendWood(int amount)
+        {
+            if (amount <= 0) return true;        // spending nothing trivially succeeds, no event
+            if (_woodCount < amount) return false; // can't afford -> spend nothing (the build gate)
+            _woodCount -= amount;
+            Changed?.Invoke();
+            return true;
+        }
     }
 }
