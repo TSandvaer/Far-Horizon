@@ -35,16 +35,16 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_CarriesWarmthReadout_WiredToTheNeed()
+        public void BootScene_CarriesSurvivalHud_WiredToTheNeed()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-            WarmthReadout readout = FindInScene<WarmthReadout>(scene);
-            Assert.IsNotNull(readout,
-                "the Boot scene must carry the placeholder WarmthReadout so the decay is VISIBLE in the " +
-                "shipped exe (AC: decay visible to the player)");
-            Assert.IsNotNull(readout.need,
-                "the readout's WarmthNeed reference must be wired editor-time (serialized), so the bar " +
-                "paints without depending on an Awake-time FindObjectOfType in the build");
+            SurvivalHud hud = FindInScene<SurvivalHud>(scene);
+            Assert.IsNotNull(hud,
+                "the Boot scene must carry the U2-5 SurvivalHud (it SUPERSEDES the U2-1 WarmthReadout " +
+                "placeholder) so warmth is VISIBLE in the shipped exe (AC: decay visible to the player)");
+            Assert.IsNotNull(hud.warmth,
+                "the HUD's WarmthNeed reference must be wired editor-time (serialized), so the bar paints " +
+                "without depending on an Awake-time FindObjectOfType in the build");
         }
 
         private static T FindInScene<T>(Scene scene) where T : Component
