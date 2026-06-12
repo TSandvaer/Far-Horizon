@@ -28,9 +28,12 @@ echo "=== Far Horizon structure check ==="
 #    gate so a stray `git add -A` can never land Library/Build/logs in history.)
 # ---------------------------------------------------------------------------
 artifacts=$(git ls-files \
-  | grep -E '^(Library|Temp|obj|Build|Builds|Logs|UserSettings|MemoryCaptures|Recordings|Captures)/' \
+  | grep -E '^(Library|Temp|obj|Build|Builds|Logs|UserSettings|MemoryCaptures|Recordings|Captures|VerifyCaptures|ci-out)/' \
   || true)
-logs=$(git ls-files | grep -E '(\.log$|^test-results.*\.xml$|/test-results.*\.xml$)' || true)
+# NUnit result XMLs: the canonical `test-results*.xml` AND the local-run
+# `<platform>-results.xml` shape (e.g. editmode-results.xml / playmode-results.xml).
+# Both are throwaway verification output, never committed.
+logs=$(git ls-files | grep -E '(\.log$|(^|/)test-results.*\.xml$|(^|/)[A-Za-z0-9_-]*-results\.xml$)' || true)
 if [ -n "$artifacts$logs" ]; then
   bad "Unity-generated artifacts are committed:"
   printf '%s\n' "$artifacts" "$logs" | grep -v '^$' | sed 's/^/       /'

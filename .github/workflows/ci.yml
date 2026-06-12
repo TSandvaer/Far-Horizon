@@ -51,6 +51,15 @@ jobs:
           chmod +x .github/workflows/scripts/structure_check.sh
           .github/workflows/scripts/structure_check.sh
 
+      # The gate scripts are tested too (the bar applies to itself). Zero Unity
+      # dependency, so it runs in the license-free job on every PR: console-error
+      # gate nit fixes + the capture gate's black/empty/uniform/magenta/zero-frame
+      # cases on a tmp tree.
+      - name: Gate-script unit tests
+        run: |
+          chmod +x tests/scripts/test_gate_scripts.sh
+          tests/scripts/test_gate_scripts.sh
+
   # ---------------------------------------------------------------------------
   # Unity gate — self-hosted Windows runner. Skips cleanly (does not fail the
   # PR) until a runner with the `unity` + `windows` labels is registered and
@@ -171,3 +180,31 @@ jobs:
             grep -E '\[FarHorizonBuilder\]' ci-out/build.log || true
             exit 1
           fi
+
+      # 7. Shipped-build capture gate (ticket 86ca86g7k) — the editor-vs-runtime
+      #    backstop. Launches the BUILT exe WINDOWED (NOT -batchmode: ScreenCapture
+      #    needs a real swapchain, spike iter-4 / unity-conventions.md), drives the
+      #    standard CaptureGate component for N frames, then frame_check.py FAILS on
+      #    black/empty/uniform/magenta frames. Runs only when the build produced an
+      #    exe; the frames upload AFTER (if: always()) so evidence survives a fail.
+      - name: Shipped-build capture gate (frame content)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/capture_gate.sh
+            .github/workflows/scripts/capture_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/caps 4
+          else
+            echo "[capture-gate] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload capture frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-captures-${{ github.sha }}
+          path: ci-out/caps/*.png
+          if-no-files-found: warn
+          retention-days: 14
