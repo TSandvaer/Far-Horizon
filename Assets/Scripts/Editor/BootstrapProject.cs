@@ -194,6 +194,15 @@ namespace FarHorizon.EditorTools
             var readout = survivalGo.AddComponent<WarmthReadout>();
             readout.need = warmth; // wire the readout to the need editor-time (serialized reference)
 
+            // U2-2 (86ca8bdaq): the inventory seed — the held-resource ledger (HasAxe / WoodCount) the
+            // craft step writes and U2-5's HUD reads. The placeholder InventoryReadout shows the crafted
+            // axe in the shipped exe (success test: "sees it in the readout"); U2-5's real HUD supersedes
+            // it. Both SERIALIZED here editor-time (NOT Awake) per the editor-vs-runtime trap. Added BEFORE
+            // MovementCameraScene.Author so CraftSpot (authored there) finds + wires this Inventory.
+            var inventory = survivalGo.AddComponent<Inventory>();
+            var invReadout = survivalGo.AddComponent<InventoryReadout>();
+            invReadout.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
+
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
             MovementCameraScene.Author(camGo);
