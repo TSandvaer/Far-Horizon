@@ -71,11 +71,15 @@ fi
 HEAD_SHA="$(git rev-parse --short HEAD)" || die "cannot resolve HEAD sha"
 mkdir -p "$CAP_DIR" "$LOG_DIR"
 
-# The tracked assets BootstrapProject.Run rewrites (stamp + URP/materials/scene).
-# Captured so step 5 restores them precisely via `git checkout --`, leaving the
-# worktree as found. (Bootstrap is idempotent but re-stamps UTC every run, so
-# BuildStamp.txt always shows as modified afterward.)
-CHURN_PATHS="Assets/Resources/BuildStamp.txt Assets/Settings Assets/Scenes/Boot.unity"
+# BootstrapProject.Run rewrites a moving set of tracked assets: the stamp, the URP
+# asset + renderer + materials (Assets/Settings), the boot scene, AND — via
+# CharacterAssetGen.PrepareCharacter — the Animator controller + FBX import meta
+# (Assets/Art/Character) + GraphicsSettings.asset. Enumerating that set by hand is
+# fragile (it drifts as bootstrap grows — proven: an initial Settings/Scenes-only
+# list left Art/Character + GraphicsSettings churn behind). Because the pre-flight
+# REQUIRES a clean tree, ANY tracked modification under these roots after the run
+# came from bootstrap, so step 5 restores the whole roots — complete + drift-proof.
+CHURN_ROOTS="Assets ProjectSettings"
 
 # --- 1. bootstrap (fresh stamp = HEAD) -------------------------------------
 step "1/5 bootstrap (BootstrapProject.Run) — fresh-stamping HEAD $HEAD_SHA"
@@ -112,10 +116,12 @@ bash "$HERE/capture_gate.sh" "$EXE" "$CAP_DIR" "$FRAMES" \
 if [ "$KEEP_CHURN" -eq 0 ]; then
   step "5/5 cleanup — discarding bootstrap's tracked-asset churn"
   # shellcheck disable=SC2086
-  git checkout -- $CHURN_PATHS 2>/dev/null || true
-  if [ -n "$(git status --porcelain -- $CHURN_PATHS)" ]; then
-    echo "[serve_soak] WARN — some churn remains after restore:" >&2
-    git status --porcelain -- $CHURN_PATHS >&2
+  git checkout -- $CHURN_ROOTS 2>/dev/null || true
+  # Belt-and-suspenders: the tree must be exactly as found (clean precondition +
+  # full-root restore). Any remaining modification is a cleanup escape — warn loud.
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "[serve_soak] WARN — worktree not fully restored after cleanup:" >&2
+    git status --porcelain >&2
   fi
 else
   step "5/5 cleanup SKIPPED (--keep-churn)"
