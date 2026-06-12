@@ -12,4 +12,19 @@ This file is the orchestrator's source of truth between ticks. The first section
 
 ## Role sections
 
-(fresh — populated as the team works)
+Each role updates its own section as it works M-U1 / M-U2 tickets. The orchestrator reads the whole file at every tick to spot stalls. Don't edit another role's section. Last-updated uses ISO date `YYYY-MM-DD`.
+
+### Priya (Project Leader)
+(idle — M-U1 docs spine current as of U10; next planning surface is the M-U2 thin-survival-loop backlog, which files when M-U1 closes)
+
+### Uma (Game UX Designer)
+(fresh — first M-U2 surface is the thin-loop UX once M-U1 closes)
+
+### Devon (Game Developer #1, lead — engine/runtime/build/CI)
+(fresh — ported U3 input + drove U4 CI; next is M-U2 survival-loop systems)
+
+### Drew (Game Developer #2 — content systems/tools)
+(fresh — populated as M-U2 content work dispatches)
+
+### Tess (Tester)
+(fresh — owns U7 testing-bar translation in QA; build-capture gate per `team/TESTING_BAR.md`)
