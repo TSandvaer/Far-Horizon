@@ -73,7 +73,7 @@ namespace FarHorizon.PlayTests
                 "after a real decay window the HUD lights FEWER segments — the bar empties right-to-left " +
                 $"tracking the live need (lit full={litFull} -> after={litAfter}, Current01={_hud.warmth.Current01:0.00})");
 
-            // The band has cooled off warm gold (60/sec*2s ~= 60 lost -> ~0.4 -> dusk orange or colder).
+            // The band has cooled off warm gold (30/sec*2s ~= 60 lost of 100 -> ~0.4 -> dusk orange or colder).
             Color band = SurvivalHud.BandColor(_hud.warmth.Current01);
             Assert.AreNotEqual(new Color(0.91f, 0.70f, 0.36f), band,
                 "after a substantial decay window the filled-run band has shifted off warm gold (cooling)");
