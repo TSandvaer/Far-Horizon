@@ -182,6 +182,39 @@ namespace FarHorizon.EditorTools
             return FinishWithNormals(verts, normals, tris, "LP_Grass");
         }
 
+        // A faceted cone (campfire flame / tent / simple spike), apex up. `sides` ring segments, welded
+        // base ring so the side wall shades smoothly around it. Base sits at local y=0, apex at y=height.
+        // Used for the U2-4 campfire flame (a warm low-poly tongue of fire) — RIDES the same welded
+        // smooth-shaded idiom as the trunk/canopy, not a fresh prop style (the art-direction gate).
+        public static Mesh Cone(float baseR, float height, int sides)
+        {
+            sides = Mathf.Max(3, sides);
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+
+            int ringStart = verts.Count;
+            for (int i = 0; i < sides; i++)
+            {
+                float a = i / (float)sides * Mathf.PI * 2f;
+                verts.Add(new Vector3(Mathf.Cos(a) * baseR, 0f, Mathf.Sin(a) * baseR));
+            }
+            int apex = verts.Count; verts.Add(new Vector3(0f, height, 0f));
+            // side faces (apex fan)
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                tris.Add(ringStart + i); tris.Add(apex); tris.Add(ringStart + ni);
+            }
+            // base cap (so the cone isn't hollow from below) — separate center vert
+            int baseC = verts.Count; verts.Add(Vector3.zero);
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                tris.Add(ringStart + i); tris.Add(ringStart + ni); tris.Add(baseC);
+            }
+            return Finish(verts, tris, "LP_Cone");
+        }
+
         static int Midpoint(List<Vector3> verts, Dictionary<long, int> cache, int a, int b)
         {
             long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
