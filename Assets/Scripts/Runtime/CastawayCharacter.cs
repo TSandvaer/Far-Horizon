@@ -27,10 +27,13 @@ namespace FarHorizon
     /// U5 environment PR. The agent has updateRotation=false (ClickToMove owns that contract), so the
     /// visual owns facing.
     ///
-    /// CASTAWAY RECOLOR (iter-8, 6-part): the Animated-Men FBX has SIX distinct materials
-    /// (Shirt / Skin / Pants / Eyes / Socks / Hair — verified by probe). A 4-slot assumption silently
-    /// erased the face (Eyes-&gt;skin) — see <see cref="CastawayColorFor(string,Color,Color,Color,Color,Color)"/>.
-    /// All six map distinctly to the warm sun-worn survivor palette from the v3 design reference.
+    /// CASTAWAY RECOLOR (iter-8, 6-part; U2-6 polish re-tune): the Animated-Men FBX has SIX distinct
+    /// materials (Shirt / Skin / Pants / Eyes / Socks / Hair — verified by probe). A 4-slot assumption
+    /// silently erased the face (Eyes-&gt;skin) — see
+    /// <see cref="CastawayColorFor(string,Color,Color,Color,Color,Color,Color)"/>. All map distinctly to
+    /// the BRIGHTER, HIGHER-KEY palette from the v4 design reference (young + hopeful) — the iter-8
+    /// values had drifted dark/grizzled, which the U2-6 polish corrects. A leather accent slot maps any
+    /// belt/strap/satchel material to a warm leather brown for a more detailed silhouette.
     /// </summary>
     public class CastawayCharacter : MonoBehaviour
     {
@@ -40,12 +43,21 @@ namespace FarHorizon
         public GameObject modelPrefab;
         public RuntimeAnimatorController animatorController;
 
-        [Header("Castaway recolor — per-part palette (v3 design reference; iter-8 warmer + 6-part)")]
-        public Color skin  = new Color(0.80f, 0.56f, 0.40f);  // tan, sun-worn (Skin/Body/Socks)
-        public Color shirt = new Color(0.66f, 0.42f, 0.28f);  // warm rust/terracotta ragged shirt
-        public Color pants = new Color(0.32f, 0.23f, 0.15f);  // dark walnut rolled-up trousers
-        public Color hair  = new Color(0.66f, 0.46f, 0.22f);  // sun-bleached sandy/blond hair
-        public Color eyes  = new Color(0.16f, 0.12f, 0.10f);  // dark eyes so the face reads
+        // U2-6 POLISH PASS (ticket 86ca8bdhb): the iter-8 palette had drifted DARK/muddy ("rust
+        // ragged shirt", "dark walnut pants") toward a grizzled-survivor read — which violates the
+        // approved iter7 identity (RandomGame _castaway_judge v3/v4 sheets: a YOUNG, HOPEFUL castaway).
+        // Re-tuned to the v4 design reference: copper/ginger hair, a LIGHT warm khaki/sand shirt
+        // (rolled sleeves), muted teal-blue rolled trousers, a healthy warm tan skin, and a distinct
+        // warm-leather accent (belt/strap/satchel) so the silhouette reads detailed. Brighter +
+        // higher-key = "more detailed/polished, same character" (the Sponsor's iter7 ask). All
+        // channels sub-1.0 HDR-safe. Identity guard: NOT a dark/ragged survivor — light + fresh.
+        [Header("Castaway recolor — per-part palette (U2-6 polish: v4 design reference, brighter/hopeful)")]
+        public Color skin    = new Color(0.86f, 0.64f, 0.47f);  // healthy warm tan (Skin/Body/Socks=bare feet)
+        public Color shirt   = new Color(0.82f, 0.72f, 0.52f);  // light warm khaki/sand shirt (rolled sleeves)
+        public Color pants   = new Color(0.34f, 0.46f, 0.50f);  // muted teal-blue rolled trousers
+        public Color hair    = new Color(0.84f, 0.50f, 0.22f);  // copper/ginger sun-bleached hair
+        public Color eyes    = new Color(0.18f, 0.13f, 0.11f);  // dark eyes so the face reads
+        public Color leather = new Color(0.45f, 0.30f, 0.18f);  // warm leather belt/strap/satchel accent
 
         [Header("Facing")]
         [Tooltip("How fast the body yaws toward the travel direction (higher = snappier).")]
@@ -167,23 +179,29 @@ namespace FarHorizon
         /// <summary>
         /// Map a source material name to the castaway palette part-color (case-insensitive substring).
         /// Public + static so the EditMode recolor test can assert the mapping without instantiating.
-        /// Handles all SIX Animated-Men materials. Eyes get a dark tone (the face reads); Socks read
-        /// as bare tan feet (the castaway is barefoot). Unknown names fall back to skin (safe warm).
+        /// Handles all SIX Animated-Men materials + a leather accent. Eyes get a dark tone (the face
+        /// reads); Socks read as bare tan feet (the castaway is barefoot); belt/strap/satchel read as
+        /// warm leather (the U2-6 detail accent). Unknown names fall back to skin (safe warm).
+        /// Order matters: leather is tested BEFORE pants/skin so a "Belt" material doesn't fall through.
         /// </summary>
         public static Color CastawayColorFor(string materialName,
-            Color skin, Color shirt, Color pants, Color hair, Color eyes)
+            Color skin, Color shirt, Color pants, Color hair, Color eyes, Color leather)
         {
             string n = materialName != null ? materialName.ToLowerInvariant() : "";
             if (n.Contains("eye")) return eyes;
             if (n.Contains("hair")) return hair;
+            // Leather accent (belt / strap / satchel / bag) — the U2-6 detail pass. Tested before the
+            // cloth/skin fall-throughs so a leather part never collapses into trousers or skin.
+            if (n.Contains("belt") || n.Contains("strap") || n.Contains("satchel") ||
+                n.Contains("bag") || n.Contains("leather")) return leather;
             if (n.Contains("shirt") || n.Contains("cloth") || n.Contains("top")) return shirt;
             if (n.Contains("pant") || n.Contains("trouser") || n.Contains("leg") || n.Contains("short")) return pants;
-            // Skin / Body / Head / Face / Socks (bare feet) / default -> tan sun-worn skin.
+            // Skin / Body / Head / Face / Socks (bare feet) / default -> healthy warm tan skin.
             return skin;
         }
 
         private Color CastawayColorFor(string materialName)
-            => CastawayColorFor(materialName, skin, shirt, pants, hair, eyes);
+            => CastawayColorFor(materialName, skin, shirt, pants, hair, eyes, leather);
 
         /// <summary>
         /// Per-part smoothness: cloth (shirt/pants) matte; skin + hair catch a touch more of the warm
@@ -194,6 +212,10 @@ namespace FarHorizon
         {
             string n = materialName != null ? materialName.ToLowerInvariant() : "";
             if (n.Contains("eye")) return 0.45f;
+            // Leather (belt/strap/satchel) catches a soft worn sheen between cloth and skin — adds a
+            // distinct material read for the U2-6 detail accent.
+            if (n.Contains("belt") || n.Contains("strap") || n.Contains("satchel") ||
+                n.Contains("bag") || n.Contains("leather")) return 0.22f;
             if (n.Contains("hair")) return 0.18f;
             if (n.Contains("skin") || n.Contains("body") || n.Contains("sock")) return 0.14f;
             return 0.06f; // cloth (shirt/pants) — matte
