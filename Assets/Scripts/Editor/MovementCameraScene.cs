@@ -38,6 +38,11 @@ namespace FarHorizon.EditorTools
         // distance; small enough to stay a "test ground", not an environment (U5 owns that).
         private const float GroundHalf = 30f;
 
+        // On-screen height (world units) for the castaway avatar root. The FBX is normalized to ~1u
+        // intrinsic by CharacterAssetGen, so this scale maps directly onto height. Matched to the
+        // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
+        private const float PlayerVisualHeight = 1.8f;
+
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
         /// scene. The caller (BootstrapProject.BuildBootScene) has already created the scene with
@@ -167,9 +172,9 @@ namespace FarHorizon.EditorTools
             return prefab != null ? prefab.GetComponent<ClickMarker>() : null;
         }
 
-        // The player: NavMeshAgent + ClickToMove + a capsule visual PLACEHOLDER (the real 3D
-        // character is U6 — out of scope here). The capsule proves movement is visible in the
-        // shipped build; ClickToMove owns the agent, the camera follows the player root.
+        // The player: NavMeshAgent + ClickToMove + the U6 castaway avatar (replaces the U3 capsule
+        // placeholder). ClickToMove owns the agent; the camera follows the player root; the
+        // CastawayCharacter self-drives its Idle<->Walk anim + facing off the agent's velocity.
         private static GameObject BuildPlayer(ClickMarker markerPrefab, int groundLayer)
         {
             var player = new GameObject("Player");
@@ -184,21 +189,33 @@ namespace FarHorizon.EditorTools
             agent.stoppingDistance = 0.1f;
             agent.autoBraking = true;
 
-            // Placeholder visual: a capsule, offset up so its base sits on the ground point.
-            var vis = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            vis.name = "PlaceholderVisual";
-            vis.transform.SetParent(player.transform, false);
-            vis.transform.localPosition = new Vector3(0f, 0.9f, 0f);
-            Object.DestroyImmediate(vis.GetComponent<Collider>()); // no collider — agent handles it
+            // U6 (86ca86fz9): the real 3D player avatar — a rigged CC0 low-poly CLOTHED character
+            // (Quaternius Animated-Men, Smooth_Male_Casual.fbx, CC0) with the warm castaway recolor.
+            // The avatar lives on a child root scaled to the on-screen height; the FBX origin is at the
+            // feet (localPosition zero -> grounded feet on the agent's ground point). Built editor-time
+            // (BuildInEditor) so the SkinnedMeshRenderer + bones + controller reference SERIALIZE into
+            // Boot.unity (the editor-vs-runtime serialization lesson — no Awake-assembled hierarchy to
+            // ship mangled). Ensure URP/Lit is always-included so the recolor materials don't strip to
+            // magenta in the stripped player.
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null)
-            {
-                var mat = new Material(litShader);
-                if (mat.HasProperty("_BaseColor"))
-                    mat.SetColor("_BaseColor", new Color(0.85f, 0.55f, 0.30f)); // warm castaway tone
-                AssetDatabase.CreateAsset(mat, SettingsDir + "/PlayerPlaceholderMat.mat");
-                vis.GetComponent<MeshRenderer>().sharedMaterial = mat;
-            }
+            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+
+            var avatarGo = new GameObject("CastawayAvatar");
+            avatarGo.transform.SetParent(player.transform, false);
+            avatarGo.transform.localPosition = Vector3.zero;
+            // The FBX is normalized to ~1u intrinsic; scale the avatar root to the agent height (1.8u)
+            // so the visible character matches the agent capsule + grounds correctly.
+            avatarGo.transform.localScale = Vector3.one * PlayerVisualHeight;
+
+            var castaway = avatarGo.AddComponent<CastawayCharacter>();
+            castaway.modelPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
+            castaway.animatorController =
+                AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(CharacterAssetGen.ControllerPath);
+            if (castaway.modelPrefab == null)
+                Debug.LogError("[MovementCameraScene] castaway FBX not found at " + CharacterAssetGen.FbxPath +
+                               " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
+            // Build the Model child + materials NOW (editor) so they serialize into Boot.unity.
+            castaway.BuildInEditor();
 
             var ctm = player.AddComponent<ClickToMove>();
             ctm.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
