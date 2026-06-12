@@ -67,6 +67,13 @@ namespace FarHorizon.EditorTools
             GameObject player = BuildPlayer(markerPrefab, groundLayer);
             BuildOrbitCamera(player, existingBootCamera);
 
+            // U2-2 (86ca8bdaq): the craft spot — the entry to the survival loop. A world marker the
+            // castaway click-moves to; reaching it crafts the axe (one recipe, no UI tree). Authored
+            // editor-time so the spot mesh + CraftSpot's Inventory/player references SERIALIZE into
+            // Boot.unity (editor-vs-runtime trap). The Inventory + InventoryReadout live on the
+            // Survival object (added by BootstrapProject before this runs); we find + wire them here.
+            BuildCraftSpot(player, groundLayer);
+
             // Bake AFTER the walkable ground exists, then SAVE the data as an asset so it ships.
             BakeAndSaveNavMesh(ground, groundLayer);
 
@@ -170,6 +177,73 @@ namespace FarHorizon.EditorTools
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, MarkerPrefabPath);
             Object.DestroyImmediate(root);
             return prefab != null ? prefab.GetComponent<ClickMarker>() : null;
+        }
+
+        // World position of the craft spot on the flat test ground. Distinct from spawn (origin) so the
+        // craft is a real click-move journey, comfortably inside the GroundHalf=30 walkable extent, and
+        // on the NavMesh. CraftVerifyCapture drives the player here to prove the craft in the shipped exe.
+        public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
+
+        // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
+        // crafts the axe. A small build-safe URP/Lit "stump/bench" placeholder (no art polish — U2-4+
+        // and Uma own the real craft-station look). NO collider so it never blocks the ground raycast or
+        // the NavMesh (the player walks ONTO the spot). CraftSpot's Inventory + player refs are wired
+        // editor-time so they serialize into Boot.unity (editor-vs-runtime trap).
+        private static void BuildCraftSpot(GameObject player, int groundLayer)
+        {
+            var spot = new GameObject("CraftSpot");
+            spot.transform.position = CraftSpotPosition;
+
+            // A small low cylinder as a placeholder "crafting stump" so the spot is VISIBLE in the exe
+            // (the player needs something to walk toward). Primitive cylinder, collider stripped.
+            var visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            visual.name = "CraftStump";
+            Object.DestroyImmediate(visual.GetComponent<Collider>()); // no block on raycast / NavMesh
+            visual.transform.SetParent(spot.transform, false);
+            visual.transform.localScale = new Vector3(0.7f, 0.35f, 0.7f); // squat stump
+            visual.transform.localPosition = new Vector3(0f, 0.35f, 0f);  // sit on the ground
+
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader);
+                if (mat.HasProperty("_BaseColor"))
+                    mat.SetColor("_BaseColor", new Color(0.45f, 0.32f, 0.20f)); // warm timber brown
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
+                AssetDatabase.CreateAsset(mat, SettingsDir + "/CraftStumpMat.mat");
+                visual.GetComponent<MeshRenderer>().sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+
+            var craft = spot.AddComponent<CraftSpot>();
+            craft.player = player.transform;
+            craft.inventory = Object.FindObjectOfType<Inventory>();
+            if (craft.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire CraftSpot to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            // Wire the verification-only shipped-build CRAFT capture (drives the player to the spot,
+            // proves the axe is crafted in the BUILT exe) onto the Boot object — sibling of the
+            // movement-verify capture. Inert unless launched with -verifyCraft.
+            WireCraftVerifyCapture(player);
+
+            Debug.Log("[MovementCameraScene] authored CraftSpot at " + CraftSpotPosition +
+                      " (inventory wired: " + (craft.inventory != null) + ")");
+        }
+
+        private static void WireCraftVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CraftVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<CraftVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<CraftVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.craftSpot = CraftSpotPosition;
         }
 
         // The player: NavMeshAgent + ClickToMove + the U6 castaway avatar (replaces the U3 capsule
