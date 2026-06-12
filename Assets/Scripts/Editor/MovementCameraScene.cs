@@ -287,15 +287,20 @@ namespace FarHorizon.EditorTools
             visual.transform.SetParent(tree.transform, false);
             visual.transform.localPosition = Vector3.zero;
 
-            // Warm bark trunk + warm canopy green from the Zone-D palette (sub-1.0, HDR-safe).
+            // Warm bark trunk (sub-1.0, HDR-safe). The canopy is now a BLOB CANOPY (board v2,
+            // 86ca8ce7j): a cluster of overlapping faceted spheroids in multi-value greens, so the
+            // choppable tree reads in the SAME blob-canopy language as the scatter trees (it must NOT
+            // be a lone single-dome tree next to clustered ones — art-direction fidelity). Only the
+            // VISUAL mesh changes here; ChopTree's behavior/wiring/tests are untouched (the canopy is a
+            // child under the same tweened visual root, so felling still sinks+tips the whole tree).
             Color trunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark (LowPolyZoneGen.TrunkCol)
-            Color leafCol = new Color(0.35f, 0.50f, 0.24f);  // warm canopy (between LeafLo/LeafHi)
 
             const float trunkH = 1.8f;
             BuildTreePart(visual, "Trunk", LowPolyMeshes.TaperedCylinder(0.22f, 0.15f, trunkH, 6),
                 trunkCol, Vector3.zero, "ChopTrunkMat");
-            BuildTreePart(visual, "Canopy", LowPolyMeshes.FacetedSphere(1.35f, 1, 0.18f, 8123),
-                leafCol, new Vector3(0f, trunkH + 0.8f, 0f), "ChopCanopyMat");
+            BuildBlobCanopyPart(visual, "Canopy",
+                LowPolyMeshes.BlobCanopy(1.30f, 5, ChopCanopyBody, ChopCanopyTop, ChopCanopyShadow, 8123),
+                new Vector3(0f, trunkH + 0.65f, 0f));
 
             var chop = tree.AddComponent<ChopTree>();
             chop.player = player.transform;
@@ -312,6 +317,48 @@ namespace FarHorizon.EditorTools
 
             Debug.Log("[MovementCameraScene] authored ChopTree at " + ChopTreePosition +
                       " (inventory wired: " + (chop.inventory != null) + ")");
+        }
+
+        // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
+        // as LowPolyZoneGen's scatter canopies (style-guide-v2 §6), so the choppable tree matches the
+        // world's trees. Multi-value greens are baked into the mesh's vertex color by BlobCanopy.
+        private static readonly Color ChopCanopyBody   = new Color(0.30f, 0.58f, 0.24f);
+        private static readonly Color ChopCanopyTop    = new Color(0.48f, 0.74f, 0.34f);
+        private static readonly Color ChopCanopyShadow = new Color(0.18f, 0.40f, 0.17f);
+
+        // Build the chop tree's blob canopy: a child with the BlobCanopy mesh (multi-value greens in
+        // vertex color) + an INLINE vertex-color material (serializes into the scene, no .mat churn).
+        // The canopy bakes its greens into vertex color, so it needs the FarHorizon/LowPolyVertexColor
+        // shader (URP/Lit ignores vertex color — unity-conventions.md); that shader is registered in
+        // AlwaysIncludedShaders so it never strips. Falls back to a flat mid-green URP/Lit if the
+        // shader is unresolved (vertex greens lost, but never magenta).
+        private static void BuildBlobCanopyPart(GameObject parent, string name, Mesh mesh, Vector3 localPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var mat = new Material(vc) { name = "ChopCanopyMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+                mr.sharedMaterial = mat; // inline -> serializes into the scene
+                EnsureShaderAlwaysIncluded(vc);
+            }
+            else
+            {
+                var litShader = Shader.Find("Universal Render Pipeline/Lit");
+                var mat = new Material(litShader) { name = "ChopCanopyMat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", ChopCanopyBody);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+                Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; chop canopy flat-green fallback");
+            }
         }
 
         // Build one part of the chop tree's visual (trunk or canopy): a child GameObject with the given
@@ -541,7 +588,14 @@ namespace FarHorizon.EditorTools
         private static GameObject BuildPlayer(ClickMarker markerPrefab, int groundLayer)
         {
             var player = new GameObject("Player");
-            player.transform.position = Vector3.zero;
+            // FIRST-FRAME TUNE (86ca8ce7j, absorbs pale-shore 86ca8a0u6): the castaway still "washes
+            // ashore" (Sponsor-locked narrative — spawn near the shore), but the ORIGIN spawn sat on the
+            // palest, emptiest sand band with the field+trees too far inland to frame, giving the
+            // washed-out first frame. Nudge spawn a short way inland to the damp-sand→grass EDGE (Z+6):
+            // still ashore (the shore/water is just behind), but now the warm grass band + the near-spawn
+            // blob canopies are in the orbit camera's inland view. Stays comfortably on the NavMesh + the
+            // loop spots (craft 8,6 / tree -9,-7 / fire 4,-8) remain a short click-walk away.
+            player.transform.position = new Vector3(0f, 0f, 6f);
 
             var agent = player.AddComponent<NavMeshAgent>();
             agent.radius = 0.4f;
@@ -606,7 +660,7 @@ namespace FarHorizon.EditorTools
             var orbit = camGo.GetComponent<OrbitCamera>();
             if (orbit == null) orbit = camGo.AddComponent<OrbitCamera>();
             orbit.target = player.transform;
-            orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 35-70)
+            orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 35-70) — LOCKED
             orbit.minPitch = 35f;
             orbit.maxPitch = 70f;
             orbit.distance = 14f;
