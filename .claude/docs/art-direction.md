@@ -61,6 +61,15 @@ Together these are the M-U5+ "journey out" arc made visible: regions, landmarks,
 as a destination — in the chunky style. Pine trees join blob trees in the tree vocabulary;
 mountains are the vista backdrop; water (river/lake) recurs in every wide shot.
 
+### Ground-detail pair — `21h22_33` (forest meadow), `21h22_52` (toy village path)
+- **`21h22_33`** — dense forest meadow at player height: tall pines, RICH layered ground cover
+  (grass blades, purple/white wildflowers, mushrooms, stumps, logs, rocks) along a worn dirt
+  trail with a simple bench — the lush *purposeful* decoration carry-over rendered in the new
+  style; ground reads full, never empty.
+- **`21h22_52`** — top-down toy-like village path: chunky cut-stone path winding between a
+  hobbit-style door, stone arch bridge, cone trees, scattered rocks; warm sunlit grass.
+  Path-as-readable-ribbon at orbit distance — the path language for settlements.
+
 > **Carry-overs that survive the rebase:** small-player/big-alive-world north-star; warm cohesive
 > palette; human-scale landmarks; lush *purposeful* decoration. What changed is the STYLE those
 > are rendered in — chunkier, more saturated, more toy-like.
