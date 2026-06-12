@@ -184,24 +184,27 @@ namespace FarHorizon.EditorTools
             hudGo.AddComponent<CaptureGate>();
 
             // U2-1 (86ca8bd9m): the single survival need — WARMTH decays over time and drives the
-            // M-U2 loop; the campfire (U2-4) answers it via WarmthNeed's satisfaction hook. The
-            // placeholder WarmthReadout shows the decay in the shipped exe (U2-5's real HUD supersedes
-            // it). Both are SERIALIZED into the scene here editor-time (NOT Awake) per the
-            // editor-vs-runtime serialization trap (unity-conventions.md) — an Awake-only add could
-            // ship mangled/absent; CaptureGateSceneTests' sibling WarmthNeedSceneTests guards this.
+            // M-U2 loop; the campfire (U2-4) answers it via WarmthNeed's satisfaction hook. SERIALIZED
+            // into the scene here editor-time (NOT Awake) per the editor-vs-runtime serialization trap
+            // (unity-conventions.md) — an Awake-only add could ship mangled/absent; WarmthNeedSceneTests
+            // guards this.
             var survivalGo = new GameObject("Survival");
             var warmth = survivalGo.AddComponent<WarmthNeed>();
-            var readout = survivalGo.AddComponent<WarmthReadout>();
-            readout.need = warmth; // wire the readout to the need editor-time (serialized reference)
 
             // U2-2 (86ca8bdaq): the inventory seed — the held-resource ledger (HasAxe / WoodCount) the
-            // craft step writes and U2-5's HUD reads. The placeholder InventoryReadout shows the crafted
-            // axe in the shipped exe (success test: "sees it in the readout"); U2-5's real HUD supersedes
-            // it. Both SERIALIZED here editor-time (NOT Awake) per the editor-vs-runtime trap. Added BEFORE
-            // MovementCameraScene.Author so CraftSpot (authored there) finds + wires this Inventory.
+            // craft step writes and U2-5's HUD reads. SERIALIZED here editor-time (NOT Awake) per the
+            // editor-vs-runtime trap. Added BEFORE MovementCameraScene.Author so CraftSpot (authored
+            // there) finds + wires this Inventory.
             var inventory = survivalGo.AddComponent<Inventory>();
-            var invReadout = survivalGo.AddComponent<InventoryReadout>();
-            invReadout.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
+
+            // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
+            // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the
+            // U2-1 WarmthReadout + U2-2 InventoryReadout placeholders (removed). Both data references are
+            // wired editor-time here (SERIALIZED, NOT an Awake FindObjectOfType) per the editor-vs-runtime
+            // trap; WarmthNeedSceneTests / CraftSceneTests guard the serialized presence + wiring.
+            var hud = survivalGo.AddComponent<SurvivalHud>();
+            hud.warmth = warmth;       // serialized reference, no Awake FindObjectOfType in the build
+            hud.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
 
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.

@@ -76,7 +76,12 @@ just above it.
 cold from the right*. Filled portion = warm firelight; empty portion = cold dark.
 No number. No percent text. Glanceable feeling, not a stat.
 
-**Form (segmented, not a smooth meter):** ~10 segments. Segmented reads more diegetic
+**Form (segmented, not a smooth meter):** exactly **10 segments** (wiring-phase amendment,
+PR for 86ca8bdge — Tess PR #9 nit (c) "~10 → exact integer"; resolved to 10). Filled count =
+`floor(Current01 × 10)`, clamped 0..10 (wiring-phase amendment — Tess PR #9 nit (a): the
+0..1→segment-fill rounding rule is pinned to FLOOR so the segment count is deterministic and
+the PlayMode boundary assert is exact; a segment lights only when its full 1/10th is earned).
+Segmented reads more diegetic
 ("logs on the fire / embers remaining") and is forgiving of the build's HDR/sRGB clamp —
 flat warm fills, no gradient texture needed. Filled segments use warm ember ink; emptied
 segments dim to a cold near-charcoal. As warmth decays the bar **empties right-to-left**,
@@ -101,8 +106,10 @@ very subtle **ember flicker** on the rightmost *filled* segment — a ±6% alpha
 modulation on one segment; no per-frame allocation. If it adds any flicker-judder risk
 in the build, cut it — the static bar is the floor and is fully sufficient.
 
-**Plate:** a single low-alpha dark plate behind the bar (`rgba(0,0,0,0.45)`, same idiom
-as BootHud's plates) with ~6 px padding, so the warm ink stays legible over both bright
+**Plate:** a single low-alpha dark plate behind the bar (`rgba(0,0,0,0.55)` — wiring-phase
+amendment, Tess PR #9 nit (b): matched to BootHud's build-stamp-plate alpha family (0.5/0.55)
+instead of the spec's original 0.45, so the survival HUD reads as one chrome family with the
+existing BootHud plates) with ~6 px padding, so the warm ink stays legible over both bright
 sand and dark foliage. A tiny **flame glyph** (▲ or a simple 12 px flame icon) sits left
 of the bar as the only label — diegetic, language-free, says "warmth" without a word.
 
@@ -181,7 +188,19 @@ sample warmth decay over a real `Time.time` window, never per-frame deltas.
 
 ---
 
-## 7. Data contract I need from U2-1 (Drew, 86ca8bd9m) — open questions for his PR
+## 7. Data contract — RESOLVED against the merged U2-1 / U2-2 runtime
+
+> **WIRING-PHASE AMENDMENT (PR for 86ca8bdge).** The Q1–Q5 below were open questions for
+> Drew's U2-1/U2-2 PRs. Those have merged (main @ 90f6ff7); the runtime is now the source of
+> truth (Tess PR #11 ruling). The resolved vocabulary the HUD binds to:
+> - **Warmth:** `WarmthNeed.Current01` (0..1, clamped) · `WarmthNeed.IsCritical` · `event Action<float> Changed`.
+>   (Q1's proposed `WarmthNormalized01` was superseded by the runtime's `Current01` — this doc's
+>   Q1 references below are amended to `Current01` per the Tess PR #11 ruling.)
+> - **Inventory:** `Inventory.HasAxe` · `Inventory.WoodCount` · `event Action Changed`.
+> - **Access path:** a SERIALIZED scene reference wired editor-time by BootstrapProject — **NO
+>   singleton** (Tess PR #11 ruling). IMGUI polls the accessors each `OnGUI` (Q2: poll is fine).
+>
+> The original Q1–Q5 text is retained below as the historical contract record.
 
 U2-1's AC says it exposes "a minimal need readout … coordinate the data surface with
 U2-5's spec." Here is the surface this HUD consumes. **These are asks for Drew's PR to
@@ -189,8 +208,9 @@ pin concrete names; flagged as open questions, not assumptions:**
 
 - **Q1 — Normalized warmth accessor.** I need warmth as a **0..1 normalized float**
   (1 = full, 0 = freezing) for the segment-fill math, regardless of Drew's internal
-  units. *Ask: expose `float WarmthNormalized01 { get; }` (or equivalent) on the warmth
-  model — confirm the exact name + that it's clamped 0..1.* If Drew stores raw units +
+  units. *Ask: expose `float Current01 { get; }` (amended from `WarmthNormalized01` to
+  the runtime's actual name per Tess PR #11) on the warmth model — confirm the exact name
+  + that it's clamped 0..1.* If Drew stores raw units +
   a max, I can normalize, but a ready-normalized accessor keeps the HUD dumb.
 
 - **Q2 — Change signal vs poll.** Does the warmth model fire an event on change

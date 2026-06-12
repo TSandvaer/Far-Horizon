@@ -34,16 +34,16 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_CarriesInventoryReadout_WiredToTheLedger()
+        public void BootScene_CarriesSurvivalHud_WiredToTheLedger()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-            InventoryReadout readout = FindInScene<InventoryReadout>(scene);
-            Assert.IsNotNull(readout,
-                "the Boot scene must carry the placeholder InventoryReadout so the crafted axe is VISIBLE " +
-                "in the shipped exe (success test: 'sees it in the readout')");
-            Assert.IsNotNull(readout.inventory,
-                "the readout's Inventory reference must be wired editor-time (serialized), so the ledger " +
-                "paints without an Awake-time FindObjectOfType in the build");
+            SurvivalHud hud = FindInScene<SurvivalHud>(scene);
+            Assert.IsNotNull(hud,
+                "the Boot scene must carry the U2-5 SurvivalHud (it SUPERSEDES the U2-2 InventoryReadout " +
+                "placeholder) so the crafted axe is VISIBLE in the shipped exe (success test: 'sees it')");
+            Assert.IsNotNull(hud.inventory,
+                "the HUD's Inventory reference must be wired editor-time (serialized), so the ledger paints " +
+                "without an Awake-time FindObjectOfType in the build");
         }
 
         [Test]
