@@ -91,6 +91,46 @@ namespace FarHorizon.EditTests
                 "ships; a null here means the prefab wiring regressed)");
         }
 
+        // BLOB-SHADOW SCENE-PRESENCE GUARD (ticket 86ca8ca1m — "blob shadow re-fit" AC). The contact
+        // shadow disc must be SERIALIZED into the Boot scene under the player root (a child of the
+        // ClickToMove root), with a real renderer + mesh — the component-not-serialized-into-scene
+        // failure class (unity-conventions.md §editor-vs-runtime: a builder can exist in source while the
+        // scene never carries the object, shipping the feature silently inert). Binary scenes can't be
+        // GUID-grepped, so this EditMode reader is the authoritative check. Also pins the re-fit radius
+        // (the disc bounds must span the chunky footprint, not collapse to a point).
+        [Test]
+        public void BootScene_HasBlobShadow_UnderPlayer_SizedToChunkyStance()
+        {
+            var scene = OpenBoot();
+            var ctm = FindInScene<ClickToMove>(scene);
+            Assert.IsNotNull(ctm, "the Boot scene must carry the player");
+
+            var shadow = ctm.transform.Find(EditorTools.MovementCameraScene.BlobShadowObjectName);
+            Assert.IsNotNull(shadow,
+                "the player must carry a serialized '" + EditorTools.MovementCameraScene.BlobShadowObjectName +
+                "' child (the contact/blob shadow — component-not-serialized guard)");
+
+            var mr = shadow.GetComponent<MeshRenderer>();
+            var mf = shadow.GetComponent<MeshFilter>();
+            Assert.IsNotNull(mr, "the blob shadow must have a MeshRenderer serialized in the scene");
+            Assert.IsNotNull(mf, "the blob shadow must have a MeshFilter serialized in the scene");
+            Assert.IsNotNull(mf.sharedMesh, "the blob-shadow disc mesh must be present (built editor-time)");
+            Assert.IsNotNull(mr.sharedMaterial, "the blob-shadow material must be serialized inline");
+
+            // The shadow must never cast its own real shadow (it IS the fake shadow) or block raycasts.
+            Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.Off, mr.shadowCastingMode,
+                "the blob shadow must not cast a real shadow");
+            Assert.IsNull(shadow.GetComponent<Collider>(),
+                "the blob shadow must have NO collider (must not block the click raycast or NavMesh bake)");
+
+            // Re-fit: the disc must span the chunky footprint (diameter ~= 2*radius), not a point.
+            float diameter = mf.sharedMesh.bounds.size.x;
+            Assert.Greater(diameter, EditorTools.MovementCameraScene.BlobShadowRadius,
+                "the blob-shadow disc must span the chunky footprint (re-fit radius=" +
+                EditorTools.MovementCameraScene.BlobShadowRadius + "), not collapse — diameter=" +
+                diameter.ToString("0.00"));
+        }
+
         [Test]
         public void NavMesh_IsSavedAsAsset_NotBakeInMemory()
         {

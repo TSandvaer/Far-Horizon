@@ -332,6 +332,54 @@ namespace FarHorizon.EditorTools
             return Finish(verts, tris, "LP_Cone");
         }
 
+        // A flat ground-decal DISC for the castaway's contact/BLOB SHADOW (ticket 86ca8ca1m — "blob
+        // shadow re-fit" AC). Lies in the local XZ plane (y=0), a fan of `sides` triangles from a
+        // center vertex. Soft falloff is baked into VERTEX COLOR ALPHA: the center vertex is opaque
+        // (`color` with alpha `centerAlpha`), the rim ring is fully transparent (alpha 0) — so a
+        // vertex-color transparent material renders a soft round shadow that fades at the edge, no
+        // texture asset (churn-free, ships in the stripped build via the always-included unlit shader).
+        //
+        // Re-FIT to the chunky stance: the caller passes `radius` sized to the new wider blocky
+        // footprint (the chunky bare feet sit wider than the realistic stance), so the shadow grounds
+        // the toy-chunky silhouette instead of the old slimmer one. RGB carries the shadow tone; alpha
+        // carries the falloff.
+        public static Mesh BlobShadowDisc(float radius, int sides, Color color, float centerAlpha)
+        {
+            sides = Mathf.Max(6, sides);
+            var verts = new List<Vector3>();
+            var cols = new List<Color>();
+            var tris = new List<int>();
+
+            int center = verts.Count;
+            verts.Add(Vector3.zero);
+            cols.Add(new Color(color.r, color.g, color.b, centerAlpha)); // opaque core
+
+            int ringStart = verts.Count;
+            for (int i = 0; i < sides; i++)
+            {
+                float a = i / (float)sides * Mathf.PI * 2f;
+                verts.Add(new Vector3(Mathf.Cos(a) * radius, 0f, Mathf.Sin(a) * radius));
+                cols.Add(new Color(color.r, color.g, color.b, 0f)); // transparent rim -> soft falloff
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                // Wind so the disc faces UP (+Y) for a ground decal viewed from the orbit camera above.
+                tris.Add(center); tris.Add(ringStart + ni); tris.Add(ringStart + i);
+            }
+
+            var mesh = new Mesh { name = "LP_BlobShadow" };
+            mesh.SetVertices(verts);
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            // Flat disc: a single up normal on every vert (unlit material ignores it, but keep it sane).
+            var normals = new Vector3[verts.Count];
+            for (int i = 0; i < normals.Length; i++) normals[i] = Vector3.up;
+            mesh.SetNormals(normals);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         static int Midpoint(List<Vector3> verts, Dictionary<long, int> cache, int a, int b)
         {
             long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;

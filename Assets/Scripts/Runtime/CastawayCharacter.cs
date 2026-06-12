@@ -59,6 +59,39 @@ namespace FarHorizon
         public Color eyes    = new Color(0.18f, 0.13f, 0.11f);  // dark eyes so the face reads
         public Color leather = new Color(0.45f, 0.30f, 0.18f);  // warm leather belt/strap/satchel accent
 
+        // CARTOONISH STYLIZATION (ticket 86ca8ca1m, Uma's castaway-style-v2 brief): the chunky
+        // proportions land primarily as the BAKED MESH the orchestrator delivers via Blender MCP
+        // (head-ratio 3.0 baseline). This bone-baseline-scale pass is the COMPLEMENTARY, rig-safe
+        // soak-tuning lever + working-fallback: setting a baseline localScale on named rig bones
+        // (Head about the neck, Hands, Feet) COMPOSES with the imported animation (clips drive bone
+        // ROTATION/TRANSLATION; a baseline SCALE multiplies through skinning) — so Idle/Walk survive
+        // BY CONSTRUCTION (the hard 86ca8ca1m AC), no re-rig, no avatar rebuild. It serializes into
+        // Boot.unity exactly like the rest of the avatar (the bone transforms are part of the baked
+        // skeleton — no Awake-assembled hierarchy, so the legs-up class can't recur).
+        //
+        // WHY A DIAL, not a fixed re-export: Uma's brief §2 says the Sponsor soak may push the head
+        // ratio from 3.0 toward 2.5 ("cuter"). A bone-scale dial lets that happen WITHOUT a Blender
+        // re-export round — cheap soak iteration. headScale=1.0 = "trust the delivered mesh as-is"
+        // (no extra chunking); >1.0 = chunk further on top. The mesh ships the baseline; this tunes it.
+        [Header("Cartoonish stylization — rig-safe bone-baseline scale (86ca8ca1m)")]
+        [Tooltip("Uniform extra scale on the Head bone (about the neck pivot). The delivered mesh " +
+                 "carries the 3.0-head baseline; >1.0 chunks the head further toward the 'cuter' 2.5 " +
+                 "soak target. 1.0 = no extra head scaling (trust the mesh).")]
+        public float headScale = 1.0f;
+        [Tooltip("Uniform extra scale on both Hand bones (oversized mitten read).")]
+        public float handScale = 1.0f;
+        [Tooltip("Uniform extra scale on both Foot bones (chunky blocky bare feet).")]
+        public float footScale = 1.0f;
+
+        // Rig bone names the stylization scale targets (Quaternius Animated-Men armature — verified by
+        // probing the FBX: Head / Hand.L / Hand.R / Foot.L / Foot.R). Matched by .Contains so the
+        // "HumanArmature|" / "mixamorig" style prefixes don't break the lookup (the same clip-prefix
+        // lesson — unity-conventions.md §FBX). If a delivered mesh renames a bone, the scale is a no-op
+        // for that bone (logged once) rather than a hard failure — the mesh baseline still ships.
+        private static readonly string[] HeadBoneTokens = { "Head" };
+        private static readonly string[] HandBoneTokens = { "Hand.L", "Hand.R", "Hand_L", "Hand_R" };
+        private static readonly string[] FootBoneTokens = { "Foot.L", "Foot.R", "Foot_L", "Foot_R" };
+
         [Header("Facing")]
         [Tooltip("How fast the body yaws toward the travel direction (higher = snappier).")]
         public float turnLerp = 12f;
@@ -149,7 +182,55 @@ namespace FarHorizon
             _animator.applyRootMotion = false; // NavMeshAgent drives position; anim is in-place
 
             ApplyCastawayRecolor(go);
+            ApplyStylizationBoneScale(go);
             _built = true;
+        }
+
+        // Apply the cartoonish-stylization bone-baseline scale (86ca8ca1m). Sets a baseline localScale
+        // on the Head / Hand / Foot bones so the chunky read can be tuned on the rig (the soak dial)
+        // ON TOP OF the delivered chunky mesh, WITHOUT disturbing the imported clips. The scale is a
+        // BASELINE on the bone's local transform: the Animator writes rotation/translation each frame
+        // (and, for these locomotion clips, NOT scale), so the baseline scale survives animation —
+        // Idle/Walk keep driving the rig with the chunked bones. Public+static helper does the lookup
+        // so the EditMode proportion guard can assert the same bones the runtime scales.
+        private void ApplyStylizationBoneScale(GameObject root)
+        {
+            if (Mathf.Approximately(headScale, 1f) &&
+                Mathf.Approximately(handScale, 1f) &&
+                Mathf.Approximately(footScale, 1f))
+                return; // no-op: trust the delivered mesh baseline as-is
+
+            var bones = root.GetComponentsInChildren<Transform>(true);
+            int hitHead = ScaleBones(bones, HeadBoneTokens, headScale);
+            int hitHands = ScaleBones(bones, HandBoneTokens, handScale);
+            int hitFeet = ScaleBones(bones, FootBoneTokens, footScale);
+            if (hitHead == 0 && !Mathf.Approximately(headScale, 1f))
+                Debug.LogWarning("[CastawayCharacter] stylization: no Head bone matched " +
+                                 "(headScale ignored — the delivered rig may use a different bone name)");
+        }
+
+        // Multiply each matched bone's localScale by `scale`. Returns the number of bones scaled.
+        // Matched by .Contains (case-insensitive) so armature-prefixed names ("HumanArmature|Head")
+        // still match — the same prefix lesson as the clip lookup. Idempotent within a single build
+        // pass (BuildInEditor clears + rebuilds the Model child, so the FBX-fresh bone scales are 1).
+        private static int ScaleBones(Transform[] bones, string[] tokens, float scale)
+        {
+            if (Mathf.Approximately(scale, 1f)) return 0;
+            int hits = 0;
+            foreach (var b in bones)
+            {
+                string n = b.name.ToLowerInvariant();
+                foreach (var t in tokens)
+                {
+                    if (n.Contains(t.ToLowerInvariant()))
+                    {
+                        b.localScale = b.localScale * scale;
+                        hits++;
+                        break;
+                    }
+                }
+            }
+            return hits;
         }
 
         // Tint the character's flat per-part materials toward the castaway read. The Animated-Men

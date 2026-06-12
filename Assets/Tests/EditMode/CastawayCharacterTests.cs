@@ -219,6 +219,118 @@ namespace FarHorizon.EditTests
                 "grizzled rust — the iter-8 dark-drift is the regression this guard catches");
         }
 
+        // THE CARTOONISH-STYLIZATION PROPORTION GUARD (ticket 86ca8ca1m, Uma castaway-style-v2 §2/§4).
+        // The shipped scene's castaway must read TOY-CHUNKY: a head:total-height ratio in the loose
+        // chunky band (2.5-3.3 heads), NOT the realistic ~7-8 heads. This is the single biggest
+        // readability lever. Loose band so the Sponsor soak can tune "cuter" (toward 2.5) without
+        // redding CI; a REGRESSION to the realistic head ratio (or a swap to a non-stylized mesh, or a
+        // bone-scale dial reset to 1.0 against the un-stylized base mesh) fails here — the proportion
+        // sibling of the luma guard. Measures the REAL serialized avatar via CastawayProportions.
+        [Test]
+        public void Castaway_ReadsChunky_HeadRatioInToyBand()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway, "the player must carry a CastawayCharacter avatar");
+
+            Assert.IsNotNull(CastawayProportions.FindHeadBone(castaway.transform),
+                "the avatar must carry a Head bone for the proportion measurement (rig intact)");
+
+            float headsTall = CastawayProportions.MeasureHeadsTall(castaway);
+            Assert.IsFalse(float.IsNaN(headsTall),
+                "the heads-tall ratio must be measurable (skinned mesh + Head bone present)");
+            Assert.That(headsTall,
+                Is.InRange(CastawayProportions.MinHeadsTall, CastawayProportions.MaxHeadsTall),
+                $"the castaway must read TOY-CHUNKY ({CastawayProportions.MinHeadsTall}-" +
+                $"{CastawayProportions.MaxHeadsTall} heads tall), not realistic (~7-8). measured=" +
+                headsTall.ToString("0.00") + " heads — the cartoonish-stylization proportion guard");
+        }
+
+        // The bone-scale dial must actually CHUNK the proportions: applying the stylization scale must
+        // lower the heads-tall ratio (bigger head = fewer heads tall) relative to the un-scaled base
+        // mesh. Catches the dial silently no-op'ing (wrong bone name match, scale not composing) — the
+        // failure where the scene LOOKS configured but the stylization never lands. Builds two avatars
+        // (scaled vs base) and asserts the scaled one is meaningfully chunkier. Pure build — no scene.
+        [Test]
+        public void StylizationDial_ActuallyChunksTheHead_VsBaseMesh()
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
+            Assert.IsNotNull(fbx, "the castaway FBX must load to build the proportion-dial comparison");
+
+            // Base mesh (no stylization) — the realistic ratio.
+            var baseGo = new GameObject("BaseAvatar");
+            var baseC = baseGo.AddComponent<CastawayCharacter>();
+            baseC.modelPrefab = fbx;
+            baseC.headScale = 1f; baseC.handScale = 1f; baseC.footScale = 1f;
+            baseC.BuildInEditor();
+            float baseHeads = CastawayProportions.MeasureHeadsTall(baseC);
+
+            // Stylized (the shipped dial) — the chunky ratio.
+            var styGo = new GameObject("StylizedAvatar");
+            var styC = styGo.AddComponent<CastawayCharacter>();
+            styC.modelPrefab = fbx;
+            styC.headScale = 3.5f; styC.handScale = 1.4f; styC.footScale = 1.5f;
+            styC.BuildInEditor();
+            float styHeads = CastawayProportions.MeasureHeadsTall(styC);
+
+            Object.DestroyImmediate(baseGo);
+            Object.DestroyImmediate(styGo);
+
+            Assert.IsFalse(float.IsNaN(baseHeads), "base heads-tall must measure");
+            Assert.IsFalse(float.IsNaN(styHeads), "stylized heads-tall must measure");
+            Assert.Greater(baseHeads, CastawayProportions.MaxHeadsTall,
+                "the BASE (un-stylized) mesh must read realistic (>" + CastawayProportions.MaxHeadsTall +
+                " heads) so the dial has real work to do — base=" + baseHeads.ToString("0.00"));
+            Assert.Less(styHeads, baseHeads - 2f,
+                "the stylization dial must CHUNK the head meaningfully (>=2 heads-tall reduction) — " +
+                "base=" + baseHeads.ToString("0.00") + " stylized=" + styHeads.ToString("0.00") +
+                " (a no-op dial — wrong bone match / scale not composing — fails here)");
+            Assert.That(styHeads, Is.InRange(CastawayProportions.MinHeadsTall, CastawayProportions.MaxHeadsTall),
+                "the shipped dial must land in the toy band — stylized=" + styHeads.ToString("0.00"));
+        }
+
+        // RIG-SURVIVAL-WITH-STYLIZATION guard (ticket 86ca8ca1m — the binding "Idle/Walk must survive"
+        // AC, headless half). The stylization is a BONE-BASELINE SCALE that must compose with the
+        // imported clips: building the stylized avatar must STILL bind the Animator's avatar + Idle/Walk
+        // controller (clips bind = no T-pose freeze), AND the Head bone must carry the ~3.5 baseline
+        // scale AFTER the build (the scale landed on the same rig the clips drive — so animation
+        // multiplies rotation/translation onto the chunked bone rather than overwriting it). The
+        // runtime/shipped half (the clips actually TICK the scaled rig without a legs-up regression) is
+        // proven by the existing -verifyMove/-verifyLoop shipped-build captures (CastawayAnimationTests
+        // pins the velocity-state switch separately). This is the editor-side binding check.
+        [Test]
+        public void StylizedAvatar_BindsAnimator_AndHeadBoneKeepsBaselineScale()
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
+            var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(CharacterAssetGen.ControllerPath);
+            Assert.IsNotNull(fbx, "the castaway FBX must load");
+            Assert.IsNotNull(controller, "the Idle/Walk controller must load");
+
+            var go = new GameObject("StylizedRigAvatar");
+            var castaway = go.AddComponent<CastawayCharacter>();
+            castaway.modelPrefab = fbx;
+            castaway.animatorController = controller;
+            castaway.headScale = 3.5f; castaway.handScale = 1.4f; castaway.footScale = 1.5f;
+            castaway.BuildInEditor();
+
+            // Clips bind: a non-null avatar (no NoAvatar freeze) + the Idle/Walk controller assigned.
+            var animator = castaway.GetComponentInChildren<Animator>(true);
+            Assert.IsNotNull(animator, "the stylized avatar must carry an Animator");
+            Assert.IsNotNull(animator.avatar,
+                "the Animator must keep its FBX avatar after stylization (null avatar = bind/T-pose freeze)");
+            Assert.IsNotNull(animator.runtimeAnimatorController,
+                "the Idle/Walk controller must bind on the stylized avatar (clips drive the scaled rig)");
+
+            // The Head bone carries the baseline scale on the rig the clips animate (the dial landed).
+            var head = CastawayProportions.FindHeadBone(castaway.transform);
+            Assert.IsNotNull(head, "the stylized avatar must keep its Head bone (rig intact)");
+            Assert.That(head.localScale.x, Is.InRange(3.4f, 3.6f),
+                "the Head bone must carry the ~3.5 stylization baseline scale after build (the dial " +
+                "landed on the animated rig) — actual=" + head.localScale.x.ToString("0.00"));
+
+            Object.DestroyImmediate(go);
+        }
+
         // Per-part smoothness must DIFFERENTIATE (cloth matte vs skin/hair/eyes glossier) so the
         // figure reads "detailed/polished" rather than uniformly flat-matte (the spike's iter7 polish
         // gap). A regression that flattens every part to one smoothness fails here.
