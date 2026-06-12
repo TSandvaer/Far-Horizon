@@ -39,6 +39,11 @@ namespace FarHorizon.EditorTools
             EnsureDirs();
             SetProjectIdentity();
             ConfigureUrp();
+            // U6 (86ca86fz9): configure the castaway FBX importer (Generic+CreateFromThisModel,
+            // height-normalize, loop Idle/Walk) + build the Idle<->Walk AnimatorController BEFORE the
+            // scene is authored, so BuildBootScene's player build (MovementCameraScene.BuildPlayer)
+            // can instantiate + serialize the avatar's SkinnedMeshRenderer/bones/controller.
+            CharacterAssetGen.PrepareCharacter();
             WriteBuildStamp("zoned");
             var scene = BuildBootScene();
 
@@ -46,10 +51,12 @@ namespace FarHorizon.EditorTools
             // (terrain / scatter / water / lighting / fog / post / skybox) onto the boot scene as an
             // additive "Environment" root, then re-save so it ships in the build. Built AFTER the boot
             // scene exists so Camera.main is available for camera post-processing. ENVIRONMENT-only —
-            // the player/camera/input systems land separately (U3), independently under their own root.
+            // the player/camera/input systems land under their own root (U3 + the U6 castaway avatar,
+            // authored inside BuildBootScene -> MovementCameraScene.Author). This combined boot scene
+            // now carries the full first-slice: Zone-D environment + orbit camera + castaway player.
             WorldBootstrap.BuildEnvironment();
             EditorSceneManager.SaveScene(scene, BootScenePath);
-            Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved");
+            Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved (full slice: env + castaway player)");
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

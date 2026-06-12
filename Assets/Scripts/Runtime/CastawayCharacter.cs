@@ -1,0 +1,241 @@
+using UnityEngine;
+using UnityEngine.AI;
+
+namespace FarHorizon
+{
+    /// <summary>
+    /// The player's visual avatar: a real rigged CC0 low-poly CLOTHED character (Quaternius
+    /// "Animated Men" pack, Smooth_Male_Casual.fbx, CC0 1.0) with the warm castaway recolor — the
+    /// Sponsor-approved "appealing" character from the engine-eval spike (iter7/8,
+    /// EmbergraveUnitySlice). This is U6 (ticket 86ca86fz9): it REPLACES the U3 capsule placeholder
+    /// visual on the merged movement rig.
+    ///
+    /// WHY A BAKED SKINNED MESH (the durable fix for a bug CLASS): the spike's earlier PROCEDURAL
+    /// humanoid shipped BROKEN in the exe — "legs pointing upwards" — because an Awake-assembled
+    /// hierarchy serialized differently than the editor-time build (unity-conventions.md
+    /// §editor-vs-runtime). A skinned mesh with a baked bone skeleton + imported clips CANNOT exhibit
+    /// that failure by construction: the skeleton + skin live in the FBX, not assembled at runtime.
+    /// The model child + materials are built EDITOR-TIME (BuildInEditor, called by
+    /// MovementCameraScene) so they SERIALIZE into Boot.unity; runtime code only animates what's
+    /// serialized.
+    ///
+    /// SELF-DRIVING (the U5/U3 seam): this component lives on a CHILD avatar root under the player
+    /// (so its avatar-height scale doesn't scale the NavMeshAgent), and reads the player's
+    /// <see cref="NavMeshAgent"/> velocity (resolved from the parent) itself each frame to flip the
+    /// Idle&lt;-&gt;Walk Animator blend and yaw the model toward travel. It does NOT modify ClickToMove
+    /// — keeping this PR's surface to the player visual/rig only, so it rebases cleanly against Drew's
+    /// U5 environment PR. The agent has updateRotation=false (ClickToMove owns that contract), so the
+    /// visual owns facing.
+    ///
+    /// CASTAWAY RECOLOR (iter-8, 6-part): the Animated-Men FBX has SIX distinct materials
+    /// (Shirt / Skin / Pants / Eyes / Socks / Hair — verified by probe). A 4-slot assumption silently
+    /// erased the face (Eyes-&gt;skin) — see <see cref="CastawayColorFor(string,Color,Color,Color,Color,Color)"/>.
+    /// All six map distinctly to the warm sun-worn survivor palette from the v3 design reference.
+    /// </summary>
+    public class CastawayCharacter : MonoBehaviour
+    {
+        [Header("Model source (wired by MovementCameraScene at author time)")]
+        // The imported FBX prefab (the Animated-Men clothed character: rig + bundled Man_Idle/Man_Walk
+        // clips) and the Idle<->Walk controller. CharacterAssetGen produces both.
+        public GameObject modelPrefab;
+        public RuntimeAnimatorController animatorController;
+
+        [Header("Castaway recolor — per-part palette (v3 design reference; iter-8 warmer + 6-part)")]
+        public Color skin  = new Color(0.80f, 0.56f, 0.40f);  // tan, sun-worn (Skin/Body/Socks)
+        public Color shirt = new Color(0.66f, 0.42f, 0.28f);  // warm rust/terracotta ragged shirt
+        public Color pants = new Color(0.32f, 0.23f, 0.15f);  // dark walnut rolled-up trousers
+        public Color hair  = new Color(0.66f, 0.46f, 0.22f);  // sun-bleached sandy/blond hair
+        public Color eyes  = new Color(0.16f, 0.12f, 0.10f);  // dark eyes so the face reads
+
+        [Header("Facing")]
+        [Tooltip("How fast the body yaws toward the travel direction (higher = snappier).")]
+        public float turnLerp = 12f;
+
+        [Header("Locomotion thresholds")]
+        [Tooltip("Planar speed (u/s) above which the character is considered walking (drives the " +
+                 "Idle<->Walk blend). Squared internally.")]
+        public float walkSpeedThreshold = 0.15f;
+
+        // Animator parameter the controller blends on (set each frame from the agent's velocity).
+        public const string MovingParam = "Moving";
+
+        private NavMeshAgent _agent;
+        private Animator _animator;
+        private Transform _model;       // the instantiated FBX root, yaw-rotated toward facing
+        private float _bodyYaw;
+        private Vector3 _lastFacing = Vector3.forward;
+        private bool _built;
+
+        // Exposed for tests / later systems: current Idle/Walk state read off the agent.
+        public bool IsWalking { get; private set; }
+
+        void Awake()
+        {
+            // The agent lives on the player ROOT (this component is on a child avatar root so its
+            // height-scale doesn't scale the agent). Resolve it from the parent chain.
+            _agent = GetComponentInParent<NavMeshAgent>();
+            if (_agent == null)
+                Debug.LogWarning("[CastawayCharacter] no NavMeshAgent found in parents — the " +
+                                 "Idle<->Walk anim + facing won't drive (avatar must be a child of the " +
+                                 "player root that carries the agent)");
+            // If the author-time build already serialized the Model child into the scene (the ship
+            // path), re-bind to it rather than re-instantiate. Otherwise build at runtime (defensive
+            // fallback — should not happen for the shipped scene).
+            if (transform.childCount > 0 && _model == null) RebindFromHierarchy();
+            if (!_built) BuildModel();
+        }
+
+        /// <summary>
+        /// Editor build entry: MovementCameraScene calls this so the Model child + materials + the
+        /// Animator controller reference SERIALIZE into Boot.unity (the editor-vs-runtime
+        /// serialization lesson — the shipped scene must reference a serialized skinned/boned avatar,
+        /// not assemble a hierarchy in Awake). Idempotent: clears prior children first.
+        /// </summary>
+        public void BuildInEditor()
+        {
+            for (int i = transform.childCount - 1; i >= 0; i--)
+                DestroyImmediate(transform.GetChild(i).gameObject);
+            _model = null; _animator = null; _built = false;
+            BuildModel();
+        }
+
+        private void RebindFromHierarchy()
+        {
+            _model = transform.childCount > 0 ? transform.GetChild(0) : null;
+            _animator = GetComponentInChildren<Animator>();
+            _built = _model != null;
+        }
+
+        private void BuildModel()
+        {
+            if (modelPrefab == null)
+            {
+                Debug.LogError("[CastawayCharacter] modelPrefab not wired — cannot build avatar");
+                return;
+            }
+
+            // Instantiate the imported FBX under the avatar root. In the editor-build path the
+            // resulting SkinnedMeshRenderer + bone hierarchy SERIALIZE into Boot.unity, so the
+            // shipped exe loads the SAME baked skeleton the editor sees (no Awake-assembled hierarchy
+            // to diverge — the legs-up lesson). Works for both editor-build + runtime-fallback with no
+            // UnityEditor dependency.
+            GameObject go = Instantiate(modelPrefab, transform, false);
+            go.name = "Model";
+            go.transform.localPosition = Vector3.zero;   // FBX origin is at the feet -> grounded feet
+            go.transform.localRotation = Quaternion.identity;
+            _model = go.transform;
+
+            _animator = go.GetComponentInChildren<Animator>();
+            if (_animator == null) _animator = go.AddComponent<Animator>();
+            // Preserve the FBX-imported avatar (the Generic-rig skeleton built by CreateFromThisModel)
+            // — assigning only the controller keeps _animator.avatar, which the clips bind to. A null
+            // avatar means the FBX imported with NoAvatar and the model freezes in its bind/T-pose.
+            if (_animator.avatar == null)
+                Debug.LogWarning("[CastawayCharacter] Animator has NO avatar — clips will not bind " +
+                                 "(FBX must import with avatarSetup=CreateFromThisModel)");
+            if (animatorController != null) _animator.runtimeAnimatorController = animatorController;
+            _animator.applyRootMotion = false; // NavMeshAgent drives position; anim is in-place
+
+            ApplyCastawayRecolor(go);
+            _built = true;
+        }
+
+        // Tint the character's flat per-part materials toward the castaway read. The Animated-Men
+        // character carries SIX SEPARATE materials (Shirt / Skin / Pants / Eyes / Socks / Hair); map
+        // each name to the castaway palette so the silhouette reads as a detailed young sun-worn
+        // survivor, not the pack default OR a featureless single-tone collapse. Per-part SMOOTHNESS
+        // varies (cloth matte, skin/hair glossier, eyes specular) for a "detailed/polished" read.
+        private void ApplyCastawayRecolor(GameObject root)
+        {
+            var renderers = root.GetComponentsInChildren<Renderer>(true);
+            foreach (var r in renderers)
+            {
+                var mats = r.sharedMaterials;
+                var copy = new Material[mats.Length];
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var src = mats[i];
+                    string name = src != null ? src.name : null;
+                    copy[i] = MakeLitMaterial(CastawayColorFor(name),
+                                              SmoothnessFor(name),
+                                              "Castaway_" + (name ?? i.ToString()));
+                }
+                r.sharedMaterials = copy;
+            }
+        }
+
+        /// <summary>
+        /// Map a source material name to the castaway palette part-color (case-insensitive substring).
+        /// Public + static so the EditMode recolor test can assert the mapping without instantiating.
+        /// Handles all SIX Animated-Men materials. Eyes get a dark tone (the face reads); Socks read
+        /// as bare tan feet (the castaway is barefoot). Unknown names fall back to skin (safe warm).
+        /// </summary>
+        public static Color CastawayColorFor(string materialName,
+            Color skin, Color shirt, Color pants, Color hair, Color eyes)
+        {
+            string n = materialName != null ? materialName.ToLowerInvariant() : "";
+            if (n.Contains("eye")) return eyes;
+            if (n.Contains("hair")) return hair;
+            if (n.Contains("shirt") || n.Contains("cloth") || n.Contains("top")) return shirt;
+            if (n.Contains("pant") || n.Contains("trouser") || n.Contains("leg") || n.Contains("short")) return pants;
+            // Skin / Body / Head / Face / Socks (bare feet) / default -> tan sun-worn skin.
+            return skin;
+        }
+
+        private Color CastawayColorFor(string materialName)
+            => CastawayColorFor(materialName, skin, shirt, pants, hair, eyes);
+
+        /// <summary>
+        /// Per-part smoothness: cloth (shirt/pants) matte; skin + hair catch a touch more of the warm
+        /// key; eyes are the glossiest (a small specular dot for life). Kept low overall — the
+        /// low-poly look reads by shape + shading, not gloss. Public + static for the EditMode test.
+        /// </summary>
+        public static float SmoothnessFor(string materialName)
+        {
+            string n = materialName != null ? materialName.ToLowerInvariant() : "";
+            if (n.Contains("eye")) return 0.45f;
+            if (n.Contains("hair")) return 0.18f;
+            if (n.Contains("skin") || n.Contains("body") || n.Contains("sock")) return 0.14f;
+            return 0.06f; // cloth (shirt/pants) — matte
+        }
+
+        void LateUpdate()
+        {
+            // Read the agent's planar velocity each frame and drive the Idle<->Walk blend + facing.
+            // Self-driving keeps this PR's surface to the visual only (no ClickToMove edit).
+            Vector3 vel = _agent != null ? _agent.velocity : Vector3.zero;
+            vel.y = 0f;
+            bool walking = vel.sqrMagnitude > (walkSpeedThreshold * walkSpeedThreshold);
+            IsWalking = walking;
+            if (walking) _lastFacing = vel.normalized;
+
+            if (_animator != null && _animator.runtimeAnimatorController != null)
+                _animator.SetBool(MovingParam, walking);
+
+            // Yaw the model smoothly toward the travel facing (frame-rate-independent lerp).
+            Vector3 face = _lastFacing; face.y = 0f;
+            if (face.sqrMagnitude > 0.0001f)
+            {
+                float target = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
+                _bodyYaw = Mathf.LerpAngle(_bodyYaw, target, 1f - Mathf.Exp(-turnLerp * Time.deltaTime));
+            }
+            if (_model != null)
+                _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
+        }
+
+        // Build-safe URP Lit material WITHOUT editor code (the magenta-strip lesson: URP/Lit must be
+        // registered in AlwaysIncludedShaders by the author step so it survives in the stripped exe).
+        public static Material MakeLitMaterial(Color color, float smoothness, string name)
+        {
+            Shader sh = Shader.Find("Universal Render Pipeline/Lit");
+            if (sh == null) sh = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (sh == null) sh = Shader.Find("Standard");
+            var mat = new Material(sh) { name = name };
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+            return mat;
+        }
+    }
+}

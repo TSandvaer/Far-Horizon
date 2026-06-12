@@ -19,6 +19,7 @@
 
 # Verification / soak artifacts (regenerable from batchmode + the build)
 /Captures/
+/VerifyCaptures/
 /ci-out/
 *.log
 test-results.xml
