@@ -43,6 +43,16 @@ namespace FarHorizon.EditorTools
         // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
         private const float PlayerVisualHeight = 1.8f;
 
+        // ---- Hero axe anchor colors (ticket 86ca8ce6y, Tess-verified anchors from style-guide-v2.md §6 /
+        // inspiration/2026-06-12_21h08_08.png). Sub-1.0 / HDR-safe. The HeroAxeMesh builder is geometry-
+        // only and color-agnostic; these are the SINGLE source of truth for the prop palette, exposed so
+        // HeroAxeSceneTests can assert the shipped material colors stay within the guide's anchors. ----
+        public static readonly Color AxeHeadColor = new Color(0.64f, 0.23f, 0.19f); // barn red   #A33B30
+        public static readonly Color AxeBevelColor = new Color(0.89f, 0.89f, 0.86f); // pale steel #E4E2DC
+        public static readonly Color AxeHaftColor = new Color(0.48f, 0.32f, 0.19f); // warm brown #7A5230
+        // Name of the hero-axe GameObject under the CraftSpot — the scene-presence test keys on it.
+        public const string HeroAxeObjectName = "HeroAxe";
+
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
         /// scene. The caller (BootstrapProject.BuildBootScene) has already created the scene with
@@ -202,17 +212,19 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
 
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
-        // crafts the axe. A small build-safe URP/Lit "stump/bench" placeholder (no art polish — U2-4+
-        // and Uma own the real craft-station look). NO collider so it never blocks the ground raycast or
-        // the NavMesh (the player walks ONTO the spot). CraftSpot's Inventory + player refs are wired
-        // editor-time so they serialize into Boot.unity (editor-vs-runtime trap).
+        // crafts the axe. A small chopping-block stump the castaway walks ONTO, with the STYLIZED HERO AXE
+        // (ticket 86ca8ce6y — the style-wave anchor) displayed resting in it so the loop's hero tool reads
+        // "in the world" the whole time (style-guide-v2.md §3: the axe is on-screen constantly). NO collider
+        // so it never blocks the ground raycast or the NavMesh. The stump + axe meshes + CraftSpot's
+        // Inventory/player refs are authored editor-time so they serialize into Boot.unity (editor-vs-runtime
+        // trap — an Awake-built prop ships mangled, the "legs-up" class).
         private static void BuildCraftSpot(GameObject player, int groundLayer)
         {
             var spot = new GameObject("CraftSpot");
             spot.transform.position = CraftSpotPosition;
 
-            // A small low cylinder as a placeholder "crafting stump" so the spot is VISIBLE in the exe
-            // (the player needs something to walk toward). Primitive cylinder, collider stripped.
+            // A small low cylinder as the "chopping block" the player walks toward. Primitive cylinder,
+            // collider stripped. The hero axe rests in it (below).
             var visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             visual.name = "CraftStump";
             Object.DestroyImmediate(visual.GetComponent<Collider>()); // no block on raycast / NavMesh
@@ -232,6 +244,9 @@ namespace FarHorizon.EditorTools
                 EnsureShaderAlwaysIncluded(litShader);
             }
 
+            // The stylized HERO AXE displayed resting in the block, head up — the style-wave anchor.
+            BuildHeroAxe(spot, new Vector3(0f, 0.70f, 0f));
+
             var craft = spot.AddComponent<CraftSpot>();
             craft.player = player.transform;
             craft.inventory = Object.FindObjectOfType<Inventory>();
@@ -246,6 +261,77 @@ namespace FarHorizon.EditorTools
 
             Debug.Log("[MovementCameraScene] authored CraftSpot at " + CraftSpotPosition +
                       " (inventory wired: " + (craft.inventory != null) + ")");
+        }
+
+        // The stylized HERO AXE (ticket 86ca8ce6y — the FIRST style-wave anchor, establishes the board's
+        // tool language). A single 3-submesh mesh (HEAD / BEVEL / HAFT — HeroAxeMesh.Build) with a matching
+        // 3-material array (barn-red head / pale-steel edge bevel / warm-brown haft, the Tess-verified
+        // anchors). The mesh + the inline materials serialize into Boot.unity (no .mat churn, same idiom as
+        // LowPolyZoneGen scatter props) — editor-time authored, NOT Awake-built (the "legs-up" trap).
+        //
+        // Read like inspiration/2026-06-12_21h08_08.png: faceted barn-red wedge head, a distinct near-white
+        // chamfer plane along the cutting edge (the signature — GEOMETRY catching light, not a texture line),
+        // a small horn/poll, and a chunky gently-bent brown haft. Hard-faceted (flat normals) so the bevel
+        // reads as a separate bright plane — see HeroAxeMesh for the shading rationale.
+        private static void BuildHeroAxe(GameObject parent, Vector3 localPos)
+        {
+            var axe = new GameObject(HeroAxeObjectName);
+            axe.transform.SetParent(parent.transform, false);
+            axe.transform.localPosition = localPos;
+            // Display pose: stand head-up, canted a touch so the bright bevel + faceted cheeks catch the key
+            // light at orbit distance (mild hand-made tilt, not a museum-square mount).
+            axe.transform.localRotation = Quaternion.Euler(0f, 35f, 12f);
+
+            var mf = axe.AddComponent<MeshFilter>();
+            mf.sharedMesh = HeroAxeMesh.Build();
+            var mr = axe.AddComponent<MeshRenderer>();
+
+            // 3-material array in submesh order (HEAD=0, BEVEL=1, HAFT=2). Inline URP/Lit, matte so the
+            // low-poly reads by shape + facet shading, not gloss — except the bevel gets a touch more
+            // smoothness so the near-white edge plane CATCHES the key as the signature highlight.
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            var mats = new Material[HeroAxeMesh.SUBMESH_COUNT];
+            mats[HeroAxeMesh.SUBMESH_HEAD] = MakeAxeMat(litShader, AxeHeadColor, 0.10f, "HeroAxeHeadMat");
+            mats[HeroAxeMesh.SUBMESH_BEVEL] = MakeAxeMat(litShader, AxeBevelColor, 0.45f, "HeroAxeBevelMat");
+            mats[HeroAxeMesh.SUBMESH_HAFT] = MakeAxeMat(litShader, AxeHaftColor, 0.06f, "HeroAxeHaftMat");
+            mr.sharedMaterials = mats;
+            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+
+            // Wire the verification-only shipped-build AXE CLOSE-UP capture (drives a dedicated camera
+            // onto the cutting edge so the signature bevel plane is framed edge-on) onto the Boot object —
+            // sibling of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe.
+            // This gives the edge-bevel claim a committed, repeatable shipped-build capture path (the
+            // -verifyCraft shot frames the axe top-down where the bevel faces away — Tess's PR #21 NIT).
+            WireAxeVerifyCapture();
+
+            Debug.Log("[MovementCameraScene] authored HeroAxe under CraftSpot (submeshes=" +
+                      mf.sharedMesh.subMeshCount + ", head/bevel/haft anchors applied)");
+        }
+
+        private static void WireAxeVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host AxeVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<AxeVerifyCapture>() == null)
+                bootGo.AddComponent<AxeVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // A flat-color URP/Lit material for an axe part. NOT persisted as a .mat asset — assigned to
+        // sharedMaterials it serializes INLINE into the saved scene (ships in the standalone build), the
+        // same churn-free idiom LowPolyZoneGen uses for scatter props.
+        private static Material MakeAxeMat(Shader litShader, Color c, float smoothness, string name)
+        {
+            if (litShader == null) return null;
+            var mat = new Material(litShader) { name = name };
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", c);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+            return mat;
         }
 
         private static void WireCraftVerifyCapture(GameObject player)
