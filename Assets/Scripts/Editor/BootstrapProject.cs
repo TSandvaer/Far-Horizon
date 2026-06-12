@@ -183,6 +183,17 @@ namespace FarHorizon.EditorTools
             // serialization trap; inert unless the exe is launched with -captureGate.
             hudGo.AddComponent<CaptureGate>();
 
+            // U2-1 (86ca8bd9m): the single survival need — WARMTH decays over time and drives the
+            // M-U2 loop; the campfire (U2-4) answers it via WarmthNeed's satisfaction hook. The
+            // placeholder WarmthReadout shows the decay in the shipped exe (U2-5's real HUD supersedes
+            // it). Both are SERIALIZED into the scene here editor-time (NOT Awake) per the
+            // editor-vs-runtime serialization trap (unity-conventions.md) — an Awake-only add could
+            // ship mangled/absent; CaptureGateSceneTests' sibling WarmthNeedSceneTests guards this.
+            var survivalGo = new GameObject("Survival");
+            var warmth = survivalGo.AddComponent<WarmthNeed>();
+            var readout = survivalGo.AddComponent<WarmthReadout>();
+            readout.need = warmth; // wire the readout to the need editor-time (serialized reference)
+
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
             MovementCameraScene.Author(camGo);
