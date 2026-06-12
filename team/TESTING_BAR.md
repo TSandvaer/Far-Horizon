@@ -36,3 +36,16 @@ So every PR carries the same shape of proof (and reviewers/CI know exactly what 
 3. **Shipped-build capture** — run `.github/workflows/scripts/capture_gate.sh Build/Windows/FarHorizon.exe` against your own build and attach/quote the `frame_check.py` PASS line + the build stamp. Editor evidence is necessary, never sufficient (unity-conventions.md §editor-vs-runtime).
 
 **The standard capture component:** new verification captures use the reusable `CaptureGate` MonoBehaviour (launched with `-captureGate`, serialized into the Boot scene), not a new one-off hook — the gate scripts inspect its `capture_NN.png` output. One-off probes (`-verifyMove`, feature-specific tours) remain fine for proving a SPECIFIC behavior, but the black/empty-frame backstop standardizes on `CaptureGate`.
+
+---
+
+## Multi-step-loop coverage — the full-cycle convention (U2-7, ticket 86ca8bdhy)
+
+When a feature is a CHAIN of beats that hand state to each other (the M-U2 survival loop: decay → craft → chop → place → restore), per-beat suites tested in isolation are necessary but NOT sufficient — they each spin up their OWN throwaway rig, so a regression in the HAND-OFF between beats (the chopped wood reaching the placement gate; the lit fire restoring the SAME need instance the decay drained) can pass every isolated suite and still ship a broken loop. The convention is a two-tier loop gate:
+
+1. **One in-process end-to-end PlayMode test on ONE shared rig** drives the whole chain in a single sequence, asserting at each beat on the SAME state the previous beat mutated (`SurvivalLoopPlayModeTests.FullCycle_EndToEnd_ClosesTheLoop` is the template). This catches hand-off regressions headless/fast; it runs through real `Update` + a real `Time.time` window (never per-frame deltas — the headless `Time.deltaTime~=0` trap, unity-conventions.md §headless time).
+2. **The shipped-build `-verifyLoop` capture** (`CampfireVerifyCapture`, logs `LOOP CLOSED=`) drives the SAME chain through the real NavMesh + click-move in the exe and quits non-zero if the loop does not close — the editor-vs-runtime backstop the in-process test cannot provide.
+
+**Lifecycle trap when constructing the rig:** a `WarmthNeed` (or any `MonoBehaviour` with `Start`-seeded state) added via `AddComponent` in `[SetUp]` runs `Start()` BEFORE the test body executes — set `startFull = true` in SetUp so `Start()` deterministically seeds the value, then re-seed per-test AFTER the first `yield return null` via the public hooks (`SatisfyFull`/`AddWarmth`); never rely on a SetUp-set inspector flag still being read at `Start` time.
+
+**Success-test discipline (the loop-break catch):** a multi-step-loop PR must DEMONSTRATE the end-to-end test catches a deliberate break of the closing seam (PR body documents: break locally → red, with the failing assertion + values; restore → green). For U2-7 the break was no-op'ing `Campfire.AddWarmth` — warmth then kept decaying at the fire (`0.88 < 0.99`), turning the Beat-4 `Assert.Greater` red exactly as designed.
