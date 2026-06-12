@@ -36,8 +36,11 @@ When you finish a task (or a coherent chunk of work):
    - `git push origin HEAD:priya/m-u2-backlog`
    - `git push origin HEAD:orchestrator/<scope>` (orchestrator only)
 6. **Open a PR** with `gh pr create --base main --head <branch> --title "<commit title>" --body "<short why + ClickUp link>"`.
-7. **Merge via the GitHub API** with `gh pr merge <PR#> --squash --delete-branch --admin`. The `--admin` flag is required because `main` is protected; only the orchestrator-class identity has it. Squash-merge is the default — keeps `main` linear.
-8. After merge: `git fetch origin && git reset --hard origin/main` to sync your local main back to the squashed tip.
+7. **Merge via the GitHub API** — the orchestrator's actual merge ritual (used on PRs #3–#16), in order:
+   1. **Detach the author's worktree first.** Before merging, the worktree that pushed the branch must NOT have that branch checked out (`gh pr merge --delete-branch` fails to delete a branch that's checked out somewhere). Detach with `git -C <author-worktree> checkout --detach` (or reset it to `origin/main`). The merging identity is the orchestrator (or Priya for `chore(triage)` / `docs(team)`) — never the author (§ "Tess sign-off via PR").
+   2. **Merge:** `gh pr merge <PR#> -R TSandvaer/Far-Horizon --admin --squash --delete-branch`. The `-R TSandvaer/Far-Horizon` repo flag pins the target repo so the call doesn't depend on the cwd's remote. The `--admin` flag is required because `main` is protected; only the orchestrator-class identity has it. Squash-merge is the default — keeps `main` linear.
+   3. **Pull:** `git fetch origin && git reset --hard origin/main` to sync your local main back to the squashed tip.
+   4. **Verify no divergence:** `git log origin/main..main` must be **empty** after the pull. A non-empty result means a local commit didn't make it onto the squashed tip — stop and reconcile before continuing (memory `gh-merge-local-divergence-guard`).
 
 `git push origin main` is **denied** by the harness — don't try; you'll waste a tool call. Force-pushes (`--force`, `--force-with-lease`) are also denied.
 
