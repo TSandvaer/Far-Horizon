@@ -74,6 +74,14 @@ namespace FarHorizon.EditorTools
             // Survival object (added by BootstrapProject before this runs); we find + wire them here.
             BuildCraftSpot(player, groundLayer);
 
+            // U2-3 (86ca8bdd8): the choppable tree — the "do work in the world" beat. A Zone-D low-poly
+            // tree the castaway click-moves to; reaching it WITH the axe (U2-2) chops it for wood. Authored
+            // editor-time so the tree mesh + ChopTree's Inventory/player/visual refs SERIALIZE into
+            // Boot.unity (editor-vs-runtime trap). Built AFTER the craft spot (so the loop reads
+            // spawn -> craft axe -> chop tree) and BEFORE the NavMesh bake (the tree has no collider, so
+            // it neither blocks the ground raycast nor the bake — the player walks up to it).
+            BuildChopTree(player, groundLayer);
+
             // Bake AFTER the walkable ground exists, then SAVE the data as an asset so it ships.
             BakeAndSaveNavMesh(ground, groundLayer);
 
@@ -244,6 +252,97 @@ namespace FarHorizon.EditorTools
             cap.player = player.GetComponent<ClickToMove>();
             cap.inventory = Object.FindObjectOfType<Inventory>();
             cap.craftSpot = CraftSpotPosition;
+        }
+
+        // World position of the choppable tree on the flat test ground (U2-3, 86ca8bdd8). Distinct from
+        // spawn (origin) and the craft spot (8,6) so the loop is a real journey: spawn -> craft axe ->
+        // chop tree. Comfortably inside the GroundHalf=30 walkable extent + on the NavMesh.
+        // ChopVerifyCapture drives the player here (after the craft spot) to prove the chop in the exe.
+        public static readonly Vector3 ChopTreePosition = new Vector3(-9f, 0f, -7f);
+
+        // The choppable tree (U2-3, 86ca8bdd8): a Zone-D low-poly tree (welded trunk + faceted canopy,
+        // the same smooth-shaded mesh idiom as LowPolyZoneGen's scatter trees — we RIDE the established
+        // Zone-D look, not invent a fresh prop, per the art-direction gate). The castaway click-moves to
+        // it; reaching it WITH the axe chops it for wood. NO collider on the tree so it never blocks the
+        // ground raycast or the NavMesh (the player walks up to the trunk). ChopTree's Inventory + player
+        // + visual refs are wired editor-time so they serialize into Boot.unity (editor-vs-runtime trap).
+        private static void BuildChopTree(GameObject player, int groundLayer)
+        {
+            var tree = new GameObject("ChopTree");
+            tree.transform.position = ChopTreePosition;
+
+            // The visual: a low-poly trunk + canopy, parented so ChopTree can tween the whole visual on
+            // felling (sink + tip) without moving the interaction's proximity origin. Built editor-time
+            // (meshes assigned to MeshFilters + inline materials) so it serializes into the scene.
+            var visual = new GameObject("TreeVisual");
+            visual.transform.SetParent(tree.transform, false);
+            visual.transform.localPosition = Vector3.zero;
+
+            // Warm bark trunk + warm canopy green from the Zone-D palette (sub-1.0, HDR-safe).
+            Color trunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark (LowPolyZoneGen.TrunkCol)
+            Color leafCol = new Color(0.35f, 0.50f, 0.24f);  // warm canopy (between LeafLo/LeafHi)
+
+            const float trunkH = 1.8f;
+            BuildTreePart(visual, "Trunk", LowPolyMeshes.TaperedCylinder(0.22f, 0.15f, trunkH, 6),
+                trunkCol, Vector3.zero, "ChopTrunkMat");
+            BuildTreePart(visual, "Canopy", LowPolyMeshes.FacetedSphere(1.35f, 1, 0.18f, 8123),
+                leafCol, new Vector3(0f, trunkH + 0.8f, 0f), "ChopCanopyMat");
+
+            var chop = tree.AddComponent<ChopTree>();
+            chop.player = player.transform;
+            chop.inventory = Object.FindObjectOfType<Inventory>();
+            chop.visual = visual.transform;
+            if (chop.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire ChopTree to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            // Wire the verification-only shipped-build CHOP capture (drives the player to craft the axe,
+            // then to the tree, proves wood is yielded in the BUILT exe) onto the Boot object — sibling
+            // of the craft/movement verify captures. Inert unless launched with -verifyChop.
+            WireChopVerifyCapture(player);
+
+            Debug.Log("[MovementCameraScene] authored ChopTree at " + ChopTreePosition +
+                      " (inventory wired: " + (chop.inventory != null) + ")");
+        }
+
+        // Build one part of the chop tree's visual (trunk or canopy): a child GameObject with the given
+        // welded smooth-shaded mesh + an inline URP/Lit material (serializes into the scene, no .mat
+        // churn). Matte smoothness so the low-poly reads by shape + shading, not gloss.
+        private static void BuildTreePart(GameObject parent, string name, Mesh mesh, Color color,
+            Vector3 localPos, string matName)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = matName };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
+                mr.sharedMaterial = mat; // inline -> serializes into the scene, no asset churn
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        private static void WireChopVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host ChopVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<ChopVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<ChopVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.craftSpot = CraftSpotPosition;
+            cap.treeSpot = ChopTreePosition;
+            EditorUtility.SetDirty(bootGo);
         }
 
         // The player: NavMeshAgent + ClickToMove + the U6 castaway avatar (replaces the U3 capsule
