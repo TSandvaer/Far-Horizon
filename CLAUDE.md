@@ -10,7 +10,7 @@ A 3D survival game built in **Unity 6 (6000.4.10f1) / URP**, desktop-first (Wind
 - **Player character:** low-poly 3D castaway (Quaternius CC0 base, warm castaway recolor; young + happy identity per the archived PixelLab design sheets in RandomGame `_castaway_judge/`).
 - **Distribution:** Windows desktop build (`Build/Windows/FarHorizon.exe`). No HTML5/WebGL target.
 - **Tracker:** ClickUp list **"Far Horizon"** (list id `901523878268`, space `90156932495`). The RandomGame list is the Godot-era archive.
-- **PixelLab:** subscription kept but IDLE (Sponsor decision 2026-06-12) — pixel-art-native, ruled out for characters/world; candidate for UI/icons/portraits later. See RandomGame `.claude/docs/pixellab-pipeline.md` for its capabilities/limits.
+- **PixelLab:** NOT a Far Horizon concern — Sponsor uses the subscription for other projects (verbatim 2026-06-12 evening: "im using pixellab for other projects, dont worry about it"); do not track its cost or revisit it as a project decision. Pixel-art-native, ruled out for this game's characters/world; the asset-creation route here is Blender + Blender MCP (see unity-conventions.md §Asset creation).
 
 ## Tech stack & project facts
 
