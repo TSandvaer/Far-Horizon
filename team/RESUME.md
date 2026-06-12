@@ -4,14 +4,13 @@
 
 **Current milestone:** M-U1 — 10 tickets (U1–U10) on list `901523878268`. The wave is **near-closed**:
 
-- **Complete + merged:** U1 (Unity 6/URP skeleton, root commit `3a6ef5c`), U2 (orchestration scaffold, `bfe1328`), U4 (CI — GitHub Actions structure gate + EditMode/PlayMode/build, PR #2 `aedcad4`), U9 (survival-roadmap.md, PR #1 `3df80d5`), U3 (PoE click-to-move + orbit camera on NavMesh, PR #3 `99555c9`), U5 (Zone-D look as production environment, PR #4 `cec316d`), U6 (CC0 castaway avatar on the U3 movement rig, PR #5 `28d9de7`).
-- **In QA:** U7 (testing-bar translation — EditMode + PlayMode + build-capture gate, PR #6, `ready for qa test`).
+- **Complete + merged:** U1 (Unity 6/URP skeleton, root commit `3a6ef5c`), U2 (orchestration scaffold, `bfe1328`), U4 (CI — GitHub Actions structure gate + EditMode/PlayMode/build, PR #2 `aedcad4`), U9 (survival-roadmap.md, PR #1 `3df80d5`), U3 (PoE click-to-move + orbit camera on NavMesh, PR #3 `99555c9`), U5 (Zone-D look as production environment, PR #4 `cec316d`), U6 (CC0 castaway avatar on the U3 movement rig, PR #5 `28d9de7`), U7 (testing-bar translation — EditMode + PlayMode + build-capture gate, PR #6 `a3edf04`).
 - **Open:** U8 (build-capture + soak-serve ritual for desktop builds, `to do`); U10 (this ticket — refresh RESUME.md + team docs, `in progress`).
 - **Open bug tickets (filed mid-wave, `to do`):** `fix(build)` FarHorizonBuilder.BuildWindows hardcodes Boot.unity (should respect `EditorBuildSettings.scenes`); `fix(world)` pale-shore spawn framing (first gameplay frame reads pale).
 
 **First Sponsor soak served** off `28d9de7` (U6 castaway-on-rig) today (2026-06-12) — the first interactive look at the ported foundation.
 
-**What's next:** M-U1 closes when U7 clears QA and U8 + U10 land (plus the two `fix(...)` tickets). **M-U2 (the thin survival loop — ONE need → craft axe → chop → campfire, Sponsor-locked thin) files when M-U1 closes.**
+**What's next:** M-U1 closes when U8 + U10 land (plus the two `fix(...)` tickets). **M-U2 (the thin survival loop — ONE need → craft axe → chop → campfire, Sponsor-locked thin) files when M-U1 closes.**
 
 **Live state:** `team/STATE.md` — read the "RESUME NEXT-ACTION" header FIRST; it is the orchestrator's point-in-time playbook and supersedes this doc for the exact next dispatch.
 
