@@ -119,9 +119,14 @@ namespace FarHorizon.EditorTools
             }
         }
 
-        // Minimal boot scene authored from code: a camera (URP clear), a directional light, and a
-        // single GameObject carrying the BootHud + BootScreenshot. Trivial-but-real: it opens,
-        // builds, and runs windowed, proving the whole pipeline (URP + scene + build + launch).
+        // Boot scene authored from code: the movement + camera foundation (U3 — ticket 86ca86fme)
+        // on a flat walkable test ground, plus a directional light + the BootHud/BootScreenshot
+        // object. The orbit camera (MovementCameraScene) replaces the static boot camera; the
+        // player + saved-asset NavMesh ship so click-to-move works in the standalone build.
+        //
+        // Editor-time authoring (not Awake) is mandatory: the editor-vs-runtime serialization trap
+        // (unity-conventions.md) ships Awake-built hierarchies MANGLED. Everything load-bearing is
+        // built here + saved into Boot.unity.
         private static void BuildBootScene()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -144,6 +149,10 @@ namespace FarHorizon.EditorTools
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<BootHud>();
             hudGo.AddComponent<BootScreenshot>();
+
+            // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
+            // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
+            MovementCameraScene.Author(camGo);
 
             EditorSceneManager.SaveScene(scene, BootScenePath);
             Debug.Log("[BootstrapProject] boot scene saved -> " + BootScenePath);
