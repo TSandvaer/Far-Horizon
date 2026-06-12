@@ -18,6 +18,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 SCRIPTS="$ROOT/.github/workflows/scripts"
 LOG_GATE="$SCRIPTS/check_unity_log.sh"
 FRAME_CHECK="$SCRIPTS/frame_check.py"
+VERIFY_STAMP="$SCRIPTS/verify_build_stamp.py"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -130,6 +131,40 @@ assert_rc_and_grep 1 "uniform/dead" "uniform frame fails" -- python3 "$FRAME_CHE
 assert_rc_and_grep 1 "magenta" "magenta frame fails (shader strip)" -- python3 "$FRAME_CHECK" "$TMP/magenta.png"
 assert_rc_and_grep 0 "2 frame(s) have real content" "good multi-frame dir passes" -- python3 "$FRAME_CHECK" "$TMP/goodset"
 assert_rc_and_grep 1 "found 0 frame(s)" "zero frames fails (silent-killer guard)" -- python3 "$FRAME_CHECK" "$TMP/emptyset" --min-frames 1
+
+echo "=== verify_build_stamp.py (soak stale-stamp guard, 86ca86gde) ==="
+
+# THE bug class this guards (unity-conventions.md §Headless/CLI): BuildWindows
+# does NOT regenerate BuildStamp.txt, the stamp is committed, so a soak that skips
+# bootstrap ships a stale sha and the Sponsor can't tell which build they're
+# running. The guard must FAIL on a sha != HEAD, not just on a missing file.
+
+# 1. Stamp sha == expected HEAD → PASS.
+printf 'zoned | 2026-06-12T14:43:12Z | a3edf04\n' > "$TMP/stamp_match.txt"
+assert_rc_and_grep 0 "matching HEAD" "stamp matching HEAD passes" \
+  -- python3 "$VERIFY_STAMP" "$TMP/stamp_match.txt" a3edf04
+
+# 2. THE regression guard — stamp sha != HEAD → FAIL (today's manual-soak incident:
+#    stamp said 28d9de7 while HEAD had moved on). This is the load-bearing case;
+#    a "file exists + parses" check alone passed all through the stale-stamp era.
+printf 'zoned | 2026-06-12T14:43:12Z | 28d9de7\n' > "$TMP/stamp_stale.txt"
+assert_rc_and_grep 1 "STALE STAMP" "stale stamp (sha != HEAD) fails" \
+  -- python3 "$VERIFY_STAMP" "$TMP/stamp_stale.txt" a3edf04
+
+# 3. Malformed stamp (missing the sha field) → FAIL loud, not silent-pass.
+printf 'zoned | 2026-06-12T14:43:12Z\n' > "$TMP/stamp_malformed.txt"
+assert_rc_and_grep 1 "malformed stamp" "malformed stamp fails loud" \
+  -- python3 "$VERIFY_STAMP" "$TMP/stamp_malformed.txt" a3edf04
+
+# 4. Empty stamp field (half-written) → FAIL.
+printf 'zoned |  | a3edf04\n' > "$TMP/stamp_empty.txt"
+assert_rc_and_grep 1 "malformed stamp" "empty middle field fails" \
+  -- python3 "$VERIFY_STAMP" "$TMP/stamp_empty.txt" a3edf04
+
+# 5. Unreadable / missing file → FAIL (a check that can't read its input is a
+#    failure, never a pass).
+assert_rc_and_grep 1 "cannot read" "missing stamp file fails loud" \
+  -- python3 "$VERIFY_STAMP" "$TMP/does_not_exist.txt" a3edf04
 
 echo "=== structure_check.sh throwaway-artifact guard ==="
 
