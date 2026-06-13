@@ -452,9 +452,14 @@ namespace FarHorizon.EditorTools
                 float worldZ = Mathf.Lerp(nearZ, farZ, fz); // fz=0 near shore, fz=1 deep sea
                 float localX = (fx - 0.5f) * waterWidth;
                 verts[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
-                // Near-shore BRIGHT shallows -> deeper seaward. A mild ease so the bright band hugs the
-                // coast (where the eye lands) and the deep teal fills the distance toward the horizon.
-                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(fz * 1.25f));
+                // Near-shore BRIGHT shallows dominate the band the eye actually sees, fading to deeper
+                // teal only FAR out. Keyed off WORLD Z (a fixed ~70u bright band off the coast) rather
+                // than the 0..1 grid fraction, because the grid runs 220u deep — a 0..1 ease would put
+                // the deep teal across most of the near water, and at this view distance the distance
+                // fog already greys the far water, so without a wide bright band the visible sea reads
+                // grey, not the toy-bright teal the shore needs (shipped-capture finding, drew/beach-water).
+                float seawardDist = nearZ - worldZ; // 0 at the coast, grows out to sea
+                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 70f));
                 Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
                 c.a = 1f;
                 cols[i] = c;
