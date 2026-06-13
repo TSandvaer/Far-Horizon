@@ -1,0 +1,22 @@
+Mini Chibi Kid — asset attribution
+===================================
+
+Model:   "Mini Chibi Kid"
+Author:  joaobaltieri (Sketchfab)
+Source:  Sketchfab
+License: CC Attribution (CC-BY)
+
+This asset is used under the Creative Commons Attribution license, which REQUIRES
+attribution to the original author. Credit must be retained in any distribution of
+the game (e.g. an in-game / about-screen credits entry).
+
+Asset contents in this folder:
+  - MiniChibiKid.fbx                       — rigged mesh (29-bone Mixamo-style rig) + bundled clips
+                                             (Idle 01 / Walk 01 / Run 01 + jump/loose/tpose alts)
+  - mini_material_baseColor.png            — 256x256 flat toon color atlas
+  - MiniChibiKid.fbm/mini_material_baseColor.png — embedded-texture copy (FBX .fbm sidecar)
+
+Integrated as the Far Horizon castaway base (ticket 86ca8ca1m) — the chunky-cartoon
+proportions are intrinsic to the mesh; shipped in the kid's DEFAULT look (cap / grey tee /
+navy shorts / tan skin). Any recolor toward the locked young/hopeful castaway identity is a
+separate follow-up and does not change this attribution requirement.

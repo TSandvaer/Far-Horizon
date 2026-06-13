@@ -7,52 +7,63 @@ using UnityEngine;
 namespace FarHorizon.EditorTools
 {
     /// <summary>
-    /// Prepares the Quaternius CC0 rigged low-poly CLOTHED character (Animated Men pack,
-    /// Smooth_Male_Casual.fbx) for the player — U6 port (ticket 86ca86fz9) of the spike's
-    /// CharacterAssetGen (EmbergraveUnitySlice iter7/8, the Sponsor-approved "appealing" character).
+    /// Prepares the "Mini Chibi Kid" sourced CC0-Attribution rigged low-poly character (Sketchfab,
+    /// joaobaltieri) for the player — the chunky-cartoon castaway base (ticket 86ca8ca1m). This
+    /// SUPERSEDES the Quaternius Animated-Men character: the realistic Quaternius head could not be
+    /// cartoon-ified, so the Sponsor swapped to a purpose-built chunky base whose big-head toy
+    /// proportions are INTRINSIC to the mesh — no bone-scale dials needed (the PR #25 bone-scale path
+    /// is dropped for this base; the mesh is already chunky).
+    ///
     /// Runs from batchmode (no GUI) so the whole project stays reproducible-from-code (the project
     /// invariant; CI re-runs BootstrapProject.Run which calls this):
     ///
-    ///   1. Configure the FBX ModelImporter: Generic rig + CreateFromThisModel avatar, import its
-    ///      bundled animation clips, normalize the import height to ~1u, and mark the locomotion clips
-    ///      (Man_Idle, Man_Walk) as looping. Without the loop flag the Animator plays once + freezes
-    ///      (T-pose-mid-walk). The clip names carry the "HumanArmature|" armature prefix, so we match
-    ///      by .Contains, NOT exact equality (exact-match loops ZERO clips — see the guard below).
-    ///   2. Build an AnimatorController asset with an Idle&lt;-&gt;Walk blend driven by a "Moving" bool,
+    ///   1. Configure the FBX ModelImporter: Generic rig + CreateFromThisModel avatar (the FBX imports
+    ///      as NoAvatar — without an avatar the clips cannot bind and the model freezes in its bind
+    ///      pose), import its bundled animation clips, normalize the intrinsic ~1.82u import height to
+    ///      ~1u, and mark the locomotion clips (Idle/Walk) as looping. The clip names carry the
+    ///      "Object_5|" armature prefix (e.g. "Object_5|Idle 01") — match by .Contains, NOT exact
+    ///      equality (exact-match loops ZERO clips — the T-pose-mid-walk failure class, see the guard).
+    ///   2. The material atlas binds out of the box: ImportStandard imports two URP/Lit materials
+    ///      (mini_material / mini_material_secondary) with _BaseMap = mini_material_baseColor (the 256²
+    ///      toon atlas) — verified by probe. We KEEP the FBX's own flat toon materials (no recolor:
+    ///      identity/recolor is OUT OF SCOPE per the ticket — ship the kid's default look). We DO assert
+    ///      the atlas binds (a regression to a missing-texture grey would fail the import).
+    ///   3. Build an AnimatorController asset with an Idle&lt;-&gt;Walk blend driven by a "Moving" bool,
     ///      cross-faded so the gait reads (no hard pop). CastawayCharacter.SetBool("Moving", ...) flips it.
     ///
-    /// RIG CHOICE — GENERIC, not Humanoid (reconciliation note): the character ships its OWN
-    /// Man_Idle/Man_Walk clips on its OWN armature, so NO cross-FBX retarget is needed — a Generic rig
-    /// that creates an avatar from this model (CreateFromThisModel) binds the clips directly. This is
-    /// the empirically-proven, Sponsor-approved spike configuration; a Humanoid retarget adds an
-    /// avatar-build step that risks failing in batchmode on a single-model port for ZERO benefit here.
-    /// unity-conventions.md §FBX documents the avatarSetup T-pose trap + the HumanArmature| clip-prefix
-    /// finding, both honored below. (Humanoid retarget becomes relevant only when sharing one clip set
-    /// across DIFFERENT character meshes — out of scope for the single-castaway port.)
+    /// RIG CHOICE — GENERIC, not Humanoid (same rationale as the prior base): the character ships its
+    /// OWN Idle/Walk clips on its OWN 29-bone armature (Hips_00..Head_05, Right/LeftFoot_0xx), so NO
+    /// cross-FBX retarget is needed — a Generic rig that creates an avatar from this model
+    /// (CreateFromThisModel) binds the clips directly. A Humanoid retarget adds an avatar-build step that
+    /// risks failing in batchmode on a single-model port for ZERO benefit here. unity-conventions.md
+    /// §FBX documents the avatarSetup T-pose trap + the armature clip-prefix finding, both honored below.
     ///
-    /// Source: Quaternius "Animated Men Pack" (CC0 1.0) — https://quaternius.com/packs/animatedmen.html
-    /// (Google Drive folder id 17LibivOaUidsQhSkcxP3YYvDr0n7wIwu, FBX/Smooth_Male_Casual.fbx, file id
-    /// 1m46QkeqCFktuL5Vl3FR6_PtTKSN3WszF). License committed alongside the FBX
-    /// (Quaternius_AnimatedMen_License_CC0.txt). Animation set is the pack's own bundled clips (CC0).
-    ///
-    /// These are ASSETS the scene references; building them editor-time (not at runtime) is the same
-    /// scene-embedded convention as the saved-asset NavMesh: the shipped scene must reference a
-    /// serialized controller + skinned mesh, not assemble one in Awake (the editor-vs-runtime lesson).
+    /// Source: "Mini Chibi Kid" by joaobaltieri (Sketchfab, CC-Attribution). ~1442 faces, 29-bone
+    /// Mixamo-style rig, big-head toy proportions, 2 flat toon materials on a 256² atlas. License/
+    /// attribution committed alongside the FBX. Imports UPRIGHT (probe-verified: head world-Y 0.785
+    /// above feet world-Y 0.019, feet at origin) — no -90° X bake required for this asset.
     /// </summary>
     public static class CharacterAssetGen
     {
-        public const string FbxPath = "Assets/Art/Character/Quaternius_AnimatedMan_SmoothCasual.fbx";
+        public const string FbxPath = "Assets/Art/Character/MiniChibiKid/MiniChibiKid.fbx";
         public const string ControllerPath = "Assets/Art/Character/CastawayAnimator.controller";
 
-        // Clip names inside the FBX we wire. Idle + Walk are the locomotion pair the controller blends
-        // on the "Moving" bool. The FBX clip names carry the "HumanArmature|" prefix — match by Contains.
-        public const string IdleClip = "Man_Idle";
-        public const string WalkClip = "Man_Walk";
+        // Clip name TOKENS inside the FBX we wire. The chibi ships an alt-set ("Idle 01"/"Walk 01"/
+        // "Run 01") AND the FBX clip names carry the "Object_5|" armature prefix (e.g.
+        // "Object_5|Idle 01") — match by Contains on these tokens, NOT exact equality. (Empirically the
+        // shipped clip names are the " 01" alt-set, NOT "Man_Idle"/"Man_Walk" — verified by probe;
+        // matching the real names is load-bearing.)
+        public const string IdleClip = "Idle 01";
+        public const string WalkClip = "Walk 01";
+
+        // The toon atlas the imported materials bind. Asserted present so a missing-texture grey
+        // regression (the flat toon look silently lost) fails the import.
+        public const string AtlasTextureName = "mini_material_baseColor";
 
         // Normalize the FBX's intrinsic import height to ~1 world-unit so the avatar-root scale maps
-        // directly onto on-screen height (the camera/NavMesh/grounding are calibrated to ~1u). The
-        // Animated-Men FBX imports at ~4.96u intrinsic (measured) — un-normalized it scales to a giant.
-        // Re-derived from the LIVE measured bounds so a future character swap self-corrects.
+        // directly onto on-screen height (the camera/NavMesh/grounding are calibrated to ~1u). The chibi
+        // FBX imports at ~1.82u intrinsic (measured) — un-normalized it ships ~1.8× tall on the 1.8u
+        // avatar root → a giant. Re-derived from the LIVE measured bounds so a future swap self-corrects.
         public const float TargetImportHeightU = 1.0f;
 
         public static void PrepareCharacter()
@@ -75,12 +86,15 @@ namespace FarHorizon.EditorTools
 
             // Generic rig (the character's own skeleton). A Generic rig must CREATE AN AVATAR from this
             // model, or the imported Animator has no avatar + the clips cannot bind -> the model renders
-            // frozen in its bind/T-pose (the spike's first-build T-pose bug). CreateFromThisModel builds
-            // the avatar from the FBX's own bone hierarchy so Man_Idle/Man_Walk animate the skeleton.
+            // frozen in its bind/T-pose. CreateFromThisModel builds the avatar from the FBX's own bone
+            // hierarchy so Idle/Walk animate the skeleton. (The chibi imports as NoAvatar by default.)
             importer.animationType = ModelImporterAnimationType.Generic;
             importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
             importer.importAnimation = true;
             importer.importBlendShapes = false;
+            // Keep the FBX's own flat toon materials + the embedded 256² atlas (ImportStandard binds
+            // _BaseMap = mini_material_baseColor — verified by probe). Identity/recolor is OUT OF SCOPE:
+            // ship the kid's DEFAULT look (cap/grey tee/navy shorts/tan skin).
             importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
 
             // HEIGHT NORMALIZATION: measure the imported model's intrinsic height + set globalScale so
@@ -100,10 +114,10 @@ namespace FarHorizon.EditorTools
             }
 
             // Mark the locomotion clips as looping so the Animator doesn't freeze mid-cycle. The FBX
-            // clip names carry the armature prefix ("HumanArmature|Man_Idle"), NOT bare "Man_Idle" —
-            // match by Contains, not exact equality. An exact-match silently sets the loop flag on ZERO
-            // clips (loopTime stays 0 in the .meta) and the Animator plays once + freezes (the
-            // T-pose-mid-walk failure class). Pinned by the EditMode test that asserts isLooping on both.
+            // clip names carry the armature prefix ("Object_5|Idle 01"), NOT bare "Idle 01" — match by
+            // Contains, not exact equality. An exact-match silently sets the loop flag on ZERO clips
+            // (loopTime stays 0 in the .meta) and the Animator plays once + freezes (the T-pose-mid-walk
+            // failure class). Pinned by the EditMode test that asserts isLooping on both.
             var clips = importer.clipAnimations;
             if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
             var edited = new List<ModelImporterClipAnimation>();
@@ -128,6 +142,23 @@ namespace FarHorizon.EditorTools
             if (looped < 2)
                 Debug.LogError($"[CharacterAssetGen] expected to loop 2 clips ({IdleClip}+{WalkClip}) " +
                                $"but matched {looped} — locomotion clips may freeze mid-cycle (T-pose risk)");
+
+            // Verify the toon atlas binds (the flat toon look must ship — a missing-texture grey is a
+            // silent identity loss). Checks the imported materials carry the atlas on _BaseMap.
+            int atlasBound = 0;
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(FbxPath))
+            {
+                if (obj is Material m && m.HasProperty("_BaseMap"))
+                {
+                    var tex = m.GetTexture("_BaseMap");
+                    if (tex != null && tex.name.Contains(AtlasTextureName)) atlasBound++;
+                }
+            }
+            if (atlasBound == 0)
+                Debug.LogError("[CharacterAssetGen] no imported material binds the toon atlas '" +
+                               AtlasTextureName + "' on _BaseMap — the flat toon look would ship as grey");
+            else
+                Debug.Log($"[CharacterAssetGen] toon atlas bound on {atlasBound} material(s)");
         }
 
         // Instantiate the currently-imported FBX, measure its renderer-bounds height (world Y extent),
@@ -158,10 +189,12 @@ namespace FarHorizon.EditorTools
             {
                 if (obj is AnimationClip clip && clip.name == name) return clip;
             }
-            // Fallback: a clip whose name contains the token (the HumanArmature| prefix case).
+            // Fallback: a clip whose name CONTAINS the token (the armature-prefix case, e.g.
+            // "Object_5|Idle 01"). Skip Unity's "__preview__" mirror clips.
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(FbxPath))
             {
-                if (obj is AnimationClip clip && clip.name.Contains(name)) return clip;
+                if (obj is AnimationClip clip && clip.name.Contains(name) &&
+                    !clip.name.StartsWith("__preview__")) return clip;
             }
             return null;
         }

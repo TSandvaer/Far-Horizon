@@ -9,20 +9,28 @@ using FarHorizon.EditorTools;
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// EditMode regression guards for the U6 castaway player avatar (ticket 86ca86fz9) — the rigged
-    /// CC0 low-poly clothed character that replaces U3's capsule placeholder on the merged movement
-    /// rig. These assert the REAL serialized Boot scene (the bytes the exe loads) + the FBX import
-    /// config, so the bug CLASSES the spike hit (legs-up serialization divergence, T-pose-mid-walk
-    /// non-looping clips, the featureless single-tone recolor, the un-normalized giant) can't recur
-    /// silently in headless CI before a Sponsor soak:
+    /// EditMode regression guards for the chunky-cartoon castaway player avatar (ticket 86ca8ca1m —
+    /// the "Mini Chibi Kid" sourced base that SUPERSEDES the Quaternius Animated-Men character). These
+    /// assert the REAL serialized Boot scene (the bytes the exe loads) + the FBX import config, so the
+    /// bug CLASSES (legs-up serialization divergence, T-pose-mid-walk non-looping clips, the
+    /// un-normalized giant, a missing toon atlas, a swap back to a realistic non-chunky base) can't
+    /// recur silently in headless CI before a Sponsor soak:
     ///
     ///   1. The player carries a serialized, SKINNED, BONED avatar — NOT a runtime-assembled
     ///      hierarchy and NOT the retired capsule placeholder (the legs-up serialization guard).
-    ///   2. The FBX is the clothed Animated-Men character with looping Man_Idle + Man_Walk clips and
-    ///      a CreateFromThisModel avatar (the T-pose-mid-walk guard).
+    ///   2. The FBX is the chibi character with looping Idle/Walk clips and a CreateFromThisModel
+    ///      avatar (the T-pose-mid-walk guard).
     ///   3. The intrinsic-height normalization is configured (the un-normalized-giant guard).
-    ///   4. The per-part castaway recolor maps all six materials to a DISTINCT palette (the
-    ///      featureless / erased-face guard).
+    ///   4. The chibi's flat TOON ATLAS binds on the imported materials (replaces the prior base's
+    ///      6-part recolor guard — the chibi ships its own toon materials; identity/recolor is OUT OF
+    ///      SCOPE. The guard catches the flat toon look silently lost to a missing-texture grey).
+    ///   5. The shipped scene's castaway reads CHUNKY (heads-tall in the toy band) — catches a swap
+    ///      back to a realistic ~7-8-heads base (replaces the base-specific shirt-luma identity guard,
+    ///      which was for the Quaternius recolor and does NOT apply to the chibi's default look).
+    ///
+    /// NOTE on dropped guards: the prior base's shirt-luminance (>0.6) identity guard + the 6-part
+    /// recolor / per-part-smoothness asserts are REMOVED — they were specific to the Quaternius mesh's
+    /// 6 material slots + the recolor we no longer apply (we ship the chibi's default toon look).
     /// </summary>
     public class CastawayCharacterTests
     {
@@ -54,7 +62,7 @@ namespace FarHorizon.EditTests
             OpenBootAndFindPlayer();
 
             var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
-            Assert.IsNotNull(castaway, "the player must carry a CastawayCharacter avatar (U6 port)");
+            Assert.IsNotNull(castaway, "the player must carry a CastawayCharacter avatar");
 
             // The retired U3 capsule placeholder must be gone.
             var placeholder = _player.transform.Find("PlaceholderVisual");
@@ -103,44 +111,46 @@ namespace FarHorizon.EditTests
                 "rebuild must be idempotent — exactly one Model child (no duplication)");
         }
 
-        // The clip-binding guard: the FBX must be the clothed Animated-Men character AND carry the
-        // Man_Idle/Man_Walk locomotion clips, both LOOPING, with a CreateFromThisModel avatar. A
-        // missing / non-looping clip is the T-pose / freeze-mid-walk failure mode; a null avatar
-        // freezes the model in its bind pose. Pinning these catches an importer-config regression in
-        // headless CI before it ships as a frozen avatar.
+        // The clip-binding guard: the FBX must be the chibi character AND carry the Idle/Walk
+        // locomotion clips, both LOOPING, with a CreateFromThisModel avatar. A missing / non-looping
+        // clip is the T-pose / freeze-mid-walk failure mode; a null avatar freezes the model in its
+        // bind pose. The chibi's clip names carry the "Object_5|" armature prefix (e.g.
+        // "Object_5|Idle 01") — matched by Contains. Pinning these catches an importer-config
+        // regression in headless CI before it ships as a frozen avatar.
         [Test]
-        public void Fbx_IsClothedCharacter_WithLoopingIdleAndWalkClips_AndAvatar()
+        public void Fbx_IsChibiCharacter_WithLoopingIdleAndWalkClips_AndAvatar()
         {
-            Assert.AreEqual("Assets/Art/Character/Quaternius_AnimatedMan_SmoothCasual.fbx",
-                CharacterAssetGen.FbxPath, "the player FBX must be the clothed Animated-Men character");
+            Assert.AreEqual("Assets/Art/Character/MiniChibiKid/MiniChibiKid.fbx",
+                CharacterAssetGen.FbxPath, "the player FBX must be the Mini Chibi Kid character");
 
             var importer = AssetImporter.GetAtPath(CharacterAssetGen.FbxPath) as ModelImporter;
             Assert.IsNotNull(importer, "the character FBX must be importable at " + CharacterAssetGen.FbxPath);
 
-            // CreateFromThisModel avatar so the Generic rig binds its own clips (the T-pose fix).
+            // CreateFromThisModel avatar so the Generic rig binds its own clips (the T-pose fix; the
+            // chibi imports as NoAvatar by default).
             Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, importer.avatarSetup,
                 "the Generic rig must create its own avatar or clips will not bind (T-pose)");
 
             AnimationClip idle = null, walk = null;
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.FbxPath))
             {
-                if (obj is AnimationClip c)
+                if (obj is AnimationClip c && !c.name.StartsWith("__preview__"))
                 {
                     if (c.name.Contains(CharacterAssetGen.IdleClip)) idle = c;
                     if (c.name.Contains(CharacterAssetGen.WalkClip)) walk = c;
                 }
             }
-            Assert.IsNotNull(idle, "FBX must contain a " + CharacterAssetGen.IdleClip + " clip");
-            Assert.IsNotNull(walk, "FBX must contain a " + CharacterAssetGen.WalkClip + " clip");
+            Assert.IsNotNull(idle, "FBX must contain a clip matching '" + CharacterAssetGen.IdleClip + "'");
+            Assert.IsNotNull(walk, "FBX must contain a clip matching '" + CharacterAssetGen.WalkClip + "'");
             Assert.IsTrue(idle.isLooping, CharacterAssetGen.IdleClip + " must loop (no freeze-on-idle)");
             Assert.IsTrue(walk.isLooping, CharacterAssetGen.WalkClip + " must loop (no freeze-mid-walk)");
         }
 
         // The intrinsic-height-normalization guard: the FBX importer's globalScale must normalize the
-        // (~4.96u intrinsic) model down toward ~1u, so the avatar-root scale maps directly onto
-        // on-screen height. An un-normalized import scales the character to a giant whose head clips
-        // the frame (the spike's iter-7 v1 framing defect). We assert the imported model's actual
-        // bounds height is in a sane normalized band, which is robust to small importer-scale drift.
+        // (~1.82u intrinsic) model down toward ~1u, so the avatar-root scale maps directly onto
+        // on-screen height. An un-normalized import scales the character ~1.8x tall on the 1.8u avatar
+        // root (a giant whose head clips the frame). We assert the imported model's actual bounds
+        // height is in a sane normalized band, robust to small importer-scale drift.
         [Test]
         public void Fbx_IntrinsicHeight_IsNormalizedToAboutOneUnit()
         {
@@ -156,89 +166,121 @@ namespace FarHorizon.EditTests
             float h = b.size.y;
             Object.DestroyImmediate(inst);
 
-            // Target is 1u; allow a generous band so the test guards against the un-normalized ~4.96u
-            // giant (or a zero-scale collapse) without being brittle to ±0.2u importer rounding.
+            // Target is 1u; allow a generous band so the test guards against the un-normalized ~1.82u
+            // import (or a zero-scale collapse) without being brittle to ±0.2u importer rounding.
             Assert.That(h, Is.InRange(0.6f, 1.6f),
                 $"imported model height {h:F3}u must be normalized to ~{CharacterAssetGen.TargetImportHeightU}u " +
-                "(an un-normalized ~4.96u import scales the avatar to a giant — the framing defect)");
+                "(an un-normalized ~1.82u import scales the avatar to a giant — the framing defect)");
         }
 
-        // The recolor guard: the castaway recolor must map the SIX per-part materials (Shirt / Skin /
-        // Pants / Eyes / Socks / Hair) to DISTINCT palette colors. Catches (a) the recolor collapsing
-        // every part to one tone (the featureless "not appealing" read), (b) dropping out to the
-        // grey/magenta default, or (c) Eyes falling through to skin (which ERASES the face read).
-        // Pure mapping function — no instantiation.
+        // The UPRIGHT guard: the chibi imports standing upright (probe-verified — head world-Y above
+        // feet, feet near origin), no -90 X bake needed. A future import-config change that lays it on
+        // its back (the Sketchfab Y-up trap) would fail here before it ships face-down.
         [Test]
-        public void CastawayRecolor_MapsSixPartMaterialsToDistinctPalette()
+        public void Fbx_ImportsUpright_HeadAboveFeet_FeetNearOrigin()
         {
-            // U2-6 polish palette — brighter/higher-key per the v4 design reference (young + hopeful).
-            var skin    = new Color(0.86f, 0.64f, 0.47f);
-            var shirt   = new Color(0.72f, 0.60f, 0.42f);  // U2-6 Uma tune: warmer mid-khaki for torso/ground separation; luma 0.615 (still > 0.6 guard)
-            var pants   = new Color(0.34f, 0.46f, 0.50f);
-            var hair    = new Color(0.84f, 0.50f, 0.22f);
-            var eyes    = new Color(0.18f, 0.13f, 0.11f);
-            var leather = new Color(0.45f, 0.30f, 0.18f);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
+            Assert.IsNotNull(fbx);
+            var inst = Object.Instantiate(fbx);
+            inst.transform.position = Vector3.zero;
+            inst.transform.rotation = Quaternion.identity;
+            inst.transform.localScale = Vector3.one;
 
-            Assert.AreEqual(shirt, CastawayCharacter.CastawayColorFor("Shirt", skin, shirt, pants, hair, eyes, leather),
-                "a 'Shirt' material must recolor to the warm mid-khaki shirt tone");
-            Assert.AreEqual(pants, CastawayCharacter.CastawayColorFor("Pants", skin, shirt, pants, hair, eyes, leather),
-                "a 'Pants' material must recolor to the muted teal-blue rolled-trousers tone");
-            Assert.AreEqual(hair, CastawayCharacter.CastawayColorFor("Hair", skin, shirt, pants, hair, eyes, leather),
-                "a 'Hair' material must recolor to the copper/ginger hair tone");
-            Assert.AreEqual(eyes, CastawayCharacter.CastawayColorFor("Eyes", skin, shirt, pants, hair, eyes, leather),
-                "an 'Eyes' material must recolor to the dark eye tone (the face must read) — NOT skin");
-            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Skin", skin, shirt, pants, hair, eyes, leather),
-                "a 'Skin' material must recolor to the warm tan skin tone");
-            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Socks", skin, shirt, pants, hair, eyes, leather),
-                "a 'Socks' material reads as bare tan feet (castaway is barefoot) -> skin tone");
-            Assert.AreEqual(skin, CastawayCharacter.CastawayColorFor("Body", skin, shirt, pants, hair, eyes, leather),
-                "an unknown/'Body' material must fall back to skin (never the grey/magenta default)");
+            var rends = inst.GetComponentsInChildren<Renderer>();
+            Bounds b = rends[0].bounds;
+            for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
 
-            // U2-6 leather accent: a belt / strap / satchel material maps to the leather tone, NOT to
-            // pants or skin — this is the new detail-pass slot (regression guard for the fall-through
-            // order: leather is tested before pants/skin).
-            Assert.AreEqual(leather, CastawayCharacter.CastawayColorFor("Belt", skin, shirt, pants, hair, eyes, leather),
-                "a 'Belt' material must read as warm leather (the U2-6 detail accent), not pants/skin");
-            Assert.AreEqual(leather, CastawayCharacter.CastawayColorFor("Strap", skin, shirt, pants, hair, eyes, leather),
-                "a 'Strap' material must read as warm leather (the crossbody-satchel accent)");
+            Transform head = CastawayProportions.FindHeadBone(inst.transform);
+            Assert.IsNotNull(head, "the chibi must carry a Head bone (Head_05)");
+            float headY = head.position.y;
+            float feetY = b.min.y;
+            Object.DestroyImmediate(inst);
 
-            Assert.AreNotEqual(shirt, pants, "shirt and pants must read distinctly");
-            Assert.AreNotEqual(shirt, hair, "shirt and hair must read distinctly");
-            Assert.AreNotEqual(pants, skin, "pants and skin must read distinctly");
-            Assert.AreNotEqual(eyes, skin, "eyes and skin must read distinctly (the face must read)");
-            Assert.AreNotEqual(leather, pants, "leather accent and pants must read distinctly");
-            Assert.AreNotEqual(leather, skin, "leather accent and skin must read distinctly");
-
-            // IDENTITY GUARD (U2-6): the shirt must read LIGHT / high-key, not a dark grizzled-survivor
-            // tone. The iter-8 palette had drifted to a dark rust shirt (~0.42 green); the approved v4
-            // identity is a light warm khaki. Pin the shirt's luminance high so a future dark-drift
-            // regression (the exact failure this ticket corrects) fails CI before a Sponsor soak.
-            float shirtLuma = 0.299f * shirt.r + 0.587f * shirt.g + 0.114f * shirt.b;
-            Assert.Greater(shirtLuma, 0.6f,
-                "the castaway shirt must be a LIGHT warm tone (young/hopeful identity), not a dark " +
-                "grizzled rust — the iter-8 dark-drift is the regression this guard catches");
+            Assert.Greater(headY, feetY + 0.2f,
+                "the head must sit well ABOVE the feet (upright — not laid on its back / Y-up trap)");
+            Assert.That(feetY, Is.InRange(-0.25f, 0.35f),
+                $"the feet must sit near the model origin (feetY={feetY:F3}) so localPosition zero grounds them");
         }
 
-        // Per-part smoothness must DIFFERENTIATE (cloth matte vs skin/hair/eyes glossier) so the
-        // figure reads "detailed/polished" rather than uniformly flat-matte (the spike's iter7 polish
-        // gap). A regression that flattens every part to one smoothness fails here.
+        // The TOON-ATLAS guard (replaces the prior base's recolor guard): the chibi's imported
+        // materials must bind the flat toon atlas (mini_material_baseColor) on _BaseMap. The chibi
+        // ships its OWN toon materials (we do NOT recolor — identity is out of scope); this catches the
+        // flat toon look silently lost to a missing-texture grey (a recolor regression or an importer
+        // change dropping the embedded texture).
         [Test]
-        public void CastawayRecolor_PerPartSmoothnessIsDifferentiated()
+        public void Fbx_ImportedMaterials_BindTheToonAtlas()
         {
-            float shirtS   = CastawayCharacter.SmoothnessFor("Shirt");
-            float pantsS   = CastawayCharacter.SmoothnessFor("Pants");
-            float skinS    = CastawayCharacter.SmoothnessFor("Skin");
-            float hairS    = CastawayCharacter.SmoothnessFor("Hair");
-            float eyesS    = CastawayCharacter.SmoothnessFor("Eyes");
-            float leatherS = CastawayCharacter.SmoothnessFor("Belt");
+            int atlasBound = 0, matCount = 0;
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.FbxPath))
+            {
+                if (obj is Material m)
+                {
+                    matCount++;
+                    if (m.HasProperty("_BaseMap"))
+                    {
+                        var tex = m.GetTexture("_BaseMap");
+                        if (tex != null && tex.name.Contains(CharacterAssetGen.AtlasTextureName)) atlasBound++;
+                    }
+                }
+            }
+            Assert.Greater(matCount, 0, "the chibi FBX must import its toon materials");
+            Assert.Greater(atlasBound, 0,
+                "at least one imported material must bind the toon atlas '" +
+                CharacterAssetGen.AtlasTextureName + "' on _BaseMap — else the flat toon look ships as grey");
+        }
 
-            Assert.AreEqual(shirtS, pantsS, 0.001f, "cloth parts (shirt/pants) share the matte smoothness");
-            Assert.Greater(skinS, shirtS, "skin must catch more key light than matte cloth");
-            Assert.Greater(eyesS, hairS, "eyes are the glossiest (a small specular dot for life)");
-            Assert.Greater(leatherS, skinS, "leather reads with a soft worn sheen above bare skin");
-            var levels = new System.Collections.Generic.HashSet<float> { shirtS, skinS, hairS, eyesS, leatherS };
-            Assert.GreaterOrEqual(levels.Count, 4,
-                "per-part smoothness must span >=4 levels (a uniformly-matte figure reads undetailed)");
+        // The CHUNKY guard (replaces the base-specific shirt-luma identity guard): the shipped scene's
+        // castaway must read in the toy proportion band. The chibi base measures ~1.07 on this BakeMesh
+        // fingerprint (a stable big-head toy ratio) vs a realistic base far higher; this catches a
+        // REGRESSION to a realistic base (e.g. an accidental swap back to the Quaternius character).
+        // Measured via BakeMesh (render-state-independent — the deserialized-SMR stale-bounds trap,
+        // unity-conventions.md §Editor-vs-runtime). See CastawayProportions for the fingerprint rationale.
+        [Test]
+        public void Castaway_ReadsChunky_HeadsTallInToyBand()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+
+            Assert.IsNotNull(CastawayProportions.FindHeadBone(castaway.transform),
+                "the avatar must carry a Head bone for the proportion measure");
+
+            float heads = CastawayProportions.MeasureHeadsTall(castaway);
+            Assert.IsFalse(float.IsNaN(heads),
+                "heads-tall must measure (skinned mesh + head bone present)");
+            Assert.That(heads, Is.InRange(CastawayProportions.MinHeadsTall, CastawayProportions.MaxHeadsTall),
+                $"the shipped castaway must read CHUNKY (heads-tall {heads:F2} in the toy band " +
+                $"{CastawayProportions.MinHeadsTall}-{CastawayProportions.MaxHeadsTall}) — a realistic " +
+                "~7-8-heads value means a regression to a non-chunky base");
+        }
+
+        // Blob-shadow SCENE-PRESENCE guard (the component-not-serialized-into-scene failure class,
+        // unity-conventions.md §Editor-vs-runtime — a component can exist in source while the scene
+        // never carries it, shipping silently inert). The shipped scene must hold the BlobShadow under
+        // the player, with a MeshFilter/Renderer, NO collider (must not block the click raycast or the
+        // NavMesh bake), and casting no real shadow.
+        [Test]
+        public void BootScene_HasBlobShadow_UnderPlayer_NoColliderNoCast()
+        {
+            OpenBootAndFindPlayer();
+            var blob = _player.transform.Find(MovementCameraScene.BlobShadowObjectName);
+            Assert.IsNotNull(blob,
+                "the shipped scene must carry a '" + MovementCameraScene.BlobShadowObjectName +
+                "' under the player (the contact shadow — serialized, not Awake-built)");
+
+            var mf = blob.GetComponent<MeshFilter>();
+            Assert.IsNotNull(mf, "the blob shadow must have a MeshFilter");
+            Assert.IsNotNull(mf.sharedMesh, "the blob shadow mesh must be serialized");
+            Assert.Greater(mf.sharedMesh.vertexCount, 6, "the blob shadow disc must be a real fan mesh");
+
+            var mr = blob.GetComponent<MeshRenderer>();
+            Assert.IsNotNull(mr, "the blob shadow must have a MeshRenderer");
+            Assert.IsNotNull(mr.sharedMaterial, "the blob shadow material must be serialized inline");
+            Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.Off, mr.shadowCastingMode,
+                "the fake contact shadow must cast NO real shadow");
+
+            Assert.IsNull(blob.GetComponent<Collider>(),
+                "the blob shadow must have NO collider (it must not block the click raycast / NavMesh bake)");
         }
     }
 }

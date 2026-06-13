@@ -4,60 +4,40 @@ using UnityEngine.AI;
 namespace FarHorizon
 {
     /// <summary>
-    /// The player's visual avatar: a real rigged CC0 low-poly CLOTHED character (Quaternius
-    /// "Animated Men" pack, Smooth_Male_Casual.fbx, CC0 1.0) with the warm castaway recolor — the
-    /// Sponsor-approved "appealing" character from the engine-eval spike (iter7/8,
-    /// EmbergraveUnitySlice). This is U6 (ticket 86ca86fz9): it REPLACES the U3 capsule placeholder
-    /// visual on the merged movement rig.
+    /// The player's visual avatar: the "Mini Chibi Kid" sourced CC0-Attribution rigged low-poly
+    /// chunky-cartoon character (Sketchfab, joaobaltieri) — the purpose-built chibi castaway base
+    /// (ticket 86ca8ca1m). This SUPERSEDES the Quaternius Animated-Men character (the realistic
+    /// Quaternius head could not be cartoon-ified): the chibi's big-head toy proportions are INTRINSIC
+    /// to the mesh, so there are NO bone-scale dials — the mesh ships chunky as imported.
     ///
     /// WHY A BAKED SKINNED MESH (the durable fix for a bug CLASS): the spike's earlier PROCEDURAL
     /// humanoid shipped BROKEN in the exe — "legs pointing upwards" — because an Awake-assembled
     /// hierarchy serialized differently than the editor-time build (unity-conventions.md
     /// §editor-vs-runtime). A skinned mesh with a baked bone skeleton + imported clips CANNOT exhibit
     /// that failure by construction: the skeleton + skin live in the FBX, not assembled at runtime.
-    /// The model child + materials are built EDITOR-TIME (BuildInEditor, called by
-    /// MovementCameraScene) so they SERIALIZE into Boot.unity; runtime code only animates what's
-    /// serialized.
+    /// The model child is built EDITOR-TIME (BuildInEditor, called by MovementCameraScene) so it
+    /// SERIALIZES into Boot.unity; runtime code only animates what's serialized.
     ///
     /// SELF-DRIVING (the U5/U3 seam): this component lives on a CHILD avatar root under the player
     /// (so its avatar-height scale doesn't scale the NavMeshAgent), and reads the player's
     /// <see cref="NavMeshAgent"/> velocity (resolved from the parent) itself each frame to flip the
-    /// Idle&lt;-&gt;Walk Animator blend and yaw the model toward travel. It does NOT modify ClickToMove
-    /// — keeping this PR's surface to the player visual/rig only, so it rebases cleanly against Drew's
-    /// U5 environment PR. The agent has updateRotation=false (ClickToMove owns that contract), so the
-    /// visual owns facing.
+    /// Idle&lt;-&gt;Walk Animator blend and yaw the model toward travel. It does NOT modify ClickToMove.
+    /// The agent has updateRotation=false (ClickToMove owns that contract), so the visual owns facing.
     ///
-    /// CASTAWAY RECOLOR (iter-8, 6-part; U2-6 polish re-tune): the Animated-Men FBX has SIX distinct
-    /// materials (Shirt / Skin / Pants / Eyes / Socks / Hair — verified by probe). A 4-slot assumption
-    /// silently erased the face (Eyes-&gt;skin) — see
-    /// <see cref="CastawayColorFor(string,Color,Color,Color,Color,Color,Color)"/>. All map distinctly to
-    /// the BRIGHTER, HIGHER-KEY palette from the v4 design reference (young + hopeful) — the iter-8
-    /// values had drifted dark/grizzled, which the U2-6 polish corrects. A leather accent slot maps any
-    /// belt/strap/satchel material to a warm leather brown for a more detailed silhouette.
+    /// MATERIALS — KEEP THE FBX'S OWN FLAT TOON MATERIALS (identity/recolor OUT OF SCOPE per the
+    /// ticket): the chibi ships two URP/Lit toon materials (mini_material / mini_material_secondary)
+    /// that bind a 256² atlas (mini_material_baseColor) — that flat-shaded toon look IS the look we
+    /// ship. We do NOT recolor here (the prior base's 6-part Quaternius recolor is dropped — recoloring
+    /// would replace the materials and WIPE the atlas to a flat tint). A sandy-hair/khaki recolor is a
+    /// TUNABLE follow-up the Sponsor judges from the soak; not fought here.
     /// </summary>
     public class CastawayCharacter : MonoBehaviour
     {
         [Header("Model source (wired by MovementCameraScene at author time)")]
-        // The imported FBX prefab (the Animated-Men clothed character: rig + bundled Man_Idle/Man_Walk
-        // clips) and the Idle<->Walk controller. CharacterAssetGen produces both.
+        // The imported FBX prefab (the chibi: rig + bundled Idle/Walk clips + toon materials/atlas) and
+        // the Idle<->Walk controller. CharacterAssetGen produces both.
         public GameObject modelPrefab;
         public RuntimeAnimatorController animatorController;
-
-        // U2-6 POLISH PASS (ticket 86ca8bdhb): the iter-8 palette had drifted DARK/muddy ("rust
-        // ragged shirt", "dark walnut pants") toward a grizzled-survivor read — which violates the
-        // approved iter7 identity (RandomGame _castaway_judge v3/v4 sheets: a YOUNG, HOPEFUL castaway).
-        // Re-tuned to the v4 design reference: copper/ginger hair, a LIGHT warm khaki/sand shirt
-        // (rolled sleeves), muted teal-blue rolled trousers, a healthy warm tan skin, and a distinct
-        // warm-leather accent (belt/strap/satchel) so the silhouette reads detailed. Brighter +
-        // higher-key = "more detailed/polished, same character" (the Sponsor's iter7 ask). All
-        // channels sub-1.0 HDR-safe. Identity guard: NOT a dark/ragged survivor — light + fresh.
-        [Header("Castaway recolor — per-part palette (U2-6 polish: v4 design reference, brighter/hopeful)")]
-        public Color skin    = new Color(0.86f, 0.64f, 0.47f);  // healthy warm tan (Skin/Body/Socks=bare feet)
-        public Color shirt   = new Color(0.72f, 0.60f, 0.42f);  // warm mid-khaki shirt (rolled sleeves) — U2-6 Uma tune: separates the torso from the bright sandy Zone-D ground (was 0.82,0.72,0.52, merged into the sand at distance); still well above the >0.6 shirt-luminance identity guard (luma 0.615)
-        public Color pants   = new Color(0.34f, 0.46f, 0.50f);  // muted teal-blue rolled trousers
-        public Color hair    = new Color(0.84f, 0.50f, 0.22f);  // copper/ginger sun-bleached hair
-        public Color eyes    = new Color(0.18f, 0.13f, 0.11f);  // dark eyes so the face reads
-        public Color leather = new Color(0.45f, 0.30f, 0.18f);  // warm leather belt/strap/satchel accent
 
         [Header("Facing")]
         [Tooltip("How fast the body yaws toward the travel direction (higher = snappier).")]
@@ -98,10 +78,10 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// Editor build entry: MovementCameraScene calls this so the Model child + materials + the
-        /// Animator controller reference SERIALIZE into Boot.unity (the editor-vs-runtime
-        /// serialization lesson — the shipped scene must reference a serialized skinned/boned avatar,
-        /// not assemble a hierarchy in Awake). Idempotent: clears prior children first.
+        /// Editor build entry: MovementCameraScene calls this so the Model child + the Animator
+        /// controller reference SERIALIZE into Boot.unity (the editor-vs-runtime serialization lesson —
+        /// the shipped scene must reference a serialized skinned/boned avatar, not assemble a hierarchy
+        /// in Awake). Idempotent: clears prior children first.
         /// </summary>
         public void BuildInEditor()
         {
@@ -148,77 +128,9 @@ namespace FarHorizon
             if (animatorController != null) _animator.runtimeAnimatorController = animatorController;
             _animator.applyRootMotion = false; // NavMeshAgent drives position; anim is in-place
 
-            ApplyCastawayRecolor(go);
+            // NO recolor: the chibi's imported toon materials + atlas ARE the ship look (the prior
+            // base's 6-part recolor is dropped — recoloring would wipe the atlas to a flat tint).
             _built = true;
-        }
-
-        // Tint the character's flat per-part materials toward the castaway read. The Animated-Men
-        // character carries SIX SEPARATE materials (Shirt / Skin / Pants / Eyes / Socks / Hair); map
-        // each name to the castaway palette so the silhouette reads as a detailed young sun-worn
-        // survivor, not the pack default OR a featureless single-tone collapse. Per-part SMOOTHNESS
-        // varies (cloth matte, skin/hair glossier, eyes specular) for a "detailed/polished" read.
-        private void ApplyCastawayRecolor(GameObject root)
-        {
-            var renderers = root.GetComponentsInChildren<Renderer>(true);
-            foreach (var r in renderers)
-            {
-                var mats = r.sharedMaterials;
-                var copy = new Material[mats.Length];
-                for (int i = 0; i < mats.Length; i++)
-                {
-                    var src = mats[i];
-                    string name = src != null ? src.name : null;
-                    copy[i] = MakeLitMaterial(CastawayColorFor(name),
-                                              SmoothnessFor(name),
-                                              "Castaway_" + (name ?? i.ToString()));
-                }
-                r.sharedMaterials = copy;
-            }
-        }
-
-        /// <summary>
-        /// Map a source material name to the castaway palette part-color (case-insensitive substring).
-        /// Public + static so the EditMode recolor test can assert the mapping without instantiating.
-        /// Handles all SIX Animated-Men materials + a leather accent. Eyes get a dark tone (the face
-        /// reads); Socks read as bare tan feet (the castaway is barefoot); belt/strap/satchel read as
-        /// warm leather (the U2-6 detail accent). Unknown names fall back to skin (safe warm).
-        /// Order matters: leather is tested BEFORE pants/skin so a "Belt" material doesn't fall through.
-        /// </summary>
-        public static Color CastawayColorFor(string materialName,
-            Color skin, Color shirt, Color pants, Color hair, Color eyes, Color leather)
-        {
-            string n = materialName != null ? materialName.ToLowerInvariant() : "";
-            if (n.Contains("eye")) return eyes;
-            if (n.Contains("hair")) return hair;
-            // Leather accent (belt / strap / satchel / bag) — the U2-6 detail pass. Tested before the
-            // cloth/skin fall-throughs so a leather part never collapses into trousers or skin.
-            if (n.Contains("belt") || n.Contains("strap") || n.Contains("satchel") ||
-                n.Contains("bag") || n.Contains("leather")) return leather;
-            if (n.Contains("shirt") || n.Contains("cloth") || n.Contains("top")) return shirt;
-            if (n.Contains("pant") || n.Contains("trouser") || n.Contains("leg") || n.Contains("short")) return pants;
-            // Skin / Body / Head / Face / Socks (bare feet) / default -> healthy warm tan skin.
-            return skin;
-        }
-
-        private Color CastawayColorFor(string materialName)
-            => CastawayColorFor(materialName, skin, shirt, pants, hair, eyes, leather);
-
-        /// <summary>
-        /// Per-part smoothness: cloth (shirt/pants) matte; skin + hair catch a touch more of the warm
-        /// key; eyes are the glossiest (a small specular dot for life). Kept low overall — the
-        /// low-poly look reads by shape + shading, not gloss. Public + static for the EditMode test.
-        /// </summary>
-        public static float SmoothnessFor(string materialName)
-        {
-            string n = materialName != null ? materialName.ToLowerInvariant() : "";
-            if (n.Contains("eye")) return 0.45f;
-            // Leather (belt/strap/satchel) catches a soft worn sheen between cloth and skin — adds a
-            // distinct material read for the U2-6 detail accent.
-            if (n.Contains("belt") || n.Contains("strap") || n.Contains("satchel") ||
-                n.Contains("bag") || n.Contains("leather")) return 0.22f;
-            if (n.Contains("hair")) return 0.18f;
-            if (n.Contains("skin") || n.Contains("body") || n.Contains("sock")) return 0.14f;
-            return 0.06f; // cloth (shirt/pants) — matte
         }
 
         void LateUpdate()
@@ -243,21 +155,6 @@ namespace FarHorizon
             }
             if (_model != null)
                 _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
-        }
-
-        // Build-safe URP Lit material WITHOUT editor code (the magenta-strip lesson: URP/Lit must be
-        // registered in AlwaysIncludedShaders by the author step so it survives in the stripped exe).
-        public static Material MakeLitMaterial(Color color, float smoothness, string name)
-        {
-            Shader sh = Shader.Find("Universal Render Pipeline/Lit");
-            if (sh == null) sh = Shader.Find("Universal Render Pipeline/Simple Lit");
-            if (sh == null) sh = Shader.Find("Standard");
-            var mat = new Material(sh) { name = name };
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
-            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
-            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
-            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
-            return mat;
         }
     }
 }
