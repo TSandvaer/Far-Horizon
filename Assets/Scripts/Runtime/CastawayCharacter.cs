@@ -83,14 +83,57 @@ namespace FarHorizon
         [Tooltip("Uniform extra scale on both Foot bones (chunky blocky bare feet).")]
         public float footScale = 1.0f;
 
+        // TOY-CHUNKY proportion dials (86ca8ca1m round-2, Sponsor-clicked BONE-SCALE-ONLY direction —
+        // NO mesh/vertex surgery; arms + hands geometry stay the ORIGINAL Quaternius mesh). The
+        // reference body is STOUT + SHORT-LIMBED, so beyond the big head we (a) SHORTEN arm/leg/torso
+        // bone LENGTHS and (b) FATTEN limb/torso GIRTH. Length and girth are SEPARATE axes on this rig:
+        // the bone-segment direction is local +Y (each child sits at +Y from its parent — verified via
+        // RigProbe, 2026-06-12), so length = local-Y scale and girth = local X/Z scale. <1 shortens /
+        // slims; >1 lengthens / fattens. 1.0 = untouched.
+        [Tooltip("Length scale on the upper+lower ARM bones (local-Y). <1 = shorter arms (stout read). " +
+                 "The hand is child-compensated so it does NOT shrink/detach (handScale governs hand size).")]
+        public float armLengthScale = 1.0f;
+        [Tooltip("Length scale on the upper+lower LEG bones (local-Y). <1 = shorter legs. Feet are " +
+                 "re-seated to the new ankle so they stay attached + grounded (footScale governs foot size).")]
+        public float legLengthScale = 1.0f;
+        [Tooltip("Length scale on the TORSO/spine bones (Abdomen+Torso, local-Y). <1 = shorter, more " +
+                 "compact torso — the big head dominates a short stout body.")]
+        public float torsoLengthScale = 1.0f;
+        [Tooltip("Girth scale on the LIMB bones (arm+leg, local X/Z only — never length). >1 = sausage " +
+                 "limbs. Hands/feet are child-compensated so they aren't double-fattened.")]
+        public float limbGirthScale = 1.0f;
+        [Tooltip("Girth scale on the TORSO bones (Hips+Abdomen+Torso, local X/Z only). >1 = stout barrel torso.")]
+        public float torsoGirthScale = 1.0f;
+
         // Rig bone names the stylization scale targets (Quaternius Animated-Men armature — verified by
-        // probing the FBX: Head / Hand.L / Hand.R / Foot.L / Foot.R). Matched by .Contains so the
+        // probing the FBX with RigProbe: Head / Hand.L|R / Foot.L|R / UpperArm.L|R / LowerArm.L|R /
+        // Palm.L|R / UpperLeg.L|R / LowerLeg.L|R / Abdomen / Torso / Hips). Matched by .Contains so the
         // "HumanArmature|" / "mixamorig" style prefixes don't break the lookup (the same clip-prefix
         // lesson — unity-conventions.md §FBX). If a delivered mesh renames a bone, the scale is a no-op
         // for that bone (logged once) rather than a hard failure — the mesh baseline still ships.
         private static readonly string[] HeadBoneTokens = { "Head" };
         private static readonly string[] HandBoneTokens = { "Hand.L", "Hand.R", "Hand_L", "Hand_R" };
         private static readonly string[] FootBoneTokens = { "Foot.L", "Foot.R", "Foot_L", "Foot_R" };
+        // Limb segment bones (NOT the terminal hand/foot/palm — those are compensated separately).
+        private static readonly string[] ArmSegmentTokens =
+            { "UpperArm.L", "UpperArm.R", "UpperArm_L", "UpperArm_R",
+              "LowerArm.L", "LowerArm.R", "LowerArm_L", "LowerArm_R" };
+        private static readonly string[] LegSegmentTokens =
+            { "UpperLeg.L", "UpperLeg.R", "UpperLeg_L", "UpperLeg_R",
+              "LowerLeg.L", "LowerLeg.R", "LowerLeg_L", "LowerLeg_R" };
+        // Hand-root bones (Palm) — child of LowerArm, so they inherit the arm length+girth scale and
+        // must be counter-compensated in Y (length) and X/Z (girth) so the hand keeps its proportions.
+        private static readonly string[] PalmBoneTokens = { "Palm.L", "Palm.R", "Palm_L", "Palm_R" };
+        // Torso/spine bones. Abdomen+Torso carry the length (Hips is excluded from length so the leg
+        // roots don't shift); Hips+Abdomen+Torso all carry the girth (stout barrel).
+        private static readonly string[] TorsoLengthTokens = { "Abdomen", "Torso" };
+        private static readonly string[] TorsoGirthTokens = { "Hips", "Abdomen", "Torso" };
+        // Ankle END bones (LowerLeg.L|R_end) — the leaf at the bottom of the shin = the true ankle
+        // joint. The foot is a SIBLING of the leg chain under Bone (NOT a child — verified via RigProbe),
+        // so it does NOT follow leg shortening; we track the ankle-END world-Y delta + re-seat the foot
+        // to it so the foot stays attached to the shortened shin (and the height re-normalize re-grounds).
+        private static readonly string[] AnkleEndTokens =
+            { "LowerLeg.L_end", "LowerLeg.R_end", "LowerLeg_L_end", "LowerLeg_R_end" };
 
         [Header("Facing")]
         [Tooltip("How fast the body yaws toward the travel direction (higher = snappier).")]
@@ -183,7 +226,48 @@ namespace FarHorizon
 
             ApplyCastawayRecolor(go);
             ApplyStylizationBoneScale(go);
+            // Re-ground after stylization (the height-renormalize lesson — shortening legs + re-seating
+            // feet raises the lowest vertex off the FBX origin, so the figure would FLOAT). Bake the
+            // post-scale mesh + drop the Model so its lowest vertex sits at the avatar-root origin (y=0),
+            // which the player root grounds. Independent of render state (BakeMesh, like MeasureHeadsTall).
+            ReGroundModelToFeet(go);
             _built = true;
+        }
+
+        // Drop the Model child so the post-stylization lowest baked vertex grounds at the avatar root's
+        // local y=0. The leg-shorten + foot-reseat lifts the feet off the FBX origin; without this the
+        // chunked figure floats above the blob shadow. Uses BakeMesh (render-state-independent — the
+        // same trap CastawayProportions documents) so the offset is deterministic in EditMode + the
+        // shipped scene alike. A no-op (offset ~0) when no stylization scaled the legs.
+        private void ReGroundModelToFeet(GameObject root)
+        {
+            var smr = root.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null || smr.sharedMesh == null) return;
+            var baked = new Mesh();
+            smr.BakeMesh(baked, true);
+            var verts = baked.vertices;
+            if (verts.Length == 0) { DestroyMeshSafe(baked); return; }
+            // Lowest baked vertex expressed in the MODEL child's local space. BakeMesh verts are in the
+            // SMR's local space; transform SMR-local -> Model-local so the drop offset is exact even if
+            // the SMR isn't directly at the Model root.
+            Matrix4x4 smrToModel = root.transform.worldToLocalMatrix * smr.transform.localToWorldMatrix;
+            float minLocalY = float.PositiveInfinity;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                float y = smrToModel.MultiplyPoint3x4(verts[i]).y;
+                if (y < minLocalY) minLocalY = y;
+            }
+            DestroyMeshSafe(baked);
+            if (float.IsInfinity(minLocalY) || Mathf.Abs(minLocalY) < 0.0005f) return; // already grounded
+            var lp = root.transform.localPosition;
+            lp.y -= minLocalY; // shift so the lowest vertex lands on y=0
+            root.transform.localPosition = lp;
+        }
+
+        private static void DestroyMeshSafe(Mesh m)
+        {
+            if (m == null) return;
+            if (Application.isPlaying) Destroy(m); else DestroyImmediate(m);
         }
 
         // Apply the cartoonish-stylization bone-baseline scale (86ca8ca1m). Sets a baseline localScale
@@ -197,19 +281,121 @@ namespace FarHorizon
         {
             if (Mathf.Approximately(headScale, 1f) &&
                 Mathf.Approximately(handScale, 1f) &&
-                Mathf.Approximately(footScale, 1f))
+                Mathf.Approximately(footScale, 1f) &&
+                Mathf.Approximately(armLengthScale, 1f) &&
+                Mathf.Approximately(legLengthScale, 1f) &&
+                Mathf.Approximately(torsoLengthScale, 1f) &&
+                Mathf.Approximately(limbGirthScale, 1f) &&
+                Mathf.Approximately(torsoGirthScale, 1f))
                 return; // no-op: trust the delivered mesh baseline as-is
 
             var bones = root.GetComponentsInChildren<Transform>(true);
+
+            // ORDER MATTERS — the bone hierarchy compounds, so we apply parent-side LENGTH+GIRTH first,
+            // then child-compensate the terminals (hand/foot) so they don't shrink/detach, and finally
+            // the terminal uniform scales (head/hand/foot) sit on top.
+
+            // 1. LIMB GIRTH (X/Z only — never length): fatten arm+leg segments into sausages. Applied to
+            //    the SEGMENT bones; the Palm (hand root) inherits it and is counter-compensated below so
+            //    the hand isn't double-fattened (handScale governs hand size). Legs have no inheriting
+            //    terminal under them on this rig (feet are siblings), so no leg-girth compensation needed.
+            ScaleBonesAxis(bones, ArmSegmentTokens, limbGirthScale, 1f, limbGirthScale);
+            ScaleBonesAxis(bones, LegSegmentTokens, limbGirthScale, 1f, limbGirthScale);
+
+            // 2. TORSO GIRTH (X/Z only): stout barrel. Hips+Abdomen+Torso. The arms/legs root off this
+            //    region but their OWN girth is set in (1); a torso-girth on X/Z widens the trunk only.
+            ScaleBonesAxis(bones, TorsoGirthTokens, torsoGirthScale, 1f, torsoGirthScale);
+
+            // 3. TORSO LENGTH (Y only): shorter spine (Abdomen+Torso). Children (Neck/Head, Shoulders)
+            //    ride up as the spine compacts — exactly the "big head sits close on a short body" read.
+            //    headScale (4) re-inflates the head independent of the squash, so it does not shrink.
+            ScaleBonesAxis(bones, TorsoLengthTokens, 1f, torsoLengthScale, 1f);
+
+            // 4. ARM LENGTH (Y only): shorter arms (UpperArm+LowerArm). The Palm inherits the Y-squash,
+            //    so counter-scale Palm.Y by 1/armLengthScale to keep the hand un-squashed; also counter
+            //    the inherited X/Z girth so the hand keeps its own proportions (handScale sizes it).
+            ScaleBonesAxis(bones, ArmSegmentTokens, 1f, armLengthScale, 1f);
+            float palmInvY = SafeInv(armLengthScale);
+            float palmInvXZ = SafeInv(limbGirthScale);
+            ScaleBonesAxis(bones, PalmBoneTokens, palmInvXZ, palmInvY, palmInvXZ);
+
+            // 5. LEG LENGTH (Y only): shorter legs (UpperLeg+LowerLeg). Feet are a SIBLING chain under
+            //    Bone (NOT children of the legs — verified via RigProbe), so they do NOT inherit the
+            //    shorten and the ankle (LowerLeg_end) rises away from the foot, detaching the shin.
+            //    Re-seat each Foot bone UP to the new ankle world-Y so the foot stays attached, then
+            //    drop the avatar root in step (6) so the now-shorter legs still ground the feet.
+            float[] ankleBeforeY = MeasureBoneWorldY(bones, AnkleEndTokens);
+            ScaleBonesAxis(bones, LegSegmentTokens, 1f, legLengthScale, 1f);
+            ReseatFeetToNewAnkle(bones, ankleBeforeY, legLengthScale);
+
+            // 6. TERMINAL UNIFORM scales (head / hand / foot) — the original round-1 dials, on top.
             int hitHead = ScaleBones(bones, HeadBoneTokens, headScale);
-            int hitHands = ScaleBones(bones, HandBoneTokens, handScale);
-            int hitFeet = ScaleBones(bones, FootBoneTokens, footScale);
+            ScaleBones(bones, HandBoneTokens, handScale);
+            ScaleBones(bones, FootBoneTokens, footScale);
             if (hitHead == 0 && !Mathf.Approximately(headScale, 1f))
                 Debug.LogWarning("[CastawayCharacter] stylization: no Head bone matched " +
                                  "(headScale ignored — the delivered rig may use a different bone name)");
         }
 
-        // Multiply each matched bone's localScale by `scale`. Returns the number of bones scaled.
+        // 1/x guarded against a zero/near-zero scale (avoids a divide-by-zero blowing up the rig).
+        private static float SafeInv(float s) => Mathf.Approximately(s, 0f) ? 1f : 1f / s;
+
+        // Record the world-Y of every matched bone (pre-scale), so feet can be re-seated to the moved
+        // ankle after leg shortening. Returns one entry per matched bone in deterministic order.
+        private static float[] MeasureBoneWorldY(Transform[] bones, string[] tokens)
+        {
+            var ys = new System.Collections.Generic.List<float>();
+            foreach (var b in bones)
+                if (MatchesAny(b.name, tokens)) ys.Add(b.position.y);
+            return ys.ToArray();
+        }
+
+        // Re-seat the Foot bones to the post-shorten ankle world-Y so the foot stays attached to the
+        // shortened shin (feet are NOT children of the legs on this rig, so they don't follow the
+        // shorten and would otherwise detach — the "compensate children so feet don't detach" AC).
+        // The foot is lifted by the same world-Y delta the matching ankle moved; left/right are matched
+        // by index (deterministic bone order). The avatar's height re-normalize (MovementCameraScene)
+        // re-grounds the whole figure afterward, so lifting feet to the ankle keeps the contact clean.
+        private static void ReseatFeetToNewAnkle(Transform[] bones, float[] ankleBeforeY, float legLengthScale)
+        {
+            if (Mathf.Approximately(legLengthScale, 1f)) return;
+            // Gather the moved ankles + the feet in the SAME deterministic order.
+            var ankles = new System.Collections.Generic.List<Transform>();
+            foreach (var b in bones) if (MatchesAny(b.name, AnkleEndTokens)) ankles.Add(b);
+            // Foot ROOTS only (exclude the "_end" leaf) so the foot list pairs 1:1 with the ankle list;
+            // re-seating the root carries its "_end" child along (the child rides in the parent's frame).
+            var feet = new System.Collections.Generic.List<Transform>();
+            foreach (var b in bones)
+                if (MatchesAny(b.name, FootBoneTokens) && !b.name.ToLowerInvariant().Contains("_end"))
+                    feet.Add(b);
+            if (ankles.Count == 0 || feet.Count == 0 || ankleBeforeY.Length != ankles.Count) return;
+
+            // Pair foot[i] with ankle[i] (both enumerate L then R in the same hierarchy order). Lift the
+            // foot by the world-Y delta the ankle moved, converted into the foot's parent-local Y.
+            int n = Mathf.Min(feet.Count, ankles.Count);
+            for (int i = 0; i < n; i++)
+            {
+                float ankleDeltaWorldY = ankles[i].position.y - ankleBeforeY[i];
+                Transform foot = feet[i];
+                Transform parent = foot.parent;
+                float parentScaleY = parent != null ? parent.lossyScale.y : 1f;
+                if (Mathf.Approximately(parentScaleY, 0f)) parentScaleY = 1f;
+                Vector3 lp = foot.localPosition;
+                lp.y += ankleDeltaWorldY / parentScaleY;
+                foot.localPosition = lp;
+            }
+        }
+
+        // True if `name` contains any token (case-insensitive substring) — the armature-prefix-safe match.
+        private static bool MatchesAny(string name, string[] tokens)
+        {
+            string n = name.ToLowerInvariant();
+            foreach (var t in tokens)
+                if (n.Contains(t.ToLowerInvariant())) return true;
+            return false;
+        }
+
+        // Multiply each matched bone's localScale by `scale` UNIFORMLY. Returns the number scaled.
         // Matched by .Contains (case-insensitive) so armature-prefixed names ("HumanArmature|Head")
         // still match — the same prefix lesson as the clip lookup. Idempotent within a single build
         // pass (BuildInEditor clears + rebuilds the Model child, so the FBX-fresh bone scales are 1).
@@ -219,15 +405,31 @@ namespace FarHorizon
             int hits = 0;
             foreach (var b in bones)
             {
-                string n = b.name.ToLowerInvariant();
-                foreach (var t in tokens)
+                if (MatchesAny(b.name, tokens))
                 {
-                    if (n.Contains(t.ToLowerInvariant()))
-                    {
-                        b.localScale = b.localScale * scale;
-                        hits++;
-                        break;
-                    }
+                    b.localScale = b.localScale * scale;
+                    hits++;
+                }
+            }
+            return hits;
+        }
+
+        // Multiply each matched bone's localScale by (sx, sy, sz) PER-AXIS — the length-vs-girth lever.
+        // On this rig the bone-segment direction is local +Y, so sy is LENGTH and sx/sz are GIRTH.
+        // Composes with prior axis scales (BuildInEditor rebuilds fresh, so the FBX baseline is 1,1,1).
+        // Returns the number of bones scaled. No-op (skip) when all three axes are ~1.
+        private static int ScaleBonesAxis(Transform[] bones, string[] tokens, float sx, float sy, float sz)
+        {
+            if (Mathf.Approximately(sx, 1f) && Mathf.Approximately(sy, 1f) && Mathf.Approximately(sz, 1f))
+                return 0;
+            int hits = 0;
+            foreach (var b in bones)
+            {
+                if (MatchesAny(b.name, tokens))
+                {
+                    var s = b.localScale;
+                    b.localScale = new Vector3(s.x * sx, s.y * sy, s.z * sz);
+                    hits++;
                 }
             }
             return hits;

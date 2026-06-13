@@ -331,6 +331,142 @@ namespace FarHorizon.EditTests
             Object.DestroyImmediate(go);
         }
 
+        // ---- ROUND-2 toy-chunky dials (86ca8ca1m bone-scale-only direction): SHORTER arm/leg/torso
+        // LENGTH + CHUNKIER limb/torso GIRTH. These guard the bug CLASSES found via RigProbe trace, not
+        // just the instance: (a) the girth-vs-length AXIS SWAP, (b) limb shortening not landing, (c) the
+        // foot detaching/floating after leg-shorten, (d) the hand getting squashed (geometry must stay
+        // intact — the hand is the ORIGINAL Quaternius mesh, NO vertex edits this round). ----
+
+        // Helper: build a fully-stylized avatar with the round-2 dials for the trait guards below.
+        private static CastawayCharacter BuildRound2Stylized(out GameObject go)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
+            Assert.IsNotNull(fbx, "the castaway FBX must load");
+            go = new GameObject("Round2StylizedAvatar");
+            var c = go.AddComponent<CastawayCharacter>();
+            c.modelPrefab = fbx;
+            c.headScale = 4.0f; c.handScale = 1.5f; c.footScale = 1.6f;
+            c.armLengthScale = 0.70f; c.legLengthScale = 0.78f; c.torsoLengthScale = 0.80f;
+            c.limbGirthScale = 1.50f; c.torsoGirthScale = 1.35f;
+            c.BuildInEditor();
+            return c;
+        }
+
+        private static Transform FindBone(CastawayCharacter c, string token)
+        {
+            foreach (var t in c.GetComponentsInChildren<Transform>(true))
+                if (t.name.ToLowerInvariant().Contains(token.ToLowerInvariant())) return t;
+            return null;
+        }
+
+        // GIRTH-AXIS guard (THE bug found via trace): limb/torso GIRTH must scale the NON-LENGTH axes
+        // (local X/Z) and leave LENGTH (local Y) for the length dials. The first implementation scaled
+        // (X,Y) by girth — which stretched limbs LONGER instead of fatter (UpperLeg.y ended 1.17, not
+        // 0.78). Pin the leg-segment bone's local scale: X/Z carry girth (1.5), Y carries ONLY the length
+        // dial (0.78). A future axis-swap regression fails here.
+        [Test]
+        public void StylizationGirth_FattensXZ_NotLength()
+        {
+            var c = BuildRound2Stylized(out var go);
+            var upperLeg = FindBone(c, "UpperLeg.L");
+            Assert.IsNotNull(upperLeg, "the rig must carry UpperLeg.L for the girth-axis guard");
+            var s = upperLeg.localScale;
+            Assert.That(s.x, Is.InRange(1.45f, 1.55f),
+                "limb girth must fatten local-X (~1.50) — actual " + s.x.ToString("0.00"));
+            Assert.That(s.z, Is.InRange(1.45f, 1.55f),
+                "limb girth must fatten local-Z (~1.50) — actual " + s.z.ToString("0.00"));
+            Assert.That(s.y, Is.InRange(0.73f, 0.83f),
+                "leg LENGTH (local-Y) must carry ONLY the length dial (~0.78), NOT the girth — a girth/" +
+                "length axis swap (the trace-found bug) lands here. actual " + s.y.ToString("0.00"));
+            Object.DestroyImmediate(go);
+        }
+
+        // LENGTH-SHORTENS guard: the arm/leg/torso length dials (<1) must actually SHORTEN the segment
+        // bone's local-Y vs the FBX baseline (1.0). Catches the dial silently no-op'ing (wrong bone name)
+        // or being overwritten. Asserts the segment bones carry their length factor.
+        [Test]
+        public void StylizationLength_ShortensArmLegTorsoSegments()
+        {
+            var c = BuildRound2Stylized(out var go);
+            Assert.That(FindBone(c, "LowerArm.L").localScale.y, Is.InRange(0.65f, 0.75f),
+                "arm length dial must shorten LowerArm local-Y (~0.70)");
+            Assert.That(FindBone(c, "LowerLeg.L").localScale.y, Is.InRange(0.73f, 0.83f),
+                "leg length dial must shorten LowerLeg local-Y (~0.78)");
+            Assert.That(FindBone(c, "Torso").localScale.y, Is.InRange(0.75f, 0.85f),
+                "torso length dial must shorten Torso local-Y (~0.80)");
+            Object.DestroyImmediate(go);
+        }
+
+        // FOOT-GROUNDED-NOT-FLOATING guard (the leg-shorten trap): shortening the legs raises the ankle;
+        // feet are a SIBLING chain (not children of the legs — RigProbe), so without re-seat + re-ground
+        // the figure FLOATS (baked minY > 0) or the foot detaches from the shin. Assert the post-stylize
+        // baked mesh grounds at ~0 AND the foot bone tracks within a small distance of the ankle end
+        // (attached, no gap). Measured deterministically via BakeMesh (render-state-independent — the
+        // CastawayProportions trap). A re-seat/re-ground regression (the float-off-ground class) fails here.
+        [Test]
+        public void StylizationLegShorten_FeetStayGroundedAndAttached()
+        {
+            var c = BuildRound2Stylized(out var go);
+            var smr = c.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            Assert.IsNotNull(smr, "the stylized avatar must carry a SkinnedMeshRenderer");
+
+            // Bake in the SMR's local space; the Model child was re-grounded so the lowest vertex sits
+            // at the Model's local y ~= the avatar-root origin (the player root grounds that to the floor).
+            var baked = new Mesh();
+            smr.BakeMesh(baked, true);
+            var verts = baked.vertices;
+            Assert.Greater(verts.Length, 0, "the baked mesh must have verts");
+            var smrToRoot = c.transform.worldToLocalMatrix * smr.transform.localToWorldMatrix;
+            float minY = float.PositiveInfinity;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                float y = smrToRoot.MultiplyPoint3x4(verts[i]).y;
+                if (y < minY) minY = y;
+            }
+            Object.DestroyImmediate(baked);
+            Assert.That(minY, Is.InRange(-0.03f, 0.03f),
+                "the stylized figure's lowest vertex must GROUND at the avatar origin (~0) — a positive " +
+                "minY means the figure FLOATS (leg-shorten not re-grounded); negative means sunk. minY=" +
+                minY.ToString("0.000"));
+
+            // Foot stays attached to the shortened shin: foot bone within ~0.06u (local-1u space) of the
+            // ankle end. A detach (re-seat regression) opens a gap larger than this.
+            var ankle = FindBone(c, "LowerLeg.L_end");
+            var foot = FindBone(c, "Foot.L");
+            Assert.IsNotNull(ankle, "rig must carry the ankle end LowerLeg.L_end");
+            Assert.IsNotNull(foot, "rig must carry Foot.L");
+            float gap = Mathf.Abs(foot.position.y - ankle.position.y);
+            Assert.Less(gap, 0.06f,
+                "the foot must re-seat to the shortened ankle (no shin/foot detach) — gap=" + gap.ToString("0.000"));
+            Object.DestroyImmediate(go);
+        }
+
+        // HAND-GEOMETRY-INTACT guard (Sponsor-clicked HARD constraint: arms/hands stay the ORIGINAL
+        // Quaternius mesh, NO vertex edits; the orchestrator's vertex-sculpt mangled them). The bone-scale
+        // route must NOT squash the hand: the arm-LENGTH shorten propagates a Y-squash to the Palm (its
+        // child), so the Palm is counter-compensated in Y. Assert the Palm's WORLD Y-span (Palm -> finger
+        // tip) is NOT collapsed by the arm shorten — i.e. the hand keeps a real, un-squashed extent. A
+        // regression that drops the Palm counter-compensation collapses this span and fails here.
+        [Test]
+        public void StylizationArmShorten_DoesNotSquashTheHand()
+        {
+            var c = BuildRound2Stylized(out var go);
+            var palm = FindBone(c, "Palm.L");
+            var fingerTip = FindBone(c, "Fingers.L_end");
+            Assert.IsNotNull(palm, "rig must carry Palm.L");
+            Assert.IsNotNull(fingerTip, "rig must carry Fingers.L_end (the hand tip)");
+            // The hand's vertical span (palm root to finger tip). On the un-stylized base this is ~0.087u
+            // (Palm wY 0.455 - Fingers.L_end wY 0.368). The arm shorten must NOT crush it; the Palm
+            // counter-compensation keeps it at a real fraction of the base. Assert it stays well above a
+            // collapsed value (a squash drops it toward ~0).
+            float handSpan = Mathf.Abs(palm.position.y - fingerTip.position.y);
+            Assert.Greater(handSpan, 0.05f,
+                "the hand must keep a real (un-squashed) vertical span — the arm-shorten Y-squash must be " +
+                "counter-compensated on the Palm so the ORIGINAL hand geometry reads intact. span=" +
+                handSpan.ToString("0.000"));
+            Object.DestroyImmediate(go);
+        }
+
         // Per-part smoothness must DIFFERENTIATE (cloth matte vs skin/hair/eyes glossier) so the
         // figure reads "detailed/polished" rather than uniformly flat-matte (the spike's iter7 polish
         // gap). A regression that flattens every part to one smoothness fails here.

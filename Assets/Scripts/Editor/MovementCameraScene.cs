@@ -718,21 +718,36 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] castaway FBX not found at " + CharacterAssetGen.FbxPath +
                                " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
 
-            // CARTOONISH STYLIZATION dial (ticket 86ca8ca1m, Uma castaway-style-v2 §2). The chunky
-            // proportions land as a rig-safe bone-baseline scale (Head about the neck pivot, Hands as
-            // oversized mittens, Feet as wide blocky bare feet) that COMPOSES with the imported clips so
-            // Idle/Walk survive. Values measured empirically on the live mesh (2026-06-12, NOT guessed):
-            //   headScale 3.5  -> ~2.98 heads tall (Uma's 3.0 baseline; sweep 3.3->3.10, 3.8->2.82, so
-            //                     a Sponsor soak toward "cuter" 2.5 raises headScale toward ~4.3).
-            //   handScale 1.4  -> oversized mitten read (Uma §2: 1.3-1.5x).
-            //   footScale 1.5  -> wide blocky bare-feet base (Uma §2).
-            // NOTE (drop-in handoff): these scale the CURRENT realistic Quaternius mesh into the chunky
-            // band. When the orchestrator's R&D-lane proportion-edited FBX lands (chunky at the 3.0
-            // baseline by construction), DIAL THESE BACK toward 1.0 (re-measure with the proportion guard)
-            // so the mesh's baked proportions aren't double-chunked into a bobblehead.
-            castaway.headScale = 3.5f;
-            castaway.handScale = 1.4f;
-            castaway.footScale = 1.5f;
+            // CARTOONISH STYLIZATION dials (ticket 86ca8ca1m, Sponsor-clicked BONE-SCALE-ONLY direction
+            // — NO mesh/vertex surgery; arms+hands geometry stay the ORIGINAL Quaternius mesh, untouched).
+            // Toy-chunky proportions land entirely as rig-safe bone-baseline scale that COMPOSES with the
+            // imported clips (clips drive rotation/translation; a baseline localScale multiplies through
+            // skinning), so Idle/Walk survive BY CONSTRUCTION — no re-rig, no avatar rebuild.
+            // ALL VALUES MEASURED EMPIRICALLY (RigProbe.SweepDials on the live mesh — heads-tall via
+            // BakeMesh, NOT guessed): this set bakes to 2.90 HEADS TALL (Uma §2 toy band 2.5-3.3, leaning
+            // toward the "cuter" 3.0 baseline). The reference body is STOUT + SHORT-LIMBED, so beyond the
+            // big head we shorten limb/torso LENGTH and fatten limb/torso GIRTH (length=local-Y,
+            // girth=local-X/Z on this rig — verified via RigProbe):
+            //   headScale       4.00 -> oversized head, the single biggest readability lever.
+            //   handScale       1.50 -> oversized mitten read (Uma §2: 1.3-1.5x).
+            //   footScale       1.60 -> wide blocky bare-feet base (Uma §2).
+            //   armLengthScale  0.70 -> SHORTER arms (hand child-compensated, stays intact + attached).
+            //   legLengthScale  0.78 -> SHORTER legs (feet re-seated to the new ankle + re-grounded).
+            //   torsoLengthScale0.80 -> SHORTER/compact torso (big head sits close on a short body).
+            //   limbGirthScale  1.50 -> sausage arms+legs (X/Z; hands/feet child-compensated).
+            //   torsoGirthScale 1.35 -> stout barrel torso (X/Z on Hips+Abdomen+Torso).
+            // Arms/hands carry the ORIGINAL mesh — the shorten+girth is bone-scale only; the hand is
+            // counter-compensated so it isn't shrunk/double-fattened (handScale governs its size).
+            // SOAK DIAL: a Sponsor push toward "cuter" 2.5 raises headScale / lowers the length scales
+            // further; toward 3.0+ lowers headScale — re-measure with the proportion guard before landing.
+            castaway.headScale = 4.0f;
+            castaway.handScale = 1.5f;
+            castaway.footScale = 1.6f;
+            castaway.armLengthScale = 0.70f;
+            castaway.legLengthScale = 0.78f;
+            castaway.torsoLengthScale = 0.80f;
+            castaway.limbGirthScale = 1.50f;
+            castaway.torsoGirthScale = 1.35f;
             // Build the Model child + materials NOW (editor) so they serialize into Boot.unity.
             castaway.BuildInEditor();
 
@@ -758,7 +773,12 @@ namespace FarHorizon.EditorTools
         // Zone-D key); alpha = the disc's opaque-core falloff strength. Exposed for the scene-presence test. ----
         public const string BlobShadowObjectName = "BlobShadow";
         public static readonly Color BlobShadowColor = new Color(0.08f, 0.07f, 0.06f); // soft warm-dark
-        public const float BlobShadowRadius = 0.62f;      // re-fit: wider than a slim stance (~0.45)
+        // RE-FIT to the round-2 toy stance (86ca8ca1m): the wider blocky feet (footScale 1.6) + sausage
+        // limbs (limbGirth 1.5) widen the footprint. RigProbe.TraceSet measured the foot-band half-extent
+        // at |x|=0.170, |z|=0.165 in the avatar's ~1u local space; scaled by PlayerVisualHeight (1.8) the
+        // world half-extent is ~0.306u (full stance ~0.61u). Radius 0.70 contains the full stance + a soft
+        // margin (was 0.62 for the slimmer round-1 feet; ~0.45 for the original slim realistic stance).
+        public const float BlobShadowRadius = 0.70f;
         public const float BlobShadowCenterAlpha = 0.5f;  // soft, not a hard black disc
 
         // Build the castaway's contact/blob shadow as a flat ground disc under the player root. The disc
