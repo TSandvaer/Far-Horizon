@@ -128,6 +128,12 @@ namespace FarHorizon.EditorTools
             // testing bar's shipped-build gate can prove click-move in the BUILT exe (-verifyMove).
             WireMovementVerifyCapture(player);
 
+            // Wire the verification-only shipped-build SEA capture (drew/beach-water-scene; Uma §4 task F).
+            // The default orbit framing looks INLAND; this drives an orbit-to-seaward yaw in the BUILT exe
+            // so the beach ocean is captured filling the frame (the inland -captureGate frames can't judge
+            // it). Inert unless launched with -verifySea. Sibling of the movement/craft/chop/loop captures.
+            WireSeaVerifyCapture();
+
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -137,6 +143,16 @@ namespace FarHorizon.EditorTools
                 Directory.CreateDirectory(Path.GetFullPath(d));
             AssetDatabase.Refresh();
         }
+
+        // Seaward edge of the flat test ground (drew/beach-water-scene). ORIGINALLY the ground spanned
+        // a symmetric Z [-30..+30]; the diagnostic trace (drew/beach-water, 2026-06-13) proved that flat
+        // Y=0 slab extending to Z-30 was the OPAQUE OCCLUDER hiding the beach ocean — the water plane sits
+        // at Y-0.20 UNDERNEATH it, so from the seaward orbit every ray hit TestGround before the sea.
+        // Trim the seaward edge to just past the seaward-most loop spot (the campfire at Z-8) so the
+        // ground still carries the loop + NavMesh, but stops BEFORE the ocean begins — seaward of this
+        // edge the water is the only (topmost) surface and finally reads. The inland reach (+30) is
+        // unchanged (spawn/craft pathing). The campfire (Z-8) + tree (Z-7) keep their solid ground.
+        private const float SeawardGroundZ = -10f;
 
         // A flat subdivided plane on the Ground layer with a MeshCollider, so the NavMesh bake
         // (PhysicsColliders collection) AND the click-to-move ground raycast both hit it.
@@ -151,7 +167,10 @@ namespace FarHorizon.EditorTools
             var mr = go.AddComponent<MeshRenderer>();
 
             const int seg = 20;
-            float size = GroundHalf * 2f;
+            float sizeX = GroundHalf * 2f;
+            // Asymmetric Z span: seaward edge trimmed to SeawardGroundZ so the slab no longer overhangs
+            // (and occludes) the ocean; inland edge stays at +GroundHalf.
+            float minZ = SeawardGroundZ, maxZ = GroundHalf;
             var verts = new Vector3[(seg + 1) * (seg + 1)];
             var uvs = new Vector2[verts.Length];
             for (int z = 0; z <= seg; z++)
@@ -159,7 +178,7 @@ namespace FarHorizon.EditorTools
                 {
                     int i = z * (seg + 1) + x;
                     float fx = (float)x / seg, fz = (float)z / seg;
-                    verts[i] = new Vector3((fx - 0.5f) * size, 0f, (fz - 0.5f) * size);
+                    verts[i] = new Vector3((fx - 0.5f) * sizeX, 0f, Mathf.Lerp(minZ, maxZ, fz));
                     uvs[i] = new Vector2(fx * seg, fz * seg);
                 }
             var tris = new int[seg * seg * 6];
@@ -927,6 +946,22 @@ namespace FarHorizon.EditorTools
             var cap = bootGo.GetComponent<MovementVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<MovementVerifyCapture>();
             cap.player = player.GetComponent<ClickToMove>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Attach the verification-only SEA capture to the Boot object (the -verifySea orbit-to-seaward
+        // ocean shot). Inert unless launched with -verifySea. Serialized into the scene editor-time (NOT
+        // Awake) per the editor-vs-runtime trap; WaterSceneTests guards its serialized presence.
+        private static void WireSeaVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — sea-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<SeaVerifyCapture>() == null)
+                bootGo.AddComponent<SeaVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 

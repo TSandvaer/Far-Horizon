@@ -13,9 +13,18 @@ Shader "FarHorizon/LowPolyVertexColor"
     // STRIPPED from the standalone build unless it is registered in GraphicsSettings
     // AlwaysIncludedShaders (unity-conventions.md "Build stripping & shaders" — the spike's magenta
     // failure class). WorldBootstrap.EnsureShaderAlwaysIncluded registers it at bootstrap time.
+    // WATER SWELL (Far Horizon beach ocean, drew/beach-water-scene): a gentle large-wavelength
+    // vertical sine displaces verts IN-SHADER (zero per-frame CPU, serializes cleanly per
+    // unity-conventions.md §Editor-vs-runtime — no Awake-built/runtime-script geometry). _WaveAmp
+    // DEFAULTS TO 0 so the terrain + canopy materials that share this shader are UNAFFECTED; ONLY the
+    // water material sets _WaveAmp > 0. Two crossed waves (different wavelengths/directions) read as a
+    // calm rolling swell, not a single mechanical ripple (Uma §1: "a breath, not surf").
     Properties
     {
         _Tint ("Tint", Color) = (1,1,1,1)
+        _WaveAmp ("Wave Amplitude", Float) = 0
+        _WaveLen ("Wave Wavelength", Float) = 14
+        _WaveSpeed ("Wave Speed", Float) = 0.9
     }
     SubShader
     {
@@ -40,6 +49,9 @@ Shader "FarHorizon/LowPolyVertexColor"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _Tint;
+                float _WaveAmp;
+                float _WaveLen;
+                float _WaveSpeed;
             CBUFFER_END
 
             struct Attributes
@@ -61,7 +73,26 @@ Shader "FarHorizon/LowPolyVertexColor"
             Varyings vert (Attributes IN)
             {
                 Varyings OUT;
-                VertexPositionInputs pos = GetVertexPositionInputs(IN.positionOS.xyz);
+
+                // GENTLE SWELL (water only — _WaveAmp 0 elsewhere so this is a no-op for terrain/canopy).
+                // Displace Y by two crossed large-wavelength sines keyed off WORLD XZ (so the swell is
+                // continuous across the welded grid and independent of the mesh's local origin). Phase
+                // advances with _Time.y; the low frequency (long _WaveLen) + small _WaveAmp reads as a
+                // calm rolling sea, never surf. Normals are left as the flat-water averaged normals — at
+                // this amplitude the lighting shift is negligible and recomputing per-vertex normals
+                // in-shader would cost more than the subtle swell is worth.
+                float3 posOS = IN.positionOS.xyz;
+                if (_WaveAmp > 0.0)
+                {
+                    float3 posWS0 = TransformObjectToWorld(posOS);
+                    float k = 6.2831853 / max(_WaveLen, 0.001);
+                    float t = _Time.y * _WaveSpeed;
+                    float wave = sin(posWS0.x * k * 0.7 + t)
+                               + sin(posWS0.z * k + t * 1.3) * 0.8;
+                    posOS.y += wave * _WaveAmp * 0.5;
+                }
+
+                VertexPositionInputs pos = GetVertexPositionInputs(posOS);
                 VertexNormalInputs nrm = GetVertexNormalInputs(IN.normalOS);
                 OUT.positionHCS = pos.positionCS;
                 OUT.positionWS  = pos.positionWS;
