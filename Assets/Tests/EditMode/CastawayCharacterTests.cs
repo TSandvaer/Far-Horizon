@@ -284,22 +284,33 @@ namespace FarHorizon.EditTests
                 int py = Mathf.Clamp((int)((cell.y + 0.5f) / 16f * H), 0, H - 1);
                 return tex.GetPixel(px, py);
             }
+            // MEAN over a whole 16x16 cell — robust to the SOAKFIX4 per-pixel TATTER (dirt/tears/fray) which
+            // makes any single centre sample noisy. The identity colour still holds in the average.
+            Color CellMean(Vector2Int cell)
+            {
+                int cw = W / 16, ch = H / 16, x0 = cell.x * cw, y0 = cell.y * ch;
+                float r = 0, g = 0, b = 0; int n = 0;
+                for (int yy = 0; yy < ch; yy++)
+                    for (int xx = 0; xx < cw; xx++) { var c = tex.GetPixel(x0 + xx, y0 + yy); r += c.r; g += c.g; b += c.b; n++; }
+                return new Color(r / n, g / n, b / n, 1f);
+            }
             float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
 
-            var shirt = CellCentre(CharacterAssetGen.ShirtCell);
+            var shirt = CellMean(CharacterAssetGen.ShirtCell); // MEAN (tatter-robust)
             var hair = CellCentre(CharacterAssetGen.HairCell);
             var cap = CellCentre(CharacterAssetGen.CapCell);
             var capDome2 = CellCentre(CharacterAssetGen.CapDome2Cell);
             var feet = CellCentre(CharacterAssetGen.FeetCell);
             Object.DestroyImmediate(tex);
 
-            // SHIRT: warm khaki in a MID-TONE BAND (86ca8ca1m soak-fix). The v1 guard chased luma>0.6,
-            // but a bright shirt BLEW OUT to cream under the Zone-D warm post (the Sponsor's "no shirt /
-            // all-yellow" soak). The shirt is now a deeper saturated mid-khaki: the guard is a BAND
-            // [0.42..0.66] — below 0.42 is grizzled/grey drift (the original anti-dark intent carries),
-            // above 0.66 is the blown-bright drift the soak proved washes out. Still WARM (R>G>B).
-            Assert.That(Luma(shirt), Is.InRange(0.42f, 0.66f),
-                $"shirt must be warm MID-khaki (luma {Luma(shirt):F2}); <0.42 = grizzled drift, " +
+            // SHIRT: warm khaki in a MID-TONE BAND (86ca8ca1m soak-fix; band floor lowered SOAKFIX4 for the
+            // tatter). The v1 guard chased luma>0.6, but a bright shirt BLEW OUT to cream under the Zone-D
+            // warm post (the Sponsor's "no shirt / all-yellow" soak). The shirt is a deeper saturated mid-
+            // khaki; SOAKFIX4 also WEATHERS it (dirt/tears/fray), which DARKENS the cell MEAN a touch. Band
+            // is now [0.34..0.66] on the MEAN — below 0.34 is grizzled/grey drift (anti-dark intent carries),
+            // above 0.66 is the blown-bright drift the soak proved washes out. Still WARM (R>G>B in the mean).
+            Assert.That(Luma(shirt), Is.InRange(0.34f, 0.66f),
+                $"shirt mean must be warm MID-khaki (luma {Luma(shirt):F2}); <0.34 = grizzled/over-tattered drift, " +
                 ">0.66 = the blown-bright drift that washed to cream in the soak");
             Assert.Greater(shirt.r, shirt.g,
                 $"shirt must read WARM khaki (R>G); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
@@ -324,6 +335,65 @@ namespace FarHorizon.EditTests
                 $"rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
             Assert.Greater(feet.r, feet.b,
                 $"bare-feet skin must read warm (R>B); got rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
+        }
+
+        // CLOTHES-TATTER guard (86ca8ce6y SOAKFIX4). The Sponsor asked for the shirt + pants to read TORN /
+        // WEATHERED (castaway fiction). RecolorIdentityAtlas now WEATHERS the garment cells (dirt/tears/fray)
+        // instead of painting a flat fill. This guard catches the bug CLASS — a regression that flattens the
+        // garment back to a clean solid colour (the prior PaintCell). It asserts the garment cells carry real
+        // pixel VARIATION (a std-dev over the cell well above a flat ramp's), AND that the PANTS stay BLUE
+        // denim (luma-preserved: the weather darkens/streaks, it does not recolour). The pants cell is
+        // (7,15) on Object_44 — confirmed by the per-object UvCellTrace (the chibi is SIX skinned objects;
+        // the head/body Object_36 does NOT carry the pants — the original single-SMR trace miss). Reads the
+        // SAME atlas the materials bind.
+        [Test]
+        public void Atlas_ShirtAndPants_AreWeatheredTattered_NotFlat()
+        {
+            string path = CharacterAssetGen.AtlasPngPath;
+            Assert.IsTrue(System.IO.File.Exists(path), "the bound atlas PNG must exist at " + path);
+            var tex = new Texture2D(2, 2);
+            Assert.IsTrue(tex.LoadImage(System.IO.File.ReadAllBytes(path)), "atlas PNG must decode");
+            int W = tex.width, H = tex.height, cw = W / 16, ch = H / 16;
+
+            // Mean + luma-std-dev over a whole cell. A flat solid (or pure vertical ramp) has a LOW std-dev
+            // across the FULL cell area; the dirt/tears/fray push it up. We measure deviation from the cell
+            // MEAN (so a smooth gradient alone reads low, but blotches/rips read high).
+            void CellStats(Vector2Int cell, out Color mean, out float lumaStd)
+            {
+                int x0 = cell.x * cw, y0 = cell.y * ch;
+                float r = 0, g = 0, b = 0; int n = 0;
+                var lumas = new System.Collections.Generic.List<float>();
+                for (int yy = 0; yy < ch; yy++)
+                    for (int xx = 0; xx < cw; xx++)
+                    {
+                        var c = tex.GetPixel(x0 + xx, y0 + yy);
+                        r += c.r; g += c.g; b += c.b; n++;
+                        lumas.Add(0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b);
+                    }
+                mean = new Color(r / n, g / n, b / n, 1f);
+                float lm = 0; foreach (var l in lumas) lm += l; lm /= lumas.Count;
+                float v = 0; foreach (var l in lumas) v += (l - lm) * (l - lm); v /= lumas.Count;
+                lumaStd = Mathf.Sqrt(v);
+            }
+            float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+            // SHIRT: weathered (variation present) AND still warm khaki (R>G>B mean).
+            CellStats(CharacterAssetGen.ShirtCell, out var shirtMean, out var shirtStd);
+            Assert.Greater(shirtStd, 0.02f,
+                $"shirt cell must carry tatter VARIATION (luma std {shirtStd:F4} > 0.02); a flat fill = the " +
+                "clean-shirt regression the Sponsor asked to weather");
+            Assert.Greater(shirtMean.r, shirtMean.b,
+                $"shirt must stay warm khaki even weathered (R>B mean); got {shirtMean}");
+
+            // PANTS: weathered AND BLUE denim (luma-PRESERVED — the weather darkens/streaks, no recolour).
+            CellStats(CharacterAssetGen.PantsCell, out var pMean, out var pStd);
+            Assert.Greater(pStd, 0.015f,
+                $"pants cell {CharacterAssetGen.PantsCell} must carry tatter VARIATION (luma std {pStd:F4} > 0.015), not a flat fill");
+            Assert.Greater(pMean.b, pMean.r,
+                $"pants must stay BLUE denim (B>R mean — the Sponsor's 'blue pants', confirmed by the per-object trace); {pMean}");
+            Assert.Greater(pMean.b, pMean.g,
+                $"pants must stay BLUE denim (B>G mean), not greened/recoloured; {pMean}");
+            Object.DestroyImmediate(tex);
         }
 
         // CAP -> HAIR guard (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and the castaway read as
@@ -425,17 +495,18 @@ namespace FarHorizon.EditTests
                 "the blob shadow must have NO collider (it must not block the click raycast / NavMesh bake)");
         }
 
-        // HAIR CROWN-SPREAD guard (86ca8ce6y SOAKFIX3). The Sponsor soaked the messy hair and STILL saw a
-        // "brown spike" on top at the tilt-to-horizon camera angle; Tess's geometry probe confirmed the top
-        // vertex sat 0.138u / relGap 0.121 ABOVE the top-15 crown ring (the apex de-spike didn't pull deep
-        // enough — the crown was a tall narrow CONE, not just one proud pole vertex). No test asserted the
-        // hair SILHOUETTE, so the spike went green. This guard builds the EXACT shipped MessyHairCap mesh
-        // (the same named params the scene build uses) and asserts the crown is flat-ish: the top-15 highest
-        // verts must span < 0.05u (Tess's bar) AND no single vertex stands proud above its ring (apex gap
-        // small). Catches the bug CLASS — any future param/de-spike change that re-introduces a proud crown
-        // fails CI before a Sponsor soak. Pure-geometry (no scene load); deterministic via the fixed seed.
+        // HAIR CROWN-FLAT guard (86ca8ce6y SOAKFIX4 — TIGHTENED). SOAKFIX3 asserted the top-15 RING spread
+        // < 0.05u, and that PASSED while a spike remained: the Sponsor sees the spike from the DEFAULT over-
+        // the-shoulder GAMEPLAY cam (looking DOWN at the crown, pitch 55-70°), where a vertex standing proud
+        // of its NEIGHBOURS pokes the top-down silhouette — a defect the ring-spread metric is blind to (it
+        // measures the band height, not whether one vert exceeds the plateau). This guard is the bug-CLASS
+        // catch: it builds the EXACT shipped MessyHairCap mesh and asserts the crown is a FLAT PLATEAU viewed
+        // FROM ABOVE — (1) the highest vert sits no more than epsilon above the next-highest (no single proud
+        // apex), and (2) the top plateau is genuinely FLAT (many verts share the max height — a hard-clamped
+        // plateau, not a tapering cone tip). Any future param/de-spike regression that re-introduces a proud
+        // crown vertex fails CI before a Sponsor soak. Pure-geometry (no scene load); deterministic via seed.
         [Test]
-        public void MessyHairCap_CrownIsFlat_NoProudApexSpike()
+        public void MessyHairCap_CrownIsFlatPlateau_NoProudApexFromAbove()
         {
             var mesh = LowPolyMeshes.MessyHairCap(
                 MovementCameraScene.HairCapRadius, MovementCameraScene.HairCapYScale,
@@ -445,27 +516,35 @@ namespace FarHorizon.EditTests
 
             var ys = new System.Collections.Generic.List<float>();
             foreach (var v in mesh.vertices) ys.Add(v.y);
-            Assert.GreaterOrEqual(ys.Count, 15, "the cap must have at least 15 verts to measure a crown ring");
+            Assert.GreaterOrEqual(ys.Count, 15, "the cap must have at least 15 verts to measure a crown plateau");
             ys.Sort();
             ys.Reverse(); // highest first
 
             float top1 = ys[0];
-            int n = 15;
-            float ringMin = ys[n - 1];           // 15th-highest
-            float ringMax = ys[1];               // 2nd-highest (the apex's immediate neighbour)
-            float spread = top1 - ringMin;       // top1..top15 vertical spread
-            float apexGap = top1 - ringMax;      // is the single top vertex proud of its ring?
+            float top2 = ys[1];
+            float apexGap = top1 - top2; // does the single highest vertex stand proud of the next-highest?
 
-            // Tess's bar: the crown top-ring spread must be flat-ish (< ~0.05u). Pre-fix this was ~0.106u
-            // (probe relGap 0.121); the crown-plateau soft-clamp brings it to ~0.030u.
-            Assert.Less(spread, 0.05f,
-                $"hair crown top-15 vertex spread {spread:F4}u must be < 0.05u (a taller spread reads as a " +
-                $"proud tuft/cone at the tilt-to-horizon cam — the Sponsor's 'brown spike'); top1={top1:F4} " +
-                $"ringMin(top15)={ringMin:F4}");
-            // No single pole vertex standing proud above its immediate ring (the literal 'spike').
-            Assert.Less(apexGap, 0.02f,
-                $"no hair vertex may stand proud above the crown ring: apex gap {apexGap:F4}u (top1 {top1:F4} " +
-                $"vs 2nd-highest {ringMax:F4}) must be < 0.02u");
+            // (1) NO PROUD APEX FROM ABOVE: the highest vertex must be (essentially) level with the next —
+            // a proud apex IS the spike the over-shoulder cam sees. Hard-clamp lands all crown verts on one
+            // ceiling, so this gap is ~0. Tight 0.01u bar (the prior 0.02u ring-gap bar passed a real spike).
+            Assert.Less(apexGap, 0.01f,
+                $"no hair vertex may stand proud of the crown plateau (the over-shoulder 'brown spike'): " +
+                $"apex gap {apexGap:F4}u (top1 {top1:F4} vs top2 {top2:F4}) must be < 0.01u");
+
+            // (2) THE PLATEAU IS FLAT, NOT A CONE TIP: a hard-clamped crown has MANY verts sharing the max
+            // height. A tapering cone would have a few verts near the top and a steep falloff — fail that.
+            // Count verts within 0.01u of the top; a flat plateau has several, a spike/cone has ~1.
+            int onPlateau = 0;
+            foreach (var y in ys) if (top1 - y < 0.01f) onPlateau++;
+            Assert.GreaterOrEqual(onPlateau, 4,
+                $"the crown must be a FLAT plateau (>=4 verts within 0.01u of the top), not a cone/spike tip; " +
+                $"got {onPlateau} (top1={top1:F4})");
+
+            // (3) Belt-and-suspenders: the top-15 ring spread bar from SOAKFIX3 still holds (a coarse sanity
+            // floor — the plateau makes this comfortably small now).
+            float ringMin = ys[14];
+            Assert.Less(top1 - ringMin, 0.05f,
+                $"hair crown top-15 spread {(top1 - ringMin):F4}u must stay < 0.05u (coarse flat-crown floor)");
         }
     }
 }

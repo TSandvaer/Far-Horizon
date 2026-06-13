@@ -99,15 +99,22 @@ namespace FarHorizon.EditorTools
         // localPos went the WRONG way). Fix: pose the held axe in WORLD space after parenting (Unity back-
         // solves + serializes the local transform), so the pose is intuitive + robust to the bone frame.
         //
-        // VALUES (dialed via AxeAssetGen.DialInTrace against the orbit render): scale 0.0040 (×267 lossy ≈
-        // 1.0u longest — ~⅔ the kid's full height, a clear hero hatchet, NOT the giant the 267× trap shipped
-        // before); world offset (+0.20 out to the side, +0.55 up toward the shoulder, -0.05) seats it at the
-        // hand near chest height; world euler (-55,30,10) TIPS the blade flat toward the top-down camera so
-        // the head reads as an axe-head shape (a vertical prop foreshortens to a dot from 55°). Final read is
-        // the SHIPPED build (editor RT is framing-only, not colour — unity-conventions.md).
+        // VALUES (dialed via AxeAssetGen.DialInTrace + SOAKFIX4 PoseTrace against the orbit render):
+        // SOAKFIX4 (the Sponsor's "handle sticks out by the EAR"): the prior +0.55 up-offset seated the axe
+        // CENTER at world-y 0.66 with its TOP at 1.040 — and the chibi's head bone is at world-y 0.775, so
+        // the haft top rose level with the EAR (PoseTrace: HeroAxe max.y 1.040 vs head-bone 0.775; the huge
+        // head + short arms put "chest height" at ear height). FIX: DROP the up-offset +0.55 -> +0.05 so the
+        // axe rides at the hand at the kid's SIDE (handle top now clears below the shoulder, well under the
+        // head), and re-pitch the euler to BLADE-DOWN-AT-THE-SIDE (head/blade hangs toward the hip, handle
+        // angled up just past the hand) — NOT the prior blade-flat-up tip that lifted the haft. A residual
+        // tilt is kept (not dead-vertical) so the head still reads as an axe-head shape from the 55° top-down
+        // orbit (a fully vertical prop foreshortens to a dot — the visibility lesson). Scale 0.0040 (×267
+        // lossy ≈ 1.0u longest) UNCHANGED — the size already read as a clear hero hatchet; only height+pitch
+        // move. Re-measured by PoseTrace post-change; final read is the SHIPPED build (editor RT is
+        // framing-only, not colour — unity-conventions.md).
         public static readonly float HeldAxeLocalScaleUniform = 0.0040f;
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.20f, 0.55f, -0.05f);
-        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(-55f, 30f, 10f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.22f, 0.24f, -0.05f);
+        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(-28f, 30f, 22f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -292,15 +299,22 @@ namespace FarHorizon.EditorTools
 
         // The axe-on-the-stump's pose, in CraftSpot-LOCAL space (the CraftSpot is unscaled at world 1u, so
         // these are intuitive world units — NO 267× bone trap here, unlike the held axe). The stump top sits
-        // at localY ≈ 0.70 (cylinder localScale.y 0.35 → 0.70 tall). The axe stands UPRIGHT, blade bitten
-        // into the block, haft rising ~1.5u — a clear vertical "hero axe" LANDMARK visible from spawn + the
-        // diegetic "walk here" cue (the Sponsor's "stump is there but no axe"). Scale 1.4 → ~1.47u tall (the
-        // stump-axe is bigger than the held one because it is THE on-screen hero element + the wayfinding
-        // beacon). Dialed via AxeAssetGen.DialInTrace (DIAL_STUMP) against the gameplay orbit render; final
-        // read is the SHIPPED build (editor RT is framing/size-only, not colour — unity-conventions.md).
-        public static readonly Vector3 StumpAxeLocalPos = new Vector3(0.0f, 1.15f, 0.0f);
-        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(0f, 45f, 8f);
-        public static readonly float StumpAxeLocalScaleUniform = 1.4f;
+        // at world-y ≈ 0.70 (cylinder localScale.y 0.35 → 0.70 tall; PoseTrace: CraftStump TOP.y 0.700).
+        //
+        // SOAKFIX4 (the Sponsor's "head BURIED in the block, only the handle pokes out"): the prior pose
+        // (localPos.y 1.15, scale 1.4, near-vertical) put the axe HEAD — which is the LOW half of the mesh
+        // (PoseTrace: longAxis Y, the wide steel end is local-Y -0.974..-0.474) — DOWN at world min.y -0.266,
+        // i.e. BELOW the ground and buried inside the block; only the thin haft (the HIGH half) rose above the
+        // 0.700 stump top. FIX: pose it as an axe STUCK IN the block — the HEAD's blade edge bites at/into the
+        // TOP of the block (~0.70) and the HAFT angles UP-and-out so the whole handle reads above the block.
+        // Done by (a) RAISING localPos.y so the head sits at the top not the bottom, (b) LEANING the axe ~26°
+        // off vertical (a lodged-in-the-block axe leans, it does not stand to attention), (c) trimming the
+        // scale 1.4 -> 1.1 so the head doesn't overhang the small block. Re-measured by PoseTrace post-change
+        // (head bottom at ~block-top, handle top ~1.4 clearly visible from spawn). Final read is the SHIPPED
+        // build (editor RT is framing/size-only, not colour — unity-conventions.md).
+        public static readonly Vector3 StumpAxeLocalPos = new Vector3(0.02f, 1.42f, -0.04f);
+        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(26f, 45f, 8f);
+        public static readonly float StumpAxeLocalScaleUniform = 1.1f;
 
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
         // crafts the axe. A small chopping-block stump the castaway walks ONTO. NO collider so it never

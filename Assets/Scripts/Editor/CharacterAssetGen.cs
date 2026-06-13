@@ -96,6 +96,15 @@ namespace FarHorizon.EditorTools
         public static readonly Vector2Int SkinCell = new Vector2Int(12, 2);    // head+body skin (was blown bright)
         public static readonly Vector2Int SleeveCell = new Vector2Int(15, 10); // shirt rolled-sleeve cell
 
+        // PANTS cell (86ca8ce6y SOAKFIX4 — clothes-tatter). The Sponsor said "pants/shorts (blue)". The
+        // PANTS are on a DIFFERENT skinned object than the head/body (Object_44, the body+clothing mesh —
+        // the chibi is SIX skinned objects sharing the atlas; a single-SMR trace MISSED them, the original
+        // SOAKFIX4 blue-pants miss). DIAGNOSE-VIA-TRACE (UvCellTrace, per-object) CONFIRMS the Sponsor: the
+        // pants are cell (7,15) = rgb(0.14,0.22,0.33), a BLUE denim cell (Object_44 uses it for 101 verts).
+        // (My first pass wrongly weathered (15,5)/(15,6) — those are Object_36/38 SKIN-SHADOW cells, not the
+        // pants; reverted.) The weathering PRESERVES the blue (darken/streak/fray only, no recolour).
+        public static readonly Vector2Int PantsCell = new Vector2Int(7, 15); // blue denim pants (Object_44)
+
         // ---- SOAK-FIX target colours (86ca8ca1m soak-fix). Each is the cell's TOP-of-gradient anchor;
         // RecolorIdentityAtlas paints a vertical toon ramp from this anchor (top brighter -> bottom
         // darker) so the flat toon-shade gradient survives. All sub-1.0 (HDR-safe) and TONED so the
@@ -114,6 +123,12 @@ namespace FarHorizon.EditorTools
         // procedural hair skull-cap is added instead — so this colour mainly anchors the guard (R>G>B,
         // not green). The visible hair colour is HairMeshColor (MovementCameraScene), tuned from the soak.
         public static readonly Color HairTopColor  = new Color(0.70f, 0.45f, 0.22f); // sandy-ginger (guard anchor; dome hidden)
+        // PANTS anchor (86ca8ce6y SOAKFIX4). FIXED constant (NOT read-from-atlas) so the weather pass is
+        // IDEMPOTENT — a bootstrap re-run must converge, not darken progressively. Value = the chibi's
+        // shipped BLUE denim top-of-gradient (per-object UvCellTrace: cell (7,15) ≈ rgb(0.14,0.22,0.33); the
+        // cell is a gradient, this is a representative mid). Slightly lifted from the cell bottom so the toon
+        // ramp re-applies cleanly. Weathering darkens/streaks/frays THIS blue — preserving the blue read.
+        public static readonly Color PantsTopColor = new Color(0.20f, 0.30f, 0.42f); // blue denim pants (trace-measured)
 
         // Normalize the FBX's intrinsic import height to ~1 world-unit so the avatar-root scale maps
         // directly onto on-screen height (the camera/NavMesh/grounding are calibrated to ~1u). The chibi
@@ -188,8 +203,74 @@ namespace FarHorizon.EditorTools
                 }
             }
 
-            PaintCell(ShirtCell, ShirtTopColor);     // torso shirt — deeper mid-khaki
-            PaintCell(SleeveCell, ShirtTopColor);     // rolled sleeve — same khaki
+            // WEATHER one garment cell (86ca8ce6y SOAKFIX4 — torn/tattered castaway clothes). Paints the base
+            // toon ramp from `anchor`, then overlays DETERMINISTIC (seeded) tatter so the garment reads worn:
+            //   - dirt/wear PATCHES: soft darker blotches scattered over the cloth;
+            //   - a couple of TEARS: short dark rips cutting across the weave;
+            //   - a FRAYED HEM: the cell's bottom rows get an irregular notched darkening (a torn-edge read).
+            // LUMA-PRESERVING per the brief: every overlay only DARKENS the existing toon colour (multiplies
+            // by <=1), never recolours — so the shirt stays olive-khaki + the shorts stay dark brown; the
+            // garment reads "a bit tattered", not re-skinned. "A bit": wear is subtle (mostly 0.78-0.92x),
+            // tears are few + thin. Absolute writes (idempotent) — a deterministic per-cell seed makes a
+            // bootstrap re-run converge to the exact same atlas.
+            void PaintWeatheredCell(Vector2Int cell, Color anchor, int seed)
+            {
+                int x0 = cell.x * cw, y0 = cell.y * ch;
+                var rnd = new System.Random(seed);
+                // Pre-roll a few dirt-patch centres + tear lines so the overlay is stable per cell.
+                int patchN = 5;
+                var px = new float[patchN]; var py = new float[patchN]; var pr = new float[patchN]; var pd = new float[patchN];
+                for (int i = 0; i < patchN; i++)
+                { px[i] = (float)rnd.NextDouble(); py[i] = (float)rnd.NextDouble(); pr[i] = 0.18f + (float)rnd.NextDouble() * 0.22f; pd[i] = 0.80f + (float)rnd.NextDouble() * 0.12f; }
+                int tearN = 2;
+                var tx = new float[tearN]; var tslope = new float[tearN]; var tlen = new float[tearN]; var tylo = new float[tearN];
+                for (int i = 0; i < tearN; i++)
+                { tx[i] = 0.2f + (float)rnd.NextDouble() * 0.6f; tslope[i] = ((float)rnd.NextDouble() - 0.5f) * 0.8f; tlen[i] = 0.25f + (float)rnd.NextDouble() * 0.3f; tylo[i] = (float)rnd.NextDouble() * 0.55f; }
+
+                for (int yy = 0; yy < ch; yy++)
+                {
+                    float vf = ch > 1 ? (float)yy / (ch - 1) : 0.5f; // 0 bottom -> 1 top
+                    float ramp = Mathf.Lerp(0.82f, 1.12f, vf);
+                    for (int xx = 0; xx < cw; xx++)
+                    {
+                        float uf = cw > 1 ? (float)xx / (cw - 1) : 0.5f; // 0..1 across the cell
+                        float wear = 1f; // luma-multiplier (<=1 only — darken, never brighten)
+
+                        // dirt/wear patches (soft circular darkening).
+                        for (int i = 0; i < patchN; i++)
+                        {
+                            float d = Mathf.Sqrt((uf - px[i]) * (uf - px[i]) + (vf - py[i]) * (vf - py[i]));
+                            if (d < pr[i]) wear *= Mathf.Lerp(pd[i], 1f, d / pr[i]); // centre darkest, fades out
+                        }
+                        // tears (thin dark rips along a sloped line over a v-span).
+                        for (int i = 0; i < tearN; i++)
+                        {
+                            if (vf >= tylo[i] && vf <= tylo[i] + tlen[i])
+                            {
+                                float lineU = tx[i] + tslope[i] * (vf - tylo[i]);
+                                if (Mathf.Abs(uf - lineU) < 0.045f) wear *= 0.55f; // the rip is a dark slit
+                            }
+                        }
+                        // frayed hem: the bottom ~22% gets an irregular notched darkening (torn edge read).
+                        if (vf < 0.22f)
+                        {
+                            float notch = 0.5f + 0.5f * Mathf.Sin((uf * 7.3f + cell.x * 1.7f) * Mathf.PI);
+                            float hem = Mathf.Lerp(0.62f, 1f, vf / 0.22f); // darkest at the very bottom
+                            wear *= Mathf.Lerp(hem, 1f, notch * 0.6f);     // notches: some hem bits torn darker
+                        }
+
+                        var c = new Color(
+                            Mathf.Clamp01(anchor.r * ramp * wear),
+                            Mathf.Clamp01(anchor.g * ramp * wear),
+                            Mathf.Clamp01(anchor.b * ramp * wear), 1f);
+                        tex.SetPixel(x0 + xx, y0 + yy, c);
+                    }
+                }
+            }
+
+            PaintWeatheredCell(ShirtCell, ShirtTopColor, 41011);    // torso shirt — olive-khaki, tattered
+            PaintWeatheredCell(SleeveCell, ShirtTopColor, 41012);   // rolled sleeve — same khaki, tattered
+            PaintWeatheredCell(PantsCell, PantsTopColor, 41013);    // blue denim pants — tattered (idempotent fixed anchor)
             PaintCell(CapCell, HairTopColor);         // cap-dome cell A -> sandy-ginger hair
             PaintCell(CapDome2Cell, HairTopColor);    // cap-dome cell B (was GREEN) -> sandy-ginger hair
             PaintCell(HairCell, HairTopColor);         // the brim's hair cell (kept consistent)
@@ -202,8 +283,8 @@ namespace FarHorizon.EditorTools
             System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
-            Debug.Log("[CharacterAssetGen] identity atlas recolored (shirt/sleeve khaki, cap-dome->sandy hair, " +
-                      "skin+feet toned) — reproducible-from-code, idempotent");
+            Debug.Log("[CharacterAssetGen] identity atlas recolored (shirt/sleeve khaki + blue-denim pants " +
+                      "WEATHERED/tattered, cap-dome->sandy hair, skin+feet toned) — reproducible-from-code, idempotent");
         }
 
         private static void ConfigureFbxImporter()
@@ -313,6 +394,204 @@ namespace FarHorizon.EditorTools
             }
             Object.DestroyImmediate(inst);
             return h;
+        }
+
+        // ===== UV-CELL REGION TRACE (throwaway; never on the ship path) — SOAKFIX4 clothes-tatter.
+        // The Sponsor wants the SHIRT + PANTS/SHORTS weathered (torn/dirty). The shirt cells are already
+        // mapped (ShirtCell/SleeveCell); the PANTS/SHORTS cell is NOT — the legs still ship the kid's default
+        // blue. This trace MEASURES which atlas cell(s) the LOWER-BODY (leg/shorts) verts map to, so the
+        // tatter repaint targets the right cell (diagnose-via-trace, not guess). For each vert below the hip
+        // line it reads the vert's UV -> 16x16 cell and tallies; dumps the dominant lower-body cells + their
+        // current atlas colour (to confirm the kid's blue), plus the upper-body (shirt) cells for sanity.
+        // Run via:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.UvCellTrace
+        public static void UvCellTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[uv-trace] ===== UV-CELL REGION TRACE (POSED SCENE) =====");
+            // Open the POSED Boot scene avatar (height-normalized, real world Y range) — the bind-pose FBX
+            // instance bakes to a near-degenerate Y range that collapses the leg/torso split (SOAKFIX4 miss:
+            // the shipped pants are BLUE but the bind-pose trace surfaced the wrong cells). The scene avatar
+            // gives a real Y range so the LEG band is correctly isolated to its true (blue) cell.
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/Boot.unity",
+                UnityEditor.SceneManagement.OpenSceneMode.Single);
+            // Dump ALL renderers (skinned AND mesh) under the castaway — the pants might be a SEPARATE mesh /
+            // material (the single-SMR assumption could be the blue-pants miss). Find which renderer's
+            // material actually carries a BLUE base colour (the pants).
+            var castaway = Object.FindAnyObjectByType<FarHorizon.CastawayCharacter>();
+            if (castaway != null)
+            {
+                sb.AppendLine("[uv-trace] ALL renderers under castaway:");
+                foreach (var r in castaway.GetComponentsInChildren<Renderer>(true))
+                {
+                    var m = r.sharedMaterial;
+                    var baseMap = m != null && m.HasProperty("_BaseMap") ? m.GetTexture("_BaseMap") : null;
+                    var baseCol = m != null && m.HasProperty("_BaseColor") ? m.GetColor("_BaseColor") : Color.clear;
+                    string smrTag = r is SkinnedMeshRenderer ? "SMR" : r.GetType().Name;
+                    sb.AppendLine($"[uv-trace]   {smrTag} '{r.name}' mat='{(m != null ? m.name : "<none>")}' baseMap='{(baseMap != null ? baseMap.name : "<none>")}' baseColor=({baseCol.r:F2},{baseCol.g:F2},{baseCol.b:F2})");
+                }
+            }
+            // Per-OBJECT UV-cell dump — the chibi is SIX skinned objects sharing the atlas; the pants are on
+            // a different object than Object_36 (head+body). Dump each object's dominant cells + blue flag.
+            {
+                var atlasTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                atlasTex.LoadImage(System.IO.File.ReadAllBytes(AtlasPngPath));
+                int AW = atlasTex.width, AH = atlasTex.height;
+                Color ACell(Vector2Int cl) => atlasTex.GetPixel(Mathf.Clamp((int)((cl.x + 0.5f) / 16f * AW), 0, AW - 1), Mathf.Clamp((int)((cl.y + 0.5f) / 16f * AH), 0, AH - 1));
+                foreach (var rr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                {
+                    var mm = rr.sharedMesh; if (mm == null) continue;
+                    var uu = mm.uv;
+                    var t2 = new Dictionary<Vector2Int, int>();
+                    for (int i = 0; i < uu.Length; i++)
+                    {
+                        var cell = new Vector2Int(Mathf.Clamp((int)(uu[i].x * 16f), 0, 15), Mathf.Clamp((int)(uu[i].y * 16f), 0, 15));
+                        t2[cell] = t2.TryGetValue(cell, out int c) ? c + 1 : 1;
+                    }
+                    var l2 = new List<KeyValuePair<Vector2Int, int>>(t2); l2.Sort((a, c) => c.Value.CompareTo(a.Value));
+                    var top = l2.Count > 0 ? l2[0] : default;
+                    var tc = ACell(top.Key);
+                    string blue = (tc.b > tc.r && tc.b > tc.g) ? " <== BLUE (PANTS?)" : "";
+                    sb.AppendLine($"[uv-trace] OBJECT '{rr.name}' verts={mm.vertexCount} topCell=({top.Key.x},{top.Key.y}) cnt={top.Value} colour=rgb({tc.r:F2},{tc.g:F2},{tc.b:F2}){blue}");
+                    for (int i = 1; i < l2.Count && i < 4; i++)
+                    {
+                        var cc = ACell(l2[i].Key);
+                        string b2 = (cc.b > cc.r && cc.b > cc.g) ? " <== BLUE (PANTS?)" : "";
+                        sb.AppendLine($"[uv-trace]     cell=({l2[i].Key.x},{l2[i].Key.y}) cnt={l2[i].Value} colour=rgb({cc.r:F2},{cc.g:F2},{cc.b:F2}){b2}");
+                    }
+                }
+                Object.DestroyImmediate(atlasTex);
+            }
+
+            var smr = castaway != null ? castaway.GetComponentInChildren<SkinnedMeshRenderer>(true) : null;
+            if (smr == null) { sb.AppendLine("[uv-trace] no posed avatar in Boot.unity"); Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+            var mesh = smr.sharedMesh;
+            if (mesh == null) { sb.AppendLine("[uv-trace] no skinned mesh"); Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // BONE-WEIGHT REGION SPLIT (pose-INDEPENDENT — the reliable map). A BakeMesh in EditMode returns
+            // the bind/rest pose whose leg verts don't extend (Y range collapsed to 0.71..1.64, no feet), so a
+            // Y-band split keeps MISSING the leg cell (the SOAKFIX4 blue-pants miss). Instead, classify each
+            // vert by the BONE it is primarily skinned to: a vert weighted to a LEG/SHIN/FOOT bone IS leg/
+            // shorts geometry regardless of pose. Read THOSE verts' UVs -> the shorts cell, deterministically.
+            var bones = smr.bones;
+            var uvs = mesh.uv;
+            // The legacy mesh.boneWeights accessor returns a DEGENERATE array on this asset (every vert reads
+            // boneIndex0=Head, weight 1.0 — proven by the dominant-bone diagnostic). This mesh stores skin
+            // weights in the MODERN variable-influence API (GetBonesPerVertex + GetAllBoneWeights); read the
+            // dominant bone per vertex from THAT (the first weight per vertex is the highest — sorted desc).
+            var bonesPerVertex = mesh.GetBonesPerVertex(); // byte count per vert
+            var allWeights = mesh.GetAllBoneWeights();      // flattened BoneWeight1 (sorted desc per vert)
+            int vc = mesh.vertexCount;
+            var domBone = new int[vc];
+            int cursor = 0;
+            for (int v = 0; v < vc; v++)
+            {
+                int cnt = v < bonesPerVertex.Length ? bonesPerVertex[v] : 0;
+                domBone[v] = cnt > 0 && cursor < allWeights.Length ? allWeights[cursor].boneIndex : -1;
+                cursor += cnt;
+            }
+            bool BoneIsLeg(int bi)
+            {
+                if (bi < 0 || bones == null || bi >= bones.Length || bones[bi] == null) return false;
+                string n = bones[bi].name.ToLowerInvariant();
+                return n.Contains("leg") || n.Contains("shin") || n.Contains("calf") || n.Contains("foot") ||
+                       n.Contains("knee") || n.Contains("thigh");
+            }
+            bool BoneIsTorso(int bi)
+            {
+                if (bi < 0 || bones == null || bi >= bones.Length || bones[bi] == null) return false;
+                string n = bones[bi].name.ToLowerInvariant();
+                return n.Contains("spine") || n.Contains("chest") || n.Contains("torso") || n.Contains("hips");
+            }
+            // dump the bone roster so the leg-token match is auditable.
+            sb.AppendLine($"[uv-trace] SMR bone count={bones?.Length} allWeights.Length={allWeights.Length} vertCount={mesh.vertexCount}");
+            // SUBMESH + MATERIAL dump — the chibi ships TWO materials (mini_material + _secondary). The pants
+            // may live on a SECOND submesh bound to a different material/atlas region (the first-submesh-only
+            // UV read would MISS them — a candidate root cause of the blue-pants trace miss).
+            sb.AppendLine($"[uv-trace] mesh subMeshCount={mesh.subMeshCount} sharedMaterials={smr.sharedMaterials.Length}");
+            for (int s = 0; s < mesh.subMeshCount; s++)
+            {
+                var sm = mesh.GetSubMesh(s);
+                var matName = s < smr.sharedMaterials.Length && smr.sharedMaterials[s] != null ? smr.sharedMaterials[s].name : "?";
+                var baseMap = s < smr.sharedMaterials.Length && smr.sharedMaterials[s] != null && smr.sharedMaterials[s].HasProperty("_BaseMap") ? smr.sharedMaterials[s].GetTexture("_BaseMap") : null;
+                sb.AppendLine($"[uv-trace]   submesh[{s}] indexStart={sm.indexStart} count={sm.indexCount} firstVertex={sm.firstVertex} vertexCount={sm.vertexCount} mat='{matName}' baseMap='{(baseMap != null ? baseMap.name : "<none>")}'");
+            }
+            if (bones != null) for (int bi = 0; bi < bones.Length; bi++)
+                sb.AppendLine($"[uv-trace]   bone[{bi}]='{(bones[bi] != null ? bones[bi].name : "<null>")}' isLeg={BoneIsLeg(bi)} isTorso={BoneIsTorso(bi)}");
+
+            // Load the current atlas to dump cell colours.
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            tex.LoadImage(System.IO.File.ReadAllBytes(AtlasPngPath));
+            int W = tex.width, H = tex.height;
+            Color CellColorC(Vector2Int cell)
+            {
+                int px = Mathf.Clamp((int)((cell.x + 0.5f) / 16f * W), 0, W - 1);
+                int py = Mathf.Clamp((int)((cell.y + 0.5f) / 16f * H), 0, H - 1);
+                return tex.GetPixel(px, py);
+            }
+            string CellColor(Vector2Int cell) { var c = CellColorC(cell); return $"rgb({c.r:F2},{c.g:F2},{c.b:F2})"; }
+
+            // Tally cells by BONE-WEIGHT region: a vert whose dominant bone is a LEG bone is shorts/leg
+            // geometry; a torso-bone vert is shirt geometry. This is pose-independent.
+            var legTally = new Dictionary<Vector2Int, int>();
+            var torsoTally = new Dictionary<Vector2Int, int>();
+            var allTally = new Dictionary<Vector2Int, int>();
+            for (int i = 0; i < uvs.Length && i < vc; i++)
+            {
+                var uv = uvs[i];
+                int cx = Mathf.Clamp((int)(uv.x * 16f), 0, 15);
+                int cy = Mathf.Clamp((int)(uv.y * 16f), 0, 15);
+                var cell = new Vector2Int(cx, cy);
+                allTally[cell] = allTally.TryGetValue(cell, out int ac) ? ac + 1 : 1;
+                int dom = domBone[i]; // highest-weight bone (modern API)
+                if (BoneIsLeg(dom)) legTally[cell] = legTally.TryGetValue(cell, out int lc) ? lc + 1 : 1;
+                else if (BoneIsTorso(dom)) torsoTally[cell] = torsoTally.TryGetValue(cell, out int tc) ? tc + 1 : 1;
+            }
+
+            void DumpTally(string label, Dictionary<Vector2Int, int> tally)
+            {
+                var list = new List<KeyValuePair<Vector2Int, int>>(tally);
+                list.Sort((a, c) => c.Value.CompareTo(a.Value));
+                sb.AppendLine($"[uv-trace] {label} cells (by count):");
+                for (int i = 0; i < list.Count && i < 8; i++)
+                {
+                    var c = CellColorC(list[i].Key);
+                    string tag = (c.b > c.r && c.b > c.g) ? " <-- BLUE" : "";
+                    sb.AppendLine($"[uv-trace]   cell({list[i].Key.x},{list[i].Key.y}) count={list[i].Value} colour={CellColor(list[i].Key)}{tag}");
+                }
+            }
+            // Diagnostic: distribution of dominant-bone indices (modern API).
+            var domDist = new Dictionary<int, int>();
+            for (int i = 0; i < vc; i++) { int d = domBone[i]; domDist[d] = domDist.TryGetValue(d, out int dc) ? dc + 1 : 1; }
+            var dd = new List<KeyValuePair<int, int>>(domDist); dd.Sort((a, c) => c.Value.CompareTo(a.Value));
+            sb.AppendLine("[uv-trace] dominant-bone distribution:");
+            foreach (var kv in dd)
+                sb.AppendLine($"[uv-trace]   bone[{kv.Key}]='{(kv.Key >= 0 && kv.Key < bones.Length && bones[kv.Key] != null ? bones[kv.Key].name : "?")}' count={kv.Value}");
+            DumpTally("LEG/SHORTS-bone", legTally);
+            DumpTally("TORSO/SHIRT-bone", torsoTally);
+            sb.AppendLine($"[uv-trace] known ShirtCell={ShirtCell} colour={CellColor(ShirtCell)}");
+            sb.AppendLine($"[uv-trace] known SkinCell={SkinCell} colour={CellColor(SkinCell)}");
+
+            // (3) FULL ATLAS DUMP: every cell the mesh USES, with colour — so the shorts cell is identifiable
+            // by colour even when the bind-pose Y-band split is degenerate. Marks blue-ish + dark cells.
+            sb.AppendLine("[uv-trace] ALL mesh-used cells (count>=3), colour, tags:");
+            var used = new List<KeyValuePair<Vector2Int, int>>(allTally);
+            used.Sort((a, c) => c.Value.CompareTo(a.Value));
+            foreach (var kv in used)
+            {
+                if (kv.Value < 3) continue;
+                var c = CellColorC(kv.Key);
+                string tag = "";
+                if (c.b > c.r && c.b >= c.g) tag += " BLUE";
+                if (c.r > c.g && c.g > c.b) tag += " WARM";
+                float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                if (lum < 0.3f) tag += " DARK";
+                sb.AppendLine($"[uv-trace]   cell({kv.Key.x},{kv.Key.y}) count={kv.Value} colour={CellColor(kv.Key)} lum={lum:F2}{tag}");
+            }
+            Object.DestroyImmediate(tex);
+            sb.AppendLine("[uv-trace] ===== END TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
         private static AnimationClip FindClip(string name)

@@ -166,37 +166,42 @@ namespace FarHorizon.EditorTools
             var rnd = new System.Random(seed);
             var remap = new Dictionary<int, int>();
             var verts = new List<Vector3>();
+            // CROWN GATE (86ca8ce6y SOAKFIX4 — the deepened de-spike): the spike is visible from the DEFAULT
+            // over-the-shoulder GAMEPLAY camera (looking DOWN at the crown, pitch 55-70°), NOT from the front-
+            // tilt the prior -verifyHair checked — so SOAKFIX3's soft-clamp (0.30 residual + outward radial
+            // jitter on the top verts) still left tufts standing PROUD of the dome surface when viewed from
+            // ABOVE (a top-down silhouette pokes wherever a vert exceeds its neighbours' height, not just the
+            // ring spread the prior guard measured). FIX: HARD-split the cap into a flat crown PLATEAU and a
+            // tousled fringe. Verts ABOVE crownGate (n.y) get NO outward radial jitter, NO lateral wobble, and
+            // are HARD-clamped to a single ceiling Y (zero residual) so the entire top reads as ONE smooth
+            // rounded surface with no proud apex from any angle (the zero-spike HARD requirement). Jitter is
+            // KEPT on the lower fringe/sides (n.y <= crownGate) so the hair still reads tousled, not a helmet
+            // (messiness is the secondary goal). Pinned by the tightened crown-flat guard + the over-shoulder
+            // -verifyHair capture.
+            const float crownGate = 0.62f; // sphere-space n.y above this is "top crown" -> flat plateau, no jitter
             int Keep(int idx)
             {
                 if (remap.TryGetValue(idx, out int r)) return r;
                 Vector3 n = sphere[idx];
-                // Outward radial jitter -> faceted tufts (clumps stand a touch proud, deterministic per vert).
-                float rJit = 1f + ((float)rnd.NextDouble() - 0.4f) * jitter;
+                bool topCrown = n.y > crownGate;
+
+                // Outward radial jitter -> faceted tufts. ZEROED on the top crown so no vert pokes proud of
+                // the dome from a top-down view; kept on the fringe/sides for the tousled read.
+                float rJit = topCrown ? 1f : 1f + ((float)rnd.NextDouble() - 0.4f) * jitter;
                 var p = new Vector3(n.x * radius * rJit, n.y * radius * yScale * rJit, n.z * radius * rJit);
-                // Lateral wobble so tuft tips don't sit on a clean sphere (messy, not a helmet).
-                p.x += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
-                p.z += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
-                // APEX DE-SPIKE (the P2 fix): the higher the vert, the more it is pulled DOWN + sideways, so
-                // the single top pole never reads as a spike — the crown becomes tousled clumps.
-                if (n.y > 0.55f)
+                // Lateral wobble (messy, not a helmet) — fringe/sides only; the top crown stays smooth.
+                if (!topCrown)
                 {
-                    float apex = Mathf.InverseLerp(0.55f, 1f, n.y); // 0..1 toward the pole
-                    p.y -= radius * yScale * apex * 0.30f;          // flatten the very top
-                    p.x += ((float)rnd.NextDouble() - 0.5f) * radius * apex * 0.35f;
-                    p.z += ((float)rnd.NextDouble() - 0.5f) * radius * apex * 0.35f;
+                    p.x += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
+                    p.z += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
                 }
-                // CROWN PLATEAU (86ca8ce6y SOAKFIX3, the deepened P2 fix): the apex de-spike alone left the
-                // crown a tall narrow CONE — Tess's geometry probe found the top vertex 0.138u / relGap 0.121
-                // ABOVE the top-15 crown ring (a brown tuft proud of the dome at the tilt-to-horizon cam).
-                // Soft-clamp EVERY vert above a world-y ceiling toward the ceiling so the whole top region
-                // collapses into a flat-ish plateau (NOT just the pole). Diagnosed via a deterministic
-                // geometry trace (the apex de-spike couldn't reach the bar alone — the spread is dome-wide,
-                // not a single proud vertex). The 0.30 residual keeps small height variation above the ceiling
-                // so the crown still reads as tousled clumps, not a machined flat disc. Trace result with these
-                // production params (radius 1.0 / yScale 0.88 / subdiv 3 / jitter 0.34 / seed 73101):
-                // top1..top15 spread 0.0299u (< Tess's 0.05u bar), apexGap 0.0020u — spike GONE.
+
+                // CROWN PLATEAU (the HARD de-spike): every top-crown vert is clamped to ONE ceiling Y with NO
+                // residual, so the crown is a flat-ish rounded plateau — no single vertex (the former "brown
+                // spike") can stand above the dome surface from the over-shoulder gameplay cam. The ceiling is
+                // a hair below the un-jittered dome top so the plateau sits flush, not raised.
                 float crownCeil = radius * yScale * 0.705f;
-                if (p.y > crownCeil) p.y = crownCeil + (p.y - crownCeil) * 0.30f;
+                if (p.y > crownCeil) p.y = crownCeil;
                 // forward fringe (boyish): pull the front down+forward a touch (per the v4 identity sheets).
                 if (n.z < -0.2f) { p.y -= radius * 0.12f; p.z -= radius * 0.06f; }
                 int ni = verts.Count; verts.Add(p); remap[idx] = ni; return ni;

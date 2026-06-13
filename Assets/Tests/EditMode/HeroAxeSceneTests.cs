@@ -83,14 +83,16 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_HeldAxe_IsBigEnoughToReadInTheGameplayView()
+        public void BootScene_HeldAxe_ReadsAtTheSide_NotByTheEar()
         {
-            // SOAKFIX2 regression guard for the NO-AXE soak (the bug CLASS, not the instance): the held axe
-            // was a ~0.43u sliver hanging at the hip (max.y 0.71) → ~3.7% of the gameplay frame, invisible
-            // (the Sponsor's "no axe"); the -verifyAxe close-up zoomed past it (false-green). This asserts
-            // the SERIALIZED held axe's WORLD size + its position relative to the body, so a regression back
-            // to a tiny/low axe reds in CI rather than re-shipping the invisible-axe soak. (Final visual read
-            // is still the SHIPPED build — this is the size/placement floor the eyes verified.)
+            // SOAKFIX2+SOAKFIX4 regression guard (the bug CLASS, both directions): SOAKFIX2's bug was the
+            // held axe was a ~0.43u sliver hanging at the hip (max.y 0.71), invisible (the "no axe" soak).
+            // SOAKFIX4's bug was the OPPOSITE — the chibi's huge head + short arms put the SOAKFIX2 "chest"
+            // pose at EAR height (the handle stuck out by the ear; PoseTrace: max.y 1.040 vs head-bone 0.775).
+            // This guard now pins the held axe in the GOLDILOCKS band: big enough to read at gameplay distance
+            // AND its top BELOW the head bone (clears the ear) BUT above hip-level (still visible at the hand,
+            // not a foot-stick). A regression in EITHER direction reds in CI. (Final visual read is still the
+            // SHIPPED build — this is the size/placement floor the eyes verified.)
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var axe = FindHeroAxe();
             Assert.IsNotNull(axe, "hero axe must be present");
@@ -107,11 +109,12 @@ namespace FarHorizon.EditTests
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
                 "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
-            // The axe must sit UP at the body (not hanging at the feet/hip): its top must reach near the
-            // upper body. The chibi body SMR top is ~1.65u; require the axe to reach at least chest height.
-            Assert.Greater(b.max.y, 0.85f,
-                $"held axe must sit UP at the hand/chest (top y {b.max.y:F2}), not hang at the hip/feet " +
-                "(the prior pose hung at max.y 0.71 → a stick by the leg, the NO-AXE soak)");
+            // The axe top must clear the EAR — BELOW the chibi head bone (~0.775u world) — the SOAKFIX4 fix
+            // for "handle sticks out by the ear". But it must still read at the hand (top above hip ~0.45u),
+            // not hang at the feet (the SOAKFIX2 no-axe direction). Goldilocks band on the axe TOP.
+            Assert.That(b.max.y, Is.InRange(0.45f, 0.78f),
+                $"held axe top y {b.max.y:F2} must sit at the SIDE: >0.78 = up by the EAR (the SOAKFIX4 soak), " +
+                "<0.45 = hanging at the feet (the SOAKFIX2 no-axe direction). The chibi head bone is ~0.775u.");
         }
 
         [Test]

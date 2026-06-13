@@ -239,5 +239,109 @@ namespace FarHorizon.EditorTools
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
+
+        // ===== SOAKFIX4 POSE TRACE (throwaway): the diagnose-via-trace for the two soak axe-pose notes —
+        //   (1) the STUMP axe head is BURIED in the block (only the handle pokes out);
+        //   (2) the HELD axe sits too HIGH (handle by the kid's EAR).
+        // Opens Boot.unity and dumps, for BOTH the StumpAxe and the HeroAxe:
+        //   - the axe's WORLD renderer bounds (min/max/center/size) so we can see exactly where the head
+        //     and haft tips sit in world Y vs the reference surface;
+        //   - the reference surface heights: the CraftStump's world TOP-Y (for the stump axe) and the
+        //     castaway head-bone / shoulder world Y + the SMR bounds (for the held axe);
+        //   - the axe FBX's INTRINSIC local geometry split along its longest axis: which half is the HEAD
+        //     (the wide/heavy steel end) vs the HAFT (the thin wood end), so the pose math knows which way
+        //     "blade" points (don't trust the source's axis convention — probe it).
+        // Run via:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.AxeAssetGen.PoseTrace
+        public static void PoseTrace()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("[axe-pose] ===== SOAKFIX4 POSE TRACE =====");
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/Boot.unity",
+                UnityEditor.SceneManagement.OpenSceneMode.Single);
+
+            // (a) intrinsic FBX local geometry: split the mesh verts along the longest local axis into two
+            // halves; the HEAD is the half with the larger cross-section (wider in the other two axes).
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(FbxPath);
+            if (fbx != null)
+            {
+                var inst = Object.Instantiate(fbx);
+                inst.transform.position = Vector3.zero;
+                inst.transform.rotation = Quaternion.identity;
+                inst.transform.localScale = Vector3.one;
+                var mf = inst.GetComponentInChildren<MeshFilter>(true);
+                if (mf != null && mf.sharedMesh != null)
+                {
+                    var verts = mf.sharedMesh.vertices;
+                    var b = mf.sharedMesh.bounds;
+                    sb.AppendLine($"[axe-pose] FBX mesh bounds (local) center={b.center} size={b.size} min={b.min} max={b.max}");
+                    int longAxis = b.size.x >= b.size.y && b.size.x >= b.size.z ? 0 : (b.size.y >= b.size.z ? 1 : 2);
+                    float mid = b.center[longAxis];
+                    // cross-section width (max extent in the other two axes) for verts below vs above mid.
+                    Vector3 loMin = Vector3.one * 1e9f, loMax = Vector3.one * -1e9f, hiMin = loMin, hiMax = loMax;
+                    foreach (var v in verts)
+                    {
+                        if (v[longAxis] < mid) { loMin = Vector3.Min(loMin, v); loMax = Vector3.Max(loMax, v); }
+                        else { hiMin = Vector3.Min(hiMin, v); hiMax = Vector3.Max(hiMax, v); }
+                    }
+                    Vector3 loSize = loMax - loMin, hiSize = hiMax - hiMin;
+                    int a1 = (longAxis + 1) % 3, a2 = (longAxis + 2) % 3;
+                    float loCross = Mathf.Max(loSize[a1], loSize[a2]);
+                    float hiCross = Mathf.Max(hiSize[a1], hiSize[a2]);
+                    sb.AppendLine($"[axe-pose] longAxis={longAxis} mid={mid:F3}; LOW-half cross={loCross:F3} HIGH-half cross={hiCross:F3}");
+                    sb.AppendLine($"[axe-pose] => HEAD (wide end) is on the {(loCross > hiCross ? "LOW" : "HIGH")} side of local axis {longAxis} " +
+                                  $"(head local extent {(loCross > hiCross ? b.min[longAxis] : mid):F3}..{(loCross > hiCross ? mid : b.max[longAxis]):F3})");
+                }
+                Object.DestroyImmediate(inst);
+            }
+
+            // (b) StumpAxe world bounds vs the CraftStump world top.
+            DumpAxeVsSurface(sb, "StumpAxe", "CraftStump");
+            // (c) HeroAxe world bounds vs the castaway head bone + shoulder + SMR bounds.
+            DumpAxeVsSurface(sb, "HeroAxe", null);
+
+            sb.AppendLine("[axe-pose] ===== END POSE TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        private static void DumpAxeVsSurface(StringBuilder sb, string axeName, string surfaceName)
+        {
+            GameObject axe = null;
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (t.name == axeName) { axe = t.gameObject; break; }
+            if (axe == null) { sb.AppendLine($"[axe-pose] {axeName} NOT FOUND"); return; }
+
+            // Force-show so the bounds are real (both axes are visibility-gated and hidden at spawn).
+            foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) r.enabled = true;
+            var mrs = axe.GetComponentsInChildren<MeshRenderer>(true);
+            Bounds wb = new Bounds(); bool init = false;
+            foreach (var r in mrs) { if (!init) { wb = r.bounds; init = true; } else wb.Encapsulate(r.bounds); }
+            sb.AppendLine($"[axe-pose] {axeName} world bounds min.y={wb.min.y:F3} max.y={wb.max.y:F3} center={wb.center} size={wb.size}");
+            sb.AppendLine($"[axe-pose] {axeName} localPos={axe.transform.localPosition} localEuler={axe.transform.localEulerAngles} lossyScale={axe.transform.lossyScale}");
+
+            if (surfaceName != null)
+            {
+                foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    if (t.name == surfaceName)
+                    {
+                        var smr = t.GetComponentInChildren<MeshRenderer>(true);
+                        if (smr != null) sb.AppendLine($"[axe-pose] {surfaceName} world TOP.y={smr.bounds.max.y:F3} center={smr.bounds.center}");
+                        break;
+                    }
+            }
+            else
+            {
+                var castaway = Object.FindAnyObjectByType<FarHorizon.CastawayCharacter>();
+                if (castaway != null)
+                {
+                    var bodySmr = castaway.GetComponentInChildren<SkinnedMeshRenderer>(true);
+                    if (bodySmr != null)
+                        sb.AppendLine($"[axe-pose] castaway SMR world max.y={bodySmr.bounds.max.y:F3} center.y={bodySmr.bounds.center.y:F3} (head≈max, mid≈center)");
+                    var head = FarHorizon.CastawayProportions.FindHeadBone(castaway.transform);
+                    if (head != null) sb.AppendLine($"[axe-pose] head bone world.y={head.position.y:F3}");
+                }
+            }
+        }
     }
 }
