@@ -171,6 +171,34 @@ namespace FarHorizon.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator OrbitCamera_PitchBand_AllowsTiltDownTowardHorizon()
+        {
+            // drew/ocean-camera-fix: the Sponsor must be able to tilt the view DOWN toward the horizon
+            // (and so see the seaward beach ocean). The old 35 floor blocked that — at pitch 35 the
+            // camera centre only reached the beach, never the sea (OceanCameraDiag trace). Guard the
+            // BUG CLASS: the floor must be low enough to point the look ray near-horizontal. A
+            // regression that restores a high floor (e.g. 35) re-buries the sea and FAILS here.
+            var (camGo, orbit) = MakeOrbitRig();
+            yield return null;
+
+            Assert.LessOrEqual(orbit.minPitch, 15f,
+                "minPitch must allow tilting down toward the horizon (<=15deg) so the seaward ocean is " +
+                "framable — the 35 floor framed the sea as a far fogged 'grey pond' (soak report)");
+            Assert.AreEqual(55f, orbit.defaultPitch,
+                "defaultPitch stays the Sponsor-LOCKED 55deg — only the clamp RANGE widened, not the default");
+
+            // Drive to the floor and confirm the central look ray descends nearly to the horizon
+            // (a small |y| component) — i.e. the camera can actually look OUT, not just down.
+            orbit.SetPitch(orbit.minPitch);
+            yield return null;
+            Vector3 fwd = camGo.transform.forward;
+            Assert.Less(Mathf.Abs(fwd.y), 0.4f,
+                "at the pitch floor the look direction must be near-horizontal (|forward.y| < 0.4) so the " +
+                "camera frames the horizon/sea, not the ground at its feet — forward.y was " + fwd.y.ToString("0.00"));
+            DestroyRig(camGo, orbit);
+        }
+
+        [UnityTest]
         public IEnumerator OrbitCamera_Zoom_ClampsToDistanceBand()
         {
             var (camGo, orbit) = MakeOrbitRig();
@@ -210,7 +238,7 @@ namespace FarHorizon.PlayTests
             var orbit = camGo.AddComponent<OrbitCamera>();
             orbit.target = targetGo.transform;
             orbit.defaultPitch = 55f;
-            orbit.minPitch = 35f;
+            orbit.minPitch = 8f;  // widened 35->8 (drew/ocean-camera-fix) — mirror the shipped band
             orbit.maxPitch = 70f;
             orbit.distance = 14f;
             return (camGo, orbit);

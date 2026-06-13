@@ -28,11 +28,14 @@ namespace FarHorizon
         // The seaward orbit yaw — 180 from the inland default points the camera back over the spawn at
         // the sea the castaway washed in from.
         public float seawardYaw = 180f;
-        // Drop the pitch toward the horizon (the OrbitCamera clamps to minPitch=35) and pull back so the
-        // seaward view looks OUT to the sea, not straight down at the near sand. The diagnostic proved a
-        // 55-deg top-down seaward view only reached ~Z-3 at the top of frame (inland of the water); the
-        // flatter, pulled-back framing reaches far out over the ocean toward the fogged horizon.
-        public float seawardPitch = 35f;
+        // Drop the pitch toward the horizon (OrbitCamera clamps to minPitch, now widened to 8) and pull
+        // back so the seaward view looks OUT to the open sea, not down at the near sand. The trace
+        // (OceanCameraDiag, 2026-06-13) proved that at the OLD 35 floor the camera centre only reached
+        // the beach (~Z+4) — the sea entered frame as a far fogged sliver (the "grey pond" soak report).
+        // At pitch ~12 the centre reaches the coastline (~Z+0.4) so the bright teal sea fills the upper
+        // frame to the fogged horizon. 12 (a touch above the new 8 floor) keeps a steady, non-grazing
+        // horizon-ward framing.
+        public float seawardPitch = 12f;
         public float seawardDistance = 24f;
         public int warmupFrames = 8;
         public int settleFrames = 16;

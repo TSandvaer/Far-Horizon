@@ -453,13 +453,18 @@ namespace FarHorizon.EditorTools
                 float localX = (fx - 0.5f) * waterWidth;
                 verts[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
                 // Near-shore BRIGHT shallows dominate the band the eye actually sees, fading to deeper
-                // teal only FAR out. Keyed off WORLD Z (a fixed ~70u bright band off the coast) rather
-                // than the 0..1 grid fraction, because the grid runs 220u deep — a 0..1 ease would put
-                // the deep teal across most of the near water, and at this view distance the distance
-                // fog already greys the far water, so without a wide bright band the visible sea reads
-                // grey, not the toy-bright teal the shore needs (shipped-capture finding, drew/beach-water).
+                // teal only FAR out. Keyed off WORLD Z (a fixed bright band off the coast) rather than
+                // the 0..1 grid fraction, because the grid runs 220u deep — a 0..1 ease would put the
+                // deep teal across most of the near water, and the distance fog + warm post grade already
+                // desaturate the far water, so without a WIDE bright band the visible sea reads grey, not
+                // the toy-bright teal the shore needs (shipped-capture finding, drew/beach-water).
+                // WIDENED 70u->130u (drew/ocean-camera-fix): when the camera tilts down to the horizon
+                // (the now-allowed flat pitch) the upper frame is dominated by the 50-150u mid-sea, not
+                // the very-near band — so the bright teal must extend further out to keep the SEA reading
+                // teal across the frame before it dissolves into the warm horizon haze (OceanCameraDiag
+                // confirmed the old 70u band let the warm-graded deep teal read grey beyond ~Z-60).
                 float seawardDist = nearZ - worldZ; // 0 at the coast, grows out to sea
-                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 70f));
+                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 130f));
                 Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
                 c.a = 1f;
                 cols[i] = c;

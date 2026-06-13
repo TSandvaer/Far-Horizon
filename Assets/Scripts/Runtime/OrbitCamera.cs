@@ -11,11 +11,17 @@ namespace FarHorizon
     /// as "small character in a big alive world".
     ///
     /// Carries the spike's hard-won fixes:
-    ///  - Pitch clamp 35-70 (FINDINGS iter-3). At near-horizontal pitch the flat ground between
-    ///    the player and a biome boundary compresses to ~0 screen height, making the standing
-    ///    point misread (the Sponsor's grass->sand illusion). 35-70 keeps a readable top-down-ish
-    ///    view and removes the grazing extremes the Sponsor never preferred.
-    ///  - Default pitch 55 (the Sponsor's preferred top-down-ish framing) — inside the clamp band.
+    ///  - Default pitch 55 (the Sponsor's preferred top-down-ish framing) — LOCKED, inside the band.
+    ///  - Pitch clamp WIDENED to 8-70 (drew/ocean-camera-fix, 2026-06-13). The spike's 35 floor was
+    ///    chosen so near-horizontal pitch couldn't graze a side-by-side biome boundary — but in the
+    ///    single production play space the Sponsor explicitly wants to tilt DOWN toward the horizon
+    ///    for gameplay (and to SEE the beach ocean, which sits seaward of the spawn). The 35 floor
+    ///    literally blocked that: a TRACE (OceanCameraDiag, 2026-06-13) showed that at yaw-180 the
+    ///    camera CENTRE only reaches the beach (~Z+4) at pitch 35 — the sea (near-edge Z-10.5) never
+    ///    enters frame except as a far fogged sliver top-of-frame (the "grey pond" soak report). At
+    ///    pitch ~8-15 the centre reaches the coastline and the open sea fills the upper frame to the
+    ///    fogged horizon. So the floor drops to 8 (a hair of downward tilt kept so the camera never
+    ///    goes fully horizontal/degenerate). maxPitch 70 + defaultPitch 55 are UNCHANGED.
     /// </summary>
     public class OrbitCamera : MonoBehaviour
     {
@@ -29,9 +35,11 @@ namespace FarHorizon
         public float distance = 14f;
 
         [Header("Orbit limits")]
-        // FINDINGS iter-3: clamp pitch to a PoE-like band so the camera can't graze the ground.
-        // Default 55 is inside the band and untouched.
-        public float minPitch = 35f;
+        // Pitch band 8-70 (drew/ocean-camera-fix). Default 55 is inside the band and untouched (LOCKED).
+        // Floor dropped 35->8 so the Sponsor can tilt down toward the horizon + see the seaward ocean
+        // (the 35 floor framed the sea as a far fogged "grey pond" — OceanCameraDiag trace). 8 (not 0)
+        // keeps a hair of downward tilt so the view never goes fully horizontal/grazing-degenerate.
+        public float minPitch = 8f;
         public float maxPitch = 70f;
         public float yawSpeed = 200f;
         public float pitchSpeed = 120f;

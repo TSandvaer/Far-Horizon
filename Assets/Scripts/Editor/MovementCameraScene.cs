@@ -918,8 +918,11 @@ namespace FarHorizon.EditorTools
             var orbit = camGo.GetComponent<OrbitCamera>();
             if (orbit == null) orbit = camGo.AddComponent<OrbitCamera>();
             orbit.target = player.transform;
-            orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 35-70) — LOCKED
-            orbit.minPitch = 35f;
+            orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 8-70) — LOCKED
+            // Floor WIDENED 35->8 (drew/ocean-camera-fix): lets the Sponsor tilt down to the horizon +
+            // see the seaward beach ocean (the 35 floor framed the sea as a far fogged "grey pond" —
+            // OceanCameraDiag trace, 2026-06-13). Default 55 + max 70 unchanged.
+            orbit.minPitch = 8f;
             orbit.maxPitch = 70f;
             orbit.distance = 14f;
         }
