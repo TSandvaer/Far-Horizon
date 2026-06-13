@@ -692,14 +692,17 @@ namespace FarHorizon.EditorTools
             agent.stoppingDistance = 0.1f;
             agent.autoBraking = true;
 
-            // U6 (86ca86fz9): the real 3D player avatar — a rigged CC0 low-poly CLOTHED character
-            // (Quaternius Animated-Men, Smooth_Male_Casual.fbx, CC0) with the warm castaway recolor.
-            // The avatar lives on a child root scaled to the on-screen height; the FBX origin is at the
-            // feet (localPosition zero -> grounded feet on the agent's ground point). Built editor-time
-            // (BuildInEditor) so the SkinnedMeshRenderer + bones + controller reference SERIALIZE into
-            // Boot.unity (the editor-vs-runtime serialization lesson — no Awake-assembled hierarchy to
-            // ship mangled). Ensure URP/Lit is always-included so the recolor materials don't strip to
-            // magenta in the stripped player.
+            // The real 3D player avatar — the "Mini Chibi Kid" sourced CC0-Attribution rigged low-poly
+            // chunky-cartoon character (ticket 86ca8ca1m — SUPERSEDES the Quaternius Animated-Men base
+            // the realistic head couldn't cartoon-ify). The avatar lives on a child root scaled to the
+            // on-screen height; the FBX origin is at the feet (localPosition zero -> grounded feet on
+            // the agent's ground point). Built editor-time (BuildInEditor) so the SkinnedMeshRenderer +
+            // bones + controller reference SERIALIZE into Boot.unity (the editor-vs-runtime
+            // serialization lesson — no Awake-assembled hierarchy to ship mangled). Ensure URP/Lit is
+            // always-included so the toon materials don't strip to magenta in the stripped player.
+            //
+            // NO bone-scale dials: the chibi's big-head toy proportions are INTRINSIC to the mesh (the
+            // PR #25 head/limb-scale path is dropped for this base — the mesh ships chunky as imported).
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
 
@@ -720,11 +723,83 @@ namespace FarHorizon.EditorTools
             // Build the Model child + materials NOW (editor) so they serialize into Boot.unity.
             castaway.BuildInEditor();
 
+            // CONTACT / BLOB SHADOW (ticket 86ca8ca1m — "blob shadow fit to its footprint" AC). A soft
+            // dark ground disc under the castaway's feet, fit (radius) to the chibi's blocky stance so
+            // the toy-chunky silhouette grounds. Lives on the PLAYER ROOT (NOT the avatar child) so the
+            // avatar's height-scale doesn't scale it AND so it stays world-flat under the feet
+            // regardless of the avatar's yaw/anim. Editor-time authored (mesh + inline transparent
+            // vertex-color material) so it serializes into Boot.unity — the editor-vs-runtime trap.
+            BuildBlobShadow(player);
+
             var ctm = player.AddComponent<ClickToMove>();
             ctm.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
             ctm.markerPrefab = markerPrefab;
 
             return player;
+        }
+
+        // ---- Blob/contact shadow anchors (ticket 86ca8ca1m). FIT to the chibi footprint. Radius in
+        // world units (the player root is unscaled at 1u, so this is the on-ground size). Tone = a soft
+        // warm-neutral dark (not pure black — pure black reads harsh under the warm Zone-D key); alpha =
+        // the disc's opaque-core falloff strength. Exposed for the scene-presence test. ----
+        public const string BlobShadowObjectName = "BlobShadow";
+        public static readonly Color BlobShadowColor = new Color(0.08f, 0.07f, 0.06f); // soft warm-dark
+        // The chibi's intrinsic footprint half-extent in its ~1u-normalized local space is ~0.36 (X) /
+        // ~0.42 (Z) (probe: intrinsic X 1.44u / Z 1.68u over a 1.82u-tall mesh, normalized to 1u). On
+        // the PlayerVisualHeight=1.8 avatar root that is ~0.65 (X) / ~0.76 (Z) world half-extent — but
+        // the Z extent is dominated by the toes/heel spread, not the standing footprint. A radius of
+        // 0.55 grounds the standing-pose footprint (feet + a soft margin) without a saucer that extends
+        // past the silhouette. Soak-tunable if the Sponsor wants a wider/tighter pool.
+        public const float BlobShadowRadius = 0.55f;
+        public const float BlobShadowCenterAlpha = 0.5f;  // soft, not a hard black disc
+
+        // Build the castaway's contact/blob shadow as a flat ground disc under the player root. The disc
+        // mesh bakes a radial alpha falloff (LowPolyMeshes.BlobShadowDisc); an inline transparent
+        // vertex-color material (FarHorizon/BlobShadowVertexColor, always-included so it survives the
+        // stripped build) renders it as a soft dark pool. Sits just above y=0 to avoid z-fighting the
+        // ground. NO collider — it must never block the click raycast or the NavMesh bake.
+        private static void BuildBlobShadow(GameObject player)
+        {
+            var go = new GameObject(BlobShadowObjectName);
+            go.transform.SetParent(player.transform, false);
+            go.transform.localPosition = new Vector3(0f, 0.02f, 0f); // hover a hair to beat z-fight
+            go.transform.localRotation = Quaternion.identity;
+
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = LowPolyMeshes.BlobShadowDisc(BlobShadowRadius, 18, BlobShadowColor, BlobShadowCenterAlpha);
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; // a fake shadow casts none
+            mr.receiveShadows = false;
+
+            var vc = Shader.Find("FarHorizon/BlobShadowVertexColor");
+            if (vc != null)
+            {
+                var mat = new Material(vc) { name = "BlobShadowMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+                mr.sharedMaterial = mat; // inline -> serializes into the scene, no .mat churn
+                EnsureShaderAlwaysIncluded(vc);
+            }
+            else
+            {
+                // Fallback: an unlit transparent flat disc (vertex falloff lost — a flat dark disc — but
+                // never magenta). Tints the URP/Unlit base to the shadow tone with a fixed alpha.
+                var unlit = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlit != null)
+                {
+                    var mat = new Material(unlit) { name = "BlobShadowMat" };
+                    if (mat.HasProperty("_BaseColor"))
+                        mat.SetColor("_BaseColor", new Color(BlobShadowColor.r, BlobShadowColor.g,
+                                                             BlobShadowColor.b, BlobShadowCenterAlpha));
+                    if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f); // Transparent
+                    mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                    mr.sharedMaterial = mat;
+                    EnsureShaderAlwaysIncluded(unlit);
+                }
+                Debug.LogWarning("[MovementCameraScene] blob-shadow vertex-color shader not found; flat-disc fallback");
+            }
+
+            Debug.Log("[MovementCameraScene] authored BlobShadow under Player (radius=" + BlobShadowRadius +
+                      ", fit to chibi stance)");
         }
 
         // Replace the static boot camera with the OrbitCamera rig targeting the player. We reuse
