@@ -72,6 +72,30 @@ namespace FarHorizon
         // Exposed for tests / later systems: current Idle/Walk state read off the agent.
         public bool IsWalking { get; private set; }
 
+        /// <summary>
+        /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook, ticket
+        /// 86ca8fevz). The verify capture cannot rely on the rest-state facing being a fixed axis (the
+        /// "+Z front" assumption was non-deterministic across runs — PR #31/#36), so it pins the facing
+        /// to a known value before framing. Sets <see cref="_bodyYaw"/> + the remembered facing and
+        /// applies it to the model THIS frame (no lerp), so a capture taken immediately after sees the
+        /// front it expects. Inert for normal gameplay (LateUpdate keeps driving facing off velocity);
+        /// only the verify path calls this.
+        /// </summary>
+        /// <param name="yawDeg">World Y yaw (0 = the model's rest/intrinsic facing — the front the
+        /// gameplay view validated, sandy-ginger hair + forward fringe).</param>
+        public void FaceWorldYawInstant(float yawDeg)
+        {
+            _bodyYaw = yawDeg;
+            float rad = yawDeg * Mathf.Deg2Rad;
+            _lastFacing = new Vector3(Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            if (_model != null)
+                _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
+        }
+
+        /// <summary>Current body yaw (degrees) the model is rotated to — exposed so the verify capture can
+        /// derive the camera position from the SAME facing it pinned (no axis assumption).</summary>
+        public float BodyYaw => _bodyYaw;
+
         void Awake()
         {
             // The agent lives on the player ROOT (this component is on a child avatar root so its

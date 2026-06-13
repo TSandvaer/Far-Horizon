@@ -119,6 +119,36 @@ namespace FarHorizon.PlayTests
                 "agent.velocity=" + _agent.velocity.magnitude.ToString("0.00"));
         }
 
+        // Verify-capture determinism hook (ticket 86ca8fevz): FaceWorldYawInstant pins the body yaw to a
+        // KNOWN value immediately, so the castaway verify capture frames a deterministic FRONT every run
+        // (the "+Z front" assumption was non-deterministic — PR #31/#36). Asserts the pin is exact +
+        // repeatable + survives a moving frame's lerp being overridden. This is the regression guard for
+        // the facing half of the determinism fix (the framing-math half is VerifyCaptureFramingTests).
+        [UnityTest]
+        public IEnumerator FaceWorldYawInstant_PinsKnownYaw_Deterministically()
+        {
+            yield return null;
+            yield return null;
+
+            _castaway.FaceWorldYawInstant(0f);
+            Assert.AreEqual(0f, _castaway.BodyYaw, 1e-4f, "pinning yaw 0 must set BodyYaw exactly to 0");
+
+            // Repeatable: a second identical pin yields the identical value (no drift / accumulation).
+            _castaway.FaceWorldYawInstant(0f);
+            Assert.AreEqual(0f, _castaway.BodyYaw, 1e-4f, "re-pinning the same yaw must be idempotent");
+
+            // An arbitrary yaw is honored exactly.
+            _castaway.FaceWorldYawInstant(90f);
+            Assert.AreEqual(90f, _castaway.BodyYaw, 1e-4f, "pinning yaw 90 must set BodyYaw exactly to 90");
+
+            // After a frame of LateUpdate (which lerps facing off velocity), re-pinning to 0 must SNAP it
+            // back deterministically — the verify capture's pin always wins over whatever the lerp left.
+            yield return null;
+            _castaway.FaceWorldYawInstant(0f);
+            Assert.AreEqual(0f, _castaway.BodyYaw, 1e-4f,
+                "re-pinning after a LateUpdate frame must snap the yaw deterministically (capture pin wins)");
+        }
+
         // Guard the threshold: a tiny residual drift below walkSpeedThreshold must NOT read as walking
         // (prevents a jittery idle-twitch from flickering the walk blend). We verify the at-rest agent
         // stays idle across several frames even with the agent active on the mesh.
