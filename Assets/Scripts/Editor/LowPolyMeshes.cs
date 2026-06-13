@@ -60,6 +60,68 @@ namespace FarHorizon.EditorTools
         // A faceted sphere from a subdivided octahedron, with per-vertex radial JITTER so it reads
         // as an organic boulder/canopy lump rather than a perfect ball. `subdiv` 0 = coarse (boulder),
         // 1 = a bit rounder (canopy). Welded so normals average -> smooth shading over the facets.
+        // A HAIR SKULL-CAP (86ca8ca1m soak-fix) — a faceted dome that sits on the chibi's crown to read
+        // as sandy-ginger HAIR once the original cap meshes are hidden. It is the UPPER part of a faceted
+        // sphere (verts below y=cut dropped + the rim closed), slightly flattened in Y and pulled a touch
+        // forward+down at the front (a boyish forward fringe per the v4 identity sheets). Welded +
+        // smooth-normalled (the low-poly smooth-shaded look). radius ~ the skull half-width; cut in
+        // [-1..1] sphere-space (0 = exact hemisphere, negative dips below the equator to cover more skull).
+        public static Mesh HairCap(float radius, float yScale, float cut, int subdiv)
+        {
+            var baseVerts = new List<Vector3>
+            {
+                new Vector3(0,  1, 0), new Vector3(0, -1, 0),
+                new Vector3( 1, 0, 0), new Vector3(-1, 0, 0),
+                new Vector3(0, 0,  1), new Vector3(0, 0, -1),
+            };
+            var baseTris = new List<int>
+            {
+                0,2,4, 0,4,3, 0,3,5, 0,5,2,
+                1,4,2, 1,3,4, 1,5,3, 1,2,5,
+            };
+            for (int s = 0; s < subdiv; s++)
+            {
+                var newTris = new List<int>();
+                var midCache = new Dictionary<long, int>();
+                for (int t = 0; t < baseTris.Count; t += 3)
+                {
+                    int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                    int ab = Midpoint(baseVerts, midCache, a, b);
+                    int bc = Midpoint(baseVerts, midCache, b, c);
+                    int ca = Midpoint(baseVerts, midCache, c, a);
+                    newTris.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+                }
+                baseTris = newTris;
+            }
+
+            // Project to the sphere, then keep only triangles whose verts are all above the cut plane
+            // (the cap). Build a compacted vert list. yScale flattens the dome; a small forward+down
+            // pull at the front gives a boyish fringe.
+            var sphere = new Vector3[baseVerts.Count];
+            for (int i = 0; i < baseVerts.Count; i++) sphere[i] = baseVerts[i].normalized;
+
+            var remap = new Dictionary<int, int>();
+            var verts = new List<Vector3>();
+            int Keep(int idx)
+            {
+                if (remap.TryGetValue(idx, out int r)) return r;
+                Vector3 n = sphere[idx];
+                var p = new Vector3(n.x * radius, n.y * radius * yScale, n.z * radius);
+                // forward fringe: where the dome dips toward the front (-Z is the face per the rig),
+                // pull it down + forward a touch so hair frames the brow rather than a bald rim.
+                if (n.z < -0.2f) { p.y -= radius * 0.12f; p.z -= radius * 0.06f; }
+                int ni = verts.Count; verts.Add(p); remap[idx] = ni; return ni;
+            }
+            var tris = new List<int>();
+            for (int t = 0; t < baseTris.Count; t += 3)
+            {
+                int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                if (sphere[a].y < cut && sphere[b].y < cut && sphere[c].y < cut) continue; // below cap
+                tris.Add(Keep(a)); tris.Add(Keep(b)); tris.Add(Keep(c));
+            }
+            return Finish(verts, tris, "LP_HairCap");
+        }
+
         public static Mesh FacetedSphere(float radius, int subdiv, float jitter, int seed)
         {
             // octahedron base

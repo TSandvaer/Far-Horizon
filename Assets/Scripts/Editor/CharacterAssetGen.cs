@@ -81,6 +81,34 @@ namespace FarHorizon.EditorTools
         public static readonly Vector2Int CapCell = new Vector2Int(1, 10);    // former green cap -> warm hair
         public static readonly Vector2Int FeetCell = new Vector2Int(12, 12);  // bare feet (was shoes)
 
+        // SOAK-FIX cells (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and reported "yellow cap / no
+        // shirt / all-yellow blob" — the GAMEPLAY orbit view (warm Zone-D post × warm key × the BRIGHT
+        // atlas) washed the castaway to a uniform yellow-cream, the cap still read as a cap, and the
+        // khaki shirt had no contrast against the skin. Empirically mapped by CastawayDiagnoseTrace:
+        //   - The kept CAP DOME (Object_41, now the hair mass) uses TWO cells: CapCell(1,10) AND
+        //     CapDome2(1,9) — and (1,9) was left GREEN by the v1 recolor. BOTH are repainted sandy-ginger
+        //     so the dome reads as HAIR, not a green/yellow cap.
+        //   - The SkinCell(12,2) (Object_36 head+body) was very bright (0.93,0.76,0.62) and BLEW OUT to
+        //     white under the post lift — toned down so the face/body holds tone instead of washing.
+        //   - Shirt + feet are DEEPENED (below) so they survive the post lift without blowing to cream
+        //     and the shirt SEPARATES from the skin (the "no shirt" read).
+        public static readonly Vector2Int CapDome2Cell = new Vector2Int(1, 9); // 2nd cap-dome cell (was green)
+        public static readonly Vector2Int SkinCell = new Vector2Int(12, 2);    // head+body skin (was blown bright)
+        public static readonly Vector2Int SleeveCell = new Vector2Int(15, 10); // shirt rolled-sleeve cell
+
+        // ---- SOAK-FIX target colours (86ca8ca1m soak-fix). Each is the cell's TOP-of-gradient anchor;
+        // RecolorIdentityAtlas paints a vertical toon ramp from this anchor (top brighter -> bottom
+        // darker) so the flat toon-shade gradient survives. All sub-1.0 (HDR-safe) and TONED so the
+        // warm post no longer blows them to yellow. Verified against the post stack by a shipped capture. ----
+        public static readonly Color ShirtTopColor = new Color(0.62f, 0.50f, 0.30f); // deeper saturated mid-khaki (was 0.73,0.60,0.42 — too bright/pale)
+        public static readonly Color SkinTopColor  = new Color(0.80f, 0.62f, 0.48f); // toned warm tan (was 0.94,0.79,0.65 — blew white under the warm post)
+        public static readonly Color FeetTopColor  = new Color(0.78f, 0.60f, 0.46f); // bare-feet skin, matches the toned skin
+        // The cap-dome cells are still recolored sandy-ginger as a defensive base, but the dome+brim are
+        // BOTH hidden now (the dome's cap-shaped arc read as a floating loop, not hair) and a clean
+        // procedural hair skull-cap is added instead — so this colour mainly anchors the guard (R>G>B,
+        // not green). The visible hair colour is HairMeshColor (MovementCameraScene), tuned from the soak.
+        public static readonly Color HairTopColor  = new Color(0.70f, 0.45f, 0.22f); // sandy-ginger (guard anchor; dome hidden)
+
         // Normalize the FBX's intrinsic import height to ~1 world-unit so the avatar-root scale maps
         // directly onto on-screen height (the camera/NavMesh/grounding are calibrated to ~1u). The chibi
         // FBX imports at ~1.82u intrinsic (measured) — un-normalized it ships ~1.8× tall on the 1.8u
@@ -91,9 +119,85 @@ namespace FarHorizon.EditorTools
         {
             ConfigureFbxImporter();
             BuildAnimatorController();
+            // IDENTITY RECOLOR (86ca8ca1m + soak-fix) — make the recolor REPRODUCIBLE-FROM-CODE (the
+            // project invariant: CI re-runs bootstrap). The v1 recolor was a hand-run PIL script (the
+            // atlas PNG was committed with no code path to regenerate it). This bakes the per-cell
+            // identity colours from CODE, deterministically + idempotently, so a bootstrap re-run always
+            // reproduces the SAME shipped atlas — and the soak-fix toning lives in source, not a mystery
+            // hand-edit. Runs AFTER the FBX import (the atlas PNG is a standalone asset the materials
+            // bind on _BaseMap — repainting it does not need the FBX re-imported).
+            RecolorIdentityAtlas();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[CharacterAssetGen] character assets prepared: " + FbxPath + " + " + ControllerPath);
+        }
+
+        // Repaint the identity UV cells of the bound toon atlas (86ca8ca1m soak-fix), reproducibly +
+        // idempotently. Each target cell is painted with a deterministic VERTICAL TOON RAMP from its
+        // anchor colour (top ~1.12x brighter -> bottom ~0.82x darker over the cell's v span), preserving
+        // the flat toon-shade gradient the chibi ships. Painting ABSOLUTE values (not a multiplicative
+        // tint of the prior pixels) makes a bootstrap re-run converge to the exact same atlas — the
+        // idempotency the reproducible-from-code invariant needs. Cells repainted: shirt + sleeve (deeper
+        // mid-khaki, separates from skin), the kept cap-dome's TWO cells (sandy-ginger hair — kills the
+        // leftover green), skin (toned so the post lift doesn't blow it white), feet (bare-skin tan).
+        public static void RecolorIdentityAtlas()
+        {
+            string path = AtlasPngPath;
+            if (!System.IO.File.Exists(path))
+            {
+                Debug.LogError("[CharacterAssetGen] atlas PNG not found at " + path + " — cannot recolor");
+                return;
+            }
+
+            // Decode the committed PNG into a writable Texture2D (the imported asset has isReadable=0, so
+            // read the file bytes directly rather than GetPixels on the import).
+            byte[] bytes = System.IO.File.ReadAllBytes(path);
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(bytes))
+            {
+                Debug.LogError("[CharacterAssetGen] atlas PNG failed to decode — recolor aborted");
+                Object.DestroyImmediate(tex);
+                return;
+            }
+            int W = tex.width, H = tex.height;
+            int cw = W / 16, ch = H / 16;
+
+            // Paint one 16x16 UV cell with a deterministic vertical toon ramp from anchor (top bright ->
+            // bottom darker). UV v is up; the Texture2D's y is also up (GetPixel/SetPixel bottom-left),
+            // so cell row*ch..(row+1)*ch maps directly. Idempotent: absolute writes.
+            void PaintCell(Vector2Int cell, Color anchor)
+            {
+                int x0 = cell.x * cw, y0 = cell.y * ch;
+                for (int yy = 0; yy < ch; yy++)
+                {
+                    // v fraction within the cell (0 at bottom -> 1 at top). Toon ramp: top brightest.
+                    float vf = ch > 1 ? (float)yy / (ch - 1) : 0.5f;
+                    float ramp = Mathf.Lerp(0.82f, 1.12f, vf); // bottom 0.82x -> top 1.12x
+                    var c = new Color(
+                        Mathf.Clamp01(anchor.r * ramp),
+                        Mathf.Clamp01(anchor.g * ramp),
+                        Mathf.Clamp01(anchor.b * ramp), 1f);
+                    for (int xx = 0; xx < cw; xx++)
+                        tex.SetPixel(x0 + xx, y0 + yy, c);
+                }
+            }
+
+            PaintCell(ShirtCell, ShirtTopColor);     // torso shirt — deeper mid-khaki
+            PaintCell(SleeveCell, ShirtTopColor);     // rolled sleeve — same khaki
+            PaintCell(CapCell, HairTopColor);         // cap-dome cell A -> sandy-ginger hair
+            PaintCell(CapDome2Cell, HairTopColor);    // cap-dome cell B (was GREEN) -> sandy-ginger hair
+            PaintCell(HairCell, HairTopColor);         // the brim's hair cell (kept consistent)
+            PaintCell(SkinCell, SkinTopColor);         // head+body skin — toned so it holds under the post lift
+            PaintCell(FeetCell, FeetTopColor);         // bare feet — toned skin tan
+            tex.Apply();
+
+            // Write the repainted atlas back to disk as the committed source (sRGB PNG). The import
+            // settings (sRGB on, readable off) are unchanged — only the pixels change.
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            Debug.Log("[CharacterAssetGen] identity atlas recolored (shirt/sleeve khaki, cap-dome->sandy hair, " +
+                      "skin+feet toned) — reproducible-from-code, idempotent");
         }
 
         private static void ConfigureFbxImporter()

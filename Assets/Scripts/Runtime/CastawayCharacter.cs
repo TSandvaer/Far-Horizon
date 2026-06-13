@@ -51,6 +51,17 @@ namespace FarHorizon
         // Animator parameter the controller blends on (set each frame from the agent's velocity).
         public const string MovingParam = "Moving";
 
+        // CAP -> HAIR (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and the castaway read as wearing
+        // a CAP, not hair ("still wearing the yellow cap"). The chibi's cap is TWO separate skinned-mesh
+        // nodes (empirically mapped via the diagnose-via-trace IsolateMeshes probe): Object_41 is the
+        // CROWN DOME, Object_42 is the flat forward BRIM/VISOR. We HIDE BOTH: hiding only the brim left
+        // the dome's cap-shaped front ARC sticking up off the head (it read as a floating sandy loop, not
+        // hair — proven in the shipped close-up). With both cap meshes hidden, a clean procedural
+        // sandy-ginger HAIR skull-cap is added on top instead (MovementCameraScene.AttachHair). Hiding
+        // (not deleting) keeps the bone hierarchy intact for the proportion/clip guards, and the disabled
+        // state SERIALIZES into Boot.unity on the editor-build path.
+        public static readonly string[] CapMeshNames = { "Object_41", "Object_42" }; // dome + brim — both hidden
+
         private NavMeshAgent _agent;
         private Animator _animator;
         private Transform _model;       // the instantiated FBX root, yaw-rotated toward facing
@@ -128,9 +139,41 @@ namespace FarHorizon
             if (animatorController != null) _animator.runtimeAnimatorController = animatorController;
             _animator.applyRootMotion = false; // NavMeshAgent drives position; anim is in-place
 
-            // NO recolor: the chibi's imported toon materials + atlas ARE the ship look (the prior
-            // base's 6-part recolor is dropped — recoloring would wipe the atlas to a flat tint).
+            // CAP -> HAIR (86ca8ca1m soak-fix): hide BOTH cap meshes (dome + brim) so the castaway reads
+            // as having sandy-ginger HAIR (a clean procedural skull-cap added by MovementCameraScene),
+            // not wearing a hat. Disabling the renderers (not destroying) keeps the bone hierarchy whole
+            // for the proportion/clip guards, and the disabled state serializes into Boot.unity on the
+            // editor-build path. Idempotent + defensive: a renamed node simply won't match (logged).
+            HideCap();
+
+            // The chibi's imported toon materials + atlas carry the identity recolor (the atlas PNG is
+            // repainted per-cell by CharacterAssetGen.RecolorIdentityAtlas — warm-khaki shirt, sandy hair
+            // on the kept dome, toned skin). We do NOT tint the materials here (a per-material tint would
+            // flatten the toon gradient — the trap this class always warned of).
             _built = true;
+        }
+
+        // Hide BOTH cap meshes (dome + brim) so the castaway reads as having hair, not a cap (86ca8ca1m
+        // soak-fix). Matches by node name from the empirical mesh map (the IsolateMeshes diagnose-trace).
+        // Searches inactive too so the editor-build path (which serializes the disabled state) finds them.
+        private void HideCap()
+        {
+            if (_model == null) return;
+            int hid = 0;
+            foreach (var smr in _model.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                foreach (var capName in CapMeshNames)
+                {
+                    if (smr.name == capName)
+                    {
+                        smr.enabled = false; // serializes disabled into Boot.unity on the editor-build path
+                        hid++;
+                    }
+                }
+            }
+            if (hid < CapMeshNames.Length)
+                Debug.LogWarning("[CastawayCharacter] hid " + hid + "/" + CapMeshNames.Length +
+                                 " cap meshes — the castaway may still read as wearing a cap");
         }
 
         void LateUpdate()
