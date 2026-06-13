@@ -200,14 +200,29 @@ namespace FarHorizon.EditorTools
         // (NavMesh default max slope ~45deg) and the character reads grounded on it.
         static float HeightAt(float fz, float fx, float ox, float oz)
         {
-            // beach flat near the shore, a gentle dune ripple in the mid-beach, then a meadow rise.
-            float beachFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.06f, 0.20f, fz)); // 0 at shore
-            float dune = Mathf.Sin(fz * 9f) * 0.18f * beachFlat * (1f - fz);                 // small ripple
-            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.95f, fz)) * 1.6f; // meadow rise
+            // BEACH SLOPES DOWN INTO THE SEA (drew/ocean-camera-fix, 2026-06-13). The prior profile put a
+            // beach hump (~Y0.39 at Z+2) BETWEEN the locked spawn (Z+6) and the water (near-edge Z-10.5),
+            // so the seaward orbit looked OVER a dune at a distant fogged sea strip — the ocean was
+            // structurally occluded (shipped-capture pixel-sample: zero teal reached the seaward frame).
+            // The fix: the shore band now DIPS BELOW sea level near fz=0 (a gentle beach that slopes down
+            // into the water, the inspiration/21h16_52 read) and rises smoothly to the meadow only past the
+            // spawn — so from the spawn you look slightly DOWN-shore onto open water, no occluding crest.
+            // shoreDip < 0 near the shore so the beach passes below WaterY (-0.20) and the coastline reads
+            // as land dipping into the sea (Uma §2). The meadow rise (inland of the spawn) is unchanged.
+            // A single MONOTONIC ramp from the underwater shore (fz=0, ~Y-0.55) up to the spawn-band
+            // beach level (~fz0.27, ~Y0.0) — NO intermediate hump between the spawn and the water, so the
+            // seaward view looks slightly DOWN-shore onto open water with nothing occluding it. The meadow
+            // rise begins only INLAND of the spawn (past fz0.30) so the journey-forward still climbs.
+            float beachRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, 0.27f, fz)); // 0 at shore -> 1 at spawn band
+            float shoreDip = Mathf.Lerp(-0.55f, 0.02f, beachRamp);                          // underwater shore up to ~flat beach at spawn
+            float dune = Mathf.Sin(fz * 9f) * 0.06f * beachRamp * (1f - fz);                // very soft ripple on the dry beach only
+            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.30f, 0.95f, fz)) * 1.6f; // meadow rise (inland of spawn)
             // organic low-amplitude noise (multi-octave) so nothing is a flat tabletop
             float n = (Mathf.PerlinNoise(ox + fx * 4f, oz + fz * 4f) - 0.5f) * 0.5f
                     + (Mathf.PerlinNoise(ox + fx * 9f, oz + fz * 9f) - 0.5f) * 0.22f;
-            return beachFlat * 0.25f + dune + rise + n * (0.3f + rise * 0.4f);
+            // shoreDip is the monotonic beach ramp (underwater shore -> ~flat at the spawn band); rise is
+            // the inland meadow; noise is suppressed at the shore (clean waterline) and full inland.
+            return shoreDip + dune + rise + n * (0.10f + beachRamp * 0.20f + rise * 0.4f);
         }
 
         // Vertex color ramps warm sand (shore, low) -> warm grass (inland, higher). Multi-tone so
