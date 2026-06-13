@@ -32,11 +32,11 @@ namespace FarHorizon
         // back so the seaward view looks OUT to the open sea, not down at the near sand. The trace
         // (OceanCameraDiag, 2026-06-13) proved that at the OLD 35 floor the camera centre only reached
         // the beach (~Z+4) — the sea entered frame as a far fogged sliver (the "grey pond" soak report).
-        // At pitch ~12 the centre reaches the coastline (~Z+0.4) so the bright teal sea fills the upper
-        // frame to the fogged horizon. 12 (a touch above the new 8 floor) keeps a steady, non-grazing
-        // horizon-ward framing.
-        public float seawardPitch = 12f;
-        public float seawardDistance = 24f;
+        // Capture at the new pitch FLOOR (8) — this is the "all the way down toward the horizon" view the
+        // Sponsor explicitly asked to be able to reach. At pitch 8 the look is near-horizontal so the
+        // beach foreground shrinks and the bright teal sea fills the most frame to the fogged horizon.
+        public float seawardPitch = 8f;
+        public float seawardDistance = 22f;
         public int warmupFrames = 8;
         public int settleFrames = 16;
 
