@@ -184,12 +184,15 @@ namespace FarHorizon.EditTests
         [Test]
         public void Ocean_NotOccludedByFlatGround_SeawardSlabTrimmed()
         {
-            // THE visibility bug the shipped-build capture exposed (drew/beach-water, 2026-06-13): the
-            // flat TestGround placeholder spanned Z[-30..+30] at Y=0 and physically OCCLUDED the ocean
-            // (water sits at Y-0.20 underneath it), so the seaward orbit saw sand, never sea. The fix
-            // trims TestGround's seaward edge to just past the campfire loop spot so the slab no longer
-            // overhangs the water. Guard it: the flat ground's seaward edge must NOT extend out over the
-            // ocean's near band. A regression that restores the Z-30 slab re-buries the sea — this fails.
+            // HYGIENE check (NOT the visibility guard — see the correction below). This asserts the flat
+            // TestGround placeholder's seaward edge does not overhang the ocean's near band.
+            //
+            // IMPORTANT CORRECTION (drew/ocean-beach-soakfix2, 2026-06-13): this test PASSED while the sea
+            // stayed completely invisible across six builds — proving the seaward-slab-trim was NOT the
+            // real fix. The actual root cause was the water mesh's INVERTED winding (faces pointed DOWN ->
+            // Cull Back hid the sea); see WaterFacesUpTests for THE guard. This Z-edge check is kept as a
+            // cheap geometry-hygiene assertion (don't re-grow the slab over the water) but it is explicitly
+            // NOT the silhouette/visibility guard — a Z-edge relationship cannot prove on-frame visibility.
             var testGround = GameObject.Find("TestGround");
             Assert.IsNotNull(testGround, "the flat test ground (TestGround) must exist (NavMesh + loop surface)");
             var tgMin = testGround.GetComponent<MeshRenderer>().bounds.min.z;

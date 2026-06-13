@@ -458,9 +458,9 @@ namespace FarHorizon.EditorTools
         const float WaterSeawardDepth = 220f; // extends ~220u seaward of the shore -> lost in fog
         // Near edge sits a touch INLAND of the Zone-D terrain shore (shoreZ=-12) so the beach's faceted
         // edge dips INTO the water with no gap seam, but SEAWARD of the trimmed TestGround placeholder
-        // (SeawardGroundZ=-10) so the flat slab never overhangs + occludes the sea (the diagnostic's
-        // occlusion finding — drew/beach-water, 2026-06-13). With overlap 1.5, near edge = shoreZ+1.5 =
-        // -10.5: just seaward of TestGround's -10 edge, just inland of the terrain shore. No surface gap.
+        // (SeawardGroundZ=-10) so the flat slab never overhangs + occludes the sea. With overlap 1.5,
+        // near edge = shoreZ+1.5 = -10.5: just seaward of TestGround's -10 edge, just inland of the
+        // terrain shore. No surface gap.
         const float WaterInlandOverlap = 1.5f;
         const int WaterSegX = 24, WaterSegZ = 40; // enough verts for a smooth gradient + swell
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
@@ -513,14 +513,31 @@ namespace FarHorizon.EditorTools
                 cols[i] = c;
             }
 
+            // *** THE ROOT-CAUSE FIX (drew/ocean-beach-soakfix2, 2026-06-13) ***
+            // The beach ocean was INVISIBLE in the seaward gameplay view across SIX shipped builds — every
+            // prior "fix" (trim TestGround, slope the beach, deepen the dip, re-pitch the cam, pull water
+            // inland) measured ZERO water px on the magenta-diff. The ticket framed it as depth-occlusion
+            // by the ground. The -seaWaterOnly probe (hide BOTH ground renderers) DISPROVED that: the sea
+            // rendered zero px even with nothing in front of it. The real cause: this water grid lays out
+            // nearZ(-10.5) -> farZ(-232), i.e. DECREASING world Z as the grid-z index increases — the
+            // OPPOSITE Z direction to the terrain mesh (shoreZ -> inlandFarZ, increasing). The terrain's
+            // triangle index order therefore winds the WATER faces DOWNWARD -> RecalculateNormals produces
+            // -Y normals -> the shader's default Cull Back culls every water triangle from any camera
+            // looking DOWN at the sea (the gameplay orbit). FIX: reverse the triangle winding here so the
+            // faces (and averaged normals) point UP (+Y) -> the sea renders for the above-camera. Verified
+            // by the magenta-diff: 0 px -> 58k px (6.4% of frame, a clear band) the instant the winding
+            // flipped, with normal0 going (0,-1,0) -> (0,+1,0). Guarded by WaterFacesUpTests (the
+            // silhouette/normal-direction class guard that would have caught this on day one).
             var tris = new int[WaterSegX * WaterSegZ * 6];
             int ti = 0;
             for (int z = 0; z < WaterSegZ; z++)
             for (int x = 0; x < WaterSegX; x++)
             {
                 int i = z * (WaterSegX + 1) + x;
-                tris[ti++] = i; tris[ti++] = i + WaterSegX + 1; tris[ti++] = i + 1;
-                tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 1; tris[ti++] = i + WaterSegX + 2;
+                // Reversed winding (vs the terrain) — the water grid runs in -Z so this order yields
+                // UP-facing triangles. Keep both triangles consistent so RecalculateNormals averages +Y.
+                tris[ti++] = i; tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 1;
+                tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 2; tris[ti++] = i + WaterSegX + 1;
             }
 
             var mesh = new Mesh { name = name + "_mesh" };

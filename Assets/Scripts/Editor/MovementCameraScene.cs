@@ -173,14 +173,12 @@ namespace FarHorizon.EditorTools
             AssetDatabase.Refresh();
         }
 
-        // Seaward edge of the flat test ground (drew/beach-water-scene). ORIGINALLY the ground spanned
-        // a symmetric Z [-30..+30]; the diagnostic trace (drew/beach-water, 2026-06-13) proved that flat
-        // Y=0 slab extending to Z-30 was the OPAQUE OCCLUDER hiding the beach ocean — the water plane sits
-        // at Y-0.20 UNDERNEATH it, so from the seaward orbit every ray hit TestGround before the sea.
-        // Trim the seaward edge to just past the seaward-most loop spot (the campfire at Z-8) so the
-        // ground still carries the loop + NavMesh, but stops BEFORE the ocean begins — seaward of this
-        // edge the water is the only (topmost) surface and finally reads. The inland reach (+30) is
-        // unchanged (spawn/craft pathing). The campfire (Z-8) + tree (Z-7) keep their solid ground.
+        // Seaward edge of the flat test ground. The seaward slab spanned Z[-30..+30] at Y=0; the trim
+        // to -10 (drew/beach-water) stopped it overhanging the water's near band. Kept at -10 — the
+        // ROOT-CAUSE of the invisible sea was NOT this slab occluding the water (the magenta-diff +
+        // -seaWaterOnly probe proved the sea rendered ZERO px even with BOTH grounds hidden): it was the
+        // water mesh's INVERTED triangle winding (faces pointed DOWN -> Cull Back hid the sea from the
+        // above-camera). Fixed in LowPolyZoneGen.BuildWaterEdge. This slab edge stays as the prior trim.
         private const float SeawardGroundZ = -10f;
 
         // A flat subdivided plane on the Ground layer with a MeshCollider, so the NavMesh bake
@@ -197,8 +195,7 @@ namespace FarHorizon.EditorTools
 
             const int seg = 20;
             float sizeX = GroundHalf * 2f;
-            // Asymmetric Z span: seaward edge trimmed to SeawardGroundZ so the slab no longer overhangs
-            // (and occludes) the ocean; inland edge stays at +GroundHalf.
+            // Asymmetric Z span: seaward edge trimmed to SeawardGroundZ; inland edge stays at +GroundHalf.
             float minZ = SeawardGroundZ, maxZ = GroundHalf;
             var verts = new Vector3[(seg + 1) * (seg + 1)];
             var uvs = new Vector2[verts.Length];
