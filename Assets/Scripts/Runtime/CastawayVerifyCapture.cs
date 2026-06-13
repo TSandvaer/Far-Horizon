@@ -78,10 +78,14 @@ namespace FarHorizon
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // same deep-dusk neutral as the game cam
             cam.fieldOfView = 40f;
-            float dist = (height * 1.25f) / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));
-            // Slightly above the centre + a hair to the side so the silhouette (chunky head/limbs) reads,
-            // not a flat front-on. Avatar faces +Z by FBX convention, so view from -Z + a little +X.
-            Vector3 viewDir = new Vector3(0.25f, 0.10f, -1.0f).normalized;
+            // Frame head-to-feet with generous margin (1.7x height) so the WHOLE chunky silhouette reads,
+            // not just the head filling the frame (the first cut framed the head only).
+            float dist = (height * 1.7f) / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));
+            // The avatar's runtime yaw (CastawayCharacter.LateUpdate) defaults its facing to +Z at rest,
+            // so the FRONT (face/eyes/shirt) faces +Z. View from +Z looking back toward -Z, slightly to
+            // the side + above, so we catch the front identity (not the back of the head — the first cut
+            // viewed from -Z and shot the rear). TransformPoint not needed: world axes (avatar at origin).
+            Vector3 viewDir = new Vector3(0.30f, 0.12f, 1.0f).normalized;
             Vector3 camPos = lookAt + viewDir * dist;
             camGo.transform.position = camPos;
             camGo.transform.rotation = Quaternion.LookRotation((lookAt - camPos).normalized, Vector3.up);
