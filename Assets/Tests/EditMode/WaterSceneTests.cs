@@ -88,6 +88,38 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Ocean_BrightShallowsBand_ExtendsIntoTheMidSea_NotJustTheCoast()
+        {
+            // drew/ocean-camera-fix: the bright-teal shallows band was WIDENED (70u->130u) so the sea
+            // reads teal across the frame when the camera tilts down to the horizon (the now-allowed flat
+            // pitch makes the 50-150u MID-sea dominate the upper frame, not the very-near band). Guard the
+            // bug class: a mid-sea vert (~50-70u seaward of the coast) must still be BRIGHT-leaning teal
+            // (closer to the shallow anchor than the deep anchor). A regression to a narrow band would push
+            // the deep/fog-greyed teal across the visible mid-sea — the "grey" read. nearZ = shoreZ(-12) +
+            // overlap(1.5) = -10.5, so ~Z-65 is ~55u seaward (inside the 130u bright band, outside 70u).
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mesh = water.GetComponent<MeshFilter>().sharedMesh;
+            var verts = mesh.vertices;
+            var cols = mesh.colors;
+
+            // Find the vert nearest world Z -65 (local Z, since the water root sits at world Z 0).
+            const float midZ = -65f;
+            int midIdx = 0;
+            for (int i = 1; i < verts.Length; i++)
+                if (Mathf.Abs(verts[i].z - midZ) < Mathf.Abs(verts[midIdx].z - midZ)) midIdx = i;
+
+            var shallow = LowPolyZoneGen.WaterShallow;
+            var deep = LowPolyZoneGen.WaterDeep;
+            float dShallow = ChannelDist(cols[midIdx], shallow);
+            float dDeep = ChannelDist(cols[midIdx], deep);
+            Assert.Less(dShallow, dDeep,
+                $"a mid-sea vert (~55u seaward, localZ={verts[midIdx].z:0.0}) must still be BRIGHT-leaning " +
+                $"teal (closer to shallow #3FA6B0 than deep #2E7E96) — the widened 130u band keeps the " +
+                $"visible mid-sea teal; a narrow band lets it grey out (color={cols[midIdx]})");
+        }
+
+        [Test]
         public void Ocean_ExtendsFarSeaward_PastTheFogLine_NoHardNearEdge()
         {
             var water = GameObject.Find("Water_Play");
@@ -185,6 +217,10 @@ namespace FarHorizon.EditTests
                 "the Boot object must carry the SeaVerifyCapture component (the committed -verifySea " +
                 "orbit-to-sea capture path), serialized into the scene — not Awake-added");
         }
+
+        // Sum of absolute per-channel differences (a simple RGB distance for the bright/deep-lean check).
+        private static float ChannelDist(Color a, Color b) =>
+            Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b);
 
         private static void AssertColorNear(Color c, Color anchor, string label)
         {
