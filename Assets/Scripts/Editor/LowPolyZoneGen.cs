@@ -64,8 +64,19 @@ namespace FarHorizon.EditorTools
         // (bloom + warm grade + postExposure) compounds bright values; sub-1.0 survives without blooming
         // to white (the pale-shore first-frame lesson). Anchors derived by eye from inspiration/21h16_52
         // (lake-cabin) + Tess-QA-pinnable values in the brief's §1 color table. ----
-        public static readonly Color WaterShallow = new Color(0.25f, 0.65f, 0.69f); // #3FA6B0 bright sunlit shallows
-        public static readonly Color WaterDeep    = new Color(0.18f, 0.49f, 0.59f); // #2E7E96 deeper seaward teal
+        // BRIGHTENED + saturated (drew/ocean-camera-fix, 2026-06-13). The first soak-fix anchors
+        // (#3FA6B0 shallow / #2E7E96 deep) shipped technically-teal but read as a PALE GREY strip in the
+        // shipped seaward gameplay view (pixel-sampled the capture: the visible far water came out
+        // (0.66,0.62,0.44) — warm grey-yellow, NOT teal). Root cause (trace + math): the visible water is
+        // FAR (the near bright band is occluded by the beach crest), so it gets (a) the warm directional
+        // key + warm SH ambient in the LowPolyVertexColor shader, (b) the warm distance fog (0.80,0.80,
+        // 0.74), and (c) the warm post grade (WhiteBalance +12, warm colour filter) — three warm washes
+        // that desaturate the original mid-value teal to grey. Pushing the teal BRIGHTER and more
+        // saturated (higher G+B, B>G slightly, low R) makes it survive all three and land visibly teal in
+        // the SHIPPED frame. Still sub-1.0 every channel (HDR-clamp-safe — verified against the post stack
+        // in the shipped seaward capture, not just the editor).
+        public static readonly Color WaterShallow = new Color(0.20f, 0.72f, 0.80f); // bright sunlit teal shallows
+        public static readonly Color WaterDeep    = new Color(0.16f, 0.60f, 0.72f); // saturated seaward teal
         // Foam edge line baked into the beach mesh's seaward-most rows (Uma §2). Warm off-white, sub-1.0
         // (NOT pure white — would bloom). Exposed for the scene-presence test's color-pin check.
         public static readonly Color FoamEdge     = new Color(0.91f, 0.89f, 0.82f); // #E8E2D0 warm foam
