@@ -124,6 +124,16 @@ namespace FarHorizon.EditorTools
             AssetDatabase.Refresh();
         }
 
+        // Seaward edge of the flat test ground (drew/beach-water-scene). ORIGINALLY the ground spanned
+        // a symmetric Z [-30..+30]; the diagnostic trace (drew/beach-water, 2026-06-13) proved that flat
+        // Y=0 slab extending to Z-30 was the OPAQUE OCCLUDER hiding the beach ocean — the water plane sits
+        // at Y-0.20 UNDERNEATH it, so from the seaward orbit every ray hit TestGround before the sea.
+        // Trim the seaward edge to just past the seaward-most loop spot (the campfire at Z-8) so the
+        // ground still carries the loop + NavMesh, but stops BEFORE the ocean begins — seaward of this
+        // edge the water is the only (topmost) surface and finally reads. The inland reach (+30) is
+        // unchanged (spawn/craft pathing). The campfire (Z-8) + tree (Z-7) keep their solid ground.
+        private const float SeawardGroundZ = -10f;
+
         // A flat subdivided plane on the Ground layer with a MeshCollider, so the NavMesh bake
         // (PhysicsColliders collection) AND the click-to-move ground raycast both hit it.
         // Subdivided (not a single quad) so the baked NavMesh has clean geometry.
@@ -137,7 +147,10 @@ namespace FarHorizon.EditorTools
             var mr = go.AddComponent<MeshRenderer>();
 
             const int seg = 20;
-            float size = GroundHalf * 2f;
+            float sizeX = GroundHalf * 2f;
+            // Asymmetric Z span: seaward edge trimmed to SeawardGroundZ so the slab no longer overhangs
+            // (and occludes) the ocean; inland edge stays at +GroundHalf.
+            float minZ = SeawardGroundZ, maxZ = GroundHalf;
             var verts = new Vector3[(seg + 1) * (seg + 1)];
             var uvs = new Vector2[verts.Length];
             for (int z = 0; z <= seg; z++)
@@ -145,7 +158,7 @@ namespace FarHorizon.EditorTools
                 {
                     int i = z * (seg + 1) + x;
                     float fx = (float)x / seg, fz = (float)z / seg;
-                    verts[i] = new Vector3((fx - 0.5f) * size, 0f, (fz - 0.5f) * size);
+                    verts[i] = new Vector3((fx - 0.5f) * sizeX, 0f, Mathf.Lerp(minZ, maxZ, fz));
                     uvs[i] = new Vector2(fx * seg, fz * seg);
                 }
             var tris = new int[seg * seg * 6];

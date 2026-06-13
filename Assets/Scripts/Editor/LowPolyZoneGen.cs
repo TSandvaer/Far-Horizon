@@ -413,7 +413,12 @@ namespace FarHorizon.EditorTools
         // only animated part and it runs in the shader, so zero runtime geometry construction.
         const float WaterY = -0.20f;          // just under the shore's ~ -0.07 min Y -> beach dips in
         const float WaterSeawardDepth = 220f; // extends ~220u seaward of the shore -> lost in fog
-        const float WaterInlandOverlap = 6f;   // tuck a little UNDER the shore so there is no gap seam
+        // Near edge sits a touch INLAND of the Zone-D terrain shore (shoreZ=-12) so the beach's faceted
+        // edge dips INTO the water with no gap seam, but SEAWARD of the trimmed TestGround placeholder
+        // (SeawardGroundZ=-10) so the flat slab never overhangs + occludes the sea (the diagnostic's
+        // occlusion finding — drew/beach-water, 2026-06-13). With overlap 1.5, near edge = shoreZ+1.5 =
+        // -10.5: just seaward of TestGround's -10 edge, just inland of the terrain shore. No surface gap.
+        const float WaterInlandOverlap = 1.5f;
         const int WaterSegX = 24, WaterSegZ = 40; // enough verts for a smooth gradient + swell
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
             float cx, float width, float shoreZ)

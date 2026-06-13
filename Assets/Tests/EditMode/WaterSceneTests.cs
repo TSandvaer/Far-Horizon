@@ -150,6 +150,28 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Ocean_NotOccludedByFlatGround_SeawardSlabTrimmed()
+        {
+            // THE visibility bug the shipped-build capture exposed (drew/beach-water, 2026-06-13): the
+            // flat TestGround placeholder spanned Z[-30..+30] at Y=0 and physically OCCLUDED the ocean
+            // (water sits at Y-0.20 underneath it), so the seaward orbit saw sand, never sea. The fix
+            // trims TestGround's seaward edge to just past the campfire loop spot so the slab no longer
+            // overhangs the water. Guard it: the flat ground's seaward edge must NOT extend out over the
+            // ocean's near band. A regression that restores the Z-30 slab re-buries the sea — this fails.
+            var testGround = GameObject.Find("TestGround");
+            Assert.IsNotNull(testGround, "the flat test ground (TestGround) must exist (NavMesh + loop surface)");
+            var tgMin = testGround.GetComponent<MeshRenderer>().bounds.min.z;
+
+            var water = GameObject.Find("Water_Play");
+            var waterNear = water.GetComponent<MeshRenderer>().bounds.max.z; // near (largest Z) edge of the sea
+
+            Assert.GreaterOrEqual(tgMin, waterNear - 0.5f,
+                $"the flat TestGround seaward edge (z={tgMin:0.0}) must NOT overhang the ocean's near edge " +
+                $"(z={waterNear:0.0}) — an overhanging opaque slab occludes the water from the seaward orbit " +
+                "(the shipped-capture occlusion bug). It must stop at/inland of where the sea begins.");
+        }
+
+        [Test]
         public void BootScene_CarriesSeaVerifyCapture_OnTheBootObject()
         {
             // The orbit-to-sea framing check (Uma §4 task F) needs a committed, repeatable shipped-build

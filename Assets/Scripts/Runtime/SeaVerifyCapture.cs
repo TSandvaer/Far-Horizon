@@ -28,8 +28,14 @@ namespace FarHorizon
         // The seaward orbit yaw — 180 from the inland default points the camera back over the spawn at
         // the sea the castaway washed in from.
         public float seawardYaw = 180f;
+        // Drop the pitch toward the horizon (the OrbitCamera clamps to minPitch=35) and pull back so the
+        // seaward view looks OUT to the sea, not straight down at the near sand. The diagnostic proved a
+        // 55-deg top-down seaward view only reached ~Z-3 at the top of frame (inland of the water); the
+        // flatter, pulled-back framing reaches far out over the ocean toward the fogged horizon.
+        public float seawardPitch = 35f;
+        public float seawardDistance = 24f;
         public int warmupFrames = 8;
-        public int settleFrames = 14;
+        public int settleFrames = 16;
 
         void Start()
         {
@@ -53,12 +59,15 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
 
-            // 2. Orbit to the SEAWARD yaw and let the follow/lerp settle, then capture the ocean.
+            // 2. Orbit to the SEAWARD yaw, drop the pitch toward the horizon + pull back, let the
+            //    follow/lerp settle, then capture the ocean.
             if (orbit != null)
             {
                 orbit.SetYaw(seawardYaw);
-                Debug.Log("[SeaVerifyCapture] orbited to seaward yaw=" + seawardYaw +
-                          " (cam now=" + orbit.Yaw + ")");
+                orbit.SetPitch(seawardPitch);     // clamped to minPitch by OrbitCamera
+                orbit.SetDistance(seawardDistance);
+                Debug.Log("[SeaVerifyCapture] orbited seaward: yaw=" + orbit.Yaw +
+                          " pitch=" + orbit.Pitch + " dist=" + orbit.Distance);
             }
             for (int i = 0; i < settleFrames; i++) yield return null;
             ShotTo(Path.Combine(dir, "sea_seaward.png"));
