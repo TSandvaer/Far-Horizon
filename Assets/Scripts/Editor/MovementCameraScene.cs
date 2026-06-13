@@ -76,21 +76,30 @@ namespace FarHorizon.EditorTools
         // the Head_05 bone, unity-conventions.md / CastawayProportions).
         public const string RightHandBoneToken = "righthand";
 
-        // Hand-local attach pose for the sourced hatchet. CRITICAL SCALE FINDING (probe-verified via
-        // AxeAssetGen.ScaleTrace, 2026-06-13): the RightHand_010 bone carries a HUGE lossy scale (~267×) —
-        // the chibi FBX is normalized DOWN to ~1u so its import scales the BONE TRANSFORMS UP to compensate,
-        // and a child prop INHERITS that 267× bone scale. A naively-scaled axe ships as a 30-50-world-unit
-        // GIANT towering over the scene (caught in the first shipped capture: the -verifyAxe close-up framed
-        // the whole world). The attach-local SCALE must therefore be tiny to land a believable hatchet:
-        // measured world longest-axis = 287 units per 1.0 local scale, so ~0.0015 lands ~0.43 world units —
-        // a hatchet a touch under half the kid's ~0.95u height. Pose: handle in the palm, blade forward.
-        // Re-verified from the SHIPPED-build capture (editor renders are NOT evidence — unity-conventions.md).
-        // NOTE: localPos ALSO rides the 267× bone scale, so it must be tiny too (a 0.0002 local offset ≈
-        // 0.05 world units in the palm). The axe FBX origin sits near the head end (probe: handle hangs to
-        // local -Y), so a near-zero offset seats the grip in the palm; tuned from the capture.
-        public static readonly Vector3 HeldAxeLocalPos = new Vector3(0.0f, -0.0008f, 0.0f);
-        public static readonly Vector3 HeldAxeLocalEuler = new Vector3(0f, 0f, 90f);
-        public static readonly Vector3 HeldAxeLocalScale = new Vector3(0.0015f, 0.0015f, 0.0015f);
+        // Attach pose for the sourced hatchet (SOAKFIX2 2026-06-13 — the NO-AXE soak fix). The held axe must
+        // read UNMISTAKABLY in the GAMEPLAY orbit view (dist 14u, pitch 55°), not just the -verifyAxe close-up.
+        //
+        // ROOT CAUSE the gameplay-view trace (AxeAssetGen.GameplayViewTrace) PROVED the Sponsor's "no axe":
+        // the prior pose (scale 0.0015 → 0.43u longest, blade-DOWN at the HIP, max.y=0.71) projected to only
+        // ~3.7% of the frame height at the orbit framing — a thin vertical sliver hanging by the leg, lost
+        // beside a chibi whose own silhouette is only ~8% of frame from 55° top-down. The -verifyAxe capture
+        // ZOOMS its own camera to whatever size the axe is, so it framed a perfect hatchet — FALSE-GREEN, the
+        // exact class that bit the castaway. (See gameplay_orbit_axe.png evidence in the PR body.)
+        //
+        // THE BONE'S LOCAL FRAME IS ROTATED (PROBE-VERIFIED): RightHand_010's local +Y maps to world
+        // (0.48,-0.84,0.23) — mostly DOWN. So localPosition.y does NOT lift the axe world-up (a lift sweep via
+        // localPos went the WRONG way). Fix: pose the held axe in WORLD space after parenting (Unity back-
+        // solves + serializes the local transform), so the pose is intuitive + robust to the bone frame.
+        //
+        // VALUES (dialed via AxeAssetGen.DialInTrace against the orbit render): scale 0.0040 (×267 lossy ≈
+        // 1.0u longest — ~⅔ the kid's full height, a clear hero hatchet, NOT the giant the 267× trap shipped
+        // before); world offset (+0.20 out to the side, +0.55 up toward the shoulder, -0.05) seats it at the
+        // hand near chest height; world euler (-55,30,10) TIPS the blade flat toward the top-down camera so
+        // the head reads as an axe-head shape (a vertical prop foreshortens to a dot from 55°). Final read is
+        // the SHIPPED build (editor RT is framing-only, not colour — unity-conventions.md).
+        public static readonly float HeldAxeLocalScaleUniform = 0.0040f;
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.20f, 0.55f, -0.05f);
+        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(-55f, 30f, 10f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -269,20 +278,39 @@ namespace FarHorizon.EditorTools
         // on the NavMesh. CraftVerifyCapture drives the player here to prove the craft in the shipped exe.
         public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
 
+        // Name of the serialized axe-on-the-stump GameObject (SOAKFIX2). Distinct from HeroAxeObjectName so
+        // the -verifyAxe HeroAxe search + the held-axe scene guard never resolve the stump one by mistake.
+        public const string StumpAxeObjectName = "StumpAxe";
+
+        // The axe-on-the-stump's pose, in CraftSpot-LOCAL space (the CraftSpot is unscaled at world 1u, so
+        // these are intuitive world units — NO 267× bone trap here, unlike the held axe). The stump top sits
+        // at localY ≈ 0.70 (cylinder localScale.y 0.35 → 0.70 tall). The axe stands UPRIGHT, blade bitten
+        // into the block, haft rising ~1.5u — a clear vertical "hero axe" LANDMARK visible from spawn + the
+        // diegetic "walk here" cue (the Sponsor's "stump is there but no axe"). Scale 1.4 → ~1.47u tall (the
+        // stump-axe is bigger than the held one because it is THE on-screen hero element + the wayfinding
+        // beacon). Dialed via AxeAssetGen.DialInTrace (DIAL_STUMP) against the gameplay orbit render; final
+        // read is the SHIPPED build (editor RT is framing/size-only, not colour — unity-conventions.md).
+        public static readonly Vector3 StumpAxeLocalPos = new Vector3(0.0f, 1.15f, 0.0f);
+        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(0f, 45f, 8f);
+        public static readonly float StumpAxeLocalScaleUniform = 1.4f;
+
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
         // crafts the axe. A small chopping-block stump the castaway walks ONTO. NO collider so it never
         // blocks the ground raycast or the NavMesh. The stump mesh + CraftSpot's Inventory/player refs are
         // authored editor-time so they serialize into Boot.unity (editor-vs-runtime trap — an Awake-built
-        // prop ships mangled, the "legs-up" class). The HERO AXE no longer rests in the stump: it is now
-        // the sourced hatchet HELD in the chibi's hand (AttachHeroAxeToHand, called from BuildPlayer),
-        // shown once crafted — so the craft reads as "the kid picks up the axe", not a prop in a block.
+        // prop ships mangled, the "legs-up" class).
+        //
+        // SOAKFIX2 (the Sponsor's "stump is there but no axe"): an axe is PLANTED in the stump and visible
+        // FROM SPAWN (StumpAxe component, the inverse gate of HeldAxe). It is the always-on-screen hero axe +
+        // the diegetic "walk here" cue. On reaching the spot the craft fires: the stump-axe HIDES and the
+        // HELD axe APPEARS (AttachHeroAxeToHand) — reading as "the kid picks it up".
         private static void BuildCraftSpot(GameObject player, int groundLayer)
         {
             var spot = new GameObject("CraftSpot");
             spot.transform.position = CraftSpotPosition;
 
             // A small low cylinder as the "chopping block" the player walks toward. Primitive cylinder,
-            // collider stripped. The hero axe rests in it (below).
+            // collider stripped. The hero axe is planted in it (below).
             var visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             visual.name = "CraftStump";
             Object.DestroyImmediate(visual.GetComponent<Collider>()); // no block on raycast / NavMesh
@@ -301,6 +329,9 @@ namespace FarHorizon.EditorTools
                 visual.GetComponent<MeshRenderer>().sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }
+
+            // SOAKFIX2: plant the always-visible-from-spawn axe in the stump (the Sponsor's literal ask).
+            AttachStumpAxe(spot);
 
             var craft = spot.AddComponent<CraftSpot>();
             craft.player = player.transform;
@@ -362,9 +393,12 @@ namespace FarHorizon.EditorTools
             var axe = Object.Instantiate(fbx);
             axe.name = HeroAxeObjectName;
             axe.transform.SetParent(hand, false);
-            axe.transform.localPosition = HeldAxeLocalPos;
-            axe.transform.localRotation = Quaternion.Euler(HeldAxeLocalEuler);
-            axe.transform.localScale = HeldAxeLocalScale;
+            // Scale is uniform-local (rides the 267× bone lossy → ~1.0u). Position + rotation are set in
+            // WORLD space AFTER parenting (the bone's local frame is rotated, so local-Y ≠ world-up — see
+            // the const-block finding); Unity back-solves the local transform that serializes into Boot.unity.
+            axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
+            axe.transform.position = hand.position + HeldAxeWorldOffsetFromHand;
+            axe.transform.rotation = Quaternion.Euler(HeldAxeWorldEuler);
 
             // Gate visibility on HasAxe: hidden until the craft fires, then the kid is holding it.
             var held = axe.GetComponent<HeldAxe>();
@@ -383,6 +417,42 @@ namespace FarHorizon.EditorTools
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
+        }
+
+        // SOAKFIX2: plant the SOURCED hatchet in the chopping-block stump so an axe is VISIBLE FROM SPAWN
+        // (the Sponsor's literal "stump is there but no axe"). Same sourced FBX as the held axe — one asset,
+        // identical read. Parented to the CraftSpot (unscaled world-1u, so NO 267× bone trap — the local
+        // pose is intuitive). A StumpAxe component gates it as the INVERSE of HasAxe: shown at spawn, HIDDEN
+        // once crafted (the held axe appears at the same instant → "the kid picks it up"). Editor-time so
+        // the axe mesh + StumpAxe wiring SERIALIZE into Boot.unity (the editor-vs-runtime trap).
+        private static void AttachStumpAxe(GameObject craftSpot)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            if (fbx == null)
+            {
+                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                               " — run AxeAssetGen.PrepareAxe() before authoring the scene; no stump axe planted");
+                return;
+            }
+
+            var axe = Object.Instantiate(fbx);
+            axe.name = StumpAxeObjectName;
+            axe.transform.SetParent(craftSpot.transform, false);
+            axe.transform.localPosition = StumpAxeLocalPos;
+            axe.transform.localRotation = Quaternion.Euler(StumpAxeLocalEuler);
+            axe.transform.localScale = Vector3.one * StumpAxeLocalScaleUniform;
+
+            // Gate visibility as the INVERSE of HasAxe: shown at spawn, hidden once crafted.
+            var stump = axe.GetComponent<StumpAxe>();
+            if (stump == null) stump = axe.AddComponent<StumpAxe>();
+            stump.inventory = Object.FindObjectOfType<Inventory>();
+
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+
+            int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
+            Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
+                      ", inverse-HasAxe-gated, visible from spawn)");
         }
 
         // Attach the procedural sandy-ginger HAIR skull-cap to the chibi's HEAD bone (86ca8ca1m soak-fix).
@@ -409,9 +479,11 @@ namespace FarHorizon.EditorTools
             hair.transform.localScale = HairLocalScale;
 
             var mf = hair.AddComponent<MeshFilter>();
-            // Skull-cap dome: radius ~ skull half-width, flattened a touch (yScale), cut just below the
-            // equator (-0.15) so it covers the upper skull + a forward fringe (LowPolyMeshes.HairCap).
-            mf.sharedMesh = LowPolyMeshes.HairCap(1.0f, 0.85f, -0.15f, 2);
+            // MESSY hair (86ca8ca1m SOAKFIX2): the smooth HairCap dome read as a helmet AND its octahedron
+            // apex pole stood up as a "brown spike" (Sponsor soak). MessyHairCap builds the same cut-dome
+            // then jitters it into faceted tufts + DE-SPIKES the apex (no single pole point) — messy, natural
+            // hair. subdiv 3 (was 2) for more tufts; jitter 0.34 for clump definition; seed deterministic.
+            mf.sharedMesh = LowPolyMeshes.MessyHairCap(1.0f, 0.88f, -0.15f, 3, 0.34f, 73101);
             var mr = hair.AddComponent<MeshRenderer>();
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
 

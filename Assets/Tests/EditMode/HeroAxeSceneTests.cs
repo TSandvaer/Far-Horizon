@@ -83,6 +83,71 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxe_IsBigEnoughToReadInTheGameplayView()
+        {
+            // SOAKFIX2 regression guard for the NO-AXE soak (the bug CLASS, not the instance): the held axe
+            // was a ~0.43u sliver hanging at the hip (max.y 0.71) → ~3.7% of the gameplay frame, invisible
+            // (the Sponsor's "no axe"); the -verifyAxe close-up zoomed past it (false-green). This asserts
+            // the SERIALIZED held axe's WORLD size + its position relative to the body, so a regression back
+            // to a tiny/low axe reds in CI rather than re-shipping the invisible-axe soak. (Final visual read
+            // is still the SHIPPED build — this is the size/placement floor the eyes verified.)
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var mr = axe.GetComponentInChildren<MeshRenderer>(true);
+            Assert.IsNotNull(mr, "held axe must have a MeshRenderer to measure");
+
+            // Force-show so renderer bounds are valid in the editor (HasAxe-gated → disabled in a static load).
+            foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) r.enabled = true;
+            Bounds b = mr.bounds;
+            float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+            // ~1.0u target; floor 0.7u catches a regression to the 0.43u sliver. (Upper guard catches the
+            // 267×-bone GIANT trap — a >3u axe is the giant that already shipped once.)
+            Assert.That(longest, Is.InRange(0.7f, 3.0f),
+                $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
+                "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
+
+            // The axe must sit UP at the body (not hanging at the feet/hip): its top must reach near the
+            // upper body. The chibi body SMR top is ~1.65u; require the axe to reach at least chest height.
+            Assert.Greater(b.max.y, 0.85f,
+                $"held axe must sit UP at the hand/chest (top y {b.max.y:F2}), not hang at the hip/feet " +
+                "(the prior pose hung at max.y 0.71 → a stick by the leg, the NO-AXE soak)");
+        }
+
+        [Test]
+        public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
+        {
+            // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the
+            // chopping-block stump and visible FROM SPAWN (the always-on-screen hero axe + the walk-here
+            // cue). It is gated as the INVERSE of HasAxe (StumpAxe): shown at spawn, hidden once crafted.
+            // Drop the plant or its wiring and this reds in CI rather than re-shipping the empty stump.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var stumpAxe = FindByNameInScene(MovementCameraScene.StumpAxeObjectName);
+            Assert.IsNotNull(stumpAxe,
+                $"the Boot scene must carry the '{MovementCameraScene.StumpAxeObjectName}' GameObject — the " +
+                "axe planted in the stump, visible from spawn (the Sponsor's 'stump is there but no axe')");
+
+            var mf = stumpAxe.GetComponentInChildren<MeshFilter>(true);
+            Assert.IsNotNull(mf, "the stump axe must carry a MeshFilter (the sourced hatchet mesh)");
+            Assert.IsNotNull(mf.sharedMesh, "the stump axe's mesh must be serialized into the scene");
+            Assert.Greater(mf.sharedMesh.vertexCount, 20,
+                "the stump axe must be the real sourced hatchet mesh, not a placeholder primitive");
+
+            // The INVERSE gate must be wired editor-time (serialized), so the stump axe shows at spawn and
+            // hides on craft without an Awake-time scene search in the build.
+            var stump = stumpAxe.GetComponent<StumpAxe>();
+            Assert.IsNotNull(stump, "the stump axe must carry the StumpAxe component (inverse-HasAxe gate)");
+            Assert.IsNotNull(stump.inventory,
+                "StumpAxe.inventory must be wired editor-time (serialized) — the component-not-serialized trap");
+
+            // It must be parented under the CraftSpot (rides the stump), not free-floating.
+            bool underCraftSpot = false;
+            Transform t = stumpAxe.transform;
+            while (t != null) { if (t.GetComponent<CraftSpot>() != null) { underCraftSpot = true; break; } t = t.parent; }
+            Assert.IsTrue(underCraftSpot, "the stump axe must be parented under the CraftSpot (planted in the stump)");
+        }
+
+        [Test]
         public void BootScene_CarriesAxeVerifyCapture_OnTheBootObject()
         {
             // Regression guard (carried from PR #21/#26): the committed -verifyAxe close-up capture path
@@ -96,12 +161,14 @@ namespace FarHorizon.EditTests
                 "close-up capture path), serialized into the scene — not Awake-added");
         }
 
-        private static GameObject FindHeroAxe()
+        private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
+
+        private static GameObject FindByNameInScene(string name)
         {
             var scene = SceneManager.GetActiveScene();
             foreach (var root in scene.GetRootGameObjects())
             {
-                var t = FindByName(root.transform, MovementCameraScene.HeroAxeObjectName);
+                var t = FindByName(root.transform, name);
                 if (t != null) return t.gameObject;
             }
             return null;

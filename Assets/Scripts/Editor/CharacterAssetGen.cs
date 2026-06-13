@@ -100,7 +100,13 @@ namespace FarHorizon.EditorTools
         // RecolorIdentityAtlas paints a vertical toon ramp from this anchor (top brighter -> bottom
         // darker) so the flat toon-shade gradient survives. All sub-1.0 (HDR-safe) and TONED so the
         // warm post no longer blows them to yellow. Verified against the post stack by a shipped capture. ----
-        public static readonly Color ShirtTopColor = new Color(0.62f, 0.50f, 0.30f); // deeper saturated mid-khaki (was 0.73,0.60,0.42 — too bright/pale)
+        // SOAKFIX2 (Sponsor: shirt "renders pale-cream under the warm key" → deepen for shirt/skin
+        // separation). The prior (0.62,0.50,0.30) still lifted toward cream under the warm Zone-D post +
+        // bloom and read too close to the warm skin tan (0.80,0.62,0.48). DEEPENED + made more OLIVE-khaki:
+        // a darker, more saturated field-khaki (luma ~0.44, a ~0.21 luma gap below the skin's 0.65) that
+        // holds tone under the warm lift and reads CLEARLY as a shirt against the skin. Still WARM (R>G>B)
+        // and sub-1.0 HDR-safe; sits comfortably inside the guard band's lower half (deliberately deeper).
+        public static readonly Color ShirtTopColor = new Color(0.50f, 0.44f, 0.26f); // deeper olive-khaki — separates from skin under the warm post
         public static readonly Color SkinTopColor  = new Color(0.80f, 0.62f, 0.48f); // toned warm tan (was 0.94,0.79,0.65 — blew white under the warm post)
         public static readonly Color FeetTopColor  = new Color(0.78f, 0.60f, 0.46f); // bare-feet skin, matches the toned skin
         // The cap-dome cells are still recolored sandy-ginger as a defensive base, but the dome+brim are

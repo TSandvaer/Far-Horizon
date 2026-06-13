@@ -122,6 +122,83 @@ namespace FarHorizon.EditorTools
             return Finish(verts, tris, "LP_HairCap");
         }
 
+        // A MESSY HAIR CAP (86ca8ca1m SOAKFIX2) — the soak-fix for two Sponsor notes on the smooth dome:
+        //   (P2 hair-spike) a "weird BROWN SPIKE on top" — the octahedron's single APEX pole vertex (0,1,0)
+        //         stood proud of the rounded surface; invisible top-down, a poke as the cam tilts down.
+        //   (P3 hair-messy) the hair read as a smooth skull-cap dome, not natural/tufted hair.
+        // Built on the same cut-dome as HairCap, then:
+        //   - per-vertex outward+lateral JITTER (deterministic, seeded) breaks the smooth dome into faceted
+        //     tufts/clumps so it reads as messy hair (the low-poly chunky idiom — clumps, not a helmet);
+        //   - the APEX region (y near the top) is FLATTENED + jittered DOWN/sideways so there is NO single
+        //     sharp pole spike — the top reads as tousled clumps, not a point.
+        // Welded + RecalculateNormals (smooth-shaded facets). Same params as HairCap + jitter + seed.
+        public static Mesh MessyHairCap(float radius, float yScale, float cut, int subdiv, float jitter, int seed)
+        {
+            var baseVerts = new List<Vector3>
+            {
+                new Vector3(0,  1, 0), new Vector3(0, -1, 0),
+                new Vector3( 1, 0, 0), new Vector3(-1, 0, 0),
+                new Vector3(0, 0,  1), new Vector3(0, 0, -1),
+            };
+            var baseTris = new List<int>
+            {
+                0,2,4, 0,4,3, 0,3,5, 0,5,2,
+                1,4,2, 1,3,4, 1,5,3, 1,2,5,
+            };
+            for (int s = 0; s < subdiv; s++)
+            {
+                var newTris = new List<int>();
+                var midCache = new Dictionary<long, int>();
+                for (int t = 0; t < baseTris.Count; t += 3)
+                {
+                    int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                    int ab = Midpoint(baseVerts, midCache, a, b);
+                    int bc = Midpoint(baseVerts, midCache, b, c);
+                    int ca = Midpoint(baseVerts, midCache, c, a);
+                    newTris.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+                }
+                baseTris = newTris;
+            }
+
+            var sphere = new Vector3[baseVerts.Count];
+            for (int i = 0; i < baseVerts.Count; i++) sphere[i] = baseVerts[i].normalized;
+
+            var rnd = new System.Random(seed);
+            var remap = new Dictionary<int, int>();
+            var verts = new List<Vector3>();
+            int Keep(int idx)
+            {
+                if (remap.TryGetValue(idx, out int r)) return r;
+                Vector3 n = sphere[idx];
+                // Outward radial jitter -> faceted tufts (clumps stand a touch proud, deterministic per vert).
+                float rJit = 1f + ((float)rnd.NextDouble() - 0.4f) * jitter;
+                var p = new Vector3(n.x * radius * rJit, n.y * radius * yScale * rJit, n.z * radius * rJit);
+                // Lateral wobble so tuft tips don't sit on a clean sphere (messy, not a helmet).
+                p.x += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
+                p.z += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
+                // APEX DE-SPIKE (the P2 fix): the higher the vert, the more it is pulled DOWN + sideways, so
+                // the single top pole never reads as a spike — the crown becomes tousled clumps.
+                if (n.y > 0.55f)
+                {
+                    float apex = Mathf.InverseLerp(0.55f, 1f, n.y); // 0..1 toward the pole
+                    p.y -= radius * yScale * apex * 0.28f;          // flatten the very top
+                    p.x += ((float)rnd.NextDouble() - 0.5f) * radius * apex * 0.35f;
+                    p.z += ((float)rnd.NextDouble() - 0.5f) * radius * apex * 0.35f;
+                }
+                // forward fringe (boyish): pull the front down+forward a touch (per the v4 identity sheets).
+                if (n.z < -0.2f) { p.y -= radius * 0.12f; p.z -= radius * 0.06f; }
+                int ni = verts.Count; verts.Add(p); remap[idx] = ni; return ni;
+            }
+            var tris = new List<int>();
+            for (int t = 0; t < baseTris.Count; t += 3)
+            {
+                int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                if (sphere[a].y < cut && sphere[b].y < cut && sphere[c].y < cut) continue; // below cap
+                tris.Add(Keep(a)); tris.Add(Keep(b)); tris.Add(Keep(c));
+            }
+            return Finish(verts, tris, "LP_MessyHairCap");
+        }
+
         public static Mesh FacetedSphere(float radius, int subdiv, float jitter, int seed)
         {
             // octahedron base
