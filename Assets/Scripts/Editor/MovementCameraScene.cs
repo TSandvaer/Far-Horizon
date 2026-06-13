@@ -140,6 +140,16 @@ namespace FarHorizon.EditorTools
             // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
             BuildCampfire(player, groundLayer);
 
+            // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
+            // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
+            // spawn, narrating "the castaway crawled out of that sea" (Sponsor: NARRATE; Uma §3 beat 4).
+            // Diegetic set-dressing ONLY: NO collider on any piece, so it never blocks the click-move
+            // ground raycast or the NavMesh bake (built BEFORE the bake; collider-free pieces don't
+            // contribute to the PhysicsColliders bake). Authored editor-time so the meshes + inline
+            // materials SERIALIZE into Boot.unity (editor-vs-runtime "legs-up" trap); BeachDebrisSceneTests
+            // guards its serialized presence + the no-collider contract.
+            BuildBeachDebris(groundLayer);
+
             // Bake AFTER the walkable ground exists, then SAVE the data as an asset so it ships.
             BakeAndSaveNavMesh(ground, groundLayer);
 
@@ -787,6 +797,120 @@ namespace FarHorizon.EditorTools
                     if (mat.HasProperty("_EmissionColor"))
                         mat.SetColor("_EmissionColor", color * 1.15f); // warm glow, trimmed so bloom doesn't blow out
                 }
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        // ---- M-U3-SCENE-4 (86ca8feuf): washed-ashore shipwreck debris ----
+        // Centre of the debris scatter: on the beach just SEAWARD of the locked spawn (Z+6), slightly
+        // LEFT of centre so it reads in the seaward orbit-cam's foreground WITHOUT sitting on the
+        // spawn->craft (8,6) / chop (-9,-7) / fire (4,-8) loop path. Z-3 is on the warm sand band the
+        // seaward gameplay view frames in its lower-foreground (between spawn and the waterline ~Z-10.5).
+        public static readonly Vector3 BeachDebrisCenter = new Vector3(-3.2f, 0f, -3.0f);
+
+        // Warm-brown weathered wood family — the axe-haft / chop-trunk / campfire-log palette
+        // (style-guide-v2 §6; == ChopTree trunkCol / Campfire logCol). Sub-1.0, HDR-clamp-safe.
+        private static readonly Color DebrisWood     = new Color(0.42f, 0.30f, 0.19f); // warm bark plank
+        private static readonly Color DebrisWoodWorn = new Color(0.36f, 0.27f, 0.18f); // slightly greyed/weathered
+        private static readonly Color DebrisCrate    = new Color(0.47f, 0.34f, 0.21f); // a touch lighter crate timber
+
+        // A MODEST, tasteful shipwreck scatter. Chunky-cartoon faceted toy pieces (board v2): a few
+        // weathered planks lying flat / askew + a half-buried crate + a barrel on its side. Purposeful,
+        // not clutter (style-guide-v2 §5 "decoration serves the anchor"). NO colliders anywhere — pure
+        // set-dressing; the player click-moves freely THROUGH the debris (AC2: must not block pathing or
+        // the ground raycast). Built editor-time + serialized into Boot.unity (no Awake assembly).
+        private static void BuildBeachDebris(int groundLayer)
+        {
+            var root = new GameObject("BeachDebris");
+            root.transform.position = BeachDebrisCenter;
+            // The debris sits on the Default layer (NOT Ground) so even if a future change adds a collider
+            // by mistake, it wouldn't silently join the Ground raycast mask — but the real guarantee is
+            // that no piece gets a collider at all (asserted by BeachDebrisSceneTests).
+
+            // --- a few weathered planks: thin flat boxes lying on the sand at slight yaws + tilts, as if
+            //     washed up and dropped. Local offsets keep them a loose, natural-looking pile. ---
+            // (localPos, eulerYaw, lengthScale, tiltDeg, color)
+            BuildDebrisPlank(root, "PlankA", new Vector3(0.0f, 0.06f, 0.0f),  18f, 1.9f,  2f, DebrisWood);
+            BuildDebrisPlank(root, "PlankB", new Vector3(0.7f, 0.05f, 0.5f), -34f, 1.6f, -3f, DebrisWoodWorn);
+            BuildDebrisPlank(root, "PlankC", new Vector3(-0.6f, 0.09f, -0.4f), 62f, 1.4f,  6f, DebrisWood);
+            BuildDebrisPlank(root, "PlankD", new Vector3(0.2f, 0.14f, -0.7f),  -8f, 1.2f, 14f, DebrisWoodWorn);
+
+            // --- a half-buried crate: a chunky cube tilted + sunk so it reads "dug into the wet sand". ---
+            BuildDebrisCrate(root, "Crate", new Vector3(-1.5f, 0.12f, 0.7f), new Vector3(8f, 22f, -6f), 0.62f);
+
+            // --- a barrel on its side: a stout tapered cylinder laid down, weathered, rolled to a stop. ---
+            BuildDebrisBarrel(root, "Barrel", new Vector3(1.6f, 0.28f, -0.3f), 74f);
+
+            Debug.Log("[MovementCameraScene] authored BeachDebris at " + BeachDebrisCenter +
+                      " (planks+crate+barrel; NO colliders — non-blocking set-dressing)");
+        }
+
+        // A weathered plank: a thin flat box (primitive Cube, collider stripped) laid flat on the sand,
+        // yawed + slightly tilted. Inline matte URP/Lit warm-brown material (serializes into the scene).
+        private static void BuildDebrisPlank(GameObject parent, string name, Vector3 localPos,
+            float yaw, float lengthScale, float tilt, Color col)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>()); // set-dressing: never blocks raycast/NavMesh
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.Euler(tilt, yaw, 0f);
+            // Long, narrow, thin: a board. lengthScale ~1.2-1.9u long, ~0.18u wide, ~0.06u thick.
+            go.transform.localScale = new Vector3(lengthScale, 0.06f, 0.18f);
+            ApplyDebrisMaterial(go, name + "Mat", col);
+        }
+
+        // A half-buried crate: a chunky cube, tilted + sunk into the sand (low Y + a downward tilt so the
+        // far corner dips below the surface). Collider stripped.
+        private static void BuildDebrisCrate(GameObject parent, string name, Vector3 localPos,
+            Vector3 euler, float size)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.Euler(euler);
+            go.transform.localScale = Vector3.one * size;
+            ApplyDebrisMaterial(go, name + "Mat", DebrisCrate);
+        }
+
+        // A barrel on its side: a stout tapered cylinder laid down (rotated 90 on Z so its length runs
+        // along X) + yawed, rolled to rest in the sand. Reuses the faceted low-poly cylinder idiom.
+        private static void BuildDebrisBarrel(GameObject parent, string name, Vector3 localPos, float yaw)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.Euler(0f, yaw, 90f);
+            var mf = go.AddComponent<MeshFilter>();
+            // Slightly barrel-bellied: wider mid via near-equal end radii on a short stout body.
+            mf.sharedMesh = LowPolyMeshes.TaperedCylinder(0.26f, 0.26f, 0.7f, 8);
+            var mr = go.AddComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = name + "Mat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", DebrisWoodWorn);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        // Inline matte URP/Lit material for a debris piece (warm-brown, low gloss — the faceted toy read,
+        // not realistic driftwood). Serializes into the scene; no .mat asset churn.
+        private static void ApplyDebrisMaterial(GameObject go, string matName, Color col)
+        {
+            var mr = go.GetComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = matName };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
                 mr.sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }

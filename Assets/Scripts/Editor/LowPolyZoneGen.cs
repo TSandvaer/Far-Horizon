@@ -75,15 +75,25 @@ namespace FarHorizon.EditorTools
         // saturated (higher G+B, B>G slightly, low R) makes it survive all three and land visibly teal in
         // the SHIPPED frame. Still sub-1.0 every channel (HDR-clamp-safe — verified against the post stack
         // in the shipped seaward capture, not just the editor).
-        // Pushed BRIGHTER again (drew/ocean-camera-fix iter): once the beach-reshape made the sea
-        // visible, the shipped capture showed it landing DARK/desaturated (~(48,63,70)) — the
-        // LowPolyVertexColor shader lights the flat-up water by ndotl*warmSun (~0.74) + warm SH ambient,
-        // which dims + warm-shifts a mid-value teal. Working back from the post-light/post-fog target
-        // (a bright toy teal ~0.3/0.65/0.75 in-frame), the ALBEDO must start near the top of the sub-1.0
-        // band. High G+B, low R, B>=G keeps it a bright sunlit teal, not navy. Still sub-1.0 every channel
-        // (verified against the shipped seaward capture under the full Zone-D post stack).
-        public static readonly Color WaterShallow = new Color(0.22f, 0.86f, 0.95f); // bright sunlit teal shallows
-        public static readonly Color WaterDeep    = new Color(0.16f, 0.72f, 0.86f); // saturated seaward teal
+        // NEAR-BAND SATURATION LIFT (drew/ocean-beach-soakfix2, 2026-06-13). Sponsor soaked main and
+        // flagged the NEAR band as a PALE SKY-CYAN, not a believable teal sea. Pixel-sampled the shipped
+        // seaward capture (ci-out/sea-caps/sea_seaward.png, stamp 3a548a7) to confirm + diagnose:
+        //   near-band albedo (56,219,242)  ->  on-frame (148,164,145)   [a pale grey-green]
+        //   teal saturation G+B-2R:  albedo 349  ->  on-frame 13  (~96% of the chroma destroyed)
+        // Per-channel the post stack pushes R UP ~+90 (warm directional key * ndotl + warm SH ambient +
+        // warm fog 0.80/0.80/0.74 + warm grade), and crushes B DOWN ~-97. The PRIOR fix chased this by
+        // pushing the albedo BRIGHTER + more B-dominant (0.22/0.86/0.95) — exactly backwards: a
+        // TOP-of-band B-dominant cyan is what BLOOMS to pale grey under the Zone-D bloom + warm grade, so
+        // brighter made it MORE washed-out, not more teal. The lever is the OPPOSITE: DEEPEN (pull the
+        // value down off the top of the band so bloom adds rather than blows out) + SATURATE (lower R hard
+        // so the warm push lands controlled, keep G/B mid-high with B>=G so the warm-B-crush still leaves
+        // a clean GREEN-LEANING teal). Tuned empirically against the shipped seaward capture (N>=2 builds,
+        // pixel-sampled the near band each time) to land on-frame ~(70,160,165) — the saturated mid-value
+        // teal the inspiration/21h16_52 lake + 21h16_13 river read at, NOT a pale near-white cyan. Still
+        // sub-1.0 every channel (HDR-clamp-safe). The FAR band (WaterDeep) + foam are unchanged — this is
+        // a near-band saturation lift, not a re-tune of the whole sea (AC1 scope).
+        public static readonly Color WaterShallow = new Color(0.10f, 0.62f, 0.66f); // deep saturated near-shore teal
+        public static readonly Color WaterDeep    = new Color(0.10f, 0.50f, 0.60f); // deeper seaward teal-blue (far band)
         // Foam edge line baked into the beach mesh's seaward-most rows (Uma §2). Warm off-white, sub-1.0
         // (NOT pure white — would bloom). Exposed for the scene-presence test's color-pin check.
         public static readonly Color FoamEdge     = new Color(0.91f, 0.89f, 0.82f); // #E8E2D0 warm foam
