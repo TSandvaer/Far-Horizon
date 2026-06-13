@@ -25,9 +25,13 @@ namespace FarHorizon.EditorTools
     ///      equality (exact-match loops ZERO clips — the T-pose-mid-walk failure class, see the guard).
     ///   2. The material atlas binds out of the box: ImportStandard imports two URP/Lit materials
     ///      (mini_material / mini_material_secondary) with _BaseMap = mini_material_baseColor (the 256²
-    ///      toon atlas) — verified by probe. We KEEP the FBX's own flat toon materials (no recolor:
-    ///      identity/recolor is OUT OF SCOPE per the ticket — ship the kid's default look). We DO assert
-    ///      the atlas binds (a regression to a missing-texture grey would fail the import).
+    ///      toon atlas) — verified by probe. We KEEP the FBX's own flat toon materials + atlas; the
+    ///      IDENTITY RECOLOR (ticket 86ca8ca1m) is done by REPAINTING specific UV cells of the atlas PNG
+    ///      itself (shirt -> warm khaki, hair/cap -> sandy-ginger, shoes -> bare-feet skin) — NOT by
+    ///      replacing the materials (a per-material tint would WIPE the gradient toon-shade to a flat
+    ///      colour). So the chibi reads as OUR young/hopeful castaway, not the generic green-cap kid,
+    ///      while the flat toon look survives. We assert the atlas binds (missing-texture grey fails the
+    ///      import) AND the identity guard re-samples the recolored cells (see CastawayCharacterTests).
     ///   3. Build an AnimatorController asset with an Idle&lt;-&gt;Walk blend driven by a "Moving" bool,
     ///      cross-faded so the gait reads (no hard pop). CastawayCharacter.SetBool("Moving", ...) flips it.
     ///
@@ -59,6 +63,23 @@ namespace FarHorizon.EditorTools
         // The toon atlas the imported materials bind. Asserted present so a missing-texture grey
         // regression (the flat toon look silently lost) fails the import.
         public const string AtlasTextureName = "mini_material_baseColor";
+
+        // The standalone atlas PNG path the imported materials actually bind on _BaseMap (probe-verified:
+        // Unity remaps the FBX materials to this asset, NOT the .fbm/ embedded extract — so this is the
+        // file the recolor edits). Identity recolor (ticket 86ca8ca1m) repaints specific UV cells here.
+        public const string AtlasPngPath = "Assets/Art/Character/MiniChibiKid/mini_material_baseColor.png";
+
+        // IDENTITY RECOLOR — atlas UV cells (16x16 grid of vertical-gradient toon-shade cells), mapped by
+        // a per-region bone-influence probe (86ca8ca1m). UV origin bottom-left; cell (colX,rowY) covers
+        // UV x in [colX/16,(colX+1)/16], v in [rowY/16,(rowY+1)/16]. These are the recolor TARGETS the
+        // identity guard re-samples — keeping the SHIPPED look and the guard reading the SAME source.
+        //   Shirt (torso + rolled sleeve): warm khaki, the U2-6 anchor (0.72,0.60,0.42), luma >0.6.
+        //   Hair + cap: sandy/ginger (the green-cap kid restyled toward warm hair).
+        //   Bare feet: skin tan (vs the kid's dark shoes).
+        public static readonly Vector2Int ShirtCell = new Vector2Int(15, 11); // torso shirt
+        public static readonly Vector2Int HairCell = new Vector2Int(12, 11);  // hair mass
+        public static readonly Vector2Int CapCell = new Vector2Int(1, 10);    // former green cap -> warm hair
+        public static readonly Vector2Int FeetCell = new Vector2Int(12, 12);  // bare feet (was shoes)
 
         // Normalize the FBX's intrinsic import height to ~1 world-unit so the avatar-root scale maps
         // directly onto on-screen height (the camera/NavMesh/grounding are calibrated to ~1u). The chibi
@@ -92,9 +113,10 @@ namespace FarHorizon.EditorTools
             importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
             importer.importAnimation = true;
             importer.importBlendShapes = false;
-            // Keep the FBX's own flat toon materials + the embedded 256² atlas (ImportStandard binds
-            // _BaseMap = mini_material_baseColor — verified by probe). Identity/recolor is OUT OF SCOPE:
-            // ship the kid's DEFAULT look (cap/grey tee/navy shorts/tan skin).
+            // Keep the FBX's own flat toon materials + the 256² atlas (ImportStandard binds
+            // _BaseMap = mini_material_baseColor — verified by probe). The IDENTITY RECOLOR (86ca8ca1m)
+            // lives in the atlas PNG's repainted cells (warm khaki shirt / sandy-ginger hair+cap /
+            // bare-feet skin), so the toon-shade gradient survives — we do NOT replace the materials.
             importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
 
             // HEIGHT NORMALIZATION: measure the imported model's intrinsic height + set globalScale so

@@ -28,9 +28,14 @@ namespace FarHorizon.EditTests
     ///      back to a realistic ~7-8-heads base (replaces the base-specific shirt-luma identity guard,
     ///      which was for the Quaternius recolor and does NOT apply to the chibi's default look).
     ///
-    /// NOTE on dropped guards: the prior base's shirt-luminance (>0.6) identity guard + the 6-part
-    /// recolor / per-part-smoothness asserts are REMOVED — they were specific to the Quaternius mesh's
-    /// 6 material slots + the recolor we no longer apply (we ship the chibi's default toon look).
+    ///   6. The IDENTITY RECOLOR guard (86ca8ca1m): the atlas PNG's repainted UV cells read as OUR
+    ///      young/hopeful castaway — warm khaki shirt (the U2-6 luma >0.6 anchor, re-carried onto the
+    ///      chibi), sandy-ginger hair+cap (not the green-cap kid), bare-feet skin (not dark shoes).
+    ///
+    /// NOTE on guards: the prior base's 6-part recolor / per-part-smoothness asserts are gone (chibi has
+    /// its own toon materials). The Quaternius shirt-luminance (>0.6) identity guard is NOW RE-CARRIED
+    /// onto the chibi via guard #6 (atlas-cell re-sample) — the chibi's default look had NO identity
+    /// guard; the recolor restores one.
     /// </summary>
     public class CastawayCharacterTests
     {
@@ -202,11 +207,11 @@ namespace FarHorizon.EditTests
                 $"the feet must sit near the model origin (feetY={feetY:F3}) so localPosition zero grounds them");
         }
 
-        // The TOON-ATLAS guard (replaces the prior base's recolor guard): the chibi's imported
-        // materials must bind the flat toon atlas (mini_material_baseColor) on _BaseMap. The chibi
-        // ships its OWN toon materials (we do NOT recolor — identity is out of scope); this catches the
-        // flat toon look silently lost to a missing-texture grey (a recolor regression or an importer
-        // change dropping the embedded texture).
+        // The TOON-ATLAS guard: the chibi's imported materials must bind the flat toon atlas
+        // (mini_material_baseColor) on _BaseMap. The identity recolor (86ca8ca1m) repaints cells of THIS
+        // atlas — so the binding must survive; this catches the flat toon look silently lost to a
+        // missing-texture grey (an importer change dropping the texture). The per-cell identity colours
+        // are asserted separately by Atlas_RecoloredToYoungHopefulIdentity_NotGreenCapKid.
         [Test]
         public void Fbx_ImportedMaterials_BindTheToonAtlas()
         {
@@ -252,6 +257,62 @@ namespace FarHorizon.EditTests
                 $"the shipped castaway must read CHUNKY (heads-tall {heads:F2} in the toy band " +
                 $"{CastawayProportions.MinHeadsTall}-{CastawayProportions.MaxHeadsTall}) — a realistic " +
                 "~7-8-heads value means a regression to a non-chunky base");
+        }
+
+        // The IDENTITY RECOLOR guard (ticket 86ca8ca1m — restores an identity guard for the chibi,
+        // which previously had NONE since its default look was shipped as-is). The atlas was repainted
+        // so the chibi reads as OUR young/hopeful castaway — NOT the generic green-cap kid: warm khaki
+        // shirt (the U2-6 anchor luma >0.6), sandy-ginger hair+cap, bare-feet skin. This re-samples the
+        // recolored UV cells in the bound atlas PNG and fails CI on any drift back toward the kid look
+        // (a grey shirt, a green cap, dark shoes). It reads the SAME atlas the materials bind on _BaseMap
+        // (probe-verified path), so a regression that drops/replaces the recolored texture is caught.
+        [Test]
+        public void Atlas_RecoloredToYoungHopefulIdentity_NotGreenCapKid()
+        {
+            // Read the bound atlas PNG bytes directly (texture isReadable=0, so load into a readable copy).
+            string path = CharacterAssetGen.AtlasPngPath;
+            Assert.IsTrue(System.IO.File.Exists(path), "the bound atlas PNG must exist at " + path);
+            var tex = new Texture2D(2, 2);
+            Assert.IsTrue(tex.LoadImage(System.IO.File.ReadAllBytes(path)), "atlas PNG must decode");
+            int W = tex.width, H = tex.height;
+
+            // Sample the CENTRE of a 16x16 UV cell. UV origin is bottom-left (v up); GetPixel uses the
+            // same bottom-up convention, so cell (col,row) centre samples directly.
+            Color CellCentre(Vector2Int cell)
+            {
+                int px = Mathf.Clamp((int)((cell.x + 0.5f) / 16f * W), 0, W - 1);
+                int py = Mathf.Clamp((int)((cell.y + 0.5f) / 16f * H), 0, H - 1);
+                return tex.GetPixel(px, py);
+            }
+            float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+            var shirt = CellCentre(CharacterAssetGen.ShirtCell);
+            var hair = CellCentre(CharacterAssetGen.HairCell);
+            var cap = CellCentre(CharacterAssetGen.CapCell);
+            var feet = CellCentre(CharacterAssetGen.FeetCell);
+            Object.DestroyImmediate(tex);
+
+            // SHIRT: warm khaki, luma >0.6 (the U2-6 identity benchmark; carries the dropped Quaternius
+            // shirt-luma guard onto the chibi). Warm = R>G>B (no grizzled/grey drift).
+            Assert.Greater(Luma(shirt), 0.6f,
+                $"shirt must be warm/bright (luma {Luma(shirt):F2} <= 0.6 = grey-tee/grizzled drift toward the kid look)");
+            Assert.Greater(shirt.r, shirt.g,
+                $"shirt must read WARM khaki (R>G); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
+            Assert.Greater(shirt.g, shirt.b,
+                $"shirt must read WARM khaki (G>B); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
+
+            // HAIR + CAP: sandy/ginger — warm (R>G>B), NOT the kid's green cap. A green cap fails R>G.
+            Assert.Greater(hair.r, hair.b,
+                $"hair must be warm sandy/ginger (R>B); got rgb({hair.r:F2},{hair.g:F2},{hair.b:F2})");
+            Assert.Greater(cap.r, cap.g,
+                $"the former green cap must be recolored warm (R>G — green has G>R); got rgb({cap.r:F2},{cap.g:F2},{cap.b:F2})");
+
+            // BARE FEET: skin tan (warm + bright), NOT the kid's dark shoes. Dark shoes fail luma>0.5.
+            Assert.Greater(Luma(feet), 0.5f,
+                $"feet must be bare skin tan, not dark shoes (luma {Luma(feet):F2} <= 0.5 = shoes); " +
+                $"rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
+            Assert.Greater(feet.r, feet.b,
+                $"bare-feet skin must read warm (R>B); got rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
         }
 
         // Blob-shadow SCENE-PRESENCE guard (the component-not-serialized-into-scene failure class,
