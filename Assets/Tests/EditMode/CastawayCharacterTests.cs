@@ -289,23 +289,34 @@ namespace FarHorizon.EditTests
             var shirt = CellCentre(CharacterAssetGen.ShirtCell);
             var hair = CellCentre(CharacterAssetGen.HairCell);
             var cap = CellCentre(CharacterAssetGen.CapCell);
+            var capDome2 = CellCentre(CharacterAssetGen.CapDome2Cell);
             var feet = CellCentre(CharacterAssetGen.FeetCell);
             Object.DestroyImmediate(tex);
 
-            // SHIRT: warm khaki, luma >0.6 (the U2-6 identity benchmark; carries the dropped Quaternius
-            // shirt-luma guard onto the chibi). Warm = R>G>B (no grizzled/grey drift).
-            Assert.Greater(Luma(shirt), 0.6f,
-                $"shirt must be warm/bright (luma {Luma(shirt):F2} <= 0.6 = grey-tee/grizzled drift toward the kid look)");
+            // SHIRT: warm khaki in a MID-TONE BAND (86ca8ca1m soak-fix). The v1 guard chased luma>0.6,
+            // but a bright shirt BLEW OUT to cream under the Zone-D warm post (the Sponsor's "no shirt /
+            // all-yellow" soak). The shirt is now a deeper saturated mid-khaki: the guard is a BAND
+            // [0.42..0.66] — below 0.42 is grizzled/grey drift (the original anti-dark intent carries),
+            // above 0.66 is the blown-bright drift the soak proved washes out. Still WARM (R>G>B).
+            Assert.That(Luma(shirt), Is.InRange(0.42f, 0.66f),
+                $"shirt must be warm MID-khaki (luma {Luma(shirt):F2}); <0.42 = grizzled drift, " +
+                ">0.66 = the blown-bright drift that washed to cream in the soak");
             Assert.Greater(shirt.r, shirt.g,
                 $"shirt must read WARM khaki (R>G); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
             Assert.Greater(shirt.g, shirt.b,
                 $"shirt must read WARM khaki (G>B); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
 
-            // HAIR + CAP: sandy/ginger — warm (R>G>B), NOT the kid's green cap. A green cap fails R>G.
+            // HAIR / CAP-DOME: the kept crown dome (Object_41) must read sandy-ginger HAIR — warm
+            // (R>G>B). Its TWO cells are checked: CapCell(1,10) AND CapDome2(1,9). CapDome2 was left
+            // GREEN by the v1 recolor (G>R) — the single biggest "still a cap" tell; the soak-fix repaints
+            // BOTH sandy-ginger. A green dome fails R>G here.
             Assert.Greater(hair.r, hair.b,
                 $"hair must be warm sandy/ginger (R>B); got rgb({hair.r:F2},{hair.g:F2},{hair.b:F2})");
             Assert.Greater(cap.r, cap.g,
-                $"the former green cap must be recolored warm (R>G — green has G>R); got rgb({cap.r:F2},{cap.g:F2},{cap.b:F2})");
+                $"cap-dome cell A must be warm hair (R>G — green fails); got rgb({cap.r:F2},{cap.g:F2},{cap.b:F2})");
+            Assert.Greater(capDome2.r, capDome2.g,
+                $"cap-dome cell B (1,9) — the leftover GREEN cap band — must be recolored warm hair (R>G); " +
+                $"got rgb({capDome2.r:F2},{capDome2.g:F2},{capDome2.b:F2})");
 
             // BARE FEET: skin tan (warm + bright), NOT the kid's dark shoes. Dark shoes fail luma>0.5.
             Assert.Greater(Luma(feet), 0.5f,
@@ -313,6 +324,76 @@ namespace FarHorizon.EditTests
                 $"rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
             Assert.Greater(feet.r, feet.b,
                 $"bare-feet skin must read warm (R>B); got rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
+        }
+
+        // CAP -> HAIR guard (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and the castaway read as
+        // wearing a CAP ("still wearing the yellow cap"), not hair. The cap is two skinned-mesh nodes:
+        // Object_41 (crown dome) + Object_42 (flat brim/visor). The fix HIDES BOTH (hiding only the brim
+        // left the dome's cap-shaped arc sticking up — not hair) and adds a clean procedural sandy-ginger
+        // HAIR skull-cap (MovementCameraScene.HairObjectName) on the head bone. This guard reads the
+        // SHIPPED scene and fails CI if either cap renderer is re-enabled (the cap returns) OR the hair
+        // object is missing (bald crown). Same class as the blob-shadow scene-presence guard: a
+        // serialized-state contract a future rebuild could silently break.
+        [Test]
+        public void Castaway_CapHidden_HairPresent_InShippedScene()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+
+            int capFound = 0, capHidden = 0;
+            foreach (var smr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                foreach (var capName in CastawayCharacter.CapMeshNames)
+                {
+                    if (smr.name == capName)
+                    {
+                        capFound++;
+                        if (!smr.enabled) capHidden++;
+                    }
+                }
+            }
+            Assert.AreEqual(CastawayCharacter.CapMeshNames.Length, capFound,
+                "both cap mesh nodes must exist in the avatar (hidden, not deleted — deleting risks rig breakage)");
+            Assert.AreEqual(CastawayCharacter.CapMeshNames.Length, capHidden,
+                "BOTH cap renderers (dome + brim) must be DISABLED in the shipped scene so the castaway " +
+                "reads as having hair, not a cap (the Sponsor's 'still wearing the yellow cap' soak failure)");
+
+            // The replacement hair skull-cap must be present under the avatar (the head bone).
+            Transform hair = null;
+            foreach (var t in castaway.GetComponentsInChildren<Transform>(true))
+                if (t.name == MovementCameraScene.HairObjectName) { hair = t; break; }
+            Assert.IsNotNull(hair,
+                "the '" + MovementCameraScene.HairObjectName + "' skull-cap must be serialized under the " +
+                "avatar (the hidden cap leaves a bare crown — this is the sandy-ginger hair)");
+            var hmr = hair.GetComponent<MeshRenderer>();
+            Assert.IsNotNull(hmr, "the hair must have a MeshRenderer");
+            var hmf = hair.GetComponent<MeshFilter>();
+            Assert.IsNotNull(hmf, "the hair must have a MeshFilter");
+            Assert.IsNotNull(hmf.sharedMesh, "the hair mesh must be serialized");
+            Assert.Greater(hmf.sharedMesh.vertexCount, 6, "the hair must be a real dome mesh");
+            Assert.IsTrue(hmr.enabled, "the hair renderer must be enabled");
+        }
+
+        // Mechanized cap-hide + hair reproducibility: re-running the editor avatar build must re-hide both
+        // cap meshes (the fix lives in BuildModel -> HideCap, on every editor build), so a
+        // regenerate-on-rebase can't silently ship the cap back. Sibling of
+        // EditorRebuild_Reproduces_SameSerializedShape.
+        [Test]
+        public void EditorRebuild_RehidesCap()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+
+            castaway.BuildInEditor();
+
+            int capFound = 0, capHidden = 0;
+            foreach (var smr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                foreach (var capName in CastawayCharacter.CapMeshNames)
+                    if (smr.name == capName) { capFound++; if (!smr.enabled) capHidden++; }
+            Assert.AreEqual(CastawayCharacter.CapMeshNames.Length, capFound, "rebuild must reproduce both cap nodes");
+            Assert.AreEqual(capFound, capHidden, "editor rebuild must RE-HIDE both cap meshes (idempotent cap->hair)");
         }
 
         // Blob-shadow SCENE-PRESENCE guard (the component-not-serialized-into-scene failure class,
