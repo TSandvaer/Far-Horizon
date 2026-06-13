@@ -8,88 +8,92 @@ using FarHorizon.EditorTools;
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// EditMode guard that the stylized HERO AXE (ticket 86ca8ce6y — the style-wave anchor) is
-    /// SERIALIZED into the Boot scene the exe ships, with its three guide anchor colors intact — not
+    /// EditMode guard that the SOURCED hero axe (ticket 86ca8ce6y — RE-DONE: the procedural HeroAxeMesh
+    /// wedge is RETIRED; the axe is now the sourced rustic hatchet HELD in the chibi's hand) is
+    /// SERIALIZED into the Boot scene the exe ships — attached under the chibi's RIGHT HAND bone, not
     /// added at Awake (the editor-vs-runtime serialization trap, unity-conventions.md, would mangle/drop
-    /// an Awake-built prop — the "legs-up" class). Sibling of CraftSceneTests; same regression-guard
-    /// intent: drop the BuildHeroAxe authoring (or break its material assignment / submesh→color mapping)
-    /// and this goes RED in headless CI, rather than the shipped build silently lacking the loop's hero
-    /// tool or rendering it in wrong colors.
+    /// an Awake-built attach — the "legs-up" / component-not-serialized classes).
     ///
     /// Binary scenes can't be GUID-grepped, so this EditMode reader is the authoritative check that the
-    /// axe MESH + the per-submesh anchor MATERIALS actually live in Boot.unity (the
-    /// component-in-source-but-not-serialized failure class, unity-conventions.md).
+    /// held axe MESH actually lives in Boot.unity UNDER THE HAND BONE with its HasAxe-gating HeldAxe
+    /// component wired. Break the attach (or the bone search, or the HeldAxe wiring) and this goes RED in
+    /// headless CI, rather than the shipped build silently lacking the loop's hero tool.
+    ///
+    /// NOTE on DROPPED guards (PR #28): the prior procedural-axe asserts — 3-submesh count + the per-
+    /// submesh barn-red/pale-steel/warm-brown anchor-color checks (MovementCameraScene.AxeHeadColor etc.)
+    /// — are REMOVED. They were specific to the retired HeroAxeMesh; the sourced hatchet ships its own
+    /// baseColor atlas material (no per-submesh color anchors to assert).
     /// </summary>
     public class HeroAxeSceneTests
     {
         private const string BootScenePath = "Assets/Scenes/Boot.unity";
 
-        // Tolerance for the shipped material color vs the guide anchor. The authoring side sets the exact
-        // anchor Color; this guards against a drift/regression (wrong channel, a stray recolor), not a
-        // pixel-exact match — small slack covers float round-trip through serialization.
-        private const float ColorTol = 0.02f;
-
         [Test]
-        public void BootScene_CarriesHeroAxe_UnderTheCraftSpot()
+        public void BootScene_CarriesHeroAxe_HeldUnderTheRightHandBone()
         {
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var axe = FindHeroAxe();
             Assert.IsNotNull(axe,
-                $"the Boot scene must carry the '{MovementCameraScene.HeroAxeObjectName}' GameObject under " +
-                "the CraftSpot — the loop's hero tool, serialized into the scene (not Awake-built; " +
+                $"the Boot scene must carry the '{MovementCameraScene.HeroAxeObjectName}' GameObject (the " +
+                "sourced hatchet) — the loop's hero tool, serialized into the scene (not Awake-built; " +
                 "unity-conventions.md editor-vs-runtime trap)");
 
-            var mf = axe.GetComponent<MeshFilter>();
-            Assert.IsNotNull(mf, "the hero axe must have a MeshFilter");
-            Assert.IsNotNull(mf.sharedMesh, "the hero axe's mesh must be serialized into the scene");
-            Assert.AreEqual(HeroAxeMesh.SUBMESH_COUNT, mf.sharedMesh.subMeshCount,
-                "the shipped axe mesh must keep its 3 submeshes (HEAD/BEVEL/HAFT) so the anchor colors map");
+            // It must be a real model (the sourced FBX), not an empty placeholder.
+            var rends = axe.GetComponentsInChildren<MeshRenderer>(true);
+            Assert.Greater(rends.Length, 0, "the held axe must have at least one MeshRenderer (the sourced FBX mesh)");
+            var mf = axe.GetComponentInChildren<MeshFilter>(true);
+            Assert.IsNotNull(mf, "the held axe must carry a MeshFilter");
+            Assert.IsNotNull(mf.sharedMesh, "the held axe's mesh must be serialized into the scene");
+            Assert.Greater(mf.sharedMesh.vertexCount, 20,
+                "the held axe must be the real sourced hatchet mesh, not a placeholder primitive");
+
+            // The ATTACH guard: the axe must be parented UNDER the chibi's right-hand bone (RightHand_010,
+            // excl. the RightHand.Dummy helper) — that's what makes it RIDE the hand's animated transform.
+            Transform t = axe.transform;
+            bool underRightHand = false;
+            while (t != null)
+            {
+                string n = t.name.ToLowerInvariant();
+                if (n.Contains(MovementCameraScene.RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
+                { underRightHand = true; break; }
+                t = t.parent;
+            }
+            Assert.IsTrue(underRightHand,
+                "the held axe must be parented under the chibi's right-hand bone ('" +
+                MovementCameraScene.RightHandBoneToken + "', excl. dummy) so it rides the hand — a regression " +
+                "to a free-standing prop (or attaching to the dummy bone) reds here");
         }
 
         [Test]
-        public void BootScene_HeroAxe_CarriesThreeAnchorMaterials_HeadBevelHaft()
+        public void BootScene_HeldAxe_GatesVisibilityOnHasAxe()
         {
+            // The HeldAxe component (HasAxe-gated visibility) must be SERIALIZED on the held axe with its
+            // Inventory reference wired editor-time — else the axe ships always-visible (no "pick up the
+            // axe" read) or, worse, the wiring silently absent (the component-not-serialized failure class,
+            // unity-conventions.md). Drop the HeldAxe authoring / its wiring and this goes RED.
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var axe = FindHeroAxe();
-            Assert.IsNotNull(axe, "hero axe must be present (see BootScene_CarriesHeroAxe_UnderTheCraftSpot)");
+            Assert.IsNotNull(axe, "hero axe must be present (see BootScene_CarriesHeroAxe_HeldUnderTheRightHandBone)");
 
-            var mr = axe.GetComponent<MeshRenderer>();
-            Assert.IsNotNull(mr, "the hero axe must have a MeshRenderer");
-            var mats = mr.sharedMaterials;
-            Assert.AreEqual(HeroAxeMesh.SUBMESH_COUNT, mats.Length,
-                "the hero axe must carry a 3-material array (one per submesh) serialized into the scene");
-
-            AssertColorNear(mats[HeroAxeMesh.SUBMESH_HEAD], MovementCameraScene.AxeHeadColor,
-                "HEAD (barn red #A33B30)");
-            AssertColorNear(mats[HeroAxeMesh.SUBMESH_BEVEL], MovementCameraScene.AxeBevelColor,
-                "EDGE BEVEL (pale steel #E4E2DC) — the signature near-white cutting-edge plane");
-            AssertColorNear(mats[HeroAxeMesh.SUBMESH_HAFT], MovementCameraScene.AxeHaftColor,
-                "HAFT (warm brown #7A5230)");
+            var held = axe.GetComponent<HeldAxe>();
+            Assert.IsNotNull(held, "the held axe must carry the HeldAxe component (HasAxe-gated visibility)");
+            Assert.IsNotNull(held.inventory,
+                "HeldAxe.inventory must be wired editor-time (serialized) — an Awake FindObjectOfType in " +
+                "the build is the component-not-serialized trap this guards");
         }
 
         [Test]
         public void BootScene_CarriesAxeVerifyCapture_OnTheBootObject()
         {
-            // Regression guard for Tess's PR #21 NIT fix: the committed -verifyAxe bevel-closeup capture
-            // path must be SERIALIZED onto the Boot object (sibling of the craft/chop/movement captures),
-            // else the edge-bevel claim loses its committed, repeatable shipped-build evidence path. Drop
-            // the WireAxeVerifyCapture authoring and this goes RED — the NIT path silently vanishing from
-            // the shipped scene is exactly the failure class this guards.
+            // Regression guard (carried from PR #21/#26): the committed -verifyAxe close-up capture path
+            // must be SERIALIZED onto the Boot object (sibling of the craft/chop/movement captures), else
+            // the held-axe shipped-build evidence path silently vanishes. Drop WireAxeVerifyCapture -> RED.
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var boot = GameObject.Find("Boot");
             Assert.IsNotNull(boot, "the Boot scene must carry the 'Boot' object (host of the verify captures)");
             Assert.IsNotNull(boot.GetComponent<AxeVerifyCapture>(),
                 "the Boot object must carry the AxeVerifyCapture component (the committed -verifyAxe " +
-                "bevel-closeup capture path), serialized into the scene — not Awake-added");
-        }
-
-        private static void AssertColorNear(Material mat, Color anchor, string label)
-        {
-            Assert.IsNotNull(mat, $"the {label} material slot must be assigned");
-            Color c = mat.GetColor("_BaseColor");
-            Assert.AreEqual(anchor.r, c.r, ColorTol, $"{label}: red channel must match the guide anchor");
-            Assert.AreEqual(anchor.g, c.g, ColorTol, $"{label}: green channel must match the guide anchor");
-            Assert.AreEqual(anchor.b, c.b, ColorTol, $"{label}: blue channel must match the guide anchor");
+                "close-up capture path), serialized into the scene — not Awake-added");
         }
 
         private static GameObject FindHeroAxe()

@@ -1,0 +1,21 @@
+One-handed stylized axe — asset attribution
+===========================================
+
+Model:   "One-handed stylized axe"
+Author:  Viktor.G (Sketchfab)
+Source:  Sketchfab
+UID:     d2e3f8682d71425ba2bf72f3e3d78f7c
+License: CC Attribution (CC-BY)
+
+This asset is used under the Creative Commons Attribution license, which REQUIRES
+attribution to the original author. Credit must be retained in any distribution of
+the game (e.g. an in-game / about-screen credits entry).
+
+Asset contents in this folder:
+  - CastawayAxe.fbx                              — rustic leather-wrapped hatchet (single mesh)
+  - Material_002_baseColor_png.png               — baseColor atlas (downsampled to 1024 on import)
+  - CastawayAxe.fbm/Material_002_baseColor_png.png — embedded-texture copy (FBX .fbm sidecar)
+
+Integrated as the Far Horizon hero axe (ticket 86ca8ce6y) — the sourced hatchet REPLACES the
+retired procedural HeroAxeMesh wedge. It is attached to the castaway's right-hand bone and shown
+once crafted (held in-hand). This attribution requirement is independent of any in-game styling.

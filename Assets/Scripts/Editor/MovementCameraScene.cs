@@ -43,15 +43,35 @@ namespace FarHorizon.EditorTools
         // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
         private const float PlayerVisualHeight = 1.8f;
 
-        // ---- Hero axe anchor colors (ticket 86ca8ce6y, Tess-verified anchors from style-guide-v2.md §6 /
-        // inspiration/2026-06-12_21h08_08.png). Sub-1.0 / HDR-safe. The HeroAxeMesh builder is geometry-
-        // only and color-agnostic; these are the SINGLE source of truth for the prop palette, exposed so
-        // HeroAxeSceneTests can assert the shipped material colors stay within the guide's anchors. ----
-        public static readonly Color AxeHeadColor = new Color(0.64f, 0.23f, 0.19f); // barn red   #A33B30
-        public static readonly Color AxeBevelColor = new Color(0.89f, 0.89f, 0.86f); // pale steel #E4E2DC
-        public static readonly Color AxeHaftColor = new Color(0.48f, 0.32f, 0.19f); // warm brown #7A5230
-        // Name of the hero-axe GameObject under the CraftSpot — the scene-presence test keys on it.
+        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE). The procedural HeroAxeMesh wedge is RETIRED (it did
+        // not read as an axe); the axe is now the SOURCED rustic hatchet "One-handed stylized axe" by
+        // Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the committed license file). It is
+        // ATTACHED to the chibi's RIGHT HAND bone (RightHand_010 — probe-verified, see AxeAssetGen
+        // DiagnoseTrace) so the castaway HOLDS it, and is shown only once crafted (HeldAxe gates on
+        // Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture + scene-presence guards key on it. ----
         public const string HeroAxeObjectName = "HeroAxe";
+
+        // The chibi rig's right-hand bone (probe-verified by AxeAssetGen.DiagnoseTrace, 2026-06-13). The
+        // rig also carries a "RightHand.Dummy_011" helper bone — the attach search matches the real
+        // RightHand_010 by token and EXCLUDES "dummy" (same trap class as the mesh-group "head" node vs
+        // the Head_05 bone, unity-conventions.md / CastawayProportions).
+        public const string RightHandBoneToken = "righthand";
+
+        // Hand-local attach pose for the sourced hatchet. CRITICAL SCALE FINDING (probe-verified via
+        // AxeAssetGen.ScaleTrace, 2026-06-13): the RightHand_010 bone carries a HUGE lossy scale (~267×) —
+        // the chibi FBX is normalized DOWN to ~1u so its import scales the BONE TRANSFORMS UP to compensate,
+        // and a child prop INHERITS that 267× bone scale. A naively-scaled axe ships as a 30-50-world-unit
+        // GIANT towering over the scene (caught in the first shipped capture: the -verifyAxe close-up framed
+        // the whole world). The attach-local SCALE must therefore be tiny to land a believable hatchet:
+        // measured world longest-axis = 287 units per 1.0 local scale, so ~0.0015 lands ~0.43 world units —
+        // a hatchet a touch under half the kid's ~0.95u height. Pose: handle in the palm, blade forward.
+        // Re-verified from the SHIPPED-build capture (editor renders are NOT evidence — unity-conventions.md).
+        // NOTE: localPos ALSO rides the 267× bone scale, so it must be tiny too (a 0.0002 local offset ≈
+        // 0.05 world units in the palm). The axe FBX origin sits near the head end (probe: handle hangs to
+        // local -Y), so a near-zero offset seats the grip in the palm; tuned from the capture.
+        public static readonly Vector3 HeldAxeLocalPos = new Vector3(0.0f, -0.0008f, 0.0f);
+        public static readonly Vector3 HeldAxeLocalEuler = new Vector3(0f, 0f, 90f);
+        public static readonly Vector3 HeldAxeLocalScale = new Vector3(0.0015f, 0.0015f, 0.0015f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -212,12 +232,12 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
 
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
-        // crafts the axe. A small chopping-block stump the castaway walks ONTO, with the STYLIZED HERO AXE
-        // (ticket 86ca8ce6y — the style-wave anchor) displayed resting in it so the loop's hero tool reads
-        // "in the world" the whole time (style-guide-v2.md §3: the axe is on-screen constantly). NO collider
-        // so it never blocks the ground raycast or the NavMesh. The stump + axe meshes + CraftSpot's
-        // Inventory/player refs are authored editor-time so they serialize into Boot.unity (editor-vs-runtime
-        // trap — an Awake-built prop ships mangled, the "legs-up" class).
+        // crafts the axe. A small chopping-block stump the castaway walks ONTO. NO collider so it never
+        // blocks the ground raycast or the NavMesh. The stump mesh + CraftSpot's Inventory/player refs are
+        // authored editor-time so they serialize into Boot.unity (editor-vs-runtime trap — an Awake-built
+        // prop ships mangled, the "legs-up" class). The HERO AXE no longer rests in the stump: it is now
+        // the sourced hatchet HELD in the chibi's hand (AttachHeroAxeToHand, called from BuildPlayer),
+        // shown once crafted — so the craft reads as "the kid picks up the axe", not a prop in a block.
         private static void BuildCraftSpot(GameObject player, int groundLayer)
         {
             var spot = new GameObject("CraftSpot");
@@ -244,9 +264,6 @@ namespace FarHorizon.EditorTools
                 EnsureShaderAlwaysIncluded(litShader);
             }
 
-            // The stylized HERO AXE displayed resting in the block, head up — the style-wave anchor.
-            BuildHeroAxe(spot, new Vector3(0f, 0.70f, 0f));
-
             var craft = spot.AddComponent<CraftSpot>();
             craft.player = player.transform;
             craft.inventory = Object.FindObjectOfType<Inventory>();
@@ -263,49 +280,97 @@ namespace FarHorizon.EditorTools
                       " (inventory wired: " + (craft.inventory != null) + ")");
         }
 
-        // The stylized HERO AXE (ticket 86ca8ce6y — the FIRST style-wave anchor, establishes the board's
-        // tool language). A single 3-submesh mesh (HEAD / BEVEL / HAFT — HeroAxeMesh.Build) with a matching
-        // 3-material array (barn-red head / pale-steel edge bevel / warm-brown haft, the Tess-verified
-        // anchors). The mesh + the inline materials serialize into Boot.unity (no .mat churn, same idiom as
-        // LowPolyZoneGen scatter props) — editor-time authored, NOT Awake-built (the "legs-up" trap).
+        // Attach the SOURCED hero axe (ticket 86ca8ce6y — RE-DONE) to the chibi's RIGHT HAND bone so the
+        // castaway HOLDS the hatchet. The procedural HeroAxeMesh wedge is RETIRED. The imported FBX
+        // (AxeAssetGen — rustic leather-wrapped hatchet, single mesh + baseColor atlas) is instantiated as
+        // a child of the RightHand_010 bone (probe-verified by AxeAssetGen.DiagnoseTrace) so it RIDES the
+        // hand's animated transform every frame; the attach-local pose puts the handle in the palm + the
+        // blade forward, and the attach-local scale brings the normalized prop to a believable hatchet size.
         //
-        // Read like inspiration/2026-06-12_21h08_08.png: faceted barn-red wedge head, a distinct near-white
-        // chamfer plane along the cutting edge (the signature — GEOMETRY catching light, not a texture line),
-        // a small horn/poll, and a chunky gently-bent brown haft. Hard-faceted (flat normals) so the bevel
-        // reads as a separate bright plane — see HeroAxeMesh for the shading rationale.
-        private static void BuildHeroAxe(GameObject parent, Vector3 localPos)
+        // SERIALIZATION (unity-conventions.md §editor-vs-runtime): called AFTER the avatar is built
+        // editor-time (castaway.BuildInEditor in BuildPlayer), so the bone hierarchy exists and the axe
+        // child SERIALIZES into Boot.unity under the bone — NOT an Awake-built attach (the "legs-up" /
+        // component-not-serialized classes). A HeldAxe runtime component gates the renderer on
+        // Inventory.HasAxe (hidden until crafted; the craft reads as "the kid picks up the axe").
+        private static void AttachHeroAxeToHand(GameObject player)
         {
-            var axe = new GameObject(HeroAxeObjectName);
-            axe.transform.SetParent(parent.transform, false);
-            axe.transform.localPosition = localPos;
-            // Display pose: stand head-up, canted a touch so the bright bevel + faceted cheeks catch the key
-            // light at orbit distance (mild hand-made tilt, not a museum-square mount).
-            axe.transform.localRotation = Quaternion.Euler(0f, 35f, 12f);
+            var castaway = player.GetComponentInChildren<CastawayCharacter>(true);
+            if (castaway == null)
+            {
+                Debug.LogError("[MovementCameraScene] no CastawayCharacter to attach the hero axe to");
+                return;
+            }
 
-            var mf = axe.AddComponent<MeshFilter>();
-            mf.sharedMesh = HeroAxeMesh.Build();
-            var mr = axe.AddComponent<MeshRenderer>();
+            Transform hand = FindRightHandBone(castaway.transform);
+            if (hand == null)
+            {
+                Debug.LogError("[MovementCameraScene] could not find the chibi's right-hand bone ('" +
+                               RightHandBoneToken + "', excl. dummy) — the hero axe has nothing to attach to. " +
+                               "Re-run AxeAssetGen.DiagnoseTrace to dump the rig.");
+                return;
+            }
 
-            // 3-material array in submesh order (HEAD=0, BEVEL=1, HAFT=2). Inline URP/Lit, matte so the
-            // low-poly reads by shape + facet shading, not gloss — except the bevel gets a touch more
-            // smoothness so the near-white edge plane CATCHES the key as the signature highlight.
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            if (fbx == null)
+            {
+                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                               " — run AxeAssetGen.PrepareAxe() before authoring the scene");
+                return;
+            }
+
+            // Instantiate the imported hatchet under the hand bone (editor-time -> serializes into
+            // Boot.unity). Plain Instantiate (not InstantiatePrefab) — same idiom as the chibi avatar
+            // (CastawayCharacter.BuildModel): bakes the mesh/renderer into the scene with no prefab link.
+            var axe = Object.Instantiate(fbx);
+            axe.name = HeroAxeObjectName;
+            axe.transform.SetParent(hand, false);
+            axe.transform.localPosition = HeldAxeLocalPos;
+            axe.transform.localRotation = Quaternion.Euler(HeldAxeLocalEuler);
+            axe.transform.localScale = HeldAxeLocalScale;
+
+            // Gate visibility on HasAxe: hidden until the craft fires, then the kid is holding it.
+            var held = axe.GetComponent<HeldAxe>();
+            if (held == null) held = axe.AddComponent<HeldAxe>();
+            held.inventory = Object.FindObjectOfType<Inventory>();
+
+            // URP/Lit (the imported material) must survive the stripped build.
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            var mats = new Material[HeroAxeMesh.SUBMESH_COUNT];
-            mats[HeroAxeMesh.SUBMESH_HEAD] = MakeAxeMat(litShader, AxeHeadColor, 0.10f, "HeroAxeHeadMat");
-            mats[HeroAxeMesh.SUBMESH_BEVEL] = MakeAxeMat(litShader, AxeBevelColor, 0.45f, "HeroAxeBevelMat");
-            mats[HeroAxeMesh.SUBMESH_HAFT] = MakeAxeMat(litShader, AxeHaftColor, 0.06f, "HeroAxeHaftMat");
-            mr.sharedMaterials = mats;
             if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
 
-            // Wire the verification-only shipped-build AXE CLOSE-UP capture (drives a dedicated camera
-            // onto the cutting edge so the signature bevel plane is framed edge-on) onto the Boot object —
-            // sibling of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe.
-            // This gives the edge-bevel claim a committed, repeatable shipped-build capture path (the
-            // -verifyCraft shot frames the axe top-down where the bevel faces away — Tess's PR #21 NIT).
+            // Wire the verification-only shipped-build AXE CLOSE-UP capture onto the Boot object — sibling
+            // of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe. It frames
+            // the held hatchet close so the silhouette/leather-wrap read rides a committed shipped-build path.
             WireAxeVerifyCapture();
 
-            Debug.Log("[MovementCameraScene] authored HeroAxe under CraftSpot (submeshes=" +
-                      mf.sharedMesh.subMeshCount + ", head/bevel/haft anchors applied)");
+            int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
+            Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
+                      "' (renderers=" + rendCount + ", HasAxe-gated)");
+        }
+
+        // Find the chibi's right-hand bone from the SKINNED-MESH BONE ARRAY (the actual skeleton — skips
+        // mesh-group nodes). Matches the RightHandBoneToken and EXCLUDES "dummy" (the rig carries a
+        // RightHand.Dummy_011 helper — same duplicate-name trap class as the mesh-group "head" node vs the
+        // Head_05 bone, unity-conventions.md / CastawayProportions). Falls back to a transform scan.
+        private static Transform FindRightHandBone(Transform avatarRoot)
+        {
+            var smr = avatarRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr != null && smr.bones != null)
+            {
+                foreach (var bone in smr.bones)
+                {
+                    if (bone == null) continue;
+                    string n = bone.name.ToLowerInvariant();
+                    if (n.Contains(RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
+                        return bone;
+                }
+            }
+            foreach (var t in avatarRoot.GetComponentsInChildren<Transform>(true))
+            {
+                string n = t.name.ToLowerInvariant();
+                if (n.Contains(RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
+                    return t;
+            }
+            return null;
         }
 
         private static void WireAxeVerifyCapture()
@@ -319,19 +384,6 @@ namespace FarHorizon.EditorTools
             if (bootGo.GetComponent<AxeVerifyCapture>() == null)
                 bootGo.AddComponent<AxeVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
-        }
-
-        // A flat-color URP/Lit material for an axe part. NOT persisted as a .mat asset — assigned to
-        // sharedMaterials it serializes INLINE into the saved scene (ships in the standalone build), the
-        // same churn-free idiom LowPolyZoneGen uses for scatter props.
-        private static Material MakeAxeMat(Shader litShader, Color c, float smoothness, string name)
-        {
-            if (litShader == null) return null;
-            var mat = new Material(litShader) { name = name };
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", c);
-            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
-            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
-            return mat;
         }
 
         private static void WireCraftVerifyCapture(GameObject player)
@@ -734,6 +786,11 @@ namespace FarHorizon.EditorTools
             var ctm = player.AddComponent<ClickToMove>();
             ctm.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
             ctm.markerPrefab = markerPrefab;
+
+            // Attach the SOURCED hero axe (ticket 86ca8ce6y) to the chibi's right-hand bone AFTER the
+            // avatar is built (the bone hierarchy must exist), so the held hatchet serializes into
+            // Boot.unity under the bone (the editor-vs-runtime serialization trap). HasAxe-gated.
+            AttachHeroAxeToHand(player);
 
             return player;
         }
