@@ -44,6 +44,11 @@ namespace FarHorizon.EditorTools
             // scene is authored, so BuildBootScene's player build (MovementCameraScene.BuildPlayer)
             // can instantiate + serialize the avatar's SkinnedMeshRenderer/bones/controller.
             CharacterAssetGen.PrepareCharacter();
+            // Ticket 86ca8ce6y (RE-DONE): import the SOURCED hero axe FBX (rustic hatchet) — downsample
+            // its oversized atlas, normalize scale, static prop — BEFORE the scene is authored, so
+            // MovementCameraScene.AttachHeroAxeToHand can parent the imported mesh under the chibi's hand
+            // bone and serialize it into Boot.unity. (Replaces the retired procedural HeroAxeMesh.)
+            AxeAssetGen.PrepareAxe();
             WriteBuildStamp("zoned");
             var scene = BuildBootScene();
 

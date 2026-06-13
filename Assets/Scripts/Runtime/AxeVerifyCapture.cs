@@ -5,23 +5,22 @@ using UnityEngine;
 namespace FarHorizon
 {
     /// <summary>
-    /// Verification-only shipped-build CLOSE-UP capture of the hero axe (ticket 86ca8ce6y).
+    /// Verification-only shipped-build CLOSE-UP capture of the hero axe (ticket 86ca8ce6y — RE-DONE).
     ///
-    /// Why this exists (Tess's review NIT on PR #21): the -verifyCraft committed path frames the
-    /// axe top-down at gameplay orbit distance, where the signature pale-steel EDGE-BEVEL plane faces
-    /// AWAY from the camera — so the committed reproducible path does NOT actually show the bevel, and
-    /// the PR-body bevel claim rode an UNCOMMITTED throwaway shot. A future reviewer could not reproduce
-    /// the bevel judgment from a committed path. This component IS that committed path: a -verifyAxe flag
-    /// that drives a close-up of the cutting edge so the edge-bevel claim rides repeatable committed
-    /// shipped-build evidence (sibling of CraftVerifyCapture / MovementVerifyCapture).
+    /// The axe is now the SOURCED rustic hatchet HELD in the chibi's right hand (no longer the retired
+    /// procedural wedge resting in the stump). This committed path frames the held hatchet close so the
+    /// silhouette / leather-wrap / blade-forward read rides repeatable committed shipped-build evidence
+    /// (sibling of CraftVerifyCapture / MovementVerifyCapture). Carried from the PR #21/#26 NIT: a
+    /// committed reproducible close-up so a reviewer can re-run + judge their own artifact.
     ///
-    /// It does NOT touch gameplay: it finds the HeroAxe in the scene, parks a dedicated capture camera
-    /// in front of the cutting edge (the -X bit flare, where the bevel plane lives), frames it close, and
-    /// captures axe_closeup.png. The orbit gameplay camera is left untouched (we add our own camera so the
-    /// shot is deterministic regardless of orbit follow state). Inert unless launched with -verifyAxe.
+    /// It does NOT touch gameplay: it finds the HeroAxe in the scene, FORCE-SHOWS its renderers (the
+    /// held axe is HasAxe-gated and hidden at spawn — verification needs it visible), parks a dedicated
+    /// capture camera in front of it framing the whole hatchet, and captures axe_closeup.png. The orbit
+    /// gameplay camera is left untouched (we add our own camera so the shot is deterministic regardless
+    /// of orbit follow state). Inert unless launched with -verifyAxe.
     ///   FarHorizon.exe -screen-fullscreen 0 -verifyAxe -captureDir &lt;dir&gt;
-    /// Captures: axe_closeup.png (the bevel edge, framed close). Quits non-zero if the axe was not found
-    /// in the scene (the build-side failure signal — the serialized hero-axe geometry is missing).
+    /// Captures: axe_closeup.png (the held hatchet, framed close). Quits non-zero if the axe was not
+    /// found in the scene (the build-side failure signal — the serialized hero-axe geometry is missing).
     /// </summary>
     public class AxeVerifyCapture : MonoBehaviour
     {
@@ -54,36 +53,48 @@ namespace FarHorizon
                 yield break;
             }
 
-            // Park a dedicated capture camera looking at the HEAD's cutting edge. The axe is authored
-            // standing head-up and canted (a pose-dependent transform), with the head high on the haft and
-            // the bit/edge + the near-white bevel plane running the head's LOCAL -X edge. We frame from the
-            // axe's OWN local space (pose-robust): aim at the head, approach from the cutting-edge side
-            // (local -X) + slightly toward the camera-facing cheek (local +Z) + a touch above, so the bevel
-            // plane is caught edge-on while the key light rakes it. Local->world via TransformPoint so the
-            // shot stays correct regardless of the display rotation/scale.
+            // FORCE-SHOW the held axe: it is HasAxe-gated (HeldAxe) and hidden at spawn, so verification
+            // would otherwise capture nothing. This is verification-only — gameplay visibility is untouched.
+            var rendersToShow = axe.GetComponentsInChildren<Renderer>(true);
+            foreach (var r in rendersToShow) if (r != null) r.enabled = true;
+            Debug.Log("[AxeVerifyCapture] force-showed " + rendersToShow.Length + " held-axe renderer(s) for the close-up");
+
+            // Park a dedicated capture camera framing the WHOLE held hatchet. The axe rides the chibi's
+            // hand bone (an animated, scaled transform), so we frame from its WORLD renderer bounds rather
+            // than mesh-private constants — pose- and scale-robust. Approach from the front (world +Z) and
+            // a touch to the side + above so the silhouette + leather-wrap + blade read three-quarter.
             Transform axeT = axe.transform;
-            // Head sits near the top of the prop; the renderer bounds give the world head region without
-            // depending on the mesh's private layout constants. Aim at the upper-head where the edge lives.
-            var mr0 = axe.GetComponent<MeshRenderer>();
-            Vector3 headWorld = mr0 != null
-                ? new Vector3(mr0.bounds.center.x, mr0.bounds.center.y + mr0.bounds.extents.y * 0.45f, mr0.bounds.center.z)
-                : axeT.TransformPoint(new Vector3(0f, 1.06f, 0f));
-            Vector3 lookAt = headWorld;
+            var mr0 = axe.GetComponentInChildren<MeshRenderer>();
+            Bounds wb = mr0 != null ? mr0.bounds : new Bounds(axeT.position, Vector3.one * 0.5f);
+            foreach (var r in rendersToShow)
+                if (r is MeshRenderer && r != mr0) wb.Encapsulate(r.bounds);
+            Vector3 lookAt = wb.center;
+            float frameDist = Mathf.Max(wb.size.magnitude * 2.2f, 0.6f);
 
             var camGo = new GameObject("AxeCloseupCamera");
             var cam = camGo.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // same deep-dusk neutral as the game cam
-            cam.fieldOfView = 38f;                                // frame the whole head so the bevel edge reads
-            // Camera offset expressed in the AXE's local axes then taken to world: pull out toward the
-            // cutting-edge side (local -X, where the bevel plane faces the viewer) + out the front cheek
-            // (local +Z) + a touch above (local +Y), at a distance that frames the WHOLE head so the
-            // near-white bevel chamfer runs the cutting edge in-shot (not a single cheek filling the frame).
-            Vector3 camLocalDir = (axeT.TransformDirection(new Vector3(-1.0f, 0.30f, 0.65f))).normalized;
-            Vector3 camPos = lookAt + camLocalDir * 2.3f;
+            cam.fieldOfView = 40f;                                // frame the whole hatchet so the silhouette reads
+            // Place the camera on the FAR side of the axe FROM THE CHIBI BODY, looking back toward the body
+            // — so the axe sits between camera and torso and the body can never occlude it (the prior fixed-
+            // offset attempts kept putting the torso in front of the held axe). Derive the body->axe direction
+            // from the player's body center; extend past the axe + lift above. Robust to facing/pose.
+            Vector3 bodyCenter = lookAt + Vector3.up * 0.2f; // fallback if no body found
+            var castaway = Object.FindAnyObjectByType<FarHorizon.CastawayCharacter>();
+            if (castaway != null)
+            {
+                var smr = castaway.GetComponentInChildren<SkinnedMeshRenderer>(true);
+                if (smr != null) bodyCenter = smr.bounds.center;
+            }
+            Vector3 awayFromBody = (lookAt - bodyCenter); awayFromBody.y = 0f;
+            if (awayFromBody.sqrMagnitude < 0.0001f) awayFromBody = Vector3.right;
+            Vector3 camDir = (awayFromBody.normalized + Vector3.up * 0.55f).normalized;
+            Vector3 camPos = lookAt + camDir * frameDist;
             camGo.transform.position = camPos;
             camGo.transform.rotation = Quaternion.LookRotation((lookAt - camPos).normalized, Vector3.up);
-            Debug.Log("[AxeVerifyCapture] capture cam at " + camPos + " looking at head " + lookAt);
+            Debug.Log("[AxeVerifyCapture] capture cam at " + camPos + " looking at held axe " + lookAt +
+                      " (bodyCenter " + bodyCenter + ", bounds size " + wb.size + ")");
 
             // Let the frame settle (lighting/post a few frames) before the shot.
             for (int i = 0; i < 8; i++) yield return null;
