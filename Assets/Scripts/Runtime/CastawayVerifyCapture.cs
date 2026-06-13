@@ -1,6 +1,7 @@
 using System.Collections;
 using System.IO;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace FarHorizon
 {
@@ -77,9 +78,22 @@ namespace FarHorizon
             // derived from height + FOV so any height-normalize change keeps the avatar in frame.
             var camGo = new GameObject("CastawayCloseupCamera");
             var cam = camGo.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // same deep-dusk neutral as the game cam
+            // FALSE-GREEN FIX (86ca8ca1m soak-fix): the FIRST cut of this close-up used a bare camera
+            // with SolidColor clear and NO post-processing — so it rendered the atlas under flat lighting
+            // and MISSED the Zone-D post stack (warm color-grade + white-balance + bloom) that the GAMEPLAY
+            // orbit camera applies. That made the isolated capture a FALSE GREEN: Tess approved it, yet the
+            // Sponsor's gameplay view washed the castaway to an all-yellow blob (the post warmth × the warm
+            // key × the bright atlas). The verify capture MUST see the SAME look the Sponsor sees, so it now
+            // (a) clears to the scene Skybox (the gradient sky ambient the gameplay cam uses) and (b) enables
+            // the Zone-D post Volume via UniversalAdditionalCameraData.renderPostProcessing. Anything less
+            // and this close-up keeps lying about the in-game colour.
+            cam.clearFlags = RenderSettings.skybox != null
+                ? CameraClearFlags.Skybox : CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // fallback if no skybox
             cam.fieldOfView = 40f;
+            var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
+            camData.renderPostProcessing = true; // apply the global Zone-D Volume — the gameplay look
+            camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
             // Frame head-to-feet with generous margin (1.7x height) so the WHOLE chunky silhouette reads,
             // not just the head filling the frame (the first cut framed the head only).
             float dist = (height * 2.3f) / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));

@@ -60,14 +60,18 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_OrbitCamera_PitchClampIs35to70_Default55()
+        public void BootScene_OrbitCamera_PitchClampIs8to70_Default55()
         {
+            // drew/ocean-camera-fix: the shipped Boot.unity orbit camera must carry the WIDENED pitch band
+            // (floor 35->8) so the Sponsor can tilt down to the horizon + see the seaward beach ocean (the
+            // 35 floor framed the sea as a far fogged 'grey pond' — OceanCameraDiag trace). defaultPitch
+            // stays the Sponsor-LOCKED 55. A regression of the serialized minPitch back to 35 fails here.
             var scene = OpenBoot();
             var orbit = FindInScene<OrbitCamera>(scene);
             Assert.IsNotNull(orbit);
-            Assert.AreEqual(35f, orbit.minPitch, 0.001f, "min pitch clamp must be 35 (AC)");
-            Assert.AreEqual(70f, orbit.maxPitch, 0.001f, "max pitch clamp must be 70 (AC)");
-            Assert.AreEqual(55f, orbit.defaultPitch, 0.001f, "default framing is the Sponsor-preferred 55");
+            Assert.AreEqual(8f, orbit.minPitch, 0.001f, "min pitch clamp must be the widened 8 (tilt to horizon)");
+            Assert.AreEqual(70f, orbit.maxPitch, 0.001f, "max pitch clamp must be 70 (unchanged)");
+            Assert.AreEqual(55f, orbit.defaultPitch, 0.001f, "default framing is the Sponsor-LOCKED 55");
         }
 
         [Test]

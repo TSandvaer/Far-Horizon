@@ -64,8 +64,26 @@ namespace FarHorizon.EditorTools
         // (bloom + warm grade + postExposure) compounds bright values; sub-1.0 survives without blooming
         // to white (the pale-shore first-frame lesson). Anchors derived by eye from inspiration/21h16_52
         // (lake-cabin) + Tess-QA-pinnable values in the brief's §1 color table. ----
-        public static readonly Color WaterShallow = new Color(0.25f, 0.65f, 0.69f); // #3FA6B0 bright sunlit shallows
-        public static readonly Color WaterDeep    = new Color(0.18f, 0.49f, 0.59f); // #2E7E96 deeper seaward teal
+        // BRIGHTENED + saturated (drew/ocean-camera-fix, 2026-06-13). The first soak-fix anchors
+        // (#3FA6B0 shallow / #2E7E96 deep) shipped technically-teal but read as a PALE GREY strip in the
+        // shipped seaward gameplay view (pixel-sampled the capture: the visible far water came out
+        // (0.66,0.62,0.44) — warm grey-yellow, NOT teal). Root cause (trace + math): the visible water is
+        // FAR (the near bright band is occluded by the beach crest), so it gets (a) the warm directional
+        // key + warm SH ambient in the LowPolyVertexColor shader, (b) the warm distance fog (0.80,0.80,
+        // 0.74), and (c) the warm post grade (WhiteBalance +12, warm colour filter) — three warm washes
+        // that desaturate the original mid-value teal to grey. Pushing the teal BRIGHTER and more
+        // saturated (higher G+B, B>G slightly, low R) makes it survive all three and land visibly teal in
+        // the SHIPPED frame. Still sub-1.0 every channel (HDR-clamp-safe — verified against the post stack
+        // in the shipped seaward capture, not just the editor).
+        // Pushed BRIGHTER again (drew/ocean-camera-fix iter): once the beach-reshape made the sea
+        // visible, the shipped capture showed it landing DARK/desaturated (~(48,63,70)) — the
+        // LowPolyVertexColor shader lights the flat-up water by ndotl*warmSun (~0.74) + warm SH ambient,
+        // which dims + warm-shifts a mid-value teal. Working back from the post-light/post-fog target
+        // (a bright toy teal ~0.3/0.65/0.75 in-frame), the ALBEDO must start near the top of the sub-1.0
+        // band. High G+B, low R, B>=G keeps it a bright sunlit teal, not navy. Still sub-1.0 every channel
+        // (verified against the shipped seaward capture under the full Zone-D post stack).
+        public static readonly Color WaterShallow = new Color(0.22f, 0.86f, 0.95f); // bright sunlit teal shallows
+        public static readonly Color WaterDeep    = new Color(0.16f, 0.72f, 0.86f); // saturated seaward teal
         // Foam edge line baked into the beach mesh's seaward-most rows (Uma §2). Warm off-white, sub-1.0
         // (NOT pure white — would bloom). Exposed for the scene-presence test's color-pin check.
         public static readonly Color FoamEdge     = new Color(0.91f, 0.89f, 0.82f); // #E8E2D0 warm foam
@@ -189,14 +207,29 @@ namespace FarHorizon.EditorTools
         // (NavMesh default max slope ~45deg) and the character reads grounded on it.
         static float HeightAt(float fz, float fx, float ox, float oz)
         {
-            // beach flat near the shore, a gentle dune ripple in the mid-beach, then a meadow rise.
-            float beachFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.06f, 0.20f, fz)); // 0 at shore
-            float dune = Mathf.Sin(fz * 9f) * 0.18f * beachFlat * (1f - fz);                 // small ripple
-            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.95f, fz)) * 1.6f; // meadow rise
+            // BEACH SLOPES DOWN INTO THE SEA (drew/ocean-camera-fix, 2026-06-13). The prior profile put a
+            // beach hump (~Y0.39 at Z+2) BETWEEN the locked spawn (Z+6) and the water (near-edge Z-10.5),
+            // so the seaward orbit looked OVER a dune at a distant fogged sea strip — the ocean was
+            // structurally occluded (shipped-capture pixel-sample: zero teal reached the seaward frame).
+            // The fix: the shore band now DIPS BELOW sea level near fz=0 (a gentle beach that slopes down
+            // into the water, the inspiration/21h16_52 read) and rises smoothly to the meadow only past the
+            // spawn — so from the spawn you look slightly DOWN-shore onto open water, no occluding crest.
+            // shoreDip < 0 near the shore so the beach passes below WaterY (-0.20) and the coastline reads
+            // as land dipping into the sea (Uma §2). The meadow rise (inland of the spawn) is unchanged.
+            // A single MONOTONIC ramp from the underwater shore (fz=0, ~Y-0.55) up to the spawn-band
+            // beach level (~fz0.27, ~Y0.0) — NO intermediate hump between the spawn and the water, so the
+            // seaward view looks slightly DOWN-shore onto open water with nothing occluding it. The meadow
+            // rise begins only INLAND of the spawn (past fz0.30) so the journey-forward still climbs.
+            float beachRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, 0.27f, fz)); // 0 at shore -> 1 at spawn band
+            float shoreDip = Mathf.Lerp(-0.55f, 0.02f, beachRamp);                          // underwater shore up to ~flat beach at spawn
+            float dune = Mathf.Sin(fz * 9f) * 0.06f * beachRamp * (1f - fz);                // very soft ripple on the dry beach only
+            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.30f, 0.95f, fz)) * 1.6f; // meadow rise (inland of spawn)
             // organic low-amplitude noise (multi-octave) so nothing is a flat tabletop
             float n = (Mathf.PerlinNoise(ox + fx * 4f, oz + fz * 4f) - 0.5f) * 0.5f
                     + (Mathf.PerlinNoise(ox + fx * 9f, oz + fz * 9f) - 0.5f) * 0.22f;
-            return beachFlat * 0.25f + dune + rise + n * (0.3f + rise * 0.4f);
+            // shoreDip is the monotonic beach ramp (underwater shore -> ~flat at the spawn band); rise is
+            // the inland meadow; noise is suppressed at the shore (clean waterline) and full inland.
+            return shoreDip + dune + rise + n * (0.10f + beachRamp * 0.20f + rise * 0.4f);
         }
 
         // Vertex color ramps warm sand (shore, low) -> warm grass (inland, higher). Multi-tone so
@@ -453,13 +486,18 @@ namespace FarHorizon.EditorTools
                 float localX = (fx - 0.5f) * waterWidth;
                 verts[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
                 // Near-shore BRIGHT shallows dominate the band the eye actually sees, fading to deeper
-                // teal only FAR out. Keyed off WORLD Z (a fixed ~70u bright band off the coast) rather
-                // than the 0..1 grid fraction, because the grid runs 220u deep — a 0..1 ease would put
-                // the deep teal across most of the near water, and at this view distance the distance
-                // fog already greys the far water, so without a wide bright band the visible sea reads
-                // grey, not the toy-bright teal the shore needs (shipped-capture finding, drew/beach-water).
+                // teal only FAR out. Keyed off WORLD Z (a fixed bright band off the coast) rather than
+                // the 0..1 grid fraction, because the grid runs 220u deep — a 0..1 ease would put the
+                // deep teal across most of the near water, and the distance fog + warm post grade already
+                // desaturate the far water, so without a WIDE bright band the visible sea reads grey, not
+                // the toy-bright teal the shore needs (shipped-capture finding, drew/beach-water).
+                // WIDENED 70u->130u (drew/ocean-camera-fix): when the camera tilts down to the horizon
+                // (the now-allowed flat pitch) the upper frame is dominated by the 50-150u mid-sea, not
+                // the very-near band — so the bright teal must extend further out to keep the SEA reading
+                // teal across the frame before it dissolves into the warm horizon haze (OceanCameraDiag
+                // confirmed the old 70u band let the warm-graded deep teal read grey beyond ~Z-60).
                 float seawardDist = nearZ - worldZ; // 0 at the coast, grows out to sea
-                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 70f));
+                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 130f));
                 Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
                 c.a = 1f;
                 cols[i] = c;

@@ -51,6 +51,25 @@ namespace FarHorizon.EditorTools
         // Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture + scene-presence guards key on it. ----
         public const string HeroAxeObjectName = "HeroAxe";
 
+        // ---- HAIR (ticket 86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d: the castaway read as wearing
+        // a CAP, not hair. The original cap meshes (dome Object_41 + brim Object_42) are HIDDEN by
+        // CastawayCharacter.HideCap (the dome alone left a cap-shaped arc sticking up — not hair). A clean
+        // procedural sandy-ginger HAIR skull-cap (LowPolyMeshes.HairCap) is parented to the chibi's HEAD
+        // bone so it rides the head every frame, sized + seated on the crown. Editor-time authored (the
+        // mesh + inline material) so it SERIALIZES into Boot.unity (the editor-vs-runtime trap). ----
+        public const string HairObjectName = "CastawayHair";
+        public const string HeadBoneToken = "head";
+        public static readonly Color HairMeshColor = new Color(0.86f, 0.55f, 0.26f); // sandy-ginger (warm R>G>B; lifted so the shadowed dome facets don't read dark-brown)
+        // The head bone carries the chibi's huge import-compensation lossy scale (PROBE-VERIFIED 267.30×,
+        // like the right-hand bone — see the axe ScaleTrace finding). A child mesh INHERITS it, so the
+        // hair's head-local pose + scale must be tiny. Derived from the shipped capture + the scale probe:
+        // the skull (Object_36) is ~1.42u wide in world; a hair-cap radius ~0.32u world reads as a snug
+        // skull-cap, so localScale ~0.0012 (0.0012 × 267.3 × radius 1.0 ≈ 0.32u world radius). LocalPos
+        // rides the 267× too: localY ~0.0030 lifts the cap ~0.8u above the head bone (worldY 0.78) to sit
+        // on the crown (~1.6u). Re-tune from the soak if the fringe sits high/low.
+        public static readonly Vector3 HairLocalScale = new Vector3(0.00104f, 0.00098f, 0.00108f);
+        public static readonly Vector3 HairLocalPos = new Vector3(0f, 0.0029f, 0.00020f);
+
         // The chibi rig's right-hand bone (probe-verified by AxeAssetGen.DiagnoseTrace, 2026-06-13). The
         // rig also carries a "RightHand.Dummy_011" helper bone — the attach search matches the real
         // RightHand_010 by token and EXCLUDES "dummy" (same trap class as the mesh-group "head" node vs
@@ -364,6 +383,49 @@ namespace FarHorizon.EditorTools
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
+        }
+
+        // Attach the procedural sandy-ginger HAIR skull-cap to the chibi's HEAD bone (86ca8ca1m soak-fix).
+        // The original cap meshes are hidden (CastawayCharacter.HideCap); this is the replacement hair so
+        // the castaway reads young/hopeful with a head of hair. Parented to the head bone so it rides the
+        // head's animated transform; the head-local pose+scale are tiny because the head bone carries the
+        // chibi's huge import-compensation lossy scale (the same finding as the right-hand bone / axe).
+        // Editor-time (mesh + inline URP/Lit material) so it SERIALIZES into Boot.unity — the
+        // editor-vs-runtime trap (an Awake-built attach ships mangled / absent).
+        private static void AttachHair(CastawayCharacter castaway)
+        {
+            Transform head = CastawayProportions.FindHeadBone(castaway.transform);
+            if (head == null)
+            {
+                Debug.LogError("[MovementCameraScene] no Head bone found to attach hair to — the cap->hair " +
+                               "fix leaves a bald crown. Re-run the rig dump.");
+                return;
+            }
+
+            var hair = new GameObject(HairObjectName);
+            hair.transform.SetParent(head, false);
+            hair.transform.localPosition = HairLocalPos;
+            hair.transform.localRotation = Quaternion.identity;
+            hair.transform.localScale = HairLocalScale;
+
+            var mf = hair.AddComponent<MeshFilter>();
+            // Skull-cap dome: radius ~ skull half-width, flattened a touch (yScale), cut just below the
+            // equator (-0.15) so it covers the upper skull + a forward fringe (LowPolyMeshes.HairCap).
+            mf.sharedMesh = LowPolyMeshes.HairCap(1.0f, 0.85f, -0.15f, 2);
+            var mr = hair.AddComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = "CastawayHairMat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", HairMeshColor);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.08f); // matte hair
+                mr.sharedMaterial = mat; // inline -> serializes into the scene, no .mat churn
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+            Debug.Log("[MovementCameraScene] attached CastawayHair skull-cap to head bone '" + head.name +
+                      "' (cap meshes hidden; sandy-ginger hair)");
         }
 
         // Find the chibi's right-hand bone from the SKINNED-MESH BONE ARRAY (the actual skeleton — skips
@@ -804,8 +866,14 @@ namespace FarHorizon.EditorTools
             if (castaway.modelPrefab == null)
                 Debug.LogError("[MovementCameraScene] castaway FBX not found at " + CharacterAssetGen.FbxPath +
                                " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
-            // Build the Model child + materials NOW (editor) so they serialize into Boot.unity.
+            // Build the Model child + materials NOW (editor) so they serialize into Boot.unity. This also
+            // HIDES the original cap meshes (CastawayCharacter.HideCap) so the castaway reads as having
+            // hair, not a cap (86ca8ca1m soak-fix).
             castaway.BuildInEditor();
+
+            // CAP -> HAIR (86ca8ca1m soak-fix): add the clean sandy-ginger hair skull-cap on the head bone
+            // (the hidden cap meshes leave a bare crown; this is the hair). Editor-time so it serializes.
+            AttachHair(castaway);
 
             // Wire the verification-only shipped-build CASTAWAY CLOSE-UP capture (drives a dedicated
             // camera onto the avatar's front so the recolored identity — warm khaki shirt, sandy-ginger
@@ -918,8 +986,11 @@ namespace FarHorizon.EditorTools
             var orbit = camGo.GetComponent<OrbitCamera>();
             if (orbit == null) orbit = camGo.AddComponent<OrbitCamera>();
             orbit.target = player.transform;
-            orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 35-70) — LOCKED
-            orbit.minPitch = 35f;
+            orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 8-70) — LOCKED
+            // Floor WIDENED 35->8 (drew/ocean-camera-fix): lets the Sponsor tilt down to the horizon +
+            // see the seaward beach ocean (the 35 floor framed the sea as a far fogged "grey pond" —
+            // OceanCameraDiag trace, 2026-06-13). Default 55 + max 70 unchanged.
+            orbit.minPitch = 8f;
             orbit.maxPitch = 70f;
             orbit.distance = 14f;
         }
