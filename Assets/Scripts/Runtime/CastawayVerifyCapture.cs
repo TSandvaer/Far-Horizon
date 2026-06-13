@@ -67,8 +67,10 @@ namespace FarHorizon
                 .GetComponentsInChildren<Renderer>(true);
             Bounds b = allR.Length > 0 ? allR[0].bounds : avatar.bounds;
             for (int i = 1; i < allR.Length; i++) b.Encapsulate(allR[i].bounds);
-            Vector3 lookAt = b.center;
+            // Aim a touch BELOW centre (toward mid-torso) so head-to-feet fits — the big chunky head
+            // pulls the visual weight up, so centring on bounds-centre crops the feet.
             float height = Mathf.Max(0.5f, b.size.y);
+            Vector3 lookAt = b.center - new Vector3(0f, height * 0.12f, 0f);
 
             // Dedicated capture camera in FRONT of the avatar (world -Z toward it, looking +Z), framed to
             // fit head-to-feet with a little margin. Front view so the face/eyes/shirt all read. Distance
@@ -80,7 +82,7 @@ namespace FarHorizon
             cam.fieldOfView = 40f;
             // Frame head-to-feet with generous margin (1.7x height) so the WHOLE chunky silhouette reads,
             // not just the head filling the frame (the first cut framed the head only).
-            float dist = (height * 1.7f) / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));
+            float dist = (height * 2.3f) / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));
             // The avatar's runtime yaw (CastawayCharacter.LateUpdate) defaults its facing to +Z at rest,
             // so the FRONT (face/eyes/shirt) faces +Z. View from +Z looking back toward -Z, slightly to
             // the side + above, so we catch the front identity (not the back of the head — the first cut
