@@ -56,6 +56,20 @@ namespace FarHorizon.EditorTools
         static readonly Color CanopyTop    = new Color(0.48f, 0.74f, 0.34f); // bright top-lit green
         static readonly Color CanopyShadow = new Color(0.18f, 0.40f, 0.17f); // deep shadow-side green
 
+        // ---- BEACH OCEAN water gradient (drew/beach-water-scene; Uma beach-water-direction §1).
+        // Toy-bright teal that catches the sun — calm/inviting, NOT a realistic reflective shader-ocean.
+        // The gradient is baked per-VERTEX (near-shore bright -> seaward deeper) and rides the existing
+        // FarHorizon/LowPolyVertexColor shader, so the water reads SMOOTH against the FACETED shore
+        // (Uma: the contrast is what makes the coast pop). All channels sub-1.0 — the Zone-D post stack
+        // (bloom + warm grade + postExposure) compounds bright values; sub-1.0 survives without blooming
+        // to white (the pale-shore first-frame lesson). Anchors derived by eye from inspiration/21h16_52
+        // (lake-cabin) + Tess-QA-pinnable values in the brief's §1 color table. ----
+        public static readonly Color WaterShallow = new Color(0.25f, 0.65f, 0.69f); // #3FA6B0 bright sunlit shallows
+        public static readonly Color WaterDeep    = new Color(0.18f, 0.49f, 0.59f); // #2E7E96 deeper seaward teal
+        // Foam edge line baked into the beach mesh's seaward-most rows (Uma §2). Warm off-white, sub-1.0
+        // (NOT pure white — would bloom). Exposed for the scene-presence test's color-pin check.
+        public static readonly Color FoamEdge     = new Color(0.91f, 0.89f, 0.82f); // #E8E2D0 warm foam
+
         // Result of building the low-poly zone: the ground GameObject (Ground-layered, NavMesh +
         // raycast surface) so the caller can parent scatter + bake NavMesh over it.
         public class ZoneResult
@@ -198,6 +212,16 @@ namespace FarHorizon.EditorTools
             // higher ground reads as the sunlit meadow rise
             grass = Color.Lerp(grass, GrassRise, Mathf.Clamp01((height - 0.6f) * 0.5f));
             Color c = Color.Lerp(sand, grass, grassT);
+
+            // FOAM BAND (drew/beach-water-scene; Uma §2 task D): the seaward-most rows of the beach mesh
+            // (fz≈0, where the sloping sand passes below the water plane) carry the warm off-white foam
+            // line — a single calm stylized waterline, baked into vertex color so it rides this same
+            // terrain shader (no new object, no particles — Uma: "a single calm foam line is the entire
+            // treatment"). A narrow seaward band: strongest at the very edge (fz=0), gone by fz~0.06.
+            // Sub-1.0 foam (NOT pure white) so the post stack's bloom doesn't blow it out.
+            float foamT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.055f, 0.0f, fz));
+            c = Color.Lerp(c, FoamEdge, foamT);
+
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
             float j = (Hash01(Mathf.RoundToInt(fx * 997f), Mathf.RoundToInt(fz * 991f), seed) - 0.5f) * 0.10f;
             c.r = Mathf.Clamp01(c.r + j); c.g = Mathf.Clamp01(c.g + j); c.b = Mathf.Clamp01(c.b + j);
@@ -371,18 +395,89 @@ namespace FarHorizon.EditorTools
             return go;
         }
 
-        // ---- Water plane at the beach edge (warm-leaning teal, glossy) ----
+        // ---- The beach OCEAN (drew/beach-water-scene; Uma beach-water-direction §1-2) ----
+        // SUPERSEDES the original 10x10 Unity-primitive Plane (single-tone over-glossy teal, scale.z=4,
+        // tucked at shoreZ-14 — a small dim sheet that ended in a HARD plane-edge inside the fog and read
+        // as "a puddle", not "the sea the castaway washed in from"). Diagnostic trace (drew/beach-water,
+        // 2026-06-13) confirmed the water DID ship in Boot.unity but at pos(0,-0.25,-26) scale(9.9,1,4),
+        // meshColors=0 (a primitive Plane carries no vertex colors so the gradient shader had nothing to
+        // ride), smoothness 0.88 — invisible-as-a-beach for all those reasons, not absent.
+        //
+        // Now a WELDED SUBDIVIDED GRID so (1) the near->far teal vertex-color gradient has verts to
+        // interpolate across, (2) the in-shader swell has verts to displace, and (3) RecalculateNormals
+        // averages to the SMOOTH water sheet that pops against the faceted shore. Extends FAR seaward
+        // (well past the fog line) so its far edge dissolves into the warm haze — the "far horizon" the
+        // game points at — never a visible plane-edge. Sits just below the shore's lowest verts so the
+        // beach's faceted edge dips INTO the water (the coastline is where the sloping beach passes below
+        // the water Y, no hard seam). Editor-time authored + serialized (NOT Awake) — the swell is the
+        // only animated part and it runs in the shader, so zero runtime geometry construction.
+        const float WaterY = -0.20f;          // just under the shore's ~ -0.07 min Y -> beach dips in
+        const float WaterSeawardDepth = 220f; // extends ~220u seaward of the shore -> lost in fog
+        const float WaterInlandOverlap = 6f;   // tuck a little UNDER the shore so there is no gap seam
+        const int WaterSegX = 24, WaterSegZ = 40; // enough verts for a smooth gradient + swell
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
             float cx, float width, float shoreZ)
         {
-            var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            water.name = name;
-            Object.DestroyImmediate(water.GetComponent<Collider>()); // not walkable / not NavMesh
-            water.layer = 0;
-            // Unity plane is 10x10 at scale 1; cover the zone width + extend out to sea.
-            water.transform.localScale = new Vector3(width / 10f * 1.1f, 1f, 4f);
-            water.transform.position = new Vector3(cx, -0.25f, shoreZ - 14f);
-            water.GetComponent<MeshRenderer>().sharedMaterial = waterMat;
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.layer = 0; // not walkable / not NavMesh (no collider added at all)
+            go.transform.position = new Vector3(cx, WaterY, 0f);
+
+            var mf = go.AddComponent<MeshFilter>();
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = waterMat;
+            // Water is a flat sheet — it should not cast shadows onto itself / the shore (a low-poly
+            // sea doesn't self-shadow), and receiving the shore's shadow keeps the near band grounded.
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            // Span: WIDER than the land (so the sea wraps past the coast at the edges of the frame) and
+            // from a little inland of the shore (overlap, tucked under the beach) out to the deep sea.
+            float waterWidth = width * 1.6f;
+            float nearZ = shoreZ + WaterInlandOverlap;          // a touch inland of the shore
+            float farZ = shoreZ - WaterSeawardDepth;            // far out to sea (lost in fog)
+
+            int vCount = (WaterSegX + 1) * (WaterSegZ + 1);
+            var verts = new Vector3[vCount];
+            var cols = new Color[vCount];
+            for (int z = 0; z <= WaterSegZ; z++)
+            for (int x = 0; x <= WaterSegX; x++)
+            {
+                int i = z * (WaterSegX + 1) + x;
+                float fx = (float)x / WaterSegX, fz = (float)z / WaterSegZ;
+                float worldZ = Mathf.Lerp(nearZ, farZ, fz); // fz=0 near shore, fz=1 deep sea
+                float localX = (fx - 0.5f) * waterWidth;
+                verts[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
+                // Near-shore BRIGHT shallows -> deeper seaward. A mild ease so the bright band hugs the
+                // coast (where the eye lands) and the deep teal fills the distance toward the horizon.
+                float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(fz * 1.25f));
+                Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
+                c.a = 1f;
+                cols[i] = c;
+            }
+
+            var tris = new int[WaterSegX * WaterSegZ * 6];
+            int ti = 0;
+            for (int z = 0; z < WaterSegZ; z++)
+            for (int x = 0; x < WaterSegX; x++)
+            {
+                int i = z * (WaterSegX + 1) + x;
+                tris[ti++] = i; tris[ti++] = i + WaterSegX + 1; tris[ti++] = i + 1;
+                tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 1; tris[ti++] = i + WaterSegX + 2;
+            }
+
+            var mesh = new Mesh { name = name + "_mesh" };
+            mesh.indexFormat = vCount > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.vertices = verts;
+            mesh.colors = cols;
+            mesh.triangles = tris;
+            // WELDED grid -> RecalculateNormals averages to a smooth flat-up sheet (the smooth-water read
+            // that contrasts the faceted shore). The swell is applied in the shader, not baked here, so
+            // the serialized mesh is the calm rest pose.
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            mf.sharedMesh = mesh;
         }
 
         // ---- Materials ----
@@ -474,12 +569,39 @@ namespace FarHorizon.EditorTools
             return mat;
         }
 
+        // The beach-ocean material (drew/beach-water-scene; Uma §1 task A). RIDES the existing
+        // FarHorizon/LowPolyVertexColor shader (the same one canopy + terrain use) so the near->far teal
+        // gradient baked into the water grid's vertex colors actually renders — URP/Lit IGNORES vertex
+        // color, so the old URP/Lit water shipped single-tone (the diagnostic confirmed meshColors=0 was
+        // moot anyway because the primitive Plane had none). The vertex-color shader is a flat diffuse +
+        // SH-ambient lit model: the "moderate gloss / catches the warm sky" read (Uma's smoothness ~0.6
+        // intent) comes from that soft lit shading + the bright sub-1.0 teal, NOT a mirror specular — a
+        // high-gloss reflective water would break the toy (Uma §1: pull the gloss DOWN from 0.88). The
+        // shader is registered in AlwaysIncludedShaders by WorldBootstrap/MovementCameraScene so it does
+        // not strip. _WaveAmp > 0 turns ON the in-shader swell for the WATER ONLY (default 0 elsewhere).
+        // Falls back to a sub-1.0 teal URP/Lit (gradient + swell lost, but never magenta) if unresolved.
         public static Material MakeWaterMaterial(string assetPath)
         {
-            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            mat.SetColor("_BaseColor", new Color(0.20f, 0.46f, 0.52f)); // warm-leaning teal (not dark)
-            mat.SetFloat("_Smoothness", 0.88f);
-            mat.SetFloat("_Metallic", 0.0f);
+            Material mat;
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                mat = new Material(vc) { name = "LowPolyWaterMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white); // vertex teal unmodified
+                // Gentle large-wavelength swell (Uma §1: "a breath, not surf"). amp ~0.06u, long
+                // wavelength, slow. The shader displaces Y in-vertex; nothing runs per-frame on the CPU.
+                if (mat.HasProperty("_WaveAmp")) mat.SetFloat("_WaveAmp", 0.06f);
+                if (mat.HasProperty("_WaveLen")) mat.SetFloat("_WaveLen", 16f);
+                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.8f);
+            }
+            else
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = "LowPolyWaterMat" };
+                mat.SetColor("_BaseColor", WaterShallow); // sub-1.0 bright teal (gradient lost in fallback)
+                mat.SetFloat("_Smoothness", 0.6f);
+                mat.SetFloat("_Metallic", 0.0f);
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; water falls back to flat teal URP/Lit (no gradient, no swell)");
+            }
             AssetDatabase.CreateAsset(mat, assetPath);
             return mat;
         }

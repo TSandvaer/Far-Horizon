@@ -108,6 +108,12 @@ namespace FarHorizon.EditorTools
             // testing bar's shipped-build gate can prove click-move in the BUILT exe (-verifyMove).
             WireMovementVerifyCapture(player);
 
+            // Wire the verification-only shipped-build SEA capture (drew/beach-water-scene; Uma §4 task F).
+            // The default orbit framing looks INLAND; this drives an orbit-to-seaward yaw in the BUILT exe
+            // so the beach ocean is captured filling the frame (the inland -captureGate frames can't judge
+            // it). Inert unless launched with -verifySea. Sibling of the movement/craft/chop/loop captures.
+            WireSeaVerifyCapture();
+
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -870,6 +876,22 @@ namespace FarHorizon.EditorTools
             var cap = bootGo.GetComponent<MovementVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<MovementVerifyCapture>();
             cap.player = player.GetComponent<ClickToMove>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Attach the verification-only SEA capture to the Boot object (the -verifySea orbit-to-seaward
+        // ocean shot). Inert unless launched with -verifySea. Serialized into the scene editor-time (NOT
+        // Awake) per the editor-vs-runtime trap; WaterSceneTests guards its serialized presence.
+        private static void WireSeaVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — sea-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<SeaVerifyCapture>() == null)
+                bootGo.AddComponent<SeaVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 
