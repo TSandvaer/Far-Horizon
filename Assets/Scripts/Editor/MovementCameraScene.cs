@@ -321,6 +321,19 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        private static void WireCastawayVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CastawayVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<CastawayVerifyCapture>() == null)
+                bootGo.AddComponent<CastawayVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // A flat-color URP/Lit material for an axe part. NOT persisted as a .mat asset — assigned to
         // sharedMaterials it serializes INLINE into the saved scene (ships in the standalone build), the
         // same churn-free idiom LowPolyZoneGen uses for scatter props.
@@ -722,6 +735,14 @@ namespace FarHorizon.EditorTools
                                " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
             // Build the Model child + materials NOW (editor) so they serialize into Boot.unity.
             castaway.BuildInEditor();
+
+            // Wire the verification-only shipped-build CASTAWAY CLOSE-UP capture (drives a dedicated
+            // camera onto the avatar's front so the recolored identity — warm khaki shirt, sandy-ginger
+            // hair, bare-feet skin — is judgeable from a SHIPPED frame). The gameplay-orbit capture frames
+            // the character too small to judge colour; this gives the recolor (86ca8ca1m) a committed,
+            // repeatable shipped-build path (the PR #21 lesson — a detail claim needs a committed shot,
+            // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
+            WireCastawayVerifyCapture();
 
             // CONTACT / BLOB SHADOW (ticket 86ca8ca1m — "blob shadow fit to its footprint" AC). A soft
             // dark ground disc under the castaway's feet, fit (radius) to the chibi's blocky stance so

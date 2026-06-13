@@ -42,5 +42,26 @@ namespace FarHorizon.EditTests
             Assert.Greater(gate.defaultFrames, 0,
                 "CaptureGate.defaultFrames must be a positive frame count");
         }
+
+        // The CASTAWAY CLOSE-UP capture (ticket 86ca8ca1m recolor) must ALSO be serialized into the Boot
+        // scene — same component-not-serialized-into-scene failure class: the -verifyCastaway shipped-
+        // build identity capture is inert if the scene never carries CastawayVerifyCapture. Regression
+        // guard: delete WireCastawayVerifyCapture() in MovementCameraScene and this goes red.
+        [Test]
+        public void BootScene_CarriesCastawayVerifyCapture_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            CastawayVerifyCapture cap = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                cap = root.GetComponentInChildren<CastawayVerifyCapture>(true);
+                if (cap != null) break;
+            }
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry CastawayVerifyCapture serialized (the -verifyCastaway identity " +
+                "close-up is inert if the scene never carries it — the component-not-serialized trap)");
+        }
     }
 }
