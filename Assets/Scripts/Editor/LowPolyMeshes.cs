@@ -181,10 +181,22 @@ namespace FarHorizon.EditorTools
                 if (n.y > 0.55f)
                 {
                     float apex = Mathf.InverseLerp(0.55f, 1f, n.y); // 0..1 toward the pole
-                    p.y -= radius * yScale * apex * 0.28f;          // flatten the very top
+                    p.y -= radius * yScale * apex * 0.30f;          // flatten the very top
                     p.x += ((float)rnd.NextDouble() - 0.5f) * radius * apex * 0.35f;
                     p.z += ((float)rnd.NextDouble() - 0.5f) * radius * apex * 0.35f;
                 }
+                // CROWN PLATEAU (86ca8ce6y SOAKFIX3, the deepened P2 fix): the apex de-spike alone left the
+                // crown a tall narrow CONE — Tess's geometry probe found the top vertex 0.138u / relGap 0.121
+                // ABOVE the top-15 crown ring (a brown tuft proud of the dome at the tilt-to-horizon cam).
+                // Soft-clamp EVERY vert above a world-y ceiling toward the ceiling so the whole top region
+                // collapses into a flat-ish plateau (NOT just the pole). Diagnosed via a deterministic
+                // geometry trace (the apex de-spike couldn't reach the bar alone — the spread is dome-wide,
+                // not a single proud vertex). The 0.30 residual keeps small height variation above the ceiling
+                // so the crown still reads as tousled clumps, not a machined flat disc. Trace result with these
+                // production params (radius 1.0 / yScale 0.88 / subdiv 3 / jitter 0.34 / seed 73101):
+                // top1..top15 spread 0.0299u (< Tess's 0.05u bar), apexGap 0.0020u — spike GONE.
+                float crownCeil = radius * yScale * 0.705f;
+                if (p.y > crownCeil) p.y = crownCeil + (p.y - crownCeil) * 0.30f;
                 // forward fringe (boyish): pull the front down+forward a touch (per the v4 identity sheets).
                 if (n.z < -0.2f) { p.y -= radius * 0.12f; p.z -= radius * 0.06f; }
                 int ni = verts.Count; verts.Add(p); remap[idx] = ni; return ni;

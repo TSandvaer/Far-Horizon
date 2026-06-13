@@ -63,5 +63,27 @@ namespace FarHorizon.EditTests
                 "the Boot scene must carry CastawayVerifyCapture serialized (the -verifyCastaway identity " +
                 "close-up is inert if the scene never carries it — the component-not-serialized trap)");
         }
+
+        // The HAIR TILT-TO-HORIZON capture (86ca8ce6y SOAKFIX3) must ALSO be serialized into the Boot scene
+        // — same component-not-serialized-into-scene class: the -verifyHair fixed-orbit crown-silhouette
+        // capture (the committed evidence path for the brown-spike fix) is inert if the scene never carries
+        // HairVerifyCapture. Regression guard: delete WireHairVerifyCapture() in MovementCameraScene -> red.
+        [Test]
+        public void BootScene_CarriesHairVerifyCapture_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            FarHorizon.HairVerifyCapture cap = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                cap = root.GetComponentInChildren<FarHorizon.HairVerifyCapture>(true);
+                if (cap != null) break;
+            }
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry HairVerifyCapture serialized (the -verifyHair tilt-to-horizon " +
+                "crown-silhouette capture is inert if the scene never carries it — the component-not-" +
+                "serialized trap)");
+        }
     }
 }

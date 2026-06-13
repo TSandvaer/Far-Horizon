@@ -424,5 +424,48 @@ namespace FarHorizon.EditTests
             Assert.IsNull(blob.GetComponent<Collider>(),
                 "the blob shadow must have NO collider (it must not block the click raycast / NavMesh bake)");
         }
+
+        // HAIR CROWN-SPREAD guard (86ca8ce6y SOAKFIX3). The Sponsor soaked the messy hair and STILL saw a
+        // "brown spike" on top at the tilt-to-horizon camera angle; Tess's geometry probe confirmed the top
+        // vertex sat 0.138u / relGap 0.121 ABOVE the top-15 crown ring (the apex de-spike didn't pull deep
+        // enough — the crown was a tall narrow CONE, not just one proud pole vertex). No test asserted the
+        // hair SILHOUETTE, so the spike went green. This guard builds the EXACT shipped MessyHairCap mesh
+        // (the same named params the scene build uses) and asserts the crown is flat-ish: the top-15 highest
+        // verts must span < 0.05u (Tess's bar) AND no single vertex stands proud above its ring (apex gap
+        // small). Catches the bug CLASS — any future param/de-spike change that re-introduces a proud crown
+        // fails CI before a Sponsor soak. Pure-geometry (no scene load); deterministic via the fixed seed.
+        [Test]
+        public void MessyHairCap_CrownIsFlat_NoProudApexSpike()
+        {
+            var mesh = LowPolyMeshes.MessyHairCap(
+                MovementCameraScene.HairCapRadius, MovementCameraScene.HairCapYScale,
+                MovementCameraScene.HairCapCut, MovementCameraScene.HairCapSubdiv,
+                MovementCameraScene.HairCapJitter, MovementCameraScene.HairCapSeed);
+            Assert.IsNotNull(mesh, "MessyHairCap must build a mesh");
+
+            var ys = new System.Collections.Generic.List<float>();
+            foreach (var v in mesh.vertices) ys.Add(v.y);
+            Assert.GreaterOrEqual(ys.Count, 15, "the cap must have at least 15 verts to measure a crown ring");
+            ys.Sort();
+            ys.Reverse(); // highest first
+
+            float top1 = ys[0];
+            int n = 15;
+            float ringMin = ys[n - 1];           // 15th-highest
+            float ringMax = ys[1];               // 2nd-highest (the apex's immediate neighbour)
+            float spread = top1 - ringMin;       // top1..top15 vertical spread
+            float apexGap = top1 - ringMax;      // is the single top vertex proud of its ring?
+
+            // Tess's bar: the crown top-ring spread must be flat-ish (< ~0.05u). Pre-fix this was ~0.106u
+            // (probe relGap 0.121); the crown-plateau soft-clamp brings it to ~0.030u.
+            Assert.Less(spread, 0.05f,
+                $"hair crown top-15 vertex spread {spread:F4}u must be < 0.05u (a taller spread reads as a " +
+                $"proud tuft/cone at the tilt-to-horizon cam — the Sponsor's 'brown spike'); top1={top1:F4} " +
+                $"ringMin(top15)={ringMin:F4}");
+            // No single pole vertex standing proud above its immediate ring (the literal 'spike').
+            Assert.Less(apexGap, 0.02f,
+                $"no hair vertex may stand proud above the crown ring: apex gap {apexGap:F4}u (top1 {top1:F4} " +
+                $"vs 2nd-highest {ringMax:F4}) must be < 0.02u");
+        }
     }
 }

@@ -69,6 +69,14 @@ namespace FarHorizon.EditorTools
         // on the crown (~1.6u). Re-tune from the soak if the fringe sits high/low.
         public static readonly Vector3 HairLocalScale = new Vector3(0.00104f, 0.00098f, 0.00108f);
         public static readonly Vector3 HairLocalPos = new Vector3(0f, 0.0029f, 0.00020f);
+        // MessyHairCap generation params — named so the EditMode crown-spread guard builds the EXACT
+        // shipped mesh (no magic-number drift between the scene build and the test).
+        public const float HairCapRadius = 1.0f;
+        public const float HairCapYScale = 0.88f;
+        public const float HairCapCut = -0.15f;
+        public const int HairCapSubdiv = 3;
+        public const float HairCapJitter = 0.34f;
+        public const int HairCapSeed = 73101;
 
         // The chibi rig's right-hand bone (probe-verified by AxeAssetGen.DiagnoseTrace, 2026-06-13). The
         // rig also carries a "RightHand.Dummy_011" helper bone — the attach search matches the real
@@ -483,7 +491,8 @@ namespace FarHorizon.EditorTools
             // apex pole stood up as a "brown spike" (Sponsor soak). MessyHairCap builds the same cut-dome
             // then jitters it into faceted tufts + DE-SPIKES the apex (no single pole point) — messy, natural
             // hair. subdiv 3 (was 2) for more tufts; jitter 0.34 for clump definition; seed deterministic.
-            mf.sharedMesh = LowPolyMeshes.MessyHairCap(1.0f, 0.88f, -0.15f, 3, 0.34f, 73101);
+            mf.sharedMesh = LowPolyMeshes.MessyHairCap(
+                HairCapRadius, HairCapYScale, HairCapCut, HairCapSubdiv, HairCapJitter, HairCapSeed);
             var mr = hair.AddComponent<MeshRenderer>();
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
 
@@ -549,6 +558,19 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<CastawayVerifyCapture>() == null)
                 bootGo.AddComponent<CastawayVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        private static void WireHairVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host HairVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<HairVerifyCapture>() == null)
+                bootGo.AddComponent<HairVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -954,6 +976,14 @@ namespace FarHorizon.EditorTools
             // repeatable shipped-build path (the PR #21 lesson — a detail claim needs a committed shot,
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
+
+            // Wire the verification-only FIXED-ORBIT hair-silhouette capture at the TILT-TO-HORIZON angle
+            // (86ca8ce6y SOAKFIX3 — the deepened brown-spike fix). The Sponsor sees the crown spike only at
+            // the low orbit pitch; the head-to-feet -verifyCastaway close-up can't validate a
+            // silhouette-at-the-horizon problem (a subject-fit close-up frames at a fixed apparent size —
+            // unity-conventions.md visibility-gate rule). This rides the REAL gameplay orbit camera at the
+            // tilt pitch. Inert unless launched with -verifyHair. Sibling of CastawayVerifyCapture.
+            WireHairVerifyCapture();
 
             // CONTACT / BLOB SHADOW (ticket 86ca8ca1m — "blob shadow fit to its footprint" AC). A soft
             // dark ground disc under the castaway's feet, fit (radius) to the chibi's blocky stance so
