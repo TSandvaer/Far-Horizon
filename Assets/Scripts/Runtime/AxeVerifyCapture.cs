@@ -1,32 +1,48 @@
 using System.Collections;
 using System.IO;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace FarHorizon
 {
     /// <summary>
-    /// Verification-only shipped-build CLOSE-UP capture of the hero axe (ticket 86ca8ce6y — RE-DONE).
+    /// Verification-only shipped-build CLOSE-UP capture of the hero axe (ticket 86ca8ce6y; framing
+    /// HARDENED in 86ca8fevz). Sibling of CastawayVerifyCapture / ChopVerifyCapture.
     ///
-    /// The axe is now the SOURCED rustic hatchet HELD in the chibi's right hand (no longer the retired
-    /// procedural wedge resting in the stump). This committed path frames the held hatchet close so the
-    /// silhouette / leather-wrap / blade-forward read rides repeatable committed shipped-build evidence
-    /// (sibling of CraftVerifyCapture / MovementVerifyCapture). Carried from the PR #21/#26 NIT: a
-    /// committed reproducible close-up so a reviewer can re-run + judge their own artifact.
+    /// The axe is the SOURCED rustic hatchet HELD in the chibi's right hand. This committed path frames
+    /// the held hatchet close so the silhouette / leather-wrap / blade-forward read rides repeatable
+    /// committed shipped-build evidence — a reviewer can re-run + judge their own artifact.
     ///
-    /// It does NOT touch gameplay: it finds the HeroAxe in the scene, FORCE-SHOWS its renderers (the
-    /// held axe is HasAxe-gated and hidden at spawn — verification needs it visible), parks a dedicated
-    /// capture camera in front of it framing the whole hatchet, and captures axe_closeup.png. The orbit
-    /// gameplay camera is left untouched (we add our own camera so the shot is deterministic regardless
-    /// of orbit follow state). Inert unless launched with -verifyAxe.
+    /// HARDENING (86ca8fevz) — the close-up was UNRELIABLE evidence (PR #29 NIT): the held axe rendered
+    /// CLIPPED at the top frame edge, TINY, with the torso/legs filling ~80% of the shot — so it could not
+    /// substantiate "reads unmistakably as an axe". Root cause: the camera was seated too low/close on the
+    /// far side of the body, so the torso occluded the prop and the axe rode the frame edge. FIXES:
+    ///   - Frame from the axe's SETTLED, encapsulated WORLD renderer bounds (not a fixed magic camera, not
+    ///     a Mathf.Max floor), fitting the FULL hatchet with HEADROOM (spans ~70% of the frame) — the head,
+    ///     blade and haft are all in-frame with margin, never clipping the edge.
+    ///   - View from the side of the axe AWAY FROM THE BODY (derive the body->axe direction from the
+    ///     castaway's bounds center) so the torso sits BEHIND the camera and can never occlude the prop.
+    ///   - Settle a VALID bounds before framing (the renderer must be shown + one frame elapsed) — fail
+    ///     loud if the bounds stay degenerate rather than ship a wrong crop.
+    ///   - Post-ENABLED render path (Skybox clear + Zone-D post Volume + SMAA) matching the gameplay
+    ///     camera, so the capture's exposure/grade is gameplay-representative, not an isolated flat-lit rig.
+    ///
+    /// It does NOT touch gameplay: it finds the HeroAxe, FORCE-SHOWS its renderers (the held axe is
+    /// HasAxe-gated and hidden at spawn — verification needs it visible), parks a dedicated post-enabled
+    /// capture camera framing the whole hatchet, and captures axe_closeup.png. Inert unless launched with
+    /// -verifyAxe. MUST run WINDOWED (ScreenCapture needs a real swapchain).
     ///   FarHorizon.exe -screen-fullscreen 0 -verifyAxe -captureDir &lt;dir&gt;
-    /// Captures: axe_closeup.png (the held hatchet, framed close). Quits non-zero if the axe was not
-    /// found in the scene (the build-side failure signal — the serialized hero-axe geometry is missing).
+    /// Captures: axe_closeup.png (the held hatchet, framed close). Quits non-zero if the axe was not found
+    /// in the scene, or if its bounds never settle to a valid size (the build-side failure signals).
     /// </summary>
     public class AxeVerifyCapture : MonoBehaviour
     {
         // Name of the serialized hero-axe GameObject (matches MovementCameraScene.HeroAxeObjectName).
         public const string HeroAxeName = "HeroAxe";
         public string subDir = "Captures";
+        // Frame fill: the hatchet's dominant extent spans this fraction of the frame (0.62 = generous
+        // margin so the full head+blade+haft read, nothing clips the edge — the NIT-A fix).
+        public float frameFill = 0.62f;
 
         void Start()
         {
@@ -59,42 +75,60 @@ namespace FarHorizon
             foreach (var r in rendersToShow) if (r != null) r.enabled = true;
             Debug.Log("[AxeVerifyCapture] force-showed " + rendersToShow.Length + " held-axe renderer(s) for the close-up");
 
-            // Park a dedicated capture camera framing the WHOLE held hatchet. The axe rides the chibi's
-            // hand bone (an animated, scaled transform), so we frame from its WORLD renderer bounds rather
-            // than mesh-private constants — pose- and scale-robust. Approach from the front (world +Z) and
-            // a touch to the side + above so the silhouette + leather-wrap + blade read three-quarter.
-            Transform axeT = axe.transform;
-            var mr0 = axe.GetComponentInChildren<MeshRenderer>();
-            Bounds wb = mr0 != null ? mr0.bounds : new Bounds(axeT.position, Vector3.one * 0.5f);
-            foreach (var r in rendersToShow)
-                if (r is MeshRenderer && r != mr0) wb.Encapsulate(r.bounds);
-            Vector3 lookAt = wb.center;
-            float frameDist = Mathf.Max(wb.size.magnitude * 2.2f, 0.6f);
+            // Settle a VALID world bounds for the held hatchet. The axe rides the hand bone (an animated,
+            // scaled transform), so frame from its WORLD renderer bounds — pose- and scale-robust. Wait for
+            // the renderer to be live + the bounds to be a real prop size (NOT a Mathf.Max floor on invalid
+            // bounds). Fail loud if it never settles.
+            Bounds wb = new Bounds();
+            bool valid = false;
+            for (int attempt = 0; attempt < 30 && !valid; attempt++)
+            {
+                yield return null; // let the force-show + skinning + pose apply this frame
+                wb = EncapsulateRenderers(rendersToShow);
+                valid = wb.size.magnitude > 0.02f; // a real held hatchet, not a degenerate frame
+            }
+            if (!valid)
+            {
+                Debug.LogError($"[AxeVerifyCapture] held-axe bounds never settled to a valid size " +
+                               $"(last size={wb.size}) — would frame a wrong crop; failing loud");
+                Application.Quit(1);
+                yield break;
+            }
 
-            var camGo = new GameObject("AxeCloseupCamera");
-            var cam = camGo.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.10f, 0.13f, 0.18f); // same deep-dusk neutral as the game cam
-            cam.fieldOfView = 40f;                                // frame the whole hatchet so the silhouette reads
-            // Place the camera on the FAR side of the axe FROM THE CHIBI BODY, looking back toward the body
-            // — so the axe sits between camera and torso and the body can never occlude it (the prior fixed-
-            // offset attempts kept putting the torso in front of the held axe). Derive the body->axe direction
-            // from the player's body center; extend past the axe + lift above. Robust to facing/pose.
-            Vector3 bodyCenter = lookAt + Vector3.up * 0.2f; // fallback if no body found
-            var castaway = Object.FindAnyObjectByType<FarHorizon.CastawayCharacter>();
+            // View from the side of the axe AWAY FROM THE BODY so the torso can NEVER occlude the prop (the
+            // NIT-A occlusion fix). Derive the body->axe planar direction from the castaway's bounds center;
+            // extend past the axe + lift above so the silhouette reads three-quarter. Robust to facing/pose.
+            Vector3 bodyCenter = wb.center + Vector3.up * 0.2f; // fallback if no body found
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
             if (castaway != null)
             {
                 var smr = castaway.GetComponentInChildren<SkinnedMeshRenderer>(true);
                 if (smr != null) bodyCenter = smr.bounds.center;
             }
-            Vector3 awayFromBody = (lookAt - bodyCenter); awayFromBody.y = 0f;
+            Vector3 awayFromBody = wb.center - bodyCenter; awayFromBody.y = 0f;
             if (awayFromBody.sqrMagnitude < 0.0001f) awayFromBody = Vector3.right;
-            Vector3 camDir = (awayFromBody.normalized + Vector3.up * 0.55f).normalized;
-            Vector3 camPos = lookAt + camDir * frameDist;
-            camGo.transform.position = camPos;
-            camGo.transform.rotation = Quaternion.LookRotation((lookAt - camPos).normalized, Vector3.up);
-            Debug.Log("[AxeVerifyCapture] capture cam at " + camPos + " looking at held axe " + lookAt +
-                      " (bodyCenter " + bodyCenter + ", bounds size " + wb.size + ")");
+            Vector3 viewDir = awayFromBody.normalized + Vector3.up * 0.45f; // from subject toward camera
+
+            float aspect = Screen.width > 0 && Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
+            var frame = VerifyCaptureFraming.ComputeFrame(wb.center, wb.size, viewDir, 40f, aspect, frameFill);
+
+            var camGo = new GameObject("AxeCloseupCamera");
+            var cam = camGo.AddComponent<Camera>();
+            // POST-ENABLED render path matching the gameplay camera (gameplay-representative grade, not an
+            // isolated flat-lit rig): render the Zone-D post Volume + SMAA. The hatchet's lighting is
+            // representative via RenderSettings ambient (skybox), INDEPENDENT of the clear flag. We clear to
+            // a NEUTRAL solid backdrop (not the bright warm skybox, which R-clips to cream on a tight
+            // close-up and reads as "blown") so the prop reads against a clean background.
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.18f, 0.20f, 0.24f); // neutral slate — non-blown, frames the prop
+            cam.fieldOfView = 40f;
+            var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
+            camData.renderPostProcessing = true;
+            camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+            camGo.transform.SetPositionAndRotation(frame.position, frame.rotation);
+            Debug.Log($"[AxeVerifyCapture] cam at {frame.position} looking at {frame.lookAt} " +
+                      $"(bodyCenter={bodyCenter} bounds center={wb.center} size={wb.size} " +
+                      $"dist={frame.distance:F2} fill={frameFill:F2})");
 
             // Let the frame settle (lighting/post a few frames) before the shot.
             for (int i = 0; i < 8; i++) yield return null;
@@ -102,7 +136,7 @@ namespace FarHorizon
 
             string file = Path.Combine(dir, "axe_closeup.png");
             ScreenCapture.CaptureScreenshot(file, 1);
-            Debug.Log("[AxeVerifyCapture] wrote " + file + " (bevel-edge close-up)");
+            Debug.Log("[AxeVerifyCapture] wrote " + file + " (held hatchet, deterministic framing)");
             yield return new WaitForEndOfFrame();
             yield return null;
             yield return new WaitForSeconds(0.5f);
@@ -111,10 +145,24 @@ namespace FarHorizon
             Application.Quit(0);
         }
 
+        // Encapsulate the world bounds of all live MeshRenderers (the held hatchet's geometry).
+        private static Bounds EncapsulateRenderers(Renderer[] renderers)
+        {
+            Bounds b = new Bounds();
+            bool init = false;
+            foreach (var r in renderers)
+            {
+                if (r == null || !(r is MeshRenderer) || !r.enabled) continue;
+                if (!init) { b = r.bounds; init = true; }
+                else b.Encapsulate(r.bounds);
+            }
+            return b;
+        }
+
         private GameObject FindHeroAxe()
         {
             // Include inactive so a present-but-disabled axe still resolves (and a truly-absent one fails).
-            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include))
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 if (t.name == HeroAxeName) return t.gameObject;
             return null;
         }
