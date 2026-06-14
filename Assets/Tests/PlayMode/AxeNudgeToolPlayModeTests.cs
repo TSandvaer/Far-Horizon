@@ -79,5 +79,35 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(stumpRot0, _stumpGo.transform.localRotation,
                 "stump axe local rotation must be UNCHANGED in normal play");
         }
+
+        // OFF-HOTBAR guard (86ca8ce6y SOAKFIX6 — "the AXE-NUDGE overlay covers the inventory hotbar"). The
+        // prior panel sat bottom-LEFT directly over SurvivalHud's warmth bar + inventory ledger. The panel is
+        // now RIGHT-anchored + vertically centred (AxeNudgeTool.PanelRect). This pins the contract: across a
+        // range of screen sizes the panel rect must NOT overlap SurvivalHud's bottom-left hotbar footprint
+        // (AxeNudgeTool.HotbarZone). A regression that moves the panel back over the hotbar reds in CI.
+        // Pure-geometry (no render needed) — the rect math is the load-bearing contract.
+        [Test]
+        public void NudgePanel_ClearsTheHotbar_AcrossScreenSizes()
+        {
+            // Cover common desktop sizes + a small window (the soak runs windowed).
+            var sizes = new (float w, float h)[]
+            {
+                (1920f, 1080f), (1600f, 900f), (1280f, 720f), (1024f, 768f), (800f, 600f),
+            };
+            foreach (var (w, h) in sizes)
+            {
+                Rect panel = AxeNudgeTool.PanelRect(w, h);
+                Rect hotbar = AxeNudgeTool.HotbarZone(w, h);
+                Assert.IsFalse(panel.Overlaps(hotbar),
+                    $"at {w}x{h} the nudge panel {panel} must NOT overlap the SurvivalHud hotbar {hotbar} " +
+                    "(the Sponsor's 'overlay covers the inventory hotbar' soak failure)");
+
+                // Sanity: the panel must stay fully on-screen (no off-edge clipping of the controls).
+                Assert.GreaterOrEqual(panel.x, 0f, $"at {w}x{h} the panel must not run off the left edge");
+                Assert.LessOrEqual(panel.xMax, w, $"at {w}x{h} the panel must not run off the right edge");
+                Assert.GreaterOrEqual(panel.y, 0f, $"at {w}x{h} the panel must not run off the top edge");
+                Assert.LessOrEqual(panel.yMax, h, $"at {w}x{h} the panel must not run off the bottom edge");
+            }
+        }
     }
 }

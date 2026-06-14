@@ -246,6 +246,141 @@ namespace FarHorizon.EditorTools
             return Finish(verts, tris, "LP_MessyHairCap");
         }
 
+        // A TUFTED HAIR mass (86ca8ce6y SOAKFIX6 — the helmet/seam ROOT-CAUSE redo). The 4-5 prior
+        // iterations all worked a SINGLE smooth dome and progressively FLATTENED it (hard crown clamp,
+        // de-spiked apex, tamed fringe) chasing per-vertex spikes — which is exactly why it kept reading
+        // as a HELMET: a single smooth-shaded dome has a continuous silhouette arc + a smooth shading
+        // gradient, the literal signature of a cap. Flattening made it MORE helmet-like, not less. The
+        // MessyHairCap guards even ENFORCED that flatness (CrownIsFlatPlateau), so the false-green was
+        // structural — the guards passed precisely BECAUSE the hair was a flat dome.
+        //
+        // THE REDO: hair is built the SAME way the Sponsor-approved blob-canopy trees are (BlobCanopy) —
+        // a CLUSTER OF DISTINCT LOBES, not one dome. A low base skull-cap covers the scalp (no bald
+        // crown), then several protruding TUFT LOBES (welded faceted spheroids, distinct index ranges so
+        // they DON'T weld to each other -> crisp inter-lobe facet seams) sit on the crown/sides/back +
+        // a row of smaller BROW-FRINGE lobes at the front. The lobes break BOTH the silhouette outline
+        // (clumps poke past the dome arc from every angle, incl. the over-shoulder down-looking cam) AND
+        // the shading (each lobe shades as its own clump), so it reads as messy natural hair — the
+        // helmet/seam class is gone by CONSTRUCTION (no continuous dome surface to read as a cap).
+        // The base cap is seated low + wide enough to overlap the head bone so there is NO close-up SEAM
+        // (folds in 86ca8m3t2 — the cap skirt dips below the crown line to meet the skull flush).
+        //
+        //   radius     — skull half-width (same meaning as MessyHairCap.radius)
+        //   yScale     — dome flatten (same)
+        //   cut        — base-cap cut plane (same; how far the skull-cap skirt drops to seat flush)
+        //   tufts      — how many protruding crown/side/back tuft lobes (6-9 reads tousled; min 5)
+        //   tuftOut    — how far each tuft pokes PAST the dome radius (the silhouette-break magnitude)
+        //   jitter     — per-lobe radial jitter (lumpiness within a lobe)
+        //   seed       — deterministic layout + jitter
+        public static Mesh TuftedHair(float radius, float yScale, float cut, int tufts,
+            float tuftOut, float jitter, int seed)
+        {
+            tufts = Mathf.Max(5, tufts);
+            var rnd = new System.Random(seed);
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+
+            // (1) BASE SKULL-CAP: a low cut-dome that covers the scalp so no bald skin shows between the
+            // tufts. Built from the same octahedron cut-dome as MessyHairCap (subdiv 2), seated a touch
+            // LOW (the skirt dips below the crown via the cut) so it overlaps the head bone flush — kills
+            // the close-up seam (86ca8m3t2). NOT clamped flat (that was the helmet bug); it's just the
+            // underlayer the tufts sit on, mostly hidden by them.
+            AppendCutDome(verts, tris, Vector3.zero, radius * 0.98f, yScale, cut, 2);
+
+            // (2) TUFT LOBES: distinct welded spheroids poking PAST the dome over the crown/sides/back.
+            // Laid in a loose ring rising toward the crown (like BlobCanopy's cluster) so clumps break the
+            // silhouette from every yaw AND from the down-looking over-shoulder cam (a lobe on the crown
+            // top pokes the top-down silhouette; a lobe on the side pokes the profile). Each lobe centre
+            // sits ON the dome surface and the lobe radius makes it protrude by ~tuftOut.
+            for (int i = 0; i < tufts; i++)
+            {
+                float t = i / (float)tufts;
+                float ang = t * Mathf.PI * 2f + (float)rnd.NextDouble() * 0.9f;
+                // Height band: most tufts mid-to-high on the dome; a couple near the crown top so the
+                // crown itself is lumpy (no flat plateau — the anti-helmet requirement). n.y in sphere
+                // space in [0.35 .. 0.95].
+                float ny = 0.35f + (float)rnd.NextDouble() * 0.60f;
+                float horiz = Mathf.Sqrt(Mathf.Max(0f, 1f - ny * ny));
+                Vector3 dome = new Vector3(Mathf.Cos(ang) * horiz * radius,
+                                           ny * radius * yScale,
+                                           Mathf.Sin(ang) * horiz * radius);
+                // Pull lobe centres a little OUTWARD from the dome so each lobe protrudes ~tuftOut past it.
+                Vector3 outDir = new Vector3(dome.x, dome.y * 0.6f, dome.z).normalized;
+                float lobeR = radius * (0.34f + (float)rnd.NextDouble() * 0.16f);
+                Vector3 center = dome + outDir * (tuftOut - lobeR * 0.5f);
+                AppendBlob(verts, /*cols*/ null, tris, center, lobeR,
+                           subdiv: 1, jitter: jitter, color: default, seed: rnd.Next());
+            }
+
+            // (3) BROW FRINGE: a row of smaller lobes at the front (-Z face side) just above the brow, so
+            // hair frames the forehead (the boyish fringe from the v4 identity sheets) instead of a bare
+            // hairline rim. Smaller + lower than the crown tufts; sits at/just inside the dome radius so it
+            // does NOT jut FORWARD past the face (the prior forward-lobe tuft bug — kept by construction).
+            int fringeLobes = Mathf.Max(3, tufts / 2);
+            for (int i = 0; i < fringeLobes; i++)
+            {
+                float fx = (i / (float)(fringeLobes - 1) - 0.5f) * 1.6f; // spread across the brow
+                Vector3 center = new Vector3(fx * radius * 0.62f,
+                                             radius * yScale * (0.16f + (float)rnd.NextDouble() * 0.10f),
+                                             -radius * 0.74f); // at the face rim, NOT jutting forward
+                float lobeR = radius * (0.22f + (float)rnd.NextDouble() * 0.10f);
+                AppendBlob(verts, null, tris, center, lobeR,
+                           subdiv: 0, jitter: jitter * 0.8f, color: default, seed: rnd.Next());
+            }
+
+            return Finish(verts, tris, "LP_TuftedHair");
+        }
+
+        // Append a CUT-DOME (the upper part of a subdivided octahedron sphere, verts below `cut` dropped,
+        // flattened by yScale) into the shared vert/tri lists at `center`. The base underlayer for
+        // TuftedHair — same dome math as HairCap but appended (not returned) so the tufts share one mesh.
+        static void AppendCutDome(List<Vector3> verts, List<int> tris, Vector3 center,
+            float radius, float yScale, float cut, int subdiv)
+        {
+            var baseVerts = new List<Vector3>
+            {
+                new Vector3(0,  1, 0), new Vector3(0, -1, 0),
+                new Vector3( 1, 0, 0), new Vector3(-1, 0, 0),
+                new Vector3(0, 0,  1), new Vector3(0, 0, -1),
+            };
+            var baseTris = new List<int>
+            {
+                0,2,4, 0,4,3, 0,3,5, 0,5,2,
+                1,4,2, 1,3,4, 1,5,3, 1,2,5,
+            };
+            for (int s = 0; s < subdiv; s++)
+            {
+                var newTris = new List<int>();
+                var midCache = new Dictionary<long, int>();
+                for (int t = 0; t < baseTris.Count; t += 3)
+                {
+                    int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                    int ab = Midpoint(baseVerts, midCache, a, b);
+                    int bc = Midpoint(baseVerts, midCache, b, c);
+                    int ca = Midpoint(baseVerts, midCache, c, a);
+                    newTris.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+                }
+                baseTris = newTris;
+            }
+            var sphere = new Vector3[baseVerts.Count];
+            for (int i = 0; i < baseVerts.Count; i++) sphere[i] = baseVerts[i].normalized;
+
+            var remap = new Dictionary<int, int>();
+            int Keep(int idx)
+            {
+                if (remap.TryGetValue(idx, out int r)) return r;
+                Vector3 n = sphere[idx];
+                var p = center + new Vector3(n.x * radius, n.y * radius * yScale, n.z * radius);
+                int ni = verts.Count; verts.Add(p); remap[idx] = ni; return ni;
+            }
+            for (int t = 0; t < baseTris.Count; t += 3)
+            {
+                int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                if (sphere[a].y < cut && sphere[b].y < cut && sphere[c].y < cut) continue;
+                tris.Add(Keep(a)); tris.Add(Keep(b)); tris.Add(Keep(c));
+            }
+        }
+
         public static Mesh FacetedSphere(float radius, int subdiv, float jitter, int seed)
         {
             // octahedron base
@@ -400,7 +535,7 @@ namespace FarHorizon.EditorTools
                 Vector3 n = v.normalized;
                 float r = radius * (1f - jitter * 0.5f + (float)rnd.NextDouble() * jitter);
                 verts.Add(center + n * r);
-                cols.Add(color);
+                cols?.Add(color); // TuftedHair appends with no vertex colours (plain URP/Lit); cols may be null
             }
             foreach (var ti in baseTris) tris.Add(idxOffset + ti);
         }

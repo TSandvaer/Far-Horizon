@@ -51,7 +51,36 @@ namespace FarHorizon
         private bool _active;
         private int _target;            // 0 = held, 1 = stump
         private Transform _held, _stump, _hand;
-        private GUIStyle _style, _hintStyle;
+        private GUIStyle _style, _hintStyle, _titleStyle;
+
+        // Panel size (SOAKFIX6 — carries a purpose header + a "what this does" line + the controls).
+        public const float PanelWidth = 470f;
+        public const float PanelHeight = 214f;
+
+        /// <summary>
+        /// The nudge-panel screen rect for a given screen size — RIGHT-anchored + vertically centred
+        /// (SOAKFIX6: moved OFF SurvivalHud's bottom-left hotbar). Pure + static so the off-hotbar contract
+        /// is regression-guarded without a render (AxeNudgeToolPlayModeTests.NudgePanel_ClearsTheHotbar).
+        /// </summary>
+        public static Rect PanelRect(float screenW, float screenH)
+        {
+            float x = screenW - PanelWidth - 12f;                 // right edge — clear of the bottom-left hotbar
+            float y = Mathf.Max(46f, (screenH - PanelHeight) * 0.5f); // vertically centred, below the top-right stamp
+            return new Rect(x, y, PanelWidth, PanelHeight);
+        }
+
+        /// <summary>
+        /// SurvivalHud's bottom-left hotbar footprint (warmth bar + inventory ledger) for a given screen
+        /// size — the zone the nudge panel must NOT overlap. Mirrors SurvivalHud's anchor math (warmth bar
+        /// x16 w260 y=H-44 h28; ledger y=H-80 h28), padded. Used by the off-hotbar regression guard.
+        /// </summary>
+        public static Rect HotbarZone(float screenW, float screenH)
+        {
+            // Left x10..280 (x16 w260 + 6px plate pad on each side); top = ledger y (H-83), bottom = warmth
+            // bar bottom (H-16). A generous box covering both SurvivalHud rows.
+            float top = screenH - 86f, bottom = screenH - 14f;
+            return new Rect(10f, top, 272f, bottom - top);
+        }
 
         void Update()
         {
@@ -186,14 +215,24 @@ namespace FarHorizon
                 _style.normal.textColor = new Color(0.6f, 1f, 0.7f);
                 _hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };
                 _hintStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
+                _titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold };
+                _titleStyle.normal.textColor = new Color(1f, 0.85f, 0.45f); // warm-gold header
             }
 
-            float w = 540f, h = 168f, x = 8f, y = Screen.height - h - 8f;
-            GUI.color = new Color(0f, 0f, 0f, 0.62f);
-            GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
+            // PANEL PLACEMENT (86ca8ce6y SOAKFIX6 — "the overlay covers the inventory hotbar + its purpose was
+            // unclear"). The prior panel sat bottom-LEFT (x8, y=height-176) — directly over SurvivalHud's
+            // bottom-left warmth bar + inventory ledger. Move it RIGHT-anchored + VERTICALLY CENTRED, which is
+            // clear of: SurvivalHud's bottom-left hotbar, BootHud's top-left title plate, AND BootHud's
+            // top-right build-stamp plate (y 8..34). A taller panel now (it carries a purpose header + a
+            // "what this does" line) so the controls read clearly. Rect computed by PanelRect (pure, testable)
+            // so the off-hotbar contract is regression-guarded without a render.
+            Rect panel = PanelRect(Screen.width, Screen.height);
+            float x = panel.x, y = panel.y, w = panel.width, h = panel.height;
+            GUI.color = new Color(0f, 0f, 0f, 0.72f);
+            GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            string tgt = _target == 0 ? "HELD axe (world)" : "STUMP axe (local)";
+            string tgt = _target == 0 ? "HELD axe (in hand — world offset)" : "STUMP axe (in block — local)";
             string vals;
             if (_target == 0 && _held != null)
                 vals = $"offsetFromHand=({_heldWorldOffset.x:F3},{_heldWorldOffset.y:F3},{_heldWorldOffset.z:F3})  " +
@@ -203,13 +242,21 @@ namespace FarHorizon
                        $"euler=({Norm(_stump.localEulerAngles.x):F1},{Norm(_stump.localEulerAngles.y):F1},{Norm(_stump.localEulerAngles.z):F1})";
             else vals = "(axe not found)";
 
-            GUI.Label(new Rect(x + 10, y + 6, w - 20, 22), "AXE NUDGE — target: " + tgt, _style);
-            GUI.Label(new Rect(x + 10, y + 28, w - 20, 22), vals, _style);
-            GUI.Label(new Rect(x + 10, y + 54, w - 20, 20), "[Tab] cycle target   [F9] close tool", _hintStyle);
-            GUI.Label(new Rect(x + 10, y + 74, w - 20, 20), "Move: ←/→ X   ↑/↓ Z   PgUp/PgDn Y", _hintStyle);
-            GUI.Label(new Rect(x + 10, y + 94, w - 20, 20), "Rotate: T/G pitch   Y/H yaw   U/J roll", _hintStyle);
-            GUI.Label(new Rect(x + 10, y + 114, w - 20, 20), "Hold Shift = 5x step   Hold Ctrl = 0.2x step", _hintStyle);
-            GUI.Label(new Rect(x + 10, y + 138, w - 20, 20), "values logged each nudge — read them off the log to bake the constants", _hintStyle);
+            float lx = x + 12f, lw = w - 24f;
+            // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
+            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "AXE NUDGE TOOL  (debug — F9 to close)", _titleStyle);
+            GUI.Label(new Rect(lx, y + 30f, lw, 20f),
+                "Dial the axe's position/angle in-game, then read the values to bake.", _hintStyle);
+
+            GUI.Label(new Rect(lx, y + 56f, lw, 22f), "Editing: " + tgt, _style);
+            GUI.Label(new Rect(lx, y + 78f, lw, 22f), vals, _style);
+
+            GUI.Label(new Rect(lx, y + 104f, lw, 20f), "[Tab] switch held / stump axe", _hintStyle);
+            GUI.Label(new Rect(lx, y + 124f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
+            GUI.Label(new Rect(lx, y + 144f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll", _hintStyle);
+            GUI.Label(new Rect(lx, y + 164f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
+            GUI.Label(new Rect(lx, y + 188f, lw, 20f),
+                "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
         }
     }
 }
