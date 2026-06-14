@@ -30,11 +30,15 @@ namespace FarHorizon
     public class RockVerifyCapture : MonoBehaviour
     {
         public string subDir = "Captures";
-        // Gameplay-representative framing: the Sponsor-preferred high orbit pitch + a normal gameplay
-        // distance (NOT a hero close-up — the dispatch judges from the DEFAULT gameplay orbit, multi-angle).
-        public float viewPitch = 52f;
-        public float viewDistance = 16f;
-        // Three orbit yaws around the outcrop centroid so the boulder silhouette is judged all-round.
+        // Gameplay-representative framing: the Sponsor-preferred high orbit PITCH (the over-shoulder orbit the
+        // player sees rocks from), but a CLOSER distance than the full-field orbit so the FACETS are READABLE
+        // (the rocks are ~1u — at the 16u field-orbit distance they're invisible specks, so the fix can't be
+        // judged). This frames ONE dense outcrop at a gameplay-pitch but readable distance, multi-angle — the
+        // judgment is "do these read as faceted STONE", which needs the facets visible (NOT a flattering hero
+        // close-up — the pitch stays the gameplay orbit pitch).
+        public float viewPitch = 50f;
+        public float viewDistance = 7f;
+        // Three orbit yaws around the chosen outcrop so the stone silhouette is judged all-round.
         public float[] yaws = { 0f, 60f, -60f };
         public int warmupFrames = 8;
         public int settleFrames = 14;
@@ -67,12 +71,30 @@ namespace FarHorizon
                 yield break;
             }
 
-            // Centroid of the outcrops — the look target. (The rocks cluster, so the centroid lands in the
-            // outcrop field; a per-cluster frame is overkill for a readability judgment.)
+            // Pick the DENSEST outcrop as the look target (the rock with the most neighbours within an
+            // outcrop radius), then centre on that local cluster — NOT the average of all widely-spread
+            // outcrops (that average lands in empty field between clusters, so every rock is far from the cam).
+            // Framing a real dense pile at a readable distance is what lets the facets be JUDGED as stone.
+            const float outcropRadius = 4.5f;
+            Transform best = rocks[0];
+            int bestCount = -1;
+            foreach (var a in rocks)
+            {
+                int near = 0;
+                foreach (var b in rocks)
+                    if ((a.position - b.position).sqrMagnitude < outcropRadius * outcropRadius) near++;
+                if (near > bestCount) { bestCount = near; best = a; }
+            }
+            // Local centroid of that densest cluster (the chosen rock + its near neighbours).
             Vector3 centroid = Vector3.zero;
-            foreach (var t in rocks) centroid += t.position;
-            centroid /= rocks.Count;
-            centroid.y += 0.4f; // raise the look target a touch off the ground so boulders fill, not the sand
+            int clusterN = 0;
+            foreach (var b in rocks)
+                if ((best.position - b.position).sqrMagnitude < outcropRadius * outcropRadius)
+                { centroid += b.position; clusterN++; }
+            centroid /= Mathf.Max(1, clusterN);
+            centroid.y += 0.3f; // raise the look target a touch off the ground so the stone fills, not the sand
+            Debug.Log($"[RockVerifyCapture] densest outcrop has {bestCount} rocks; framing {clusterN}-rock " +
+                      $"cluster at {centroid}");
 
             var orbit = Object.FindAnyObjectByType<OrbitCamera>();
             Debug.Log("[RockVerifyCapture] orbit camera found: " + (orbit != null) +

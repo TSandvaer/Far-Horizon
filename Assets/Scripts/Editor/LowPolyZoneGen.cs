@@ -48,7 +48,13 @@ namespace FarHorizon.EditorTools
         // it sits bright against the warm fog (0.80,0.80,0.74) instead of crushing to a dark silhouette.
         // Still sub-1.0 / HDR-clamp-safe (the per-instance *0.85..1.15 jitter in BuildRock keeps the top of
         // the band under 1.0). The board-v2 grey rocks (21h10_44) read as light warm stone, not charcoal.
-        static readonly Color RockCol = new Color(0.66f, 0.62f, 0.55f);  // warm light stone (was .55/.52/.47 — dark-silhouette)
+        // v2 verify-capture + TINTDIAG instrumentation: the rocks read PINK because the coarse 12-step
+        // material quantizer SPLIT the warm-grey ramp — R rounded UP across the 0.625 step while G/B rounded
+        // DOWN, yielding (0.667, 0.583, 0.583) = R>G=B = a pink cast. The fix is NOT the base colour (any
+        // base near 0.6 hits the same step boundary) — it's to quantize the ROCK tint on a FINER 24-step grid
+        // (RockVertexColorMat -> QuantizeFine) that preserves the R>=G>=B warm-grey order. With this base on
+        // the fine grid, TINTDIAG shows all tints stay warm-grey (no R>G=B pink), 4 distinct mats (low churn).
+        static readonly Color RockCol = new Color(0.62f, 0.60f, 0.555f); // warm stone-grey (fine-quantized; no pink split)
         static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
         static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow (legacy)
         static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit (legacy)
@@ -329,16 +335,17 @@ namespace FarHorizon.EditorTools
                     rnd, true);
             }
 
-            // Rocks — THINNED + CLUSTERED soak-fix (86ca8m5zu, Sponsor: "they are all over"). The old loop
-            // sprinkled ~22 rocks UNIFORMLY across the whole beach+field (a random x,z each) → an even
-            // "all over" speckle. Replace with a FEW natural CLUSTERS (rock outcrops) placed inland, each
-            // dropping 2-4 boulders in a tight radius, plus a SPAWN EXCLUSION so the area around the locked
-            // spawn (0,0,6) stays clear — the rocks now read as a handful of deliberate outcrops, not clutter.
-            //   ~22-66 uniform  ->  ~5 clusters * 2-4 each  =  ~10-20 rocks, grouped not sprinkled.
-            int rockClusters = Mathf.RoundToInt(3f * Mathf.Clamp((maxX - minX) / 43f, 1f, 1.8f));
+            // Rocks — CLUSTERED, DENSITY RESTORED soak-fix2 (86ca8m5zu). The Sponsor rejected BOTH the shape
+            // (mounds) AND the thinning: "now there is just way too few of them, before was a decent amount."
+            // So this restores the ~22 "decent amount" (the previous count the Sponsor liked) while keeping
+            // the NATURAL CLUSTERING (rock outcrops, not a uniform speckle) and the spawn-clear foreground.
+            // ~7 outcrops * 2-4 each ≈ 22 rocks, grouped on grass inland of the spawn (board 21h10_44 shows
+            // rocks as a few grouped piles). A spawn EXCLUSION keeps the locked spawn (0,0,6) foreground open.
+            int rockClusters = Mathf.RoundToInt(6f * Mathf.Clamp((maxX - minX) / 43f, 1f, 1.25f));
             // Outcrops live in the FIELD band (inland of the spawn), so the spawn beach foreground reads clean
             // and the boulders sit on grass where the board (21h10_44) shows them — not scattered on the sand.
-            float rockBandZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.42f); // start of the rock band (inland of spawn)
+            float rockBandZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.34f); // start of the rock band (inland of spawn)
+            int rocksPlaced = 0;
             for (int c = 0; c < rockClusters; c++)
             {
                 float cxp = Mathf.Lerp(minX + 4f, maxX - 4f, (float)rnd.NextDouble());
@@ -346,15 +353,36 @@ namespace FarHorizon.EditorTools
                 // Spawn-clear: skip any cluster centre that lands near the spawn (0,0,6) so spawn stays open.
                 if (Mathf.Abs(cxp) < 7f && czp < 11f) continue;
                 int n = 2 + rnd.Next(0, 3); // 2-4 boulders per outcrop
-                for (int i = 0; i < n; i++)
+                for (int i = 0; i < n && rocksPlaced < 24; i++) // hard ceiling: never an "all over" speckle
                 {
-                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.2f; // tight cluster radius
-                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.2f;
+                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.4f; // tight cluster radius
+                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.4f;
                     if (x < minX + 1.5f || x > maxX - 1.5f) continue;
                     // A range of sizes per outcrop (a couple bigger anchor boulders + smaller ones) reads
                     // as a natural rock pile, not identical pebbles.
                     float scale = 0.5f + (float)rnd.NextDouble() * 0.8f;
                     BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+                    rocksPlaced++;
+                }
+            }
+            // Density floor: spawn-exclusion skips can occasionally drop the count below the "decent amount"
+            // the Sponsor wants. If we landed short, add a couple more inland outcrops (always spawn-clear) so
+            // the count reliably reaches ~22 without re-introducing an "all over" uniform speckle.
+            int densityGuard = 0;
+            while (rocksPlaced < 20 && densityGuard++ < 12)
+            {
+                float cxp = Mathf.Lerp(minX + 4f, maxX - 4f, (float)rnd.NextDouble());
+                float czp = Mathf.Lerp(rockBandZ + 3f, inlandFarZ - 3f, (float)rnd.NextDouble());
+                if (Mathf.Abs(cxp) < 8f && czp < 12f) continue; // stay spawn-clear
+                int n = 2 + rnd.Next(0, 3);
+                for (int i = 0; i < n && rocksPlaced < 24; i++)
+                {
+                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.4f;
+                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.4f;
+                    if (x < minX + 1.5f || x > maxX - 1.5f) continue;
+                    float scale = 0.5f + (float)rnd.NextDouble() * 0.8f;
+                    BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+                    rocksPlaced++;
                 }
             }
 
@@ -427,20 +455,23 @@ namespace FarHorizon.EditorTools
             var rock = new GameObject("LP_Rock");
             rock.transform.SetParent(parent.transform, false);
             rock.transform.position = at;
-            // ROUNDED BOULDER soak-fix (86ca8m5zu): the old (0.6,0) octahedron was an 8-FACE spike; combined
-            // with a Y-squash down to 0.6x and 0.30 jitter it read as a dark ANGULAR SHARD "sticking up", not
-            // a boulder. Fix the SILHOUETTE: a fuller, less-extreme Y range (0.78..1.0, never thin) so the
-            // boulder sits squat/rounded rather than pointing up, and a gentler tilt (was up to 20deg, now
-            // 12deg) so no facet apex spikes skyward.
+            // FACETED STONE soak-fix2 (86ca8m5zu): both prior procedural shapes were rejected — the subdiv-0
+            // octahedron read as a SPIKE, the subdiv-2 FacetedSphere read as a smooth dark MOUND (its weld
+            // averages every facet into a continuous gradient — no stone read). The redo uses LowPolyMeshes
+            // .FacetedRock: an ANGULAR, FLAT-SHADED (per-face normals) irregular chunk whose facets each catch
+            // the key light at a different value — the board's (21h10_44) chunky-stone look. The mesh itself
+            // carries the squat-chunky proportion + lumpiness, so the transform applies ONLY a yaw + a gentle
+            // tilt (no thin Y-squash — that flattened it toward a mound). A light random uniform scale gives a
+            // natural size range within an outcrop.
             rock.transform.rotation = Quaternion.Euler(
-                (float)rnd.NextDouble() * 12f, (float)rnd.NextDouble() * 360f, (float)rnd.NextDouble() * 12f);
-            rock.transform.localScale = new Vector3(scale, scale * (0.78f + (float)rnd.NextDouble() * 0.22f), scale);
-            // subdiv 0 -> 2 ROUNDS the octahedron (8 faces -> 128) so the silhouette is a faceted BOULDER, not
-            // a pointy shard; jitter 0.30 -> 0.14 keeps it organic-lumpy WITHOUT the deep dents/spikes that
-            // made it read angular. Stays low-poly/faceted (board v2) — just rounded, not pointed.
+                (float)rnd.NextDouble() * 10f, (float)rnd.NextDouble() * 360f, (float)rnd.NextDouble() * 10f);
+            rock.transform.localScale = Vector3.one * scale;
+            // FacetedRock: subdiv-1 base (32 facets), anisotropic chunky displacement, FLAT face normals +
+            // per-facet value baked to vertex colour. The warm-grey base goes in _Tint; the vertex value
+            // (0.62 dark sides .. 1.0 light tops) multiplies onto it -> facet-to-facet stone value contrast.
             MakeMeshObject(rock, "RockMesh",
-                LowPolyMeshes.FacetedSphere(0.6f, 2, jitter: 0.14f, seed: rnd.Next()),
-                MakeFlatColorMat(RockCol * (0.92f + (float)rnd.NextDouble() * 0.16f), "LPRockMat"));
+                LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: rnd.Next()),
+                RockVertexColorMat(RockCol * (0.96f + (float)rnd.NextDouble() * 0.08f)));
         }
 
         // Grass tufts (the iter-8 dark-shard FIX lives in LowPolyMeshes.GrassClump — up-biased normals
@@ -636,14 +667,60 @@ namespace FarHorizon.EditorTools
             return _canopyMat;
         }
 
+        // ROCK vertex-color material (86ca8m5zu SOAKFIX2). The FacetedRock mesh bakes a per-FACET VALUE
+        // (0.62 dark sides .. 1.0 light tops) into vertex colour — the facet-to-facet contrast that reads as
+        // carved stone. URP/Lit IGNORES vertex colour, so the rock needs the FarHorizon/LowPolyVertexColor
+        // shader (albedo = vertexColor * _Tint), same as the blob canopy. The warm-grey rock base goes in
+        // _Tint (quantized + cached so jittered tints collapse to a small set — no .mat asset churn); the
+        // vertex value multiplies onto it so every facet is a different value of the SAME warm-grey stone.
+        // Falls back to flat URP/Lit (value contrast lost but never magenta) if the shader is unresolved.
+        static readonly Dictionary<string, Material> _rockCache = new Dictionary<string, Material>();
+        static Material RockVertexColorMat(Color baseTint)
+        {
+            // FINE quantization (24-step, not the coarse 12-step the other props use): the coarse grid split
+            // the warm-grey rock ramp into a pink (R>G=B) cast (TINTDIAG). The fine grid preserves R>=G>=B —
+            // still only ~4 distinct rock mats, so churn stays low.
+            Color q = QuantizeFine(baseTint);
+            string key = "LPRockMat_" + ColorKey(q);
+            if (_rockCache.TryGetValue(key, out var cached) && cached != null) return cached;
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material mat;
+            if (vc != null)
+            {
+                mat = new Material(vc) { name = key };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", q);
+            }
+            else
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = key };
+                mat.SetColor("_BaseColor", q);
+                mat.SetFloat("_Smoothness", 0.05f);
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; rock falls back to flat grey");
+            }
+            _rockCache[key] = mat;
+            return mat;
+        }
+
         // Clear the per-bootstrap material cache so a re-run does not return materials owned by a
         // destroyed scene (the editor keeps the static cache across executeMethod invocations).
-        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; }
+        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; _rockCache.Clear(); }
 
         // Snap each channel to a coarse 12-step grid so jittered colors collapse into a small set.
         static Color Quantize(Color c)
         {
             const float steps = 12f;
+            return new Color(
+                Mathf.Round(c.r * steps) / steps,
+                Mathf.Round(c.g * steps) / steps,
+                Mathf.Round(c.b * steps) / steps, 1f);
+        }
+
+        // Finer 24-step quantizer for the ROCK tint — the coarse 12-step grid split the warm-grey ramp into
+        // a pink (R>G=B) cast (TINTDIAG). 24 steps preserve R>=G>=B while still collapsing the per-instance
+        // jitter to ~4 distinct rock materials (low churn).
+        static Color QuantizeFine(Color c)
+        {
+            const float steps = 24f;
             return new Color(
                 Mathf.Round(c.r * steps) / steps,
                 Mathf.Round(c.g * steps) / steps,
