@@ -118,36 +118,36 @@ namespace FarHorizon.EditorTools
         // lossy ≈ 1.0u longest) UNCHANGED — the size already read as a clear hero hatchet; only height+pitch
         // move. Re-measured by PoseTrace post-change; final read is the SHIPPED build (editor RT is
         // framing-only, not colour — unity-conventions.md).
-        // SOAKFIX8 (86ca8ce6y — the held axe ROTATION now TRACKS the hand bone in ALL facings; the real bug).
+        // SOAKFIX8 (86ca8ce6y — the held axe ROTATION TRACKS the hand bone in ALL facings; APPROVED, KEPT).
+        // The Sponsor proved the rotation bug ("the axe ... points the same way on the x axis all the time"):
+        // a fixed WORLD rotation can't survive a turn. The held axe's rotation is HAND-RELATIVE so the haft
+        // turns WITH the hand through every facing. soakfix9 keeps this rotation channel unchanged.
         //
-        // ROOT CAUSE the Sponsor proved ("the axe moves up and down as the hand moves, but it points the same
-        // way on the x axis all the time"): the prior pose set the axe's WORLD rotation after parenting
-        // (axe.transform.rotation = Euler(HeldAxeWorldEuler)). The F9 nudge tool ALSO re-applied a fixed WORLD
-        // rotation every frame (_held.rotation = Euler(_heldWorldEuler)). A FIXED WORLD ROTATION cannot survive
-        // a TURN: when the castaway re-faces during a click-move, the hand bone's world rotation changes but the
-        // axe's world rotation stayed pinned -> the haft kept pointing one way on X regardless of facing. The
-        // POSITION followed the hand (offset-from-hand each frame) so the axe still bobbed up/down — exactly the
-        // split symptom. (unity-conventions §FBX "held props posed in WORLD space" — a world rotation is the
-        // culprit; it can't ride a turn.)
+        // SOAKFIX9 (86ca8ce6y — the held axe POSITION fix; the real bug THIS wave). The Sponsor proved it
+        // with the F9 nudge tool: ONE arrow-left click (a 0.02 step) flung the held axe ~5 METRES off-screen
+        // (localPos (0,0.0001,0) -> (-0.02,0.0001,0) sent the axe ~5 m left). ROOT CAUSE: soakfix8 posed the
+        // axe POSITION as a localPosition on RightHand_010, which carries a ~267× lossyScale (probe-verified,
+        // unity-conventions.md §FBX) — so a 0.02 LOCAL step = ~5.3 WORLD units. This is exactly the documented
+        // §FBX lossy-bone-scale trap; soakfix8's all-local pose walked back into it on the POSITION channel.
         //
-        // FIX: the held axe is posed HAND-RELATIVE. A stable localPosition + localRotation as a child of
-        // RightHand_010 means BOTH position AND rotation ride the bone every frame, in every facing — the
-        // hierarchy does the tracking, no per-frame re-apply. AttachHeroAxeToHand sets the LOCAL transform
-        // directly (no world back-solve), and the F9 AxeNudgeTool nudges the LOCAL transform too, so
-        // dial == baked == in-motion (no world-vs-local or static-vs-moving discrepancy).
-        //
-        // VALUES: the Sponsor's last dialed-in grip (offsetFromHand=(0.003,-0.017,0.009), euler=(6.5,-187.5,
-        // 93.3); European-comma->dot) was reported via the OLD world-fixed F9 tool, captured against the hand's
-        // first-frame (authoring) world rotation. AttachHeroAxeToHand CONVERTS that one dialed world pose into
-        // the equivalent HAND-LOCAL pose at authoring time (localPos = hand.InverseTransformPoint(hand.position +
-        // worldOffset); localRot = Inverse(hand.rotation) * Euler(worldEuler)) and serializes the LOCAL transform
-        // — so the Sponsor's confirmed grip is preserved EXACTLY at the authoring facing, and now HOLDS through
-        // every turn (the bug was only ever visible AFTER a turn). Scale 0.0040 (×267 lossy ≈ 1.0u) unchanged.
+        // FIX — SPLIT the two channels (HeldAxeRig drives both each frame; unity-conventions.md §FBX):
+        //   POSITION → a WORLD-space offset from the hand bone: axe.position = hand.position + worldOffset.
+        //     The offset is WORLD units, so the F9 nudge moves the axe ~2 cm/click (NOT metres). The bone's
+        //     267× lossyScale never touches a world-space position setter — the soakfix9 fix.
+        //   ROTATION → HAND-RELATIVE: axe.rotation = hand.rotation * Euler(relEuler) — the soakfix8 fix, KEPT,
+        //     so the haft still turns with the hand on every facing.
+        // SCALE rides the bone hierarchy unchanged (localScale × 267× ≈ 1.0u — the hero-hatchet size). The axe
+        // stays a CHILD of the bone (so scale + the EditMode hand-local serialization guards hold); only
+        // position+rotation are world-driven by HeldAxeRig. The F9 AxeNudgeTool nudges the RIG's worldOffset
+        // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
         public static readonly float HeldAxeLocalScaleUniform = 0.0040f;
-        // The Sponsor's last dialed grip, as the old world-fixed tool reported it (offset-from-hand + world
-        // euler). Consumed ONCE at authoring time by AttachHeroAxeToHand to derive the hand-local pose below.
-        public static readonly Vector3 HeldAxeDialedWorldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
-        public static readonly Vector3 HeldAxeDialedWorldEuler = new Vector3(6.5f, -187.5f, 93.3f);
+        // SOAKFIX9 baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand:
+        //   - ROTATION: the Sponsor's settled hand-relative euler (he reads the axe as in-hand at this euler;
+        //     soakfix9 brief). KEEP — the Sponsor did not complain about turning this wave.
+        //   - POSITION: a sensible default WORLD-offset that seats the axe in the grip near the hand. The
+        //     Sponsor FINE-TUNES this on the re-soak with the now-usable (world-unit) nudge tool.
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(4.1f, 95.8f, -56.1f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -489,23 +489,31 @@ namespace FarHorizon.EditorTools
             axe.transform.SetParent(hand, false);
             // Scale is uniform-local (rides the 267× bone lossy → ~1.0u).
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
-            // SOAKFIX8 — pose the axe HAND-RELATIVE so its ROTATION (not just position) tracks the bone in
-            // ALL facings. The prior code set a WORLD rotation after parenting, which pinned the axe to a fixed
-            // world heading that could not survive a turn (the Sponsor's "points the same way on X always" bug).
-            // Convert the Sponsor's ONE dialed world pose (captured against the hand's authoring rotation) into
-            // the equivalent HAND-LOCAL transform, then serialize THAT — so both position and rotation ride the
-            // bone every frame via the hierarchy (no per-frame world re-apply, no facing-dependent drift).
-            Vector3 dialedWorldPos = hand.position + HeldAxeDialedWorldOffsetFromHand;
-            Quaternion dialedWorldRot = Quaternion.Euler(HeldAxeDialedWorldEuler);
-            axe.transform.localPosition = hand.InverseTransformPoint(dialedWorldPos);
-            axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * dialedWorldRot;
-            // Log the derived HAND-LOCAL pose so it's greppable in the bootstrap log + matches exactly what the
-            // F9 AxeNudgeTool reports (HeldAxeLocalPos/Euler) — dial == baked == in-motion. A future re-tune reads
-            // the tool's reported local values and bakes them via the HeldAxeDialedWorld* -> local conversion (or
-            // the values can be pinned directly once the dialed-world source is no longer needed).
-            Debug.Log("[MovementCameraScene] held axe hand-local pose: HeldAxeLocalPos=" +
-                      axe.transform.localPosition.ToString("F4") + " HeldAxeLocalEuler=" +
-                      axe.transform.localEulerAngles.ToString("F1"));
+
+            // SOAKFIX9 — SPLIT the pose channels (unity-conventions.md §FBX). POSITION is a WORLD-space offset
+            // from the hand bone; ROTATION is HAND-RELATIVE. soakfix8 posed POSITION as a localPosition on the
+            // bone, but RightHand_010's ~267× lossyScale turned a 0.02 local nudge step into ~5.3 WORLD units
+            // (the Sponsor's "one click flings the axe 5 m" bug). Driving position in WORLD space (HeldAxeRig)
+            // sidesteps the lossy scale entirely; the rotation stays hand-relative (soakfix8 fix, KEPT).
+            var rig = axe.GetComponent<HeldAxeRig>();
+            if (rig == null) rig = axe.AddComponent<HeldAxeRig>();
+            rig.hand = hand;
+            rig.worldOffsetFromHand = HeldAxeWorldOffsetFromHand; // WORLD units — the F9 nudge moves this ~2 cm/click
+            rig.relEuler = HeldAxeRelEuler;                       // hand-relative — turns with the hand (soakfix8)
+
+            // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
+            // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
+            // re-asserts at runtime. Derived from the rig's world-offset + hand-relative euler against the
+            // hand's authoring transform: localPos = hand.InverseTransformPoint(hand.position + worldOffset);
+            // localRot = Inverse(hand.rotation) * (hand.rotation * Euler(relEuler)) = Euler(relEuler).
+            Vector3 seatedWorldPos = hand.position + HeldAxeWorldOffsetFromHand;
+            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
+            axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
+            axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
+            Debug.Log("[MovementCameraScene] held axe SOAKFIX9 split pose: worldOffsetFromHand=" +
+                      HeldAxeWorldOffsetFromHand.ToString("F4") + " relEuler=" + HeldAxeRelEuler.ToString("F1") +
+                      " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
+                      " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
 
             // Gate visibility on HasAxe: hidden until the craft fires, then the kid is holding it.
             var held = axe.GetComponent<HeldAxe>();

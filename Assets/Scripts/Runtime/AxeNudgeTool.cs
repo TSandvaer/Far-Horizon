@@ -8,8 +8,11 @@ namespace FarHorizon
     /// headless, the Sponsor finalizes them himself in the shipped build: this tool lets him SELECT a target
     /// (the held axe or the stump axe), NUDGE its position (XYZ) + rotation (pitch/yaw/roll) in small steps,
     /// and READ the live values off the on-screen HUD + the log, then report the numbers to bake into the
-    /// constants. SOAKFIX8 — BOTH axes now report a LOCAL pose (held = hand-local so its rotation tracks the
-    /// bone through turns; stump = CraftSpot-local): held -> HeldAxeLocalPos/Euler, stump -> StumpAxeLocalPos/Euler.
+    /// constants. SOAKFIX9 — the HELD axe now reports a SPLIT pose driven via its HeldAxeRig: POSITION is a
+    /// WORLD-space offsetFromHand (WORLD units — so a nudge step is a sensible ~2 cm, NOT a 267×-lossy-bone
+    /// metre-jump) and ROTATION is a HAND-RELATIVE relEuler (turns with the hand). The tool nudges the RIG's
+    /// fields (worldOffsetFromHand / relEuler), so dial == baked == in-motion: held -> HeldAxeWorldOffsetFromHand
+    /// / HeldAxeRelEuler. The STUMP axe is CraftSpot-local (unscaled, no bone trap): stump -> StumpAxeLocalPos/Euler.
     ///
     /// BUILD-GATED / INERT IN NORMAL PLAY (the hard requirement): the tool does NOTHING until the Sponsor
     /// TOGGLES it on with the debug key (F9). Until then it never reads gameplay input, never moves an axe,
@@ -18,13 +21,13 @@ namespace FarHorizon
     /// time (like the verify-capture siblings) so it ships, but stays asleep behind the toggle.
     ///
     /// TARGET FRAMES handled correctly:
-    ///   - HELD axe: parented to the right-hand bone. SOAKFIX8 — its serialized pose is now a HAND-LOCAL
-    ///     transform (localPosition + localRotation), so BOTH position AND rotation ride the bone in every
-    ///     facing (the prior world-fixed rotation could not survive a turn — the Sponsor's "points the same
-    ///     way on X always" bug). The tool nudges the axe's LOCAL transform directly (localPosition +
-    ///     localEulerAngles), which IS what serializes — so dial == baked == in-motion (no world-vs-local
-    ///     discrepancy, and the axe keeps tracking the hand through turns WHILE being dialed). It REPORTS
-    ///     localPos + localEuler, ready to paste into HeldAxeLocalPos / HeldAxeLocalEuler.
+    ///   - HELD axe: parented to the right-hand bone, but POSE-DRIVEN by HeldAxeRig (SOAKFIX9). The tool
+    ///     nudges the RIG's fields, NOT the transform: POSITION moves worldOffsetFromHand in WORLD units
+    ///     (~2 cm/click — NOT the 267×-lossy-bone metre jump soakfix8's localPosition nudge caused), and
+    ///     ROTATION moves relEuler (hand-relative, so the haft keeps turning with the hand WHILE dialed). The
+    ///     rig re-applies position+rotation every frame from those fields, so dial == baked == in-motion. It
+    ///     REPORTS offsetFromHand (world) + euler (hand-relative), ready to paste into
+    ///     HeldAxeWorldOffsetFromHand / HeldAxeRelEuler.
     ///   - STUMP axe: parented to the unscaled CraftSpot (world-1u); its serialized pose IS its LOCAL
     ///     transform (no bone-frame trap). The tool nudges localPosition/localEulerAngles directly and
     ///     reports them — exactly StumpAxeLocalPos / StumpAxeLocalEuler.
@@ -50,7 +53,8 @@ namespace FarHorizon
 
         private bool _active;
         private int _target;            // 0 = held, 1 = stump
-        private Transform _held, _stump;
+        private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
+        private Transform _stump;
         private GUIStyle _style, _hintStyle, _titleStyle;
 
         // Panel size (SOAKFIX6 — carries a purpose header + a "what this does" line + the controls).
@@ -102,14 +106,15 @@ namespace FarHorizon
                 LogCurrent();
             }
 
-            Transform t = Current();
-            if (t == null) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
+            // Bail if the current target isn't resolved (re-resolve on a cycle so a late-spawned axe is found).
+            bool haveTarget = _target == 0 ? _heldRig != null : _stump != null;
+            if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
             float rs = rotStep * StepMul();
             bool changed = false;
 
-            // POSITION nudges (held = WORLD; stump = LOCAL). Arrow keys = X/Z; PageUp/Down = Y.
+            // POSITION nudges. Arrow keys = X/Z; PageUp/Down = Y.
             Vector3 dp = Vector3.zero;
             if (Input.GetKeyDown(KeyCode.RightArrow)) dp.x += ps;
             if (Input.GetKeyDown(KeyCode.LeftArrow)) dp.x -= ps;
@@ -129,20 +134,27 @@ namespace FarHorizon
 
             if (dp != Vector3.zero || dr != Vector3.zero)
             {
-                // SOAKFIX8 — BOTH targets nudge their LOCAL transform (the held axe is now hand-LOCAL, like
-                // the stump). For the held axe this is the FIX: a local nudge rides the bone, so the axe keeps
-                // tracking the hand through turns WHILE being dialed (no world re-apply that pinned the
-                // rotation to a fixed heading — the Sponsor's "points the same way on X always" bug). The
-                // local transform IS exactly what serializes, so dial == baked == in-motion.
-                t.localPosition += dp;
-                t.localEulerAngles += dr;
+                if (_target == 0)
+                {
+                    // SOAKFIX9 — the HELD axe is nudged via its RIG, NOT its transform. POSITION moves the
+                    // rig's WORLD-space offsetFromHand (posStep 0.02 = ~2 cm/click; the bone's 267× lossy
+                    // scale never touches a world-unit field — the soakfix9 fix), and ROTATION moves the
+                    // hand-relative relEuler (the haft keeps turning with the hand WHILE dialed). The rig
+                    // re-applies position+rotation every frame from these fields, so dial == baked == in-motion.
+                    _heldRig.worldOffsetFromHand += dp;
+                    _heldRig.relEuler += dr;
+                }
+                else
+                {
+                    // STUMP axe: CraftSpot-local (unscaled, no bone trap) — nudge its LOCAL transform directly.
+                    _stump.localPosition += dp;
+                    _stump.localEulerAngles += dr;
+                }
                 changed = true;
             }
 
             if (changed) LogCurrent();
         }
-
-        private Transform Current() => _target == 0 ? _held : _stump;
 
         private float StepMul()
         {
@@ -153,9 +165,14 @@ namespace FarHorizon
 
         private void Resolve()
         {
-            _held = FindByName(HeldAxeName);
+            // SOAKFIX9 — resolve the held axe's RIG (the tool nudges its world-offset + relEuler fields, not
+            // the transform). The stump stays a plain transform (CraftSpot-local, no rig).
+            Transform held = FindByName(HeldAxeName);
+            _heldRig = held != null ? held.GetComponent<HeldAxeRig>() : null;
             _stump = FindByName(StumpAxeName);
-            if (_held == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName + "' not found");
+            if (held == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName + "' not found");
+            else if (_heldRig == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName +
+                "' has no HeldAxeRig — cannot nudge its world-offset/relEuler (soakfix9 driver missing)");
             if (_stump == null) Debug.LogWarning("[AxeNudgeTool] stump axe '" + StumpAxeName + "' not found");
         }
 
@@ -167,13 +184,15 @@ namespace FarHorizon
         }
 
         // Log the values in a copy-pasteable form (the Sponsor reads these off the log to bake into the
-        // constants). SOAKFIX8 — BOTH are now LOCAL pos + euler (the held axe is hand-LOCAL so it rides the
-        // bone through turns); paste held into HeldAxeLocalPos/Euler, stump into StumpAxeLocalPos/Euler.
+        // constants). SOAKFIX9 — the HELD axe reports its RIG's WORLD offsetFromHand + HAND-RELATIVE euler
+        // (paste into HeldAxeWorldOffsetFromHand / HeldAxeRelEuler); the STUMP reports its LOCAL pose
+        // (StumpAxeLocalPos/Euler). The held euler is NOT normalised-wrapped — relEuler accumulates as a raw
+        // hand-relative euler the rig feeds straight to Quaternion.Euler, so it must round-trip exactly.
         private void LogCurrent()
         {
-            if (_target == 0 && _held != null)
-                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeLocalPos=({_held.localPosition.x:F4}f,{_held.localPosition.y:F4}f,{_held.localPosition.z:F4}f)  " +
-                          $"HeldAxeLocalEuler=({Norm(_held.localEulerAngles.x):F1}f,{Norm(_held.localEulerAngles.y):F1}f,{Norm(_held.localEulerAngles.z):F1}f)");
+            if (_target == 0 && _heldRig != null)
+                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeWorldOffsetFromHand=({_heldRig.worldOffsetFromHand.x:F4}f,{_heldRig.worldOffsetFromHand.y:F4}f,{_heldRig.worldOffsetFromHand.z:F4}f)  " +
+                          $"HeldAxeRelEuler=({_heldRig.relEuler.x:F1}f,{_heldRig.relEuler.y:F1}f,{_heldRig.relEuler.z:F1}f)");
             else if (_target == 1 && _stump != null)
                 Debug.Log($"[AxeNudgeTool] STUMP StumpAxeLocalPos=({_stump.localPosition.x:F3}f,{_stump.localPosition.y:F3}f,{_stump.localPosition.z:F3}f)  " +
                           $"StumpAxeLocalEuler=({Norm(_stump.localEulerAngles.x):F1}f,{Norm(_stump.localEulerAngles.y):F1}f,{Norm(_stump.localEulerAngles.z):F1}f)");
@@ -208,11 +227,15 @@ namespace FarHorizon
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            string tgt = _target == 0 ? "HELD axe (in hand — local, tracks the hand)" : "STUMP axe (in block — local)";
+            string tgt = _target == 0
+                ? "HELD axe (in hand — WORLD offset + hand-relative angle, tracks the hand)"
+                : "STUMP axe (in block — local)";
             string vals;
-            if (_target == 0 && _held != null)
-                vals = $"localPos=({_held.localPosition.x:F4},{_held.localPosition.y:F4},{_held.localPosition.z:F4})  " +
-                       $"euler=({Norm(_held.localEulerAngles.x):F1},{Norm(_held.localEulerAngles.y):F1},{Norm(_held.localEulerAngles.z):F1})";
+            if (_target == 0 && _heldRig != null)
+                // SOAKFIX9 — WORLD offsetFromHand (sensible ~cm units) + HAND-RELATIVE euler. NOT a localPosition
+                // on the 267× bone (that made a 0.02 step = ~5 m — the bug this wave fixes).
+                vals = $"offsetFromHand=({_heldRig.worldOffsetFromHand.x:F4},{_heldRig.worldOffsetFromHand.y:F4},{_heldRig.worldOffsetFromHand.z:F4})  " +
+                       $"euler=({_heldRig.relEuler.x:F1},{_heldRig.relEuler.y:F1},{_heldRig.relEuler.z:F1})";
             else if (_target == 1 && _stump != null)
                 vals = $"localPos=({_stump.localPosition.x:F3},{_stump.localPosition.y:F3},{_stump.localPosition.z:F3})  " +
                        $"euler=({Norm(_stump.localEulerAngles.x):F1},{Norm(_stump.localEulerAngles.y):F1},{Norm(_stump.localEulerAngles.z):F1})";

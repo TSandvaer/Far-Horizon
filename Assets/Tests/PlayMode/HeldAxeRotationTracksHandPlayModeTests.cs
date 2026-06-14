@@ -7,24 +7,25 @@ using FarHorizon;
 namespace FarHorizon.PlayTests
 {
     /// <summary>
-    /// SOAKFIX8 regression guard for the held-axe ROTATION-TRACKS-HAND bug (ticket 86ca8ce6y).
+    /// SOAKFIX8 regression guard for the held-axe ROTATION-TRACKS-HAND fix (ticket 86ca8ce6y) — KEPT through
+    /// soakfix9 (which fixed POSITION; rotation was approved and is unchanged).
     ///
-    /// The Sponsor proved the bug: "the axe moves up and down as the hand moves, but it points the same way
-    /// on the x axis all the time." ROOT CAUSE — the held axe's ROTATION was pinned to a FIXED WORLD heading
-    /// (set via axe.transform.rotation after parenting, re-applied each frame by the F9 nudge tool). A fixed
-    /// world rotation CANNOT survive a TURN: when the castaway re-faces during a click-move, the hand bone's
-    /// world rotation changes but the axe's world rotation stayed pinned -> the haft kept pointing one way on
-    /// X regardless of facing. The POSITION followed the hand (offset-from-hand) so the axe still bobbed up/
-    /// down — exactly the split symptom.
+    /// The Sponsor proved the rotation bug: "the axe moves up and down as the hand moves, but it points the
+    /// same way on the x axis all the time." ROOT CAUSE — the held axe's ROTATION was pinned to a FIXED WORLD
+    /// heading. A fixed world rotation CANNOT survive a TURN: when the castaway re-faces during a click-move,
+    /// the hand bone's world rotation changes but the axe's stayed pinned -> the haft kept pointing one way on
+    /// X regardless of facing.
     ///
-    /// FIX — the held axe is posed HAND-RELATIVE (a stable localPosition + localRotation as a child of the
-    /// right-hand bone), so BOTH position AND rotation ride the bone in every facing via the hierarchy.
+    /// FIX (soakfix8, KEPT) — the held axe's rotation is HAND-RELATIVE: HeldAxeRig drives
+    /// axe.rotation = hand.rotation * Euler(relEuler) every frame, so the haft turns WITH the hand. SOAKFIX9
+    /// split POSITION onto a WORLD-space offset (see HeldAxePositionNudgePlayModeTests) but the ROTATION
+    /// channel is identical, so this invariant must still hold under the actual shipped HeldAxeRig driver.
     ///
     /// THE BUG CLASS (not just the instance): the load-bearing invariant is that the axe's rotation RELATIVE
-    /// to the hand bone (Inverse(hand.rotation) * axe.rotation) is INVARIANT across facings. A world-fixed
-    /// rotation makes that relative rotation VARY as the hand turns (the bug); a hand-local child rotation
-    /// keeps it constant (the fix). We rotate the hand through several distinct facings and assert the
-    /// relative rotation does not drift — which a regression to world-space posing would fail.
+    /// to the hand bone (Inverse(hand.rotation) * axe.rotation) is INVARIANT across facings, AND the axe's
+    /// WORLD rotation actually CHANGES as the hand turns (position-only following with a frozen rotation is
+    /// also the bug). This test runs the REAL HeldAxeRig driver (not a hand-tuned hierarchy) so a regression
+    /// in the rig's rotation channel reds here.
     /// </summary>
     public class HeldAxeRotationTracksHandPlayModeTests
     {
@@ -35,9 +36,9 @@ namespace FarHorizon.PlayTests
         [SetUp]
         public void SetUp()
         {
-            // A character root -> a hand bone -> the held axe parented under it, posed HAND-LOCAL (the fix).
-            // The bone carries a non-identity local rotation + the chibi-style lossy scale, so the test
-            // exercises a realistic rotated/scaled bone frame (the same trap class as the real rig).
+            // A character root -> a hand bone -> the held axe driven by the SHIPPED HeldAxeRig. The bone
+            // carries a non-identity local rotation + the chibi-style 267× lossy scale, so the test exercises
+            // the same rotated/scaled bone frame as the real rig (the §FBX trap class).
             _root = new GameObject("CharacterRoot");
             var handGo = new GameObject("RightHand_010");
             handGo.transform.SetParent(_root.transform, false);
@@ -48,11 +49,13 @@ namespace FarHorizon.PlayTests
 
             var axeGo = new GameObject("HeroAxe");
             axeGo.transform.SetParent(_hand, false);
-            // The FIX's pose shape: a stable hand-LOCAL position + rotation (the Sponsor's dialed grip,
-            // converted to hand-local at authoring — here we just use representative non-trivial values).
-            axeGo.transform.localPosition = new Vector3(0.002f, -0.0006f, 0.0004f);
-            axeGo.transform.localRotation = Quaternion.Euler(6.5f, -187.5f, 93.3f);
             axeGo.transform.localScale = Vector3.one * 0.0040f;
+            // The SHIPPED driver: world-offset position + hand-relative rotation (representative non-trivial
+            // values). HeldAxeRig.LateUpdate re-applies both each frame off these fields.
+            var rig = axeGo.AddComponent<HeldAxeRig>();
+            rig.hand = _hand;
+            rig.worldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
+            rig.relEuler = new Vector3(4.1f, 95.8f, -56.1f);
             _axe = axeGo.transform;
         }
 
