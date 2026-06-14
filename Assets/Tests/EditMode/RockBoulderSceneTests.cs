@@ -99,8 +99,13 @@ namespace FarHorizon.EditTests
                 "every rock vertex must carry a vertex COLOUR (the per-facet value the stone shader multiplies)");
             float lo = float.MaxValue, hi = float.MinValue;
             foreach (var c in cols) { float v = c.r; lo = Mathf.Min(lo, v); hi = Mathf.Max(hi, v); }
-            Assert.Greater(hi - lo, 0.22f,
-                $"the rock must have FACET VALUE CONTRAST (range {lo:F2}..{hi:F2}) — light tops, dark sides; a " +
+            // The baked value floor was deliberately LIFTED to 0.80 (so side facets never crush to BLACK — the
+            // first capture's shard bug), which narrows the baked range to ~0.18; the bulk of the stone's
+            // facet-to-facet contrast now comes from the FLAT-SHADING LIGHTING (each facet's own N·L), which
+            // the captures confirm reads strongly. So this guard only needs to prove the baked value is NOT
+            // flat (light tops vs darker sides), not a specific magnitude.
+            Assert.Greater(hi - lo, 0.12f,
+                $"the rock must have FACET VALUE CONTRAST (range {lo:F2}..{hi:F2}) — light tops, darker sides; a " +
                 "flat single-value mesh (range ~0) reads as a smooth MOUND, not carved stone (86ca8m5zu)");
             Assert.LessOrEqual(hi, 1.05f, "facet value must stay sane (no HDR blow-out before the warm-grey tint)");
         }

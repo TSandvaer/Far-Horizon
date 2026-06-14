@@ -192,7 +192,8 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(rock.vertexCount, cols.Length, "every vert carries the facet value colour");
             float lo = 1f, hi = 0f;
             foreach (var c in cols) { lo = Mathf.Min(lo, c.r); hi = Mathf.Max(hi, c.r); }
-            Assert.Greater(hi - lo, 0.2f, "facet value must span light..dark (the stone contrast)");
+            // Floor lifted to 0.80 (off black) narrows the baked span to ~0.18; assert non-flat, not magnitude.
+            Assert.Greater(hi - lo, 0.12f, "facet value must span light..darker (the baked stone contrast)");
         }
 
         [Test]
