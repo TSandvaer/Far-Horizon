@@ -75,15 +75,25 @@ namespace FarHorizon.EditorTools
         // saturated (higher G+B, B>G slightly, low R) makes it survive all three and land visibly teal in
         // the SHIPPED frame. Still sub-1.0 every channel (HDR-clamp-safe — verified against the post stack
         // in the shipped seaward capture, not just the editor).
-        // Pushed BRIGHTER again (drew/ocean-camera-fix iter): once the beach-reshape made the sea
-        // visible, the shipped capture showed it landing DARK/desaturated (~(48,63,70)) — the
-        // LowPolyVertexColor shader lights the flat-up water by ndotl*warmSun (~0.74) + warm SH ambient,
-        // which dims + warm-shifts a mid-value teal. Working back from the post-light/post-fog target
-        // (a bright toy teal ~0.3/0.65/0.75 in-frame), the ALBEDO must start near the top of the sub-1.0
-        // band. High G+B, low R, B>=G keeps it a bright sunlit teal, not navy. Still sub-1.0 every channel
-        // (verified against the shipped seaward capture under the full Zone-D post stack).
-        public static readonly Color WaterShallow = new Color(0.22f, 0.86f, 0.95f); // bright sunlit teal shallows
-        public static readonly Color WaterDeep    = new Color(0.16f, 0.72f, 0.86f); // saturated seaward teal
+        // NEAR-BAND SATURATION LIFT (drew/ocean-beach-soakfix2, 2026-06-13). Sponsor soaked main and
+        // flagged the NEAR band as a PALE SKY-CYAN, not a believable teal sea. Pixel-sampled the shipped
+        // seaward capture (ci-out/sea-caps/sea_seaward.png, stamp 3a548a7) to confirm + diagnose:
+        //   near-band albedo (56,219,242)  ->  on-frame (148,164,145)   [a pale grey-green]
+        //   teal saturation G+B-2R:  albedo 349  ->  on-frame 13  (~96% of the chroma destroyed)
+        // Per-channel the post stack pushes R UP ~+90 (warm directional key * ndotl + warm SH ambient +
+        // warm fog 0.80/0.80/0.74 + warm grade), and crushes B DOWN ~-97. The PRIOR fix chased this by
+        // pushing the albedo BRIGHTER + more B-dominant (0.22/0.86/0.95) — exactly backwards: a
+        // TOP-of-band B-dominant cyan is what BLOOMS to pale grey under the Zone-D bloom + warm grade, so
+        // brighter made it MORE washed-out, not more teal. The lever is the OPPOSITE: DEEPEN (pull the
+        // value down off the top of the band so bloom adds rather than blows out) + SATURATE (lower R hard
+        // so the warm push lands controlled, keep G/B mid-high with B>=G so the warm-B-crush still leaves
+        // a clean GREEN-LEANING teal). Tuned empirically against the shipped seaward capture (N>=2 builds,
+        // pixel-sampled the near band each time) to land on-frame ~(70,160,165) — the saturated mid-value
+        // teal the inspiration/21h16_52 lake + 21h16_13 river read at, NOT a pale near-white cyan. Still
+        // sub-1.0 every channel (HDR-clamp-safe). The FAR band (WaterDeep) + foam are unchanged — this is
+        // a near-band saturation lift, not a re-tune of the whole sea (AC1 scope).
+        public static readonly Color WaterShallow = new Color(0.10f, 0.62f, 0.66f); // deep saturated near-shore teal
+        public static readonly Color WaterDeep    = new Color(0.10f, 0.50f, 0.60f); // deeper seaward teal-blue (far band)
         // Foam edge line baked into the beach mesh's seaward-most rows (Uma §2). Warm off-white, sub-1.0
         // (NOT pure white — would bloom). Exposed for the scene-presence test's color-pin check.
         public static readonly Color FoamEdge     = new Color(0.91f, 0.89f, 0.82f); // #E8E2D0 warm foam
@@ -448,9 +458,9 @@ namespace FarHorizon.EditorTools
         const float WaterSeawardDepth = 220f; // extends ~220u seaward of the shore -> lost in fog
         // Near edge sits a touch INLAND of the Zone-D terrain shore (shoreZ=-12) so the beach's faceted
         // edge dips INTO the water with no gap seam, but SEAWARD of the trimmed TestGround placeholder
-        // (SeawardGroundZ=-10) so the flat slab never overhangs + occludes the sea (the diagnostic's
-        // occlusion finding — drew/beach-water, 2026-06-13). With overlap 1.5, near edge = shoreZ+1.5 =
-        // -10.5: just seaward of TestGround's -10 edge, just inland of the terrain shore. No surface gap.
+        // (SeawardGroundZ=-10) so the flat slab never overhangs + occludes the sea. With overlap 1.5,
+        // near edge = shoreZ+1.5 = -10.5: just seaward of TestGround's -10 edge, just inland of the
+        // terrain shore. No surface gap.
         const float WaterInlandOverlap = 1.5f;
         const int WaterSegX = 24, WaterSegZ = 40; // enough verts for a smooth gradient + swell
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
@@ -503,14 +513,31 @@ namespace FarHorizon.EditorTools
                 cols[i] = c;
             }
 
+            // *** THE ROOT-CAUSE FIX (drew/ocean-beach-soakfix2, 2026-06-13) ***
+            // The beach ocean was INVISIBLE in the seaward gameplay view across SIX shipped builds — every
+            // prior "fix" (trim TestGround, slope the beach, deepen the dip, re-pitch the cam, pull water
+            // inland) measured ZERO water px on the magenta-diff. The ticket framed it as depth-occlusion
+            // by the ground. The -seaWaterOnly probe (hide BOTH ground renderers) DISPROVED that: the sea
+            // rendered zero px even with nothing in front of it. The real cause: this water grid lays out
+            // nearZ(-10.5) -> farZ(-232), i.e. DECREASING world Z as the grid-z index increases — the
+            // OPPOSITE Z direction to the terrain mesh (shoreZ -> inlandFarZ, increasing). The terrain's
+            // triangle index order therefore winds the WATER faces DOWNWARD -> RecalculateNormals produces
+            // -Y normals -> the shader's default Cull Back culls every water triangle from any camera
+            // looking DOWN at the sea (the gameplay orbit). FIX: reverse the triangle winding here so the
+            // faces (and averaged normals) point UP (+Y) -> the sea renders for the above-camera. Verified
+            // by the magenta-diff: 0 px -> 58k px (6.4% of frame, a clear band) the instant the winding
+            // flipped, with normal0 going (0,-1,0) -> (0,+1,0). Guarded by WaterFacesUpTests (the
+            // silhouette/normal-direction class guard that would have caught this on day one).
             var tris = new int[WaterSegX * WaterSegZ * 6];
             int ti = 0;
             for (int z = 0; z < WaterSegZ; z++)
             for (int x = 0; x < WaterSegX; x++)
             {
                 int i = z * (WaterSegX + 1) + x;
-                tris[ti++] = i; tris[ti++] = i + WaterSegX + 1; tris[ti++] = i + 1;
-                tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 1; tris[ti++] = i + WaterSegX + 2;
+                // Reversed winding (vs the terrain) — the water grid runs in -Z so this order yields
+                // UP-facing triangles. Keep both triangles consistent so RecalculateNormals averages +Y.
+                tris[ti++] = i; tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 1;
+                tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 2; tris[ti++] = i + WaterSegX + 1;
             }
 
             var mesh = new Mesh { name = name + "_mesh" };

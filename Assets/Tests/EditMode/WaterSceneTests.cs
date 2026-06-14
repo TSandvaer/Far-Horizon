@@ -184,12 +184,15 @@ namespace FarHorizon.EditTests
         [Test]
         public void Ocean_NotOccludedByFlatGround_SeawardSlabTrimmed()
         {
-            // THE visibility bug the shipped-build capture exposed (drew/beach-water, 2026-06-13): the
-            // flat TestGround placeholder spanned Z[-30..+30] at Y=0 and physically OCCLUDED the ocean
-            // (water sits at Y-0.20 underneath it), so the seaward orbit saw sand, never sea. The fix
-            // trims TestGround's seaward edge to just past the campfire loop spot so the slab no longer
-            // overhangs the water. Guard it: the flat ground's seaward edge must NOT extend out over the
-            // ocean's near band. A regression that restores the Z-30 slab re-buries the sea — this fails.
+            // HYGIENE check (NOT the visibility guard — see the correction below). This asserts the flat
+            // TestGround placeholder's seaward edge does not overhang the ocean's near band.
+            //
+            // IMPORTANT CORRECTION (drew/ocean-beach-soakfix2, 2026-06-13): this test PASSED while the sea
+            // stayed completely invisible across six builds — proving the seaward-slab-trim was NOT the
+            // real fix. The actual root cause was the water mesh's INVERTED winding (faces pointed DOWN ->
+            // Cull Back hid the sea); see WaterFacesUpTests for THE guard. This Z-edge check is kept as a
+            // cheap geometry-hygiene assertion (don't re-grow the slab over the water) but it is explicitly
+            // NOT the silhouette/visibility guard — a Z-edge relationship cannot prove on-frame visibility.
             var testGround = GameObject.Find("TestGround");
             Assert.IsNotNull(testGround, "the flat test ground (TestGround) must exist (NavMesh + loop surface)");
             var tgMin = testGround.GetComponent<MeshRenderer>().bounds.min.z;
@@ -201,6 +204,39 @@ namespace FarHorizon.EditTests
                 $"the flat TestGround seaward edge (z={tgMin:0.0}) must NOT overhang the ocean's near edge " +
                 $"(z={waterNear:0.0}) — an overhanging opaque slab occludes the water from the seaward orbit " +
                 "(the shipped-capture occlusion bug). It must stop at/inland of where the sea begins.");
+        }
+
+        [Test]
+        public void TestGround_IsCollisionProxyOnly_RendererDisabled_NoGreySlab()
+        {
+            // REGRESSION GUARD for soak #40 (drew/ocean-beach-soakfix2, stamp 31ce95c): the Sponsor saw a
+            // "gray slab on the beach" — the flat Y=0 TestGround placeholder (muted moss-grey 0.42,0.46,0.40)
+            // poking ABOVE the dipping sandy Zone-D terrain across the seaward foreshore band (Z ~ -10..+3).
+            // The fix keeps TestGround as a COLLISION/NAVMESH proxy (collider on the Ground layer, so the
+            // baked NavMesh + click-raycast are unchanged) but DISABLES its MeshRenderer so the grey slab no
+            // longer draws — the sandy terrain is the only thing painted on the beach. Re-enabling the
+            // renderer (or dropping the collider) re-buries the sand under grey / kills click-move; either
+            // regression fails here in headless CI before it ships.
+            var testGround = GameObject.Find("TestGround");
+            Assert.IsNotNull(testGround, "TestGround must exist — it is the NavMesh + click-move collision proxy");
+
+            // Load-bearing role PRESERVED: collider on the Ground layer (feeds the NavMesh bake + click raycast).
+            var col = testGround.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "TestGround must keep its MeshCollider (NavMesh bake + click-move raycast)");
+            Assert.IsNotNull(col.sharedMesh, "the collider mesh must be serialized (no collider mesh = dead NavMesh/click)");
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            if (groundLayer >= 0)
+                Assert.AreEqual(groundLayer, testGround.layer,
+                    "TestGround must stay on the Ground layer (the NavMesh layerMask + click groundMask depend on it)");
+
+            // THE grey-slab guard: the renderer must NOT draw. The component is kept (so .bounds still
+            // resolves for the occlusion-hygiene test above) but disabled — the sandy terrain renders the beach.
+            var mr = testGround.GetComponent<MeshRenderer>();
+            Assert.IsNotNull(mr, "the MeshRenderer is kept (disabled) so .bounds stays resolvable for the occlusion test");
+            Assert.IsFalse(mr.enabled,
+                "the TestGround MeshRenderer MUST be DISABLED — an enabled flat grey placeholder slab pokes " +
+                "above the dipping sandy beach (Z ~ -10..+3) and reads as a 'gray slab on the beach' (soak #40). " +
+                "The sandy Zone-D terrain is the visible ground; this is a collision/NavMesh proxy only.");
         }
 
         [Test]
