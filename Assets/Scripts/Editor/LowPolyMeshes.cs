@@ -423,6 +423,129 @@ namespace FarHorizon.EditorTools
             return Finish(verts, baseTris, "LP_Sphere");
         }
 
+        // A FACETED STONE ROCK (86ca8m5zu SOAKFIX2 — the "doesn't read as a rock" redo). Both prior
+        // procedural attempts FAILED the same way and the Sponsor rejected both: subdiv-0 FacetedSphere
+        // = a bare octahedron = an angular dark SPIKE; subdiv-2 FacetedSphere = a smooth ball whose
+        // RecalculateNormals weld AVERAGES every facet into a continuous gradient -> reads as a soft dark
+        // MOUND, not stone. The board reference (inspiration/2026-06-12_21h10_44.png, bottom row) shows
+        // what stone actually IS: CHUNKY ANGULAR polygonal chunks with DISTINCT FLAT planes, each facet
+        // catching the key light at a DIFFERENT value (light top faces, dark side faces). That hard
+        // per-facet value contrast is the entire "reads as rock" signal — and a smooth-welded sphere
+        // destroys it by construction. (Blender-MCP sourcing of a low-poly rock asset was the dispatch's
+        // PRIMARY route but the MCP was unreachable — no Blender app / no :9876 listener — so this is the
+        // FALLBACK: a reworked ANGULAR FLAT-SHADED procedural mesh, NOT a smooth sphere, NOT a subdiv-0
+        // spike.)
+        //
+        // Construction:
+        //   (1) Start from a subdiv-1 octahedron (18 unique verts / 32 faces) — enough facets to read
+        //       chunky (not an 8-face spike) but coarse enough to stay low-poly-readable.
+        //   (2) ANISOTROPIC, IRREGULAR displacement per unique vert: different jitter per axis + a few
+        //       verts pulled IN to carve flat planes/notches, so the silhouette is a lumpy angular ROCK,
+        //       not a ball. Squashed a touch in Y but kept CHUNKY (taller than a flat mound; minYScale
+        //       ~0.7) — a boulder sits, it doesn't pancake.
+        //   (3) FLAT SHADING: every triangle gets its OWN 3 verts with the FACE normal (NOT welded, NOT
+        //       RecalculateNormals-averaged) — so each facet is a distinct flat stone plane that catches
+        //       light on its own. This is the load-bearing difference from FacetedSphere: flat per-face
+        //       planes read as carved stone; smooth-averaged normals read as a soft mound.
+        //   (4) Per-face VERTEX-COLOR value step: top-facing faces get a light value, downward/side faces
+        //       a darker value, baked into vertex colour so a single vertex-colour material renders the
+        //       stone's facet-to-facet value contrast (multiplied onto the warm-grey base in the caller).
+        //
+        //   radius   — rough half-extent of the rock
+        //   jitter   — angular lumpiness (0.30-0.45 reads chunky-irregular; higher = more jagged)
+        //   seed     — deterministic shape (the baked scene must be reproducible on rebase-regenerate)
+        public static Mesh FacetedRock(float radius, float jitter, int seed)
+        {
+            var baseVerts = new List<Vector3>
+            {
+                new Vector3(0,  1, 0), new Vector3(0, -1, 0),
+                new Vector3( 1, 0, 0), new Vector3(-1, 0, 0),
+                new Vector3(0, 0,  1), new Vector3(0, 0, -1),
+            };
+            var baseTris = new List<int>
+            {
+                0,2,4, 0,4,3, 0,3,5, 0,5,2,
+                1,4,2, 1,3,4, 1,5,3, 1,2,5,
+            };
+            // ONE subdivision: 8 faces -> 32 faces, 6 -> 18 verts. Chunky, not a spike, not a smooth ball.
+            for (int s = 0; s < 1; s++)
+            {
+                var newTris = new List<int>();
+                var midCache = new Dictionary<long, int>();
+                for (int t = 0; t < baseTris.Count; t += 3)
+                {
+                    int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                    int ab = Midpoint(baseVerts, midCache, a, b);
+                    int bc = Midpoint(baseVerts, midCache, b, c);
+                    int ca = Midpoint(baseVerts, midCache, c, a);
+                    newTris.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+                }
+                baseTris = newTris;
+            }
+
+            var rnd = new System.Random(seed);
+
+            // Displace each UNIQUE vert ANISOTROPICALLY so the rock is an irregular angular lump, not a
+            // ball. A per-axis scale (different x/y/z stretch) + a per-vert radial jitter + an occasional
+            // PULL-IN (carve a flat notch/plane) breaks the spherical silhouette into stone-like chunks.
+            // Y is squashed but kept chunky (a boulder, not a pancake).
+            float sx = 0.85f + (float)rnd.NextDouble() * 0.55f; // 0.85..1.40
+            float sz = 0.85f + (float)rnd.NextDouble() * 0.55f;
+            float sy = 0.70f + (float)rnd.NextDouble() * 0.30f; // 0.70..1.00 — squat but NOT a flat mound
+            var displaced = new Vector3[baseVerts.Count];
+            for (int i = 0; i < baseVerts.Count; i++)
+            {
+                Vector3 n = baseVerts[i].normalized;
+                // radial jitter: each vert in/out by up to +/- jitter*0.5 of the radius
+                float rj = 1f + ((float)rnd.NextDouble() - 0.5f) * jitter;
+                // occasional deep pull-in to carve a flat face/notch (a chunk knocked off the rock)
+                if (rnd.NextDouble() < 0.28) rj *= 0.62f + (float)rnd.NextDouble() * 0.18f;
+                Vector3 p = new Vector3(n.x * sx, n.y * sy, n.z * sz) * (radius * rj);
+                // small absolute per-axis wobble so even same-radius verts don't sit on a clean ellipsoid
+                p += new Vector3(((float)rnd.NextDouble() - 0.5f),
+                                 ((float)rnd.NextDouble() - 0.5f) * 0.5f,
+                                 ((float)rnd.NextDouble() - 0.5f)) * (radius * jitter * 0.35f);
+                displaced[i] = p;
+            }
+
+            // FLAT SHADING: emit every triangle with its OWN 3 verts + the face normal, and bake a per-face
+            // value into vertex colour (light for up-facing facets, dark for side/down) — the facet-to-facet
+            // value contrast that makes it read as carved stone.
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            for (int t = 0; t < baseTris.Count; t += 3)
+            {
+                Vector3 v0 = displaced[baseTris[t]];
+                Vector3 v1 = displaced[baseTris[t + 1]];
+                Vector3 v2 = displaced[baseTris[t + 2]];
+                Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+                if (fn.sqrMagnitude < 1e-10f) continue; // skip degenerate (a fully collapsed notch)
+                fn.Normalize();
+                // up-facing facets read light, side/down facets dark — a hard value step per plane.
+                float up = Mathf.Clamp01(fn.y * 0.5f + 0.5f);       // 0 (down) .. 1 (up)
+                float val = Mathf.Lerp(0.62f, 1.0f, up);            // dark sides .. light tops
+                val += ((float)rnd.NextDouble() - 0.5f) * 0.06f;    // tiny per-face break so planes differ
+                val = Mathf.Clamp(val, 0.5f, 1.05f);
+                Color fc = new Color(val, val, val, 1f);
+
+                verts.Add(v0); verts.Add(v1); verts.Add(v2);
+                normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                cols.Add(fc); cols.Add(fc); cols.Add(fc);
+            }
+            // Every face owns its 3 verts (flat shading), so the triangle list is simply sequential.
+            var tris = new List<int>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tris.Add(i);
+
+            var mesh = new Mesh { name = "LP_Rock" };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals);   // EXPLICIT flat face normals — do NOT RecalculateNormals (would re-smooth)
+            mesh.SetColors(cols);       // per-facet value contrast (stone read)
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // A BLOB CANOPY (board-v2 tree language, ticket 86ca8ce7j) — a CLUSTER of a few overlapping
         // faceted spheroids, NOT a single smooth dome. Per inspiration/2026-06-12_21h11_03.png +
         // 21h10_44 + style-guide-v2 §4: each tree canopy is several low-poly blobs welded into one

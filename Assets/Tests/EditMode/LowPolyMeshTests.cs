@@ -169,5 +169,40 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(1f, normals[i].magnitude, 0.05f,
                     $"trunk vertex {i} normal must be ~unit length");
         }
+
+        // ---- FacetedRock: FLAT-shaded angular stone (86ca8m5zu v2 — the redo) ----
+
+        [Test]
+        public void FacetedRock_IsFlatShaded_UnweldedPerFace()
+        {
+            // Unlike FacetedSphere (welded, smooth), FacetedRock emits every face with its OWN 3 verts so
+            // each facet is a distinct flat plane (the carved-stone read). verts == tris*3.
+            var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: 7);
+            int tris = rock.triangles.Length / 3;
+            Assert.AreEqual(tris * 3, rock.vertexCount, "FacetedRock must be flat-shaded (verts == tris*3)");
+            Assert.Greater(tris, 20, "FacetedRock must have a chunky facet count (subdiv-1 base ~32 faces)");
+        }
+
+        [Test]
+        public void FacetedRock_CarriesPerFacetValueColour()
+        {
+            // The per-facet value (light tops / dark sides) is baked into vertex colour for the stone read.
+            var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: 8);
+            var cols = rock.colors;
+            Assert.AreEqual(rock.vertexCount, cols.Length, "every vert carries the facet value colour");
+            float lo = 1f, hi = 0f;
+            foreach (var c in cols) { lo = Mathf.Min(lo, c.r); hi = Mathf.Max(hi, c.r); }
+            Assert.Greater(hi - lo, 0.2f, "facet value must span light..dark (the stone contrast)");
+        }
+
+        [Test]
+        public void FacetedRock_NormalsAreUnitLength_NoDegenerates()
+        {
+            var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: 11);
+            var n = rock.normals;
+            for (int i = 0; i < n.Length; i++)
+                Assert.AreEqual(1f, n[i].magnitude, 0.05f,
+                    $"FacetedRock normal {i} must be ~unit length (a degenerate normal shades the stone dark)");
+        }
     }
 }
