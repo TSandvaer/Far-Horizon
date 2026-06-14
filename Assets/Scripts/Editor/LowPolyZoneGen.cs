@@ -41,7 +41,14 @@ namespace FarHorizon.EditorTools
         static readonly Color GrassLo = new Color(0.30f, 0.48f, 0.20f); // mid leaf green (more saturated)
         static readonly Color GrassHi = new Color(0.48f, 0.64f, 0.28f); // sunlit grass
         static readonly Color GrassRise = new Color(0.38f, 0.56f, 0.24f); // meadow rise
-        static readonly Color RockCol = new Color(0.55f, 0.52f, 0.47f);  // warm grey stone
+        // ROCK-AS-BOULDER soak-fix (86ca8m5zu, Sponsor soak 5f7e7ba: "items sticking up... all over").
+        // The old warm-grey RockCol (0.55,0.52,0.47) silhouetted DARK under the Zone-D warm fog + grade at
+        // small scatter size — a grey-blob spike read. Lifted to a warmer, LIGHTER sun-bleached stone so the
+        // boulder reads as warm rock catching the key, not a dark shard: R>G>B warm lean, value pulled up so
+        // it sits bright against the warm fog (0.80,0.80,0.74) instead of crushing to a dark silhouette.
+        // Still sub-1.0 / HDR-clamp-safe (the per-instance *0.85..1.15 jitter in BuildRock keeps the top of
+        // the band under 1.0). The board-v2 grey rocks (21h10_44) read as light warm stone, not charcoal.
+        static readonly Color RockCol = new Color(0.66f, 0.62f, 0.55f);  // warm light stone (was .55/.52/.47 — dark-silhouette)
         static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
         static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow (legacy)
         static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit (legacy)
@@ -322,14 +329,33 @@ namespace FarHorizon.EditorTools
                     rnd, true);
             }
 
-            // Rocks — both the beach (near shore) and the field. Smaller near shore.
-            int rocks = Mathf.RoundToInt(22f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
-            for (int i = 0; i < rocks; i++)
+            // Rocks — THINNED + CLUSTERED soak-fix (86ca8m5zu, Sponsor: "they are all over"). The old loop
+            // sprinkled ~22 rocks UNIFORMLY across the whole beach+field (a random x,z each) → an even
+            // "all over" speckle. Replace with a FEW natural CLUSTERS (rock outcrops) placed inland, each
+            // dropping 2-4 boulders in a tight radius, plus a SPAWN EXCLUSION so the area around the locked
+            // spawn (0,0,6) stays clear — the rocks now read as a handful of deliberate outcrops, not clutter.
+            //   ~22-66 uniform  ->  ~5 clusters * 2-4 each  =  ~10-20 rocks, grouped not sprinkled.
+            int rockClusters = Mathf.RoundToInt(3f * Mathf.Clamp((maxX - minX) / 43f, 1f, 1.8f));
+            // Outcrops live in the FIELD band (inland of the spawn), so the spawn beach foreground reads clean
+            // and the boulders sit on grass where the board (21h10_44) shows them — not scattered on the sand.
+            float rockBandZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.42f); // start of the rock band (inland of spawn)
+            for (int c = 0; c < rockClusters; c++)
             {
-                float x = Mathf.Lerp(minX + 1.5f, maxX - 1.5f, (float)rnd.NextDouble());
-                float z = Mathf.Lerp(shoreZ + 1.5f, inlandFarZ - 2f, (float)rnd.NextDouble());
-                float scale = 0.4f + (float)rnd.NextDouble() * 0.7f;
-                BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+                float cxp = Mathf.Lerp(minX + 4f, maxX - 4f, (float)rnd.NextDouble());
+                float czp = Mathf.Lerp(rockBandZ, inlandFarZ - 3f, (float)rnd.NextDouble());
+                // Spawn-clear: skip any cluster centre that lands near the spawn (0,0,6) so spawn stays open.
+                if (Mathf.Abs(cxp) < 7f && czp < 11f) continue;
+                int n = 2 + rnd.Next(0, 3); // 2-4 boulders per outcrop
+                for (int i = 0; i < n; i++)
+                {
+                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.2f; // tight cluster radius
+                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.2f;
+                    if (x < minX + 1.5f || x > maxX - 1.5f) continue;
+                    // A range of sizes per outcrop (a couple bigger anchor boulders + smaller ones) reads
+                    // as a natural rock pile, not identical pebbles.
+                    float scale = 0.5f + (float)rnd.NextDouble() * 0.8f;
+                    BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+                }
             }
 
             // Grass clumps — low spiky low-poly tufts, dense in the field, sparse toward the shore.
@@ -401,12 +427,20 @@ namespace FarHorizon.EditorTools
             var rock = new GameObject("LP_Rock");
             rock.transform.SetParent(parent.transform, false);
             rock.transform.position = at;
+            // ROUNDED BOULDER soak-fix (86ca8m5zu): the old (0.6,0) octahedron was an 8-FACE spike; combined
+            // with a Y-squash down to 0.6x and 0.30 jitter it read as a dark ANGULAR SHARD "sticking up", not
+            // a boulder. Fix the SILHOUETTE: a fuller, less-extreme Y range (0.78..1.0, never thin) so the
+            // boulder sits squat/rounded rather than pointing up, and a gentler tilt (was up to 20deg, now
+            // 12deg) so no facet apex spikes skyward.
             rock.transform.rotation = Quaternion.Euler(
-                (float)rnd.NextDouble() * 20f, (float)rnd.NextDouble() * 360f, (float)rnd.NextDouble() * 20f);
-            rock.transform.localScale = new Vector3(scale, scale * (0.6f + (float)rnd.NextDouble() * 0.4f), scale);
+                (float)rnd.NextDouble() * 12f, (float)rnd.NextDouble() * 360f, (float)rnd.NextDouble() * 12f);
+            rock.transform.localScale = new Vector3(scale, scale * (0.78f + (float)rnd.NextDouble() * 0.22f), scale);
+            // subdiv 0 -> 2 ROUNDS the octahedron (8 faces -> 128) so the silhouette is a faceted BOULDER, not
+            // a pointy shard; jitter 0.30 -> 0.14 keeps it organic-lumpy WITHOUT the deep dents/spikes that
+            // made it read angular. Stays low-poly/faceted (board v2) — just rounded, not pointed.
             MakeMeshObject(rock, "RockMesh",
-                LowPolyMeshes.FacetedSphere(0.6f, 0, jitter: 0.30f, seed: rnd.Next()),
-                MakeFlatColorMat(RockCol * (0.85f + (float)rnd.NextDouble() * 0.3f), "LPRockMat"));
+                LowPolyMeshes.FacetedSphere(0.6f, 2, jitter: 0.14f, seed: rnd.Next()),
+                MakeFlatColorMat(RockCol * (0.92f + (float)rnd.NextDouble() * 0.16f), "LPRockMat"));
         }
 
         // Grass tufts (the iter-8 dark-shard FIX lives in LowPolyMeshes.GrassClump — up-biased normals

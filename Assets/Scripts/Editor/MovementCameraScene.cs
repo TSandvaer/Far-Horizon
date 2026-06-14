@@ -202,6 +202,12 @@ namespace FarHorizon.EditorTools
             // it). Inert unless launched with -verifySea. Sibling of the movement/craft/chop/loop captures.
             WireSeaVerifyCapture();
 
+            // Wire the verification-only shipped-build ROCK capture (86ca8m5zu — the boulder soak-fix). The
+            // default orbit frames the SPAWN; the rocks live as outcrops in the FIELD band, so this drives a
+            // multi-angle orbit onto the outcrop centroid in the BUILT exe so the boulders are judged from
+            // gameplay distance (not a hero close-up). Inert unless launched with -verifyRock.
+            WireRockVerifyCapture();
+
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -1356,6 +1362,22 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<SeaVerifyCapture>() == null)
                 bootGo.AddComponent<SeaVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the verification-only ROCK capture (86ca8m5zu) onto the Boot object so it SERIALIZES into
+        // Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise). Inert
+        // unless launched with -verifyRock; never affects a normal play/boot/soak.
+        private static void WireRockVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — rock-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<RockVerifyCapture>() == null)
+                bootGo.AddComponent<RockVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 
