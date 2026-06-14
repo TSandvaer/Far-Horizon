@@ -207,6 +207,39 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void TestGround_IsCollisionProxyOnly_RendererDisabled_NoGreySlab()
+        {
+            // REGRESSION GUARD for soak #40 (drew/ocean-beach-soakfix2, stamp 31ce95c): the Sponsor saw a
+            // "gray slab on the beach" — the flat Y=0 TestGround placeholder (muted moss-grey 0.42,0.46,0.40)
+            // poking ABOVE the dipping sandy Zone-D terrain across the seaward foreshore band (Z ~ -10..+3).
+            // The fix keeps TestGround as a COLLISION/NAVMESH proxy (collider on the Ground layer, so the
+            // baked NavMesh + click-raycast are unchanged) but DISABLES its MeshRenderer so the grey slab no
+            // longer draws — the sandy terrain is the only thing painted on the beach. Re-enabling the
+            // renderer (or dropping the collider) re-buries the sand under grey / kills click-move; either
+            // regression fails here in headless CI before it ships.
+            var testGround = GameObject.Find("TestGround");
+            Assert.IsNotNull(testGround, "TestGround must exist — it is the NavMesh + click-move collision proxy");
+
+            // Load-bearing role PRESERVED: collider on the Ground layer (feeds the NavMesh bake + click raycast).
+            var col = testGround.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "TestGround must keep its MeshCollider (NavMesh bake + click-move raycast)");
+            Assert.IsNotNull(col.sharedMesh, "the collider mesh must be serialized (no collider mesh = dead NavMesh/click)");
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            if (groundLayer >= 0)
+                Assert.AreEqual(groundLayer, testGround.layer,
+                    "TestGround must stay on the Ground layer (the NavMesh layerMask + click groundMask depend on it)");
+
+            // THE grey-slab guard: the renderer must NOT draw. The component is kept (so .bounds still
+            // resolves for the occlusion-hygiene test above) but disabled — the sandy terrain renders the beach.
+            var mr = testGround.GetComponent<MeshRenderer>();
+            Assert.IsNotNull(mr, "the MeshRenderer is kept (disabled) so .bounds stays resolvable for the occlusion test");
+            Assert.IsFalse(mr.enabled,
+                "the TestGround MeshRenderer MUST be DISABLED — an enabled flat grey placeholder slab pokes " +
+                "above the dipping sandy beach (Z ~ -10..+3) and reads as a 'gray slab on the beach' (soak #40). " +
+                "The sandy Zone-D terrain is the visible ground; this is a collision/NavMesh proxy only.");
+        }
+
+        [Test]
         public void BootScene_CarriesSeaVerifyCapture_OnTheBootObject()
         {
             // The orbit-to-sea framing check (Uma §4 task F) needs a committed, repeatable shipped-build

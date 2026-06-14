@@ -184,6 +184,20 @@ namespace FarHorizon.EditorTools
         // A flat subdivided plane on the Ground layer with a MeshCollider, so the NavMesh bake
         // (PhysicsColliders collection) AND the click-to-move ground raycast both hit it.
         // Subdivided (not a single quad) so the baked NavMesh has clean geometry.
+        //
+        // NON-RENDERING (drew/ocean-beach-soakfix2, soak #40 stamp 31ce95c). The Sponsor saw a "gray slab
+        // on the beach" breaking the sand read. Diagnostic trace (centerline Y compare, MovementCameraScene
+        // vs LowPolyZoneGen height fields): this flat Y=0 placeholder slab pokes ABOVE the SANDY Zone-D
+        // terrain across the seaward foreshore band (Z ~ -10..+3) — exactly where the beach DIPS toward the
+        // sea (terrain Y goes -0.53 -> -0.02, all below this slab's Y=0). Its muted moss-grey (0.42,0.46,0.40)
+        // top was therefore the topmost surface on the beach -> the grey slab. (Inland of ~Z+4 the sand rises
+        // above Y=0 and already hid it, which is why it only showed ON the beach.) The slab is a pure dev
+        // placeholder ("U5 will replace the environment surface; not art") whose ONLY load-bearing role is
+        // its COLLIDER (NavMesh bake + click-raycast); the Zone-D terrain is the real visible ground. Fix:
+        // keep the collider (NavMesh + click-move unchanged — the player walks the SAME baked surface as
+        // before, so no float/path regression), DISABLE the renderer so the sandy terrain is the only thing
+        // drawn on the beach. The MeshRenderer is kept-but-disabled (not removed) so .bounds still resolves
+        // for WaterSceneTests.Ocean_NotOccludedByFlatGround_SeawardSlabTrimmed.
         private static GameObject BuildFlatGround(int groundLayer)
         {
             var go = new GameObject("TestGround");
@@ -221,8 +235,9 @@ namespace FarHorizon.EditorTools
             mesh.RecalculateNormals(); mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
 
-            // A simple, build-safe URP/Lit material so the ground isn't pink in the shipped build.
-            // U5 will replace the environment surface; this is a neutral placeholder, not art.
+            // A simple, build-safe URP/Lit material kept on the (disabled) renderer so it never ships pink
+            // if anything re-enables it. U5 will replace the environment surface; this is a neutral
+            // placeholder, not art — and now it does NOT draw (see the NON-RENDERING note above).
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (litShader != null)
             {
@@ -234,6 +249,10 @@ namespace FarHorizon.EditorTools
                 mr.sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }
+
+            // The slab is a COLLISION/NAVMESH proxy only — the sandy Zone-D terrain is the visible ground.
+            // Disable rendering so the grey placeholder slab no longer pokes through the beach (soak #40).
+            mr.enabled = false;
 
             var col = go.AddComponent<MeshCollider>();
             col.sharedMesh = mesh;
