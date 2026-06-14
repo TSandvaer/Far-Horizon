@@ -63,22 +63,25 @@ namespace FarHorizon.EditorTools
         // The head bone carries the chibi's huge import-compensation lossy scale (PROBE-VERIFIED 267.30×,
         // like the right-hand bone — see the axe ScaleTrace finding). A child mesh INHERITS it, so the
         // hair's head-local pose + scale must be tiny. Derived from the shipped capture + the scale probe:
-        // the skull (Object_36) is ~1.42u wide in world; a hair radius ~0.32u world reads as a snug
-        // head of hair, so localScale ~0.0012 (0.0012 × 267.3 × radius 1.0 ≈ 0.32u world radius). LocalPos
-        // rides the 267× too. SOAKFIX6 + 86ca8m3t2: localY DROPPED a touch (0.0029 -> 0.0026) so the
-        // tufted-hair BASE CAP skirt seats DOWN onto the head bone flush (kills the close-up seam — the
-        // cap now overlaps the skull crown instead of floating above it). Re-tune from the soak if needed.
+        // the skull (Object_36) is ~1.42u wide in world; a hair-cap radius ~0.32u world reads as a snug
+        // skull-cap, so localScale ~0.0012 (0.0012 × 267.3 × radius 1.0 ≈ 0.32u world radius). LocalPos
+        // rides the 267× too: localY ~0.0030 lifts the cap ~0.8u above the head bone (worldY 0.78) to sit
+        // on the crown (~1.6u).
+        // SOAKFIX7 (86ca8ca1m — REVERT-TO-FLAT): the soakfix6 TuftedHair lobes read as orange
+        // spikes/antlers poking out of the dome (Sponsor: "id rather have the FLAT hair than this"). Hair is
+        // back to the clean FLAT MessyHairCap (the pre-TuftedHair 5f7e7ba state WITH the soakfix5 front-
+        // fringe fix). The close-up SEAM fix (86ca8m3t2) is KEPT: localY stays DROPPED (0.0029 -> 0.0026)
+        // and the cap cut is DEEPENED (-0.15 -> -0.30) so the flat dome's skirt dips below the skull crown
+        // and overlaps it flush (no air gap at hero magnification — pinned by CastawayHair_SeatsFlushToHeadBone).
         public static readonly Vector3 HairLocalScale = new Vector3(0.00104f, 0.00098f, 0.00108f);
         public static readonly Vector3 HairLocalPos = new Vector3(0f, 0.0026f, 0.00020f);
-        // TuftedHair generation params (SOAKFIX6 — the helmet/seam redo; the dome MessyHairCap is RETIRED).
-        // Named so the EditMode clumped-silhouette guard builds the EXACT shipped mesh (no magic-number
-        // drift between the scene build and the test).
+        // MessyHairCap generation params — named so the EditMode crown-spread guard builds the EXACT
+        // shipped mesh (no magic-number drift between the scene build and the test).
         public const float HairCapRadius = 1.0f;
         public const float HairCapYScale = 0.88f;
-        public const float HairCapCut = -0.30f;   // skirt drops below the crown so the base cap seats flush on the skull (anti-seam)
-        public const int HairTuftCount = 8;       // crown/side/back protruding tuft lobes (tousled)
-        public const float HairTuftOut = 1.08f;   // how far each lobe pokes PAST the dome radius (silhouette break)
-        public const float HairCapJitter = 0.30f; // per-lobe lumpiness
+        public const float HairCapCut = -0.30f;   // skirt drops below the crown so the flat cap seats flush on the skull (anti-seam, 86ca8m3t2)
+        public const int HairCapSubdiv = 3;
+        public const float HairCapJitter = 0.34f;
         public const int HairCapSeed = 73101;
 
         // The chibi rig's right-hand bone (probe-verified by AxeAssetGen.DiagnoseTrace, 2026-06-13). The
@@ -115,21 +118,16 @@ namespace FarHorizon.EditorTools
         // lossy ≈ 1.0u longest) UNCHANGED — the size already read as a clear hero hatchet; only height+pitch
         // move. Re-measured by PoseTrace post-change; final read is the SHIPPED build (editor RT is
         // framing-only, not colour — unity-conventions.md).
-        // SOAKFIX6 (the held axe "dangles blade-down beside/below the right hand — floating-at-hip, not
-        // GRIPPED at the handle"): set a sane HANDLE-GRIP default so the hand grips the HAFT (the wooden
-        // handle in the palm), the blade reads as held, and there is no gap/float from the gameplay cam.
-        // The prior SOAKFIX5 default (0.05,0.08,0.0 + euler -22,30,18) still left the haft floating beside
-        // the hand with the blade hanging down at the hip. New default seats the GRIP POINT (mid-haft) in
-        // the palm: a tiny offset that pulls the handle INTO the hand (gap closed) + a euler that orients the
-        // haft along the forearm with the head forward/up so it reads as a held hatchet, not a hanging prop.
-        // Values are the Sponsor's last nudge-panel grip (offsetFromHand=(-0.016,0.082,0.043),
-        // euler≈(-20.3,-76.0,22.9)) — a good DEFAULT, not a finalized pose; the Sponsor perfects the exact
-        // in-hand seat via the build-gated AxeNudgeTool next soak. Parented to RightHand_010 (tracks
-        // Idle/Walk). Scale unchanged (~1.0u reads at the orbit). PoseTrace post-bake: HeroAxe max.y 0.557
-        // (below the head bone 0.775 — clears the ear), longest 1.12u (reads at the orbit), blade hangs down.
+        // SOAKFIX7 (86ca8ce6y — the held axe BAKED at the Sponsor's dialed-in grip). The Sponsor finalized
+        // the in-hand seat IN-GAME via the build-gated AxeNudgeTool (F9) and confirmed it "perfect"; these
+        // are his last reported nudge-panel values, baked as the held DEFAULT (replacing the soakfix6
+        // placeholder grip). offsetFromHand pulls the haft into the palm (gap closed); the euler orients the
+        // hatchet so it reads as GRIPPED, not a hanging prop. Parented to RightHand_010 (tracks Idle/Walk).
+        // Scale unchanged (~1.0u reads at the orbit). The F9 AxeNudgeTool stays build-gated/inert for any
+        // future re-tune. Sponsor-reported values (European decimal commas -> dot-decimal here).
         public static readonly float HeldAxeLocalScaleUniform = 0.0040f;
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(-0.016f, 0.082f, 0.043f);
-        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(-20.3f, -76.0f, 22.9f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(-0.018f, -0.038f, -0.021f);
+        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(0.0f, 9.9f, 124.7f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -359,15 +357,15 @@ namespace FarHorizon.EditorTools
         // scale 1.4 -> 1.1 so the head doesn't overhang the small block. Re-measured by PoseTrace post-change
         // (head bottom at ~block-top, handle top ~1.4 clearly visible from spawn). Final read is the SHIPPED
         // build (editor RT is framing/size-only, not colour — unity-conventions.md).
-        // SOAKFIX5 (axe-nudge reframe): a REASONABLE DEFAULT, not a dialed-to-perfection pose — the Sponsor
-        // finalizes the exact transform IN-GAME via the build-gated AxeNudgeTool (cycles held/stump target,
-        // nudges XYZ + pitch/yaw/roll, reads the live values off the HUD), then reports the numbers to bake
-        // here. PoseTrace pre-change: StumpAxe world center (7.81,_,5.85) vs CraftStump center (8.00,_,6.00)
-        // — off-centre by ~0.19x / 0.15z. Default re-CENTRES the axe on the block (localPos.x 0.02->0.21,
-        // z -0.04->0.11) and seats the head biting the top so it reads as an axe stuck SQUARELY in the block;
-        // the lean/scale are unchanged (already read as an axe-in-a-block in the Sponsor's WIN list).
-        public static readonly Vector3 StumpAxeLocalPos = new Vector3(0.21f, 1.40f, 0.11f);
-        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(22f, 45f, 8f);
+        // SOAKFIX7 (86ca8ce6y — the stump axe BAKED at the Sponsor's dialed-in pose). The Sponsor finalized
+        // the in-block transform IN-GAME via the build-gated AxeNudgeTool (F9: cycles held/stump target,
+        // nudges XYZ + pitch/yaw/roll, reads the live values off the HUD) and confirmed it "perfect"; these
+        // are his last reported nudge-panel values, baked as the stump DEFAULT (replacing the soakfix5
+        // placeholder). The axe reads as stuck SQUARELY in the block — head biting the top, haft angled
+        // up-and-out. The F9 AxeNudgeTool stays build-gated/inert for any future re-tune. Sponsor-reported
+        // values (European decimal commas -> dot-decimal here). Scale unchanged (1.1u reads at spawn).
+        public static readonly Vector3 StumpAxeLocalPos = new Vector3(-0.210f, 1.540f, 0.430f);
+        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(12.0f, 53.0f, 48.0f);
         public static readonly float StumpAxeLocalScaleUniform = 1.1f;
 
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
@@ -559,15 +557,15 @@ namespace FarHorizon.EditorTools
             hair.transform.localScale = HairLocalScale;
 
             var mf = hair.AddComponent<MeshFilter>();
-            // TUFTED hair (86ca8ce6y SOAKFIX6 — the helmet/seam ROOT-CAUSE redo). The single-dome MessyHairCap
-            // (and its 4-5 flatten-the-dome iterations) is RETIRED: a smooth dome reads as a HELMET by
-            // construction (continuous silhouette + smooth shading). TuftedHair builds the hair the SAME way
-            // the Sponsor-approved blob-canopy trees are built — a CLUSTER of distinct protruding tuft lobes
-            // over a low base cap — so clumps break the silhouette + shading from EVERY angle (incl. the
-            // over-shoulder down-looking gameplay cam). No continuous dome -> the helmet class is gone. The
-            // base cap seats flush to the skull (cut -0.30) -> no close-up seam (folds in 86ca8m3t2).
-            mf.sharedMesh = LowPolyMeshes.TuftedHair(
-                HairCapRadius, HairCapYScale, HairCapCut, HairTuftCount, HairTuftOut, HairCapJitter, HairCapSeed);
+            // MESSY hair (86ca8ca1m — FLAT dome, SOAKFIX7 revert). The soakfix6 TuftedHair lobe redo read as
+            // orange spikes/antlers poking out of the brown dome (Sponsor: "id rather have the FLAT hair than
+            // this"), so the hair is back to the clean FLAT MessyHairCap: the same cut-dome jittered into
+            // faceted tufts with the apex de-spiked (no single pole point) and the soakfix5 front-fringe tame
+            // (no forward-jutting brow lobe). subdiv 3 for tuft definition; jitter 0.34; seed deterministic.
+            // The close-up SEAM fix (86ca8m3t2) is KEPT via the deepened cut (-0.30) + dropped localY so the
+            // flat skirt seats flush on the skull (pinned by CastawayHair_SeatsFlushToHeadBone).
+            mf.sharedMesh = LowPolyMeshes.MessyHairCap(
+                HairCapRadius, HairCapYScale, HairCapCut, HairCapSubdiv, HairCapJitter, HairCapSeed);
             var mr = hair.AddComponent<MeshRenderer>();
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
 

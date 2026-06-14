@@ -85,14 +85,16 @@ namespace FarHorizon.EditTests
         [Test]
         public void BootScene_HeldAxe_ReadsAtTheSide_NotByTheEar()
         {
-            // SOAKFIX2+SOAKFIX4 regression guard (the bug CLASS, both directions): SOAKFIX2's bug was the
-            // held axe was a ~0.43u sliver hanging at the hip (max.y 0.71), invisible (the "no axe" soak).
-            // SOAKFIX4's bug was the OPPOSITE — the chibi's huge head + short arms put the SOAKFIX2 "chest"
-            // pose at EAR height (the handle stuck out by the ear; PoseTrace: max.y 1.040 vs head-bone 0.775).
-            // This guard now pins the held axe in the GOLDILOCKS band: big enough to read at gameplay distance
-            // AND its top BELOW the head bone (clears the ear) BUT above hip-level (still visible at the hand,
-            // not a foot-stick). A regression in EITHER direction reds in CI. (Final visual read is still the
-            // SHIPPED build — this is the size/placement floor the eyes verified.)
+            // SOAKFIX2/4/7 regression guard (the bug CLASS, both directions). SOAKFIX2's bug was the held axe
+            // as a ~0.43u sliver hanging at the hip (max.y 0.71), invisible (the "no axe" soak). The placement
+            // ceiling has since MOVED: in SOAKFIX7 the Sponsor dialed the held axe IN-GAME via the F9 nudge
+            // tool and CONFIRMED the seat "perfect" — the baked default measures axe top max.y ≈ 1.022u (the
+            // grip rides up the hand as the Sponsor wanted; the earlier "clear the head bone at 0.775" ceiling
+            // was a placeholder constraint, NOT a Sponsor-judged one, and is superseded by his confirmed pose).
+            // This guard pins the held axe in the GOLDILOCKS band around the SPONSOR-CONFIRMED default: big
+            // enough to read at gameplay distance, well above hip-level (not a foot-stick / invisible sliver),
+            // and below a runaway-giant ceiling. A regression in EITHER direction reds in CI. (Final visual
+            // read is still the SHIPPED build — this is the size/placement floor the eyes verified.)
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var axe = FindHeroAxe();
             Assert.IsNotNull(axe, "hero axe must be present");
@@ -109,12 +111,13 @@ namespace FarHorizon.EditTests
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
                 "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
-            // The axe top must clear the EAR — BELOW the chibi head bone (~0.775u world) — the SOAKFIX4 fix
-            // for "handle sticks out by the ear". But it must still read at the hand (top above hip ~0.45u),
-            // not hang at the feet (the SOAKFIX2 no-axe direction). Goldilocks band on the axe TOP.
-            Assert.That(b.max.y, Is.InRange(0.45f, 0.78f),
-                $"held axe top y {b.max.y:F2} must sit at the SIDE: >0.78 = up by the EAR (the SOAKFIX4 soak), " +
-                "<0.45 = hanging at the feet (the SOAKFIX2 no-axe direction). The chibi head bone is ~0.775u.");
+            // The axe top must sit at the HAND, around the SOAKFIX7 Sponsor-confirmed seat (max.y ≈ 1.022u).
+            // Floor 0.7u catches the hip/feet regression (the SOAKFIX2 no-axe direction); ceiling 1.3u catches
+            // a 267×-bone giant or a wild euler that flings the axe up. The band is centred on the dialed-in
+            // default the Sponsor judged "perfect" — re-bake the default and this band moves with it.
+            Assert.That(b.max.y, Is.InRange(0.7f, 1.3f),
+                $"held axe top y {b.max.y:F2} must sit at the hand near the SOAKFIX7 dialed-in seat (~1.02u): " +
+                "<0.7 = hanging at the feet (the SOAKFIX2 no-axe direction), >1.3 = a 267x-bone giant / wild-euler fling.");
         }
 
         [Test]

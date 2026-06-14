@@ -534,60 +534,115 @@ namespace FarHorizon.EditTests
                 "the blob shadow must have NO collider (it must not block the click raycast / NavMesh bake)");
         }
 
-        // HAIR READS-CLUMPED guard (86ca8ce6y SOAKFIX6 — the helmet/seam ROOT-CAUSE redo + the false-green
-        // KILL). This REPLACES the retired MessyHairCap_CrownIsFlatPlateau / _FrontFringe guards, which were
-        // themselves the false-green ENGINE: they asserted the hair was a FLAT DOME (crown plateau, no proud
-        // verts) — and a flat smooth dome IS the helmet the Sponsor kept rejecting. The 4-5 prior iterations
-        // passed those guards precisely because they flattened the dome further each time.
-        //
-        // THE CLASS THE EYES JUDGE: the SILHOUETTE-BREAK from the DEFAULT GAMEPLAY ORBIT CAM. A helmet has a
-        // smooth continuous silhouette arc (near-constant outer radius around the rim); messy hair has the
-        // outer radius JUMP as distinct tuft lobes poke past the dome — high roughness + several protrusions.
-        // This guard builds the EXACT shipped TuftedHair mesh, projects it onto the gameplay over-shoulder
-        // cam (pitch 55°, the Sponsor's arrow-annotated view) AND top-down (70°) AND profile (yaw 90°), and
-        // asserts the silhouette READS AS CLUMPS, not a smooth arc — from EVERY judged angle. Shares the EXACT
-        // metric the HairSilhouetteTrace prints (HairSilhouetteTrace.MeasureSilhouetteRoughness) so the guard
-        // and the diagnostic instrument can never drift. A regression back to a smooth dome (low roughness /
-        // zero protrusions) fails CI here — the gameplay-cam silhouette class the geometry-flatness guards
-        // were structurally BLIND to. Pure-geometry, deterministic via seed.
+        // HAIR CROWN-FLAT guard (86ca8ce6y SOAKFIX4 — TIGHTENED). SOAKFIX3 asserted the top-15 RING spread
+        // < 0.05u, and that PASSED while a spike remained: the Sponsor sees the spike from the DEFAULT over-
+        // the-shoulder GAMEPLAY cam (looking DOWN at the crown, pitch 55-70°), where a vertex standing proud
+        // of its NEIGHBOURS pokes the top-down silhouette — a defect the ring-spread metric is blind to (it
+        // measures the band height, not whether one vert exceeds the plateau). This guard is the bug-CLASS
+        // catch: it builds the EXACT shipped MessyHairCap mesh and asserts the crown is a FLAT PLATEAU viewed
+        // FROM ABOVE — (1) the highest vert sits no more than epsilon above the next-highest (no single proud
+        // apex), and (2) the top plateau is genuinely FLAT (many verts share the max height — a hard-clamped
+        // plateau, not a tapering cone tip). Any future param/de-spike regression that re-introduces a proud
+        // crown vertex fails CI before a Sponsor soak. Pure-geometry (no scene load); deterministic via seed.
+        // (SOAKFIX7 restores this flat-dome guard after the soakfix6 TuftedHair redo was reverted to FLAT —
+        // the Sponsor preferred the clean flat hair over the spiky lobes.)
         [Test]
-        public void TuftedHair_ReadsClumped_FromGameplayCam_NotASmoothHelmet()
+        public void MessyHairCap_CrownIsFlatPlateau_NoProudApexFromAbove()
         {
-            var mesh = LowPolyMeshes.TuftedHair(
+            var mesh = LowPolyMeshes.MessyHairCap(
                 MovementCameraScene.HairCapRadius, MovementCameraScene.HairCapYScale,
-                MovementCameraScene.HairCapCut, MovementCameraScene.HairTuftCount,
-                MovementCameraScene.HairTuftOut, MovementCameraScene.HairCapJitter,
-                MovementCameraScene.HairCapSeed);
-            Assert.IsNotNull(mesh, "TuftedHair must build a mesh");
-            Assert.Greater(mesh.vertexCount, 60,
-                "tufted hair must be a real clustered mesh (base cap + several tuft lobes), not a bare dome");
+                MovementCameraScene.HairCapCut, MovementCameraScene.HairCapSubdiv,
+                MovementCameraScene.HairCapJitter, MovementCameraScene.HairCapSeed);
+            Assert.IsNotNull(mesh, "MessyHairCap must build a mesh");
 
-            var verts = mesh.vertices;
-            // Centroid for the projection (the trace uses the same).
-            Vector3 c = Vector3.zero; foreach (var v in verts) c += v; c /= verts.Length;
+            var ys = new System.Collections.Generic.List<float>();
+            foreach (var v in mesh.vertices) ys.Add(v.y);
+            Assert.GreaterOrEqual(ys.Count, 15, "the cap must have at least 15 verts to measure a crown plateau");
+            ys.Sort();
+            ys.Reverse(); // highest first
 
-            // Assert clumping from each judged gameplay angle. The over-shoulder (55°) is the LOAD-BEARING
-            // one (the Sponsor's annotated view); top-down + profile prove a lobe can't hide from any side.
-            AssertClumped(verts, c, yaw: 25f, pitch: 55f, label: "over-shoulder(55)");
-            AssertClumped(verts, c, yaw: 25f, pitch: 70f, label: "top-down(70)");
-            AssertClumped(verts, c, yaw: 90f, pitch: 55f, label: "profile(90)");
+            float top1 = ys[0];
+            float top2 = ys[1];
+            float apexGap = top1 - top2; // does the single highest vertex stand proud of the next-highest?
+
+            // (1) NO PROUD APEX FROM ABOVE: the highest vertex must be (essentially) level with the next —
+            // a proud apex IS the spike the over-shoulder cam sees. Hard-clamp lands all crown verts on one
+            // ceiling, so this gap is ~0. Tight 0.01u bar (the prior 0.02u ring-gap bar passed a real spike).
+            Assert.Less(apexGap, 0.01f,
+                $"no hair vertex may stand proud of the crown plateau (the over-shoulder 'brown spike'): " +
+                $"apex gap {apexGap:F4}u (top1 {top1:F4} vs top2 {top2:F4}) must be < 0.01u");
+
+            // (2) THE PLATEAU IS FLAT, NOT A CONE TIP: a hard-clamped crown has MANY verts sharing the max
+            // height. A tapering cone would have a few verts near the top and a steep falloff — fail that.
+            // Count verts within 0.01u of the top; a flat plateau has several, a spike/cone has ~1.
+            int onPlateau = 0;
+            foreach (var y in ys) if (top1 - y < 0.01f) onPlateau++;
+            Assert.GreaterOrEqual(onPlateau, 4,
+                $"the crown must be a FLAT plateau (>=4 verts within 0.01u of the top), not a cone/spike tip; " +
+                $"got {onPlateau} (top1={top1:F4})");
+
+            // (3) Belt-and-suspenders: the top-15 ring spread bar from SOAKFIX3 still holds (a coarse sanity
+            // floor — the plateau makes this comfortably small now).
+            float ringMin = ys[14];
+            Assert.Less(top1 - ringMin, 0.05f,
+                $"hair crown top-15 spread {(top1 - ringMin):F4}u must stay < 0.05u (coarse flat-crown floor)");
         }
 
-        // Project the hair onto a gameplay orbit (yaw,pitch) and assert the silhouette READS CLUMPED — high
-        // roughness (the outer radius varies a lot bin-to-bin) AND several distinct protrusions (tuft lobes
-        // breaking the arc). A smooth helmet dome would have roughness ~<0.05 and ~0 protrusions. The bars
-        // are set well above a dome but comfortably below the shipped TuftedHair (measured via the trace:
-        // over-shoulder roughness 0.302 / protrusions 5; top-down 0.343 / 5; profile 0.366 / 4).
-        private static void AssertClumped(Vector3[] verts, Vector3 center, float yaw, float pitch, string label)
+        // HAIR FRONT-FRINGE guard (86ca8ce6y SOAKFIX5 — the 4th-attempt ORANGE TUFT). The crown-plateau guard
+        // above proved the crown is FLAT (clamp lands all crown verts on one ceiling) and PASSED — yet the
+        // Sponsor still saw a small ORANGE tuft poking ABOVE the crown at the top-FRONT from the over-the-
+        // shoulder DOWN-looking gameplay cam (pitch 55-70°). DIAGNOSE-VIA-TRACE (HairMeshTrace) proved the
+        // cause was NOT a proud crown vertex but the FRONT FRINGE jutting FORWARD (local z to -1.216, ~0.22u
+        // beyond the nominal radius) at a height near the crown: a forward-jutting lobe projects ABOVE the
+        // brow silhouette from a camera looking down the -Z face axis (closer + higher in screen-space than
+        // the crown behind it) and catches the key light -> the bright "orange" tuft. The plateau guard is
+        // BLIND to this (it only measures world-Y top verts; a forward lobe can sit BELOW the crown in Y yet
+        // still project over the brow). THIS guard is the bug-CLASS catch: build the EXACT shipped mesh and
+        // assert the FRINGE band (local z < -0.2, the face side) sits a real margin BELOW the crown ceiling
+        // AND does not jut forward past a sane radius — so no front lobe can project above the crown from the
+        // down-looking cam. Any future param/fringe regression that re-grows the forward tuft fails CI before
+        // a Sponsor soak. Pure-geometry, deterministic via seed. (KEPT through the SOAKFIX7 flat revert — the
+        // soakfix5 front-fringe fix is part of the clean flat hair the Sponsor asked to keep.)
+        [Test]
+        public void MessyHairCap_FrontFringe_SitsBelowCrown_NoForwardTuft()
         {
-            var m = HairSilhouetteTrace.MeasureSilhouetteRoughness(verts, center, yaw, pitch, bins: 36);
-            Assert.Greater(m.roughness, 0.12f,
-                $"[{label}] hair silhouette must read CLUMPED, not a smooth helmet arc: roughness (CoV of the " +
-                $"per-bin outer radius) {m.roughness:F3} must be > 0.12 (a smooth dome reads ~<0.05). " +
-                "A low value means the dome regression came back.");
-            Assert.GreaterOrEqual(m.protrusions, 3,
-                $"[{label}] hair must show >=3 distinct silhouette protrusions (tuft lobes breaking the arc); " +
-                $"got {m.protrusions}. ~0 protrusions = a continuous helmet arc.");
+            var mesh = LowPolyMeshes.MessyHairCap(
+                MovementCameraScene.HairCapRadius, MovementCameraScene.HairCapYScale,
+                MovementCameraScene.HairCapCut, MovementCameraScene.HairCapSubdiv,
+                MovementCameraScene.HairCapJitter, MovementCameraScene.HairCapSeed);
+            Assert.IsNotNull(mesh, "MessyHairCap must build a mesh");
+
+            float crownCeil = MovementCameraScene.HairCapRadius * MovementCameraScene.HairCapYScale * 0.705f;
+            float radius = MovementCameraScene.HairCapRadius;
+
+            float crownMaxY = float.MinValue, fringeMaxY = float.MinValue, fringeMinZ = float.MaxValue;
+            int fringeVerts = 0;
+            foreach (var v in mesh.vertices)
+            {
+                if (v.y > crownMaxY) crownMaxY = v.y;
+                if (v.z < -0.2f) // the front FRINGE band (face side is -Z)
+                {
+                    fringeVerts++;
+                    if (v.y > fringeMaxY) fringeMaxY = v.y;
+                    if (v.z < fringeMinZ) fringeMinZ = v.z;
+                }
+            }
+            Assert.Greater(fringeVerts, 4, "the cap must have a real front fringe band to measure");
+
+            // (1) THE FRINGE SITS BELOW THE CROWN: the highest fringe vert must be a clear margin under the
+            // crown ceiling, so a forward fringe lobe cannot project above the brow from the down-looking cam.
+            // Trace post-fix: fringe maxY 0.5496 vs crownCeil 0.6204 -> 0.0708u gap. Require >= 0.04u.
+            float fringeGap = crownCeil - fringeMaxY;
+            Assert.GreaterOrEqual(fringeGap, 0.04f,
+                $"the front fringe must sit a clear margin BELOW the crown (the over-shoulder orange tuft): " +
+                $"fringe maxY {fringeMaxY:F4} vs crownCeil {crownCeil:F4} -> gap {fringeGap:F4}u must be >= 0.04u");
+
+            // (2) THE FRINGE DOES NOT JUT FORWARD past a sane radius: a far-forward lobe (the pre-fix z=-1.216)
+            // projects over the brow even at moderate height. Cap the forward jut. Post-fix minZ -1.030;
+            // require >= -1.10u (a touch of forward fringe is fine; a jutting lobe is not).
+            Assert.GreaterOrEqual(fringeMinZ, -1.10f * radius,
+                $"the front fringe must not jut FORWARD past ~1.10r (the forward-lobe tuft): " +
+                $"fringe minZ {fringeMinZ:F4} must be >= {-1.10f * radius:F4}u");
         }
 
         // HAIR SEATS-FLUSH guard (folds in 86ca8m3t2 — the hero close-up SEAM NIT). The close-up seam was the
