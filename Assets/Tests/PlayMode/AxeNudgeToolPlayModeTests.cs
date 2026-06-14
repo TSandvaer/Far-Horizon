@@ -109,5 +109,39 @@ namespace FarHorizon.PlayTests
                 Assert.LessOrEqual(panel.yMax, h, $"at {w}x{h} the panel must not run off the bottom edge");
             }
         }
+
+        // SOAKFIX10 regression guard ("the nudge-tool BOX cuts off the 3rd rotation value off its right
+        // edge — this is the full window"). Two guarantees the fix rests on:
+        //   1. The box is WIDE ENOUGH to hold the longest single value line. With position + euler now on
+        //      SEPARATE lines (AxeNudgeTool.OnGUI), the widest value line is the F4-formatted offsetFromHand
+        //      "offsetFromHand=(-0.0234, -0.0456, -0.0678)" — ~42 chars at the 14px bold value style. At a
+        //      conservative ~9.5px/char that needs ~400px of inner width; the inner width must clear it with
+        //      margin so no component is ever clipped. A regression that re-packs both values onto one line
+        //      (~75 chars → ~710px) would overflow the box again — guarded by the per-line width budget.
+        //   2. On a window NARROWER than the panel itself the x-clamp keeps the WHOLE box on-screen (x>=12,
+        //      xMax<=w), so the left side of the value text can never be pushed off the left edge.
+        [Test]
+        public void NudgePanel_FitsBothValueLines_AndStaysOnScreen_OnAnyWidth()
+        {
+            const float perCharPx = 9.5f;   // conservative upper bound for the 14px bold value GUIStyle
+            const float labelInset = 24f;   // OnGUI draws value labels at lx=x+12, lw=w-24
+            // The longest value line the panel must hold, on its OWN line (position; euler is shorter):
+            string widestValueLine = "offsetFromHand=(-0.0234, -0.0456, -0.0678)";
+            float neededInner = widestValueLine.Length * perCharPx;
+            float innerWidth = AxeNudgeTool.PanelWidth - labelInset;
+            Assert.GreaterOrEqual(innerWidth, neededInner,
+                $"the panel inner width ({innerWidth}px) must hold the longest value line " +
+                $"\"{widestValueLine}\" (~{neededInner:F0}px) so no rotation/position component is cut off " +
+                "the right edge (the Sponsor's soakfix10 report)");
+
+            // On ANY width — including a window narrower than the panel — the whole box stays on-screen.
+            foreach (float w in new[] { 5120f, 1920f, 800f, 600f, AxeNudgeTool.PanelWidth, 400f, 320f })
+            {
+                Rect p = AxeNudgeTool.PanelRect(w, 1440f);
+                Assert.GreaterOrEqual(p.x, 0f, $"at width {w} the panel's left edge must stay on-screen");
+                if (w >= AxeNudgeTool.PanelWidth + 24f)
+                    Assert.LessOrEqual(p.xMax, w, $"at width {w} the panel must not run off the right edge");
+            }
+        }
     }
 }

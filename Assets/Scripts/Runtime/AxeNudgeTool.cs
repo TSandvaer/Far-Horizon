@@ -58,17 +58,26 @@ namespace FarHorizon
         private GUIStyle _style, _hintStyle, _titleStyle;
 
         // Panel size (SOAKFIX6 — carries a purpose header + a "what this does" line + the controls).
-        public const float PanelWidth = 470f;
-        public const float PanelHeight = 214f;
+        // SOAKFIX10 — the offsetFromHand + euler values now live on their OWN lines (no single packed
+        // value line that overflows the box), so the panel is WIDER (fits the longest value/hint line with
+        // margin) and TALLER (one extra value row). The width still leaves the right-anchored box fully on
+        // any screen ≥ the narrowest test size (800px: 532 + 0 margin < 800 → x ≥ 0; PanelRect also clamps).
+        public const float PanelWidth = 532f;
+        public const float PanelHeight = 236f;
 
         /// <summary>
         /// The nudge-panel screen rect for a given screen size — RIGHT-anchored + vertically centred
-        /// (SOAKFIX6: moved OFF SurvivalHud's bottom-left hotbar). Pure + static so the off-hotbar contract
-        /// is regression-guarded without a render (AxeNudgeToolPlayModeTests.NudgePanel_ClearsTheHotbar).
+        /// (SOAKFIX6: moved OFF SurvivalHud's bottom-left hotbar). SOAKFIX10: x is CLAMPED to ≥ 12 so a
+        /// window narrower than the panel can never push the box off the LEFT edge (the value text would
+        /// then clip) — on any width the full panel stays on-screen. Pure + static so the on-screen +
+        /// off-hotbar contract is regression-guarded without a render
+        /// (AxeNudgeToolPlayModeTests.NudgePanel_ClearsTheHotbar).
         /// </summary>
         public static Rect PanelRect(float screenW, float screenH)
         {
-            float x = screenW - PanelWidth - 12f;                 // right edge — clear of the bottom-left hotbar
+            // Right-anchored, but clamp so a too-narrow window keeps the whole box (and its value text)
+            // on-screen — never let x go negative (which would clip the left side of the value lines).
+            float x = Mathf.Max(12f, screenW - PanelWidth - 12f);
             float y = Mathf.Max(46f, (screenH - PanelHeight) * 0.5f); // vertically centred, below the top-right stamp
             return new Rect(x, y, PanelWidth, PanelHeight);
         }
@@ -218,9 +227,11 @@ namespace FarHorizon
             // unclear"). The prior panel sat bottom-LEFT (x8, y=height-176) — directly over SurvivalHud's
             // bottom-left warmth bar + inventory ledger. Move it RIGHT-anchored + VERTICALLY CENTRED, which is
             // clear of: SurvivalHud's bottom-left hotbar, BootHud's top-left title plate, AND BootHud's
-            // top-right build-stamp plate (y 8..34). A taller panel now (it carries a purpose header + a
-            // "what this does" line) so the controls read clearly. Rect computed by PanelRect (pure, testable)
-            // so the off-hotbar contract is regression-guarded without a render.
+            // top-right build-stamp plate (y 8..34). SOAKFIX10 — the box is now WIDER + TALLER and the
+            // position/euler values sit on SEPARATE lines, so all three components of each are always fully
+            // visible (the Sponsor's "3rd rotation value cut off the right edge" report). Rect computed by
+            // PanelRect (pure, testable, x-clamped on-screen) so the on-screen + off-hotbar contract is
+            // regression-guarded without a render.
             Rect panel = PanelRect(Screen.width, Screen.height);
             float x = panel.x, y = panel.y, w = panel.width, h = panel.height;
             GUI.color = new Color(0f, 0f, 0f, 0.72f);
@@ -230,16 +241,22 @@ namespace FarHorizon
             string tgt = _target == 0
                 ? "HELD axe (in hand — WORLD offset + hand-relative angle, tracks the hand)"
                 : "STUMP axe (in block — local)";
-            string vals;
+            // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
+            // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
+            string posLine, eulerLine;
             if (_target == 0 && _heldRig != null)
+            {
                 // SOAKFIX9 — WORLD offsetFromHand (sensible ~cm units) + HAND-RELATIVE euler. NOT a localPosition
-                // on the 267× bone (that made a 0.02 step = ~5 m — the bug this wave fixes).
-                vals = $"offsetFromHand=({_heldRig.worldOffsetFromHand.x:F4},{_heldRig.worldOffsetFromHand.y:F4},{_heldRig.worldOffsetFromHand.z:F4})  " +
-                       $"euler=({_heldRig.relEuler.x:F1},{_heldRig.relEuler.y:F1},{_heldRig.relEuler.z:F1})";
+                // on the 267× bone (that made a 0.02 step = ~5 m — the bug soakfix9 fixed).
+                posLine = $"offsetFromHand=({_heldRig.worldOffsetFromHand.x:F4}, {_heldRig.worldOffsetFromHand.y:F4}, {_heldRig.worldOffsetFromHand.z:F4})";
+                eulerLine = $"euler=({_heldRig.relEuler.x:F1}, {_heldRig.relEuler.y:F1}, {_heldRig.relEuler.z:F1})";
+            }
             else if (_target == 1 && _stump != null)
-                vals = $"localPos=({_stump.localPosition.x:F3},{_stump.localPosition.y:F3},{_stump.localPosition.z:F3})  " +
-                       $"euler=({Norm(_stump.localEulerAngles.x):F1},{Norm(_stump.localEulerAngles.y):F1},{Norm(_stump.localEulerAngles.z):F1})";
-            else vals = "(axe not found)";
+            {
+                posLine = $"localPos=({_stump.localPosition.x:F3}, {_stump.localPosition.y:F3}, {_stump.localPosition.z:F3})";
+                eulerLine = $"euler=({Norm(_stump.localEulerAngles.x):F1}, {Norm(_stump.localEulerAngles.y):F1}, {Norm(_stump.localEulerAngles.z):F1})";
+            }
+            else { posLine = "(axe not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -248,13 +265,16 @@ namespace FarHorizon
                 "Dial the axe's position/angle in-game, then read the values to bake.", _hintStyle);
 
             GUI.Label(new Rect(lx, y + 56f, lw, 22f), "Editing: " + tgt, _style);
-            GUI.Label(new Rect(lx, y + 78f, lw, 22f), vals, _style);
+            // SOAKFIX10 — position + euler on their OWN lines so all three components of EACH are always
+            // fully visible inside the (now wider) box, on any screen width. Copyable, never cut off.
+            GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
+            GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 104f, lw, 20f), "[Tab] switch held / stump axe", _hintStyle);
-            GUI.Label(new Rect(lx, y + 124f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
-            GUI.Label(new Rect(lx, y + 144f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll", _hintStyle);
-            GUI.Label(new Rect(lx, y + 164f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
-            GUI.Label(new Rect(lx, y + 188f, lw, 20f),
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] switch held / stump axe", _hintStyle);
+            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
+            GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll", _hintStyle);
+            GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
+            GUI.Label(new Rect(lx, y + 210f, lw, 20f),
                 "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
         }
     }
