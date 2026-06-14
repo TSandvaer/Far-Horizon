@@ -485,26 +485,29 @@ namespace FarHorizon.EditorTools
 
             var rnd = new System.Random(seed);
 
-            // Displace each UNIQUE vert ANISOTROPICALLY so the rock is an irregular angular lump, not a
-            // ball. A per-axis scale (different x/y/z stretch) + a per-vert radial jitter + an occasional
-            // PULL-IN (carve a flat notch/plane) breaks the spherical silhouette into stone-like chunks.
-            // Y is squashed but kept chunky (a boulder, not a pancake).
-            float sx = 0.85f + (float)rnd.NextDouble() * 0.55f; // 0.85..1.40
-            float sz = 0.85f + (float)rnd.NextDouble() * 0.55f;
-            float sy = 0.70f + (float)rnd.NextDouble() * 0.30f; // 0.70..1.00 — squat but NOT a flat mound
+            // CHUNKY displacement (v2 verify-capture diagnosis: the first try was too aggressive — per-axis
+            // stretch up to 1.40 + Y-flatten to 0.70 + deep 0.62x pull-ins produced thin BLADE/sliver shards
+            // that read as torn paper, not stone). The board rocks (21h10_44) are roughly EQUIDIMENSIONAL
+            // chunky blobs with MILD facet variation — so keep all three axes near 1.0 (gentle stretch, NO
+            // Y-pancake) and a SMALL per-vert radial wobble (no deep notches that collapse a facet to a
+            // sliver). The chunk stays a fat lump; the facets give it the carved-stone read, not the
+            // silhouette extremes.
+            float sx = 0.92f + (float)rnd.NextDouble() * 0.20f; // 0.92..1.12 — gentle stretch, stays chunky
+            float sz = 0.92f + (float)rnd.NextDouble() * 0.20f;
+            float sy = 0.85f + (float)rnd.NextDouble() * 0.18f; // 0.85..1.03 — squat but NOT pancaked
             var displaced = new Vector3[baseVerts.Count];
             for (int i = 0; i < baseVerts.Count; i++)
             {
                 Vector3 n = baseVerts[i].normalized;
-                // radial jitter: each vert in/out by up to +/- jitter*0.5 of the radius
+                // MILD radial wobble: each vert in/out by up to +/- jitter*0.5 — keeps the chunk fat, just
+                // lumpy. No deep pull-in (that carved slivers); the lumpiness comes from many small offsets.
                 float rj = 1f + ((float)rnd.NextDouble() - 0.5f) * jitter;
-                // occasional deep pull-in to carve a flat face/notch (a chunk knocked off the rock)
-                if (rnd.NextDouble() < 0.28) rj *= 0.62f + (float)rnd.NextDouble() * 0.18f;
                 Vector3 p = new Vector3(n.x * sx, n.y * sy, n.z * sz) * (radius * rj);
-                // small absolute per-axis wobble so even same-radius verts don't sit on a clean ellipsoid
+                // small absolute wobble so verts don't sit on a clean ellipsoid (breaks the smooth silhouette
+                // into facets) — kept SMALL/isotropic so no facet collapses to a thin blade.
                 p += new Vector3(((float)rnd.NextDouble() - 0.5f),
-                                 ((float)rnd.NextDouble() - 0.5f) * 0.5f,
-                                 ((float)rnd.NextDouble() - 0.5f)) * (radius * jitter * 0.35f);
+                                 ((float)rnd.NextDouble() - 0.5f),
+                                 ((float)rnd.NextDouble() - 0.5f)) * (radius * jitter * 0.22f);
                 displaced[i] = p;
             }
 
@@ -522,11 +525,16 @@ namespace FarHorizon.EditorTools
                 Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
                 if (fn.sqrMagnitude < 1e-10f) continue; // skip degenerate (a fully collapsed notch)
                 fn.Normalize();
-                // up-facing facets read light, side/down facets dark — a hard value step per plane.
+                // Per-facet value: up-facing facets read light, side/down facets a touch darker. The big
+                // facet-to-facet contrast comes from the FLAT-SHADING LIGHTING (each facet's own N·L against
+                // the warm key), so the BAKED value only needs a GENTLE lift toward the tops — a high floor
+                // (0.80) keeps side/down facets MID-grey, never the near-BLACK shards the first capture showed
+                // (a side facet gets ~ambient-only light, so a low baked value × that = black). The shipped
+                // LowPolyVertexColor shader multiplies this onto the warm-grey _Tint.
                 float up = Mathf.Clamp01(fn.y * 0.5f + 0.5f);       // 0 (down) .. 1 (up)
-                float val = Mathf.Lerp(0.62f, 1.0f, up);            // dark sides .. light tops
-                val += ((float)rnd.NextDouble() - 0.5f) * 0.06f;    // tiny per-face break so planes differ
-                val = Mathf.Clamp(val, 0.5f, 1.05f);
+                float val = Mathf.Lerp(0.80f, 1.0f, up);            // mid-grey sides .. light tops (never black)
+                val += ((float)rnd.NextDouble() - 0.5f) * 0.05f;    // tiny per-face break so planes differ
+                val = Mathf.Clamp(val, 0.74f, 1.05f);
                 Color fc = new Color(val, val, val, 1f);
 
                 verts.Add(v0); verts.Add(v1); verts.Add(v2);
