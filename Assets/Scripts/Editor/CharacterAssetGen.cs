@@ -115,7 +115,11 @@ namespace FarHorizon.EditorTools
         // a darker, more saturated field-khaki (luma ~0.44, a ~0.21 luma gap below the skin's 0.65) that
         // holds tone under the warm lift and reads CLEARLY as a shirt against the skin. Still WARM (R>G>B)
         // and sub-1.0 HDR-safe; sits comfortably inside the guard band's lower half (deliberately deeper).
-        public static readonly Color ShirtTopColor = new Color(0.50f, 0.44f, 0.26f); // deeper olive-khaki — separates from skin under the warm post
+        // SOAKFIX5: lifted a hair (0.50,0.44,0.26 -> 0.54,0.47,0.28, luma 0.43 -> 0.46) so the BOLDER SOAKFIX5
+        // weathering (punchy dirt/tears/hem) leaves the cell MEAN comfortably ABOVE the young/hopeful identity
+        // floor (luma >0.34) — worn-but-warm khaki, not grizzled. Still olive-khaki (R>G>B), sub-1.0 HDR-safe,
+        // inside the [0.42,0.66] guard band, and separates from the skin tan under the warm post.
+        public static readonly Color ShirtTopColor = new Color(0.54f, 0.47f, 0.28f); // olive-khaki, lifted for the bolder weather
         public static readonly Color SkinTopColor  = new Color(0.80f, 0.62f, 0.48f); // toned warm tan (was 0.94,0.79,0.65 — blew white under the warm post)
         public static readonly Color FeetTopColor  = new Color(0.78f, 0.60f, 0.46f); // bare-feet skin, matches the toned skin
         // The cap-dome cells are still recolored sandy-ginger as a defensive base, but the dome+brim are
@@ -203,29 +207,42 @@ namespace FarHorizon.EditorTools
                 }
             }
 
-            // WEATHER one garment cell (86ca8ce6y SOAKFIX4 — torn/tattered castaway clothes). Paints the base
-            // toon ramp from `anchor`, then overlays DETERMINISTIC (seeded) tatter so the garment reads worn:
-            //   - dirt/wear PATCHES: soft darker blotches scattered over the cloth;
-            //   - a couple of TEARS: short dark rips cutting across the weave;
-            //   - a FRAYED HEM: the cell's bottom rows get an irregular notched darkening (a torn-edge read).
-            // LUMA-PRESERVING per the brief: every overlay only DARKENS the existing toon colour (multiplies
-            // by <=1), never recolours — so the shirt stays olive-khaki + the shorts stay dark brown; the
-            // garment reads "a bit tattered", not re-skinned. "A bit": wear is subtle (mostly 0.78-0.92x),
-            // tears are few + thin. Absolute writes (idempotent) — a deterministic per-cell seed makes a
-            // bootstrap re-run converge to the exact same atlas.
+            // WEATHER one garment cell (86ca8ce6y SOAKFIX5 — torn/tattered castaway clothes that READ at
+            // gameplay distance). SOAKFIX4 weathered the cells but the Sponsor said "clothes seems UNCHANGED":
+            // the overlay was too SUBTLE (mostly 0.78-0.92x wear, 0.045-wide tears) and the atlas cell is only
+            // 16×16 px stretched over the body at the 14u orbit — fine detail simply does not read. FIX: make
+            // the weathering BOLD + COARSE so it survives the orbit distance + the warm Zone-D post:
+            //   - DIRT/WEAR PATCHES: bigger + darker grime blotches (down to ~0.55x), more of them, so dirt
+            //     reads as real smudges not faint mottling;
+            //   - TEARS: WIDER + DARKER rips (~0.40x core) with a torn-open look (a darker slit flanked by a
+            //     slightly-lighter frayed lip) so a rip reads as fabric pulled apart, not a hairline;
+            //   - FRAYED/RAGGED HEM: a deeper bottom band (~30%) with a stronger irregular notch so the hem
+            //     reads visibly ragged (torn-off edge), the castaway-fiction tell.
+            // STILL LUMA-PRESERVING per the brief: every overlay only DARKENS (multiplies by <=1), never
+            // recolours — the shirt stays olive-khaki (R>G>B) + the pants stay blue denim (B>R). "Tattered",
+            // not re-skinned. Absolute writes (idempotent) — a deterministic per-cell seed converges on a
+            // bootstrap re-run. Bounded floor (wear never below 0.30x) so the garment never reads as holes.
             void PaintWeatheredCell(Vector2Int cell, Color anchor, int seed)
             {
                 int x0 = cell.x * cw, y0 = cell.y * ch;
                 var rnd = new System.Random(seed);
-                // Pre-roll a few dirt-patch centres + tear lines so the overlay is stable per cell.
-                int patchN = 5;
+                // Pre-roll dirt-patch centres + tear lines so the overlay is stable per cell. MORE + BIGGER +
+                // DARKER than SOAKFIX4 so the wear reads at gameplay distance.
+                // READS-AT-DISTANCE STRATEGY (SOAKFIX5): at the 14u orbit a 16x16 cell stretches over the small
+                // torso, so FINE detail (thin tears) blurs away — what reads is OVERALL TONAL BREAKUP: a few
+                // LARGE dark grime zones with clean cloth between, plus a clearly-darker ragged hem. So use a
+                // few BIG, HIGH-CONTRAST dirt zones (not many small ones that merge into flat darkening) +
+                // bold wide tears + a strong hem. CONTRAST not just darkness: the clean cloth stays bright (the
+                // toon ramp top) so the dark zones POP — which both reads at distance AND holds the cell MEAN
+                // above the young/hopeful identity floor (luma >0.34) better than uniform darkening would.
+                int patchN = 3;
                 var px = new float[patchN]; var py = new float[patchN]; var pr = new float[patchN]; var pd = new float[patchN];
                 for (int i = 0; i < patchN; i++)
-                { px[i] = (float)rnd.NextDouble(); py[i] = (float)rnd.NextDouble(); pr[i] = 0.18f + (float)rnd.NextDouble() * 0.22f; pd[i] = 0.80f + (float)rnd.NextDouble() * 0.12f; }
+                { px[i] = (float)rnd.NextDouble(); py[i] = (float)rnd.NextDouble(); pr[i] = 0.28f + (float)rnd.NextDouble() * 0.20f; pd[i] = 0.46f + (float)rnd.NextDouble() * 0.14f; }
                 int tearN = 2;
                 var tx = new float[tearN]; var tslope = new float[tearN]; var tlen = new float[tearN]; var tylo = new float[tearN];
                 for (int i = 0; i < tearN; i++)
-                { tx[i] = 0.2f + (float)rnd.NextDouble() * 0.6f; tslope[i] = ((float)rnd.NextDouble() - 0.5f) * 0.8f; tlen[i] = 0.25f + (float)rnd.NextDouble() * 0.3f; tylo[i] = (float)rnd.NextDouble() * 0.55f; }
+                { tx[i] = 0.2f + (float)rnd.NextDouble() * 0.6f; tslope[i] = ((float)rnd.NextDouble() - 0.5f) * 0.9f; tlen[i] = 0.4f + (float)rnd.NextDouble() * 0.35f; tylo[i] = (float)rnd.NextDouble() * 0.45f; }
 
                 for (int yy = 0; yy < ch; yy++)
                 {
@@ -236,28 +253,40 @@ namespace FarHorizon.EditorTools
                         float uf = cw > 1 ? (float)xx / (cw - 1) : 0.5f; // 0..1 across the cell
                         float wear = 1f; // luma-multiplier (<=1 only — darken, never brighten)
 
-                        // dirt/wear patches (soft circular darkening).
+                        // dirt/wear patches — bigger + darker grime so the smudge reads at orbit distance.
                         for (int i = 0; i < patchN; i++)
                         {
                             float d = Mathf.Sqrt((uf - px[i]) * (uf - px[i]) + (vf - py[i]) * (vf - py[i]));
                             if (d < pr[i]) wear *= Mathf.Lerp(pd[i], 1f, d / pr[i]); // centre darkest, fades out
                         }
-                        // tears (thin dark rips along a sloped line over a v-span).
+                        // tears — WIDER, DARKER rips with a torn-open look: a dark core slit (~0.40x) flanked
+                        // by a slightly-lighter frayed lip, so a rip reads as fabric pulled apart, not a line.
                         for (int i = 0; i < tearN; i++)
                         {
                             if (vf >= tylo[i] && vf <= tylo[i] + tlen[i])
                             {
                                 float lineU = tx[i] + tslope[i] * (vf - tylo[i]);
-                                if (Mathf.Abs(uf - lineU) < 0.045f) wear *= 0.55f; // the rip is a dark slit
+                                float du = Mathf.Abs(uf - lineU);
+                                if (du < 0.06f) wear *= 0.38f;        // the rip core — a wide dark slit
+                                else if (du < 0.12f) wear *= 0.70f;   // the frayed lip either side of the rip
                             }
                         }
-                        // frayed hem: the bottom ~22% gets an irregular notched darkening (torn edge read).
-                        if (vf < 0.22f)
+                        // frayed/ragged hem — a deeper bottom band with a STRONGER irregular notch so the hem
+                        // reads visibly torn-off (the castaway tell). Bottom ~26% of the cell. The notch makes
+                        // SOME teeth dark (torn) + others near-full (intact) — a ragged edge, not a flat dark
+                        // band (which would just drag the mean down without reading as "frayed").
+                        if (vf < 0.24f)
                         {
-                            float notch = 0.5f + 0.5f * Mathf.Sin((uf * 7.3f + cell.x * 1.7f) * Mathf.PI);
-                            float hem = Mathf.Lerp(0.62f, 1f, vf / 0.22f); // darkest at the very bottom
-                            wear *= Mathf.Lerp(hem, 1f, notch * 0.6f);     // notches: some hem bits torn darker
+                            float notch = 0.5f + 0.5f * Mathf.Sin((uf * 6.1f + cell.x * 1.7f) * Mathf.PI);
+                            float hem = Mathf.Lerp(0.55f, 1f, vf / 0.24f); // very bottom darkest
+                            wear *= Mathf.Lerp(hem, 1f, notch * 0.6f);     // notches: ragged torn-off teeth
                         }
+
+                        // Floor — tattered but the cell MEAN must stay above the young/hopeful identity floor
+                        // (the shirt-mean guard floors luma >0.34; the dark patches/tears are punchy but the
+                        // floor keeps the average a worn-but-warm khaki, not grizzled — both garment cells clear
+                        // the floor with margin).
+                        wear = Mathf.Max(wear, 0.46f);
 
                         var c = new Color(
                             Mathf.Clamp01(anchor.r * ramp * wear),

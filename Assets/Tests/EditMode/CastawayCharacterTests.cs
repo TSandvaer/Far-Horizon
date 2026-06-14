@@ -377,18 +377,57 @@ namespace FarHorizon.EditTests
             }
             float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
 
-            // SHIRT: weathered (variation present) AND still warm khaki (R>G>B mean).
+            // Fraction of pixels in a cell DARKENED notably below the cell's own bright top-of-ramp (a
+            // strength-of-weathering metric — a subtle wear leaves most pixels near the ramp; bold dirt/tears/
+            // hem push a real fraction well below it). SOAKFIX5: the Sponsor said the SOAKFIX4 weather read as
+            // "unchanged" (too subtle), so the guard now asserts STRENGTH, not just presence-of-variation.
+            float DarkenedFraction(Vector2Int cell)
+            {
+                int x0 = cell.x * cw, y0 = cell.y * ch;
+                // the un-weathered toon ramp peaks at anchor*1.12 (top); use the cell's own max luma as the
+                // clean reference and count pixels dimmed to < 0.72x of it (a clearly-weathered pixel).
+                float maxL = 0f;
+                for (int yy = 0; yy < ch; yy++)
+                    for (int xx = 0; xx < cw; xx++)
+                    {
+                        var c = tex.GetPixel(x0 + xx, y0 + yy);
+                        float l = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                        if (l > maxL) maxL = l;
+                    }
+                int dimmed = 0, n = 0;
+                for (int yy = 0; yy < ch; yy++)
+                    for (int xx = 0; xx < cw; xx++)
+                    {
+                        var c = tex.GetPixel(x0 + xx, y0 + yy);
+                        float l = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                        if (l < maxL * 0.72f) dimmed++;
+                        n++;
+                    }
+                return n > 0 ? (float)dimmed / n : 0f;
+            }
+
+            // SHIRT: BOLDLY weathered (strong variation + a real darkened fraction) AND still warm khaki.
             CellStats(CharacterAssetGen.ShirtCell, out var shirtMean, out var shirtStd);
-            Assert.Greater(shirtStd, 0.02f,
-                $"shirt cell must carry tatter VARIATION (luma std {shirtStd:F4} > 0.02); a flat fill = the " +
-                "clean-shirt regression the Sponsor asked to weather");
+            float shirtDark = DarkenedFraction(CharacterAssetGen.ShirtCell);
+            Assert.Greater(shirtStd, 0.05f,
+                $"shirt cell must carry STRONG tatter variation that READS at gameplay distance (luma std " +
+                $"{shirtStd:F4} > 0.05); the SOAKFIX4 0.02 bar passed a too-subtle weather the Sponsor called " +
+                "'unchanged'");
+            Assert.Greater(shirtDark, 0.12f,
+                $"shirt must have a real DARKENED fraction (dirt/tears/hem) to read worn: {shirtDark:P0} of " +
+                "pixels dimmed <0.72x must be > 12%");
             Assert.Greater(shirtMean.r, shirtMean.b,
                 $"shirt must stay warm khaki even weathered (R>B mean); got {shirtMean}");
 
-            // PANTS: weathered AND BLUE denim (luma-PRESERVED — the weather darkens/streaks, no recolour).
+            // PANTS: BOLDLY weathered AND still BLUE denim (luma-PRESERVED — darken/streak, no recolour).
             CellStats(CharacterAssetGen.PantsCell, out var pMean, out var pStd);
-            Assert.Greater(pStd, 0.015f,
-                $"pants cell {CharacterAssetGen.PantsCell} must carry tatter VARIATION (luma std {pStd:F4} > 0.015), not a flat fill");
+            float pDark = DarkenedFraction(CharacterAssetGen.PantsCell);
+            Assert.Greater(pStd, 0.04f,
+                $"pants cell {CharacterAssetGen.PantsCell} must carry STRONG tatter variation (luma std " +
+                $"{pStd:F4} > 0.04), not the too-subtle SOAKFIX4 weather");
+            Assert.Greater(pDark, 0.12f,
+                $"pants must have a real DARKENED fraction to read worn: {pDark:P0} of pixels dimmed <0.72x " +
+                "must be > 12%");
             Assert.Greater(pMean.b, pMean.r,
                 $"pants must stay BLUE denim (B>R mean — the Sponsor's 'blue pants', confirmed by the per-object trace); {pMean}");
             Assert.Greater(pMean.b, pMean.g,
@@ -545,6 +584,62 @@ namespace FarHorizon.EditTests
             float ringMin = ys[14];
             Assert.Less(top1 - ringMin, 0.05f,
                 $"hair crown top-15 spread {(top1 - ringMin):F4}u must stay < 0.05u (coarse flat-crown floor)");
+        }
+
+        // HAIR FRONT-FRINGE guard (86ca8ce6y SOAKFIX5 — the 4th-attempt ORANGE TUFT). The crown-plateau guard
+        // above proved the crown is FLAT (clamp lands all crown verts on one ceiling) and PASSED — yet the
+        // Sponsor still saw a small ORANGE tuft poking ABOVE the crown at the top-FRONT from the over-the-
+        // shoulder DOWN-looking gameplay cam (pitch 55-70°). DIAGNOSE-VIA-TRACE (HairMeshTrace) proved the
+        // cause was NOT a proud crown vertex but the FRONT FRINGE jutting FORWARD (local z to -1.216, ~0.22u
+        // beyond the nominal radius) at a height near the crown: a forward-jutting lobe projects ABOVE the
+        // brow silhouette from a camera looking down the -Z face axis (closer + higher in screen-space than
+        // the crown behind it) and catches the key light -> the bright "orange" tuft. The plateau guard is
+        // BLIND to this (it only measures world-Y top verts; a forward lobe can sit BELOW the crown in Y yet
+        // still project over the brow). THIS guard is the bug-CLASS catch: build the EXACT shipped mesh and
+        // assert the FRINGE band (local z < -0.2, the face side) sits a real margin BELOW the crown ceiling
+        // AND does not jut forward past a sane radius — so no front lobe can project above the crown from the
+        // down-looking cam. Any future param/fringe regression that re-grows the forward tuft fails CI before
+        // a Sponsor soak. Pure-geometry, deterministic via seed.
+        [Test]
+        public void MessyHairCap_FrontFringe_SitsBelowCrown_NoForwardTuft()
+        {
+            var mesh = LowPolyMeshes.MessyHairCap(
+                MovementCameraScene.HairCapRadius, MovementCameraScene.HairCapYScale,
+                MovementCameraScene.HairCapCut, MovementCameraScene.HairCapSubdiv,
+                MovementCameraScene.HairCapJitter, MovementCameraScene.HairCapSeed);
+            Assert.IsNotNull(mesh, "MessyHairCap must build a mesh");
+
+            float crownCeil = MovementCameraScene.HairCapRadius * MovementCameraScene.HairCapYScale * 0.705f;
+            float radius = MovementCameraScene.HairCapRadius;
+
+            float crownMaxY = float.MinValue, fringeMaxY = float.MinValue, fringeMinZ = float.MaxValue;
+            int fringeVerts = 0;
+            foreach (var v in mesh.vertices)
+            {
+                if (v.y > crownMaxY) crownMaxY = v.y;
+                if (v.z < -0.2f) // the front FRINGE band (face side is -Z)
+                {
+                    fringeVerts++;
+                    if (v.y > fringeMaxY) fringeMaxY = v.y;
+                    if (v.z < fringeMinZ) fringeMinZ = v.z;
+                }
+            }
+            Assert.Greater(fringeVerts, 4, "the cap must have a real front fringe band to measure");
+
+            // (1) THE FRINGE SITS BELOW THE CROWN: the highest fringe vert must be a clear margin under the
+            // crown ceiling, so a forward fringe lobe cannot project above the brow from the down-looking cam.
+            // Trace post-fix: fringe maxY 0.5496 vs crownCeil 0.6204 -> 0.0708u gap. Require >= 0.04u.
+            float fringeGap = crownCeil - fringeMaxY;
+            Assert.GreaterOrEqual(fringeGap, 0.04f,
+                $"the front fringe must sit a clear margin BELOW the crown (the over-shoulder orange tuft): " +
+                $"fringe maxY {fringeMaxY:F4} vs crownCeil {crownCeil:F4} -> gap {fringeGap:F4}u must be >= 0.04u");
+
+            // (2) THE FRINGE DOES NOT JUT FORWARD past a sane radius: a far-forward lobe (the pre-fix z=-1.216)
+            // projects over the brow even at moderate height. Cap the forward jut. Post-fix minZ -1.030;
+            // require >= -1.10u (a touch of forward fringe is fine; a jutting lobe is not).
+            Assert.GreaterOrEqual(fringeMinZ, -1.10f * radius,
+                $"the front fringe must not jut FORWARD past ~1.10r (the forward-lobe tuft): " +
+                $"fringe minZ {fringeMinZ:F4} must be >= {-1.10f * radius:F4}u");
         }
     }
 }

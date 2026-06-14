@@ -178,22 +178,42 @@ namespace FarHorizon.EditorTools
             // KEPT on the lower fringe/sides (n.y <= crownGate) so the hair still reads tousled, not a helmet
             // (messiness is the secondary goal). Pinned by the tightened crown-flat guard + the over-shoulder
             // -verifyHair capture.
-            const float crownGate = 0.62f; // sphere-space n.y above this is "top crown" -> flat plateau, no jitter
+            const float crownGate = 0.62f;  // sphere-space n.y above this is "top crown" -> flat plateau, no jitter
+            const float frontGate = -0.2f;  // sphere-space n.z below this is the FRONT fringe (the face side, -Z)
             int Keep(int idx)
             {
                 if (remap.TryGetValue(idx, out int r)) return r;
                 Vector3 n = sphere[idx];
                 bool topCrown = n.y > crownGate;
+                bool front = n.z < frontGate;
 
-                // Outward radial jitter -> faceted tufts. ZEROED on the top crown so no vert pokes proud of
-                // the dome from a top-down view; kept on the fringe/sides for the tousled read.
-                float rJit = topCrown ? 1f : 1f + ((float)rnd.NextDouble() - 0.4f) * jitter;
+                // FRONT FRINGE TAME (86ca8ce6y SOAKFIX5 — the 4th-attempt ORANGE TUFT). HairTrace proved the
+                // crown plateau is genuinely flat (clamp lands 32 verts on one ceiling, ZERO above it), so the
+                // tuft the Sponsor sees from the over-the-shoulder DOWN-looking cam (pitch 55-70°) is NOT a
+                // proud crown vertex — it is the FRONT FRINGE jutting FORWARD (trace: frontmost vert local
+                // z=-1.216, ~0.22u beyond the nominal radius, because front verts kept the full outward radial
+                // jitter rJit up to ~1.20 AND a forward -z lateral wobble). A forward-jutting fringe lobe
+                // projects ABOVE the brow/crown silhouette from a camera looking down the -Z face axis (it is
+                // closer to + higher in screen-space than the crown behind it) and catches the key light on its
+                // forward facets -> reads as a bright "orange" tuft vs the shadowed brown crown top. FIX: the
+                // FRONT fringe gets NO outward radial jut (sits at/inside the nominal radius — a tidy brow, not
+                // a forward lobe) and NO forward (-z) wobble; only a little sideways x-wobble for messiness. The
+                // tousled read is KEPT on the sides/back (where the lobe can't project over the crown).
+                float rJit;
+                if (topCrown) rJit = 1f;                 // flat plateau: no jut
+                else if (front) rJit = 1f;               // front brow: no forward jut (kills the projected tuft)
+                else rJit = 1f + ((float)rnd.NextDouble() - 0.4f) * jitter; // sides/back: tousled
                 var p = new Vector3(n.x * radius * rJit, n.y * radius * yScale * rJit, n.z * radius * rJit);
-                // Lateral wobble (messy, not a helmet) — fringe/sides only; the top crown stays smooth.
-                if (!topCrown)
+                // Lateral wobble (messy, not a helmet) — SIDES/BACK only. The top crown stays smooth; the FRONT
+                // gets only a small sideways (x) wobble — NO z wobble, so the fringe can't push further forward.
+                if (!topCrown && !front)
                 {
                     p.x += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
                     p.z += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.5f;
+                }
+                else if (front)
+                {
+                    p.x += ((float)rnd.NextDouble() - 0.5f) * radius * jitter * 0.35f; // sideways messiness only
                 }
 
                 // CROWN PLATEAU (the HARD de-spike): every top-crown vert is clamped to ONE ceiling Y with NO
@@ -202,8 +222,18 @@ namespace FarHorizon.EditorTools
                 // a hair below the un-jittered dome top so the plateau sits flush, not raised.
                 float crownCeil = radius * yScale * 0.705f;
                 if (p.y > crownCeil) p.y = crownCeil;
-                // forward fringe (boyish): pull the front down+forward a touch (per the v4 identity sheets).
-                if (n.z < -0.2f) { p.y -= radius * 0.12f; p.z -= radius * 0.06f; }
+                // FORWARD FRINGE (boyish brow): pull the front DOWN + slightly forward so hair frames the brow.
+                // SOAKFIX5: the pull-down is now HEIGHT-GRADED — the HIGHER a front vert sits (closer to the
+                // crown), the HARDER it is pulled down, so NO front vert lands near the crown line where it
+                // could project above the brow from the down-looking cam. A front vert at the crown height drops
+                // ~0.30u (well clear of the crown); a low front vert keeps the gentle 0.10u boyish pull. The
+                // forward (-z) nudge is trimmed (0.06 -> 0.03) so the fringe sits closer to the face, not jutting.
+                if (front)
+                {
+                    float hk = Mathf.InverseLerp(-0.2f, crownGate, n.y); // 0 low-front .. 1 high-front(near crown)
+                    p.y -= radius * Mathf.Lerp(0.10f, 0.30f, Mathf.Clamp01(hk));
+                    p.z -= radius * 0.03f;
+                }
                 int ni = verts.Count; verts.Add(p); remap[idx] = ni; return ni;
             }
             var tris = new List<int>();

@@ -164,6 +164,22 @@ namespace FarHorizon.EditTests
                 "close-up capture path), serialized into the scene — not Awake-added");
         }
 
+        [Test]
+        public void BootScene_CarriesAxeNudgeTool_OnTheBootObject()
+        {
+            // SOAKFIX5 regression guard (the axe-nudge reframe): the BUILD-GATED debug AxeNudgeTool must be
+            // SERIALIZED onto the Boot object (sibling of the verify captures), else the Sponsor's in-game
+            // axe-dialing path silently vanishes from the shipped build (the component-not-serialized class,
+            // unity-conventions.md). The tool is INERT in normal play (asleep behind the F9 toggle — see the
+            // PlayMode inertness test), so its presence does NOT affect a soak. Drop WireAxeNudgeTool -> RED.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var boot = GameObject.Find("Boot");
+            Assert.IsNotNull(boot, "the Boot scene must carry the 'Boot' object (host of the debug nudge tool)");
+            Assert.IsNotNull(boot.GetComponent<AxeNudgeTool>(),
+                "the Boot object must carry the AxeNudgeTool component (the build-gated in-game axe-nudge " +
+                "tool), serialized into the scene — not Awake-added");
+        }
+
         private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
 
         private static GameObject FindByNameInScene(string name)

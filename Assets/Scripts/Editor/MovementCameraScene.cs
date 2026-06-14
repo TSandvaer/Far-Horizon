@@ -112,9 +112,16 @@ namespace FarHorizon.EditorTools
         // lossy ≈ 1.0u longest) UNCHANGED — the size already read as a clear hero hatchet; only height+pitch
         // move. Re-measured by PoseTrace post-change; final read is the SHIPPED build (editor RT is
         // framing-only, not colour — unity-conventions.md).
+        // SOAKFIX5 (axe-nudge reframe + "held axe FLOATS beside the side with a GAP to the hand, not gripped"):
+        // a REASONABLE DEFAULT, not a perfected pose — the Sponsor finalizes IN-GAME via the build-gated
+        // AxeNudgeTool then reports the numbers to bake here. The prior offset (0.22,0.24,-0.05) seated the
+        // handle ~0.22u OUT + 0.24u UP from the hand -> a clear floating gap beside the body. Default PULLS the
+        // handle IN to the grip: a small offset (0.05,0.08,0.0) so the haft sits AT the hand (gap closed), blade
+        // hanging DOWN at the side. Parented to RightHand_010 (tracks Idle/Walk). Scale unchanged (~1.0u reads
+        // at the orbit). Sponsor perfects the exact in-hand seat via the nudge tool next soak.
         public static readonly float HeldAxeLocalScaleUniform = 0.0040f;
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.22f, 0.24f, -0.05f);
-        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(-28f, 30f, 22f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.05f, 0.08f, 0.0f);
+        public static readonly Vector3 HeldAxeWorldEuler = new Vector3(-22f, 30f, 18f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -312,8 +319,15 @@ namespace FarHorizon.EditorTools
         // scale 1.4 -> 1.1 so the head doesn't overhang the small block. Re-measured by PoseTrace post-change
         // (head bottom at ~block-top, handle top ~1.4 clearly visible from spawn). Final read is the SHIPPED
         // build (editor RT is framing/size-only, not colour — unity-conventions.md).
-        public static readonly Vector3 StumpAxeLocalPos = new Vector3(0.02f, 1.42f, -0.04f);
-        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(26f, 45f, 8f);
+        // SOAKFIX5 (axe-nudge reframe): a REASONABLE DEFAULT, not a dialed-to-perfection pose — the Sponsor
+        // finalizes the exact transform IN-GAME via the build-gated AxeNudgeTool (cycles held/stump target,
+        // nudges XYZ + pitch/yaw/roll, reads the live values off the HUD), then reports the numbers to bake
+        // here. PoseTrace pre-change: StumpAxe world center (7.81,_,5.85) vs CraftStump center (8.00,_,6.00)
+        // — off-centre by ~0.19x / 0.15z. Default re-CENTRES the axe on the block (localPos.x 0.02->0.21,
+        // z -0.04->0.11) and seats the head biting the top so it reads as an axe stuck SQUARELY in the block;
+        // the lean/scale are unchanged (already read as an axe-in-a-block in the Sponsor's WIN list).
+        public static readonly Vector3 StumpAxeLocalPos = new Vector3(0.21f, 1.40f, 0.11f);
+        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(22f, 45f, 8f);
         public static readonly float StumpAxeLocalScaleUniform = 1.1f;
 
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
@@ -435,6 +449,10 @@ namespace FarHorizon.EditorTools
             // of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe. It frames
             // the held hatchet close so the silhouette/leather-wrap read rides a committed shipped-build path.
             WireAxeVerifyCapture();
+
+            // Wire the BUILD-GATED debug AxeNudgeTool (86ca8ce6y SOAKFIX5) — inert behind the F9 toggle, lets
+            // the Sponsor dial + read off the final held/stump axe transforms in-game (the axe-nudge reframe).
+            WireAxeNudgeTool();
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
@@ -559,6 +577,23 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<AxeVerifyCapture>() == null)
                 bootGo.AddComponent<AxeVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the BUILD-GATED debug AxeNudgeTool onto the Boot object so it SERIALIZES into Boot.unity (the
+        // editor-vs-runtime trap — a component in source but not in the scene ships inert). The tool is INERT
+        // in normal play (asleep behind the F9 toggle), so it never affects a soak; it lets the Sponsor dial
+        // + read off the final axe transforms in-game (86ca8ce6y SOAKFIX5 — the axe-nudge reframe).
+        private static void WireAxeNudgeTool()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host AxeNudgeTool");
+                return;
+            }
+            if (bootGo.GetComponent<AxeNudgeTool>() == null)
+                bootGo.AddComponent<AxeNudgeTool>();
             EditorUtility.SetDirty(bootGo);
         }
 
