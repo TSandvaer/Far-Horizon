@@ -85,5 +85,27 @@ namespace FarHorizon.EditTests
                 "crown-silhouette capture is inert if the scene never carries it — the component-not-" +
                 "serialized trap)");
         }
+
+        // SOAKFIX8 (86ca8ce6y FIX3): the FullscreenBoot component (forces borderless-native on a normal
+        // launch so the Sponsor's double-click fills the widescreen) must be SERIALIZED into the Boot scene —
+        // same component-not-serialized-into-scene class. If the scene never carries it, the exe keeps opening
+        // in the small persisted window. Regression guard: delete the AddComponent<FullscreenBoot>() line in
+        // BootstrapProject.BuildBootScene and this goes red.
+        [Test]
+        public void BootScene_CarriesFullscreenBoot_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            FullscreenBoot fs = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                fs = root.GetComponentInChildren<FullscreenBoot>(true);
+                if (fs != null) break;
+            }
+            Assert.IsNotNull(fs,
+                "the Boot scene must carry FullscreenBoot serialized (else the exe keeps opening in the small " +
+                "persisted window on a normal launch — the component-not-serialized trap; unity-conventions.md)");
+        }
     }
 }

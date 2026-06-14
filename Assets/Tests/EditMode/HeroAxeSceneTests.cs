@@ -83,18 +83,55 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxe_PosedHandLocal_SoRotationTracksTheBone()
+        {
+            // SOAKFIX8 regression guard (the bug CLASS at the serialization layer). The Sponsor's bug ("the
+            // axe points the same way on the x axis all the time") was the held axe posed via a WORLD rotation
+            // after parenting — which pinned it to a fixed world heading that couldn't survive a turn. The FIX
+            // is a HAND-LOCAL pose: the axe is a CHILD of the right-hand bone with a stable localRotation, so
+            // BOTH position and rotation ride the bone via the hierarchy in every facing.
+            //
+            // This pins the serialized contract: the axe is a direct child of the right-hand bone (so its
+            // localRotation IS its hand-relative rotation), and that localRotation is non-trivial (a real
+            // grip, not identity). The PlayMode test (HeldAxeRotationTracksHandPlayModeTests) proves the
+            // INVARIANCE across facings; this EditMode guard proves the scene actually SHIPS the hand-local
+            // parenting that makes that invariance hold (a regression that re-introduced a world-set rotation
+            // would still serialize SOME local transform, so the load-bearing pin is the direct-child parenting
+            // under the bone — asserted by BootScene_CarriesHeroAxe — plus a non-identity grip here).
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+
+            // The axe's parent must BE the right-hand bone (a DIRECT child), so localRotation == the
+            // hand-relative rotation the axe rides. (BootScene_CarriesHeroAxe pins "under the bone" loosely;
+            // this pins the DIRECT-child relationship the hand-local pose depends on.)
+            Transform parent = axe.transform.parent;
+            Assert.IsNotNull(parent, "the held axe must be parented (under the right-hand bone)");
+            string pn = parent.name.ToLowerInvariant();
+            Assert.IsTrue(pn.Contains(MovementCameraScene.RightHandBoneToken) && !pn.Contains("dummy") && !pn.Contains("end"),
+                $"the held axe's DIRECT parent must be the right-hand bone (got '{parent.name}') so its " +
+                "localRotation is the hand-relative grip — a free-standing or deeper-nested re-parent breaks the track.");
+
+            // The grip must be a real non-identity hand-local rotation (the dialed pose), not left at identity
+            // (which would read as the axe lying along the bone's local axes — not a held hatchet).
+            float fromIdentity = Quaternion.Angle(axe.transform.localRotation, Quaternion.identity);
+            Assert.Greater(fromIdentity, 5f,
+                $"the held axe's hand-local rotation must be a real grip (got {fromIdentity:F1}° from identity) — " +
+                "a near-identity localRotation means the dialed pose was lost.");
+        }
+
+        [Test]
         public void BootScene_HeldAxe_ReadsAtTheSide_NotByTheEar()
         {
-            // SOAKFIX2/4/7 regression guard (the bug CLASS, both directions). SOAKFIX2's bug was the held axe
+            // SOAKFIX2/4/7/8 regression guard (the bug CLASS, both directions). SOAKFIX2's bug was the held axe
             // as a ~0.43u sliver hanging at the hip (max.y 0.71), invisible (the "no axe" soak). The placement
-            // ceiling has since MOVED: in SOAKFIX7 the Sponsor dialed the held axe IN-GAME via the F9 nudge
-            // tool and CONFIRMED the seat "perfect" — the baked default measures axe top max.y ≈ 1.022u (the
-            // grip rides up the hand as the Sponsor wanted; the earlier "clear the head bone at 0.775" ceiling
-            // was a placeholder constraint, NOT a Sponsor-judged one, and is superseded by his confirmed pose).
-            // This guard pins the held axe in the GOLDILOCKS band around the SPONSOR-CONFIRMED default: big
-            // enough to read at gameplay distance, well above hip-level (not a foot-stick / invisible sliver),
-            // and below a runaway-giant ceiling. A regression in EITHER direction reds in CI. (Final visual
-            // read is still the SHIPPED build — this is the size/placement floor the eyes verified.)
+            // band has MOVED with each Sponsor-confirmed dial: SOAKFIX7's seat measured ~1.022u; SOAKFIX8 (the
+            // ROTATION-TRACKS-HAND fix) bakes the Sponsor's LATEST dialed grip, which seats the axe LOWER —
+            // held down at the side, axe top max.y ≈ 0.53u (PoseTrace; the grip the Sponsor dialed via the F9
+            // tool). The band is re-centred on THAT Sponsor-dialed default. It still guards both failure
+            // directions: the SIZE floor (longest-extent ≥0.7u below) catches the invisible-sliver regression,
+            // and this top-y band catches a foot-stick (too low) / a 267×-bone giant or wild-euler fling (too
+            // high). A regression in EITHER direction reds in CI. (Final visual read is still the SHIPPED build.)
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var axe = FindHeroAxe();
             Assert.IsNotNull(axe, "hero axe must be present");
@@ -111,13 +148,13 @@ namespace FarHorizon.EditTests
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
                 "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
-            // The axe top must sit at the HAND, around the SOAKFIX7 Sponsor-confirmed seat (max.y ≈ 1.022u).
-            // Floor 0.7u catches the hip/feet regression (the SOAKFIX2 no-axe direction); ceiling 1.3u catches
-            // a 267×-bone giant or a wild euler that flings the axe up. The band is centred on the dialed-in
-            // default the Sponsor judged "perfect" — re-bake the default and this band moves with it.
-            Assert.That(b.max.y, Is.InRange(0.7f, 1.3f),
-                $"held axe top y {b.max.y:F2} must sit at the hand near the SOAKFIX7 dialed-in seat (~1.02u): " +
-                "<0.7 = hanging at the feet (the SOAKFIX2 no-axe direction), >1.3 = a 267x-bone giant / wild-euler fling.");
+            // The axe top must sit at the HAND, around the SOAKFIX8 Sponsor-dialed seat (max.y ≈ 0.53u — held
+            // down at the side). Floor 0.35u catches a regression that drops the axe to the feet/below ground;
+            // ceiling 0.95u catches a 267×-bone giant or a wild euler that flings the axe up to the ear. The
+            // band is centred on the dialed-in default the Sponsor judged — re-bake the default and it moves.
+            Assert.That(b.max.y, Is.InRange(0.35f, 0.95f),
+                $"held axe top y {b.max.y:F2} must sit at the hand near the SOAKFIX8 dialed-in seat (~0.53u): " +
+                "<0.35 = dropped to the feet/below ground, >0.95 = a 267x-bone giant / wild-euler fling to the ear.");
         }
 
         [Test]

@@ -187,6 +187,12 @@ namespace FarHorizon.EditorTools
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
             // serialization trap; inert unless the exe is launched with -captureGate.
             hudGo.AddComponent<CaptureGate>();
+            // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
+            // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted
+            // Screenmanager registry values written by the windowed capture gate). INERT on any capture/verify
+            // launch (-captureGate/-verify*/-shot/-screen-fullscreen), so QA's windowed captures are untouched.
+            // Serialized editor-time per the editor-vs-runtime trap; FullscreenBootSceneTests guards its presence.
+            hudGo.AddComponent<FullscreenBoot>();
 
             // U2-1 (86ca8bd9m): the single survival need — WARMTH decays over time and drives the
             // M-U2 loop; the campfire (U2-4) answers it via WarmthNeed's satisfaction hook. SERIALIZED
