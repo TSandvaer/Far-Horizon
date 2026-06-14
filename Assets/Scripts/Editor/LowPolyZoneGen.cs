@@ -48,7 +48,11 @@ namespace FarHorizon.EditorTools
         // it sits bright against the warm fog (0.80,0.80,0.74) instead of crushing to a dark silhouette.
         // Still sub-1.0 / HDR-clamp-safe (the per-instance *0.85..1.15 jitter in BuildRock keeps the top of
         // the band under 1.0). The board-v2 grey rocks (21h10_44) read as light warm stone, not charcoal.
-        static readonly Color RockCol = new Color(0.66f, 0.62f, 0.55f);  // warm light stone (was .55/.52/.47 — dark-silhouette)
+        // v2 verify-capture note: a too-warm RockCol (R-B gap 0.11) read PINK/lavender under the cool SH
+        // ambient on shadow facets (the verify caps showed mauve rocks). Neutralised to a DESATURATED warm
+        // grey (small R-B gap, G near R) so it reads as proper STONE grey under both the warm key and the
+        // cool fill — never pink. Still a faint warm lean (R >= B) + lifted value so it doesn't silhouette.
+        static readonly Color RockCol = new Color(0.63f, 0.615f, 0.575f); // desaturated warm stone-grey (was .66/.62/.55 — read pink)
         static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
         static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow (legacy)
         static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit (legacy)
