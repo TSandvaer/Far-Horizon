@@ -48,11 +48,13 @@ namespace FarHorizon.EditorTools
         // it sits bright against the warm fog (0.80,0.80,0.74) instead of crushing to a dark silhouette.
         // Still sub-1.0 / HDR-clamp-safe (the per-instance *0.85..1.15 jitter in BuildRock keeps the top of
         // the band under 1.0). The board-v2 grey rocks (21h10_44) read as light warm stone, not charcoal.
-        // v2 verify-capture note: a too-warm RockCol (R-B gap 0.11) read PINK/lavender under the cool SH
-        // ambient on shadow facets (the verify caps showed mauve rocks). Neutralised to a DESATURATED warm
-        // grey (small R-B gap, G near R) so it reads as proper STONE grey under both the warm key and the
-        // cool fill — never pink. Still a faint warm lean (R >= B) + lifted value so it doesn't silhouette.
-        static readonly Color RockCol = new Color(0.63f, 0.615f, 0.575f); // desaturated warm stone-grey (was .66/.62/.55 — read pink)
+        // v2 verify-capture + TINTDIAG instrumentation: the rocks read PINK because the coarse 12-step
+        // material quantizer SPLIT the warm-grey ramp — R rounded UP across the 0.625 step while G/B rounded
+        // DOWN, yielding (0.667, 0.583, 0.583) = R>G=B = a pink cast. The fix is NOT the base colour (any
+        // base near 0.6 hits the same step boundary) — it's to quantize the ROCK tint on a FINER 24-step grid
+        // (RockVertexColorMat -> QuantizeFine) that preserves the R>=G>=B warm-grey order. With this base on
+        // the fine grid, TINTDIAG shows all tints stay warm-grey (no R>G=B pink), 4 distinct mats (low churn).
+        static readonly Color RockCol = new Color(0.62f, 0.60f, 0.555f); // warm stone-grey (fine-quantized; no pink split)
         static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
         static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow (legacy)
         static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit (legacy)
@@ -469,7 +471,7 @@ namespace FarHorizon.EditorTools
             // (0.62 dark sides .. 1.0 light tops) multiplies onto it -> facet-to-facet stone value contrast.
             MakeMeshObject(rock, "RockMesh",
                 LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: rnd.Next()),
-                RockVertexColorMat(RockCol * (0.94f + (float)rnd.NextDouble() * 0.12f)));
+                RockVertexColorMat(RockCol * (0.96f + (float)rnd.NextDouble() * 0.08f)));
         }
 
         // Grass tufts (the iter-8 dark-shard FIX lives in LowPolyMeshes.GrassClump — up-biased normals
@@ -675,7 +677,10 @@ namespace FarHorizon.EditorTools
         static readonly Dictionary<string, Material> _rockCache = new Dictionary<string, Material>();
         static Material RockVertexColorMat(Color baseTint)
         {
-            Color q = Quantize(baseTint);
+            // FINE quantization (24-step, not the coarse 12-step the other props use): the coarse grid split
+            // the warm-grey rock ramp into a pink (R>G=B) cast (TINTDIAG). The fine grid preserves R>=G>=B —
+            // still only ~4 distinct rock mats, so churn stays low.
+            Color q = QuantizeFine(baseTint);
             string key = "LPRockMat_" + ColorKey(q);
             if (_rockCache.TryGetValue(key, out var cached) && cached != null) return cached;
             var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
@@ -704,6 +709,18 @@ namespace FarHorizon.EditorTools
         static Color Quantize(Color c)
         {
             const float steps = 12f;
+            return new Color(
+                Mathf.Round(c.r * steps) / steps,
+                Mathf.Round(c.g * steps) / steps,
+                Mathf.Round(c.b * steps) / steps, 1f);
+        }
+
+        // Finer 24-step quantizer for the ROCK tint — the coarse 12-step grid split the warm-grey ramp into
+        // a pink (R>G=B) cast (TINTDIAG). 24 steps preserve R>=G>=B while still collapsing the per-instance
+        // jitter to ~4 distinct rock materials (low churn).
+        static Color QuantizeFine(Color c)
+        {
+            const float steps = 24f;
             return new Color(
                 Mathf.Round(c.r * steps) / steps,
                 Mathf.Round(c.g * steps) / steps,
