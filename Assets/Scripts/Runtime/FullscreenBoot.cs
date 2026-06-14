@@ -34,7 +34,7 @@ namespace FarHorizon
         {
             "-captureGate", "-shot",
             "-verifyMove", "-verifyCraft", "-verifyChop", "-verifyLoop",
-            "-verifyAxe", "-verifyCastaway", "-verifyHair", "-verifySea", "-verifyRock",
+            "-verifyAxe", "-verifyAxeFacings", "-verifyCastaway", "-verifyHair", "-verifySea", "-verifyRock",
             // Belt-and-suspenders: if the launch explicitly asked for windowed, honour it.
             "-screen-fullscreen",
         };

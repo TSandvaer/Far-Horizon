@@ -42,7 +42,7 @@ namespace FarHorizon.PlayTests
             {
                 "-captureGate", "-shot",
                 "-verifyMove", "-verifyCraft", "-verifyChop", "-verifyLoop",
-                "-verifyAxe", "-verifyCastaway", "-verifyHair", "-verifySea", "-verifyRock",
+                "-verifyAxe", "-verifyAxeFacings", "-verifyCastaway", "-verifyHair", "-verifySea", "-verifyRock",
                 "-screen-fullscreen",
             };
             foreach (string flag in inertFlags)
