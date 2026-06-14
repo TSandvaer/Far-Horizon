@@ -525,6 +525,20 @@ namespace FarHorizon.EditorTools
                 Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
                 if (fn.sqrMagnitude < 1e-10f) continue; // skip degenerate (a fully collapsed notch)
                 fn.Normalize();
+                // OUTWARD-CONSISTENCY (v2 verify-capture diagnosis — the "thin sliver" render): the meshes
+                // are NOT thin (ROCKDIAG: chunky bounds, 0 thin faces) — they were BACKFACE-CULLED. After
+                // displacement a face can wind CW-as-seen-from-outside, so its computed normal points INWARD;
+                // the default URP Cull Back then culls it (and an inward normal shades it dark) -> only the
+                // few correctly-wound facets survive -> the rock reads as scattered thin shards. Fix: force
+                // every face normal to point AWAY from the rock centre (verts are centred on the origin), and
+                // FLIP the winding to match so the visible (front) side is the outward side -> the whole chunk
+                // renders, no culled holes. (Same backface-culling class as the −Z water grid, unity-conv §.)
+                Vector3 faceCentre = (v0 + v1 + v2) / 3f;
+                if (Vector3.Dot(fn, faceCentre) < 0f)
+                {
+                    fn = -fn;
+                    var tmp = v1; v1 = v2; v2 = tmp; // flip winding so the outward normal is the front face
+                }
                 // Per-facet value: up-facing facets read light, side/down facets a touch darker. The big
                 // facet-to-facet contrast comes from the FLAT-SHADING LIGHTING (each facet's own N·L against
                 // the warm key), so the BAKED value only needs a GENTLE lift toward the tops — a high floor
