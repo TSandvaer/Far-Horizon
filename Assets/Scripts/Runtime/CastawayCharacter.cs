@@ -112,6 +112,7 @@ namespace FarHorizon
         {
             _model = transform.childCount > 0 ? transform.GetChild(0) : null;
             _animator = GetComponentInChildren<Animator>();
+            if (_model != null) _hips = FindHipsBone(_model); // for the runtime re-centre (LateUpdate)
             _built = _model != null;
         }
 
@@ -135,19 +136,22 @@ namespace FarHorizon
 
             _animator = go.GetComponentInChildren<Animator>();
             if (_animator == null) _animator = go.AddComponent<Animator>();
-            // Preserve the FBX-imported Humanoid avatar — assigning only the controller keeps _animator.avatar,
-            // which the clips bind to. A null avatar means the FBX imported without an avatar and the model
-            // freezes in its bind/T-pose.
-            if (_animator.avatar == null)
+            // Preserve the FBX-imported avatar across the controller assignment: capture it FIRST, assign the
+            // controller, then RE-ASSERT — an Animator with a missing/cleared avatar at runtime can't bind the
+            // clips to the skeleton and renders a frozen/collapsed skin. 86ca8rdkp.
+            Avatar imported = _animator.avatar;
+            if (imported == null)
                 Debug.LogWarning("[CastawayCharacter] Animator has NO avatar — clips will not bind " +
-                                 "(Idle.fbx must import Humanoid with avatarSetup=CreateFromThisModel)");
+                                 "(Idle.fbx must import Generic with avatarSetup=CreateFromThisModel)");
             if (animatorController != null) _animator.runtimeAnimatorController = animatorController;
+            if (imported != null) _animator.avatar = imported; // re-assert post-controller
             _animator.applyRootMotion = false; // NavMeshAgent drives position; anim is in-place
 
             // No cap-hide / procedural hair here (chibi-specific, removed for the Hyper3D castaway — it ships
             // sculpted hair in the mesh). The de-lit material is bound editor-time by MovementCameraScene.
             _built = true;
         }
+
 
         void LateUpdate()
         {

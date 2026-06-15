@@ -16,9 +16,10 @@ namespace FarHorizon.EditTests
     ///
     ///   1. The player carries a serialized, SKINNED, BONED avatar — NOT a runtime-assembled hierarchy and
     ///      NOT the retired capsule placeholder (the legs-up serialization guard).
-    ///   2. Idle.fbx is the with-skin character with a looping Idle clip and a VALID Humanoid avatar;
-    ///      Walking.fbx carries a looping Walk clip (CopyFromOther retarget) — the T-pose-mid-walk guard.
-    ///      (Mixamo clip takes are "mixamo.com" → renamed to CastawayIdle/CastawayWalk on import.)
+    ///   2. Idle.fbx is the with-skin character (GENERIC rig) with a looping Idle clip + a VALID avatar;
+    ///      Walking.fbx carries a looping Walk clip (Generic, binds by transform path) — the T-pose-mid-walk
+    ///      guard. (Mixamo clip takes are "mixamo.com" → renamed to CastawayIdle/CastawayWalk on import. The
+    ///      GENERIC rig is the runtime-explosion fix — Humanoid retarget coned the mesh; 86ca8rdkp.)
     ///   3. The intrinsic-height normalization is configured (the un-normalized-giant guard).
     ///   4. The de-lit material binds texture_diffuse on _BaseMap (the flat toon look — catches a missing
     ///      texture grey).
@@ -115,12 +116,14 @@ namespace FarHorizon.EditTests
 
             var idleImporter = AssetImporter.GetAtPath(CharacterAssetGen.IdleFbxPath) as ModelImporter;
             Assert.IsNotNull(idleImporter, "Idle.fbx must be importable at " + CharacterAssetGen.IdleFbxPath);
-            Assert.AreEqual(ModelImporterAnimationType.Human, idleImporter.animationType,
-                "Idle.fbx must import as a Humanoid rig (the spike's proven two-FBX retarget pipeline)");
+            Assert.AreEqual(ModelImporterAnimationType.Generic, idleImporter.animationType,
+                "Idle.fbx must import as a GENERIC rig — the Humanoid muscle-space retarget EXPLODED the skinned " +
+                "mesh into a cone at runtime in the production scene (86ca8rdkp); Generic binds the clip by " +
+                "transform path onto the mixamorig skeleton, no retarget, and renders clean (spike captures 04/05)");
             Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, idleImporter.avatarSetup,
-                "Idle.fbx must build its OWN Humanoid avatar (CreateFromThisModel) or clips will not bind (T-pose)");
+                "Idle.fbx must build its OWN avatar (CreateFromThisModel) or clips will not bind (T-pose)");
 
-            // Idle.fbx must produce a VALID Humanoid avatar.
+            // Idle.fbx must produce a VALID avatar.
             Avatar idleAvatar = null;
             AnimationClip idle = null;
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.IdleFbxPath))
@@ -130,16 +133,18 @@ namespace FarHorizon.EditTests
                     c.name.Contains(CharacterAssetGen.IdleClip)) idle = c;
             }
             Assert.IsNotNull(idleAvatar, "Idle.fbx must produce an avatar");
-            Assert.IsTrue(idleAvatar.isValid && idleAvatar.isHuman,
-                "Idle.fbx avatar must be a VALID Humanoid avatar (so the Walk clip retargets)");
+            Assert.IsTrue(idleAvatar.isValid,
+                "Idle.fbx avatar must be VALID (so the clips bind to the skeleton)");
             Assert.IsNotNull(idle, "Idle.fbx must contain a clip matching '" + CharacterAssetGen.IdleClip + "'");
             Assert.IsTrue(idle.isLooping, CharacterAssetGen.IdleClip + " must loop (no freeze-on-idle)");
 
-            // Walking.fbx must carry a looping Walk clip (CopyFromOther retarget).
+            // Walking.fbx must carry a looping Walk clip (Generic, CreateFromThisModel — binds by path).
             var walkImporter = AssetImporter.GetAtPath(CharacterAssetGen.WalkFbxPath) as ModelImporter;
             Assert.IsNotNull(walkImporter, "Walking.fbx must be importable at " + CharacterAssetGen.WalkFbxPath);
-            Assert.AreEqual(ModelImporterAvatarSetup.CopyFromOther, walkImporter.avatarSetup,
-                "Walking.fbx must CopyFromOther (retarget the Walk clip onto Idle's avatar)");
+            Assert.AreEqual(ModelImporterAnimationType.Generic, walkImporter.animationType,
+                "Walking.fbx must import as a GENERIC rig (the Walk clip binds by transform path, no retarget)");
+            Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, walkImporter.avatarSetup,
+                "Walking.fbx must create its own avatar (Generic path binds by transform path onto Idle's mesh)");
             AnimationClip walk = null;
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.WalkFbxPath))
                 if (obj is AnimationClip c && !c.name.StartsWith("__preview__") &&

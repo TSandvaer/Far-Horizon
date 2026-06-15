@@ -1148,8 +1148,8 @@ namespace FarHorizon.EditorTools
             var avatarGo = new GameObject("CastawayAvatar");
             avatarGo.transform.SetParent(player.transform, false);
             avatarGo.transform.localPosition = Vector3.zero;
-            // The FBX is normalized to ~1u intrinsic; scale the avatar root to the agent height (1.8u)
-            // so the visible character matches the agent capsule + grounds correctly.
+            // The FBX import is normalized to ~1u (spike-exact); scale the avatar root to the agent height
+            // (1.8u) so the visible character matches the agent capsule + grounds correctly.
             avatarGo.transform.localScale = Vector3.one * PlayerVisualHeight;
 
             var castaway = avatarGo.AddComponent<CastawayCharacter>();

@@ -13,12 +13,22 @@ namespace FarHorizon.EditorTools
     /// face + 6-SMR-atlas weathering grind is dropped). The Sponsor APPROVED the swap 2026-06-15 after the
     /// spike proved this asset animates clean + on-style in the shipped URP exe.
     ///
-    /// PIPELINE — TWO Mixamo FBX, HUMANOID rig (the proven spike config, reused verbatim):
-    ///   1. Idle.fbx  (WITH skin = mesh + rig + Idle clip) → rig=Humanoid, avatarSetup=CreateFromThisModel
-    ///      (builds the Humanoid avatar from the Mixamo Standard-65 skeleton), import the clip, loop it,
-    ///      height-normalize the intrinsic import to ~1u (the camera/NavMesh/grounding are ~1u-calibrated).
-    ///   2. Walking.fbx (WITHOUT skin = Walk clip only) → rig=Humanoid, avatarSetup=CopyFromOther → Idle's
-    ///      avatar (the Mixamo Standard-65 skeleton matches), so the Walk clip RETARGETS onto Idle's mesh.
+    /// PIPELINE — TWO Mixamo FBX, GENERIC rig:
+    ///   1. Idle.fbx  (WITH skin = mesh + rig + Idle clip) → rig=Generic, avatarSetup=CreateFromThisModel
+    ///      (builds an avatar from the Mixamo skeleton), import the clip, loop it, height-normalize the
+    ///      intrinsic import to ~1u (the camera/NavMesh/grounding are ~1u-calibrated).
+    ///   2. Walking.fbx (WITHOUT skin = Walk clip only) → rig=Generic, avatarSetup=CreateFromThisModel; the
+    ///      Generic Walk clip binds by TRANSFORM PATH onto Idle's mesh (same mixamorig bone names) — no
+    ///      Humanoid muscle-space retarget.
+    ///
+    /// RIG = GENERIC (86ca8rdkp — the runtime-explosion fix). The ticket's prescribed Humanoid path EXPLODED
+    /// the skinned mesh into a cone / stretched arm at RUNTIME in the production scene (the Humanoid retarget
+    /// reconstructs the pose in muscle space, which mismatched this FBX's internal 100× mesh node + the scene's
+    /// avatar root). The spike's Humanoid captures only LOOKED clean because the spike capture camera FOLLOWED
+    /// the displaced mesh (fixed scene camera would have shown empty). GENERIC binds clips by transform path
+    /// onto the FBX's own mixamorig skeleton — NO muscle retarget — and renders clean at the player with sane
+    /// bone world positions (rig-trace-verified: body at spawn, RightHand at the hand). The spike ALSO proved
+    /// Generic clean (captures 04/05); it is the choice the live chibi made too.
     ///   3. A flat de-lit URP/Lit material from texture_diffuse as _BaseMap (smoothness ~0, no metallic) so
     ///      the baked toon-shaded albedo reads de-lit/toon (the project's URP/Lit toon idiom). Bound onto the
     ///      avatar's SkinnedMeshRenderer(s) editor-time by MovementCameraScene (the FBX imports its own
@@ -33,13 +43,9 @@ namespace FarHorizon.EditorTools
     ///      the SOURCE yellow band, NOT the prior pixels), so a bootstrap re-run converges. A REASONABLE pass
     ///      the Sponsor judges from the build — NOT a grind (per the ticket).
     ///
-    /// RIG CHOICE — HUMANOID (the spike's prescribed + proven config; both Humanoid + Generic rendered clean
-    /// in the shipped build, captures 02-05). Humanoid because the two FBX are SEPARATE (Idle with skin,
-    /// Walking without) and the Walk clip must RETARGET onto Idle's mesh via a shared avatar — CopyFromOther
-    /// is the Humanoid retarget path the spike validated. (The chibi used Generic single-FBX; that pipeline
-    /// does not fit a two-FBX split.) unity-conventions.md §FBX documents the avatarSetup T-pose trap (honored
-    /// by CreateFromThisModel) and the clip-take-name finding (the Mixamo take is "mixamo.com", NOT
-    /// "Idle"/"Walk" — match by Contains + rename, or zero clips loop = the T-pose-mid-walk failure class).
+    /// unity-conventions.md §FBX documents the avatarSetup T-pose trap (honored by CreateFromThisModel) and
+    /// the clip-take-name finding (the Mixamo take is "mixamo.com", NOT "Idle"/"Walk" — match by Contains +
+    /// rename, or zero clips loop = the T-pose-mid-walk failure class).
     ///
     /// Source: Hyper3D Rodin Image-to-3D (Gen-2.5 Quad ~8000) + Mixamo auto-rig (Standard 65 skeleton),
     /// generated from an openai-image A-pose concept (see .claude/docs/character-pipeline.md). License is
@@ -74,9 +80,12 @@ namespace FarHorizon.EditorTools
         // grey regression (the flat toon look silently lost) fails the build/test.
         public const string DiffuseTextureName = "texture_diffuse";
 
-        // Height normalization — the FBX imports at an arbitrary intrinsic height; normalize to ~1u so the
-        // avatar-root scale (PlayerVisualHeight=1.8) maps directly onto on-screen height (the camera/NavMesh/
-        // grounding are ~1u-calibrated). Re-derived from the LIVE measured bounds so a future swap self-corrects.
+        // Height normalization — the FBX imports at ~2.18u intrinsic; normalize the IMPORT directly to the
+        // on-screen height (1.8u, the agent height) so the avatar root sits UNSCALED (scale 1) — a SINGLE
+        // scale chain (the FBX globalScale only), matching the spike's clean single-instantiate. Wrapping the
+        // 100×-internal-node FBX in a SECOND scaled ancestor (the old 1.8× root) made the Humanoid Animator's
+        // retarget displace the mesh off-spawn at runtime (86ca8rdkp / rig-trace). useFileUnits/useFileScale
+        // stay at import DEFAULTS (the spike's known-clean values). Re-derived from live bounds (self-corrects).
         public const float TargetImportHeightU = 1.0f;
 
         // ---- IDENTITY RECOLOR (86ca8rdkp AC4) — warm the mustard-yellow generated shirt toward TAN.
@@ -121,11 +130,21 @@ namespace FarHorizon.EditorTools
             var importer = AssetImporter.GetAtPath(IdleFbxPath) as ModelImporter;
             if (importer == null) { Debug.LogError("[CharacterAssetGen] Idle.fbx not found at " + IdleFbxPath); return; }
 
-            importer.animationType = ModelImporterAnimationType.Human;
+            // GENERIC rig (86ca8rdkp — the runtime-explosion fix). The Humanoid retarget reconstructed the
+            // pose in MUSCLE space and, combined with this Mixamo FBX's internal 100× mesh node, EXPLODED the
+            // skinned mesh into a cone/stretched-arm at runtime in the production scene (verify + gameplay
+            // captures; the spike's Humanoid mode only looked clean because its capture camera FOLLOWED the
+            // displaced mesh). GENERIC binds the clip by TRANSFORM PATH onto the FBX's own mixamorig skeleton
+            // — NO muscle-space retarget — which the spike ALSO proved animates clean (captures 04/05) and
+            // which the live chibi used. Both FBX CreateFromThisModel (own avatar from own identical skeleton);
+            // the Walk clip binds by path onto the shared bone names — no CopyFromOther retarget needed.
+            importer.animationType = ModelImporterAnimationType.Generic;
             importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
             importer.importAnimation = true;
             importer.importBlendShapes = false;
             importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
 
             // HEIGHT NORMALIZATION before the clip reimport so one SaveAndReimport applies scale + loop flags.
             float measured = MeasureHeight(IdleFbxPath);
@@ -148,14 +167,13 @@ namespace FarHorizon.EditorTools
                       $"looped+renamed {looped} clip(s) -> {IdleClip}");
 
             var avatar = LoadAvatar(IdleFbxPath);
-            bool ok = avatar != null && avatar.isValid && avatar.isHuman;
+            bool ok = avatar != null && avatar.isValid;
             if (!ok)
-                Debug.LogError("[CharacterAssetGen] Idle.fbx did not produce a VALID Humanoid avatar. avatar=" +
+                Debug.LogError("[CharacterAssetGen] Idle.fbx did not produce a VALID avatar. avatar=" +
                                (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
-                               " human=" + (avatar != null && avatar.isHuman) +
                                " — clips will not bind (the T-pose-mid-walk class)");
             else
-                Debug.Log("[CharacterAssetGen] Idle.fbx Humanoid avatar valid");
+                Debug.Log("[CharacterAssetGen] Idle.fbx Generic avatar valid");
         }
 
         // Walking.fbx is the Walk clip WITHOUT skin. Humanoid rig, avatar COPIED FROM Idle's avatar
@@ -166,16 +184,18 @@ namespace FarHorizon.EditorTools
             var importer = AssetImporter.GetAtPath(WalkFbxPath) as ModelImporter;
             if (importer == null) { Debug.LogError("[CharacterAssetGen] Walking.fbx not found at " + WalkFbxPath); return; }
 
-            importer.animationType = ModelImporterAnimationType.Human;
-            var idleAvatar = LoadAvatar(IdleFbxPath);
-            if (idleAvatar == null)
-                Debug.LogError("[CharacterAssetGen] no Idle avatar to copy from — Walk will not retarget. " +
-                               "ConfigureIdleFbx must run first.");
-            importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
-            importer.sourceAvatar = idleAvatar;
+            // GENERIC: Walking.fbx creates its OWN avatar from its own (identical mixamorig) skeleton; the
+            // Generic Walk clip binds by TRANSFORM PATH onto Idle's mesh (same bone names) — no Humanoid
+            // muscle-space retarget (the runtime-explosion cause). The spike proved this path clean (capture
+            // 05). No CopyFromOther / sourceAvatar needed.
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
             importer.importAnimation = true;
             importer.importBlendShapes = false;
             importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
 
             importer.clipAnimations = LoopAndRename(importer, WalkClip, out int looped);
             EditorUtility.SetDirty(importer);
@@ -305,6 +325,16 @@ namespace FarHorizon.EditorTools
                     cc.name = newName;
                     cc.loopTime = true;
                     cc.loop = true;
+                    // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
+                    // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
+                    // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
+                    cc.lockRootRotation = true;
+                    cc.keepOriginalOrientation = false;
+                    cc.lockRootPositionXZ = true;
+                    cc.keepOriginalPositionXZ = false;
+                    cc.lockRootHeightY = false;
+                    cc.keepOriginalPositionY = true;
+                    cc.heightFromFeet = false;
                     looped++;
                 }
                 edited.Add(cc);
