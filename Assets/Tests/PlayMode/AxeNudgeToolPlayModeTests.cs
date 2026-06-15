@@ -23,6 +23,8 @@ namespace FarHorizon.PlayTests
         private GameObject _handGo;
         private GameObject _heldGo;
         private GameObject _stumpGo;
+        private GameObject _armGo;
+        private CastawayArmPose _armPose;
 
         [SetUp]
         public void SetUp()
@@ -40,6 +42,14 @@ namespace FarHorizon.PlayTests
             _stumpGo.transform.localPosition = new Vector3(0.2f, 1.4f, 0.1f);
             _stumpGo.transform.localEulerAngles = new Vector3(22f, 45f, 8f);
 
+            // RE-SOAK — a CastawayArmPose the tool's arm-pose target nudges. Disabled (we only check the tool
+            // doesn't touch its euler fields in normal play; the pose's own behavior has its own test).
+            _armGo = new GameObject("CastawayAvatar");
+            _armPose = _armGo.AddComponent<CastawayArmPose>();
+            _armPose.enabled = false;
+            _armPose.rightArmEuler = new Vector3(12f, 0f, 7f);
+            _armPose.leftArmEuler = new Vector3(9f, 0f, 0f);
+
             _bootGo = new GameObject("Boot");
             _bootGo.AddComponent<AxeNudgeTool>();
         }
@@ -51,6 +61,7 @@ namespace FarHorizon.PlayTests
             Object.Destroy(_heldGo);
             Object.Destroy(_handGo);
             Object.Destroy(_stumpGo);
+            Object.Destroy(_armGo);
         }
 
         // NORMAL PLAY (no toggle key): across many frames the tool stays asleep — the held + stump axe
@@ -63,6 +74,7 @@ namespace FarHorizon.PlayTests
             Vector3 heldWorld0 = _heldGo.transform.position;
             Vector3 stumpPos0 = _stumpGo.transform.localPosition;
             Quaternion stumpRot0 = _stumpGo.transform.localRotation;
+            Vector3 rArm0 = _armPose.rightArmEuler, lArm0 = _armPose.leftArmEuler; // RE-SOAK arm-pose target
 
             // Run several frames of normal play (no F9 toggle, no nudge keys synthesized).
             for (int i = 0; i < 20; i++) yield return null;
@@ -78,6 +90,11 @@ namespace FarHorizon.PlayTests
                 "stump axe local position must be UNCHANGED in normal play");
             Assert.AreEqual(stumpRot0, _stumpGo.transform.localRotation,
                 "stump axe local rotation must be UNCHANGED in normal play");
+            // RE-SOAK — the arm-pose target must also be untouched in normal play (the F9 gate covers it too).
+            Assert.AreEqual(rArm0, _armPose.rightArmEuler,
+                "right-arm euler offset must be UNCHANGED in normal play (arm-pose nudge gated behind F9)");
+            Assert.AreEqual(lArm0, _armPose.leftArmEuler,
+                "left-arm euler offset must be UNCHANGED in normal play (arm-pose nudge gated behind F9)");
         }
 
         // OFF-HOTBAR guard (86ca8ce6y SOAKFIX6 — "the AXE-NUDGE overlay covers the inventory hotbar"). The

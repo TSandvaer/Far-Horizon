@@ -276,6 +276,128 @@ namespace FarHorizon.EditTests
                 "the RIGHT-arm carry (extra spread + raise) must be non-trivial (#2 regression)");
         }
 
+        // CONSERVATIVE-DEFAULT + SEED-LOGIC guard (RE-SOAK — the Sponsor's "the auto pose made it even WORSE,
+        // axe held too high/forward"). Two contracts the re-soak default rests on:
+        //   (1) the named deg fields SEED the per-arm eulers correctly: RebuildCached() with seed=true derives
+        //       rightArmEuler/leftArmEuler from the deg fields, the RIGHT arm gets MORE total offset than the
+        //       left (the carry), and the default is CONSERVATIVE (bounded — not the prior too-high/forward pose);
+        //   (2) the F9-nudge contract: once seedEulersFromDegFields is cleared (what the nudge tool does), a
+        //       RebuildCached must NOT clobber a dialed euler. A regression that re-seeds on every rebuild would
+        //       wipe the Sponsor's live dial.
+        [Test]
+        public void ArmPose_ConservativeDefaultSeed_RightHasMoreThanLeft_AndNudgeDialSurvivesRebuild()
+        {
+            var go = new GameObject("ArmPoseSeedProbe");
+            var pose = go.AddComponent<CastawayArmPose>();
+
+            // (1) Seed from the deg fields (the authored default path).
+            pose.seedEulersFromDegFields = true;
+            pose.RebuildCached();
+            Assert.That(pose.leftArmEuler.x, Is.EqualTo(pose.relaxSpreadDeg).Within(1e-3f),
+                "the LEFT arm euler X must seed to the relax spread");
+            Assert.That(pose.rightArmEuler.x, Is.EqualTo(pose.relaxSpreadDeg + pose.rightCarryExtraSpreadDeg).Within(1e-3f),
+                "the RIGHT arm euler X must seed to relax + extra carry spread");
+            Assert.That(pose.rightArmEuler.z, Is.EqualTo(pose.rightCarryRaiseDeg).Within(1e-3f),
+                "the RIGHT arm euler Z must seed to the carry raise");
+            // RIGHT total offset > LEFT (the carry adds spread + raise on top of the shared relax).
+            Assert.Greater(pose.rightArmEuler.magnitude, pose.leftArmEuler.magnitude + 0.5f,
+                "the RIGHT arm must carry MORE total offset than the LEFT (the held-axe carry, #2)");
+            // CONSERVATIVE: the default must be a small nudge, NOT the prior 16°+20° "too high/forward" pose.
+            // Cap every component well under the rejected magnitude so a regression back to it reds here.
+            Assert.Less(pose.rightArmEuler.magnitude, 18f,
+                $"the RIGHT-arm default must be CONSERVATIVE (got {pose.rightArmEuler.magnitude:F1}° total) — the " +
+                "Sponsor rejected the prior too-high/forward pose; the in-game F9 dial finalizes it");
+            Assert.Less(pose.relaxSpreadDeg, 14f,
+                "the relax spread default must be conservative (arms only SLIGHTLY off the torso)");
+
+            // (2) The F9-nudge contract: clear the seed flag (what the nudge tool does), dial an euler, then
+            // RebuildCached must KEEP the dialed value (not re-seed over it).
+            pose.seedEulersFromDegFields = false;
+            pose.rightArmEuler = new Vector3(5f, 0f, 3f); // a Sponsor "dial"
+            pose.RebuildCached();
+            Assert.AreEqual(new Vector3(5f, 0f, 3f), pose.rightArmEuler,
+                "with seedEulersFromDegFields cleared (the nudge tool's state), RebuildCached must NOT clobber " +
+                "the dialed euler — else the Sponsor's live F9 dial would be wiped");
+
+            Object.DestroyImmediate(go);
+        }
+
+        // RE-SOAK #1 BAKED-DIAL guard (86ca8rdkp re-soak): the Sponsor dialed the held axe + the arm pose
+        // in-game via F9 and reported the values; they must SHIP as the baked defaults (what-he-dialed-is-what-
+        // ships). The held-axe values live as MovementCameraScene constants; the arm-pose eulers live as the
+        // CastawayArmPose serialized defaults with seedEulersFromDegFields FALSE (so a RebuildCached can't re-
+        // derive over the dialed values). A regression that reverts to the "reasonable" pre-dial defaults — or
+        // that flips the seed flag back on (which would clobber the dial) — reds here.
+        [Test]
+        public void ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues()
+        {
+            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields).
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(0.0800f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1400f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0400f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(16.0f).Within(1e-3f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(2.0f).Within(1e-3f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.z, Is.EqualTo(-82.0f).Within(1e-3f));
+
+            // Arm pose — the shipped scene's CastawayArmPose must carry the dialed eulers, seed flag OFF.
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            Assert.IsNotNull(pose, "the avatar must carry CastawayArmPose");
+            Assert.IsFalse(pose.seedEulersFromDegFields,
+                "the shipped arm pose must NOT re-seed from the deg fields (else a RebuildCached clobbers the " +
+                "Sponsor's baked F9 dial — re-soak #1)");
+            Assert.That(pose.rightArmEuler, Is.EqualTo(new Vector3(-4.0f, -50.0f, -3.0f)),
+                "the RIGHT arm euler must ship the Sponsor's dialed value (-4,-50,-3)");
+            Assert.That(pose.leftArmEuler, Is.EqualTo(new Vector3(-5.0f, 22.0f, 0.0f)),
+                "the LEFT arm euler must ship the Sponsor's dialed value (-5,22,0)");
+        }
+
+        // RE-SOAK #2 contact-shadow wiring guard (86ca8rdkp re-soak — 'he STILL seems elevated'): the foot-
+        // trace OVERTURNED the feet-float hypothesis (feet planted to ~3mm) — the real cause was the BlobShadow
+        // stranded ~9cm ABOVE the snapped feet (body floats above its own shadow). The fix wires the shadow
+        // onto CastawayCharacter so it grounds to the snapped feet. This pins the serialized wiring; the
+        // behavioral proof is CastawayGroundSnapPlayModeTests.BlobShadow_GroundsToTheSnappedFeet.
+        [Test]
+        public void Avatar_BlobShadowWiredToCastaway_ForContactGrounding()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway.blobShadow,
+                "CastawayCharacter.blobShadow must be wired (else the contact shadow strands above the snapped " +
+                "feet on the dipping foreshore — the 'elevated' re-soak #2 percept)");
+            Assert.AreEqual(MovementCameraScene.BlobShadowObjectName, castaway.blobShadow.name,
+                "the wired shadow must be the BlobShadow");
+        }
+
+        // RE-SOAK #4 finger-curl wiring guard (86ca8rdkp re-soak — 'his right finger is mangled'): the finger-
+        // trace OVERTURNED the skinning hypothesis (the weights/bones are clean) — the 'mangled' read was the
+        // OPEN clip hand around a held haft. The fix is a HasAxe-gated finger-curl driver. The shipped avatar
+        // must carry CastawayFingerCurl with the right-hand finger bones resolved (the component-in-source-but-
+        // -not-in-scene guard). Behavioral proof: CastawayFingerCurlPlayModeTests.
+        [Test]
+        public void Avatar_HasSerializedFingerCurl_WithRightHandFingerBones()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            var curl = castaway.GetComponent<CastawayFingerCurl>();
+            Assert.IsNotNull(curl, "the avatar must carry a serialized CastawayFingerCurl (the #4 grip fix) — " +
+                "a component in source but absent from the scene ships the open 'mangled' hand");
+            Assert.IsNotNull(curl.fingerBones, "the finger-curl must have its finger bones wired");
+            Assert.GreaterOrEqual(curl.fingerBones.Length, 6,
+                "the finger-curl must resolve the right-hand finger bones (Index/Middle/Ring proximal..distal); " +
+                $"got {curl.fingerBones.Length} (a partial resolve means the grip curl ships incomplete)");
+            foreach (var b in curl.fingerBones)
+            {
+                Assert.IsNotNull(b, "every wired finger bone must be non-null");
+                string n = b.name.ToLowerInvariant();
+                Assert.IsTrue(n.Contains("righthand") && (n.Contains("index") || n.Contains("middle") || n.Contains("ring")),
+                    $"finger-curl bone '{b.name}' must be a right-hand Index/Middle/Ring bone (not some other bone)");
+            }
+            Assert.Greater(curl.fingerCurlDeg, 5f,
+                "the finger curl must be non-trivial (>5°) — a zeroed curl ships the open 'mangled' hand (#4 regression)");
+        }
+
         // GROUND-SNAP wiring guard (86ca8rdkp soak-fix #1 — 'walking in the air'): the shipped avatar must
         // ship with the ground-snap ENABLED and its raycast mask wired to a real layer (not 0/Nothing, which
         // would make the snap a no-op and the feet float above the visible terrain). The behavioral proof is

@@ -183,7 +183,6 @@ namespace FarHorizon.EditorTools
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<BootHud>();
             hudGo.AddComponent<BootScreenshot>();
-            hudGo.AddComponent<FarHorizon.RuntimeRigTrace>(); // debug rig-trace (86ca8rdkp) — INERT unless -rigTrace
             // Standard shipped-build capture component (testing-bar capture gate, 86ca86g7k).
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
             // serialization trap; inert unless the exe is launched with -captureGate.

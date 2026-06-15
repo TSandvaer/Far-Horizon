@@ -52,7 +52,8 @@ namespace FarHorizon
         [Tooltip("Snap the avatar feet to the VISIBLE terrain each frame. The NavMeshAgent grounds the " +
                  "player ROOT on the flat NavMesh collider, which sits ABOVE the dipping Zone-D visual " +
                  "terrain (ground-trace 2026-06-15: feet at 0.081 vs visible sand at 0.020 = a 6cm float). " +
-                 "A downward raycast onto the Ground layer plants the feet on the surface the player sees.")]
+                 "A downward raycast onto the Ground layer plants the feet on the VISIBLE-terrain collider " +
+                 "(the renderer-ENABLED Ground hit) — skipping the flat NavMesh slab whose renderer is off.")]
         public bool groundSnap = true;
         [Tooltip("Layer mask the ground-snap raycast tests (the VISIBLE terrain — the Ground layer). " +
                  "Wired editor-time; defaults to the Ground layer at runtime if unset.")]
@@ -62,6 +63,16 @@ namespace FarHorizon
         public float groundRayUp = 3f;
         [Tooltip("Max ground-ray distance below the start point.")]
         public float groundRayDown = 12f;
+
+        [Header("Contact shadow (86ca8rdkp re-soak #2 — 'he STILL seems elevated')")]
+        [Tooltip("The blob/contact shadow under the feet. The shadow is a child of the PLAYER ROOT and does " +
+                 "NOT inherit the avatar ground-snap, so on the dipping foreshore it was STRANDED ~9cm ABOVE " +
+                 "the snapped feet — the body read as floating above its own shadow = 'elevated' (foot-trace " +
+                 "2026-06-15: feet planted at the sand, but BlobShadow 9cm above them). Driving the shadow's " +
+                 "world-Y down onto the snapped feet each frame grounds the contact read. Wired editor-time.")]
+        public Transform blobShadow;
+        [Tooltip("Small lift (world units) of the shadow above the snapped feet so it doesn't z-fight the sand.")]
+        public float blobShadowLift = 0.02f;
 
         // Animator parameter the controller blends on (set each frame from the agent's velocity).
         public const string MovingParam = "Moving";
@@ -177,31 +188,90 @@ namespace FarHorizon
         /// the PlayMode grounding regression so it can assert the feet are planted on the visible surface.</summary>
         public float GroundSnapLocalY => _snapLocalY;
 
-        // Snap the avatar feet to the VISIBLE terrain (86ca8rdkp soak-fix #1). The NavMeshAgent grounds the
-        // player ROOT on the flat NavMesh collider, which rides ABOVE the dipping Zone-D visual terrain — so
-        // the FBX-origin feet float ~6cm over the sand the player sees (ground-trace verified). A downward
-        // raycast onto the Ground layer finds the visible surface; we set the avatar root's local Y so its
-        // WORLD Y (= feet, FBX origin at the feet) sits on that surface. Runs in both Idle and Walk (the
-        // float is in BOTH states — motion just makes it obvious). Smoothed to avoid popping on slopes.
+        /// <summary>The WORLD Y of the surface the LAST ground-snap raycast SELECTED to plant the feet on
+        /// (NaN if no ground was hit). This is the snap TARGET before smoothing — exposed so the PlayMode
+        /// regression can assert the snap picks the VISIBLE terrain (not the proxy slab) WITHOUT depending on
+        /// the smoothed lerp converging, which it can't in headless runs (Time.deltaTime≈0, the documented
+        /// headless-time trap — unity-conventions.md §Headless).</summary>
+        public float LastSnapTargetWorldY { get; private set; } = float.NaN;
+
+        // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
+        // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
+        private readonly RaycastHit[] _snapHits = new RaycastHit[8];
+
+        // Snap the avatar feet to the VISIBLE terrain (86ca8rdkp soak-fix #1; RE-SOAK fix — "he STILL walks
+        // elevated"). The NavMeshAgent grounds the player ROOT on the flat NavMesh collider; the FBX-origin
+        // feet ride that root. We raycast the Ground layer down and plant the feet on the VISIBLE-terrain hit.
+        //
+        // RE-SOAK ROOT CAUSE (ground-trace 2026-06-15, -groundTrace; OVERTURNED the "snap is enough" assumption):
+        // the PR #47 snap used a SINGLE Physics.Raycast and took the TOPMOST/closest Ground hit, assuming the
+        // visible terrain is always the highest surface. That holds INLAND (the meadow rises above the slab) —
+        // but on the SEAWARD FORESHORE the Zone-D terrain DIPS BELOW the flat NavMesh slab (Y=0): trace measured
+        // the visible sand at −0.02 … −0.43 while TestGround stayed at 0.000, and the single ray returned the
+        // SLAB (the higher surface). So walking shoreward the feet stayed pinned at Y≈0 while the visible sand
+        // dropped away — a growing ~0.43u float = the Sponsor's "he still walks elevated" (worst toward the
+        // shore/campfire). Idle-at-spawn looked fine because there the sand IS the topmost hit.
+        //
+        // FIX: RaycastAll and select the VISIBLE terrain — the hit whose collider carries a renderer-ENABLED
+        // MeshRenderer. The TestGround slab is a collision/NavMesh PROXY with its renderer DISABLED (the grey-
+        // slab soak-fix, unity-conventions.md §NavMesh) — so "renderer enabled" cleanly distinguishes the sand
+        // the player SEES from the invisible slab. Among visible Ground hits, take the HIGHEST (defensive — a
+        // single visible terrain is expected). Runs in both Idle and Walk (the float is in BOTH; motion just
+        // makes it obvious). Smoothed to avoid popping on slopes.
         private void ApplyGroundSnap()
         {
             if (!groundSnap) return;
             Transform root = transform.parent != null ? transform.parent : transform; // the player root
             int mask = groundMask.value != 0 ? groundMask.value : (1 << LayerMask.NameToLayer("Ground"));
             Vector3 origin = root.position + Vector3.up * groundRayUp;
-            // Raycast straight down; the TOPMOST Ground-layer hit is the visible terrain (it sits above the
-            // flat NavMesh slab). Use RaycastAll-free single ray: the higher visible terrain is hit first.
-            if (Physics.Raycast(origin, Vector3.down, out var hit, groundRayUp + groundRayDown, mask,
-                    QueryTriggerInteraction.Ignore))
+            float maxDist = groundRayUp + groundRayDown;
+
+            int n = Physics.RaycastNonAlloc(origin, Vector3.down, _snapHits, maxDist, mask,
+                                            QueryTriggerInteraction.Ignore);
+            // Pick the VISIBLE terrain: the highest hit whose collider has a renderer-ENABLED MeshRenderer
+            // (skips the renderer-disabled flat NavMesh slab — the bug the re-soak trace exposed).
+            bool found = false;
+            float bestY = 0f;
+            for (int i = 0; i < n; i++)
             {
-                // Desired avatar-root WORLD Y = the visible-terrain Y. local Y = worldY - root.position.y
-                // (the avatar root is a direct child of the player root, no intermediate offset).
-                float desiredLocalY = hit.point.y - root.position.y;
-                if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
-                else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-18f * Time.deltaTime));
-                Vector3 lp = transform.localPosition;
-                lp.y = _snapLocalY;
-                transform.localPosition = lp;
+                var mr = _snapHits[i].collider.GetComponent<MeshRenderer>();
+                if (mr == null || !mr.enabled) continue;          // skip the invisible collision-proxy slab
+                float y = _snapHits[i].point.y;
+                if (!found || y > bestY) { bestY = y; found = true; }
+            }
+            // Fallback: if NO visible Ground was hit (e.g. a scene with only the proxy slab — the PlayMode
+            // rigs, or an inland spot where the proxy is the only collider), use the topmost hit so the snap
+            // still grounds rather than going inert.
+            if (!found && n > 0)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    float y = _snapHits[i].point.y;
+                    if (!found || y > bestY) { bestY = y; found = true; }
+                }
+            }
+            if (!found) { LastSnapTargetWorldY = float.NaN; return; }
+            LastSnapTargetWorldY = bestY; // the SELECTED surface (pre-smoothing) — the snap-target the test reads
+
+            // Desired avatar-root WORLD Y = the visible-terrain Y. local Y = worldY - root.position.y
+            // (the avatar root is a direct child of the player root, no intermediate offset).
+            float desiredLocalY = bestY - root.position.y;
+            if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
+            else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-18f * Time.deltaTime));
+            Vector3 lp = transform.localPosition;
+            lp.y = _snapLocalY;
+            transform.localPosition = lp;
+
+            // RE-SOAK #2 — ground the CONTACT SHADOW to the snapped feet. The shadow is a child of the player
+            // root (it must NOT inherit the avatar height-scale), so it does not get the avatar's ground-snap;
+            // left alone it strands ~9cm ABOVE the feet on the dipping foreshore (body floats above its shadow
+            // = the 'elevated' read — foot-trace 2026-06-15). Drive its WORLD-Y onto the snapped sole each
+            // frame (the SAME bestY the feet snap to), so the shadow sits AT the feet on flat AND dipping sand.
+            if (blobShadow != null)
+            {
+                Vector3 sp = blobShadow.position;
+                sp.y = bestY + blobShadowLift;
+                blobShadow.position = sp;
             }
         }
 

@@ -97,11 +97,22 @@ namespace FarHorizon.PlayTests
             Assert.Less(rMove, 0.6f, $"the right-hand move must be a bounded pose nudge (got {rMove:F3}u)");
         }
 
-        // (b) #2 — the RIGHT hand moves MORE than the left (the carry adds extra spread + raise to the right
-        // arm only). Rig-independent: a bigger total offset => a bigger displacement, whatever the axis.
+        // (b) RE-SOAK #1 — the per-arm pose applies the SPONSOR'S DIALED eulers (seed flag OFF). The prior
+        // "right moves more than left" invariant was tied to the conservative SEED-derived defaults; the
+        // Sponsor then DIALED both arms in-game via F9 for VISUAL correctness (Right(-4,-50,-3) / Left(-5,22,0)),
+        // which is no longer a magnitude-ordering — so this guard now asserts what's load-bearing: the dialed
+        // pose moves EACH hand a distinct, bounded amount (both arms are posed, neither offset is dead), and the
+        // applied eulers are the dialed values (a regression that re-seeds or zeroes an arm reds here).
         [UnityTest]
-        public IEnumerator ArmPose_RightHandMovesMoreThanLeft_ForTheHeldAxeCarry()
+        public IEnumerator ArmPose_AppliesTheSponsorDialedEulers_BothArmsPosed()
         {
+            // Seed flag ships OFF (re-soak #1); the dialed eulers are the serialized defaults. Re-assert here
+            // so the synthetic pose carries them regardless of any future default change to the test rig.
+            _pose.seedEulersFromDegFields = false;
+            _pose.rightArmEuler = new Vector3(-4f, -50f, -3f);
+            _pose.leftArmEuler = new Vector3(-5f, 22f, 0f);
+            _pose.RebuildCached();
+
             yield return null;
             Vector3 rRest = _rightHand.position, lRest = _leftHand.position;
 
@@ -111,9 +122,17 @@ namespace FarHorizon.PlayTests
 
             float rMove = Vector3.Distance(_rightHand.position, rRest);
             float lMove = Vector3.Distance(_leftHand.position, lRest);
-            Assert.Greater(rMove, lMove + 0.01f,
-                $"the RIGHT hand must move MORE than the left (right {rMove:F3}u vs left {lMove:F3}u) — the " +
-                "held-axe carry (#2) adds extra spread + raise to the right arm on top of the shared relax (#3)");
+            // Both arms must be POSED (neither offset dead) — bounded, not a wild fling.
+            Assert.That(rMove, Is.InRange(0.02f, 0.6f),
+                $"the RIGHT hand must be posed by the dialed euler (moved {rMove:F3}u, bounded) — a dead/zeroed " +
+                "right offset means the re-soak #1 dial regressed");
+            Assert.That(lMove, Is.InRange(0.02f, 0.6f),
+                $"the LEFT hand must be posed by the dialed euler (moved {lMove:F3}u, bounded)");
+            // The applied per-arm eulers must equal the Sponsor's dialed values (the cached offsets drive them).
+            Assert.That(_pose.rightArmEuler, Is.EqualTo(new Vector3(-4f, -50f, -3f)),
+                "the right arm euler must remain the dialed value after RebuildCached (seed OFF must not clobber)");
+            Assert.That(_pose.leftArmEuler, Is.EqualTo(new Vector3(-5f, 22f, 0f)),
+                "the left arm euler must remain the dialed value after RebuildCached");
         }
     }
 }
