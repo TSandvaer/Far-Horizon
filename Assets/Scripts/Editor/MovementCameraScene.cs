@@ -581,6 +581,58 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] bound de-lit CastawayMat onto " + bound + " SkinnedMeshRenderer(s)");
         }
 
+        // The Mixamo UPPER-ARM bone tokens (the bone that spreads the arm from the torso). The rig names the
+        // upper arm "mixamorig:RightArm" / "mixamorig:LeftArm" (NOT RightShoulder, which is the clavicle, and
+        // NOT RightForeArm, the elbow). After stripping the "mixamorig:" namespace the lowered names are
+        // exactly "rightarm" / "leftarm". Probe-matched from the same skeleton FindRightHandBone uses.
+        public const string RightUpperArmToken = "rightarm";
+        public const string LeftUpperArmToken = "leftarm";
+
+        // Wire the additive post-anim arm pose (86ca8rdkp soak-fix #2 + #3) onto the avatar. Resolves the two
+        // UPPER-arm bones from the skinned-mesh bone array (the real skeleton) and serializes the component +
+        // the bone refs into Boot.unity (editor-vs-runtime trap). Defaults come from CastawayArmPose's
+        // serialized fields (a reasonable relax + right-arm raised carry); the Sponsor can re-dial later.
+        private static void AddArmPose(CastawayCharacter castaway)
+        {
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            if (pose == null) pose = castaway.gameObject.AddComponent<CastawayArmPose>();
+            pose.rightUpperArm = FindBoneByExactToken(castaway.transform, RightUpperArmToken);
+            pose.leftUpperArm = FindBoneByExactToken(castaway.transform, LeftUpperArmToken);
+            if (pose.rightUpperArm == null || pose.leftUpperArm == null)
+                Debug.LogError("[MovementCameraScene] could not resolve upper-arm bones for CastawayArmPose " +
+                               "(right='" + RightUpperArmToken + "' found=" + (pose.rightUpperArm != null) +
+                               ", left='" + LeftUpperArmToken + "' found=" + (pose.leftUpperArm != null) +
+                               ") — the arm-pose soak-fix will be inert. Re-run CharacterDiagnoseTrace.");
+            pose.RebuildCached();
+            Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
+                      (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
+                      (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") + "')");
+        }
+
+        // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
+        // end helpers), from the SMR bone array (the real skeleton — not mesh-group nodes). Same discipline
+        // as FindRightHandBone/IsRightWristBone, generalized to any exact upper-arm token.
+        private static Transform FindBoneByExactToken(Transform avatarRoot, string token)
+        {
+            var smr = avatarRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr != null && smr.bones != null)
+                foreach (var bone in smr.bones)
+                    if (bone != null && ExactBoneToken(bone.name) == token) return bone;
+            foreach (var t in avatarRoot.GetComponentsInChildren<Transform>(true))
+                if (ExactBoneToken(t.name) == token) return t;
+            return null;
+        }
+
+        // Strip the "mixamorig:" namespace + lower-case, returning the bare bone token for an exact compare.
+        private static string ExactBoneToken(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return "";
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1);
+            return n;
+        }
+
         // Find the castaway's right-hand WRIST bone from the SKINNED-MESH BONE ARRAY (the actual skeleton).
         // The Mixamo rig names the wrist "mixamorig:RightHand"; the FINGER bones ("mixamorig:RightHandIndex1"
         // ...) ALSO contain "righthand", so a bare Contains match would grab a finger by bone-array order.
@@ -1159,9 +1211,23 @@ namespace FarHorizon.EditorTools
             if (castaway.modelPrefab == null)
                 Debug.LogError("[MovementCameraScene] castaway FBX not found at " + CharacterAssetGen.FbxPath +
                                " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
+            // GROUND-SNAP mask (86ca8rdkp soak-fix #1 — 'walking in the air'). The NavMeshAgent grounds the
+            // player ROOT on the flat NavMesh collider, which rides ABOVE the dipping Zone-D visual terrain
+            // (ground-trace: feet 0.081 vs visible sand 0.020 = a 6cm float). CastawayCharacter raycasts the
+            // Ground layer each frame to plant the feet on the surface the player SEES. Wire the mask to the
+            // Ground layer editor-time so it serializes (no Awake LayerMask string lookup in the build).
+            castaway.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
             // Build the Model child NOW (editor) so the skinned mesh + bones + Animator serialize into
             // Boot.unity (the editor-vs-runtime serialization lesson).
             castaway.BuildInEditor();
+
+            // POST-ANIM ARM POSE (86ca8rdkp soak-fix #2 + #3): relax both arms away from the torso (the
+            // pinched-idle fix) + give the RIGHT arm an away-from-body + raised carry pose for the held axe.
+            // The arms are driven by the imported Mixamo clips, so this is an ADDITIVE LateUpdate offset on
+            // the upper-arm bones (a sibling driver to HeldAxeRig) — the mechanism the ticket prescribes.
+            // Resolved from the SMR bone array + serialized so it ships in Boot.unity. AFTER BuildInEditor
+            // (the bones must exist), BEFORE AttachHeroAxeToHand (so the axe seats to the posed hand).
+            AddArmPose(castaway);
 
             // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
             // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.
