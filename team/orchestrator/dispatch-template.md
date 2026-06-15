@@ -97,6 +97,8 @@ When dispatching two or more agents in parallel where both will reference a NEW 
 
 ```markdown
 **Lesson reminder (load-bearing this session):** `agent-verify-evidence.md` — pull actual file contents and CI evidence before refusing or asserting impossibility. The earlier-this-session `Stratum1BossRoom.gd:204` incident — a Drew agent confidently refused to fix a real GDScript parse error citing language-design priors, while CI logs proved the bug was real — is the cautionary tale. **Verify, don't reason from priors.**
+
+**Elite-techniques + Diagnose-Before-Fix (every dispatch):** read EVERY `.claude/docs/*.md` — including `.claude/docs/elite-techniques.md` (the reach-for-these reference: imported-rig grounding, chunk-LOD terrain, URP flat-shading). And on any `fix(...)`: state the DIAGNOSED root cause + cited evidence in the PR body BEFORE the fix (`team/TESTING_BAR.md` §Accuracy + performance gates — Diagnose-Before-Fix). Guess-fixes that don't name the cause + evidence get bounced.
 ```
 
 ## Visual-primitive test bar (paste when dispatch touches tweens / modulate / color-anim / particles)
@@ -371,6 +373,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **Final-report contract block present** — TIGHT + cite-able evidence + return at `ready for qa test`, do NOT wait for merge.
 - [ ] **Doc-update reporting block present** — agent must surface `Doc updates: ...` line in final report.
 - [ ] **Lesson reminder, STATE.md update, Merge identity, Done clause** all present.
+- [ ] **Elite-techniques + Diagnose-Before-Fix pointer present** in the Lesson reminder block — agent reads `.claude/docs/elite-techniques.md` + (for `fix(...)` PRs) states diagnosed root cause + evidence before the fix per `team/TESTING_BAR.md` §Accuracy + performance gates.
 - [ ] **If parallel dispatch shares a NEW concept:** Vocabulary contract block present in BOTH briefs verbatim, OR Pattern A sequencing chosen (type-author first → consumer next). See Vocabulary contract above.
 - [ ] **If UX-visible:** Self-Test Report block present.
 - [ ] **If tween / modulate / Polygon2D / CPUParticles2D / Area2D-state surface:** Visual-primitive test bar block present + HTML5-visual-gated merge-gate block present.

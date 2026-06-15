@@ -15,6 +15,16 @@ A ticket is "complete" only when ALL of:
 
 ---
 
+## Accuracy + performance gates (Erik research, 2026-06-15)
+
+Folded from Erik's developer-accuracy / performance note (`team/erik-consult/developer-accuracy-performance-research.md`, not auto-read). These three gates close recurring failure classes the float saga + world-look churn exposed; they bind alongside the 6-point "complete" rubric above. Full adoption is ticketed (`86ca9a340` / `86ca9a36g` / `86ca9a3b3`) — these lines make the GATE mandatory now, even before the harness/tooling lands.
+
+1. **Diagnose-Before-Fix.** A `fix(...)` PR MUST state the DIAGNOSED root cause + the cited evidence (trace excerpt / log line / failing assertion + values) in the PR body BEFORE the fix — not "tried X, seems better." This formalizes the isolation-probe method; it exists because guess-fixes cost 2–4 soak-overturns per defect (the float saga overturned its own root-cause framing ≥3×; the world-look fix-shape was wrong twice — only trace caught the real cause each time). A fix PR whose body asserts a fix without naming the diagnosed cause + evidence is bounced.
+2. **PlayMode locomotion-sampling tests.** Any feature whose correctness is PER-FRAME during motion (grounding, held-prop envelope, finger-curl, camera follow) ships a `[UnityTest]` that `yield return null`-samples the assertion EVERY frame across a real WALK — not just a standing/spawn snapshot. The "tests green but Sponsor sees during-walk elevation" gap is exactly the standing-only assertion missing the motion sample (the smoothing-lag float AND the sole-vs-root float both passed at-rest tests). Sample per-frame through real `Update` + a real `Time.time` window (never the headless `Time.deltaTime~=0` trap — see "Multi-step-loop coverage" below).
+3. **SRP-batcher Frame-Debugger audit before any new visual pass.** Before shipping a new shader / material / scatter surface, audit the Frame Debugger that the SRP batcher is actually batching (no per-instance break) — `CBUFFER_START(UnityPerMaterial)` completeness + no live `MaterialPropertyBlock` breaking the batch. Catches the silent perf regression where a new visual pass quietly drops the frame rate before it reaches the Sponsor.
+
+---
+
 ## test-evidence convention — what the bar expects on a PR
 
 So every PR carries the same shape of proof (and reviewers/CI know exactly what to look for), the mechanical gates are:
