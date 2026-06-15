@@ -493,5 +493,125 @@ namespace FarHorizon.PlayTests
                 $"the synthetic mesh must put the sole {poseOffset:F2} above the root (sole={soleY:F3}, root=" +
                 $"{rootY:F3}) — proving sole≠root, so grounding the root would NOT ground the sole (the bug).");
         }
+
+        // ====================================================================================================
+        // THE DEEPER FALSE-GREEN GUARD (86ca8rdkp EXTENSIVE-DEBUG round — the bug the bounds-min.y "fix" missed).
+        // The Sponsor's F8 gauge read rendered-sole-Y == ground-Y == 0.2216, GAP≈0 "✓ planted", YET he was
+        // visibly floating STANDING STILL. ROOT CAUSE: the prior fix measured SMR.bounds.min.y as the "true
+        // sole" — but SMR.bounds is the CONSERVATIVE animation-MAX AABB, a box sized to contain the mesh across
+        // the WHOLE clip, NOT the current frame. Its floor sits BELOW the real soles, so grounding TO it floats
+        // the character, while a gauge ALSO reading bounds.min.y agrees (GAP=0). The fix measures the BAKED
+        // actual-lowest VERTEX. This guard builds an SMR whose conservative bounds floor is DELIBERATELY below
+        // its real baked verts (the animation-max AABB), and asserts the snap grounds the BAKED sole — leaving
+        // bounds.min.y BELOW the sand (where it belongs, since it's a phantom floor). A snap that read bounds
+        // would plant bounds.min.y on the sand and float the real mesh = the deeper false-green.
+        // ====================================================================================================
+
+        // Build an SMR whose REAL verts' lowest point is at `realSoleOffset` above the renderer origin, but whose
+        // .localBounds are FORCED to extend `boundsFloorBelow` further DOWN (the conservative animation-max AABB
+        // floor that sits below the real soles). The bake returns the real verts; .bounds returns the inflated box.
+        private void AttachSmrWithInflatedBoundsFloor(Transform avatarRoot, float realSoleOffset, float boundsFloorBelow)
+        {
+            _smrGo = new GameObject("InflatedBoundsSkin");
+            _smrGo.transform.SetParent(avatarRoot, false);
+            _smrGo.transform.localPosition = Vector3.zero;
+            var smr = _smrGo.AddComponent<SkinnedMeshRenderer>();
+
+            var mesh = new Mesh();
+            float lo = realSoleOffset, hi = realSoleOffset + 0.5f;
+            mesh.vertices = new[]
+            {
+                new Vector3(-0.2f, lo, 0f), new Vector3(0.2f, lo, 0f),
+                new Vector3(-0.2f, hi, 0f), new Vector3(0.2f, hi, 0f)
+            };
+            mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+            mesh.RecalculateNormals();
+            var bw = new BoneWeight[4];
+            for (int i = 0; i < 4; i++) { bw[i].boneIndex0 = 0; bw[i].weight0 = 1f; }
+            mesh.boneWeights = bw;
+            mesh.bindposes = new[] { Matrix4x4.identity };
+            smr.bones = new[] { _smrGo.transform };
+            smr.rootBone = _smrGo.transform;
+            smr.sharedMesh = mesh;
+            // updateWhenOffscreen=false so our FORCED localBounds are honored (true recomputes from verts each
+            // frame, erasing the inflated floor we set — we WANT the conservative AABB the importer/animation
+            // would ship). Set a box whose FLOOR is boundsFloorBelow under the real sole (the phantom floor).
+            smr.updateWhenOffscreen = false;
+            float realMid = (lo + hi) * 0.5f;
+            float boxBottom = lo - boundsFloorBelow;
+            float boxTop = hi;
+            var center = new Vector3(0f, (boxBottom + boxTop) * 0.5f, 0f);
+            var size = new Vector3(0.4f, boxTop - boxBottom, 0.1f);
+            smr.localBounds = new Bounds(center, size);
+        }
+
+        // THE guard: the snap must ground the BAKED actual sole, NOT the conservative bounds floor. With the
+        // bounds floor forced 0.30u below the real sole, a snap reading bounds.min.y would plant bounds.min.y on
+        // the sand → the real mesh floats 0.30u (the Sponsor's standing-still float). The fix reads the baked
+        // sole, so the REAL sole lands on the sand and bounds.min.y ends up 0.30u BELOW it (a phantom, as it
+        // should be). Asserts MeshBottomWorldY (baked) ≈ terrain AND SmrBoundsMinWorldY < terrain by ~the floor.
+        [UnityTest]
+        public IEnumerator Snap_GroundsTheBakedSole_NotTheConservativeBoundsFloor_TheDeeperFalseGreen()
+        {
+            const float realSoleOffset = 0.10f;   // real verts sit a touch above the renderer origin
+            const float boundsFloorBelow = 0.30f; // the animation-max AABB floor sits 30cm below the real sole
+            BuildRig(snap: true);
+            AttachSmrWithInflatedBoundsFloor(_avatarGo.transform, realSoleOffset, boundsFloorBelow);
+
+            for (int i = 0; i < 80; i++) yield return null; // let the snap settle (it grounds the BAKED sole)
+
+            float bakedSoleY = _castaway.MeshBottomWorldY;     // the TRUE sole the gauge + snap now use
+            float boundsMinY = _castaway.SmrBoundsMinWorldY;    // the OLD proxy (conservative AABB floor)
+            float meshGap = _castaway.MeshFloatGap;
+
+            Assert.IsFalse(float.IsNaN(bakedSoleY), "the baked sole must resolve");
+            Assert.IsFalse(float.IsNaN(boundsMinY), "the bounds-min proxy must resolve (dump field)");
+
+            // THE assertion: the BAKED actual sole lands on the visible sand (the honest gap ≈ 0).
+            Assert.That(bakedSoleY, Is.EqualTo(TerrainY).Within(0.03f),
+                $"the snap must ground the BAKED actual sole (Y≈{TerrainY:F3}); got {bakedSoleY:F3}. Reading " +
+                "SMR.bounds.min.y instead grounds the phantom AABB floor and floats the real mesh — the deeper " +
+                "false-green (gauge GAP=0 while visibly floating standing still).");
+            Assert.That(meshGap, Is.EqualTo(0f).Within(0.03f),
+                $"the honest GAP (baked sole − ground) must read ≈0; got {meshGap:F3}");
+
+            // And prove the discrepancy is REAL + correctly handled: the conservative bounds floor now sits
+            // ~boundsFloorBelow UNDER the sand (a phantom), NOT on it. If the snap had read bounds.min.y, THIS
+            // would be ≈ terrain and the baked sole would float above. The gap between them is the false-green.
+            Assert.That(boundsMinY, Is.EqualTo(TerrainY - boundsFloorBelow).Within(0.04f),
+                $"the conservative SMR.bounds floor must end up ~{boundsFloorBelow:F2} BELOW the sand " +
+                $"(Y≈{TerrainY - boundsFloorBelow:F3}); got {boundsMinY:F3}. It sitting AT the sand would mean " +
+                "the snap grounded the phantom floor (the deeper false-green) — float the real sole.");
+            Assert.That(bakedSoleY - boundsMinY, Is.EqualTo(boundsFloorBelow).Within(0.05f),
+                $"the baked sole must sit ~{boundsFloorBelow:F2} ABOVE the bounds floor — proving the two " +
+                "DIVERGE (the test isn't vacuous) and the snap chose the baked sole (the real surface).");
+        }
+
+        // ====================================================================================================
+        // UNIFIED-RATE / KILL-THE-BOB guard (86ca8rdkp EXTENSIVE-DEBUG round — 'reaching a destination causes a
+        // BOB'). The prior speed-adaptive split (60 moving / 18 rest) made ActiveSnapRate JUMP at the
+        // moving→rest transition, so the still-converging snap visibly settled the instant the agent stopped =
+        // the arrival bob. The fix uses ONE unified rate regardless of motion. Without a real NavMeshAgent in
+        // this rig the agent is null → IsMovingForSnap is always false; we assert the ActiveSnapRate the snap
+        // applies EQUALS the configured unified snapRate (NOT a separate move/rest value) — proving there is no
+        // rate branch on motion that could discontinue at arrival.
+        // ====================================================================================================
+        [UnityTest]
+        public IEnumerator Snap_UsesUnifiedRate_NoMoveRestRateDiscontinuity()
+        {
+            BuildRig(snap: true);
+            _castaway.snapRate = 40f;
+            // Deliberately set the legacy split fields to DIFFERENT values — if the snap still branched on them
+            // the ActiveSnapRate would pick one of these, not the unified snapRate.
+            _castaway.snapRateRest = 11f;
+            _castaway.snapRateMove = 99f;
+
+            for (int i = 0; i < 20; i++) yield return null;
+
+            Assert.That(_castaway.ActiveSnapRate, Is.EqualTo(40f).Within(0.001f),
+                $"the snap must apply the UNIFIED snapRate (40), not a move/rest split value (got " +
+                $"{_castaway.ActiveSnapRate:F2}). A rate that varies with motion JUMPS at arrival = the bob. " +
+                "The legacy snapRateRest/Move (11/99) must be ignored by the live snap.");
+        }
     }
 }
