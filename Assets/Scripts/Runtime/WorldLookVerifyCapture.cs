@@ -33,7 +33,8 @@ namespace FarHorizon
         public float defaultDistance = 16f;
         public float horizonPitch = 10f;   // low toward the horizon (clamped to OrbitCamera.minPitch)
         public float horizonDistance = 22f;
-        public float horizonYawA = 0f;     // inland horizon
+        public float horizonYawA = 90f;    // FACE the inland mountain cluster (azimuth ~90deg, +Z forward) —
+                                           // so the grounded faceted islands are judged head-on (Drew soak-rework)
         public float horizonYawB = 150f;   // a second arc so the vista is judged from >1 angle
         public int warmupFrames = 10;
         public int settleFrames = 16;

@@ -184,7 +184,10 @@ namespace FarHorizon.EditorTools
             cloudsRoot.transform.SetParent(envRoot.transform, false);
 
             var cloudMat = MakeVertexColorMat("LPCloudMat", Color.white);
-            int count = 5 + rnd.Next(0, 5); // 5-9 (Uma §1: sparse, purposeful)
+            // SLIGHTLY MORE clouds now the mountain wall is gone + sky opens (Sponsor soak #4: "I can't
+            // see any sky or clouds" — fixing the mountains reveals the sky, so put a few more up there).
+            int cMin = FarHorizon.WorldLookConfig.CloudCountMin, cMax = FarHorizon.WorldLookConfig.CloudCountMax;
+            int count = cMin + rnd.Next(0, cMax - cMin + 1); // 6-10 (Uma §1: sparse, purposeful — eased up)
 
             // Single shared wind direction (Uma §1) — a gentle cross-play-space drift (mostly +X with a
             // touch of +Z). The drift band is centred on the play space; clouds wrap at +/- a half-span.
@@ -195,7 +198,7 @@ namespace FarHorizon.EditorTools
             // the orbit cam catches them in the upper third). Altitude 30-60u (Uma §1).
             for (int c = 0; c < count; c++)
             {
-                float radius = 4f + (float)rnd.NextDouble() * 5f; // long axis ~8-18u (radius 4-9)
+                float radius = 4f + (float)rnd.NextDouble() * 5f; // long axis ~8-18u (radius 4-9) — Uma §1 band
                 int blobs = 3 + rnd.Next(0, 4);                   // 3-6 spheroids (board sheet)
                 var mesh = LowPolyMeshes.CloudBlob(radius, blobs, CloudBody, CloudTop, CloudShadow, rnd.Next());
 
@@ -225,23 +228,34 @@ namespace FarHorizon.EditorTools
             Debug.Log($"[world-trace] BuildClouds placed {count} clouds (wind={wind}, alt 30-60u, drift 0.22-0.48 u/s)");
         }
 
-        // ---- VISTA (Uma §2 near-vista + Erik far-vista 86ca8t9rh, CONSTRAINED per Sponsor soak of
-        //      a89f508 / 86ca8t9pq reopened) ----
+        // ---- VISTA (Uma §2 near-vista + Erik far-vista 86ca8t9rh, CONSTRAINED per Sponsor soaks of
+        //      a89f508 / 8fdfc1a / 4457d47, ticket 86ca8t9pq reopened twice) ----
         //
-        // SPONSOR SOAK-FIX (a89f508): the first impl built 4 FULL 360-degree concentric rings (62 peaks at
-        // even angular spread, radii 240/360/520/1000u, all at y=0) — which (1) WALLED the entire horizon so
-        // no open sky / clouds were visible, and (2) placed every peak far outside the ~45u island footprint
-        // at y=0, i.e. rising out of the open SEA all around. The Sponsor verbatim: "The mountains are all
-        // over (too many), I can't see any sky or clouds" + "Mountains should not be on the water but on
-        // this island or other islands." This DELIBERATELY DEVIATES from Erik's full-encircling concentric-
-        // ring recommendation (86ca8t9rh Route A): the rings are CONSTRAINED to discrete land/island
-        // footprints, NOT a continuous horizon ring.
+        // SOAK HISTORY: (a89f508) 4 FULL 360-degree rings (62 peaks) WALLED the horizon -> "I can't see
+        // any sky or clouds" + "Mountains should not be on the water but on this island or other islands."
+        // (8fdfc1a) constrained to ~18 peaks in discrete clusters -> open sky restored. (4457d47) STILL
+        // "doesn't look good" -> "mountains render as FLOATING TRANSLUCENT shards."
         //
-        // NEW MODEL: a SPARSE set of DISCRETE mountain clusters ("islands"), each a tight little group of
-        // peaks sharing a raised landmass base, placed at SPECIFIC azimuths with WIDE OPEN-SKY GAPS between
-        // them so open sky dominates the upper frame and the clouds read. Far islands sit in the sea as
-        // distinct landmasses (open sea between them — NOT a ring); one near range sits on THIS island
-        // (behind the inland meadow). Total ~18 peaks (was 62), covering only a fraction of the horizon.
+        // DIAGNOSIS-VIA-TRACE (Drew, this pass — Erik's surface-type + winding hypotheses BOTH REFUTED):
+        //   - NOT Surface Type = Transparent: the mesh uses FarHorizon/LowPolyVertexColor, an OPAQUE shader
+        //     (RenderType=Opaque, Queue=Geometry, frag alpha=1) — no transparency at the shader level.
+        //   - NOT inverted winding: FacetedMountain.EmitFace enforces OUTWARD winding per-face, and the
+        //     existing EditMode guard FacetedMountain_AllFacesPointOutward_NotBackfaceCulled is GREEN.
+        //   - REAL CAUSE = DOUBLE-FADE. The far clusters were faded toward the horizon stop #DCE8E4 TWICE:
+        //     once by the per-cluster _Tint (fadeK 0.45-0.82 -> mesh 45-82% sky-coloured BEFORE lighting),
+        //     then AGAIN by the Exp^2 fog (colour == #DCE8E4) which blends 38% (430u) .. 90% (950u) by
+        //     distance. Net ~70-95% horizon-coloured = faint, washed, see-through silhouettes floating with
+        //     no grounding = "floating translucent shards." A LOOK/composition bug, not a winding/surface bug.
+        //
+        // FIX SHAPE (all live-dialable via the F9 WorldLookNudgeTool so the Sponsor bakes the final look):
+        //   1. KILL THE DOUBLE-FADE: cap the per-cluster tint at WorldLookConfig.MtnFadeCap (default 0.25)
+        //      so the MESH keeps its grey-to-snow contrast and FOG ALONE does the atmospheric recession.
+        //   2. PULL THE CLUSTERS IN (distance x WorldLookConfig.MtnDistanceScale, default 0.55) so fog no
+        //      longer ghosts them, and DROP the 950u Vista_Far (90% fog = pure waste; replaced by a visible
+        //      mid-far island). Distances are within the fog's crisp-to-mid band.
+        //   3. GROUND THEM ON VISIBLE LANDMASS BASES: each cluster gets a low faceted landmass shelf
+        //      (BuildLandmassBase) extending below the peaks down past the sea surface, so the cluster reads
+        //      as an ISLAND rising from the water, not peaks floating in mid-air.
         // Static silhouette decoration: no collider, no NavMesh, shadow-casting OFF (far + flat-lit).
         static void BuildVista(GameObject envRoot, int seed)
         {
@@ -249,13 +263,14 @@ namespace FarHorizon.EditorTools
             var vistaRoot = new GameObject("Vista");
             vistaRoot.transform.SetParent(envRoot.transform, false);
 
-            // ATMOSPHERIC FADE via the per-cluster _Tint (Uma §2): the tint LERPS the cluster toward the
-            // horizon sky stop as it recedes — near = full saturation (tint ~white, the mesh's full grey-to-
-            // snow contrast reads), far = tinted toward #DCE8E4 so the silhouette desaturates + lifts toward
-            // the sky it dissolves into (the fade AND the seam-kill colour at the horizon line). Bound to the
-            // single horizon-stop anchor (no drift).
+            // ATMOSPHERIC FADE via the per-cluster _Tint (Uma §2) — but CAPPED (Drew double-fade fix): the
+            // tint lerps toward the horizon stop only up to MtnFadeCap so the mesh keeps a readable grey-to-
+            // snow silhouette; the Exp^2 fog (colour == the same horizon stop) supplies the rest of the
+            // atmospheric recession. Bound to the single horizon-stop anchor (no drift from the seam-kill).
             Color horizon = FarHorizon.WorldLookPalette.SkyHorizon;
-            Color FadeTint(float k) => Color.Lerp(Color.white, horizon, Mathf.Clamp01(k)); // k=0 crisp .. 1 sky
+            float fadeCap = FarHorizon.WorldLookConfig.MtnFadeCap;
+            float distScale = FarHorizon.WorldLookConfig.MtnDistanceScale;
+            Color FadeTint(float k) => Color.Lerp(Color.white, horizon, Mathf.Clamp01(k) * fadeCap);
 
             // Discrete cluster placements (centreAzimuthDeg measured CCW from +X; +Z is the inland/forward
             // arc the orbit cam looks toward, i.e. ~90deg). Each cluster is a small ISLAND landmass — peaks
@@ -263,9 +278,8 @@ namespace FarHorizon.EditorTools
             // clusters = open sky + open sea between the islands.
             //
             //   name, azimuthDeg, distance, peaks, baseR, height, snowline, body, snow, fadeK, raise
-            //   raise = the landmass base lift (+y) so the cluster reads as LAND rising from the sea, not
-            //           peaks poking straight out of the water (Sponsor fix #2). Near inland range sits on
-            //           this island's far meadow (small lift); far sea-islands get a low landmass shelf.
+            //   raise = the landmass base lift (+y) of the peak group; BuildLandmassBase then extends a
+            //           faceted shelf from raise DOWN past the sea so the cluster reads as grounded LAND.
             var clusters = new[]
             {
                 // ON THIS ISLAND — a near range behind the inland meadow (the forward/inland arc, ~90deg).
@@ -275,26 +289,25 @@ namespace FarHorizon.EditorTools
 
                 // FAR ISLANDS in the sea — a FEW distinct landmasses with WIDE open-sea/open-sky gaps. Spread
                 // across the forward + side arcs only (NOT the full ring): the seaward-behind arc is left as
-                // OPEN sea+sky so the orbit never sees a continuous wall.
-                new MtnCluster("Vista_Island_NW", 130f, 430f, 3, 75f,  150f, 0.56f, MtnRimBody, MtnRimSnow, 0.45f, 4f),
-                new MtnCluster("Vista_Island_NE",  55f, 470f, 3, 80f,  165f, 0.55f, MtnRimBody, MtnRimSnow, 0.50f, 4f),
-                new MtnCluster("Vista_Island_E",    8f, 560f, 2, 95f,  175f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 4f),
-                new MtnCluster("Vista_Island_W",  168f, 540f, 2, 95f,  170f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 4f),
-
-                // ONE distant island near the horizon line (the endless-horizon read, Erik) — nearly the
-                // horizon stop itself, reads as "almost sky", a single far landmass (not a ring).
-                new MtnCluster("Vista_Far",       100f, 950f, 2, 150f, 240f, 0.52f, MtnRimBody, MtnRimSnow, 0.82f, 6f),
+                // OPEN sea+sky so the orbit never sees a continuous wall. Distances are pulled IN by
+                // MtnDistanceScale (the double-fade fix) so the fog no longer ghosts them.
+                new MtnCluster("Vista_Island_NW", 130f, 430f, 3, 75f,  150f, 0.56f, MtnBody,    MtnSnow,    0.35f, 6f),
+                new MtnCluster("Vista_Island_NE",  55f, 470f, 3, 80f,  165f, 0.55f, MtnBody,    MtnSnow,    0.45f, 6f),
+                new MtnCluster("Vista_Island_E",    8f, 560f, 2, 95f,  175f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
+                new MtnCluster("Vista_Island_W",  168f, 540f, 2, 95f,  170f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
             };
 
             int total = 0;
             foreach (var c in clusters)
             {
-                BuildMountainCluster(vistaRoot, c, FadeTint(c.fadeK), rnd);
-                total += c.peaks;
+                var cc = c;
+                cc.distance = c.distance * distScale; // pull IN (double-fade fix) — out of the fog ghost band
+                BuildMountainCluster(vistaRoot, cc, FadeTint(cc.fadeK), rnd);
+                total += cc.peaks;
             }
-            Debug.Log($"[world-trace] BuildVista built {clusters.Length} DISCRETE island clusters " +
-                      $"({total} peaks, was 62 full-ring) — open sky+sea between them, peaks raised onto land " +
-                      "(Sponsor soak-fix: not a wall, not on the water)");
+            Debug.Log($"[world-trace] BuildVista built {clusters.Length} grounded island clusters " +
+                      $"({total} peaks) — fadeCap={fadeCap:F2} distScale={distScale:F2} (double-fade KILLED: " +
+                      "tint capped + clusters pulled in + landmass bases) — solid silhouettes, not shards");
         }
 
         // One discrete mountain cluster ("island"): centre azimuth + distance + count + shape.
@@ -311,9 +324,10 @@ namespace FarHorizon.EditorTools
 
         // Build one DISCRETE cluster of faceted peaks grouped into a tight island footprint around a centre
         // point (NOT spread around a 360-degree ring). The peaks share a small angular+radial spread so they
-        // overlap into one landmass silhouette, and the whole cluster is RAISED on its `raise` base lift so
-        // it reads as LAND rising from the sea (Sponsor fix #2 — not poking straight out of the water). Each
-        // peak faces inward toward the player. Per-cluster atmospheric _Tint; grey-to-snow baked in the mesh.
+        // overlap into one silhouette, and the whole cluster sits on a LANDMASS BASE (BuildLandmassBase: a
+        // low faceted shelf from `raise` DOWN past the sea surface) so it reads as an ISLAND rising from the
+        // water, NOT peaks floating in mid-air (the "floating shards" fix). Each peak faces inward toward the
+        // player. Per-cluster atmospheric _Tint (capped — see BuildVista); grey-to-snow baked in the mesh.
         static void BuildMountainCluster(GameObject parent, MtnCluster c, Color tint, System.Random rnd)
         {
             var clusterRoot = new GameObject(c.name);
@@ -326,6 +340,14 @@ namespace FarHorizon.EditorTools
             // The cluster's angular HALF-width shrinks with peak count so a 2-peak island stays compact.
             float arcHalf = (0.045f + 0.018f * c.peaks); // radians: ~3.6deg (2 peaks) .. ~6.8deg (4 peaks)
 
+            // The landmass base spans the whole peak footprint: take the cluster's mean direction + a
+            // footprint radius covering the peak spread, and extend a faceted shelf from `raise` down past
+            // the sea. Reads as the island the peaks stand on (the grounding fix).
+            float meanR = c.distance;
+            var clusterCentre = new Vector3(Mathf.Cos(ca) * meanR, 0f, Mathf.Sin(ca) * meanR);
+            float footprintR = c.baseR * (1.15f + 0.25f * c.peaks); // covers the arc+radial peak spread
+            BuildLandmassBase(clusterRoot, c, clusterCentre, footprintR, tint, mat, rnd);
+
             for (int p = 0; p < c.peaks; p++)
             {
                 // Spread peaks across the cluster's small arc + radial band (deterministic jitter).
@@ -334,7 +356,7 @@ namespace FarHorizon.EditorTools
                 float r = c.distance * (0.94f + (float)rnd.NextDouble() * 0.12f);
                 float h = c.height * (0.82f + (float)rnd.NextDouble() * 0.40f);
                 float br = c.baseR * (0.85f + (float)rnd.NextDouble() * 0.45f);
-                // RAISE the cluster onto a landmass base (+y) so it reads as LAND, not water-piercing peaks.
+                // Seat the peak ON the landmass base (+raise) so it rises from the island shelf, not water.
                 var pos = new Vector3(Mathf.Cos(a) * r, c.raise, Mathf.Sin(a) * r);
 
                 var mesh = LowPolyMeshes.FacetedMountain(br, h, 6 + rnd.Next(0, 4), c.snowline,
@@ -357,6 +379,37 @@ namespace FarHorizon.EditorTools
                 GameObjectUtility.SetStaticEditorFlags(peak,
                     StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic);
             }
+        }
+
+        // The LANDMASS BASE under a mountain cluster (Drew "floating shards" grounding fix): a low, broad
+        // faceted island shelf that the peaks stand on. It rises from BELOW the sea surface (so the coast
+        // is the waterline, never a gap under floating peaks) up to the cluster's `raise` height, with an
+        // irregular faceted rim in the SAME hard-faceted language as the peaks/rocks. Tinted with the same
+        // (capped) per-cluster atmospheric tint so it recedes in lockstep with its peaks.
+        static void BuildLandmassBase(GameObject clusterRoot, MtnCluster c, Vector3 centre, float radius,
+            Color tint, Material mat, System.Random rnd)
+        {
+            // The shelf top sits at `raise`; it sinks BELOW the sea (down to seaSink) so there's no visible
+            // gap between the island and the water (the grounding read). A gentle dome top so peaks have a
+            // believable foot, faceted sides down to a sunk rim.
+            float top = c.raise;
+            float seaSink = -8f; // well below WaterY (-0.20) so the coast is the waterline, no floating gap
+            var mesh = LowPolyMeshes.FacetedLandmass(radius, top - seaSink, 9 + rnd.Next(0, 3),
+                c.body, rnd.Next());
+
+            var island = new GameObject("LP_Landmass");
+            island.transform.SetParent(clusterRoot.transform, false);
+            island.transform.position = new Vector3(centre.x, seaSink, centre.z);
+
+            var mf = island.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = island.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            mr.staticShadowCaster = false;
+            GameObjectUtility.SetStaticEditorFlags(island,
+                StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic);
         }
 
         // A shared vertex-color material (the same FarHorizon/LowPolyVertexColor shader the terrain /

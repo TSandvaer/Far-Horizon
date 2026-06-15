@@ -26,8 +26,9 @@ namespace FarHorizon.PlayTests
 
             var clouds = Object.FindObjectsByType<FarHorizon.CloudDrift>(
                 FindObjectsInactive.Include, FindObjectsSortMode.None);
-            Assert.GreaterOrEqual(clouds.Length, 5,
-                $"the loaded Boot scene must carry 5-9 clouds at runtime (found {clouds.Length})");
+            Assert.GreaterOrEqual(clouds.Length, FarHorizon.WorldLookConfig.CloudCountMin,
+                $"the loaded Boot scene must carry {FarHorizon.WorldLookConfig.CloudCountMin}-" +
+                $"{FarHorizon.WorldLookConfig.CloudCountMax} clouds at runtime (found {clouds.Length})");
 
             // Snapshot a cloud's along-wind position, let real time pass, confirm it MOVED (the drift is
             // alive, not a frozen serialized prop — the headline runtime contract for Uma §1).

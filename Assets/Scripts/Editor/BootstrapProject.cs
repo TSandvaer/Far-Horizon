@@ -192,6 +192,11 @@ namespace FarHorizon.EditorTools
             // (default-pitch clouds + low-pitch vista/sky dissolve). Serialized editor-time (NOT Awake)
             // per the editor-vs-runtime trap; INERT unless the exe is launched with -verifyWorldLook.
             hudGo.AddComponent<WorldLookVerifyCapture>();
+            // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
+            // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
+            // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
+            // of AxeNudgeTool). Serialized editor-time per the editor-vs-runtime trap; INERT unless F9.
+            hudGo.AddComponent<FarHorizon.WorldLookNudgeTool>();
             // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
             // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted
             // Screenmanager registry values written by the windowed capture gate). INERT on any capture/verify

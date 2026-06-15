@@ -30,13 +30,17 @@ namespace FarHorizon.EditTests
         // ---- CLOUDS (Uma §1) ----
 
         [Test]
-        public void Clouds_Present_FiveToNine_WithDrift()
+        public void Clouds_Present_SixToTen_WithDrift()
         {
+            // DREW SOAK-REWORK: eased the count up to 6-10 (WorldLookConfig.CloudCount{Min,Max}) now the
+            // mountain WALL is gone and the sky OPENS — the Sponsor's soak #4 was "I can't see any sky or
+            // clouds," so with the sky restored, put a few more up there. Still sparse-but-alive (Uma §1).
             var clouds = Object.FindObjectsByType<FarHorizon.CloudDrift>(FindObjectsSortMode.None);
-            Assert.GreaterOrEqual(clouds.Length, 5,
-                "the sky must carry 5-9 drifting clouds (Uma §1 sparse-but-alive) — found " + clouds.Length);
-            Assert.LessOrEqual(clouds.Length, 9,
-                "clouds must stay SPARSE (5-9, Uma §1: enough to feel alive, few enough to never crowd)");
+            Assert.GreaterOrEqual(clouds.Length, FarHorizon.WorldLookConfig.CloudCountMin,
+                $"the sky must carry {FarHorizon.WorldLookConfig.CloudCountMin}-{FarHorizon.WorldLookConfig.CloudCountMax} " +
+                "drifting clouds (Uma §1 sparse-but-alive, eased up post-wall-removal) — found " + clouds.Length);
+            Assert.LessOrEqual(clouds.Length, FarHorizon.WorldLookConfig.CloudCountMax,
+                $"clouds must stay SPARSE (<= {FarHorizon.WorldLookConfig.CloudCountMax}, Uma §1: alive, never crowding)");
 
             foreach (var d in clouds)
             {
@@ -100,20 +104,27 @@ namespace FarHorizon.EditTests
             Assert.Greater(peaks.Length, 6,
                 "the vista must still carry several faceted mountain peaks (a few discrete island clusters)");
 
-            // Depth stack: there must be peaks at BOTH a near band AND a far cluster so the eye ladders out
-            // (Uma §2 layered depth) — the constrained-island model keeps depth, just not a full ring.
+            // Depth stack: peaks at BOTH a near band AND a farther cluster so the eye ladders out (Uma §2
+            // layered depth). DREW SOAK-REWORK (double-fade fix): the clusters were PULLED IN (×0.55) and the
+            // 950u Vista_Far GHOST was DROPPED — at 950u the Exp^2 fog blended it ~90% to the horizon stop, so
+            // it read as a "floating translucent shard." The farthest grounded island now lands ~300u (fog
+            // blend ~15-21% = atmospheric but SOLID). So the depth bands shift IN vs the old 150-900u model.
             float maxDist = 0f, nearCount = 0, farCount = 0;
             foreach (var p in peaks)
             {
                 float d = new Vector2(p.transform.position.x, p.transform.position.z).magnitude;
                 maxDist = Mathf.Max(maxDist, d);
-                if (d >= 150f && d <= 420f) nearCount++;
-                if (d >= 480f) farCount++;
+                if (d >= 90f && d <= 200f) nearCount++;
+                if (d >= 240f) farCount++;
             }
-            Assert.Greater(nearCount, 0, "there must be a NEAR vista cluster (150-420u, Uma §2)");
-            Assert.Greater(farCount, 0, "there must be a FAR vista cluster (>=480u — the layered depth)");
-            Assert.Greater(maxDist, 800f,
-                "a distant island must reach ~900u+ (the endless-horizon read — one far landmass, not a ring)");
+            Assert.Greater(nearCount, 0, "there must be a NEAR vista cluster (90-200u, Uma §2)");
+            Assert.Greater(farCount, 0, "there must be a FARTHER vista cluster (>=240u — the layered depth)");
+            Assert.Greater(maxDist, 240f,
+                "the farthest grounded island must reach ~280-310u (atmospheric-but-SOLID, NOT the dropped " +
+                "950u fog-ghost that read as a floating translucent shard — Drew double-fade fix)");
+            Assert.Less(maxDist, 500f,
+                "no cluster may sit beyond ~500u — past that the Exp^2 fog ghosts it back to a translucent " +
+                "shard (the 950u Vista_Far was dropped for exactly this reason)");
         }
 
         // ---- SPONSOR SOAK-FIX GUARDS (a89f508 / 86ca8t9pq reopened) — the constrained-island contract ----
@@ -173,13 +184,15 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void Vista_FarRingTintsTowardHorizonStop_AtmosphericFade()
+        public void Vista_FartherRingTintsTowardHorizonStop_AtmosphericFade_ButCapped()
         {
-            // Uma §2: the farthest range DISSOLVES into the sky — its _Tint is lerped toward the horizon
-            // sky stop (#DCE8E4) as the range recedes, so the far silhouette desaturates + lifts toward the
-            // colour it dissolves into (the atmospheric fade + the seam-kill colour at the horizon line).
-            // Assert the FAR ring's tint is CLOSER to the horizon stop than the NEAR band's tint — the
-            // correct fade direction (a multiplicative tint toward the horizon, not toward pure white).
+            // Uma §2: the farther ranges fade toward the horizon sky stop (#DCE8E4) so the silhouette
+            // desaturates + lifts toward the colour it dissolves into. DREW SOAK-REWORK (double-fade fix):
+            // the per-cluster tint fade is now CAPPED at WorldLookConfig.MtnFadeCap — the OLD uncapped fade
+            // (fadeK up to 0.82) faded the mesh 82% to sky BEFORE the fog then faded it AGAIN ~38-90%, the
+            // double-fade that ghosted the far clusters into "floating translucent shards." Two asserts:
+            //   (1) the fade DIRECTION is still correct (farther tint CLOSER to the horizon stop than near);
+            //   (2) even the farthest tint is NOT washed past the cap — it stays a readable silhouette colour.
             var peaks = Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None)
                 .Where(r => r.gameObject.name == "LP_Mountain")
                 .ToArray();
@@ -196,14 +209,62 @@ namespace FarHorizon.EditTests
                 var mat = r.sharedMaterial;
                 if (mat == null || !mat.HasProperty("_Tint")) continue;
                 float toHoriz = DistToHorizon(mat.GetColor("_Tint"));
-                if (d <= 280f && nearDist < 0f) nearDist = toHoriz;
-                if (d >= 900f) farDist = (farDist < 0f) ? toHoriz : Mathf.Min(farDist, toHoriz);
+                if (d <= 130f && nearDist < 0f) nearDist = toHoriz;        // the near inland cluster
+                if (d >= 230f) farDist = (farDist < 0f) ? toHoriz : Mathf.Min(farDist, toHoriz);
             }
             Assert.GreaterOrEqual(nearDist, 0f, "a near-band peak with a _Tint must exist");
-            Assert.GreaterOrEqual(farDist, 0f, "a far-ring peak with a _Tint must exist");
+            Assert.GreaterOrEqual(farDist, 0f, "a farther-band peak with a _Tint must exist");
             Assert.Less(farDist, nearDist,
-                "the FAR ring tint must be CLOSER to the horizon stop than the NEAR band — the atmospheric " +
-                "fade that makes the farthest range dissolve into the sky with no seam (Uma §2)");
+                "the farther tint must be CLOSER to the horizon stop than the near band — the atmospheric " +
+                "fade direction (Uma §2), preserved under the cap");
+            // CAPPED: the farthest tint must NOT be washed all the way to the horizon stop (the double-fade
+            // ghost). With MtnFadeCap=0.25 and white -> horizon being ~0.4 total channel distance, the tint
+            // can move AT MOST ~0.25*0.4 ≈ 0.10 toward the horizon, so it stays >0.27 away (white is ~0.37).
+            Assert.Greater(farDist, 0.22f,
+                "even the FARTHEST tint must stay a readable SILHOUETTE colour (>0.22 from the horizon stop) " +
+                "— NOT washed to near-invisible (the double-fade 'floating translucent shard' regression). " +
+                "The tint is capped at WorldLookConfig.MtnFadeCap so FOG, not the tint, does the recession.");
+        }
+
+        [Test]
+        public void Vista_EachCluster_SitsOnALandmassBase_NotFloatingPeaks()
+        {
+            // DREW "floating translucent shards" GROUNDING FIX: each vista cluster must carry a LANDMASS BASE
+            // (LP_Landmass) — a broad faceted island shelf the peaks foot on, extending from below the sea up
+            // to the cluster's raise height. Without it, peaks on thin +2-6u shelves over fogged-out sea read
+            // as floating. Assert there is at least one landmass per cluster + every landmass dips BELOW the
+            // sea surface (so the visible coast is the waterline, no gap under the peaks).
+            var vista = GameObject.Find("Vista");
+            Assert.IsNotNull(vista, "the Vista root must exist");
+            var landmasses = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.gameObject.name == "LP_Landmass" && mf.sharedMesh != null)
+                .ToArray();
+            // One landmass per cluster (5 clusters in the constrained-grounded model).
+            Assert.GreaterOrEqual(landmasses.Length, 4,
+                "each vista cluster must carry a landmass base (LP_Landmass) the peaks stand on — found "
+                + landmasses.Length + " (the grounding fix for 'floating translucent shards')");
+            foreach (var lm in landmasses)
+            {
+                float worldBottom = lm.GetComponent<MeshRenderer>().bounds.min.y;
+                Assert.Less(worldBottom, -0.2f,
+                    $"landmass '{lm.name}' bottom (y={worldBottom:F2}) must dip BELOW the sea surface (< WaterY " +
+                    "-0.20) so the coast is the waterline — no floating gap under the peaks (Drew grounding fix)");
+            }
+        }
+
+        [Test]
+        public void BootScene_CarriesWorldLookNudgeTool_OnTheBootObject()
+        {
+            // The BUILD-GATED debug WorldLookNudgeTool (the soak-rework dial) must be SERIALIZED onto the Boot
+            // object (sibling of AxeNudgeTool / the verify captures) so the Sponsor can finalize the LOOK in
+            // the shipped build + report values to bake. It is INERT until F9 (PlayMode inertness test), so its
+            // presence does NOT affect a soak. Drop the AddComponent wiring in BootstrapProject -> RED (the
+            // component-in-source-but-not-serialized class — binary scenes can't be GUID-grepped).
+            var boot = GameObject.Find("Boot");
+            Assert.IsNotNull(boot, "the Boot scene must carry the 'Boot' object (host of the debug tools)");
+            Assert.IsNotNull(boot.GetComponent<FarHorizon.WorldLookNudgeTool>(),
+                "the Boot object must carry the WorldLookNudgeTool (the build-gated F9 world-look dial), " +
+                "serialized into the scene — not Awake-added");
         }
 
         // ---- SKY-TINT (Uma §3) ----

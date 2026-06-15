@@ -64,27 +64,70 @@ namespace FarHorizon.EditTests
             var cols = mesh.colors;
             Assert.AreEqual(verts.Length, cols.Length, "every ocean vert must carry a color");
 
-            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. Find the near-shore
-            // vert (max local Z, since the grid runs nearZ at fz=0 toward farZ seaward = decreasing Z)
-            // and the seaward-most vert (min local Z), and check their colors against the anchors.
-            int nearIdx = 0, farIdx = 0;
+            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. THE VERY NEAREST rows now
+            // carry the SHORELINE FOAM band (the world-look shoreline fix), so the bright-teal anchor is
+            // checked a few units SEAWARD of the coast (just past the foam), and the DEEP anchor at the
+            // seaward-most vert. (The foam band itself is guarded by Ocean_CarriesShorelineFoam_AtTheCoast.)
+            float nearZ = -10.5f; // shoreZ(-12) + WaterInlandOverlap(1.5)
+            float shallowProbeZ = nearZ - (WaterSceneTests_FoamBandU + 4f); // a touch past the foam = clear shallows
+            int shallowIdx = 0, farIdx = 0;
             for (int i = 1; i < verts.Length; i++)
             {
-                if (verts[i].z > verts[nearIdx].z) nearIdx = i; // largest Z = nearest shore
-                if (verts[i].z < verts[farIdx].z) farIdx = i;   // smallest Z = deepest sea
+                if (Mathf.Abs(verts[i].z - shallowProbeZ) < Mathf.Abs(verts[shallowIdx].z - shallowProbeZ)) shallowIdx = i;
+                if (verts[i].z < verts[farIdx].z) farIdx = i; // smallest Z = deepest sea
             }
-            AssertColorNear(cols[nearIdx], LowPolyZoneGen.WaterShallow,
-                "near-shore vert must be the BRIGHT shallow teal (#3FA6B0)");
+            AssertColorNear(cols[shallowIdx], LowPolyZoneGen.WaterShallow,
+                "the shallows just seaward of the foam band must be the BRIGHT shallow teal (#3FA6B0)");
             AssertColorNear(cols[farIdx], LowPolyZoneGen.WaterDeep,
                 "seaward vert must be the DEEPER teal (#2E7E96)");
 
             // Every channel sub-1.0 (HDR-clamp discipline — the post stack must not bloom the sea white).
-            foreach (var c in new[] { cols[nearIdx], cols[farIdx] })
+            foreach (var c in new[] { cols[shallowIdx], cols[farIdx] })
             {
                 Assert.Less(c.r, 1f, "water teal red channel must be sub-1.0 (HDR-clamp-safe)");
                 Assert.Less(c.g, 1f, "water teal green channel must be sub-1.0 (HDR-clamp-safe)");
                 Assert.Less(c.b, 1f, "water teal blue channel must be sub-1.0 (HDR-clamp-safe)");
             }
+        }
+
+        // Mirror of LowPolyZoneGen.WaterFoamBandU (the foam fade extent) for the seaward probe distance.
+        private const float WaterSceneTests_FoamBandU = 7f;
+
+        [Test]
+        public void Ocean_CarriesShorelineFoam_AtTheCoast_NotJustTheSeawardSand()
+        {
+            // WORLD-LOOK SHORELINE FIX (Erik water rec / Uma §2): the Sponsor's "hard flat diagonal edge"
+            // was the rectangular water grid boundary meeting the curving beach. The fix bakes a warm-white
+            // FOAM band into the WATER mesh's NEAR-SHORE rows (prior builds only foamed the terrain sand, so
+            // the water itself had no shoreline treatment). Assert the foam colour appears in the water mesh's
+            // near-shore verts — a regression dropping the water-foam bake leaves the hard edge back.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var cols = water.GetComponent<MeshFilter>().sharedMesh.colors;
+            var foam = LowPolyZoneGen.FoamEdge;
+            int foamVerts = cols.Count(c =>
+                c.r > 0.78f && c.g > 0.78f && c.b > 0.70f &&   // foam is the brightest band on the water
+                Mathf.Abs(c.r - foam.r) < 0.14f && Mathf.Abs(c.g - foam.g) < 0.14f);
+            Assert.Greater(foamVerts, 0,
+                "the WATER mesh must carry a shoreline FOAM band (warm off-white) baked into its near-shore " +
+                "rows — the surf line that softens the sea↔land boundary (Erik water rec / Uma §2). Without " +
+                "it the rectangular grid edge reads as the Sponsor's 'hard flat diagonal edge'.");
+        }
+
+        [Test]
+        public void Ocean_IsFlatShadedUnweldedFacets_NotASmoothSheet()
+        {
+            // WORLD-LOOK (Erik water rec): the sea joins the faceted-world look as UNWELDED FLAT facets
+            // (each face owns its 3 verts + a single hard normal), not a smooth welded sheet. Unwelded =>
+            // vertexCount == triangleCount*3. This is the tell that the water reads as chunky planes catching
+            // the key light per-face (consistent with the rocks/terrain/mountains), not a glassy plane.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mesh = water.GetComponent<MeshFilter>().sharedMesh;
+            int tris = mesh.triangles.Length / 3;
+            Assert.AreEqual(tris * 3, mesh.vertexCount,
+                "the ocean must be UNWELDED flat-shaded facets (verts == tris*3) — the faceted-sea world-look; " +
+                "a welded smooth sheet (verts < tris*3) is the regression");
         }
 
         [Test]

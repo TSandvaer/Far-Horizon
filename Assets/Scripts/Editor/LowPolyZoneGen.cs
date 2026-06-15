@@ -527,7 +527,11 @@ namespace FarHorizon.EditorTools
         // near edge = shoreZ+1.5 = -10.5: just seaward of TestGround's -10 edge, just inland of the
         // terrain shore. No surface gap.
         const float WaterInlandOverlap = 1.5f;
-        const int WaterSegX = 24, WaterSegZ = 40; // enough verts for a smooth gradient + swell
+        const int WaterSegX = 24, WaterSegZ = 40; // enough verts for the depth gradient + foam band + facets
+        // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh's
+        // near-shore rows so the sea↔land boundary reads as foam, not a hard diagonal grid edge.
+        const float WaterFoamBandU = 7f;        // foam fades from the coast out to ~7u seaward
+        const float WaterFoamStrength = 0.85f;  // peak foam blend at the waterline (sub-1 keeps a hint of teal)
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
             float cx, float width, float shoreZ)
         {
@@ -549,73 +553,81 @@ namespace FarHorizon.EditorTools
             float nearZ = shoreZ + WaterInlandOverlap;          // a touch inland of the shore
             float farZ = shoreZ - WaterSeawardDepth;            // far out to sea (lost in fog)
 
-            int vCount = (WaterSegX + 1) * (WaterSegZ + 1);
-            var verts = new Vector3[vCount];
-            var cols = new Color[vCount];
-            for (int z = 0; z <= WaterSegZ; z++)
-            for (int x = 0; x <= WaterSegX; x++)
+            // GRID LATTICE (welded positions + per-vertex water colour) — computed first, then EXPANDED into
+            // UNWELDED FLAT-SHADED facets below (Erik/Uma world-look: the sea joins the faceted-world look as
+            // flat facets, not a smooth sheet — kills the "hard flat diagonal edge" read by giving the water
+            // surface its own chunky planes that catch the key light per-face).
+            int latW = WaterSegX + 1, latH = WaterSegZ + 1;
+            var gridPos = new Vector3[latW * latH];
+            var gridCol = new Color[latW * latH];
+            // SHORELINE FOAM (Erik water rec / Uma §2 — the depth-fade shoreline band): bake a warm-white
+            // foam band into the NEAR-SHORE rows where the sea meets the land. The prior build baked foam
+            // only into the terrain sand (LowPolyZoneGen terrain mesh) — the WATER mesh had no shoreline
+            // treatment, so its rectangular grid boundary against the curving beach read as a hard diagonal
+            // edge. A foam band ON the water at the coast softens that boundary into a believable surf line.
+            for (int z = 0; z < latH; z++)
+            for (int x = 0; x < latW; x++)
             {
-                int i = z * (WaterSegX + 1) + x;
+                int i = z * latW + x;
                 float fx = (float)x / WaterSegX, fz = (float)z / WaterSegZ;
                 float worldZ = Mathf.Lerp(nearZ, farZ, fz); // fz=0 near shore, fz=1 deep sea
                 float localX = (fx - 0.5f) * waterWidth;
-                verts[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
-                // Near-shore BRIGHT shallows dominate the band the eye actually sees, fading to deeper
-                // teal only FAR out. Keyed off WORLD Z (a fixed bright band off the coast) rather than
-                // the 0..1 grid fraction, because the grid runs 220u deep — a 0..1 ease would put the
-                // deep teal across most of the near water, and the distance fog + warm post grade already
-                // desaturate the far water, so without a WIDE bright band the visible sea reads grey, not
-                // the toy-bright teal the shore needs (shipped-capture finding, drew/beach-water).
-                // WIDENED 70u->130u (drew/ocean-camera-fix): when the camera tilts down to the horizon
-                // (the now-allowed flat pitch) the upper frame is dominated by the 50-150u mid-sea, not
-                // the very-near band — so the bright teal must extend further out to keep the SEA reading
-                // teal across the frame before it dissolves into the warm horizon haze (OceanCameraDiag
-                // confirmed the old 70u band let the warm-graded deep teal read grey beyond ~Z-60).
+                gridPos[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
+                // Depth gradient (keyed off WORLD Z — a fixed bright band off the coast; the fog + warm
+                // grade desaturate the far water, so a WIDE bright near band keeps the SEA reading teal).
                 float seawardDist = nearZ - worldZ; // 0 at the coast, grows out to sea
                 float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 130f));
                 Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
+                // SHORELINE FOAM band: blend toward warm foam in the first ~6u off the coast, peaking right
+                // at the waterline and fading to clear water seaward (a soft surf line, not a hard rim).
+                float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / WaterFoamBandU));
+                c = Color.Lerp(c, FoamEdge, foamT * WaterFoamStrength);
                 c.a = 1f;
-                cols[i] = c;
+                gridCol[i] = c;
             }
 
-            // *** THE ROOT-CAUSE FIX (drew/ocean-beach-soakfix2, 2026-06-13) ***
-            // The beach ocean was INVISIBLE in the seaward gameplay view across SIX shipped builds — every
-            // prior "fix" (trim TestGround, slope the beach, deepen the dip, re-pitch the cam, pull water
-            // inland) measured ZERO water px on the magenta-diff. The ticket framed it as depth-occlusion
-            // by the ground. The -seaWaterOnly probe (hide BOTH ground renderers) DISPROVED that: the sea
-            // rendered zero px even with nothing in front of it. The real cause: this water grid lays out
-            // nearZ(-10.5) -> farZ(-232), i.e. DECREASING world Z as the grid-z index increases — the
-            // OPPOSITE Z direction to the terrain mesh (shoreZ -> inlandFarZ, increasing). The terrain's
-            // triangle index order therefore winds the WATER faces DOWNWARD -> RecalculateNormals produces
-            // -Y normals -> the shader's default Cull Back culls every water triangle from any camera
-            // looking DOWN at the sea (the gameplay orbit). FIX: reverse the triangle winding here so the
-            // faces (and averaged normals) point UP (+Y) -> the sea renders for the above-camera. Verified
-            // by the magenta-diff: 0 px -> 58k px (6.4% of frame, a clear band) the instant the winding
-            // flipped, with normal0 going (0,-1,0) -> (0,+1,0). Guarded by WaterFacesUpTests (the
-            // silhouette/normal-direction class guard that would have caught this on day one).
-            var tris = new int[WaterSegX * WaterSegZ * 6];
-            int ti = 0;
+            // *** WINDING NOTE (drew/ocean-beach-soakfix2, 2026-06-13 — kept) ***
+            // The water grid runs nearZ(-10.5) -> farZ(-232), i.e. DECREASING world Z as the grid-z index
+            // increases — the OPPOSITE Z direction to the terrain. Reusing the terrain's index order wound
+            // the water faces DOWNWARD (-Y normals) -> Cull Back culled the sea from the above-looking orbit
+            // (0 px for SIX builds; the -seaWaterOnly probe disproved occlusion). The reversed quad winding
+            // below yields UP-facing faces. With UNWELDED facets we set explicit per-face normals (no
+            // RecalculateNormals averaging), so the winding-to-normal contract is made explicit per face and
+            // guarded by WaterFacesUpTests (every face normal . +Y > 0) — the silhouette/normal class.
+            var verts = new List<Vector3>();
+            var cols = new List<Color>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+            void EmitTri(int a, int b, int c2)
+            {
+                Vector3 p0 = gridPos[a], p1 = gridPos[b], p2 = gridPos[c2];
+                Vector3 fn = Vector3.Cross(p1 - p0, p2 - p0);
+                if (fn.sqrMagnitude < 1e-12f) return;
+                fn.Normalize();
+                if (fn.y < 0f) fn = -fn; // water faces UP regardless of source winding (kept-contract)
+                int bi = verts.Count;
+                verts.Add(p0); verts.Add(p1); verts.Add(p2);
+                cols.Add(gridCol[a]); cols.Add(gridCol[b]); cols.Add(gridCol[c2]);
+                normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
+            }
             for (int z = 0; z < WaterSegZ; z++)
             for (int x = 0; x < WaterSegX; x++)
             {
-                int i = z * (WaterSegX + 1) + x;
-                // Reversed winding (vs the terrain) — the water grid runs in -Z so this order yields
-                // UP-facing triangles. Keep both triangles consistent so RecalculateNormals averages +Y.
-                tris[ti++] = i; tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 1;
-                tris[ti++] = i + 1; tris[ti++] = i + WaterSegX + 2; tris[ti++] = i + WaterSegX + 1;
+                int i = z * latW + x;
+                // Reversed winding (vs the terrain) — yields UP-facing triangles for the -Z-running grid.
+                EmitTri(i, i + 1, i + latW);
+                EmitTri(i + 1, i + latW + 1, i + latW);
             }
 
             var mesh = new Mesh { name = name + "_mesh" };
-            mesh.indexFormat = vCount > 65000
+            mesh.indexFormat = verts.Count > 65000
                 ? UnityEngine.Rendering.IndexFormat.UInt32
                 : UnityEngine.Rendering.IndexFormat.UInt16;
-            mesh.vertices = verts;
-            mesh.colors = cols;
-            mesh.triangles = tris;
-            // WELDED grid -> RecalculateNormals averages to a smooth flat-up sheet (the smooth-water read
-            // that contrasts the faceted shore). The swell is applied in the shader, not baked here, so
-            // the serialized mesh is the calm rest pose.
-            mesh.RecalculateNormals();
+            mesh.SetVertices(verts);
+            mesh.SetColors(cols);
+            mesh.SetNormals(normals); // explicit flat per-face normals (UNWELDED faceted sea, all +Y)
+            mesh.SetTriangles(tris, 0);
             mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
         }

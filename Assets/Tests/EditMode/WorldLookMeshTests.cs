@@ -231,5 +231,55 @@ namespace FarHorizon.EditTests
             var b = LowPolyMeshes.FacetedMountain(60f, 90f, 8, 0.6f, Color.grey, Color.white, 77);
             Assert.AreEqual(a.vertexCount, b.vertexCount, "same seed must produce the same vertex count");
         }
+
+        // ---- LANDMASS BASE (Drew "floating translucent shards" grounding fix, ticket 86ca8t9pq) ----
+
+        [Test]
+        public void FacetedLandmass_IsHardFaceted_UnweldedPerFace()
+        {
+            // The island shelf the peaks stand on must be the SAME hard-faceted language (flat per-face).
+            var mesh = LowPolyMeshes.FacetedLandmass(90f, 12f, 10, new Color(0.6f, 0.65f, 0.68f), seed: 3);
+            int tris = mesh.triangles.Length / 3;
+            Assert.AreEqual(tris * 3, mesh.vertexCount,
+                "FacetedLandmass must be flat-shaded (verts == tris*3 — hard facets matching the peaks/rocks)");
+            Assert.GreaterOrEqual(tris, 7, "the landmass must have at least the rim face count");
+        }
+
+        [Test]
+        public void FacetedLandmass_AllFacesPointOutward_NotBackfaceCulled()
+        {
+            // THE BACKFACE-CULL GUARD (same class as the −Z water grid / FacetedRock / FacetedMountain):
+            // every face normal must agree with its winding (outward = the front side Cull Back keeps), or
+            // the island shows holes/slivers from the orbit camera.
+            for (int s = 1; s <= 6; s++)
+            {
+                var mesh = LowPolyMeshes.FacetedLandmass(80f, 14f, 9 + s % 3,
+                    new Color(0.6f, 0.65f, 0.68f), seed: s * 23);
+                var v = mesh.vertices;
+                var n = mesh.normals;
+                int tris = mesh.triangles.Length / 3;
+                for (int t = 0; t < tris; t++)
+                {
+                    Vector3 a = v[t * 3], b = v[t * 3 + 1], c = v[t * 3 + 2];
+                    Vector3 wind = Vector3.Cross(b - a, c - a).normalized;
+                    Assert.Greater(Vector3.Dot(wind, n[t * 3]), 0.5f,
+                        $"seed {s * 23} face {t} winding disagrees with its outward normal -> culled island face");
+                }
+            }
+        }
+
+        [Test]
+        public void FacetedLandmass_SpansFromBelowSeaToShelfTop_NoFloatingGap()
+        {
+            // The grounding fix: the shelf must extend from a SUNK bottom (the mesh local Y=0, which the
+            // caller places below the sea) up to the shelf top (~depth) — a broad, low island, wider than it
+            // is tall, so the peaks foot on visible LAND, not float over fogged sea.
+            var mesh = LowPolyMeshes.FacetedLandmass(90f, 12f, 10, new Color(0.6f, 0.65f, 0.68f), seed: 7);
+            var b = mesh.bounds;
+            Assert.Greater(b.size.y, 8f, "the landmass must have real vertical extent (sunk bottom -> shelf top)");
+            Assert.Greater(Mathf.Max(b.size.x, b.size.z), b.size.y * 3f,
+                "the landmass must be BROAD + low (footprint >> height) — a wide island the peaks foot on, " +
+                "not a tower (so there is no floating gap under the peaks)");
+        }
     }
 }

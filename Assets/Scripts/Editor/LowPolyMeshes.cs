@@ -761,6 +761,88 @@ namespace FarHorizon.EditorTools
             return mesh;
         }
 
+        // A LANDMASS BASE / ISLAND SHELF the mountain peaks stand on (Drew "floating translucent shards"
+        // grounding fix, ticket 86ca8t9pq). The shipped mountains read as floating because each peak's
+        // base sat on a thin +2-6u shelf over open sea — with the sea fogged out beneath, the peak looked
+        // like it hovered. This builds a broad, low faceted island: a top rim ring (slightly domed so the
+        // peaks have a believable foot) and faceted SIDES dropping to a sunk bottom ring well below the sea
+        // surface, so the visible coast IS the waterline and there is no gap under the peaks.
+        //
+        //   radius   — island footprint half-extent (must cover the peak spread)
+        //   depth    — vertical extent from the sunk bottom up to the shelf top (top - seaSink)
+        //   sides    — rim segments (9-11 reads chunky-faceted)
+        //   bodyGrey — the island body colour (== the cluster's mountain body, so it recedes in lockstep)
+        //   seed     — deterministic irregular rim (reproducible baked scene)
+        //
+        // FLAT-shaded per-face (explicit hard normals) with OUTWARD winding enforced (same EmitFace idiom
+        // as FacetedMountain) so the island is never backface-culled — the −Z-grid / cull-back class guard.
+        public static Mesh FacetedLandmass(float radius, float depth, int sides,
+            Color bodyGrey, int seed)
+        {
+            sides = Mathf.Max(7, sides);
+            var rnd = new System.Random(seed);
+
+            // Top rim: irregular radius, slight outward dome (the shelf the peaks foot on). y measured from
+            // the mesh local origin (which the caller places at seaSink), so top is at `depth`.
+            var topRing = new Vector3[sides];
+            var botRing = new Vector3[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = i / (float)sides * Mathf.PI * 2f;
+                float rTop = radius * (0.82f + (float)rnd.NextDouble() * 0.36f);  // irregular coast
+                float rBot = rTop * (1.05f + (float)rnd.NextDouble() * 0.15f);    // splayed foot (wider below)
+                float yTop = depth * (0.92f + (float)rnd.NextDouble() * 0.08f);   // near-flat domed top
+                topRing[i] = new Vector3(Mathf.Cos(a) * rTop, yTop, Mathf.Sin(a) * rTop);
+                botRing[i] = new Vector3(Mathf.Cos(a) * rBot, 0f, Mathf.Sin(a) * rBot);
+            }
+            var apexTop = new Vector3(0f, depth * 1.0f, 0f); // shallow dome centre
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            var center = new Vector3(0f, depth * 0.45f, 0f); // mass centre for the outward test
+
+            void EmitFace(Vector3 v0, Vector3 v1, Vector3 v2, Color baseCol)
+            {
+                Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+                if (fn.sqrMagnitude < 1e-10f) return;
+                fn.Normalize();
+                Vector3 outward = ((v0 + v1 + v2) / 3f) - center;
+                if (Vector3.Dot(fn, outward) < 0f) { fn = -fn; var t = v1; v1 = v2; v2 = t; }
+                float vj = ((float)rnd.NextDouble() - 0.5f) * 0.035f;
+                Color fc = new Color(Mathf.Clamp01(baseCol.r + vj), Mathf.Clamp01(baseCol.g + vj),
+                                     Mathf.Clamp01(baseCol.b + vj), 1f);
+                verts.Add(v0); verts.Add(v1); verts.Add(v2);
+                normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                cols.Add(fc); cols.Add(fc); cols.Add(fc);
+            }
+
+            // SIDE band: bottom ring -> top ring (the faceted island flanks).
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFace(botRing[i], botRing[ni], topRing[ni], bodyGrey);
+                EmitFace(botRing[i], topRing[ni], topRing[i], bodyGrey);
+            }
+            // TOP dome: top ring -> apex (so the shelf is gently domed, peaks foot believably).
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFace(topRing[i], topRing[ni], apexTop, bodyGrey);
+            }
+
+            var tris = new List<int>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tris.Add(i);
+
+            var mesh = new Mesh { name = "LP_Landmass" };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals);
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // Append one faceted spheroid blob (subdivided octahedron, radial jitter) into the shared
         // vert/color/tri lists at `center`, tinted `color`. Each blob's own verts are welded WITHIN
         // the blob (shared edges -> smooth shading), but blobs do NOT weld to each other (distinct
