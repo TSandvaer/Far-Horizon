@@ -192,3 +192,74 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Why: (1) The held/stump-axe placement is a subjective-feel call best dialed by the Sponsor against the real gameplay view — a nudge tool ends the over-iterate loop and lets him set it once. (2)/(3) Locking the two "good enough / liked" visual calls stops further color-chase churn. (4) The Sponsor is back at the keyboard, so the away-orchestration pulse is unneeded.
 - Reversibility: reversible (saturation polish remains a future tweak; auto-status re-armable; nudge tool is build-gated debug, not shipped UX)
 - Affects: held/stump-axe placement (Devon), sea + axe-head polish backlog, orchestrator cadence
+
+## 2026-06-15 — Castaway re-generated (Hyper3D→Mixamo) + adopted on the GENERIC rig
+
+- Decided by: Sponsor (concept pick + ADOPT call) + Devon (in-engine rig finding; ticket `86ca8r72j` spike → `86ca8rdkp` adoption)
+- Decision: The Sketchfab chibi is REPLACED by a freshly-generated chunky-low-poly castaway (concept art → Rodin Gen-2.5 Image-to-3D, Quad 8k/symmetric/de-lit → Mixamo Standard-Skeleton auto-rig, Idle+Walk). The viability spike (`86ca8r72j`) proved it imports + animates + reads on-style in a shipped URP exe; the Sponsor chose ADOPT, integrated under `86ca8rdkp`. **Load-bearing rig call: ship on the GENERIC (transform-path-bind) rig, NOT Mixamo Humanoid** — the Humanoid muscle-retarget EXPLODES the skinned mesh at runtime (cone displacement) under the scaled scene hierarchy; the spike's bounds-following camera HID it. Generic renders clean. New right-hand bone `mixamorig:RightHand` (lossyScale 1 — no 267× trap). Recolor = luma-preserving HSV remap (toon gradient kept).
+- Why: A purpose-generated base beats re-skinning a fighting mesh (the chibi/Quaternius lesson). The Humanoid-explosion is invisible to a spike capture whose camera follows the mesh bounds — the shipped-build capture gate at gameplay framing is what surfaced it. Generic-rig transform-path binding sidesteps the muscle-retarget that detonates under non-uniform scene scale.
+- Reversibility: reversible (revert the adoption PR; the rig choice is an import-setting + wiring change in ≤1 PR)
+- Affects: player character, rig/animation pipeline, Devon + Uma + Tess, `character-pipeline.md` §Step 4 + `unity-conventions.md` §FBX
+
+## 2026-06-15 — During-walk float = exponential-smoothing LAG (not snap-pick); ship a dial WITH its gauge
+
+- Decided by: Devon (4th-attempt root-cause) + Sponsor (escalation: "you have to add logging or nudging"; ticket `86ca8rdkp`)
+- Decision: The recurring "grounded standing, elevated walking" complaint is the EXPONENTIAL-SMOOTHING-LAG class, NOT a snap-pick error. At rest the snap is exact (gap 0.000); a constant-rate (k=18) filter lagged the descending foreshore ~1.2cm at 5.5 u/s while moving, and the blob shadow compounded it (driven off the RAW target while feet rode the SMOOTHED Y). Fix: speed-adaptive snap rate (`snapRateMove` 60 ≫ `snapRateRest` 18) + shadow off the avatar's ACTUAL world-Y + a Sponsor-dialable `groundYOffset`. **And: don't ship a dial without its gauge** — the float was chased for many iterations until a LIVE on-screen measurement (the F8/F9 FloatDiagnostic GAP readout, ~1Hz `[FloatTrace]` log) PROVED feet track the foreshore within ≤2.6mm the whole walk. "Is it fixed" is now answered by a number, not argument.
+- Why: After 2+ rejects on a subjective-feel target the unstick/instrument rule fires — a gauge ends the argue-loop and makes the next dial precise (memory [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). The lag-vs-pick distinction matters because color/value tweaks can never fix a timing-lag bug.
+- Reversibility: reversible (snap-rate + shadow-source are tunable; the diagnostic is build-gated debug)
+- Affects: avatar grounding (Devon), the F8/F9 diagnostic, all snapped-avatar locomotion percepts, Tess
+
+## 2026-06-15 — Held-prop stabilization in the BODY-ROOT local frame, not world space
+
+- Decided by: Devon (held-axe walk-shift root-cause; ticket `86ca8rdkp`)
+- Decision: A held prop that shifts/clips as the holding arm animates through the walk cycle is stabilized by anchoring its grip in the **BODY-ROOT local frame** (a grip-anchor in `HeldAxeRig`), NOT in world space. Measured: world-space posing made the grip drift WORSE (0.93→1.5u) because world lags locomotion; the body-root grip-anchor cut it to →0.18u (81% better). (Note: this REFINES the 2026-06-13 "held props posed in WORLD space" decision for the OLD chibi `RightHand_010` rig — that rig carried a 267× lossy-scale + arbitrary local axes that made bone-local non-deterministic; the new Mixamo `mixamorig:RightHand` has lossyScale 1, so body-root-local stabilization is now both possible and superior for swing-stability.)
+- Why: World-space pose is recomputed each frame from a lagging locomotion transform, so a clip-driven arm swing drags the prop; a body-root-relative anchor moves WITH the body and only the local swing remains, which is what stabilizing damps.
+- Reversibility: reversible (grip-anchor frame is a one-method change)
+- Affects: held-prop pipeline, Devon, any bone-attached prop on the new rig
+
+## 2026-06-15 — Vista = discrete grounded land/island clusters + fog recession (supersedes Erik's far-ring)
+
+- Decided by: Drew (root-cause + production call; ticket `86ca8t9pq`)
+- Decision: The far-horizon vista is built from **discrete GROUNDED land/island clusters** (faceted `FacetedLandmass` shelves, e.g. ~18 peaks in ~6 island clusters on landmass bases +2-6u, ≥5/12 azimuth sectors left open sky/sea) with **fog-only atmospheric recession** — NOT Erik's far-encircling mountain-ring + deep per-cluster fade-tint. Erik's ring+deep-fade caused "floating translucent shards" (the mountain ROOT CAUSE was a DOUBLE-FADE: per-cluster tint 0.45-0.82 × Exp² fog both washing far clusters 70-95% to horizon). Fix capped tint (`MtnFadeCap` 0.25), pulled clusters in (`MtnDistanceScale` 0.55), dropped the 950u ghost range, grounded each on an island shelf. Open sky now dominates.
+- Why: A grounded, opaque, discrete-cluster vista reads as solid distant land; an encircling translucent ring with stacked fade fights the fog and produces shards. Erik's winding/surface hypothesis was REFUTED by trace (shader was opaque alpha=1, winding green) — the failure was compositional (double-fade), not a render bug.
+- Reversibility: reversible (vista-gen parameters + landmass mesh; tunable in ≤1 PR)
+- Affects: world-look vista (Drew), `LowPolyZoneGen`, the art board's far-horizon read, Erik-consult routing
+
+## 2026-06-15 — Diagnose-via-trace BEFORE fixing — geometry/threshold subjective tuning is trace-swept first
+
+- Decided by: orchestrator + Drew + Devon (pattern hardened across the whole 2026-06-15 saga; tickets `86ca8t9pq` / `86ca8rdkp`)
+- Decision: Geometry- and threshold-bound subjective tuning is **trace-swept against a headless geom model + scene-verified BEFORE serving a soak** — never fixed on a naive hypothesis. Naive framings were overturned REPEATEDLY this saga: walk-elevated (4 attempts; was smoothing-lag, then shadow-stranded-above-feet, then renderer-disabled-slab-pick); "water elevated" (was vista-islands DRAPING over the play space, not water-Y, not sea-extent, not occlusion — all trace-refuted); finger-mangle (was an OPEN clip-hand around the haft, skinning CLEAN — not a re-weight); shoreline foam (was a steep ramp + coarse water grid stranding foam over deep water, not "kept-only-shifted"); sky greyish (was the over-shoulder orbit framing the MID/horizon band — saturate THAT band, not the zenith — plus a STALE committed `GradientSky.mat` masking the source palette). Each was caught only by trace (`-hideVista`, magenta cross-build diff, `-groundTrace`, isolation probes), never by the first plausible fix.
+- Why: The intuitive fix-shape was wrong more often than right on geometry/threshold-bound percepts this saga; trace is the cheap instrument that prevents the expensive soak-overturn loop (Erik's #1 accuracy pattern — Diagnose-Before-Fix kills 2-4 overturns/defect).
+- Reversibility: n/a (a process convention; lives in TESTING_BAR / dispatch discipline)
+- Affects: all subjective-visual/geometry tuning, Devon + Drew + Tess + orchestrator, Erik's accuracy patterns
+
+## 2026-06-15 — Custom URP skybox shader must use standard skybox-pass render state
+
+- Decided by: Drew (root-cause via `-flatSky` probe; ticket `86ca8t9pq`)
+- Decision: A custom URP skybox shader assigned to `RenderSettings.skybox` MUST use **standard skybox-pass render state** (`Cull Off` / `ZWrite Off`, object-space direction, normal clip). The `GradientSkybox.shader` was forcing depth (`positionCS.xyww` on a Background-queue SubShader) → it drew OVER scene geometry → whole-frame wash. Fixed to the standard skybox-pass state.
+- Why: A Background-queue shader that writes/forces depth paints across the frame instead of behind geometry — sibling of the magenta/cull-back false-symptom family. The skybox pass has a prescribed render state; deviating from it makes the sky occlude the world.
+- Reversibility: reversible (shader render-state block; one-shader change)
+- Affects: sky rendering (Drew), `GradientSkybox.shader`, `unity-conventions.md` §Editor-vs-runtime
+
+## 2026-06-15 — In-house asset routes confirmed over paid AI-3D tools (3D-Agent declined)
+
+- Decided by: Sponsor (asked Erik to evaluate; Erik recommended AGAINST; ticket `86ca92vrk` + the world-look-quality consult)
+- Decision: The asset route stays **in-house — procedural + URP Shader Graph (world/props) + Hyper3D Rodin → Mixamo (characters)**. The paid AI-3D generator **3D-Agent.com is NOT adopted** (Erik's eval: photoreal output, no low-poly control; doesn't fit the chunky-cartoon direction; existing routes already cover world-look assets, characters/props, and the asset pipeline). Meshy.ai free tier noted as a fallback only. (Reaffirms + extends the 2026-06-13 asset-route decisions with the explicit 3D-Agent decline.)
+- Why: The existing routes proved out the castaway + hatchet + full world-look this saga at zero/low marginal cost and WITH the stylization control a photoreal generator lacks; a paid tool that fights the art direction is not worth the spend (memory [[in-house-asset-routes-over-paid-tools]]).
+- Reversibility: reversible (route preference; re-evaluable if a low-poly-capable tool appears)
+- Affects: all asset creation, Devon + Drew + Uma, orchestrator R&D lane
+
+## 2026-06-15 — Stacked-PR integration (#48 on #47) + re-reconcile each soak round
+
+- Decided by: orchestrator (integration topology; validated against `team/orchestrator/integration-39-38-playbook.md`)
+- Decision: The multi-round character (#47) + world-look (#48) work is integrated as a **linear stacked PR** — #48 is based on #47's branch (not main), so the combined build carries both feature sets in one regenerated `Boot.unity`. Each soak round that churns either side **RE-RECONCILES #48 onto the updated #47** and regenerates Boot.unity per the integration playbook; only `Boot.unity` + `BuildStamp.txt` ever conflict (code auto-merges clean). Consequence: CI does NOT auto-run on #48 (it fires only on PRs→main) — the local full suite + serve_soak stamp==HEAD are the authoritative soak evidence; at the big merge, land #47 first OR retarget #48→main and re-run CI (EPERM-aware).
+- Why: A linear stack avoids a three-way Boot.unity reconcile and keeps one combined soak artifact; the regenerate-on-rebase playbook (proven #32/#36/#40) makes the per-round reconcile mechanical with a known conflict surface.
+- Reversibility: reversible (branch topology; retarget-able to main at merge)
+- Affects: orchestrator integration flow, all scene-baking stacked PRs, Devon + Drew + Tess
+
+## 2026-06-15 — World-look LOOK-verdict still Sponsor-PENDING (technical/root-cause decisions above ARE settled)
+
+- Decided by: orchestrator (status note, not a settled look-call; tickets `86ca8t9pq` / `86ca8rdkp`)
+- Decision: The above 2026-06-15 entries capture the SETTLED technical + root-cause decisions of the saga. The final **world-look LOOK-approval remains Sponsor-pending** — across the saga the Sponsor APPROVED-IN-PART repeatedly (C5 walk-grounding accepted, shoreline position fixed, character identity/recolor good) while flagging fresh world-look issues each round (shoreline foam, sky/clouds, mountain detail). The combined soak (#48 stacked on #47) is being re-served; the look-verdict + THE BIG MERGE stay Sponsor-gated on the protected branch.
+- Reversibility: n/a (a status flag; the look-verdict is the Sponsor's to give)
+- Affects: roadmap sequencing, the big merge, orchestrator cadence, Devon + Drew
