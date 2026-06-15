@@ -232,6 +232,36 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(a.vertexCount, b.vertexCount, "same seed must produce the same vertex count");
         }
 
+        [Test]
+        public void FacetedMountain_HasMultiRingSubRelief_NotASmoothCone()
+        {
+            // MOUNTAIN-DETAIL SOAK-FIX GUARD (86ca8t9pq S3, Sponsor soak of fa9f1b1: "I need mountains to be
+            // more detailed"). The OLD mesh was a smooth CONE: 1 base ring -> 1 snow ring -> apex = ~3*sides
+            // triangles (2 vertical bands, no ridge sub-relief). The fix stacks MULTIPLE rings (stepped
+            // rockface flank) + a secondary shoulder, so the face count is MUCH higher for the same `sides`.
+            // Guard the bug CLASS: assert the flank carries multi-ring sub-relief (a regression back to the
+            // 2-band cone — far fewer faces — fails here). For sides=8 the old cone had 24 tris; the multi-
+            // ring peak has well over 50.
+            const int sides = 8;
+            var mesh = LowPolyMeshes.FacetedMountain(60f, 120f, sides, 0.55f,
+                new Color(0.62f, 0.50f, 0.38f), new Color(0.95f, 0.94f, 0.90f), seed: 21);
+            int tris = mesh.triangles.Length / 3;
+            Assert.Greater(tris, sides * 5,
+                $"the mountain must carry MULTI-RING sub-relief ({tris} tris for {sides} sides) — a smooth " +
+                "cone (~3*sides tris) reads as the faceted PYRAMID the Sponsor flagged; stacked rings + a " +
+                "shoulder peak give the ridge lines + stepped rockface detail (S3).");
+
+            // The grey-to-snow ramp must now be MULTI-BAND (stepped rockface), not a single body value: count
+            // DISTINCT body-region red values (below the snow). More than 2 distinct rock values = stepped.
+            var cols = mesh.colors;
+            var rockValues = new System.Collections.Generic.HashSet<int>();
+            foreach (var c in cols)
+                if (c.r < 0.80f) rockValues.Add(Mathf.RoundToInt(c.r * 20f)); // quantize the rock-band reds
+            Assert.Greater(rockValues.Count, 2,
+                $"the mountain body must step through MULTIPLE rock-value bands ({rockValues.Count} distinct) " +
+                "— a single flat body value reads as a smooth slab, not detailed rockface (S3).");
+        }
+
         // ---- LANDMASS BASE (Drew "floating translucent shards" grounding fix, ticket 86ca8t9pq) ----
 
         [Test]

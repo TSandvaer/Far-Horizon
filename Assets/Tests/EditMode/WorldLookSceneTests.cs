@@ -390,6 +390,24 @@ namespace FarHorizon.EditTests
                 Assert.Greater(zen.b - zen.r, 0.35f,
                     $"the zenith ({zen.r:F2},{zen.g:F2},{zen.b:F2}) must be a CHEERFUL SATURATED sky-blue " +
                     "(B clearly > R) — a pale washed zenith reads bleached, not the board's clean-day blue (W4)");
+
+                // CHEERFUL-SKY SOAK-FIX GUARD (86ca8t9pq S2, Sponsor soak of fa9f1b1: "sky is a greyish
+                // blue"). The diagnose-via-trace root cause: the gameplay over-shoulder orbit (pitch 55, low
+                // dir.y) frames the LOWER sky band (the GradientSkybox's t<=_MidPoint region = lerp(Horizon,
+                // Mid)), NOT the zenith — so the cheerful zenith blue (W4) never reached the frame; the SEEN
+                // band was the pale Mid (B-R was only ~0.30). Guard the bug CLASS: the MID stop — the colour
+                // that dominates the visible gameplay sky — must itself be a confident cheerful blue (B clearly
+                // > R), AND the _MidPoint must be LOW enough that the cheerful blue drops into the framed band.
+                Color mid = sky.GetColor("_MidColor");
+                Assert.Greater(mid.b - mid.r, 0.40f,
+                    $"the MID stop ({mid.r:F2},{mid.g:F2},{mid.b:F2}) must be a CHEERFUL SATURATED sky-blue " +
+                    "(B clearly > R) — it dominates the LOW-dir.y band the gameplay orbit frames; a pale mid " +
+                    "reads 'greyish blue' (the fa9f1b1 regression). Saturate the mid, not just the zenith.");
+                if (sky.HasProperty("_MidPoint"))
+                    Assert.Less(sky.GetFloat("_MidPoint"), 0.28f,
+                        $"the gradient _MidPoint ({sky.GetFloat("_MidPoint"):F2}) must be LOW so the cheerful " +
+                        "MID blue drops into the over-shoulder orbit's framed sky band — a high mid-point " +
+                        "leaves the cheerful blue overhead-only and the framed band reads pale (S2).");
             }
         }
 

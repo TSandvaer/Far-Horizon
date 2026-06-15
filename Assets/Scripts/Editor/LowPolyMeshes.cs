@@ -677,82 +677,147 @@ namespace FarHorizon.EditorTools
             sides = Mathf.Max(5, sides);
             var rnd = new System.Random(seed);
 
-            // Base ring: irregular radius + small y-wobble so the foot of the mountain is a lumpy ridge.
-            var baseRing = new Vector3[sides];
-            for (int i = 0; i < sides; i++)
-            {
-                float a = i / (float)sides * Mathf.PI * 2f;
-                float r = baseRadius * (0.78f + (float)rnd.NextDouble() * 0.44f); // irregular footprint
-                float yw = ((float)rnd.NextDouble() - 0.5f) * height * 0.06f;     // small foot wobble
-                baseRing[i] = new Vector3(Mathf.Cos(a) * r, yw, Mathf.Sin(a) * r);
-            }
+            // ---- MOUNTAIN-DETAIL SOAK-FIX (86ca8t9pq S3, Sponsor soak of fa9f1b1: "I need mountains to be
+            // more detailed"). The old mesh was a SMOOTH CONE: ONE base ring -> ONE snow ring -> apex (2
+            // vertical bands), reading as a smooth tan/grey faceted pyramid — exactly the Sponsor's complaint.
+            // The board mountains (21h16_13 / 21h12_49) have GEOMETRIC RICHNESS: jagged ridge lines down the
+            // flanks, stacked rockface sub-relief (several value bands, not one slope), a banded snowline, and
+            // an asymmetric silhouette with a secondary shoulder/sub-peak. This is MESH geometry (the F9/F10
+            // colour dial can't add it). FIX — rebuild as a MULTI-RING ridged peak:
+            //   (1) STACK several rings base->apex (RingCount, not just base+snow) so the flank has stepped
+            //       sub-relief instead of one clean slope;
+            //   (2) per-ring RIDGE displacement — each ring's per-vert radius zig-zags (a stable per-COLUMN
+            //       ridge phase) so vertical ridge lines run down the flanks (carved spurs, not a smooth cone);
+            //   (3) MULTI-BAND value ramp — rock bands darken/vary with height below the snowline, then a
+            //       bright snow cap above it (rockface stepping, not one flat grey);
+            //   (4) a SECONDARY SHOULDER peak offset from the apex so the silhouette is asymmetric (a range,
+            //       not a single symmetric cone). All flat-shaded per-face (verts==tris*3), outward-wound. ----
+            const int RingCount = 5;                 // base + 3 rock rings + snow ring (was effectively 2 bands)
+            float sn = Mathf.Clamp(snowline, 0.2f, 0.85f);
+
             // Apex: off-centre + a touch of height jitter so ranges differ.
             var apex = new Vector3(
                 (float)(rnd.NextDouble() - 0.5) * baseRadius * 0.30f,
                 height * (0.92f + (float)rnd.NextDouble() * 0.16f),
                 (float)(rnd.NextDouble() - 0.5) * baseRadius * 0.30f);
 
-            // SNOWLINE RING (the grey-to-snow split): a mid ring at `snowline` fraction of the apex
-            // height, contracted toward the apex XZ so the upper cone is the snow cap. Faces BELOW this
-            // ring are the warm-grey body; faces ABOVE it (snowline ring -> apex) are the snow cap. This
-            // is what gives a real grey-to-snow value contrast — a single base->apex triangle could never
-            // be "all snow" (its centroid sits ~1/3 up), so an explicit snowline band is required.
-            float sn = Mathf.Clamp(snowline, 0.2f, 0.85f);
-            var snowRing = new Vector3[sides];
+            // Per-COLUMN ridge phase + amplitude (STABLE across all rings of a column) so the radius wobble
+            // lines up vertically into continuous RIDGE LINES / spurs down the flank — not random noise.
+            var ridgePhase = new float[sides];
+            var ridgeAmp = new float[sides];
+            var colYWobble = new float[sides];
             for (int i = 0; i < sides; i++)
             {
-                // Lerp each base vert toward the apex by the snowline fraction (so the snow ring is a
-                // contracted ring at snow height), + small per-vert wobble for a lumpy ridgeline.
-                Vector3 b = baseRing[i];
-                Vector3 s = Vector3.Lerp(b, apex, sn);
-                s.y += ((float)rnd.NextDouble() - 0.5f) * height * 0.04f;
-                snowRing[i] = s;
+                ridgePhase[i] = (float)rnd.NextDouble();                         // 0..1 — alternating in/out spur
+                ridgeAmp[i] = 0.10f + (float)rnd.NextDouble() * 0.16f;           // how pronounced this column's ridge is
+                colYWobble[i] = ((float)rnd.NextDouble() - 0.5f) * height * 0.05f; // lumpy ridgeline height
             }
+
+            // Build the stacked rings. Ring 0 = base footprint; ring RingCount-1 contracts to near the apex.
+            // Each ring's verts ride toward the apex by its height fraction, with the per-column ridge
+            // displacement applied to the radius so the spurs carry up the mountain.
+            var rings = new Vector3[RingCount][];
+            for (int r = 0; r < RingCount; r++)
+            {
+                float hf = r / (float)(RingCount - 1);              // 0 base .. 1 apex
+                // Non-linear height stack: rings cluster a touch more toward the top so the upper peak reads
+                // craggy (more bands where the snow cap + ridges matter).
+                float climb = Mathf.Pow(hf, 0.85f);
+                rings[r] = new Vector3[sides];
+                for (int i = 0; i < sides; i++)
+                {
+                    float a = i / (float)sides * Mathf.PI * 2f;
+                    // Base radius for this column (irregular footprint), contracting toward the apex with height.
+                    float baseColR = baseRadius * (0.74f + (float)rnd.NextDouble() * 0.10f + ridgePhase[i] * 0.40f);
+                    float contract = Mathf.Lerp(1f, 0.06f, climb);  // ring shrinks to a small top ring near apex
+                    // RIDGE displacement: alternate columns push OUT (spur) / pull IN (gully), scaled by the
+                    // column's amp + tapering toward the apex so spurs read strongest on the lower flanks.
+                    float ridge = Mathf.Sin(ridgePhase[i] * Mathf.PI * 2f) * ridgeAmp[i] * (1f - climb * 0.7f);
+                    float rad = baseColR * contract * (1f + ridge);
+                    Vector3 ringXZ = new Vector3(Mathf.Cos(a) * rad, 0f, Mathf.Sin(a) * rad);
+                    // Lerp toward the apex XZ as we climb so the rings stack into a peak, not a cylinder.
+                    Vector3 xz = Vector3.Lerp(ringXZ, new Vector3(apex.x, 0f, apex.z), climb * 0.85f);
+                    float y = Mathf.Lerp(0f, apex.y, climb) + colYWobble[i] * (1f - climb);
+                    rings[r][i] = new Vector3(xz.x, y, xz.z);
+                }
+            }
+
+            // SECONDARY SHOULDER peak: a lower offset sub-apex so the silhouette is a RANGE, not a lone cone.
+            float shoulderH = apex.y * (0.55f + (float)rnd.NextDouble() * 0.18f);
+            float shAng = (float)rnd.NextDouble() * Mathf.PI * 2f;
+            float shDist = baseRadius * (0.45f + (float)rnd.NextDouble() * 0.25f);
+            var shoulder = new Vector3(Mathf.Cos(shAng) * shDist, shoulderH, Mathf.Sin(shAng) * shDist);
 
             var verts = new List<Vector3>();
             var normals = new List<Vector3>();
             var cols = new List<Color>();
             var center = new Vector3(0f, height * 0.4f, 0f); // rough mass centre for outward test
 
-            void EmitFace(Vector3 v0, Vector3 v1, Vector3 v2, Color baseCol)
+            // Multi-band rock/snow colour by height fraction: below the snowline a STACK of rock values
+            // (stepped rockface), above it the bright snow cap. The per-face jitter adds the chunky facet step.
+            Color ColourAt(float heightFrac, System.Random faceRnd)
+            {
+                Color band;
+                if (heightFrac >= sn)
+                    band = snowWhite;                                       // snow cap
+                else
+                {
+                    // Stepped rock bands: darker low rock -> lighter high rock just under the snow (3 steps).
+                    float rt = Mathf.InverseLerp(0f, sn, heightFrac);       // 0 foot .. 1 snowline
+                    float step = Mathf.Floor(rt * 3f) / 3f;                 // quantize to 3 rock bands
+                    Color rockLow = new Color(bodyGrey.r * 0.82f, bodyGrey.g * 0.82f, bodyGrey.b * 0.82f);
+                    Color rockHi  = new Color(Mathf.Min(1f, bodyGrey.r * 1.10f),
+                                              Mathf.Min(1f, bodyGrey.g * 1.10f),
+                                              Mathf.Min(1f, bodyGrey.b * 1.10f));
+                    band = Color.Lerp(rockLow, rockHi, step);
+                }
+                float vj = ((float)faceRnd.NextDouble() - 0.5f) * 0.16f;    // chunky per-facet value step
+                return new Color(Mathf.Clamp01(band.r + vj), Mathf.Clamp01(band.g + vj),
+                                 Mathf.Clamp01(band.b + vj), 1f);
+            }
+
+            void EmitFace(Vector3 v0, Vector3 v1, Vector3 v2)
             {
                 Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
                 if (fn.sqrMagnitude < 1e-10f) return;
                 fn.Normalize();
                 Vector3 outward = ((v0 + v1 + v2) / 3f) - center;
-                if (Vector3.Dot(fn, outward) < 0f)
-                {
-                    fn = -fn;
-                    var tmp = v1; v1 = v2; v2 = tmp;
-                }
-                // CHUNKIER FACET CONTRAST (86ca8t9pq W2 — "flat grey triangles" -> read as chunky low-poly):
-                // a WIDER per-face value jitter (±0.09, was ±0.04) so adjacent stone planes step in value —
-                // the facet-to-facet contrast the board mountains (21h16_13 / 21h12_49) read at. The flat-
-                // shaded N·L lighting supplies most of the contrast; this baked jitter keeps it from looking
-                // like one flat slab even when several faces happen to catch the key at the same angle. The
-                // bump also darkens some body facets toward a shadow-grey, so the silhouette reads as carved
-                // chunks rather than a single mid-grey triangle.
-                float vj = ((float)rnd.NextDouble() - 0.5f) * 0.18f;
-                Color fc = new Color(Mathf.Clamp01(baseCol.r + vj), Mathf.Clamp01(baseCol.g + vj),
-                                     Mathf.Clamp01(baseCol.b + vj), 1f);
+                if (Vector3.Dot(fn, outward) < 0f) { fn = -fn; var tmp = v1; v1 = v2; v2 = tmp; }
+                // Colour by the face centroid's height fraction (so the rock/snow band follows real height).
+                float hf = Mathf.InverseLerp(0f, apex.y, (v0.y + v1.y + v2.y) / 3f);
+                Color fc = ColourAt(hf, rnd);
                 verts.Add(v0); verts.Add(v1); verts.Add(v2);
                 normals.Add(fn); normals.Add(fn); normals.Add(fn);
                 cols.Add(fc); cols.Add(fc); cols.Add(fc);
             }
 
-            // BODY band: base ring -> snow ring (two triangles per segment, warm-grey).
-            for (int i = 0; i < sides; i++)
+            // FLANK: stack the rings (two triangles per segment per ring gap) — the stepped sub-relief flank.
+            for (int r = 0; r < RingCount - 1; r++)
             {
-                int ni = (i + 1) % sides;
-                Vector3 b0 = baseRing[i], b1 = baseRing[ni], s0 = snowRing[i], s1 = snowRing[ni];
-                EmitFace(b0, b1, s1, bodyGrey);
-                EmitFace(b0, s1, s0, bodyGrey);
+                for (int i = 0; i < sides; i++)
+                {
+                    int ni = (i + 1) % sides;
+                    Vector3 a0 = rings[r][i], a1 = rings[r][ni], b0 = rings[r + 1][i], b1 = rings[r + 1][ni];
+                    EmitFace(a0, a1, b1);
+                    EmitFace(a0, b1, b0);
+                }
             }
-            // SNOW CAP: snow ring -> apex (one triangle per segment, snow-white).
+            // CAP: top ring -> apex (one triangle per segment, the snow-capped summit).
+            var topRing = rings[RingCount - 1];
             for (int i = 0; i < sides; i++)
             {
                 int ni = (i + 1) % sides;
-                EmitFace(snowRing[i], snowRing[ni], apex, snowWhite);
+                EmitFace(topRing[i], topRing[ni], apex);
+            }
+            // SECONDARY SHOULDER: tie a few mid-ring columns up to the shoulder sub-apex so a second peak
+            // breaks the silhouette (a small fan of faces from a mid ring to the shoulder point).
+            int midRing = RingCount / 2;
+            int shCol = Mathf.RoundToInt(shAng / (Mathf.PI * 2f) * sides) % sides;
+            for (int k = -1; k <= 1; k++)
+            {
+                int i = ((shCol + k) % sides + sides) % sides;
+                int ni = (i + 1) % sides;
+                EmitFace(rings[midRing][i], rings[midRing][ni], shoulder);
             }
 
             var tris = new List<int>(verts.Count);

@@ -345,6 +345,59 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void ShorelineFoam_SitsOverTheShallowWetShelf_NotDeepWater_SoftWashGuard()
+        {
+            // SOFT-WASH RESTORE REGRESSION GUARD (86ca8t9pq S1, Sponsor soak of fa9f1b1: "shoreline is back
+            // to the static line instead of the water washing up on shore as before"). The diagnose-via-trace
+            // root cause: W1's STEEP beach ramp pushed the foam band out over DEEP flat water, where the
+            // swell's vertical bob produces NO visible horizontal wash — the share of strong-foam water verts
+            // sitting over the SHALLOW WET SHELF (the slope the swell visibly laps) collapsed 68% -> 10%, so
+            // the surf read as a STATIC line. The fix is a two-phase shore: a gentle wet shelf at the
+            // waterline carries the foam line so the swell laps it. This guards the bug CLASS: take the
+            // WATER mesh's strong-foam verts, raycast the SHIPPED terrain collider straight down at each, and
+            // assert a MAJORITY sit over shallow-wet terrain (within ~0.45u below WaterY) — NOT deep water.
+            // A regression that re-steepens the shore (foam back over deep water = static line) fails HERE.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider (the authoritative shore-Y reader)");
+
+            const float WaterY = -0.20f;       // mirrors LowPolyZoneGen.WaterY
+            const float WetShelfMaxDepth = 0.50f; // terrain within this far BELOW WaterY = the shallow wet shelf
+            var foam = LowPolyZoneGen.FoamEdge;
+            var verts = water.GetComponent<MeshFilter>().sharedMesh.vertices;
+            var cols = water.GetComponent<MeshFilter>().sharedMesh.colors;
+            // Measure the wash read among foam verts that OVERLAP THE LAND (the coast band) — the side-wrap
+            // foam beyond the land edges (the sea wraps 1.6x wider than the terrain) sits over open water by
+            // construction and isn't part of the coast surf read, so it's excluded from the denominator.
+            int foamOverTerrain = 0, overWetShelf = 0;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Color c = cols[i];
+                bool isStrongFoam = c.r > 0.78f && c.g > 0.78f && c.b > 0.70f &&
+                                    Mathf.Abs(c.r - foam.r) < 0.14f && Mathf.Abs(c.g - foam.g) < 0.14f;
+                if (!isStrongFoam) continue;
+                // World XZ of this foam vert (water root sits at world (cx, WaterY, 0)).
+                float wx = water.transform.position.x + verts[i].x;
+                float wz = water.transform.position.z + verts[i].z;
+                var ray = new Ray(new Vector3(wx, 50f, wz), Vector3.down);
+                if (!col.Raycast(ray, out RaycastHit hit, 200f)) continue; // off the land (side-wrap) — skip
+                foamOverTerrain++;
+                float depthBelowWater = WaterY - hit.point.y; // >0 = terrain under the water plane
+                if (depthBelowWater > -0.05f && depthBelowWater < WetShelfMaxDepth) overWetShelf++;
+            }
+            Assert.Greater(foamOverTerrain, 0, "the water mesh must carry a strong-foam surf line over the coast");
+            float washFraction = (float)overWetShelf / foamOverTerrain;
+            Assert.Greater(washFraction, 0.4f,
+                $"the foam surf line over the coast must sit over the SHALLOW WET SHELF ({overWetShelf}/" +
+                $"{foamOverTerrain} = {washFraction:P0}) so the swell laps it as a soft WASH — a foam band " +
+                "stranded over DEEP water (too-steep shore) reads as a STATIC line (the fa9f1b1 regression the " +
+                "Sponsor flagged). Gentle the shore wet-shelf so the surf rides shallow wet sand.");
+        }
+
+        [Test]
         public void BootScene_CarriesSeaVerifyCapture_OnTheBootObject()
         {
             // The orbit-to-sea framing check (Uma §4 task F) needs a committed, repeatable shipped-build

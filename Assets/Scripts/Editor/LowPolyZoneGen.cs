@@ -245,20 +245,41 @@ namespace FarHorizon.EditorTools
             // rise begins only INLAND of the spawn (past fz0.30) so the journey-forward still climbs.
             //
             // WATERLINE-OUT SOAK-FIX (86ca8t9pq W1, Sponsor soak of b54482c: "it should be moved a bit out,
-            // so the tree, campfire and debris is not in the water"). Diagnose-via-trace CONFIRMED the
-            // ticket framing: the beach loop objects (ChopTree z=-7, FirePit z=-8, BeachDebris z=-3) all sat
-            // BELOW WaterY (-0.20) at the old profile — terrain HeightAt gave ChopTree -0.44u, FirePit
-            // -0.48u, BeachDebris -0.25u (all underwater), because the old beachRamp completed only at
-            // fz=0.27 (worldZ ~ +6), so the waterline crept inland to worldZ ~ -1.7 and swallowed the -3..-8
-            // loop band. FIX: complete the beach climb in a NARROW seaward band (rampEnd 0.045 = worldZ
-            // ~ -8.9) so the terrain is DRY (above WaterY) by worldZ ~ -10.2 — pushing the waterline OUT to
-            // ~ -10.2, ~2u+ seaward of the most-seaward object (FirePit z=-8). All loop objects now sit on
-            // dry sand at +0.05..+0.07u (verified: shore-dip + the noise-suppressed shore band). The foam
-            // + sea-to-horizon LOOK the Sponsor likes is KEPT — only WaterlineWorldZ + the foam-band centre
-            // (BuildWaterEdge) shift seaward in lockstep so the surf still meets the new sand edge.
-            const float ShoreRampEnd = 0.045f;                                              // beach climbs out of the water by ~ worldZ -8.9 (waterline ~ -10.2)
-            float beachRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, ShoreRampEnd, fz)); // 0 at shore edge -> 1 at the dry beach
-            float shoreDip = Mathf.Lerp(-0.55f, 0.02f, beachRamp);                          // underwater shore up to ~flat beach
+            // so the tree, campfire and debris is not in the water"). Diagnose-via-trace CONFIRMED that
+            // framing: the beach loop objects (ChopTree z=-7, FirePit z=-8, BeachDebris z=-3) all sat BELOW
+            // WaterY (-0.20) at the old profile (HeightAt gave ChopTree -0.44u, FirePit -0.48u, BeachDebris
+            // -0.25u — all underwater). W1 fixed that by completing the beach climb in a NARROW seaward band
+            // (rampEnd 0.045) so the waterline moved OUT to ~ -10.2 and the loop objects sat dry.
+            //
+            // SOFT-WASH RESTORE SOAK-FIX (86ca8t9pq S1, Sponsor soak of fa9f1b1: "shoreline is back to the
+            // static line instead of the water washing up on shore as before"). DIAGNOSE-VIA-TRACE OVERTURNED
+            // my own W1 framing ("foam look KEPT, only shifted seaward in lockstep"). The headless [foam-trace]
+            // proved the regression is NOT the waterline move (the water-mesh inland overlap was ~unchanged:
+            // 2.41u then vs 2.24u now). The REAL cause: W1's STEEP ramp (0.27 -> 0.045) made the beach plunge
+            // from -0.55 to ~0 in ~3u, so the foam band sat over DEEP flat water — the share of strong-foam
+            // water verts over the SHALLOW WET SLOPE (where the swell's vertical bob reads as a horizontal
+            // wash) collapsed 68% -> 10%. The "wash" the Sponsor liked is foam riding a GENTLE WET SHELF, not
+            // a foam line on deep water. FIX (params trace-swept for BOTH constraints — see [foamfix] sweep):
+            // a TWO-PHASE shore confined to the narrow seaward band the geometry allows (the loop objects at
+            // z=-7/-8 sit only ~4u inland of the shore edge, so the shelf must live SEAWARD of them):
+            //   Phase 1 — a GENTLE WET SHELF across [0..WetShelfEnd] (fz 0..0.044 = worldZ -12..-9) easing the
+            //     beach from the underwater shore (-0.55) up to just-above-water (-0.12), so the foam surf line
+            //     rides shallow wet sand the swell visibly laps (the wash);
+            //   Phase 2 — a QUICK DRY CLIMB across [WetShelfEnd..DryBeachEnd] (fz 0.044..0.070 = worldZ -9..
+            //     -6.9, +0.34 lift) so the loop objects clear WaterY with margin RIGHT after the waterline.
+            // Trace-verified (candidate G): waterline -9.82 (seaward of z=-8), loop terrainY z-3 +0.22, z-7
+            // +0.22, z-8 +0.09 (all DRY, > the -0.10 guard margin), foam wash-fraction 90% over the wet shelf.
+            // The foam band is also TIGHTENED to a defined soft surf LINE on the shelf (BuildWaterEdge) + the
+            // swell amp bumped, so the line breathes. Best of both: dry objects AND the soft animated wash.
+            const float WetShelfEnd = 0.044f;  // gentle wet shelf (worldZ -12..-9) eases to just-above-water (the wash band)
+            const float DryBeachEnd = 0.070f;  // quick dry climb done by worldZ ~ -6.9; loop objs (-3..-8) clear WaterY
+            float wetShelf = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, WetShelfEnd, fz));  // 0 deep shore -> 1 just-above-water
+            float dryClimb = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(WetShelfEnd, DryBeachEnd, fz)); // 0 at the wet shelf -> 1 dry beach
+            // Phase 1: -0.55 (underwater shore) up to -0.12 (shallow wet shelf, crossing WaterY -0.20 mid-shelf
+            // -> the waterline). Phase 2: +0.34 lift onto the dry beach. beachRamp (the dune/noise mask) is the
+            // combined progress.
+            float shoreDip = Mathf.Lerp(-0.55f, -0.12f, wetShelf) + Mathf.Lerp(0f, 0.34f, dryClimb);
+            float beachRamp = Mathf.Max(wetShelf, dryClimb);                               // 0 at shore edge -> 1 dry beach (dune/noise mask)
             float dune = Mathf.Sin(fz * 9f) * 0.06f * beachRamp * (1f - fz);                // very soft ripple on the dry beach only
             float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.30f, 0.95f, fz)) * 1.6f; // meadow rise (inland of spawn)
             // organic low-amplitude noise (multi-octave) so nothing is a flat tabletop
@@ -284,16 +305,15 @@ namespace FarHorizon.EditorTools
             Color c = Color.Lerp(sand, grass, grassT);
 
             // FOAM BAND (drew/beach-water-scene; Uma §2 task D): the seaward-most rows of the beach mesh
-            // (fz≈0, where the sloping sand passes below the water plane) carry the warm off-white foam
-            // line — a single calm stylized waterline, baked into vertex color so it rides this same
+            // (the wet shelf where the sloping sand passes below the water plane) carry the warm off-white
+            // foam line — a single calm stylized waterline, baked into vertex color so it rides this same
             // terrain shader (no new object, no particles — Uma: "a single calm foam line is the entire
-            // treatment"). A narrow seaward band: strongest at the very edge (fz=0), gone by fz~0.055.
-            // The foam stays at the very seaward edge (fz≈0) where the sand passes below WaterY — with the
-            // WATERLINE-OUT fix (ShoreRampEnd 0.045) the new waterline lands at fz≈0.026 (worldZ ~ -10.2),
-            // INSIDE this band, so the surf line still sits on the wet sand edge (W1 — only the waterline
-            // moved seaward; the foam treatment is unchanged). Sub-1.0 foam (NOT pure white) so bloom
-            // doesn't blow it out.
-            float foamT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.055f, 0.0f, fz));
+            // treatment"). SOFT-WASH RESTORE (86ca8t9pq S1): the two-phase shore puts the waterline at fz
+            // ~ 0.032 (worldZ ~ -9.8) on the GENTLE WET SHELF (WetShelfEnd 0.044). Carry the wet-sand foam
+            // across that whole shelf (fz 0..0.044) so the terrain's wet sand edge meets the WATER mesh's
+            // surf line at the same coast — the two foam treatments join into one soft animated wash band,
+            // not a hard mesh-boundary line. Sub-1.0 foam (NOT pure white) so the post bloom doesn't blow it.
+            float foamT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.044f, 0.0f, fz));
             c = Color.Lerp(c, FoamEdge, foamT);
 
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
@@ -546,31 +566,34 @@ namespace FarHorizon.EditorTools
         const float WaterSeawardDepth = 600f;
         // Near edge must reach a touch INLAND PAST THE REAL WATERLINE (where the sloping beach passes below
         // WaterY) so the water plane covers the underwater shore with no gap seam — and so the foam band has
-        // verts AT the waterline. WATERLINE-OUT SOAK-FIX (86ca8t9pq W1): the WATERLINE moved SEAWARD to
-        // ~ worldZ -10.2 (the ShoreRampEnd 0.045 beach climbs out of the water sooner), so the water near
-        // edge must move seaward IN LOCKSTEP — the old overlap 13 (near edge worldZ +1) would now render the
-        // water plane ~11u INLAND over the new DRY beach, re-flooding the very loop objects this fix moves to
-        // dry sand. overlap 4 -> near edge = shoreZ+4 = -8: ~2u inland of the new waterline (-10.2), so the
-        // water still tucks under the dipping beach (no gap) but never reaches the dry loop band (-3..-8).
-        // The TestGround placeholder is non-rendering (renderer disabled), so the inland reach no longer
-        // risks the old grey-slab overhang.
-        const float WaterInlandOverlap = 4f;
-        const int WaterSegX = 24, WaterSegZ = 40; // enough verts for the depth gradient + foam band + facets
-        // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh
-        // AT THE REAL WATERLINE so the sea↔land boundary reads as foam, not a hard diagonal grid edge.
-        // FOAM-AT-THE-WATERLINE FIX (86ca8t9pq AC2): the foam peaks at the REAL waterline — where the sloping
-        // beach (HeightAt) passes below WaterY (-0.20) — and fades seaward, so the surf connects to the sand
-        // edge, not out at the mesh near edge. WATERLINE-OUT SOAK-FIX (86ca8t9pq W1): with ShoreRampEnd 0.045
-        // the beach now climbs out of the water by worldZ ~ -8.9, so the terrain crosses WaterY at ~ worldZ
-        // -10.2 — the waterline moved SEAWARD (out) so the loop objects (-3..-8) sit on dry sand. The foam
-        // band centre moves seaward in lockstep so the surf line stays AT the new waterline (W1: keep the
-        // foam look, only shift it out). Verified against the new shore-dip solve.
-        const float WaterlineWorldZ = -10.2f;   // terrain crosses WaterY (-0.20) here (HeightAt shore-dip solve, ShoreRampEnd 0.045)
-        const float WaterFoamCoreU = 8f;        // full-strength foam PLATEAU within this band of the waterline
-                                                // (a plateau, not a point-peak, so a vert always lands in full
-                                                // foam despite the coarse grid — the AC2 foam-on-the-mesh fix)
-        const float WaterFoamBandU = 9f;        // beyond the core, foam fades to clear over this extra distance
-        const float WaterFoamStrength = 0.9f;   // peak foam blend at the waterline (sub-1 keeps a hint of teal)
+        // verts AT the waterline. WATERLINE-OUT SOAK-FIX (86ca8t9pq W1): the water near edge moved seaward in
+        // lockstep with the waterline so the plane never re-floods the dry loop band (-3..-8). SOFT-WASH
+        // RESTORE (86ca8t9pq S1): the waterline is now ~ worldZ -8.6 (two-phase shore: gentle wet shelf eases
+        // up to just-under-WaterY, then a dry climb; trace-solved). overlap 5 -> near edge = shoreZ+5 = -7:
+        // ~1.6u inland of the new waterline (-8.6), so the water tucks under the dipping beach (no gap seam)
+        // and the foam surf line sits ON the shallow wet shelf the swell visibly laps — never re-reaching the
+        // dry loop band. The TestGround placeholder is non-rendering, so the inland reach is safe. overlap 3
+        // -> near edge = shoreZ+3 = -9 (just inland of the waterline -9.82, on the wet shelf; seaward of the
+        // most-seaward dry loop obj z=-8, so the rendered sea never reaches over the dry objects).
+        const float WaterInlandOverlap = 3f;
+        const int WaterSegX = 24, WaterSegZ = 56; // MORE Z verts (was 40): a tighter foam surf line needs more
+                                                  // near-shore rows so the narrower core+fade has verts to land in
+        // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh AT
+        // THE REAL WATERLINE so the sea↔land boundary reads as foam, not a hard diagonal grid edge. SOFT-WASH
+        // RESTORE SOAK-FIX (86ca8t9pq S1): the [foam-trace]/[foamfix] sweeps proved the regression was a foam
+        // band gone WIDE + DIFFUSE over DEEP water (the steep W1 ramp), reading as a static line. FIX: (1)
+        // re-centre the foam on the new two-phase waterline (~ -9.5), which now sits on the GENTLE WET SHELF
+        // (HeightAt S1) so the swell's bob laps it as a wash; (2) TIGHTEN the band into a DEFINED soft surf
+        // LINE — narrow core (2.5u, was 8u) + soft fade (3u, was 9u) — so it reads as a believable surf line
+        // on the wet shelf, not a broad diffuse wash on deep open sea. The swell amp is also bumped
+        // (MakeWaterMaterial). Trace-verified (candidate G): foam wash-fraction 90% over the wet shelf; loop
+        // objects DRY (terrainY z-3 +0.22, z-7 +0.22, z-8 +0.09, all above the -0.10 dry-guard margin).
+        const float WaterlineWorldZ = -10.0f;   // foam centre on the wet shelf at the two-phase waterline (HeightAt S1 solve)
+        const float WaterFoamCoreU = 2.0f;      // full-strength foam PLATEAU within this band (a DEFINED surf LINE
+                                                // on the wet shelf — narrow; the near-dense water grid gives it
+                                                // multiple rows to land on so it reads as a soft line, not 1 row)
+        const float WaterFoamBandU = 3f;        // beyond the core, foam fades softly to clear over this extra distance
+        const float WaterFoamStrength = 0.92f;  // peak foam blend at the waterline (sub-1 keeps a hint of teal)
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
             float cx, float width, float shoreZ)
         {
@@ -609,7 +632,15 @@ namespace FarHorizon.EditorTools
             {
                 int i = z * latW + x;
                 float fx = (float)x / WaterSegX, fz = (float)z / WaterSegZ;
-                float worldZ = Mathf.Lerp(nearZ, farZ, fz); // fz=0 near shore, fz=1 deep sea
+                // NEAR-DENSE Z DISTRIBUTION (86ca8t9pq S1): the sea runs out to -612u but the FOAM surf line +
+                // wash band live in the first ~15u at the coast. A LINEAR grid (10.8u/row) put the entire foam
+                // band on a SINGLE near-edge row stranded over dry terrain ([foamscene] proved 72/72 foam verts
+                // on one row at worldZ -9). A power curve packs many rows into the near-shore band (so the
+                // tight foam line spans several rows ON the wet shelf, reading as a soft surf line) while the
+                // far sea stays coarse (it just fogs out — no detail needed). fz^3 -> ~0.5u between the first
+                // few rows near shore, expanding to the deep sea.
+                float fzCurve = fz * fz * fz;
+                float worldZ = Mathf.Lerp(nearZ, farZ, fzCurve); // fz=0 near shore, fz=1 deep sea (near-dense)
                 float localX = (fx - 0.5f) * waterWidth;
                 gridPos[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
                 // Depth gradient (keyed off WORLD Z — a fixed bright band off the coast; the fog + warm
@@ -829,11 +860,14 @@ namespace FarHorizon.EditorTools
             {
                 mat = new Material(vc) { name = "LowPolyWaterMat" };
                 if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white); // vertex teal unmodified
-                // Gentle large-wavelength swell (Uma §1: "a breath, not surf"). amp ~0.06u, long
-                // wavelength, slow. The shader displaces Y in-vertex; nothing runs per-frame on the CPU.
-                if (mat.HasProperty("_WaveAmp")) mat.SetFloat("_WaveAmp", 0.06f);
-                if (mat.HasProperty("_WaveLen")) mat.SetFloat("_WaveLen", 16f);
-                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.8f);
+                // Gentle large-wavelength swell (Uma §1: "a breath, not surf"). The shader displaces Y
+                // in-vertex; nothing runs per-frame on the CPU. SOFT-WASH RESTORE (86ca8t9pq S1): bump the
+                // amplitude 0.06 -> 0.10u + a touch faster so the foam surf LINE at the coast visibly
+                // BREATHES (advances/retreats up the gentle wet shelf) — the "water washing up on shore"
+                // the Sponsor liked. Still a calm swell, not surf (a longer wavelength keeps it soft).
+                if (mat.HasProperty("_WaveAmp")) mat.SetFloat("_WaveAmp", 0.10f);
+                if (mat.HasProperty("_WaveLen")) mat.SetFloat("_WaveLen", 18f);
+                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.95f);
             }
             else
             {

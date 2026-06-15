@@ -16,19 +16,24 @@ namespace FarHorizon
     /// </summary>
     public static class WorldLookPalette
     {
-        // The 3 sky stops. NICER-SKY SOAK-FIX (86ca8t9pq W4, Sponsor soak of b54482c: "sky not nice —
-        // improve the gradient sky (warmer/nicer per the board's cheerful palette)"). The b54482c sky read
-        // PALE + slightly cold — the old mid/horizon stops washed to near-white so the dome looked flat and
-        // bleached, not the board's (inspiration/21h16_13 + 21h13_31) cheerful saturated blue with a soft
-        // warm horizon. FIX: a more SATURATED cheerful sky-blue at the zenith (deeper B, the board's clear-
-        // day blue), a clean mid blue, and a WARM pale horizon (kept warm so the seam-kill still dissolves
-        // the vista into it). The horizon stays the single seam-kill anchor (== fog colour == far-range tint).
-        // All sub-1.0 / HDR-clamp-safe. Live-dialable via the F9 WorldLookNudgeTool SKY target.
-        public static readonly Color SkyZenith  = new Color(0.38f, 0.62f, 0.85f); // #61A0D9 cheerful saturated sky-blue
-        public static readonly Color SkyMid      = new Color(0.60f, 0.78f, 0.90f); // #99C7E6 clean mid blue
-        // THE load-bearing seam-kill anchor: the warm horizon stop. fog colour == this == the bottom of
-        // the gradient skybox == the farthest vista range tint family. Kept warm (R>=B) + a touch more
-        // saturated so the horizon glows warm-cheerful, not bleached white.
-        public static readonly Color SkyHorizon  = new Color(0.88f, 0.90f, 0.84f); // #E0E6D6 warm pale cream horizon
+        // The 3 sky stops. CHEERFUL-SKY SOAK-FIX (86ca8t9pq S2, Sponsor soak of fa9f1b1: "sky is a greyish
+        // blue, with no clear indications of clouds"). DIAGNOSE-VIA-TRACE OVERTURNED my W4 framing (W4 made
+        // the ZENITH saturated, but the gameplay over-shoulder orbit looks slightly DOWN at pitch 55, so its
+        // view rays into the sky have a LOW dir.y — the visible sky band is the GradientSkybox's t<=_MidPoint
+        // region, i.e. lerp(Horizon, Mid). W4's saturated ZENITH only renders high overhead, which the orbit
+        // barely frames. So the band the Sponsor actually SEES was the pale Mid (0.60,0.78,0.90) -> cream
+        // Horizon (0.88,0.90,0.84) blend = greyish blue, then desaturated further by the warm post grade +
+        // fog. FIX: push the VISIBLE band cheerful — a more saturated clear-day MID blue + a brighter cheerful
+        // ZENITH, and LOWER _MidPoint (QualityPassGen/GradientSkybox) so the saturated blue drops into the
+        // gameplay frame. The board (21h16_13 / 21h13_31) is a bright cheerful blue right down to the horizon
+        // haze. Horizon stays the warm seam-kill anchor (== fog colour == far-range tint) but a touch cooler-
+        // bright so it reads sky-cheerful, not cream-grey. All sub-1.0 / HDR-clamp-safe. F9/F10 SKY-dialable.
+        public static readonly Color SkyZenith  = new Color(0.30f, 0.58f, 0.88f); // #4D94E0 cheerful deep clear-day blue
+        public static readonly Color SkyMid      = new Color(0.45f, 0.70f, 0.92f); // #73B3EB saturated cheerful mid sky-blue (was pale .60/.78/.90)
+        // THE load-bearing seam-kill anchor: the horizon stop. fog colour == this == the bottom of the
+        // gradient skybox == the farthest vista range tint family. Kept light + warm-leaning so the vista
+        // dissolves into it, but pulled toward a brighter sky-cheerful tone (less cream-grey) so the lower
+        // visible sky band reads cheerful, not greyish.
+        public static readonly Color SkyHorizon  = new Color(0.80f, 0.89f, 0.92f); // #CCE3EB bright cheerful sky-haze horizon
     }
 }

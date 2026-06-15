@@ -51,8 +51,13 @@ namespace FarHorizon.EditorTools
                 sky.SetColor("_ZenithColor", SkyZenith);
                 sky.SetColor("_MidColor", SkyMid);
                 sky.SetColor("_HorizonColor", SkyHorizon);
-                sky.SetFloat("_MidPoint", 0.35f); // Uma §3: mid ~ horizon+30deg
-                sky.SetFloat("_Softness", 0.7f);  // clean blend, no skybox seam
+                // CHEERFUL-SKY SOAK-FIX (86ca8t9pq S2): LOWER the mid-point 0.35 -> 0.18 so the saturated
+                // cheerful MID blue drops into the LOW dir.y band the gameplay over-shoulder orbit (pitch 55)
+                // actually frames — at 0.35 the cheerful blue sat too high (overhead-only) and the orbit saw
+                // only the pale horizon->mid blend ("greyish blue"). A wider Softness keeps the lowered blend
+                // smooth (no banding seam) so the cheerful blue eases into the warm horizon haze.
+                sky.SetFloat("_MidPoint", 0.18f);
+                sky.SetFloat("_Softness", 0.85f);
             }
             else
             {

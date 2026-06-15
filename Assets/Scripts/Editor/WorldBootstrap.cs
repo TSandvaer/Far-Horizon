@@ -38,9 +38,17 @@ namespace FarHorizon.EditorTools
         // ---- WORLD-LOOK POLISH palettes (ticket 86ca8t9pq — Uma world-look brief §1/§2) ----
         // CLOUD 3-value cyan (Uma §1 anchor swatches — warm-leaning cyan, NOT cold steel blue; all
         // sub-0.95 HDR-clamp-safe so the reduced-but-present bloom doesn't bloom-clip the bright caps).
-        static readonly Color CloudBody   = new Color(0.56f, 0.85f, 0.88f); // #8FD8E0 light cyan body
-        static readonly Color CloudTop    = new Color(0.77f, 0.93f, 0.94f); // #C4ECEF bright top-lit cap
-        static readonly Color CloudShadow = new Color(0.42f, 0.73f, 0.78f); // #6BBAC6 soft teal underside
+        // CLOUD-CONTRAST SOAK-FIX (86ca8t9pq S2, Sponsor soak of fa9f1b1: "no clear indications of clouds").
+        // The clouds DID ship + drift (trace-confirmed in W3) at a readable size/altitude — but their light-
+        // cyan body (#8FD8E0) sat too CLOSE in value to the (now brighter, S2) cheerful blue sky, so they
+        // washed into it (low contrast) + the warm post grade desaturated them further. FIX: push the cloud
+        // BODY + CAP brighter toward a near-white sunlit puff (the board 21h10_44 / 21h16_13 clouds read as
+        // bright WHITE-cyan puffs that POP against the blue), keeping R the smallest channel (cyan-leaning,
+        // the CloudBlob multi-value guard) + every channel sub-1.0 (HDR-clamp). The shadow underside stays a
+        // deeper teal so the chunky facets keep their top-lit/under-shadow value step (the 3-value read).
+        static readonly Color CloudBody   = new Color(0.78f, 0.92f, 0.95f); // #C7EAF2 bright near-white cyan body (POPS on blue)
+        static readonly Color CloudTop    = new Color(0.90f, 0.97f, 0.99f); // #E6F7FC brilliant top-lit cap (sub-1.0)
+        static readonly Color CloudShadow = new Color(0.50f, 0.78f, 0.85f); // #80C7D9 teal underside (keeps the 3-value facet step)
 
         // NEAR-VISTA + FAR-RING mountain palette. WARMER CHUNKY-MOUNTAIN SOAK-FIX (86ca8t9pq W2, Sponsor
         // soak of b54482c: "mountains STILL not acceptable — they read as flat grey triangles. Improve the
@@ -224,8 +232,8 @@ namespace FarHorizon.EditorTools
             // the orbit faces) so the clouds land IN the visible sky, not off behind the camera.
             for (int c = 0; c < count; c++)
             {
-                float radius = 5f + (float)rnd.NextDouble() * 3.5f; // long axis ~10-18u (radius 5-8.5) — bigger, kept <22u (scale-test ceiling)
-                int blobs = 4 + rnd.Next(0, 3);                     // 4-6 spheroids (chunkier board read)
+                float radius = 5f + (float)rnd.NextDouble() * 2.5f; // long axis ~11-18u (radius 5-7.5) — kept <22u (scale-test ceiling)
+                int blobs = 5 + rnd.Next(0, 2);                     // 5-6 spheroids (chunkier board read; S2 — fuller puffs)
                 var mesh = LowPolyMeshes.CloudBlob(radius, blobs, CloudBody, CloudTop, CloudShadow, rnd.Next());
 
                 var cloud = new GameObject("LP_Cloud");
@@ -234,7 +242,7 @@ namespace FarHorizon.EditorTools
                 // faces) so the clouds sit in the VISIBLE sky band, not scattered off behind the camera.
                 float px = Mathf.Lerp(-75f, 75f, (float)rnd.NextDouble());
                 float pz = Mathf.Lerp(-10f, 95f, (float)rnd.NextDouble());
-                float py = 26f + (float)rnd.NextDouble() * 16f; // 26-42u altitude (LOWER — into the visible sky band)
+                float py = 28f + (float)rnd.NextDouble() * 14f; // 28-42u altitude (>25u eye-line floor; into the visible sky band)
                 cloud.transform.position = new Vector3(px, py, pz);
                 cloud.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
 
@@ -253,7 +261,8 @@ namespace FarHorizon.EditorTools
                 drift.wrapHalfSpan = bandHalfSpan;
                 drift.bandCentre = new Vector3(0f, py, pz); // wrap relative to this cloud's own lane
             }
-            Debug.Log($"[world-trace] BuildClouds placed {count} clouds (wind={wind}, alt 26-42u lowered, drift 0.22-0.48 u/s)");
+            Debug.Log($"[world-trace] BuildClouds placed {count} clouds (wind={wind}, alt 28-42u, " +
+                      $"bright near-white cyan body S2 contrast-fix, drift 0.22-0.48 u/s)");
         }
 
         // ---- VISTA (Uma §2 near-vista + Erik far-vista 86ca8t9rh, CONSTRAINED per Sponsor soaks of
@@ -406,7 +415,9 @@ namespace FarHorizon.EditorTools
                 // Seat the peak ON the landmass base (+raise) so it rises from the island shelf, not water.
                 var pos = new Vector3(Mathf.Cos(a) * r, c.raise, Mathf.Sin(a) * r);
 
-                var mesh = LowPolyMeshes.FacetedMountain(br, h, 6 + rnd.Next(0, 4), c.snowline,
+                // MORE SIDES (S3 detail): 9-12 radial columns (was 6-9) so the multi-ring ridge lines +
+                // stepped rockface read as a detailed low-poly peak, not a coarse pyramid.
+                var mesh = LowPolyMeshes.FacetedMountain(br, h, 9 + rnd.Next(0, 4), c.snowline,
                     c.body, c.snow, rnd.Next());
 
                 var peak = new GameObject("LP_Mountain");
