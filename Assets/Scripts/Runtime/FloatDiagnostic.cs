@@ -137,11 +137,14 @@ namespace FarHorizon
                 Debug.Log("[FloatTrace] no CastawayCharacter found");
                 return;
             }
+            // FeetWorldY / FloatGap now read the TRUE rendered SOLE (86ca8rdkp final). Surface the proxy-root
+            // gap alongside so the log always proves the gauge flipped from the misleading proxy to the sole.
             float feet = _castaway.FeetWorldY, ground = _castaway.GroundHitWorldY, gap = _castaway.FloatGap;
             bool floating = !float.IsNaN(gap) && Mathf.Abs(gap) > floatRedThreshold;
-            Debug.Log($"[FloatTrace] feetY={Fmt(feet)} groundY={Fmt(ground)} GAP={Fmt(gap)} " +
-                      $"({(floating ? "FLOATING" : "planted")})  offset={_castaway.groundYOffset:F4} " +
-                      $"moving={_castaway.IsMovingForSnap} snapRate={_castaway.ActiveSnapRate:F0}");
+            Debug.Log($"[FloatTrace] soleY={Fmt(feet)} groundY={Fmt(ground)} GAP(sole-ground)={Fmt(gap)} " +
+                      $"({(floating ? "FLOATING" : "planted")})  proxyRootGap={Fmt(_castaway.ProxyRootFloatGap)} " +
+                      $"offset={_castaway.groundYOffset:F4} moving={_castaway.IsMovingForSnap} " +
+                      $"snapRate={_castaway.ActiveSnapRate:F0}");
         }
 
         private static string Fmt(float v) => float.IsNaN(v) ? "N/A" : v.ToString("F4");
@@ -183,11 +186,13 @@ namespace FarHorizon
             bool valid = !float.IsNaN(gap);
             bool floating = valid && Mathf.Abs(gap) > floatRedThreshold;
 
-            GUI.Label(new Rect(lx, y + 34f, lw, 20f), "feet world-Y:  " + Fmt(feet), _valueStyle);
+            GUI.Label(new Rect(lx, y + 34f, lw, 20f), "rendered sole-Y:  " + Fmt(feet), _valueStyle);
             GUI.Label(new Rect(lx, y + 56f, lw, 20f), "ground hit-Y:  " + Fmt(ground), _valueStyle);
 
-            // THE number — big, colour-coded. GREEN ≈ planted, RED = floating (> threshold).
-            string gapText = "GAP (feet−ground):  " + Fmt(gap) +
+            // THE number — big, colour-coded. Now the HONEST gap: rendered SOLE − ground (GAP=0 ⟺ visible soles
+            // on the sand). GREEN ≈ planted, RED = floating. The old proxy-root gap is shown small below so the
+            // false-green (root-gap 0 while the mesh floats) can never masquerade as planted again.
+            string gapText = "GAP (sole−ground):  " + Fmt(gap) +
                              (valid ? (floating ? "   ◄ FLOATING" : "   ◄ planted") : "");
             GUI.Label(new Rect(lx, y + 80f, lw, 24f), gapText, floating ? _gapBadStyle : _gapGoodStyle);
 

@@ -251,9 +251,16 @@ namespace FarHorizon
         public float MeshBottomWorldY { get; private set; } = float.NaN;
 
         /// <summary>The TRUE float gap = rendered-mesh-bottom world-Y − ground-hit world-Y. ~0 ⟺ the visible
-        /// SOLES sit on the visible sand (the HONEST "planted" the Sponsor judges). &gt;~0.01 = the visible mesh
-        /// floats — even when <see cref="FloatGap"/> (the proxy-root gap) reads 0. NaN until both valid.</summary>
+        /// SOLES sit on the visible sand (the HONEST "planted" the Sponsor judges). Identical to
+        /// <see cref="FloatGap"/> now that the gauge reads the rendered sole; kept as the explicit-name alias
+        /// the [FloatTrace] dump + regression guard reference. NaN until both valid.</summary>
         public float MeshFloatGap { get; private set; } = float.NaN;
+
+        /// <summary>The OLD proxy gap = avatar-ROOT world-Y − ground-hit world-Y (the misleading reading that
+        /// went to 0 while the rendered mesh floated — the false "✓ planted" the Sponsor caught). Kept exposed
+        /// so the regression guard can prove the gauge flipped from this proxy to the rendered sole, and so the
+        /// [FloatTrace] dump always carries both. NaN until valid.</summary>
+        public float ProxyRootFloatGap { get; private set; } = float.NaN;
 
         /// <summary>Whether the agent is moving (above walkSpeedThreshold) this frame — surfaced so the
         /// diagnostic shows rest-vs-move (the during-walk float was state-dependent).</summary>
@@ -371,9 +378,28 @@ namespace FarHorizon
             float plantY = bestY + groundYOffset;
             LastSnapTargetWorldY = plantY; // the SELECTED plant surface (pre-smoothing) — the snap-target the test reads
 
-            // Desired avatar-root WORLD Y = the plant Y. local Y = worldY - root.position.y
-            // (the avatar root is a direct child of the player root, no intermediate offset).
-            float desiredLocalY = plantY - root.position.y;
+            // ===== THE FINAL FIX (86ca8rdkp breakthrough — ground the RENDERED SOLE, not the proxy root). =====
+            // GROUND-TRUTH DUMP (-verifyFloatDiag, 2026-06-15) OVERTURNED every prior snap/offset/shadow fix:
+            // the snap grounded the avatar ROOT (the FBX/armature origin) to the terrain — but the avatar root
+            // is NOT the rendered sole. The TRUE visible sole (SkinnedMeshRenderer.bounds.min.y) sits at a
+            // POSE-DEPENDENT offset from the root: dump measured the sole 0.150u BELOW the root at IDLE (soles
+            // sunk into the sand) and 0.469u ABOVE the root while WALKING (soles floating 47cm) — the animation
+            // pose drives the feet bones up/down through the cycle, and the mesh follows. So grounding the root
+            // left the visible mesh anywhere from sunk to floating while the gauge read GAP=0 ("✓ planted") —
+            // the FALSE green. Every prior snap-rate / groundYOffset / shadow tweak grounded the WRONG reference.
+            //
+            // FIX: snap so the RENDERED SOLE lands on plantY. The pose offset (sole − root) is INVARIANT to the
+            // root Y we choose — translating the root rigidly translates every skinned vertex by the same Δy, so
+            // bounds.min.y − root.worldY depends ONLY on the animation pose + scale, not on our snap. We measure
+            // it this frame and SUBTRACT it from the plant target, so the sole — what the player SEES — plants
+            // on the sand regardless of pose. (Mesh bounds reflect the CURRENT rendered pose; on a frame where
+            // no SMR is resolvable we fall back to the old root-grounding so the snap never goes inert.)
+            float meshBottomNow = MeasureRenderedMeshBottomWorldY();
+            float poseSoleOffset = float.IsNaN(meshBottomNow) ? 0f : (meshBottomNow - transform.position.y);
+
+            // Desired avatar-root WORLD Y so the SOLE (root + poseSoleOffset) sits at plantY.
+            // local Y = worldY - root.position.y (the avatar root is a direct child of the player root).
+            float desiredLocalY = (plantY - poseSoleOffset) - root.position.y;
 
             // DURING-WALK FIX (86ca8rdkp 4th-attempt). A constant-rate exp filter LAGS a descending ramp while
             // MOVING (during-walk trace: ~1.2cm feet-above-sand at 5.5u/s into the foreshore, re-converging to
@@ -393,30 +419,34 @@ namespace FarHorizon
             lp.y = _snapLocalY;
             transform.localPosition = lp;
 
-            // LIVE FLOAT-DIAGNOSTIC (86ca8rdkp): the feet are now at the avatar root's WORLD-Y this frame. The
-            // GAP is feet − the RAW visible ground hit (the surface the player sees). ~0 = planted; >1cm =
-            // floating (the bug). The instrument (F8 overlay / F9 panel / ~1Hz log) reads these every frame.
-            FeetWorldY = transform.position.y;
-            FloatGap = ComputeFloatGap(FeetWorldY, GroundHitWorldY);
-
-            // THE BREAKTHROUGH (86ca8rdkp final): also measure the TRUE rendered SOLE (the lowest visible vertex)
-            // + the HONEST gap against the visible sand. The proxy-root FloatGap can read 0 while THIS reads the
-            // real visible float — that was the false "✓ planted". GAP=0 must mean the SOLES are on the sand.
+            // LIVE FLOAT-DIAGNOSTIC (86ca8rdkp FINAL — the gauge now reads the HONEST gap). The TRUE rendered
+            // sole (SMR.bounds.min.y) is what the player sees touch the sand, so the gauge GAP is measured
+            // against THAT, not the proxy avatar-root. GAP=0 ⟺ the visible SOLES are on the visible sand (the
+            // false "✓ planted" the Sponsor caught — root-gap 0 with the mesh floating — can no longer happen).
+            // Re-measure the sole AFTER applying this frame's snap so the gauge reflects the corrected position.
             MeshBottomWorldY = MeasureRenderedMeshBottomWorldY();
             MeshFloatGap = float.IsNaN(MeshBottomWorldY) ? float.NaN
                                                          : ComputeFloatGap(MeshBottomWorldY, GroundHitWorldY);
+            // FeetWorldY is the gauge's "feet" line — now the TRUE rendered sole (falls back to the avatar-root
+            // world Y only if no SMR is resolvable). FloatGap is the HONEST sole-vs-sand gap the overlay shows.
+            FeetWorldY = float.IsNaN(MeshBottomWorldY) ? transform.position.y : MeshBottomWorldY;
+            FloatGap = float.IsNaN(MeshFloatGap) ? ComputeFloatGap(transform.position.y, GroundHitWorldY)
+                                                 : MeshFloatGap;
+            // The proxy avatar-root gap (the OLD, misleading reading) — kept exposed for the regression guard
+            // + the [FloatTrace] dump so we can always prove the gauge flipped from proxy to rendered-sole.
+            ProxyRootFloatGap = ComputeFloatGap(transform.position.y, GroundHitWorldY);
 
-            // RE-SOAK #2 + DURING-WALK FIX — ground the CONTACT SHADOW to the avatar's SMOOTHED feet WORLD-Y
-            // (NOT the raw bestY target). The shadow is a child of the player root (it must NOT inherit the
-            // avatar height-scale), so it does not get the avatar's ground-snap. Re-soak #2 grounded it to the
-            // RAW target — but during a walk the feet ride the SMOOTHED Y while the raw target leads, so the
-            // shadow separated from the feet ONLY WHILE MOVING (the re-elevated-while-walking percept). Driving
-            // the shadow off the avatar's actual world Y locks them together at rest AND in motion by
-            // construction — the shadow can never lead or lag the feet again.
+            // CONTACT SHADOW — ground it to the VISIBLE-SAND CONTACT LEVEL (the plant target), NOT the avatar
+            // root. FINAL-FIX correction (86ca8rdkp): the snap now grounds the rendered SOLE, so the avatar root
+            // no longer sits at the feet — it floats at a pose-dependent offset (root was 0.046 while the sole
+            // sat at the sand in the shore dump). Driving the shadow off the root would re-strand it above the
+            // soles (the exact 'floats above its shadow' percept this saga chased). The visible soles land on
+            // plantY (= ground hit + the Sponsor offset) by construction, so the contact shadow belongs THERE —
+            // it tracks the sand the feet touch, in motion AND at rest, with no pose coupling.
             if (blobShadow != null)
             {
                 Vector3 sp = blobShadow.position;
-                sp.y = transform.position.y + blobShadowLift;
+                sp.y = plantY + blobShadowLift;
                 blobShadow.position = sp;
             }
         }
@@ -453,7 +483,7 @@ namespace FarHorizon
                 $"hipsY={hips} leftFootBoneY={lFoot} rightFootBoneY={rFoot} " +
                 $"MESH_BOTTOM(SMR.bounds.min.y=TRUE sole)={(float.IsNaN(meshBottom) ? "N/A" : meshBottom.ToString("F4"))} " +
                 $"modelChildLocalY={modelLocalY} groundHitY={(float.IsNaN(GroundHitWorldY) ? "N/A" : GroundHitWorldY.ToString("F4"))} " +
-                $"shadowY={shadowY} | PROXY_GAP(gaugeFeet-ground)={(float.IsNaN(FloatGap) ? "N/A" : FloatGap.ToString("F4"))} " +
+                $"shadowY={shadowY} | PROXY_ROOT_GAP(avatarRoot-ground)={(float.IsNaN(ProxyRootFloatGap) ? "N/A" : ProxyRootFloatGap.ToString("F4"))} " +
                 $"TRUE_MESH_GAP(meshBottom-ground)={(float.IsNaN(MeshFloatGap) ? "N/A" : MeshFloatGap.ToString("F4"))} " +
                 $"offset(meshBottom-avatarRoot)={(float.IsNaN(meshBottom) ? "N/A" : (meshBottom - transform.position.y).ToString("F4"))} " +
                 $"snapLocalY={_snapLocalY:F4} groundYOffset={groundYOffset:F4} moving={IsMovingForSnap}";
