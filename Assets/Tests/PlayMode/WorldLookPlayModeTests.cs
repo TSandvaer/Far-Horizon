@@ -56,8 +56,8 @@ namespace FarHorizon.PlayTests
                     FindObjectsInactive.Include, FindObjectsSortMode.None)
                 .Where(r => r.gameObject.name == "LP_Mountain")
                 .ToArray();
-            Assert.Greater(peaks.Length, 10,
-                $"the loaded Boot scene must carry the vista mountain ranges at runtime (found {peaks.Length})");
+            Assert.Greater(peaks.Length, 6,
+                $"the loaded Boot scene must carry the vista island clusters at runtime (found {peaks.Length})");
             foreach (var r in peaks.Take(8))
             {
                 Assert.IsTrue(r.enabled, "a vista peak renderer must be enabled (the silhouette must show)");

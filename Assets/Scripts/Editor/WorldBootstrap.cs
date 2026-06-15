@@ -225,11 +225,23 @@ namespace FarHorizon.EditorTools
             Debug.Log($"[world-trace] BuildClouds placed {count} clouds (wind={wind}, alt 30-60u, drift 0.22-0.48 u/s)");
         }
 
-        // ---- VISTA (Uma §2 near-vista + Erik far-vista research 86ca8t9rh Route A) ----
-        // The layered far-horizon: a NEAR band of overlapping faceted mountain silhouettes (150-400u,
-        // crisp facets, full grey-to-snow value) + two FAR concentric rings (~500u / ~1000u) tinted
-        // progressively toward the horizon stop so they dissolve into the Exp^2 fog (colour == horizon
-        // stop — the seam-kill). Each ring is a circle of FacetedMountain peaks facing the play space.
+        // ---- VISTA (Uma §2 near-vista + Erik far-vista 86ca8t9rh, CONSTRAINED per Sponsor soak of
+        //      a89f508 / 86ca8t9pq reopened) ----
+        //
+        // SPONSOR SOAK-FIX (a89f508): the first impl built 4 FULL 360-degree concentric rings (62 peaks at
+        // even angular spread, radii 240/360/520/1000u, all at y=0) — which (1) WALLED the entire horizon so
+        // no open sky / clouds were visible, and (2) placed every peak far outside the ~45u island footprint
+        // at y=0, i.e. rising out of the open SEA all around. The Sponsor verbatim: "The mountains are all
+        // over (too many), I can't see any sky or clouds" + "Mountains should not be on the water but on
+        // this island or other islands." This DELIBERATELY DEVIATES from Erik's full-encircling concentric-
+        // ring recommendation (86ca8t9rh Route A): the rings are CONSTRAINED to discrete land/island
+        // footprints, NOT a continuous horizon ring.
+        //
+        // NEW MODEL: a SPARSE set of DISCRETE mountain clusters ("islands"), each a tight little group of
+        // peaks sharing a raised landmass base, placed at SPECIFIC azimuths with WIDE OPEN-SKY GAPS between
+        // them so open sky dominates the upper frame and the clouds read. Far islands sit in the sea as
+        // distinct landmasses (open sea between them — NOT a ring); one near range sits on THIS island
+        // (behind the inland meadow). Total ~18 peaks (was 62), covering only a fraction of the horizon.
         // Static silhouette decoration: no collider, no NavMesh, shadow-casting OFF (far + flat-lit).
         static void BuildVista(GameObject envRoot, int seed)
         {
@@ -237,57 +249,99 @@ namespace FarHorizon.EditorTools
             var vistaRoot = new GameObject("Vista");
             vistaRoot.transform.SetParent(envRoot.transform, false);
 
-            // ATMOSPHERIC FADE via the per-range _Tint (Uma §2): the tint LERPS the range toward the
-            // horizon sky stop as the range recedes — near = full saturation (tint ~white, the mesh's full
-            // grey-to-snow contrast reads), far = tinted toward #DCE8E4 so the silhouette desaturates +
-            // lifts toward the sky it dissolves into (a multiplicative tint toward the horizon stop both IS
-            // the fade AND lands the far rings on the seam-kill colour at the horizon line). The fade
-            // FRACTION grows with distance; bound to the single horizon-stop anchor (no drift).
+            // ATMOSPHERIC FADE via the per-cluster _Tint (Uma §2): the tint LERPS the cluster toward the
+            // horizon sky stop as it recedes — near = full saturation (tint ~white, the mesh's full grey-to-
+            // snow contrast reads), far = tinted toward #DCE8E4 so the silhouette desaturates + lifts toward
+            // the sky it dissolves into (the fade AND the seam-kill colour at the horizon line). Bound to the
+            // single horizon-stop anchor (no drift).
             Color horizon = FarHorizon.WorldLookPalette.SkyHorizon;
             Color FadeTint(float k) => Color.Lerp(Color.white, horizon, Mathf.Clamp01(k)); // k=0 crisp .. 1 sky
 
-            // NEAR band (Uma §2 far-landmass 150-400u): 2-3 overlapping ranges at staggered distance for
-            // parallax depth — the "range behind range" read. Centred toward the inland/forward arc the
-            // orbit cam looks at, plus a wrap-around so the seaward orbit also sees a horizon.
-            BuildMountainRing(vistaRoot, "Vista_Near",  ringRadius: 240f, peaks: 14, baseR: 60f,
-                height: 90f,  snowline: 0.62f, body: MtnBody,    snow: MtnSnow,    tint: FadeTint(0.05f), rnd: rnd);
-            BuildMountainRing(vistaRoot, "Vista_Near2", ringRadius: 360f, peaks: 16, baseR: 80f,
-                height: 130f, snowline: 0.58f, body: MtnBody,    snow: MtnSnow,    tint: FadeTint(0.30f), rnd: rnd);
+            // Discrete cluster placements (centreAzimuthDeg measured CCW from +X; +Z is the inland/forward
+            // arc the orbit cam looks toward, i.e. ~90deg). Each cluster is a small ISLAND landmass — peaks
+            // grouped within a tight footprint, NOT spread around the whole ring. WIDE azimuth gaps between
+            // clusters = open sky + open sea between the islands.
+            //
+            //   name, azimuthDeg, distance, peaks, baseR, height, snowline, body, snow, fadeK, raise
+            //   raise = the landmass base lift (+y) so the cluster reads as LAND rising from the sea, not
+            //           peaks poking straight out of the water (Sponsor fix #2). Near inland range sits on
+            //           this island's far meadow (small lift); far sea-islands get a low landmass shelf.
+            var clusters = new[]
+            {
+                // ON THIS ISLAND — a near range behind the inland meadow (the forward/inland arc, ~90deg).
+                // Sits on land (the meadow rises to ~+1.6u inland; this range is just beyond it), modest
+                // height so it backs the forest without walling the sky.
+                new MtnCluster("Vista_Inland",   90f, 200f, 4, 55f,  85f,  0.60f, MtnBody,    MtnSnow,    0.10f, 2f),
 
-            // FAR rings (Erik Route A — ~500u / ~1000u, progressively tinted toward the horizon stop so
-            // they dissolve seamlessly into the fog at the horizon line; lower-poly per ring). The farthest
-            // ring is nearly the horizon stop itself — it reads as "almost sky" (Uma §2 farthest range).
-            BuildMountainRing(vistaRoot, "Vista_FarRing1", ringRadius: 520f, peaks: 18, baseR: 110f,
-                height: 180f, snowline: 0.55f, body: MtnRimBody, snow: MtnRimSnow, tint: FadeTint(0.55f), rnd: rnd);
-            BuildMountainRing(vistaRoot, "Vista_FarRing2", ringRadius: 1000f, peaks: 14, baseR: 200f,
-                height: 300f, snowline: 0.52f, body: MtnRimBody, snow: MtnRimSnow, tint: FadeTint(0.80f), rnd: rnd);
-            Debug.Log("[world-trace] BuildVista built 4 mountain ranges (near 240/360u + far rings 520/1000u, fade->horizon)");
+                // FAR ISLANDS in the sea — a FEW distinct landmasses with WIDE open-sea/open-sky gaps. Spread
+                // across the forward + side arcs only (NOT the full ring): the seaward-behind arc is left as
+                // OPEN sea+sky so the orbit never sees a continuous wall.
+                new MtnCluster("Vista_Island_NW", 130f, 430f, 3, 75f,  150f, 0.56f, MtnRimBody, MtnRimSnow, 0.45f, 4f),
+                new MtnCluster("Vista_Island_NE",  55f, 470f, 3, 80f,  165f, 0.55f, MtnRimBody, MtnRimSnow, 0.50f, 4f),
+                new MtnCluster("Vista_Island_E",    8f, 560f, 2, 95f,  175f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 4f),
+                new MtnCluster("Vista_Island_W",  168f, 540f, 2, 95f,  170f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 4f),
+
+                // ONE distant island near the horizon line (the endless-horizon read, Erik) — nearly the
+                // horizon stop itself, reads as "almost sky", a single far landmass (not a ring).
+                new MtnCluster("Vista_Far",       100f, 950f, 2, 150f, 240f, 0.52f, MtnRimBody, MtnRimSnow, 0.82f, 6f),
+            };
+
+            int total = 0;
+            foreach (var c in clusters)
+            {
+                BuildMountainCluster(vistaRoot, c, FadeTint(c.fadeK), rnd);
+                total += c.peaks;
+            }
+            Debug.Log($"[world-trace] BuildVista built {clusters.Length} DISCRETE island clusters " +
+                      $"({total} peaks, was 62 full-ring) — open sky+sea between them, peaks raised onto land " +
+                      "(Sponsor soak-fix: not a wall, not on the water)");
         }
 
-        // Build one ring of faceted mountain peaks at `ringRadius` around the play-space origin, each peak
-        // facing inward toward the player. The per-range atmospheric tint (lighter/near-sky as it recedes)
-        // is applied via the material _Tint; the grey-to-snow value contrast is baked in the mesh.
-        static void BuildMountainRing(GameObject parent, string name, float ringRadius, int peaks,
-            float baseR, float height, float snowline, Color body, Color snow, Color tint, System.Random rnd)
+        // One discrete mountain cluster ("island"): centre azimuth + distance + count + shape.
+        struct MtnCluster
         {
-            var ringRoot = new GameObject(name);
-            ringRoot.transform.SetParent(parent.transform, false);
-            var mat = MakeVertexColorMat("LPMtnMat_" + name, tint);
+            public string name; public float azimuthDeg, distance; public int peaks;
+            public float baseR, height, snowline; public Color body, snow; public float fadeK, raise;
+            public MtnCluster(string name, float azimuthDeg, float distance, int peaks, float baseR,
+                float height, float snowline, Color body, Color snow, float fadeK, float raise)
+            { this.name = name; this.azimuthDeg = azimuthDeg; this.distance = distance; this.peaks = peaks;
+              this.baseR = baseR; this.height = height; this.snowline = snowline; this.body = body;
+              this.snow = snow; this.fadeK = fadeK; this.raise = raise; }
+        }
 
-            for (int p = 0; p < peaks; p++)
+        // Build one DISCRETE cluster of faceted peaks grouped into a tight island footprint around a centre
+        // point (NOT spread around a 360-degree ring). The peaks share a small angular+radial spread so they
+        // overlap into one landmass silhouette, and the whole cluster is RAISED on its `raise` base lift so
+        // it reads as LAND rising from the sea (Sponsor fix #2 — not poking straight out of the water). Each
+        // peak faces inward toward the player. Per-cluster atmospheric _Tint; grey-to-snow baked in the mesh.
+        static void BuildMountainCluster(GameObject parent, MtnCluster c, Color tint, System.Random rnd)
+        {
+            var clusterRoot = new GameObject(c.name);
+            clusterRoot.transform.SetParent(parent.transform, false);
+            var mat = MakeVertexColorMat("LPMtnMat_" + c.name, tint);
+
+            float ca = c.azimuthDeg * Mathf.Deg2Rad;
+            // Tight footprint: the peaks span a SMALL arc (so the cluster reads as one island, with open sky
+            // either side), and a small radial spread (so a couple of peaks stack into a range, not a line).
+            // The cluster's angular HALF-width shrinks with peak count so a 2-peak island stays compact.
+            float arcHalf = (0.045f + 0.018f * c.peaks); // radians: ~3.6deg (2 peaks) .. ~6.8deg (4 peaks)
+
+            for (int p = 0; p < c.peaks; p++)
             {
-                // Even angular spread + jitter so peaks overlap irregularly (no stamped clones).
-                float a = (p / (float)peaks) * Mathf.PI * 2f + (float)(rnd.NextDouble() - 0.5) * 0.25f;
-                float r = ringRadius * (0.92f + (float)rnd.NextDouble() * 0.16f);
-                float h = height * (0.8f + (float)rnd.NextDouble() * 0.5f);
-                float br = baseR * (0.85f + (float)rnd.NextDouble() * 0.5f);
-                var pos = new Vector3(Mathf.Cos(a) * r, 0f, Mathf.Sin(a) * r);
+                // Spread peaks across the cluster's small arc + radial band (deterministic jitter).
+                float t = c.peaks == 1 ? 0f : (p / (float)(c.peaks - 1) - 0.5f) * 2f; // -1..1 across the arc
+                float a = ca + t * arcHalf + (float)(rnd.NextDouble() - 0.5) * 0.02f;
+                float r = c.distance * (0.94f + (float)rnd.NextDouble() * 0.12f);
+                float h = c.height * (0.82f + (float)rnd.NextDouble() * 0.40f);
+                float br = c.baseR * (0.85f + (float)rnd.NextDouble() * 0.45f);
+                // RAISE the cluster onto a landmass base (+y) so it reads as LAND, not water-piercing peaks.
+                var pos = new Vector3(Mathf.Cos(a) * r, c.raise, Mathf.Sin(a) * r);
 
-                var mesh = LowPolyMeshes.FacetedMountain(br, h, 6 + rnd.Next(0, 4), snowline,
-                    body, snow, rnd.Next());
+                var mesh = LowPolyMeshes.FacetedMountain(br, h, 6 + rnd.Next(0, 4), c.snowline,
+                    c.body, c.snow, rnd.Next());
 
                 var peak = new GameObject("LP_Mountain");
-                peak.transform.SetParent(ringRoot.transform, false);
+                peak.transform.SetParent(clusterRoot.transform, false);
                 peak.transform.position = pos;
                 // Face the peak inward toward the origin so its broadest silhouette reads to the player.
                 peak.transform.rotation = Quaternion.Euler(0f, -a * Mathf.Rad2Deg + 90f, 0f);
@@ -299,7 +353,7 @@ namespace FarHorizon.EditorTools
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; // far + flat-lit
                 mr.receiveShadows = false;
                 mr.staticShadowCaster = false;
-                // Mark static so URP static-batches the ring into 1-2 draw calls (Erik perf note).
+                // Mark static so URP static-batches the cluster into 1-2 draw calls (Erik perf note).
                 GameObjectUtility.SetStaticEditorFlags(peak,
                     StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccluderStatic);
             }

@@ -84,20 +84,24 @@ namespace FarHorizon.EditTests
 
         // ---- VISTA (Uma §2 + Erik 86ca8t9rh Route A) ----
 
+        // Helper: every serialized vista peak in the scene.
+        private static MeshFilter[] VistaPeaks() =>
+            Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.gameObject.name == "LP_Mountain" && mf.sharedMesh != null)
+                .ToArray();
+
         [Test]
         public void Vista_MountainRanges_Present_NearAndFar()
         {
             var vista = GameObject.Find("Vista");
             Assert.IsNotNull(vista, "the Boot scene must carry the 'Vista' root (the far-horizon silhouettes)");
 
-            var peaks = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
-                .Where(mf => mf.gameObject.name == "LP_Mountain" && mf.sharedMesh != null)
-                .ToArray();
-            Assert.Greater(peaks.Length, 10,
-                "the vista must scatter many faceted mountain peaks across its ranges (near + far rings)");
+            var peaks = VistaPeaks();
+            Assert.Greater(peaks.Length, 6,
+                "the vista must still carry several faceted mountain peaks (a few discrete island clusters)");
 
-            // Depth stack: there must be peaks at BOTH a near band (~150-400u) AND a far ring (>500u) so
-            // the eye ladders out (Uma §2 layered depth + Erik Route A two far rings).
+            // Depth stack: there must be peaks at BOTH a near band AND a far cluster so the eye ladders out
+            // (Uma §2 layered depth) — the constrained-island model keeps depth, just not a full ring.
             float maxDist = 0f, nearCount = 0, farCount = 0;
             foreach (var p in peaks)
             {
@@ -106,10 +110,66 @@ namespace FarHorizon.EditTests
                 if (d >= 150f && d <= 420f) nearCount++;
                 if (d >= 480f) farCount++;
             }
-            Assert.Greater(nearCount, 0, "there must be a NEAR vista band (150-420u, Uma §2)");
-            Assert.Greater(farCount, 0, "there must be a FAR vista ring (>=480u, Erik Route A)");
+            Assert.Greater(nearCount, 0, "there must be a NEAR vista cluster (150-420u, Uma §2)");
+            Assert.Greater(farCount, 0, "there must be a FAR vista cluster (>=480u — the layered depth)");
             Assert.Greater(maxDist, 800f,
-                "the farthest ring must reach ~1000u (Erik Route A — the endless-horizon read)");
+                "a distant island must reach ~900u+ (the endless-horizon read — one far landmass, not a ring)");
+        }
+
+        // ---- SPONSOR SOAK-FIX GUARDS (a89f508 / 86ca8t9pq reopened) — the constrained-island contract ----
+        // These pin the TWO Sponsor complaints as the bug class so a regression to the full-encircling-ring
+        // design fails in CI: (1) "too many mountains, can't see sky/clouds" -> the peaks must NOT wall the
+        // whole horizon (open-sky azimuth gaps required); (2) "mountains on the water" -> the peaks must sit
+        // on RAISED land (y>0), not at y=0 over the sea.
+
+        [Test]
+        public void Vista_PeaksAreFew_NotAHorizonWall()
+        {
+            // SPONSOR FIX #1: the first impl shipped 62 peaks across 4 full 360-degree rings — a wall. The
+            // constrained model is a SPARSE set of discrete islands. Assert the total peak count stays well
+            // below the old wall count so open sky dominates.
+            var peaks = VistaPeaks();
+            Assert.LessOrEqual(peaks.Length, 30,
+                $"the vista carries {peaks.Length} peaks — must stay SPARSE (<=30, was 62 full-ring) so OPEN " +
+                "SKY dominates the upper frame and the clouds read (Sponsor soak: 'too many, can't see sky')");
+        }
+
+        [Test]
+        public void Vista_PeaksDoNotEncircleTheHorizon_OpenSkyGaps()
+        {
+            // SPONSOR FIX #1 (the structural guard): the OLD design spread peaks evenly around a full 360°
+            // ring, so EVERY azimuth sector had a peak (a continuous wall). The constrained model leaves WIDE
+            // open-sky/open-sea gaps. Bin every peak into 12 azimuth sectors (30° each) and assert a
+            // meaningful number of sectors are EMPTY — proof the horizon is NOT walled all the way around.
+            var peaks = VistaPeaks();
+            Assert.Greater(peaks.Length, 0, "vista peaks must exist to check encirclement");
+            const int sectors = 12;
+            var occupied = new bool[sectors];
+            foreach (var p in peaks)
+            {
+                float deg = Mathf.Atan2(p.transform.position.z, p.transform.position.x) * Mathf.Rad2Deg;
+                if (deg < 0f) deg += 360f;
+                occupied[Mathf.Clamp((int)(deg / (360f / sectors)), 0, sectors - 1)] = true;
+            }
+            int empty = occupied.Count(o => !o);
+            Assert.GreaterOrEqual(empty, 5,
+                $"only {sectors - empty}/{sectors} azimuth sectors hold a peak — the horizon must have WIDE " +
+                "open-sky gaps (>=5 of 12 sectors empty), NOT a continuous encircling wall (Sponsor soak fix #1)");
+        }
+
+        [Test]
+        public void Vista_PeaksSitOnRaisedLand_NotAtSeaLevel()
+        {
+            // SPONSOR FIX #2: "Mountains should not be on the water but on this island or other islands."
+            // The old impl placed every peak at y=0 (the sea/shore level) so they read as rising out of the
+            // water. Each cluster is now RAISED onto a landmass base (+y) so it reads as LAND. Assert NO peak
+            // sits at/below sea level — every one is lifted onto a landmass.
+            var peaks = VistaPeaks();
+            Assert.Greater(peaks.Length, 0, "vista peaks must exist to check landmass lift");
+            foreach (var p in peaks)
+                Assert.Greater(p.transform.position.y, 0.5f,
+                    $"peak '{p.name}' at y={p.transform.position.y:F2} must sit on RAISED land (>0.5u), not at " +
+                    "sea level — mountains rise from land/islands, not the water (Sponsor soak fix #2)");
         }
 
         [Test]
