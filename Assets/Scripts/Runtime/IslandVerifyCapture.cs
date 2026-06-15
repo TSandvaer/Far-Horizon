@@ -65,6 +65,13 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
 
+            // ---- PERF MEASUREMENT (the #1 feasibility risk per the ticket) ----
+            // Sample frame time over a real Time.time window at the gameplay framing (player on the island
+            // with the dense jungle + sea + vista all in frustum). Report avg/min FPS so the perf headroom
+            // at the target island SIZE is a measured number, not a guess. If prohibitive -> the showstopper
+            // signal to surface. (Headless deltaTime is ~0 — this MUST run in the WINDOWED -verifyIsland exe.)
+            yield return MeasureFps("gameplay");
+
             // ---- 2. OVERHEAD / high-orbit frame (proves the WHOLE round island) ----
             float h = ArgFloat("-overheadHeight", overheadHeight);
             float d = ArgFloat("-overheadDist", overheadDistance);
@@ -88,6 +95,28 @@ namespace FarHorizon
 
             Debug.Log("[world-trace] IslandVerifyCapture done -> " + dir +
                       " (island_gameplay.png + island_overhead.png)");
+        }
+
+        // Measure avg/min FPS over a ~2s real-time window at the current framing. The perf headroom at the
+        // target island size is the ticket's #1 feasibility risk; this prints it as a measured number.
+        private IEnumerator MeasureFps(string tag)
+        {
+            const float window = 2.0f;
+            float t0 = Time.realtimeSinceStartup;
+            int frames = 0;
+            float worstDt = 0f;
+            while (Time.realtimeSinceStartup - t0 < window)
+            {
+                float dt = Time.unscaledDeltaTime;
+                if (dt > worstDt) worstDt = dt;
+                frames++;
+                yield return null;
+            }
+            float elapsed = Time.realtimeSinceStartup - t0;
+            float avgFps = frames / Mathf.Max(0.0001f, elapsed);
+            float minFps = worstDt > 0f ? 1f / worstDt : 0f;
+            Debug.Log($"[world-trace] PERF {tag}: avgFPS={avgFps:F1} minFPS={minFps:F1} " +
+                      $"({frames} frames over {elapsed:F2}s) — island target size, dense jungle + sea + vista in view");
         }
 
         // Dump the camera ground-truth (transform + centre-ray ground hit + how many island/sea/vista
