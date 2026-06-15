@@ -23,31 +23,53 @@ namespace FarHorizon.EditorTools
     {
         const string SettingsDir = "Assets/Settings";
 
-        // Build the gradient skybox material (warm horizon, cool zenith) and assign it as the scene
-        // skybox. Uses the built-in "Skybox/Procedural" or a gradient fallback — both build-safe.
+        // ---- WORLD-LOOK POLISH sky-tint anchors (ticket 86ca8t9pq — Uma world-look brief §3) ----
+        // The 3-stop warm-bright vertical gradient: clean open-day sky (NOT cold-clear, NOT hazy-warm).
+        // All sub-1.0 / HDR-clamp-safe (Uma per-swatch verification — a pure-white horizon + bloom would
+        // bloom-clip). The canonical values live in FarHorizon.WorldLookPalette (the RUNTIME layer) so
+        // the editor bootstrap + the runtime/PlayMode seam-kill guards read the SAME constants — fog
+        // colour == horizon sky stop relies on an EXACT match (Erik Q2: tune in lockstep). Forwarded here
+        // so existing editor call sites read them locally.
+        public static readonly Color SkyZenith  = FarHorizon.WorldLookPalette.SkyZenith;  // #7FB4D6
+        public static readonly Color SkyMid      = FarHorizon.WorldLookPalette.SkyMid;     // #AAD0E2
+        public static readonly Color SkyHorizon  = FarHorizon.WorldLookPalette.SkyHorizon; // #DCE8E4 (seam-kill anchor)
+
+        // Build the 3-STOP GRADIENT SKYBOX (Uma world-look brief §3). RE-TUNES the Zone-D 2-color
+        // Skybox/Procedural toward Uma's clean warm-bright 3-stop vertical gradient via a dedicated
+        // FarHorizon/GradientSkybox shader (zenith -> mid -> warm horizon). The custom shader is
+        // registered in AlwaysIncludedShaders so it does not strip in the standalone build (the spike's
+        // magenta class). Falls back to the built-in Skybox/Procedural (2-color, horizon-warm) if the
+        // custom shader is somehow unresolved — never a broken/magenta sky.
         public static void BuildGradientSkybox()
         {
-            var proc = Shader.Find("Skybox/Procedural");
+            var grad = Shader.Find("FarHorizon/GradientSkybox");
             Material sky;
-            if (proc != null)
+            if (grad != null)
             {
-                sky = new Material(proc);
-                sky.SetFloat("_SunSize", 0.04f);
-                sky.SetFloat("_AtmosphereThickness", 1.1f);
-                sky.SetColor("_SkyTint", new Color(0.55f, 0.62f, 0.72f));     // cool-ish upper sky
-                sky.SetColor("_GroundColor", new Color(0.78f, 0.72f, 0.58f)); // warm horizon/ground
-                sky.SetFloat("_Exposure", 1.05f);
+                EnsureShaderAlwaysIncluded(grad); // do not strip the sky in the build
+                sky = new Material(grad) { name = "GradientSky" };
+                sky.SetColor("_ZenithColor", SkyZenith);
+                sky.SetColor("_MidColor", SkyMid);
+                sky.SetColor("_HorizonColor", SkyHorizon);
+                sky.SetFloat("_MidPoint", 0.35f); // Uma §3: mid ~ horizon+30deg
+                sky.SetFloat("_Softness", 0.7f);  // clean blend, no skybox seam
             }
             else
             {
-                sky = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-                sky.SetColor("_BaseColor", new Color(0.6f, 0.68f, 0.78f));
+                var proc = Shader.Find("Skybox/Procedural");
+                sky = new Material(proc) { name = "GradientSky" };
+                sky.SetFloat("_SunSize", 0.03f);
+                sky.SetFloat("_AtmosphereThickness", 1.0f);
+                sky.SetColor("_SkyTint", SkyZenith);    // warm-bright upper sky
+                sky.SetColor("_GroundColor", SkyHorizon); // warm horizon
+                sky.SetFloat("_Exposure", 1.0f);
+                Debug.LogWarning("[QualityPassGen] FarHorizon/GradientSkybox unresolved; falling back to Skybox/Procedural (2-color)");
             }
             AssetDatabase.CreateAsset(sky, SettingsDir + "/GradientSky.mat");
             RenderSettings.skybox = sky;
-            RenderSettings.ambientMode = AmbientMode.Skybox; // sky drives ambient (cool fill)
+            RenderSettings.ambientMode = AmbientMode.Skybox; // sky drives ambient (warm-bright fill)
             DynamicGI.UpdateEnvironment();
-            Debug.Log("[QualityPassGen] gradient skybox assigned");
+            Debug.Log("[QualityPassGen] 3-stop gradient skybox assigned (warm-bright, Uma §3)");
         }
 
         // Enable the warm-haze global fog. In production (single play space) the Zone-D fog is the
@@ -57,15 +79,27 @@ namespace FarHorizon.EditorTools
         public static void EnableGlobalFog()
         {
             RenderSettings.fog = true;
+            // EXPONENTIAL-SQUARED distance-fade fog (Erik far-vista research 86ca8t9rh, Route A — the
+            // Strong-sourced standard for vista atmospherics: 2^(-(cd)^2) keeps the IMMEDIATE play space
+            // CRISP, then accelerates density into a dense haze band at distance — exactly Uma §3's "crisp
+            // to mid-distance, fog engages only in the far band" intent + the §2 atmospheric fade that
+            // dissolves the distant mountain rings into the sky). Reconciles Uma's "distance-only" intent
+            // with Erik's mode recommendation: a low Exp² density stays clear across the near/mid field
+            // and the NEAR vista ring (150-400u) keeps silhouette contrast, while the FAR ring (~1000u)
+            // reads faintly misty — a hard Linear end-distance would instead abruptly clip the far rings.
+            // Density 0.0016 tuned so the near vista ring keeps crisp facets and the far ring dissolves
+            // (Erik's "start at 0.0003 and walk up"; the play space is ~200u so a higher value than his
+            // 1000u-ring assumption is needed to engage across the nearer 150-400u near-vista band).
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.80f, 0.80f, 0.74f); // warm haze
-            // FIRST-FRAME TUNE (86ca8ce7j): the board v2 scene refs are CRISP to mid-distance, not
-            // hazy-near (style-guide §4 "fog much lighter / distance-only"). The 0.006 near-field haze
-            // was a top contributor to the washed-out spawn frame (it pales the near sand into the warm
-            // fog colour). Halve it to 0.003 so fog serves only far-horizon depth, not a near-field
-            // wash — the spawn frame stays warm-saturated, the far world still fades to the horizon.
-            RenderSettings.fogDensity = 0.003f;
-            Debug.Log("[QualityPassGen] global warm-haze fog enabled (density 0.003 — distance-only)");
+            RenderSettings.fogDensity = 0.0016f;
+            // THE SEAM-KILL / THE TIE-IN THAT MUST NOT DRIFT (Uma §3 + Erik Q2): fog colour == the horizon
+            // sky stop (#DCE8E4) AND the bottom of the gradient skybox == the same stop, so the distant
+            // mountains fade to the SAME colour the sky fades to — they meet seamlessly with no horizon
+            // line (URP does NOT fog the skybox, so a colour mismatch is a visible seam — Erik §1, Strong
+            // source). Bound to the single SkyHorizon constant so fog + sky + far-range tint can never
+            // drift apart (Erik Q2: "if the horizon stop shifts later, fog color updates in lockstep").
+            RenderSettings.fogColor = SkyHorizon;
+            Debug.Log("[QualityPassGen] Exp^2 distance fog (density 0.0016, colour == horizon stop) — Uma §3 / Erik Route A seam-kill");
         }
 
         // Build the GLOBAL post-processing Volume for the production play space: Bloom + warm Color
@@ -78,29 +112,38 @@ namespace FarHorizon.EditorTools
             var profile = ScriptableObject.CreateInstance<VolumeProfile>();
             AssetDatabase.CreateAsset(profile, profilePath);
 
-            // Bloom — soft glow on the brightest lit facets (the sunlit meadow rise, water glint).
-            // FIRST-FRAME TUNE (86ca8ce7j): board v2 wants bloom DOWN (style-guide §4 — heavy bloom
-            // softens the chunky facet edges + blew the pale sand into a white wash). Pull intensity
-            // 0.55->0.40 and raise the threshold so only genuinely bright highlights bloom, not the
-            // broad pale ground.
+            // Bloom — soft glow on the brightest lit facets (cloud caps, snow, water glints).
+            // WORLD-LOOK RE-TUNE (ticket 86ca8t9pq — Uma world-look brief §3 "Bloom DOWN; a touch on the
+            // brightest highlights is fine, heavy bloom is OUT — board objects have crisp facet edges, not
+            // glowy ones; heavy bloom softens facets + bloom-clips the sub-1.0 brights"). Pull intensity
+            // 0.40->0.25 and raise the threshold further (1.02) so ONLY the genuine brights (cloud top-lit
+            // caps, snow-cap facets, water glints) get a touch of bloom and the broad chunky facets stay
+            // crisp. (Sponsor subjective gate #2: exact intensity is a soak A/B call — this is the
+            // directional "bloom down" lock, the value tunes in soak.)
             var bloom = profile.Add<Bloom>(true);
-            bloom.intensity.Override(0.40f);
-            bloom.threshold.Override(0.98f);
-            bloom.scatter.Override(0.55f);
+            bloom.intensity.Override(0.25f);
+            bloom.threshold.Override(1.02f);
+            bloom.scatter.Override(0.5f);
 
-            // Color grading — warm cinematic lift so the low-poly reads "graded", not raw.
-            // FIRST-FRAME TUNE (86ca8ce7j): drop the +0.15 postExposure to +0.05 (it was over-lifting
-            // the already-pale sand into blow-out) and bump saturation a touch (board v2 is
-            // saturated-but-warm). Keep the warm colour filter — warmth is the hard carry-over.
+            // Color grading — LIGHTER, neutral-warm so the saturated toy colours speak.
+            // WORLD-LOOK RE-TUNE (Uma §3 "Color grading: LIGHTER, neutral-warm — pull any heavy filmic/
+            // contrast grade DOWN, let the saturated toy greens/reds/cyans speak; slight warm-temperature
+            // nudge only"). Drop contrast 12->6 (heavy contrast muddies the clean toy read) and ease the
+            // postExposure to a flat 0.0 (the daylight key already lights the diorama; +exposure was a
+            // hold-over that lifted brights toward bloom-clip). Keep the gentle warm colour filter +
+            // saturation — warmth + saturation are hard carry-overs (Uma §tonal anchor).
             var cg = profile.Add<ColorAdjustments>(true);
-            cg.postExposure.Override(0.05f);
-            cg.contrast.Override(12f);
-            cg.colorFilter.Override(new Color(1.04f, 1.0f, 0.92f)); // warm filter
+            cg.postExposure.Override(0.0f);
+            cg.contrast.Override(6f);
+            cg.colorFilter.Override(new Color(1.03f, 1.0f, 0.94f)); // gentle warm filter (lighter)
             cg.saturation.Override(12f);
 
             var wb = profile.Add<WhiteBalance>(true);
-            wb.temperature.Override(12f); // warmer
-            wb.tint.Override(-3f);
+            // WORLD-LOOK RE-TUNE (Uma §3 "slight warm-temperature nudge only"): ease +12 -> +8 so the
+            // grade is warm-bright, not warm-heavy (a heavy temperature push muddied the clean cyan sky +
+            // cyan clouds toward cream). Still warm (the hard carry-over), just lighter-handed.
+            wb.temperature.Override(8f);
+            wb.tint.Override(-2f);
 
             // Vignette — gentle framing so the eye centers on the world.
             var vig = profile.Add<Vignette>(true);
@@ -151,6 +194,29 @@ namespace FarHorizon.EditorTools
             data.renderPostProcessing = true;
             data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
             Debug.Log("[QualityPassGen] camera post-processing + SMAA enabled -> " + cam.name);
+        }
+
+        // Register a shader in GraphicsSettings.AlwaysIncludedShaders so the standalone build does NOT
+        // strip it (the spike's magenta failure class — unity-conventions.md §Build stripping). The
+        // gradient skybox shader is custom, so without this it ships stripped (a missing/magenta sky).
+        // Mirrors WorldBootstrap.EnsureShaderAlwaysIncluded (kept local so the sky-registration is
+        // self-contained in the quality pass).
+        static void EnsureShaderAlwaysIncluded(Shader shader)
+        {
+            if (shader == null) return;
+            var gs = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("ProjectSettings/GraphicsSettings.asset");
+            var so = new SerializedObject(gs);
+            var arr = so.FindProperty("m_AlwaysIncludedShaders");
+            if (arr == null) { Debug.LogWarning("[QualityPassGen] AlwaysIncludedShaders prop not found"); return; }
+            for (int i = 0; i < arr.arraySize; i++)
+                if (arr.GetArrayElementAtIndex(i).objectReferenceValue == shader)
+                    return; // already registered
+            int idx = arr.arraySize;
+            arr.InsertArrayElementAtIndex(idx);
+            arr.GetArrayElementAtIndex(idx).objectReferenceValue = shader;
+            so.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
+            Debug.Log("[QualityPassGen] added shader to AlwaysIncludedShaders -> " + shader.name);
         }
     }
 }

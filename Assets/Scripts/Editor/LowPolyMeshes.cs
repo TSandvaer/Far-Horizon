@@ -504,6 +504,263 @@ namespace FarHorizon.EditorTools
             return mesh;
         }
 
+        // A FACETED CLOUD BLOB (world-look polish, ticket 86ca8t9pq — Uma world-look brief §1). The
+        // SAME clustered-spheroid construction language as BlobCanopy (so clouds and tree canopies are
+        // ONE idiom), but with two deliberate differences that make it read as a chunky cyan CLOUD, not
+        // a green tree:
+        //   (1) FLAT (hard) NORMALS — Uma §1 "hard normals (smoothing angle 0°) so the facets read".
+        //       BlobCanopy uses RecalculateNormals (welded -> smooth) for soft foliage; a cloud must
+        //       read as DISTINCT chunky facets (the board cloud sheet 21h10_44 shows hard facet planes),
+        //       so every triangle gets its OWN 3 verts with the FACE normal (flat-shaded), exactly like
+        //       FacetedRock. This is what gives the cloud its crisp toy-diorama facet read at orbit
+        //       distance (Uma: "if they read as smooth blobs, smoothing isn't hard-0°").
+        //   (2) WIDER, FLATTER cluster — clouds are broad puffy masses, not a rising crown, so the blobs
+        //       lay out wider + lower than a canopy (a flattened spheroid cluster) per the asset sheet.
+        //
+        // The 3-value cyan palette (body / top-lit / shadow) is baked per-blob into vertex COLOR exactly
+        // like the canopy greens, so a single shared vertex-color material renders the whole cloud (no
+        // per-blob material churn): lower blobs read as the shadow facet, upper blobs catch the top-light.
+        // SOLID volumes (closed spheroids) so the thin-foliage near-black-shard normal trap is sidestepped
+        // (unity-conventions.md §Low-poly mesh patterns) and OUTWARD winding is enforced (so the flat
+        // faces are never backface-culled — the same Cull-Back class as the −Z water grid / FacetedRock).
+        //
+        //   radius      — overall cloud radius (the cluster roughly fits a flattened sphere of this radius)
+        //   blobs       — how many spheroids cluster (3-6 reads like the board sheet; min 3)
+        //   bodyCyan / topCyan / shadowCyan — the 3-value cyan palette (Uma §1 anchor swatches)
+        //   seed        — deterministic cluster layout + per-blob jitter (reproducible baked scene)
+        public static Mesh CloudBlob(float radius, int blobs, Color bodyCyan, Color topCyan,
+            Color shadowCyan, int seed)
+        {
+            blobs = Mathf.Max(3, blobs);
+            var rnd = new System.Random(seed);
+            // Lay the blob centres + radii first (a wide, flattish cluster), then flat-shade the union.
+            var centres = new System.Collections.Generic.List<Vector3>();
+            var radii = new System.Collections.Generic.List<float>();
+            var blobCols = new System.Collections.Generic.List<Color>();
+            for (int b = 0; b < blobs; b++)
+            {
+                float t = b / (float)blobs;
+                float ang = t * Mathf.PI * 2f + (float)rnd.NextDouble() * 1.4f;
+                // WIDE + FLAT: ring spread is generous (broad puff), vertical bias is small + squashed
+                // (a cloud is wider than it is tall — the board puffs are flattened masses, not towers).
+                float ringR = (b == 0) ? 0f : radius * (0.35f + (float)rnd.NextDouble() * 0.55f);
+                float upBias = (b == 0) ? 0f
+                                        : radius * ((float)rnd.NextDouble() - 0.35f) * 0.45f;
+                var centre = new Vector3(Mathf.Cos(ang) * ringR, upBias, Mathf.Sin(ang) * ringR);
+                float blobR = radius * (0.50f + (float)rnd.NextDouble() * 0.32f);
+
+                // Per-blob cyan: blend shadow->top by the blob's height in the cluster + a small value
+                // jitter so adjacent blobs differ (the multi-value read the canopy uses, in cyan).
+                float heightK = Mathf.Clamp01((centre.y + blobR) / (radius * 1.1f));
+                Color lo = Color.Lerp(shadowCyan, bodyCyan, Mathf.Clamp01(heightK * 1.7f));
+                Color blobCol = Color.Lerp(lo, topCyan, Mathf.Clamp01((heightK - 0.5f) * 1.9f));
+                float vj = (float)(rnd.NextDouble() - 0.5) * 0.04f;
+                blobCol = new Color(Mathf.Clamp01(blobCol.r + vj), Mathf.Clamp01(blobCol.g + vj),
+                                    Mathf.Clamp01(blobCol.b + vj), 1f);
+                centres.Add(centre); radii.Add(blobR); blobCols.Add(blobCol);
+            }
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            for (int b = 0; b < centres.Count; b++)
+                AppendFlatBlob(verts, normals, cols, centres[b], radii[b], subdiv: 1,
+                               jitter: 0.20f, color: blobCols[b], yScale: 0.78f, seed: rnd.Next());
+
+            var tris = new List<int>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tris.Add(i); // flat-shaded: every face owns its verts
+
+            var mesh = new Mesh { name = "LP_CloudBlob" };
+            mesh.indexFormat = verts.Count > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals); // EXPLICIT flat face normals — hard 0° smoothing (Uma §1)
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // Append one FLAT-SHADED (hard-normal) spheroid blob into the shared vert/normal/color lists.
+        // Like AppendBlob but: (a) every triangle gets its OWN 3 verts + the FACE normal (hard 0°
+        // smoothing — the crisp-facet cloud read), (b) face normals are forced OUTWARD + winding flipped
+        // to match (no backface-cull — the Cull-Back class), (c) a yScale flattens the blob (clouds are
+        // wider than tall). Used by CloudBlob; kept distinct from AppendBlob (smooth canopy) so the two
+        // idioms don't entangle.
+        static void AppendFlatBlob(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
+            Vector3 center, float radius, int subdiv, float jitter, Color color, float yScale, int seed)
+        {
+            var baseVerts = new List<Vector3>
+            {
+                new Vector3(0,  1, 0), new Vector3(0, -1, 0),
+                new Vector3( 1, 0, 0), new Vector3(-1, 0, 0),
+                new Vector3(0, 0,  1), new Vector3(0, 0, -1),
+            };
+            var baseTris = new List<int>
+            {
+                0,2,4, 0,4,3, 0,3,5, 0,5,2,
+                1,4,2, 1,3,4, 1,5,3, 1,2,5,
+            };
+            for (int s = 0; s < subdiv; s++)
+            {
+                var newTris = new List<int>();
+                var midCache = new Dictionary<long, int>();
+                for (int t = 0; t < baseTris.Count; t += 3)
+                {
+                    int a = baseTris[t], b = baseTris[t + 1], c = baseTris[t + 2];
+                    int ab = Midpoint(baseVerts, midCache, a, b);
+                    int bc = Midpoint(baseVerts, midCache, b, c);
+                    int ca = Midpoint(baseVerts, midCache, c, a);
+                    newTris.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+                }
+                baseTris = newTris;
+            }
+
+            var rnd = new System.Random(seed);
+            // Displace each base vert radially (lumpy) + flatten in Y, in blob-local space.
+            var displaced = new Vector3[baseVerts.Count];
+            for (int i = 0; i < baseVerts.Count; i++)
+            {
+                Vector3 n = baseVerts[i].normalized;
+                float r = radius * (1f - jitter * 0.5f + (float)rnd.NextDouble() * jitter);
+                displaced[i] = center + new Vector3(n.x * r, n.y * r * yScale, n.z * r);
+            }
+
+            // Flat-shade: emit each face with its own 3 verts + outward face normal (winding flipped to
+            // match the outward normal so Cull Back keeps the front faces).
+            for (int t = 0; t < baseTris.Count; t += 3)
+            {
+                Vector3 v0 = displaced[baseTris[t]];
+                Vector3 v1 = displaced[baseTris[t + 1]];
+                Vector3 v2 = displaced[baseTris[t + 2]];
+                Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+                if (fn.sqrMagnitude < 1e-10f) continue;
+                fn.Normalize();
+                Vector3 outward = ((v0 + v1 + v2) / 3f) - center; // from blob centre to face
+                if (Vector3.Dot(fn, outward) < 0f)
+                {
+                    fn = -fn;
+                    var tmp = v1; v1 = v2; v2 = tmp; // flip winding so the outward normal is the front face
+                }
+                verts.Add(v0); verts.Add(v1); verts.Add(v2);
+                normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                cols.Add(color); cols.Add(color); cols.Add(color);
+            }
+        }
+
+        // A FACETED MOUNTAIN SILHOUETTE (world-look polish, ticket 86ca8t9pq — Uma world-look brief §2).
+        // The NEAR-VISTA distant landmass: a big confident faceted grey-to-snow peak in the SAME hard-
+        // faceted language as the foreground rocks/terrain, just scaled up + atmosphere-faded (Uma §2:
+        // "the SAME hard-faceted language as foreground terrain/rocks, just scaled up"). Built as a
+        // chunky polygonal cone-ish mass:
+        //   - a ring of base verts (irregular radius so the silhouette is an asymmetric ridge, not a
+        //     symmetric tent) at y=0, rising to a slightly off-centre apex (a believable peak, not a
+        //     perfect cone);
+        //   - FLAT-shaded per-face (hard normals) so each mountain plane catches the key light at its
+        //     own value — the carved-rock read scaled up (Uma: "the SILHOUETTE must stay faceted/chunky");
+        //   - a SNOW CAP baked into vertex colour: faces whose apex-region verts sit above the snowline
+        //     get the pale snow value, lower faces the warm-grey body — the 21h16_13 grey-to-snow read.
+        // Outward winding enforced (no backface-cull). The ATMOSPHERIC FADE (lighter/desaturated/warmer
+        // as it recedes) is applied by the CALLER via the per-range tint + the distance fog (fog tint ==
+        // horizon stop, Uma §3) — this mesh just carries the silhouette + the snow-cap value contrast.
+        //
+        //   baseRadius — half-extent of the mountain footprint
+        //   height     — peak height (a confident vertical mass)
+        //   sides      — base-ring segments (6-9 reads chunky-faceted, not smooth)
+        //   snowline   — 0..1 fraction of the height above which faces read as snow cap
+        //   bodyGrey / snowWhite — the grey-to-snow palette (per-range, atmosphere-faded by the caller)
+        //   seed       — deterministic ridge shape (reproducible baked scene)
+        public static Mesh FacetedMountain(float baseRadius, float height, int sides, float snowline,
+            Color bodyGrey, Color snowWhite, int seed)
+        {
+            sides = Mathf.Max(5, sides);
+            var rnd = new System.Random(seed);
+
+            // Base ring: irregular radius + small y-wobble so the foot of the mountain is a lumpy ridge.
+            var baseRing = new Vector3[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = i / (float)sides * Mathf.PI * 2f;
+                float r = baseRadius * (0.78f + (float)rnd.NextDouble() * 0.44f); // irregular footprint
+                float yw = ((float)rnd.NextDouble() - 0.5f) * height * 0.06f;     // small foot wobble
+                baseRing[i] = new Vector3(Mathf.Cos(a) * r, yw, Mathf.Sin(a) * r);
+            }
+            // Apex: off-centre + a touch of height jitter so ranges differ.
+            var apex = new Vector3(
+                (float)(rnd.NextDouble() - 0.5) * baseRadius * 0.30f,
+                height * (0.92f + (float)rnd.NextDouble() * 0.16f),
+                (float)(rnd.NextDouble() - 0.5) * baseRadius * 0.30f);
+
+            // SNOWLINE RING (the grey-to-snow split): a mid ring at `snowline` fraction of the apex
+            // height, contracted toward the apex XZ so the upper cone is the snow cap. Faces BELOW this
+            // ring are the warm-grey body; faces ABOVE it (snowline ring -> apex) are the snow cap. This
+            // is what gives a real grey-to-snow value contrast — a single base->apex triangle could never
+            // be "all snow" (its centroid sits ~1/3 up), so an explicit snowline band is required.
+            float sn = Mathf.Clamp(snowline, 0.2f, 0.85f);
+            var snowRing = new Vector3[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                // Lerp each base vert toward the apex by the snowline fraction (so the snow ring is a
+                // contracted ring at snow height), + small per-vert wobble for a lumpy ridgeline.
+                Vector3 b = baseRing[i];
+                Vector3 s = Vector3.Lerp(b, apex, sn);
+                s.y += ((float)rnd.NextDouble() - 0.5f) * height * 0.04f;
+                snowRing[i] = s;
+            }
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            var center = new Vector3(0f, height * 0.4f, 0f); // rough mass centre for outward test
+
+            void EmitFace(Vector3 v0, Vector3 v1, Vector3 v2, Color baseCol)
+            {
+                Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+                if (fn.sqrMagnitude < 1e-10f) return;
+                fn.Normalize();
+                Vector3 outward = ((v0 + v1 + v2) / 3f) - center;
+                if (Vector3.Dot(fn, outward) < 0f)
+                {
+                    fn = -fn;
+                    var tmp = v1; v1 = v2; v2 = tmp;
+                }
+                // Small per-face value jitter so adjacent planes differ (the facet-to-facet contrast).
+                float vj = ((float)rnd.NextDouble() - 0.5f) * 0.04f;
+                Color fc = new Color(Mathf.Clamp01(baseCol.r + vj), Mathf.Clamp01(baseCol.g + vj),
+                                     Mathf.Clamp01(baseCol.b + vj), 1f);
+                verts.Add(v0); verts.Add(v1); verts.Add(v2);
+                normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                cols.Add(fc); cols.Add(fc); cols.Add(fc);
+            }
+
+            // BODY band: base ring -> snow ring (two triangles per segment, warm-grey).
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                Vector3 b0 = baseRing[i], b1 = baseRing[ni], s0 = snowRing[i], s1 = snowRing[ni];
+                EmitFace(b0, b1, s1, bodyGrey);
+                EmitFace(b0, s1, s0, bodyGrey);
+            }
+            // SNOW CAP: snow ring -> apex (one triangle per segment, snow-white).
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFace(snowRing[i], snowRing[ni], apex, snowWhite);
+            }
+
+            var tris = new List<int>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tris.Add(i);
+
+            var mesh = new Mesh { name = "LP_Mountain" };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals);  // explicit flat face normals (hard-faceted silhouette)
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // Append one faceted spheroid blob (subdivided octahedron, radial jitter) into the shared
         // vert/color/tri lists at `center`, tinted `color`. Each blob's own verts are welded WITHIN
         // the blob (shared edges -> smooth shading), but blobs do NOT weld to each other (distinct

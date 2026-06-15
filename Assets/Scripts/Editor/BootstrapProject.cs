@@ -188,6 +188,10 @@ namespace FarHorizon.EditorTools
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
             // serialization trap; inert unless the exe is launched with -captureGate.
             hudGo.AddComponent<CaptureGate>();
+            // World-look polish verify capture (86ca8t9pq) — orbits to Uma's per-surface criteria
+            // (default-pitch clouds + low-pitch vista/sky dissolve). Serialized editor-time (NOT Awake)
+            // per the editor-vs-runtime trap; INERT unless the exe is launched with -verifyWorldLook.
+            hudGo.AddComponent<WorldLookVerifyCapture>();
             // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
             // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted
             // Screenmanager registry values written by the windowed capture gate). INERT on any capture/verify
