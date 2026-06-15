@@ -125,8 +125,12 @@ namespace FarHorizon.EditorTools
         //     hand. REASONABLE default; the Sponsor fine-tunes on the re-soak (F9 nudge, world units).
         //   - ROTATION: a hand-relative euler so the haft reads roughly along the forearm/grip. REASONABLE;
         //     the exact dial + the swing-into-head re-check are FOLLOW-UPS (per the ticket OOS).
-        public static readonly Vector3 HeldAxeRelEuler = new Vector3(0f, 0f, -90f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.04f, -0.04f, 0.06f);
+        // RE-SOAK #3 (86ca8rdkp): the Sponsor DIALED the held axe in-game via F9 and reported these values
+        // (European decimal commas -> dot-decimal here, digit-checked). They REPLACE the reasonable defaults
+        // above — this is what-he-dialed-is-what-ships. The F9 AxeNudgeTool still drives these fields so he can
+        // re-tune later. (The held axe is STABILIZED against the walk arm-swing by HeldAxeRig — soak-fix #3.)
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(16.0f, 2.0f, -82.0f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.0800f, -0.1400f, -0.0400f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -479,6 +483,10 @@ namespace FarHorizon.EditorTools
             rig.hand = hand;
             rig.worldOffsetFromHand = HeldAxeWorldOffsetFromHand; // WORLD units — the F9 nudge moves this directly
             rig.relEuler = HeldAxeRelEuler;                       // hand-relative — turns with the hand
+            // RE-SOAK #3 — the stabilize frame is the avatar/body root (translates with locomotion, does NOT
+            // arm-swing) so the swing low-pass is measured in a frame free of the walk translation. Without
+            // this the swing damping is computed in WORLD space and FIGHTS locomotion (makes the axe sweep worse).
+            rig.stabilizeFrame = castaway.transform;
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
@@ -590,8 +598,9 @@ namespace FarHorizon.EditorTools
 
         // Wire the additive post-anim arm pose (86ca8rdkp soak-fix #2 + #3) onto the avatar. Resolves the two
         // UPPER-arm bones from the skinned-mesh bone array (the real skeleton) and serializes the component +
-        // the bone refs into Boot.unity (editor-vs-runtime trap). Defaults come from CastawayArmPose's
-        // serialized fields (a reasonable relax + right-arm raised carry); the Sponsor can re-dial later.
+        // the bone refs into Boot.unity (editor-vs-runtime trap). RE-SOAK #1: the per-arm eulers ship BAKED
+        // from the Sponsor's F9 dial (CastawayArmPose.rightArmEuler/leftArmEuler defaults, seed flag FALSE) —
+        // RebuildCached composes those verbatim (no re-seed). The Sponsor can re-dial later via F9.
         private static void AddArmPose(CastawayCharacter castaway)
         {
             var pose = castaway.GetComponent<CastawayArmPose>();
@@ -607,6 +616,56 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
                       (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
                       (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") + "')");
+        }
+
+        // The right-hand FINGER + THUMB bone tokens to curl (86ca8rdkp re-soak #4). Index/Middle/Ring proximal
+        // ..distal (1-3; the 4 bone is the fingertip end-helper, not curled) + Thumb 1-3. Exact-token resolved
+        // from the SMR bone array. The Hyper3D hand is 4-fingered (no pinky — verified by -fingerTrace).
+        public static readonly string[] RightFingerCurlTokens =
+        {
+            "righthandindex1", "righthandindex2", "righthandindex3",
+            "righthandmiddle1", "righthandmiddle2", "righthandmiddle3",
+            "righthandring1", "righthandring2", "righthandring3",
+        };
+        public static readonly string[] RightThumbCurlTokens =
+        {
+            "righthandthumb1", "righthandthumb2", "righthandthumb3",
+        };
+
+        // Wire the right-hand FINGER CURL (86ca8rdkp re-soak #4) onto the avatar. The -fingerTrace OVERTURNED
+        // the ticket's "bad weights / collapsing finger" hypothesis (the skinning is clean — uniform 1.8 lossy,
+        // (1,1,1) localScale, verts tight to their bones); the "mangled" read is the OPEN clip hand around a
+        // held haft. So we CURL the fingers into a grip (gated on HasAxe). Resolves the finger/thumb bones from
+        // the SMR bone array (the real skeleton) + serializes the component + bone refs into Boot.unity.
+        private static void AddFingerCurl(CastawayCharacter castaway)
+        {
+            var curl = castaway.GetComponent<CastawayFingerCurl>();
+            if (curl == null) curl = castaway.gameObject.AddComponent<CastawayFingerCurl>();
+
+            var fingers = new System.Collections.Generic.List<Transform>();
+            foreach (var tok in RightFingerCurlTokens)
+            {
+                var b = FindBoneByExactToken(castaway.transform, tok);
+                if (b != null) fingers.Add(b);
+            }
+            var thumbs = new System.Collections.Generic.List<Transform>();
+            foreach (var tok in RightThumbCurlTokens)
+            {
+                var b = FindBoneByExactToken(castaway.transform, tok);
+                if (b != null) thumbs.Add(b);
+            }
+            curl.fingerBones = fingers.ToArray();
+            curl.thumbBones = thumbs.ToArray();
+            curl.inventory = Object.FindObjectOfType<Inventory>();
+            curl.RebuildCached();
+
+            if (fingers.Count < 6)
+                Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
+                               " finger bones (expected 9: Index/Middle/Ring 1-3) — the grip curl will be " +
+                               "partial. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
+                          thumbs.Count + " thumb bones, HasAxe-gated)");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -1229,6 +1288,13 @@ namespace FarHorizon.EditorTools
             // (the bones must exist), BEFORE AttachHeroAxeToHand (so the axe seats to the posed hand).
             AddArmPose(castaway);
 
+            // RIGHT-HAND FINGER CURL (86ca8rdkp re-soak #4 — "his right finger is mangled"). The -fingerTrace
+            // PROVED the skinning is clean (no degenerate bone/weights) — the "mangled" read is the OPEN clip
+            // hand around a held haft. This additive LateUpdate driver CURLS the right-hand fingers into a grip
+            // (gated on HasAxe so the empty hand stays open). Resolved from the SMR bone array + serialized.
+            // AFTER BuildInEditor (the finger bones must exist).
+            AddFingerCurl(castaway);
+
             // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
             // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.
             // The FBX imports its own ImportStandard material; we override with the single de-lit toon mat so
@@ -1253,6 +1319,16 @@ namespace FarHorizon.EditorTools
             // regardless of the avatar's yaw/anim. Editor-time authored (mesh + inline transparent
             // vertex-color material) so it serializes into Boot.unity — the editor-vs-runtime trap.
             BuildBlobShadow(player);
+
+            // RE-SOAK #2 — wire the contact shadow to CastawayCharacter so it GROUNDS the shadow to the
+            // SNAPPED feet each frame. The shadow is a child of the player root (must not inherit the avatar
+            // height-scale), so without this it strands ~9cm ABOVE the snapped feet on the dipping foreshore
+            // (the 'elevated' percept — foot-trace 2026-06-15). CastawayCharacter.ApplyGroundSnap drives its
+            // world-Y onto the same visible-terrain Y the feet snap to.
+            castaway.blobShadow = player.transform.Find(BlobShadowObjectName);
+            if (castaway.blobShadow == null)
+                Debug.LogWarning("[MovementCameraScene] BlobShadow not found to wire onto CastawayCharacter — " +
+                                 "the contact shadow won't follow the snapped feet (the 'elevated' re-soak #2 fix)");
 
             var ctm = player.AddComponent<ClickToMove>();
             ctm.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;

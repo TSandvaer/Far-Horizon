@@ -79,17 +79,24 @@ namespace FarHorizon
         public float rightCarryRaiseDeg = 7f;
 
         [Header("Per-arm LOCAL-euler offsets — what the F9 AxeNudgeTool dials in-game (bake these)")]
-        [Tooltip("RIGHT upper-arm LOCAL-euler offset (deg). X = spread off torso, Z = raise/reach. Seeded from " +
-                 "the deg fields above; the Sponsor dials it via F9 (arm-pose target) and bakes RightArmEuler.")]
-        public Vector3 rightArmEuler;
-        [Tooltip("LEFT upper-arm LOCAL-euler offset (deg). X = spread off torso. Seeded from relaxSpreadDeg; " +
-                 "dialed via F9 and baked as LeftArmEuler.")]
-        public Vector3 leftArmEuler;
+        // RE-SOAK #1 (86ca8rdkp): the Sponsor DIALED the arm pose in-game via F9 and reported these eulers
+        // (European decimal commas -> dot-decimal, digit-checked). They are BAKED here as the shipped defaults
+        // — this is what-he-dialed-is-what-ships. seedEulersFromDegFields ships FALSE so RebuildCached does NOT
+        // re-derive over them from the deg fields (the deg fields stay only as the conservative SEED path the
+        // EditMode seed test still exercises). The F9 tool still nudges these so he can re-tune later.
+        [Tooltip("RIGHT upper-arm LOCAL-euler offset (deg) — BAKED from the Sponsor's F9 dial (re-soak #1). " +
+                 "The F9 nudge tool (arm-pose target) edits this; paste RightArmEuler to re-bake.")]
+        public Vector3 rightArmEuler = new Vector3(-4.0f, -50.0f, -3.0f);
+        [Tooltip("LEFT upper-arm LOCAL-euler offset (deg) — BAKED from the Sponsor's F9 dial (re-soak #1). " +
+                 "Dialed via F9; paste LeftArmEuler to re-bake.")]
+        public Vector3 leftArmEuler = new Vector3(-5.0f, 22.0f, 0.0f);
 
-        // When true, RebuildCached re-DERIVES the per-arm eulers from the named deg fields (the authored
-        // default seed). The F9 nudge tool sets this FALSE before dialing so a re-Rebuild can't clobber the
-        // Sponsor's live dial; the editor author seeds with it TRUE.
-        [HideInInspector] public bool seedEulersFromDegFields = true;
+        // When true, RebuildCached re-DERIVES the per-arm eulers from the named deg fields (the conservative
+        // authored SEED). Ships FALSE (re-soak #1) so the Sponsor's BAKED dialed eulers above are authoritative
+        // and a RebuildCached can't clobber them. The F9 nudge tool also clears this before dialing; the
+        // EditMode seed test flips it TRUE to exercise the deg-field seed path. The editor author keeps it
+        // FALSE (AddArmPose no longer re-seeds — the dialed eulers ship verbatim).
+        [HideInInspector] public bool seedEulersFromDegFields = false;
 
         // Cached so the offset composes on the clip pose, not on the prior frame's offset (which would drift).
         private Quaternion _rightOffsetQ, _leftOffsetQ;

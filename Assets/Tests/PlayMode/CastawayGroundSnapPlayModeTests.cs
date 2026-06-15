@@ -33,6 +33,7 @@ namespace FarHorizon.PlayTests
         private GameObject _playerGo;
         private GameObject _avatarGo;
         private CastawayCharacter _castaway;
+        private GameObject _shadowGo;
 
         // The agent grounds the player root HERE (above the visible terrain) — the float source.
         private const float RootY = 0.60f;
@@ -108,6 +109,60 @@ namespace FarHorizon.PlayTests
             if (_terrain != null) { Object.DestroyImmediate(_terrain); _terrain = null; }
             if (_playerGo != null) { Object.DestroyImmediate(_playerGo); _playerGo = null; }
             if (_proxySlab != null) { Object.DestroyImmediate(_proxySlab); _proxySlab = null; }
+            _shadowGo = null; // a child of _playerGo — destroyed with it above
+        }
+
+        // RE-SOAK #2 regression (86ca8rdkp — 'he STILL seems elevated'). The foot-trace OVERTURNED the feet-
+        // float hypothesis: the feet ARE planted on the visible terrain (the PR #47 snap works). The real cause
+        // was the BLOB SHADOW — a child of the PLAYER ROOT that does NOT inherit the avatar ground-snap, so it
+        // stayed at root level while the feet snapped DOWN onto the dipping foreshore (~9cm gap measured), and
+        // the body read as floating ABOVE its own contact shadow = "elevated". The fix drives the shadow's
+        // world-Y onto the snapped feet. This guard reproduces the divergence: a shadow parked at the (high)
+        // root level, and asserts CastawayCharacter grounds it to the visible terrain (the snapped feet) — and
+        // the deliberate-break (shadow unwired) leaves it stranded above the feet.
+        [UnityTest]
+        public IEnumerator BlobShadow_GroundsToTheSnappedFeet_NotStrandedAtTheAgentRoot()
+        {
+            BuildRig(snap: true);
+            // A blob shadow as a child of the PLAYER ROOT (like the real BuildBlobShadow), parked at the root
+            // level — i.e. floating RootY-TerrainY above the visible terrain (the stranded "elevated" state).
+            _shadowGo = new GameObject("BlobShadow");
+            _shadowGo.transform.SetParent(_playerGo.transform, false);
+            _shadowGo.transform.localPosition = new Vector3(0f, 0.02f, 0f); // ~root level, the float
+            _castaway.blobShadow = _shadowGo.transform;
+            _castaway.blobShadowLift = 0.02f;
+
+            for (int i = 0; i < 40; i++) yield return null; // let the snap settle + the shadow ground each frame
+
+            float shadowY = _shadowGo.transform.position.y;
+            float feetY = _avatarGo.transform.position.y;
+            // The shadow must sit AT the visible terrain / snapped feet (within the small lift), NOT stranded
+            // up at the agent root Y.
+            Assert.That(shadowY, Is.EqualTo(TerrainY + _castaway.blobShadowLift).Within(0.03f),
+                $"the blob shadow must ground to the SNAPPED feet (Y≈{TerrainY + _castaway.blobShadowLift:F3}); got " +
+                $"{shadowY:F3}. Left at the agent root ({RootY}) it strands ABOVE the feet — the 'floats above " +
+                "its shadow' = elevated re-soak #2 percept.");
+            Assert.That(Mathf.Abs(shadowY - (feetY + _castaway.blobShadowLift)), Is.LessThan(0.04f),
+                $"the shadow (Y={shadowY:F3}) must sit at the feet (Y={feetY:F3}) + the lift — a contact read.");
+        }
+
+        // The deliberate-break half: with the shadow UNWIRED, it stays stranded at the root level (the bug),
+        // proving the wiring is load-bearing for the contact-grounding fix.
+        [UnityTest]
+        public IEnumerator BlobShadowUnwired_StaysStrandedAtRoot_ProvingTheWiringIsLoadBearing()
+        {
+            BuildRig(snap: true);
+            _shadowGo = new GameObject("BlobShadow");
+            _shadowGo.transform.SetParent(_playerGo.transform, false);
+            _shadowGo.transform.localPosition = new Vector3(0f, 0.02f, 0f);
+            _castaway.blobShadow = null; // UNWIRED — CastawayCharacter must not touch it
+
+            for (int i = 0; i < 40; i++) yield return null;
+
+            float shadowY = _shadowGo.transform.position.y;
+            Assert.That(shadowY, Is.EqualTo(RootY + 0.02f).Within(0.01f),
+                $"with the shadow UNWIRED it stays at the root level ({RootY + 0.02f:F3}) — the stranded float. " +
+                $"Got {shadowY:F3}. (The fix grounds it only when wired.)");
         }
 
         // The CORE grounding guard: the avatar feet snap DOWN onto the visible terrain (Y≈TerrainY), not left

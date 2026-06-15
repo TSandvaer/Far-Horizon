@@ -64,6 +64,16 @@ namespace FarHorizon
         [Tooltip("Max ground-ray distance below the start point.")]
         public float groundRayDown = 12f;
 
+        [Header("Contact shadow (86ca8rdkp re-soak #2 — 'he STILL seems elevated')")]
+        [Tooltip("The blob/contact shadow under the feet. The shadow is a child of the PLAYER ROOT and does " +
+                 "NOT inherit the avatar ground-snap, so on the dipping foreshore it was STRANDED ~9cm ABOVE " +
+                 "the snapped feet — the body read as floating above its own shadow = 'elevated' (foot-trace " +
+                 "2026-06-15: feet planted at the sand, but BlobShadow 9cm above them). Driving the shadow's " +
+                 "world-Y down onto the snapped feet each frame grounds the contact read. Wired editor-time.")]
+        public Transform blobShadow;
+        [Tooltip("Small lift (world units) of the shadow above the snapped feet so it doesn't z-fight the sand.")]
+        public float blobShadowLift = 0.02f;
+
         // Animator parameter the controller blends on (set each frame from the agent's velocity).
         public const string MovingParam = "Moving";
 
@@ -251,6 +261,18 @@ namespace FarHorizon
             Vector3 lp = transform.localPosition;
             lp.y = _snapLocalY;
             transform.localPosition = lp;
+
+            // RE-SOAK #2 — ground the CONTACT SHADOW to the snapped feet. The shadow is a child of the player
+            // root (it must NOT inherit the avatar height-scale), so it does not get the avatar's ground-snap;
+            // left alone it strands ~9cm ABOVE the feet on the dipping foreshore (body floats above its shadow
+            // = the 'elevated' read — foot-trace 2026-06-15). Drive its WORLD-Y onto the snapped sole each
+            // frame (the SAME bestY the feet snap to), so the shadow sits AT the feet on flat AND dipping sand.
+            if (blobShadow != null)
+            {
+                Vector3 sp = blobShadow.position;
+                sp.y = bestY + blobShadowLift;
+                blobShadow.position = sp;
+            }
         }
 
         void LateUpdate()
