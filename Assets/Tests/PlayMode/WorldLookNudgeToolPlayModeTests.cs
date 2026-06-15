@@ -80,6 +80,83 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(fogDens0, RenderSettings.fogDensity, "fog density must be untouched (inert)");
         }
 
+        // KEY-SPLIT regression guard (combined-#48 fix — the Sponsor's two soak panels must not collide). A
+        // single F9 used to bring up BOTH the AxeNudgeTool (character: arm/axe/ground-Y) AND the
+        // WorldLookNudgeTool (sky/fog/clouds/mountains), and their shared Tab/PageUp/PageDown cross-fired.
+        // This pins the two tools to DISTINCT default toggle keys so a regression that re-collides them
+        // (e.g. someone re-defaulting world-look back to F9) reds in CI. Asserted on fresh components so it
+        // reads the SERIALIZED default (what ships), not an inspector override.
+        [Test]
+        public void NudgeTools_UseDistinctToggleKeys_NoCollision()
+        {
+            var axeGo = new GameObject("AxeTool");
+            var worldGo = new GameObject("WorldTool");
+            try
+            {
+                var axe = axeGo.AddComponent<AxeNudgeTool>();
+                var world = worldGo.AddComponent<WorldLookNudgeTool>();
+                Assert.AreNotEqual(axe.toggleKey, world.toggleKey,
+                    "the two nudge tools MUST default to DISTINCT toggle keys so the Sponsor's soak panels " +
+                    "never collide (a single key brought up BOTH panels + cross-fired their shared Tab/Page " +
+                    "keys — combined-#48 key-split fix)");
+                // Pin the concrete convention so the doc/UX contract (F9=character, F10=world-look) is guarded.
+                Assert.AreEqual(KeyCode.F9, axe.toggleKey, "the AxeNudgeTool (character) must default to F9");
+                Assert.AreEqual(KeyCode.F10, world.toggleKey, "the WorldLookNudgeTool must default to F10");
+            }
+            finally
+            {
+                Object.Destroy(axeGo);
+                Object.Destroy(worldGo);
+            }
+        }
+
+        // MUTUAL-EXCLUSION guard: with both tools present, activating one forces the other OFF, so only one
+        // panel is ever up — its cycle/adjust keys are the only ones that act and the two can NEVER
+        // cross-fire even if both toggle keys are pressed in sequence. Drives the public Activate()/IsActive
+        // path the toggle uses (the harness can't synthesize the F9/F10 legacy-Input key-downs, so the toggle
+        // delegates to Activate() and the test calls it directly).
+        [UnityTest]
+        public IEnumerator ActivatingOneNudgePanel_ForcesTheOtherOff_NeverBothActive()
+        {
+            var axeGo = new GameObject("AxeTool");
+            var worldGo = new GameObject("WorldTool");
+            try
+            {
+                var axe = axeGo.AddComponent<AxeNudgeTool>();
+                var world = worldGo.AddComponent<WorldLookNudgeTool>();
+                yield return null;
+
+                // Both start INERT (asleep behind their toggles).
+                Assert.IsFalse(axe.IsActive, "axe panel must start inert");
+                Assert.IsFalse(world.IsActive, "world panel must start inert");
+
+                // Sponsor brings up the AXE panel (F9): it activates, world stays off.
+                axe.Activate();
+                Assert.IsTrue(axe.IsActive, "the axe panel must be active after Activate()");
+                Assert.IsFalse(world.IsActive, "activating the axe panel must NOT bring up the world panel");
+
+                // Now the Sponsor brings up the WORLD panel (F10) WHILE the axe panel is up — the axe panel
+                // MUST be forced off (the cross-fire fix), so only one panel is ever active.
+                world.Activate();
+                Assert.IsTrue(world.IsActive, "the world panel must be active after Activate()");
+                Assert.IsFalse(axe.IsActive,
+                    "activating the world panel MUST force the axe panel off (mutual-exclusion — the two " +
+                    "panels can never both be up, so their shared Tab/PageUp keys never cross-fire)");
+                Assert.IsFalse(axe.IsActive && world.IsActive, "the two panels must never both be active");
+
+                // And symmetrically: re-activating the axe panel forces the world panel off again.
+                axe.Activate();
+                Assert.IsTrue(axe.IsActive);
+                Assert.IsFalse(world.IsActive,
+                    "re-activating the axe panel must force the world panel off (exclusion is symmetric)");
+            }
+            finally
+            {
+                Object.Destroy(axeGo);
+                Object.Destroy(worldGo);
+            }
+        }
+
         // OFF-HOTBAR + on-screen guard (same contract as AxeNudgeTool): across screen sizes the panel must
         // not overlap SurvivalHud's bottom-left hotbar and must stay fully on-screen. Pure-geometry.
         [Test]

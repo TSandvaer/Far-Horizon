@@ -28,9 +28,15 @@ namespace FarHorizon
     /// </summary>
     public class WorldLookNudgeTool : MonoBehaviour
     {
-        [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it.")]
-        public KeyCode toggleKey = KeyCode.F9;
-        [Tooltip("Cycle the nudge target (Sky / Fog / Clouds / Mountains).")]
+        // KEY-SPLIT (combined-#48 fix): the world-look tool toggles on F10, the AxeNudgeTool on F9, so the
+        // Sponsor's soak dials never collide (a single F9 used to bring up BOTH panels at once, and the
+        // shared Tab / PageUp / PageDown cross-fired both). DISTINCT toggle keys + the mutual-exclusion in
+        // Update() (toggling one ON forces the other OFF) mean only ONE panel is ever active — so a tool's
+        // cycle/adjust keys act ONLY when ITS OWN panel is up and the two can never cross-fire.
+        [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it. " +
+                 "F10 (the AxeNudgeTool is on F9) so the two soak panels never collide.")]
+        public KeyCode toggleKey = KeyCode.F10;
+        [Tooltip("Cycle the nudge target (Sky / Fog / Clouds / Mountains). Acts ONLY while this panel is active.")]
         public KeyCode cycleKey = KeyCode.Tab;
 
         public enum Target { Sky, Fog, Clouds, Mountains }
@@ -82,14 +88,38 @@ namespace FarHorizon
             return new Rect(10f, top, 272f, bottom - top);
         }
 
+        /// <summary>Is this panel currently up? (read by the sibling tool's mutual-exclusion + by tests.)</summary>
+        public bool IsActive => _active;
+
+        /// <summary>
+        /// Force this panel OFF (called by the sibling AxeNudgeTool when ITS panel toggles on, so only one
+        /// nudge panel is ever active and their shared cycle/adjust keys can never cross-fire). Idempotent.
+        /// </summary>
+        public void Deactivate() => _active = false;
+
+        /// <summary>
+        /// Turn this panel ON (the toggle path). MUTUAL EXCLUSION (key-split fix): activating THIS panel forces
+        /// the sibling axe-nudge panel OFF, so only one nudge panel is ever active — its Tab/PageUp/arrow keys
+        /// are the only ones that act and the two tools can never cross-fire even though some keys overlap.
+        /// Public so the mutual-exclusion contract is testable without synthesizing the F10 legacy-Input key-down.
+        /// </summary>
+        public void Activate()
+        {
+            // Force EVERY sibling axe-nudge panel off (FindObjectsByType, not FindAnyObjectByType — there can
+            // be more than one in a scene, and the active one is the one that must be silenced).
+            foreach (var axe in Object.FindObjectsByType<AxeNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                axe.Deactivate();
+            _active = true;
+            Resolve();
+            LogCurrent();
+        }
+
         void Update()
         {
             if (Input.GetKeyDown(toggleKey))
             {
-                _active = !_active;
-                if (_active) { Resolve(); LogCurrent(); }
-                Debug.Log("[WorldLookNudgeTool] " + (_active
-                    ? "ENABLED — dial sky/fog/clouds/mountains; values on HUD/log" : "disabled"));
+                if (_active) { Deactivate(); Debug.Log("[WorldLookNudgeTool] disabled"); }
+                else { Activate(); Debug.Log("[WorldLookNudgeTool] ENABLED — dial sky/fog/clouds/mountains; values on HUD/log"); }
             }
             if (!_active) return;
 

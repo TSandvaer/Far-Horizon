@@ -54,7 +54,11 @@ namespace FarHorizon
     /// </summary>
     public class AxeNudgeTool : MonoBehaviour
     {
-        [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it.")]
+        // KEY-SPLIT (combined-#48 fix): the axe tool stays on F9; the WorldLookNudgeTool moved to F10, so the
+        // Sponsor's two soak panels never collide and their shared Tab/PageUp/PageDown can never cross-fire
+        // (toggling one ON forces the other OFF — see Update()'s mutual-exclusion).
+        [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it. " +
+                 "F9 (the WorldLookNudgeTool is on F10) so the two soak panels never collide.")]
         public KeyCode toggleKey = KeyCode.F9;
         [Tooltip("Cycle the nudge target (held axe -> stump axe -> arm pose -> ...).")]
         public KeyCode cycleKey = KeyCode.Tab;
@@ -118,16 +122,40 @@ namespace FarHorizon
             return new Rect(10f, top, 272f, bottom - top);
         }
 
+        /// <summary>Is this panel currently up? (read by the sibling tool's mutual-exclusion + by tests.)</summary>
+        public bool IsActive => _active;
+
+        /// <summary>
+        /// Force this panel OFF (called by the sibling WorldLookNudgeTool when ITS panel toggles on, so only
+        /// one nudge panel is ever active and their shared cycle/adjust keys can never cross-fire). Idempotent.
+        /// </summary>
+        public void Deactivate() => _active = false;
+
+        /// <summary>
+        /// Turn this panel ON (the toggle path). MUTUAL EXCLUSION (key-split fix): activating THIS panel forces
+        /// the sibling world-look panel OFF, so only one nudge panel is ever active — its Tab/PageUp/arrow keys
+        /// are the only ones that act and the two tools can never cross-fire even though some keys overlap.
+        /// Public so the mutual-exclusion contract is testable without synthesizing the F9 legacy-Input key-down.
+        /// </summary>
+        public void Activate()
+        {
+            // Force EVERY sibling world-look panel off (FindObjectsByType, not FindAnyObjectByType — there can
+            // be more than one in a scene, and the active one is the one that must be silenced).
+            foreach (var world in Object.FindObjectsByType<WorldLookNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                world.Deactivate();
+            _active = true;
+            Resolve();
+            LogCurrent();
+        }
+
         void Update()
         {
             // The ONLY thing that runs in normal play: watch for the debug toggle. Cheap, no allocs, no
             // gameplay effect. Everything else is gated behind _active.
             if (Input.GetKeyDown(toggleKey))
             {
-                _active = !_active;
-                if (_active) Resolve();
-                Debug.Log("[AxeNudgeTool] " + (_active ? "ENABLED — nudge the axes; values on HUD/log" : "disabled"));
-                if (_active) LogCurrent();
+                if (_active) { Deactivate(); Debug.Log("[AxeNudgeTool] disabled"); }
+                else { Activate(); Debug.Log("[AxeNudgeTool] ENABLED — nudge the axes; values on HUD/log"); }
             }
             if (!_active) return;
 
