@@ -4,38 +4,38 @@ using UnityEngine.AI;
 namespace FarHorizon
 {
     /// <summary>
-    /// The player's visual avatar: the "Mini Chibi Kid" sourced CC0-Attribution rigged low-poly
-    /// chunky-cartoon character (Sketchfab, joaobaltieri) — the purpose-built chibi castaway base
-    /// (ticket 86ca8ca1m). This SUPERSEDES the Quaternius Animated-Men character (the realistic
-    /// Quaternius head could not be cartoon-ified): the chibi's big-head toy proportions are INTRINSIC
-    /// to the mesh, so there are NO bone-scale dials — the mesh ships chunky as imported.
+    /// The player's visual avatar: the HYPER3D + MIXAMO generated castaway — a chunky low-poly young/hopeful
+    /// castaway (ticket 86ca8rdkp). This SUPERSEDES the Sketchfab "Mini Chibi Kid": the chibi's realistic-
+    /// leaning face couldn't carry the identity, and the Sponsor APPROVED the swap (2026-06-15) after the
+    /// viability spike (86ca8r72j / PR #45) proved this asset animates clean + on-style in the shipped URP exe.
+    /// The character ships sculpted hair + clothing IN THE MESH (no procedural hair-cap / cap-hide needed —
+    /// those were chibi-specific). Its big-head toy proportions are INTRINSIC to the mesh — no bone-scale dials.
     ///
-    /// WHY A BAKED SKINNED MESH (the durable fix for a bug CLASS): the spike's earlier PROCEDURAL
-    /// humanoid shipped BROKEN in the exe — "legs pointing upwards" — because an Awake-assembled
-    /// hierarchy serialized differently than the editor-time build (unity-conventions.md
-    /// §editor-vs-runtime). A skinned mesh with a baked bone skeleton + imported clips CANNOT exhibit
-    /// that failure by construction: the skeleton + skin live in the FBX, not assembled at runtime.
-    /// The model child is built EDITOR-TIME (BuildInEditor, called by MovementCameraScene) so it
-    /// SERIALIZES into Boot.unity; runtime code only animates what's serialized.
+    /// WHY A BAKED SKINNED MESH (the durable fix for a bug CLASS): the spike's earlier PROCEDURAL humanoid
+    /// shipped BROKEN in the exe — "legs pointing upwards" — because an Awake-assembled hierarchy serialized
+    /// differently than the editor-time build (unity-conventions.md §editor-vs-runtime). A skinned mesh with a
+    /// baked bone skeleton + imported clips CANNOT exhibit that failure by construction: the skeleton + skin
+    /// live in the FBX, not assembled at runtime. The model child is built EDITOR-TIME (BuildInEditor, called
+    /// by MovementCameraScene) so it SERIALIZES into Boot.unity; runtime code only animates what's serialized.
     ///
-    /// SELF-DRIVING (the U5/U3 seam): this component lives on a CHILD avatar root under the player
-    /// (so its avatar-height scale doesn't scale the NavMeshAgent), and reads the player's
-    /// <see cref="NavMeshAgent"/> velocity (resolved from the parent) itself each frame to flip the
-    /// Idle&lt;-&gt;Walk Animator blend and yaw the model toward travel. It does NOT modify ClickToMove.
-    /// The agent has updateRotation=false (ClickToMove owns that contract), so the visual owns facing.
+    /// SELF-DRIVING (the U5/U3 seam): this component lives on a CHILD avatar root under the player (so its
+    /// avatar-height scale doesn't scale the NavMeshAgent), and reads the player's <see cref="NavMeshAgent"/>
+    /// velocity (resolved from the parent) itself each frame to flip the Idle&lt;-&gt;Walk Animator blend and
+    /// yaw the model toward travel. It does NOT modify ClickToMove. The agent has updateRotation=false
+    /// (ClickToMove owns that contract), so the visual owns facing.
     ///
-    /// MATERIALS — KEEP THE FBX'S OWN FLAT TOON MATERIALS (identity/recolor OUT OF SCOPE per the
-    /// ticket): the chibi ships two URP/Lit toon materials (mini_material / mini_material_secondary)
-    /// that bind a 256² atlas (mini_material_baseColor) — that flat-shaded toon look IS the look we
-    /// ship. We do NOT recolor here (the prior base's 6-part Quaternius recolor is dropped — recoloring
-    /// would replace the materials and WIPE the atlas to a flat tint). A sandy-hair/khaki recolor is a
-    /// TUNABLE follow-up the Sponsor judges from the soak; not fought here.
+    /// MATERIALS — a single flat DE-LIT URP/Lit material (CastawayMat) from texture_diffuse, authored by
+    /// CharacterAssetGen + bound onto the SkinnedMeshRenderer editor-time by MovementCameraScene. The de-lit
+    /// baked albedo reads flat/toon (the project's URP/Lit toon idiom). The IDENTITY RECOLOR (warm the
+    /// generated mustard shirt toward tan) lives in the texture_diffuse PNG's repainted pixels
+    /// (CharacterAssetGen.RecolorShirtToTan, a luma-preserving HSV remap) — NOT a per-material tint (which
+    /// would flatten the toon gradient — the trap this class always warned of).
     /// </summary>
     public class CastawayCharacter : MonoBehaviour
     {
         [Header("Model source (wired by MovementCameraScene at author time)")]
-        // The imported FBX prefab (the chibi: rig + bundled Idle/Walk clips + toon materials/atlas) and
-        // the Idle<->Walk controller. CharacterAssetGen produces both.
+        // The imported with-skin Idle FBX prefab (rig + Idle clip + Humanoid avatar) and the Idle<->Walk
+        // controller. CharacterAssetGen produces both; MovementCameraScene also binds the de-lit material.
         public GameObject modelPrefab;
         public RuntimeAnimatorController animatorController;
 
@@ -51,17 +51,6 @@ namespace FarHorizon
         // Animator parameter the controller blends on (set each frame from the agent's velocity).
         public const string MovingParam = "Moving";
 
-        // CAP -> HAIR (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and the castaway read as wearing
-        // a CAP, not hair ("still wearing the yellow cap"). The chibi's cap is TWO separate skinned-mesh
-        // nodes (empirically mapped via the diagnose-via-trace IsolateMeshes probe): Object_41 is the
-        // CROWN DOME, Object_42 is the flat forward BRIM/VISOR. We HIDE BOTH: hiding only the brim left
-        // the dome's cap-shaped front ARC sticking up off the head (it read as a floating sandy loop, not
-        // hair — proven in the shipped close-up). With both cap meshes hidden, a clean procedural
-        // sandy-ginger HAIR skull-cap is added on top instead (MovementCameraScene.AttachHair). Hiding
-        // (not deleting) keeps the bone hierarchy intact for the proportion/clip guards, and the disabled
-        // state SERIALIZES into Boot.unity on the editor-build path.
-        public static readonly string[] CapMeshNames = { "Object_41", "Object_42" }; // dome + brim — both hidden
-
         private NavMeshAgent _agent;
         private Animator _animator;
         private Transform _model;       // the instantiated FBX root, yaw-rotated toward facing
@@ -73,16 +62,11 @@ namespace FarHorizon
         public bool IsWalking { get; private set; }
 
         /// <summary>
-        /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook, ticket
-        /// 86ca8fevz). The verify capture cannot rely on the rest-state facing being a fixed axis (the
-        /// "+Z front" assumption was non-deterministic across runs — PR #31/#36), so it pins the facing
-        /// to a known value before framing. Sets <see cref="_bodyYaw"/> + the remembered facing and
-        /// applies it to the model THIS frame (no lerp), so a capture taken immediately after sees the
-        /// front it expects. Inert for normal gameplay (LateUpdate keeps driving facing off velocity);
-        /// only the verify path calls this.
+        /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook). The verify
+        /// capture cannot rely on the rest-state facing being a fixed axis, so it pins the facing to a known
+        /// value before framing. Inert for normal gameplay (LateUpdate keeps driving facing off velocity).
         /// </summary>
-        /// <param name="yawDeg">World Y yaw (0 = the model's rest/intrinsic facing — the front the
-        /// gameplay view validated, sandy-ginger hair + forward fringe).</param>
+        /// <param name="yawDeg">World Y yaw (0 = the model's rest/intrinsic facing).</param>
         public void FaceWorldYawInstant(float yawDeg)
         {
             _bodyYaw = yawDeg;
@@ -105,18 +89,16 @@ namespace FarHorizon
                 Debug.LogWarning("[CastawayCharacter] no NavMeshAgent found in parents — the " +
                                  "Idle<->Walk anim + facing won't drive (avatar must be a child of the " +
                                  "player root that carries the agent)");
-            // If the author-time build already serialized the Model child into the scene (the ship
-            // path), re-bind to it rather than re-instantiate. Otherwise build at runtime (defensive
-            // fallback — should not happen for the shipped scene).
+            // If the author-time build already serialized the Model child into the scene (the ship path),
+            // re-bind to it rather than re-instantiate. Otherwise build at runtime (defensive fallback).
             if (transform.childCount > 0 && _model == null) RebindFromHierarchy();
             if (!_built) BuildModel();
         }
 
         /// <summary>
-        /// Editor build entry: MovementCameraScene calls this so the Model child + the Animator
-        /// controller reference SERIALIZE into Boot.unity (the editor-vs-runtime serialization lesson —
-        /// the shipped scene must reference a serialized skinned/boned avatar, not assemble a hierarchy
-        /// in Awake). Idempotent: clears prior children first.
+        /// Editor build entry: MovementCameraScene calls this so the Model child + the Animator controller
+        /// reference SERIALIZE into Boot.unity (the editor-vs-runtime serialization lesson). Idempotent:
+        /// clears prior children first.
         /// </summary>
         public void BuildInEditor()
         {
@@ -141,11 +123,10 @@ namespace FarHorizon
                 return;
             }
 
-            // Instantiate the imported FBX under the avatar root. In the editor-build path the
-            // resulting SkinnedMeshRenderer + bone hierarchy SERIALIZE into Boot.unity, so the
-            // shipped exe loads the SAME baked skeleton the editor sees (no Awake-assembled hierarchy
-            // to diverge — the legs-up lesson). Works for both editor-build + runtime-fallback with no
-            // UnityEditor dependency.
+            // Instantiate the imported FBX under the avatar root. In the editor-build path the resulting
+            // SkinnedMeshRenderer + bone hierarchy SERIALIZE into Boot.unity, so the shipped exe loads the
+            // SAME baked skeleton the editor sees (no Awake-assembled hierarchy to diverge — the legs-up
+            // lesson). Works for both editor-build + runtime-fallback with no UnityEditor dependency.
             GameObject go = Instantiate(modelPrefab, transform, false);
             go.name = "Model";
             go.transform.localPosition = Vector3.zero;   // FBX origin is at the feet -> grounded feet
@@ -154,50 +135,18 @@ namespace FarHorizon
 
             _animator = go.GetComponentInChildren<Animator>();
             if (_animator == null) _animator = go.AddComponent<Animator>();
-            // Preserve the FBX-imported avatar (the Generic-rig skeleton built by CreateFromThisModel)
-            // — assigning only the controller keeps _animator.avatar, which the clips bind to. A null
-            // avatar means the FBX imported with NoAvatar and the model freezes in its bind/T-pose.
+            // Preserve the FBX-imported Humanoid avatar — assigning only the controller keeps _animator.avatar,
+            // which the clips bind to. A null avatar means the FBX imported without an avatar and the model
+            // freezes in its bind/T-pose.
             if (_animator.avatar == null)
                 Debug.LogWarning("[CastawayCharacter] Animator has NO avatar — clips will not bind " +
-                                 "(FBX must import with avatarSetup=CreateFromThisModel)");
+                                 "(Idle.fbx must import Humanoid with avatarSetup=CreateFromThisModel)");
             if (animatorController != null) _animator.runtimeAnimatorController = animatorController;
             _animator.applyRootMotion = false; // NavMeshAgent drives position; anim is in-place
 
-            // CAP -> HAIR (86ca8ca1m soak-fix): hide BOTH cap meshes (dome + brim) so the castaway reads
-            // as having sandy-ginger HAIR (a clean procedural skull-cap added by MovementCameraScene),
-            // not wearing a hat. Disabling the renderers (not destroying) keeps the bone hierarchy whole
-            // for the proportion/clip guards, and the disabled state serializes into Boot.unity on the
-            // editor-build path. Idempotent + defensive: a renamed node simply won't match (logged).
-            HideCap();
-
-            // The chibi's imported toon materials + atlas carry the identity recolor (the atlas PNG is
-            // repainted per-cell by CharacterAssetGen.RecolorIdentityAtlas — warm-khaki shirt, sandy hair
-            // on the kept dome, toned skin). We do NOT tint the materials here (a per-material tint would
-            // flatten the toon gradient — the trap this class always warned of).
+            // No cap-hide / procedural hair here (chibi-specific, removed for the Hyper3D castaway — it ships
+            // sculpted hair in the mesh). The de-lit material is bound editor-time by MovementCameraScene.
             _built = true;
-        }
-
-        // Hide BOTH cap meshes (dome + brim) so the castaway reads as having hair, not a cap (86ca8ca1m
-        // soak-fix). Matches by node name from the empirical mesh map (the IsolateMeshes diagnose-trace).
-        // Searches inactive too so the editor-build path (which serializes the disabled state) finds them.
-        private void HideCap()
-        {
-            if (_model == null) return;
-            int hid = 0;
-            foreach (var smr in _model.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-            {
-                foreach (var capName in CapMeshNames)
-                {
-                    if (smr.name == capName)
-                    {
-                        smr.enabled = false; // serializes disabled into Boot.unity on the editor-build path
-                        hid++;
-                    }
-                }
-            }
-            if (hid < CapMeshNames.Length)
-                Debug.LogWarning("[CastawayCharacter] hid " + hid + "/" + CapMeshNames.Length +
-                                 " cap meshes — the castaway may still read as wearing a cap");
         }
 
         void LateUpdate()

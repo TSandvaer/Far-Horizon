@@ -43,51 +43,21 @@ namespace FarHorizon.EditorTools
         // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
         private const float PlayerVisualHeight = 1.8f;
 
-        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE). The procedural HeroAxeMesh wedge is RETIRED (it did
-        // not read as an axe); the axe is now the SOURCED rustic hatchet "One-handed stylized axe" by
-        // Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the committed license file). It is
-        // ATTACHED to the chibi's RIGHT HAND bone (RightHand_010 — probe-verified, see AxeAssetGen
-        // DiagnoseTrace) so the castaway HOLDS it, and is shown only once crafted (HeldAxe gates on
-        // Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture + scene-presence guards key on it. ----
+        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp). The
+        // procedural HeroAxeMesh wedge is RETIRED (it did not read as an axe); the axe is the SOURCED rustic
+        // hatchet "One-handed stylized axe" by Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the
+        // committed license file). It is ATTACHED to the castaway's RIGHT HAND bone (mixamorig:RightHand —
+        // probe-verified by CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it,
+        // and is shown only once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the
+        // verify-capture + scene-presence guards key on it. ----
         public const string HeroAxeObjectName = "HeroAxe";
 
-        // ---- HAIR (ticket 86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d: the castaway read as wearing
-        // a CAP, not hair. The original cap meshes (dome Object_41 + brim Object_42) are HIDDEN by
-        // CastawayCharacter.HideCap (the dome alone left a cap-shaped arc sticking up — not hair). A clean
-        // procedural sandy-ginger HAIR skull-cap (LowPolyMeshes.HairCap) is parented to the chibi's HEAD
-        // bone so it rides the head every frame, sized + seated on the crown. Editor-time authored (the
-        // mesh + inline material) so it SERIALIZES into Boot.unity (the editor-vs-runtime trap). ----
-        public const string HairObjectName = "CastawayHair";
-        public const string HeadBoneToken = "head";
-        public static readonly Color HairMeshColor = new Color(0.86f, 0.55f, 0.26f); // sandy-ginger (warm R>G>B; lifted so the shadowed dome facets don't read dark-brown)
-        // The head bone carries the chibi's huge import-compensation lossy scale (PROBE-VERIFIED 267.30×,
-        // like the right-hand bone — see the axe ScaleTrace finding). A child mesh INHERITS it, so the
-        // hair's head-local pose + scale must be tiny. Derived from the shipped capture + the scale probe:
-        // the skull (Object_36) is ~1.42u wide in world; a hair-cap radius ~0.32u world reads as a snug
-        // skull-cap, so localScale ~0.0012 (0.0012 × 267.3 × radius 1.0 ≈ 0.32u world radius). LocalPos
-        // rides the 267× too: localY ~0.0030 lifts the cap ~0.8u above the head bone (worldY 0.78) to sit
-        // on the crown (~1.6u).
-        // SOAKFIX7 (86ca8ca1m — REVERT-TO-FLAT): the soakfix6 TuftedHair lobes read as orange
-        // spikes/antlers poking out of the dome (Sponsor: "id rather have the FLAT hair than this"). Hair is
-        // back to the clean FLAT MessyHairCap (the pre-TuftedHair 5f7e7ba state WITH the soakfix5 front-
-        // fringe fix). The close-up SEAM fix (86ca8m3t2) is KEPT: localY stays DROPPED (0.0029 -> 0.0026)
-        // and the cap cut is DEEPENED (-0.15 -> -0.30) so the flat dome's skirt dips below the skull crown
-        // and overlaps it flush (no air gap at hero magnification — pinned by CastawayHair_SeatsFlushToHeadBone).
-        public static readonly Vector3 HairLocalScale = new Vector3(0.00104f, 0.00098f, 0.00108f);
-        public static readonly Vector3 HairLocalPos = new Vector3(0f, 0.0026f, 0.00020f);
-        // MessyHairCap generation params — named so the EditMode crown-spread guard builds the EXACT
-        // shipped mesh (no magic-number drift between the scene build and the test).
-        public const float HairCapRadius = 1.0f;
-        public const float HairCapYScale = 0.88f;
-        public const float HairCapCut = -0.30f;   // skirt drops below the crown so the flat cap seats flush on the skull (anti-seam, 86ca8m3t2)
-        public const int HairCapSubdiv = 3;
-        public const float HairCapJitter = 0.34f;
-        public const int HairCapSeed = 73101;
-
-        // The chibi rig's right-hand bone (probe-verified by AxeAssetGen.DiagnoseTrace, 2026-06-13). The
-        // rig also carries a "RightHand.Dummy_011" helper bone — the attach search matches the real
-        // RightHand_010 by token and EXCLUDES "dummy" (same trap class as the mesh-group "head" node vs
-        // the Head_05 bone, unity-conventions.md / CastawayProportions).
+        // The Hyper3D castaway's right-hand WRIST bone. The Mixamo rig names it "mixamorig:RightHand"; the
+        // finger bones ("mixamorig:RightHandIndex1"...) ALSO contain "righthand", so the attach search must
+        // match the WRIST (the bone whose name ENDS at "righthand" — no finger/thumb suffix), excluding the
+        // "end" helper. Probe-verified (CharacterDiagnoseTrace): NO lossy-scale trap on this rig — every bone
+        // reads lossyScale (1,1,1) (the height-normalize rides globalScale, not a compensating bone scale),
+        // UNLIKE the chibi's 267× RightHand_010. So held-axe scale/offset are in clean units (no ÷267).
         public const string RightHandBoneToken = "righthand";
 
         // Attach pose for the sourced hatchet (SOAKFIX2 2026-06-13 — the NO-AXE soak fix). The held axe must
@@ -140,14 +110,22 @@ namespace FarHorizon.EditorTools
         // stays a CHILD of the bone (so scale + the EditMode hand-local serialization guards hold); only
         // position+rotation are world-driven by HeldAxeRig. The F9 AxeNudgeTool nudges the RIG's worldOffset
         // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
-        public static readonly float HeldAxeLocalScaleUniform = 0.0040f;
-        // SOAKFIX9 baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand:
-        //   - ROTATION: the Sponsor's settled hand-relative euler (he reads the axe as in-hand at this euler;
-        //     soakfix9 brief). KEEP — the Sponsor did not complain about turning this wave.
-        //   - POSITION: a sensible default WORLD-offset that seats the axe in the grip near the hand. The
-        //     Sponsor FINE-TUNES this on the re-soak with the now-usable (world-unit) nudge tool.
-        public static readonly Vector3 HeldAxeRelEuler = new Vector3(4.1f, 95.8f, -56.1f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
+        // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
+        // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
+        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is normalized to ~1.0u longest
+        // (AxeAssetGen.TargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
+        // localScale 0.34 → ~0.6u hatchet at the kid's hand (a believable kid-sized hatchet). REASONABLE
+        // default — the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
+        public static readonly float HeldAxeLocalScaleUniform = 0.34f;
+        // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
+        // OLD chibi-rig values are INVALID on the new skeleton):
+        //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
+        //     trap the offset is in plain world units; a small (-Y, +forward) nudge sits the hatchet in the
+        //     hand. REASONABLE default; the Sponsor fine-tunes on the re-soak (F9 nudge, world units).
+        //   - ROTATION: a hand-relative euler so the haft reads roughly along the forearm/grip. REASONABLE;
+        //     the exact dial + the swing-into-head re-check are FOLLOW-UPS (per the ticket OOS).
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(0f, 0f, -90f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.04f, -0.04f, 0.06f);
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -467,9 +445,9 @@ namespace FarHorizon.EditorTools
             Transform hand = FindRightHandBone(castaway.transform);
             if (hand == null)
             {
-                Debug.LogError("[MovementCameraScene] could not find the chibi's right-hand bone ('" +
-                               RightHandBoneToken + "', excl. dummy) — the hero axe has nothing to attach to. " +
-                               "Re-run AxeAssetGen.DiagnoseTrace to dump the rig.");
+                Debug.LogError("[MovementCameraScene] could not find the castaway's right-hand WRIST bone ('" +
+                               RightHandBoneToken + "', mixamorig:RightHand, excl. fingers) — the hero axe has " +
+                               "nothing to attach to. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
                 return;
             }
 
@@ -482,24 +460,24 @@ namespace FarHorizon.EditorTools
             }
 
             // Instantiate the imported hatchet under the hand bone (editor-time -> serializes into
-            // Boot.unity). Plain Instantiate (not InstantiatePrefab) — same idiom as the chibi avatar
+            // Boot.unity). Plain Instantiate (not InstantiatePrefab) — same idiom as the avatar
             // (CastawayCharacter.BuildModel): bakes the mesh/renderer into the scene with no prefab link.
             var axe = Object.Instantiate(fbx);
             axe.name = HeroAxeObjectName;
             axe.transform.SetParent(hand, false);
-            // Scale is uniform-local (rides the 267× bone lossy → ~1.0u).
+            // Scale is uniform-local. The Hyper3D wrist bone reads lossyScale (1,1,1) (probe-verified — NO 267×
+            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.34 → ~0.6u hatchet.
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
 
-            // SOAKFIX9 — SPLIT the pose channels (unity-conventions.md §FBX). POSITION is a WORLD-space offset
-            // from the hand bone; ROTATION is HAND-RELATIVE. soakfix8 posed POSITION as a localPosition on the
-            // bone, but RightHand_010's ~267× lossyScale turned a 0.02 local nudge step into ~5.3 WORLD units
-            // (the Sponsor's "one click flings the axe 5 m" bug). Driving position in WORLD space (HeldAxeRig)
-            // sidesteps the lossy scale entirely; the rotation stays hand-relative (soakfix8 fix, KEPT).
+            // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a WORLD-space offset from
+            // the wrist bone; ROTATION is HAND-RELATIVE so the haft turns WITH the hand on every facing. (On the
+            // chibi this split existed to dodge the 267× lossy-bone trap; on THIS rig there is no trap, but the
+            // world-driven approach is kept — it is the contract the F9 nudge tool drives + serializes.)
             var rig = axe.GetComponent<HeldAxeRig>();
             if (rig == null) rig = axe.AddComponent<HeldAxeRig>();
             rig.hand = hand;
-            rig.worldOffsetFromHand = HeldAxeWorldOffsetFromHand; // WORLD units — the F9 nudge moves this ~2 cm/click
-            rig.relEuler = HeldAxeRelEuler;                       // hand-relative — turns with the hand (soakfix8)
+            rig.worldOffsetFromHand = HeldAxeWorldOffsetFromHand; // WORLD units — the F9 nudge moves this directly
+            rig.relEuler = HeldAxeRelEuler;                       // hand-relative — turns with the hand
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
@@ -574,59 +552,40 @@ namespace FarHorizon.EditorTools
                       ", inverse-HasAxe-gated, visible from spawn)");
         }
 
-        // Attach the procedural sandy-ginger HAIR skull-cap to the chibi's HEAD bone (86ca8ca1m soak-fix).
-        // The original cap meshes are hidden (CastawayCharacter.HideCap); this is the replacement hair so
-        // the castaway reads young/hopeful with a head of hair. Parented to the head bone so it rides the
-        // head's animated transform; the head-local pose+scale are tiny because the head bone carries the
-        // chibi's huge import-compensation lossy scale (the same finding as the right-hand bone / axe).
-        // Editor-time (mesh + inline URP/Lit material) so it SERIALIZES into Boot.unity — the
-        // editor-vs-runtime trap (an Awake-built attach ships mangled / absent).
-        private static void AttachHair(CastawayCharacter castaway)
+        // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time
+        // so it SERIALIZES into Boot.unity (86ca8rdkp). The FBX imports its own ImportStandard material; we
+        // override every SMR slot with the single shared de-lit toon mat (texture_diffuse albedo, warm-tan
+        // recolored shirt, smoothness ~0) so the look matches the project's URP/Lit toon idiom + carries the
+        // recolor. URP/Lit is always-included so it never strips to magenta in the stripped player.
+        private static void BindCastawayMaterial(CastawayCharacter castaway)
         {
-            Transform head = CastawayProportions.FindHeadBone(castaway.transform);
-            if (head == null)
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(CharacterAssetGen.MaterialPath);
+            if (mat == null)
             {
-                Debug.LogError("[MovementCameraScene] no Head bone found to attach hair to — the cap->hair " +
-                               "fix leaves a bald crown. Re-run the rig dump.");
+                Debug.LogError("[MovementCameraScene] CastawayMat not found at " + CharacterAssetGen.MaterialPath +
+                               " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
                 return;
             }
-
-            var hair = new GameObject(HairObjectName);
-            hair.transform.SetParent(head, false);
-            hair.transform.localPosition = HairLocalPos;
-            hair.transform.localRotation = Quaternion.identity;
-            hair.transform.localScale = HairLocalScale;
-
-            var mf = hair.AddComponent<MeshFilter>();
-            // MESSY hair (86ca8ca1m — FLAT dome, SOAKFIX7 revert). The soakfix6 TuftedHair lobe redo read as
-            // orange spikes/antlers poking out of the brown dome (Sponsor: "id rather have the FLAT hair than
-            // this"), so the hair is back to the clean FLAT MessyHairCap: the same cut-dome jittered into
-            // faceted tufts with the apex de-spiked (no single pole point) and the soakfix5 front-fringe tame
-            // (no forward-jutting brow lobe). subdiv 3 for tuft definition; jitter 0.34; seed deterministic.
-            // The close-up SEAM fix (86ca8m3t2) is KEPT via the deepened cut (-0.30) + dropped localY so the
-            // flat skirt seats flush on the skull (pinned by CastawayHair_SeatsFlushToHeadBone).
-            mf.sharedMesh = LowPolyMeshes.MessyHairCap(
-                HairCapRadius, HairCapYScale, HairCapCut, HairCapSubdiv, HairCapJitter, HairCapSeed);
-            var mr = hair.AddComponent<MeshRenderer>();
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null)
+            int bound = 0;
+            foreach (var smr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
-                var mat = new Material(litShader) { name = "CastawayHairMat" };
-                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", HairMeshColor);
-                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.08f); // matte hair
-                mr.sharedMaterial = mat; // inline -> serializes into the scene, no .mat churn
-                EnsureShaderAlwaysIncluded(litShader);
+                var mats = new Material[smr.sharedMaterials.Length];
+                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                if (mats.Length == 0) mats = new[] { mat };
+                smr.sharedMaterials = mats;
+                bound++;
             }
-            Debug.Log("[MovementCameraScene] attached CastawayHair skull-cap to head bone '" + head.name +
-                      "' (cap meshes hidden; sandy-ginger hair)");
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            Debug.Log("[MovementCameraScene] bound de-lit CastawayMat onto " + bound + " SkinnedMeshRenderer(s)");
         }
 
-        // Find the chibi's right-hand bone from the SKINNED-MESH BONE ARRAY (the actual skeleton — skips
-        // mesh-group nodes). Matches the RightHandBoneToken and EXCLUDES "dummy" (the rig carries a
-        // RightHand.Dummy_011 helper — same duplicate-name trap class as the mesh-group "head" node vs the
-        // Head_05 bone, unity-conventions.md / CastawayProportions). Falls back to a transform scan.
+        // Find the castaway's right-hand WRIST bone from the SKINNED-MESH BONE ARRAY (the actual skeleton).
+        // The Mixamo rig names the wrist "mixamorig:RightHand"; the FINGER bones ("mixamorig:RightHandIndex1"
+        // ...) ALSO contain "righthand", so a bare Contains match would grab a finger by bone-array order.
+        // Match the bone whose name ENDS at the token (no finger/thumb suffix after "righthand"), excluding
+        // the "end" helper. Probe-verified bone name (CharacterDiagnoseTrace, 2026-06-15). Falls back to a
+        // transform scan with the same exact-suffix discipline.
         private static Transform FindRightHandBone(Transform avatarRoot)
         {
             var smr = avatarRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
@@ -634,19 +593,26 @@ namespace FarHorizon.EditorTools
             {
                 foreach (var bone in smr.bones)
                 {
-                    if (bone == null) continue;
-                    string n = bone.name.ToLowerInvariant();
-                    if (n.Contains(RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
-                        return bone;
+                    if (bone != null && IsRightWristBone(bone.name)) return bone;
                 }
             }
             foreach (var t in avatarRoot.GetComponentsInChildren<Transform>(true))
             {
-                string n = t.name.ToLowerInvariant();
-                if (n.Contains(RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
-                    return t;
+                if (IsRightWristBone(t.name)) return t;
             }
             return null;
+        }
+
+        // True iff the bone name is the right WRIST (ends at "righthand"), NOT a finger/thumb/dummy/end. The
+        // Mixamo wrist is "mixamorig:RightHand" → after stripping any "mixamorig:" prefix the lowered name is
+        // exactly "righthand". Fingers are "righthandindex1" etc. (extra chars after the token).
+        private static bool IsRightWristBone(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return false;
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1); // strip "mixamorig:" namespace
+            return n == RightHandBoneToken; // exactly "righthand" — excludes fingers/thumb/dummy/end
         }
 
         private static void WireAxeVerifyCapture()
@@ -689,19 +655,6 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<CastawayVerifyCapture>() == null)
                 bootGo.AddComponent<CastawayVerifyCapture>();
-            EditorUtility.SetDirty(bootGo);
-        }
-
-        private static void WireHairVerifyCapture()
-        {
-            var bootGo = GameObject.Find("Boot");
-            if (bootGo == null)
-            {
-                Debug.LogWarning("[MovementCameraScene] no Boot object found to host HairVerifyCapture");
-                return;
-            }
-            if (bootGo.GetComponent<HairVerifyCapture>() == null)
-                bootGo.AddComponent<HairVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -1205,14 +1158,15 @@ namespace FarHorizon.EditorTools
             if (castaway.modelPrefab == null)
                 Debug.LogError("[MovementCameraScene] castaway FBX not found at " + CharacterAssetGen.FbxPath +
                                " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
-            // Build the Model child + materials NOW (editor) so they serialize into Boot.unity. This also
-            // HIDES the original cap meshes (CastawayCharacter.HideCap) so the castaway reads as having
-            // hair, not a cap (86ca8ca1m soak-fix).
+            // Build the Model child NOW (editor) so the skinned mesh + bones + Animator serialize into
+            // Boot.unity (the editor-vs-runtime serialization lesson).
             castaway.BuildInEditor();
 
-            // CAP -> HAIR (86ca8ca1m soak-fix): add the clean sandy-ginger hair skull-cap on the head bone
-            // (the hidden cap meshes leave a bare crown; this is the hair). Editor-time so it serializes.
-            AttachHair(castaway);
+            // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
+            // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.
+            // The FBX imports its own ImportStandard material; we override with the single de-lit toon mat so
+            // the look matches the project's URP/Lit toon idiom + carries the recolor.
+            BindCastawayMaterial(castaway);
 
             // Wire the verification-only shipped-build CASTAWAY CLOSE-UP capture (drives a dedicated
             // camera onto the avatar's front so the recolored identity — warm khaki shirt, sandy-ginger
@@ -1222,16 +1176,11 @@ namespace FarHorizon.EditorTools
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
 
-            // Wire the verification-only FIXED-ORBIT hair-silhouette capture at the TILT-TO-HORIZON angle
-            // (86ca8ce6y SOAKFIX3 — the deepened brown-spike fix). The Sponsor sees the crown spike only at
-            // the low orbit pitch; the head-to-feet -verifyCastaway close-up can't validate a
-            // silhouette-at-the-horizon problem (a subject-fit close-up frames at a fixed apparent size —
-            // unity-conventions.md visibility-gate rule). This rides the REAL gameplay orbit camera at the
-            // tilt pitch. Inert unless launched with -verifyHair. Sibling of CastawayVerifyCapture.
-            WireHairVerifyCapture();
+            // (No hair-silhouette verify capture — the chibi's procedural hair-spike soak class does not
+            // apply to the Hyper3D castaway, which ships sculpted hair in the mesh. 86ca8rdkp.)
 
             // CONTACT / BLOB SHADOW (ticket 86ca8ca1m — "blob shadow fit to its footprint" AC). A soft
-            // dark ground disc under the castaway's feet, fit (radius) to the chibi's blocky stance so
+            // dark ground disc under the castaway's feet, fit (radius) to the castaway's stance so
             // the toy-chunky silhouette grounds. Lives on the PLAYER ROOT (NOT the avatar child) so the
             // avatar's height-scale doesn't scale it AND so it stays world-flat under the feet
             // regardless of the avatar's yaw/anim. Editor-time authored (mesh + inline transparent
