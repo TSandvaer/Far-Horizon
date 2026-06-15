@@ -242,6 +242,57 @@ namespace FarHorizon.EditTests
                 "~7-8-heads value means a regression to a non-chunky base");
         }
 
+        // ARM-POSE WIRING guard (86ca8rdkp soak-fixes #2 + #3): the shipped scene's avatar must carry a
+        // serialized CastawayArmPose with BOTH upper-arm bones resolved (mixamorig:RightArm / LeftArm) and a
+        // non-trivial relax + right-carry offset. This is the component-in-source-but-not-serialized-into-scene
+        // guard (unity-conventions.md): the arm-pose driver could compile + pass script tests while the scene
+        // never carries it (the arms ship pinched). The bones must be the UPPER arms (not the clavicle /
+        // forearm), so a future bone-resolution regression reds here.
+        [Test]
+        public void Avatar_HasSerializedArmPose_WithUpperArmBonesAndNonTrivialOffsets()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            Assert.IsNotNull(pose, "the avatar must carry a serialized CastawayArmPose (the #2/#3 soak-fix " +
+                "driver) — a component in source but absent from the scene ships the arms pinched");
+
+            Assert.IsNotNull(pose.rightUpperArm, "CastawayArmPose must have the RIGHT upper-arm bone wired");
+            Assert.IsNotNull(pose.leftUpperArm, "CastawayArmPose must have the LEFT upper-arm bone wired");
+            // The resolved bones must be the UPPER arms (mixamorig:RightArm/LeftArm) — exact token, NOT the
+            // clavicle (RightShoulder) or the forearm (RightForeArm).
+            Assert.AreEqual("mixamorig:RightArm", pose.rightUpperArm.name,
+                "the right arm-pose bone must be the UPPER arm 'mixamorig:RightArm' (not shoulder/forearm)");
+            Assert.AreEqual("mixamorig:LeftArm", pose.leftUpperArm.name,
+                "the left arm-pose bone must be the UPPER arm 'mixamorig:LeftArm' (not shoulder/forearm)");
+
+            // The offsets must be NON-TRIVIAL (a zeroed pose = the arms ship pinched again — #3 regresses).
+            Assert.Greater(pose.relaxSpreadDeg, 1f,
+                "the idle-relax spread must be non-trivial (>1°) or the arms ship pinched (#3 regression)");
+            // The right arm must get an EXTRA away-from-body + raised carry (#2).
+            Assert.Greater(pose.rightCarryExtraSpreadDeg + pose.rightCarryRaiseDeg, 1f,
+                "the RIGHT-arm carry (extra spread + raise) must be non-trivial (#2 regression)");
+        }
+
+        // GROUND-SNAP wiring guard (86ca8rdkp soak-fix #1 — 'walking in the air'): the shipped avatar must
+        // ship with the ground-snap ENABLED and its raycast mask wired to a real layer (not 0/Nothing, which
+        // would make the snap a no-op and the feet float above the visible terrain). The behavioral proof is
+        // the PlayMode CastawayGroundSnapPlayModeTests; this pins the serialized scene config.
+        [Test]
+        public void Avatar_GroundSnapEnabled_WithRealMask()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+            Assert.IsTrue(castaway.groundSnap,
+                "the avatar must ship with groundSnap ENABLED (else the feet float above the visible terrain " +
+                "— the 'walking in the air' soak bug)");
+            Assert.AreNotEqual(0, castaway.groundMask.value,
+                "the ground-snap raycast mask must be wired to a real layer (0/Nothing = the snap is a no-op)");
+        }
+
         // The IDENTITY RECOLOR guard (86ca8rdkp AC4): the generated MUSTARD-YELLOW shirt is warmed toward
         // TAN (the concept read) WITHOUT flattening the toon gradient. We read the SAME diffuse the material
         // binds and assert: (1) the saturated-yellow shirt band is now SMALL (the bulk was remapped), and

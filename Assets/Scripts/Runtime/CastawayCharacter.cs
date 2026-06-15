@@ -48,6 +48,21 @@ namespace FarHorizon
                  "Idle<->Walk blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
+        [Header("Ground snap (86ca8rdkp soak-fix #1 — 'walking in the air')")]
+        [Tooltip("Snap the avatar feet to the VISIBLE terrain each frame. The NavMeshAgent grounds the " +
+                 "player ROOT on the flat NavMesh collider, which sits ABOVE the dipping Zone-D visual " +
+                 "terrain (ground-trace 2026-06-15: feet at 0.081 vs visible sand at 0.020 = a 6cm float). " +
+                 "A downward raycast onto the Ground layer plants the feet on the surface the player sees.")]
+        public bool groundSnap = true;
+        [Tooltip("Layer mask the ground-snap raycast tests (the VISIBLE terrain — the Ground layer). " +
+                 "Wired editor-time; defaults to the Ground layer at runtime if unset.")]
+        public LayerMask groundMask;
+        [Tooltip("How far above the player root the ground ray starts (must clear the avatar's own height " +
+                 "so the ray doesn't originate inside the mesh).")]
+        public float groundRayUp = 3f;
+        [Tooltip("Max ground-ray distance below the start point.")]
+        public float groundRayDown = 12f;
+
         // Animator parameter the controller blends on (set each frame from the agent's velocity).
         public const string MovingParam = "Moving";
 
@@ -152,8 +167,51 @@ namespace FarHorizon
         }
 
 
+        // The avatar root's local Y is normally 0 (feet on the player root). The ground-snap drives it to
+        // a (usually small NEGATIVE) value so the feet plant on the VISIBLE terrain that dips below the
+        // agent's NavMesh ground point. Smoothed so terrain undulation doesn't pop the avatar.
+        private float _snapLocalY;
+        private bool _snapInit;
+
+        /// <summary>The current ground-snap local-Y applied to the avatar root (0 = no snap). Exposed for
+        /// the PlayMode grounding regression so it can assert the feet are planted on the visible surface.</summary>
+        public float GroundSnapLocalY => _snapLocalY;
+
+        // Snap the avatar feet to the VISIBLE terrain (86ca8rdkp soak-fix #1). The NavMeshAgent grounds the
+        // player ROOT on the flat NavMesh collider, which rides ABOVE the dipping Zone-D visual terrain — so
+        // the FBX-origin feet float ~6cm over the sand the player sees (ground-trace verified). A downward
+        // raycast onto the Ground layer finds the visible surface; we set the avatar root's local Y so its
+        // WORLD Y (= feet, FBX origin at the feet) sits on that surface. Runs in both Idle and Walk (the
+        // float is in BOTH states — motion just makes it obvious). Smoothed to avoid popping on slopes.
+        private void ApplyGroundSnap()
+        {
+            if (!groundSnap) return;
+            Transform root = transform.parent != null ? transform.parent : transform; // the player root
+            int mask = groundMask.value != 0 ? groundMask.value : (1 << LayerMask.NameToLayer("Ground"));
+            Vector3 origin = root.position + Vector3.up * groundRayUp;
+            // Raycast straight down; the TOPMOST Ground-layer hit is the visible terrain (it sits above the
+            // flat NavMesh slab). Use RaycastAll-free single ray: the higher visible terrain is hit first.
+            if (Physics.Raycast(origin, Vector3.down, out var hit, groundRayUp + groundRayDown, mask,
+                    QueryTriggerInteraction.Ignore))
+            {
+                // Desired avatar-root WORLD Y = the visible-terrain Y. local Y = worldY - root.position.y
+                // (the avatar root is a direct child of the player root, no intermediate offset).
+                float desiredLocalY = hit.point.y - root.position.y;
+                if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
+                else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-18f * Time.deltaTime));
+                Vector3 lp = transform.localPosition;
+                lp.y = _snapLocalY;
+                transform.localPosition = lp;
+            }
+        }
+
         void LateUpdate()
         {
+            // Plant the feet on the VISIBLE terrain FIRST (before facing), so the grounded position is
+            // settled this frame (soak-fix #1 — 'walking in the air'). The avatar root's local Y is driven
+            // down onto the visible sand the agent's NavMesh ground point floats above.
+            ApplyGroundSnap();
+
             // Read the agent's planar velocity each frame and drive the Idle<->Walk blend + facing.
             // Self-driving keeps this PR's surface to the visual only (no ClickToMove edit).
             Vector3 vel = _agent != null ? _agent.velocity : Vector3.zero;
