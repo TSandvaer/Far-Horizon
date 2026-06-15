@@ -49,7 +49,7 @@ namespace FarHorizon
             string dir = ResolveDir();
             Directory.CreateDirectory(dir);
 
-            var castaway = Object.FindObjectOfType<CastawayCharacter>();
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
             var agent = castaway != null ? castaway.GetComponentInParent<NavMeshAgent>() : null;
             var player = agent != null ? agent.transform : null;
             if (castaway == null || agent == null || player == null)
