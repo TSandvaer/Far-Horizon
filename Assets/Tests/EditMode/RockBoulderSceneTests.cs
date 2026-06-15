@@ -167,15 +167,16 @@ namespace FarHorizon.EditTests
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var rocks = FindRockMeshes();
 
-            // DENSITY RESTORED (86ca8m5zu v2): the Sponsor rejected the v2 thinning ("way too few... before
-            // was a decent amount"). Restore ~22. Assert a floor (>=16, so a revert to the ~10 thinning fails)
-            // AND a ceiling (<=30, so a revert to the old uniform "all over" speckle still fails).
-            Assert.GreaterOrEqual(rocks.Length, 16,
-                $"rocks must be a DECENT AMOUNT (found {rocks.Length}) — the Sponsor rejected the thinned ~10 as " +
-                "'way too few' (86ca8m5zu v2). Restore to ~22.");
-            Assert.LessOrEqual(rocks.Length, 30,
-                $"rocks must NOT return to the uniform 'all over' speckle (found {rocks.Length}); ~22 clustered is " +
-                "the target, not 40+ sprinkled everywhere");
+            // BIG ROUND ISLAND (86ca9a7qn): the island is ~50× the old strip's area, so the rock count
+            // scales up to ~60 clustered outcrops on the hills (still a SPARSE density per unit area — rock
+            // piles, not a uniform speckle). Assert a floor (>=30, so a revert to the old ~22 strip count
+            // reads too-sparse on the big island) AND a ceiling (<=90, so a uniform all-over speckle fails).
+            Assert.GreaterOrEqual(rocks.Length, 30,
+                $"rocks must be a DECENT AMOUNT on the big island (found {rocks.Length}) — the bigger disc needs " +
+                "more outcrops than the old ~22 strip count to not read empty.");
+            Assert.LessOrEqual(rocks.Length, 90,
+                $"rocks must NOT be a uniform 'all over' speckle (found {rocks.Length}); ~60 clustered outcrops " +
+                "across the big island is the target, not hundreds sprinkled everywhere");
         }
 
         [Test]

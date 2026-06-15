@@ -66,10 +66,11 @@ namespace FarHorizon.EditTests
 
             // BIG ROUND ISLAND (86ca9a7qn): the sea is now RADIAL — the depth gradient runs from the round
             // coast (bright shallow) OUTWARD to the deep sea, keyed off RADIAL distance, not local Z. Probe a
-            // SHALLOW vert just seaward of the foam ring (r ~ IslandShoreR + 45, clear of the foam fade) and
-            // the DEEPEST vert (largest radius). (The foam ring itself is guarded by Ocean_CarriesShorelineFoam.)
+            // SHALLOW vert just seaward of the foam ring fade (r ~ IslandShoreR + 12, clear of the foam but
+            // still in the bright near band before the depth gradient deepens it) and the DEEPEST vert (largest
+            // radius). (The foam ring itself is guarded by Ocean_CarriesShorelineFoam.)
             float shoreR = LowPolyZoneGen.IslandShoreR;
-            float shallowProbeR = shoreR + 45f;
+            float shallowProbeR = shoreR + 12f;
             int shallowIdx = 0, farIdx = 0;
             float bestShallow = float.PositiveInfinity, bestFar = -1f;
             for (int i = 0; i < verts.Length; i++)

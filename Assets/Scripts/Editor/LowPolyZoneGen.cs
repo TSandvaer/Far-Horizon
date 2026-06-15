@@ -264,12 +264,13 @@ namespace FarHorizon.EditorTools
             float r = Mathf.Sqrt(wx * wx + wz * wz);
 
             // Radial land profile: a plateau out to the core, then a SmoothStep falloff from the plateau
-            // height down through the waterline to the sunk seabed past the shore.
+            // height down THROUGH THE WATERLINE (which lands EXACTLY at IslandShoreR — so the round coast,
+            // the radial foam ring, and the wet-shelf all align at r==IslandShoreR) to the sunk seabed past
+            // the shore. At r==IslandShoreR: landMask 0 + coastFall 0 -> baseH == WaterY (the waterline).
             float landMask = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IslandCoreR, IslandShoreR, r));
-            // base land surface: plateau height on land, sinking to the seabed past the shore.
             float coastFall = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IslandShoreR, IslandFalloffEnd, r));
-            float baseH = Mathf.Lerp(IslandPlateauH, 0f, 1f - landMask)   // land plateau -> down to ~0 at shore
-                        + Mathf.Lerp(0f, IslandSeabedDrop, coastFall);    // past the shore, sink the seabed
+            float baseH = Mathf.Lerp(IslandPlateauH, WaterY, 1f - landMask)        // plateau -> waterline AT the shore
+                        + Mathf.Lerp(0f, IslandSeabedDrop - WaterY, coastFall);    // past the shore, sink the seabed
 
             // HILLS: multi-octave Perlin elevation over the land. Amplitude ramped by landMask so hills are
             // full inland and fade to nothing at the coast (a clean waterline, no spiky shore). Noise is in
