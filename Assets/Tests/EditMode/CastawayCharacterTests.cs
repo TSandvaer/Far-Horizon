@@ -415,26 +415,28 @@ namespace FarHorizon.EditTests
                 "the ground-snap raycast mask must be wired to a real layer (0/Nothing = the snap is a no-op)");
         }
 
-        // DURING-WALK fix config guard (86ca8rdkp 4th-attempt — 'STILL elevated WHILE WALKING'). The during-
-        // walk trace proved a CONSTANT-rate snap filter lags the descending foreshore ~1.2cm WHILE MOVING (re-
-        // converging to ~0 at rest = 'grounded standing, elevated walking'). The fix uses a SPEED-ADAPTIVE
-        // rate: faster while moving than at rest. This pins that the serialized config keeps the move-rate
-        // strictly ABOVE the rest-rate (a regression that equalises them re-introduces the during-walk lag),
-        // and that the move-rate is high enough to keep the steady-state lag sub-cm at the real walk speed.
+        // UNIFIED-RATE / KILL-THE-BOB config guard (86ca8rdkp EXTENSIVE-DEBUG round — 'reaching a destination
+        // causes a BOB'). The prior speed-adaptive split (60 moving / 18 rest) made the convergence rate JUMP
+        // at the moving→rest transition, so the still-converging error visibly settled the instant the agent
+        // stopped = the arrival bob. With the snap target now the STABLE BAKED sole (no animation-envelope
+        // wobble), a SINGLE unified rate tracks the descending foreshore tightly while walking AND doesn't pop
+        // at rest — no rate discontinuity at arrival, no bob. This pins: (1) the live snapRate is high enough to
+        // keep the during-walk steady-state lag sub-cm, and (2) the snap uses ONE rate (no rest/move split) so
+        // there is no rate jump at arrival. (snapRateRest/Move are retained as dead serialized fields.)
         [Test]
-        public void Avatar_GroundSnap_MoveRateExceedsRestRate_ForDuringWalkTracking()
+        public void Avatar_GroundSnap_UnifiedRate_HighEnoughForWalk_NoArrivalRateJump()
         {
             OpenBootAndFindPlayer();
             var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
             Assert.IsNotNull(castaway);
-            Assert.Greater(castaway.snapRateMove, castaway.snapRateRest,
-                "the MOVING snap rate must exceed the REST rate — a constant rate lags the descending foreshore " +
-                "while walking (the 'STILL elevated WHILE WALKING' 4th-attempt bug). Equal rates regress it.");
             // At 5.5u/s into the ~0.047u/u worst foreshore slope, dY/dt≈0.256u/s; steady-state lag = dY/dt /
-            // snapRateMove must stay sub-cm. 0.256/rate < 0.01 → rate > ~26. Pin a comfortable floor.
-            Assert.GreaterOrEqual(castaway.snapRateMove, 40f,
-                "the moving snap rate must be high enough that the during-walk steady-state lag stays sub-cm " +
+            // snapRate must stay sub-cm. 0.256/rate < 0.01 → rate > ~26. Pin a comfortable floor.
+            Assert.GreaterOrEqual(castaway.snapRate, 40f,
+                "the unified snap rate must be high enough that the during-walk steady-state lag stays sub-cm " +
                 "(0.256u/s worst descent / rate < ~0.6cm needs rate ≥ ~40)");
+            // ActiveSnapRate is set to snapRate (the unified rate) every snap frame — proving the snap no longer
+            // branches on moving-state for its rate (the rate jump at arrival = the bob). Verified end-to-end in
+            // CastawayGroundSnapPlayModeTests.Snap_UsesUnifiedRate_NoMoveRestRateDiscontinuity.
         }
 
         // GROUND-Y-OFFSET knob guard (86ca8rdkp 4th-attempt — give the Sponsor the dial). The offset must SHIP

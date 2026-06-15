@@ -64,18 +64,19 @@ namespace FarHorizon
         [Tooltip("Max ground-ray distance below the start point.")]
         public float groundRayDown = 12f;
 
-        [Header("Ground snap — DURING-WALK fix (86ca8rdkp 4th-attempt — 'STILL elevated WHILE WALKING')")]
-        [Tooltip("Snap convergence rate (1/s) when STANDING STILL. Gentle smoothing so per-vertex terrain " +
-                 "noise doesn't pop the avatar at rest. The prior single rate (18) was used in BOTH states; " +
-                 "the during-walk trace (2026-06-15) proved a constant-rate exp filter LAGS a descending ramp " +
-                 "by ~1.2cm while MOVING at 5.5u/s into the dipping foreshore — the feet (and the shadow that " +
-                 "tracked the RAW target) separated only DURING motion, then re-converged at rest = exactly " +
-                 "'grounded standing, elevated walking'.")]
-        public float snapRateRest = 18f;
-        [Tooltip("Snap convergence rate (1/s) when MOVING. High (near-instant) so the feet TRACK the visible " +
-                 "terrain with no lag through the WHOLE walk cycle — the during-walk float fix. 60 = ~63% " +
-                 "convergence per 60fps frame; the steady-state lag at 5.5u/s/0.05-slope drops to ~0.4cm.")]
-        public float snapRateMove = 60f;
+        [Header("Ground snap convergence (86ca8rdkp EXTENSIVE-DEBUG round — unified rate, kills the arrival BOB)")]
+        [Tooltip("Snap convergence rate (1/s) — UNIFIED across rest AND walk. The prior speed-adaptive split " +
+                 "(60 moving / 18 rest) made the rate JUMP at the moving→rest transition, so the still-" +
+                 "converging error visibly settled the instant the agent stopped = the arrival BOB the Sponsor " +
+                 "reported. With the snap target now the STABLE baked sole (no animation-envelope wobble), one " +
+                 "rate tracks the descending foreshore tightly while walking AND doesn't pop at rest — no rate " +
+                 "discontinuity at arrival, no bob. 40 = ~49% convergence per 60fps frame.")]
+        public float snapRate = 40f;
+
+        // RETAINED (serialized) for back-compat with scenes baked before the unify; no longer read by the snap.
+        // The during-walk speed-adaptive split was superseded by the single snapRate above (kills the bob).
+        [HideInInspector] public float snapRateRest = 18f;
+        [HideInInspector] public float snapRateMove = 60f;
 
         [Header("Ground Y-OFFSET — Sponsor-dialable (86ca8rdkp 4th-attempt; F9 nudge target)")]
         [Tooltip("A constant world-Y offset added to the snapped feet (and the shadow). 4 attempts on the " +
@@ -250,6 +251,12 @@ namespace FarHorizon
         /// every frame, so its world .bounds are current.)</summary>
         public float MeshBottomWorldY { get; private set; } = float.NaN;
 
+        /// <summary>The CONSERVATIVE SMR.bounds.min.y (the OLD proxy / animation-max AABB floor) this frame —
+        /// DUMP-ONLY. Exposed so the [FloatTrace] line and the regression guard can show it BELOW the baked
+        /// actual sole (MeshBottomWorldY), proving the bounds floor is the deeper false-green (grounding to it
+        /// floats the real soles while a bounds-reading gauge agrees). NOT used for snapping or the gauge.</summary>
+        public float SmrBoundsMinWorldY { get; private set; } = float.NaN;
+
         /// <summary>The TRUE float gap = rendered-mesh-bottom world-Y − ground-hit world-Y. ~0 ⟺ the visible
         /// SOLES sit on the visible sand (the HONEST "planted" the Sponsor judges). Identical to
         /// <see cref="FloatGap"/> now that the gauge reads the rendered sole; kept as the explicit-name alias
@@ -283,15 +290,75 @@ namespace FarHorizon
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
         private readonly RaycastHit[] _snapHits = new RaycastHit[8];
 
-        // Cached child SkinnedMeshRenderer(s) — the TRUE rendered-sole reference (86ca8rdkp breakthrough). Their
-        // world-space .bounds give the lowest visible vertex; we snap the SOLE (bounds.min.y), not the proxy root.
+        // Cached child SkinnedMeshRenderer(s) — the TRUE rendered-sole reference (86ca8rdkp). We bake the LIVE
+        // skinned mesh each frame and take the actual lowest world-Y VERTEX — NOT SMR.bounds.min.y.
         private SkinnedMeshRenderer[] _smrs;
 
-        /// <summary>The lowest rendered-vertex WORLD-Y across all child SkinnedMeshRenderers this frame (the
-        /// visible SOLE), or NaN if no renderer is resolved. Uses the renderers' live world .bounds (current
-        /// because they render every frame — distinct from the stale import-baked .bounds the proportion guards
-        /// must BakeMesh for). The avatar-root scale + position are already folded into the world bounds.</summary>
-        private float MeasureRenderedMeshBottomWorldY()
+        // Reusable bake target per SMR (no per-frame Mesh alloc — BakeMesh reuses the buffer; allocating a Mesh
+        // every frame leaks until GC). Sized lazily to match _smrs.
+        private Mesh[] _bakeMeshes;
+        // Reusable vertex scratch — BakeMesh writes into the mesh; mesh.vertices allocates a fresh array each
+        // call, so we use GetVertices(List<>) into a reused List to avoid the per-frame array alloc.
+        private readonly System.Collections.Generic.List<Vector3> _bakeVerts =
+            new System.Collections.Generic.List<Vector3>(4096);
+
+        /// <summary>
+        /// The TRUE rendered SOLE world-Y this frame: the actual lowest skinned VERTEX across all child
+        /// SkinnedMeshRenderers, computed by BAKING the live skinned mesh (current bone poses) and taking the
+        /// min world-Y over its real vertices. NaN if no renderer is resolved.
+        ///
+        /// WHY NOT SMR.bounds.min.y (the deeper FALSE-GREEN the Sponsor's F8 gauge exposed, 86ca8rdkp final):
+        /// Unity's SkinnedMeshRenderer.bounds is the CONSERVATIVE animation-MAX AABB — a single box sized to
+        /// contain the mesh across the WHOLE animation range, NOT the current frame's mesh. So `bounds.min.y`
+        /// sits BELOW the real visible soles (by the per-clip foot-lift envelope), and it WOBBLES as the idle
+        /// anim plays (the −0.003↔+0.0003 standing-still GAP jitter the Sponsor reported). Grounding to
+        /// bounds.min.y floats the character (the box floor is below the soles) while a gauge ALSO reading
+        /// bounds.min.y agrees with the snap → GAP=0 "✓ planted" yet visibly floating. Baking the live mesh
+        /// gives the ACTUAL current-frame lowest vertex — the surface the player sees touch the sand —
+        /// deterministic and stable per pose (no animation-envelope wobble).
+        ///
+        /// TRANSFORM (the cm→m / lossy-scale trap, unity-conventions/character-pipeline): verts bake in the
+        /// SMR transform's LOCAL space; we transform to WORLD via the SMR's own `localToWorldMatrix`, which
+        /// carries the full parent chain INCLUDING the SMR node's own (large, cm→m-compensating) scale. Using
+        /// BakeMesh(useScale:FALSE) here so the node scale is applied ONCE — by the matrix — not double-applied
+        /// (useScale:true would bake the renderer's lossyScale into the verts, then the matrix scales again →
+        /// a hugely-wrong Y, the 56u-tall trap CastawayVerifyCapture documents).
+        /// </summary>
+        private float MeasureRenderedSoleWorldY()
+        {
+            if (_smrs == null || _smrs.Length == 0)
+                _smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if (_smrs == null || _smrs.Length == 0) return float.NaN;
+            if (_bakeMeshes == null || _bakeMeshes.Length != _smrs.Length)
+                _bakeMeshes = new Mesh[_smrs.Length];
+
+            float minY = float.PositiveInfinity;
+            bool any = false;
+            for (int i = 0; i < _smrs.Length; i++)
+            {
+                var smr = _smrs[i];
+                if (smr == null || smr.sharedMesh == null) continue;
+                if (_bakeMeshes[i] == null) _bakeMeshes[i] = new Mesh { name = "CastawaySoleBake" + i };
+                // useScale:false — the SMR node's scale is applied by localToWorldMatrix below (apply ONCE).
+                smr.BakeMesh(_bakeMeshes[i], false);
+                _bakeMeshes[i].GetVertices(_bakeVerts);
+                if (_bakeVerts.Count == 0) continue;
+                Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+                for (int v = 0; v < _bakeVerts.Count; v++)
+                {
+                    float y = l2w.MultiplyPoint3x4(_bakeVerts[v]).y;
+                    if (y < minY) minY = y;
+                }
+                any = true;
+            }
+            return any ? minY : float.NaN;
+        }
+
+        /// <summary>The CONSERVATIVE SMR.bounds.min.y across all child SMRs (the OLD proxy — the
+        /// animation-max AABB floor). Kept ONLY so the [FloatTrace] dump can show it side-by-side with the
+        /// baked actual sole, proving the bounds floor sits below the real soles (the deeper false-green).
+        /// NOT used for snapping or the gauge anymore.</summary>
+        private float MeasureSmrBoundsMinY()
         {
             if (_smrs == null || _smrs.Length == 0)
                 _smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -301,7 +368,7 @@ namespace FarHorizon
             for (int i = 0; i < _smrs.Length; i++)
             {
                 if (_smrs[i] == null) continue;
-                float y = _smrs[i].bounds.min.y;       // world-space bounds (folds in scale + snapped position)
+                float y = _smrs[i].bounds.min.y;
                 if (y < minY) minY = y;
                 any = true;
             }
@@ -378,63 +445,70 @@ namespace FarHorizon
             float plantY = bestY + groundYOffset;
             LastSnapTargetWorldY = plantY; // the SELECTED plant surface (pre-smoothing) — the snap-target the test reads
 
-            // ===== THE FINAL FIX (86ca8rdkp breakthrough — ground the RENDERED SOLE, not the proxy root). =====
-            // GROUND-TRUTH DUMP (-verifyFloatDiag, 2026-06-15) OVERTURNED every prior snap/offset/shadow fix:
-            // the snap grounded the avatar ROOT (the FBX/armature origin) to the terrain — but the avatar root
-            // is NOT the rendered sole. The TRUE visible sole (SkinnedMeshRenderer.bounds.min.y) sits at a
-            // POSE-DEPENDENT offset from the root: dump measured the sole 0.150u BELOW the root at IDLE (soles
-            // sunk into the sand) and 0.469u ABOVE the root while WALKING (soles floating 47cm) — the animation
-            // pose drives the feet bones up/down through the cycle, and the mesh follows. So grounding the root
-            // left the visible mesh anywhere from sunk to floating while the gauge read GAP=0 ("✓ planted") —
-            // the FALSE green. Every prior snap-rate / groundYOffset / shadow tweak grounded the WRONG reference.
+            // ===== THE REAL FIX (86ca8rdkp EXTENSIVE-DEBUG round — ground the BAKED actual sole, not bounds). =====
+            // The PRIOR "fix" snapped to SMR.bounds.min.y as the "true sole" — but that is the CONSERVATIVE
+            // animation-MAX AABB floor, NOT the current-frame mesh. So the snap and the gauge BOTH read the same
+            // (too-low, wobbling) bounds floor → they AGREED (GAP=0 "✓ planted") while the REAL rendered soles
+            // floated above the box floor: the deeper FALSE-GREEN the Sponsor's F8 gauge exposed (rendered
+            // sole-Y == hit-Y == 0.2216, GAP≈0, YET visibly floating standing still; the GAP also JITTERED
+            // −0.003↔+0.0003 = the AABB wobbling with the idle anim). FIX: measure the BAKED actual-lowest
+            // VERTEX (MeasureRenderedSoleWorldY) — the real current-frame sole — for BOTH the snap reference
+            // and the gauge. It is stable per pose (no animation-envelope wobble), so standing-still GAP no
+            // longer oscillates.
             //
-            // FIX: snap so the RENDERED SOLE lands on plantY. The pose offset (sole − root) is INVARIANT to the
-            // root Y we choose — translating the root rigidly translates every skinned vertex by the same Δy, so
-            // bounds.min.y − root.worldY depends ONLY on the animation pose + scale, not on our snap. We measure
-            // it this frame and SUBTRACT it from the plant target, so the sole — what the player SEES — plants
-            // on the sand regardless of pose. (Mesh bounds reflect the CURRENT rendered pose; on a frame where
-            // no SMR is resolvable we fall back to the old root-grounding so the snap never goes inert.)
-            float meshBottomNow = MeasureRenderedMeshBottomWorldY();
-            float poseSoleOffset = float.IsNaN(meshBottomNow) ? 0f : (meshBottomNow - transform.position.y);
+            // The pose offset (bakedSole − root) is INVARIANT to the root Y we choose — translating the root
+            // rigidly translates every skinned vertex by the same Δy — so we measure it this frame and SUBTRACT
+            // it from the plant target, planting the SOLE (what the player SEES) on the sand regardless of pose.
+            // (On a frame where no SMR is resolvable we fall back to root-grounding so the snap never goes inert.)
+            float bakedSoleNow = MeasureRenderedSoleWorldY();
+            float boundsMinNow = MeasureSmrBoundsMinY();    // dump-only (prove bounds floor < baked sole)
+            float poseSoleOffset = float.IsNaN(bakedSoleNow) ? 0f : (bakedSoleNow - transform.position.y);
 
-            // Desired avatar-root WORLD Y so the SOLE (root + poseSoleOffset) sits at plantY.
+            // Desired avatar-root WORLD Y so the BAKED SOLE (root + poseSoleOffset) sits at plantY.
             // local Y = worldY - root.position.y (the avatar root is a direct child of the player root).
             float desiredLocalY = (plantY - poseSoleOffset) - root.position.y;
 
-            // DURING-WALK FIX (86ca8rdkp 4th-attempt). A constant-rate exp filter LAGS a descending ramp while
-            // MOVING (during-walk trace: ~1.2cm feet-above-sand at 5.5u/s into the foreshore, re-converging to
-            // ~0 at rest — exactly 'grounded standing, elevated walking'). Use a SPEED-ADAPTIVE rate: near-
-            // instant while moving (the feet TRACK the terrain through the whole walk cycle, no lag), gentle at
-            // rest (so per-vertex terrain noise doesn't pop the avatar standing still). The agent's planar
-            // velocity is the motion signal (resolved from the parent in Awake).
             bool moving = _agent != null &&
                           new Vector2(_agent.velocity.x, _agent.velocity.z).sqrMagnitude >
                           (walkSpeedThreshold * walkSpeedThreshold);
-            float rate = moving ? snapRateMove : snapRateRest;
-            IsMovingForSnap = moving;          // diagnostic: rest-vs-move (the during-walk float was state-dependent)
-            ActiveSnapRate = rate;             // diagnostic: which smoothing rate is in play this frame
+            IsMovingForSnap = moving;          // diagnostic: rest-vs-move
+            ActiveSnapRate = snapRate;         // diagnostic: the single unified rate now in play
+
+            // KILL-THE-BOB FIX (86ca8rdkp EXTENSIVE-DEBUG round — 'reaching a destination causes a BOB'). The
+            // prior speed-adaptive split (snapRateMove 60 while moving / snapRateRest 18 at rest) made the
+            // convergence rate JUMP at the moving↔rest transition: the instant the agent stopped, the filter
+            // slowed from rate-60 to rate-18 and the still-converging error visibly settled = the arrival BOB.
+            // Because the snap target is now the STABLE baked sole (no animation-envelope wobble), a SINGLE
+            // unified rate tracks the descending foreshore ramp tightly while walking AND doesn't pop at rest —
+            // so there is no rate discontinuity at arrival and no bob. (snapRateMove/snapRateRest retained as
+            // [Obsolete-but-serialized] fields for back-compat; snapRate is the live one.)
             if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
-            else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-rate * Time.deltaTime));
+            else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-snapRate * Time.deltaTime));
             Vector3 lp = transform.localPosition;
             lp.y = _snapLocalY;
             transform.localPosition = lp;
 
-            // LIVE FLOAT-DIAGNOSTIC (86ca8rdkp FINAL — the gauge now reads the HONEST gap). The TRUE rendered
-            // sole (SMR.bounds.min.y) is what the player sees touch the sand, so the gauge GAP is measured
-            // against THAT, not the proxy avatar-root. GAP=0 ⟺ the visible SOLES are on the visible sand (the
-            // false "✓ planted" the Sponsor caught — root-gap 0 with the mesh floating — can no longer happen).
-            // Re-measure the sole AFTER applying this frame's snap so the gauge reflects the corrected position.
-            MeshBottomWorldY = MeasureRenderedMeshBottomWorldY();
+            // LIVE FLOAT-DIAGNOSTIC — the gauge now reads the HONEST gap: BAKED actual sole − ground. GAP=0 ⟺
+            // the visible SOLES are on the visible sand. Re-measure the baked sole AFTER applying this frame's
+            // snap so the gauge reflects the corrected position. (The bounds-floor false-green can no longer
+            // happen: neither the snap nor the gauge reads bounds.min.y anymore.)
+            MeshBottomWorldY = MeasureRenderedSoleWorldY();
+            SmrBoundsMinWorldY = boundsMinNow;       // dump-only proxy for the [FloatTrace] discrepancy line
             MeshFloatGap = float.IsNaN(MeshBottomWorldY) ? float.NaN
                                                          : ComputeFloatGap(MeshBottomWorldY, GroundHitWorldY);
-            // FeetWorldY is the gauge's "feet" line — now the TRUE rendered sole (falls back to the avatar-root
-            // world Y only if no SMR is resolvable). FloatGap is the HONEST sole-vs-sand gap the overlay shows.
+            // FeetWorldY is the gauge's "feet" line — the TRUE baked sole (falls back to the avatar-root world Y
+            // only if no SMR is resolvable). FloatGap is the HONEST sole-vs-sand gap the overlay shows.
             FeetWorldY = float.IsNaN(MeshBottomWorldY) ? transform.position.y : MeshBottomWorldY;
             FloatGap = float.IsNaN(MeshFloatGap) ? ComputeFloatGap(transform.position.y, GroundHitWorldY)
                                                  : MeshFloatGap;
-            // The proxy avatar-root gap (the OLD, misleading reading) — kept exposed for the regression guard
-            // + the [FloatTrace] dump so we can always prove the gauge flipped from proxy to rendered-sole.
+            // The proxy avatar-root gap (kept for the regression guard + dump — proves the gauge reads the sole).
             ProxyRootFloatGap = ComputeFloatGap(transform.position.y, GroundHitWorldY);
+
+            // PER-FRAME [FloatTrace] (86ca8rdkp EXTENSIVE-DEBUG round). The Sponsor demanded extensive logging;
+            // this dumps EVERY Y-reference EACH FRAME (gated on _frameTrace = -floatTrace OR the F8 overlay) so
+            // the orchestrator reads the discrepancy (bounds.min vs baked-actual vs shadow vs ground) standing,
+            // walking, AND at arrival from the player log. Throttled to once per render frame (not per physics).
+            if (_frameTrace) EmitFrameTrace(root, bakedSoleNow, boundsMinNow, plantY, moving);
 
             // CONTACT SHADOW — ground it to the VISIBLE-SAND CONTACT LEVEL (the plant target), NOT the avatar
             // root. FINAL-FIX correction (86ca8rdkp): the snap now grounds the rendered SOLE, so the avatar root
@@ -451,41 +525,97 @@ namespace FarHorizon
             }
         }
 
+        // Per-frame [FloatTrace] gate (86ca8rdkp EXTENSIVE-DEBUG round). The Sponsor EXPLICITLY demanded
+        // extensive per-frame logging. Driven ON by either the -floatTrace launch arg (an orchestrator-driven
+        // log-only capture) OR FloatDiagnostic toggling the F8 overlay (so the interactive soak also logs).
+        // FloatDiagnostic sets this via SetFrameTrace when its overlay/-floatTrace activates.
+        private bool _frameTrace;
+        private int _traceFrame;
+
+        /// <summary>FloatDiagnostic (or the verify capture) turns per-frame [FloatTrace] on/off — so the
+        /// extensive log fires every frame while the overlay is up or -floatTrace is set, and is silent in a
+        /// normal soak (zero log spam). Idempotent.</summary>
+        public void SetFrameTrace(bool on) => _frameTrace = on;
+
+        // Cache the foot bones + shadow once (avoids a per-frame bone scan inside the trace).
+        private Transform _leftFootBone, _rightFootBone, _hipsBone;
+        private bool _bonesResolved;
+
+        private void ResolveBones()
+        {
+            _bonesResolved = true;
+            if (_smrs == null || _smrs.Length == 0) _smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if (_smrs == null) return;
+            foreach (var smr in _smrs)
+            {
+                if (smr == null || smr.bones == null) continue;
+                foreach (var b in smr.bones)
+                {
+                    if (b == null) continue;
+                    string n = b.name.ToLowerInvariant();
+                    if (_leftFootBone == null && (n.EndsWith("leftfoot") || n.EndsWith("lefttoebase") ||
+                                                  n.EndsWith("lefttoe_end"))) _leftFootBone = b;
+                    else if (_rightFootBone == null && (n.EndsWith("rightfoot") || n.EndsWith("righttoebase") ||
+                                                        n.EndsWith("righttoe_end"))) _rightFootBone = b;
+                    else if (_hipsBone == null && (n.EndsWith("hips") || n == "mixamorig:hips")) _hipsBone = b;
+                }
+                if (_leftFootBone != null && _rightFootBone != null) break;
+            }
+        }
+
+        // The EXTENSIVE per-frame [FloatTrace] line (86ca8rdkp). Dumps ALL the references the Sponsor + the
+        // orchestrator asked for in ONE greppable line each frame: root.y / SMR.bounds.min.y (the OLD proxy) /
+        // the BAKED actual-lowest-vertex (the TRUE sole) / L+R foot-bone world-Y / ground raycast hit-Y /
+        // blob-shadow world-Y / the snap delta applied / moving-state / snap-rate. The DISCREPANCY the whole
+        // saga turned on (bounds.min BELOW the baked sole while the gauge agreed) is the load-bearing field.
+        private void EmitFrameTrace(Transform root, float bakedSole, float boundsMin, float plantY, bool moving)
+        {
+            if (!_bonesResolved) ResolveBones();
+            float lFootY = _leftFootBone != null ? _leftFootBone.position.y : float.NaN;
+            float rFootY = _rightFootBone != null ? _rightFootBone.position.y : float.NaN;
+            float shadowY = blobShadow != null ? blobShadow.position.y : float.NaN;
+            float boundsVsBaked = (float.IsNaN(boundsMin) || float.IsNaN(bakedSole)) ? float.NaN : (bakedSole - boundsMin);
+            _traceFrame++;
+            Debug.Log(
+                $"[FloatTrace] f={_traceFrame} rootY={root.position.y:F4} avatarRootY={transform.position.y:F4} " +
+                $"boundsMinY(OLD proxy)={Fmt4(boundsMin)} BAKED_SOLE(TRUE)={Fmt4(bakedSole)} " +
+                $"boundsBelowSoleBy={Fmt4(boundsVsBaked)} lFootBoneY={Fmt4(lFootY)} rFootBoneY={Fmt4(rFootY)} " +
+                $"groundHitY={Fmt4(GroundHitWorldY)} plantY={Fmt4(plantY)} shadowY={Fmt4(shadowY)} " +
+                $"snapLocalY={_snapLocalY:F4} GAP(sole-ground)={Fmt4(FloatGap)} " +
+                $"proxyRootGap={Fmt4(ProxyRootFloatGap)} offset={groundYOffset:F4} moving={moving} rate={ActiveSnapRate:F0}");
+        }
+
+        private static string Fmt4(float v) => float.IsNaN(v) ? "N/A" : v.ToString("F4");
+
         /// <summary>
-        /// ONE-FRAME GROUND-TRUTH DUMP (86ca8rdkp breakthrough diagnostic — diagnostic-traces-before-fixes).
-        /// Dumps EVERY Y-reference in a single frame so the hidden offset between the snap PROXY (avatar root /
-        /// "feet") and the TRUE rendered sole (SkinnedMeshRenderer.bounds.min.y) is MEASURED, not guessed:
-        /// the gauge reads GAP=0 yet the visible mesh floats — this proves which reference is offset and by how
-        /// much. Called by FloatDiagnosticVerifyCapture at spawn + shore so the [FloatTrace] log carries the
-        /// full picture. Pure read-only (never mutates state).
+        /// ONE-FRAME GROUND-TRUTH DUMP (86ca8rdkp diagnostic — diagnostic-traces-before-fixes). Dumps EVERY
+        /// Y-reference in a single frame so the hidden offset between the OLD bounds.min.y proxy and the BAKED
+        /// actual-lowest-vertex TRUE sole is MEASURED, not guessed. Called by FloatDiagnosticVerifyCapture at
+        /// spawn + shore so the [FloatTrace] log carries the full picture. Pure read-only (never mutates state).
         /// </summary>
         public string DumpGroundTruth(string where)
         {
             Transform root = transform.parent != null ? transform.parent : transform;
-            float meshBottom = MeasureRenderedMeshBottomWorldY();
-            string hips = "N/A", lFoot = "N/A", rFoot = "N/A";
-            if (_smrs == null || _smrs.Length == 0) _smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            if (_smrs != null && _smrs.Length > 0 && _smrs[0] != null && _smrs[0].bones != null)
-            {
-                foreach (var b in _smrs[0].bones)
-                {
-                    if (b == null) continue;
-                    string n = b.name.ToLowerInvariant();
-                    if (n.EndsWith("hips") || n == "mixamorig:hips") hips = b.position.y.ToString("F4");
-                    else if (n.EndsWith("leftfoot")) lFoot = b.position.y.ToString("F4");
-                    else if (n.EndsWith("rightfoot")) rFoot = b.position.y.ToString("F4");
-                }
-            }
+            float bakedSole = MeasureRenderedSoleWorldY();
+            float boundsMin = MeasureSmrBoundsMinY();
+            if (!_bonesResolved) ResolveBones();
+            string hips = _hipsBone != null ? _hipsBone.position.y.ToString("F4") : "N/A";
+            string lFoot = _leftFootBone != null ? _leftFootBone.position.y.ToString("F4") : "N/A";
+            string rFoot = _rightFootBone != null ? _rightFootBone.position.y.ToString("F4") : "N/A";
             string modelLocalY = _model != null ? _model.localPosition.y.ToString("F4") : "N/A";
             string shadowY = blobShadow != null ? blobShadow.position.y.ToString("F4") : "N/A";
+            float boundsBelowSoleBy = (float.IsNaN(boundsMin) || float.IsNaN(bakedSole)) ? float.NaN
+                                                                                         : (bakedSole - boundsMin);
             string msg =
                 $"[FloatTrace] DUMP ({where}): rootY={root.position.y:F4} avatarRootY(gauge feetY)={transform.position.y:F4} " +
                 $"hipsY={hips} leftFootBoneY={lFoot} rightFootBoneY={rFoot} " +
-                $"MESH_BOTTOM(SMR.bounds.min.y=TRUE sole)={(float.IsNaN(meshBottom) ? "N/A" : meshBottom.ToString("F4"))} " +
-                $"modelChildLocalY={modelLocalY} groundHitY={(float.IsNaN(GroundHitWorldY) ? "N/A" : GroundHitWorldY.ToString("F4"))} " +
-                $"shadowY={shadowY} | PROXY_ROOT_GAP(avatarRoot-ground)={(float.IsNaN(ProxyRootFloatGap) ? "N/A" : ProxyRootFloatGap.ToString("F4"))} " +
-                $"TRUE_MESH_GAP(meshBottom-ground)={(float.IsNaN(MeshFloatGap) ? "N/A" : MeshFloatGap.ToString("F4"))} " +
-                $"offset(meshBottom-avatarRoot)={(float.IsNaN(meshBottom) ? "N/A" : (meshBottom - transform.position.y).ToString("F4"))} " +
+                $"BOUNDS_MIN_Y(OLD proxy=anim-max AABB floor)={Fmt4(boundsMin)} " +
+                $"BAKED_SOLE_Y(TRUE current-frame lowest vertex)={Fmt4(bakedSole)} " +
+                $"boundsBelowTrueSoleBy={Fmt4(boundsBelowSoleBy)} " +
+                $"modelChildLocalY={modelLocalY} groundHitY={Fmt4(GroundHitWorldY)} " +
+                $"shadowY={shadowY} | PROXY_ROOT_GAP(avatarRoot-ground)={Fmt4(ProxyRootFloatGap)} " +
+                $"TRUE_GAP(bakedSole-ground)={Fmt4(MeshFloatGap)} " +
+                $"poseOffset(bakedSole-avatarRoot)={Fmt4(float.IsNaN(bakedSole) ? float.NaN : bakedSole - transform.position.y)} " +
                 $"snapLocalY={_snapLocalY:F4} groundYOffset={groundYOffset:F4} moving={IsMovingForSnap}";
             Debug.Log(msg);
             return msg;

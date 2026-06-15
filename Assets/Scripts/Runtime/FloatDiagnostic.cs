@@ -85,6 +85,10 @@ namespace FarHorizon
         {
             _active = true;
             Resolve();
+            // EXTENSIVE-DEBUG round (86ca8rdkp): drive the castaway's per-frame [FloatTrace] while the overlay
+            // is up, so the orchestrator reads the full per-frame discrepancy dump (bounds.min vs baked-actual
+            // vs shadow vs ground) from the player log too — not just the ~1Hz summary line.
+            if (_castaway != null) _castaway.SetFrameTrace(true);
         }
 
         /// <summary>Whether the overlay is currently drawing (for the regression guard — proves the build-gated
@@ -95,7 +99,11 @@ namespace FarHorizon
         {
             // Resolve once -floatTrace presence (drives the log-only dump). Cheap; do it lazily so a test that
             // adds the component mid-run picks it up.
-            if (!_resolvedArgs) { _logOnly = HasArg(LogOnlyArg); _resolvedArgs = true; if (_logOnly) Resolve(); }
+            if (!_resolvedArgs)
+            {
+                _logOnly = HasArg(LogOnlyArg); _resolvedArgs = true;
+                if (_logOnly) { Resolve(); if (_castaway != null) _castaway.SetFrameTrace(true); }
+            }
 
             // The ONLY gameplay-affecting work in normal play: watch the F8 toggle. No allocs, no gameplay
             // effect. Everything else is gated behind _active || _logOnly.
@@ -103,6 +111,8 @@ namespace FarHorizon
             {
                 _active = !_active;
                 if (_active) Resolve();
+                // Drive the castaway's per-frame [FloatTrace] in lock-step with the overlay (extensive logging).
+                if (_castaway != null) _castaway.SetFrameTrace(_active || _logOnly);
                 Debug.Log("[FloatDiagnostic] overlay " + (_active ? "ON — feet/ground/GAP live; dial GROUND-Y to GAP≈0"
                                                                   : "off"));
             }
@@ -137,11 +147,13 @@ namespace FarHorizon
                 Debug.Log("[FloatTrace] no CastawayCharacter found");
                 return;
             }
-            // FeetWorldY / FloatGap now read the TRUE rendered SOLE (86ca8rdkp final). Surface the proxy-root
-            // gap alongside so the log always proves the gauge flipped from the misleading proxy to the sole.
+            // FeetWorldY / FloatGap now read the BAKED actual lowest-vertex SOLE (86ca8rdkp EXTENSIVE-DEBUG
+            // round) — NOT SMR.bounds.min.y. Surface the bounds-min proxy + the proxy-root gap alongside so the
+            // log always proves the gauge reads the TRUE sole, and the bounds floor sits below it (false-green).
             float feet = _castaway.FeetWorldY, ground = _castaway.GroundHitWorldY, gap = _castaway.FloatGap;
             bool floating = !float.IsNaN(gap) && Mathf.Abs(gap) > floatRedThreshold;
-            Debug.Log($"[FloatTrace] soleY={Fmt(feet)} groundY={Fmt(ground)} GAP(sole-ground)={Fmt(gap)} " +
+            Debug.Log($"[FloatTrace] bakedSoleY={Fmt(feet)} boundsMinY(OLD proxy)={Fmt(_castaway.SmrBoundsMinWorldY)} " +
+                      $"groundY={Fmt(ground)} GAP(bakedSole-ground)={Fmt(gap)} " +
                       $"({(floating ? "FLOATING" : "planted")})  proxyRootGap={Fmt(_castaway.ProxyRootFloatGap)} " +
                       $"offset={_castaway.groundYOffset:F4} moving={_castaway.IsMovingForSnap} " +
                       $"snapRate={_castaway.ActiveSnapRate:F0}");
