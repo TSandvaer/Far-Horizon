@@ -216,6 +216,41 @@ namespace FarHorizon
         /// headless-time trap — unity-conventions.md §Headless).</summary>
         public float LastSnapTargetWorldY { get; private set; } = float.NaN;
 
+        // === LIVE FLOAT-DIAGNOSTIC readouts (86ca8rdkp — the instrument, F8 overlay + F9 GROUND-Y panel +
+        // ~1Hz log). The Sponsor + orchestrator measure the residual feet-vs-sand float from ground truth
+        // instead of arguing "is it fixed". Updated every frame inside ApplyGroundSnap. ===
+
+        /// <summary>The avatar feet WORLD-Y this frame (the avatar root's world position Y — the FBX origin
+        /// sits at the feet, so the avatar-root Y IS the feet Y). NaN until the first snap frame.</summary>
+        public float FeetWorldY { get; private set; } = float.NaN;
+
+        /// <summary>The RAW visible-ground raycast-hit WORLD-Y directly under the player this frame (the
+        /// selected renderer-ENABLED Ground surface, BEFORE the groundYOffset is added). NaN if no visible
+        /// ground was hit. This is the surface the player SEES under his feet — the GAP measures against it.</summary>
+        public float GroundHitWorldY { get; private set; } = float.NaN;
+
+        /// <summary>The live FLOAT GAP = feet world-Y − ground-hit world-Y. ~0 = feet planted on the visible
+        /// sand; &gt;~0.01 (1 cm) = the avatar is floating (the bug). NaN until both readings are valid. This
+        /// is THE number the Sponsor dials groundYOffset to drive to ~0.</summary>
+        public float FloatGap { get; private set; } = float.NaN;
+
+        /// <summary>Whether the agent is moving (above walkSpeedThreshold) this frame — surfaced so the
+        /// diagnostic shows rest-vs-move (the during-walk float was state-dependent).</summary>
+        public bool IsMovingForSnap { get; private set; }
+
+        /// <summary>The snap convergence rate (1/s) active this frame (snapRateRest at rest, snapRateMove
+        /// while moving) — surfaced so the Sponsor/orchestrator see which smoothing rate is in play.</summary>
+        public float ActiveSnapRate { get; private set; }
+
+        /// <summary>
+        /// PURE GAP math (the unit-testable core of the diagnostic): the float gap between the avatar feet
+        /// and the visible ground directly under them. Both args are WORLD-Y. Returns feet − ground; ~0 means
+        /// planted, positive means floating ABOVE the sand. Static + dependency-free so the PlayMode test can
+        /// assert "feet at a known Y over ground at a known Y yields the expected gap" with no scene rig.
+        /// </summary>
+        public static float ComputeFloatGap(float feetWorldY, float groundHitWorldY)
+            => feetWorldY - groundHitWorldY;
+
         // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
         private readonly RaycastHit[] _snapHits = new RaycastHit[8];
@@ -271,7 +306,19 @@ namespace FarHorizon
                     if (!found || y > bestY) { bestY = y; found = true; }
                 }
             }
-            if (!found) { LastSnapTargetWorldY = float.NaN; return; }
+            if (!found)
+            {
+                // No visible ground under the feet — diagnostic readouts go invalid (the overlay shows N/A).
+                LastSnapTargetWorldY = float.NaN;
+                GroundHitWorldY = float.NaN;
+                FloatGap = float.NaN;
+                FeetWorldY = transform.position.y;
+                return;
+            }
+            // The RAW visible-ground hit (pre-offset) — the surface the player SEES under his feet. The live
+            // FLOAT GAP is measured against THIS, so the Sponsor watches the gap to the actual sand (not the
+            // offset-shifted plant target). 86ca8rdkp diagnostic.
+            GroundHitWorldY = bestY;
             // The plant Y = the visible-terrain hit + the Sponsor-dialable ground offset (default 0 = plant
             // exactly on the geometric ground). The OFFSET is the F9-dialable knob (4th-attempt — give the
             // Sponsor the handle instead of the team guessing the exact feet-on-ground value).
@@ -292,11 +339,19 @@ namespace FarHorizon
                           new Vector2(_agent.velocity.x, _agent.velocity.z).sqrMagnitude >
                           (walkSpeedThreshold * walkSpeedThreshold);
             float rate = moving ? snapRateMove : snapRateRest;
+            IsMovingForSnap = moving;          // diagnostic: rest-vs-move (the during-walk float was state-dependent)
+            ActiveSnapRate = rate;             // diagnostic: which smoothing rate is in play this frame
             if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
             else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-rate * Time.deltaTime));
             Vector3 lp = transform.localPosition;
             lp.y = _snapLocalY;
             transform.localPosition = lp;
+
+            // LIVE FLOAT-DIAGNOSTIC (86ca8rdkp): the feet are now at the avatar root's WORLD-Y this frame. The
+            // GAP is feet − the RAW visible ground hit (the surface the player sees). ~0 = planted; >1cm =
+            // floating (the bug). The instrument (F8 overlay / F9 panel / ~1Hz log) reads these every frame.
+            FeetWorldY = transform.position.y;
+            FloatGap = ComputeFloatGap(FeetWorldY, GroundHitWorldY);
 
             // RE-SOAK #2 + DURING-WALK FIX — ground the CONTACT SHADOW to the avatar's SMOOTHED feet WORLD-Y
             // (NOT the raw bestY target). The shadow is a child of the player root (it must NOT inherit the

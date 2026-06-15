@@ -376,7 +376,13 @@ namespace FarHorizon
             {
                 // 4th-attempt — the ground-Y knob has ONE scalar channel; show it big + a hint.
                 posLine = $"groundYOffset={_castaway.groundYOffset:F4}   (PgUp/PgDn to dial; + = lift, − = drop)";
-                eulerLine = "Dial until the feet sit ON the sand while WALKING, then bake the value.";
+                // FLOAT-DIAGNOSTIC (86ca8rdkp instrument): surface the LIVE GAP right here so the Sponsor
+                // WATCHES it shrink to ~0 AS he dials groundYOffset — dial + measurement together. feet−ground;
+                // ~0 = planted, >1cm = floating. The same number the F8 overlay shows.
+                float gap = _castaway.FloatGap;
+                eulerLine = float.IsNaN(gap)
+                    ? "GAP (feet−ground): N/A  —  no visible ground under the feet"
+                    : $"GAP (feet−ground)={gap:F4}  {(Mathf.Abs(gap) > 0.01f ? "◄ FLOATING — keep dialing" : "◄ planted ✓")}";
             }
             else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : "(axe not found)"; eulerLine = ""; }
 
