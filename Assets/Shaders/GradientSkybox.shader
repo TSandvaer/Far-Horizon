@@ -27,9 +27,12 @@ Shader "FarHorizon/GradientSkybox"
     // registers it at bootstrap time.
     Properties
     {
-        _ZenithColor  ("Zenith Color",  Color) = (0.50, 0.71, 0.84, 1)
-        _MidColor     ("Mid Color",     Color) = (0.67, 0.82, 0.89, 1)
-        _HorizonColor ("Horizon Color", Color) = (0.86, 0.91, 0.89, 1)
+        // W4 nicer-sky soak-fix (86ca8t9pq) — cheerful saturated blue zenith -> clean mid -> warm pale
+        // horizon. Kept in sync with FarHorizon.WorldLookPalette (the bootstrap sets these explicitly;
+        // these defaults match so the asset reads the same look if opened raw).
+        _ZenithColor  ("Zenith Color",  Color) = (0.38, 0.62, 0.85, 1)
+        _MidColor     ("Mid Color",     Color) = (0.60, 0.78, 0.90, 1)
+        _HorizonColor ("Horizon Color", Color) = (0.88, 0.90, 0.84, 1)
         // Where the MID stop sits (0 = horizon, 1 = zenith). Uma §3: mid ~ horizon+30deg.
         _MidPoint ("Mid Point", Range(0.05, 0.95)) = 0.35
         // Softness of the two transitions (smoothstep width).

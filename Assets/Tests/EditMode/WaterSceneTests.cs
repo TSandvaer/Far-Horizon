@@ -64,13 +64,13 @@ namespace FarHorizon.EditTests
             var cols = mesh.colors;
             Assert.AreEqual(verts.Length, cols.Length, "every ocean vert must carry a color");
 
-            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. The water now reaches
-            // INLAND past the real waterline (WaterInlandOverlap 13 -> near edge worldZ +1) and the FOAM band
-            // peaks at the waterline (≈ -1.7); so the clear-shallows bright-teal anchor is checked a few units
-            // SEAWARD of the foam (~worldZ -12), and the DEEP anchor at the seaward-most vert. (The foam band
-            // itself is guarded by Ocean_CarriesShorelineFoam_AtTheCoast.)
-            float shallowProbeZ = -30f; // well seaward of the foam fade (waterline -1.7 + 7u band), coarse 15u
-                                        // vert spacing -> -30 robustly lands a clear-shallow vert, not a foam one
+            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. WATERLINE-OUT SOAK-FIX
+            // (86ca8t9pq W1): the waterline + foam band moved SEAWARD to worldZ ~ -10.2 (WaterlineWorldZ),
+            // and the foam plateau (core 8u + band 9u) fades out by ~worldZ -27. So the clear-shallows
+            // bright-teal anchor must be probed WELL seaward of that fade (~worldZ -45), and the DEEP anchor
+            // at the seaward-most vert. (The foam band itself is guarded by Ocean_CarriesShorelineFoam.)
+            float shallowProbeZ = -45f; // well seaward of the new foam fade (waterline -10.2 + ~17u band), so
+                                        // the probe robustly lands a clear-shallow vert, not a foam-blended one
             int shallowIdx = 0, farIdx = 0;
             for (int i = 1; i < verts.Length; i++)
             {
@@ -281,6 +281,67 @@ namespace FarHorizon.EditTests
                 "the TestGround MeshRenderer MUST be DISABLED — an enabled flat grey placeholder slab pokes " +
                 "above the dipping sandy beach (Z ~ -10..+3) and reads as a 'gray slab on the beach' (soak #40). " +
                 "The sandy Zone-D terrain is the visible ground; this is a collision/NavMesh proxy only.");
+        }
+
+        [Test]
+        public void BeachLoopObjects_SitOnDrySand_NotInTheWater_WaterlineOutGuard()
+        {
+            // WATERLINE-OUT SOAK-FIX REGRESSION GUARD (86ca8t9pq W1, Sponsor soak of b54482c: "it should be
+            // moved a bit out, so the tree, campfire and debris is not in the water"). Diagnose-via-trace
+            // CONFIRMED the loop objects sat BELOW WaterY (-0.20): ChopTree (z=-7) terrainY -0.44u, FirePit
+            // (z=-8) -0.48u, BeachDebris (z=-3) -0.25u — all underwater, because the old beachRamp completed
+            // only at fz=0.27 so the waterline crept inland to worldZ ~ -1.7. The fix (ShoreRampEnd 0.045)
+            // climbs the beach out of the water by worldZ ~ -8.9 so the waterline lands at ~ -10.2 — every
+            // loop object now sits on DRY sand. This guards the bug CLASS: raycast the SHIPPED terrain
+            // collider straight down at each loop-spot XZ and assert the surface Y is above WaterY with
+            // margin. A regression that re-floods the loop band (pulls the waterline back inland) fails HERE
+            // in headless CI before it ships. (A render proxy can't read the dipping terrain — the collider
+            // ray is the authoritative reader, same idiom as GroundPoint.)
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider (the ground raycast surface)");
+
+            const float WaterY = -0.20f;  // mirrors LowPolyZoneGen.WaterY
+            const float DryMargin = 0.10f; // clear of the surf, survives the shore noise band
+            // The survival-loop beach objects (MovementCameraScene static positions) — the ones the Sponsor
+            // saw submerged. XZ only; the Y comes from the terrain ray.
+            var loopSpots = new (string name, float x, float z)[]
+            {
+                ("ChopTree",    -9f, -7f),
+                ("FirePit",      4f, -8f),
+                ("BeachDebris", -3.2f, -3.0f),
+            };
+            foreach (var (name, x, z) in loopSpots)
+            {
+                var ray = new Ray(new Vector3(x, 50f, z), Vector3.down);
+                Assert.IsTrue(col.Raycast(ray, out RaycastHit hit, 200f),
+                    $"the terrain ray at the {name} spot ({x},{z}) must hit the ground (the loop surface)");
+                Assert.Greater(hit.point.y, WaterY + DryMargin,
+                    $"the {name} loop object at ({x},{z}) must sit on DRY sand (terrainY {hit.point.y:F3} > " +
+                    $"WaterY {WaterY:F2} + margin) — a terrain that dips below WaterY here re-floods the loop " +
+                    "object the Sponsor saw in the water (W1 waterline-out regression). Push the waterline out.");
+            }
+        }
+
+        [Test]
+        public void Waterline_SitsSeawardOfTheLoopBand_NotInland()
+        {
+            // WATERLINE-OUT GUARD (companion to the loop-object check): the water mesh's NEAR EDGE must sit
+            // SEAWARD of the loop band (z <= -8) so the rendered sea never reaches inland over the dry loop
+            // objects. With WaterInlandOverlap 4 the near edge is worldZ -8 (= shoreZ -12 + 4). The water root
+            // sits at world Z 0, so the near (largest-Z, least-negative) vert's world Z must be <= -7.5.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mesh = water.GetComponent<MeshFilter>().sharedMesh;
+            var verts = mesh.vertices;
+            float maxLocalZ = float.NegativeInfinity;
+            foreach (var v in verts) if (v.z > maxLocalZ) maxLocalZ = v.z;
+            float nearWorldZ = water.transform.position.z + maxLocalZ;
+            Assert.LessOrEqual(nearWorldZ, -7.5f,
+                $"the water near edge (worldZ {nearWorldZ:F1}) must sit SEAWARD of the loop band (z<=-8) so the " +
+                "rendered sea never floods the dry loop objects (FirePit z=-8). An inland-reaching near edge " +
+                "re-floods the beach (the W1 regression).");
         }
 
         [Test]

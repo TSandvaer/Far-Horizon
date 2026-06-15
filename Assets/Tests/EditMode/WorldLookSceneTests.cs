@@ -294,6 +294,55 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Vista_NearRange_BodyReadsWarmGreyBrown_NotColdGreyBlue()
+        {
+            // W2 SOAK-FIX GUARD (Sponsor soak of b54482c: mountains "read as flat grey triangles ... warmer
+            // color variation"). ROOT CAUSE: the near backing range (fadeK 0.10, ~no atmospheric tint) baked
+            // the old MtnBody (0.60,0.65,0.68) — a COLD grey-BLUE (B>G>R) that reads as a flat slab vs the warm
+            // sky. The fix warms MtnBody to a grey-BROWN (R>=G>=B). Guard the class: the near range's BODY
+            // facets (the darker, non-snow verts) must read warm (R >= B). A regression to a cold grey-blue
+            // body fails HERE. The near range is the one whose material _Tint is ~white (fadeK 0.10), so the
+            // baked vertex BODY colour shows almost un-atmosphere-tinted.
+            var nearPeak = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.gameObject.name == "LP_Mountain" && mf.sharedMesh != null)
+                .OrderBy(mf => new Vector2(mf.transform.position.x, mf.transform.position.z).magnitude)
+                .FirstOrDefault();
+            Assert.IsNotNull(nearPeak, "the near backing range must carry at least one LP_Mountain peak");
+            var cols = nearPeak.sharedMesh.colors;
+            Assert.Greater(cols.Length, 0, "the mountain mesh must carry baked vertex colours");
+            // The BODY facets are the darker (non-snow) verts — take the lower half by value (r) and assert
+            // their MEAN reads warm (R >= B): the warm grey-brown body, not a cold grey-blue slab.
+            var byVal = cols.OrderBy(c => c.r).ToArray();
+            int bodyN = Mathf.Max(1, byVal.Length / 2);
+            float mr = 0f, mb = 0f;
+            for (int i = 0; i < bodyN; i++) { mr += byVal[i].r; mb += byVal[i].b; }
+            mr /= bodyN; mb /= bodyN;
+            Assert.GreaterOrEqual(mr, mb - 0.01f,
+                $"the near range BODY must read WARM grey-brown (mean R {mr:F2} >= mean B {mb:F2}) — a cold " +
+                "grey-blue body (B>R) is the 'flat grey triangle' slab the Sponsor rejected (W2 soak-fix)");
+        }
+
+        [Test]
+        public void Vista_NearRange_HasABoldSnowCap_NotASliver()
+        {
+            // W2 SOAK-FIX GUARD: the snow caps must read as confident wedges (the board 21h16_13 caps cover
+            // the top ~half of the peak). The snowline was LOWERED (0.60 -> 0.48) so more of the upper peak is
+            // snow. Guard the class: a meaningful FRACTION of the near range's verts must read as bright snow
+            // (r > 0.80) — a tiny sliver (snowline too high / cap dropped) fails HERE.
+            var nearPeak = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.gameObject.name == "LP_Mountain" && mf.sharedMesh != null)
+                .OrderBy(mf => new Vector2(mf.transform.position.x, mf.transform.position.z).magnitude)
+                .FirstOrDefault();
+            Assert.IsNotNull(nearPeak, "the near range must carry an LP_Mountain peak");
+            var cols = nearPeak.sharedMesh.colors;
+            int snow = cols.Count(c => c.r > 0.80f);
+            float frac = (float)snow / Mathf.Max(1, cols.Length);
+            Assert.Greater(frac, 0.12f,
+                $"the near range must carry a BOLD snow cap — only {frac:P0} of verts read as snow (r>0.80); a " +
+                "confident cap (snowline 0.48) covers a meaningful fraction, not a sliver (W2 soak-fix)");
+        }
+
+        [Test]
         public void BootScene_CarriesWorldLookNudgeTool_OnTheBootObject()
         {
             // The BUILD-GATED debug WorldLookNudgeTool (the soak-rework dial) must be SERIALIZED onto the Boot
@@ -332,6 +381,15 @@ namespace FarHorizon.EditTests
                 foreach (var c in new[] { zen, sky.GetColor("_MidColor"), hor })
                     Assert.IsTrue(c.r < 1f && c.g < 1f && c.b < 1f,
                         $"sky stop ({c.r:F2},{c.g:F2},{c.b:F2}) must be sub-1.0 (HDR-clamp-safe)");
+
+                // W4 NICER-SKY SOAK-FIX GUARD (Sponsor soak of b54482c: "sky not nice — warmer/nicer per the
+                // board's cheerful palette"). The b54482c zenith was pale (R 0.50, B 0.84 — only ~0.34 of blue
+                // dominance) so the dome read bleached. The board (21h16_13/21h13_31) sky is a CHEERFUL
+                // SATURATED blue. Guard the class: the zenith must be a confident blue (B clearly dominant over
+                // R) so the sky doesn't wash out to pale near-white. A regression to a washed pale zenith fails.
+                Assert.Greater(zen.b - zen.r, 0.35f,
+                    $"the zenith ({zen.r:F2},{zen.g:F2},{zen.b:F2}) must be a CHEERFUL SATURATED sky-blue " +
+                    "(B clearly > R) — a pale washed zenith reads bleached, not the board's clean-day blue (W4)");
             }
         }
 

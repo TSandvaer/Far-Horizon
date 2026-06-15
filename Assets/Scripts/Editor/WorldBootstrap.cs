@@ -42,12 +42,29 @@ namespace FarHorizon.EditorTools
         static readonly Color CloudTop    = new Color(0.77f, 0.93f, 0.94f); // #C4ECEF bright top-lit cap
         static readonly Color CloudShadow = new Color(0.42f, 0.73f, 0.78f); // #6BBAC6 soft teal underside
 
-        // NEAR-VISTA + FAR-RING mountain palette (Uma §2 anchor swatches — the foreground rock palette
-        // shifted toward the sky-tint as it recedes: lighter, lower-sat, warmer; faded ranges blend
-        // toward the horizon stop #DCE8E4 for the seamless dissolve). All sub-0.95.
-        static readonly Color MtnBody     = new Color(0.60f, 0.65f, 0.68f); // #9AA6AE hazy warm grey-blue
-        static readonly Color MtnSnow     = new Color(0.91f, 0.93f, 0.93f); // #E8ECEC pale warm white cap
-        static readonly Color MtnRimBody  = new Color(0.71f, 0.77f, 0.80f); // #B6C4CC farthest range (near-sky)
+        // NEAR-VISTA + FAR-RING mountain palette. WARMER CHUNKY-MOUNTAIN SOAK-FIX (86ca8t9pq W2, Sponsor
+        // soak of b54482c: "mountains STILL not acceptable — they read as flat grey triangles. Improve the
+        // STYLE per the board: more faceting / chunkier forms / snow caps / warmer color variation").
+        // ROOT CAUSE (diagnose-via-trace, the b54482c horizon captures): the NEAR backing range (fadeK 0.10,
+        // ~no atmospheric tint) rendered the RAW MtnBody (0.60,0.65,0.68) — a COLD grey-BLUE (B>G>R) that
+        // reads as a flat slab against the warm sky, and the snow cap (MtnSnow) barely differed from the sky
+        // so no grey-to-snow contrast showed. The board mountains (inspiration/21h16_13 + 21h12_49) are WARM
+        // grey-BROWN at the base (R>=G>=B), with a BRIGHT near-white snow cap and clear facet-to-facet value
+        // steps. FIX: (1) warm the body to a grey-brown (R>=G>=B, more saturated so facets vary), (2) keep
+        // the snow a bright near-white cap that pops against the warm body, (3) the mesh-level snow band +
+        // facet value-jitter are widened/boosted in LowPolyMeshes.FacetedMountain so the chunky facets read.
+        // All sub-0.95 (HDR-clamp-safe). Live-dialable via the F9 WorldLookNudgeTool MOUNTAINS target
+        // (colour/snow/faceting added this pass) so the Sponsor bakes the final look.
+        // WARMTH STRENGTHENED (W2 attempt 2 — instrument-confirmed): the first warm bake (0.56,0.50,0.45)
+        // STILL read cold blue-grey on-frame (pixel-sampled the shipped horizon capture: mountain landed
+        // (96,108,120), B>R by ~0.09). ROOT CAUSE (diagnose-via-trace): the skybox-driven AMBIENT is now a
+        // saturated BLUE (the W4 sky zenith 0.38,0.62,0.85) and the DISTANT flat-lit mountain is dominated by
+        // that cool ambient, not the warm directional key — so a mild warm albedo gets dragged blue. FIX:
+        // push MtnBody to a STRONG warm tan-brown (R-B = 0.24, was 0.11) so the warm albedo survives the cold
+        // ambient and lands neutral-to-warm on-frame. Verified by re-sampling the shipped capture (R>=B).
+        static readonly Color MtnBody     = new Color(0.62f, 0.50f, 0.38f); // #9E8061 strong warm tan-brown (survives the cold ambient)
+        static readonly Color MtnSnow     = new Color(0.95f, 0.94f, 0.90f); // #F2F0E6 bright warm near-white snow cap (pops on warm body)
+        static readonly Color MtnRimBody  = new Color(0.70f, 0.67f, 0.66f); // #B3ABA8 farthest range (warm-leaning neutral as it recedes)
         // == the horizon sky stop, by reference, so the farthest range's cap dissolves EXACTLY into the
         // sky/fog (Erik Q2 lockstep — can't drift from the seam-kill anchor).
         static readonly Color MtnRimSnow  = FarHorizon.WorldLookPalette.SkyHorizon; // #DCE8E4 (dissolves)
@@ -194,19 +211,30 @@ namespace FarHorizon.EditorTools
             var wind = new Vector3(1f, 0f, 0.18f).normalized;
             const float bandHalfSpan = 90f; // wide enough that the wrap is off-frame from the spawn
 
-            // Spread the clouds across the sky dome above + around the play space (biased over + ahead so
-            // the orbit cam catches them in the upper third). Altitude 30-60u (Uma §1).
+            // CLOUDS-VISIBLE SOAK-FIX (86ca8t9pq W3, Sponsor soak of b54482c: "clouds NOT visible — make the
+            // chunky faceted clouds actually show — lower / bigger / more / repositioned into the visible sky
+            // per the board"). ROOT CAUSE (diagnose-via-trace, the b54482c run log + the default/drift caps):
+            // the clouds DID ship (6 in scene, trace-confirmed drifting) but at altitude 42-58u they sat ABOVE
+            // the default gameplay orbit's framing (pitch 55 looks slightly DOWN over the shoulder) — only tiny
+            // specks reached the top frame edge. The board (21h16_13/21h13_31) puts chunky clouds LOWER in the
+            // sky band where they read at orbit distance. FIX: (1) LOWER the altitude band (26-42u, was 30-60u
+            // — still > the 25u eye-line floor the scene test guards), (2) BIGGER blobs (radius 5-9.5 -> long
+            // axis ~10-19u, within the 6-22u scale-test band), (3) MORE of them (the 6-10 count is already eased
+            // up), (4) BIAS the lateral spread tighter over + ahead of the play space (the forward/inland arc
+            // the orbit faces) so the clouds land IN the visible sky, not off behind the camera.
             for (int c = 0; c < count; c++)
             {
-                float radius = 4f + (float)rnd.NextDouble() * 5f; // long axis ~8-18u (radius 4-9) — Uma §1 band
-                int blobs = 3 + rnd.Next(0, 4);                   // 3-6 spheroids (board sheet)
+                float radius = 5f + (float)rnd.NextDouble() * 3.5f; // long axis ~10-18u (radius 5-8.5) — bigger, kept <22u (scale-test ceiling)
+                int blobs = 4 + rnd.Next(0, 3);                     // 4-6 spheroids (chunkier board read)
                 var mesh = LowPolyMeshes.CloudBlob(radius, blobs, CloudBody, CloudTop, CloudShadow, rnd.Next());
 
                 var cloud = new GameObject("LP_Cloud");
                 cloud.transform.SetParent(cloudsRoot.transform, false);
-                float px = Mathf.Lerp(-110f, 110f, (float)rnd.NextDouble());
-                float pz = Mathf.Lerp(-40f, 130f, (float)rnd.NextDouble());
-                float py = 30f + (float)rnd.NextDouble() * 30f; // 30-60u altitude
+                // Tighter lateral spread, biased over + AHEAD of the play space (the inland +Z arc the orbit
+                // faces) so the clouds sit in the VISIBLE sky band, not scattered off behind the camera.
+                float px = Mathf.Lerp(-75f, 75f, (float)rnd.NextDouble());
+                float pz = Mathf.Lerp(-10f, 95f, (float)rnd.NextDouble());
+                float py = 26f + (float)rnd.NextDouble() * 16f; // 26-42u altitude (LOWER — into the visible sky band)
                 cloud.transform.position = new Vector3(px, py, pz);
                 cloud.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
 
@@ -225,7 +253,7 @@ namespace FarHorizon.EditorTools
                 drift.wrapHalfSpan = bandHalfSpan;
                 drift.bandCentre = new Vector3(0f, py, pz); // wrap relative to this cloud's own lane
             }
-            Debug.Log($"[world-trace] BuildClouds placed {count} clouds (wind={wind}, alt 30-60u, drift 0.22-0.48 u/s)");
+            Debug.Log($"[world-trace] BuildClouds placed {count} clouds (wind={wind}, alt 26-42u lowered, drift 0.22-0.48 u/s)");
         }
 
         // ---- VISTA (Uma §2 near-vista + Erik far-vista 86ca8t9rh, CONSTRAINED per Sponsor soaks of
@@ -299,16 +327,21 @@ namespace FarHorizon.EditorTools
                 // ON THIS ISLAND'S BACKING RANGE — a modest range BEHIND the inland meadow (forward arc ~90deg),
                 // grounded WELL beyond the play terrain (near-edge ~worldZ +128) so it backs the forest without
                 // ever draping over the play space. Smaller footprint (baseR 42) so the near range stays compact.
-                new MtnCluster("Vista_Inland",   90f, 430f, 4, 42f,  85f,  0.60f, MtnBody,    MtnSnow,    0.10f, 2f),
+                // W2 SOAK-FIX: snowline LOWERED (0.60 -> 0.40) so the BRIGHT snow cap is a big confident wedge
+                // (the board 21h16_13 caps cover the top ~half of the peak), reading as a proper snow-capped
+                // chunky mountain, not a flat grey slab with a sliver of white. The near backing range gets a
+                // taller peak (85 -> 105u) so the snow cap reads at the 236u grounding distance + low pitch.
+                new MtnCluster("Vista_Inland",   90f, 430f, 4, 42f, 105f,  0.40f, MtnBody,    MtnSnow,    0.10f, 2f),
 
                 // FAR ISLANDS in the sea — a FEW distinct landmasses with WIDE open-sea/open-sky gaps. Spread
                 // across the forward + side arcs only (NOT the full ring): the seaward-behind arc is left as
                 // OPEN sea+sky so the orbit never sees a continuous wall. Pushed OUT + footprints trimmed so
                 // every near-edge clears the play space (the pale-frame fix); the Exp² fog gives the recession.
-                new MtnCluster("Vista_Island_NW", 130f, 560f, 3, 70f,  150f, 0.56f, MtnBody,    MtnSnow,    0.35f, 6f),
-                new MtnCluster("Vista_Island_NE",  55f, 600f, 3, 75f,  165f, 0.55f, MtnBody,    MtnSnow,    0.45f, 6f),
-                new MtnCluster("Vista_Island_E",    8f, 700f, 2, 90f,  175f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
-                new MtnCluster("Vista_Island_W",  168f, 680f, 2, 90f,  170f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
+                // W2 SOAK-FIX: snowlines LOWERED so the snow caps read as confident wedges on the chunky peaks.
+                new MtnCluster("Vista_Island_NW", 130f, 560f, 3, 70f,  150f, 0.46f, MtnBody,    MtnSnow,    0.35f, 6f),
+                new MtnCluster("Vista_Island_NE",  55f, 600f, 3, 75f,  165f, 0.45f, MtnBody,    MtnSnow,    0.45f, 6f),
+                new MtnCluster("Vista_Island_E",    8f, 700f, 2, 90f,  175f, 0.44f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
+                new MtnCluster("Vista_Island_W",  168f, 680f, 2, 90f,  170f, 0.44f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
             };
 
             int total = 0;

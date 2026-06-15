@@ -16,11 +16,19 @@ namespace FarHorizon
     /// </summary>
     public static class WorldLookPalette
     {
-        // The 3 sky stops (Uma §3).
-        public static readonly Color SkyZenith  = new Color(0.50f, 0.71f, 0.84f); // #7FB4D6 soft warm blue
-        public static readonly Color SkyMid      = new Color(0.67f, 0.82f, 0.89f); // #AAD0E2 pale warm blue
+        // The 3 sky stops. NICER-SKY SOAK-FIX (86ca8t9pq W4, Sponsor soak of b54482c: "sky not nice —
+        // improve the gradient sky (warmer/nicer per the board's cheerful palette)"). The b54482c sky read
+        // PALE + slightly cold — the old mid/horizon stops washed to near-white so the dome looked flat and
+        // bleached, not the board's (inspiration/21h16_13 + 21h13_31) cheerful saturated blue with a soft
+        // warm horizon. FIX: a more SATURATED cheerful sky-blue at the zenith (deeper B, the board's clear-
+        // day blue), a clean mid blue, and a WARM pale horizon (kept warm so the seam-kill still dissolves
+        // the vista into it). The horizon stays the single seam-kill anchor (== fog colour == far-range tint).
+        // All sub-1.0 / HDR-clamp-safe. Live-dialable via the F9 WorldLookNudgeTool SKY target.
+        public static readonly Color SkyZenith  = new Color(0.38f, 0.62f, 0.85f); // #61A0D9 cheerful saturated sky-blue
+        public static readonly Color SkyMid      = new Color(0.60f, 0.78f, 0.90f); // #99C7E6 clean mid blue
         // THE load-bearing seam-kill anchor: the warm horizon stop. fog colour == this == the bottom of
-        // the gradient skybox == the farthest vista range tint family.
-        public static readonly Color SkyHorizon  = new Color(0.86f, 0.91f, 0.89f); // #DCE8E4 warm pale cream-blue
+        // the gradient skybox == the farthest vista range tint family. Kept warm (R>=B) + a touch more
+        // saturated so the horizon glows warm-cheerful, not bleached white.
+        public static readonly Color SkyHorizon  = new Color(0.88f, 0.90f, 0.84f); // #E0E6D6 warm pale cream horizon
     }
 }

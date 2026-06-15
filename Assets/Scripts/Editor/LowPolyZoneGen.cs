@@ -240,11 +240,25 @@ namespace FarHorizon.EditorTools
             // shoreDip < 0 near the shore so the beach passes below WaterY (-0.20) and the coastline reads
             // as land dipping into the sea (Uma §2). The meadow rise (inland of the spawn) is unchanged.
             // A single MONOTONIC ramp from the underwater shore (fz=0, ~Y-0.55) up to the spawn-band
-            // beach level (~fz0.27, ~Y0.0) — NO intermediate hump between the spawn and the water, so the
+            // beach level (~Y0.0) — NO intermediate hump between the spawn and the water, so the
             // seaward view looks slightly DOWN-shore onto open water with nothing occluding it. The meadow
             // rise begins only INLAND of the spawn (past fz0.30) so the journey-forward still climbs.
-            float beachRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, 0.27f, fz)); // 0 at shore -> 1 at spawn band
-            float shoreDip = Mathf.Lerp(-0.55f, 0.02f, beachRamp);                          // underwater shore up to ~flat beach at spawn
+            //
+            // WATERLINE-OUT SOAK-FIX (86ca8t9pq W1, Sponsor soak of b54482c: "it should be moved a bit out,
+            // so the tree, campfire and debris is not in the water"). Diagnose-via-trace CONFIRMED the
+            // ticket framing: the beach loop objects (ChopTree z=-7, FirePit z=-8, BeachDebris z=-3) all sat
+            // BELOW WaterY (-0.20) at the old profile — terrain HeightAt gave ChopTree -0.44u, FirePit
+            // -0.48u, BeachDebris -0.25u (all underwater), because the old beachRamp completed only at
+            // fz=0.27 (worldZ ~ +6), so the waterline crept inland to worldZ ~ -1.7 and swallowed the -3..-8
+            // loop band. FIX: complete the beach climb in a NARROW seaward band (rampEnd 0.045 = worldZ
+            // ~ -8.9) so the terrain is DRY (above WaterY) by worldZ ~ -10.2 — pushing the waterline OUT to
+            // ~ -10.2, ~2u+ seaward of the most-seaward object (FirePit z=-8). All loop objects now sit on
+            // dry sand at +0.05..+0.07u (verified: shore-dip + the noise-suppressed shore band). The foam
+            // + sea-to-horizon LOOK the Sponsor likes is KEPT — only WaterlineWorldZ + the foam-band centre
+            // (BuildWaterEdge) shift seaward in lockstep so the surf still meets the new sand edge.
+            const float ShoreRampEnd = 0.045f;                                              // beach climbs out of the water by ~ worldZ -8.9 (waterline ~ -10.2)
+            float beachRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, ShoreRampEnd, fz)); // 0 at shore edge -> 1 at the dry beach
+            float shoreDip = Mathf.Lerp(-0.55f, 0.02f, beachRamp);                          // underwater shore up to ~flat beach
             float dune = Mathf.Sin(fz * 9f) * 0.06f * beachRamp * (1f - fz);                // very soft ripple on the dry beach only
             float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.30f, 0.95f, fz)) * 1.6f; // meadow rise (inland of spawn)
             // organic low-amplitude noise (multi-octave) so nothing is a flat tabletop
@@ -273,8 +287,12 @@ namespace FarHorizon.EditorTools
             // (fz≈0, where the sloping sand passes below the water plane) carry the warm off-white foam
             // line — a single calm stylized waterline, baked into vertex color so it rides this same
             // terrain shader (no new object, no particles — Uma: "a single calm foam line is the entire
-            // treatment"). A narrow seaward band: strongest at the very edge (fz=0), gone by fz~0.06.
-            // Sub-1.0 foam (NOT pure white) so the post stack's bloom doesn't blow it out.
+            // treatment"). A narrow seaward band: strongest at the very edge (fz=0), gone by fz~0.055.
+            // The foam stays at the very seaward edge (fz≈0) where the sand passes below WaterY — with the
+            // WATERLINE-OUT fix (ShoreRampEnd 0.045) the new waterline lands at fz≈0.026 (worldZ ~ -10.2),
+            // INSIDE this band, so the surf line still sits on the wet sand edge (W1 — only the waterline
+            // moved seaward; the foam treatment is unchanged). Sub-1.0 foam (NOT pure white) so bloom
+            // doesn't blow it out.
             float foamT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.055f, 0.0f, fz));
             c = Color.Lerp(c, FoamEdge, foamT);
 
@@ -526,24 +544,28 @@ namespace FarHorizon.EditorTools
         // far edge ~95% fog (a clean dissolve into the horizon stop). (Was 220u — only ~12% fogged, so the
         // far edge could read as a faint line at the low-pitch horizon view.)
         const float WaterSeawardDepth = 600f;
-        // Near edge must reach INLAND PAST THE REAL WATERLINE (≈ worldZ -1.7, where the sloping beach passes
-        // below WaterY) so the water plane actually covers the underwater shore — and so the foam band has
-        // verts AT the waterline (AC2). WATERLINE-COVERAGE FIX (86ca8t9pq): the old overlap 1.5 put the near
-        // edge at worldZ -10.5 — ~8.8u SEAWARD of the waterline, leaving the underwater foreshore (-1.7..-10.5)
-        // with no water plane over it AND the foam peak outside the mesh. overlap 13 -> near edge = shoreZ+13 =
-        // +1: ~3u inland of the waterline, so the water tucks under the dipping beach (no gap seam) and the
-        // foam peak sits on the mesh. The TestGround placeholder is non-rendering (renderer disabled), so the
-        // inland reach no longer risks the old grey-slab overhang.
-        const float WaterInlandOverlap = 13f;
+        // Near edge must reach a touch INLAND PAST THE REAL WATERLINE (where the sloping beach passes below
+        // WaterY) so the water plane covers the underwater shore with no gap seam — and so the foam band has
+        // verts AT the waterline. WATERLINE-OUT SOAK-FIX (86ca8t9pq W1): the WATERLINE moved SEAWARD to
+        // ~ worldZ -10.2 (the ShoreRampEnd 0.045 beach climbs out of the water sooner), so the water near
+        // edge must move seaward IN LOCKSTEP — the old overlap 13 (near edge worldZ +1) would now render the
+        // water plane ~11u INLAND over the new DRY beach, re-flooding the very loop objects this fix moves to
+        // dry sand. overlap 4 -> near edge = shoreZ+4 = -8: ~2u inland of the new waterline (-10.2), so the
+        // water still tucks under the dipping beach (no gap) but never reaches the dry loop band (-3..-8).
+        // The TestGround placeholder is non-rendering (renderer disabled), so the inland reach no longer
+        // risks the old grey-slab overhang.
+        const float WaterInlandOverlap = 4f;
         const int WaterSegX = 24, WaterSegZ = 40; // enough verts for the depth gradient + foam band + facets
         // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh
         // AT THE REAL WATERLINE so the sea↔land boundary reads as foam, not a hard diagonal grid edge.
-        // FOAM-AT-THE-WATERLINE FIX (86ca8t9pq AC2): the foam used to peak at the water mesh's NEAR EDGE
-        // (nearZ = shoreZ+overlap = -10.5) — i.e. ~8.5u out to SEA, disconnected from where the sand
-        // actually meets the water. The real waterline is where the sloping beach (HeightAt) passes below
-        // WaterY (-0.20): solving the shore-dip ramp, that is ≈ worldZ -1.7 (WaterlineWorldZ below). Foam
-        // now peaks THERE and fades seaward, so the surf connects to the sand edge.
-        const float WaterlineWorldZ = -1.7f;    // terrain crosses WaterY (-0.20) here (HeightAt shore-dip solve)
+        // FOAM-AT-THE-WATERLINE FIX (86ca8t9pq AC2): the foam peaks at the REAL waterline — where the sloping
+        // beach (HeightAt) passes below WaterY (-0.20) — and fades seaward, so the surf connects to the sand
+        // edge, not out at the mesh near edge. WATERLINE-OUT SOAK-FIX (86ca8t9pq W1): with ShoreRampEnd 0.045
+        // the beach now climbs out of the water by worldZ ~ -8.9, so the terrain crosses WaterY at ~ worldZ
+        // -10.2 — the waterline moved SEAWARD (out) so the loop objects (-3..-8) sit on dry sand. The foam
+        // band centre moves seaward in lockstep so the surf line stays AT the new waterline (W1: keep the
+        // foam look, only shift it out). Verified against the new shore-dip solve.
+        const float WaterlineWorldZ = -10.2f;   // terrain crosses WaterY (-0.20) here (HeightAt shore-dip solve, ShoreRampEnd 0.045)
         const float WaterFoamCoreU = 8f;        // full-strength foam PLATEAU within this band of the waterline
                                                 // (a plateau, not a point-peak, so a vert always lands in full
                                                 // foam despite the coarse grid — the AC2 foam-on-the-mesh fix)

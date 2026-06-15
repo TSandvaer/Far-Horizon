@@ -725,8 +725,14 @@ namespace FarHorizon.EditorTools
                     fn = -fn;
                     var tmp = v1; v1 = v2; v2 = tmp;
                 }
-                // Small per-face value jitter so adjacent planes differ (the facet-to-facet contrast).
-                float vj = ((float)rnd.NextDouble() - 0.5f) * 0.04f;
+                // CHUNKIER FACET CONTRAST (86ca8t9pq W2 — "flat grey triangles" -> read as chunky low-poly):
+                // a WIDER per-face value jitter (±0.09, was ±0.04) so adjacent stone planes step in value —
+                // the facet-to-facet contrast the board mountains (21h16_13 / 21h12_49) read at. The flat-
+                // shaded N·L lighting supplies most of the contrast; this baked jitter keeps it from looking
+                // like one flat slab even when several faces happen to catch the key at the same angle. The
+                // bump also darkens some body facets toward a shadow-grey, so the silhouette reads as carved
+                // chunks rather than a single mid-grey triangle.
+                float vj = ((float)rnd.NextDouble() - 0.5f) * 0.18f;
                 Color fc = new Color(Mathf.Clamp01(baseCol.r + vj), Mathf.Clamp01(baseCol.g + vj),
                                      Mathf.Clamp01(baseCol.b + vj), 1f);
                 verts.Add(v0); verts.Add(v1); verts.Add(v2);

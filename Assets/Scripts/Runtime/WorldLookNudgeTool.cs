@@ -47,10 +47,20 @@ namespace FarHorizon
         private readonly List<Vector3> _cloudBasePos = new List<Vector3>();   // for altitude re-base
         private readonly List<Transform> _mtnClusters = new List<Transform>();
         private readonly List<Vector3> _mtnBaseLocal = new List<Vector3>();   // for distance scaling
+        // The vista mountain/landmass materials (per-cluster LowPolyVertexColor instances) + their baked
+        // base _Tint, so the body-warmth / brightness dial multiplies the baked grey-to-snow in lockstep.
+        private readonly List<Material> _mtnMats = new List<Material>();
+        private readonly List<Color> _mtnBaseTint = new List<Color>();
 
         // Live-dialed values (start at the baked defaults; the Sponsor reads these to bake).
         private float _cloudScale = 1f, _cloudAlt = 0f;   // cloudAlt is an additive +y offset
         private float _mtnDistScale = 1f, _mtnScale = 1f;
+        // Mountain look (W2 soak-fix — colour/snow/faceting dials per the Sponsor's ask). _mtnTint is an
+        // ADDITIVE warm/cool + value shift applied to every cluster material's _Tint (multiplies the baked
+        // grey-to-snow); _mtnBright is a uniform value multiply. Faceting (mesh `sides`) is a BAKE-TIME param
+        // (mesh-gen, can't rebuild live) — surfaced as a reminder on the panel so the Sponsor reports it.
+        private Vector3 _mtnTint = Vector3.zero;          // additive R/G/B warmth offset onto the cluster _Tint
+        private float _mtnBright = 1f;                    // uniform brightness multiply onto the cluster _Tint
 
         // Sky stop indices for the SHIFT-selectable stop being edited.
         private int _skyStop; // 0 zenith, 1 mid, 2 horizon (horizon also drives the fog seam-kill)
@@ -182,16 +192,31 @@ namespace FarHorizon
             return changed;
         }
 
-        // ---- MOUNTAINS: arrows up/down = distance scale (pull in / push out); PageUp/Down = peak scale. ----
+        // ---- MOUNTAINS (W2 soak-fix — distance/scale + colour/brightness dials per the Sponsor's ask) ----
+        //   ↑/↓        = distance scale (pull in / push out)
+        //   PgUp/PgDn  = peak scale
+        //   ←/→        = body WARMTH (← cooler/bluer, → warmer/browner — additive onto the cluster _Tint)
+        //   Home/End   = brightness (multiply onto the cluster _Tint; lifts/darkens the whole range)
+        // Faceting (mesh `sides`) is a BAKE-TIME mesh-gen param — surfaced on the panel as a reminder.
         private bool NudgeMountains()
         {
             bool changed = false;
+            bool tintChanged = false;
             float ds = 0.02f * StepMul();
             if (Input.GetKeyDown(KeyCode.UpArrow))   { _mtnDistScale += ds; changed = true; }
             if (Input.GetKeyDown(KeyCode.DownArrow)) { _mtnDistScale = Mathf.Max(0.1f, _mtnDistScale - ds); changed = true; }
             float ss = 0.05f * StepMul();
             if (Input.GetKeyDown(KeyCode.PageUp))    { _mtnScale += ss; changed = true; }
             if (Input.GetKeyDown(KeyCode.PageDown))  { _mtnScale = Mathf.Max(0.1f, _mtnScale - ss); changed = true; }
+            // Body WARMTH: → pushes R up + B down (warmer/browner), ← the reverse (cooler/bluer).
+            float ws = 0.02f * StepMul();
+            if (Input.GetKeyDown(KeyCode.RightArrow)) { _mtnTint.x += ws; _mtnTint.z -= ws; tintChanged = true; }
+            if (Input.GetKeyDown(KeyCode.LeftArrow))  { _mtnTint.x -= ws; _mtnTint.z += ws; tintChanged = true; }
+            // Brightness: Home brighter / End darker (uniform multiply on the cluster _Tint).
+            float bs = 0.03f * StepMul();
+            if (Input.GetKeyDown(KeyCode.Home)) { _mtnBright += bs; tintChanged = true; }
+            if (Input.GetKeyDown(KeyCode.End))  { _mtnBright = Mathf.Max(0.2f, _mtnBright - bs); tintChanged = true; }
+
             if (changed)
                 for (int i = 0; i < _mtnClusters.Count; i++)
                 {
@@ -200,6 +225,20 @@ namespace FarHorizon
                     _mtnClusters[i].position = _mtnBaseLocal[i] * _mtnDistScale;
                     _mtnClusters[i].localScale = Vector3.one * _mtnScale;
                 }
+            if (tintChanged)
+            {
+                for (int i = 0; i < _mtnMats.Count; i++)
+                {
+                    if (_mtnMats[i] == null || !_mtnMats[i].HasProperty("_Tint")) continue;
+                    Color b = _mtnBaseTint[i];
+                    Color t = new Color(
+                        Mathf.Clamp01((b.r + _mtnTint.x) * _mtnBright),
+                        Mathf.Clamp01((b.g + _mtnTint.y) * _mtnBright),
+                        Mathf.Clamp01((b.b + _mtnTint.z) * _mtnBright), 1f);
+                    _mtnMats[i].SetColor("_Tint", t);
+                }
+                changed = true;
+            }
             return changed;
         }
 
@@ -216,6 +255,8 @@ namespace FarHorizon
             _skyMat = RenderSettings.skybox; // the live instance (mutations are runtime-only)
             _clouds.Clear(); _cloudBasePos.Clear();
             _mtnClusters.Clear(); _mtnBaseLocal.Clear();
+            _mtnMats.Clear(); _mtnBaseTint.Clear();
+            var seenMats = new HashSet<Material>();
             foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (t.name == "LP_Cloud") { _clouds.Add(t); _cloudBasePos.Add(t.position); }
@@ -225,10 +266,22 @@ namespace FarHorizon
                     _mtnClusters.Add(t);
                     _mtnBaseLocal.Add(t.position);
                 }
+                // Collect every vista mountain/landmass material (the per-cluster _Tint targets for the
+                // W2 body-warmth / brightness dial) — dedup so each shared cluster material is dialed once.
+                if (t.name == "LP_Mountain" || t.name == "LP_Landmass")
+                {
+                    var mr = t.GetComponent<MeshRenderer>();
+                    var mat = mr != null ? mr.sharedMaterial : null;
+                    if (mat != null && mat.HasProperty("_Tint") && seenMats.Add(mat))
+                    {
+                        _mtnMats.Add(mat);
+                        _mtnBaseTint.Add(mat.GetColor("_Tint"));
+                    }
+                }
             }
             if (_skyMat == null) Debug.LogWarning("[WorldLookNudgeTool] no RenderSettings.skybox to dial");
             Debug.Log($"[WorldLookNudgeTool] resolved {_clouds.Count} clouds, {_mtnClusters.Count} vista clusters, " +
-                      $"skybox={(_skyMat != null ? _skyMat.shader.name : "none")}");
+                      $"{_mtnMats.Count} vista materials, skybox={(_skyMat != null ? _skyMat.shader.name : "none")}");
         }
 
         // Print the dialed values in a copy-pasteable form (the Sponsor reads these to bake).
@@ -250,7 +303,9 @@ namespace FarHorizon
                     break;
                 case Target.Mountains:
                     Debug.Log($"[WorldLookNudgeTool] MOUNTAINS distScale={_mtnDistScale:F2} peakScale={_mtnScale:F2} " +
-                              $"(bake into WorldLookConfig.MtnDistanceScale; {_mtnClusters.Count} clusters)");
+                              $"warmth=({_mtnTint.x:+0.00;-0.00},{_mtnTint.z:+0.00;-0.00}) bright={_mtnBright:F2} " +
+                              $"(distScale->WorldLookConfig.MtnDistanceScale; warmth/bright->MtnBody in WorldBootstrap; " +
+                              $"{_mtnClusters.Count} clusters, {_mtnMats.Count} mats)");
                     break;
             }
         }
@@ -298,8 +353,8 @@ namespace FarHorizon
                     l1 = $"scale={_cloudScale:F2}   altOffset={_cloudAlt:F1}u";
                     l2 = "↑/↓ = scale   PgUp/Dn = altitude"; break;
                 default:
-                    l1 = $"distScale={_mtnDistScale:F2}   peakScale={_mtnScale:F2}";
-                    l2 = "↑/↓ = distance (pull in/out)   PgUp/Dn = peak scale"; break;
+                    l1 = $"distScale={_mtnDistScale:F2}  peakScale={_mtnScale:F2}  warmth={_mtnTint.x:+0.00;-0.00}  bright={_mtnBright:F2}";
+                    l2 = "↑/↓ = distance   PgUp/Dn = peak scale   ←/→ = warmth   Home/End = brightness  (faceting=bake-time mesh 'sides')"; break;
             }
             GUI.Label(new Rect(lx, y + 80f, lw, 22f), l1, _style);
             GUI.Label(new Rect(lx, y + 110f, lw, 20f), "[Tab] cycle target (sky / fog / clouds / mountains)", _hintStyle);
