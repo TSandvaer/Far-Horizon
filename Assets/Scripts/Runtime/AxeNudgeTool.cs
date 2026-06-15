@@ -42,6 +42,13 @@ namespace FarHorizon
     /// so the position keys are inert on the arm target. Dialing sets seedEulersFromDegFields=false so a
     /// RebuildCached can't clobber the live dial.
     ///
+    /// 4TH-ATTEMPT (86ca8rdkp — the Sponsor STILL sees the castaway elevated WHILE WALKING). A FOURTH nudge
+    /// target is added: the GROUND-Y OFFSET. Cycling onto it (Tab) lets the Sponsor dial CastawayCharacter's
+    /// groundYOffset IN-GAME with PageUp/PageDown — a constant world-Y added to the snapped feet + shadow, so
+    /// he plants the feet EXACTLY on the visible sand (rest AND walk — the snap+offset apply every frame),
+    /// reads the value off the panel/log, and reports it to bake into CastawayCharacter.groundYOffset.
+    /// Ground-Y has ONE scalar channel (PgUp/PgDn); X/Z + the rotation keys are inert on this target.
+    ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
     /// </summary>
@@ -64,12 +71,13 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose (RE-SOAK)
-        private const int TargetCount = 3;
+        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset (4th-attempt)
+        private const int TargetCount = 4;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         private Transform _stump;
         private CastawayArmPose _armPose; // RE-SOAK — the tool nudges its per-arm LOCAL-euler offsets
+        private CastawayCharacter _castaway; // 4th-attempt — the tool nudges its groundYOffset (feet-on-ground knob)
         private GUIStyle _style, _hintStyle, _titleStyle;
 
         // Panel size (SOAKFIX6 — carries a purpose header + a "what this does" line + the controls).
@@ -139,7 +147,10 @@ namespace FarHorizon
             }
 
             // Bail if the current target isn't resolved (re-resolve on a cycle so a late-spawned axe is found).
-            bool haveTarget = _target == 0 ? _heldRig != null : _target == 1 ? _stump != null : _armPose != null;
+            bool haveTarget = _target == 0 ? _heldRig != null
+                            : _target == 1 ? _stump != null
+                            : _target == 2 ? _armPose != null
+                            : _castaway != null;
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -182,7 +193,7 @@ namespace FarHorizon
                     _stump.localPosition += dp;
                     _stump.localEulerAngles += dr;
                 }
-                else
+                else if (_target == 2)
                 {
                     // ARM POSE (RE-SOAK): nudge the selected arm's LOCAL-euler offset (ROTATION only — arms
                     // have no position channel, so dp is inert here). pitch/X = spread off the torso, roll/Z =
@@ -193,6 +204,15 @@ namespace FarHorizon
                     if (_armSel == 0) _armPose.rightArmEuler += dr;
                     else _armPose.leftArmEuler += dr;
                     _armPose.RebuildCached();
+                }
+                else
+                {
+                    // GROUND-Y OFFSET (4th-attempt — 'STILL elevated WHILE WALKING'). Nudge CastawayCharacter's
+                    // groundYOffset with PageUp/PageDown (dp.y). This is a constant world-Y added to the snapped
+                    // feet + shadow, so the Sponsor dials the EXACT feet-on-ground value in-game (rest AND walk
+                    // — the snap+offset apply every frame) and reads it off the HUD/log to bake. X/Z + rotation
+                    // are inert on this target (one scalar channel).
+                    _castaway.groundYOffset += dp.y;
                 }
                 changed = true;
             }
@@ -216,15 +236,18 @@ namespace FarHorizon
             _heldRig = held != null ? held.GetComponent<HeldAxeRig>() : null;
             _stump = FindByName(StumpAxeName);
             _armPose = Object.FindAnyObjectByType<CastawayArmPose>(FindObjectsInactive.Include);
+            _castaway = Object.FindAnyObjectByType<CastawayCharacter>(FindObjectsInactive.Include);
             if (held == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName + "' not found");
             else if (_heldRig == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName +
                 "' has no HeldAxeRig — cannot nudge its world-offset/relEuler (soakfix9 driver missing)");
             if (_stump == null) Debug.LogWarning("[AxeNudgeTool] stump axe '" + StumpAxeName + "' not found");
             if (_armPose == null) Debug.LogWarning("[AxeNudgeTool] no CastawayArmPose found — cannot nudge the arm pose");
+            if (_castaway == null) Debug.LogWarning("[AxeNudgeTool] no CastawayCharacter found — cannot nudge the ground-Y offset");
         }
 
         private string TargetName() =>
-            _target == 0 ? "HELD axe" : _target == 1 ? "STUMP axe" : "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")";
+            _target == 0 ? "HELD axe" : _target == 1 ? "STUMP axe"
+            : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")" : "GROUND-Y offset";
 
         private Transform FindByName(string n)
         {
@@ -252,6 +275,11 @@ namespace FarHorizon
                 Vector3 r = _armPose.rightArmEuler, l = _armPose.leftArmEuler;
                 Debug.Log($"[AxeNudgeTool] ARM ({(_armSel == 0 ? "RIGHT" : "LEFT")} selected)  " +
                           $"RightArmEuler=({r.x:F1}f,{r.y:F1}f,{r.z:F1}f)  LeftArmEuler=({l.x:F1}f,{l.y:F1}f,{l.z:F1}f)");
+            }
+            else if (_target == 3 && _castaway != null)
+            {
+                // The Sponsor reads this off the log to bake into CastawayCharacter.groundYOffset.
+                Debug.Log($"[AxeNudgeTool] GROUND  groundYOffset={_castaway.groundYOffset:F4}f");
             }
         }
 
@@ -290,7 +318,9 @@ namespace FarHorizon
                 ? "HELD axe (in hand — WORLD offset + hand-relative angle, tracks the hand)"
                 : _target == 1
                 ? "STUMP axe (in block — local)"
-                : "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([B] switch arm; rotation only)";
+                : _target == 2
+                ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([B] switch arm; rotation only)"
+                : "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -314,7 +344,13 @@ namespace FarHorizon
                 posLine = $"{(_armSel == 0 ? "RightArmEuler" : "LeftArmEuler")}=({sel.x:F1}, {sel.y:F1}, {sel.z:F1})  (pitch=spread, roll=raise)";
                 eulerLine = $"other {(_armSel == 0 ? "LeftArmEuler" : "RightArmEuler")}=({oth.x:F1}, {oth.y:F1}, {oth.z:F1})";
             }
-            else { posLine = _target == 2 ? "(arm pose not found)" : "(axe not found)"; eulerLine = ""; }
+            else if (_target == 3 && _castaway != null)
+            {
+                // 4th-attempt — the ground-Y knob has ONE scalar channel; show it big + a hint.
+                posLine = $"groundYOffset={_castaway.groundYOffset:F4}   (PgUp/PgDn to dial; + = lift, − = drop)";
+                eulerLine = "Dial until the feet sit ON the sand while WALKING, then bake the value.";
+            }
+            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : "(axe not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -328,8 +364,8 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held / stump axe / arm pose    [B] right<->left arm (arm only)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y   (axe only)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held / stump / arm / GROUND-Y    [B] right<->left arm (arm only)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe + GROUND-Y)", _hintStyle);
             GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch(spread)   Y/H = yaw   U/J = roll(raise)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
             GUI.Label(new Rect(lx, y + 210f, lw, 20f),

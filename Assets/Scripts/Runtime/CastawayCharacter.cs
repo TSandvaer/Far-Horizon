@@ -64,6 +64,27 @@ namespace FarHorizon
         [Tooltip("Max ground-ray distance below the start point.")]
         public float groundRayDown = 12f;
 
+        [Header("Ground snap — DURING-WALK fix (86ca8rdkp 4th-attempt — 'STILL elevated WHILE WALKING')")]
+        [Tooltip("Snap convergence rate (1/s) when STANDING STILL. Gentle smoothing so per-vertex terrain " +
+                 "noise doesn't pop the avatar at rest. The prior single rate (18) was used in BOTH states; " +
+                 "the during-walk trace (2026-06-15) proved a constant-rate exp filter LAGS a descending ramp " +
+                 "by ~1.2cm while MOVING at 5.5u/s into the dipping foreshore — the feet (and the shadow that " +
+                 "tracked the RAW target) separated only DURING motion, then re-converged at rest = exactly " +
+                 "'grounded standing, elevated walking'.")]
+        public float snapRateRest = 18f;
+        [Tooltip("Snap convergence rate (1/s) when MOVING. High (near-instant) so the feet TRACK the visible " +
+                 "terrain with no lag through the WHOLE walk cycle — the during-walk float fix. 60 = ~63% " +
+                 "convergence per 60fps frame; the steady-state lag at 5.5u/s/0.05-slope drops to ~0.4cm.")]
+        public float snapRateMove = 60f;
+
+        [Header("Ground Y-OFFSET — Sponsor-dialable (86ca8rdkp 4th-attempt; F9 nudge target)")]
+        [Tooltip("A constant world-Y offset added to the snapped feet (and the shadow). 4 attempts on the " +
+                 "feet-on-ground placement → give the Sponsor the KNOB: he dials this in-game on the F9 nudge " +
+                 "tool's GROUND-Y target (PageUp/Down) until the feet sit EXACTLY on the visible sand, reads " +
+                 "the value off the HUD/log, and reports it to bake here. What-you-dial-is-what-you-get. " +
+                 "Default 0 = plant exactly on the raycast hit (the geometric ground).")]
+        public float groundYOffset = 0f;
+
         [Header("Contact shadow (86ca8rdkp re-soak #2 — 'he STILL seems elevated')")]
         [Tooltip("The blob/contact shadow under the feet. The shadow is a child of the PLAYER ROOT and does " +
                  "NOT inherit the avatar ground-snap, so on the dipping foreshore it was STRANDED ~9cm ABOVE " +
@@ -251,26 +272,43 @@ namespace FarHorizon
                 }
             }
             if (!found) { LastSnapTargetWorldY = float.NaN; return; }
-            LastSnapTargetWorldY = bestY; // the SELECTED surface (pre-smoothing) — the snap-target the test reads
+            // The plant Y = the visible-terrain hit + the Sponsor-dialable ground offset (default 0 = plant
+            // exactly on the geometric ground). The OFFSET is the F9-dialable knob (4th-attempt — give the
+            // Sponsor the handle instead of the team guessing the exact feet-on-ground value).
+            float plantY = bestY + groundYOffset;
+            LastSnapTargetWorldY = plantY; // the SELECTED plant surface (pre-smoothing) — the snap-target the test reads
 
-            // Desired avatar-root WORLD Y = the visible-terrain Y. local Y = worldY - root.position.y
+            // Desired avatar-root WORLD Y = the plant Y. local Y = worldY - root.position.y
             // (the avatar root is a direct child of the player root, no intermediate offset).
-            float desiredLocalY = bestY - root.position.y;
+            float desiredLocalY = plantY - root.position.y;
+
+            // DURING-WALK FIX (86ca8rdkp 4th-attempt). A constant-rate exp filter LAGS a descending ramp while
+            // MOVING (during-walk trace: ~1.2cm feet-above-sand at 5.5u/s into the foreshore, re-converging to
+            // ~0 at rest — exactly 'grounded standing, elevated walking'). Use a SPEED-ADAPTIVE rate: near-
+            // instant while moving (the feet TRACK the terrain through the whole walk cycle, no lag), gentle at
+            // rest (so per-vertex terrain noise doesn't pop the avatar standing still). The agent's planar
+            // velocity is the motion signal (resolved from the parent in Awake).
+            bool moving = _agent != null &&
+                          new Vector2(_agent.velocity.x, _agent.velocity.z).sqrMagnitude >
+                          (walkSpeedThreshold * walkSpeedThreshold);
+            float rate = moving ? snapRateMove : snapRateRest;
             if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
-            else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-18f * Time.deltaTime));
+            else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-rate * Time.deltaTime));
             Vector3 lp = transform.localPosition;
             lp.y = _snapLocalY;
             transform.localPosition = lp;
 
-            // RE-SOAK #2 — ground the CONTACT SHADOW to the snapped feet. The shadow is a child of the player
-            // root (it must NOT inherit the avatar height-scale), so it does not get the avatar's ground-snap;
-            // left alone it strands ~9cm ABOVE the feet on the dipping foreshore (body floats above its shadow
-            // = the 'elevated' read — foot-trace 2026-06-15). Drive its WORLD-Y onto the snapped sole each
-            // frame (the SAME bestY the feet snap to), so the shadow sits AT the feet on flat AND dipping sand.
+            // RE-SOAK #2 + DURING-WALK FIX — ground the CONTACT SHADOW to the avatar's SMOOTHED feet WORLD-Y
+            // (NOT the raw bestY target). The shadow is a child of the player root (it must NOT inherit the
+            // avatar height-scale), so it does not get the avatar's ground-snap. Re-soak #2 grounded it to the
+            // RAW target — but during a walk the feet ride the SMOOTHED Y while the raw target leads, so the
+            // shadow separated from the feet ONLY WHILE MOVING (the re-elevated-while-walking percept). Driving
+            // the shadow off the avatar's actual world Y locks them together at rest AND in motion by
+            // construction — the shadow can never lead or lag the feet again.
             if (blobShadow != null)
             {
                 Vector3 sp = blobShadow.position;
-                sp.y = bestY + blobShadowLift;
+                sp.y = transform.position.y + blobShadowLift;
                 blobShadow.position = sp;
             }
         }
