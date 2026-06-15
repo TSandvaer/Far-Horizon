@@ -56,6 +56,12 @@ namespace FarHorizon
                  "both states. Default ON; the PlayMode walk-grounding regression toggles it OFF to prove the fix " +
                  "is load-bearing.")]
         public bool modelSoleGround = true;
+        [Tooltip("Convergence rate (1/s) for the model-sole grounding. HIGHER than the root snapRate because " +
+                 "this cancels a MEASURED per-clip-frame lift (deterministic, not noisy terrain) — it should " +
+                 "track tightly so the sole stays planted every stride frame and the Idle→Walk transition " +
+                 "(a +0.66 step) converges in a few frames, not lagging ~10cm as a transient. 90 = ~78% " +
+                 "convergence per 60fps frame; smooth enough to avoid a pop, tight enough to plant the walk.")]
+        public float modelSoleGroundRate = 90f;
 
         [Header("Ground snap (86ca8rdkp soak-fix #1 — 'walking in the air')")]
         [Tooltip("Snap the avatar feet to the VISIBLE terrain each frame. The NavMeshAgent grounds the " +
@@ -552,8 +558,10 @@ namespace FarHorizon
             // approach — and it is NOT the ±68 runaway: MeasureRenderedSoleWorldY uses a UNIT-SCALE TRS (never
             // smr.localToWorldMatrix), so the FBX 100× node is never double-applied (shipped [FloatTrace] read a
             // sane +0.66, not ±68). The model child carries only a yaw (Y-axis) rotation, so a local-Y offset is
-            // orientation-independent. Convergence shares snapRate so it tracks the foreshore + clip blends
-            // smoothly without a pop.
+            // orientation-independent. Convergence uses modelSoleGroundRate (HIGHER than the root snapRate) —
+            // this cancels a deterministic MEASURED per-clip-frame lift, so it must track tightly (plant every
+            // stride frame + converge the Idle→Walk +0.66 step in a few frames), unlike the root snap which
+            // smooths noisy terrain.
             if (_model != null && modelSoleGround)
             {
                 float soleBeforeModelOffset = MeasureRenderedSoleWorldY();
@@ -566,7 +574,7 @@ namespace FarHorizon
                         soleBeforeModelOffset, plantY, _model.localPosition.y, transform.lossyScale.y);
                     if (!_modelGroundInit) { _modelLocalY = desiredModelLocalY; _modelGroundInit = true; }
                     else _modelLocalY = Mathf.Lerp(_modelLocalY, desiredModelLocalY,
-                                                   1f - Mathf.Exp(-snapRate * Time.deltaTime));
+                                                   1f - Mathf.Exp(-modelSoleGroundRate * Time.deltaTime));
                     Vector3 mlp = _model.localPosition;
                     mlp.y = _modelLocalY;
                     _model.localPosition = mlp;

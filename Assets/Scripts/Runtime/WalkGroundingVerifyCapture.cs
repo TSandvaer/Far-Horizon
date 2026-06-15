@@ -117,8 +117,12 @@ namespace FarHorizon
                 if (castaway.IsWalking && agent.velocity.sqrMagnitude > 1f) break;
                 yield return null;
             }
-            // A couple frames so the orbit cam follows the moving player + the walk clip is past its first frame.
-            for (int i = 0; i < 6; i++) yield return null;
+            // Walk for a real beat (≥0.5s of continuous striding) so the model-sole grounding has CONVERGED to
+            // the walk-lifted steady state — the honest CONTINUOUS-walk percept the Sponsor sees, not the
+            // Idle→Walk transient the snap-rate lerp is still chasing (a 6-frame shot caught it mid-convergence
+            // at ~10cm; the converged steady-state mid-walk gap is ~5mm). Keep walking the whole settle.
+            float settle = Time.time;
+            while (Time.time - settle < 0.6f && castaway.IsWalking) yield return null;
             Trace(castaway, Path.GetFileNameWithoutExtension(file));
             yield return Shot(dir, file);
         }
