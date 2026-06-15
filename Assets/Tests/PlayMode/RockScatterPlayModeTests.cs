@@ -35,11 +35,14 @@ namespace FarHorizon.PlayTests
             yield return null; // step one real frame
 
             var rocks = FindRuntimeRocks();
-            Assert.GreaterOrEqual(rocks.Length, 16,
+            // BIG ROUND ISLAND (86ca9a7qn): the island is ~50x the old strip area, so the rock count scales
+            // to ~60 clustered outcrops on the hills (still sparse per area). Floor 30 (the old ~22 strip
+            // count reads too-empty on the big island), ceiling 90 (a uniform all-over speckle still fails).
+            Assert.GreaterOrEqual(rocks.Length, 30,
                 $"the loaded Boot scene must carry a DECENT AMOUNT of rocks at runtime (found {rocks.Length}) — " +
-                "the scatter must survive serialization AND keep the restored ~22 density (86ca8m5zu v2)");
-            Assert.LessOrEqual(rocks.Length, 30,
-                $"rocks must not balloon to an 'all over' speckle at runtime (found {rocks.Length})");
+                "the scatter must survive serialization AND keep the big-island density (~60 outcrops)");
+            Assert.LessOrEqual(rocks.Length, 90,
+                $"rocks must not be a uniform 'all over' speckle at runtime (found {rocks.Length})");
 
             foreach (var mf in rocks)
             {
