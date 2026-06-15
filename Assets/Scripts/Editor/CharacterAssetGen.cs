@@ -493,5 +493,116 @@ namespace FarHorizon.EditorTools
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
+
+        // ===== (attempt-8 throwaway import-flag fix-probes REMOVED post-diagnosis: useFileScale=false made it
+        // WORSE — 218u tall + the 100× node SURVIVED; bakeAxisConversion=true ALSO kept the 100× node. Both
+        // REFUTED the "an importer flag collapses the cm→m node" hypothesis — the 100× is intrinsic to the FBX
+        // hierarchy. The remaining read-only ScaleChainDiagnose stays as the durable instrument that found it.) =====
+
+        // ===== SCALE-CHAIN DIAGNOSE (86ca8rdkp attempt-8 — ROOT-CAUSE the 68u intrinsic offset). Read-only
+        // diagnostic, KEPT as the durable instrument that found the root cause (re-runnable on any future
+        // character swap to catch a cm→m node). Reproduces the SCENE setup (avatar root scaled PlayerVisualHeight under a
+        // player root, the FBX instantiated as a child, BakeMesh the live mesh) and dumps EVERY node's
+        // localScale + lossyScale + the SMR.transform scale + the BakeMesh actual extents in BOTH local AND
+        // world space — so we MEASURE where the ~68 lives (the cm→m 100× node, or a bone, or the bake) instead
+        // of guessing. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ScaleChainDiagnose
+        public static void ScaleChainDiagnose()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[scale-trace] ===== SCALE-CHAIN DIAGNOSE (68u root-cause) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null)
+            {
+                sb.AppendLine("[scale-trace] FBX NOT FOUND at " + IdleFbxPath);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            // ---- (A) the importer's effective globalScale (the height-normalize result) ----
+            var importer = AssetImporter.GetAtPath(IdleFbxPath) as ModelImporter;
+            if (importer != null)
+                sb.AppendLine($"[scale-trace] importer.globalScale={importer.globalScale:F6} " +
+                              $"useFileScale={importer.useFileScale} useFileUnits={importer.useFileUnits} " +
+                              $"animationType={importer.animationType}");
+
+            // ---- (B) reproduce the SCENE: playerRoot -> avatarRoot(scale 1.8) -> FBX(scale 1) ----
+            const float PlayerVisualHeight = 1.8f; // mirror MovementCameraScene
+            var playerRoot = new GameObject("__diagPlayer");
+            playerRoot.transform.position = Vector3.zero;
+            var avatarRoot = new GameObject("__diagAvatar");
+            avatarRoot.transform.SetParent(playerRoot.transform, false);
+            avatarRoot.transform.localScale = Vector3.one * PlayerVisualHeight;
+            var model = Object.Instantiate(fbx, avatarRoot.transform, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localScale = Vector3.one; // matches BuildModel
+
+            sb.AppendLine($"[scale-trace] avatarRoot lossyScale={avatarRoot.transform.lossyScale}");
+            sb.AppendLine($"[scale-trace] modelChild '{model.name}' localScale={model.transform.localScale} " +
+                          $"lossyScale={model.transform.lossyScale}");
+
+            // ---- (C) walk EVERY transform under the model, dump local+lossy scale (find the 100× node) ----
+            sb.AppendLine("[scale-trace] --- full transform scale chain ---");
+            foreach (var t in model.GetComponentsInChildren<Transform>(true))
+            {
+                Vector3 ls = t.localScale, lossy = t.lossyScale;
+                // FLAG any node whose local OR lossy scale is far from ~1 (the 100× / cm→m suspect).
+                bool suspect = Mathf.Abs(ls.x) > 5f || Mathf.Abs(ls.x) < 0.2f ||
+                               Mathf.Abs(lossy.x) > 5f || Mathf.Abs(lossy.x) < 0.02f;
+                string flag = suspect ? "  <== SCALE SUSPECT" : "";
+                sb.AppendLine($"[scale-trace]   '{t.name}' local={ls.ToString("F4")} lossy={lossy.ToString("F5")}{flag}");
+            }
+
+            // ---- (D) the SMR(s): transform scale + BakeMesh extents in LOCAL and WORLD ----
+            var smrs = model.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            sb.AppendLine($"[scale-trace] --- {smrs.Length} SMR(s) ---");
+            foreach (var smr in smrs)
+            {
+                if (smr == null || smr.sharedMesh == null) continue;
+                sb.AppendLine($"[scale-trace] SMR '{smr.name}' transform.localScale={smr.transform.localScale} " +
+                              $"lossyScale={smr.transform.lossyScale}");
+                sb.AppendLine($"[scale-trace]   sharedMesh.bounds.size={smr.sharedMesh.bounds.size} (import-baked)");
+                sb.AppendLine($"[scale-trace]   SMR.bounds(world AABB).size={smr.bounds.size} min.y={smr.bounds.min.y:F4}");
+
+                var baked = new Mesh();
+                // useScale:FALSE — node scale applied via the matrix below (apply ONCE; matches runtime path).
+                smr.BakeMesh(baked, false);
+                var verts = baked.vertices;
+                if (verts.Length > 0)
+                {
+                    float lMinY = float.PositiveInfinity, lMaxY = float.NegativeInfinity;
+                    float wMinY = float.PositiveInfinity, wMaxY = float.NegativeInfinity;
+                    Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+                    foreach (var v in verts)
+                    {
+                        if (v.y < lMinY) lMinY = v.y; if (v.y > lMaxY) lMaxY = v.y;
+                        float wy = l2w.MultiplyPoint3x4(v).y;
+                        if (wy < wMinY) wMinY = wy; if (wy > wMaxY) wMaxY = wy;
+                    }
+                    sb.AppendLine($"[scale-trace]   BakeMesh(useScale:false) LOCAL y=[{lMinY:F4}..{lMaxY:F4}] " +
+                                  $"height={lMaxY - lMinY:F4}");
+                    sb.AppendLine($"[scale-trace]   BakeMesh->WORLD via l2w  y=[{wMinY:F4}..{wMaxY:F4}] " +
+                                  $"height={wMaxY - wMinY:F4}  <== THE SNAP READS THIS world-Y");
+                }
+                Object.DestroyImmediate(baked);
+            }
+
+            // ---- (E) overall rendered bounds (what MeasureHeight reads) ----
+            var rends = model.GetComponentsInChildren<Renderer>();
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                sb.AppendLine($"[scale-trace] OVERALL Renderer.bounds (scene, scaled 1.8): size={b.size} " +
+                              $"center.y={b.center.y:F4} min.y={b.min.y:F4} max.y={b.max.y:F4}");
+            }
+
+            Object.DestroyImmediate(playerRoot);
+            sb.AppendLine("[scale-trace] ===== END SCALE-CHAIN DIAGNOSE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
     }
 }

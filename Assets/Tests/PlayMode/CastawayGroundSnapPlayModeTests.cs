@@ -394,135 +394,52 @@ namespace FarHorizon.PlayTests
                 $"the offset must lift the feet by ~the dialed amount (feet {feet0:F3}→{feet1:F3})");
         }
 
-        // ====================================================================================================
-        // THE BREAKTHROUGH REGRESSION GUARD (86ca8rdkp FINAL — the bug class EVERY prior fix + EVERY prior guard
-        // missed). The ground-truth dump (-verifyFloatDiag, 2026-06-15) proved the snap grounded the avatar ROOT
-        // (a PROXY) while the TRUE rendered sole (SkinnedMeshRenderer.bounds.min.y) sat at a POSE-DEPENDENT
-        // offset above/below it — so the gauge read GAP=0 ("✓ planted") while the visible mesh floated 47cm (the
-        // Sponsor's complaint). EVERY assert above tests the avatar-ROOT world-Y — the exact proxy that read 0
-        // through the entire float saga. This guard asserts the RENDERED SOLE instead, with a REAL
-        // SkinnedMeshRenderer whose mesh bottom sits a KNOWN offset from the avatar root (the synthetic stand-in
-        // for the animation pose offset). The fix must ground the SOLE; the old root-grounding leaves it
-        // floating by exactly that offset. THIS is the listener-wiring-grade guard for the false-green class.
-        // ====================================================================================================
         private GameObject _smrGo;
 
-        // Build a synthetic SkinnedMeshRenderer under the avatar whose mesh bottom (bounds.min.y) sits
-        // `meshBottomOffset` ABOVE the renderer's own transform origin — emulating the animation pose that
-        // lifts the rendered soles off the FBX/armature origin. One bone (the renderer transform itself), a
-        // 2-tri quad whose lowest vertex is at +meshBottomOffset. The avatar-root world-Y has NO direct
-        // relation to the sole once this offset exists — exactly the production trap.
-        private void AttachSyntheticSkinnedMesh(Transform avatarRoot, float meshBottomOffset)
+        // ====================================================================================================
+        // ATTEMPT-8 ROOT-CAUSE GUARDS (86ca8rdkp — the SOURCE fix, SUPERSEDES the sole-chasing guards above).
+        // The ~6-iteration float saga + the ±68 runaway all came from CHASING the rendered sole each frame, and
+        // the deepest false-green was that the per-frame BakeMesh world-Y DOUBLE-APPLIED the FBX's intrinsic
+        // 100× cm→m node scale (scale-trace.log: the SkinnedMeshRenderer's own "model" node is localScale=100;
+        // BakeMesh(false)+smr.localToWorldMatrix blew the world Y to ~+283 standing / drove avatarRootY to ~−68
+        // mid-walk in a false-green equilibrium while the character left frame).
+        //
+        // SOURCE FIX (probe-verified): the 100× is intrinsic to the FBX and no importer flag removes it; the
+        // mesh RENDERS correct, only world-space BakeMesh measurements explode. So (1) the snap grounds the
+        // avatar ROOT directly to (groundHit + K) — NO per-frame mesh chasing, no 100× exposure, K a small fixed
+        // constant (the FBX origin is at the feet; clips are in-place); and (2) MeasureRenderedSoleWorldY uses a
+        // SCALE-IMMUNE unit-scale world matrix so the F8 gauge reads a sane sole (not ±68 garbage).
+        //
+        // These guards assert the two invariants the SOURCE fix rests on:
+        //   A. avatarRootY stays BOUNDED within a small band of (groundHit + K) across a MOVING path — REDS on
+        //      the −68 runaway (the exact failure mode).
+        //   B. the gauge's rendered-sole world-Y is SANE (bounded near the ground), NOT ±68 — i.e. the 100×
+        //      cm→m node never double-applies (the scale-immunity guard).
+        // ====================================================================================================
+
+        // Attach a synthetic SkinnedMeshRenderer with an INTRINSIC 100× node scale on its OWN transform — the
+        // exact cm→m trap the production FBX carries (the "model" node at localScale 100). The mesh verts are
+        // authored TINY (metres ÷100) so the 100× brings them to ~real size, mirroring the FBX. A naive
+        // BakeMesh(false)+smr.localToWorldMatrix on this DOUBLE-APPLIES the 100× and explodes the world Y; a
+        // scale-immune (unit-scale-matrix) read stays sane. This lets the scale-immunity guard run headless
+        // without the 5MB FBX (and reds if anyone reverts MeasureRenderedSoleWorldY to smr.l2w).
+        private void AttachSyntheticSkinnedMesh_With100xCmToMNode(Transform avatarRoot)
         {
-            _smrGo = new GameObject("SyntheticSkin");
+            _smrGo = new GameObject("Synthetic100xSkin");
             _smrGo.transform.SetParent(avatarRoot, false);
             _smrGo.transform.localPosition = Vector3.zero;
+            _smrGo.transform.localScale = Vector3.one * 100f; // the cm→m trap node (FBX "model" node = 100×)
             var smr = _smrGo.AddComponent<SkinnedMeshRenderer>();
 
             var mesh = new Mesh();
-            // A small upright quad whose LOWEST vertex is at +meshBottomOffset above the renderer origin (and
-            // hence above the avatar root). So SMR.bounds.min.y = avatarRoot.worldY + meshBottomOffset — the
-            // sole floats `meshBottomOffset` above the root, just like the walking pose in the production dump.
-            float lo = meshBottomOffset, hi = meshBottomOffset + 0.5f;
+            // Verts authored in metres ÷100 (so 100× node → ~0.5u tall, feet ≈ at the node origin). A standing
+            // mesh: lowest vert ≈ 0 (the sole at the renderer origin = the avatar root, like the real bind).
+            const float s = 0.01f; // 1/100
+            float lo = 0f, hi = 50f * s; // 0 .. 0.5u after the 100× node
             mesh.vertices = new[]
             {
-                new Vector3(-0.2f, lo, 0f), new Vector3(0.2f, lo, 0f),
-                new Vector3(-0.2f, hi, 0f), new Vector3(0.2f, hi, 0f)
-            };
-            mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
-            mesh.RecalculateNormals();
-            // Bind all verts to a single bone (the renderer transform) so bounds track the avatar rigidly.
-            var bw = new BoneWeight[4];
-            for (int i = 0; i < 4; i++) { bw[i].boneIndex0 = 0; bw[i].weight0 = 1f; }
-            mesh.boneWeights = bw;
-            mesh.bindposes = new[] { Matrix4x4.identity };
-            smr.bones = new[] { _smrGo.transform };
-            smr.rootBone = _smrGo.transform;
-            smr.sharedMesh = mesh;
-            smr.updateWhenOffscreen = true; // keep world bounds current in headless (no camera culling)
-        }
-
-        // THE guard: with a rendered sole sitting `OFF` above the avatar root (the pose offset), the snap must
-        // plant the SOLE on the visible terrain — i.e. MeshFloatGap ≈ 0 — NOT the avatar root (the old proxy,
-        // which would leave the sole floating `OFF` above the sand while the proxy-root gap read 0).
-        [UnityTest]
-        public IEnumerator RenderedSole_LandsOnTheVisibleSand_NotJustTheProxyRoot_TheFalseGreenClass()
-        {
-            const float poseOffset = 0.45f; // the rendered sole floats 45cm above the avatar root (≈ the dump's walk pose)
-            BuildRig(snap: true);
-            AttachSyntheticSkinnedMesh(_avatarGo.transform, poseOffset);
-
-            for (int i = 0; i < 60; i++) yield return null; // let the snap settle (it grounds the SOLE now)
-
-            float soleY = _castaway.MeshBottomWorldY;
-            float meshGap = _castaway.MeshFloatGap;
-            float proxyRootGap = _castaway.ProxyRootFloatGap;
-
-            Assert.IsFalse(float.IsNaN(soleY), "the synthetic SMR must resolve so the sole is measurable");
-            // THE assertion: the VISIBLE sole sits on the visible sand (the honest gap ≈ 0).
-            Assert.That(meshGap, Is.EqualTo(0f).Within(0.02f),
-                $"the RENDERED SOLE (SMR.bounds.min.y={soleY:F3}) must plant on the visible terrain " +
-                $"(Y≈{TerrainY:F3}) — MeshFloatGap must be ≈0, got {meshGap:F3}. A non-zero gap here is the EXACT " +
-                "Sponsor bug: the gauge reads planted while the visible mesh floats. The old code grounded the " +
-                "avatar ROOT, leaving the sole floating by the pose offset.");
-            Assert.That(soleY, Is.EqualTo(TerrainY).Within(0.02f),
-                $"the visible sole must sit at the terrain (Y≈{TerrainY:F3}); got {soleY:F3}");
-
-            // And prove the gauge FLIPPED: the proxy-root gap is now NEGATIVE by ~the pose offset (the root sits
-            // BELOW the sand so the sole — root+offset — lands on it). The OLD gauge read this proxy gap as ~0
-            // and called it planted — the false green. The honest gauge (MeshFloatGap) reads ~0 instead.
-            Assert.That(proxyRootGap, Is.EqualTo(-poseOffset).Within(0.05f),
-                $"the avatar ROOT now sits ~{poseOffset:F2} BELOW the sand (so the sole lands ON it) — the proxy-" +
-                $"root gap must be ≈ −{poseOffset:F2}, got {proxyRootGap:F3}. (The OLD gauge read THIS as ~0 and " +
-                "called it 'planted' — the false green. Grounding the sole inverts which reference reads 0.)");
-        }
-
-        // The deliberate-break half: prove the synthetic pose offset actually decouples sole from root, so the
-        // guard above is testing a REAL divergence (a 0-offset mesh would make the test vacuous — sole==root).
-        [UnityTest]
-        public IEnumerator PoseOffset_DecouplesSoleFromRoot_ProvingTheGuardTestsARealDivergence()
-        {
-            const float poseOffset = 0.45f;
-            BuildRig(snap: true);
-            AttachSyntheticSkinnedMesh(_avatarGo.transform, poseOffset);
-            for (int i = 0; i < 60; i++) yield return null;
-
-            float soleY = _castaway.MeshBottomWorldY;
-            float rootY = _avatarGo.transform.position.y;
-            Assert.That(soleY - rootY, Is.EqualTo(poseOffset).Within(0.03f),
-                $"the synthetic mesh must put the sole {poseOffset:F2} above the root (sole={soleY:F3}, root=" +
-                $"{rootY:F3}) — proving sole≠root, so grounding the root would NOT ground the sole (the bug).");
-        }
-
-        // ====================================================================================================
-        // THE DEEPER FALSE-GREEN GUARD (86ca8rdkp EXTENSIVE-DEBUG round — the bug the bounds-min.y "fix" missed).
-        // The Sponsor's F8 gauge read rendered-sole-Y == ground-Y == 0.2216, GAP≈0 "✓ planted", YET he was
-        // visibly floating STANDING STILL. ROOT CAUSE: the prior fix measured SMR.bounds.min.y as the "true
-        // sole" — but SMR.bounds is the CONSERVATIVE animation-MAX AABB, a box sized to contain the mesh across
-        // the WHOLE clip, NOT the current frame. Its floor sits BELOW the real soles, so grounding TO it floats
-        // the character, while a gauge ALSO reading bounds.min.y agrees (GAP=0). The fix measures the BAKED
-        // actual-lowest VERTEX. This guard builds an SMR whose conservative bounds floor is DELIBERATELY below
-        // its real baked verts (the animation-max AABB), and asserts the snap grounds the BAKED sole — leaving
-        // bounds.min.y BELOW the sand (where it belongs, since it's a phantom floor). A snap that read bounds
-        // would plant bounds.min.y on the sand and float the real mesh = the deeper false-green.
-        // ====================================================================================================
-
-        // Build an SMR whose REAL verts' lowest point is at `realSoleOffset` above the renderer origin, but whose
-        // .localBounds are FORCED to extend `boundsFloorBelow` further DOWN (the conservative animation-max AABB
-        // floor that sits below the real soles). The bake returns the real verts; .bounds returns the inflated box.
-        private void AttachSmrWithInflatedBoundsFloor(Transform avatarRoot, float realSoleOffset, float boundsFloorBelow)
-        {
-            _smrGo = new GameObject("InflatedBoundsSkin");
-            _smrGo.transform.SetParent(avatarRoot, false);
-            _smrGo.transform.localPosition = Vector3.zero;
-            var smr = _smrGo.AddComponent<SkinnedMeshRenderer>();
-
-            var mesh = new Mesh();
-            float lo = realSoleOffset, hi = realSoleOffset + 0.5f;
-            mesh.vertices = new[]
-            {
-                new Vector3(-0.2f, lo, 0f), new Vector3(0.2f, lo, 0f),
-                new Vector3(-0.2f, hi, 0f), new Vector3(0.2f, hi, 0f)
+                new Vector3(-20f * s, lo, 0f), new Vector3(20f * s, lo, 0f),
+                new Vector3(-20f * s, hi, 0f), new Vector3(20f * s, hi, 0f)
             };
             mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
             mesh.RecalculateNormals();
@@ -533,58 +450,106 @@ namespace FarHorizon.PlayTests
             smr.bones = new[] { _smrGo.transform };
             smr.rootBone = _smrGo.transform;
             smr.sharedMesh = mesh;
-            // updateWhenOffscreen=false so our FORCED localBounds are honored (true recomputes from verts each
-            // frame, erasing the inflated floor we set — we WANT the conservative AABB the importer/animation
-            // would ship). Set a box whose FLOOR is boundsFloorBelow under the real sole (the phantom floor).
-            smr.updateWhenOffscreen = false;
-            float realMid = (lo + hi) * 0.5f;
-            float boxBottom = lo - boundsFloorBelow;
-            float boxTop = hi;
-            var center = new Vector3(0f, (boxBottom + boxTop) * 0.5f, 0f);
-            var size = new Vector3(0.4f, boxTop - boxBottom, 0.1f);
-            smr.localBounds = new Bounds(center, size);
+            smr.updateWhenOffscreen = true;
         }
 
-        // THE guard: the snap must ground the BAKED actual sole, NOT the conservative bounds floor. With the
-        // bounds floor forced 0.30u below the real sole, a snap reading bounds.min.y would plant bounds.min.y on
-        // the sand → the real mesh floats 0.30u (the Sponsor's standing-still float). The fix reads the baked
-        // sole, so the REAL sole lands on the sand and bounds.min.y ends up 0.30u BELOW it (a phantom, as it
-        // should be). Asserts MeshBottomWorldY (baked) ≈ terrain AND SmrBoundsMinWorldY < terrain by ~the floor.
+        // GUARD A — the avatar ROOT stays BOUNDED near (groundHit + K) across a MOVING shoreward path; REDS on
+        // the −68 runaway. We drive the player root along the dipping foreshore (the two-collider geometry) and
+        // at every position assert the avatar-root world-Y tracks the visible terrain within a tight band —
+        // NEVER running away to a ±large equilibrium. This is THE regression for the attempt-8 root cause: the
+        // ±68 divergence would blow this assert immediately (the prior per-frame mesh-chase drove the root to
+        // −68 to compensate the exploded world-Y).
         [UnityTest]
-        public IEnumerator Snap_GroundsTheBakedSole_NotTheConservativeBoundsFloor_TheDeeperFalseGreen()
+        public IEnumerator AvatarRootY_StaysBounded_NearGroundPlusK_AcrossAMovingWalk_RedsOnRunaway()
         {
-            const float realSoleOffset = 0.10f;   // real verts sit a touch above the renderer origin
-            const float boundsFloorBelow = 0.30f; // the animation-max AABB floor sits 30cm below the real sole
-            BuildRig(snap: true);
-            AttachSmrWithInflatedBoundsFloor(_avatarGo.transform, realSoleOffset, boundsFloorBelow);
+            int groundLayer = LayerMask.NameToLayer("Ground");
 
-            for (int i = 0; i < 80; i++) yield return null; // let the snap settle (it grounds the BAKED sole)
+            // Renderer-DISABLED proxy slab at Y=0 (the NavMesh/collision proxy) + a renderer-ENABLED visible
+            // terrain dipping shoreward (flat Y=0 at Z=+6 → Y=−0.4 at Z=−6) — the production two-collider geometry.
+            _proxySlab = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            _proxySlab.name = "TestGround";
+            if (groundLayer >= 0) _proxySlab.layer = groundLayer;
+            _proxySlab.transform.position = new Vector3(0f, -0.5f, 0f); // top face at Y=0
+            _proxySlab.transform.localScale = new Vector3(40f, 1f, 40f);
+            _proxySlab.GetComponent<MeshRenderer>().enabled = false;
+            _terrain = BuildVisible(zStart: 6f, zEnd: -6f, ySlope: -0.4f, groundLayer);
 
-            float bakedSoleY = _castaway.MeshBottomWorldY;     // the TRUE sole the gauge + snap now use
-            float boundsMinY = _castaway.SmrBoundsMinWorldY;    // the OLD proxy (conservative AABB floor)
-            float meshGap = _castaway.MeshFloatGap;
+            _playerGo = new GameObject("Player");
+            _playerGo.transform.position = new Vector3(0f, 0f, 6f);
+            _avatarGo = new GameObject("CastawayAvatar");
+            _avatarGo.transform.SetParent(_playerGo.transform, false);
+            _avatarGo.transform.localPosition = Vector3.zero;
+            _castaway = _avatarGo.AddComponent<CastawayCharacter>();
+            _castaway.groundSnap = true;
+            _castaway.snapRate = 40f;
+            _castaway.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
+            // A REAL 100× cm→m skinned mesh so the gauge's BakeMesh path runs against the trap (without it the
+            // snap is mesh-free anyway, but we want a representative rig). LogError still expected (modelPrefab null).
+            LogAssert.Expect(LogType.Error, "[CastawayCharacter] modelPrefab not wired — cannot build avatar");
+            AttachSyntheticSkinnedMesh_With100xCmToMNode(_avatarGo.transform);
 
-            Assert.IsFalse(float.IsNaN(bakedSoleY), "the baked sole must resolve");
-            Assert.IsFalse(float.IsNaN(boundsMinY), "the bounds-min proxy must resolve (dump field)");
+            // Walk shoreward. The snap TARGET (LastSnapTargetWorldY = groundHit + K) is the bounded quantity the
+            // snap drives the root toward; assert IT tracks the visible terrain within a tight band (the prior
+            // per-frame BakeMesh chase computed a target driven by the 100×-blown world-Y → the target itself
+            // ran away to compensate). Headless Time.deltaTime≈0 stalls the smoothing lerp between successive
+            // positions (the documented headless-time trap — the sibling AvatarFeet_TrackTheVisibleTerrain test
+            // reads the target for the same reason), so we read the TARGET (recomputed every frame) for the
+            // tight-band assert AND apply a hard runaway gate to the settled root (which must never be metres off
+            // the ground regardless of lerp progress — the −68 equilibrium would blow it).
+            float[] zSamples = { 6f, 3f, 0f, -3f, -6f };
+            foreach (float z in zSamples)
+            {
+                _playerGo.transform.position = new Vector3(0f, 0f, z);
+                for (int i = 0; i < 8; i++) yield return null;
 
-            // THE assertion: the BAKED actual sole lands on the visible sand (the honest gap ≈ 0).
-            Assert.That(bakedSoleY, Is.EqualTo(TerrainY).Within(0.03f),
-                $"the snap must ground the BAKED actual sole (Y≈{TerrainY:F3}); got {bakedSoleY:F3}. Reading " +
-                "SMR.bounds.min.y instead grounds the phantom AABB floor and floats the real mesh — the deeper " +
-                "false-green (gauge GAP=0 while visibly floating standing still).");
-            Assert.That(meshGap, Is.EqualTo(0f).Within(0.03f),
-                $"the honest GAP (baked sole − ground) must read ≈0; got {meshGap:F3}");
+                float t = Mathf.InverseLerp(6f, -6f, z);
+                float expectedVisY = Mathf.Lerp(0f, -0.4f, t); // K=0 default → plant at the visible terrain
+                float target = _castaway.LastSnapTargetWorldY; // groundHit + K, recomputed each frame (no lerp lag)
+                float rootY = _avatarGo.transform.position.y;
 
-            // And prove the discrepancy is REAL + correctly handled: the conservative bounds floor now sits
-            // ~boundsFloorBelow UNDER the sand (a phantom), NOT on it. If the snap had read bounds.min.y, THIS
-            // would be ≈ terrain and the baked sole would float above. The gap between them is the false-green.
-            Assert.That(boundsMinY, Is.EqualTo(TerrainY - boundsFloorBelow).Within(0.04f),
-                $"the conservative SMR.bounds floor must end up ~{boundsFloorBelow:F2} BELOW the sand " +
-                $"(Y≈{TerrainY - boundsFloorBelow:F3}); got {boundsMinY:F3}. It sitting AT the sand would mean " +
-                "the snap grounded the phantom floor (the deeper false-green) — float the real sole.");
-            Assert.That(bakedSoleY - boundsMinY, Is.EqualTo(boundsFloorBelow).Within(0.05f),
-                $"the baked sole must sit ~{boundsFloorBelow:F2} ABOVE the bounds floor — proving the two " +
-                "DIVERGE (the test isn't vacuous) and the snap chose the baked sole (the real surface).");
+                // THE bounded assert: the snap TARGET tracks (groundHit + K) within a tight band — NEVER ±68.
+                Assert.IsFalse(float.IsNaN(target), $"at Z={z} the snap must hit a Ground surface (target valid)");
+                Assert.That(target, Is.EqualTo(expectedVisY).Within(0.06f),
+                    $"at Z={z} the snap TARGET (groundHit+K) must stay bounded near {expectedVisY:F3}; got " +
+                    $"{target:F3}. A runaway to a large ±value (the ±68 equilibrium) is the attempt-8 root cause: " +
+                    "the per-frame BakeMesh world-Y double-applied the FBX 100× node and the snap chased it off " +
+                    "into a false-green equilibrium while the character left frame.");
+                // Hard runaway gate: the settled root must NEVER be metres off the ground (the −68 class), even
+                // mid-lerp. With the source fix the target is bounded so the root can only converge to a bounded Y.
+                Assert.Less(Mathf.Abs(rootY), 5f,
+                    $"at Z={z} the avatar root Y ({rootY:F3}) must stay within metres of the ground — a |Y|≫1 " +
+                    "value is the −68 runaway (REDS the exact failure this attempt fixes).");
+            }
+        }
+
+        // GUARD B — SCALE-IMMUNITY: the gauge's rendered-sole world-Y (MeshBottomWorldY) is SANE (near the
+        // ground), NOT the ±283 / ±68 garbage the cm→m 100× node produces when BakeMesh verts are multiplied by
+        // smr.localToWorldMatrix. With the synthetic 100× node + the root grounded near 0, a scale-IMMUNE sole
+        // measure reads ≈0; a regression back to smr.l2w would read ~+50 (the 100×-blown world Y). This is the
+        // listener-wiring-grade guard for the cm→m trap: it reds if MeasureRenderedSoleWorldY reverts to l2w.
+        [UnityTest]
+        public IEnumerator RenderedSoleGauge_IsScaleImmune_NotBlownByThe100xCmToMNode()
+        {
+            BuildRig(snap: true); // terrain at TerrainY (0.10), root parked above
+            AttachSyntheticSkinnedMesh_With100xCmToMNode(_avatarGo.transform);
+
+            for (int i = 0; i < 40; i++) yield return null; // settle the snap (grounds the root to the terrain)
+
+            float soleY = _castaway.MeshBottomWorldY;     // the SCALE-IMMUNE gauge readout
+            float rootY = _avatarGo.transform.position.y; // grounded near TerrainY
+
+            Assert.IsFalse(float.IsNaN(soleY), "the gauge must resolve the synthetic SMR's sole");
+            // The synthetic sole sits at the node origin (lo=0), so after grounding the root to TerrainY the
+            // sole world-Y must be ≈ TerrainY — a SANE value within centimetres of the ground.
+            Assert.That(soleY, Is.EqualTo(rootY).Within(0.05f),
+                $"the gauge's rendered-sole world-Y ({soleY:F4}) must be SANE — near the grounded root " +
+                $"({rootY:F4}). A value tens-of-units off (e.g. ~+50 or ±283/±68) means MeasureRenderedSoleWorldY " +
+                "reverted to smr.localToWorldMatrix and DOUBLE-APPLIED the FBX 100× cm→m node (the attempt-8 " +
+                "root cause). The scale-immune unit-scale matrix is what keeps it bounded.");
+            // Hard scale-explosion gate: the sole must NEVER be metres off the ground.
+            Assert.Less(Mathf.Abs(soleY), 5f,
+                $"the rendered-sole gauge ({soleY:F3}) must stay within metres of the ground — a |Y|≫1 reading " +
+                "is the 100× cm→m blow-up (the ±68/±283 garbage the saga turned on).");
         }
 
         // ====================================================================================================
