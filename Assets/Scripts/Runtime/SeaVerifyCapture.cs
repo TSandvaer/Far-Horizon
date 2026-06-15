@@ -78,6 +78,89 @@ namespace FarHorizon
                           " pitch=" + orbit.Pitch + " dist=" + orbit.Distance);
             }
             for (int i = 0; i < settleFrames; i++) yield return null;
+
+            // -camDiag (INERT read-only): the pale-frame shoreline diagnosis (86ca8t9pq). At the gameplay
+            // pitch (55) the seaward frame came back as flat pale sky-blue (#CBE1EF) where the beach should
+            // be — refuting BOTH the ticket's water-Y framing AND the prior camera-framing diagnosis. Dump
+            // the ACTUAL camera world transform + where the centre ray hits the ground plane + a per-object
+            // raycast so the pale region is diagnosed from ground truth, not re-hypothesized. No mutation.
+            if (HasArg("-camDiag"))
+            {
+                var cam = Camera.main;
+                if (cam != null)
+                {
+                    Vector3 cp = cam.transform.position, fwd = cam.transform.forward;
+                    string hitDesc = "(no ray hit)";
+                    if (Mathf.Abs(fwd.y) > 1e-4f)
+                    {
+                        float t = (-0.20f - cp.y) / fwd.y; // hit the WaterY plane
+                        Vector3 h = cp + fwd * t;
+                        hitDesc = $"groundPlaneHit(Y=-0.20) @ {h.ToString("F2")} (t={t:F1})";
+                    }
+                    Debug.Log($"[camDiag] camPos={cp.ToString("F2")} fwd={fwd.ToString("F3")} " +
+                              $"fov={cam.fieldOfView} far={cam.farClipPlane} clear={cam.clearFlags} {hitDesc}");
+                    // Physics raycast down the centre ray — what does the camera ACTUALLY see at frame centre?
+                    if (Physics.Raycast(cp, fwd, out RaycastHit rh, cam.farClipPlane))
+                        Debug.Log($"[camDiag] centre PHYSICS ray hit '{rh.collider.name}' @ {rh.point.ToString("F2")} dist={rh.distance:F1}");
+                    else
+                        Debug.Log("[camDiag] centre PHYSICS ray hit NOTHING (no collider in the centre look direction)");
+
+                    // The terrain renders pale sky-blue (ambient-washed) though the centre ray hits Ground_Play.
+                    // Dump the terrain MESH vertex colours + the MATERIAL shader/tint so the wash is pinned to
+                    // mesh-colours-lost vs material-fallback vs tint (the SAME shader renders trees/water fine).
+                    foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+                    {
+                        string nm = mf.name ?? "";
+                        if (nm.StartsWith("Ground_") || nm.StartsWith("Water_") || nm.Contains("Canopy") || nm.Contains("Trunk"))
+                        {
+                            var m = mf.sharedMesh;
+                            var mr2 = mf.GetComponent<MeshRenderer>();
+                            var col = m != null ? m.colors : null;
+                            string c0 = (col != null && col.Length > 0) ? col[0].ToString("F2") : "<none>";
+                            var sm = mr2 != null ? mr2.sharedMaterial : null;
+                            // Dump the mesh's vertex-attribute layout: a missing/wrong-format COLOR stream is the
+                            // SRP-batcher trap (IN.color defaults to white -> ambient washes the mesh sky-blue).
+                            string attrs = "";
+                            if (m != null)
+                                foreach (var a in m.GetVertexAttributes())
+                                    attrs += a.attribute + ":" + a.format + "x" + a.dimension + " ";
+                            Debug.Log($"[camDiag] MESH '{nm}' verts={(m!=null?m.vertexCount:0)} meshColors={(col!=null?col.Length:0)} " +
+                                      $"col0={c0} mat='{(sm!=null?sm.name:"null")}' shader='{(sm!=null?sm.shader.name:"null")}' " +
+                                      $"attrs=[{attrs.Trim()}]");
+                        }
+                    }
+                }
+            }
+            // -hideVista (diagnostic): disable every Vista mesh renderer (peaks + landmass bases) so we can
+            // tell whether the pale terrain wash is CAUSED by the vista (drawing over the terrain) or is
+            // independent terrain shading. If terrain returns to sand with the vista hidden -> vista is the
+            // cause; if it stays sky-blue -> the wash is terrain-intrinsic.
+            if (HasArg("-hideVista"))
+            {
+                int hidden = 0;
+                foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                {
+                    if (t.name == "Vista" || (t.parent != null && (t.parent.name == "Vista" ||
+                        (t.parent.parent != null && t.parent.parent.name == "Vista"))))
+                        foreach (var r in t.GetComponentsInChildren<MeshRenderer>(true)) { r.enabled = false; hidden++; }
+                }
+                Debug.Log($"[camDiag] -hideVista: disabled {hidden} vista renderers");
+                yield return null;
+            }
+            // -clearMagenta (diagnostic): force the camera to clear to MAGENTA instead of the skybox, so a
+            // 'pale void' region resolves unambiguously: magenta == no geometry there (the rays miss all
+            // meshes); anything non-magenta == real geometry. Disambiguates skybox-vs-washed-mesh.
+            if (HasArg("-clearMagenta"))
+            {
+                var cam = Camera.main;
+                if (cam != null)
+                {
+                    cam.clearFlags = CameraClearFlags.SolidColor;
+                    cam.backgroundColor = Color.magenta;
+                    Debug.Log("[camDiag] cleared to MAGENTA (geometry shows real colour; void shows magenta)");
+                    yield return null;
+                }
+            }
             ShotTo(Path.Combine(dir, "sea_seaward.png"));
             yield return new WaitForEndOfFrame();
             yield return null;

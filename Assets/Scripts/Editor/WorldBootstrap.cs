@@ -280,21 +280,35 @@ namespace FarHorizon.EditorTools
             //   name, azimuthDeg, distance, peaks, baseR, height, snowline, body, snow, fadeK, raise
             //   raise = the landmass base lift (+y) of the peak group; BuildLandmassBase then extends a
             //           faceted shelf from raise DOWN past the sea so the cluster reads as grounded LAND.
+            // CLUSTER PLACEMENT — the near-edge of EVERY island landmass base MUST clear the play space.
+            // ROOT-CAUSE FIX (86ca8t9pq pale-frame regression, instrument-confirmed): the feeeaad landmass
+            // bases (BuildLandmassBase, added to ground the "floating shards") were placed too CLOSE with too
+            // LARGE a footprint — Vista_Inland (dist 200×0.55=110u, footprint ~118u radius, outer ~142u) had a
+            // near-edge at worldZ ≈ -32, so its grey-blue dome DRAPED OVER the entire play terrain (X±45,
+            // Z -12..56). At the gameplay orbit (pitch 55, dist 14) the camera saw the landmass dome, NOT the
+            // sand/grass — the "pale void / floating water / elevated" percept the Sponsor hit repeatedly
+            // (water-Y, sea-extent + occlusion all refuted; the -hideVista isolation proved the terrain
+            // renders perfect sand/grass once the vista is hidden). The landmass bases have NO collider, so
+            // the centre PHYSICS ray passed THROUGH them to Ground_Play — the camDiag hit was a red herring;
+            // the RENDER ray hit the dome. FIX: push every island OUT + shrink footprints so the nearest
+            // landmass near-edge is ≥ ~120u from origin (the play footprint reaches ~72u at the inland-forward
+            // corner). Verified by the near-edge math: all clusters now clear the play space by ≥50u. (Bake-
+            // time DEFAULTS; the F9 WorldLookNudgeTool still re-dials distance/scale live for the Sponsor.)
             var clusters = new[]
             {
-                // ON THIS ISLAND — a near range behind the inland meadow (the forward/inland arc, ~90deg).
-                // Sits on land (the meadow rises to ~+1.6u inland; this range is just beyond it), modest
-                // height so it backs the forest without walling the sky.
-                new MtnCluster("Vista_Inland",   90f, 200f, 4, 55f,  85f,  0.60f, MtnBody,    MtnSnow,    0.10f, 2f),
+                // ON THIS ISLAND'S BACKING RANGE — a modest range BEHIND the inland meadow (forward arc ~90deg),
+                // grounded WELL beyond the play terrain (near-edge ~worldZ +128) so it backs the forest without
+                // ever draping over the play space. Smaller footprint (baseR 42) so the near range stays compact.
+                new MtnCluster("Vista_Inland",   90f, 430f, 4, 42f,  85f,  0.60f, MtnBody,    MtnSnow,    0.10f, 2f),
 
                 // FAR ISLANDS in the sea — a FEW distinct landmasses with WIDE open-sea/open-sky gaps. Spread
                 // across the forward + side arcs only (NOT the full ring): the seaward-behind arc is left as
-                // OPEN sea+sky so the orbit never sees a continuous wall. Distances are pulled IN by
-                // MtnDistanceScale (the double-fade fix) so the fog no longer ghosts them.
-                new MtnCluster("Vista_Island_NW", 130f, 430f, 3, 75f,  150f, 0.56f, MtnBody,    MtnSnow,    0.35f, 6f),
-                new MtnCluster("Vista_Island_NE",  55f, 470f, 3, 80f,  165f, 0.55f, MtnBody,    MtnSnow,    0.45f, 6f),
-                new MtnCluster("Vista_Island_E",    8f, 560f, 2, 95f,  175f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
-                new MtnCluster("Vista_Island_W",  168f, 540f, 2, 95f,  170f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
+                // OPEN sea+sky so the orbit never sees a continuous wall. Pushed OUT + footprints trimmed so
+                // every near-edge clears the play space (the pale-frame fix); the Exp² fog gives the recession.
+                new MtnCluster("Vista_Island_NW", 130f, 560f, 3, 70f,  150f, 0.56f, MtnBody,    MtnSnow,    0.35f, 6f),
+                new MtnCluster("Vista_Island_NE",  55f, 600f, 3, 75f,  165f, 0.55f, MtnBody,    MtnSnow,    0.45f, 6f),
+                new MtnCluster("Vista_Island_E",    8f, 700f, 2, 90f,  175f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
+                new MtnCluster("Vista_Island_W",  168f, 680f, 2, 90f,  170f, 0.54f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
             };
 
             int total = 0;

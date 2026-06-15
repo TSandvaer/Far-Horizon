@@ -64,12 +64,13 @@ namespace FarHorizon.EditTests
             var cols = mesh.colors;
             Assert.AreEqual(verts.Length, cols.Length, "every ocean vert must carry a color");
 
-            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. THE VERY NEAREST rows now
-            // carry the SHORELINE FOAM band (the world-look shoreline fix), so the bright-teal anchor is
-            // checked a few units SEAWARD of the coast (just past the foam), and the DEEP anchor at the
-            // seaward-most vert. (The foam band itself is guarded by Ocean_CarriesShorelineFoam_AtTheCoast.)
-            float nearZ = -10.5f; // shoreZ(-12) + WaterInlandOverlap(1.5)
-            float shallowProbeZ = nearZ - (WaterSceneTests_FoamBandU + 4f); // a touch past the foam = clear shallows
+            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. The water now reaches
+            // INLAND past the real waterline (WaterInlandOverlap 13 -> near edge worldZ +1) and the FOAM band
+            // peaks at the waterline (≈ -1.7); so the clear-shallows bright-teal anchor is checked a few units
+            // SEAWARD of the foam (~worldZ -12), and the DEEP anchor at the seaward-most vert. (The foam band
+            // itself is guarded by Ocean_CarriesShorelineFoam_AtTheCoast.)
+            float shallowProbeZ = -30f; // well seaward of the foam fade (waterline -1.7 + 7u band), coarse 15u
+                                        // vert spacing -> -30 robustly lands a clear-shallow vert, not a foam one
             int shallowIdx = 0, farIdx = 0;
             for (int i = 1; i < verts.Length; i++)
             {
@@ -138,8 +139,8 @@ namespace FarHorizon.EditTests
             // pitch makes the 50-150u MID-sea dominate the upper frame, not the very-near band). Guard the
             // bug class: a mid-sea vert (~50-70u seaward of the coast) must still be BRIGHT-leaning teal
             // (closer to the shallow anchor than the deep anchor). A regression to a narrow band would push
-            // the deep/fog-greyed teal across the visible mid-sea — the "grey" read. nearZ = shoreZ(-12) +
-            // overlap(1.5) = -10.5, so ~Z-65 is ~55u seaward (inside the 130u bright band, outside 70u).
+            // the deep/fog-greyed teal across the visible mid-sea — the "grey" read. near edge = shoreZ(-12) +
+            // overlap(13) = +1, so ~Z-65 is ~66u seaward (inside the 130u bright band, outside 70u).
             var water = GameObject.Find("Water_Play");
             Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
             var mesh = water.GetComponent<MeshFilter>().sharedMesh;
@@ -236,17 +237,17 @@ namespace FarHorizon.EditTests
             // Cull Back hid the sea); see WaterFacesUpTests for THE guard. This Z-edge check is kept as a
             // cheap geometry-hygiene assertion (don't re-grow the slab over the water) but it is explicitly
             // NOT the silhouette/visibility guard — a Z-edge relationship cannot prove on-frame visibility.
+            // NOTE (86ca8t9pq waterline-coverage fix): the water now reaches INLAND past the real waterline
+            // (near edge worldZ +1) so it covers the underwater foreshore, which means it now extends inland
+            // OF the TestGround seaward edge (-10). That is FINE for occlusion: TestGround's renderer is
+            // DISABLED (TestGround_IsCollisionProxyOnly guard), so the collision-only slab can never occlude
+            // the sea regardless of Z overlap. The real visibility guard is WaterFacesUpTests (winding/normals).
             var testGround = GameObject.Find("TestGround");
             Assert.IsNotNull(testGround, "the flat test ground (TestGround) must exist (NavMesh + loop surface)");
-            var tgMin = testGround.GetComponent<MeshRenderer>().bounds.min.z;
-
-            var water = GameObject.Find("Water_Play");
-            var waterNear = water.GetComponent<MeshRenderer>().bounds.max.z; // near (largest Z) edge of the sea
-
-            Assert.GreaterOrEqual(tgMin, waterNear - 0.5f,
-                $"the flat TestGround seaward edge (z={tgMin:0.0}) must NOT overhang the ocean's near edge " +
-                $"(z={waterNear:0.0}) — an overhanging opaque slab occludes the water from the seaward orbit " +
-                "(the shipped-capture occlusion bug). It must stop at/inland of where the sea begins.");
+            var tgMr = testGround.GetComponent<MeshRenderer>();
+            Assert.IsFalse(tgMr.enabled,
+                "TestGround's renderer must stay DISABLED — a collision-only proxy can't occlude the sea even " +
+                "where the inland-reaching water overlaps it (the water now covers the underwater foreshore).");
         }
 
         [Test]

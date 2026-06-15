@@ -520,18 +520,35 @@ namespace FarHorizon.EditorTools
         // the water Y, no hard seam). Editor-time authored + serialized (NOT Awake) — the swell is the
         // only animated part and it runs in the shader, so zero runtime geometry construction.
         const float WaterY = -0.20f;          // just under the shore's ~ -0.07 min Y -> beach dips in
-        const float WaterSeawardDepth = 220f; // extends ~220u seaward of the shore -> lost in fog
-        // Near edge sits a touch INLAND of the Zone-D terrain shore (shoreZ=-12) so the beach's faceted
-        // edge dips INTO the water with no gap seam, but SEAWARD of the trimmed TestGround placeholder
-        // (SeawardGroundZ=-10) so the flat slab never overhangs + occludes the sea. With overlap 1.5,
-        // near edge = shoreZ+1.5 = -10.5: just seaward of TestGround's -10 edge, just inland of the
-        // terrain shore. No surface gap.
-        const float WaterInlandOverlap = 1.5f;
+        // SEA-EXTENT (86ca8t9pq AC1): extend the sea FAR enough that its far edge is ≥90% dissolved by the
+        // Exp² fog before it ends — so the seaward gameplay view reads SEA-TO-HORIZON, never a visible water
+        // plane-edge floating in the haze. At fog density 0.0016 Exp², blend ≈ 90% at ~600u; 600 gives the
+        // far edge ~95% fog (a clean dissolve into the horizon stop). (Was 220u — only ~12% fogged, so the
+        // far edge could read as a faint line at the low-pitch horizon view.)
+        const float WaterSeawardDepth = 600f;
+        // Near edge must reach INLAND PAST THE REAL WATERLINE (≈ worldZ -1.7, where the sloping beach passes
+        // below WaterY) so the water plane actually covers the underwater shore — and so the foam band has
+        // verts AT the waterline (AC2). WATERLINE-COVERAGE FIX (86ca8t9pq): the old overlap 1.5 put the near
+        // edge at worldZ -10.5 — ~8.8u SEAWARD of the waterline, leaving the underwater foreshore (-1.7..-10.5)
+        // with no water plane over it AND the foam peak outside the mesh. overlap 13 -> near edge = shoreZ+13 =
+        // +1: ~3u inland of the waterline, so the water tucks under the dipping beach (no gap seam) and the
+        // foam peak sits on the mesh. The TestGround placeholder is non-rendering (renderer disabled), so the
+        // inland reach no longer risks the old grey-slab overhang.
+        const float WaterInlandOverlap = 13f;
         const int WaterSegX = 24, WaterSegZ = 40; // enough verts for the depth gradient + foam band + facets
-        // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh's
-        // near-shore rows so the sea↔land boundary reads as foam, not a hard diagonal grid edge.
-        const float WaterFoamBandU = 7f;        // foam fades from the coast out to ~7u seaward
-        const float WaterFoamStrength = 0.85f;  // peak foam blend at the waterline (sub-1 keeps a hint of teal)
+        // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh
+        // AT THE REAL WATERLINE so the sea↔land boundary reads as foam, not a hard diagonal grid edge.
+        // FOAM-AT-THE-WATERLINE FIX (86ca8t9pq AC2): the foam used to peak at the water mesh's NEAR EDGE
+        // (nearZ = shoreZ+overlap = -10.5) — i.e. ~8.5u out to SEA, disconnected from where the sand
+        // actually meets the water. The real waterline is where the sloping beach (HeightAt) passes below
+        // WaterY (-0.20): solving the shore-dip ramp, that is ≈ worldZ -1.7 (WaterlineWorldZ below). Foam
+        // now peaks THERE and fades seaward, so the surf connects to the sand edge.
+        const float WaterlineWorldZ = -1.7f;    // terrain crosses WaterY (-0.20) here (HeightAt shore-dip solve)
+        const float WaterFoamCoreU = 8f;        // full-strength foam PLATEAU within this band of the waterline
+                                                // (a plateau, not a point-peak, so a vert always lands in full
+                                                // foam despite the coarse grid — the AC2 foam-on-the-mesh fix)
+        const float WaterFoamBandU = 9f;        // beyond the core, foam fades to clear over this extra distance
+        const float WaterFoamStrength = 0.9f;   // peak foam blend at the waterline (sub-1 keeps a hint of teal)
         static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
             float cx, float width, float shoreZ)
         {
@@ -578,9 +595,13 @@ namespace FarHorizon.EditorTools
                 float seawardDist = nearZ - worldZ; // 0 at the coast, grows out to sea
                 float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 130f));
                 Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
-                // SHORELINE FOAM band: blend toward warm foam in the first ~6u off the coast, peaking right
-                // at the waterline and fading to clear water seaward (a soft surf line, not a hard rim).
-                float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / WaterFoamBandU));
+                // SHORELINE FOAM band: full-strength foam PLATEAU centred on the REAL waterline (where the sand
+                // passes below the water), fading to clear past the plateau — so the surf connects to the sand
+                // edge, not 8.5u out to sea at the mesh near-edge (the AC2 foam-disconnect fix). A plateau (not
+                // a point-peak) guarantees a vert lands in full foam despite the coarse water grid.
+                float foamDist = Mathf.Abs(worldZ - WaterlineWorldZ);
+                float foamT = 1f - Mathf.SmoothStep(0f, 1f,
+                    Mathf.Clamp01((foamDist - WaterFoamCoreU) / WaterFoamBandU)); // 1 within the core, fade beyond
                 c = Color.Lerp(c, FoamEdge, foamT * WaterFoamStrength);
                 c.a = 1f;
                 gridCol[i] = c;

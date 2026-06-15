@@ -105,22 +105,23 @@ namespace FarHorizon.EditTests
                 "the vista must still carry several faceted mountain peaks (a few discrete island clusters)");
 
             // Depth stack: peaks at BOTH a near band AND a farther cluster so the eye ladders out (Uma §2
-            // layered depth). DREW SOAK-REWORK (double-fade fix): the clusters were PULLED IN (×0.55) and the
-            // 950u Vista_Far GHOST was DROPPED — at 950u the Exp^2 fog blended it ~90% to the horizon stop, so
-            // it read as a "floating translucent shard." The farthest grounded island now lands ~300u (fog
-            // blend ~15-21% = atmospheric but SOLID). So the depth bands shift IN vs the old 150-900u model.
+            // layered depth). DREW double-fade fix PULLED the clusters in (×0.55) + dropped the 950u ghost;
+            // the PALE-FRAME FIX (86ca8t9pq, this pass) then pushed every island BACK OUT so its landmass base
+            // can no longer drape over the play space (the near cluster's footprint was burying Ground_Play —
+            // the "pale void" regression). The near backing range now grounds ~230-250u; the farthest island
+            // ~390-410u. Bands shifted out accordingly (still inside the fog's atmospheric-but-solid window).
             float maxDist = 0f, nearCount = 0, farCount = 0;
             foreach (var p in peaks)
             {
                 float d = new Vector2(p.transform.position.x, p.transform.position.z).magnitude;
                 maxDist = Mathf.Max(maxDist, d);
-                if (d >= 90f && d <= 200f) nearCount++;
-                if (d >= 240f) farCount++;
+                if (d >= 200f && d <= 270f) nearCount++;
+                if (d >= 290f) farCount++;
             }
-            Assert.Greater(nearCount, 0, "there must be a NEAR vista cluster (90-200u, Uma §2)");
-            Assert.Greater(farCount, 0, "there must be a FARTHER vista cluster (>=240u — the layered depth)");
-            Assert.Greater(maxDist, 240f,
-                "the farthest grounded island must reach ~280-310u (atmospheric-but-SOLID, NOT the dropped " +
+            Assert.Greater(nearCount, 0, "there must be a NEAR backing range (200-270u — grounded clear of the play space, Uma §2)");
+            Assert.Greater(farCount, 0, "there must be a FARTHER vista cluster (>=290u — the layered depth)");
+            Assert.Greater(maxDist, 290f,
+                "the farthest grounded island must reach ~390-410u (atmospheric-but-SOLID, NOT the dropped " +
                 "950u fog-ghost that read as a floating translucent shard — Drew double-fade fix)");
             Assert.Less(maxDist, 500f,
                 "no cluster may sit beyond ~500u — past that the Exp^2 fog ghosts it back to a translucent " +
@@ -209,8 +210,8 @@ namespace FarHorizon.EditTests
                 var mat = r.sharedMaterial;
                 if (mat == null || !mat.HasProperty("_Tint")) continue;
                 float toHoriz = DistToHorizon(mat.GetColor("_Tint"));
-                if (d <= 130f && nearDist < 0f) nearDist = toHoriz;        // the near inland cluster
-                if (d >= 230f) farDist = (farDist < 0f) ? toHoriz : Mathf.Min(farDist, toHoriz);
+                if (d <= 270f && nearDist < 0f) nearDist = toHoriz;        // the near inland backing range (~230-250u)
+                if (d >= 300f) farDist = (farDist < 0f) ? toHoriz : Mathf.Min(farDist, toHoriz);
             }
             Assert.GreaterOrEqual(nearDist, 0f, "a near-band peak with a _Tint must exist");
             Assert.GreaterOrEqual(farDist, 0f, "a farther-band peak with a _Tint must exist");
@@ -249,6 +250,46 @@ namespace FarHorizon.EditTests
                 Assert.Less(worldBottom, -0.2f,
                     $"landmass '{lm.name}' bottom (y={worldBottom:F2}) must dip BELOW the sea surface (< WaterY " +
                     "-0.20) so the coast is the waterline — no floating gap under the peaks (Drew grounding fix)");
+            }
+        }
+
+        [Test]
+        public void Vista_LandmassBases_DoNotDrapeOverThePlaySpace_PaleFrameRegressionGuard()
+        {
+            // REGRESSION GUARD for the PALE-FRAME bug (86ca8t9pq, instrument-confirmed via -hideVista): the
+            // feeeaad landmass bases were placed too CLOSE with too LARGE a footprint — Vista_Inland's grey-blue
+            // dome (centre ~110u, radius ~118u, near-edge worldZ ≈ -32) DRAPED OVER the entire play terrain
+            // (X±45, Z -12..56). At the gameplay orbit the camera saw the dome, not the sand/grass — the "pale
+            // void / floating water / elevated" percept (water-Y + sea-extent + occlusion all refuted; hiding
+            // the vista restored perfect sand/grass). The landmass has NO collider, so a physics ray passes
+            // THROUGH it — only a RENDER-bounds check catches this. Assert every LP_Landmass renderer's XZ
+            // bounds clear the play footprint by a margin: a regression that pulls an island back in fails HERE.
+            var landmasses = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.gameObject.name == "LP_Landmass" && mf.sharedMesh != null)
+                .Select(mf => mf.GetComponent<MeshRenderer>())
+                .Where(r => r != null)
+                .ToArray();
+            Assert.Greater(landmasses.Length, 0, "vista landmass bases must exist to guard their placement");
+
+            // The play space is X[-45,45], Z[-12,56]. The landmass is a DOME (a circular shelf), so the right
+            // test is RADIAL, not an axis-aligned box overlap (a far island's AABB can clip the play box at a
+            // corner while the circular dome itself stays well clear). For each landmass, take its XZ centre +
+            // its planar radius (max of half-width/half-depth of the renderer bounds) and require the gap from
+            // the dome edge to the NEAREST point of the play box to be positive with margin. This is the exact
+            // occlusion geometry: gap<0 means the dome covers part of the walkable terrain (the pale frame).
+            const float playMaxX = 45f, playMinZ = -12f, playMaxZ = 56f, margin = 15f;
+            foreach (var r in landmasses)
+            {
+                var b = r.bounds;
+                float cx = b.center.x, cz = b.center.z;
+                float domeR = Mathf.Max(b.extents.x, b.extents.z); // planar dome radius
+                float nx = Mathf.Clamp(cx, -playMaxX, playMaxX);    // nearest play-box point to the dome centre
+                float nz = Mathf.Clamp(cz, playMinZ, playMaxZ);
+                float gap = new Vector2(cx - nx, cz - nz).magnitude - domeR;
+                Assert.Greater(gap, margin,
+                    $"landmass '{r.gameObject.name}' (centre ({cx:0},{cz:0}) r={domeR:0}) edge is only {gap:0}u from " +
+                    "the play space — an island dome that close drapes over the walkable terrain, burying the " +
+                    "sand/grass and rendering the gameplay frame pale (the pale-frame regression). Push it out.");
             }
         }
 
