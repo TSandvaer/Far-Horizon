@@ -218,6 +218,21 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_CarriesIslandVerifyCapture_OnTheBootObject()
+        {
+            // The -verifyIsland shipped-build capture path (gameplay + overhead frames proving the round
+            // island) must be SERIALIZED onto the Boot object (sibling of the sea/move/craft captures).
+            // Drop the WireIslandVerifyCapture authoring and this goes RED — the component-in-source-but-
+            // not-serialized failure class (binary scenes can't be GUID-grepped).
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var boot = GameObject.Find("Boot");
+            Assert.IsNotNull(boot, "the Boot scene must carry the 'Boot' object (host of the verify captures)");
+            Assert.IsNotNull(boot.GetComponent<FarHorizon.IslandVerifyCapture>(),
+                "the Boot object must carry the IslandVerifyCapture component (the committed -verifyIsland " +
+                "round-island capture path), serialized into the scene — not Awake-added");
+        }
+
+        [Test]
         public void ShippedScene_MountainsOnSeparateIslands_OffTheMainIsland()
         {
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);

@@ -203,6 +203,11 @@ namespace FarHorizon.EditorTools
             // it). Inert unless launched with -verifySea. Sibling of the movement/craft/chop/loop captures.
             WireSeaVerifyCapture();
 
+            // Wire the BIG ROUND ISLAND verify capture (86ca9a7qn) — a gameplay over-shoulder frame + an
+            // overhead/high-orbit frame proving the round island + water-all-sides + distant mountain
+            // islands + dense tall forest. Inert unless launched with -verifyIsland.
+            WireIslandVerifyCapture();
+
             // Wire the verification-only shipped-build ROCK capture (86ca8m5zu — the boulder soak-fix). The
             // default orbit frames the SPAWN; the rocks live as outcrops in the FIELD band, so this drives a
             // multi-angle orbit onto the outcrop centroid in the BUILT exe so the boulders are judged from
@@ -1531,6 +1536,23 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<SeaVerifyCapture>() == null)
                 bootGo.AddComponent<SeaVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the BIG ROUND ISLAND verify capture (86ca9a7qn) onto the Boot object so it SERIALIZES into
+        // Boot.unity (the component-in-source-but-not-in-scene trap). Inert unless launched with
+        // -verifyIsland; captures a gameplay over-shoulder frame + an overhead/high-orbit frame proving the
+        // round island + water-all-sides + distant mountain islands + dense tall forest.
+        private static void WireIslandVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — island-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<FarHorizon.IslandVerifyCapture>() == null)
+                bootGo.AddComponent<FarHorizon.IslandVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 
