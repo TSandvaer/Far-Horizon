@@ -25,11 +25,11 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _MidPoint: 0.35
-    - _Softness: 0.7
+    - _MidPoint: 0.18
+    - _Softness: 0.85
     m_Colors:
-    - _HorizonColor: {r: 0.88, g: 0.9, b: 0.84, a: 1}
-    - _MidColor: {r: 0.6, g: 0.78, b: 0.9, a: 1}
-    - _ZenithColor: {r: 0.38, g: 0.62, b: 0.85, a: 1}
+    - _HorizonColor: {r: 0.8, g: 0.89, b: 0.92, a: 1}
+    - _MidColor: {r: 0.45, g: 0.7, b: 0.92, a: 1}
+    - _ZenithColor: {r: 0.3, g: 0.58, b: 0.88, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
