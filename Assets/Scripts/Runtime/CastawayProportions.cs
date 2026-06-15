@@ -14,13 +14,12 @@ namespace FarHorizon
     ///   heads-tall = totalHeight / headHeight, where
     ///     totalHeight = the BAKED skinned mesh's world-Y extent, and
     ///     headHeight  = (baked top) - (Head bone world Y) — the crown-above-the-head-bone span.
-    ///   On the chibi (Head_05 bone) this measures ~1.07 STABLY (verified deterministic across
-    ///   rebuilds, 2026-06-13). This is a PROPORTION FINGERPRINT for REGRESSION detection, not an
-    ///   anatomical heads-tall: the BakeMesh world extent is in the SMR's bind-pose-transform space, so
-    ///   the absolute number is lower than the visual "heads tall" — what matters is that it cleanly
-    ///   SEPARATES the chibi (~1.07) from any realistic many-heads base (a realistic Quaternius mesh
-    ///   measured far higher via the same BakeMesh path — PR #25). The guard catches a swap back to a
-    ///   non-chunky base, NOT the precise toy ratio.
+    ///   On the Hyper3D castaway (mixamorig:Head bone) this measures ~2.90 STABLY (verified, 86ca8rdkp).
+    ///   This is a PROPORTION FINGERPRINT for REGRESSION detection, not an anatomical heads-tall: the
+    ///   BakeMesh world extent is in the SMR's bind-pose-transform space, so the absolute number differs
+    ///   from the visual "heads tall" — what matters is that it cleanly SEPARATES this toy castaway
+    ///   (~2.90) from any realistic many-heads base (a realistic mesh measures far higher via the same
+    ///   BakeMesh path). The guard catches a swap back to a non-chunky base, NOT the precise toy ratio.
     ///
     /// WHY BAKE, not SkinnedMeshRenderer.bounds (the trap, unity-conventions.md §Editor-vs-runtime): a
     /// SMR DESERIALIZED from a never-rendered scene (EditMode, scene just opened) returns STALE baked
@@ -121,13 +120,14 @@ namespace FarHorizon
             return null;
         }
 
-        // ---- The chunky band (ticket 86ca8ca1m). LOOSE on purpose: the chibi base measures ~1.07 on
-        // this BakeMesh fingerprint (verified deterministic). The guard catches a REGRESSION to a
-        // realistic many-heads base (e.g. an accidental swap back to the Quaternius character, which
-        // measures far higher), NOT the exact chibi value. Banded around the measured ratio with
-        // generous margin so it is robust to mesh/pose/importer drift but still reds on a realistic base. ----
-        public const float MinHeadsTall = 0.7f;
-        public const float MaxHeadsTall = 1.8f;
+        // ---- The chunky band (RE-TARGETED for the Hyper3D castaway, 86ca8rdkp). The new asset measures
+        // ~2.90 on this BakeMesh fingerprint (verified — the toy-but-more-naturally-proportioned 3D castaway;
+        // the chibi's big-head ~1.07 ratio does NOT carry to a different mesh). LOOSE on purpose: the guard
+        // catches a REGRESSION to a realistic ~7-8-heads base (which measures far higher via the same
+        // BakeMesh path), NOT the exact value. Banded [2.0, 4.0] around the measured ~2.90 with generous
+        // margin so it is robust to mesh/pose/importer drift but still reds on a realistic base. ----
+        public const float MinHeadsTall = 2.0f;
+        public const float MaxHeadsTall = 4.0f;
 
         public static bool IsChunky(float headsTall) =>
             !float.IsNaN(headsTall) && headsTall >= MinHeadsTall && headsTall <= MaxHeadsTall;

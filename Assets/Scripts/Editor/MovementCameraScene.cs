@@ -114,9 +114,10 @@ namespace FarHorizon.EditorTools
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
         // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is normalized to ~1.0u longest
         // (AxeAssetGen.TargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
-        // localScale 0.34 → ~0.6u hatchet at the kid's hand (a believable kid-sized hatchet). REASONABLE
-        // default — the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
-        public static readonly float HeldAxeLocalScaleUniform = 0.34f;
+        // localScale 0.45 → ~0.77u longest extent (ScaleTrace-measured) — a believable kid-sized hatchet that
+        // clears the gameplay-visibility floor (≥0.7u, the invisible-sliver soak guard). REASONABLE default —
+        // the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
+        public static readonly float HeldAxeLocalScaleUniform = 0.45f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
@@ -466,7 +467,7 @@ namespace FarHorizon.EditorTools
             axe.name = HeroAxeObjectName;
             axe.transform.SetParent(hand, false);
             // Scale is uniform-local. The Hyper3D wrist bone reads lossyScale (1,1,1) (probe-verified — NO 267×
-            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.34 → ~0.6u hatchet.
+            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.77u longest.
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
 
             // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a WORLD-space offset from
