@@ -1,4 +1,5 @@
 using System.Collections;
+using System.IO;
 using System.Text;
 using UnityEngine;
 using UnityEngine.AI;
@@ -55,15 +56,22 @@ namespace FarHorizon
             Vector3 spawn = player != null ? player.transform.position : Vector3.zero;
             // Log a few REST frames first (the standing-grounded baseline the prior fixes verified).
             for (int i = 0; i < 5; i++) { Sample("REST", agent, groundMask); yield return null; }
+            // WINDOWED capture (only if launched non-batchmode + given a captureDir): a standing frame.
+            yield return Shot("walk_standing");
 
             bool set = player != null && player.MoveTo(spawn + destination);
             Debug.Log("[walk-trace] MoveTo set=" + set + " target=" + (spawn + destination));
 
             // Sample EVERY frame for the whole walk (wall-clock window; headless deltas ~0).
             float start = Time.time;
+            bool midShot = false;
             while (Time.time - start < 12f)
             {
                 Sample("WALK", agent, groundMask);
+                // Grab a MID-STRIDE frame once the agent is genuinely moving (the during-walk percept).
+                if (!midShot && agent != null &&
+                    new Vector2(agent.velocity.x, agent.velocity.z).sqrMagnitude > 1f)
+                { midShot = true; yield return Shot("walk_midstride"); }
                 if (agent != null && !agent.pathPending && agent.hasPath &&
                     agent.remainingDistance <= 0.3f && agent.velocity.sqrMagnitude < 0.04f)
                     break;
@@ -71,9 +79,31 @@ namespace FarHorizon
             }
             // A few REST frames at the destination (does the gap close once stopped?).
             for (int i = 0; i < 6; i++) { Sample("ARRIVED", agent, groundMask); yield return null; }
+            yield return Shot("walk_arrived");
 
             Debug.Log("[walk-trace] complete");
             Application.Quit();
+        }
+
+        // Windowed-only shipped-build PNG (ScreenCapture needs a real swapchain — no-op in -batchmode).
+        private IEnumerator Shot(string name)
+        {
+            string dir = CaptureDir();
+            if (dir == null || Application.isBatchMode) yield break; // batchmode trace run: log only
+            Directory.CreateDirectory(dir);
+            yield return new WaitForEndOfFrame();
+            string file = Path.Combine(dir, name + ".png");
+            ScreenCapture.CaptureScreenshot(file, 1);
+            Debug.Log("[walk-trace] wrote " + file);
+            yield return null;
+        }
+
+        private static string CaptureDir()
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+                if (args[i] == "-captureDir") return Path.GetFullPath(args[i + 1]);
+            return null;
         }
 
         private void Sample(string phase, NavMeshAgent agent, int groundMask)
