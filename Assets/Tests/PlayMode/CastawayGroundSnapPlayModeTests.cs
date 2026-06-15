@@ -310,5 +310,87 @@ namespace FarHorizon.PlayTests
                 "at the shoreward end the visible sand dips to ~−0.4; the snap target must follow it (≪ the " +
                 "slab's Y=0). A target near 0 here means the snap regressed to picking the proxy slab.");
         }
+
+        // ====================================================================================================
+        // DURING-WALK regression (86ca8rdkp 4th-attempt — 'STILL elevated WHILE WALKING'). The standing /
+        // after-walk case was verified by the prior fixes; the hole was the MOVING case. The -walkTrace +
+        // a 60fps smoothing simulation proved: (a) a CONSTANT-rate exp filter lags the descending foreshore
+        // ~1.2cm WHILE MOVING then re-converges at rest (='grounded standing, elevated walking'), and (b) the
+        // shadow was driven off the RAW target while the feet rode the SMOOTHED Y, so the shadow separated from
+        // the feet ONLY in motion (re-elevated-while-walking). These guards pin the two fix invariants.
+        // ====================================================================================================
+
+        // INVARIANT 1 (the structural shadow fix): the shadow is locked to the avatar's ACTUAL feet world Y
+        // (+lift) — NOT the raw terrain hit — so it can NEVER lead or lag the feet, in motion OR at rest.
+        // DETERMINISTIC divergence WITHOUT relying on the smoothing converging (headless Time.deltaTime≈0 +
+        // the _snapInit instant-first-frame snap make a smoothing-lag repro non-deterministic): use a NON-ZERO
+        // groundYOffset so the avatar feet land at (terrain + offset) while the RAW terrain hit is just
+        // (terrain). The old code drove the shadow off the raw hit (bestY) → it would sit `offset` BELOW the
+        // feet; the fix drives it off the avatar's actual world Y → it sits AT the feet. This proves the
+        // shadow's SOURCE is the feet, not the terrain hit — the during-walk separation bug by construction.
+        [UnityTest]
+        public IEnumerator BlobShadow_TracksTheActualFeet_NotTheRawTerrainHit()
+        {
+            BuildRig(snap: true);
+            _shadowGo = new GameObject("BlobShadow");
+            _shadowGo.transform.SetParent(_playerGo.transform, false);
+            _shadowGo.transform.localPosition = new Vector3(0f, 0.02f, 0f);
+            _castaway.blobShadow = _shadowGo.transform;
+            _castaway.blobShadowLift = 0.02f;
+            // A non-zero offset makes the feet land OFF the raw terrain hit, so the shadow's source is provable:
+            // feet = terrain+offset; raw hit = terrain. If the shadow tracked the raw hit it would be `offset`
+            // below the feet (the old-code separation); the fix keeps it at the feet.
+            const float off = 0.20f;
+            _castaway.groundYOffset = off;
+
+            for (int i = 0; i < 40; i++) yield return null; // let it settle
+
+            float feetY = _avatarGo.transform.position.y;
+            float shadowY = _shadowGo.transform.position.y;
+            // Feet must be at terrain + offset (the snap drove them there).
+            Assert.That(feetY, Is.EqualTo(TerrainY + off).Within(0.03f),
+                $"with offset {off} the feet must plant at terrain+offset (Y≈{TerrainY + off:F3}); got {feetY:F3}");
+            // The shadow must sit at the FEET (+lift), NOT at the raw terrain hit (which is `off` below).
+            Assert.That(shadowY, Is.EqualTo(feetY + _castaway.blobShadowLift).Within(0.02f),
+                $"the shadow ({shadowY:F3}) must sit at the ACTUAL feet ({feetY:F3}) + lift — not at the raw " +
+                $"terrain hit ({TerrainY:F3}), which is {off} below. Driving the shadow off the raw hit is the " +
+                "during-walk separation bug (feet ride the smoothed/offset Y; the raw hit does not).");
+            Assert.Greater(shadowY, TerrainY + _castaway.blobShadowLift + off * 0.5f,
+                "the shadow must NOT be stranded down at the raw terrain hit (the old-code behavior) — it must " +
+                "rise with the feet's offset, proving it tracks the feet not the hit.");
+        }
+
+        // INVARIANT 2 (the Sponsor-dialable knob works end-to-end): groundYOffset shifts the snapped feet (and
+        // hence the shadow, locked by Invariant 1) by exactly the dialed amount, vs an offset-0 baseline. Two
+        // SEPARATE fixtures (offset set BEFORE settle so the deterministic first-frame snap captures it — a
+        // mid-run change can't converge headless where Time.deltaTime≈0). A no-op means the dial is dead = the
+        // knob the 4th attempt exists to give the Sponsor never reaches the feet.
+        [UnityTest]
+        public IEnumerator GroundYOffset_LiftsTheFeet_ByTheDialedAmount_VsBaseline()
+        {
+            // Baseline: offset 0 → feet plant on the terrain.
+            BuildRig(snap: true);
+            _castaway.groundYOffset = 0f;
+            for (int i = 0; i < 40; i++) yield return null;
+            float feet0 = _avatarGo.transform.position.y;
+            Assert.That(feet0, Is.EqualTo(TerrainY).Within(0.03f),
+                $"baseline (offset 0) feet must plant on the terrain (Y≈{TerrainY}); got {feet0:F3}");
+
+            // Tear down + rebuild with a dialed offset (set BEFORE the rig settles so the first-frame snap
+            // captures it deterministically). Same synthetic terrain → same baseline, shifted by the offset.
+            Object.DestroyImmediate(_terrain); _terrain = null;
+            Object.DestroyImmediate(_playerGo); _playerGo = null;
+            const float off = 0.15f;
+            BuildRig(snap: true);
+            _castaway.groundYOffset = off;
+            for (int i = 0; i < 40; i++) yield return null;
+            float feet1 = _avatarGo.transform.position.y;
+
+            Assert.That(feet1, Is.EqualTo(TerrainY + off).Within(0.03f),
+                $"the dialed groundYOffset ({off}) must plant the feet at terrain+offset (Y≈{TerrainY + off:F3}); " +
+                $"got {feet1:F3} — a no-op means the knob doesn't drive the snap (the Sponsor's dial is dead)");
+            Assert.That(feet1 - feet0, Is.EqualTo(off).Within(0.03f),
+                $"the offset must lift the feet by ~the dialed amount (feet {feet0:F3}→{feet1:F3})");
+        }
     }
 }

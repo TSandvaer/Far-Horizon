@@ -415,6 +415,43 @@ namespace FarHorizon.EditTests
                 "the ground-snap raycast mask must be wired to a real layer (0/Nothing = the snap is a no-op)");
         }
 
+        // DURING-WALK fix config guard (86ca8rdkp 4th-attempt — 'STILL elevated WHILE WALKING'). The during-
+        // walk trace proved a CONSTANT-rate snap filter lags the descending foreshore ~1.2cm WHILE MOVING (re-
+        // converging to ~0 at rest = 'grounded standing, elevated walking'). The fix uses a SPEED-ADAPTIVE
+        // rate: faster while moving than at rest. This pins that the serialized config keeps the move-rate
+        // strictly ABOVE the rest-rate (a regression that equalises them re-introduces the during-walk lag),
+        // and that the move-rate is high enough to keep the steady-state lag sub-cm at the real walk speed.
+        [Test]
+        public void Avatar_GroundSnap_MoveRateExceedsRestRate_ForDuringWalkTracking()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+            Assert.Greater(castaway.snapRateMove, castaway.snapRateRest,
+                "the MOVING snap rate must exceed the REST rate — a constant rate lags the descending foreshore " +
+                "while walking (the 'STILL elevated WHILE WALKING' 4th-attempt bug). Equal rates regress it.");
+            // At 5.5u/s into the ~0.047u/u worst foreshore slope, dY/dt≈0.256u/s; steady-state lag = dY/dt /
+            // snapRateMove must stay sub-cm. 0.256/rate < 0.01 → rate > ~26. Pin a comfortable floor.
+            Assert.GreaterOrEqual(castaway.snapRateMove, 40f,
+                "the moving snap rate must be high enough that the during-walk steady-state lag stays sub-cm " +
+                "(0.256u/s worst descent / rate < ~0.6cm needs rate ≥ ~40)");
+        }
+
+        // GROUND-Y-OFFSET knob guard (86ca8rdkp 4th-attempt — give the Sponsor the dial). The offset must SHIP
+        // at a sane default (0 = plant on the geometric ground) so a fresh build is grounded out of the box,
+        // and the field must exist for the F9 nudge tool's GROUND-Y target to drive. (The Sponsor bakes his
+        // dialed value here after the soak; until then 0 is correct — the snap plants exactly on the sand.)
+        [Test]
+        public void Avatar_GroundYOffset_ShipsAtSaneDefault()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+            Assert.That(castaway.groundYOffset, Is.EqualTo(0f).Within(0.5f),
+                "the Sponsor-dialable groundYOffset must ship near 0 (plant on the geometric ground) — a large " +
+                "baked-in offset means the feet plant off the visible sand unless the Sponsor re-dials");
+        }
+
         // The IDENTITY RECOLOR guard (86ca8rdkp AC4): the generated MUSTARD-YELLOW shirt is warmed toward
         // TAN (the concept read) WITHOUT flattening the toon gradient. We read the SAME diffuse the material
         // binds and assert: (1) the saturated-yellow shirt band is now SMALL (the bulk was remapped), and
