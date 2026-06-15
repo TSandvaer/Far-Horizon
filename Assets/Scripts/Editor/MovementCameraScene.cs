@@ -770,6 +770,36 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC onto the Boot object so it SERIALIZES into Boot.unity (the
+        // component-in-source-but-not-in-scene trap — it would ship inert otherwise). INERT in normal play
+        // (asleep behind the F8 toggle); shows feet/ground/GAP live so the Sponsor dials GROUND-Y to GAP≈0
+        // and the orchestrator reads the ~1Hz [FloatTrace] log (86ca8rdkp — the instrument, not a blind tweak).
+        private static void WireFloatDiagnostic()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host FloatDiagnostic");
+                return;
+            }
+            if (bootGo.GetComponent<FloatDiagnostic>() == null)
+                bootGo.AddComponent<FloatDiagnostic>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        private static void WireFloatDiagnosticVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host FloatDiagnosticVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<FloatDiagnosticVerifyCapture>() == null)
+                bootGo.AddComponent<FloatDiagnosticVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         private static void WireCraftVerifyCapture(GameObject player)
         {
             var bootGo = GameObject.Find("Boot");
@@ -1308,6 +1338,14 @@ namespace FarHorizon.EditorTools
             // repeatable shipped-build path (the PR #21 lesson — a detail claim needs a committed shot,
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
+
+            // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC (86ca8rdkp — the instrument). Serializes onto Boot so
+            // the F8 overlay (feet/ground/GAP live) + the ~1Hz [FloatTrace] log ship; inert until F8/-floatTrace.
+            // The Sponsor walks the shoreline, SEES the GAP, dials GROUND-Y (F9) to GAP≈0, reports the value.
+            WireFloatDiagnostic();
+            // And its committed shipped-build capture path (proves the overlay renders the live GAP in the exe —
+            // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
+            WireFloatDiagnosticVerifyCapture();
 
             // (No hair-silhouette verify capture — the chibi's procedural hair-spike soak class does not
             // apply to the Hyper3D castaway, which ships sculpted hair in the mesh. 86ca8rdkp.)
