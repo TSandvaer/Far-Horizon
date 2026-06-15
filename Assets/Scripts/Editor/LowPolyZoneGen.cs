@@ -119,6 +119,42 @@ namespace FarHorizon.EditorTools
             public GameObject ground;      // the terrain mesh (on Ground layer, has MeshCollider)
         }
 
+        // ============================================================================================
+        // BIG ROUND ISLAND (ticket 86ca9a7qn — Sponsor: "make the island much much bigger, round, with
+        // water on all sides. ... quite big with elevation (hills). dense forest/jungle with high trees").
+        // ============================================================================================
+        // THE NEW WORLD BASIS. The old beach-to-meadow STRIP (a 1D Z-profile over an X±45 / Z -12..56
+        // rectangle, water on the −Z side only) is replaced by a RADIAL-FALLOFF round landmass centred at
+        // the world origin (= the spawn + survival-loop centre), with water on ALL sides. The mountains
+        // move OFF the main island onto their own distant islands ringing the sea (WorldBootstrap.BuildVista,
+        // pushed clear of the bigger island).
+        //
+        // RADIAL HEIGHT MODEL (HeightAtRadial below):
+        //   r = distance from origin in the XZ plane.
+        //   - r <  IslandCoreR  : the land PLATEAU (full inland height + hills).
+        //   - IslandCoreR..IslandShoreR : a smooth falloff ring (the land slopes down to the coast).
+        //   - r ~  IslandShoreR : the WATERLINE (the radial coast — true round, water on all sides).
+        //   - r >  IslandShoreR : the seabed drops below sea level (the surrounding sea).
+        // Hills are multi-octave Perlin noise added over the plateau, amplitude ramped DOWN toward the
+        // coast (a clean waterline) and UP inland (real elevation). The result is a believable round
+        // island with rolling hills, not a flat disc.
+        //
+        // SIZE: IslandShoreR 120u → ~240u diameter, MUCH bigger than the old ~90×68 strip (bold default
+        // per the brief — the Sponsor dials from the capture). The terrain mesh is a square grid covering
+        // the island disc + a sea margin; the water plane covers well past it to the fog horizon.
+        public const float IslandCoreR  = 78f;   // inside this radius = the land plateau (full hills)
+        public const float IslandShoreR = 120f;  // the radial waterline (the round coast) — ~240u diameter
+        public const float IslandFalloffEnd = 150f; // seabed has fully dropped below the sea by here
+        // The inland BASE surface sits at ~Y0 (so it agrees with the spawn at Y0, the survival-loop objects,
+        // and the flat NavMesh proxy at the centre). HILLS rise ABOVE this base; the coast falls BELOW it.
+        public const float IslandPlateauH = 0.15f; // base inland land height just above the sea (hills rise from here)
+        public const float IslandHillAmp = 9.0f;   // peak hill amplitude inland (real elevation / hills — Sponsor)
+        public const float IslandSeabedDrop = -9f; // how far the seabed sinks past the shore (well below WaterY)
+        // The terrain grid covers the disc + a sea margin so the round coast reads against open water on
+        // every side (the grid is square; the ROUNDNESS comes from the radial height, not the grid shape).
+        public const float IslandGridHalf = 165f;  // square terrain grid half-extent (covers shore 120 + margin)
+        const int IslandSegX = 120, IslandSegZ = 120; // subdivision across the big disc (smooth slopes + NavMesh)
+
         /// <summary>
         /// Build a low-poly smooth-shaded zone: a height-varied terrain MESH (dunes near the shore
         /// rising to a gentle meadow inland), vertex-color gradient material (beach->field ramp by
@@ -134,40 +170,34 @@ namespace FarHorizon.EditorTools
             GameObject parent, string zoneId, float minX, float maxX,
             float shoreZ, float inlandFarZ, int seed, Material vertexColorMat, Material waterMat)
         {
+            // BIG ROUND ISLAND (86ca9a7qn): the strip params (minX/maxX/shoreZ/inlandFarZ) are now the
+            // LEGACY signature; the round island is sized by the Island* constants and centred at origin.
+            // (Caller WorldBootstrap still passes the old extents — they're ignored for the island shape but
+            // kept so the signature + any other call site stay source-compatible.)
             var root = new GameObject("Zone_" + zoneId);
             root.transform.SetParent(parent.transform, false);
 
-            float cx = (minX + maxX) * 0.5f;
-            float width = maxX - minX;
-            float depth = inlandFarZ - shoreZ;
-            float cz = (shoreZ + inlandFarZ) * 0.5f;
-
-            var ground = BuildTerrainMesh(root, "Ground_" + zoneId, vertexColorMat,
-                new Vector3(cx, 0f, cz), width, depth, shoreZ, inlandFarZ, seed);
+            var ground = BuildIslandTerrainMesh(root, "Ground_" + zoneId, vertexColorMat, seed);
 
             var scatterRoot = new GameObject("LowPolyScatter");
             scatterRoot.transform.SetParent(root.transform, false);
-            ScatterLowPolyProps(scatterRoot, minX, maxX, shoreZ, inlandFarZ, seed,
-                ground.GetComponent<MeshCollider>());
+            ScatterIslandProps(scatterRoot, seed, ground.GetComponent<MeshCollider>());
 
-            BuildWaterEdge(root, "Water_" + zoneId, waterMat, cx, width, shoreZ);
+            BuildIslandWater(root, "Water_" + zoneId, waterMat, seed);
 
             return new ZoneResult { root = root, ground = ground };
         }
 
-        // ---- Terrain mesh: subdivided welded plane with gentle height (dunes -> meadow rise) ----
-        // Height profile along Z: flat beach near the shore, then a gentle dune ripple, then a
-        // smooth rise into the inland meadow. Plus low-amplitude multi-octave noise so the surface
-        // is organic (no flat tabletop). Vertex colors ramp sand->grass by height+Z so the material
-        // reads beach->field WITHOUT a texture (URP/Lit with vertex color is unreliable; we use a
-        // tiny vertex-color shader material — see WorldBootstrap.MakeTerrainVertexColorMaterial).
-        const int SegX = 40, SegZ = 56; // enough subdivision for smooth slopes + clean NavMesh
-        static GameObject BuildTerrainMesh(GameObject parent, string name, Material mat,
-            Vector3 center, float width, float depth, float shoreZ, float inlandFarZ, int seed)
+        // ============================================================================================
+        // BIG ROUND ISLAND terrain mesh (86ca9a7qn). A square welded grid covering the island disc + a sea
+        // margin; the ROUND landmass comes from the RADIAL height field (HeightAtRadial), not the grid shape.
+        // WELDED + RecalculateNormals = the smooth-shaded low-poly look (averaged vertex normals).
+        // ============================================================================================
+        static GameObject BuildIslandTerrainMesh(GameObject parent, string name, Material mat, int seed)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, false);
-            go.transform.position = center;
+            go.transform.position = Vector3.zero; // island centred at origin (= spawn / loop centre)
             int groundLayer = LayerMask.NameToLayer("Ground");
             if (groundLayer >= 0) go.layer = groundLayer; // -1 if the project lacks a Ground layer
 
@@ -178,31 +208,30 @@ namespace FarHorizon.EditorTools
             var rnd = new System.Random(seed);
             float ox = (float)rnd.NextDouble() * 100f, oz = (float)rnd.NextDouble() * 100f;
 
-            int vCount = (SegX + 1) * (SegZ + 1);
+            int vCount = (IslandSegX + 1) * (IslandSegZ + 1);
             var verts = new Vector3[vCount];
             var cols = new Color[vCount];
-            for (int z = 0; z <= SegZ; z++)
-            for (int x = 0; x <= SegX; x++)
+            float size = IslandGridHalf * 2f;
+            for (int z = 0; z <= IslandSegZ; z++)
+            for (int x = 0; x <= IslandSegX; x++)
             {
-                int i = z * (SegX + 1) + x;
-                float fx = (float)x / SegX, fz = (float)z / SegZ;
-                float worldZ = Mathf.Lerp(shoreZ, inlandFarZ, fz);
-                float localX = (fx - 0.5f) * width;
-                float localZ = worldZ - center.z;
-
-                float h = HeightAt(fz, fx, ox, oz);
-                verts[i] = new Vector3(localX, h, localZ);
-                cols[i] = GroundColorAt(fz, h, fx, seed);
+                int i = z * (IslandSegX + 1) + x;
+                float fx = (float)x / IslandSegX, fz = (float)z / IslandSegZ;
+                float wx = (fx - 0.5f) * size;    // world X (local == world; root at origin)
+                float wz = (fz - 0.5f) * size;    // world Z
+                float h = HeightAtRadial(wx, wz, ox, oz);
+                verts[i] = new Vector3(wx, h, wz);
+                cols[i] = IslandColorAt(wx, wz, h, seed);
             }
 
-            var tris = new int[SegX * SegZ * 6];
+            var tris = new int[IslandSegX * IslandSegZ * 6];
             int ti = 0;
-            for (int z = 0; z < SegZ; z++)
-            for (int x = 0; x < SegX; x++)
+            for (int z = 0; z < IslandSegZ; z++)
+            for (int x = 0; x < IslandSegX; x++)
             {
-                int i = z * (SegX + 1) + x;
-                tris[ti++] = i; tris[ti++] = i + SegX + 1; tris[ti++] = i + 1;
-                tris[ti++] = i + 1; tris[ti++] = i + SegX + 1; tris[ti++] = i + SegX + 2;
+                int i = z * (IslandSegX + 1) + x;
+                tris[ti++] = i; tris[ti++] = i + IslandSegX + 1; tris[ti++] = i + 1;
+                tris[ti++] = i + 1; tris[ti++] = i + IslandSegX + 1; tris[ti++] = i + IslandSegX + 2;
             }
 
             var mesh = new Mesh { name = name + "_mesh" };
@@ -212,230 +241,168 @@ namespace FarHorizon.EditorTools
             mesh.vertices = verts;
             mesh.colors = cols;
             mesh.triangles = tris;
-            // SMOOTH SHADING: the grid is WELDED (each interior vertex is shared by its surrounding
-            // faces), so RecalculateNormals AVERAGES the face normals into smooth vertex normals —
-            // the technical "low-poly with smooth shading" look (vs a hard-edged per-face split).
-            mesh.RecalculateNormals();
+            mesh.RecalculateNormals(); // welded grid -> averaged smooth normals (low-poly smooth shading)
             mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
 
             var col = go.AddComponent<MeshCollider>();
-            col.sharedMesh = mesh; // NavMesh bakes on the actual sloped surface
+            col.sharedMesh = mesh; // NavMesh bakes on the actual sloped island surface
 
             return go;
         }
 
-        // Gentle height field. fz=0 shore .. fz=1 deep inland. Returns a small world-Y so the
-        // NavMesh agent (walkable slope) can traverse it. Kept low-amplitude so slopes stay bakeable
-        // (NavMesh default max slope ~45deg) and the character reads grounded on it.
-        static float HeightAt(float fz, float fx, float ox, float oz)
+        // RADIAL ROUND-ISLAND HEIGHT FIELD (86ca9a7qn). World XZ -> world Y. The island is a radial
+        // falloff centred at origin with multi-octave Perlin HILLS over the land:
+        //   r < IslandCoreR              : land PLATEAU (full hills) — IslandPlateauH + hill noise
+        //   IslandCoreR..IslandShoreR    : a smooth land→coast falloff (the round shore slopes down)
+        //   r ~ IslandShoreR             : the WATERLINE (crosses WaterY ~ the radial coast)
+        //   IslandShoreR..IslandFalloffEnd: the seabed drops to IslandSeabedDrop (well below WaterY)
+        // The hill amplitude is ramped DOWN toward the coast (a clean round waterline) and UP inland
+        // (real elevation). Public so the proof/geometry tests can sample it directly.
+        public static float HeightAtRadial(float wx, float wz, float ox, float oz)
         {
-            // BEACH SLOPES DOWN INTO THE SEA (drew/ocean-camera-fix, 2026-06-13). The prior profile put a
-            // beach hump (~Y0.39 at Z+2) BETWEEN the locked spawn (Z+6) and the water (near-edge Z-10.5),
-            // so the seaward orbit looked OVER a dune at a distant fogged sea strip — the ocean was
-            // structurally occluded (shipped-capture pixel-sample: zero teal reached the seaward frame).
-            // The fix: the shore band now DIPS BELOW sea level near fz=0 (a gentle beach that slopes down
-            // into the water, the inspiration/21h16_52 read) and rises smoothly to the meadow only past the
-            // spawn — so from the spawn you look slightly DOWN-shore onto open water, no occluding crest.
-            // shoreDip < 0 near the shore so the beach passes below WaterY (-0.20) and the coastline reads
-            // as land dipping into the sea (Uma §2). The meadow rise (inland of the spawn) is unchanged.
-            // A single MONOTONIC ramp from the underwater shore (fz=0, ~Y-0.55) up to the spawn-band
-            // beach level (~Y0.0) — NO intermediate hump between the spawn and the water, so the
-            // seaward view looks slightly DOWN-shore onto open water with nothing occluding it. The meadow
-            // rise begins only INLAND of the spawn (past fz0.30) so the journey-forward still climbs.
-            //
-            // WATERLINE-OUT SOAK-FIX (86ca8t9pq W1, Sponsor soak of b54482c: "it should be moved a bit out,
-            // so the tree, campfire and debris is not in the water"). Diagnose-via-trace CONFIRMED that
-            // framing: the beach loop objects (ChopTree z=-7, FirePit z=-8, BeachDebris z=-3) all sat BELOW
-            // WaterY (-0.20) at the old profile (HeightAt gave ChopTree -0.44u, FirePit -0.48u, BeachDebris
-            // -0.25u — all underwater). W1 fixed that by completing the beach climb in a NARROW seaward band
-            // (rampEnd 0.045) so the waterline moved OUT to ~ -10.2 and the loop objects sat dry.
-            //
-            // SOFT-WASH RESTORE SOAK-FIX (86ca8t9pq S1, Sponsor soak of fa9f1b1: "shoreline is back to the
-            // static line instead of the water washing up on shore as before"). DIAGNOSE-VIA-TRACE OVERTURNED
-            // my own W1 framing ("foam look KEPT, only shifted seaward in lockstep"). The headless [foam-trace]
-            // proved the regression is NOT the waterline move (the water-mesh inland overlap was ~unchanged:
-            // 2.41u then vs 2.24u now). The REAL cause: W1's STEEP ramp (0.27 -> 0.045) made the beach plunge
-            // from -0.55 to ~0 in ~3u, so the foam band sat over DEEP flat water — the share of strong-foam
-            // water verts over the SHALLOW WET SLOPE (where the swell's vertical bob reads as a horizontal
-            // wash) collapsed 68% -> 10%. The "wash" the Sponsor liked is foam riding a GENTLE WET SHELF, not
-            // a foam line on deep water. FIX (params trace-swept for BOTH constraints — see [foamfix] sweep):
-            // a TWO-PHASE shore confined to the narrow seaward band the geometry allows (the loop objects at
-            // z=-7/-8 sit only ~4u inland of the shore edge, so the shelf must live SEAWARD of them):
-            //   Phase 1 — a GENTLE WET SHELF across [0..WetShelfEnd] (fz 0..0.044 = worldZ -12..-9) easing the
-            //     beach from the underwater shore (-0.55) up to just-above-water (-0.12), so the foam surf line
-            //     rides shallow wet sand the swell visibly laps (the wash);
-            //   Phase 2 — a QUICK DRY CLIMB across [WetShelfEnd..DryBeachEnd] (fz 0.044..0.070 = worldZ -9..
-            //     -6.9, +0.34 lift) so the loop objects clear WaterY with margin RIGHT after the waterline.
-            // Trace-verified (candidate G): waterline -9.82 (seaward of z=-8), loop terrainY z-3 +0.22, z-7
-            // +0.22, z-8 +0.09 (all DRY, > the -0.10 guard margin), foam wash-fraction 90% over the wet shelf.
-            // The foam band is also TIGHTENED to a defined soft surf LINE on the shelf (BuildWaterEdge) + the
-            // swell amp bumped, so the line breathes. Best of both: dry objects AND the soft animated wash.
-            const float WetShelfEnd = 0.044f;  // gentle wet shelf (worldZ -12..-9) eases to just-above-water (the wash band)
-            const float DryBeachEnd = 0.070f;  // quick dry climb done by worldZ ~ -6.9; loop objs (-3..-8) clear WaterY
-            float wetShelf = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.0f, WetShelfEnd, fz));  // 0 deep shore -> 1 just-above-water
-            float dryClimb = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(WetShelfEnd, DryBeachEnd, fz)); // 0 at the wet shelf -> 1 dry beach
-            // Phase 1: -0.55 (underwater shore) up to -0.12 (shallow wet shelf, crossing WaterY -0.20 mid-shelf
-            // -> the waterline). Phase 2: +0.34 lift onto the dry beach. beachRamp (the dune/noise mask) is the
-            // combined progress.
-            float shoreDip = Mathf.Lerp(-0.55f, -0.12f, wetShelf) + Mathf.Lerp(0f, 0.34f, dryClimb);
-            float beachRamp = Mathf.Max(wetShelf, dryClimb);                               // 0 at shore edge -> 1 dry beach (dune/noise mask)
-            float dune = Mathf.Sin(fz * 9f) * 0.06f * beachRamp * (1f - fz);                // very soft ripple on the dry beach only
-            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.30f, 0.95f, fz)) * 1.6f; // meadow rise (inland of spawn)
-            // organic low-amplitude noise (multi-octave) so nothing is a flat tabletop
-            float n = (Mathf.PerlinNoise(ox + fx * 4f, oz + fz * 4f) - 0.5f) * 0.5f
-                    + (Mathf.PerlinNoise(ox + fx * 9f, oz + fz * 9f) - 0.5f) * 0.22f;
-            // shoreDip is the monotonic beach ramp (underwater shore -> ~flat at the spawn band); rise is
-            // the inland meadow; noise is suppressed at the shore (clean waterline) and full inland.
-            return shoreDip + dune + rise + n * (0.10f + beachRamp * 0.20f + rise * 0.4f);
+            float r = Mathf.Sqrt(wx * wx + wz * wz);
+
+            // Radial land profile: a plateau out to the core, then a SmoothStep falloff from the plateau
+            // height down through the waterline to the sunk seabed past the shore.
+            float landMask = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IslandCoreR, IslandShoreR, r));
+            // base land surface: plateau height on land, sinking to the seabed past the shore.
+            float coastFall = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IslandShoreR, IslandFalloffEnd, r));
+            float baseH = Mathf.Lerp(IslandPlateauH, 0f, 1f - landMask)   // land plateau -> down to ~0 at shore
+                        + Mathf.Lerp(0f, IslandSeabedDrop, coastFall);    // past the shore, sink the seabed
+
+            // HILLS: multi-octave Perlin elevation over the land. Amplitude ramped by landMask so hills are
+            // full inland and fade to nothing at the coast (a clean waterline, no spiky shore). Noise is in
+            // WORLD space (offset by ox/oz) so it's deterministic + continuous across the whole grid.
+            float hill = (Mathf.PerlinNoise(ox + wx * 0.012f, oz + wz * 0.012f) - 0.5f) * 2f * 0.62f  // broad rolling hills
+                       + (Mathf.PerlinNoise(ox + wx * 0.030f, oz + wz * 0.030f) - 0.5f) * 2f * 0.28f  // mid undulation
+                       + (Mathf.PerlinNoise(ox + wx * 0.075f, oz + wz * 0.075f) - 0.5f) * 2f * 0.10f; // fine roughness
+            // Bias hills upward (a ridge-line feel) + scale by amplitude, full on land, off at the coast.
+            float hillH = (hill * 0.5f + 0.5f) * IslandHillAmp * landMask * landMask;
+
+            // A SPAWN-FLATTEN: keep the immediate spawn + survival-loop centre gentle so the loop objects sit
+            // on near-flat dry land (the loop reads + the click-move stays clean). The flatten holds fully out
+            // to ~16u (covering the spawn (0,6) + loop spots) then eases the hills in over the next ~16u so the
+            // jungle hills don't start abruptly at the clearing edge.
+            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r)); // 0 at clearing -> 1 past it
+            hillH *= (0.06f + 0.94f * spawnFlat);
+
+            return baseH + hillH;
         }
 
-        // Vertex color ramps warm sand (shore, low) -> warm grass (inland, higher). Multi-tone so
-        // no big region is one flat color (carries the spike's "no flat single-color ground" bar into
-        // the low-poly look). Slight per-vertex hash jitter keeps facets reading distinct.
-        static Color GroundColorAt(float fz, float height, float fx, int seed)
+        // Island vertex colour by ELEVATION + radial position: a warm SAND ring at the coast, warm GRASS
+        // over the land, and ROCK on the high hills (the elevation reads in colour, not just shape). A
+        // radial FOAM ring at the waterline. Per-vertex jitter keeps facets distinct.
+        static Color IslandColorAt(float wx, float wz, float height, int seed)
         {
-            // sand near the shore, blending to grass past the transition band
-            float grassT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.22f, 0.42f, fz));
-            Color sand = Color.Lerp(SandDamp, Color.Lerp(SandLo, SandHi, Mathf.Clamp01(fz * 3f)),
-                                    Mathf.Clamp01(fz * 4f));
-            Color grass = Color.Lerp(GrassLo, GrassHi, Mathf.Clamp01(grassT));
-            // higher ground reads as the sunlit meadow rise
-            grass = Color.Lerp(grass, GrassRise, Mathf.Clamp01((height - 0.6f) * 0.5f));
-            Color c = Color.Lerp(sand, grass, grassT);
+            float r = Mathf.Sqrt(wx * wx + wz * wz);
 
-            // FOAM BAND (drew/beach-water-scene; Uma §2 task D): the seaward-most rows of the beach mesh
-            // (the wet shelf where the sloping sand passes below the water plane) carry the warm off-white
-            // foam line — a single calm stylized waterline, baked into vertex color so it rides this same
-            // terrain shader (no new object, no particles — Uma: "a single calm foam line is the entire
-            // treatment"). SOFT-WASH RESTORE (86ca8t9pq S1): the two-phase shore puts the waterline at fz
-            // ~ 0.032 (worldZ ~ -9.8) on the GENTLE WET SHELF (WetShelfEnd 0.044). Carry the wet-sand foam
-            // across that whole shelf (fz 0..0.044) so the terrain's wet sand edge meets the WATER mesh's
-            // surf line at the same coast — the two foam treatments join into one soft animated wash band,
-            // not a hard mesh-boundary line. Sub-1.0 foam (NOT pure white) so the post bloom doesn't blow it.
-            float foamT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.044f, 0.0f, fz));
-            c = Color.Lerp(c, FoamEdge, foamT);
+            // SAND ring: a band just inland of the waterline (the beach). GRASS over the land interior.
+            // ROCK on the high hilltops (elevation). Blend by radius for sand→grass, by height for grass→rock.
+            float sandT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IslandShoreR - 18f, IslandShoreR - 6f, r));
+            float beachBlend = sandT; // 0 interior grass .. 1 coastal sand
+            Color sand = Color.Lerp(SandLo, SandHi, Mathf.Clamp01((height + 0.2f) * 1.5f));
+            Color grass = Color.Lerp(GrassLo, GrassHi, Mathf.Clamp01(Mathf.InverseLerp(IslandShoreR, 0f, r)));
+            grass = Color.Lerp(grass, GrassRise, Mathf.Clamp01((height - 2.5f) * 0.18f)); // sunlit rise on hills
+            // ROCK on the highest hilltops (above ~55% of the hill amplitude) — exposed stone reads elevation.
+            Color rock = RockCol;
+            float rockT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IslandPlateauH + IslandHillAmp * 0.55f,
+                                                                      IslandPlateauH + IslandHillAmp * 0.85f, height));
+            Color land = Color.Lerp(grass, rock, rockT);
+            Color c = Color.Lerp(land, sand, beachBlend);
+
+            // RADIAL FOAM ring: a warm off-white band centred on the waterline (where the sloping land passes
+            // below WaterY). Baked into the terrain's coastal verts so the wet sand edge meets the water mesh's
+            // radial surf ring at the same coast (the soft wash, now all the way around the round coast).
+            float foamDist = Mathf.Abs(r - IslandShoreR);
+            float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((foamDist - 2.5f) / 4f));
+            c = Color.Lerp(c, FoamEdge, foamT * 0.9f);
 
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
-            float j = (Hash01(Mathf.RoundToInt(fx * 997f), Mathf.RoundToInt(fz * 991f), seed) - 0.5f) * 0.10f;
+            float j = (Hash01(Mathf.RoundToInt(wx * 13f), Mathf.RoundToInt(wz * 13f), seed) - 0.5f) * 0.10f;
             c.r = Mathf.Clamp01(c.r + j); c.g = Mathf.Clamp01(c.g + j); c.b = Mathf.Clamp01(c.b + j);
             c.a = 1f;
             return c;
         }
 
-        // ---- Low-poly mesh scatter: trees, rocks, grass clumps (all welded smooth-shaded meshes) ----
-        static void ScatterLowPolyProps(GameObject parent, float minX, float maxX,
-            float shoreZ, float inlandFarZ, int seed, MeshCollider groundCol)
+        // ============================================================================================
+        // BIG ROUND ISLAND scatter (86ca9a7qn): DENSE jungle with TALL trees across the whole land disc,
+        // thinning at the coast; rock outcrops on the hills; grass tufts in the interior. Radial placement
+        // (sample anywhere on the disc, accept by a land/coast probability), NOT the strip's inland-Z band.
+        // Sponsor: "dense forest/jungle with high trees." Tree density + height pushed WAY up vs the old
+        // sparse inland scatter, while keeping a near-spawn clearing so the survival loop reads.
+        // ============================================================================================
+        static void ScatterIslandProps(GameObject parent, int seed, MeshCollider groundCol)
         {
             var rnd = new System.Random(seed + 555);
-            // FIRST-FRAME TUNE (86ca8ce7j, absorbs pale-shore 86ca8a0u6): the shipped first frame read
-            // washed-out because the player spawns at origin (~Z0, the sand band) and the tree band only
-            // started at the 0.40 lerp (~Z+15) — every tree was BEHIND/above the orbit camera's framing,
-            // so the frame was empty pale sand with zero warm/lush content. Bring the field band toward
-            // the shore (0.28 lerp, ~Z+7) so blob canopies fill the spawn frame's mid-ground, and add a
-            // dedicated NEAR-SPAWN hero cluster off to the sides (clear of the loop spots at origin) so
-            // the very first frame reads "a warm wooded shore", not a bleached desert. Trees carve the
-            // NavMesh (the player still paths around them), so density near spawn stays readable.
-            float fieldStartZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.28f);
 
-            // Trees — clustered inland. Density scales gently with the (wider) production extents.
-            int treeClusters = Mathf.RoundToInt(7f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
-            for (int c = 0; c < treeClusters; c++)
+            // The walkable/plant-able land disc: inside ~IslandShoreR-6 (the sand ring + grass + hills),
+            // outside the spawn clearing. Tree placement samples the whole disc and accepts by a DENSITY
+            // that rises from the coast inland (jungle interior dense, coastal fringe lighter).
+            float plantR = IslandShoreR - 6f;     // outer plant radius (just inland of the sand ring)
+            float spawnClearR = 13f;              // keep the survival-loop centre an open clearing
+
+            // ---- DENSE TALL JUNGLE ----
+            // Far more trees than the strip (~13 clusters → ~26 there). The island disc area is ~50× larger,
+            // so a high target tree count reads as a real jungle, not a sparse scatter. Cap for perf headroom.
+            int treeTarget = 320;     // dense jungle target (perf-measured; the showstopper risk #1)
+            int treesPlaced = 0, treeGuard = 0;
+            while (treesPlaced < treeTarget && treeGuard++ < treeTarget * 6)
             {
-                float cxp = Mathf.Lerp(minX + 3f, maxX - 3f, (float)rnd.NextDouble());
-                float czp = Mathf.Lerp(fieldStartZ, inlandFarZ - 3f, (float)rnd.NextDouble());
-                int n = 1 + rnd.Next(0, 3);
-                for (int i = 0; i < n; i++)
-                {
-                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 5f;
-                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 5f;
-                    if (x < minX + 1f || x > maxX - 1f) continue;
-                    BuildTree(parent, GroundPoint(groundCol, x, z), 0.85f + (float)rnd.NextDouble() * 0.5f,
-                        rnd, true);
-                }
+                // Uniform-area sample over the disc: r = plantR*sqrt(u) so trees aren't centre-biased.
+                float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantR * Mathf.Sqrt((float)rnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (rr < spawnClearR) continue;                 // open clearing at the loop centre
+                // Density rises inland: accept more readily away from the coast (jungle interior dense).
+                float inlandT = Mathf.InverseLerp(plantR, 0f, rr); // 0 coast .. 1 centre
+                if (rnd.NextDouble() > Mathf.Clamp01(0.45f + inlandT * 0.55f)) continue;
+                // TALL trees (Sponsor "high trees"): bigger base scale + a tall-jungle variant.
+                bool tall = rnd.NextDouble() < 0.55f;
+                float scale = tall ? (1.5f + (float)rnd.NextDouble() * 0.9f)   // tall jungle tree
+                                   : (1.0f + (float)rnd.NextDouble() * 0.6f);  // mid blob tree
+                BuildTree(parent, GroundPoint(groundCol, x, z), scale, rnd, true, tall);
+                treesPlaced++;
             }
 
-            // NEAR-SPAWN hero trees — trees framed into the first gameplay frame, spread to BOTH sides
-            // and across the inland arc around the spawn (0,0,6) so the warm-wooded-shore read is
-            // BALANCED (not clustered to one corner), while staying clear of the loop spots (craft 8,6 /
-            // tree -9,-7 / fire 4,-8). Z ~ +11..+18 (the grass band ahead of the spawn) so they sit on
-            // green ground in the orbit camera's inland view; a couple wider out frame the edges.
-            (float x, float z)[] heroSpots =
+            // ---- ROCK OUTCROPS on the hills ----
+            // Clustered boulders, biased toward the higher inland ground (the hill rock reads elevation).
+            // Natural piles (2-4 each), spawn-clear, across the disc.
+            int rockTarget = 60, rocksPlaced = 0, rockGuard = 0;
+            while (rocksPlaced < rockTarget && rockGuard++ < rockTarget * 6)
             {
-                (-13f, 12f), (13f, 12f),   // near, both sides of the inland view
-                (-20f, 16f), (20f, 16f),   // mid, framing the edges
-                (-5f, 18f),  (6f, 17f),    // a pair ahead, flanking the journey forward
-            };
-            foreach (var (hx, hz) in heroSpots)
-            {
-                if (hx < minX + 1f || hx > maxX - 1f) continue;
-                BuildTree(parent, GroundPoint(groundCol, hx, hz), 1.0f + (float)rnd.NextDouble() * 0.45f,
-                    rnd, true);
-            }
-
-            // Rocks — CLUSTERED, DENSITY RESTORED soak-fix2 (86ca8m5zu). The Sponsor rejected BOTH the shape
-            // (mounds) AND the thinning: "now there is just way too few of them, before was a decent amount."
-            // So this restores the ~22 "decent amount" (the previous count the Sponsor liked) while keeping
-            // the NATURAL CLUSTERING (rock outcrops, not a uniform speckle) and the spawn-clear foreground.
-            // ~7 outcrops * 2-4 each ≈ 22 rocks, grouped on grass inland of the spawn (board 21h10_44 shows
-            // rocks as a few grouped piles). A spawn EXCLUSION keeps the locked spawn (0,0,6) foreground open.
-            int rockClusters = Mathf.RoundToInt(6f * Mathf.Clamp((maxX - minX) / 43f, 1f, 1.25f));
-            // Outcrops live in the FIELD band (inland of the spawn), so the spawn beach foreground reads clean
-            // and the boulders sit on grass where the board (21h10_44) shows them — not scattered on the sand.
-            float rockBandZ = Mathf.Lerp(shoreZ, inlandFarZ, 0.34f); // start of the rock band (inland of spawn)
-            int rocksPlaced = 0;
-            for (int c = 0; c < rockClusters; c++)
-            {
-                float cxp = Mathf.Lerp(minX + 4f, maxX - 4f, (float)rnd.NextDouble());
-                float czp = Mathf.Lerp(rockBandZ, inlandFarZ - 3f, (float)rnd.NextDouble());
-                // Spawn-clear: skip any cluster centre that lands near the spawn (0,0,6) so spawn stays open.
-                if (Mathf.Abs(cxp) < 7f && czp < 11f) continue;
+                float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float rr = (plantR - 8f) * Mathf.Sqrt((float)rnd.NextDouble());
+                float cxp = Mathf.Cos(ang) * rr, czp = Mathf.Sin(ang) * rr;
+                if (rr < spawnClearR + 4f) continue;             // stay clear of the loop centre
                 int n = 2 + rnd.Next(0, 3); // 2-4 boulders per outcrop
-                for (int i = 0; i < n && rocksPlaced < 24; i++) // hard ceiling: never an "all over" speckle
+                for (int i = 0; i < n && rocksPlaced < rockTarget; i++)
                 {
-                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.4f; // tight cluster radius
-                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.4f;
-                    if (x < minX + 1.5f || x > maxX - 1.5f) continue;
-                    // A range of sizes per outcrop (a couple bigger anchor boulders + smaller ones) reads
-                    // as a natural rock pile, not identical pebbles.
-                    float scale = 0.5f + (float)rnd.NextDouble() * 0.8f;
-                    BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
-                    rocksPlaced++;
-                }
-            }
-            // Density floor: spawn-exclusion skips can occasionally drop the count below the "decent amount"
-            // the Sponsor wants. If we landed short, add a couple more inland outcrops (always spawn-clear) so
-            // the count reliably reaches ~22 without re-introducing an "all over" uniform speckle.
-            int densityGuard = 0;
-            while (rocksPlaced < 20 && densityGuard++ < 12)
-            {
-                float cxp = Mathf.Lerp(minX + 4f, maxX - 4f, (float)rnd.NextDouble());
-                float czp = Mathf.Lerp(rockBandZ + 3f, inlandFarZ - 3f, (float)rnd.NextDouble());
-                if (Mathf.Abs(cxp) < 8f && czp < 12f) continue; // stay spawn-clear
-                int n = 2 + rnd.Next(0, 3);
-                for (int i = 0; i < n && rocksPlaced < 24; i++)
-                {
-                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.4f;
-                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.4f;
-                    if (x < minX + 1.5f || x > maxX - 1.5f) continue;
-                    float scale = 0.5f + (float)rnd.NextDouble() * 0.8f;
+                    float x = cxp + (float)(rnd.NextDouble() - 0.5) * 3.6f;
+                    float z = czp + (float)(rnd.NextDouble() - 0.5) * 3.6f;
+                    if (Mathf.Sqrt(x * x + z * z) > plantR) continue;
+                    float scale = 0.55f + (float)rnd.NextDouble() * 1.0f;
                     BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
                     rocksPlaced++;
                 }
             }
 
-            // Grass clumps — low spiky low-poly tufts, dense in the field, sparse toward the shore.
-            int clumps = Mathf.RoundToInt(60f * Mathf.Clamp((maxX - minX) / 43f, 1f, 3f));
-            for (int i = 0; i < clumps; i++)
+            // ---- GRASS TUFTS — dense ground cover across the interior, sparse at the coast. ----
+            int clumpTarget = 360, clumpsPlaced = 0, clumpGuard = 0;
+            while (clumpsPlaced < clumpTarget && clumpGuard++ < clumpTarget * 5)
             {
-                float x = Mathf.Lerp(minX + 1f, maxX - 1f, (float)rnd.NextDouble());
-                float z = Mathf.Lerp(shoreZ + 4f, inlandFarZ - 1f, (float)rnd.NextDouble());
-                float fz = Mathf.InverseLerp(shoreZ, inlandFarZ, z);
-                // density follows the field gradient (probabilistic accept)
-                if (rnd.NextDouble() > Mathf.Clamp01((fz - 0.30f) * 1.6f)) continue;
+                float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantR * Mathf.Sqrt((float)rnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                float inlandT = Mathf.InverseLerp(plantR, 0f, rr);
+                if (rnd.NextDouble() > Mathf.Clamp01(0.25f + inlandT * 0.7f)) continue;
                 BuildGrassClump(parent, GroundPoint(groundCol, x, z),
-                    0.5f + (float)rnd.NextDouble() * 0.4f, rnd);
+                    0.5f + (float)rnd.NextDouble() * 0.5f, rnd);
+                clumpsPlaced++;
             }
+
+            Debug.Log($"[world-trace] ScatterIslandProps placed {treesPlaced} trees (dense tall jungle), " +
+                      $"{rocksPlaced} rocks, {clumpsPlaced} grass tufts across the round island (plantR {plantR:F0}u)");
         }
 
         // Raycast straight down onto the terrain collider to find the surface Y at (x,z) so props
@@ -453,7 +420,10 @@ namespace FarHorizon.EditorTools
 
         // A low-poly tree: tapered trunk (welded cylinder, few sides) + a faceted icosphere-ish
         // canopy (welded, smooth-normaled). Optional NavMeshObstacle carve so the agent paths around.
-        static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool carve)
+        // BIG ROUND ISLAND (86ca9a7qn): `tall` builds a TALL JUNGLE tree (long bare trunk + a high canopy)
+        // for the "high trees" the Sponsor asked for; the default builds the original blob tree.
+        static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool carve,
+            bool tall = false)
         {
             var tree = new GameObject("LP_Tree");
             tree.transform.SetParent(parent.transform, false);
@@ -461,8 +431,11 @@ namespace FarHorizon.EditorTools
             tree.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
             tree.transform.localScale = Vector3.one * scale;
 
-            float trunkH = 1.6f;
-            var trunk = MakeMeshObject(tree, "Trunk", LowPolyMeshes.TaperedCylinder(0.18f, 0.12f, trunkH, 6),
+            // TALL JUNGLE: a much taller, slightly thinner trunk (the canopy rides high) so the forest reads
+            // as HIGH trees from orbit. The mid tree keeps the original chunky proportions.
+            float trunkH = tall ? (3.6f + (float)rnd.NextDouble() * 1.4f) : 1.6f;
+            float botR = tall ? 0.22f : 0.18f, topR = 0.12f;
+            var trunk = MakeMeshObject(tree, "Trunk", LowPolyMeshes.TaperedCylinder(botR, topR, trunkH, 6),
                 MakeFlatColorMat(TrunkCol, "LPTrunkMat"));
             trunk.transform.localPosition = Vector3.zero;
 
@@ -470,21 +443,22 @@ namespace FarHorizon.EditorTools
             // (CanopyShadow/Body/Top baked per-blob into vertex color), NOT a single smooth dome. 4-6
             // blobs per tree reads like inspiration/21h11_03's four variants. Solid volumes -> sidesteps
             // the thin-foliage normal trap (unity-conventions.md). One shared vertex-color material
-            // renders all blobs' greens (no per-blob material churn).
-            int blobCount = 4 + rnd.Next(0, 3); // 4-6
+            // renders all blobs' greens (no per-blob material churn). Tall trees get a fuller crown.
+            int blobCount = tall ? (5 + rnd.Next(0, 3)) : (4 + rnd.Next(0, 3));
+            float canopyR = tall ? 1.55f : 1.15f;
             var canopy = MakeMeshObject(tree, "Canopy",
-                LowPolyMeshes.BlobCanopy(1.15f, blobCount, CanopyBody, CanopyTop, CanopyShadow, rnd.Next()),
+                LowPolyMeshes.BlobCanopy(canopyR, blobCount, CanopyBody, CanopyTop, CanopyShadow, rnd.Next()),
                 CanopyVertexColorMat());
-            canopy.transform.localPosition = new Vector3(0f, trunkH + 0.55f, 0f);
+            canopy.transform.localPosition = new Vector3(0f, trunkH + (tall ? 0.9f : 0.55f), 0f);
 
             if (carve)
             {
                 var obstacle = tree.AddComponent<UnityEngine.AI.NavMeshObstacle>();
                 obstacle.carving = true;
                 obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
-                obstacle.radius = 0.4f;
-                obstacle.height = 2.6f;
-                obstacle.center = new Vector3(0f, 1.3f, 0f);
+                obstacle.radius = tall ? 0.5f : 0.4f;
+                obstacle.height = trunkH + 1.6f;
+                obstacle.center = new Vector3(0f, (trunkH + 1.6f) * 0.5f, 0f);
             }
         }
 
@@ -557,117 +531,64 @@ namespace FarHorizon.EditorTools
         // beach's faceted edge dips INTO the water (the coastline is where the sloping beach passes below
         // the water Y, no hard seam). Editor-time authored + serialized (NOT Awake) — the swell is the
         // only animated part and it runs in the shader, so zero runtime geometry construction.
-        const float WaterY = -0.20f;          // just under the shore's ~ -0.07 min Y -> beach dips in
-        // SEA-EXTENT (86ca8t9pq AC1): extend the sea FAR enough that its far edge is ≥90% dissolved by the
-        // Exp² fog before it ends — so the seaward gameplay view reads SEA-TO-HORIZON, never a visible water
-        // plane-edge floating in the haze. At fog density 0.0016 Exp², blend ≈ 90% at ~600u; 600 gives the
-        // far edge ~95% fog (a clean dissolve into the horizon stop). (Was 220u — only ~12% fogged, so the
-        // far edge could read as a faint line at the low-pitch horizon view.)
-        const float WaterSeawardDepth = 600f;
-        // Near edge must reach a touch INLAND PAST THE REAL WATERLINE (where the sloping beach passes below
-        // WaterY) so the water plane covers the underwater shore with no gap seam — and so the foam band has
-        // verts AT the waterline. WATERLINE-OUT SOAK-FIX (86ca8t9pq W1): the water near edge moved seaward in
-        // lockstep with the waterline so the plane never re-floods the dry loop band (-3..-8). SOFT-WASH
-        // RESTORE (86ca8t9pq S1): the waterline is now ~ worldZ -8.6 (two-phase shore: gentle wet shelf eases
-        // up to just-under-WaterY, then a dry climb; trace-solved). overlap 5 -> near edge = shoreZ+5 = -7:
-        // ~1.6u inland of the new waterline (-8.6), so the water tucks under the dipping beach (no gap seam)
-        // and the foam surf line sits ON the shallow wet shelf the swell visibly laps — never re-reaching the
-        // dry loop band. The TestGround placeholder is non-rendering, so the inland reach is safe. overlap 3
-        // -> near edge = shoreZ+3 = -9 (just inland of the waterline -9.82, on the wet shelf; seaward of the
-        // most-seaward dry loop obj z=-8, so the rendered sea never reaches over the dry objects).
-        const float WaterInlandOverlap = 3f;
-        const int WaterSegX = 24, WaterSegZ = 56; // MORE Z verts (was 40): a tighter foam surf line needs more
-                                                  // near-shore rows so the narrower core+fade has verts to land in
-        // SHORELINE FOAM band (Erik water rec / Uma §2): a warm-white surf line baked into the water mesh AT
-        // THE REAL WATERLINE so the sea↔land boundary reads as foam, not a hard diagonal grid edge. SOFT-WASH
-        // RESTORE SOAK-FIX (86ca8t9pq S1): the [foam-trace]/[foamfix] sweeps proved the regression was a foam
-        // band gone WIDE + DIFFUSE over DEEP water (the steep W1 ramp), reading as a static line. FIX: (1)
-        // re-centre the foam on the new two-phase waterline (~ -9.5), which now sits on the GENTLE WET SHELF
-        // (HeightAt S1) so the swell's bob laps it as a wash; (2) TIGHTEN the band into a DEFINED soft surf
-        // LINE — narrow core (2.5u, was 8u) + soft fade (3u, was 9u) — so it reads as a believable surf line
-        // on the wet shelf, not a broad diffuse wash on deep open sea. The swell amp is also bumped
-        // (MakeWaterMaterial). Trace-verified (candidate G): foam wash-fraction 90% over the wet shelf; loop
-        // objects DRY (terrainY z-3 +0.22, z-7 +0.22, z-8 +0.09, all above the -0.10 dry-guard margin).
-        const float WaterlineWorldZ = -10.0f;   // foam centre on the wet shelf at the two-phase waterline (HeightAt S1 solve)
-        const float WaterFoamCoreU = 2.0f;      // full-strength foam PLATEAU within this band (a DEFINED surf LINE
-                                                // on the wet shelf — narrow; the near-dense water grid gives it
-                                                // multiple rows to land on so it reads as a soft line, not 1 row)
-        const float WaterFoamBandU = 3f;        // beyond the core, foam fades softly to clear over this extra distance
-        const float WaterFoamStrength = 0.92f;  // peak foam blend at the waterline (sub-1 keeps a hint of teal)
-        static void BuildWaterEdge(GameObject parent, string name, Material waterMat,
-            float cx, float width, float shoreZ)
+        public const float WaterY = -0.20f;          // sea surface; the round coast is where the land dips below it
+        // BIG ROUND ISLAND water (86ca9a7qn): the sea is now a LARGE SQUARE PLANE centred at origin covering
+        // the island disc + the surrounding sea on ALL sides, out to the fog horizon — replacing the old
+        // −Z-only seaward strip grid. The ROUND coast comes from the radial terrain dipping below WaterY at
+        // IslandShoreR; the water plane just fills everything below that all the way around.
+        public const float WaterHalfExtent = 700f;   // half-size of the square sea plane — reaches well past the
+                                                     // island to the fog horizon on every side (sea-to-horizon, all sides)
+        const int WaterSeg = 96;                      // subdivision so the radial foam ring + swell have verts
+        // RADIAL SHORELINE FOAM ring (carries the accepted soft-wash foam, now ALL the way around the round
+        // coast): a warm-white surf ring centred on the radial waterline (r == IslandShoreR), riding the
+        // gentle coastal wet-shelf the swell laps. Near-dense ring resolution lands several rows in the band.
+        const float WaterFoamCoreU = 2.5f;            // full-strength foam plateau within this radial band
+        const float WaterFoamBandU = 4.5f;            // foam fades softly to clear beyond the core
+        const float WaterFoamStrength = 0.92f;        // peak foam blend at the waterline (sub-1 keeps a hint of teal)
+        static void BuildIslandWater(GameObject parent, string name, Material waterMat, int seed)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, false);
-            go.layer = 0; // not walkable / not NavMesh (no collider added at all)
-            go.transform.position = new Vector3(cx, WaterY, 0f);
+            go.layer = 0; // not walkable / not NavMesh (no collider)
+            go.transform.position = new Vector3(0f, WaterY, 0f); // sea centred at origin
 
             var mf = go.AddComponent<MeshFilter>();
             var mr = go.AddComponent<MeshRenderer>();
             mr.sharedMaterial = waterMat;
-            // Water is a flat sheet — it should not cast shadows onto itself / the shore (a low-poly
-            // sea doesn't self-shadow), and receiving the shore's shadow keeps the near band grounded.
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
-            // Span: WIDER than the land (so the sea wraps past the coast at the edges of the frame) and
-            // from a little inland of the shore (overlap, tucked under the beach) out to the deep sea.
-            float waterWidth = width * 1.6f;
-            float nearZ = shoreZ + WaterInlandOverlap;          // a touch inland of the shore
-            float farZ = shoreZ - WaterSeawardDepth;            // far out to sea (lost in fog)
-
-            // GRID LATTICE (welded positions + per-vertex water colour) — computed first, then EXPANDED into
-            // UNWELDED FLAT-SHADED facets below (Erik/Uma world-look: the sea joins the faceted-world look as
-            // flat facets, not a smooth sheet — kills the "hard flat diagonal edge" read by giving the water
-            // surface its own chunky planes that catch the key light per-face).
-            int latW = WaterSegX + 1, latH = WaterSegZ + 1;
-            var gridPos = new Vector3[latW * latH];
-            var gridCol = new Color[latW * latH];
-            // SHORELINE FOAM (Erik water rec / Uma §2 — the depth-fade shoreline band): bake a warm-white
-            // foam band into the NEAR-SHORE rows where the sea meets the land. The prior build baked foam
-            // only into the terrain sand (LowPolyZoneGen terrain mesh) — the WATER mesh had no shoreline
-            // treatment, so its rectangular grid boundary against the curving beach read as a hard diagonal
-            // edge. A foam band ON the water at the coast softens that boundary into a believable surf line.
-            for (int z = 0; z < latH; z++)
-            for (int x = 0; x < latW; x++)
+            // GRID LATTICE: a square plane centred at origin. The depth gradient + radial foam ring key off
+            // RADIAL distance from origin (not Z), so they read identically on every coast around the island.
+            int lat = WaterSeg + 1;
+            float size = WaterHalfExtent * 2f;
+            var gridPos = new Vector3[lat * lat];
+            var gridCol = new Color[lat * lat];
+            for (int z = 0; z < lat; z++)
+            for (int x = 0; x < lat; x++)
             {
-                int i = z * latW + x;
-                float fx = (float)x / WaterSegX, fz = (float)z / WaterSegZ;
-                // NEAR-DENSE Z DISTRIBUTION (86ca8t9pq S1): the sea runs out to -612u but the FOAM surf line +
-                // wash band live in the first ~15u at the coast. A LINEAR grid (10.8u/row) put the entire foam
-                // band on a SINGLE near-edge row stranded over dry terrain ([foamscene] proved 72/72 foam verts
-                // on one row at worldZ -9). A power curve packs many rows into the near-shore band (so the
-                // tight foam line spans several rows ON the wet shelf, reading as a soft surf line) while the
-                // far sea stays coarse (it just fogs out — no detail needed). fz^3 -> ~0.5u between the first
-                // few rows near shore, expanding to the deep sea.
-                float fzCurve = fz * fz * fz;
-                float worldZ = Mathf.Lerp(nearZ, farZ, fzCurve); // fz=0 near shore, fz=1 deep sea (near-dense)
-                float localX = (fx - 0.5f) * waterWidth;
-                gridPos[i] = new Vector3(localX, 0f, worldZ); // local origin at (cx, WaterY, 0)
-                // Depth gradient (keyed off WORLD Z — a fixed bright band off the coast; the fog + warm
-                // grade desaturate the far water, so a WIDE bright near band keeps the SEA reading teal).
-                float seawardDist = nearZ - worldZ; // 0 at the coast, grows out to sea
+                int i = z * lat + x;
+                float fx = (float)x / WaterSeg, fz = (float)z / WaterSeg;
+                float localX = (fx - 0.5f) * size;
+                float localZ = (fz - 0.5f) * size;
+                gridPos[i] = new Vector3(localX, 0f, localZ);
+                float r = Mathf.Sqrt(localX * localX + localZ * localZ);
+                // Depth gradient by radial distance OUT from the coast (bright near the round shore, deepening
+                // seaward; the fog + warm grade desaturate the far water, so a wide bright near band keeps teal).
+                float seawardDist = Mathf.Max(0f, r - IslandShoreR); // 0 at the coast, grows out to sea
                 float depthT = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(seawardDist / 130f));
                 Color c = Color.Lerp(WaterShallow, WaterDeep, depthT);
-                // SHORELINE FOAM band: full-strength foam PLATEAU centred on the REAL waterline (where the sand
-                // passes below the water), fading to clear past the plateau — so the surf connects to the sand
-                // edge, not 8.5u out to sea at the mesh near-edge (the AC2 foam-disconnect fix). A plateau (not
-                // a point-peak) guarantees a vert lands in full foam despite the coarse water grid.
-                float foamDist = Mathf.Abs(worldZ - WaterlineWorldZ);
+                // RADIAL FOAM ring: full-strength foam plateau on the waterline circle, fading past the core.
+                float foamDist = Mathf.Abs(r - IslandShoreR);
                 float foamT = 1f - Mathf.SmoothStep(0f, 1f,
-                    Mathf.Clamp01((foamDist - WaterFoamCoreU) / WaterFoamBandU)); // 1 within the core, fade beyond
+                    Mathf.Clamp01((foamDist - WaterFoamCoreU) / WaterFoamBandU));
                 c = Color.Lerp(c, FoamEdge, foamT * WaterFoamStrength);
                 c.a = 1f;
                 gridCol[i] = c;
             }
 
-            // *** WINDING NOTE (drew/ocean-beach-soakfix2, 2026-06-13 — kept) ***
-            // The water grid runs nearZ(-10.5) -> farZ(-232), i.e. DECREASING world Z as the grid-z index
-            // increases — the OPPOSITE Z direction to the terrain. Reusing the terrain's index order wound
-            // the water faces DOWNWARD (-Y normals) -> Cull Back culled the sea from the above-looking orbit
-            // (0 px for SIX builds; the -seaWaterOnly probe disproved occlusion). The reversed quad winding
-            // below yields UP-facing faces. With UNWELDED facets we set explicit per-face normals (no
-            // RecalculateNormals averaging), so the winding-to-normal contract is made explicit per face and
-            // guarded by WaterFacesUpTests (every face normal . +Y > 0) — the silhouette/normal class.
+            // UNWELDED FLAT-SHADED facets with explicit +Y normals (the faceted-sea look + the winding/normal
+            // contract guarded by WaterFacesUpTests). EmitTri forces every face normal UP regardless of source
+            // winding, so the all-sides plane is never backface-culled (the −Z-grid cull-back class).
             var verts = new List<Vector3>();
             var cols = new List<Color>();
             var normals = new List<Vector3>();
@@ -685,13 +606,12 @@ namespace FarHorizon.EditorTools
                 normals.Add(fn); normals.Add(fn); normals.Add(fn);
                 tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
             }
-            for (int z = 0; z < WaterSegZ; z++)
-            for (int x = 0; x < WaterSegX; x++)
+            for (int z = 0; z < WaterSeg; z++)
+            for (int x = 0; x < WaterSeg; x++)
             {
-                int i = z * latW + x;
-                // Reversed winding (vs the terrain) — yields UP-facing triangles for the -Z-running grid.
-                EmitTri(i, i + 1, i + latW);
-                EmitTri(i + 1, i + latW + 1, i + latW);
+                int i = z * lat + x;
+                EmitTri(i, i + 1, i + lat);
+                EmitTri(i + 1, i + lat + 1, i + lat);
             }
 
             var mesh = new Mesh { name = name + "_mesh" };
@@ -704,6 +624,8 @@ namespace FarHorizon.EditorTools
             mesh.SetTriangles(tris, 0);
             mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
+            Debug.Log($"[world-trace] BuildIslandWater built all-sides sea plane (half-extent {WaterHalfExtent:F0}u, " +
+                      $"radial foam ring at r={IslandShoreR:F0}u, {verts.Count} verts)");
         }
 
         // ---- Materials ----

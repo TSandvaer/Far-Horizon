@@ -64,23 +64,24 @@ namespace FarHorizon.EditTests
             var cols = mesh.colors;
             Assert.AreEqual(verts.Length, cols.Length, "every ocean vert must carry a color");
 
-            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. WATERLINE-OUT SOAK-FIX
-            // (86ca8t9pq W1): the waterline + foam band moved SEAWARD to worldZ ~ -10.2 (WaterlineWorldZ),
-            // and the foam plateau (core 8u + band 9u) fades out by ~worldZ -27. So the clear-shallows
-            // bright-teal anchor must be probed WELL seaward of that fade (~worldZ -45), and the DEEP anchor
-            // at the seaward-most vert. (The foam band itself is guarded by Ocean_CarriesShorelineFoam.)
-            float shallowProbeZ = -45f; // well seaward of the new foam fade (waterline -10.2 + ~17u band), so
-                                        // the probe robustly lands a clear-shallow vert, not a foam-blended one
+            // BIG ROUND ISLAND (86ca9a7qn): the sea is now RADIAL — the depth gradient runs from the round
+            // coast (bright shallow) OUTWARD to the deep sea, keyed off RADIAL distance, not local Z. Probe a
+            // SHALLOW vert just seaward of the foam ring (r ~ IslandShoreR + 45, clear of the foam fade) and
+            // the DEEPEST vert (largest radius). (The foam ring itself is guarded by Ocean_CarriesShorelineFoam.)
+            float shoreR = LowPolyZoneGen.IslandShoreR;
+            float shallowProbeR = shoreR + 45f;
             int shallowIdx = 0, farIdx = 0;
-            for (int i = 1; i < verts.Length; i++)
+            float bestShallow = float.PositiveInfinity, bestFar = -1f;
+            for (int i = 0; i < verts.Length; i++)
             {
-                if (Mathf.Abs(verts[i].z - shallowProbeZ) < Mathf.Abs(verts[shallowIdx].z - shallowProbeZ)) shallowIdx = i;
-                if (verts[i].z < verts[farIdx].z) farIdx = i; // smallest Z = deepest sea
+                float r = new Vector2(verts[i].x, verts[i].z).magnitude;
+                if (Mathf.Abs(r - shallowProbeR) < bestShallow) { bestShallow = Mathf.Abs(r - shallowProbeR); shallowIdx = i; }
+                if (r > bestFar) { bestFar = r; farIdx = i; }
             }
             AssertColorNear(cols[shallowIdx], LowPolyZoneGen.WaterShallow,
-                "the shallows just seaward of the foam band must be the BRIGHT shallow teal (#3FA6B0)");
+                "the shallows just seaward of the radial foam ring must be the BRIGHT shallow teal (#3FA6B0)");
             AssertColorNear(cols[farIdx], LowPolyZoneGen.WaterDeep,
-                "seaward vert must be the DEEPER teal (#2E7E96)");
+                "the deepest (farthest-radius) sea vert must be the DEEPER teal (#2E7E96)");
 
             // Every channel sub-1.0 (HDR-clamp discipline — the post stack must not bloom the sea white).
             foreach (var c in new[] { cols[shallowIdx], cols[farIdx] })
@@ -90,9 +91,6 @@ namespace FarHorizon.EditTests
                 Assert.Less(c.b, 1f, "water teal blue channel must be sub-1.0 (HDR-clamp-safe)");
             }
         }
-
-        // Mirror of LowPolyZoneGen.WaterFoamBandU (the foam fade extent) for the seaward probe distance.
-        private const float WaterSceneTests_FoamBandU = 7f;
 
         [Test]
         public void Ocean_CarriesShorelineFoam_AtTheCoast_NotJustTheSeawardSand()
@@ -134,33 +132,32 @@ namespace FarHorizon.EditTests
         [Test]
         public void Ocean_BrightShallowsBand_ExtendsIntoTheMidSea_NotJustTheCoast()
         {
-            // drew/ocean-camera-fix: the bright-teal shallows band was WIDENED (70u->130u) so the sea
-            // reads teal across the frame when the camera tilts down to the horizon (the now-allowed flat
-            // pitch makes the 50-150u MID-sea dominate the upper frame, not the very-near band). Guard the
-            // bug class: a mid-sea vert (~50-70u seaward of the coast) must still be BRIGHT-leaning teal
-            // (closer to the shallow anchor than the deep anchor). A regression to a narrow band would push
-            // the deep/fog-greyed teal across the visible mid-sea — the "grey" read. near edge = shoreZ(-12) +
-            // overlap(13) = +1, so ~Z-65 is ~66u seaward (inside the 130u bright band, outside 70u).
+            // BIG ROUND ISLAND (86ca9a7qn): the bright-teal shallows band runs RADIALLY out from the round
+            // coast (~130u band). Guard the bug class: a mid-sea vert ~55u out from the coast (r ~ IslandShoreR
+            // + 55) must still be BRIGHT-leaning teal (closer to the shallow anchor than the deep anchor) — a
+            // narrow band would grey the visible mid-sea out (the "grey sea" read).
             var water = GameObject.Find("Water_Play");
             Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
             var mesh = water.GetComponent<MeshFilter>().sharedMesh;
             var verts = mesh.vertices;
             var cols = mesh.colors;
 
-            // Find the vert nearest world Z -65 (local Z, since the water root sits at world Z 0).
-            const float midZ = -65f;
-            int midIdx = 0;
-            for (int i = 1; i < verts.Length; i++)
-                if (Mathf.Abs(verts[i].z - midZ) < Mathf.Abs(verts[midIdx].z - midZ)) midIdx = i;
+            float midR = LowPolyZoneGen.IslandShoreR + 55f;
+            int midIdx = 0; float best = float.PositiveInfinity;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                float r = new Vector2(verts[i].x, verts[i].z).magnitude;
+                if (Mathf.Abs(r - midR) < best) { best = Mathf.Abs(r - midR); midIdx = i; }
+            }
 
             var shallow = LowPolyZoneGen.WaterShallow;
             var deep = LowPolyZoneGen.WaterDeep;
             float dShallow = ChannelDist(cols[midIdx], shallow);
             float dDeep = ChannelDist(cols[midIdx], deep);
             Assert.Less(dShallow, dDeep,
-                $"a mid-sea vert (~55u seaward, localZ={verts[midIdx].z:0.0}) must still be BRIGHT-leaning " +
-                $"teal (closer to shallow #3FA6B0 than deep #2E7E96) — the widened 130u band keeps the " +
-                $"visible mid-sea teal; a narrow band lets it grey out (color={cols[midIdx]})");
+                $"a mid-sea vert (~55u out from the round coast) must still be BRIGHT-leaning teal (closer to " +
+                $"shallow #3FA6B0 than deep #2E7E96) — the radial bright band keeps the visible mid-sea teal " +
+                $"(color={cols[midIdx]})");
         }
 
         [Test]
@@ -286,28 +283,22 @@ namespace FarHorizon.EditTests
         [Test]
         public void BeachLoopObjects_SitOnDrySand_NotInTheWater_WaterlineOutGuard()
         {
-            // WATERLINE-OUT SOAK-FIX REGRESSION GUARD (86ca8t9pq W1, Sponsor soak of b54482c: "it should be
-            // moved a bit out, so the tree, campfire and debris is not in the water"). Diagnose-via-trace
-            // CONFIRMED the loop objects sat BELOW WaterY (-0.20): ChopTree (z=-7) terrainY -0.44u, FirePit
-            // (z=-8) -0.48u, BeachDebris (z=-3) -0.25u — all underwater, because the old beachRamp completed
-            // only at fz=0.27 so the waterline crept inland to worldZ ~ -1.7. The fix (ShoreRampEnd 0.045)
-            // climbs the beach out of the water by worldZ ~ -8.9 so the waterline lands at ~ -10.2 — every
-            // loop object now sits on DRY sand. This guards the bug CLASS: raycast the SHIPPED terrain
-            // collider straight down at each loop-spot XZ and assert the surface Y is above WaterY with
-            // margin. A regression that re-floods the loop band (pulls the waterline back inland) fails HERE
-            // in headless CI before it ships. (A render proxy can't read the dipping terrain — the collider
-            // ray is the authoritative reader, same idiom as GroundPoint.)
+            // BIG ROUND ISLAND (86ca9a7qn): the survival-loop objects now sit near the island CENTRE (the
+            // spawn-flattened plateau), well INLAND of the round coast (IslandShoreR 120u) — all on dry land
+            // by construction. This still guards the bug CLASS (a loop object underwater): raycast the SHIPPED
+            // terrain collider at each loop-spot XZ and assert the surface Y is above WaterY with margin. A
+            // regression that sinks the loop centre below the sea fails HERE.
             var ground = GameObject.Find("Ground_Play");
             Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
             var col = ground.GetComponent<MeshCollider>();
             Assert.IsNotNull(col, "the terrain must carry a MeshCollider (the ground raycast surface)");
 
             const float WaterY = -0.20f;  // mirrors LowPolyZoneGen.WaterY
-            const float DryMargin = 0.10f; // clear of the surf, survives the shore noise band
-            // The survival-loop beach objects (MovementCameraScene static positions) — the ones the Sponsor
-            // saw submerged. XZ only; the Y comes from the terrain ray.
+            const float DryMargin = 0.10f;
             var loopSpots = new (string name, float x, float z)[]
             {
+                ("Spawn",        0f,  6f),
+                ("CraftSpot",    8f,  6f),
                 ("ChopTree",    -9f, -7f),
                 ("FirePit",      4f, -8f),
                 ("BeachDebris", -3.2f, -3.0f),
@@ -318,30 +309,40 @@ namespace FarHorizon.EditTests
                 Assert.IsTrue(col.Raycast(ray, out RaycastHit hit, 200f),
                     $"the terrain ray at the {name} spot ({x},{z}) must hit the ground (the loop surface)");
                 Assert.Greater(hit.point.y, WaterY + DryMargin,
-                    $"the {name} loop object at ({x},{z}) must sit on DRY sand (terrainY {hit.point.y:F3} > " +
-                    $"WaterY {WaterY:F2} + margin) — a terrain that dips below WaterY here re-floods the loop " +
-                    "object the Sponsor saw in the water (W1 waterline-out regression). Push the waterline out.");
+                    $"the {name} loop object at ({x},{z}) must sit on DRY land (terrainY {hit.point.y:F3} > " +
+                    $"WaterY {WaterY:F2} + margin) — the loop centre must stay dry on the round island plateau.");
             }
         }
 
         [Test]
-        public void Waterline_SitsSeawardOfTheLoopBand_NotInland()
+        public void Waterline_SurroundsTheLoopCentre_OnAllSides_NotJustOneEdge()
         {
-            // WATERLINE-OUT GUARD (companion to the loop-object check): the water mesh's NEAR EDGE must sit
-            // SEAWARD of the loop band (z <= -8) so the rendered sea never reaches inland over the dry loop
-            // objects. With WaterInlandOverlap 4 the near edge is worldZ -8 (= shoreZ -12 + 4). The water root
-            // sits at world Z 0, so the near (largest-Z, least-negative) vert's world Z must be <= -7.5.
-            var water = GameObject.Find("Water_Play");
-            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
-            var mesh = water.GetComponent<MeshFilter>().sharedMesh;
-            var verts = mesh.vertices;
-            float maxLocalZ = float.NegativeInfinity;
-            foreach (var v in verts) if (v.z > maxLocalZ) maxLocalZ = v.z;
-            float nearWorldZ = water.transform.position.z + maxLocalZ;
-            Assert.LessOrEqual(nearWorldZ, -7.5f,
-                $"the water near edge (worldZ {nearWorldZ:F1}) must sit SEAWARD of the loop band (z<=-8) so the " +
-                "rendered sea never floods the dry loop objects (FirePit z=-8). An inland-reaching near edge " +
-                "re-floods the beach (the W1 regression).");
+            // BIG ROUND ISLAND (86ca9a7qn): the round coast (where the land dips below WaterY) must sit at
+            // ~IslandShoreR on EVERY side of the loop centre — the sea surrounds the island. Raycast the
+            // SHIPPED terrain collider OUTWARD along +X/−X/+Z/−Z and assert the land crosses below WaterY at
+            // a radius near IslandShoreR on each side (a round coast, not a one-edge strip waterline).
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider");
+            const float WaterY = -0.20f;
+            float shoreR = LowPolyZoneGen.IslandShoreR;
+            var dirs = new (string name, float dx, float dz)[]
+            { ("+X", 1, 0), ("-X", -1, 0), ("+Z", 0, 1), ("-Z", 0, -1) };
+            foreach (var (name, dx, dz) in dirs)
+            {
+                float coast = -1f;
+                for (float r = shoreR - 25f; r <= shoreR + 25f; r += 1f)
+                {
+                    var ray = new Ray(new Vector3(dx * r, 50f, dz * r), Vector3.down);
+                    if (col.Raycast(ray, out RaycastHit hit, 200f) && hit.point.y <= WaterY) { coast = r; break; }
+                }
+                Assert.Greater(coast, 0f,
+                    $"on the {name} side the land must dip below the sea near IslandShoreR ({shoreR}u) — the " +
+                    "round coast surrounds the island on every side (water on all sides).");
+                Assert.That(coast, Is.InRange(shoreR - 25f, shoreR + 25f),
+                    $"the {name} coast ({coast:F0}u) must sit near IslandShoreR ({shoreR}u) — a round coast.");
+            }
         }
 
         [Test]

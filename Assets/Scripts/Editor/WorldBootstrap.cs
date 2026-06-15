@@ -331,39 +331,51 @@ namespace FarHorizon.EditorTools
             // landmass near-edge is ≥ ~120u from origin (the play footprint reaches ~72u at the inland-forward
             // corner). Verified by the near-edge math: all clusters now clear the play space by ≥50u. (Bake-
             // time DEFAULTS; the F9 WorldLookNudgeTool still re-dials distance/scale live for the Sponsor.)
+            // BIG ROUND ISLAND (86ca9a7qn): the main island is now a MUCH bigger round landmass
+            // (IslandShoreR 120u). The Sponsor wants "the mountains [to] sit on other islands" — so EVERY
+            // mountain cluster is a SEPARATE island in the surrounding sea, its near-edge clear of the main
+            // island's coast (≥ IslandShoreR + margin). Water is on ALL sides now, so the islands can RING
+            // more of the horizon (spread across all azimuths) while keeping WIDE open-sky/open-sea gaps so
+            // the horizon is never a continuous wall (the Sponsor's earlier "can't see sky" complaint). The
+            // Exp² fog supplies the atmospheric recession; the per-cluster tint is capped (double-fade fix).
+            // Distances are pushed OUT past the new island (was 430-700u for the old small strip) so the
+            // nearest landmass near-edge clears the 120u coast + ~footprint with margin.
             var clusters = new[]
             {
-                // ON THIS ISLAND'S BACKING RANGE — a modest range BEHIND the inland meadow (forward arc ~90deg),
-                // grounded WELL beyond the play terrain (near-edge ~worldZ +128) so it backs the forest without
-                // ever draping over the play space. Smaller footprint (baseR 42) so the near range stays compact.
-                // W2 SOAK-FIX: snowline LOWERED (0.60 -> 0.40) so the BRIGHT snow cap is a big confident wedge
-                // (the board 21h16_13 caps cover the top ~half of the peak), reading as a proper snow-capped
-                // chunky mountain, not a flat grey slab with a sliver of white. The near backing range gets a
-                // taller peak (85 -> 105u) so the snow cap reads at the 236u grounding distance + low pitch.
-                new MtnCluster("Vista_Inland",   90f, 430f, 4, 42f, 105f,  0.40f, MtnBody,    MtnSnow,    0.10f, 2f),
-
-                // FAR ISLANDS in the sea — a FEW distinct landmasses with WIDE open-sea/open-sky gaps. Spread
-                // across the forward + side arcs only (NOT the full ring): the seaward-behind arc is left as
-                // OPEN sea+sky so the orbit never sees a continuous wall. Pushed OUT + footprints trimmed so
-                // every near-edge clears the play space (the pale-frame fix); the Exp² fog gives the recession.
-                // W2 SOAK-FIX: snowlines LOWERED so the snow caps read as confident wedges on the chunky peaks.
-                new MtnCluster("Vista_Island_NW", 130f, 560f, 3, 70f,  150f, 0.46f, MtnBody,    MtnSnow,    0.35f, 6f),
-                new MtnCluster("Vista_Island_NE",  55f, 600f, 3, 75f,  165f, 0.45f, MtnBody,    MtnSnow,    0.45f, 6f),
-                new MtnCluster("Vista_Island_E",    8f, 700f, 2, 90f,  175f, 0.44f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
-                new MtnCluster("Vista_Island_W",  168f, 680f, 2, 90f,  170f, 0.44f, MtnRimBody, MtnRimSnow, 0.62f, 8f),
+                // Distinct mountain ISLANDS ringing the sea around the big round island — spread across all
+                // azimuths (water on all sides), each a separate landmass clearly OFF the main island. WIDE
+                // azimuth gaps between them keep the horizon open (sky + open sea show between the islands).
+                //   name, azimuthDeg, distance, peaks, baseR, height, snowline, body, snow, fadeK, raise
+                new MtnCluster("Vista_Island_N",   90f, 620f, 4, 70f, 150f, 0.42f, MtnBody,    MtnSnow,    0.18f, 4f),
+                new MtnCluster("Vista_Island_NE",  40f, 700f, 3, 80f, 165f, 0.45f, MtnBody,    MtnSnow,    0.35f, 6f),
+                new MtnCluster("Vista_Island_E",   -8f, 820f, 3, 90f, 175f, 0.44f, MtnRimBody, MtnRimSnow, 0.55f, 8f),
+                new MtnCluster("Vista_Island_SW", 215f, 760f, 2, 85f, 160f, 0.44f, MtnRimBody, MtnRimSnow, 0.55f, 8f),
+                new MtnCluster("Vista_Island_W",  160f, 700f, 3, 80f, 165f, 0.45f, MtnBody,    MtnSnow,    0.45f, 6f),
             };
 
             int total = 0;
+            float minClearance = float.PositiveInfinity;
+            string nearestName = "";
             foreach (var c in clusters)
             {
                 var cc = c;
                 cc.distance = c.distance * distScale; // pull IN (double-fade fix) — out of the fog ghost band
                 BuildMountainCluster(vistaRoot, cc, FadeTint(cc.fadeK), rnd);
                 total += cc.peaks;
+                // PROOF (86ca9a7qn): each mountain ISLAND must sit OFF the main round island. The island's
+                // footprint radius ≈ baseR*(1.15+0.25*peaks); its near-edge = distance − footprintR. Report the
+                // clearance from the main island coast (IslandShoreR) — must be POSITIVE (a separate island).
+                float footprintR = cc.baseR * (1.15f + 0.25f * cc.peaks);
+                float nearEdge = cc.distance - footprintR;
+                float clearance = nearEdge - LowPolyZoneGen.IslandShoreR;
+                if (clearance < minClearance) { minClearance = clearance; nearestName = cc.name; }
+                Debug.Log($"[world-trace]   {cc.name}: dist={cc.distance:F0}u footprintR={footprintR:F0}u " +
+                          $"nearEdge={nearEdge:F0}u clearance-from-main-coast={clearance:F0}u");
             }
-            Debug.Log($"[world-trace] BuildVista built {clusters.Length} grounded island clusters " +
-                      $"({total} peaks) — fadeCap={fadeCap:F2} distScale={distScale:F2} (double-fade KILLED: " +
-                      "tint capped + clusters pulled in + landmass bases) — solid silhouettes, not shards");
+            Debug.Log($"[world-trace] BuildVista built {clusters.Length} SEPARATE mountain islands ({total} peaks) " +
+                      $"ringing the round-island sea — nearest near-edge clearance {minClearance:F0}u ({nearestName}); " +
+                      $"all OFF the main island (coast r={LowPolyZoneGen.IslandShoreR:F0}u). fadeCap={fadeCap:F2} " +
+                      $"distScale={distScale:F2} (double-fade capped + landmass bases) — solid silhouettes, not shards");
         }
 
         // One discrete mountain cluster ("island"): centre azimuth + distance + count + shape.

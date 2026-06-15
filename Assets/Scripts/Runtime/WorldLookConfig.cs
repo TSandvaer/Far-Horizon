@@ -29,9 +29,13 @@ namespace FarHorizon
         // snow silhouette and lets the FOG alone do the recession.
         public const float MtnFadeCap = 0.25f;
         // Multiplier on every cluster's distance from the player. <1 pulls the islands IN so the Exp^2 fog
-        // (which hits 38% blend at 430u, 90% at 950u) no longer washes them to ghosts. 0.55 lands the far
-        // clusters in the ~240-310u band (fog blend ~15-21%) — atmospheric but solid, not see-through.
-        public const float MtnDistanceScale = 0.55f;
+        // (which hits 38% blend at 430u, 90% at 950u) no longer washes them to ghosts.
+        // BIG ROUND ISLAND (86ca9a7qn): the main island is now a MUCH bigger round landmass (IslandShoreR
+        // 120u), so the mountain ISLANDS must sit clearly OUT past it. Raised 0.55 → 0.62 so the cluster
+        // distances (620-820u source) land in the ~385-510u band — every island near-edge clears the 120u
+        // coast + its footprint by a comfortable margin (the off-the-main-island contract), while staying
+        // inside the fog's atmospheric-but-solid window (not ghosted back to translucent shards).
+        public const float MtnDistanceScale = 0.62f;
 
         // ---- FOG (seam-kill atmosphere — Erik Route A / Uma §3) ----
         public const float FogDensityDefault = 0.0016f;
