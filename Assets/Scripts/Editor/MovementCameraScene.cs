@@ -209,10 +209,6 @@ namespace FarHorizon.EditorTools
             // gameplay distance (not a hero close-up). Inert unless launched with -verifyRock.
             WireRockVerifyCapture();
 
-            // THROWAWAY DIAGNOSTIC (86ca8rdkp 4th-attempt) — wire the -walkTrace ground-truth dump so we can
-            // diagnose the DURING-WALK elevation empirically. Removed before the PR.
-            WireWalkGroundTrace(player);
-
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -1481,18 +1477,6 @@ namespace FarHorizon.EditorTools
             var cap = bootGo.GetComponent<MovementVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<MovementVerifyCapture>();
             cap.player = player.GetComponent<ClickToMove>();
-            EditorUtility.SetDirty(bootGo);
-        }
-
-        // THROWAWAY DIAGNOSTIC (86ca8rdkp 4th-attempt) — wire the -walkTrace ground-truth dump. Removed before PR.
-        private static void WireWalkGroundTrace(GameObject player)
-        {
-            var bootGo = GameObject.Find("Boot");
-            if (bootGo == null) return;
-            var tr = bootGo.GetComponent<WalkGroundTrace>();
-            if (tr == null) tr = bootGo.AddComponent<WalkGroundTrace>();
-            tr.player = player.GetComponent<ClickToMove>();
-            tr.castaway = player.GetComponentInChildren<CastawayCharacter>(true);
             EditorUtility.SetDirty(bootGo);
         }
 
