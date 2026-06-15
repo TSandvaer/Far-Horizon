@@ -112,7 +112,6 @@ namespace FarHorizon
         {
             _model = transform.childCount > 0 ? transform.GetChild(0) : null;
             _animator = GetComponentInChildren<Animator>();
-            if (_model != null) _hips = FindHipsBone(_model); // for the runtime re-centre (LateUpdate)
             _built = _model != null;
         }
 
