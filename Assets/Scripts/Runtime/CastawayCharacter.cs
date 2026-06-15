@@ -234,6 +234,27 @@ namespace FarHorizon
         /// is THE number the Sponsor dials groundYOffset to drive to ~0.</summary>
         public float FloatGap { get; private set; } = float.NaN;
 
+        // === THE BREAKTHROUGH READOUT (86ca8rdkp final — Sponsor + instrument, 2026-06-15). The Sponsor dialed
+        // GROUND-Y until FloatGap reads 0.0000 "✓ planted" — YET the character STILL visibly floated above its
+        // (grounded) shadow. So FloatGap's "feet" (the avatar ROOT world-Y, == the snap reference) is a PROXY
+        // point DECOUPLED from the actual RENDERED mesh bottom: the proxy grounds (gap 0) while the visible mesh
+        // sits a FIXED OFFSET above it. The TRUE visible sole is SkinnedMeshRenderer.bounds.min.y. We expose
+        // BOTH the rendered-sole world-Y and the TRUE gap (rendered sole − ground) so the gauge can flip to the
+        // honest number (GAP=0 ⟺ soles on the sand), and the snap can ground the SOLE, not the proxy root. ===
+
+        /// <summary>The TRUE rendered mesh bottom WORLD-Y this frame — the lowest visible vertex (the visible
+        /// SOLE), measured from the union of every child SkinnedMeshRenderer's world-space bounds. This is what
+        /// the player SEES touch the sand. NaN until a renderer is resolved. (Read from the renderer's runtime
+        /// world bounds, which DO reflect the avatar-root scale + the snapped position — NOT the stale
+        /// import-baked .bounds the proportion guards must use BakeMesh for; here the renderer is live + rendered
+        /// every frame, so its world .bounds are current.)</summary>
+        public float MeshBottomWorldY { get; private set; } = float.NaN;
+
+        /// <summary>The TRUE float gap = rendered-mesh-bottom world-Y − ground-hit world-Y. ~0 ⟺ the visible
+        /// SOLES sit on the visible sand (the HONEST "planted" the Sponsor judges). &gt;~0.01 = the visible mesh
+        /// floats — even when <see cref="FloatGap"/> (the proxy-root gap) reads 0. NaN until both valid.</summary>
+        public float MeshFloatGap { get; private set; } = float.NaN;
+
         /// <summary>Whether the agent is moving (above walkSpeedThreshold) this frame — surfaced so the
         /// diagnostic shows rest-vs-move (the during-walk float was state-dependent).</summary>
         public bool IsMovingForSnap { get; private set; }
@@ -254,6 +275,31 @@ namespace FarHorizon
         // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
         private readonly RaycastHit[] _snapHits = new RaycastHit[8];
+
+        // Cached child SkinnedMeshRenderer(s) — the TRUE rendered-sole reference (86ca8rdkp breakthrough). Their
+        // world-space .bounds give the lowest visible vertex; we snap the SOLE (bounds.min.y), not the proxy root.
+        private SkinnedMeshRenderer[] _smrs;
+
+        /// <summary>The lowest rendered-vertex WORLD-Y across all child SkinnedMeshRenderers this frame (the
+        /// visible SOLE), or NaN if no renderer is resolved. Uses the renderers' live world .bounds (current
+        /// because they render every frame — distinct from the stale import-baked .bounds the proportion guards
+        /// must BakeMesh for). The avatar-root scale + position are already folded into the world bounds.</summary>
+        private float MeasureRenderedMeshBottomWorldY()
+        {
+            if (_smrs == null || _smrs.Length == 0)
+                _smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if (_smrs == null || _smrs.Length == 0) return float.NaN;
+            float minY = float.PositiveInfinity;
+            bool any = false;
+            for (int i = 0; i < _smrs.Length; i++)
+            {
+                if (_smrs[i] == null) continue;
+                float y = _smrs[i].bounds.min.y;       // world-space bounds (folds in scale + snapped position)
+                if (y < minY) minY = y;
+                any = true;
+            }
+            return any ? minY : float.NaN;
+        }
 
         // Snap the avatar feet to the VISIBLE terrain (86ca8rdkp soak-fix #1; RE-SOAK fix — "he STILL walks
         // elevated"). The NavMeshAgent grounds the player ROOT on the flat NavMesh collider; the FBX-origin
@@ -353,6 +399,13 @@ namespace FarHorizon
             FeetWorldY = transform.position.y;
             FloatGap = ComputeFloatGap(FeetWorldY, GroundHitWorldY);
 
+            // THE BREAKTHROUGH (86ca8rdkp final): also measure the TRUE rendered SOLE (the lowest visible vertex)
+            // + the HONEST gap against the visible sand. The proxy-root FloatGap can read 0 while THIS reads the
+            // real visible float — that was the false "✓ planted". GAP=0 must mean the SOLES are on the sand.
+            MeshBottomWorldY = MeasureRenderedMeshBottomWorldY();
+            MeshFloatGap = float.IsNaN(MeshBottomWorldY) ? float.NaN
+                                                         : ComputeFloatGap(MeshBottomWorldY, GroundHitWorldY);
+
             // RE-SOAK #2 + DURING-WALK FIX — ground the CONTACT SHADOW to the avatar's SMOOTHED feet WORLD-Y
             // (NOT the raw bestY target). The shadow is a child of the player root (it must NOT inherit the
             // avatar height-scale), so it does not get the avatar's ground-snap. Re-soak #2 grounded it to the
@@ -366,6 +419,46 @@ namespace FarHorizon
                 sp.y = transform.position.y + blobShadowLift;
                 blobShadow.position = sp;
             }
+        }
+
+        /// <summary>
+        /// ONE-FRAME GROUND-TRUTH DUMP (86ca8rdkp breakthrough diagnostic — diagnostic-traces-before-fixes).
+        /// Dumps EVERY Y-reference in a single frame so the hidden offset between the snap PROXY (avatar root /
+        /// "feet") and the TRUE rendered sole (SkinnedMeshRenderer.bounds.min.y) is MEASURED, not guessed:
+        /// the gauge reads GAP=0 yet the visible mesh floats — this proves which reference is offset and by how
+        /// much. Called by FloatDiagnosticVerifyCapture at spawn + shore so the [FloatTrace] log carries the
+        /// full picture. Pure read-only (never mutates state).
+        /// </summary>
+        public string DumpGroundTruth(string where)
+        {
+            Transform root = transform.parent != null ? transform.parent : transform;
+            float meshBottom = MeasureRenderedMeshBottomWorldY();
+            string hips = "N/A", lFoot = "N/A", rFoot = "N/A";
+            if (_smrs == null || _smrs.Length == 0) _smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if (_smrs != null && _smrs.Length > 0 && _smrs[0] != null && _smrs[0].bones != null)
+            {
+                foreach (var b in _smrs[0].bones)
+                {
+                    if (b == null) continue;
+                    string n = b.name.ToLowerInvariant();
+                    if (n.EndsWith("hips") || n == "mixamorig:hips") hips = b.position.y.ToString("F4");
+                    else if (n.EndsWith("leftfoot")) lFoot = b.position.y.ToString("F4");
+                    else if (n.EndsWith("rightfoot")) rFoot = b.position.y.ToString("F4");
+                }
+            }
+            string modelLocalY = _model != null ? _model.localPosition.y.ToString("F4") : "N/A";
+            string shadowY = blobShadow != null ? blobShadow.position.y.ToString("F4") : "N/A";
+            string msg =
+                $"[FloatTrace] DUMP ({where}): rootY={root.position.y:F4} avatarRootY(gauge feetY)={transform.position.y:F4} " +
+                $"hipsY={hips} leftFootBoneY={lFoot} rightFootBoneY={rFoot} " +
+                $"MESH_BOTTOM(SMR.bounds.min.y=TRUE sole)={(float.IsNaN(meshBottom) ? "N/A" : meshBottom.ToString("F4"))} " +
+                $"modelChildLocalY={modelLocalY} groundHitY={(float.IsNaN(GroundHitWorldY) ? "N/A" : GroundHitWorldY.ToString("F4"))} " +
+                $"shadowY={shadowY} | PROXY_GAP(gaugeFeet-ground)={(float.IsNaN(FloatGap) ? "N/A" : FloatGap.ToString("F4"))} " +
+                $"TRUE_MESH_GAP(meshBottom-ground)={(float.IsNaN(MeshFloatGap) ? "N/A" : MeshFloatGap.ToString("F4"))} " +
+                $"offset(meshBottom-avatarRoot)={(float.IsNaN(meshBottom) ? "N/A" : (meshBottom - transform.position.y).ToString("F4"))} " +
+                $"snapLocalY={_snapLocalY:F4} groundYOffset={groundYOffset:F4} moving={IsMovingForSnap}";
+            Debug.Log(msg);
+            return msg;
         }
 
         void LateUpdate()
