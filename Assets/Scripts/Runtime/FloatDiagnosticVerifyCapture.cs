@@ -107,8 +107,11 @@ namespace FarHorizon
         private static void LogTrace(CastawayCharacter c, string where)
         {
             Debug.Log($"[FloatTrace] ({where}) feetY={Fmt(c.FeetWorldY)} groundY={Fmt(c.GroundHitWorldY)} " +
-                      $"GAP={Fmt(c.FloatGap)} offset={c.groundYOffset:F4} moving={c.IsMovingForSnap} " +
-                      $"snapRate={c.ActiveSnapRate:F0}");
+                      $"GAP={Fmt(c.FloatGap)} meshBottomY={Fmt(c.MeshBottomWorldY)} meshGAP={Fmt(c.MeshFloatGap)} " +
+                      $"offset={c.groundYOffset:F4} moving={c.IsMovingForSnap} snapRate={c.ActiveSnapRate:F0}");
+            // FULL one-frame ground-truth dump — every Y reference, so the hidden proxy-vs-rendered-sole offset
+            // is MEASURED (86ca8rdkp breakthrough). This is the load-bearing diagnostic line.
+            c.DumpGroundTruth(where);
         }
 
         private static string Fmt(float v) => float.IsNaN(v) ? "N/A" : v.ToString("F4");

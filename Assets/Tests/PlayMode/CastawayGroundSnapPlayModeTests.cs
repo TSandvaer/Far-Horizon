@@ -106,6 +106,7 @@ namespace FarHorizon.PlayTests
             // COLLIDER from this test could still be live when the NEXT test's first snap-raycast fires —
             // polluting its pick (proven: both ground-snap tests passed in isolation but fouled each other in
             // the full run). Immediate destruction guarantees a clean Ground layer for the next test.
+            if (_smrGo != null) { Object.DestroyImmediate(_smrGo); _smrGo = null; } // child of _avatarGo; explicit for clarity
             if (_terrain != null) { Object.DestroyImmediate(_terrain); _terrain = null; }
             if (_playerGo != null) { Object.DestroyImmediate(_playerGo); _playerGo = null; }
             if (_proxySlab != null) { Object.DestroyImmediate(_proxySlab); _proxySlab = null; }
@@ -391,6 +392,106 @@ namespace FarHorizon.PlayTests
                 $"got {feet1:F3} — a no-op means the knob doesn't drive the snap (the Sponsor's dial is dead)");
             Assert.That(feet1 - feet0, Is.EqualTo(off).Within(0.03f),
                 $"the offset must lift the feet by ~the dialed amount (feet {feet0:F3}→{feet1:F3})");
+        }
+
+        // ====================================================================================================
+        // THE BREAKTHROUGH REGRESSION GUARD (86ca8rdkp FINAL — the bug class EVERY prior fix + EVERY prior guard
+        // missed). The ground-truth dump (-verifyFloatDiag, 2026-06-15) proved the snap grounded the avatar ROOT
+        // (a PROXY) while the TRUE rendered sole (SkinnedMeshRenderer.bounds.min.y) sat at a POSE-DEPENDENT
+        // offset above/below it — so the gauge read GAP=0 ("✓ planted") while the visible mesh floated 47cm (the
+        // Sponsor's complaint). EVERY assert above tests the avatar-ROOT world-Y — the exact proxy that read 0
+        // through the entire float saga. This guard asserts the RENDERED SOLE instead, with a REAL
+        // SkinnedMeshRenderer whose mesh bottom sits a KNOWN offset from the avatar root (the synthetic stand-in
+        // for the animation pose offset). The fix must ground the SOLE; the old root-grounding leaves it
+        // floating by exactly that offset. THIS is the listener-wiring-grade guard for the false-green class.
+        // ====================================================================================================
+        private GameObject _smrGo;
+
+        // Build a synthetic SkinnedMeshRenderer under the avatar whose mesh bottom (bounds.min.y) sits
+        // `meshBottomOffset` ABOVE the renderer's own transform origin — emulating the animation pose that
+        // lifts the rendered soles off the FBX/armature origin. One bone (the renderer transform itself), a
+        // 2-tri quad whose lowest vertex is at +meshBottomOffset. The avatar-root world-Y has NO direct
+        // relation to the sole once this offset exists — exactly the production trap.
+        private void AttachSyntheticSkinnedMesh(Transform avatarRoot, float meshBottomOffset)
+        {
+            _smrGo = new GameObject("SyntheticSkin");
+            _smrGo.transform.SetParent(avatarRoot, false);
+            _smrGo.transform.localPosition = Vector3.zero;
+            var smr = _smrGo.AddComponent<SkinnedMeshRenderer>();
+
+            var mesh = new Mesh();
+            // A small upright quad whose LOWEST vertex is at +meshBottomOffset above the renderer origin (and
+            // hence above the avatar root). So SMR.bounds.min.y = avatarRoot.worldY + meshBottomOffset — the
+            // sole floats `meshBottomOffset` above the root, just like the walking pose in the production dump.
+            float lo = meshBottomOffset, hi = meshBottomOffset + 0.5f;
+            mesh.vertices = new[]
+            {
+                new Vector3(-0.2f, lo, 0f), new Vector3(0.2f, lo, 0f),
+                new Vector3(-0.2f, hi, 0f), new Vector3(0.2f, hi, 0f)
+            };
+            mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+            mesh.RecalculateNormals();
+            // Bind all verts to a single bone (the renderer transform) so bounds track the avatar rigidly.
+            var bw = new BoneWeight[4];
+            for (int i = 0; i < 4; i++) { bw[i].boneIndex0 = 0; bw[i].weight0 = 1f; }
+            mesh.boneWeights = bw;
+            mesh.bindposes = new[] { Matrix4x4.identity };
+            smr.bones = new[] { _smrGo.transform };
+            smr.rootBone = _smrGo.transform;
+            smr.sharedMesh = mesh;
+            smr.updateWhenOffscreen = true; // keep world bounds current in headless (no camera culling)
+        }
+
+        // THE guard: with a rendered sole sitting `OFF` above the avatar root (the pose offset), the snap must
+        // plant the SOLE on the visible terrain — i.e. MeshFloatGap ≈ 0 — NOT the avatar root (the old proxy,
+        // which would leave the sole floating `OFF` above the sand while the proxy-root gap read 0).
+        [UnityTest]
+        public IEnumerator RenderedSole_LandsOnTheVisibleSand_NotJustTheProxyRoot_TheFalseGreenClass()
+        {
+            const float poseOffset = 0.45f; // the rendered sole floats 45cm above the avatar root (≈ the dump's walk pose)
+            BuildRig(snap: true);
+            AttachSyntheticSkinnedMesh(_avatarGo.transform, poseOffset);
+
+            for (int i = 0; i < 60; i++) yield return null; // let the snap settle (it grounds the SOLE now)
+
+            float soleY = _castaway.MeshBottomWorldY;
+            float meshGap = _castaway.MeshFloatGap;
+            float proxyRootGap = _castaway.ProxyRootFloatGap;
+
+            Assert.IsFalse(float.IsNaN(soleY), "the synthetic SMR must resolve so the sole is measurable");
+            // THE assertion: the VISIBLE sole sits on the visible sand (the honest gap ≈ 0).
+            Assert.That(meshGap, Is.EqualTo(0f).Within(0.02f),
+                $"the RENDERED SOLE (SMR.bounds.min.y={soleY:F3}) must plant on the visible terrain " +
+                $"(Y≈{TerrainY:F3}) — MeshFloatGap must be ≈0, got {meshGap:F3}. A non-zero gap here is the EXACT " +
+                "Sponsor bug: the gauge reads planted while the visible mesh floats. The old code grounded the " +
+                "avatar ROOT, leaving the sole floating by the pose offset.");
+            Assert.That(soleY, Is.EqualTo(TerrainY).Within(0.02f),
+                $"the visible sole must sit at the terrain (Y≈{TerrainY:F3}); got {soleY:F3}");
+
+            // And prove the gauge FLIPPED: the proxy-root gap is now NEGATIVE by ~the pose offset (the root sits
+            // BELOW the sand so the sole — root+offset — lands on it). The OLD gauge read this proxy gap as ~0
+            // and called it planted — the false green. The honest gauge (MeshFloatGap) reads ~0 instead.
+            Assert.That(proxyRootGap, Is.EqualTo(-poseOffset).Within(0.05f),
+                $"the avatar ROOT now sits ~{poseOffset:F2} BELOW the sand (so the sole lands ON it) — the proxy-" +
+                $"root gap must be ≈ −{poseOffset:F2}, got {proxyRootGap:F3}. (The OLD gauge read THIS as ~0 and " +
+                "called it 'planted' — the false green. Grounding the sole inverts which reference reads 0.)");
+        }
+
+        // The deliberate-break half: prove the synthetic pose offset actually decouples sole from root, so the
+        // guard above is testing a REAL divergence (a 0-offset mesh would make the test vacuous — sole==root).
+        [UnityTest]
+        public IEnumerator PoseOffset_DecouplesSoleFromRoot_ProvingTheGuardTestsARealDivergence()
+        {
+            const float poseOffset = 0.45f;
+            BuildRig(snap: true);
+            AttachSyntheticSkinnedMesh(_avatarGo.transform, poseOffset);
+            for (int i = 0; i < 60; i++) yield return null;
+
+            float soleY = _castaway.MeshBottomWorldY;
+            float rootY = _avatarGo.transform.position.y;
+            Assert.That(soleY - rootY, Is.EqualTo(poseOffset).Within(0.03f),
+                $"the synthetic mesh must put the sole {poseOffset:F2} above the root (sole={soleY:F3}, root=" +
+                $"{rootY:F3}) — proving sole≠root, so grounding the root would NOT ground the sole (the bug).");
         }
     }
 }
