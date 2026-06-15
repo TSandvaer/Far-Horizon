@@ -276,6 +276,52 @@ namespace FarHorizon.EditTests
                 "the RIGHT-arm carry (extra spread + raise) must be non-trivial (#2 regression)");
         }
 
+        // CONSERVATIVE-DEFAULT + SEED-LOGIC guard (RE-SOAK — the Sponsor's "the auto pose made it even WORSE,
+        // axe held too high/forward"). Two contracts the re-soak default rests on:
+        //   (1) the named deg fields SEED the per-arm eulers correctly: RebuildCached() with seed=true derives
+        //       rightArmEuler/leftArmEuler from the deg fields, the RIGHT arm gets MORE total offset than the
+        //       left (the carry), and the default is CONSERVATIVE (bounded — not the prior too-high/forward pose);
+        //   (2) the F9-nudge contract: once seedEulersFromDegFields is cleared (what the nudge tool does), a
+        //       RebuildCached must NOT clobber a dialed euler. A regression that re-seeds on every rebuild would
+        //       wipe the Sponsor's live dial.
+        [Test]
+        public void ArmPose_ConservativeDefaultSeed_RightHasMoreThanLeft_AndNudgeDialSurvivesRebuild()
+        {
+            var go = new GameObject("ArmPoseSeedProbe");
+            var pose = go.AddComponent<CastawayArmPose>();
+
+            // (1) Seed from the deg fields (the authored default path).
+            pose.seedEulersFromDegFields = true;
+            pose.RebuildCached();
+            Assert.That(pose.leftArmEuler.x, Is.EqualTo(pose.relaxSpreadDeg).Within(1e-3f),
+                "the LEFT arm euler X must seed to the relax spread");
+            Assert.That(pose.rightArmEuler.x, Is.EqualTo(pose.relaxSpreadDeg + pose.rightCarryExtraSpreadDeg).Within(1e-3f),
+                "the RIGHT arm euler X must seed to relax + extra carry spread");
+            Assert.That(pose.rightArmEuler.z, Is.EqualTo(pose.rightCarryRaiseDeg).Within(1e-3f),
+                "the RIGHT arm euler Z must seed to the carry raise");
+            // RIGHT total offset > LEFT (the carry adds spread + raise on top of the shared relax).
+            Assert.Greater(pose.rightArmEuler.magnitude, pose.leftArmEuler.magnitude + 0.5f,
+                "the RIGHT arm must carry MORE total offset than the LEFT (the held-axe carry, #2)");
+            // CONSERVATIVE: the default must be a small nudge, NOT the prior 16°+20° "too high/forward" pose.
+            // Cap every component well under the rejected magnitude so a regression back to it reds here.
+            Assert.Less(pose.rightArmEuler.magnitude, 18f,
+                $"the RIGHT-arm default must be CONSERVATIVE (got {pose.rightArmEuler.magnitude:F1}° total) — the " +
+                "Sponsor rejected the prior too-high/forward pose; the in-game F9 dial finalizes it");
+            Assert.Less(pose.relaxSpreadDeg, 14f,
+                "the relax spread default must be conservative (arms only SLIGHTLY off the torso)");
+
+            // (2) The F9-nudge contract: clear the seed flag (what the nudge tool does), dial an euler, then
+            // RebuildCached must KEEP the dialed value (not re-seed over it).
+            pose.seedEulersFromDegFields = false;
+            pose.rightArmEuler = new Vector3(5f, 0f, 3f); // a Sponsor "dial"
+            pose.RebuildCached();
+            Assert.AreEqual(new Vector3(5f, 0f, 3f), pose.rightArmEuler,
+                "with seedEulersFromDegFields cleared (the nudge tool's state), RebuildCached must NOT clobber " +
+                "the dialed euler — else the Sponsor's live F9 dial would be wiped");
+
+            Object.DestroyImmediate(go);
+        }
+
         // GROUND-SNAP wiring guard (86ca8rdkp soak-fix #1 — 'walking in the air'): the shipped avatar must
         // ship with the ground-snap ENABLED and its raycast mask wired to a real layer (not 0/Nothing, which
         // would make the snap a no-op and the feet float above the visible terrain). The behavioral proof is
