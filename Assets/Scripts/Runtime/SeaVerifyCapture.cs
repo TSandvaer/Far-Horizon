@@ -64,11 +64,16 @@ namespace FarHorizon
 
             // 2. Orbit to the SEAWARD yaw, drop the pitch toward the horizon + pull back, let the
             //    follow/lerp settle, then capture the ocean.
+            // The pitch is overridable via -seawardPitch <deg> so a diagnostic run can also capture the
+            // DEFAULT gameplay pitch (55) — the angle the player actually soaks at — not only the
+            // near-horizontal pitch-8 "look out to the open sea" framing (drew shoreline diagnosis).
+            float pitch = ArgFloat("-seawardPitch", seawardPitch);
+            float dist = ArgFloat("-seawardDistance", seawardDistance);
             if (orbit != null)
             {
                 orbit.SetYaw(seawardYaw);
-                orbit.SetPitch(seawardPitch);     // clamped to minPitch by OrbitCamera
-                orbit.SetDistance(seawardDistance);
+                orbit.SetPitch(pitch);            // clamped to [minPitch,maxPitch] by OrbitCamera
+                orbit.SetDistance(dist);          // -seawardDistance overrides (default gameplay dist=14)
                 Debug.Log("[SeaVerifyCapture] orbited seaward: yaw=" + orbit.Yaw +
                           " pitch=" + orbit.Pitch + " dist=" + orbit.Distance);
             }
@@ -104,6 +109,18 @@ namespace FarHorizon
             foreach (string a in System.Environment.GetCommandLineArgs())
                 if (a == flag) return true;
             return false;
+        }
+
+        // Read a float arg (-flag <value>); falls back to the default if absent/unparseable.
+        private float ArgFloat(string flag, float fallback)
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+                if (args[i] == flag && float.TryParse(args[i + 1],
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float v))
+                    return v;
+            return fallback;
         }
     }
 }
