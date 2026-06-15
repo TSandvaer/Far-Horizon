@@ -302,6 +302,23 @@ namespace FarHorizon
         public static float ComputeFloatGap(float feetWorldY, float groundHitWorldY)
             => feetWorldY - groundHitWorldY;
 
+        /// <summary>
+        /// PURE model-sole grounding math (the unit-testable core of the WALK-FLOAT fix, 86ca8rdkp attempt-9):
+        /// the local-Y the MODEL CHILD must take so its SCALE-IMMUNE rendered sole (currently at
+        /// <paramref name="renderedSoleWorldY"/>) lands on <paramref name="plantWorldY"/>. The model child lives
+        /// under the avatar root whose world Y-scale is <paramref name="rootYScale"/> (= PlayerVisualHeight), so a
+        /// model local-Y delta moves the world sole by rootYScale × delta — divide the world residual by the
+        /// scale. Static + dependency-free so the EditMode guard can assert "a WALK clip lifting the sole +0.66
+        /// yields a model local-Y that cancels it" against a real SampleAnimation'd clip with no play loop.
+        /// </summary>
+        public static float ComputeModelGroundLocalY(float renderedSoleWorldY, float plantWorldY,
+                                                     float currentModelLocalY, float rootYScale)
+        {
+            if (Mathf.Abs(rootYScale) < 1e-4f) rootYScale = 1f;
+            float worldResidual = renderedSoleWorldY - plantWorldY;   // >0 ⟺ sole floats ABOVE the plant target
+            return currentModelLocalY - worldResidual / rootYScale;
+        }
+
         // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
         private readonly RaycastHit[] _snapHits = new RaycastHit[8];
@@ -542,14 +559,11 @@ namespace FarHorizon
                 float soleBeforeModelOffset = MeasureRenderedSoleWorldY();
                 if (!float.IsNaN(soleBeforeModelOffset))
                 {
-                    // Residual world-Y gap between the rendered sole and the plant target. The model child lives
-                    // under the avatar root (localScale = PlayerVisualHeight), so a model local-Y delta moves the
-                    // world sole by (avatar-root world Y-scale) × delta. Divide the world residual by that scale
-                    // to get the local-Y correction (scale read live so it never hard-codes 1.8).
-                    float rootYScale = transform.lossyScale.y;
-                    if (Mathf.Abs(rootYScale) < 1e-4f) rootYScale = 1f;
-                    float worldResidual = soleBeforeModelOffset - plantY;          // >0 ⟺ sole floats above plant
-                    float desiredModelLocalY = _model.localPosition.y - worldResidual / rootYScale;
+                    // The local-Y the model child needs so its scale-immune rendered sole lands on plantY. Pure
+                    // static (ComputeModelGroundLocalY) so the EditMode walk-grounding guard asserts THIS math
+                    // against a real SampleAnimation'd WALK clip (the bug class) without a play loop.
+                    float desiredModelLocalY = ComputeModelGroundLocalY(
+                        soleBeforeModelOffset, plantY, _model.localPosition.y, transform.lossyScale.y);
                     if (!_modelGroundInit) { _modelLocalY = desiredModelLocalY; _modelGroundInit = true; }
                     else _modelLocalY = Mathf.Lerp(_modelLocalY, desiredModelLocalY,
                                                    1f - Mathf.Exp(-snapRate * Time.deltaTime));
