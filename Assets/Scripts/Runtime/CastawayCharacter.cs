@@ -48,6 +48,15 @@ namespace FarHorizon
                  "Idle<->Walk blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
+        [Header("Walk-float model-sole grounding (86ca8rdkp attempt-9 — the WALK-clip body-lift fix)")]
+        [Tooltip("Ground the VISIBLE rendered SOLE (scale-immune) by offsetting the MODEL CHILD's local-Y, on " +
+                 "top of the root snap. The Mixamo WALK clip authors the body ~0.66u higher than IDLE (clip-trace: " +
+                 "Idle sole at root-relative -0.003, Walk at +0.63..+0.69), so the rendered mesh floats only while " +
+                 "walking even though the root is grounded. This cancels that per-clip lift so the feet plant in " +
+                 "both states. Default ON; the PlayMode walk-grounding regression toggles it OFF to prove the fix " +
+                 "is load-bearing.")]
+        public bool modelSoleGround = true;
+
         [Header("Ground snap (86ca8rdkp soak-fix #1 — 'walking in the air')")]
         [Tooltip("Snap the avatar feet to the VISIBLE terrain each frame. The NavMeshAgent grounds the " +
                  "player ROOT on the flat NavMesh collider, which sits ABOVE the dipping Zone-D visual " +
@@ -205,6 +214,13 @@ namespace FarHorizon
         // agent's NavMesh ground point. Smoothed so terrain undulation doesn't pop the avatar.
         private float _snapLocalY;
         private bool _snapInit;
+
+        // The WALK-FLOAT model-sole grounding (86ca8rdkp attempt-9). The model CHILD's local-Y is driven so the
+        // scale-immune rendered sole plants on the grounded root, cancelling the per-clip body-lift baseline
+        // (Idle ~0, Walk ~+0.66). Smoothed at snapRate so a clip blend doesn't pop. _modelGroundInit snaps the
+        // first frame to the residual (no startup slide).
+        private float _modelLocalY;
+        private bool _modelGroundInit;
 
         /// <summary>The current ground-snap local-Y applied to the avatar root (0 = no snap). Exposed for
         /// the PlayMode grounding regression so it can assert the feet are planted on the visible surface.</summary>
@@ -499,6 +515,49 @@ namespace FarHorizon
             Vector3 lp = transform.localPosition;
             lp.y = _snapLocalY;
             transform.localPosition = lp;
+
+            // ===== THE WALK-FLOAT FIX (86ca8rdkp attempt-9 — diagnose-via-trace OVERTURNED e1289ef's premise).
+            // e1289ef grounded the avatar ROOT to plantY (proxyRootGap≈0 — root correctly grounded) AND assumed
+            // the rendered sole rides the root because "the clips are in-place". The ClipBaselineDiagnose (scale-
+            // immune baked sole, avatarRoot@0) DISPROVED that: the IDLE clip plants the sole at root-relative
+            // -0.003 (feet on the root, good), but the WALK clip plants it at +0.63..+0.69 — the Mixamo Walk
+            // clip's HIPS/body are authored ~0.66u HIGHER than Idle's, lifting the WHOLE rendered mesh while
+            // walking even though the root is grounded. That is the Sponsor's "hovering above the sand while
+            // mid-stride". It is NOT a scale/snap/shadow bug, and it is NOT fixable via clip import flags
+            // (lockRootHeightY/heightFromFeet govern ROOT-MOTION extraction; applyRootMotion=false samples the
+            // mesh IN-PLACE from the raw bone curves — PROVEN: re-importing with those flags left WALK sole at
+            // +0.66 unchanged). The lift lives in the BONE pose, per-clip.
+            //
+            // FIX: ground the VISIBLE rendered SOLE (not the proxy root) by offsetting the MODEL CHILD's local-Y
+            // so the scale-immune baked sole sits at the grounded plant level. This works for BOTH clips with no
+            // per-clip constant: Idle's residual is ~0 (no offset), Walk's residual is ~+0.66 (model pushed down).
+            // It is the brief's prescribed "ground the actual VISIBLE mesh-bottom measured SCALE-IMMUNELY"
+            // approach — and it is NOT the ±68 runaway: MeasureRenderedSoleWorldY uses a UNIT-SCALE TRS (never
+            // smr.localToWorldMatrix), so the FBX 100× node is never double-applied (shipped [FloatTrace] read a
+            // sane +0.66, not ±68). The model child carries only a yaw (Y-axis) rotation, so a local-Y offset is
+            // orientation-independent. Convergence shares snapRate so it tracks the foreshore + clip blends
+            // smoothly without a pop.
+            if (_model != null && modelSoleGround)
+            {
+                float soleBeforeModelOffset = MeasureRenderedSoleWorldY();
+                if (!float.IsNaN(soleBeforeModelOffset))
+                {
+                    // Residual world-Y gap between the rendered sole and the plant target. The model child lives
+                    // under the avatar root (localScale = PlayerVisualHeight), so a model local-Y delta moves the
+                    // world sole by (avatar-root world Y-scale) × delta. Divide the world residual by that scale
+                    // to get the local-Y correction (scale read live so it never hard-codes 1.8).
+                    float rootYScale = transform.lossyScale.y;
+                    if (Mathf.Abs(rootYScale) < 1e-4f) rootYScale = 1f;
+                    float worldResidual = soleBeforeModelOffset - plantY;          // >0 ⟺ sole floats above plant
+                    float desiredModelLocalY = _model.localPosition.y - worldResidual / rootYScale;
+                    if (!_modelGroundInit) { _modelLocalY = desiredModelLocalY; _modelGroundInit = true; }
+                    else _modelLocalY = Mathf.Lerp(_modelLocalY, desiredModelLocalY,
+                                                   1f - Mathf.Exp(-snapRate * Time.deltaTime));
+                    Vector3 mlp = _model.localPosition;
+                    mlp.y = _modelLocalY;
+                    _model.localPosition = mlp;
+                }
+            }
 
             // LIVE FLOAT-DIAGNOSTIC — the gauge reads the HONEST gap: SCALE-IMMUNE baked sole − ground. GAP≈0 ⟺
             // the visible SOLES are on the visible sand. The sole is now measured with a UNIT-SCALE world matrix

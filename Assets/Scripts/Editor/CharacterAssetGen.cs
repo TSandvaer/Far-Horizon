@@ -328,6 +328,16 @@ namespace FarHorizon.EditorTools
                     // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
                     // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
                     // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
+                    //
+                    // NOTE (86ca8rdkp attempt-9 — diagnose-via-trace): the WALK-clip float is NOT fixable here.
+                    // These root-transform flags govern ROOT-MOTION EXTRACTION; with applyRootMotion=false the
+                    // baked skinned mesh is sampled IN-PLACE from the raw bone curves, so lockRootHeightY /
+                    // heightFromFeet / keepOriginalPositionY do NOT move the rendered feet (PROVEN: re-importing
+                    // the Walk clip with lockRootHeightY=true + keepOriginalPositionY=false + heightFromFeet=true
+                    // left the scale-immune baked WALK sole at +0.63..+0.69 — unchanged from the +0.66 baseline).
+                    // The Mixamo Walk clip's HIPS are authored ~0.66u higher than Idle's; that lift lives in the
+                    // BONE pose, not the root node. The fix is at the MODEL level (CastawayCharacter grounds the
+                    // scale-immune rendered sole), not in these import flags — kept at the spike's clean values.
                     cc.lockRootRotation = true;
                     cc.keepOriginalOrientation = false;
                     cc.lockRootPositionXZ = true;
@@ -603,6 +613,78 @@ namespace FarHorizon.EditorTools
             sb.AppendLine("[scale-trace] ===== END SCALE-CHAIN DIAGNOSE =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CLIP-BASELINE DIAGNOSE (86ca8rdkp attempt-9 — THROWAWAY; removed before PR). Bakes the IDLE and
+        // WALK clips across their full cycle and reports the SCALE-IMMUNE baked sole-Y (lowest vertex, unit-scale
+        // TRS) at each sample — so we MEASURE whether the WALK clip lifts the whole mesh off the feet relative to
+        // IDLE (the [FloatTrace] showed GAP≈0 at rest but +0.69 walking). Reproduces the SCENE rig (avatarRoot
+        // scale 1.8 under a player root), samples each clip via AnimationClip.SampleAnimation. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ClipBaselineDiagnose
+        public static void ClipBaselineDiagnose()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[clip-trace] ===== CLIP-BASELINE DIAGNOSE (walk-lift root cause) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[clip-trace] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
+            AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[clip-trace] idle={(idle != null ? idle.name : "<null>")} walk={(walk != null ? walk.name : "<null>")}");
+
+            const float PlayerVisualHeight = 1.8f;
+            var playerRoot = new GameObject("__clipPlayer");
+            var avatarRoot = new GameObject("__clipAvatar");
+            avatarRoot.transform.SetParent(playerRoot.transform, false);
+            avatarRoot.transform.localScale = Vector3.one * PlayerVisualHeight;
+            var model = Object.Instantiate(fbx, avatarRoot.transform, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[clip-trace] {label}: <null clip>"); return; }
+                float minSole = float.PositiveInfinity, maxSole = float.NegativeInfinity;
+                int N = 12;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    float sole = BakeSoleScaleImmune(smr);
+                    if (sole < minSole) minSole = sole;
+                    if (sole > maxSole) maxSole = sole;
+                    sb.AppendLine($"[clip-trace] {label} t={t:F3}s soleY(scale-immune,root@0)={sole:F4}");
+                }
+                sb.AppendLine($"[clip-trace] {label} SUMMARY soleY min={minSole:F4} max={maxSole:F4} " +
+                              $"range={maxSole - minSole:F4}  <== a clip whose min soleY != ~0 lifts the feet off the root");
+            }
+
+            SampleClip("IDLE", idle);
+            SampleClip("WALK", walk);
+
+            Object.DestroyImmediate(playerRoot);
+            sb.AppendLine("[clip-trace] ===== END CLIP-BASELINE DIAGNOSE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // Scale-immune baked sole-Y for the diagnose (unit-scale TRS world matrix — the FBX 100× node never blows
+        // it up; matches CastawayCharacter.MeasureRenderedSoleWorldY). avatarRoot is at world 0 here, so the
+        // returned value is the sole-Y RELATIVE to the (grounded) root — ~0 means feet on the root.
+        private static float BakeSoleScaleImmune(SkinnedMeshRenderer smr)
+        {
+            if (smr == null || smr.sharedMesh == null) return float.NaN;
+            var baked = new Mesh();
+            smr.BakeMesh(baked, false);
+            var verts = baked.vertices;
+            Matrix4x4 l2w = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
+            float minY = float.PositiveInfinity;
+            foreach (var v in verts) { float y = l2w.MultiplyPoint3x4(v).y; if (y < minY) minY = y; }
+            Object.DestroyImmediate(baked);
+            return minY;
         }
     }
 }
