@@ -49,10 +49,92 @@ namespace FarHorizon
 
         void Start()
         {
-            if (HasArg("-verifyWaves"))
+            if (HasArg("-verifyCoast"))
+                StartCoroutine(RunCoastVantage());
+            else if (HasArg("-verifyWaves"))
                 StartCoroutine(RunWaveSequence());
             else if (HasArg("-verifySea"))
                 StartCoroutine(RunVerification());
+        }
+
+        // -verifyCoast (ticket 86ca9yn57): the BIG ROUND ISLAND moved the sea ~120u out behind dense jungle,
+        // so from the spawn orbit the sea↔sky horizon is NOT in frame (the spawn capture lands on forest).
+        // The Sponsor judges the sea by walking OUT TO THE COAST and looking seaward — this vantage
+        // REPRODUCES that view: it DETACHES Camera.main from the orbit rig and parks it at the +Z waterline
+        // looking out to the open sea, so the far-sea-vs-sky horizon is dead-centre and judgeable. Pairs with
+        // -seaDiag (the sea-vs-sky band sampler) + can also run the wave sequence (-coastWaves). Diagnostic /
+        // judgement framing only — it bypasses the orbit clamp deliberately (this is the Sponsor's coast view).
+        private IEnumerator RunCoastVantage()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            var cam = Camera.main;
+            // Stop the orbit rig from re-driving the camera each LateUpdate (we park it by hand).
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+
+            // Park at the +Z coast, a little inland of the waterline (IslandShoreR ~120u) and up a few u, then
+            // look seaward (+Z) with a gentle downward tilt so the near surf + far sea + sky all sit in frame.
+            float coastR = ArgFloat("-coastRadius", 118f);
+            float camH = ArgFloat("-coastHeight", 9f);
+            float pitch = ArgFloat("-coastPitch", 12f); // degrees DOWN from horizontal
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(0f, camH, coastR);
+                cam.transform.rotation = Quaternion.Euler(pitch, 0f, 0f); // face +Z (seaward), tilt down
+                Debug.Log($"[SeaCoast] parked at coast pos={cam.transform.position.ToString("F1")} " +
+                          $"pitch={pitch} (looking seaward +Z)");
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+
+            ShotTo(Path.Combine(dir, "coast_seaward.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            if (HasArg("-seaDiag"))
+            {
+                yield return new WaitForEndOfFrame();
+                SampleHorizonBands();
+            }
+
+            // Optional wave sequence from the coast vantage (proves the sea moves AT the horizon the Sponsor sees).
+            if (HasArg("-coastWaves") && cam != null)
+            {
+                int w = Screen.width, h = Screen.height;
+                Texture2D prev = null;
+                for (int f = 0; f < waveFrames; f++)
+                {
+                    yield return new WaitForEndOfFrame();
+                    ShotTo(Path.Combine(dir, $"coast_wave_{f:00}.png"));
+                    var curT = new Texture2D(w, h, TextureFormat.RGB24, false);
+                    curT.ReadPixels(new Rect(0, 0, w, h), 0, 0); curT.Apply();
+                    if (prev != null)
+                    {
+                        double acc = 0; int n = 0;
+                        for (int y = 0; y < h / 2; y += 3)
+                        for (int x = 0; x < w; x += 3)
+                        {
+                            Color a = prev.GetPixel(x, y), b = curT.GetPixel(x, y);
+                            acc += Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b); n++;
+                        }
+                        float md = n > 0 ? (float)(acc / n) : 0f;
+                        Debug.Log($"[SeaCoast] wave frame {f} vs {f - 1}: mean sea-region pixel delta = {md:F4} " +
+                                  (md > 0.002f ? "(MOVING)" : "(static?)"));
+                        Object.Destroy(prev);
+                    }
+                    prev = curT;
+                    float t0 = Time.time;
+                    while (Time.time - t0 < waveStepSeconds) yield return null;
+                }
+                if (prev != null) Object.Destroy(prev);
+            }
+
+            yield return new WaitForSeconds(0.3f);
+            Debug.Log("[SeaCoast] coast vantage complete -> " + dir);
+            Application.Quit();
         }
 
         // Capture a MULTI-FRAME sequence from a fixed seaward camera over a real-time window — proving the
