@@ -809,9 +809,18 @@ namespace FarHorizon.EditorTools
                 gridCol[i] = c;
             }
 
-            // UNWELDED FLAT-SHADED facets with explicit +Y normals (the faceted-sea look + the winding/normal
-            // contract guarded by WaterFacesUpTests). EmitTri forces every face normal UP regardless of source
-            // winding, so the all-sides plane is never backface-culled (the −Z-grid cull-back class).
+            // UNWELDED FLAT-SHADED facets with the TOP face as the FRONT face (the faceted-sea look + the
+            // winding/normal contract). THE FIX (86ca9yn57 — sea INVISIBLE = pale skybox showing through):
+            // the prior code forced the NORMAL ATTRIBUTE up (`if (fn.y<0) fn=-fn`) but emitted the triangle in
+            // the SOURCE winding order — and URP `Cull Back` culls by triangle WINDING (screen-space vertex
+            // order), NOT by the normal attribute. The grid's source winding makes the geometric front-face
+            // point DOWN (cross((x+1)-x, (z+1)-x) = -Y), so the TOP is the BACK face and the above-looking
+            // gameplay camera sees a culled back-face -> 0 water px -> the sky shows through == "water reads
+            // SAME as sky". Proven via -waterProbe (ray hits Water_Play at 10-15u, insideBounds, yet 0 px) +
+            // a straight-down capture (still 0 px = not occlusion, it's cull). FIX: when the source winding
+            // faces down, REVERSE the emitted triangle (swap the 2nd/3rd index) so the FRONT face is UP and
+            // Cull Back keeps it. The stored normal is recomputed from the EMITTED winding so normal == facing
+            // (the WaterFacesUpTests +Y contract still holds, now backed by real winding, not a flipped proxy).
             var verts = new List<Vector3>();
             var cols = new List<Color>();
             var normals = new List<Vector3>();
@@ -822,12 +831,23 @@ namespace FarHorizon.EditorTools
                 Vector3 fn = Vector3.Cross(p1 - p0, p2 - p0);
                 if (fn.sqrMagnitude < 1e-12f) return;
                 fn.Normalize();
-                if (fn.y < 0f) fn = -fn; // water faces UP regardless of source winding (kept-contract)
                 int bi = verts.Count;
                 verts.Add(p0); verts.Add(p1); verts.Add(p2);
                 cols.Add(gridCol[a]); cols.Add(gridCol[b]); cols.Add(gridCol[c2]);
-                normals.Add(fn); normals.Add(fn); normals.Add(fn);
-                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
+                if (fn.y >= 0f)
+                {
+                    // Source winding already faces UP — emit as-is (front face = top).
+                    normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                    tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
+                }
+                else
+                {
+                    // Source winding faces DOWN — REVERSE it so the FRONT (CCW) face is the TOP; the normal
+                    // for the reversed winding is +fn. This is what makes Cull Back keep the sea from above.
+                    fn = -fn;
+                    normals.Add(fn); normals.Add(fn); normals.Add(fn);
+                    tris.Add(bi); tris.Add(bi + 2); tris.Add(bi + 1);
+                }
             }
             for (int z = 0; z < WaterSeg; z++)
             for (int x = 0; x < WaterSeg; x++)
