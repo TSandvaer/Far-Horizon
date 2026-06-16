@@ -400,6 +400,76 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Water_BaseColors_ReadDistinctFromTheSky_NotSkyHaze()
+        {
+            // AC1 REGRESSION GUARD (ticket 86ca9yn57 — Sponsor: "I can't see any difference between water and
+            // sky"). The sea must read as its OWN saturated teal, clearly separated from the pale sky-horizon
+            // stop. Assert BOTH water anchors sit a threshold AWAY from WorldLookPalette.SkyHorizon in RGB
+            // distance. (The headline CAUSE was a backface-cull, guarded by WaterFacesUpTests; this is the
+            // COLOUR half — a regression that pales/desaturates the sea toward the sky stop fails HERE.)
+            var sky = FarHorizon.WorldLookPalette.SkyHorizon;
+            foreach (var (name, c) in new[] {
+                ("WaterShallow", LowPolyZoneGen.WaterShallow),
+                ("WaterDeep",    LowPolyZoneGen.WaterDeep) })
+            {
+                float dist = ChannelDist(c, sky);
+                Assert.Greater(dist, 0.6f,
+                    $"{name} ({c}) must read DISTINCT from the sky-horizon stop ({sky}) — RGB channel-sum " +
+                    $"distance {dist:F2} must exceed 0.6 so the sea is its own teal, not the pale sky haze " +
+                    "(AC1). The sea is a saturated low-R high-G/B teal; the sky stop is a pale near-neutral.");
+                // And the sea must be SATURATED teal: G and B clearly above R (low-R teal), unlike the sky's
+                // near-balanced pale channels.
+                Assert.Greater(c.g - c.r, 0.25f, $"{name} must be a low-R teal (G well above R) — not pale sky");
+                Assert.Greater(c.b - c.r, 0.25f, $"{name} must be a low-R teal (B well above R) — not pale sky");
+            }
+        }
+
+        [Test]
+        public void Water_Material_CapsFog_SoTheFarSeaKeepsItsTeal_NotSkyHaze()
+        {
+            // AC1 (the FAR sea half). Even with the sea rendering (winding fixed), the global Exp^2 fog
+            // (colour == SkyHorizon) would wash the FAR sea to the sky colour at the horizon. The water
+            // material caps the fog so the sea keeps a fraction of its own teal at the horizon — a distinct
+            // sea↔sky boundary, no harsh seam. Guard: the water material carries _FogCap in a sensible range
+            // (>0 so the far sea isn't fully fogged to sky; <1 so a believable atmospheric haze remains).
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mat = water.GetComponent<MeshRenderer>().sharedMaterial;
+            Assert.IsNotNull(mat, "the ocean must have a material");
+            Assert.IsTrue(mat.HasProperty("_FogCap"), "the water shader must expose _FogCap (the far-sea fog floor)");
+            float cap = mat.GetFloat("_FogCap");
+            Assert.Greater(cap, 0.2f,
+                $"_FogCap ({cap:F2}) must be > 0.2 so the FAR sea keeps its teal at the horizon (AC1) — at 0 " +
+                "the global fog washes the far sea to the sky stop == 'water reads same as sky'");
+            Assert.Less(cap, 0.95f,
+                $"_FogCap ({cap:F2}) must be < 0.95 so a believable atmospheric haze remains at the horizon " +
+                "(no harsh seam — the sea still recedes into distance softly)");
+        }
+
+        [Test]
+        public void Water_Material_CarriesMovingWaveParams_VisibleAtSeaScale()
+        {
+            // AC2 REGRESSION GUARD (ticket 86ca9yn57 — Sponsor: "the water should have waves that move"). The
+            // in-shader swell shipped at amp 0.10 (peak ~0.05u) — imperceptible over the ~1400u sea, so it
+            // read STATIC. The fix raised the amplitude so the surface visibly undulates at sea scale. Guard
+            // the wave params carry a VISIBLE, time-driven swell (the shader displaces Y by _Time.y — proven
+            // moving by the -coastWaves frame-delta capture; this pins the bake-time params).
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mat = water.GetComponent<MeshRenderer>().sharedMaterial;
+            Assert.IsTrue(mat.HasProperty("_WaveAmp"), "the water shader must expose _WaveAmp (the in-shader swell)");
+            float amp = mat.GetFloat("_WaveAmp");
+            Assert.Greater(amp, 0.2f,
+                $"_WaveAmp ({amp:F2}) must be > 0.2 so the swell is VISIBLE at the ~1400u sea scale (AC2) — the " +
+                "prior 0.10 (peak ~0.05u) read STATIC over the vast plane (the Sponsor's 'static water')");
+            Assert.Less(amp, 1.0f,
+                $"_WaveAmp ({amp:F2}) must stay < 1.0 — a calm rolling swell at the toy scale, not surf");
+            Assert.IsTrue(mat.HasProperty("_WaveSpeed"), "the shader must expose _WaveSpeed (the swell travels)");
+            Assert.Greater(mat.GetFloat("_WaveSpeed"), 0f,
+                "_WaveSpeed must be > 0 so the swell ADVANCES over time (a 0 speed is a frozen displacement)");
+        }
+
+        [Test]
         public void BootScene_CarriesSeaVerifyCapture_OnTheBootObject()
         {
             // The orbit-to-sea framing check (Uma §4 task F) needs a committed, repeatable shipped-build

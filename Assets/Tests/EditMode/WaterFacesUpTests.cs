@@ -62,6 +62,48 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Water_TriangleWinding_FrontFaceIsUp_NotJustTheNormalAttribute()
+        {
+            // THE real cull guard (ticket 86ca9yn57 — "water reads SAME as sky"). The sibling
+            // Water_NormalsPointUp test asserts the NORMAL ATTRIBUTE is +Y — but URP `Cull Back` culls by
+            // triangle WINDING (screen-space vertex order), NOT by the normal attribute. The prior soakfix
+            // forced the normal +Y (that test stayed GREEN) while the emitted triangle winding still made the
+            // TOP the BACK face -> the above-looking gameplay camera saw a culled back-face -> the sea rendered
+            // 0 px and the SKY showed through == the Sponsor's "no difference between water and sky" (proven by
+            // -waterProbe: ray hits Water_Play at 10-15u, insideBounds, yet 0 water px). This guard recomputes
+            // the GEOMETRIC winding normal from each triangle's EMITTED vertex ORDER (the thing culling actually
+            // uses) and asserts it points UP — so a re-inverted winding fails HERE even if the normal attribute
+            // is (wrongly) forced +Y. It is the perceptual-vs-proxy lesson: guard the thing that makes the sea
+            // visible (winding), not a proxy (normal attribute) a culled mesh can satisfy.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "Water_Play must exist");
+            var mesh = water.GetComponent<MeshFilter>().sharedMesh;
+            var verts = mesh.vertices;
+            var tris = mesh.triangles;
+            Assert.Greater(tris.Length, 0, "the ocean mesh must carry triangles");
+
+            int downWound = 0, sampled = 0;
+            // Sample every Nth triangle (the grid is large; a stride keeps the test fast while covering all
+            // quadrants — a systematic winding inversion shows in any sample).
+            int stride = Mathf.Max(1, (tris.Length / 3) / 600);
+            for (int t = 0; t < tris.Length; t += 3 * stride)
+            {
+                Vector3 p0 = verts[tris[t]], p1 = verts[tris[t + 1]], p2 = verts[tris[t + 2]];
+                Vector3 wn = Vector3.Cross(p1 - p0, p2 - p0); // winding normal (CCW front-face convention)
+                if (wn.sqrMagnitude < 1e-12f) continue;
+                sampled++;
+                if (wn.y <= 0f) downWound++;
+            }
+            Assert.Greater(sampled, 0, "must have sampled some non-degenerate water triangles");
+            Assert.AreEqual(0, downWound,
+                $"every sampled water triangle's WINDING must make the TOP the FRONT face (winding-normal +Y) " +
+                $"so URP Cull Back keeps the sea from the above-looking gameplay camera — found {downWound}/" +
+                $"{sampled} wound DOWN (the backface-cull-invisible-sea bug that made 'water read same as sky'). " +
+                "The normal ATTRIBUTE being +Y is NOT sufficient — culling uses the winding (LowPolyZoneGen." +
+                "BuildIslandWater.EmitTri must REVERSE the source winding when it faces down).");
+        }
+
+        [Test]
         public void Water_FirstNormal_IsFlatUp()
         {
             // A tight, fast pin on the first vertex's normal — the value the diagnostic trace logged
