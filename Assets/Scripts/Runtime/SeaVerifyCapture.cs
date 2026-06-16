@@ -40,10 +40,82 @@ namespace FarHorizon
         public int warmupFrames = 8;
         public int settleFrames = 16;
 
+        // The wave-MOTION sequence (ticket 86ca9yn57 AC2 — "the water should have waves that move"). Number
+        // of frames + the real-time gap between them; chosen so the in-shader swell advances a VISIBLE amount
+        // between consecutive frames (the swell period is ~2pi/_WaveSpeed ~ 6.6s, so ~0.4s steps walk it
+        // through a full cycle over the sequence — consecutive PNGs differ if the water actually animates).
+        public int waveFrames = 6;
+        public float waveStepSeconds = 0.4f;
+
         void Start()
         {
-            if (HasArg("-verifySea"))
+            if (HasArg("-verifyWaves"))
+                StartCoroutine(RunWaveSequence());
+            else if (HasArg("-verifySea"))
                 StartCoroutine(RunVerification());
+        }
+
+        // Capture a MULTI-FRAME sequence from a fixed seaward camera over a real-time window — proving the
+        // sea SURFACE MOVES (AC2). The camera is pinned (no orbit between shots) so any pixel difference
+        // between consecutive frames is the WATER animating, not the camera. A low oblique pitch frames the
+        // near-shore swell + foam line so the vertical bob reads as a moving silhouette/foam edge. Pairs with
+        // a frame-to-frame pixel-delta dump so the motion is provable from the trace too, not just by eye.
+        private IEnumerator RunWaveSequence()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+            // A mid pitch toward the shoreline so both the surf line AND the near-sea swell are in frame —
+            // the swell's vertical motion reads as the foam/silhouette shifting between frames.
+            float pitch = ArgFloat("-seawardPitch", 22f);
+            float dist = ArgFloat("-seawardDistance", 20f);
+            if (orbit != null)
+            {
+                orbit.SetYaw(seawardYaw);
+                orbit.SetPitch(pitch);
+                orbit.SetDistance(dist);
+                Debug.Log("[SeaWaveSeq] pinned seaward cam: yaw=" + orbit.Yaw + " pitch=" + orbit.Pitch +
+                          " dist=" + orbit.Distance);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+
+            int w = Screen.width, h = Screen.height;
+            Texture2D prev = null;
+            for (int f = 0; f < waveFrames; f++)
+            {
+                yield return new WaitForEndOfFrame();
+                string file = Path.Combine(dir, $"sea_wave_{f:00}.png");
+                ShotTo(file);
+                // Read back this frame for a frame-to-frame motion delta over the central water region.
+                var cur = new Texture2D(w, h, TextureFormat.RGB24, false);
+                cur.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                cur.Apply();
+                if (prev != null)
+                {
+                    // Mean abs pixel delta over the LOWER half (the sea region) — > ~0 means the surface moved.
+                    double acc = 0; int n = 0;
+                    for (int y = 0; y < h / 2; y += 3)
+                    for (int x = 0; x < w; x += 3)
+                    {
+                        Color a = prev.GetPixel(x, y), b = cur.GetPixel(x, y);
+                        acc += Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b); n++;
+                    }
+                    float meanDelta = n > 0 ? (float)(acc / n) : 0f;
+                    Debug.Log($"[SeaWaveSeq] frame {f} vs {f - 1}: mean sea-region pixel delta = {meanDelta:F4} " +
+                              (meanDelta > 0.002f ? "(MOVING)" : "(static?)"));
+                    Object.Destroy(prev);
+                }
+                prev = cur;
+                // advance real time so the in-shader swell phase moves before the next shot
+                float t0 = Time.time;
+                while (Time.time - t0 < waveStepSeconds) yield return null;
+            }
+            if (prev != null) Object.Destroy(prev);
+
+            Debug.Log("[SeaWaveSeq] wave-motion sequence complete -> " + dir);
+            Application.Quit();
         }
 
         private IEnumerator RunVerification()
@@ -164,10 +236,68 @@ namespace FarHorizon
             ShotTo(Path.Combine(dir, "sea_seaward.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+
+            // -seaDiag (INERT read-only, ticket 86ca9yn57): the SEA-vs-SKY separation diagnosis. The
+            // Sponsor's "I can't see any difference between water and sky" trace-confirms (or refutes) the
+            // PRIME SUSPECT: the Exp^2 distance fog (colour == WorldLookPalette.SkyHorizon, the mountain
+            // seam-kill anchor) ALSO washes the FAR SEA to the sky colour, so the sea↔sky horizon
+            // disappears. Read back the seaward frame and dump the MEAN colour of a band just BELOW the
+            // horizon line (far sea) vs just ABOVE it (sky) + their per-channel delta. A small delta
+            // (< ~0.06) PROVES the sea reads as sky; a clear delta proves separation. No mutation.
+            if (HasArg("-seaDiag"))
+            {
+                yield return new WaitForEndOfFrame(); // ensure the backbuffer holds the seaward frame
+                SampleHorizonBands();
+            }
+
             yield return new WaitForSeconds(0.5f);
 
             Debug.Log("[SeaVerifyCapture] verification complete -> " + dir);
             Application.Quit();
+        }
+
+        // Read back the seaward frame and dump the mean sea-band vs sky-band colour + delta (the sea-vs-sky
+        // separation diagnostic). Sampled around the horizon line: the horizon for a near-horizontal seaward
+        // look sits near vertical-centre, so a band a little below centre is FAR SEA and a band a little above
+        // is SKY. The mean over a wide horizontal strip averages out clouds/foam so the read is the dominant
+        // sea/sky tone the Sponsor judges.
+        private void SampleHorizonBands()
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            // The horizon sits near vertical centre at the near-horizontal seaward pitch. Sky is the UPPER
+            // band, sea the LOWER band; leave a gap around the exact horizon so neither band straddles it.
+            int cx0 = (int)(w * 0.25f), cx1 = (int)(w * 0.75f);   // central 50% (avoid frame-edge vignette)
+            int skyY0 = (int)(h * 0.62f), skyY1 = (int)(h * 0.74f); // a band well ABOVE the horizon (sky)
+            int seaY0 = (int)(h * 0.30f), seaY1 = (int)(h * 0.42f); // a band well BELOW the horizon (far sea)
+
+            Color sky = MeanBand(tex, cx0, cx1, skyY0, skyY1);
+            Color sea = MeanBand(tex, cx0, cx1, seaY0, seaY1);
+            float dR = Mathf.Abs(sea.r - sky.r), dG = Mathf.Abs(sea.g - sky.g), dB = Mathf.Abs(sea.b - sky.b);
+            float delta = dR + dG + dB;
+            Object.Destroy(tex);
+
+            Debug.Log($"[seaDiag] SKY band (y {skyY0}-{skyY1}) mean={sky.ToString("F3")}");
+            Debug.Log($"[seaDiag] SEA band (y {seaY0}-{seaY1}) mean={sea.ToString("F3")}");
+            Debug.Log($"[seaDiag] sea-vs-sky channel delta = (|dR|{dR:F3} |dG|{dG:F3} |dB|{dB:F3}) sum={delta:F3} " +
+                      (delta < 0.06f ? "<<< SEA READS AS SKY (no horizon separation — fog washes the far sea to the sky stop)"
+                                     : ">>> sea reads DISTINCT from sky (clear horizon separation)"));
+        }
+
+        private static Color MeanBand(Texture2D tex, int x0, int x1, int y0, int y1)
+        {
+            double r = 0, g = 0, b = 0; int n = 0;
+            for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++)
+            {
+                Color c = tex.GetPixel(x, y);
+                r += c.r; g += c.g; b += c.b; n++;
+            }
+            if (n == 0) return Color.black;
+            return new Color((float)(r / n), (float)(g / n), (float)(b / n));
         }
 
         private void ShotTo(string file)
