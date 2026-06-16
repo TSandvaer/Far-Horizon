@@ -1,0 +1,51 @@
+# claudeteam.yaml — project-scoped, panel-managed.
+# Do NOT hand-edit while the Manage Team panel is open; the panel normalizes
+# this file on save (structured write — comments below the header and manual
+# formatting are not preserved). Use ClaudeTeam's "Manage Team" panel to edit.
+version: 1
+teams:
+  - id: far-horizon
+    name: Far-Horizon
+    members:
+      - id: devon
+        display: devon
+        role: 'Game Developer #1'
+        character: null
+        status: live
+        match:
+          - agentType_equals: devon
+      - id: drew
+        display: drew
+        role: 'Game Developer #2'
+        character: null
+        status: live
+        match:
+          - agentType_equals: drew
+      - id: erik
+        display: erik
+        role: Engine & graphics-technology evaluation consultant
+        character: null
+        status: live
+        match:
+          - agentType_equals: erik
+      - id: priya
+        display: priya
+        role: Project Leader
+        character: null
+        status: live
+        match:
+          - agentType_equals: priya
+      - id: tess
+        display: tess
+        role: QA / Test design
+        character: null
+        status: live
+        match:
+          - agentType_equals: tess
+      - id: uma
+        display: uma
+        role: UX / Visual / Audio Direction
+        character: null
+        status: live
+        match:
+          - agentType_equals: uma

@@ -69,8 +69,8 @@ slice_end=$(( last_user_line > 1 ? last_user_line - 1 : 0 ))
 # (Foreground Agent calls return the report inline and have no such line, so this
 # pattern inherently captures only background dispatches.)
 dispatched=$(head -n "$slice_end" "$transcript_path" 2>/dev/null \
-  | grep -oE 'agentId: [0-9a-f]{12,}' \
-  | sed -E 's/agentId: //' \
+  | grep -oE 'agentId: [0-9a-f]{12,} \(internal ID' \
+  | grep -oE '[0-9a-f]{12,}' \
   | sort -u || true)
 
 if [[ -z "${dispatched:-}" ]]; then

@@ -43,10 +43,12 @@ A 3D survival game built in **Unity 6 (6000.4.10f1) / URP**, desktop-first (Wind
 
 ## Detailed Documentation
 
-Auto-loaded at session start via `.claude/hooks/session-start-read-docs.sh`. **Sub-agents do NOT inherit the auto-load — Read every `.claude/docs/*.md` before starting work.** The `maintain-docs` Stop hook captures new findings each turn.
+Auto-loaded at session start via `.claude/hooks/session-start-read-docs.sh`. **Sub-agents do NOT inherit the auto-load — Read every `.claude/docs/*.md` before starting work.** **`unity6-mastery.md` is the MANDATORY pre-work read for ALL Unity code (Sponsor-stressed 2026-06-16) — Drew/Devon read it before every task, every action.** The `maintain-docs` Stop hook captures new findings each turn.
 
 - [Art Direction](.claude/docs/art-direction.md) — Sponsor's inspiration board (`inspiration/*.png`): warm/lush, human-scale landmarks, small-player/big-alive-world; **look at the actual images before any visual work** (engine-agnostic carry from RandomGame)
 - [Unity Conventions](.claude/docs/unity-conventions.md) — hard-won Unity/URP findings from the eval spike + bootstrap: headless rituals, editor-vs-runtime serialization traps, FBX/rig gotchas, low-poly mesh/normals patterns
+- [Character Pipeline](.claude/docs/character-pipeline.md) — generate a chunky-low-poly character via Hyper3D Rodin Image-to-3D → Mixamo auto-rig → Unity Humanoid; non-obvious gotchas (pose is driven by the reference image, Quad-not-Tri, de-light, with-skin/without-skin Mixamo split)
+- [Unity 6 Mastery](.claude/docs/unity6-mastery.md) — **MANDATORY Unity 6/URP daily-use guardrails** (rendering path/Forward+, GPU Resident Drawer, draw-call batching, lighting budget, GC/scripting rules, ScriptableObject architecture, UI Toolkit, texture/mesh import, IL2CPP build) — read before ANY Unity code, every action. Full cited reference: `team/erik-consult/unity6-mastery-research.md` (Sponsor-commissioned 2026-06-16)
 
 ## Key references
 

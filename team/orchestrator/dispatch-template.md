@@ -87,6 +87,12 @@ When dispatching two or more agents in parallel where both will reference a NEW 
 
 **Why:** User-global rule `Parallel-agent shared-concept vocabulary discipline` (codified after ClaudeTeam M3-10, 2026-05-25, where Felix + Maya invented divergent type names — `PersonaGroup` vs `CollapsedPersonaGroup` — under a shape-only contract; the second PR was non-mergeable and required a reconciliation re-dispatch). RG hasn't hit this yet but has parallel-dispatch patterns (W3-T7 Stage 3+4 in flight today; Devon ↔ Drew on shared scenes) where it could. Cheap insurance.
 
+## Mandatory docs pre-read (mandatory in every dispatch)
+
+```markdown
+**Read BEFORE any code (every dispatch — you do NOT inherit the SessionStart auto-load):** `CLAUDE.md` + every `.claude/docs/*.md`. In particular **`.claude/docs/unity6-mastery.md` is the MANDATORY Unity 6/URP daily-use guardrails doc (Sponsor-stressed 2026-06-16) — never write Unity code without it** (rendering path/Forward+, GPU Resident Drawer, batching, lighting budget, GC/scripting rules, SO architecture, UI Toolkit, import rules, IL2CPP build). Full cited reference at `team/erik-consult/unity6-mastery-research.md`.
+```
+
 ## Lesson reminder (mandatory in every dispatch)
 
 ```markdown
