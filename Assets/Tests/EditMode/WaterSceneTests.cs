@@ -194,8 +194,12 @@ namespace FarHorizon.EditTests
             Assert.Greater(mat.GetFloat("_WaveAmp"), 0f,
                 "the ocean material must enable the gentle swell (_WaveAmp > 0) — a dead-still plane reads " +
                 "as ice/glass and kills the 'alive world' feel (Uma §1)");
-            Assert.Less(mat.GetFloat("_WaveAmp"), 0.2f,
-                "the swell must stay SUBTLE (a breath, not surf) — small amplitude only");
+            // VISIBLE-AT-SEA-SCALE (86ca9yn57 AC2): the old < 0.2 "subtle breath" cap made the swell
+            // imperceptible over the ~1400u sea (peak ~0.05u) — the Sponsor's "static water". The bound is
+            // raised to < 1.0 (a visible rolling swell, still not surf). The exact value is pinned by
+            // Water_Material_CarriesMovingWaveParams_VisibleAtSeaScale.
+            Assert.Less(mat.GetFloat("_WaveAmp"), 1.0f,
+                "the swell must stay a calm rolling sea (a breath, not surf) — _WaveAmp < 1.0");
         }
 
         [Test]
