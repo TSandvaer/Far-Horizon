@@ -19,9 +19,40 @@ A ticket is "complete" only when ALL of:
 
 Folded from Erik's developer-accuracy / performance note (`team/erik-consult/developer-accuracy-performance-research.md`, not auto-read). These three gates close recurring failure classes the float saga + world-look churn exposed; they bind alongside the 6-point "complete" rubric above. Full adoption is ticketed (`86ca9a340` / `86ca9a36g` / `86ca9a3b3`) — these lines make the GATE mandatory now, even before the harness/tooling lands.
 
-1. **Diagnose-Before-Fix.** A `fix(...)` PR MUST state the DIAGNOSED root cause + the cited evidence (trace excerpt / log line / failing assertion + values) in the PR body BEFORE the fix — not "tried X, seems better." This formalizes the isolation-probe method; it exists because guess-fixes cost 2–4 soak-overturns per defect (the float saga overturned its own root-cause framing ≥3×; the world-look fix-shape was wrong twice — only trace caught the real cause each time). A fix PR whose body asserts a fix without naming the diagnosed cause + evidence is bounced.
+1. **Diagnose-Before-Fix.** A `fix(...)` PR MUST state the DIAGNOSED root cause + ONE cited isolation result in the PR body BEFORE the fix — not "tried X, seems better." This formalizes the isolation-probe method; it exists because guess-fixes cost 2–4 soak-overturns per defect (the float saga overturned its own root-cause framing ≥3×; the world-look fix-shape was wrong twice — only trace caught the real cause each time). A fix PR whose body asserts a fix without naming the diagnosed cause + evidence is bounced. **Full requirement + worked example: § "Diagnose-Before-Fix — the pre-fix PR convention" below.**
 2. **PlayMode locomotion-sampling tests.** Any feature whose correctness is PER-FRAME during motion (grounding, held-prop envelope, finger-curl, camera follow) ships a `[UnityTest]` that `yield return null`-samples the assertion EVERY frame across a real WALK — not just a standing/spawn snapshot. The "tests green but Sponsor sees during-walk elevation" gap is exactly the standing-only assertion missing the motion sample (the smoothing-lag float AND the sole-vs-root float both passed at-rest tests). Sample per-frame through real `Update` + a real `Time.time` window (never the headless `Time.deltaTime~=0` trap — see "Multi-step-loop coverage" below).
 3. **SRP-batcher Frame-Debugger audit before any new visual pass.** Before shipping a new shader / material / scatter surface, audit the Frame Debugger that the SRP batcher is actually batching (no per-instance break) — `CBUFFER_START(UnityPerMaterial)` completeness + no live `MaterialPropertyBlock` breaking the batch. Catches the silent perf regression where a new visual pass quietly drops the frame rate before it reaches the Sponsor.
+
+---
+
+## Diagnose-Before-Fix — the pre-fix PR convention (ticket 86ca9a340; Erik research §A + Rank 1)
+
+**Source:** Erik R&D note `team/erik-consult/developer-accuracy-performance-research.md` §A + Rank 1 — Erik's #1-impact, zero-tooling recommendation. This section is the binding spec for the one-line gate stated in "Accuracy + performance gates" item 1 above.
+
+**The gate.** Any `fix(...)` PR whose subject is a diagnosed defect MUST carry, in the PR body, BEFORE the fix description, both of:
+
+- **(a) the diagnosed ROOT CAUSE in one sentence** — what the actual broken thing is, named concretely (the system + the mechanism), not "it looked wrong so I changed X."
+- **(b) ONE cited isolation result that confirms (a)** — a single piece of evidence that the named cause is real and that other hypotheses were ruled out. Acceptable forms:
+  - a **probe flag + its output** (`-seaWaterOnly` → `0 water px`; `-footTrace` → `foot-float -0.003u, shadow-to-feet 0.087u`),
+  - a **magenta-diff pixel count** (sentinel-color rebuild + pixel-diff: `248/921600 changed = 0.027%` ⇒ mesh contributes no visible pixels),
+  - a **trace dump line** (`[FloatTrace]` / `[TINTDIAG]` / `ClipBaselineDiagnose: Idle −0.003, Walk +0.63`),
+  - a **guard that reds→greens** (a failing assertion + its values that the fix flips green).
+
+One isolation result is the floor, not a transcript of every probe — cite the ONE that nailed the cause.
+
+**Enforcement.** **Tess bounces** any `fix(...)` PR whose body asserts a change without naming the diagnosed cause + a cited isolation result (REQUEST_CHANGES, one-line note: "Diagnose-Before-Fix: PR states a fix but no diagnosed root cause + cited isolation result"). A guess-fix that only describes the change does not pass the bar.
+
+**Why it pays.** Every walk-float / world-look convergence in `.claude/docs/unity-conventions.md` happened ONLY after an isolation probe forced the real system to surface; the reverse pattern (guess a fix → rebuild → soak → get contradicted) cost 2–4 build-and-soak rounds per defect. Stating the diagnosis up-front collapses those rounds into one and lets the reviewer check the *cause*, not just the diff.
+
+**Worked example (what "good" looks like — from the walk-float saga; cited to `.claude/docs/unity-conventions.md` §FBX/rigs, walk-float saga + ground-snap entries, do not re-derive here):**
+
+> **Diagnosed root cause:** The avatar reads as "still floating" not because the body is ungrounded but because the **blob shadow is stranded ~9 cm above the snapped feet** — the body IS grounded; the shadow rides a fixed Y while the feet snap to the visible terrain, so the *shadow-to-feet gap* is what reads as float.
+> **Cited isolation result:** `-footTrace` overturned the body-snap hypothesis — measured **foot-float −0.003u** (feet ARE planted) while **shadow-to-feet was 0.087u**, dropping to **0.023u** after making the shadow track the snapped feet.
+> **Fix:** make the blob shadow track the snapped feet rather than a fixed Y.
+
+The diagnosis sentence names the real system (shadow-vs-feet, not root grounding); the single `-footTrace` line both confirms it AND rules out the obvious-but-wrong hypothesis (body-snap). That is the shape every `fix(...)` PR must hit. (The broader saga overturned its root-cause framing ~6× — NavMesh-slab → renderer-enabled-hit → blob-shadow → `SkinnedMeshRenderer.bounds` false-green → `BakeMesh` actual-lowest-vertex — each overturn forced by a probe; see the saga entry for the full chain.)
+
+**Out of scope — when the gate does NOT apply.** Plain logic bugs that just need a stack trace are NOT in scope (Erik §A: "Plain logic bugs ... are NOT in scope"). A `fix(...)` whose root cause is obvious from a thrown exception, a failing unit test's assertion message, or a null-ref stack trace does not need a manufactured isolation probe — the stack trace IS the diagnosis. The gate targets the **diagnose-via-trace / asset-is-fine-the-view-is-the-problem class**: defects where the visible symptom names the WRONG system (a colour tweak that can't fix a not-rendering mesh; a water-Y change for a composition problem) and an isolation probe is the only thing that surfaces the real cause. When in doubt, the one-sentence diagnosis is cheap — write it.
 
 ---
 

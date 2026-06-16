@@ -138,7 +138,7 @@ On Devon + Drew done → re-reconcile #48 onto new #47 + regenerate Boot.unity �
 Each role updates its own section as it works M-U1 / M-U2 tickets. The orchestrator reads the whole file at every tick to spot stalls. Don't edit another role's section. Last-updated uses ISO date `YYYY-MM-DD`.
 
 ### Priya (Project Leader)
-(idle — M-U1 docs spine current as of U10; next planning surface is the M-U2 thin-survival-loop backlog, which files when M-U1 closes)
+(run: 86ca9a340 — authored the Diagnose-Before-Fix pre-fix PR convention: full standalone section in `team/TESTING_BAR.md` + paste-able block in `team/orchestrator/dispatch-template.md`, with the walk-float `-footTrace` worked example + the stack-trace-only OOS boundary; Erik research §A Rank 1; reviewer Devon. Next planning surface is the M-U2 thin-survival-loop backlog, which files when M-U1 closes)
 
 ### Uma (Game UX Designer)
 (fresh — first M-U2 surface is the thin-loop UX once M-U1 closes)

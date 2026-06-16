@@ -12,7 +12,7 @@ Every dispatch to a named persona (Priya / Uma / Devon / Drew / Tess) via the `A
 
 **Mandatory blocks** (always included): Worktree state, Scoped contract, ClickUp lifecycle, Final-report shape, Doc-update reporting, Done clause (which carries the reviewer-track gate), Lesson reminder, STATE.md update, Merge identity.
 
-**Situational blocks** (included when the predicate matches): Self-Test Report (UX-visible PRs), Visual-primitive test bar (tween / modulate / Polygon2D / CPUParticles2D PRs), HTML5-visual-gated merge-gate (gated-class PRs), Vocabulary contract (parallel dispatches sharing a NEW concept).
+**Situational blocks** (included when the predicate matches): Self-Test Report (UX-visible PRs), Visual-primitive test bar (tween / modulate / Polygon2D / CPUParticles2D PRs), HTML5-visual-gated merge-gate (gated-class PRs), Vocabulary contract (parallel dispatches sharing a NEW concept), Diagnose-Before-Fix (every `fix(...)` dispatch).
 
 ---
 
@@ -115,6 +115,31 @@ Per `team/TESTING_BAR.md` § "Visual primitives — observable delta required" (
 ```
 
 The block is mandatory for `feat(combat|ui|level|integration|gear|progression)` and `fix(...)` on the same scopes when the PR introduces or modifies a visual primitive. Skip when the PR is `chore(...)` / `docs(...)` / `test(...)` or touches no visual primitives.
+
+## Diagnose-Before-Fix (paste in EVERY `fix(...)` dispatch)
+
+Per `team/TESTING_BAR.md` § "Diagnose-Before-Fix — the pre-fix PR convention" (ticket 86ca9a340 / Erik research §A + Rank 1). Inline this block whenever the dispatch is a `fix(...)` whose subject is a diagnosed defect. It is the gate that collapses 2–4 guess-fix soak-overturn rounds into one.
+
+```markdown
+**Diagnose-Before-Fix (REQUIRED in the PR body BEFORE the fix description — Tess bounces a fix PR that lacks it):**
+
+This is a `fix(...)`, so your PR body must OPEN with a diagnosis block, before describing the change:
+
+1. **Diagnosed root cause (one sentence):** name the ACTUAL broken system + mechanism concretely — not "it looked wrong so I changed X." (e.g. "the sea reads as sky because the water grid's top is the BACK face — `Cull Back` culls it by triangle winding, so the camera sees the skybox through it," NOT "tweaked the water material.")
+2. **ONE cited isolation result that confirms (1)** — a single piece of evidence that proves the named cause AND rules out the obvious-but-wrong hypothesis. Acceptable:
+   - a **probe flag + its output** (`-seaWaterOnly` → `0 water px`; `-footTrace` → `foot-float −0.003u, shadow-to-feet 0.087u`),
+   - a **magenta-diff pixel count** (sentinel rebuild + pixel-diff: `248/921600 = 0.027%` ⇒ mesh contributes no visible pixels),
+   - a **trace dump line** (`[FloatTrace]` / `ClipBaselineDiagnose: Idle −0.003, Walk +0.63`),
+   - a **guard that reds→greens** (the failing assertion + its values, that this fix flips green).
+
+   Cite the ONE probe that nailed the cause — not a transcript of every probe you ran.
+
+**Out of scope (gate does NOT apply):** a plain logic bug whose cause is obvious from a thrown exception / failing-unit-test assertion / null-ref stack trace needs NO manufactured probe — the stack trace IS the diagnosis. The gate targets the diagnose-via-trace / asset-is-fine-the-view-is-the-problem class (the symptom names the wrong system; only an isolation probe surfaces the real cause). When in doubt, the one-sentence diagnosis is cheap — write it.
+
+**Worked example of the shape** (walk-float saga, `.claude/docs/unity-conventions.md` §FBX/rigs): root cause = "the avatar reads as floating because the blob SHADOW is stranded ~9 cm above the snapped feet — the body IS grounded"; isolation result = "`-footTrace` overturned the body-snap hypothesis: foot-float −0.003u (feet planted) vs shadow-to-feet 0.087u→0.023u after the fix"; fix = make the shadow track the snapped feet.
+```
+
+Skip this block for `feat(...)` / `chore(...)` / `docs(...)` / `test(...)` dispatches — it is `fix(...)`-specific. (The Lesson reminder block carries a one-line pointer to this convention in every dispatch; this is the full paste-able block for the `fix(...)` case.)
 
 ## Merge identity (mandatory in every dispatch)
 
@@ -374,6 +399,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **Doc-update reporting block present** — agent must surface `Doc updates: ...` line in final report.
 - [ ] **Lesson reminder, STATE.md update, Merge identity, Done clause** all present.
 - [ ] **Elite-techniques + Diagnose-Before-Fix pointer present** in the Lesson reminder block — agent reads `.claude/docs/elite-techniques.md` + (for `fix(...)` PRs) states diagnosed root cause + evidence before the fix per `team/TESTING_BAR.md` §Accuracy + performance gates.
+- [ ] **If this is a `fix(...)` dispatch:** the full **Diagnose-Before-Fix** block is inlined (root-cause sentence + ONE cited isolation result required in the PR body before the fix; Tess bounces otherwise). The Lesson-reminder one-liner is the pointer; the situational block is the full spec. See `team/TESTING_BAR.md` § "Diagnose-Before-Fix".
 - [ ] **If parallel dispatch shares a NEW concept:** Vocabulary contract block present in BOTH briefs verbatim, OR Pattern A sequencing chosen (type-author first → consumer next). See Vocabulary contract above.
 - [ ] **If UX-visible:** Self-Test Report block present.
 - [ ] **If tween / modulate / Polygon2D / CPUParticles2D / Area2D-state surface:** Visual-primitive test bar block present + HTML5-visual-gated merge-gate block present.
