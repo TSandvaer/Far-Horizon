@@ -35,9 +35,18 @@ namespace FarHorizon.EditorTools
         // value) so the shore reads warm-golden, not bleached. The board (21h13_31) shore is a warm
         // amber-tan, not paper-white. Greens pushed slightly more saturated to ride the board's
         // saturated-but-warm rule. All still sub-1.0 / HDR-safe.
-        static readonly Color SandLo = new Color(0.74f, 0.62f, 0.40f); // warm golden tan (was .78/.69/.49)
-        static readonly Color SandHi = new Color(0.82f, 0.71f, 0.47f); // sunlit warm sand, NOT bleached (was .90/.83/.62)
-        static readonly Color SandDamp = new Color(0.60f, 0.50f, 0.34f); // damp shore sand (warmer)
+        // COAST-POLISH warm-sand RESTORE (ticket 86ca9xyqa AC#5c). The organic-island rewrite did NOT cool
+        // the SandLo/SandHi anchors (they kept the first-frame warmth tune) — the warmth DISAPPEARED because
+        // IslandColorAt drags the SEAWARD beach (the part the player actually sees at the waterline) toward
+        // SandDamp via the belowLip/damp blend on EVERY sector (beach + cliff), so the visible wet edge read
+        // as the dark cool damp tone, not warm golden sand. The fix is in IslandColorAt (reserve the damp/rock
+        // blend for CLIFF sectors only); here we also (a) WARM the SandDamp anchor itself so even where damp
+        // shows on a beach it stays golden-warm, and (b) push SandLo/SandHi a touch more golden so the wider
+        // beach (AC#5b) reads richly warm across its whole band. All sub-1.0 / HDR-clamp-safe.
+        // PUBLIC so the coast-polish warmth guard pins the anchors (a regression to a cool/pale sand fails CI).
+        public static readonly Color SandLo = new Color(0.78f, 0.64f, 0.39f); // warm golden tan (richer gold; was .74/.62/.40)
+        public static readonly Color SandHi = new Color(0.88f, 0.75f, 0.49f); // sunlit warm golden sand (was .82/.71/.47)
+        public static readonly Color SandDamp = new Color(0.70f, 0.58f, 0.38f); // damp shore sand — kept WARM-golden (was .60/.50/.34 = too cool/dark)
         static readonly Color GrassLo = new Color(0.30f, 0.48f, 0.20f); // mid leaf green (more saturated)
         static readonly Color GrassHi = new Color(0.48f, 0.64f, 0.28f); // sunlit grass
         static readonly Color GrassRise = new Color(0.38f, 0.56f, 0.24f); // meadow rise
@@ -154,8 +163,16 @@ namespace FarHorizon.EditorTools
         // The terrain grid covers the disc + a sea margin so the round coast reads against open water on
         // every side (the grid is square; the ROUNDNESS comes from the radial height, not the grid shape).
         public const float IslandGridHalf = 165f;  // square terrain grid half-extent (covers shore 120 + margin)
-        const int IslandSegX = 150, IslandSegZ = 150; // subdivision across the big disc (smooth slopes + a crisp
-                                                       // irregular coast/clip + NavMesh) — up from 120 for the warp
+        // COAST-POLISH (86ca9xyqa AC#6b — SMOOTH the JAGGED waterline): up 150 -> 200. The waterline staircase
+        // is the terrain↔water intersection traced along the grid; 150 over 330u = 2.2u cells = visible steps.
+        // 200 = 1.65u cells (~25% finer steps), so the coastline reads smoother — paired with the wider smooth
+        // foam band (BuildIslandWater / IslandColorAt) which traces a soft curve OVER the residual steps. Still
+        // < 65000 verts (UInt16-safe; the mesh also handles UInt32). The finer grid is the cheap half of the
+        // fix; the smooth foam band is the half that actually makes the eye read a wave, not a staircase.
+        public const int IslandSegX = 200, IslandSegZ = 200; // subdivision across the big disc (smooth slopes +
+                                                       // a SMOOTHER irregular coast/clip + NavMesh) — up from 150.
+                                                       // PUBLIC so the clip-proof test reads the live count (no
+                                                       // stale hardcoded 150 when this is re-tuned).
 
         // ============================================================================================
         // ORGANIC IRREGULAR ISLAND shape knobs (ticket 86ca9qwr3 — Sponsor: "read as a REAL island, not a
@@ -184,7 +201,17 @@ namespace FarHorizon.EditorTools
         public const float CliffDropDepth = 7.5f;  // how far a cliff face plunges below the shore lip (steep)
         // AC3 — beach width. The flat sand strip (beach sectors) spans this many u inland of the waterline,
         // staying ~grass level — NOT a downhill ramp. Inland of it the land is grass at ~plateau level.
-        public const float BeachWidth = 9f;        // u of flat sand strip inland of the waterline (beach sectors)
+        // COAST-POLISH (86ca9xyqa AC#5b — WIDER beach): widened 9 -> 16u so the warm sand band reads as a
+        // real beach between the grass and the water at the orbit distance (the 9u strip was a thin line).
+        public const float BeachWidth = 16f;       // u of flat sand strip inland of the waterline (beach sectors)
+        // COAST-POLISH (86ca9xyqa AC#5a — WATER MEETS THE SAND): the WET SHELF. The beach now dips BELOW WaterY
+        // over this seaward-most band so the flat water plane LAPS UP onto the sand (no dry knife-edge gap — the
+        // prior profile only reached WaterY exactly AT the coast radius, so the water met a single radius and
+        // left a dry slope above it). The shelf is shallow (a few cm below the surface) so the water covers it
+        // as a thin wet band, and the foam rides this lapped zone. Keeps WaterY itself UNCHANGED (OOS: the sea
+        // read elsewhere) — only the BEACH geometry is lowered into the water at the waterline.
+        public const float WetShelfWidth = 4.5f;   // u of beach that sits just BELOW WaterY (water laps onto it)
+        public const float WetShelfDepth = 0.12f;  // how far below WaterY the inner wet-shelf edge sits (shallow)
         // AC1 — terrain mesh CLIP. Grid cells whose radius exceeds the warped coast by more than this margin
         // are dropped (no triangles) so NO straight square grid edge reads from overhead — only the irregular
         // landmass + a thin sea-shelf skirt remains; the big water plane fills the rest to the fog horizon.
@@ -384,9 +411,16 @@ namespace FarHorizon.EditorTools
                            Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast, IslandFalloffEnd, r));
 
             float shoreH;
-            // Beach profile: gentle strip from plateau at (coast-BeachWidth) down to WaterY at the coast.
-            float beachT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast - BeachWidth, coast, r)); // 0 inland .. 1 at coast
-            float beachH = Mathf.Lerp(IslandPlateauH, WaterY, beachT);
+            // Beach profile (COAST-POLISH 86ca9xyqa AC#5a — WATER MEETS THE SAND): the sand eases gently down
+            // the DRY strip from plateau to ~the waterline over [coast-BeachWidth, coast-WetShelfWidth], then
+            // continues dipping BELOW WaterY across the seaward WET SHELF [coast-WetShelfWidth, coast] so the
+            // flat water plane LAPS UP onto the sand (a wet band) instead of meeting a single dry knife-edge.
+            // The prior profile reached WaterY only exactly at the coast → a dry slope above the waterline.
+            float dryT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast - BeachWidth, coast - WetShelfWidth, r)); // 0 inland..1 at the wet line
+            float dryH = Mathf.Lerp(IslandPlateauH, WaterY, dryT);                                                  // plateau -> ~WaterY across the dry strip
+            float wetT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast - WetShelfWidth, coast, r));              // 0 at the wet line..1 at the coast
+            float wetH = Mathf.Lerp(WaterY, WaterY - WetShelfDepth, wetT);                                          // dips just below WaterY (water laps it)
+            float beachH = r >= coast - WetShelfWidth ? wetH : dryH;
             // Cliff profile: hold plateau until very near the coast, then drop hard over a narrow lip.
             float cliffT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast - BeachWidth * 0.35f, coast, r));
             float cliffH = Mathf.Lerp(IslandPlateauH, WaterY - CliffDropDepth * 0.15f, cliffT);
@@ -445,19 +479,29 @@ namespace FarHorizon.EditorTools
 
             // COASTAL band: within BeachWidth of the warped coast, blend in either SAND (beach sectors) or
             // ROCK (cliff sectors) by cliffiness. The band ramps in over the strip so grass meets it smoothly.
-            float coastBandT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast - BeachWidth, coast - BeachWidth * 0.35f, r));
+            float coastBandT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(coast - BeachWidth, coast - BeachWidth * 0.5f, r));
             Color sand = Color.Lerp(SandLo, SandHi, Mathf.Clamp01((height + 0.2f) * 1.5f));
             Color coastalCol = Color.Lerp(sand, RockCol, cliffy);           // sand on beaches, rock on cliffs
-            // Cliff faces (below the lip) read as solid rock; sand damp toward the wet line on beaches.
-            Color belowLip = Color.Lerp(SandDamp, RockCol, cliffy);
             Color c = Color.Lerp(land, coastalCol, coastBandT);
-            if (r >= coast - BeachWidth * 0.35f) c = Color.Lerp(c, belowLip, Mathf.Clamp01((r - (coast - BeachWidth * 0.35f)) / (BeachWidth * 0.5f)));
+            // COAST-POLISH (86ca9xyqa AC#5c — RESTORE WARM SAND): the damp/rock blend toward the wet line is now
+            // RESERVED FOR CLIFF SECTORS (scaled by cliffy). On a BEACH sector (cliffy~0) the seaward sand STAYS
+            // warm golden right to the waterline — the prior code dragged it toward the dark cool SandDamp on
+            // EVERY sector, which is exactly why the beach lost its warmth in the organic rewrite. The damp/rock
+            // band only darkens the steep CLIFF foot now (where wet rock reads correctly).
+            Color belowLip = Color.Lerp(SandDamp, RockCol, cliffy);
+            if (r >= coast - BeachWidth * 0.5f)
+                c = Color.Lerp(c, belowLip, Mathf.Clamp01((r - (coast - BeachWidth * 0.5f)) / (BeachWidth * 0.6f)) * cliffy);
 
-            // FOAM following the WARPED waterline (AC4): a warm off-white band centred on ShoreRadiusAt. On
-            // CLIFF sectors the foam is thinner (waves break on rock) — scale it down by (1-cliffy*0.6).
+            // FOAM following the WARPED waterline (AC4 / 86ca9xyqa AC#6a — FOAM BACK). The WATER mesh's foam ring
+            // is OCCLUDED by the sand shelf for r<coast (the terrain sits at/above the flat water there), so the
+            // visible coast foam must come from the TERRAIN itself. Restored + STRENGTHENED: a WIDER warm-white
+            // band centred on the warped waterline (full within the core, fading over a wider band) — wide enough
+            // to ride the new wet shelf (AC#5a) AND to trace a SMOOTH curve over the residual grid steps (AC#6b),
+            // so the eye reads a soft wave line, not a staircase. On CLIFF sectors the foam is thinner (waves
+            // break on rock) — scaled by (1-cliffy*0.6). Sub-1.0 FoamEdge so it never blooms to white.
             float foamDist = Mathf.Abs(r - coast);
-            float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((foamDist - 2.5f) / 4f));
-            c = Color.Lerp(c, FoamEdge, foamT * 0.9f * (1f - cliffy * 0.55f));
+            float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((foamDist - 3.0f) / 5.5f));
+            c = Color.Lerp(c, FoamEdge, foamT * 0.95f * (1f - cliffy * 0.55f));
 
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
             float j = (Hash01(Mathf.RoundToInt(wx * 13f), Mathf.RoundToInt(wz * 13f), seed) - 0.5f) * 0.10f;
@@ -711,9 +755,13 @@ namespace FarHorizon.EditorTools
         // RADIAL SHORELINE FOAM ring (carries the accepted soft-wash foam, now ALL the way around the round
         // coast): a warm-white surf ring centred on the radial waterline (r == IslandShoreR), riding the
         // gentle coastal wet-shelf the swell laps. Near-dense ring resolution lands several rows in the band.
-        const float WaterFoamCoreU = 3.5f;            // full-strength foam plateau within this radial band
-        const float WaterFoamBandU = 7.0f;            // foam fades softly to clear beyond the core (wider so the
-                                                      // coarse open-sea water grid lands foam verts every side)
+        // COAST-POLISH (86ca9xyqa AC#6a/#6b): the SEAWARD-visible water foam (r>coast, over the wet shelf the
+        // beach now dips under) is the part not occluded by the sand. Widened so a soft surf band sits just off
+        // the waterline AND traces a smooth curve over the coarse water grid (no blocky foam edge).
+        const float WaterFoamCoreU = 4.0f;            // full-strength foam plateau within this radial band
+        const float WaterFoamBandU = 9.0f;            // foam fades softly to clear beyond the core (wider so the
+                                                      // coarse open-sea water grid lands foam verts every side +
+                                                      // the surf band reads as a smooth curve, not a stepped edge)
         const float WaterFoamStrength = 0.92f;        // peak foam blend at the waterline (sub-1 keeps a hint of teal)
         static void BuildIslandWater(GameObject parent, string name, Material waterMat, int seed)
         {

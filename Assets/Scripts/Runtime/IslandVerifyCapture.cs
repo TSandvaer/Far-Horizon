@@ -42,10 +42,81 @@ namespace FarHorizon
         {
             if (HasArg("-diagLine"))
                 StartCoroutine(RunLineDiagnostic());
+            else if (HasArg("-coastPolish"))
+                StartCoroutine(RunCoastPolishCapture());
             else if (HasArg("-islandShape"))
                 StartCoroutine(RunShapeCapture());
             else if (HasArg("-verifyIsland"))
                 StartCoroutine(RunVerification());
+        }
+
+        // ============================================================================================
+        // COAST-POLISH verify capture (ticket 86ca9xyqa). Frames the WATERLINE up close from a low,
+        // gameplay-representative angle so the Sponsor's five coast ACs all read in one set of frames:
+        //   #5a water meets the sand (no dry gap), #5b wider beach, #5c warm golden sand, #6a foam back,
+        //   #6b smooth (non-jagged) waterline. Two frames: a low near-shore oblique skimming a BEACH
+        //   sector (the warm sand + lapped water + foam + the smooth wave line), and a gameplay
+        //   over-shoulder for the in-play read. Inert unless launched with -coastPolish.
+        //   FarHorizon.exe -screen-fullscreen 0 -coastPolish [-captureDir <d>]
+        // Per the no-new-mode-without-trace discipline, dumps [world-trace] camera + sea-plane-hit lines.
+        // ============================================================================================
+        private IEnumerator RunCoastPolishCapture()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam != null) cam.farClipPlane = Mathf.Max(cam.farClipPlane, 2000f);
+
+            // ---- 1. LOW near-shore OBLIQUE skimming a beach sector: a camera just inland + low, looking down
+            //      the beach across the waterline out to sea, so the warm sand band, the lapped water, the foam
+            //      surf line, and the smoothness of the waterline all read at the scale the Sponsor judges. The
+            //      coast at azimuth ~180deg (-X side) is framed (a low, near-water vantage). ----
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(-95f, 6f, 6f);
+                cam.transform.rotation = Quaternion.LookRotation(
+                    (new Vector3(-130f, -1f, -8f) - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("coast_lowshore");
+            ShotTo(Path.Combine(dir, "coast_lowshore.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // ---- 2. A second beach sector from a different azimuth (+Z side) so the foam-all-edges read is
+            //      proven on more than one coast, and the smooth waterline reads on a second outline. ----
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(6f, 6f, 95f);
+                cam.transform.rotation = Quaternion.LookRotation(
+                    (new Vector3(-8f, -1f, 130f) - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("coast_lowshore2");
+            ShotTo(Path.Combine(dir, "coast_lowshore2.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // ---- 3. A higher near-coast oblique looking DOWN at the waterline (the smoothness of the wave line
+            //      + the foam curve read cleanest from above the surf). ----
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(-95f, 30f, 0f);
+                cam.transform.rotation = Quaternion.LookRotation(
+                    (new Vector3(-125f, -0.2f, 0f) - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("coast_waterline");
+            ShotTo(Path.Combine(dir, "coast_waterline.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            Debug.Log("[world-trace] RunCoastPolishCapture done -> " + dir +
+                      " (coast_lowshore.png + coast_lowshore2.png + coast_waterline.png)");
         }
 
         // ============================================================================================

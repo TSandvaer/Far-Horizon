@@ -205,7 +205,7 @@ namespace FarHorizon.EditTests
             Assert.Greater(mf.sharedMesh.colors.Length, 0, "the island terrain must carry per-vertex colours");
             // CLIP PROOF (AC1): the terrain mesh must have FEWER triangles than a full square grid would —
             // the deep-sea cells are dropped so no square grid edge reads. A full grid is SegX*SegZ*2 tris.
-            int fullGridTris = 150 * 150 * 2; // IslandSegX*IslandSegZ*2
+            int fullGridTris = LowPolyZoneGen.IslandSegX * LowPolyZoneGen.IslandSegZ * 2;
             int actualTris = mf.sharedMesh.triangles.Length / 3;
             Assert.Less(actualTris, (int)(fullGridTris * 0.92f),
                 $"the terrain must be CLIPPED to the landmass (deep-sea cells dropped) — {actualTris} tris " +
