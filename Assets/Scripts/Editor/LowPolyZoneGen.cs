@@ -166,15 +166,17 @@ namespace FarHorizon.EditorTools
         // noise phase, so a different seed = a different (but same-character) island outline.
         // ============================================================================================
         // AC1 — coastline irregularity. The shore radius is warped by 2-octave azimuth noise of this
-        // amplitude (peak ±u off the mean coast). Bigger = more bays/headlands; smaller = rounder.
-        public const float CoastIrregAmp = 26f;    // ±u the coast wanders off the mean (bays + headlands)
-        public const float CoastIrregFreq = 2.4f;  // primary lobes around the island (low = few big bays)
-        // AC2 — cliff vs beach. A separate low-freq azimuth field selects CLIFF sectors: where it exceeds
+        // amplitude (peak ±u off the mean coast). Bigger = more bays/headlands; smaller = rounder. The warp
+        // samples Perlin on a CIRCLE of radius CoastNoiseRadius — bigger radius = the azimuth sweep crosses
+        // more noise cells = a genuinely irregular (not near-circular) coast.
+        public const float CoastIrregAmp = 26f;        // ±u the coast wanders off the mean (bays + headlands)
+        public const float CoastNoiseRadius = 13f;     // circle radius the azimuth noise samples (irregularity)
+        // AC2 — cliff vs beach. A separate azimuth field selects CLIFF sectors: where it exceeds
         // (1 - CliffFraction) the coast is a steep rock cliff; elsewhere a flat sand beach. The fraction is
         // the share of the coastline that is cliff (the rest beach). Cliff sectors drop ~vertically; beach
         // sectors are a flat sand strip at ~grass level.
-        public const float CliffFraction = 0.42f;  // ~42% of the coast is cliff, the rest sand beach
-        public const float CliffNoiseFreq = 1.7f;  // how many cliff/beach alternations around the island
+        public const float CliffFraction = 0.42f;      // ~42% of the coast is cliff, the rest sand beach
+        public const float CliffNoiseRadius = 9f;      // circle radius the cliff/beach noise samples (alternations)
         public const float CliffDropDepth = 7.5f;  // how far a cliff face plunges below the shore lip (steep)
         // AC3 — beach width. The flat sand strip (beach sectors) spans this many u inland of the waterline,
         // staying ~grass level — NOT a downhill ramp. Inland of it the land is grass at ~plateau level.
@@ -317,14 +319,16 @@ namespace FarHorizon.EditorTools
         public static float ShoreRadiusAt(float wx, float wz, float ox, float oz)
         {
             float ang = Mathf.Atan2(wz, wx); // -PI..PI
-            // Sample noise on a circle of azimuth (cos/sin) so there is NO seam at the 0/360 wrap. Two
-            // octaves: big bays (CoastIrregFreq) + finer wobble (×2.3). Offset by ox/oz so the seed re-rolls
-            // the outline.
+            // Sample noise on a circle of azimuth (cos/sin) so there is NO seam at the 0/360 wrap. The circle
+            // is scaled by a LARGE radius (CoastNoiseRadius) so the azimuth sweep traverses MANY noise cells
+            // (a circle of radius 2.4 barely moves through Perlin space → a near-circular coast; a radius of
+            // ~14 sweeps real bays + headlands). Two octaves: big bays + finer wobble. ox/oz re-roll the seed.
             float cx = Mathf.Cos(ang), cz = Mathf.Sin(ang);
-            float n1 = Mathf.PerlinNoise(ox + (cx * CoastIrregFreq + 4f), oz + (cz * CoastIrregFreq + 4f)) - 0.5f;
-            float n2 = Mathf.PerlinNoise(ox * 1.7f + (cx * CoastIrregFreq * 2.3f + 9f),
-                                         oz * 1.7f + (cz * CoastIrregFreq * 2.3f + 9f)) - 0.5f;
-            float warp = (n1 * 2f * 0.72f + n2 * 2f * 0.28f); // -1..1
+            float n1 = Mathf.PerlinNoise(ox + (cx * CoastNoiseRadius + 50f),
+                                         oz + (cz * CoastNoiseRadius + 50f)) - 0.5f;
+            float n2 = Mathf.PerlinNoise(ox * 1.7f + (cx * CoastNoiseRadius * 2.6f + 90f),
+                                         oz * 1.7f + (cz * CoastNoiseRadius * 2.6f + 90f)) - 0.5f;
+            float warp = (n1 * 2f * 0.70f + n2 * 2f * 0.30f); // -1..1, signed
             return IslandShoreR + warp * CoastIrregAmp;
         }
 
@@ -335,8 +339,8 @@ namespace FarHorizon.EditorTools
         {
             float ang = Mathf.Atan2(wz, wx);
             float cx = Mathf.Cos(ang), cz = Mathf.Sin(ang);
-            float n = Mathf.PerlinNoise(ox * 0.5f + (cx * CliffNoiseFreq + 21f),
-                                        oz * 0.5f + (cz * CliffNoiseFreq + 21f)); // 0..1
+            float n = Mathf.PerlinNoise(ox * 0.5f + (cx * CliffNoiseRadius + 210f),
+                                        oz * 0.5f + (cz * CliffNoiseRadius + 210f)); // 0..1
             // Threshold so CliffFraction of the field is cliff. SmoothStep a narrow band around the threshold
             // so the beach→cliff edge is a short transition, not a hard seam.
             float thresh = 1f - CliffFraction;
@@ -675,12 +679,15 @@ namespace FarHorizon.EditorTools
         // IslandShoreR; the water plane just fills everything below that all the way around.
         public const float WaterHalfExtent = 700f;   // half-size of the square sea plane — reaches well past the
                                                      // island to the fog horizon on every side (sea-to-horizon, all sides)
-        const int WaterSeg = 96;                      // subdivision so the radial foam ring + swell have verts
+        const int WaterSeg = 160;                     // subdivision so the warped foam ring + swell have verts in
+                                                      // EVERY quadrant (the warped coast needs a finer grid than
+                                                      // the old circular ring; AC4 — foam on all edges, no gaps)
         // RADIAL SHORELINE FOAM ring (carries the accepted soft-wash foam, now ALL the way around the round
         // coast): a warm-white surf ring centred on the radial waterline (r == IslandShoreR), riding the
         // gentle coastal wet-shelf the swell laps. Near-dense ring resolution lands several rows in the band.
-        const float WaterFoamCoreU = 2.5f;            // full-strength foam plateau within this radial band
-        const float WaterFoamBandU = 4.5f;            // foam fades softly to clear beyond the core
+        const float WaterFoamCoreU = 3.5f;            // full-strength foam plateau within this radial band
+        const float WaterFoamBandU = 7.0f;            // foam fades softly to clear beyond the core (wider so the
+                                                      // coarse open-sea water grid lands foam verts every side)
         const float WaterFoamStrength = 0.92f;        // peak foam blend at the waterline (sub-1 keeps a hint of teal)
         static void BuildIslandWater(GameObject parent, string name, Material waterMat, int seed)
         {

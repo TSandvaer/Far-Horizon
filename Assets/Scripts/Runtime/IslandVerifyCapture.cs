@@ -40,8 +40,12 @@ namespace FarHorizon
 
         void Start()
         {
+            Debug.Log("[world-trace] IslandVerifyCapture.Start args=[" +
+                      string.Join(" ", System.Environment.GetCommandLineArgs()) + "]");
             if (HasArg("-diagLine"))
                 StartCoroutine(RunLineDiagnostic());
+            else if (HasArg("-islandShape"))
+                StartCoroutine(RunShapeCapture());
             else if (HasArg("-verifyIsland"))
                 StartCoroutine(RunVerification());
         }
@@ -170,6 +174,56 @@ namespace FarHorizon
             yield return null;
 
             Debug.Log("[line-trace] RunLineDiagnostic done (" + tags + ") -> " + dir);
+        }
+
+        // AC6 FAST SHAPE CAPTURE (86ca9qwr3 — give-him-the-knob). A quick overhead + gameplay pair for the
+        // SEED VARIANTS the Sponsor picks from — NO hill-walk / FPS / NavMesh trace (that's -verifyIsland's
+        // job), so each seed bake captures in ~6s. Launch: FarHorizon.exe -screen-fullscreen 0 -islandShape
+        // [-captureDir <d>].
+        private IEnumerator RunShapeCapture()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            // GAMEPLAY over-shoulder (the default orbit the player soaks at) — proves the beach-level grass +
+            // the line-fix + the warped coast on the framed side.
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) { orbit.SetYaw(0f); orbit.SetPitch(55f); orbit.SetDistance(14f); }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("shape_gameplay");
+            ShotTo(Path.Combine(dir, "island_gameplay.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // OVERHEAD (proves the WHOLE organic outline + water all sides + foam ring).
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                cam.farClipPlane = Mathf.Max(cam.farClipPlane, 2000f);
+                cam.transform.position = new Vector3(0f, overheadHeight, -overheadDistance);
+                cam.transform.rotation = Quaternion.LookRotation((Vector3.zero - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("shape_overhead");
+            ShotTo(Path.Combine(dir, "island_overhead.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // A TOP-DOWN overhead too (cleanest read of the irregular outline + the clip — no perspective foreshorten).
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(0f, 320f, 0.01f);
+                cam.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("shape_topdown");
+            ShotTo(Path.Combine(dir, "island_topdown.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            Debug.Log("[world-trace] RunShapeCapture done -> " + dir);
         }
 
         private static void HideByName(string n)
