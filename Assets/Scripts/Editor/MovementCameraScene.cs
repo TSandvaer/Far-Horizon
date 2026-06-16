@@ -800,6 +800,23 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). INERT in normal play; on -axeWalkTrace it drives a scripted walk + dumps every Y-reference
+        // per frame so the ratchet source is pinned (the DIAGNOSE-BEFORE-FIX instrument).
+        private static void WireAxeWalkTrace()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host AxeWalkTrace");
+                return;
+            }
+            if (bootGo.GetComponent<AxeWalkTrace>() == null)
+                bootGo.AddComponent<AxeWalkTrace>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC onto the Boot object so it SERIALIZES into Boot.unity (the
         // component-in-source-but-not-in-scene trap — it would ship inert otherwise). INERT in normal play
         // (asleep behind the F8 toggle); shows feet/ground/GAP live so the Sponsor dials GROUND-Y to GAP≈0
@@ -1397,6 +1414,11 @@ namespace FarHorizon.EditorTools
             // standing/mid-stride so the Sponsor/orchestrator judge feet-on-sand exactly as gameplay frames it.
             // Inert unless -verifyWalkGround. Sibling of the float-diagnostic capture.
             WireWalkGroundingVerifyCapture();
+
+            // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0 — the DIAGNOSE-BEFORE-FIX
+            // instrument). Drives a scripted multi-step walk + dumps every Y-reference per frame so the ratchet
+            // source is PINNED (not guessed). Inert unless -axeWalkTrace. Sibling of FloatDiagnostic.
+            WireAxeWalkTrace();
 
             // (No hair-silhouette verify capture — the chibi's procedural hair-spike soak class does not
             // apply to the Hyper3D castaway, which ships sculpted hair in the mesh. 86ca8rdkp.)
