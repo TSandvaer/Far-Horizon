@@ -56,10 +56,14 @@ namespace FarHorizon.EditTests
             Assert.That(mean, Is.InRange(LowPolyZoneGen.IslandShoreR - LowPolyZoneGen.CoastIrregAmp,
                                          LowPolyZoneGen.IslandShoreR + LowPolyZoneGen.CoastIrregAmp),
                 $"mean coast {mean:F1}u must sit ~IslandShoreR ({LowPolyZoneGen.IslandShoreR}u)");
-            // And it must verifiably DIFFER from a circle at multiple azimuths (>1/4 of azimuths off the mean).
-            int offMean = coast.Count(r => Mathf.Abs(r - mean) > LowPolyZoneGen.CoastIrregAmp * 0.35f);
-            Assert.Greater(offMean, azimuths / 4,
-                $"at least a quarter of azimuths must deviate notably from the mean (irregular) — {offMean}/{azimuths}");
+            // And the coast's STANDARD DEVIATION must be a real fraction of the warp amplitude — a robust
+            // irregularity metric (a circle has stddev ~0; an irregular coast has stddev a meaningful fraction
+            // of CoastIrregAmp). ≥0.22×amp is a clearly-not-a-circle outline without forcing an unnatural saw.
+            float variance = coast.Select(r => (r - mean) * (r - mean)).Average();
+            float stddev = Mathf.Sqrt(variance);
+            Assert.Greater(stddev, LowPolyZoneGen.CoastIrregAmp * 0.22f,
+                $"the coastline must be IRREGULAR — coast-radius stddev {stddev:F1}u must exceed " +
+                $"~0.22×CoastIrregAmp ({LowPolyZoneGen.CoastIrregAmp*0.22f:F1}u); a circle/disc has stddev ~0.");
         }
 
         [Test]

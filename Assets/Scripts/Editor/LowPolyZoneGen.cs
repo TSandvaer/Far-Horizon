@@ -328,7 +328,13 @@ namespace FarHorizon.EditorTools
                                          oz + (cz * CoastNoiseRadius + 50f)) - 0.5f;
             float n2 = Mathf.PerlinNoise(ox * 1.7f + (cx * CoastNoiseRadius * 2.6f + 90f),
                                          oz * 1.7f + (cz * CoastNoiseRadius * 2.6f + 90f)) - 0.5f;
-            float warp = (n1 * 2f * 0.70f + n2 * 2f * 0.30f); // -1..1, signed
+            float n3 = Mathf.PerlinNoise(ox * 2.9f + (cx * CoastNoiseRadius * 5.1f + 130f),
+                                         oz * 2.9f + (cz * CoastNoiseRadius * 5.1f + 130f)) - 0.5f;
+            // CONTRAST the warp (×1.6 then clamp) so it spends LESS time hugging the mean radius and more time
+            // out at the bays/headlands — Perlin clusters around 0.5, which read as a near-circular coast; the
+            // gain + clamp pushes more azimuths to real deviation (a genuinely irregular outline).
+            float warp = (n1 * 2f * 0.58f + n2 * 2f * 0.30f + n3 * 2f * 0.12f); // -1..1 signed
+            warp = Mathf.Clamp(warp * 1.6f, -1f, 1f);
             return IslandShoreR + warp * CoastIrregAmp;
         }
 
