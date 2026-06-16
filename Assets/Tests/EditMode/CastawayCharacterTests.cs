@@ -331,12 +331,12 @@ namespace FarHorizon.EditTests
         [Test]
         public void ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues()
         {
-            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86ca9zcjn AC5: the SEAT
-            // starts from the Sponsor's dialed F9 coast seat (0.0580,-0.1431,0.0230); he RE-CONFIRMS the final
-            // seat on the next soak (the follow-the-arm behavior change may shift the feel). The euler is unchanged.
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(0.0580f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1431f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(0.0230f).Within(1e-4f));
+            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86ca9zcjn FINAL SEAT BAKE:
+            // the Sponsor APPROVED the follow-the-arm behavior and dialed the FINAL F9 seat
+            // (-0.1502,-0.1602,-0.0528) via the AxeNudgeTool; that is what ships. The euler is unchanged.
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(-0.1502f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1602f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0528f).Within(1e-4f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(16.0f).Within(1e-3f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(2.0f).Within(1e-3f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.z, Is.EqualTo(-82.0f).Within(1e-3f));

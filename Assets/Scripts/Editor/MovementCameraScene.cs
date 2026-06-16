@@ -130,13 +130,12 @@ namespace FarHorizon.EditorTools
         //   - ROTATION: a hand-relative euler so the haft reads roughly along the forearm/grip. REASONABLE;
         //     the exact dial + the swing-into-head re-check are FOLLOW-UPS (per the ticket OOS).
         // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc): the held axe now FOLLOWS the right arm's natural
-        // swing (it rides the RAW hand bone — see HeldAxeRig). AC5 SEAT — start from the Sponsor's dialed F9
-        // seat (observed across 2 shots in the prior soak: coast (0.0580,-0.1431,0.0230) / forest
-        // (-0.0925,-0.1253,-0.0103), euler (16,2,-82)). The coast dial is the starting WORLD offset; the
-        // Sponsor RE-CONFIRMS the final seat on the next soak via F9 (the behavior change may shift the feel).
-        // The F9 AxeNudgeTool still drives these fields so he can re-tune.
+        // swing (it rides the RAW hand bone — see HeldAxeRig). FINAL SEAT BAKE (86ca9zcjn): the Sponsor
+        // APPROVED the follow-the-arm behavior ("it works perfectly") and dialed the FINAL F9 seat via the
+        // AxeNudgeTool: HeldAxeWorldOffsetFromHand = (-0.1502,-0.1602,-0.0528). The euler is unchanged
+        // (16,2,-82). The F9 AxeNudgeTool still drives these fields so he can re-tune.
         public static readonly Vector3 HeldAxeRelEuler = new Vector3(16.0f, 2.0f, -82.0f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.0580f, -0.1431f, 0.0230f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(-0.1502f, -0.1602f, -0.0528f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
