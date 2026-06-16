@@ -170,7 +170,8 @@ namespace FarHorizon.EditorTools
         // samples Perlin on a CIRCLE of radius CoastNoiseRadius — bigger radius = the azimuth sweep crosses
         // more noise cells = a genuinely irregular (not near-circular) coast.
         public const float CoastIrregAmp = 26f;        // ±u the coast wanders off the mean (bays + headlands)
-        public const float CoastNoiseRadius = 13f;     // circle radius the azimuth noise samples (irregularity)
+        public const float CoastNoiseRadius = 8f;      // circle radius the azimuth noise samples — moderate so the
+                                                       // bays/headlands are BROAD + believable (not high-freq spikes)
         // AC2 — cliff vs beach. A separate azimuth field selects CLIFF sectors: where it exceeds
         // (1 - CliffFraction) the coast is a steep rock cliff; elsewhere a flat sand beach. The fraction is
         // the share of the coastline that is cliff (the rest beach). Cliff sectors drop ~vertically; beach
@@ -324,17 +325,15 @@ namespace FarHorizon.EditorTools
             // (a circle of radius 2.4 barely moves through Perlin space → a near-circular coast; a radius of
             // ~14 sweeps real bays + headlands). Two octaves: big bays + finer wobble. ox/oz re-roll the seed.
             float cx = Mathf.Cos(ang), cz = Mathf.Sin(ang);
+            // TWO LOW-freq octaves only: big lazy BAYS + headlands (a believable organic coast), NOT a spiky
+            // star-burst. A small radius keeps the lobes broad; a gentle ×1.25 gain lifts the off-mean spread
+            // without the high-freq spikes (the urchin look an aggressive gain + high octave produced).
             float n1 = Mathf.PerlinNoise(ox + (cx * CoastNoiseRadius + 50f),
                                          oz + (cz * CoastNoiseRadius + 50f)) - 0.5f;
-            float n2 = Mathf.PerlinNoise(ox * 1.7f + (cx * CoastNoiseRadius * 2.6f + 90f),
-                                         oz * 1.7f + (cz * CoastNoiseRadius * 2.6f + 90f)) - 0.5f;
-            float n3 = Mathf.PerlinNoise(ox * 2.9f + (cx * CoastNoiseRadius * 5.1f + 130f),
-                                         oz * 2.9f + (cz * CoastNoiseRadius * 5.1f + 130f)) - 0.5f;
-            // CONTRAST the warp (×1.6 then clamp) so it spends LESS time hugging the mean radius and more time
-            // out at the bays/headlands — Perlin clusters around 0.5, which read as a near-circular coast; the
-            // gain + clamp pushes more azimuths to real deviation (a genuinely irregular outline).
-            float warp = (n1 * 2f * 0.58f + n2 * 2f * 0.30f + n3 * 2f * 0.12f); // -1..1 signed
-            warp = Mathf.Clamp(warp * 1.6f, -1f, 1f);
+            float n2 = Mathf.PerlinNoise(ox * 1.7f + (cx * CoastNoiseRadius * 1.9f + 90f),
+                                         oz * 1.7f + (cz * CoastNoiseRadius * 1.9f + 90f)) - 0.5f;
+            float warp = (n1 * 2f * 0.68f + n2 * 2f * 0.32f); // -1..1 signed, both low-freq (smooth bays)
+            warp = Mathf.Clamp(warp * 1.25f, -1f, 1f);
             return IslandShoreR + warp * CoastIrregAmp;
         }
 
