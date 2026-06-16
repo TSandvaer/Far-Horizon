@@ -1010,9 +1010,23 @@ namespace FarHorizon.EditorTools
                 // amplitude 0.06 -> 0.10u + a touch faster so the foam surf LINE at the coast visibly
                 // BREATHES (advances/retreats up the gentle wet shelf) — the "water washing up on shore"
                 // the Sponsor liked. Still a calm swell, not surf (a longer wavelength keeps it soft).
-                if (mat.HasProperty("_WaveAmp")) mat.SetFloat("_WaveAmp", 0.10f);
-                if (mat.HasProperty("_WaveLen")) mat.SetFloat("_WaveLen", 18f);
-                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.95f);
+                // MOVING WAVES (86ca9yn57 AC2 — Sponsor: "the water should have waves that move"). The swell
+                // shipped at amp 0.10 (peak ~0.05u) — imperceptible over the ~1400u sea, so it read STATIC.
+                // Bump the amplitude so the surface visibly undulates AND shorten the wavelength so multiple
+                // crests cross the framed sea (a single 18u-period wave on a vast plane barely moves on-screen).
+                // Still a calm rolling swell at the toy scale, not surf (the WaveAmp/Len ratio stays gentle).
+                if (mat.HasProperty("_WaveAmp")) mat.SetFloat("_WaveAmp", 0.45f);   // 0.10 -> 0.45 (peak ~0.22u — reads at sea scale)
+                if (mat.HasProperty("_WaveLen")) mat.SetFloat("_WaveLen", 11f);     // 18 -> 11 (more crests cross the frame)
+                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 1.1f);// 0.95 -> 1.1 (the swell visibly travels)
+                // FOG-CAP (86ca9yn57 AC1 — Sponsor: "I can't see any difference between water and sky"). The
+                // global Exp^2 fog (colour == SkyHorizon, the mountain seam-kill anchor) washes the FAR SEA to
+                // the sky colour, killing the sea↔sky horizon (diagnosed via -verifyCoast/-seaDiag: the far-sea
+                // band read (0.80,0.88,0.91) == SkyHorizon). _FogCap floors the water's fog visibility so the
+                // sea keeps >= this fraction of its own teal at the horizon — distinct from the pale sky — while
+                // the mountains (different material instance, _FogCap=0) still dissolve via full fog (seam-kill
+                // preserved). 0.5 keeps a believable atmospheric haze on the far sea (no harsh seam) yet a clear
+                // teal-vs-sky boundary.
+                if (mat.HasProperty("_FogCap")) mat.SetFloat("_FogCap", 0.5f);
             }
             else
             {
