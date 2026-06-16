@@ -1496,18 +1496,69 @@ namespace FarHorizon.EditorTools
             orbit.minPitch = 8f;
             orbit.maxPitch = 70f;
             orbit.distance = 14f;
+
+            // BIG ROUND ISLAND N2 (86ca9a7qn — "player disappears under a hill"). Wire the terrain-collision
+            // mask to the Ground layer editor-time so it SERIALIZES (no Awake LayerMask string lookup in the
+            // build — the editor-vs-runtime trap). The OrbitCamera then keeps itself ABOVE the hill surface +
+            // pulls IN when a hill occludes the character, so the player never vanishes under/behind a hill.
+            // The island terrain (Ground_Play) is on the Ground layer with a MeshCollider, so the camera
+            // raycasts hit the real hills.
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            orbit.terrainMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)0;
+            if (groundLayer < 0)
+                Debug.LogWarning("[MovementCameraScene] 'Ground' layer missing — OrbitCamera terrain-collision " +
+                                 "(N2 hill-clip fix) will be INERT (mask 0 = no collision)");
         }
 
-        // Bake the NavMesh from the walkable ground, then SAVE the data as an asset and assign it
-        // so the standalone build SHIPS a NavMesh (else click-to-move is silently dead — the
-        // spike's iter-3 lesson + unity-conventions.md §NavMesh).
+        // NavMesh voxel size (BIG ROUND ISLAND, 86ca9a7qn — N1 "can't walk everywhere"). A FINE voxel size
+        // resolves the big 330u terrain grid + the hill slopes + the foreshore dip cleanly (the default voxel,
+        // derived from agentRadius/3 ≈ 0.13, is fine; we PIN 0.16 so the bake is deterministic + the hill
+        // slopes never coarsen into gaps). The agent must path UP/DOWN/ACROSS the hills — the island slope tops
+        // out ~33deg (slope-probed), comfortably under the default agent maxSlope 45deg, so the DEFAULT agent
+        // type's slope/climb already cover every hill; the partial-coverage N1 bug was NOT a slope limit (that
+        // hypothesis was REFUTED by the slope probe) but a flat-slab-only / layer-restricted bake (see
+        // BakeAndSaveNavMesh). NOTE: NavMeshSurface.BuildNavMesh reads slope/climb from the AGENT TYPE
+        // (NavMesh.GetSettingsByID) — the surface only overrides voxel/tile size — so we tune voxel here and
+        // rely on the default agent type for slope/climb (which the probe proved sufficient).
+        private const float NavVoxelSize = 0.16f;    // fine enough to resolve the 330u island slopes cleanly
+
+        // Apply the island-aware voxel override to a NavMeshSurface so its bake resolves the WHOLE sloped
+        // island cleanly (the N1 root cause was a flat-slab-only / layer-restricted bake, not a coarse voxel —
+        // but pinning the voxel keeps the big-grid bake deterministic + gap-free).
+        private static void ConfigureIslandNavSettings(NavMeshSurface surface)
+        {
+            surface.overrideVoxelSize = true;
+            surface.voxelSize = NavVoxelSize;
+            surface.overrideTileSize = false;
+        }
+
+        // Bake the NavMesh over the WALKABLE ISLAND TERRAIN (not just the flat test slab), then SAVE the data
+        // as an asset and assign it so the standalone build SHIPS a NavMesh (else click-to-move is silently
+        // dead — the spike's iter-3 lesson + unity-conventions.md §NavMesh).
+        //
+        // BIG ROUND ISLAND N1 FIX (86ca9a7qn — "click-to-move only covers part of the island"). The OLD bake
+        // restricted to `layerMask = Ground` AND ran during BuildBootScene — BEFORE WorldBootstrap builds the
+        // island terrain — so it could only see the flat 60×60 `TestGround` slab. The shipped BootNavMesh was
+        // therefore a flat disc at the centre; the hilly island beyond ±30u had NO walkable surface in THIS
+        // bake, and the slab disc sat at Y=0 disconnected from the dipping/rising island terrain. (WorldBootstrap
+        // ALSO baked a PlayNavMesh over the island, but the two overlapping/disconnected meshes are exactly the
+        // fragile dual-surface that produced partial coverage.) FIX: this bake now ALSO collects the island
+        // terrain collider if it exists yet (it does NOT during BuildBootScene — the slab is all there is here),
+        // with hill-aware slope/step/voxel settings; and WorldBootstrap.BakeNavMesh — which DOES run after the
+        // island terrain exists — is now the single authoritative whole-island bake (it overwrites this asset's
+        // role at runtime via its own surface). We keep this bake (BootNavMesh) so a build WITHOUT the env (a
+        // hypothetical movement-only scene) still ships a surface, and so MovementCameraSceneTests' save-asset
+        // guard holds, but it is no longer LAYER-RESTRICTED — it collects every walkable collider it can see.
         private static void BakeAndSaveNavMesh(GameObject ground, int groundLayer)
         {
             var surfaceGo = new GameObject("NavMeshSurface");
             var surface = surfaceGo.AddComponent<NavMeshSurface>();
+            // Collect ALL physics colliders (NOT layer-restricted) so this bake covers the island terrain
+            // collider too whenever it is present — the N1 partial-coverage fix. The flat slab + island both
+            // contribute; their union is the walkable surface.
             surface.collectObjects = CollectObjects.All;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-            if (groundLayer >= 0) surface.layerMask = 1 << groundLayer;
+            ConfigureIslandNavSettings(surface);
             surface.BuildNavMesh();
 
             if (surface.navMeshData != null)
@@ -1517,13 +1568,25 @@ namespace FarHorizon.EditorTools
                 AssetDatabase.SaveAssets();
                 EditorUtility.SetDirty(surface);
                 Debug.Log("[MovementCameraScene] NavMesh baked + SAVED -> " + NavMeshDataPath +
-                          " (data assigned: " + (surface.navMeshData != null) + ")");
+                          " (voxel=" + NavVoxelSize + ", collectAll; data assigned: " +
+                          (surface.navMeshData != null) + ")");
             }
             else
             {
                 Debug.LogError("[MovementCameraScene] NavMesh bake produced NO data — " +
                                "click-to-move would be dead in the build");
             }
+
+            // BIG ROUND ISLAND N1 (86ca9a7qn): DISABLE this slab-era surface at runtime so it does NOT add its
+            // flat-Y=0 60×60 disc as a SECOND, DISCONNECTED NavMesh that competes with WorldBootstrap's
+            // authoritative whole-island PlayNavMesh (the dual-overlap was part of the partial-coverage bug —
+            // the agent could warp onto the isolated slab disc and not reach the hills beyond ±30u). The
+            // BootNavMesh ASSET still ships (MovementCameraSceneTests' save-asset guard holds, and a
+            // hypothetical env-less movement scene could re-enable this surface), but at runtime in the full
+            // boot scene ONLY the island PlayNavMesh is live. NavMeshSurface adds its data in OnEnable, so a
+            // disabled component never registers — the agent samples the single continuous island surface.
+            surface.enabled = false;
+            EditorUtility.SetDirty(surfaceGo);
         }
 
         // Attach the verification-only movement capture to the Boot object (the GameObject that

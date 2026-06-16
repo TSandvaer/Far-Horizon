@@ -108,11 +108,11 @@ namespace FarHorizon.EditTests
         // the chibi's procedural-hair-spike soak class does not apply; the new character ships sculpted hair
         // in the mesh. 86ca8rdkp.)
 
-        // SOAKFIX8 (86ca8ce6y FIX3): the FullscreenBoot component (forces borderless-native on a normal
-        // launch so the Sponsor's double-click fills the widescreen) must be SERIALIZED into the Boot scene —
-        // same component-not-serialized-into-scene class. If the scene never carries it, the exe keeps opening
-        // in the small persisted window. Regression guard: delete the AddComponent<FullscreenBoot>() line in
-        // BootstrapProject.BuildBootScene and this goes red.
+        // FullscreenBoot (now forces WINDOWED mode on a normal launch — BIG ROUND ISLAND N3, 86ca9a7qn; was
+        // borderless-fullscreen under 86ca8ce6y FIX3) must be SERIALIZED into the Boot scene — same
+        // component-not-serialized-into-scene class. If the scene never carries it, the exe ignores the new
+        // windowed mode and a stale persisted fullscreen registry value wins. Regression guard: delete the
+        // AddComponent<FullscreenBoot>() line in BootstrapProject.BuildBootScene and this goes red.
         [Test]
         public void BootScene_CarriesFullscreenBoot_Serialized()
         {

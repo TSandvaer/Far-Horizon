@@ -518,12 +518,27 @@ namespace FarHorizon.EditorTools
         // standalone build (bake-in-memory ships a dead click-to-move — unity-conventions.md NavMesh
         // note + the spike's iter-3 finding). The surface is added under the grounds root; U3's
         // click-to-move consumes the same baked surface.
+        //
+        // BIG ROUND ISLAND N1 ("can't walk everywhere", 86ca9a7qn). This bake is the AUTHORITATIVE
+        // whole-island NavMesh: it runs AFTER LowPolyZoneGen.BuildZone has built the sloped island terrain
+        // collider (Ground_Play), collects ALL physics colliders (NOT layer-restricted), and bakes with a
+        // FINE pinned voxel so the 330u island grid + the hill slopes + the radial foreshore dip resolve
+        // cleanly into ONE continuous walkable surface. The agent can then path UP/DOWN/ACROSS the hills, not
+        // just the flat centre. (The island's max slope ~33deg — slope-probed — sits under the default agent
+        // maxSlope 45deg, so the default agent type already covers every hill; the partial coverage was the
+        // OLD flat-slab-only bake, not a slope limit.) A coverage trace dumps the walkable fraction sampled
+        // across the disc so the N1 fix is readable from the log, not just judged by eye.
         static void BakeNavMesh(GameObject groundsRoot)
         {
             var surface = groundsRoot.GetComponent<NavMeshSurface>();
             if (surface == null) surface = groundsRoot.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.All;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+            // Pin a fine voxel so the big island grid + hill slopes resolve into one continuous surface
+            // (NavMeshSurface reads slope/climb from the agent type — the default 45deg covers the ~33deg hills).
+            surface.overrideVoxelSize = true;
+            surface.voxelSize = 0.16f;
+            surface.overrideTileSize = false;
             surface.BuildNavMesh();
 
             if (surface.navMeshData != null)
@@ -537,12 +552,51 @@ namespace FarHorizon.EditorTools
                 else
                     EditorUtility.CopySerialized(surface.navMeshData, existing);
                 AssetDatabase.SaveAssets();
-                Debug.Log("[WorldBootstrap] NavMesh baked + saved -> " + navPath);
+                Debug.Log("[WorldBootstrap] NavMesh baked + saved -> " + navPath + " (voxel=0.16, collectAll)");
+                TraceNavMeshCoverage();
             }
             else
             {
                 Debug.LogWarning("[WorldBootstrap] NavMesh bake produced no data");
             }
+        }
+
+        // COVERAGE TRACE (BIG ROUND ISLAND N1 instrument, 86ca9a7qn). Sample NavMesh.SamplePosition across the
+        // walkable land disc (rings × azimuths) at the terrain surface Y, and report the walkable fraction +
+        // the worst uncovered ring. This is the ground-truth check that the agent can reach the WHOLE island —
+        // run at bake time (the just-baked surface is live in the editor's navigation system) so the N1 fix is
+        // a measured number in the bootstrap log, not an eyeball judgement. (Trees carve NavMeshObstacles at
+        // RUNTIME — they don't subtract from this static bake — so the static fraction is the reachable land.)
+        static void TraceNavMeshCoverage()
+        {
+            float plantR = LowPolyZoneGen.IslandShoreR - 6f; // the walkable land disc (inside the sand ring)
+            const int rings = 12, azimuths = 16;
+            float ox = 17.3f, oz = 41.9f; // representative offset for the surface Y sample
+            int total = 0, covered = 0;
+            float worstUncoveredRing = -1f; int worstRingMisses = 0;
+            for (int ri = 1; ri <= rings; ri++)
+            {
+                float rr = plantR * ri / rings;
+                int ringMiss = 0;
+                for (int ai = 0; ai < azimuths; ai++)
+                {
+                    float ang = ai / (float)azimuths * Mathf.PI * 2f;
+                    float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                    float y = LowPolyZoneGen.HeightAtRadial(x, z, ox, oz);
+                    total++;
+                    if (UnityEngine.AI.NavMesh.SamplePosition(new Vector3(x, y, z),
+                            out _, 3f, UnityEngine.AI.NavMesh.AllAreas))
+                        covered++;
+                    else
+                        ringMiss++;
+                }
+                if (ringMiss > worstRingMisses) { worstRingMisses = ringMiss; worstUncoveredRing = rr; }
+            }
+            float pct = total > 0 ? 100f * covered / total : 0f;
+            Debug.Log($"[world-trace] NAVMESH COVERAGE: {covered}/{total} land samples walkable ({pct:F1}%) " +
+                      $"across the round island (rings 1..{rings} × {azimuths} azimuths, walkable disc r={plantR:F0}u). " +
+                      $"worst ring r={worstUncoveredRing:F0}u missed {worstRingMisses}/{azimuths}. " +
+                      "N1: the agent must reach the WHOLE island (≥90% expected post-fix).");
         }
 
         // Add a shader to GraphicsSettings.AlwaysIncludedShaders so the standalone build does NOT strip

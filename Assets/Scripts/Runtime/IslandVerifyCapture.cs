@@ -1,6 +1,7 @@
 using System.Collections;
 using System.IO;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace FarHorizon
 {
@@ -72,6 +73,16 @@ namespace FarHorizon
             // signal to surface. (Headless deltaTime is ~0 — this MUST run in the WINDOWED -verifyIsland exe.)
             yield return MeasureFps("gameplay");
 
+            // ---- N1 NAVMESH COVERAGE (the shipped-build ground-truth for "can't walk everywhere") ----
+            // Sample the LIVE shipped NavMesh across the whole land disc + report the walkable fraction, so
+            // the soak-fix has a measured number from the BUILT exe, not just the bootstrap-time bake trace.
+            TraceNavCoverage();
+
+            // ---- N1+N2 ON-A-HILL FRAME: drive the player UP a hill (click-move via NavMesh), follow with the
+            // gameplay orbit, and capture — proving the agent REACHES the hill (N1) + the camera stays ABOVE
+            // the terrain with the player visible (N2). ----
+            yield return MoveOntoAHillAndCapture(dir);
+
             // ---- 2. OVERHEAD / high-orbit frame (proves the WHOLE round island) ----
             float h = ArgFloat("-overheadHeight", overheadHeight);
             float d = ArgFloat("-overheadDist", overheadDistance);
@@ -117,6 +128,117 @@ namespace FarHorizon
             float minFps = worstDt > 0f ? 1f / worstDt : 0f;
             Debug.Log($"[world-trace] PERF {tag}: avgFPS={avgFps:F1} minFPS={minFps:F1} " +
                       $"({frames} frames over {elapsed:F2}s) — island target size, dense jungle + sea + vista in view");
+        }
+
+        // N1 NAVMESH COVERAGE TRACE (the shipped-build "can't walk everywhere" ground-truth). Sample the LIVE
+        // NavMesh across the walkable land disc (rings × azimuths) at the real terrain surface Y (raycast down
+        // onto the Ground-layer terrain), and report the walkable fraction. ≥90% = the agent reaches the whole
+        // island; a low number = the partial-coverage N1 bug. Runs in the BUILT exe, so it is the shipped truth.
+        private void TraceNavCoverage()
+        {
+            const float islandShoreR = 120f; // LowPolyZoneGen.IslandShoreR
+            float plantR = islandShoreR - 6f;
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            int groundMask = groundLayer >= 0 ? (1 << groundLayer) : ~0;
+            const int rings = 12, azimuths = 16;
+            int total = 0, covered = 0, noTerrain = 0;
+            float worstRing = -1f; int worstMiss = 0;
+            for (int ri = 1; ri <= rings; ri++)
+            {
+                float rr = plantR * ri / rings;
+                int miss = 0;
+                for (int ai = 0; ai < azimuths; ai++)
+                {
+                    float ang = ai / (float)azimuths * Mathf.PI * 2f;
+                    float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                    float y;
+                    if (Physics.Raycast(new Vector3(x, 60f, z), Vector3.down, out RaycastHit ghit, 200f,
+                            groundMask, QueryTriggerInteraction.Ignore))
+                        y = ghit.point.y;
+                    else { noTerrain++; continue; }
+                    total++;
+                    if (NavMesh.SamplePosition(new Vector3(x, y, z), out _, 3f, NavMesh.AllAreas)) covered++;
+                    else miss++;
+                }
+                if (miss > worstMiss) { worstMiss = miss; worstRing = rr; }
+            }
+            float pct = total > 0 ? 100f * covered / total : 0f;
+            Debug.Log($"[world-trace] NAVMESH COVERAGE (shipped exe): {covered}/{total} ({pct:F1}%) walkable " +
+                      $"across the round island (worst ring r={worstRing:F0}u missed {worstMiss}/{azimuths}; " +
+                      $"{noTerrain} no-terrain pts). N1: the agent must reach the WHOLE island (≥90%).");
+        }
+
+        // N1+N2 ON-A-HILL capture: find the highest reachable hill point on the NavMesh, drive the player's
+        // ClickToMove there, follow with the gameplay orbit, and capture. Proves (N1) the agent paths UP the
+        // hill, and (N2) the orbit camera keeps the player visible / above the terrain on the elevation.
+        private IEnumerator MoveOntoAHillAndCapture(string dir)
+        {
+            var ctm = Object.FindAnyObjectByType<ClickToMove>();
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = true; // re-enable if a prior step disabled it
+            if (ctm == null)
+            {
+                Debug.Log("[world-trace] hill-walk: no ClickToMove found — skipping the on-a-hill frame");
+                yield break;
+            }
+
+            // Find a high reachable hill point: scan a ring of candidate inland points, pick the highest that
+            // samples onto the NavMesh (the agent can actually reach it).
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            int groundMask = groundLayer >= 0 ? (1 << groundLayer) : ~0;
+            Vector3 best = ctm.transform.position; float bestY = -999f; bool found = false;
+            for (float r = 30f; r <= 95f; r += 8f)
+            for (int a = 0; a < 24; a++)
+            {
+                float ang = a / 24f * Mathf.PI * 2f;
+                float x = Mathf.Cos(ang) * r, z = Mathf.Sin(ang) * r;
+                if (!Physics.Raycast(new Vector3(x, 60f, z), Vector3.down, out RaycastHit gh, 200f,
+                        groundMask, QueryTriggerInteraction.Ignore)) continue;
+                if (gh.point.y <= bestY) continue;
+                if (NavMesh.SamplePosition(gh.point, out NavMeshHit nh, 3f, NavMesh.AllAreas))
+                { best = nh.position; bestY = gh.point.y; found = true; }
+            }
+
+            if (!found)
+            {
+                Debug.Log("[world-trace] hill-walk: no reachable hill point found on the NavMesh — N1 may be unfixed");
+                yield break;
+            }
+            Debug.Log($"[world-trace] hill-walk: driving player to highest reachable hill @ {best.ToString("F1")} (y={bestY:F1})");
+
+            bool set = ctm.MoveTo(best);
+            Debug.Log($"[world-trace] hill-walk: MoveTo set={set}");
+
+            // Walk a real wall-clock window so the agent traverses up the hill (headless deltaTime~0 trap —
+            // this runs in the WINDOWED exe so Time advances). Follow with the gameplay orbit.
+            float t0 = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - t0 < 8f)
+            {
+                float planar = Vector2.Distance(
+                    new Vector2(ctm.transform.position.x, ctm.transform.position.z),
+                    new Vector2(best.x, best.z));
+                if (planar <= 1.0f) break;
+                yield return null;
+            }
+
+            // Frame the player on the hill with the default gameplay orbit.
+            if (orbit != null) { orbit.SetYaw(0f); orbit.SetPitch(55f); orbit.SetDistance(14f); }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+
+            float finalPlanar = Vector2.Distance(
+                new Vector2(ctm.transform.position.x, ctm.transform.position.z),
+                new Vector2(best.x, best.z));
+            var cam = Camera.main;
+            float camAboveGround = 999f;
+            if (cam != null && Physics.Raycast(cam.transform.position + Vector3.up * 200f, Vector3.down,
+                    out RaycastHit ch, 400f, groundMask, QueryTriggerInteraction.Ignore))
+                camAboveGround = cam.transform.position.y - ch.point.y;
+            Debug.Log($"[world-trace] hill-walk RESULT: player@{ctm.transform.position.ToString("F1")} " +
+                      $"finalPlanarToHill={finalPlanar:F1} (N1 reached if small) | camAboveGround={camAboveGround:F1} " +
+                      $"(N2 ok if > 0). camPos={(cam != null ? cam.transform.position.ToString("F1") : "<none>")}");
+            ShotTo(Path.Combine(dir, "island_on_hill.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
         }
 
         // Dump the camera ground-truth (transform + centre-ray ground hit + how many island/sea/vista
