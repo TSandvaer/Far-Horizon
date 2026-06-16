@@ -170,14 +170,17 @@ namespace FarHorizon.EditorTools
         // samples Perlin on a CIRCLE of radius CoastNoiseRadius — bigger radius = the azimuth sweep crosses
         // more noise cells = a genuinely irregular (not near-circular) coast.
         public const float CoastIrregAmp = 26f;        // ±u the coast wanders off the mean (bays + headlands)
-        public const float CoastNoiseRadius = 8f;      // circle radius the azimuth noise samples — moderate so the
-                                                       // bays/headlands are BROAD + believable (not high-freq spikes)
+        public const float CoastNoiseRadius = 2.0f;    // circle radius the azimuth noise samples. SMALL = the
+                                                       // azimuth sweep crosses FEW noise cells = BROAD lazy bays
+                                                       // (3-5 lobes). Large radius made a high-freq spiky urchin.
         // AC2 — cliff vs beach. A separate azimuth field selects CLIFF sectors: where it exceeds
         // (1 - CliffFraction) the coast is a steep rock cliff; elsewhere a flat sand beach. The fraction is
         // the share of the coastline that is cliff (the rest beach). Cliff sectors drop ~vertically; beach
         // sectors are a flat sand strip at ~grass level.
         public const float CliffFraction = 0.42f;      // ~42% of the coast is cliff, the rest sand beach
-        public const float CliffNoiseRadius = 9f;      // circle radius the cliff/beach noise samples (alternations)
+        public const float CliffNoiseRadius = 2.4f;    // circle radius the cliff/beach noise samples. SMALL = a
+                                                       // few BROAD cliff/beach STRETCHES around the coast (not
+                                                       // rapid alternation) — believable headlands vs bays.
         public const float CliffDropDepth = 7.5f;  // how far a cliff face plunges below the shore lip (steep)
         // AC3 — beach width. The flat sand strip (beach sectors) spans this many u inland of the waterline,
         // staying ~grass level — NOT a downhill ramp. Inland of it the land is grass at ~plateau level.
@@ -474,6 +477,24 @@ namespace FarHorizon.EditorTools
         {
             var rnd = new System.Random(seed + 555);
             SeedOffset(seed, out float ox, out float oz); // SAME warp offset as the terrain (plant on the real land)
+
+            // COAST-STATS TRACE (86ca9qwr3 instrument): dump the warped coast radius around 36 azimuths so the
+            // outline's smoothness/irregularity is readable from the log (not eyeballed). A big azimuth-to-
+            // azimuth JUMP = a spiky coast; smooth steps = broad bays.
+            {
+                var sb = new System.Text.StringBuilder("[world-trace] COAST radii: ");
+                float prev = ShoreRadiusAt(1f, 0f, ox, oz); float maxJump = 0f; float mn = 1e9f, mx = -1e9f, sum = 0f;
+                for (int a = 0; a < 36; a++)
+                {
+                    float ang = a / 36f * Mathf.PI * 2f;
+                    float c = ShoreRadiusAt(Mathf.Cos(ang), Mathf.Sin(ang), ox, oz);
+                    if (a < 18) sb.Append($"{c:F0} ");
+                    maxJump = Mathf.Max(maxJump, Mathf.Abs(c - prev)); prev = c;
+                    mn = Mathf.Min(mn, c); mx = Mathf.Max(mx, c); sum += c;
+                }
+                Debug.Log(sb.ToString());
+                Debug.Log($"[world-trace] COAST stats: min={mn:F0} max={mx:F0} mean={sum/36:F0} maxAdjacentJump={maxJump:F1}u (big jump = spiky)");
+            }
 
             // The walkable/plant-able land disc. The coast is WARPED (86ca9qwr3), so a fixed plantR would put
             // trees in the sea (in bays) or leave a gap (off headlands). Sample the OUTER bound and REJECT any
