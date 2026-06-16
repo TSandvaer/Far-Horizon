@@ -158,6 +158,43 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxeRig_StabilizeFrame_IsTheFacingCarryingModelChild_NotTheRoot()
+        {
+            // 86ca9xz00 regression guard (the FACING-LAG bug, at the serialization layer). The held axe lagged
+            // facing because HeldAxeRig.stabilizeFrame was wired to the CastawayCharacter ROOT, which never yaws
+            // — facing is applied to the MODEL CHILD (_model.localRotation), so the slow grip anchor eased the
+            // facing yaw away (the axe "seated only one direction"). The FIX wires stabilizeFrame to the
+            // facing-carrying model child (CastawayCharacter.ModelTransform). This pins that the SHIPPED scene
+            // actually serializes that wiring: a regression back to the root (or a null frame) reds in CI rather
+            // than re-shipping the lag. (The PlayMode HeldAxeFacingFramePlayModeTests proves the BEHAVIOUR
+            // red-vs-green; this proves the scene carries the wiring that makes it hold.)
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+
+            var rig = axe.GetComponent<HeldAxeRig>();
+            Assert.IsNotNull(rig, "the held axe must carry the HeldAxeRig driver (the swing-stabilizer)");
+            Assert.IsNotNull(rig.stabilizeFrame,
+                "HeldAxeRig.stabilizeFrame must be wired editor-time (serialized) — a null frame falls back to " +
+                "the root at runtime and re-introduces the facing lag (86ca9xz00)");
+
+            var castaway = Object.FindObjectOfType<CastawayCharacter>();
+            Assert.IsNotNull(castaway, "the Boot scene must carry the CastawayCharacter");
+            Assert.IsNotNull(castaway.ModelTransform,
+                "CastawayCharacter.ModelTransform (the facing-carrying model child) must resolve in the scene");
+
+            // The load-bearing pin: stabilizeFrame IS the model child (the facing-carrying transform), NOT the
+            // CastawayCharacter root. Wiring it to the root is the exact 86ca9xz00 bug.
+            Assert.AreSame(castaway.ModelTransform, rig.stabilizeFrame,
+                "HeldAxeRig.stabilizeFrame must be the CastawayCharacter's MODEL CHILD (the facing-carrying " +
+                $"transform '{castaway.ModelTransform.name}'), got '{rig.stabilizeFrame.name}'. Facing lives on " +
+                "_model.localRotation, NOT the root — anchoring the grip in the root lets the slow anchor ease " +
+                "the facing yaw away and the axe lags facing (the 86ca9xz00 'seated only one direction' bug).");
+            Assert.AreNotSame(castaway.transform, rig.stabilizeFrame,
+                "HeldAxeRig.stabilizeFrame must NOT be the CastawayCharacter root (the pre-fix wiring that lagged facing).");
+        }
+
+        [Test]
         public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
         {
             // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the

@@ -155,8 +155,16 @@ namespace FarHorizon
         /// ("seated only one direction"). Anchoring in _model passes facing through immediately while still
         /// damping only the per-step arm-swing (the hand relative to _model). Resolves editor-time after
         /// BuildInEditor (the wiring path) and at runtime after RebindFromHierarchy/BuildModel.
+        ///
+        /// STATIC-LOAD FALLBACK (the editor-vs-runtime serialization trap): _model is a private runtime field,
+        /// NOT serialized, so it is null on a freshly-deserialized scene where Awake hasn't run (an EditMode
+        /// scene-presence test, or any editor-static load). The MODEL CHILD itself IS serialized in the
+        /// hierarchy (built editor-time by BuildInEditor → the first child, named "Model"), so fall back to the
+        /// first child when _model is unresolved — RebindFromHierarchy uses the same GetChild(0) contract. This
+        /// lets the editor-time wiring + the scene-presence guard read the model child without a play loop.
         /// </summary>
-        public Transform ModelTransform => _model;
+        public Transform ModelTransform => _model != null ? _model
+            : (transform.childCount > 0 ? transform.GetChild(0) : null);
 
         void Awake()
         {
