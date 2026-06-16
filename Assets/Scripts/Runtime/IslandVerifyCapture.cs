@@ -40,8 +40,6 @@ namespace FarHorizon
 
         void Start()
         {
-            Debug.Log("[world-trace] IslandVerifyCapture.Start args=[" +
-                      string.Join(" ", System.Environment.GetCommandLineArgs()) + "]");
             if (HasArg("-diagLine"))
                 StartCoroutine(RunLineDiagnostic());
             else if (HasArg("-islandShape"))
@@ -220,6 +218,20 @@ namespace FarHorizon
             for (int i = 0; i < settleFrames; i++) yield return null;
             TraceCamera("shape_topdown");
             ShotTo(Path.Combine(dir, "island_topdown.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // A LOW COASTAL frame skimming the shore (AC2 — proves the beach vs CLIFF contrast, which a
+            // top-down can't show: a vertical cliff face has almost no top-down footprint). Camera low + just
+            // off the coast looking ALONG the shoreline so beaches (flat sand) and cliffs (rock drop) both read.
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(-150f, 14f, -40f);
+                cam.transform.rotation = Quaternion.LookRotation((new Vector3(0f, 0f, 30f) - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("shape_coast");
+            ShotTo(Path.Combine(dir, "island_coast.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
 
