@@ -110,10 +110,22 @@ namespace FarHorizon
         private Quaternion _anchorLocalRot;
         private bool _anchorInit;
 
+        // WALK BOUNCE + RATCHET FIX (86ca9ykp0): the FIXED grip height (world units) of the followed grip ABOVE
+        // the grounded (bob-removed) stabilizeFrame, captured ONCE at anchor-init. The axe VERTICAL is
+        // reconstructed from the grounded body + this constant, so it cannot bounce (no live modelSoleGround bob)
+        // nor ratchet (no eased accumulation in the vertical). Horizontal seat + rotation still ride the anchor.
+        private float _gripHeightAboveGrounded;
+        private bool _gripHeightInit;
+
         /// <summary>The current followed (stabilized) hand WORLD position the axe pivot rides — exposed so the
         /// PlayMode regression can assert the stabilization removes the per-step swing (the axe follows the
         /// settled grip, not the raw swing).</summary>
         public Vector3 FollowPos { get; private set; }
+
+        /// <summary>The grip-anchor's local-Y in the stabilizeFrame (the eased body-local hand rest pose) —
+        /// exposed READ-ONLY for the -axeWalkTrace instrument (86ca9ykp0) so the per-frame dump can show
+        /// whether the anchor itself ratchets/drifts vs the stabilizeFrame Y-bob. NaN until the anchor inits.</summary>
+        public float AnchorLocalY => _anchorInit ? _anchorLocalPos.y : float.NaN;
 
         void Awake()
         {
@@ -180,6 +192,40 @@ namespace FarHorizon
                 Quaternion followLocalRot = Quaternion.Slerp(localRot, _anchorLocalRot, t);
                 followPos = frame.TransformPoint(followLocalPos);
                 followRot = frame.rotation * followLocalRot;
+
+                // ===== WALK BOUNCE + RATCHET FIX (86ca9ykp0). DIAGNOSE (PlayMode -axeWalkTrace + the
+                // HeldAxeWalkBounce diagnose test) PINNED two coupled defects, BOTH from stabilizeFrame=_model
+                // (the 86ca9xz00 facing fix — KEPT) carrying the modelSoleGround Y-bob into the VERTICAL channel:
+                //   - BOUNCE: frame.TransformPoint re-applies _model's live per-frame Y-bob (modelSoleGround
+                //     cancels the Mixamo WALK hip-lift on _model.localPosition.y) → followPos.y bobs per step.
+                //   - RATCHET: the grip anchor eases toward the hand's pose IN the _model frame; the hand bone
+                //     carries the WALK hip-lift (~+0.66u model-local) while walking, so _anchorLocalPos.y
+                //     integrates UP each walk leg and the SLOW anchor (anchorTrackPerSec) doesn't ease back to
+                //     the idle rest between legs → the settled axe-Y climbs MONOTONICALLY (the Sponsor's "settles
+                //     HIGHER each step"). Confirmed: settledAxeY 1.0975→1.1002 monotone over 6 steps, RED test.
+                //
+                // FIX: DECOUPLE the axe VERTICAL from the _model-Y / anchor feedback loop entirely. The horizontal
+                // seat + rotation still ride the facing-carrying anchor (facing passes through — 86ca9xz00 kept;
+                // arm-swing still damped — 86ca8rdkp kept). But followPos.Y is reconstructed from a STABLE vertical
+                // reference that carries NEITHER the per-frame bob NOR the accumulating anchor:
+                //   stableY = (frame world-Y with the modelSoleGround bob REMOVED) + a FIXED grip-height offset
+                //             captured ONCE at anchor-init (the rest hand-above-grounded-body height).
+                // The bob-free frame Y = frame.position.y − rootScale·frameLocalY (frame.localPosition.x/z are 0,
+                // so removing the local-Y bob yields the GROUNDED avatar-root Y the body actually stands at). The
+                // grip-height offset is constant, so the axe vertical CANNOT bounce (no live bob) and CANNOT
+                // ratchet (no eased accumulation) — it rides the grounded body only. modelSoleGround is UNTOUCHED
+                // (we only READ frame.localPosition.y to subtract it for the axe; the model child still bobs to
+                // keep the rendered SOLE planted). Returns to baseline by construction (a fixed offset).
+                float bob = frame.localPosition.y * StableYScale(frame);   // the modelSoleGround world-Y bob
+                float frameGroundedY = frame.position.y - bob;             // frame Y with the bob removed
+                if (!_gripHeightInit)
+                {
+                    // Capture the rest grip height ONCE: the followed grip's world-Y above the grounded frame.
+                    _gripHeightAboveGrounded = followPos.y - frameGroundedY;
+                    _gripHeightInit = true;
+                }
+                // Reconstruct the VERTICAL from the grounded body + the fixed grip height (no bob, no ratchet).
+                followPos.y = frameGroundedY + _gripHeightAboveGrounded;
             }
 
             // POSITION in HAND-LOCAL space (86ca9qwvd): rotate the cm-scale offset by the (stabilized) hand
@@ -194,6 +240,18 @@ namespace FarHorizon
             transform.position = followPos + followRot * worldOffsetFromHand;
             transform.rotation = followRot * Quaternion.Euler(relEuler);
             FollowPos = followPos;
+        }
+
+        // The world-Y scale that converts the stabilizeFrame's LOCAL-Y (the modelSoleGround bob, applied on
+        // frame.localPosition.y) into WORLD units, so we can subtract the bob from frame.position.y. The frame
+        // (_model) carries localScale=1; the avatar-root PARENT carries the height-scale, so the parent's world
+        // Y-scale is the conversion factor. Defaults to 1 (no parent / unit scale) so the synthetic PlayMode rig
+        // (parent scale 1) and the shipped scaled rig both compute the bob correctly. Guarded against ~0.
+        private static float StableYScale(Transform frame)
+        {
+            if (frame == null || frame.parent == null) return 1f;
+            float s = frame.parent.lossyScale.y;
+            return Mathf.Abs(s) < 1e-4f ? 1f : s;
         }
     }
 }

@@ -255,6 +255,12 @@ namespace FarHorizon
         /// the PlayMode grounding regression so it can assert the feet are planted on the visible surface.</summary>
         public float GroundSnapLocalY => _snapLocalY;
 
+        /// <summary>The MODEL CHILD's current local-Y — the per-frame modelSoleGround offset that cancels the
+        /// Mixamo WALK-clip body-lift (Idle ~0, Walk ~+0.66). Exposed READ-ONLY for the -axeWalkTrace instrument
+        /// (86ca9ykp0): this is the Y-oscillation a HeldAxeRig stabilizeFrame=_model rides, so the trace can
+        /// PIN it as the bounce/ratchet source. NaN until the model is built.</summary>
+        public float ModelLocalY => _model != null ? _model.localPosition.y : float.NaN;
+
         /// <summary>The WORLD Y of the surface the LAST ground-snap raycast SELECTED to plant the feet on
         /// (NaN if no ground was hit). This is the snap TARGET before smoothing — exposed so the PlayMode
         /// regression can assert the snap picks the VISIBLE terrain (not the proxy slab) WITHOUT depending on
