@@ -115,6 +115,46 @@ namespace FarHorizon
             }
             for (int i = 0; i < settleFrames; i++) yield return null;
 
+            // WATER-MESH PROBE (INERT): the camera-framing diagnosis kept landing on skybox where the sea
+            // 'should' be — so dump GROUND TRUTH about the water mesh from THIS camera: renderer enabled?
+            // world bounds? material _FogCap? AND ray-march the camera centre + a down-sample ray against the
+            // WaterY plane to confirm the sea geometry is actually IN the look direction (vs hidden/culled).
+            if (HasArg("-waterProbe") && cam != null)
+            {
+                var waterGo = GameObject.Find("Water_Play");
+                if (waterGo != null)
+                {
+                    var wmr = waterGo.GetComponent<MeshRenderer>();
+                    var wmat = wmr != null ? wmr.sharedMaterial : null;
+                    Bounds b = wmr != null ? wmr.bounds : new Bounds();
+                    Debug.Log($"[waterProbe] Water_Play rendererEnabled={(wmr != null && wmr.enabled)} " +
+                              $"shader={(wmat != null ? wmat.shader.name : "null")} " +
+                              $"_FogCap={(wmat != null && wmat.HasProperty("_FogCap") ? wmat.GetFloat("_FogCap").ToString("F2") : "n/a")} " +
+                              $"_WaveAmp={(wmat != null && wmat.HasProperty("_WaveAmp") ? wmat.GetFloat("_WaveAmp").ToString("F2") : "n/a")} " +
+                              $"boundsCtr={b.center.ToString("F1")} boundsSize={b.size.ToString("F0")}");
+                    // Cast a few screen rays at the LOWER frame (where the sea should be) and report whether the
+                    // WaterY plane is in front + how far (fog intensity at that distance).
+                    foreach (float sy in new[] { 0.20f, 0.35f, 0.45f })
+                    {
+                        Ray r = cam.ViewportPointToRay(new Vector3(0.5f, sy, 0f));
+                        string hit = "(ray never reaches WaterY plane in view)";
+                        if (r.direction.y < -1e-4f)
+                        {
+                            float t = (-0.20f - r.origin.y) / r.direction.y;
+                            if (t > 0f)
+                            {
+                                Vector3 p = r.origin + r.direction * t;
+                                float rr = new Vector2(p.x, p.z).magnitude;
+                                bool insideMesh = Mathf.Abs(p.x) <= b.extents.x + 1f && Mathf.Abs(p.z - b.center.z) <= b.extents.z + 1f;
+                                hit = $"hits WaterY @ {p.ToString("F0")} (r={rr:F0}u, dist={t:F0}u, insideWaterBounds={insideMesh})";
+                            }
+                        }
+                        Debug.Log($"[waterProbe] screenY={sy:F2} {hit}");
+                    }
+                }
+                else Debug.Log("[waterProbe] Water_Play NOT FOUND in scene");
+            }
+
             ShotTo(Path.Combine(dir, "coast_seaward.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
