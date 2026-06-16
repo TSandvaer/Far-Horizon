@@ -40,11 +40,19 @@ namespace FarHorizon
 
         void Start()
         {
-            if (HasArg("-verifyWalkGround"))
-                StartCoroutine(Run());
+            // 86ca9zcjn — -verifyAxeWalk is the same gameplay-cam walk capture, but it FORCE-SHOWS the held axe
+            // (HasAxe-gated + hidden at spawn) so the captured frames VISUALLY prove the held axe FOLLOWS the
+            // arm's natural swing during locomotion (the Sponsor's design choice) — in-hand, swinging with the
+            // arm mid-stride, no detach. Distinct flag so -verifyWalkGround (feet-grounding, axe hidden) is
+            // unchanged. The PlayMode HeldAxeWalkBounce tests + the -axeWalkTrace pin the bounded behaviour;
+            // this is the eyes-on committed evidence (a frozen axe would read out of the hand mid-stride here).
+            if (HasArg("-verifyAxeWalk"))
+                StartCoroutine(Run(forceShowAxe: true, fileTag: "axewalk"));
+            else if (HasArg("-verifyWalkGround"))
+                StartCoroutine(Run(forceShowAxe: false, fileTag: ""));
         }
 
-        private IEnumerator Run()
+        private IEnumerator Run(bool forceShowAxe, string fileTag)
         {
             string dir = ResolveDir();
             Directory.CreateDirectory(dir);
@@ -58,6 +66,27 @@ namespace FarHorizon
                 Application.Quit(1);
                 yield break;
             }
+
+            // 86ca9zcjn — FORCE-SHOW the held axe so the walk frames prove it follows the arm-swing. The axe is
+            // HasAxe-gated (HeldAxe) + hidden at spawn; verification needs it visible. This is verification-only
+            // (gameplay visibility is untouched). Find the HeroAxe + enable its renderers.
+            if (forceShowAxe)
+            {
+                GameObject axe = null;
+                foreach (var tr in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    if (tr.name == "HeroAxe") { axe = tr.gameObject; break; }
+                if (axe == null)
+                {
+                    Debug.LogError("[WalkGroundingVerifyCapture] -verifyAxeWalk: HeroAxe not in scene — cannot " +
+                                   "capture the held axe following the arm-swing");
+                    Application.Quit(1);
+                    yield break;
+                }
+                int shown = 0;
+                foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) { r.enabled = true; shown++; }
+                Debug.Log($"[WalkGroundingVerifyCapture] -verifyAxeWalk: force-showed {shown} held-axe renderer(s)");
+            }
+
             castaway.SetFrameTrace(true); // mirror a soak: compute the live [FloatTrace] gauge each frame
 
             // Wait for the agent to land on the NavMesh (the documented first-frame init race).
@@ -66,33 +95,34 @@ namespace FarHorizon
             Debug.Log("[WalkGroundingVerifyCapture] agent on NavMesh: " + agent.isOnNavMesh + " after " + t.ToString("0.00") + "s");
 
             Vector3 spawn = player.position;
+            string pfx = string.IsNullOrEmpty(fileTag) ? "" : fileTag + "_";
 
             // --- POSITION 1: SPAWN ---
             // Standing at spawn: let the snap + Idle clip settle, then capture.
             for (int i = 0; i < 30; i++) yield return null;
             Trace(castaway, "spawn_standing");
-            yield return Shot(dir, "1_spawn_standing.png");
+            yield return Shot(dir, pfx + "1_spawn_standing.png");
 
             // Mid-stride leaving spawn: drive toward mid-beach, capture the FIRST clearly-walking moment.
-            yield return WalkAndShootMidStride(castaway, agent, spawn + midBeachOffset, dir, "1_spawn_midstride.png");
+            yield return WalkAndShootMidStride(castaway, agent, spawn + midBeachOffset, dir, pfx + "1_spawn_midstride.png");
 
             // --- POSITION 2: MID-FLAT-BEACH (arrived from the walk above) ---
             yield return WaitArrived(agent, spawn + midBeachOffset);
             for (int i = 0; i < 25; i++) yield return null; // settle to idle
             Trace(castaway, "midbeach_standing");
-            yield return Shot(dir, "2_midbeach_standing.png");
+            yield return Shot(dir, pfx + "2_midbeach_standing.png");
 
             // Mid-stride at mid-beach: walk on toward the foreshore, capture mid-stride.
-            yield return WalkAndShootMidStride(castaway, agent, spawn + foreshoreOffset, dir, "2_midbeach_midstride.png");
+            yield return WalkAndShootMidStride(castaway, agent, spawn + foreshoreOffset, dir, pfx + "2_midbeach_midstride.png");
 
             // --- POSITION 3: FORESHORE (the worst-float band) ---
             yield return WaitArrived(agent, spawn + foreshoreOffset);
             for (int i = 0; i < 25; i++) yield return null;
             Trace(castaway, "foreshore_standing");
-            yield return Shot(dir, "3_foreshore_standing.png");
+            yield return Shot(dir, pfx + "3_foreshore_standing.png");
 
             // Mid-stride at the foreshore: walk back inland a little, capture mid-stride on the dipping sand.
-            yield return WalkAndShootMidStride(castaway, agent, spawn + midBeachOffset, dir, "3_foreshore_midstride.png");
+            yield return WalkAndShootMidStride(castaway, agent, spawn + midBeachOffset, dir, pfx + "3_foreshore_midstride.png");
 
             Debug.Log("[WalkGroundingVerifyCapture] complete -> " + dir);
             yield return new WaitForSeconds(0.4f);
