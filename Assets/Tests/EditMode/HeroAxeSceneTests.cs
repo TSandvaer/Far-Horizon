@@ -158,40 +158,46 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_HeldAxeRig_StabilizeFrame_IsTheFacingCarryingModelChild_NotTheRoot()
+        public void BootScene_HeldAxeRig_RidesTheRawHandBone_FollowsTheArmSwing_NoStabilizer()
         {
-            // 86ca9xz00 regression guard (the FACING-LAG bug, at the serialization layer). The held axe lagged
-            // facing because HeldAxeRig.stabilizeFrame was wired to the CastawayCharacter ROOT, which never yaws
-            // — facing is applied to the MODEL CHILD (_model.localRotation), so the slow grip anchor eased the
-            // facing yaw away (the axe "seated only one direction"). The FIX wires stabilizeFrame to the
-            // facing-carrying model child (CastawayCharacter.ModelTransform). This pins that the SHIPPED scene
-            // actually serializes that wiring: a regression back to the root (or a null frame) reds in CI rather
-            // than re-shipping the lag. (The PlayMode HeldAxeFacingFramePlayModeTests proves the BEHAVIOUR
-            // red-vs-green; this proves the scene carries the wiring that makes it hold.)
+            // 86ca9zcjn regression guard (the FOLLOW-THE-ARM design choice, at the serialization layer). The
+            // Sponsor (soak 6bcc1bc) chose for the held axe to FOLLOW the right arm's natural swing during
+            // locomotion — it rides the RAW hand bone (the prior swing-stabilizer / grip-anchor + the
+            // vertical-decouple are REMOVED). This pins that the SHIPPED scene serializes the follow wiring:
+            //   (a) the rig's hand IS the right-hand bone (so it follows the arm, and the facing yaw the raw
+            //       hand carries passes through — the 86ca9xz00 facing-follow contract, now via the raw hand),
+            //   (b) followDamp is 0 (the per-step swing is VISIBLE by default — the Sponsor's choice; AC2 says
+            //       a LIGHT damp is OK to de-jitter but must NOT re-lock the swing).
+            // A regression that re-introduced a stabilizer (followDamp cranked to re-lock) or detached the axe
+            // from the hand reds in CI rather than re-shipping a locked axe. (The PlayMode HeldAxeWalkBounce /
+            // HeldAxeSwingStabilize tests prove the BEHAVIOUR; this proves the scene carries the wiring.)
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var axe = FindHeroAxe();
             Assert.IsNotNull(axe, "hero axe must be present");
 
             var rig = axe.GetComponent<HeldAxeRig>();
-            Assert.IsNotNull(rig, "the held axe must carry the HeldAxeRig driver (the swing-stabilizer)");
-            Assert.IsNotNull(rig.stabilizeFrame,
-                "HeldAxeRig.stabilizeFrame must be wired editor-time (serialized) — a null frame falls back to " +
-                "the root at runtime and re-introduces the facing lag (86ca9xz00)");
+            Assert.IsNotNull(rig, "the held axe must carry the HeldAxeRig driver");
+            Assert.IsNotNull(rig.hand,
+                "HeldAxeRig.hand must be wired editor-time (serialized) to the right-hand bone — the axe rides " +
+                "the RAW hand so it follows the arm's natural swing AND the facing yaw the hand carries (86ca9zcjn).");
 
             var castaway = Object.FindObjectOfType<CastawayCharacter>();
             Assert.IsNotNull(castaway, "the Boot scene must carry the CastawayCharacter");
-            Assert.IsNotNull(castaway.ModelTransform,
-                "CastawayCharacter.ModelTransform (the facing-carrying model child) must resolve in the scene");
 
-            // The load-bearing pin: stabilizeFrame IS the model child (the facing-carrying transform), NOT the
-            // CastawayCharacter root. Wiring it to the root is the exact 86ca9xz00 bug.
-            Assert.AreSame(castaway.ModelTransform, rig.stabilizeFrame,
-                "HeldAxeRig.stabilizeFrame must be the CastawayCharacter's MODEL CHILD (the facing-carrying " +
-                $"transform '{castaway.ModelTransform.name}'), got '{rig.stabilizeFrame.name}'. Facing lives on " +
-                "_model.localRotation, NOT the root — anchoring the grip in the root lets the slow anchor ease " +
-                "the facing yaw away and the axe lags facing (the 86ca9xz00 'seated only one direction' bug).");
-            Assert.AreNotSame(castaway.transform, rig.stabilizeFrame,
-                "HeldAxeRig.stabilizeFrame must NOT be the CastawayCharacter root (the pre-fix wiring that lagged facing).");
+            // The hand the rig rides must live UNDER the castaway model (it's the rig's right-hand bone, an
+            // animated bone whose per-step swing the axe now follows) — not some detached/world transform.
+            Assert.IsTrue(rig.hand.IsChildOf(castaway.transform),
+                $"HeldAxeRig.hand ('{rig.hand.name}') must be a bone under the CastawayCharacter — the axe rides " +
+                "the animated hand so it swings with the arm (86ca9zcjn follow-the-arm).");
+
+            // followDamp must be 0 (the per-step arm-swing is fully visible — the Sponsor's design choice). A
+            // value large enough to re-lock the swing would re-ship the detached-mid-stride read the Sponsor
+            // rejected; AC2: "if it reads wild, damp it, don't lock it" — so a small de-jitter is allowed but
+            // the shipped default is the raw follow.
+            Assert.That(rig.followDamp, Is.EqualTo(0f),
+                $"HeldAxeRig.followDamp must ship at 0 (raw-hand follow → the per-step arm-swing is visible — the " +
+                $"Sponsor's choice, 86ca9zcjn AC2), got {rig.followDamp}. A non-zero shipped damp re-locks the " +
+                "swing the Sponsor explicitly chose to keep.");
         }
 
         [Test]

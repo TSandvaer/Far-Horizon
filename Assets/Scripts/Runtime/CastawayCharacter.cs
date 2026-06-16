@@ -146,15 +146,14 @@ namespace FarHorizon
         /// <summary>
         /// The instantiated FBX MODEL child — the transform that gets yaw-rotated toward facing
         /// (<c>_model.localRotation = Euler(0, _bodyYaw, 0)</c>, see <see cref="LateUpdate"/>). Exposed
-        /// (86ca9xz00) so a held prop's swing-stabilizer can anchor its grip in the FACING-CARRYING frame.
+        /// (86ca9xz00) as the FACING-CARRYING frame — still consumed by CastawayArmPose + the AxeWalkTrace
+        /// instrument. (HISTORY: 86ca9xz00 wired a held-axe swing-stabilizer's grip anchor to this frame; that
+        /// stabilizer was REMOVED in 86ca9zcjn when the Sponsor chose for the held axe to FOLLOW the arm's
+        /// natural swing — the axe now rides the RAW hand bone directly. The model child still owns facing.)
         ///
         /// WHY THIS, NOT the CastawayCharacter root: facing lives on the MODEL CHILD, not on this component's
-        /// transform (the agent has updateRotation=false; "the visual owns facing", :25). A held axe whose
-        /// HeldAxeRig.stabilizeFrame was wired to the ROOT had its facing yaw land in the root-local grip-anchor
-        /// pose and get EASED AWAY by the slow anchor (anchorTrackPerSec ≈ 0.12/s ≈ 8s) → the axe LAGGED facing
-        /// ("seated only one direction"). Anchoring in _model passes facing through immediately while still
-        /// damping only the per-step arm-swing (the hand relative to _model). Resolves editor-time after
-        /// BuildInEditor (the wiring path) and at runtime after RebindFromHierarchy/BuildModel.
+        /// transform (the agent has updateRotation=false; "the visual owns facing", :25). Resolves editor-time
+        /// after BuildInEditor (the wiring path) and at runtime after RebindFromHierarchy/BuildModel.
         ///
         /// STATIC-LOAD FALLBACK (the editor-vs-runtime serialization trap): _model is a private runtime field,
         /// NOT serialized, so it is null on a freshly-deserialized scene where Awake hasn't run (an EditMode

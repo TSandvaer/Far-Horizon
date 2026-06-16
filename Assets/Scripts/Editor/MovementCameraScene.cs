@@ -129,12 +129,18 @@ namespace FarHorizon.EditorTools
         //     hand. REASONABLE default; the Sponsor fine-tunes on the re-soak (F9 nudge, world units).
         //   - ROTATION: a hand-relative euler so the haft reads roughly along the forearm/grip. REASONABLE;
         //     the exact dial + the swing-into-head re-check are FOLLOW-UPS (per the ticket OOS).
-        // RE-SOAK #3 (86ca8rdkp): the Sponsor DIALED the held axe in-game via F9 and reported these values
-        // (European decimal commas -> dot-decimal here, digit-checked). They REPLACE the reasonable defaults
-        // above — this is what-he-dialed-is-what-ships. The F9 AxeNudgeTool still drives these fields so he can
-        // re-tune later. (The held axe is STABILIZED against the walk arm-swing by HeldAxeRig — soak-fix #3.)
+        // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc): the held axe now FOLLOWS the right arm's natural
+        // swing (it rides the RAW hand bone — see HeldAxeRig). AC5 SEAT — start from the Sponsor's dialed F9
+        // seat (observed across 2 shots in the prior soak: coast (0.0580,-0.1431,0.0230) / forest
+        // (-0.0925,-0.1253,-0.0103), euler (16,2,-82)). The coast dial is the starting WORLD offset; the
+        // Sponsor RE-CONFIRMS the final seat on the next soak via F9 (the behavior change may shift the feel).
+        // The F9 AxeNudgeTool still drives these fields so he can re-tune.
         public static readonly Vector3 HeldAxeRelEuler = new Vector3(16.0f, 2.0f, -82.0f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.0800f, -0.1400f, -0.0400f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.0580f, -0.1431f, 0.0230f);
+        // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
+        // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
+        // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
+        public static readonly float HeldAxeFollowDamp = 0f;
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -501,20 +507,14 @@ namespace FarHorizon.EditorTools
             Vector3 handLocalOffset = Quaternion.Inverse(hand.rotation) * HeldAxeWorldOffsetFromHand;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
             rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
-            // RE-SOAK #3 — the grip is stabilized in a body frame that translates with locomotion + YAWS with
-            // facing but does NOT arm-swing, so the swing low-pass passes facing through while damping the
-            // per-step swing. 86ca9xz00 — that frame is the MODEL CHILD (castaway.ModelTransform), NOT the
-            // CastawayCharacter root: facing is applied to _model.localRotation ("the visual owns facing"),
-            // NOT to the root. Wiring the stabilizeFrame to the root put the facing yaw INTO the root-local
-            // grip-anchor pose, where the slow anchor (anchorTrackPerSec ≈ 0.12/s ≈ 8s) EASED IT AWAY → the
-            // axe LAGGED facing ("seated only one direction"). Anchoring in _model passes facing through
-            // immediately; only the arm-swing (hand relative to _model) is eased. Falls back to the root if
-            // the model child is somehow not built yet (the Awake fallback also prefers the model).
-            rig.stabilizeFrame = castaway.ModelTransform != null ? castaway.ModelTransform : castaway.transform;
-            if (castaway.ModelTransform == null)
-                Debug.LogWarning("[MovementCameraScene] CastawayCharacter model child not built — held-axe " +
-                                 "stabilizeFrame fell back to the root; facing may lag (86ca9xz00). Ensure " +
-                                 "BuildInEditor ran before AttachHeroAxeToHand.");
+            // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
+            // natural swing during locomotion: it rides the RAW hand bone. The prior swing-stabilizer /
+            // grip-anchor (86ca8rdkp) + the vertical-decouple bounce/ratchet fix (86ca9ykp0) are REMOVED
+            // (the Sponsor explicitly reversed the old "the axe changes position when I walk" preference).
+            // The raw hand returns to pose each walk cycle → bounded by construction, no ratchet; facing
+            // passes through immediately (the raw hand carries the facing yaw). A LIGHT damp is available to
+            // de-jitter without re-locking (followDamp); it defaults to 0 so the per-step swing is visible.
+            rig.followDamp = HeldAxeFollowDamp;
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig

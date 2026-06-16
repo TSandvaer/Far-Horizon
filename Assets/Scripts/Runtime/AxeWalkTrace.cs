@@ -5,26 +5,25 @@ using UnityEngine.AI;
 namespace FarHorizon
 {
     /// <summary>
-    /// BUILD-GATED diagnostic instrument for the HELD-AXE WALK BOUNCE/RATCHET (ticket 86ca9ykp0). The Sponsor
-    /// (soak a0eb595): after the facing fix (86ca9xz00 — GOOD, the axe tracks direction), WALKING makes the held
-    /// axe BOUNCE DOWN then up AND settle HIGHER each walk step — a cumulative upward RATCHET, not just a per-step
-    /// bob. This instrument is the DIAGNOSE-BEFORE-FIX step (UNSTICK / instrument-first — this is attempt 3+ on
-    /// the held axe; do NOT guess-and-rebuild): it drives a scripted WALK cycle on the REAL player (real
+    /// BUILD-GATED diagnostic instrument for the HELD-AXE WALK FOLLOW (repurposed for 86ca9zcjn — the held axe
+    /// now FOLLOWS the right arm's natural swing, the Sponsor's design choice, soak 6bcc1bc). It was originally
+    /// the 86ca9ykp0 walk-bounce/ratchet trace; the AC3 contract is now repurposed: the axe SHOULD swing
+    /// per-step WITH the arm (no longer a bug), but it must NOT drift CUMULATIVELY across steps (no ratchet —
+    /// guaranteed by construction now that the axe rides the RAW hand with no anchor integration, but GUARDED).
+    /// This instrument is the DIAGNOSE-BEFORE-FIX step: it drives a scripted WALK cycle on the REAL player (real
     /// NavMeshAgent + the real Animator ticking the Mixamo WALK clip + the real modelSoleGround Y-bob), and dumps
-    /// PER FRAME every Y-reference the ratchet could live in, so we PIN which component drifts before touching
-    /// anything:
-    ///   - axeWorldY        — HeldAxeRig'd axe transform world Y (what the Sponsor SEES bounce/ratchet)
-    ///   - handWorldY       — the right-hand bone world Y (the raw animated swing, carries the model bob)
+    /// PER FRAME every Y-reference so we can SEE the per-step swing AND confirm there is no cumulative drift:
+    ///   - axeWorldY        — HeldAxeRig'd axe transform world Y (what the Sponsor SEES swing with the arm)
+    ///   - handWorldY       — the right-hand bone world Y (the raw animated swing the axe now rides)
     ///   - modelLocalY      — CastawayCharacter._model.localPosition.y (the modelSoleGround per-clip cancel)
-    ///   - modelWorldY      — _model world Y (root snap + scale × modelLocalY; the frame TransformPoint rides)
-    ///   - anchorLocalY     — HeldAxeRig grip-anchor local-Y in stabilizeFrame=_model (the eased rest pose)
-    ///   - followY          — HeldAxeRig.FollowPos.y (the reconstructed grip the axe seats to)
+    ///   - modelWorldY      — _model world Y (root snap + scale × modelLocalY)
+    ///   - followY          — HeldAxeRig.FollowPos.y (the raw — or lightly damped — hand the axe seats to)
     ///   - soleGroundOffset — same as modelLocalY, named for the brief's checklist line
     ///
     /// It also tracks, ACROSS a multi-step walk, the per-STEP SETTLED axe-Y (sampled at the bottom of each idle
     /// pause between scripted segments) and reports the cumulative DRIFT (last settled − first settled). A drift
-    /// that GROWS monotonically with step count is the RATCHET; a bounded oscillation that returns to baseline is
-    /// only the per-step bob. The dump distinguishes them.
+    /// that GROWS monotonically with step count would be a RATCHET (FORBIDDEN); a bounded value that returns to
+    /// baseline between legs is correct (the per-step swing is ALLOWED — it's what the Sponsor wants).
     ///
     /// Inert unless launched with -axeWalkTrace (a normal soak / boot capture is unaffected — the build-gated,
     /// asleep-by-default contract every debug instrument here follows; sibling of FloatDiagnostic's -floatTrace).
@@ -129,11 +128,10 @@ namespace FarHorizon
             float handY = rig.hand != null ? rig.hand.position.y : float.NaN;
             float modelLocalY = c.ModelLocalY;
             float modelWorldY = c.ModelTransform != null ? c.ModelTransform.position.y : float.NaN;
-            float anchorLocalY = rig.AnchorLocalY;
             float followY = rig.FollowPos.y;
             Debug.Log(
                 $"[AxeWalkTrace] {where} f={f} axeWorldY={Fmt(axeY)} handWorldY={Fmt(handY)} " +
-                $"modelLocalY={Fmt(modelLocalY)} modelWorldY={Fmt(modelWorldY)} anchorLocalY={Fmt(anchorLocalY)} " +
+                $"modelLocalY={Fmt(modelLocalY)} modelWorldY={Fmt(modelWorldY)} " +
                 $"followY={Fmt(followY)} soleGroundOffset={Fmt(modelLocalY)} groundHitY={Fmt(c.GroundHitWorldY)}");
         }
 

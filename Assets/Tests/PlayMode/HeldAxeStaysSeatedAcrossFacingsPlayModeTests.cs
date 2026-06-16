@@ -28,8 +28,8 @@ namespace FarHorizon.PlayTests
     /// (re-expressed per-facing). The pre-fix world-fixed offset makes the hand-local position SWING as the
     /// character turns (the axe drifts out of the grip) — this test reds against it. We run the REAL HeldAxeRig
     /// driver (the shipped per-frame code), not a hand-tuned hierarchy, so a regression in the position SPACE
-    /// reds here. swingStabilize is OFF so the assertion targets the position-space contract directly, free of
-    /// the (separately-tested) walk-swing low-pass.
+    /// reds here. As of 86ca9zcjn the axe rides the RAW hand bone (no stabilizer), so the assertion targets the
+    /// position-space (hand-local-offset) contract directly.
     /// </summary>
     public class HeldAxeStaysSeatedAcrossFacingsPlayModeTests
     {
@@ -63,7 +63,8 @@ namespace FarHorizon.PlayTests
             _rig.hand = _hand;
             _rig.worldOffsetFromHand = Offset; // HAND-LOCAL units under the fix
             _rig.relEuler = new Vector3(16f, 2f, -82f);
-            _rig.swingStabilize = 0f;          // target the position SPACE directly (no swing low-pass here)
+            // 86ca9zcjn — the axe rides the RAW hand bone (no stabilizer); this test targets the position SPACE
+            // contract directly (the hand-local offset tracks the hand through every facing).
             _axe = axeGo.transform;
         }
 

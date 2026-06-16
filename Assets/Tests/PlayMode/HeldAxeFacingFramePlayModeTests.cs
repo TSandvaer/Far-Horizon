@@ -7,30 +7,22 @@ using FarHorizon;
 namespace FarHorizon.PlayTests
 {
     /// <summary>
-    /// 86ca9xz00 regression guard for the held-axe FACING-FRAME bug — the swing-stabilizer ate the facing yaw.
+    /// 86ca9xz00 regression guard for the held-axe FACING-FOLLOW — KEPT through the 86ca9zcjn follow-the-arm
+    /// change. The axe now rides the RAW hand bone (the swing-stabilizer / grip-anchor is REMOVED), so facing
+    /// passes through the raw hand directly: when the castaway turns, the hand bone's world rotation turns and
+    /// the axe (riding it) turns with it. This test pins that the facing-follow contract STILL HOLDS under the
+    /// raw-hand driver.
     ///
-    /// THE BUG (Sponsor-proven, soak ec947e6): the held axe was "seated only one direction" — turning/walking
-    /// did NOT move it with the hand. The prior hand-local POSITION fix (86ca9qwvd) and ROTATION fix (soakfix8)
-    /// were both correct; the remaining bug was in the SWING STABILIZER FRAME.
+    /// ROOT TOPOLOGY (the real hierarchy): CastawayCharacter applies facing to its MODEL CHILD
+    /// (_model.localRotation = Euler(0, bodyYaw, 0)), NOT to its root ("the visual owns facing"). The hand bone
+    /// lives under _model, so a facing yaw on _model rotates the hand bone, and the raw-follow axe rotates with it.
     ///
-    /// ROOT CAUSE: CastawayCharacter applies facing to its MODEL CHILD (_model.localRotation =
-    /// Euler(0, bodyYaw, 0)), NOT to its root ("the visual owns facing"). HeldAxeRig.stabilizeFrame was wired
-    /// to the CastawayCharacter ROOT, which NEVER yaws. So when the character turned, the hand's facing yaw
-    /// landed in the ROOT-LOCAL grip-anchor pose, where the slow anchor (anchorTrackPerSec ≈ 0.12/s ≈ 8s time
-    /// constant) EASED IT AWAY over ~8s → the axe rotation LAGGED facing → "only seated one direction."
-    ///
-    /// FIX (86ca9xz00): wire stabilizeFrame to the FACING-CARRYING model child (CastawayCharacter.ModelTransform).
-    /// The anchor frame then yaws WITH facing, so there is no facing component left to ease away — facing passes
-    /// through IMMEDIATELY; only the per-step arm-swing (hand relative to _model) is still damped.
-    ///
-    /// WHY THE OLD AC3 WAS A FALSE-GREEN (HeldAxeStaysSeatedAcrossFacingsPlayModeTests): it rotated the test's
-    /// ROOT and ran with swingStabilize=0 (which bypasses the stabilizeFrame anchor entirely — the raw-hand
-    /// path). It never exercised the model-child facing path NOR the anchor where the bug lives, so it passed
-    /// while live play failed. THIS test reproduces the REAL gameplay topology — root (never yaws) → model
-    /// child (yaws with facing, the _model path) → hand (arm-swings in the model frame) — drives facing on the
-    /// model child over MULTIPLE frames with swingStabilize=1 (the SHIPPED value, where the anchor + the bug
-    /// live), and asserts the axe's hand-local seat is invariant across facings. It is RED with
-    /// stabilizeFrame=root (the bug — the anchor eases the facing yaw away) and GREEN with stabilizeFrame=model.
+    /// VERIFICATION DISCIPLINE (load-bearing — unity-conventions.md §Editor-vs-runtime / 86ca9xz00): a
+    /// facing-tracking prop MUST be checked by a DYNAMIC facing change (rotate the character through headings
+    /// over MULTIPLE frames), NEVER static per-facing snapshots — a static snapshot could let a stabilizer
+    /// settle to each pinned facing → false-green (the trap that shipped the prior facing-lag bug). This test
+    /// drives facing DYNAMICALLY (a continuous sweep) and asserts (a) the axe's hand-local seat is invariant
+    /// across the sweep, and (b) the axe's WORLD rotation actually tracks facing (a frozen axe is also wrong).
     /// </summary>
     public class HeldAxeFacingFramePlayModeTests
     {
@@ -46,13 +38,13 @@ namespace FarHorizon.PlayTests
         // Rest hand pose in the MODEL-LOCAL frame (a non-trivial bone offset off the body center-line).
         private static readonly Vector3 HandRestLocal = new Vector3(0.3f, 1.2f, 0.1f);
 
-        private void BuildRig(bool stabilizeOnModel)
+        private void BuildRig()
         {
-            // GAMEPLAY TOPOLOGY (the real hierarchy, not the old false-green's flat root rotation):
+            // GAMEPLAY TOPOLOGY:
             //   root (CastawayCharacter — never yaws)
             //     └ model (FBX child — yaws with facing: model.localRotation = Euler(0, bodyYaw, 0))
             //         └ hand (bone — arm-swings in the model-local frame)
-            //             └ axe (HeldAxeRig)
+            //             └ axe (HeldAxeRig — rides the RAW hand)
             _root = new GameObject("CastawayRoot");
 
             var modelGo = new GameObject("Model");
@@ -73,10 +65,7 @@ namespace FarHorizon.PlayTests
             _rig.hand = _hand;
             _rig.worldOffsetFromHand = Offset; // hand-local units
             _rig.relEuler = new Vector3(16f, 2f, -82f);
-            _rig.swingStabilize = 1f;          // the SHIPPED value — exercises the anchor where the facing bug lives
-            _rig.anchorTrackPerSec = 0.12f;    // the SHIPPED slow anchor (≈8s time constant — what eased facing away)
-            // THE FRAME UNDER TEST: the model child (the fix) vs the root (the bug).
-            _rig.stabilizeFrame = stabilizeOnModel ? _model : _root.transform;
+            _rig.followDamp = 0f;              // RAW follow (the shipped value)
             _axe = axeGo.transform;
         }
 
@@ -90,82 +79,78 @@ namespace FarHorizon.PlayTests
             _root = null;
         }
 
-        // The axe pivot expressed in the HAND's LOCAL frame must be invariant across facings driven on the MODEL
-        // child, even after MANY frames at each facing (so the slow anchor would have eased a root-frame facing
-        // yaw away). With stabilizeFrame=model (the fix) the facing passes through and the seat holds.
+        // DYNAMIC facing sweep: rotate facing continuously through a full turn over MANY frames (never static
+        // snapshots — the §Editor-vs-runtime verification rule). The axe pivot in the HAND's LOCAL frame must be
+        // INVARIANT throughout (the axe stays seated in the grip) AND the axe's world rotation must track facing.
         [UnityTest]
-        public IEnumerator FacingOnModel_AxeSeatInHandLocalFrame_IsInvariant_WhenStabilizedOnModel()
+        public IEnumerator FacingOnModel_DynamicSweep_AxeSeatInvariant_AndWorldRotationTracksFacing()
         {
-            BuildRig(stabilizeOnModel: true);
+            BuildRig();
             FaceModelYaw(0f);
-            // Seat the anchor at facing 0 (many frames — the slow anchor must fully settle).
-            for (int i = 0; i < 40; i++) yield return null;
+            for (int i = 0; i < 10; i++) yield return null; // let the rig drive the seated pose
             Vector3 handLocalBaseline = _hand.InverseTransformPoint(_axe.position);
+            Quaternion axeWorldAt0 = _axe.rotation;
 
-            float[] facings = { 0f, 45f, 90f, 137f, 180f, 233f, 270f, 315f };
-            foreach (float yaw in facings)
+            // Sweep facing CONTINUOUSLY over a full turn (a different yaw every frame — the dynamic case the
+            // memory rule requires). Track the max hand-local seat drift + whether the world rotation moves.
+            float maxSeatDrift = 0f;
+            float maxWorldTurn = 0f;
+            const int frames = 120;
+            for (int i = 1; i <= frames; i++)
             {
+                float yaw = 360f * i / frames;
                 FaceModelYaw(yaw);
-                // Tick SEVERAL frames at the new facing so a stabilizer LAG would manifest (the bug eases the
-                // facing yaw away over ~8s — multiple frames give it time to drift if the frame is wrong).
-                for (int i = 0; i < 20; i++) yield return null;
+                yield return null; // HeldAxeRig.LateUpdate re-applies the seat from the live hand THIS frame
 
                 Vector3 handLocalNow = _hand.InverseTransformPoint(_axe.position);
-                float drift = Vector3.Distance(handLocalBaseline, handLocalNow);
-                Assert.Less(drift, 0.01f,
-                    $"at facing {yaw}° (driven on the MODEL child) the held axe's pivot in the HAND-LOCAL frame " +
-                    $"drifted {drift:F4}u from baseline over 20 frames — it must be INVARIANT. With " +
-                    "stabilizeFrame=model the facing passes through the grip anchor immediately; a root frame " +
-                    "(the 86ca9xz00 bug) would let the slow anchor ease the facing yaw away and the axe lags.");
+                maxSeatDrift = Mathf.Max(maxSeatDrift, Vector3.Distance(handLocalBaseline, handLocalNow));
+                maxWorldTurn = Mathf.Max(maxWorldTurn, Quaternion.Angle(axeWorldAt0, _axe.rotation));
             }
+            Debug.Log($"[AxeFacingTest] dynamic sweep maxSeatDrift={maxSeatDrift:F5} maxWorldTurn={maxWorldTurn:F2}");
+
+            // (a) the seat must be INVARIANT across the whole dynamic sweep — the axe stays in the grip as the
+            // character turns (riding the raw hand, the hand-local offset is fixed by construction).
+            Assert.Less(maxSeatDrift, 0.01f,
+                $"during a dynamic facing sweep the held axe's pivot in the HAND-LOCAL frame drifted up to " +
+                $"{maxSeatDrift:F4}u — it must be INVARIANT (the axe stays seated in the grip through every " +
+                "facing; 86ca9xz00 / 86ca9zcjn). A facing-eating stabilizer would drift here.");
+
+            // (b) the axe's WORLD rotation must actually TRACK facing across the sweep (a frozen axe is the bug).
+            Assert.Greater(maxWorldTurn, 45f,
+                $"the held axe's world rotation moved only {maxWorldTurn:F1}° across a FULL facing turn — it must " +
+                "TURN WITH facing (riding the raw hand, facing passes through; a frozen axe reads detached).");
         }
 
-        // THE DELIBERATE-BREAK / RED-PROOF: with stabilizeFrame=ROOT (the bug) and facing driven on the MODEL
-        // child, the hand-local seat MUST drift as the character turns — proving this test discriminates the
-        // buggy frame from the fixed one (so it can't silently pass on the regression). This is the assertion
-        // that goes RED against the pre-fix wiring and GREEN against the fix.
+        // A frozen-rotation regression deliberately reproduced (pin the rotation to a fixed world heading) must
+        // make the hand-local seat DRIFT under the same dynamic sweep — proving this test discriminates a
+        // facing-following axe from a frozen one (it can't silently pass on the regression).
         [UnityTest]
-        public IEnumerator FacingOnModel_AxeSeat_DRIFTS_WhenStabilizedOnRoot_ProvingTheBugAndTheDiscriminator()
+        public IEnumerator FrozenWorldRotation_MakesTheSeatDrift_ProvingTheTestDiscriminates()
         {
-            BuildRig(stabilizeOnModel: false); // the BUG wiring (root frame)
+            BuildRig();
             FaceModelYaw(0f);
-            for (int i = 0; i < 40; i++) yield return null; // settle the anchor at facing 0
-            Vector3 handLocalBaseline = _hand.InverseTransformPoint(_axe.position);
+            for (int i = 0; i < 10; i++) yield return null;
+            _rig.enabled = false; // stop the rig; drive the OLD frozen-world-rotation behavior by hand
 
-            // A large facing change + many frames so the slow root-frame anchor has visibly eased the facing
-            // yaw away (the lag the Sponsor saw). The hand-local seat must DRIFT well past the fix's tolerance.
+            // Freeze the axe at the facing-0 world pose, then sweep facing — the hand-local seat must SWING.
+            FaceModelYaw(0f);
+            yield return null;
+            _axe.position = _hand.position + _hand.rotation * Offset;
+            _axe.rotation = _hand.rotation * Quaternion.Euler(_rig.relEuler);
+            Vector3 frozenWorldPos = _axe.position;
+            Quaternion frozenWorldRot = _axe.rotation;
+            Vector3 seatAt0 = _hand.InverseTransformPoint(_axe.position);
+
             FaceModelYaw(180f);
-            for (int i = 0; i < 60; i++) yield return null;
-            Vector3 handLocalAfterTurn = _hand.InverseTransformPoint(_axe.position);
+            yield return null;
+            _axe.position = frozenWorldPos;   // FROZEN in world (the bug) while the hand turned away
+            _axe.rotation = frozenWorldRot;
+            Vector3 seatAfterTurn = _hand.InverseTransformPoint(_axe.position);
 
-            float drift = Vector3.Distance(handLocalBaseline, handLocalAfterTurn);
+            float drift = Vector3.Distance(seatAt0, seatAfterTurn);
             Assert.Greater(drift, 0.03f,
-                $"with stabilizeFrame=ROOT (the 86ca9xz00 bug) the held axe's hand-local seat must DRIFT after a " +
-                $"half-turn driven on the model child (got {drift:F4}u) — proving the anchor eats the facing yaw " +
-                "(the axe lags facing) AND that the invariance test above actually discriminates the buggy frame " +
-                "from the fixed one (else it could pass even with the bug present).");
-        }
-
-        // The soakfix8 contract must SURVIVE the facing-frame fix: the axe still TURNS with facing. Drive the
-        // model child through distinct yaws and assert the axe's WORLD rotation tracks facing (a frozen-in-world
-        // axe is also wrong). This guards that the fix didn't accidentally freeze the axe.
-        [UnityTest]
-        public IEnumerator FacingOnModel_AxeStillTurnsWithFacing_WhenStabilizedOnModel()
-        {
-            BuildRig(stabilizeOnModel: true);
-            FaceModelYaw(0f);
-            for (int i = 0; i < 40; i++) yield return null;
-            Quaternion axeAt0 = _axe.rotation;
-
-            FaceModelYaw(90f);
-            for (int i = 0; i < 40; i++) yield return null; // let the anchor frame re-orient with facing
-            Quaternion axeAt90 = _axe.rotation;
-
-            float turn = Quaternion.Angle(axeAt0, axeAt90);
-            Assert.Greater(turn, 45f,
-                $"the held axe's world rotation barely moved ({turn:F1}°) when facing yawed 90° on the model " +
-                "child — the axe must still TURN WITH facing (the soakfix8 rotation-tracks-hand contract must " +
-                "survive the facing-frame fix; the anchor frame yaws with facing, so facing passes through).");
+                $"a frozen-in-world axe's hand-local seat must DRIFT after a half-turn (got {drift:F4}u) — proving " +
+                "the invariance test above actually discriminates a facing-following axe from a frozen one.");
         }
     }
 }
