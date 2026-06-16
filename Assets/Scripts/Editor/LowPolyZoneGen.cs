@@ -192,7 +192,7 @@ namespace FarHorizon.EditorTools
         // AC6 — the DEFAULT island shape seed (the Sponsor's pick, set here once chosen). WorldBootstrap bakes
         // this unless overridden with `-islandSeed N`. A different seed re-rolls the coast/cliff layout (same
         // character). The 3-4 seed VARIANTS captured for the Sponsor pick the value baked here.
-        public const int IslandSeed = 20250616;
+        public const int IslandSeed = 42;          // Sponsor's pick from the seed-variant captures (86ca9qwr3)
 
         /// <summary>
         /// Build a low-poly smooth-shaded zone: a height-varied terrain MESH (dunes near the shore
