@@ -6,7 +6,7 @@ A 3D survival game built in **Unity 6 (6000.4.10f1) / URP**, desktop-first (Wind
 
 - **Director / sole stakeholder ("Sponsor"):** Thomas. Single delegated decision-maker; orchestrator handles team coordination.
 - **Heritage:** Successor to the Godot project *Embergrave/RandomGame* (archived; `c:/Trunk/PRIVATE/RandomGame`). Engine decision 2026-06-12: migrate to Unity (RandomGame `team/DECISIONS.md`, ticket 86ca7y46c). The Unity eval spike at `c:/Trunk/PRIVATE/EmbergraveUnitySlice` is a READ-ONLY reference for the M-U1 ports — never modify it.
-- **Core feel (Sponsor-locked):** small character in a big alive world; PoE-style click-to-move; mouse-orbit camera + zoom; survival loop (M-U2 starts THIN: one need → craft axe → chop → campfire). North-star: world feels BIG and ENDLESS — a journey.
+- **Core feel (Sponsor-locked):** small character in a big alive world; **WASD movement + run (Shift) + jump (Space)** — pivoted 2026-06-16 from the original PoE-style click-to-move (implementation backlog `86ca9yq2x`→`yq34`→`yq3q`; the live build still uses click-to-move until those land); mouse-orbit camera + zoom; survival loop (M-U2 starts THIN: one need → craft axe → chop → campfire). North-star: world feels BIG and ENDLESS — a journey.
 - **Player character:** low-poly 3D castaway (Quaternius CC0 base, warm castaway recolor; young + happy identity per the archived PixelLab design sheets in RandomGame `_castaway_judge/`).
 - **Distribution:** Windows desktop build (`Build/Windows/FarHorizon.exe`). No HTML5/WebGL target.
 - **Tracker:** ClickUp list **"Far Horizon"** (list id `901523878268`, space `90156932495`). The RandomGame list is the Godot-era archive.

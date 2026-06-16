@@ -263,3 +263,43 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Decision: The above 2026-06-15 entries capture the SETTLED technical + root-cause decisions of the saga. The final **world-look LOOK-approval remains Sponsor-pending** — across the saga the Sponsor APPROVED-IN-PART repeatedly (C5 walk-grounding accepted, shoreline position fixed, character identity/recolor good) while flagging fresh world-look issues each round (shoreline foam, sky/clouds, mountain detail). The combined soak (#48 stacked on #47) is being re-served; the look-verdict + THE BIG MERGE stay Sponsor-gated on the protected branch.
 - Reversibility: n/a (a status flag; the look-verdict is the Sponsor's to give)
 - Affects: roadmap sequencing, the big merge, orchestrator cadence, Devon + Drew
+
+## 2026-06-16 — Organic seed-42 island is the world basis (supersedes the round disc + the strip)
+
+- Decided by: Sponsor (soak picks 2026-06-16; "I love this island, commit this" → SEED 42 LOCKED)
+- Decision: The world is a big ORGANIC/IRREGULAR procedural island — varied coast (beaches + cliffs), beach level with the grass, foam on all edges, water on all sides, mountains on separate islands — generated at `LowPolyZoneGen.IslandSeed = 42` (LOCKED; do NOT re-roll). Supersedes the earlier round disc and the beach-to-meadow strip.
+- Why: The disc read artificial (square seabed edge + a "line"); the Sponsor wanted a real-island silhouette and picked seed 42 from 4 variant captures as the most "real island" (peninsula + bays). Shipped in the big merge (#50 → main `6aada8f`).
+- Reversibility: reversible in principle (re-roll the seed) but Sponsor-locked — treat as one-way unless he reopens it.
+- Affects: world gen (LowPolyZoneGen), NavMesh, camera, all future world content.
+
+## 2026-06-16 — Sea renders Opaque + top-as-front-face (URP cull is by WINDING, not the normal)
+
+- Decided by: orchestrator + Drew (root-cause, PR #50 `d944f6c`)
+- Decision: The "sea reads identical to sky" defect was BACKFACE-CULLING, not fog — URP `Cull Back` culls by triangle WINDING, so a +Y-normal guard is a proxy a culled mesh satisfies. Fix = reverse the sea triangle winding so the TOP is the FRONT face; GUARD the winding direction (not the normal). Water stays Opaque-queue (avoids transparent overdraw on the large ocean) with a water-only fog cap → distinct teal + moving waves.
+- Why: The gameplay cam saw the skybox THROUGH the culled sea (water==sky); the normal-guard false-greened. Same perceptual-vs-proxy cull family as the magenta / −Z-grid findings (unity-conventions.md).
+- Reversibility: reversible (winding flip) but it is the correct render setup — do not revert.
+- Affects: water rendering, the visual-pass SRP gate (`86ca9a3b3`), unity-conventions.
+
+## 2026-06-16 — Held prop FOLLOWS the arm's natural swing (reverses the stabilizer)
+
+- Decided by: Sponsor (soak 2026-06-16, "it works perfectly"; final F9 seat dialed)
+- Decision: The held axe rides the RAW hand bone's natural swing during locomotion — `HeldAxeRig` removed the swing-stabilizer/grip-anchor AND the bounce-fix vertical-decouple, keeping only the facing fix (hand-local offset rotated by `hand.rotation`, never `hand.TransformPoint`) + a light damp. Final seat `HeldAxeWorldOffsetFromHand=(-0.1502,-0.1602,-0.0528)`, euler `(16,2,-82)`. This REVERSES the earlier stabilize-steady decisions (`86ca8rdkp` / `86ca9ykp0`).
+- Why: "Steady-held" vs "natural swing" is a taste call; the Sponsor chose natural follow. Follow-the-arm is simpler and has no cumulative ratchet by construction. The choice carries to run/jump.
+- Reversibility: reversible (re-add stabilization) but Sponsor-chosen — the stabilizer traps are the path not taken.
+- Affects: HeldAxeRig, CastawayCharacter, the locomotion backlog (run/jump axe behavior).
+
+## 2026-06-16 — Locomotion pivots to WASD + run + jump (supersedes click-to-move core feel)
+
+- Decided by: Sponsor (2026-06-16; CLAUDE.md core-feel line updated 2026-06-17 per his "WASD is the core feel" pick)
+- Decision: The movement model pivots from PoE-style click-to-move to WASD + run (Shift) + jump (Space). This REVERSES the "Sponsor-locked PoE-style click-to-move core feel" in CLAUDE.md Context. Backlog sequenced WASD `86ca9yq2x` → run `86ca9yq34` → jump `86ca9yq3q`; the live build keeps click-to-move until they land.
+- Why: Sponsor preference — direct WASD control fits the survival-exploration feel better than click-to-move.
+- Reversibility: reversible (the input layer is swappable), Sponsor-directed.
+- Affects: input/locomotion (CastawayCharacter, MovementCameraScene), held-axe behavior, and jump touches the float system (`modelSoleGround` must suspend ground-snap airborne).
+
+## 2026-06-16 — Unity-6/URP mastery is an always-on mandatory-read (Sponsor HIGH-PRIORITY)
+
+- Decided by: Sponsor (2026-06-16, "cannot stress enough how important")
+- Decision: `.claude/docs/unity6-mastery.md` (distilled Unity 6/URP always-on guardrails) is auto-loaded at SessionStart and a MANDATORY pre-read for Drew/Devon before ANY Unity code — wired into CLAUDE.md, the dispatch-template, and the persona files; full cited reference at `team/erik-consult/unity6-mastery-research.md`.
+- Why: Repeated Unity/URP traps (serialization, culling, GC, lighting budget) cost soak rounds; a distilled always-on reference reduces them. Sponsor flagged it as high-priority. Shipped in orch-docs PR #56.
+- Reversibility: reversible (docs) but a standing process gate.
+- Affects: every Drew/Devon Unity dispatch, dispatch-template, SessionStart hook.
