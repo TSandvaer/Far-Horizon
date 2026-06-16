@@ -7,6 +7,7 @@ Findings proven empirically during the Embergrave engine-eval spike (`c:/Trunk/P
 - **Runtime captures must run WINDOWED, not `-batchmode`.** `-batchmode` produces no real rendered frames; screenshot evidence comes from launching the built exe windowed (`-screen-fullscreen 0`) with an in-game capture component.
 - **Editor automation pattern:** `Unity.exe -batchmode -quit -projectPath <p> -executeMethod <Class.Method> -logFile <log>` for scene/asset work; `-runTests -testPlatform EditMode|PlayMode -testResults <xml>` for tests (NO `-quit` with `-runTests`). Always grep the XML's `<test-run ... result= total= passed= failed=` line — exit code alone lies on some failure classes.
 - **Headless PlayMode time trap:** `Time.deltaTime ≈ 0` per frame in headless runs — never assert on per-frame deltas; sample over a real `Time.time` window instead.
+- **`WaitForEndOfFrame` is NOT evoked in `-batchmode` (Devon, PR #60 locomotion-harness work).** A PlayMode coroutine `yield return new WaitForEndOfFrame()` never resumes headlessly (there is no end-of-frame render pass to fire it), so any value you intended to sample AFTER `LateUpdate`/render is never read — the test hangs or silently skips the assertion. To sample a post-`LateUpdate` value in a headless PlayMode coroutine, record it in a high-`DefaultExecutionOrder` `LateUpdate` component and read the PRIOR frame's recorded value on the next `yield return null` — never gate the sample on `WaitForEndOfFrame`.
 - **Build verification:** the builder must exit non-zero on failure and log `result=Succeeded size=<bytes>`; grep that line, never trust silence.
 - **Build-stamp ritual:** HUD shows `BUILD <tag> | <UTC> | <sha>`; every soak/judgment verifies the stamp first (three-builds-in-play identity confusion is a proven failure mode).
 - **Stale-stamp trap (the soak handoff):** `FarHorizonBuilder.BuildWindows` does NOT regenerate `Assets/Resources/BuildStamp.txt` — ONLY `BootstrapProject.Run` (`WriteBuildStamp`) writes it, and the stamp is COMMITTED, so it is ALWAYS stale vs a later HEAD. A soak that runs a bare `BuildWindows` ships the old committed sha → build-identity ambiguity (bit the first manual desktop soak, 2026-06-12). **Never serve a soak with a bare build.** Use the one entry point `.github/workflows/scripts/serve_soak.sh` (ticket 86ca86gde): from a CLEAN checkout it chains bootstrap (fresh-stamps HEAD) → BuildWindows → `verify_build_stamp.py` (fails loud unless the shipped stamp's sha == HEAD) → `capture_gate.sh` (reuses U7's frame gate) → restores the bootstrap's tracked-asset churn (`git checkout -- Assets ProjectSettings`; the clean-tree precondition makes whole-root restore complete + drift-proof — bootstrap's churn set drifts as it grows, so an enumerated path list goes stale). Prints the exe path + HUD stamp + capture dir handoff block. Regression-guarded by `verify_build_stamp.py` + the stale-vs-HEAD case in `tests/scripts/test_gate_scripts.sh`.
@@ -16,6 +17,55 @@ Findings proven empirically during the Embergrave engine-eval spike (`c:/Trunk/P
 - **`BootstrapProject.Run` dirties tracked assets.** Running bootstrap dirtied Boot.unity, several materials, GraphicsSettings.asset, and BuildStamp.txt in observed runs. Always follow bootstrap with `git checkout -- Assets/ ProjectSettings/` before committing or opening PRs — bootstrap churn must not ship in unrelated work.
 - **`git checkout -- Assets/ ProjectSettings/` ALSO reverts UNCOMMITTED source `.cs` edits under `Assets/Scripts/` (Devon, 2026-06-14).** That restore is a blanket discard of every tracked file under `Assets/` — including your in-flight `.cs` source — so running bootstrap + restore mid-task silently wipes any source edits you haven't committed (Devon lost all 5 mid-task edits this way; caught only because a verify-grep returned 0). Safe pattern for any worktree that mixes source edits with a bootstrap regenerate: **(1) COMMIT the `.cs` work first, (2) run `BootstrapProject.Run` headless, (3) restore with `git checkout -- Assets/ ProjectSettings/` + surgically re-add only `Assets/Scenes/Boot.unity Assets/Resources/BuildStamp.txt`.** The binary-scene integration playbook commits before the regenerate, so the trap doesn't bite there — solo asset+source work in the same session is what's exposed.
 - **Binary-scene PR conflicts: regenerate-on-rebase, never hand-merge.** `Boot.unity` is binary AND bootstrap-generated — when two PRs both bake into it, the second is "not mergeable" and git cannot resolve it. Validated fix (PR #10 after PR #11 moved main, 2026-06-12): (1) `git rebase origin/main`, resolving CODE conflicts normally but taking `--theirs` provisionally on Boot.unity/BuildStamp.txt; (2) re-run `BootstrapProject.Run` headless — the regenerated scene bakes BOTH branches' contributions because both live in the bootstrap code path; (3) prove the carry with EVERY feature's scene-presence EditMode test green (e.g. `WarmthNeedSceneTests` + `CastawayCharacterTests` together); (4) fresh `serve_soak.sh` so captures/stamp match the new HEAD; (5) `git push --force-with-lease`, keeping the committed set surgical (Boot.unity + BuildStamp.txt only). Reviewer content-APPROVEs survive this — it's mechanical integration. Sequencing corollary: every scene-touching PR conflicts with every other; merge them tightly rather than letting approved PRs queue. Batch corollary (PR #32, 2026-06-13): when 2+ scene PRs conflict at once, integrate them in ONE branch (merge all their code + regenerate Boot.unity once) rather than N separate rebases — cheaper, and the single shipped-build verify doubles as the combined soak. STALE-BRANCH DEAD-CODE trap: a branch that forked BEFORE another PR merged can re-introduce code that PR deleted (PR #31's diff context re-added `MakeAxeMat` that PR #29's sourced-axe re-do had already deleted from main) — when resolving the code merge, drop anything now orphaned (zero callers) instead of re-committing dead code.
+
+## Configurable Enter Play Mode — domain/scene reload disabled (ticket 86ca9a39q, Erik §C / Rank 3)
+
+**The setting (project-scoped, ships in version control).** `ProjectSettings/EditorSettings.asset` carries
+`m_EnterPlayModeOptionsEnabled: 1` + `m_EnterPlayModeOptions: 3`. This is the serialized form of
+**"When entering Play Mode" = "Do not reload Domain or Scene"** — `EnterPlayModeOptions` is a `[Flags]`
+enum (`None=0`, `DisableDomainReload=1<<0=1`, `DisableSceneReload=1<<1=2`; confirmed from Unity's C#
+reference source `Editor/Mono/EditorSettings.bindings.cs`), so `1|2 = 3`. Because the asset lives under
+`ProjectSettings/` (NOT `EditorUserSettings.asset` or per-user PlayerPrefs), it is committed and applies on
+checkout across every persona's worktree — it is a PROJECT setting, not a per-machine pref.
+
+**Why:** domain + scene reload on every editor Play-entry costs seconds that scale with project complexity;
+disabling both drops enter-play to sub-second for logic iteration. **Editor iteration only.**
+
+**The catch — disabling domain reload PERSISTS static state across play-entries.** Static fields and static
+event handlers are NOT cleared between editor play sessions when domain reload is off, so a stale-static
+singleton/handler can accumulate → subtle editor-only bugs that don't reproduce headlessly. The fix is a
+`[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]` reset on the owning type
+that clears the static back to its initial value on each play-entry.
+
+**THE RULE (every persona, every PR): any NEW mutable runtime static field/event MUST add a
+`[RuntimeInitializeOnLoadMethod(SubsystemRegistration)]` reset — or it accumulates stale state across editor
+play-entries.** This is mechanically guarded: `Assets/Tests/EditMode/StaticStateResetTests.cs`
+(`EveryMutableRuntimeStatic_HasASubsystemRegistrationReset`) reflects over the whole `FarHorizon.Runtime`
+asmdef and FAILS if any mutable static (excluding `const` / `static readonly` / compiler-generated /
+delegate-typed) lacks a SubsystemRegistration reset on its declaring type. Add a static + forget the reset →
+that test goes red.
+
+**The static-reset list (audited FROM SOURCE 2026-06-17, not assumed — grep of the `FarHorizon.Runtime`
+asmdef):**
+- **`BuildInfo._stamp`** (lazy `string` cache of `Resources/BuildStamp.txt`) → `BuildInfo.ResetStaticState()`,
+  nulls the cache so each play-entry re-reads the stamp. **This is the ONLY mutable runtime static.**
+- **`WarmthNeed`** (Erik's named candidate) — **NO statics at all** (instance state only); no reset needed.
+- **`CastawayCharacter`** (Erik's named candidate) — only **pure static helper methods** (`ComputeFloatGap`,
+  `ComputeModelGroundLocalY`, `Fmt4`); no mutable static fields; no reset needed.
+- Everything else under `static` in the asmdef is a static **method**, `static class`, `const`, or
+  `static readonly` immutable constant (e.g. `SurvivalHud`/`WorldLookPalette` colors, `FullscreenBoot`
+  capture-flag array) → none persist mutable state → none need a reset.
+- There are **ZERO static events** and **ZERO static singletons/collections/delegates** in the runtime asmdef.
+
+**Caveat — what this setting does NOT affect (verify here, don't assume it changes correctness):**
+- **Headless test runs (`-runTests`) and CI builds RELOAD the domain regardless of this editor setting** —
+  they always start with fresh statics, so the EditMode/PlayMode suites + CI are UNAFFECTED. The
+  `SubsystemRegistration` resets are an editor-iteration safety net, not a correctness change for CI.
+- **`serve_soak.sh`'s full clean rebuild → bootstrap → BuildWindows chain stays the correctness path** for any
+  soak/capture. Disable-reload is purely for fast in-editor logic iteration; it does NOT change shipped behavior.
+- A live cross-play-entry accumulation bug is only reproducible by a human clicking Play twice in the editor;
+  the EditMode guard above is a STRUCTURAL check (reset exists + clears the field), which is the testable
+  surface headlessly.
 
 ## Asset creation — Blender + Blender MCP (Sponsor-flagged capability, 2026-06-12)
 

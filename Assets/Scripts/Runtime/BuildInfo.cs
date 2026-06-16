@@ -18,6 +18,29 @@ namespace FarHorizon
     {
         private static string _stamp;
 
+        /// <summary>
+        /// Clears the lazily-cached stamp on every Play-Mode entry.
+        ///
+        /// With Configurable Enter Play Mode set to "Do not reload Domain or Scene"
+        /// (ProjectSettings/EditorSettings.asset, ticket 86ca9a39q), the domain is NOT reloaded
+        /// between editor play sessions, so this static field PERSISTS its value across play-entries.
+        /// Without this reset, a play-entry that occurred BEFORE a fresh BuildStamp.txt was written
+        /// would keep serving the stale cached stamp. The reset re-arms the lazy load so each
+        /// play-entry re-reads Resources/BuildStamp.txt.
+        ///
+        /// Headless test runs + CI builds RELOAD the domain regardless of this setting, so they
+        /// always start with _stamp == null; this reset is purely an editor-iteration safety net.
+        ///
+        /// RULE (unity-conventions.md §"Configurable Enter Play Mode"): every NEW mutable runtime
+        /// static field/event must add a [RuntimeInitializeOnLoadMethod(SubsystemRegistration)]
+        /// reset, or it will accumulate stale state across editor play-entries with reload disabled.
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticState()
+        {
+            _stamp = null;
+        }
+
         /// <summary>The full build stamp string, loaded once from Resources/BuildStamp.txt.</summary>
         public static string Stamp
         {
