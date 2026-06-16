@@ -32,12 +32,23 @@ namespace FarHorizon
     /// RE-SOAK #3 (86ca8rdkp — "the axe in hand position changes when I walk"): the imported Walk clip swings
     /// the hand bone ~0.9u peak-to-peak (a ~0.64u vertical bob), and the rigid ~0.8u axe rode the whole swing
     /// → it visibly shifted while walking. FIX (swingStabilize / a GRIP ANCHOR): instead of riding the raw
-    /// swinging hand, the axe rides a grip anchor held in the BODY-ROOT local frame, which translates + YAWS
-    /// with the body (so the haft still turns with facing — the soakfix8 contract) but does NOT arm-swing. The
+    /// swinging hand, the axe rides a grip anchor held in a BODY-LOCAL frame, which translates + YAWS
+    /// with facing (so the haft still turns with facing — the soakfix8 contract) but does NOT arm-swing. The
     /// anchor eases slowly toward the hand's average body-local pose, so a real re-grip is honored but the
     /// per-step walk swing is removed (-walkAxeTrace: axe peak-to-peak 0.93u → 0.18u). Stabilizing in the
-    /// body-root frame (not WORLD) is load-bearing: a world-space low-pass LAGS locomotion and makes the
+    /// body frame (not WORLD) is load-bearing: a world-space low-pass LAGS locomotion and makes the
     /// root-local swing WORSE (measured 0.93u → 1.5u).
+    ///
+    /// FACING-FRAME FIX (86ca9xz00 — "the held axe LAGS facing / seated only one direction"): the grip-anchor
+    /// frame (<see cref="stabilizeFrame"/>) MUST be the FACING-CARRYING transform. CastawayCharacter applies
+    /// facing to its MODEL CHILD (_model.localRotation = Euler(0, bodyYaw, 0)), NOT to its root — "the visual
+    /// owns facing". When stabilizeFrame was wired to the ROOT (which never yaws), a turn left the hand's facing
+    /// yaw expressed in the root-local anchor pose, where the slow anchor (anchorTrackPerSec ≈ 0.12/s ≈ 8s time
+    /// constant) EASED IT AWAY → the axe rotation lagged facing by ~8s and read as "only seated one direction."
+    /// Wiring stabilizeFrame to _model (CastawayCharacter.ModelTransform) makes facing pass through the anchor
+    /// IMMEDIATELY (the anchor frame yaws WITH facing, so there is no facing component to ease away); only the
+    /// per-step arm-swing — the hand relative to _model — is still damped. The fix is entirely in WHICH
+    /// transform the frame points at; the easing math here is unchanged.
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): the axe + this component are authored
     /// editor-time (MovementCameraScene.AttachHeroAxeToHand) and SERIALIZE into Boot.unity riding the bone.
@@ -81,10 +92,14 @@ namespace FarHorizon
                  "with body FACING (the soakfix8 contract) but does NOT bob with the walk swing.")]
         public float anchorTrackPerSec = 0.12f;
 
-        [Tooltip("The reference frame the grip is anchored IN — the avatar/body root (which translates + yaws " +
-                 "with the body but does NOT arm-swing). The grip anchor lives in THIS frame, so the axe rides " +
-                 "the body (facing turns pass through) without the per-step arm-swing. Wired editor-time to the " +
-                 "CastawayCharacter transform; falls back to the first CastawayCharacter ancestor.")]
+        [Tooltip("The reference frame the grip is anchored IN — the FACING-CARRYING model child (which " +
+                 "translates + YAWS with facing but does NOT arm-swing). The grip anchor lives in THIS frame, " +
+                 "so the axe rides facing (turns pass through IMMEDIATELY) without the per-step arm-swing. " +
+                 "86ca9xz00: this MUST be the model child (CastawayCharacter.ModelTransform), NOT the root — " +
+                 "facing is applied to _model.localRotation, not the root, so a root frame puts the facing yaw " +
+                 "into the slow grip-anchor pose and EASES IT AWAY (the axe lags facing). Wired editor-time to " +
+                 "CastawayCharacter.ModelTransform; Awake falls back to the first CastawayCharacter ancestor's " +
+                 "model child (then its transform if the model is unresolved).")]
         public Transform stabilizeFrame;
 
         // The GRIP ANCHOR — the hand's rest pose in the body-root local frame. The steady axe rides this anchor
@@ -105,12 +120,15 @@ namespace FarHorizon
             // Fallback: if the hand wasn't wired editor-time, the bone is this object's parent (the axe is
             // serialized as a child of RightHand_010). Defensive — the authored path always wires it.
             if (hand == null) hand = transform.parent;
-            // Fallback stabilize frame: the avatar root carrying CastawayCharacter (translates with locomotion,
-            // does not arm-swing). If unwired, walk up to the first ancestor with a CastawayCharacter.
+            // Fallback stabilize frame: the FACING-CARRYING model child of the CastawayCharacter (translates
+            // with locomotion + YAWS with facing, does not arm-swing). 86ca9xz00 — facing lives on the model
+            // child (_model.localRotation), NOT the CastawayCharacter root, so anchoring there would let the
+            // slow grip-anchor EASE THE FACING YAW AWAY (the axe lags facing). Prefer the model child; only if
+            // it is unresolved (model not built yet) fall back to the root so the axe still rides the body.
             if (stabilizeFrame == null)
             {
                 var cc = GetComponentInParent<CastawayCharacter>();
-                if (cc != null) stabilizeFrame = cc.transform;
+                if (cc != null) stabilizeFrame = cc.ModelTransform != null ? cc.ModelTransform : cc.transform;
             }
         }
 
