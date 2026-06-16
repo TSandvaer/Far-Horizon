@@ -48,6 +48,21 @@ namespace FarHorizon
                  "Idle<->Walk blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
+        [Header("Walk-float model-sole grounding (86ca8rdkp attempt-9 — the WALK-clip body-lift fix)")]
+        [Tooltip("Ground the VISIBLE rendered SOLE (scale-immune) by offsetting the MODEL CHILD's local-Y, on " +
+                 "top of the root snap. The Mixamo WALK clip authors the body ~0.66u higher than IDLE (clip-trace: " +
+                 "Idle sole at root-relative -0.003, Walk at +0.63..+0.69), so the rendered mesh floats only while " +
+                 "walking even though the root is grounded. This cancels that per-clip lift so the feet plant in " +
+                 "both states. Default ON; the PlayMode walk-grounding regression toggles it OFF to prove the fix " +
+                 "is load-bearing.")]
+        public bool modelSoleGround = true;
+        [Tooltip("Convergence rate (1/s) for the model-sole grounding. HIGHER than the root snapRate because " +
+                 "this cancels a MEASURED per-clip-frame lift (deterministic, not noisy terrain) — it should " +
+                 "track tightly so the sole stays planted every stride frame and the Idle→Walk transition " +
+                 "(a +0.66 step) converges in a few frames, not lagging ~10cm as a transient. 90 = ~78% " +
+                 "convergence per 60fps frame; smooth enough to avoid a pop, tight enough to plant the walk.")]
+        public float modelSoleGroundRate = 90f;
+
         [Header("Ground snap (86ca8rdkp soak-fix #1 — 'walking in the air')")]
         [Tooltip("Snap the avatar feet to the VISIBLE terrain each frame. The NavMeshAgent grounds the " +
                  "player ROOT on the flat NavMesh collider, which sits ABOVE the dipping Zone-D visual " +
@@ -206,6 +221,13 @@ namespace FarHorizon
         private float _snapLocalY;
         private bool _snapInit;
 
+        // The WALK-FLOAT model-sole grounding (86ca8rdkp attempt-9). The model CHILD's local-Y is driven so the
+        // scale-immune rendered sole plants on the grounded root, cancelling the per-clip body-lift baseline
+        // (Idle ~0, Walk ~+0.66). Smoothed at snapRate so a clip blend doesn't pop. _modelGroundInit snaps the
+        // first frame to the residual (no startup slide).
+        private float _modelLocalY;
+        private bool _modelGroundInit;
+
         /// <summary>The current ground-snap local-Y applied to the avatar root (0 = no snap). Exposed for
         /// the PlayMode grounding regression so it can assert the feet are planted on the visible surface.</summary>
         public float GroundSnapLocalY => _snapLocalY;
@@ -286,6 +308,23 @@ namespace FarHorizon
         public static float ComputeFloatGap(float feetWorldY, float groundHitWorldY)
             => feetWorldY - groundHitWorldY;
 
+        /// <summary>
+        /// PURE model-sole grounding math (the unit-testable core of the WALK-FLOAT fix, 86ca8rdkp attempt-9):
+        /// the local-Y the MODEL CHILD must take so its SCALE-IMMUNE rendered sole (currently at
+        /// <paramref name="renderedSoleWorldY"/>) lands on <paramref name="plantWorldY"/>. The model child lives
+        /// under the avatar root whose world Y-scale is <paramref name="rootYScale"/> (= PlayerVisualHeight), so a
+        /// model local-Y delta moves the world sole by rootYScale × delta — divide the world residual by the
+        /// scale. Static + dependency-free so the EditMode guard can assert "a WALK clip lifting the sole +0.66
+        /// yields a model local-Y that cancels it" against a real SampleAnimation'd clip with no play loop.
+        /// </summary>
+        public static float ComputeModelGroundLocalY(float renderedSoleWorldY, float plantWorldY,
+                                                     float currentModelLocalY, float rootYScale)
+        {
+            if (Mathf.Abs(rootYScale) < 1e-4f) rootYScale = 1f;
+            float worldResidual = renderedSoleWorldY - plantWorldY;   // >0 ⟺ sole floats ABOVE the plant target
+            return currentModelLocalY - worldResidual / rootYScale;
+        }
+
         // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
         private readonly RaycastHit[] _snapHits = new RaycastHit[8];
@@ -339,11 +378,20 @@ namespace FarHorizon
                 var smr = _smrs[i];
                 if (smr == null || smr.sharedMesh == null) continue;
                 if (_bakeMeshes[i] == null) _bakeMeshes[i] = new Mesh { name = "CastawaySoleBake" + i };
-                // useScale:false — the SMR node's scale is applied by localToWorldMatrix below (apply ONCE).
+                // useScale:false — verts come back in the SMR's authored mesh space (no renderer-node scale).
                 smr.BakeMesh(_bakeMeshes[i], false);
                 _bakeMeshes[i].GetVertices(_bakeVerts);
                 if (_bakeVerts.Count == 0) continue;
-                Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+                // SCALE-IMMUNE world matrix (86ca8rdkp attempt-8 ROOT-CAUSE fix): use the SMR's world POSITION
+                // + ROTATION with UNIT scale — NOT smr.transform.localToWorldMatrix. This Hyper3D/Mixamo FBX
+                // bakes a 100× cm→m node scale onto the SkinnedMeshRenderer's OWN transform ("model" node,
+                // probe-verified localScale=(100,100,100)). smr.localToWorldMatrix carries that 100× (×1.8 root
+                // = 180×), and BakeMesh(false) verts are already in the mesh's authored metres space, so
+                // multiplying by l2w DOUBLE-APPLIES the 100× and blows the world Y to ~±280 (the ±68 runaway
+                // that drove the snap divergence — sole-probe.log: formula (1) bake(false)+smr.l2w gave 4.45
+                // vs GT 4.85 at root-Y 5, and exploded to 282 at root-Y 0). A unit-scale TRS matches the
+                // rendered bounds floor (sole-probe formula 4 = 4.9970 ≈ GT). character-pipeline.md §cm→m trap.
+                Matrix4x4 l2w = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
                 for (int v = 0; v < _bakeVerts.Count; v++)
                 {
                     float y = l2w.MultiplyPoint3x4(_bakeVerts[v]).y;
@@ -445,28 +493,32 @@ namespace FarHorizon
             float plantY = bestY + groundYOffset;
             LastSnapTargetWorldY = plantY; // the SELECTED plant surface (pre-smoothing) — the snap-target the test reads
 
-            // ===== THE REAL FIX (86ca8rdkp EXTENSIVE-DEBUG round — ground the BAKED actual sole, not bounds). =====
-            // The PRIOR "fix" snapped to SMR.bounds.min.y as the "true sole" — but that is the CONSERVATIVE
-            // animation-MAX AABB floor, NOT the current-frame mesh. So the snap and the gauge BOTH read the same
-            // (too-low, wobbling) bounds floor → they AGREED (GAP=0 "✓ planted") while the REAL rendered soles
-            // floated above the box floor: the deeper FALSE-GREEN the Sponsor's F8 gauge exposed (rendered
-            // sole-Y == hit-Y == 0.2216, GAP≈0, YET visibly floating standing still; the GAP also JITTERED
-            // −0.003↔+0.0003 = the AABB wobbling with the idle anim). FIX: measure the BAKED actual-lowest
-            // VERTEX (MeasureRenderedSoleWorldY) — the real current-frame sole — for BOTH the snap reference
-            // and the gauge. It is stable per pose (no animation-envelope wobble), so standing-still GAP no
-            // longer oscillates.
+            // ===== THE SOURCE FIX (86ca8rdkp attempt-8 — ROOT-GROUND with a FIXED K; abandon per-frame mesh
+            // chasing). The ~6-iteration float saga + the ±68 runaway all came from CHASING the rendered sole
+            // each frame: snapping to SMR.bounds.min.y (anim-max AABB, wobbles), then to a per-frame BakeMesh
+            // sole whose world matrix DOUBLE-APPLIED the FBX's intrinsic 100× cm→m node scale (scale-trace.log:
+            // the "model" SMR node is localScale=100; BakeMesh+smr.l2w blew world Y to 282 → the snap drove
+            // avatarRootY to ~−68 in a false-green equilibrium while the character left frame).
             //
-            // The pose offset (bakedSole − root) is INVARIANT to the root Y we choose — translating the root
-            // rigidly translates every skinned vertex by the same Δy — so we measure it this frame and SUBTRACT
-            // it from the plant target, planting the SOLE (what the player SEES) on the sand regardless of pose.
-            // (On a frame where no SMR is resolvable we fall back to root-grounding so the snap never goes inert.)
-            float bakedSoleNow = MeasureRenderedSoleWorldY();
-            float boundsMinNow = MeasureSmrBoundsMinY();    // dump-only (prove bounds floor < baked sole)
-            float poseSoleOffset = float.IsNaN(bakedSoleNow) ? 0f : (bakedSoleNow - transform.position.y);
+            // ROOT CAUSE (probe-MEASURED, not hypothesized): the 100× node is INTRINSIC to the FBX hierarchy —
+            // no importer flag removes it (useFileScale=false → 218u tall + still 100× node; bakeAxisConversion
+            // → still 100× node; both refuted by fix-probe). The mesh RENDERS correct (Unity skinning handles
+            // the node scale via bone matrices) — ONLY world-space BakeMesh measurements explode. So we STOP
+            // measuring the sole to ground it: the FBX origin is AT THE FEET (BuildModel sets the model child
+            // localPos=0; the bind sole sits ≈ the avatar root — sole-probe: bind sole 4.997 ≈ root 5.000), and
+            // the Idle/Walk clips are imported IN-PLACE (lockRootPositionXZ, root-motion off), so the root-to-
+            // sole offset is a FIXED CONSTANT, not pose-dependent. Ground the ROOT directly:
+            //     avatarRoot.worldY = groundHit + groundYOffset(K)
+            // K is the small Sponsor-dialable constant (default 0 = feet on the geometric ground). NO BakeMesh
+            // in the snap path → no 100× exposure → no runaway. The BakeMesh sole is now read ONLY for the F8
+            // gauge (a sane, scale-immune honest readout — MeasureRenderedSoleWorldY uses a unit-scale matrix).
+            float bakedSoleNow = MeasureRenderedSoleWorldY(); // gauge-only (scale-immune); NOT used to snap
+            float boundsMinNow = MeasureSmrBoundsMinY();      // dump-only (prove bounds floor diverges)
 
-            // Desired avatar-root WORLD Y so the BAKED SOLE (root + poseSoleOffset) sits at plantY.
-            // local Y = worldY - root.position.y (the avatar root is a direct child of the player root).
-            float desiredLocalY = (plantY - poseSoleOffset) - root.position.y;
+            // Desired avatar-root WORLD Y = the plant target (groundHit + K). The avatar root is a direct child
+            // of the player root, so localY = worldY − root.position.y. NO pose-offset subtraction — grounding
+            // the root, not the chased sole, is what kills the divergence.
+            float desiredLocalY = plantY - root.position.y;
 
             bool moving = _agent != null &&
                           new Vector2(_agent.velocity.x, _agent.velocity.z).sqrMagnitude >
@@ -474,24 +526,68 @@ namespace FarHorizon
             IsMovingForSnap = moving;          // diagnostic: rest-vs-move
             ActiveSnapRate = snapRate;         // diagnostic: the single unified rate now in play
 
-            // KILL-THE-BOB FIX (86ca8rdkp EXTENSIVE-DEBUG round — 'reaching a destination causes a BOB'). The
-            // prior speed-adaptive split (snapRateMove 60 while moving / snapRateRest 18 at rest) made the
-            // convergence rate JUMP at the moving↔rest transition: the instant the agent stopped, the filter
-            // slowed from rate-60 to rate-18 and the still-converging error visibly settled = the arrival BOB.
-            // Because the snap target is now the STABLE baked sole (no animation-envelope wobble), a SINGLE
-            // unified rate tracks the descending foreshore ramp tightly while walking AND doesn't pop at rest —
-            // so there is no rate discontinuity at arrival and no bob. (snapRateMove/snapRateRest retained as
-            // [Obsolete-but-serialized] fields for back-compat; snapRate is the live one.)
+            // KILL-THE-BOB (86ca8rdkp — one UNIFIED rate). A speed-adaptive split (fast moving / slow at rest)
+            // made the convergence rate JUMP at the moving↔rest transition → the still-converging error visibly
+            // settled the instant the agent stopped = the arrival BOB. The snap target is now the STABLE plant
+            // target (groundHit + K — a smooth function of terrain only, no animation-envelope wobble, no mesh
+            // chasing), so a SINGLE unified rate tracks the descending foreshore tightly while walking AND
+            // doesn't pop at rest — no rate discontinuity at arrival, no bob. (snapRateMove/snapRateRest retained
+            // as [HideInInspector] serialized fields for scene back-compat; snapRate is the live one.)
             if (!_snapInit) { _snapLocalY = desiredLocalY; _snapInit = true; }
             else _snapLocalY = Mathf.Lerp(_snapLocalY, desiredLocalY, 1f - Mathf.Exp(-snapRate * Time.deltaTime));
             Vector3 lp = transform.localPosition;
             lp.y = _snapLocalY;
             transform.localPosition = lp;
 
-            // LIVE FLOAT-DIAGNOSTIC — the gauge now reads the HONEST gap: BAKED actual sole − ground. GAP=0 ⟺
-            // the visible SOLES are on the visible sand. Re-measure the baked sole AFTER applying this frame's
-            // snap so the gauge reflects the corrected position. (The bounds-floor false-green can no longer
-            // happen: neither the snap nor the gauge reads bounds.min.y anymore.)
+            // ===== THE WALK-FLOAT FIX (86ca8rdkp attempt-9 — diagnose-via-trace OVERTURNED e1289ef's premise).
+            // e1289ef grounded the avatar ROOT to plantY (proxyRootGap≈0 — root correctly grounded) AND assumed
+            // the rendered sole rides the root because "the clips are in-place". The ClipBaselineDiagnose (scale-
+            // immune baked sole, avatarRoot@0) DISPROVED that: the IDLE clip plants the sole at root-relative
+            // -0.003 (feet on the root, good), but the WALK clip plants it at +0.63..+0.69 — the Mixamo Walk
+            // clip's HIPS/body are authored ~0.66u HIGHER than Idle's, lifting the WHOLE rendered mesh while
+            // walking even though the root is grounded. That is the Sponsor's "hovering above the sand while
+            // mid-stride". It is NOT a scale/snap/shadow bug, and it is NOT fixable via clip import flags
+            // (lockRootHeightY/heightFromFeet govern ROOT-MOTION extraction; applyRootMotion=false samples the
+            // mesh IN-PLACE from the raw bone curves — PROVEN: re-importing with those flags left WALK sole at
+            // +0.66 unchanged). The lift lives in the BONE pose, per-clip.
+            //
+            // FIX: ground the VISIBLE rendered SOLE (not the proxy root) by offsetting the MODEL CHILD's local-Y
+            // so the scale-immune baked sole sits at the grounded plant level. This works for BOTH clips with no
+            // per-clip constant: Idle's residual is ~0 (no offset), Walk's residual is ~+0.66 (model pushed down).
+            // It is the brief's prescribed "ground the actual VISIBLE mesh-bottom measured SCALE-IMMUNELY"
+            // approach — and it is NOT the ±68 runaway: MeasureRenderedSoleWorldY uses a UNIT-SCALE TRS (never
+            // smr.localToWorldMatrix), so the FBX 100× node is never double-applied (shipped [FloatTrace] read a
+            // sane +0.66, not ±68). The model child carries only a yaw (Y-axis) rotation, so a local-Y offset is
+            // orientation-independent. Convergence uses modelSoleGroundRate (HIGHER than the root snapRate) —
+            // this cancels a deterministic MEASURED per-clip-frame lift, so it must track tightly (plant every
+            // stride frame + converge the Idle→Walk +0.66 step in a few frames), unlike the root snap which
+            // smooths noisy terrain.
+            if (_model != null && modelSoleGround)
+            {
+                float soleBeforeModelOffset = MeasureRenderedSoleWorldY();
+                if (!float.IsNaN(soleBeforeModelOffset))
+                {
+                    // The local-Y the model child needs so its scale-immune rendered sole lands on plantY. Pure
+                    // static (ComputeModelGroundLocalY) so the EditMode walk-grounding guard asserts THIS math
+                    // against a real SampleAnimation'd WALK clip (the bug class) without a play loop.
+                    float desiredModelLocalY = ComputeModelGroundLocalY(
+                        soleBeforeModelOffset, plantY, _model.localPosition.y, transform.lossyScale.y);
+                    if (!_modelGroundInit) { _modelLocalY = desiredModelLocalY; _modelGroundInit = true; }
+                    else _modelLocalY = Mathf.Lerp(_modelLocalY, desiredModelLocalY,
+                                                   1f - Mathf.Exp(-modelSoleGroundRate * Time.deltaTime));
+                    Vector3 mlp = _model.localPosition;
+                    mlp.y = _modelLocalY;
+                    _model.localPosition = mlp;
+                }
+            }
+
+            // LIVE FLOAT-DIAGNOSTIC — the gauge reads the HONEST gap: SCALE-IMMUNE baked sole − ground. GAP≈0 ⟺
+            // the visible SOLES are on the visible sand. The sole is now measured with a UNIT-SCALE world matrix
+            // (MeasureRenderedSoleWorldY) so the FBX 100× node never blows it up — the gauge reads a sane sole-Y,
+            // not the ±68 garbage the old smr.l2w path produced. Re-measure AFTER applying this frame's snap so
+            // the gauge reflects the corrected position. (Snap grounds the ROOT to groundHit+K; since the bind
+            // sole ≈ the root and the clips are in-place, the sole lands on the sand too — verified by the WALK
+            // [FloatTrace]: GAP stays bounded standing + walking + at arrival.)
             MeshBottomWorldY = MeasureRenderedSoleWorldY();
             SmrBoundsMinWorldY = boundsMinNow;       // dump-only proxy for the [FloatTrace] discrepancy line
             MeshFloatGap = float.IsNaN(MeshBottomWorldY) ? float.NaN
@@ -510,13 +606,12 @@ namespace FarHorizon
             // walking, AND at arrival from the player log. Throttled to once per render frame (not per physics).
             if (_frameTrace) EmitFrameTrace(root, bakedSoleNow, boundsMinNow, plantY, moving);
 
-            // CONTACT SHADOW — ground it to the VISIBLE-SAND CONTACT LEVEL (the plant target), NOT the avatar
-            // root. FINAL-FIX correction (86ca8rdkp): the snap now grounds the rendered SOLE, so the avatar root
-            // no longer sits at the feet — it floats at a pose-dependent offset (root was 0.046 while the sole
-            // sat at the sand in the shore dump). Driving the shadow off the root would re-strand it above the
-            // soles (the exact 'floats above its shadow' percept this saga chased). The visible soles land on
-            // plantY (= ground hit + the Sponsor offset) by construction, so the contact shadow belongs THERE —
-            // it tracks the sand the feet touch, in motion AND at rest, with no pose coupling.
+            // CONTACT SHADOW — ground it to the VISIBLE-SAND CONTACT LEVEL (the plant target). The snap grounds
+            // the avatar ROOT to plantY (= groundHit + K), and the bind feet sit at the root, so plantY IS the
+            // contact level the feet touch. Planting the shadow at plantY tracks the sand the feet touch in
+            // motion AND at rest — the shadow is a child of the player root and would otherwise stay at a fixed
+            // Y and strand above/below the snapped feet on the dipping foreshore (the 'floats above its shadow'
+            // percept from earlier soaks). No pose coupling, no mesh chasing.
             if (blobShadow != null)
             {
                 Vector3 sp = blobShadow.position;

@@ -328,6 +328,16 @@ namespace FarHorizon.EditorTools
                     // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
                     // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
                     // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
+                    //
+                    // NOTE (86ca8rdkp attempt-9 — diagnose-via-trace): the WALK-clip float is NOT fixable here.
+                    // These root-transform flags govern ROOT-MOTION EXTRACTION; with applyRootMotion=false the
+                    // baked skinned mesh is sampled IN-PLACE from the raw bone curves, so lockRootHeightY /
+                    // heightFromFeet / keepOriginalPositionY do NOT move the rendered feet (PROVEN: re-importing
+                    // the Walk clip with lockRootHeightY=true + keepOriginalPositionY=false + heightFromFeet=true
+                    // left the scale-immune baked WALK sole at +0.63..+0.69 — unchanged from the +0.66 baseline).
+                    // The Mixamo Walk clip's HIPS are authored ~0.66u higher than Idle's; that lift lives in the
+                    // BONE pose, not the root node. The fix is at the MODEL level (CastawayCharacter grounds the
+                    // scale-immune rendered sole), not in these import flags — kept at the spike's clean values.
                     cc.lockRootRotation = true;
                     cc.keepOriginalOrientation = false;
                     cc.lockRootPositionXZ = true;
@@ -492,6 +502,189 @@ namespace FarHorizon.EditorTools
             sb.AppendLine("[char-trace] ===== END TRACE =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== (attempt-8 throwaway import-flag fix-probes REMOVED post-diagnosis: useFileScale=false made it
+        // WORSE — 218u tall + the 100× node SURVIVED; bakeAxisConversion=true ALSO kept the 100× node. Both
+        // REFUTED the "an importer flag collapses the cm→m node" hypothesis — the 100× is intrinsic to the FBX
+        // hierarchy. The remaining read-only ScaleChainDiagnose stays as the durable instrument that found it.) =====
+
+        // ===== SCALE-CHAIN DIAGNOSE (86ca8rdkp attempt-8 — ROOT-CAUSE the 68u intrinsic offset). Read-only
+        // diagnostic, KEPT as the durable instrument that found the root cause (re-runnable on any future
+        // character swap to catch a cm→m node). Reproduces the SCENE setup (avatar root scaled PlayerVisualHeight under a
+        // player root, the FBX instantiated as a child, BakeMesh the live mesh) and dumps EVERY node's
+        // localScale + lossyScale + the SMR.transform scale + the BakeMesh actual extents in BOTH local AND
+        // world space — so we MEASURE where the ~68 lives (the cm→m 100× node, or a bone, or the bake) instead
+        // of guessing. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ScaleChainDiagnose
+        public static void ScaleChainDiagnose()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[scale-trace] ===== SCALE-CHAIN DIAGNOSE (68u root-cause) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null)
+            {
+                sb.AppendLine("[scale-trace] FBX NOT FOUND at " + IdleFbxPath);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            // ---- (A) the importer's effective globalScale (the height-normalize result) ----
+            var importer = AssetImporter.GetAtPath(IdleFbxPath) as ModelImporter;
+            if (importer != null)
+                sb.AppendLine($"[scale-trace] importer.globalScale={importer.globalScale:F6} " +
+                              $"useFileScale={importer.useFileScale} useFileUnits={importer.useFileUnits} " +
+                              $"animationType={importer.animationType}");
+
+            // ---- (B) reproduce the SCENE: playerRoot -> avatarRoot(scale 1.8) -> FBX(scale 1) ----
+            const float PlayerVisualHeight = 1.8f; // mirror MovementCameraScene
+            var playerRoot = new GameObject("__diagPlayer");
+            playerRoot.transform.position = Vector3.zero;
+            var avatarRoot = new GameObject("__diagAvatar");
+            avatarRoot.transform.SetParent(playerRoot.transform, false);
+            avatarRoot.transform.localScale = Vector3.one * PlayerVisualHeight;
+            var model = Object.Instantiate(fbx, avatarRoot.transform, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localScale = Vector3.one; // matches BuildModel
+
+            sb.AppendLine($"[scale-trace] avatarRoot lossyScale={avatarRoot.transform.lossyScale}");
+            sb.AppendLine($"[scale-trace] modelChild '{model.name}' localScale={model.transform.localScale} " +
+                          $"lossyScale={model.transform.lossyScale}");
+
+            // ---- (C) walk EVERY transform under the model, dump local+lossy scale (find the 100× node) ----
+            sb.AppendLine("[scale-trace] --- full transform scale chain ---");
+            foreach (var t in model.GetComponentsInChildren<Transform>(true))
+            {
+                Vector3 ls = t.localScale, lossy = t.lossyScale;
+                // FLAG any node whose local OR lossy scale is far from ~1 (the 100× / cm→m suspect).
+                bool suspect = Mathf.Abs(ls.x) > 5f || Mathf.Abs(ls.x) < 0.2f ||
+                               Mathf.Abs(lossy.x) > 5f || Mathf.Abs(lossy.x) < 0.02f;
+                string flag = suspect ? "  <== SCALE SUSPECT" : "";
+                sb.AppendLine($"[scale-trace]   '{t.name}' local={ls.ToString("F4")} lossy={lossy.ToString("F5")}{flag}");
+            }
+
+            // ---- (D) the SMR(s): transform scale + BakeMesh extents in LOCAL and WORLD ----
+            var smrs = model.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            sb.AppendLine($"[scale-trace] --- {smrs.Length} SMR(s) ---");
+            foreach (var smr in smrs)
+            {
+                if (smr == null || smr.sharedMesh == null) continue;
+                sb.AppendLine($"[scale-trace] SMR '{smr.name}' transform.localScale={smr.transform.localScale} " +
+                              $"lossyScale={smr.transform.lossyScale}");
+                sb.AppendLine($"[scale-trace]   sharedMesh.bounds.size={smr.sharedMesh.bounds.size} (import-baked)");
+                sb.AppendLine($"[scale-trace]   SMR.bounds(world AABB).size={smr.bounds.size} min.y={smr.bounds.min.y:F4}");
+
+                var baked = new Mesh();
+                // useScale:FALSE — node scale applied via the matrix below (apply ONCE; matches runtime path).
+                smr.BakeMesh(baked, false);
+                var verts = baked.vertices;
+                if (verts.Length > 0)
+                {
+                    float lMinY = float.PositiveInfinity, lMaxY = float.NegativeInfinity;
+                    float wMinY = float.PositiveInfinity, wMaxY = float.NegativeInfinity;
+                    Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+                    foreach (var v in verts)
+                    {
+                        if (v.y < lMinY) lMinY = v.y; if (v.y > lMaxY) lMaxY = v.y;
+                        float wy = l2w.MultiplyPoint3x4(v).y;
+                        if (wy < wMinY) wMinY = wy; if (wy > wMaxY) wMaxY = wy;
+                    }
+                    sb.AppendLine($"[scale-trace]   BakeMesh(useScale:false) LOCAL y=[{lMinY:F4}..{lMaxY:F4}] " +
+                                  $"height={lMaxY - lMinY:F4}");
+                    sb.AppendLine($"[scale-trace]   BakeMesh->WORLD via l2w  y=[{wMinY:F4}..{wMaxY:F4}] " +
+                                  $"height={wMaxY - wMinY:F4}  <== THE SNAP READS THIS world-Y");
+                }
+                Object.DestroyImmediate(baked);
+            }
+
+            // ---- (E) overall rendered bounds (what MeasureHeight reads) ----
+            var rends = model.GetComponentsInChildren<Renderer>();
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                sb.AppendLine($"[scale-trace] OVERALL Renderer.bounds (scene, scaled 1.8): size={b.size} " +
+                              $"center.y={b.center.y:F4} min.y={b.min.y:F4} max.y={b.max.y:F4}");
+            }
+
+            Object.DestroyImmediate(playerRoot);
+            sb.AppendLine("[scale-trace] ===== END SCALE-CHAIN DIAGNOSE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CLIP-BASELINE DIAGNOSE (86ca8rdkp attempt-9 — THROWAWAY; removed before PR). Bakes the IDLE and
+        // WALK clips across their full cycle and reports the SCALE-IMMUNE baked sole-Y (lowest vertex, unit-scale
+        // TRS) at each sample — so we MEASURE whether the WALK clip lifts the whole mesh off the feet relative to
+        // IDLE (the [FloatTrace] showed GAP≈0 at rest but +0.69 walking). Reproduces the SCENE rig (avatarRoot
+        // scale 1.8 under a player root), samples each clip via AnimationClip.SampleAnimation. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ClipBaselineDiagnose
+        public static void ClipBaselineDiagnose()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[clip-trace] ===== CLIP-BASELINE DIAGNOSE (walk-lift root cause) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[clip-trace] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
+            AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[clip-trace] idle={(idle != null ? idle.name : "<null>")} walk={(walk != null ? walk.name : "<null>")}");
+
+            const float PlayerVisualHeight = 1.8f;
+            var playerRoot = new GameObject("__clipPlayer");
+            var avatarRoot = new GameObject("__clipAvatar");
+            avatarRoot.transform.SetParent(playerRoot.transform, false);
+            avatarRoot.transform.localScale = Vector3.one * PlayerVisualHeight;
+            var model = Object.Instantiate(fbx, avatarRoot.transform, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[clip-trace] {label}: <null clip>"); return; }
+                float minSole = float.PositiveInfinity, maxSole = float.NegativeInfinity;
+                int N = 12;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    float sole = BakeSoleScaleImmune(smr);
+                    if (sole < minSole) minSole = sole;
+                    if (sole > maxSole) maxSole = sole;
+                    sb.AppendLine($"[clip-trace] {label} t={t:F3}s soleY(scale-immune,root@0)={sole:F4}");
+                }
+                sb.AppendLine($"[clip-trace] {label} SUMMARY soleY min={minSole:F4} max={maxSole:F4} " +
+                              $"range={maxSole - minSole:F4}  <== a clip whose min soleY != ~0 lifts the feet off the root");
+            }
+
+            SampleClip("IDLE", idle);
+            SampleClip("WALK", walk);
+
+            Object.DestroyImmediate(playerRoot);
+            sb.AppendLine("[clip-trace] ===== END CLIP-BASELINE DIAGNOSE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // Scale-immune baked sole-Y for the diagnose (unit-scale TRS world matrix — the FBX 100× node never blows
+        // it up; matches CastawayCharacter.MeasureRenderedSoleWorldY). avatarRoot is at world 0 here, so the
+        // returned value is the sole-Y RELATIVE to the (grounded) root — ~0 means feet on the root.
+        private static float BakeSoleScaleImmune(SkinnedMeshRenderer smr)
+        {
+            if (smr == null || smr.sharedMesh == null) return float.NaN;
+            var baked = new Mesh();
+            smr.BakeMesh(baked, false);
+            var verts = baked.vertices;
+            Matrix4x4 l2w = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
+            float minY = float.PositiveInfinity;
+            foreach (var v in verts) { float y = l2w.MultiplyPoint3x4(v).y; if (y < minY) minY = y; }
+            Object.DestroyImmediate(baked);
+            return minY;
         }
     }
 }

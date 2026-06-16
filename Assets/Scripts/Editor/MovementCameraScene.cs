@@ -805,6 +805,21 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
+        // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
+        private static void WireWalkGroundingVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host WalkGroundingVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<WalkGroundingVerifyCapture>() == null)
+                bootGo.AddComponent<WalkGroundingVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         private static void WireCraftVerifyCapture(GameObject player)
         {
             var bootGo = GameObject.Find("Boot");
@@ -1351,6 +1366,12 @@ namespace FarHorizon.EditorTools
             // And its committed shipped-build capture path (proves the overlay renders the live GAP in the exe —
             // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
             WireFloatDiagnosticVerifyCapture();
+
+            // Wire the GAMEPLAY-CAM walk-grounding capture (86ca8rdkp attempt-9 — the WALK-clip body-lift fix).
+            // Captures from the REAL OrbitCamera (not an isolated rig — the false-green class) at 3 positions ×
+            // standing/mid-stride so the Sponsor/orchestrator judge feet-on-sand exactly as gameplay frames it.
+            // Inert unless -verifyWalkGround. Sibling of the float-diagnostic capture.
+            WireWalkGroundingVerifyCapture();
 
             // (No hair-silhouette verify capture — the chibi's procedural hair-spike soak class does not
             // apply to the Hyper3D castaway, which ships sculpted hair in the mesh. 86ca8rdkp.)
