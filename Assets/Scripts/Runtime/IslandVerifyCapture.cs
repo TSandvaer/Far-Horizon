@@ -40,8 +40,143 @@ namespace FarHorizon
 
         void Start()
         {
-            if (HasArg("-verifyIsland"))
+            if (HasArg("-diagLine"))
+                StartCoroutine(RunLineDiagnostic());
+            else if (HasArg("-verifyIsland"))
                 StartCoroutine(RunVerification());
+        }
+
+        // ============================================================================================
+        // AC0 "LINE THROUGH THE ISLAND" DIAGNOSTIC (ticket 86ca9qwr3). The Sponsor sees a dead-straight,
+        // world-fixed dark streak across the grass. ISOLATION PROBE (the -noFog/-flatSky/-hideVista family):
+        // capture a clean grass-only overhead with the scatter/vista/clouds HIDDEN, then toggle the Sun's
+        // SHADOWS off, then toggle POST/FOG off — comparing the frames tells us WHAT the line is:
+        //   - vanishes with -noShadows -> it's a SHADOW (a thin world-fixed occluder, or a shadowmap artifact)
+        //   - persists with -noShadows -> it's baked into the terrain (vertex colour band) or a mesh seam
+        //   - vanishes with -noPost    -> it's a post-processing artifact (grade/vignette/bloom band)
+        // Launch: FarHorizon.exe -screen-fullscreen 0 -diagLine [-noShadows] [-noPost] [-noFog] [-captureDir <d>]
+        // The default frame is a HIGH near-top-down overhead of the bare grass (no trees to clutter the line).
+        // ============================================================================================
+        private IEnumerator RunLineDiagnostic()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            // ---- ISOLATION: hide the scatter (trees/rocks/grass), the vista, and the clouds so ONLY the
+            //      bare island terrain grass is in frame — the line reads against a clean surface. ----
+            HideByName("LowPolyScatter");   // the scatter root (trees/rocks/grass under the zone)
+            HideByName("Vista");            // distant mountain islands
+            HideByName("Clouds");           // cloud blobs
+            // Also hide the player so the over-shoulder body doesn't occlude the centre.
+            var castaway = GameObject.Find("Castaway") ?? GameObject.Find("Player");
+
+            // ---- TOGGLE: Sun shadows / post / fog per CLI so the probe isolates the cause. ----
+            bool noShadows = HasArg("-noShadows");
+            bool noPost = HasArg("-noPost");
+            bool noFog = HasArg("-noFog");
+            string tags = "iso";
+            if (noShadows)
+            {
+                foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+                    if (l.type == LightType.Directional) l.shadows = LightShadows.None;
+                tags += "_noShadows";
+            }
+            if (noPost)
+            {
+                var camV = Camera.main;
+                if (camV != null)
+                {
+                    var universal = camV.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+                    if (universal != null) universal.renderPostProcessing = false;
+                }
+                tags += "_noPost";
+            }
+            if (noFog) { RenderSettings.fog = false; tags += "_noFog"; }
+
+            // SHADOW-DISTANCE probe: override the URP main-light shadow distance. If the line MOVES with
+            // this value, the line is the shadow-distance / cascade-fade BOUNDARY (a camera-relative ring),
+            // not a cast shadow from an occluder. Read via the active URP asset's shadowDistance.
+            float shadowDist = ArgFloat("-shadowDist", -1f);
+            if (shadowDist > 0f)
+            {
+                var urp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline
+                          as UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset;
+                if (urp != null)
+                {
+                    Debug.Log($"[line-trace] URP shadowDistance was {urp.shadowDistance:F0} -> setting {shadowDist:F0}");
+                    urp.shadowDistance = shadowDist;
+                }
+                else Debug.Log("[line-trace] no UniversalRenderPipelineAsset found to set shadowDistance");
+                tags += "_sd" + Mathf.RoundToInt(shadowDist);
+            }
+            // Always report the current URP shadow distance / cascade count (the cascade-seam suspects).
+            {
+                var urp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline
+                          as UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset;
+                if (urp != null)
+                    Debug.Log($"[line-trace] URP shadowDistance={urp.shadowDistance:F0} cascades={urp.shadowCascadeCount}");
+            }
+
+            // Report the Sun + shadow-distance ground-truth (the cascade/shadow-distance suspects).
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+                if (l.type == LightType.Directional)
+                    Debug.Log($"[line-trace] Sun '{l.name}': rot={l.transform.eulerAngles.ToString("F0")} " +
+                              $"shadows={l.shadows} intensity={l.intensity:F2}");
+            Debug.Log($"[line-trace] RenderSettings.fog={RenderSettings.fog} ambientMode={RenderSettings.ambientMode}");
+
+            // ---- HIGH overhead (near top-down) of the bare grass — the line reads clean here. ----
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                cam.farClipPlane = Mathf.Max(cam.farClipPlane, 2000f);
+                // 70deg-down look from high + a little back so the diagonal world-axis orientation reads.
+                cam.transform.position = new Vector3(0f, 200f, -70f);
+                cam.transform.rotation = Quaternion.LookRotation((Vector3.zero - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera(tags + "_overhead");
+            ShotTo(Path.Combine(dir, "diagline_" + tags + "_overhead.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // ---- A LOWER over-shoulder-ish framing too (the angle the Sponsor reported the diagonal at). ----
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(0f, 45f, -75f);
+                cam.transform.rotation = Quaternion.LookRotation((new Vector3(0f, 2f, 10f) - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera(tags + "_oblique");
+            ShotTo(Path.Combine(dir, "diagline_" + tags + "_oblique.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // ---- CAMERA-RELATIVE PROOF: the SAME oblique look but SHIFTED +40u in world X. If the dark
+            //      line tracks the CAMERA (shifts +40u in world too), it's the shadow-distance ring (camera-
+            //      relative); if it stays put in world, it's baked. (Sponsor reads it as 'world-fixed' because
+            //      in normal play the orbit cam stays ~over the spawn at origin, so the ring barely moves.) ----
+            if (cam != null)
+            {
+                cam.transform.position = new Vector3(40f, 45f, -75f);
+                cam.transform.rotation = Quaternion.LookRotation((new Vector3(40f, 2f, 10f) - cam.transform.position).normalized, Vector3.up);
+            }
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera(tags + "_oblique_shift");
+            ShotTo(Path.Combine(dir, "diagline_" + tags + "_oblique_shift.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            Debug.Log("[line-trace] RunLineDiagnostic done (" + tags + ") -> " + dir);
+        }
+
+        private static void HideByName(string n)
+        {
+            var go = GameObject.Find(n);
+            if (go != null) { go.SetActive(false); Debug.Log("[line-trace] hidden: " + n); }
+            else Debug.Log("[line-trace] (not found, skip hide): " + n);
         }
 
         private IEnumerator RunVerification()

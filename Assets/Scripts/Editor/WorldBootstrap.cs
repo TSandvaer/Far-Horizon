@@ -33,6 +33,11 @@ namespace FarHorizon.EditorTools
         // per the "small player, big alive world" north-star). Z runs shore (front) -> deep inland.
         const float ZoneMinX = -45f, ZoneMaxX = 45f;
         const float ShoreZ = -12f, InlandFarZ = 56f;
+        // AC6 (86ca9qwr3 — give-him-the-knob): the island SEED drives the organic coast warp + cliff/beach
+        // layout, so a different seed = a different island OUTLINE of the same character. The bootstrap bakes
+        // LowPolyZoneGen.IslandSeed; it can be overridden at bootstrap time with `-islandSeed N` so the Sponsor's
+        // chosen variant re-bakes without a source edit. Default is the Sponsor-pick once chosen (set in
+        // LowPolyZoneGen.IslandSeed). 13001 kept as the legacy Zone-D parity seed for the non-island scatter.
         const int ZoneSeed = 13001; // the spike's Zone-D seed, for look parity with the approved pass
 
         // ---- WORLD-LOOK POLISH palettes (ticket 86ca8t9pq — Uma world-look brief §1/§2) ----
@@ -119,8 +124,12 @@ namespace FarHorizon.EditorTools
             var waterMat = LowPolyZoneGen.MakeWaterMaterial(SettingsDir + "/LowPolyWaterMat.mat");
             var grounds = new GameObject("Grounds");
             grounds.transform.SetParent(envRoot.transform, false);
+            // AC6: the island shape is seeded by LowPolyZoneGen.IslandSeed, overridable at bootstrap with
+            // `-islandSeed N` so the Sponsor's chosen variant re-bakes without a source edit.
+            int islandSeed = ResolveIslandSeed();
+            Debug.Log($"[world-trace] island shape seed = {islandSeed} (override via -islandSeed)");
             var zone = LowPolyZoneGen.BuildZone(grounds, "Play", ZoneMinX, ZoneMaxX,
-                ShoreZ, InlandFarZ, ZoneSeed, vcMat, waterMat);
+                ShoreZ, InlandFarZ, islandSeed, vcMat, waterMat);
 
             // ---- WORLD-LOOK POLISH (ticket 86ca8t9pq) ----
             // CLOUDS (Uma §1): chunky faceted cyan blobs high overhead, slow lateral drift. Built under
@@ -161,7 +170,7 @@ namespace FarHorizon.EditorTools
 
             // ---- NavMesh: bake on the real sloped terrain + SAVE as an asset so it ships in the
             //      standalone build (the spike's iter-3 "NavMesh not shipping" lesson). ----
-            BakeNavMesh(grounds);
+            BakeNavMesh(grounds, islandSeed);
 
             Debug.Log("[WorldBootstrap] BuildEnvironment complete -> " + zone.ground.name);
             return envRoot;
@@ -528,7 +537,7 @@ namespace FarHorizon.EditorTools
         // maxSlope 45deg, so the default agent type already covers every hill; the partial coverage was the
         // OLD flat-slab-only bake, not a slope limit.) A coverage trace dumps the walkable fraction sampled
         // across the disc so the N1 fix is readable from the log, not just judged by eye.
-        static void BakeNavMesh(GameObject groundsRoot)
+        static void BakeNavMesh(GameObject groundsRoot, int islandSeed)
         {
             var surface = groundsRoot.GetComponent<NavMeshSurface>();
             if (surface == null) surface = groundsRoot.AddComponent<NavMeshSurface>();
@@ -553,7 +562,7 @@ namespace FarHorizon.EditorTools
                     EditorUtility.CopySerialized(surface.navMeshData, existing);
                 AssetDatabase.SaveAssets();
                 Debug.Log("[WorldBootstrap] NavMesh baked + saved -> " + navPath + " (voxel=0.16, collectAll)");
-                TraceNavMeshCoverage();
+                TraceNavMeshCoverage(islandSeed);
             }
             else
             {
@@ -567,21 +576,24 @@ namespace FarHorizon.EditorTools
         // run at bake time (the just-baked surface is live in the editor's navigation system) so the N1 fix is
         // a measured number in the bootstrap log, not an eyeball judgement. (Trees carve NavMeshObstacles at
         // RUNTIME — they don't subtract from this static bake — so the static fraction is the reachable land.)
-        static void TraceNavMeshCoverage()
+        static void TraceNavMeshCoverage(int islandSeed)
         {
-            float plantR = LowPolyZoneGen.IslandShoreR - 6f; // the walkable land disc (inside the sand ring)
             const int rings = 12, azimuths = 16;
-            float ox = 17.3f, oz = 41.9f; // representative offset for the surface Y sample
+            LowPolyZoneGen.SeedOffset(islandSeed, out float ox, out float oz); // SAME warp offset as the terrain
             int total = 0, covered = 0;
             float worstUncoveredRing = -1f; int worstRingMisses = 0;
             for (int ri = 1; ri <= rings; ri++)
             {
-                float rr = plantR * ri / rings;
                 int ringMiss = 0;
                 for (int ai = 0; ai < azimuths; ai++)
                 {
                     float ang = ai / (float)azimuths * Mathf.PI * 2f;
-                    float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                    float dx = Mathf.Cos(ang), dz = Mathf.Sin(ang);
+                    // Sample the WALKABLE land at this azimuth: ring fraction of the WARPED coast minus the
+                    // coastal fringe (so we sample real grass, not the beach strip / sea in a bay).
+                    float coast = LowPolyZoneGen.ShoreRadiusAt(dx, dz, ox, oz);
+                    float rr = (coast - (LowPolyZoneGen.BeachWidth + 4f)) * ri / rings;
+                    float x = dx * rr, z = dz * rr;
                     float y = LowPolyZoneGen.HeightAtRadial(x, z, ox, oz);
                     total++;
                     if (UnityEngine.AI.NavMesh.SamplePosition(new Vector3(x, y, z),
@@ -590,13 +602,24 @@ namespace FarHorizon.EditorTools
                     else
                         ringMiss++;
                 }
-                if (ringMiss > worstRingMisses) { worstRingMisses = ringMiss; worstUncoveredRing = rr; }
+                if (ringMiss > worstRingMisses) { worstRingMisses = ringMiss; worstUncoveredRing = ri / (float)rings; }
             }
             float pct = total > 0 ? 100f * covered / total : 0f;
             Debug.Log($"[world-trace] NAVMESH COVERAGE: {covered}/{total} land samples walkable ({pct:F1}%) " +
-                      $"across the round island (rings 1..{rings} × {azimuths} azimuths, walkable disc r={plantR:F0}u). " +
-                      $"worst ring r={worstUncoveredRing:F0}u missed {worstRingMisses}/{azimuths}. " +
+                      $"across the ORGANIC island (rings 1..{rings} × {azimuths} azimuths, sampled inside the warped coast). " +
+                      $"worst ring fraction={worstUncoveredRing:F2} missed {worstRingMisses}/{azimuths}. " +
                       "N1: the agent must reach the WHOLE island (≥90% expected post-fix).");
+        }
+
+        // AC6 (86ca9qwr3): the island shape seed. Defaults to LowPolyZoneGen.IslandSeed (the Sponsor's pick
+        // once chosen); overridable at bootstrap with `-islandSeed N` so seed VARIANTS can be baked + captured
+        // for the Sponsor to choose, and the chosen one re-baked, without a source edit each time.
+        static int ResolveIslandSeed()
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+                if (args[i] == "-islandSeed" && int.TryParse(args[i + 1], out int s)) return s;
+            return LowPolyZoneGen.IslandSeed;
         }
 
         // Add a shader to GraphicsSettings.AlwaysIncludedShaders so the standalone build does NOT strip
