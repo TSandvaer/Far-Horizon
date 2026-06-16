@@ -76,6 +76,31 @@ namespace FarHorizon
             var orbit = Object.FindAnyObjectByType<OrbitCamera>();
             if (orbit != null) orbit.enabled = false;
 
+            // COAST PROBE (INERT): raycast the terrain DOWN along +Z to find where the land actually dips below
+            // the sea (the real +Z waterline) + how high the foreshore sits — so the camera is parked from
+            // GROUND TRUTH, not guessed radii (the island is azimuth-warped + raised; guessing framed skybox).
+            if (HasArg("-coastProbe"))
+            {
+                var groundGo = GameObject.Find("Ground_Play");
+                var col = groundGo != null ? groundGo.GetComponent<MeshCollider>() : null;
+                if (col != null)
+                {
+                    float lastAbove = -1f;
+                    for (float r = 80f; r <= 200f; r += 2f)
+                    {
+                        var ray = new Ray(new Vector3(0f, 60f, r), Vector3.down);
+                        if (col.Raycast(ray, out RaycastHit h, 200f))
+                        {
+                            string tag = h.point.y <= -0.20f ? " <= WaterY (SEA past here)" : "";
+                            if (h.point.y > -0.20f) lastAbove = r;
+                            Debug.Log($"[coastProbe] +Z r={r:F0} terrainY={h.point.y:F2}{tag}");
+                        }
+                        else Debug.Log($"[coastProbe] +Z r={r:F0} (no terrain hit — open sea)");
+                    }
+                    Debug.Log($"[coastProbe] last DRY +Z radius ~ {lastAbove:F0}u (park the cam just past here over open water)");
+                }
+            }
+
             // Park at the +Z coast, a little inland of the waterline (IslandShoreR ~120u) and up a few u, then
             // look seaward (+Z) with a gentle downward tilt so the near surf + far sea + sky all sit in frame.
             float coastR = ArgFloat("-coastRadius", 118f);
