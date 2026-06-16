@@ -101,9 +101,13 @@ namespace FarHorizon.EditorTools
         // §FBX lossy-bone-scale trap; soakfix8's all-local pose walked back into it on the POSITION channel.
         //
         // FIX — SPLIT the two channels (HeldAxeRig drives both each frame; unity-conventions.md §FBX):
-        //   POSITION → a WORLD-space offset from the hand bone: axe.position = hand.position + worldOffset.
-        //     The offset is WORLD units, so the F9 nudge moves the axe ~2 cm/click (NOT metres). The bone's
-        //     267× lossyScale never touches a world-space position setter — the soakfix9 fix.
+        //   POSITION → a HAND-LOCAL offset, rotated by the hand rotation (86ca9qwvd — the HAND-LOCAL space
+        //     fix): axe.position = hand.position + hand.rotation * offset. soakfix9 applied the offset as a
+        //     RAW WORLD vector (hand.position + worldOffset) that did NOT rotate with the hand, so it was only
+        //     correct at the SPAWN facing — turning the character swung the axe out of the hand (the bug THIS
+        //     wave). Rotating the cm offset by hand.rotation makes it TRACK the hand through every facing; a
+        //     pure rotation preserves the magnitude, so the F9 nudge still moves the axe ~2 cm/click and the
+        //     bone's lossyScale never touches the offset (it is NOT hand.TransformPoint, which re-applies it).
         //   ROTATION → HAND-RELATIVE: axe.rotation = hand.rotation * Euler(relEuler) — the soakfix8 fix, KEPT,
         //     so the haft still turns with the hand on every facing.
         // SCALE rides the bone hierarchy unchanged (localScale × 267× ≈ 1.0u — the hero-hatchet size). The axe
@@ -479,15 +483,24 @@ namespace FarHorizon.EditorTools
             // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.77u longest.
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
 
-            // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a WORLD-space offset from
-            // the wrist bone; ROTATION is HAND-RELATIVE so the haft turns WITH the hand on every facing. (On the
-            // chibi this split existed to dodge the 267× lossy-bone trap; on THIS rig there is no trap, but the
-            // world-driven approach is kept — it is the contract the F9 nudge tool drives + serializes.)
+            // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a HAND-LOCAL offset
+            // (rotated by the hand rotation, so it TRACKS the hand through every facing — 86ca9qwvd); ROTATION
+            // is HAND-RELATIVE so the haft turns WITH the hand on every facing. The rig's field is the HAND-
+            // LOCAL offset; the F9 nudge moves it (a pure rotation keeps the ~2 cm/click step).
             var rig = axe.GetComponent<HeldAxeRig>();
             if (rig == null) rig = axe.AddComponent<HeldAxeRig>();
             rig.hand = hand;
-            rig.worldOffsetFromHand = HeldAxeWorldOffsetFromHand; // WORLD units — the F9 nudge moves this directly
-            rig.relEuler = HeldAxeRelEuler;                       // hand-relative — turns with the hand
+            // AC2 — PRESERVE THE SPONSOR'S PERFECTED LOOK. His F9-dialed default (HeldAxeWorldOffsetFromHand)
+            // was a RAW WORLD offset under the prior soakfix9 formula (position = hand.position + worldOffset).
+            // The new HAND-LOCAL formula is position = hand.position + hand.rotation * offset, so to land the
+            // IDENTICAL world position at the spawn facing the field must hold the offset expressed in the hand's
+            // LOCAL frame: offset_handlocal = Inverse(hand.rotation) * dialedWorldOffset. Converted from the
+            // REAL hand rotation present at bake time (NOT a guessed bone rotation) so it is exact at spawn AND
+            // now correct at every other facing. (The constant stays the Sponsor's dialed WORLD value — the
+            // source of truth he re-confirms at soak; the conversion to the rig's hand-local field happens here.)
+            Vector3 handLocalOffset = Quaternion.Inverse(hand.rotation) * HeldAxeWorldOffsetFromHand;
+            rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
+            rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
             // RE-SOAK #3 — the stabilize frame is the avatar/body root (translates with locomotion, does NOT
             // arm-swing) so the swing low-pass is measured in a frame free of the walk translation. Without
             // this the swing damping is computed in WORLD space and FIGHTS locomotion (makes the axe sweep worse).
@@ -495,15 +508,17 @@ namespace FarHorizon.EditorTools
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
-            // re-asserts at runtime. Derived from the rig's world-offset + hand-relative euler against the
-            // hand's authoring transform: localPos = hand.InverseTransformPoint(hand.position + worldOffset);
-            // localRot = Inverse(hand.rotation) * (hand.rotation * Euler(relEuler)) = Euler(relEuler).
-            Vector3 seatedWorldPos = hand.position + HeldAxeWorldOffsetFromHand;
+            // re-asserts at runtime. Mirrors the NEW hand-local runtime formula
+            // (position = hand.position + hand.rotation * handLocalOffset): the seated world position uses the
+            // SAME rotated offset, so the static bake matches the runtime pose (and == the prior world position
+            // at the spawn facing, by the AC2 conversion above). localRot = Euler(relEuler) (hand-relative).
+            Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
             Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
             axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
             axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
-            Debug.Log("[MovementCameraScene] held axe SOAKFIX9 split pose: worldOffsetFromHand=" +
-                      HeldAxeWorldOffsetFromHand.ToString("F4") + " relEuler=" + HeldAxeRelEuler.ToString("F1") +
+            Debug.Log("[MovementCameraScene] held axe 86ca9qwvd hand-local pose: dialedWorldOffset=" +
+                      HeldAxeWorldOffsetFromHand.ToString("F4") + " -> handLocalOffset=" + handLocalOffset.ToString("F4") +
+                      " relEuler=" + HeldAxeRelEuler.ToString("F1") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
 

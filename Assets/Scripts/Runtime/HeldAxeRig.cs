@@ -4,16 +4,20 @@ namespace FarHorizon
 {
     /// <summary>
     /// Per-frame driver that seats the HELD hatchet at the chibi's right hand (ticket 86ca8ce6y — SOAKFIX9,
-    /// the held-axe POSITION fix). It SPLITS the two pose channels so each rides the right frame:
+    /// the held-axe POSITION fix; 86ca9qwvd — the HAND-LOCAL space fix). It SPLITS the two pose channels so
+    /// each rides the right frame:
     ///
-    ///   - POSITION → a WORLD-space offset from the hand bone, re-applied every frame:
-    ///         transform.position = hand.position + worldOffsetFromHand   (WORLD units)
-    ///     The offset is in WORLD units, so the F9 nudge moves the axe a SENSIBLE world distance
-    ///     (~0.02u ≈ 2 cm per click). The prior soakfix8 posed POSITION as a localPosition on the bone —
-    ///     but RightHand_010 carries a ~267× lossyScale (probe-verified, unity-conventions.md §FBX), so a
-    ///     0.02 LOCAL step became ~5.3 WORLD units: one nudge click flung the axe ~5 m off-screen (the
-    ///     Sponsor's exact soakfix9 bug). Driving position in WORLD space sidesteps the bone's lossy scale
-    ///     entirely — the 267× never touches a world-space setter.
+    ///   - POSITION → a HAND-LOCAL offset, rotated by the hand's rotation, re-applied every frame:
+    ///         transform.position = hand.position + hand.rotation * offsetFromHand   (cm-scale, hand-LOCAL)
+    ///     The offset is rotated by the (stabilized) hand rotation, so it TRACKS THE HAND THROUGH EVERY
+    ///     FACING — the axe stays seated in the grip no matter which way the castaway turns. (86ca9qwvd —
+    ///     the real bug THIS wave: soakfix9 applied the offset as a RAW WORLD vector that did NOT rotate
+    ///     with the hand, so it was only correct at the spawn facing; turning the character left the axe
+    ///     behind in world space — see HeldAxeStaysSeatedAcrossFacingsPlayModeTests.) The offset stays in
+    ///     sensible cm units, so the F9 nudge still moves the axe ~2 cm per click (a pure rotation preserves
+    ///     the step magnitude). It is NOT hand.TransformPoint(offset) — that would re-apply the bone's
+    ///     ~267×/1.8× lossyScale and blow the offset up to metres (the §FBX lossy-bone trap); we rotate by
+    ///     hand.rotation ONLY, never the scale, so the cm offset stays cm.
     ///
     ///   - ROTATION → HAND-RELATIVE, re-applied every frame:
     ///         transform.rotation = hand.rotation * Quaternion.Euler(relEuler)
@@ -50,8 +54,11 @@ namespace FarHorizon
                  "the parent chain as a fallback.")]
         public Transform hand;
 
-        [Tooltip("POSITION channel — the axe is seated at hand.position + this WORLD-space offset every " +
-                 "frame. WORLD units, so a nudge step is a sensible ~2 cm (NOT a 267×-lossy-scale local step).")]
+        [Tooltip("POSITION channel — the axe is seated at hand.position + hand.rotation * this offset every " +
+                 "frame (86ca9qwvd: HAND-LOCAL, rotated by the hand so it TRACKS the hand through every facing). " +
+                 "cm-scale units rotated by the hand's rotation ONLY (never its lossyScale), so a nudge step is " +
+                 "a sensible ~2 cm and the axe stays seated no matter which way the castaway turns. Field name " +
+                 "kept (worldOffsetFromHand) so the serialized scene + the F9 AxeNudgeTool wiring carry forward.")]
         public Vector3 worldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
 
         [Tooltip("ROTATION channel — the axe's rotation is hand.rotation * Euler(this), HAND-RELATIVE, so " +
@@ -157,10 +164,16 @@ namespace FarHorizon
                 followRot = frame.rotation * followLocalRot;
             }
 
-            // POSITION in WORLD space (immune to the bone's lossyScale) + ROTATION hand-relative off the
-            // STABILIZED hand rotation. The VALUES driven are world-units / hand-relative so the nudge tool
-            // edits sensible numbers.
-            transform.position = followPos + worldOffsetFromHand;
+            // POSITION in HAND-LOCAL space (86ca9qwvd): rotate the cm-scale offset by the (stabilized) hand
+            // rotation so it TRACKS the hand through every facing — the axe stays seated in the grip no matter
+            // which way the castaway turns. The prior soakfix9 added a RAW WORLD offset (followPos + offset)
+            // that did NOT rotate with the hand, so it was only correct at the spawn facing (turning the
+            // character left the axe behind). We rotate by followRot (the SAME stabilized hand rotation the
+            // ROTATION channel uses, so position + rotation ride the identical frame), NOT by the bone's
+            // lossyScale — a pure rotation preserves the offset's magnitude, so the cm offset stays cm and a
+            // nudge step is still ~2 cm (NOT hand.TransformPoint, which would re-apply the §FBX lossy scale).
+            // ROTATION hand-relative off the STABILIZED hand rotation (the soakfix8 channel, unchanged).
+            transform.position = followPos + followRot * worldOffsetFromHand;
             transform.rotation = followRot * Quaternion.Euler(relEuler);
             FollowPos = followPos;
         }
