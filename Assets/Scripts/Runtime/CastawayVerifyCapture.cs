@@ -155,26 +155,22 @@ namespace FarHorizon
             Application.Quit(0);
         }
 
-        // Bake the skinned mesh (useScale:true bakes in the renderer transform's scale) and return the
-        // world-space bounds of the baked verts — a VALID, settled bound independent of the renderer's lazy
-        // .bounds. Encapsulates any sibling MeshRenderers (the procedural hair skull-cap) so the full
-        // silhouette (feet to hair) is framed. Returns a degenerate Bounds if the bake fails.
+        // Return the settled WORLD-space bounds of the avatar's skinned mesh. CAPTURE-TOOL BUG class
+        // (spike 86ca8r72j + Devon 86ca8rdkp): the Mixamo SMR NODE carries a large local scale (the FBX
+        // cm→m compensation), so a BakeMesh(useScale:true) + Matrix4x4.TRS(pos, rot, Vector3.one) DROPS that
+        // node scale and yields a HUGELY-WRONG bound (measured 56u tall on this rig — the camera then buries
+        // itself in the mesh). The robust fix the spike landed: use the renderer's WORLD AABB
+        // (SkinnedMeshRenderer.bounds), which already includes the full localToWorldMatrix (every parent
+        // scale, the avatar-root 1.8 + the SMR node scale). Force-update the bounds first so it is settled
+        // (not the lazy stale value). Encapsulate sibling MeshRenderers under the avatar root.
         private static Bounds BakeWorldBounds(SkinnedMeshRenderer smr)
         {
-            var mesh = new Mesh();
-            smr.BakeMesh(mesh, true);
-            var verts = mesh.vertices;
-            if (verts.Length == 0) { Object.Destroy(mesh); return new Bounds(smr.transform.position, Vector3.zero); }
+            // updateWhenOffscreen=true forces Unity to recompute the world AABB from the current skinned
+            // pose every frame (no stale lazy bound). The world AABB already carries the SMR node's scale.
+            smr.updateWhenOffscreen = true;
+            var b = smr.bounds; // world-space AABB, scale-correct
+            if (b.size.y <= 0.0001f) return new Bounds(smr.transform.position, Vector3.zero);
 
-            // Baked verts are in the renderer transform's local space (scale already baked by useScale:true),
-            // so position+rotation still apply. Transform to world.
-            Matrix4x4 toWorld = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
-            var b = new Bounds(toWorld.MultiplyPoint3x4(verts[0]), Vector3.zero);
-            for (int i = 1; i < verts.Length; i++) b.Encapsulate(toWorld.MultiplyPoint3x4(verts[i]));
-            Object.Destroy(mesh);
-
-            // Encapsulate sibling non-skinned renderers under the avatar root (the procedural hair cap) so
-            // the hair is never cropped.
             var root = smr.GetComponentInParent<CastawayCharacter>();
             if (root != null)
                 foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))

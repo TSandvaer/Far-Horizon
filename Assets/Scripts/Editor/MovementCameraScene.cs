@@ -43,54 +43,103 @@ namespace FarHorizon.EditorTools
         // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
         private const float PlayerVisualHeight = 1.8f;
 
-        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE). The procedural HeroAxeMesh wedge is RETIRED (it did
-        // not read as an axe); the axe is now the SOURCED rustic hatchet "One-handed stylized axe" by
-        // Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the committed license file). It is
-        // ATTACHED to the chibi's RIGHT HAND bone (RightHand_010 — probe-verified, see AxeAssetGen
-        // DiagnoseTrace) so the castaway HOLDS it, and is shown only once crafted (HeldAxe gates on
-        // Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture + scene-presence guards key on it. ----
+        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp). The
+        // procedural HeroAxeMesh wedge is RETIRED (it did not read as an axe); the axe is the SOURCED rustic
+        // hatchet "One-handed stylized axe" by Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the
+        // committed license file). It is ATTACHED to the castaway's RIGHT HAND bone (mixamorig:RightHand —
+        // probe-verified by CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it,
+        // and is shown only once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the
+        // verify-capture + scene-presence guards key on it. ----
         public const string HeroAxeObjectName = "HeroAxe";
 
-        // ---- HAIR (ticket 86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d: the castaway read as wearing
-        // a CAP, not hair. The original cap meshes (dome Object_41 + brim Object_42) are HIDDEN by
-        // CastawayCharacter.HideCap (the dome alone left a cap-shaped arc sticking up — not hair). A clean
-        // procedural sandy-ginger HAIR skull-cap (LowPolyMeshes.HairCap) is parented to the chibi's HEAD
-        // bone so it rides the head every frame, sized + seated on the crown. Editor-time authored (the
-        // mesh + inline material) so it SERIALIZES into Boot.unity (the editor-vs-runtime trap). ----
-        public const string HairObjectName = "CastawayHair";
-        public const string HeadBoneToken = "head";
-        public static readonly Color HairMeshColor = new Color(0.86f, 0.55f, 0.26f); // sandy-ginger (warm R>G>B; lifted so the shadowed dome facets don't read dark-brown)
-        // The head bone carries the chibi's huge import-compensation lossy scale (PROBE-VERIFIED 267.30×,
-        // like the right-hand bone — see the axe ScaleTrace finding). A child mesh INHERITS it, so the
-        // hair's head-local pose + scale must be tiny. Derived from the shipped capture + the scale probe:
-        // the skull (Object_36) is ~1.42u wide in world; a hair-cap radius ~0.32u world reads as a snug
-        // skull-cap, so localScale ~0.0012 (0.0012 × 267.3 × radius 1.0 ≈ 0.32u world radius). LocalPos
-        // rides the 267× too: localY ~0.0030 lifts the cap ~0.8u above the head bone (worldY 0.78) to sit
-        // on the crown (~1.6u). Re-tune from the soak if the fringe sits high/low.
-        public static readonly Vector3 HairLocalScale = new Vector3(0.00104f, 0.00098f, 0.00108f);
-        public static readonly Vector3 HairLocalPos = new Vector3(0f, 0.0029f, 0.00020f);
-
-        // The chibi rig's right-hand bone (probe-verified by AxeAssetGen.DiagnoseTrace, 2026-06-13). The
-        // rig also carries a "RightHand.Dummy_011" helper bone — the attach search matches the real
-        // RightHand_010 by token and EXCLUDES "dummy" (same trap class as the mesh-group "head" node vs
-        // the Head_05 bone, unity-conventions.md / CastawayProportions).
+        // The Hyper3D castaway's right-hand WRIST bone. The Mixamo rig names it "mixamorig:RightHand"; the
+        // finger bones ("mixamorig:RightHandIndex1"...) ALSO contain "righthand", so the attach search must
+        // match the WRIST (the bone whose name ENDS at "righthand" — no finger/thumb suffix), excluding the
+        // "end" helper. Probe-verified (CharacterDiagnoseTrace): NO lossy-scale trap on this rig — every bone
+        // reads lossyScale (1,1,1) (the height-normalize rides globalScale, not a compensating bone scale),
+        // UNLIKE the chibi's 267× RightHand_010. So held-axe scale/offset are in clean units (no ÷267).
         public const string RightHandBoneToken = "righthand";
 
-        // Hand-local attach pose for the sourced hatchet. CRITICAL SCALE FINDING (probe-verified via
-        // AxeAssetGen.ScaleTrace, 2026-06-13): the RightHand_010 bone carries a HUGE lossy scale (~267×) —
-        // the chibi FBX is normalized DOWN to ~1u so its import scales the BONE TRANSFORMS UP to compensate,
-        // and a child prop INHERITS that 267× bone scale. A naively-scaled axe ships as a 30-50-world-unit
-        // GIANT towering over the scene (caught in the first shipped capture: the -verifyAxe close-up framed
-        // the whole world). The attach-local SCALE must therefore be tiny to land a believable hatchet:
-        // measured world longest-axis = 287 units per 1.0 local scale, so ~0.0015 lands ~0.43 world units —
-        // a hatchet a touch under half the kid's ~0.95u height. Pose: handle in the palm, blade forward.
-        // Re-verified from the SHIPPED-build capture (editor renders are NOT evidence — unity-conventions.md).
-        // NOTE: localPos ALSO rides the 267× bone scale, so it must be tiny too (a 0.0002 local offset ≈
-        // 0.05 world units in the palm). The axe FBX origin sits near the head end (probe: handle hangs to
-        // local -Y), so a near-zero offset seats the grip in the palm; tuned from the capture.
-        public static readonly Vector3 HeldAxeLocalPos = new Vector3(0.0f, -0.0008f, 0.0f);
-        public static readonly Vector3 HeldAxeLocalEuler = new Vector3(0f, 0f, 90f);
-        public static readonly Vector3 HeldAxeLocalScale = new Vector3(0.0015f, 0.0015f, 0.0015f);
+        // Attach pose for the sourced hatchet (SOAKFIX2 2026-06-13 — the NO-AXE soak fix). The held axe must
+        // read UNMISTAKABLY in the GAMEPLAY orbit view (dist 14u, pitch 55°), not just the -verifyAxe close-up.
+        //
+        // ROOT CAUSE the gameplay-view trace (AxeAssetGen.GameplayViewTrace) PROVED the Sponsor's "no axe":
+        // the prior pose (scale 0.0015 → 0.43u longest, blade-DOWN at the HIP, max.y=0.71) projected to only
+        // ~3.7% of the frame height at the orbit framing — a thin vertical sliver hanging by the leg, lost
+        // beside a chibi whose own silhouette is only ~8% of frame from 55° top-down. The -verifyAxe capture
+        // ZOOMS its own camera to whatever size the axe is, so it framed a perfect hatchet — FALSE-GREEN, the
+        // exact class that bit the castaway. (See gameplay_orbit_axe.png evidence in the PR body.)
+        //
+        // THE BONE'S LOCAL FRAME IS ROTATED (PROBE-VERIFIED): RightHand_010's local +Y maps to world
+        // (0.48,-0.84,0.23) — mostly DOWN. So localPosition.y does NOT lift the axe world-up (a lift sweep via
+        // localPos went the WRONG way). Fix: pose the held axe in WORLD space after parenting (Unity back-
+        // solves + serializes the local transform), so the pose is intuitive + robust to the bone frame.
+        //
+        // VALUES (dialed via AxeAssetGen.DialInTrace + SOAKFIX4 PoseTrace against the orbit render):
+        // SOAKFIX4 (the Sponsor's "handle sticks out by the EAR"): the prior +0.55 up-offset seated the axe
+        // CENTER at world-y 0.66 with its TOP at 1.040 — and the chibi's head bone is at world-y 0.775, so
+        // the haft top rose level with the EAR (PoseTrace: HeroAxe max.y 1.040 vs head-bone 0.775; the huge
+        // head + short arms put "chest height" at ear height). FIX: DROP the up-offset +0.55 -> +0.05 so the
+        // axe rides at the hand at the kid's SIDE (handle top now clears below the shoulder, well under the
+        // head), and re-pitch the euler to BLADE-DOWN-AT-THE-SIDE (head/blade hangs toward the hip, handle
+        // angled up just past the hand) — NOT the prior blade-flat-up tip that lifted the haft. A residual
+        // tilt is kept (not dead-vertical) so the head still reads as an axe-head shape from the 55° top-down
+        // orbit (a fully vertical prop foreshortens to a dot — the visibility lesson). Scale 0.0040 (×267
+        // lossy ≈ 1.0u longest) UNCHANGED — the size already read as a clear hero hatchet; only height+pitch
+        // move. Re-measured by PoseTrace post-change; final read is the SHIPPED build (editor RT is
+        // framing-only, not colour — unity-conventions.md).
+        // SOAKFIX8 (86ca8ce6y — the held axe ROTATION TRACKS the hand bone in ALL facings; APPROVED, KEPT).
+        // The Sponsor proved the rotation bug ("the axe ... points the same way on the x axis all the time"):
+        // a fixed WORLD rotation can't survive a turn. The held axe's rotation is HAND-RELATIVE so the haft
+        // turns WITH the hand through every facing. soakfix9 keeps this rotation channel unchanged.
+        //
+        // SOAKFIX9 (86ca8ce6y — the held axe POSITION fix; the real bug THIS wave). The Sponsor proved it
+        // with the F9 nudge tool: ONE arrow-left click (a 0.02 step) flung the held axe ~5 METRES off-screen
+        // (localPos (0,0.0001,0) -> (-0.02,0.0001,0) sent the axe ~5 m left). ROOT CAUSE: soakfix8 posed the
+        // axe POSITION as a localPosition on RightHand_010, which carries a ~267× lossyScale (probe-verified,
+        // unity-conventions.md §FBX) — so a 0.02 LOCAL step = ~5.3 WORLD units. This is exactly the documented
+        // §FBX lossy-bone-scale trap; soakfix8's all-local pose walked back into it on the POSITION channel.
+        //
+        // FIX — SPLIT the two channels (HeldAxeRig drives both each frame; unity-conventions.md §FBX):
+        //   POSITION → a HAND-LOCAL offset, rotated by the hand rotation (86ca9qwvd — the HAND-LOCAL space
+        //     fix): axe.position = hand.position + hand.rotation * offset. soakfix9 applied the offset as a
+        //     RAW WORLD vector (hand.position + worldOffset) that did NOT rotate with the hand, so it was only
+        //     correct at the SPAWN facing — turning the character swung the axe out of the hand (the bug THIS
+        //     wave). Rotating the cm offset by hand.rotation makes it TRACK the hand through every facing; a
+        //     pure rotation preserves the magnitude, so the F9 nudge still moves the axe ~2 cm/click and the
+        //     bone's lossyScale never touches the offset (it is NOT hand.TransformPoint, which re-applies it).
+        //   ROTATION → HAND-RELATIVE: axe.rotation = hand.rotation * Euler(relEuler) — the soakfix8 fix, KEPT,
+        //     so the haft still turns with the hand on every facing.
+        // SCALE rides the bone hierarchy unchanged (localScale × 267× ≈ 1.0u — the hero-hatchet size). The axe
+        // stays a CHILD of the bone (so scale + the EditMode hand-local serialization guards hold); only
+        // position+rotation are world-driven by HeldAxeRig. The F9 AxeNudgeTool nudges the RIG's worldOffset
+        // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
+        // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
+        // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
+        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is normalized to ~1.0u longest
+        // (AxeAssetGen.TargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
+        // localScale 0.45 → ~0.77u longest extent (ScaleTrace-measured) — a believable kid-sized hatchet that
+        // clears the gameplay-visibility floor (≥0.7u, the invisible-sliver soak guard). REASONABLE default —
+        // the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
+        public static readonly float HeldAxeLocalScaleUniform = 0.45f;
+        // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
+        // OLD chibi-rig values are INVALID on the new skeleton):
+        //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
+        //     trap the offset is in plain world units; a small (-Y, +forward) nudge sits the hatchet in the
+        //     hand. REASONABLE default; the Sponsor fine-tunes on the re-soak (F9 nudge, world units).
+        //   - ROTATION: a hand-relative euler so the haft reads roughly along the forearm/grip. REASONABLE;
+        //     the exact dial + the swing-into-head re-check are FOLLOW-UPS (per the ticket OOS).
+        // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc): the held axe now FOLLOWS the right arm's natural
+        // swing (it rides the RAW hand bone — see HeldAxeRig). FINAL SEAT BAKE (86ca9zcjn): the Sponsor
+        // APPROVED the follow-the-arm behavior ("it works perfectly") and dialed the FINAL F9 seat via the
+        // AxeNudgeTool: HeldAxeWorldOffsetFromHand = (-0.1502,-0.1602,-0.0528). The euler is unchanged
+        // (16,2,-82). The F9 AxeNudgeTool still drives these fields so he can re-tune.
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(16.0f, 2.0f, -82.0f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(-0.1502f, -0.1602f, -0.0528f);
+        // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
+        // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
+        // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
+        public static readonly float HeldAxeFollowDamp = 0f;
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -140,6 +189,16 @@ namespace FarHorizon.EditorTools
             // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
             BuildCampfire(player, groundLayer);
 
+            // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
+            // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
+            // spawn, narrating "the castaway crawled out of that sea" (Sponsor: NARRATE; Uma §3 beat 4).
+            // Diegetic set-dressing ONLY: NO collider on any piece, so it never blocks the click-move
+            // ground raycast or the NavMesh bake (built BEFORE the bake; collider-free pieces don't
+            // contribute to the PhysicsColliders bake). Authored editor-time so the meshes + inline
+            // materials SERIALIZE into Boot.unity (editor-vs-runtime "legs-up" trap); BeachDebrisSceneTests
+            // guards its serialized presence + the no-collider contract.
+            BuildBeachDebris(groundLayer);
+
             // Bake AFTER the walkable ground exists, then SAVE the data as an asset so it ships.
             BakeAndSaveNavMesh(ground, groundLayer);
 
@@ -153,6 +212,17 @@ namespace FarHorizon.EditorTools
             // it). Inert unless launched with -verifySea. Sibling of the movement/craft/chop/loop captures.
             WireSeaVerifyCapture();
 
+            // Wire the BIG ROUND ISLAND verify capture (86ca9a7qn) — a gameplay over-shoulder frame + an
+            // overhead/high-orbit frame proving the round island + water-all-sides + distant mountain
+            // islands + dense tall forest. Inert unless launched with -verifyIsland.
+            WireIslandVerifyCapture();
+
+            // Wire the verification-only shipped-build ROCK capture (86ca8m5zu — the boulder soak-fix). The
+            // default orbit frames the SPAWN; the rocks live as outcrops in the FIELD band, so this drives a
+            // multi-angle orbit onto the outcrop centroid in the BUILT exe so the boulders are judged from
+            // gameplay distance (not a hero close-up). Inert unless launched with -verifyRock.
+            WireRockVerifyCapture();
+
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -163,19 +233,31 @@ namespace FarHorizon.EditorTools
             AssetDatabase.Refresh();
         }
 
-        // Seaward edge of the flat test ground (drew/beach-water-scene). ORIGINALLY the ground spanned
-        // a symmetric Z [-30..+30]; the diagnostic trace (drew/beach-water, 2026-06-13) proved that flat
-        // Y=0 slab extending to Z-30 was the OPAQUE OCCLUDER hiding the beach ocean — the water plane sits
-        // at Y-0.20 UNDERNEATH it, so from the seaward orbit every ray hit TestGround before the sea.
-        // Trim the seaward edge to just past the seaward-most loop spot (the campfire at Z-8) so the
-        // ground still carries the loop + NavMesh, but stops BEFORE the ocean begins — seaward of this
-        // edge the water is the only (topmost) surface and finally reads. The inland reach (+30) is
-        // unchanged (spawn/craft pathing). The campfire (Z-8) + tree (Z-7) keep their solid ground.
+        // Seaward edge of the flat test ground. The seaward slab spanned Z[-30..+30] at Y=0; the trim
+        // to -10 (drew/beach-water) stopped it overhanging the water's near band. Kept at -10 — the
+        // ROOT-CAUSE of the invisible sea was NOT this slab occluding the water (the magenta-diff +
+        // -seaWaterOnly probe proved the sea rendered ZERO px even with BOTH grounds hidden): it was the
+        // water mesh's INVERTED triangle winding (faces pointed DOWN -> Cull Back hid the sea from the
+        // above-camera). Fixed in LowPolyZoneGen.BuildWaterEdge. This slab edge stays as the prior trim.
         private const float SeawardGroundZ = -10f;
 
         // A flat subdivided plane on the Ground layer with a MeshCollider, so the NavMesh bake
         // (PhysicsColliders collection) AND the click-to-move ground raycast both hit it.
         // Subdivided (not a single quad) so the baked NavMesh has clean geometry.
+        //
+        // NON-RENDERING (drew/ocean-beach-soakfix2, soak #40 stamp 31ce95c). The Sponsor saw a "gray slab
+        // on the beach" breaking the sand read. Diagnostic trace (centerline Y compare, MovementCameraScene
+        // vs LowPolyZoneGen height fields): this flat Y=0 placeholder slab pokes ABOVE the SANDY Zone-D
+        // terrain across the seaward foreshore band (Z ~ -10..+3) — exactly where the beach DIPS toward the
+        // sea (terrain Y goes -0.53 -> -0.02, all below this slab's Y=0). Its muted moss-grey (0.42,0.46,0.40)
+        // top was therefore the topmost surface on the beach -> the grey slab. (Inland of ~Z+4 the sand rises
+        // above Y=0 and already hid it, which is why it only showed ON the beach.) The slab is a pure dev
+        // placeholder ("U5 will replace the environment surface; not art") whose ONLY load-bearing role is
+        // its COLLIDER (NavMesh bake + click-raycast); the Zone-D terrain is the real visible ground. Fix:
+        // keep the collider (NavMesh + click-move unchanged — the player walks the SAME baked surface as
+        // before, so no float/path regression), DISABLE the renderer so the sandy terrain is the only thing
+        // drawn on the beach. The MeshRenderer is kept-but-disabled (not removed) so .bounds still resolves
+        // for WaterSceneTests.Ocean_NotOccludedByFlatGround_SeawardSlabTrimmed.
         private static GameObject BuildFlatGround(int groundLayer)
         {
             var go = new GameObject("TestGround");
@@ -187,8 +269,7 @@ namespace FarHorizon.EditorTools
 
             const int seg = 20;
             float sizeX = GroundHalf * 2f;
-            // Asymmetric Z span: seaward edge trimmed to SeawardGroundZ so the slab no longer overhangs
-            // (and occludes) the ocean; inland edge stays at +GroundHalf.
+            // Asymmetric Z span: seaward edge trimmed to SeawardGroundZ; inland edge stays at +GroundHalf.
             float minZ = SeawardGroundZ, maxZ = GroundHalf;
             var verts = new Vector3[(seg + 1) * (seg + 1)];
             var uvs = new Vector2[verts.Length];
@@ -214,8 +295,9 @@ namespace FarHorizon.EditorTools
             mesh.RecalculateNormals(); mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
 
-            // A simple, build-safe URP/Lit material so the ground isn't pink in the shipped build.
-            // U5 will replace the environment surface; this is a neutral placeholder, not art.
+            // A simple, build-safe URP/Lit material kept on the (disabled) renderer so it never ships pink
+            // if anything re-enables it. U5 will replace the environment surface; this is a neutral
+            // placeholder, not art — and now it does NOT draw (see the NON-RENDERING note above).
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (litShader != null)
             {
@@ -227,6 +309,10 @@ namespace FarHorizon.EditorTools
                 mr.sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }
+
+            // The slab is a COLLISION/NAVMESH proxy only — the sandy Zone-D terrain is the visible ground.
+            // Disable rendering so the grey placeholder slab no longer pokes through the beach (soak #40).
+            mr.enabled = false;
 
             var col = go.AddComponent<MeshCollider>();
             col.sharedMesh = mesh;
@@ -269,20 +355,53 @@ namespace FarHorizon.EditorTools
         // on the NavMesh. CraftVerifyCapture drives the player here to prove the craft in the shipped exe.
         public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
 
+        // Name of the serialized axe-on-the-stump GameObject (SOAKFIX2). Distinct from HeroAxeObjectName so
+        // the -verifyAxe HeroAxe search + the held-axe scene guard never resolve the stump one by mistake.
+        public const string StumpAxeObjectName = "StumpAxe";
+
+        // The axe-on-the-stump's pose, in CraftSpot-LOCAL space (the CraftSpot is unscaled at world 1u, so
+        // these are intuitive world units — NO 267× bone trap here, unlike the held axe). The stump top sits
+        // at world-y ≈ 0.70 (cylinder localScale.y 0.35 → 0.70 tall; PoseTrace: CraftStump TOP.y 0.700).
+        //
+        // SOAKFIX4 (the Sponsor's "head BURIED in the block, only the handle pokes out"): the prior pose
+        // (localPos.y 1.15, scale 1.4, near-vertical) put the axe HEAD — which is the LOW half of the mesh
+        // (PoseTrace: longAxis Y, the wide steel end is local-Y -0.974..-0.474) — DOWN at world min.y -0.266,
+        // i.e. BELOW the ground and buried inside the block; only the thin haft (the HIGH half) rose above the
+        // 0.700 stump top. FIX: pose it as an axe STUCK IN the block — the HEAD's blade edge bites at/into the
+        // TOP of the block (~0.70) and the HAFT angles UP-and-out so the whole handle reads above the block.
+        // Done by (a) RAISING localPos.y so the head sits at the top not the bottom, (b) LEANING the axe ~26°
+        // off vertical (a lodged-in-the-block axe leans, it does not stand to attention), (c) trimming the
+        // scale 1.4 -> 1.1 so the head doesn't overhang the small block. Re-measured by PoseTrace post-change
+        // (head bottom at ~block-top, handle top ~1.4 clearly visible from spawn). Final read is the SHIPPED
+        // build (editor RT is framing/size-only, not colour — unity-conventions.md).
+        // SOAKFIX7 (86ca8ce6y — the stump axe BAKED at the Sponsor's dialed-in pose). The Sponsor finalized
+        // the in-block transform IN-GAME via the build-gated AxeNudgeTool (F9: cycles held/stump target,
+        // nudges XYZ + pitch/yaw/roll, reads the live values off the HUD) and confirmed it "perfect"; these
+        // are his last reported nudge-panel values, baked as the stump DEFAULT (replacing the soakfix5
+        // placeholder). The axe reads as stuck SQUARELY in the block — head biting the top, haft angled
+        // up-and-out. The F9 AxeNudgeTool stays build-gated/inert for any future re-tune. Sponsor-reported
+        // values (European decimal commas -> dot-decimal here). Scale unchanged (1.1u reads at spawn).
+        public static readonly Vector3 StumpAxeLocalPos = new Vector3(-0.210f, 1.540f, 0.430f);
+        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(12.0f, 53.0f, 48.0f);
+        public static readonly float StumpAxeLocalScaleUniform = 1.1f;
+
         // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
         // crafts the axe. A small chopping-block stump the castaway walks ONTO. NO collider so it never
         // blocks the ground raycast or the NavMesh. The stump mesh + CraftSpot's Inventory/player refs are
         // authored editor-time so they serialize into Boot.unity (editor-vs-runtime trap — an Awake-built
-        // prop ships mangled, the "legs-up" class). The HERO AXE no longer rests in the stump: it is now
-        // the sourced hatchet HELD in the chibi's hand (AttachHeroAxeToHand, called from BuildPlayer),
-        // shown once crafted — so the craft reads as "the kid picks up the axe", not a prop in a block.
+        // prop ships mangled, the "legs-up" class).
+        //
+        // SOAKFIX2 (the Sponsor's "stump is there but no axe"): an axe is PLANTED in the stump and visible
+        // FROM SPAWN (StumpAxe component, the inverse gate of HeldAxe). It is the always-on-screen hero axe +
+        // the diegetic "walk here" cue. On reaching the spot the craft fires: the stump-axe HIDES and the
+        // HELD axe APPEARS (AttachHeroAxeToHand) — reading as "the kid picks it up".
         private static void BuildCraftSpot(GameObject player, int groundLayer)
         {
             var spot = new GameObject("CraftSpot");
             spot.transform.position = CraftSpotPosition;
 
             // A small low cylinder as the "chopping block" the player walks toward. Primitive cylinder,
-            // collider stripped. The hero axe rests in it (below).
+            // collider stripped. The hero axe is planted in it (below).
             var visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             visual.name = "CraftStump";
             Object.DestroyImmediate(visual.GetComponent<Collider>()); // no block on raycast / NavMesh
@@ -301,6 +420,9 @@ namespace FarHorizon.EditorTools
                 visual.GetComponent<MeshRenderer>().sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }
+
+            // SOAKFIX2: plant the always-visible-from-spawn axe in the stump (the Sponsor's literal ask).
+            AttachStumpAxe(spot);
 
             var craft = spot.AddComponent<CraftSpot>();
             craft.player = player.transform;
@@ -342,9 +464,9 @@ namespace FarHorizon.EditorTools
             Transform hand = FindRightHandBone(castaway.transform);
             if (hand == null)
             {
-                Debug.LogError("[MovementCameraScene] could not find the chibi's right-hand bone ('" +
-                               RightHandBoneToken + "', excl. dummy) — the hero axe has nothing to attach to. " +
-                               "Re-run AxeAssetGen.DiagnoseTrace to dump the rig.");
+                Debug.LogError("[MovementCameraScene] could not find the castaway's right-hand WRIST bone ('" +
+                               RightHandBoneToken + "', mixamorig:RightHand, excl. fingers) — the hero axe has " +
+                               "nothing to attach to. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
                 return;
             }
 
@@ -357,14 +479,57 @@ namespace FarHorizon.EditorTools
             }
 
             // Instantiate the imported hatchet under the hand bone (editor-time -> serializes into
-            // Boot.unity). Plain Instantiate (not InstantiatePrefab) — same idiom as the chibi avatar
+            // Boot.unity). Plain Instantiate (not InstantiatePrefab) — same idiom as the avatar
             // (CastawayCharacter.BuildModel): bakes the mesh/renderer into the scene with no prefab link.
             var axe = Object.Instantiate(fbx);
             axe.name = HeroAxeObjectName;
             axe.transform.SetParent(hand, false);
-            axe.transform.localPosition = HeldAxeLocalPos;
-            axe.transform.localRotation = Quaternion.Euler(HeldAxeLocalEuler);
-            axe.transform.localScale = HeldAxeLocalScale;
+            // Scale is uniform-local. The Hyper3D wrist bone reads lossyScale (1,1,1) (probe-verified — NO 267×
+            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.77u longest.
+            axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
+
+            // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a HAND-LOCAL offset
+            // (rotated by the hand rotation, so it TRACKS the hand through every facing — 86ca9qwvd); ROTATION
+            // is HAND-RELATIVE so the haft turns WITH the hand on every facing. The rig's field is the HAND-
+            // LOCAL offset; the F9 nudge moves it (a pure rotation keeps the ~2 cm/click step).
+            var rig = axe.GetComponent<HeldAxeRig>();
+            if (rig == null) rig = axe.AddComponent<HeldAxeRig>();
+            rig.hand = hand;
+            // AC2 — PRESERVE THE SPONSOR'S PERFECTED LOOK. His F9-dialed default (HeldAxeWorldOffsetFromHand)
+            // was a RAW WORLD offset under the prior soakfix9 formula (position = hand.position + worldOffset).
+            // The new HAND-LOCAL formula is position = hand.position + hand.rotation * offset, so to land the
+            // IDENTICAL world position at the spawn facing the field must hold the offset expressed in the hand's
+            // LOCAL frame: offset_handlocal = Inverse(hand.rotation) * dialedWorldOffset. Converted from the
+            // REAL hand rotation present at bake time (NOT a guessed bone rotation) so it is exact at spawn AND
+            // now correct at every other facing. (The constant stays the Sponsor's dialed WORLD value — the
+            // source of truth he re-confirms at soak; the conversion to the rig's hand-local field happens here.)
+            Vector3 handLocalOffset = Quaternion.Inverse(hand.rotation) * HeldAxeWorldOffsetFromHand;
+            rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
+            rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
+            // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
+            // natural swing during locomotion: it rides the RAW hand bone. The prior swing-stabilizer /
+            // grip-anchor (86ca8rdkp) + the vertical-decouple bounce/ratchet fix (86ca9ykp0) are REMOVED
+            // (the Sponsor explicitly reversed the old "the axe changes position when I walk" preference).
+            // The raw hand returns to pose each walk cycle → bounded by construction, no ratchet; facing
+            // passes through immediately (the raw hand carries the facing yaw). A LIGHT damp is available to
+            // de-jitter without re-locking (followDamp); it defaults to 0 so the per-step swing is visible.
+            rig.followDamp = HeldAxeFollowDamp;
+
+            // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
+            // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
+            // re-asserts at runtime. Mirrors the NEW hand-local runtime formula
+            // (position = hand.position + hand.rotation * handLocalOffset): the seated world position uses the
+            // SAME rotated offset, so the static bake matches the runtime pose (and == the prior world position
+            // at the spawn facing, by the AC2 conversion above). localRot = Euler(relEuler) (hand-relative).
+            Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
+            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
+            axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
+            axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
+            Debug.Log("[MovementCameraScene] held axe 86ca9qwvd hand-local pose: dialedWorldOffset=" +
+                      HeldAxeWorldOffsetFromHand.ToString("F4") + " -> handLocalOffset=" + handLocalOffset.ToString("F4") +
+                      " relEuler=" + HeldAxeRelEuler.ToString("F1") +
+                      " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
+                      " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
 
             // Gate visibility on HasAxe: hidden until the craft fires, then the kid is holding it.
             var held = axe.GetComponent<HeldAxe>();
@@ -380,58 +545,188 @@ namespace FarHorizon.EditorTools
             // the held hatchet close so the silhouette/leather-wrap read rides a committed shipped-build path.
             WireAxeVerifyCapture();
 
+            // Wire the BUILD-GATED debug AxeNudgeTool (86ca8ce6y SOAKFIX5) — inert behind the F9 toggle, lets
+            // the Sponsor dial + read off the final held/stump axe transforms in-game (the axe-nudge reframe).
+            WireAxeNudgeTool();
+
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
         }
 
-        // Attach the procedural sandy-ginger HAIR skull-cap to the chibi's HEAD bone (86ca8ca1m soak-fix).
-        // The original cap meshes are hidden (CastawayCharacter.HideCap); this is the replacement hair so
-        // the castaway reads young/hopeful with a head of hair. Parented to the head bone so it rides the
-        // head's animated transform; the head-local pose+scale are tiny because the head bone carries the
-        // chibi's huge import-compensation lossy scale (the same finding as the right-hand bone / axe).
-        // Editor-time (mesh + inline URP/Lit material) so it SERIALIZES into Boot.unity — the
-        // editor-vs-runtime trap (an Awake-built attach ships mangled / absent).
-        private static void AttachHair(CastawayCharacter castaway)
+        // SOAKFIX2: plant the SOURCED hatchet in the chopping-block stump so an axe is VISIBLE FROM SPAWN
+        // (the Sponsor's literal "stump is there but no axe"). Same sourced FBX as the held axe — one asset,
+        // identical read. Parented to the CraftSpot (unscaled world-1u, so NO 267× bone trap — the local
+        // pose is intuitive). A StumpAxe component gates it as the INVERSE of HasAxe: shown at spawn, HIDDEN
+        // once crafted (the held axe appears at the same instant → "the kid picks it up"). Editor-time so
+        // the axe mesh + StumpAxe wiring SERIALIZE into Boot.unity (the editor-vs-runtime trap).
+        private static void AttachStumpAxe(GameObject craftSpot)
         {
-            Transform head = CastawayProportions.FindHeadBone(castaway.transform);
-            if (head == null)
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            if (fbx == null)
             {
-                Debug.LogError("[MovementCameraScene] no Head bone found to attach hair to — the cap->hair " +
-                               "fix leaves a bald crown. Re-run the rig dump.");
+                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                               " — run AxeAssetGen.PrepareAxe() before authoring the scene; no stump axe planted");
                 return;
             }
 
-            var hair = new GameObject(HairObjectName);
-            hair.transform.SetParent(head, false);
-            hair.transform.localPosition = HairLocalPos;
-            hair.transform.localRotation = Quaternion.identity;
-            hair.transform.localScale = HairLocalScale;
+            var axe = Object.Instantiate(fbx);
+            axe.name = StumpAxeObjectName;
+            axe.transform.SetParent(craftSpot.transform, false);
+            axe.transform.localPosition = StumpAxeLocalPos;
+            axe.transform.localRotation = Quaternion.Euler(StumpAxeLocalEuler);
+            axe.transform.localScale = Vector3.one * StumpAxeLocalScaleUniform;
 
-            var mf = hair.AddComponent<MeshFilter>();
-            // Skull-cap dome: radius ~ skull half-width, flattened a touch (yScale), cut just below the
-            // equator (-0.15) so it covers the upper skull + a forward fringe (LowPolyMeshes.HairCap).
-            mf.sharedMesh = LowPolyMeshes.HairCap(1.0f, 0.85f, -0.15f, 2);
-            var mr = hair.AddComponent<MeshRenderer>();
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+            // Gate visibility as the INVERSE of HasAxe: shown at spawn, hidden once crafted.
+            var stump = axe.GetComponent<StumpAxe>();
+            if (stump == null) stump = axe.AddComponent<StumpAxe>();
+            stump.inventory = Object.FindObjectOfType<Inventory>();
 
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null)
-            {
-                var mat = new Material(litShader) { name = "CastawayHairMat" };
-                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", HairMeshColor);
-                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.08f); // matte hair
-                mr.sharedMaterial = mat; // inline -> serializes into the scene, no .mat churn
-                EnsureShaderAlwaysIncluded(litShader);
-            }
-            Debug.Log("[MovementCameraScene] attached CastawayHair skull-cap to head bone '" + head.name +
-                      "' (cap meshes hidden; sandy-ginger hair)");
+            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+
+            int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
+            Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
+                      ", inverse-HasAxe-gated, visible from spawn)");
         }
 
-        // Find the chibi's right-hand bone from the SKINNED-MESH BONE ARRAY (the actual skeleton — skips
-        // mesh-group nodes). Matches the RightHandBoneToken and EXCLUDES "dummy" (the rig carries a
-        // RightHand.Dummy_011 helper — same duplicate-name trap class as the mesh-group "head" node vs the
-        // Head_05 bone, unity-conventions.md / CastawayProportions). Falls back to a transform scan.
+        // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time
+        // so it SERIALIZES into Boot.unity (86ca8rdkp). The FBX imports its own ImportStandard material; we
+        // override every SMR slot with the single shared de-lit toon mat (texture_diffuse albedo, warm-tan
+        // recolored shirt, smoothness ~0) so the look matches the project's URP/Lit toon idiom + carries the
+        // recolor. URP/Lit is always-included so it never strips to magenta in the stripped player.
+        private static void BindCastawayMaterial(CastawayCharacter castaway)
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(CharacterAssetGen.MaterialPath);
+            if (mat == null)
+            {
+                Debug.LogError("[MovementCameraScene] CastawayMat not found at " + CharacterAssetGen.MaterialPath +
+                               " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
+                return;
+            }
+            int bound = 0;
+            foreach (var smr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                var mats = new Material[smr.sharedMaterials.Length];
+                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                if (mats.Length == 0) mats = new[] { mat };
+                smr.sharedMaterials = mats;
+                bound++;
+            }
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            Debug.Log("[MovementCameraScene] bound de-lit CastawayMat onto " + bound + " SkinnedMeshRenderer(s)");
+        }
+
+        // The Mixamo UPPER-ARM bone tokens (the bone that spreads the arm from the torso). The rig names the
+        // upper arm "mixamorig:RightArm" / "mixamorig:LeftArm" (NOT RightShoulder, which is the clavicle, and
+        // NOT RightForeArm, the elbow). After stripping the "mixamorig:" namespace the lowered names are
+        // exactly "rightarm" / "leftarm". Probe-matched from the same skeleton FindRightHandBone uses.
+        public const string RightUpperArmToken = "rightarm";
+        public const string LeftUpperArmToken = "leftarm";
+
+        // Wire the additive post-anim arm pose (86ca8rdkp soak-fix #2 + #3) onto the avatar. Resolves the two
+        // UPPER-arm bones from the skinned-mesh bone array (the real skeleton) and serializes the component +
+        // the bone refs into Boot.unity (editor-vs-runtime trap). RE-SOAK #1: the per-arm eulers ship BAKED
+        // from the Sponsor's F9 dial (CastawayArmPose.rightArmEuler/leftArmEuler defaults, seed flag FALSE) —
+        // RebuildCached composes those verbatim (no re-seed). The Sponsor can re-dial later via F9.
+        private static void AddArmPose(CastawayCharacter castaway)
+        {
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            if (pose == null) pose = castaway.gameObject.AddComponent<CastawayArmPose>();
+            pose.rightUpperArm = FindBoneByExactToken(castaway.transform, RightUpperArmToken);
+            pose.leftUpperArm = FindBoneByExactToken(castaway.transform, LeftUpperArmToken);
+            if (pose.rightUpperArm == null || pose.leftUpperArm == null)
+                Debug.LogError("[MovementCameraScene] could not resolve upper-arm bones for CastawayArmPose " +
+                               "(right='" + RightUpperArmToken + "' found=" + (pose.rightUpperArm != null) +
+                               ", left='" + LeftUpperArmToken + "' found=" + (pose.leftUpperArm != null) +
+                               ") — the arm-pose soak-fix will be inert. Re-run CharacterDiagnoseTrace.");
+            pose.RebuildCached();
+            Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
+                      (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
+                      (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") + "')");
+        }
+
+        // The right-hand FINGER + THUMB bone tokens to curl (86ca8rdkp re-soak #4). Index/Middle/Ring proximal
+        // ..distal (1-3; the 4 bone is the fingertip end-helper, not curled) + Thumb 1-3. Exact-token resolved
+        // from the SMR bone array. The Hyper3D hand is 4-fingered (no pinky — verified by -fingerTrace).
+        public static readonly string[] RightFingerCurlTokens =
+        {
+            "righthandindex1", "righthandindex2", "righthandindex3",
+            "righthandmiddle1", "righthandmiddle2", "righthandmiddle3",
+            "righthandring1", "righthandring2", "righthandring3",
+        };
+        public static readonly string[] RightThumbCurlTokens =
+        {
+            "righthandthumb1", "righthandthumb2", "righthandthumb3",
+        };
+
+        // Wire the right-hand FINGER CURL (86ca8rdkp re-soak #4) onto the avatar. The -fingerTrace OVERTURNED
+        // the ticket's "bad weights / collapsing finger" hypothesis (the skinning is clean — uniform 1.8 lossy,
+        // (1,1,1) localScale, verts tight to their bones); the "mangled" read is the OPEN clip hand around a
+        // held haft. So we CURL the fingers into a grip (gated on HasAxe). Resolves the finger/thumb bones from
+        // the SMR bone array (the real skeleton) + serializes the component + bone refs into Boot.unity.
+        private static void AddFingerCurl(CastawayCharacter castaway)
+        {
+            var curl = castaway.GetComponent<CastawayFingerCurl>();
+            if (curl == null) curl = castaway.gameObject.AddComponent<CastawayFingerCurl>();
+
+            var fingers = new System.Collections.Generic.List<Transform>();
+            foreach (var tok in RightFingerCurlTokens)
+            {
+                var b = FindBoneByExactToken(castaway.transform, tok);
+                if (b != null) fingers.Add(b);
+            }
+            var thumbs = new System.Collections.Generic.List<Transform>();
+            foreach (var tok in RightThumbCurlTokens)
+            {
+                var b = FindBoneByExactToken(castaway.transform, tok);
+                if (b != null) thumbs.Add(b);
+            }
+            curl.fingerBones = fingers.ToArray();
+            curl.thumbBones = thumbs.ToArray();
+            curl.inventory = Object.FindObjectOfType<Inventory>();
+            curl.RebuildCached();
+
+            if (fingers.Count < 6)
+                Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
+                               " finger bones (expected 9: Index/Middle/Ring 1-3) — the grip curl will be " +
+                               "partial. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
+                          thumbs.Count + " thumb bones, HasAxe-gated)");
+        }
+
+        // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
+        // end helpers), from the SMR bone array (the real skeleton — not mesh-group nodes). Same discipline
+        // as FindRightHandBone/IsRightWristBone, generalized to any exact upper-arm token.
+        private static Transform FindBoneByExactToken(Transform avatarRoot, string token)
+        {
+            var smr = avatarRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr != null && smr.bones != null)
+                foreach (var bone in smr.bones)
+                    if (bone != null && ExactBoneToken(bone.name) == token) return bone;
+            foreach (var t in avatarRoot.GetComponentsInChildren<Transform>(true))
+                if (ExactBoneToken(t.name) == token) return t;
+            return null;
+        }
+
+        // Strip the "mixamorig:" namespace + lower-case, returning the bare bone token for an exact compare.
+        private static string ExactBoneToken(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return "";
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1);
+            return n;
+        }
+
+        // Find the castaway's right-hand WRIST bone from the SKINNED-MESH BONE ARRAY (the actual skeleton).
+        // The Mixamo rig names the wrist "mixamorig:RightHand"; the FINGER bones ("mixamorig:RightHandIndex1"
+        // ...) ALSO contain "righthand", so a bare Contains match would grab a finger by bone-array order.
+        // Match the bone whose name ENDS at the token (no finger/thumb suffix after "righthand"), excluding
+        // the "end" helper. Probe-verified bone name (CharacterDiagnoseTrace, 2026-06-15). Falls back to a
+        // transform scan with the same exact-suffix discipline.
         private static Transform FindRightHandBone(Transform avatarRoot)
         {
             var smr = avatarRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
@@ -439,19 +734,26 @@ namespace FarHorizon.EditorTools
             {
                 foreach (var bone in smr.bones)
                 {
-                    if (bone == null) continue;
-                    string n = bone.name.ToLowerInvariant();
-                    if (n.Contains(RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
-                        return bone;
+                    if (bone != null && IsRightWristBone(bone.name)) return bone;
                 }
             }
             foreach (var t in avatarRoot.GetComponentsInChildren<Transform>(true))
             {
-                string n = t.name.ToLowerInvariant();
-                if (n.Contains(RightHandBoneToken) && !n.Contains("dummy") && !n.Contains("end"))
-                    return t;
+                if (IsRightWristBone(t.name)) return t;
             }
             return null;
+        }
+
+        // True iff the bone name is the right WRIST (ends at "righthand"), NOT a finger/thumb/dummy/end. The
+        // Mixamo wrist is "mixamorig:RightHand" → after stripping any "mixamorig:" prefix the lowered name is
+        // exactly "righthand". Fingers are "righthandindex1" etc. (extra chars after the token).
+        private static bool IsRightWristBone(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return false;
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1); // strip "mixamorig:" namespace
+            return n == RightHandBoneToken; // exactly "righthand" — excludes fingers/thumb/dummy/end
         }
 
         private static void WireAxeVerifyCapture()
@@ -467,6 +769,23 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED debug AxeNudgeTool onto the Boot object so it SERIALIZES into Boot.unity (the
+        // editor-vs-runtime trap — a component in source but not in the scene ships inert). The tool is INERT
+        // in normal play (asleep behind the F9 toggle), so it never affects a soak; it lets the Sponsor dial
+        // + read off the final axe transforms in-game (86ca8ce6y SOAKFIX5 — the axe-nudge reframe).
+        private static void WireAxeNudgeTool()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host AxeNudgeTool");
+                return;
+            }
+            if (bootGo.GetComponent<AxeNudgeTool>() == null)
+                bootGo.AddComponent<AxeNudgeTool>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         private static void WireCastawayVerifyCapture()
         {
             var bootGo = GameObject.Find("Boot");
@@ -477,6 +796,68 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<CastawayVerifyCapture>() == null)
                 bootGo.AddComponent<CastawayVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). INERT in normal play; on -axeWalkTrace it drives a scripted walk + dumps every Y-reference
+        // per frame so the ratchet source is pinned (the DIAGNOSE-BEFORE-FIX instrument).
+        private static void WireAxeWalkTrace()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host AxeWalkTrace");
+                return;
+            }
+            if (bootGo.GetComponent<AxeWalkTrace>() == null)
+                bootGo.AddComponent<AxeWalkTrace>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC onto the Boot object so it SERIALIZES into Boot.unity (the
+        // component-in-source-but-not-in-scene trap — it would ship inert otherwise). INERT in normal play
+        // (asleep behind the F8 toggle); shows feet/ground/GAP live so the Sponsor dials GROUND-Y to GAP≈0
+        // and the orchestrator reads the ~1Hz [FloatTrace] log (86ca8rdkp — the instrument, not a blind tweak).
+        private static void WireFloatDiagnostic()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host FloatDiagnostic");
+                return;
+            }
+            if (bootGo.GetComponent<FloatDiagnostic>() == null)
+                bootGo.AddComponent<FloatDiagnostic>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        private static void WireFloatDiagnosticVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host FloatDiagnosticVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<FloatDiagnosticVerifyCapture>() == null)
+                bootGo.AddComponent<FloatDiagnosticVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
+        // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
+        private static void WireWalkGroundingVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host WalkGroundingVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<WalkGroundingVerifyCapture>() == null)
+                bootGo.AddComponent<WalkGroundingVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -792,6 +1173,120 @@ namespace FarHorizon.EditorTools
             }
         }
 
+        // ---- M-U3-SCENE-4 (86ca8feuf): washed-ashore shipwreck debris ----
+        // Centre of the debris scatter: on the beach just SEAWARD of the locked spawn (Z+6), slightly
+        // LEFT of centre so it reads in the seaward orbit-cam's foreground WITHOUT sitting on the
+        // spawn->craft (8,6) / chop (-9,-7) / fire (4,-8) loop path. Z-3 is on the warm sand band the
+        // seaward gameplay view frames in its lower-foreground (between spawn and the waterline ~Z-10.5).
+        public static readonly Vector3 BeachDebrisCenter = new Vector3(-3.2f, 0f, -3.0f);
+
+        // Warm-brown weathered wood family — the axe-haft / chop-trunk / campfire-log palette
+        // (style-guide-v2 §6; == ChopTree trunkCol / Campfire logCol). Sub-1.0, HDR-clamp-safe.
+        private static readonly Color DebrisWood     = new Color(0.42f, 0.30f, 0.19f); // warm bark plank
+        private static readonly Color DebrisWoodWorn = new Color(0.36f, 0.27f, 0.18f); // slightly greyed/weathered
+        private static readonly Color DebrisCrate    = new Color(0.47f, 0.34f, 0.21f); // a touch lighter crate timber
+
+        // A MODEST, tasteful shipwreck scatter. Chunky-cartoon faceted toy pieces (board v2): a few
+        // weathered planks lying flat / askew + a half-buried crate + a barrel on its side. Purposeful,
+        // not clutter (style-guide-v2 §5 "decoration serves the anchor"). NO colliders anywhere — pure
+        // set-dressing; the player click-moves freely THROUGH the debris (AC2: must not block pathing or
+        // the ground raycast). Built editor-time + serialized into Boot.unity (no Awake assembly).
+        private static void BuildBeachDebris(int groundLayer)
+        {
+            var root = new GameObject("BeachDebris");
+            root.transform.position = BeachDebrisCenter;
+            // The debris sits on the Default layer (NOT Ground) so even if a future change adds a collider
+            // by mistake, it wouldn't silently join the Ground raycast mask — but the real guarantee is
+            // that no piece gets a collider at all (asserted by BeachDebrisSceneTests).
+
+            // --- a few weathered planks: thin flat boxes lying on the sand at slight yaws + tilts, as if
+            //     washed up and dropped. Local offsets keep them a loose, natural-looking pile. ---
+            // (localPos, eulerYaw, lengthScale, tiltDeg, color)
+            BuildDebrisPlank(root, "PlankA", new Vector3(0.0f, 0.06f, 0.0f),  18f, 1.9f,  2f, DebrisWood);
+            BuildDebrisPlank(root, "PlankB", new Vector3(0.7f, 0.05f, 0.5f), -34f, 1.6f, -3f, DebrisWoodWorn);
+            BuildDebrisPlank(root, "PlankC", new Vector3(-0.6f, 0.09f, -0.4f), 62f, 1.4f,  6f, DebrisWood);
+            BuildDebrisPlank(root, "PlankD", new Vector3(0.2f, 0.14f, -0.7f),  -8f, 1.2f, 14f, DebrisWoodWorn);
+
+            // --- a half-buried crate: a chunky cube tilted + sunk so it reads "dug into the wet sand". ---
+            BuildDebrisCrate(root, "Crate", new Vector3(-1.5f, 0.12f, 0.7f), new Vector3(8f, 22f, -6f), 0.62f);
+
+            // --- a barrel on its side: a stout tapered cylinder laid down, weathered, rolled to a stop. ---
+            BuildDebrisBarrel(root, "Barrel", new Vector3(1.6f, 0.28f, -0.3f), 74f);
+
+            Debug.Log("[MovementCameraScene] authored BeachDebris at " + BeachDebrisCenter +
+                      " (planks+crate+barrel; NO colliders — non-blocking set-dressing)");
+        }
+
+        // A weathered plank: a thin flat box (primitive Cube, collider stripped) laid flat on the sand,
+        // yawed + slightly tilted. Inline matte URP/Lit warm-brown material (serializes into the scene).
+        private static void BuildDebrisPlank(GameObject parent, string name, Vector3 localPos,
+            float yaw, float lengthScale, float tilt, Color col)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>()); // set-dressing: never blocks raycast/NavMesh
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.Euler(tilt, yaw, 0f);
+            // Long, narrow, thin: a board. lengthScale ~1.2-1.9u long, ~0.18u wide, ~0.06u thick.
+            go.transform.localScale = new Vector3(lengthScale, 0.06f, 0.18f);
+            ApplyDebrisMaterial(go, name + "Mat", col);
+        }
+
+        // A half-buried crate: a chunky cube, tilted + sunk into the sand (low Y + a downward tilt so the
+        // far corner dips below the surface). Collider stripped.
+        private static void BuildDebrisCrate(GameObject parent, string name, Vector3 localPos,
+            Vector3 euler, float size)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.Euler(euler);
+            go.transform.localScale = Vector3.one * size;
+            ApplyDebrisMaterial(go, name + "Mat", DebrisCrate);
+        }
+
+        // A barrel on its side: a stout tapered cylinder laid down (rotated 90 on Z so its length runs
+        // along X) + yawed, rolled to rest in the sand. Reuses the faceted low-poly cylinder idiom.
+        private static void BuildDebrisBarrel(GameObject parent, string name, Vector3 localPos, float yaw)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.Euler(0f, yaw, 90f);
+            var mf = go.AddComponent<MeshFilter>();
+            // Slightly barrel-bellied: wider mid via near-equal end radii on a short stout body.
+            mf.sharedMesh = LowPolyMeshes.TaperedCylinder(0.26f, 0.26f, 0.7f, 8);
+            var mr = go.AddComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = name + "Mat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", DebrisWoodWorn);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        // Inline matte URP/Lit material for a debris piece (warm-brown, low gloss — the faceted toy read,
+        // not realistic driftwood). Serializes into the scene; no .mat asset churn.
+        private static void ApplyDebrisMaterial(GameObject go, string matName, Color col)
+        {
+            var mr = go.GetComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = matName };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
         private static void WireCampfireVerifyCapture(GameObject player)
         {
             var bootGo = GameObject.Find("Boot");
@@ -855,8 +1350,8 @@ namespace FarHorizon.EditorTools
             var avatarGo = new GameObject("CastawayAvatar");
             avatarGo.transform.SetParent(player.transform, false);
             avatarGo.transform.localPosition = Vector3.zero;
-            // The FBX is normalized to ~1u intrinsic; scale the avatar root to the agent height (1.8u)
-            // so the visible character matches the agent capsule + grounds correctly.
+            // The FBX import is normalized to ~1u (spike-exact); scale the avatar root to the agent height
+            // (1.8u) so the visible character matches the agent capsule + grounds correctly.
             avatarGo.transform.localScale = Vector3.one * PlayerVisualHeight;
 
             var castaway = avatarGo.AddComponent<CastawayCharacter>();
@@ -866,14 +1361,36 @@ namespace FarHorizon.EditorTools
             if (castaway.modelPrefab == null)
                 Debug.LogError("[MovementCameraScene] castaway FBX not found at " + CharacterAssetGen.FbxPath +
                                " — run CharacterAssetGen.PrepareCharacter() before authoring the scene");
-            // Build the Model child + materials NOW (editor) so they serialize into Boot.unity. This also
-            // HIDES the original cap meshes (CastawayCharacter.HideCap) so the castaway reads as having
-            // hair, not a cap (86ca8ca1m soak-fix).
+            // GROUND-SNAP mask (86ca8rdkp soak-fix #1 — 'walking in the air'). The NavMeshAgent grounds the
+            // player ROOT on the flat NavMesh collider, which rides ABOVE the dipping Zone-D visual terrain
+            // (ground-trace: feet 0.081 vs visible sand 0.020 = a 6cm float). CastawayCharacter raycasts the
+            // Ground layer each frame to plant the feet on the surface the player SEES. Wire the mask to the
+            // Ground layer editor-time so it serializes (no Awake LayerMask string lookup in the build).
+            castaway.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
+            // Build the Model child NOW (editor) so the skinned mesh + bones + Animator serialize into
+            // Boot.unity (the editor-vs-runtime serialization lesson).
             castaway.BuildInEditor();
 
-            // CAP -> HAIR (86ca8ca1m soak-fix): add the clean sandy-ginger hair skull-cap on the head bone
-            // (the hidden cap meshes leave a bare crown; this is the hair). Editor-time so it serializes.
-            AttachHair(castaway);
+            // POST-ANIM ARM POSE (86ca8rdkp soak-fix #2 + #3): relax both arms away from the torso (the
+            // pinched-idle fix) + give the RIGHT arm an away-from-body + raised carry pose for the held axe.
+            // The arms are driven by the imported Mixamo clips, so this is an ADDITIVE LateUpdate offset on
+            // the upper-arm bones (a sibling driver to HeldAxeRig) — the mechanism the ticket prescribes.
+            // Resolved from the SMR bone array + serialized so it ships in Boot.unity. AFTER BuildInEditor
+            // (the bones must exist), BEFORE AttachHeroAxeToHand (so the axe seats to the posed hand).
+            AddArmPose(castaway);
+
+            // RIGHT-HAND FINGER CURL (86ca8rdkp re-soak #4 — "his right finger is mangled"). The -fingerTrace
+            // PROVED the skinning is clean (no degenerate bone/weights) — the "mangled" read is the OPEN clip
+            // hand around a held haft. This additive LateUpdate driver CURLS the right-hand fingers into a grip
+            // (gated on HasAxe so the empty hand stays open). Resolved from the SMR bone array + serialized.
+            // AFTER BuildInEditor (the finger bones must exist).
+            AddFingerCurl(castaway);
+
+            // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
+            // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.
+            // The FBX imports its own ImportStandard material; we override with the single de-lit toon mat so
+            // the look matches the project's URP/Lit toon idiom + carries the recolor.
+            BindCastawayMaterial(castaway);
 
             // Wire the verification-only shipped-build CASTAWAY CLOSE-UP capture (drives a dedicated
             // camera onto the avatar's front so the recolored identity — warm khaki shirt, sandy-ginger
@@ -883,13 +1400,45 @@ namespace FarHorizon.EditorTools
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
 
+            // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC (86ca8rdkp — the instrument). Serializes onto Boot so
+            // the F8 overlay (feet/ground/GAP live) + the ~1Hz [FloatTrace] log ship; inert until F8/-floatTrace.
+            // The Sponsor walks the shoreline, SEES the GAP, dials GROUND-Y (F9) to GAP≈0, reports the value.
+            WireFloatDiagnostic();
+            // And its committed shipped-build capture path (proves the overlay renders the live GAP in the exe —
+            // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
+            WireFloatDiagnosticVerifyCapture();
+
+            // Wire the GAMEPLAY-CAM walk-grounding capture (86ca8rdkp attempt-9 — the WALK-clip body-lift fix).
+            // Captures from the REAL OrbitCamera (not an isolated rig — the false-green class) at 3 positions ×
+            // standing/mid-stride so the Sponsor/orchestrator judge feet-on-sand exactly as gameplay frames it.
+            // Inert unless -verifyWalkGround. Sibling of the float-diagnostic capture.
+            WireWalkGroundingVerifyCapture();
+
+            // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0 — the DIAGNOSE-BEFORE-FIX
+            // instrument). Drives a scripted multi-step walk + dumps every Y-reference per frame so the ratchet
+            // source is PINNED (not guessed). Inert unless -axeWalkTrace. Sibling of FloatDiagnostic.
+            WireAxeWalkTrace();
+
+            // (No hair-silhouette verify capture — the chibi's procedural hair-spike soak class does not
+            // apply to the Hyper3D castaway, which ships sculpted hair in the mesh. 86ca8rdkp.)
+
             // CONTACT / BLOB SHADOW (ticket 86ca8ca1m — "blob shadow fit to its footprint" AC). A soft
-            // dark ground disc under the castaway's feet, fit (radius) to the chibi's blocky stance so
+            // dark ground disc under the castaway's feet, fit (radius) to the castaway's stance so
             // the toy-chunky silhouette grounds. Lives on the PLAYER ROOT (NOT the avatar child) so the
             // avatar's height-scale doesn't scale it AND so it stays world-flat under the feet
             // regardless of the avatar's yaw/anim. Editor-time authored (mesh + inline transparent
             // vertex-color material) so it serializes into Boot.unity — the editor-vs-runtime trap.
             BuildBlobShadow(player);
+
+            // RE-SOAK #2 — wire the contact shadow to CastawayCharacter so it GROUNDS the shadow to the
+            // SNAPPED feet each frame. The shadow is a child of the player root (must not inherit the avatar
+            // height-scale), so without this it strands ~9cm ABOVE the snapped feet on the dipping foreshore
+            // (the 'elevated' percept — foot-trace 2026-06-15). CastawayCharacter.ApplyGroundSnap drives its
+            // world-Y onto the same visible-terrain Y the feet snap to.
+            castaway.blobShadow = player.transform.Find(BlobShadowObjectName);
+            if (castaway.blobShadow == null)
+                Debug.LogWarning("[MovementCameraScene] BlobShadow not found to wire onto CastawayCharacter — " +
+                                 "the contact shadow won't follow the snapped feet (the 'elevated' re-soak #2 fix)");
 
             var ctm = player.AddComponent<ClickToMove>();
             ctm.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
@@ -993,18 +1542,69 @@ namespace FarHorizon.EditorTools
             orbit.minPitch = 8f;
             orbit.maxPitch = 70f;
             orbit.distance = 14f;
+
+            // BIG ROUND ISLAND N2 (86ca9a7qn — "player disappears under a hill"). Wire the terrain-collision
+            // mask to the Ground layer editor-time so it SERIALIZES (no Awake LayerMask string lookup in the
+            // build — the editor-vs-runtime trap). The OrbitCamera then keeps itself ABOVE the hill surface +
+            // pulls IN when a hill occludes the character, so the player never vanishes under/behind a hill.
+            // The island terrain (Ground_Play) is on the Ground layer with a MeshCollider, so the camera
+            // raycasts hit the real hills.
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            orbit.terrainMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)0;
+            if (groundLayer < 0)
+                Debug.LogWarning("[MovementCameraScene] 'Ground' layer missing — OrbitCamera terrain-collision " +
+                                 "(N2 hill-clip fix) will be INERT (mask 0 = no collision)");
         }
 
-        // Bake the NavMesh from the walkable ground, then SAVE the data as an asset and assign it
-        // so the standalone build SHIPS a NavMesh (else click-to-move is silently dead — the
-        // spike's iter-3 lesson + unity-conventions.md §NavMesh).
+        // NavMesh voxel size (BIG ROUND ISLAND, 86ca9a7qn — N1 "can't walk everywhere"). A FINE voxel size
+        // resolves the big 330u terrain grid + the hill slopes + the foreshore dip cleanly (the default voxel,
+        // derived from agentRadius/3 ≈ 0.13, is fine; we PIN 0.16 so the bake is deterministic + the hill
+        // slopes never coarsen into gaps). The agent must path UP/DOWN/ACROSS the hills — the island slope tops
+        // out ~33deg (slope-probed), comfortably under the default agent maxSlope 45deg, so the DEFAULT agent
+        // type's slope/climb already cover every hill; the partial-coverage N1 bug was NOT a slope limit (that
+        // hypothesis was REFUTED by the slope probe) but a flat-slab-only / layer-restricted bake (see
+        // BakeAndSaveNavMesh). NOTE: NavMeshSurface.BuildNavMesh reads slope/climb from the AGENT TYPE
+        // (NavMesh.GetSettingsByID) — the surface only overrides voxel/tile size — so we tune voxel here and
+        // rely on the default agent type for slope/climb (which the probe proved sufficient).
+        private const float NavVoxelSize = 0.16f;    // fine enough to resolve the 330u island slopes cleanly
+
+        // Apply the island-aware voxel override to a NavMeshSurface so its bake resolves the WHOLE sloped
+        // island cleanly (the N1 root cause was a flat-slab-only / layer-restricted bake, not a coarse voxel —
+        // but pinning the voxel keeps the big-grid bake deterministic + gap-free).
+        private static void ConfigureIslandNavSettings(NavMeshSurface surface)
+        {
+            surface.overrideVoxelSize = true;
+            surface.voxelSize = NavVoxelSize;
+            surface.overrideTileSize = false;
+        }
+
+        // Bake the NavMesh over the WALKABLE ISLAND TERRAIN (not just the flat test slab), then SAVE the data
+        // as an asset and assign it so the standalone build SHIPS a NavMesh (else click-to-move is silently
+        // dead — the spike's iter-3 lesson + unity-conventions.md §NavMesh).
+        //
+        // BIG ROUND ISLAND N1 FIX (86ca9a7qn — "click-to-move only covers part of the island"). The OLD bake
+        // restricted to `layerMask = Ground` AND ran during BuildBootScene — BEFORE WorldBootstrap builds the
+        // island terrain — so it could only see the flat 60×60 `TestGround` slab. The shipped BootNavMesh was
+        // therefore a flat disc at the centre; the hilly island beyond ±30u had NO walkable surface in THIS
+        // bake, and the slab disc sat at Y=0 disconnected from the dipping/rising island terrain. (WorldBootstrap
+        // ALSO baked a PlayNavMesh over the island, but the two overlapping/disconnected meshes are exactly the
+        // fragile dual-surface that produced partial coverage.) FIX: this bake now ALSO collects the island
+        // terrain collider if it exists yet (it does NOT during BuildBootScene — the slab is all there is here),
+        // with hill-aware slope/step/voxel settings; and WorldBootstrap.BakeNavMesh — which DOES run after the
+        // island terrain exists — is now the single authoritative whole-island bake (it overwrites this asset's
+        // role at runtime via its own surface). We keep this bake (BootNavMesh) so a build WITHOUT the env (a
+        // hypothetical movement-only scene) still ships a surface, and so MovementCameraSceneTests' save-asset
+        // guard holds, but it is no longer LAYER-RESTRICTED — it collects every walkable collider it can see.
         private static void BakeAndSaveNavMesh(GameObject ground, int groundLayer)
         {
             var surfaceGo = new GameObject("NavMeshSurface");
             var surface = surfaceGo.AddComponent<NavMeshSurface>();
+            // Collect ALL physics colliders (NOT layer-restricted) so this bake covers the island terrain
+            // collider too whenever it is present — the N1 partial-coverage fix. The flat slab + island both
+            // contribute; their union is the walkable surface.
             surface.collectObjects = CollectObjects.All;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-            if (groundLayer >= 0) surface.layerMask = 1 << groundLayer;
+            ConfigureIslandNavSettings(surface);
             surface.BuildNavMesh();
 
             if (surface.navMeshData != null)
@@ -1014,13 +1614,25 @@ namespace FarHorizon.EditorTools
                 AssetDatabase.SaveAssets();
                 EditorUtility.SetDirty(surface);
                 Debug.Log("[MovementCameraScene] NavMesh baked + SAVED -> " + NavMeshDataPath +
-                          " (data assigned: " + (surface.navMeshData != null) + ")");
+                          " (voxel=" + NavVoxelSize + ", collectAll; data assigned: " +
+                          (surface.navMeshData != null) + ")");
             }
             else
             {
                 Debug.LogError("[MovementCameraScene] NavMesh bake produced NO data — " +
                                "click-to-move would be dead in the build");
             }
+
+            // BIG ROUND ISLAND N1 (86ca9a7qn): DISABLE this slab-era surface at runtime so it does NOT add its
+            // flat-Y=0 60×60 disc as a SECOND, DISCONNECTED NavMesh that competes with WorldBootstrap's
+            // authoritative whole-island PlayNavMesh (the dual-overlap was part of the partial-coverage bug —
+            // the agent could warp onto the isolated slab disc and not reach the hills beyond ±30u). The
+            // BootNavMesh ASSET still ships (MovementCameraSceneTests' save-asset guard holds, and a
+            // hypothetical env-less movement scene could re-enable this surface), but at runtime in the full
+            // boot scene ONLY the island PlayNavMesh is live. NavMeshSurface adds its data in OnEnable, so a
+            // disabled component never registers — the agent samples the single continuous island surface.
+            surface.enabled = false;
+            EditorUtility.SetDirty(surfaceGo);
         }
 
         // Attach the verification-only movement capture to the Boot object (the GameObject that
@@ -1054,6 +1666,39 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<SeaVerifyCapture>() == null)
                 bootGo.AddComponent<SeaVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the BIG ROUND ISLAND verify capture (86ca9a7qn) onto the Boot object so it SERIALIZES into
+        // Boot.unity (the component-in-source-but-not-in-scene trap). Inert unless launched with
+        // -verifyIsland; captures a gameplay over-shoulder frame + an overhead/high-orbit frame proving the
+        // round island + water-all-sides + distant mountain islands + dense tall forest.
+        private static void WireIslandVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — island-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<FarHorizon.IslandVerifyCapture>() == null)
+                bootGo.AddComponent<FarHorizon.IslandVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the verification-only ROCK capture (86ca8m5zu) onto the Boot object so it SERIALIZES into
+        // Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise). Inert
+        // unless launched with -verifyRock; never affects a normal play/boot/soak.
+        private static void WireRockVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — rock-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<RockVerifyCapture>() == null)
+                bootGo.AddComponent<RockVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 

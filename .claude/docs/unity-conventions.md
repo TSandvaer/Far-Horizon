@@ -52,7 +52,33 @@ CREATING low-poly objects, not just importing CC0 packs:
 - **The voxelizer auto-bridges small coplanar gaps**, so synthetic test scenes can't reproduce island defects — connectivity regression guards must run against the REAL scene.
 - **Flat connector strips won't stitch to sloped low-poly meshes** beyond `agentClimb` — pin the terrain's seam-edge vertex columns to the connector height in the mating band.
 
+## Standalone window / resolution / fullscreen
+
+- **`fullscreenMode`/`defaultIsNativeResolution` in ProjectSettings LOSE to persisted PlayerPrefs.** Unity
+  standalone writes the last-used resolution + screen mode to the per-user registry
+  (`HKCU\Software\<company>\<product>\Screenmanager *`) on every run, and reads those FIRST on the next
+  launch — overriding the build's Player-Setting defaults. The capture gate launches windowed at 1280×720
+  (`-screen-fullscreen 0 -screen-width 1280 -screen-height 720`), which persists 1280×720-windowed; a later
+  plain double-click then opens that small window even though `fullscreenMode: 1` (FullScreenWindow) +
+  `defaultIsNativeResolution: 1` ship correct (soakfix8 86ca8ce6y root cause). FIX: a boot-time
+  `Screen.SetResolution(Screen.currentResolution.width, .height, FullScreenMode.FullScreenWindow)` re-asserts
+  borderless-native and beats the stale PlayerPrefs. GATE it OFF on any capture/verify launch
+  (`-captureGate`/`-verify*`/`-shot`/`-screen-fullscreen`) so QA's windowed captures are never overridden —
+  verified by re-running capture_gate after the change (frames must stay 1280×720). `FullscreenBoot` +
+  `FullscreenBootSceneTests`/`FullscreenBootPlayModeTests` are the implementation + guards.
+
 ## FBX / rigs / characters
+
+- **Held props must be posed HAND-LOCAL, never WORLD, or the rotation won't survive a turn.** Setting a held
+  prop's `transform.rotation` (world) after parenting it to a hand bone back-solves a localRotation against the
+  bone's AUTHORING pose — but a per-frame re-apply of a fixed WORLD rotation (e.g. a nudge tool) pins the prop
+  to one world heading. POSITION-following (offset-from-hand each frame) still tracks, so the prop bobs with the
+  hand but its rotation stays frozen — when the character re-faces during click-move the prop "points the same
+  way on the x axis all the time" (soakfix8 86ca8ce6y, the Sponsor's exact words). FIX: pose the prop with a
+  stable `localPosition` + `localRotation` as a CHILD of the bone so BOTH position and rotation ride the bone via
+  the hierarchy in every facing — no per-frame world re-apply. The regression guard is a PlayMode test asserting
+  `Inverse(hand.rotation) * prop.rotation` is INVARIANT across facings (the bug = it drifted); plus an EditMode
+  guard that the prop is a DIRECT child of the bone with a non-identity local rotation.
 
 - **`avatarSetup` T-pose trap:** imported humanoids need the avatar configured from the FBX's own T-pose or retargeted animation mangles limbs.
 - **Quaternius Animated-Men FBX clip names carry the `HumanArmature|` prefix** — exact-name clip lookups silently match zero clips (T-pose-mid-walk symptom); use `.Contains` matching plus a `looped < expected` error guard.

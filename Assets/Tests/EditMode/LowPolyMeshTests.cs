@@ -169,5 +169,71 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(1f, normals[i].magnitude, 0.05f,
                     $"trunk vertex {i} normal must be ~unit length");
         }
+
+        // ---- FacetedRock: FLAT-shaded angular stone (86ca8m5zu v2 — the redo) ----
+
+        [Test]
+        public void FacetedRock_IsFlatShaded_UnweldedPerFace()
+        {
+            // Unlike FacetedSphere (welded, smooth), FacetedRock emits every face with its OWN 3 verts so
+            // each facet is a distinct flat plane (the carved-stone read). verts == tris*3.
+            var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: 7);
+            int tris = rock.triangles.Length / 3;
+            Assert.AreEqual(tris * 3, rock.vertexCount, "FacetedRock must be flat-shaded (verts == tris*3)");
+            Assert.Greater(tris, 20, "FacetedRock must have a chunky facet count (subdiv-1 base ~32 faces)");
+        }
+
+        [Test]
+        public void FacetedRock_CarriesPerFacetValueColour()
+        {
+            // The per-facet value (light tops / dark sides) is baked into vertex colour for the stone read.
+            var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: 8);
+            var cols = rock.colors;
+            Assert.AreEqual(rock.vertexCount, cols.Length, "every vert carries the facet value colour");
+            float lo = 1f, hi = 0f;
+            foreach (var c in cols) { lo = Mathf.Min(lo, c.r); hi = Mathf.Max(hi, c.r); }
+            // Floor lifted to 0.80 (off black) narrows the baked span to ~0.18; assert non-flat, not magnitude.
+            Assert.Greater(hi - lo, 0.12f, "facet value must span light..darker (the baked stone contrast)");
+        }
+
+        [Test]
+        public void FacetedRock_NormalsAreUnitLength_NoDegenerates()
+        {
+            var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: 11);
+            var n = rock.normals;
+            for (int i = 0; i < n.Length; i++)
+                Assert.AreEqual(1f, n[i].magnitude, 0.05f,
+                    $"FacetedRock normal {i} must be ~unit length (a degenerate normal shades the stone dark)");
+        }
+
+        [Test]
+        public void FacetedRock_AllFacesPointOutward_NotBackfaceCulled()
+        {
+            // THE BACKFACE-CULL GUARD (the v2 "thin sliver" render bug, same class as the −Z water grid):
+            // every face normal must point AWAY from the rock centre and the winding must match, or the
+            // default URP Cull Back culls inward-wound facets and the chunky rock reads as scattered shards.
+            // Assert (a) each face normal points outward (dot with the face centroid > 0) and (b) the winding
+            // agrees with the stored normal, across several seeds.
+            for (int s = 1; s <= 6; s++)
+            {
+                var rock = LowPolyMeshes.FacetedRock(0.55f, jitter: 0.38f, seed: s * 17);
+                var v = rock.vertices;
+                var n = rock.normals;
+                int tris = rock.triangles.Length / 3;
+                for (int t = 0; t < tris; t++)
+                {
+                    Vector3 a = v[t * 3], b = v[t * 3 + 1], c = v[t * 3 + 2];
+                    Vector3 centre = (a + b + c) / 3f;
+                    // (a) the stored face normal points outward from the rock centre (origin)
+                    Assert.Greater(Vector3.Dot(n[t * 3], centre.normalized), 0.05f,
+                        $"seed {s * 17} face {t} normal points INWARD -> backface-culled (the thin-sliver bug)");
+                    // (b) the geometric winding normal agrees with the stored normal (so the FRONT side is the
+                    // outward side that survives Cull Back)
+                    Vector3 wind = Vector3.Cross(b - a, c - a).normalized;
+                    Assert.Greater(Vector3.Dot(wind, n[t * 3]), 0.5f,
+                        $"seed {s * 17} face {t} winding disagrees with its outward normal -> culled front face");
+                }
+            }
+        }
     }
 }

@@ -83,6 +83,157 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxe_PosedHandLocal_SoRotationTracksTheBone()
+        {
+            // SOAKFIX8 regression guard (the bug CLASS at the serialization layer). The Sponsor's bug ("the
+            // axe points the same way on the x axis all the time") was the held axe posed via a WORLD rotation
+            // after parenting — which pinned it to a fixed world heading that couldn't survive a turn. The FIX
+            // is a HAND-LOCAL pose: the axe is a CHILD of the right-hand bone with a stable localRotation, so
+            // BOTH position and rotation ride the bone via the hierarchy in every facing.
+            //
+            // This pins the serialized contract: the axe is a direct child of the right-hand bone (so its
+            // localRotation IS its hand-relative rotation), and that localRotation is non-trivial (a real
+            // grip, not identity). The PlayMode test (HeldAxeRotationTracksHandPlayModeTests) proves the
+            // INVARIANCE across facings; this EditMode guard proves the scene actually SHIPS the hand-local
+            // parenting that makes that invariance hold (a regression that re-introduced a world-set rotation
+            // would still serialize SOME local transform, so the load-bearing pin is the direct-child parenting
+            // under the bone — asserted by BootScene_CarriesHeroAxe — plus a non-identity grip here).
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+
+            // The axe's parent must BE the right-hand bone (a DIRECT child), so localRotation == the
+            // hand-relative rotation the axe rides. (BootScene_CarriesHeroAxe pins "under the bone" loosely;
+            // this pins the DIRECT-child relationship the hand-local pose depends on.)
+            Transform parent = axe.transform.parent;
+            Assert.IsNotNull(parent, "the held axe must be parented (under the right-hand bone)");
+            string pn = parent.name.ToLowerInvariant();
+            Assert.IsTrue(pn.Contains(MovementCameraScene.RightHandBoneToken) && !pn.Contains("dummy") && !pn.Contains("end"),
+                $"the held axe's DIRECT parent must be the right-hand bone (got '{parent.name}') so its " +
+                "localRotation is the hand-relative grip — a free-standing or deeper-nested re-parent breaks the track.");
+
+            // The grip must be a real non-identity hand-local rotation (the dialed pose), not left at identity
+            // (which would read as the axe lying along the bone's local axes — not a held hatchet).
+            float fromIdentity = Quaternion.Angle(axe.transform.localRotation, Quaternion.identity);
+            Assert.Greater(fromIdentity, 5f,
+                $"the held axe's hand-local rotation must be a real grip (got {fromIdentity:F1}° from identity) — " +
+                "a near-identity localRotation means the dialed pose was lost.");
+        }
+
+        [Test]
+        public void BootScene_HeldAxe_ReadsAtTheSide_NotByTheEar()
+        {
+            // SOAKFIX2/4/7/8 regression guard (the bug CLASS, both directions). SOAKFIX2's bug was the held axe
+            // as a ~0.43u sliver hanging at the hip (max.y 0.71), invisible (the "no axe" soak). The placement
+            // band has MOVED with each Sponsor-confirmed dial: SOAKFIX7's seat measured ~1.022u; SOAKFIX8 (the
+            // ROTATION-TRACKS-HAND fix) bakes the Sponsor's LATEST dialed grip, which seats the axe LOWER —
+            // held down at the side, axe top max.y ≈ 0.53u (PoseTrace; the grip the Sponsor dialed via the F9
+            // tool). The band is re-centred on THAT Sponsor-dialed default. It still guards both failure
+            // directions: the SIZE floor (longest-extent ≥0.7u below) catches the invisible-sliver regression,
+            // and this top-y band catches a foot-stick (too low) / a 267×-bone giant or wild-euler fling (too
+            // high). A regression in EITHER direction reds in CI. (Final visual read is still the SHIPPED build.)
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var mr = axe.GetComponentInChildren<MeshRenderer>(true);
+            Assert.IsNotNull(mr, "held axe must have a MeshRenderer to measure");
+
+            // Force-show so renderer bounds are valid in the editor (HasAxe-gated → disabled in a static load).
+            foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) r.enabled = true;
+            Bounds b = mr.bounds;
+            float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+            // ~1.0u target; floor 0.7u catches a regression to the 0.43u sliver. (Upper guard catches the
+            // 267×-bone GIANT trap — a >3u axe is the giant that already shipped once.)
+            Assert.That(longest, Is.InRange(0.7f, 3.0f),
+                $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
+                "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
+
+            // The axe top must sit at the HAND, around the SOAKFIX8 Sponsor-dialed seat (max.y ≈ 0.53u — held
+            // down at the side). Floor 0.35u catches a regression that drops the axe to the feet/below ground;
+            // ceiling 0.95u catches a 267×-bone giant or a wild euler that flings the axe up to the ear. The
+            // band is centred on the dialed-in default the Sponsor judged — re-bake the default and it moves.
+            Assert.That(b.max.y, Is.InRange(0.35f, 0.95f),
+                $"held axe top y {b.max.y:F2} must sit at the hand near the SOAKFIX8 dialed-in seat (~0.53u): " +
+                "<0.35 = dropped to the feet/below ground, >0.95 = a 267x-bone giant / wild-euler fling to the ear.");
+        }
+
+        [Test]
+        public void BootScene_HeldAxeRig_RidesTheRawHandBone_FollowsTheArmSwing_NoStabilizer()
+        {
+            // 86ca9zcjn regression guard (the FOLLOW-THE-ARM design choice, at the serialization layer). The
+            // Sponsor (soak 6bcc1bc) chose for the held axe to FOLLOW the right arm's natural swing during
+            // locomotion — it rides the RAW hand bone (the prior swing-stabilizer / grip-anchor + the
+            // vertical-decouple are REMOVED). This pins that the SHIPPED scene serializes the follow wiring:
+            //   (a) the rig's hand IS the right-hand bone (so it follows the arm, and the facing yaw the raw
+            //       hand carries passes through — the 86ca9xz00 facing-follow contract, now via the raw hand),
+            //   (b) followDamp is 0 (the per-step swing is VISIBLE by default — the Sponsor's choice; AC2 says
+            //       a LIGHT damp is OK to de-jitter but must NOT re-lock the swing).
+            // A regression that re-introduced a stabilizer (followDamp cranked to re-lock) or detached the axe
+            // from the hand reds in CI rather than re-shipping a locked axe. (The PlayMode HeldAxeWalkBounce /
+            // HeldAxeSwingStabilize tests prove the BEHAVIOUR; this proves the scene carries the wiring.)
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+
+            var rig = axe.GetComponent<HeldAxeRig>();
+            Assert.IsNotNull(rig, "the held axe must carry the HeldAxeRig driver");
+            Assert.IsNotNull(rig.hand,
+                "HeldAxeRig.hand must be wired editor-time (serialized) to the right-hand bone — the axe rides " +
+                "the RAW hand so it follows the arm's natural swing AND the facing yaw the hand carries (86ca9zcjn).");
+
+            var castaway = Object.FindObjectOfType<CastawayCharacter>();
+            Assert.IsNotNull(castaway, "the Boot scene must carry the CastawayCharacter");
+
+            // The hand the rig rides must live UNDER the castaway model (it's the rig's right-hand bone, an
+            // animated bone whose per-step swing the axe now follows) — not some detached/world transform.
+            Assert.IsTrue(rig.hand.IsChildOf(castaway.transform),
+                $"HeldAxeRig.hand ('{rig.hand.name}') must be a bone under the CastawayCharacter — the axe rides " +
+                "the animated hand so it swings with the arm (86ca9zcjn follow-the-arm).");
+
+            // followDamp must be 0 (the per-step arm-swing is fully visible — the Sponsor's design choice). A
+            // value large enough to re-lock the swing would re-ship the detached-mid-stride read the Sponsor
+            // rejected; AC2: "if it reads wild, damp it, don't lock it" — so a small de-jitter is allowed but
+            // the shipped default is the raw follow.
+            Assert.That(rig.followDamp, Is.EqualTo(0f),
+                $"HeldAxeRig.followDamp must ship at 0 (raw-hand follow → the per-step arm-swing is visible — the " +
+                $"Sponsor's choice, 86ca9zcjn AC2), got {rig.followDamp}. A non-zero shipped damp re-locks the " +
+                "swing the Sponsor explicitly chose to keep.");
+        }
+
+        [Test]
+        public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
+        {
+            // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the
+            // chopping-block stump and visible FROM SPAWN (the always-on-screen hero axe + the walk-here
+            // cue). It is gated as the INVERSE of HasAxe (StumpAxe): shown at spawn, hidden once crafted.
+            // Drop the plant or its wiring and this reds in CI rather than re-shipping the empty stump.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var stumpAxe = FindByNameInScene(MovementCameraScene.StumpAxeObjectName);
+            Assert.IsNotNull(stumpAxe,
+                $"the Boot scene must carry the '{MovementCameraScene.StumpAxeObjectName}' GameObject — the " +
+                "axe planted in the stump, visible from spawn (the Sponsor's 'stump is there but no axe')");
+
+            var mf = stumpAxe.GetComponentInChildren<MeshFilter>(true);
+            Assert.IsNotNull(mf, "the stump axe must carry a MeshFilter (the sourced hatchet mesh)");
+            Assert.IsNotNull(mf.sharedMesh, "the stump axe's mesh must be serialized into the scene");
+            Assert.Greater(mf.sharedMesh.vertexCount, 20,
+                "the stump axe must be the real sourced hatchet mesh, not a placeholder primitive");
+
+            // The INVERSE gate must be wired editor-time (serialized), so the stump axe shows at spawn and
+            // hides on craft without an Awake-time scene search in the build.
+            var stump = stumpAxe.GetComponent<StumpAxe>();
+            Assert.IsNotNull(stump, "the stump axe must carry the StumpAxe component (inverse-HasAxe gate)");
+            Assert.IsNotNull(stump.inventory,
+                "StumpAxe.inventory must be wired editor-time (serialized) — the component-not-serialized trap");
+
+            // It must be parented under the CraftSpot (rides the stump), not free-floating.
+            bool underCraftSpot = false;
+            Transform t = stumpAxe.transform;
+            while (t != null) { if (t.GetComponent<CraftSpot>() != null) { underCraftSpot = true; break; } t = t.parent; }
+            Assert.IsTrue(underCraftSpot, "the stump axe must be parented under the CraftSpot (planted in the stump)");
+        }
+
+        [Test]
         public void BootScene_CarriesAxeVerifyCapture_OnTheBootObject()
         {
             // Regression guard (carried from PR #21/#26): the committed -verifyAxe close-up capture path
@@ -96,12 +247,30 @@ namespace FarHorizon.EditTests
                 "close-up capture path), serialized into the scene — not Awake-added");
         }
 
-        private static GameObject FindHeroAxe()
+        [Test]
+        public void BootScene_CarriesAxeNudgeTool_OnTheBootObject()
+        {
+            // SOAKFIX5 regression guard (the axe-nudge reframe): the BUILD-GATED debug AxeNudgeTool must be
+            // SERIALIZED onto the Boot object (sibling of the verify captures), else the Sponsor's in-game
+            // axe-dialing path silently vanishes from the shipped build (the component-not-serialized class,
+            // unity-conventions.md). The tool is INERT in normal play (asleep behind the F9 toggle — see the
+            // PlayMode inertness test), so its presence does NOT affect a soak. Drop WireAxeNudgeTool -> RED.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var boot = GameObject.Find("Boot");
+            Assert.IsNotNull(boot, "the Boot scene must carry the 'Boot' object (host of the debug nudge tool)");
+            Assert.IsNotNull(boot.GetComponent<AxeNudgeTool>(),
+                "the Boot object must carry the AxeNudgeTool component (the build-gated in-game axe-nudge " +
+                "tool), serialized into the scene — not Awake-added");
+        }
+
+        private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
+
+        private static GameObject FindByNameInScene(string name)
         {
             var scene = SceneManager.GetActiveScene();
             foreach (var root in scene.GetRootGameObjects())
             {
-                var t = FindByName(root.transform, MovementCameraScene.HeroAxeObjectName);
+                var t = FindByName(root.transform, name);
                 if (t != null) return t.gameObject;
             }
             return null;

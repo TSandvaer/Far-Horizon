@@ -24,7 +24,10 @@ Material:
     serializedVersion: 3
     m_TexEnvs: []
     m_Ints: []
-    m_Floats: []
+    m_Floats:
+    - _WaveAmp: 0
+    - _WaveLen: 14
+    - _WaveSpeed: 0.9
     m_Colors:
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

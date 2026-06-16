@@ -7,291 +7,372 @@ using UnityEngine;
 namespace FarHorizon.EditorTools
 {
     /// <summary>
-    /// Prepares the "Mini Chibi Kid" sourced CC0-Attribution rigged low-poly character (Sketchfab,
-    /// joaobaltieri) for the player — the chunky-cartoon castaway base (ticket 86ca8ca1m). This
-    /// SUPERSEDES the Quaternius Animated-Men character: the realistic Quaternius head could not be
-    /// cartoon-ified, so the Sponsor swapped to a purpose-built chunky base whose big-head toy
-    /// proportions are INTRINSIC to the mesh — no bone-scale dials needed (the PR #25 bone-scale path
-    /// is dropped for this base; the mesh is already chunky).
+    /// Prepares the HYPER3D + MIXAMO castaway for the player — the generated, on-style chunky low-poly
+    /// young/hopeful castaway (ticket 86ca8rdkp). This ADOPTS the viability-spike asset (spike 86ca8r72j /
+    /// PR #45) into the live game, SUPERSEDING the Sketchfab "Mini Chibi Kid" (the chibi's realistic-leaning
+    /// face + 6-SMR-atlas weathering grind is dropped). The Sponsor APPROVED the swap 2026-06-15 after the
+    /// spike proved this asset animates clean + on-style in the shipped URP exe.
     ///
-    /// Runs from batchmode (no GUI) so the whole project stays reproducible-from-code (the project
-    /// invariant; CI re-runs BootstrapProject.Run which calls this):
+    /// PIPELINE — TWO Mixamo FBX, GENERIC rig:
+    ///   1. Idle.fbx  (WITH skin = mesh + rig + Idle clip) → rig=Generic, avatarSetup=CreateFromThisModel
+    ///      (builds an avatar from the Mixamo skeleton), import the clip, loop it, height-normalize the
+    ///      intrinsic import to ~1u (the camera/NavMesh/grounding are ~1u-calibrated).
+    ///   2. Walking.fbx (WITHOUT skin = Walk clip only) → rig=Generic, avatarSetup=CreateFromThisModel; the
+    ///      Generic Walk clip binds by TRANSFORM PATH onto Idle's mesh (same mixamorig bone names) — no
+    ///      Humanoid muscle-space retarget.
     ///
-    ///   1. Configure the FBX ModelImporter: Generic rig + CreateFromThisModel avatar (the FBX imports
-    ///      as NoAvatar — without an avatar the clips cannot bind and the model freezes in its bind
-    ///      pose), import its bundled animation clips, normalize the intrinsic ~1.82u import height to
-    ///      ~1u, and mark the locomotion clips (Idle/Walk) as looping. The clip names carry the
-    ///      "Object_5|" armature prefix (e.g. "Object_5|Idle 01") — match by .Contains, NOT exact
-    ///      equality (exact-match loops ZERO clips — the T-pose-mid-walk failure class, see the guard).
-    ///   2. The material atlas binds out of the box: ImportStandard imports two URP/Lit materials
-    ///      (mini_material / mini_material_secondary) with _BaseMap = mini_material_baseColor (the 256²
-    ///      toon atlas) — verified by probe. We KEEP the FBX's own flat toon materials + atlas; the
-    ///      IDENTITY RECOLOR (ticket 86ca8ca1m) is done by REPAINTING specific UV cells of the atlas PNG
-    ///      itself (shirt -> warm khaki, hair/cap -> sandy-ginger, shoes -> bare-feet skin) — NOT by
-    ///      replacing the materials (a per-material tint would WIPE the gradient toon-shade to a flat
-    ///      colour). So the chibi reads as OUR young/hopeful castaway, not the generic green-cap kid,
-    ///      while the flat toon look survives. We assert the atlas binds (missing-texture grey fails the
-    ///      import) AND the identity guard re-samples the recolored cells (see CastawayCharacterTests).
-    ///   3. Build an AnimatorController asset with an Idle&lt;-&gt;Walk blend driven by a "Moving" bool,
-    ///      cross-faded so the gait reads (no hard pop). CastawayCharacter.SetBool("Moving", ...) flips it.
+    /// RIG = GENERIC (86ca8rdkp — the runtime-explosion fix). The ticket's prescribed Humanoid path EXPLODED
+    /// the skinned mesh into a cone / stretched arm at RUNTIME in the production scene (the Humanoid retarget
+    /// reconstructs the pose in muscle space, which mismatched this FBX's internal 100× mesh node + the scene's
+    /// avatar root). The spike's Humanoid captures only LOOKED clean because the spike capture camera FOLLOWED
+    /// the displaced mesh (fixed scene camera would have shown empty). GENERIC binds clips by transform path
+    /// onto the FBX's own mixamorig skeleton — NO muscle retarget — and renders clean at the player with sane
+    /// bone world positions (rig-trace-verified: body at spawn, RightHand at the hand). The spike ALSO proved
+    /// Generic clean (captures 04/05); it is the choice the live chibi made too.
+    ///   3. A flat de-lit URP/Lit material from texture_diffuse as _BaseMap (smoothness ~0, no metallic) so
+    ///      the baked toon-shaded albedo reads de-lit/toon (the project's URP/Lit toon idiom). Bound onto the
+    ///      avatar's SkinnedMeshRenderer(s) editor-time by MovementCameraScene (the FBX imports its own
+    ///      ImportStandard material, but we author a single shared de-lit mat for the toon look + the recolor).
+    ///   4. IDENTITY RECOLOR (86ca8rdkp AC4) — warm the mustard-yellow generated shirt toward TAN toward the
+    ///      concept (concepts/concept_01_front.png) WITHOUT flattening the toon gradient. A per-material tint
+    ///      would WIPE the baked gradient to a flat colour (the trap CastawayCharacter always warned of); the
+    ///      texture_diffuse atlas is NOT a 16x16 grid (it is an organic UV unwrap), so the chibi's per-cell
+    ///      repaint does not apply. Instead a LUMA-PRESERVING HUE REMAP of the saturated YELLOW shirt pixels
+    ///      shifts hue yellow->warm-tan + tones saturation while KEEPING each texel's value (so the toon
+    ///      light->dark gradient survives). Reproducible-from-code + idempotent (absolute HSV remap keyed on
+    ///      the SOURCE yellow band, NOT the prior pixels), so a bootstrap re-run converges. A REASONABLE pass
+    ///      the Sponsor judges from the build — NOT a grind (per the ticket).
     ///
-    /// RIG CHOICE — GENERIC, not Humanoid (same rationale as the prior base): the character ships its
-    /// OWN Idle/Walk clips on its OWN 29-bone armature (Hips_00..Head_05, Right/LeftFoot_0xx), so NO
-    /// cross-FBX retarget is needed — a Generic rig that creates an avatar from this model
-    /// (CreateFromThisModel) binds the clips directly. A Humanoid retarget adds an avatar-build step that
-    /// risks failing in batchmode on a single-model port for ZERO benefit here. unity-conventions.md
-    /// §FBX documents the avatarSetup T-pose trap + the armature clip-prefix finding, both honored below.
+    /// unity-conventions.md §FBX documents the avatarSetup T-pose trap (honored by CreateFromThisModel) and
+    /// the clip-take-name finding (the Mixamo take is "mixamo.com", NOT "Idle"/"Walk" — match by Contains +
+    /// rename, or zero clips loop = the T-pose-mid-walk failure class).
     ///
-    /// Source: "Mini Chibi Kid" by joaobaltieri (Sketchfab, CC-Attribution). ~1442 faces, 29-bone
-    /// Mixamo-style rig, big-head toy proportions, 2 flat toon materials on a 256² atlas. License/
-    /// attribution committed alongside the FBX. Imports UPRIGHT (probe-verified: head world-Y 0.785
-    /// above feet world-Y 0.019, feet at origin) — no -90° X bake required for this asset.
+    /// Source: Hyper3D Rodin Image-to-3D (Gen-2.5 Quad ~8000) + Mixamo auto-rig (Standard 65 skeleton),
+    /// generated from an openai-image A-pose concept (see .claude/docs/character-pipeline.md). License is
+    /// CC-style generated content; attribution committed alongside the FBX.
     /// </summary>
     public static class CharacterAssetGen
     {
-        public const string FbxPath = "Assets/Art/Character/MiniChibiKid/MiniChibiKid.fbx";
-        public const string ControllerPath = "Assets/Art/Character/CastawayAnimator.controller";
+        // PRODUCTION location (NOT _Spike). The two Mixamo FBX + the de-lit material + the controller.
+        private const string CharDir = "Assets/Art/Character/Castaway";
+        public const string IdleFbxPath = CharDir + "/Idle.fbx";   // WITH skin (mesh+rig+Idle clip)
+        public const string WalkFbxPath = CharDir + "/Walking.fbx"; // WITHOUT skin (Walk clip only)
+        public const string DiffusePngPath = CharDir + "/texture_diffuse.png";
+        public const string NormalPngPath = CharDir + "/texture_normal.png";
+        public const string MaterialPath = CharDir + "/CastawayMat.mat";
+        public const string ControllerPath = CharDir + "/CastawayAnimator.controller";
 
-        // Clip name TOKENS inside the FBX we wire. The chibi ships an alt-set ("Idle 01"/"Walk 01"/
-        // "Run 01") AND the FBX clip names carry the "Object_5|" armature prefix (e.g.
-        // "Object_5|Idle 01") — match by Contains on these tokens, NOT exact equality. (Empirically the
-        // shipped clip names are the " 01" alt-set, NOT "Man_Idle"/"Man_Walk" — verified by probe;
-        // matching the real names is load-bearing.)
-        public const string IdleClip = "Idle 01";
-        public const string WalkClip = "Walk 01";
+        // The model prefab MovementCameraScene instantiates IS the Idle FBX (it carries the skin + rig).
+        // Kept as the canonical "FbxPath" name so existing callers (MovementCameraScene, AxeAssetGen,
+        // tests) need no rename — it now points at the with-skin Idle FBX.
+        public const string FbxPath = IdleFbxPath;
 
-        // The toon atlas the imported materials bind. Asserted present so a missing-texture grey
-        // regression (the flat toon look silently lost) fails the import.
-        public const string AtlasTextureName = "mini_material_baseColor";
+        // Mixamo clip-take finding (EMPIRICAL, spike Hyper3DSpikeDiag 2026-06-15): BOTH FBX export their
+        // single clip as the take name "mixamo.com" (NOT "Idle"/"Walk"). An exact/Contains "Idle"/"Walk"
+        // match loops ZERO clips → the T-pose-mid-walk failure class (unity-conventions.md §FBX). So we match
+        // the SOURCE take by "mixamo.com" and RENAME it on import to a stable per-FBX name, so the two clips
+        // are distinct in the controller.
+        public const string SourceTake = "mixamo.com";
+        public const string IdleClip = "CastawayIdle"; // renamed-on-import (the controller binds this)
+        public const string WalkClip = "CastawayWalk"; // renamed-on-import
 
-        // The standalone atlas PNG path the imported materials actually bind on _BaseMap (probe-verified:
-        // Unity remaps the FBX materials to this asset, NOT the .fbm/ embedded extract — so this is the
-        // file the recolor edits). Identity recolor (ticket 86ca8ca1m) repaints specific UV cells here.
-        public const string AtlasPngPath = "Assets/Art/Character/MiniChibiKid/mini_material_baseColor.png";
+        // The de-lit material binds texture_diffuse as the toon albedo. Asserted present so a missing-texture
+        // grey regression (the flat toon look silently lost) fails the build/test.
+        public const string DiffuseTextureName = "texture_diffuse";
 
-        // IDENTITY RECOLOR — atlas UV cells (16x16 grid of vertical-gradient toon-shade cells), mapped by
-        // a per-region bone-influence probe (86ca8ca1m). UV origin bottom-left; cell (colX,rowY) covers
-        // UV x in [colX/16,(colX+1)/16], v in [rowY/16,(rowY+1)/16]. These are the recolor TARGETS the
-        // identity guard re-samples — keeping the SHIPPED look and the guard reading the SAME source.
-        //   Shirt (torso + rolled sleeve): warm khaki, the U2-6 anchor (0.72,0.60,0.42), luma >0.6.
-        //   Hair + cap: sandy/ginger (the green-cap kid restyled toward warm hair).
-        //   Bare feet: skin tan (vs the kid's dark shoes).
-        public static readonly Vector2Int ShirtCell = new Vector2Int(15, 11); // torso shirt
-        public static readonly Vector2Int HairCell = new Vector2Int(12, 11);  // hair mass
-        public static readonly Vector2Int CapCell = new Vector2Int(1, 10);    // former green cap -> warm hair
-        public static readonly Vector2Int FeetCell = new Vector2Int(12, 12);  // bare feet (was shoes)
-
-        // SOAK-FIX cells (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and reported "yellow cap / no
-        // shirt / all-yellow blob" — the GAMEPLAY orbit view (warm Zone-D post × warm key × the BRIGHT
-        // atlas) washed the castaway to a uniform yellow-cream, the cap still read as a cap, and the
-        // khaki shirt had no contrast against the skin. Empirically mapped by CastawayDiagnoseTrace:
-        //   - The kept CAP DOME (Object_41, now the hair mass) uses TWO cells: CapCell(1,10) AND
-        //     CapDome2(1,9) — and (1,9) was left GREEN by the v1 recolor. BOTH are repainted sandy-ginger
-        //     so the dome reads as HAIR, not a green/yellow cap.
-        //   - The SkinCell(12,2) (Object_36 head+body) was very bright (0.93,0.76,0.62) and BLEW OUT to
-        //     white under the post lift — toned down so the face/body holds tone instead of washing.
-        //   - Shirt + feet are DEEPENED (below) so they survive the post lift without blowing to cream
-        //     and the shirt SEPARATES from the skin (the "no shirt" read).
-        public static readonly Vector2Int CapDome2Cell = new Vector2Int(1, 9); // 2nd cap-dome cell (was green)
-        public static readonly Vector2Int SkinCell = new Vector2Int(12, 2);    // head+body skin (was blown bright)
-        public static readonly Vector2Int SleeveCell = new Vector2Int(15, 10); // shirt rolled-sleeve cell
-
-        // ---- SOAK-FIX target colours (86ca8ca1m soak-fix). Each is the cell's TOP-of-gradient anchor;
-        // RecolorIdentityAtlas paints a vertical toon ramp from this anchor (top brighter -> bottom
-        // darker) so the flat toon-shade gradient survives. All sub-1.0 (HDR-safe) and TONED so the
-        // warm post no longer blows them to yellow. Verified against the post stack by a shipped capture. ----
-        public static readonly Color ShirtTopColor = new Color(0.62f, 0.50f, 0.30f); // deeper saturated mid-khaki (was 0.73,0.60,0.42 — too bright/pale)
-        public static readonly Color SkinTopColor  = new Color(0.80f, 0.62f, 0.48f); // toned warm tan (was 0.94,0.79,0.65 — blew white under the warm post)
-        public static readonly Color FeetTopColor  = new Color(0.78f, 0.60f, 0.46f); // bare-feet skin, matches the toned skin
-        // The cap-dome cells are still recolored sandy-ginger as a defensive base, but the dome+brim are
-        // BOTH hidden now (the dome's cap-shaped arc read as a floating loop, not hair) and a clean
-        // procedural hair skull-cap is added instead — so this colour mainly anchors the guard (R>G>B,
-        // not green). The visible hair colour is HairMeshColor (MovementCameraScene), tuned from the soak.
-        public static readonly Color HairTopColor  = new Color(0.70f, 0.45f, 0.22f); // sandy-ginger (guard anchor; dome hidden)
-
-        // Normalize the FBX's intrinsic import height to ~1 world-unit so the avatar-root scale maps
-        // directly onto on-screen height (the camera/NavMesh/grounding are calibrated to ~1u). The chibi
-        // FBX imports at ~1.82u intrinsic (measured) — un-normalized it ships ~1.8× tall on the 1.8u
-        // avatar root → a giant. Re-derived from the LIVE measured bounds so a future swap self-corrects.
+        // Height normalization — the FBX imports at ~2.18u intrinsic; normalize the IMPORT directly to the
+        // on-screen height (1.8u, the agent height) so the avatar root sits UNSCALED (scale 1) — a SINGLE
+        // scale chain (the FBX globalScale only), matching the spike's clean single-instantiate. Wrapping the
+        // 100×-internal-node FBX in a SECOND scaled ancestor (the old 1.8× root) made the Humanoid Animator's
+        // retarget displace the mesh off-spawn at runtime (86ca8rdkp / rig-trace). useFileUnits/useFileScale
+        // stay at import DEFAULTS (the spike's known-clean values). Re-derived from live bounds (self-corrects).
         public const float TargetImportHeightU = 1.0f;
+
+        // ---- IDENTITY RECOLOR (86ca8rdkp AC4) — warm the mustard-yellow generated shirt toward TAN.
+        // The shirt is the big saturated-yellow region of texture_diffuse (probe: ~12.9% of the atlas, mean
+        // hue ~44°, sat ~0.92). The concept (concept_01_front.png) reads a warm tan/wheat shirt. We REMAP the
+        // saturated-yellow band's hue toward warm-tan + tone its saturation, PRESERVING each pixel's VALUE
+        // (HSV V) so the baked toon light→dark gradient survives (a flat tint would wipe it — the per-material
+        // trap). Reasonable pass, Sponsor-judged from the build; NOT a grind. ----
+        // The yellow shirt SOURCE band (HSV). Pixels inside this band are remapped; everything else (skin,
+        // hair, shorts, face) is untouched. Derived empirically (the yellow shirt mean hue ~44°, sat ~0.92).
+        public const float ShirtHueMinDeg = 38f;   // lower yellow edge (deg)
+        public const float ShirtHueMaxDeg = 75f;   // upper yellow edge (deg) — excludes orange skin (~25-32°)
+        public const float ShirtSatMin = 0.45f;    // only SATURATED yellow (skin/hair are lower-sat warm browns)
+        public const float ShirtValMin = 0.40f;    // only reasonably-lit yellow (dark shadow stays)
+        // The TARGET: warm tan/wheat. Hue shifted from yellow (~44°) down to warm-tan (~34°), saturation
+        // pulled toward a muted tan. VALUE is preserved per-pixel (gradient kept). These are the post-remap
+        // hue + a saturation SCALE applied to the in-band pixels.
+        public const float ShirtTargetHueDeg = 34f; // warm tan/wheat (was ~44° mustard yellow)
+        public const float ShirtSatScale = 0.62f;    // tone the saturation toward muted tan (keeps warmth)
 
         public static void PrepareCharacter()
         {
-            ConfigureFbxImporter();
+            ConfigureIdleFbx();   // Humanoid CreateFromThisModel + loop+rename Idle + height-normalize
+            ConfigureWalkFbx();   // Humanoid CopyFromOther(Idle) + loop+rename Walk (retargets)
+            // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
+            // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
+            // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
+            RecolorShirtToTan();
+            BuildMaterial();      // flat de-lit URP/Lit from the (now recolored) texture_diffuse
             BuildAnimatorController();
-            // IDENTITY RECOLOR (86ca8ca1m + soak-fix) — make the recolor REPRODUCIBLE-FROM-CODE (the
-            // project invariant: CI re-runs bootstrap). The v1 recolor was a hand-run PIL script (the
-            // atlas PNG was committed with no code path to regenerate it). This bakes the per-cell
-            // identity colours from CODE, deterministically + idempotently, so a bootstrap re-run always
-            // reproduces the SAME shipped atlas — and the soak-fix toning lives in source, not a mystery
-            // hand-edit. Runs AFTER the FBX import (the atlas PNG is a standalone asset the materials
-            // bind on _BaseMap — repainting it does not need the FBX re-imported).
-            RecolorIdentityAtlas();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[CharacterAssetGen] character assets prepared: " + FbxPath + " + " + ControllerPath);
+            Debug.Log("[CharacterAssetGen] Hyper3D castaway prepared: " + IdleFbxPath + " + " + WalkFbxPath +
+                      " + " + MaterialPath + " + " + ControllerPath);
         }
 
-        // Repaint the identity UV cells of the bound toon atlas (86ca8ca1m soak-fix), reproducibly +
-        // idempotently. Each target cell is painted with a deterministic VERTICAL TOON RAMP from its
-        // anchor colour (top ~1.12x brighter -> bottom ~0.82x darker over the cell's v span), preserving
-        // the flat toon-shade gradient the chibi ships. Painting ABSOLUTE values (not a multiplicative
-        // tint of the prior pixels) makes a bootstrap re-run converge to the exact same atlas — the
-        // idempotency the reproducible-from-code invariant needs. Cells repainted: shirt + sleeve (deeper
-        // mid-khaki, separates from skin), the kept cap-dome's TWO cells (sandy-ginger hair — kills the
-        // leftover green), skin (toned so the post lift doesn't blow it white), feet (bare-skin tan).
-        public static void RecolorIdentityAtlas()
+        // Idle.fbx carries the skin (mesh+rig) + the Idle clip. Humanoid rig, avatar created from THIS model
+        // (CreateFromThisModel) — the Mixamo Standard-65 skeleton maps to the Humanoid avatar so the clips
+        // bind. Loop the Idle clip; height-normalize the mesh to ~1u.
+        private static void ConfigureIdleFbx()
         {
-            string path = AtlasPngPath;
-            if (!System.IO.File.Exists(path))
-            {
-                Debug.LogError("[CharacterAssetGen] atlas PNG not found at " + path + " — cannot recolor");
-                return;
-            }
+            var importer = AssetImporter.GetAtPath(IdleFbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] Idle.fbx not found at " + IdleFbxPath); return; }
 
-            // Decode the committed PNG into a writable Texture2D (the imported asset has isReadable=0, so
-            // read the file bytes directly rather than GetPixels on the import).
-            byte[] bytes = System.IO.File.ReadAllBytes(path);
-            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!tex.LoadImage(bytes))
-            {
-                Debug.LogError("[CharacterAssetGen] atlas PNG failed to decode — recolor aborted");
-                Object.DestroyImmediate(tex);
-                return;
-            }
-            int W = tex.width, H = tex.height;
-            int cw = W / 16, ch = H / 16;
-
-            // Paint one 16x16 UV cell with a deterministic vertical toon ramp from anchor (top bright ->
-            // bottom darker). UV v is up; the Texture2D's y is also up (GetPixel/SetPixel bottom-left),
-            // so cell row*ch..(row+1)*ch maps directly. Idempotent: absolute writes.
-            void PaintCell(Vector2Int cell, Color anchor)
-            {
-                int x0 = cell.x * cw, y0 = cell.y * ch;
-                for (int yy = 0; yy < ch; yy++)
-                {
-                    // v fraction within the cell (0 at bottom -> 1 at top). Toon ramp: top brightest.
-                    float vf = ch > 1 ? (float)yy / (ch - 1) : 0.5f;
-                    float ramp = Mathf.Lerp(0.82f, 1.12f, vf); // bottom 0.82x -> top 1.12x
-                    var c = new Color(
-                        Mathf.Clamp01(anchor.r * ramp),
-                        Mathf.Clamp01(anchor.g * ramp),
-                        Mathf.Clamp01(anchor.b * ramp), 1f);
-                    for (int xx = 0; xx < cw; xx++)
-                        tex.SetPixel(x0 + xx, y0 + yy, c);
-                }
-            }
-
-            PaintCell(ShirtCell, ShirtTopColor);     // torso shirt — deeper mid-khaki
-            PaintCell(SleeveCell, ShirtTopColor);     // rolled sleeve — same khaki
-            PaintCell(CapCell, HairTopColor);         // cap-dome cell A -> sandy-ginger hair
-            PaintCell(CapDome2Cell, HairTopColor);    // cap-dome cell B (was GREEN) -> sandy-ginger hair
-            PaintCell(HairCell, HairTopColor);         // the brim's hair cell (kept consistent)
-            PaintCell(SkinCell, SkinTopColor);         // head+body skin — toned so it holds under the post lift
-            PaintCell(FeetCell, FeetTopColor);         // bare feet — toned skin tan
-            tex.Apply();
-
-            // Write the repainted atlas back to disk as the committed source (sRGB PNG). The import
-            // settings (sRGB on, readable off) are unchanged — only the pixels change.
-            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
-            Object.DestroyImmediate(tex);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
-            Debug.Log("[CharacterAssetGen] identity atlas recolored (shirt/sleeve khaki, cap-dome->sandy hair, " +
-                      "skin+feet toned) — reproducible-from-code, idempotent");
-        }
-
-        private static void ConfigureFbxImporter()
-        {
-            var importer = AssetImporter.GetAtPath(FbxPath) as ModelImporter;
-            if (importer == null)
-            {
-                Debug.LogError("[CharacterAssetGen] FBX not found at " + FbxPath);
-                return;
-            }
-
-            // Generic rig (the character's own skeleton). A Generic rig must CREATE AN AVATAR from this
-            // model, or the imported Animator has no avatar + the clips cannot bind -> the model renders
-            // frozen in its bind/T-pose. CreateFromThisModel builds the avatar from the FBX's own bone
-            // hierarchy so Idle/Walk animate the skeleton. (The chibi imports as NoAvatar by default.)
+            // GENERIC rig (86ca8rdkp — the runtime-explosion fix). The Humanoid retarget reconstructed the
+            // pose in MUSCLE space and, combined with this Mixamo FBX's internal 100× mesh node, EXPLODED the
+            // skinned mesh into a cone/stretched-arm at runtime in the production scene (verify + gameplay
+            // captures; the spike's Humanoid mode only looked clean because its capture camera FOLLOWED the
+            // displaced mesh). GENERIC binds the clip by TRANSFORM PATH onto the FBX's own mixamorig skeleton
+            // — NO muscle-space retarget — which the spike ALSO proved animates clean (captures 04/05) and
+            // which the live chibi used. Both FBX CreateFromThisModel (own avatar from own identical skeleton);
+            // the Walk clip binds by path onto the shared bone names — no CopyFromOther retarget needed.
             importer.animationType = ModelImporterAnimationType.Generic;
             importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
             importer.importAnimation = true;
             importer.importBlendShapes = false;
-            // Keep the FBX's own flat toon materials + the 256² atlas (ImportStandard binds
-            // _BaseMap = mini_material_baseColor — verified by probe). The IDENTITY RECOLOR (86ca8ca1m)
-            // lives in the atlas PNG's repainted cells (warm khaki shirt / sandy-ginger hair+cap /
-            // bare-feet skin), so the toon-shade gradient survives — we do NOT replace the materials.
             importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
 
-            // HEIGHT NORMALIZATION: measure the imported model's intrinsic height + set globalScale so
-            // it imports at ~TargetImportHeightU (1u). Done BEFORE the clip-loop reimport so a single
-            // SaveAndReimport applies scale + loop flags together. Re-derived from live bounds.
-            float measured = MeasureImportedModelHeight();
+            // HEIGHT NORMALIZATION before the clip reimport so one SaveAndReimport applies scale + loop flags.
+            float measured = MeasureHeight(IdleFbxPath);
             if (measured > 0.01f)
             {
                 float factor = importer.globalScale * (TargetImportHeightU / measured);
                 importer.globalScale = factor;
-                Debug.Log($"[CharacterAssetGen] height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                Debug.Log($"[CharacterAssetGen] Idle height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
                           $"(target {TargetImportHeightU}u)");
             }
             else
             {
-                Debug.LogWarning("[CharacterAssetGen] could not measure model height — skipping normalize");
+                Debug.LogWarning("[CharacterAssetGen] could not measure Idle height — skipping normalize");
             }
 
-            // Mark the locomotion clips as looping so the Animator doesn't freeze mid-cycle. The FBX
-            // clip names carry the armature prefix ("Object_5|Idle 01"), NOT bare "Idle 01" — match by
-            // Contains, not exact equality. An exact-match silently sets the loop flag on ZERO clips
-            // (loopTime stays 0 in the .meta) and the Animator plays once + freezes (the T-pose-mid-walk
-            // failure class). Pinned by the EditMode test that asserts isLooping on both.
+            importer.clipAnimations = LoopAndRename(importer, IdleClip, out int looped);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] Idle.fbx reimported: rig=Humanoid CreateFromThisModel, " +
+                      $"looped+renamed {looped} clip(s) -> {IdleClip}");
+
+            var avatar = LoadAvatar(IdleFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] Idle.fbx did not produce a VALID avatar. avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               " — clips will not bind (the T-pose-mid-walk class)");
+            else
+                Debug.Log("[CharacterAssetGen] Idle.fbx Generic avatar valid");
+        }
+
+        // Walking.fbx is the Walk clip WITHOUT skin. Humanoid rig, avatar COPIED FROM Idle's avatar
+        // (CopyFromOther) so the Walk clip RETARGETS onto Idle's mesh (the Mixamo Standard-65 skeletons
+        // match). Loop the Walk clip. No skin → no material import (avoid stray materials).
+        private static void ConfigureWalkFbx()
+        {
+            var importer = AssetImporter.GetAtPath(WalkFbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] Walking.fbx not found at " + WalkFbxPath); return; }
+
+            // GENERIC: Walking.fbx creates its OWN avatar from its own (identical mixamorig) skeleton; the
+            // Generic Walk clip binds by TRANSFORM PATH onto Idle's mesh (same bone names) — no Humanoid
+            // muscle-space retarget (the runtime-explosion cause). The spike proved this path clean (capture
+            // 05). No CopyFromOther / sourceAvatar needed.
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = true;
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            importer.clipAnimations = LoopAndRename(importer, WalkClip, out int looped);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] Walking.fbx reimported: rig=Humanoid CopyFromOther(Idle), " +
+                      $"looped+renamed {looped} clip(s) -> {WalkClip}");
+        }
+
+        // Build a flat de-lit URP/Lit material from texture_diffuse: _BaseMap = diffuse, smoothness ~0, no
+        // metallic, so the baked toon-shaded albedo reads toon (the project's URP/Lit toon idiom). Normal map
+        // at a LOW strength (the baked albedo already carries shading; a strong normal would double up).
+        // MovementCameraScene binds this onto the avatar's SkinnedMeshRenderer(s) editor-time.
+        private static void BuildMaterial()
+        {
+            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(DiffusePngPath);
+            if (diffuse == null) { Debug.LogError("[CharacterAssetGen] texture_diffuse not found at " + DiffusePngPath); return; }
+
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader == null) { Debug.LogError("[CharacterAssetGen] URP/Lit shader not found"); return; }
+
+            var mat = new Material(litShader) { name = "CastawayMat" };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", diffuse);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.03f); // matte/toon — no gloss
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+            if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+
+            var normalTex = AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPngPath);
+            if (normalTex != null)
+            {
+                var ni = AssetImporter.GetAtPath(NormalPngPath) as TextureImporter;
+                if (ni != null && ni.textureType != TextureImporterType.NormalMap)
+                {
+                    ni.textureType = TextureImporterType.NormalMap;
+                    ni.SaveAndReimport();
+                }
+                if (mat.HasProperty("_BumpMap"))
+                {
+                    mat.EnableKeyword("_NORMALMAP");
+                    mat.SetTexture("_BumpMap", normalTex);
+                    if (mat.HasProperty("_BumpScale")) mat.SetFloat("_BumpScale", 0.4f);
+                }
+            }
+
+            EnsureShaderAlwaysIncluded(litShader);
+            AssetDatabase.CreateAsset(mat, MaterialPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[CharacterAssetGen] de-lit URP/Lit material built from texture_diffuse -> " + MaterialPath);
+        }
+
+        // IDENTITY RECOLOR (86ca8rdkp AC4) — warm the saturated-yellow SHIRT region of texture_diffuse toward
+        // TAN, LUMA-PRESERVING (HSV value kept per-pixel so the toon gradient survives — NOT a flat material
+        // tint). Reproducible-from-code + IDEMPOTENT: the remap is keyed on the SOURCE yellow band (a hue/sat/
+        // value window), and a re-run sees the ALREADY-TANNED pixels OUTSIDE that band (tan hue ~34° is below
+        // ShirtHueMin 38°), so a bootstrap re-run does NOT re-shift them — it converges. (Defensive: even if a
+        // re-run caught an edge pixel still in-band, the absolute target hue makes it converge, not drift.)
+        public static void RecolorShirtToTan()
+        {
+            string path = DiffusePngPath;
+            if (!File.Exists(path))
+            {
+                Debug.LogError("[CharacterAssetGen] diffuse PNG not found at " + path + " — cannot recolor");
+                return;
+            }
+
+            byte[] bytes = File.ReadAllBytes(path);
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(bytes))
+            {
+                Debug.LogError("[CharacterAssetGen] diffuse PNG failed to decode — recolor aborted");
+                Object.DestroyImmediate(tex);
+                return;
+            }
+
+            var pixels = tex.GetPixels();
+            int remapped = 0;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color c = pixels[i];
+                Color.RGBToHSV(c, out float h, out float s, out float v);
+                float hueDeg = h * 360f;
+                // Only the SATURATED YELLOW SHIRT band — skin (orange ~25-32°, lower sat), hair/shorts
+                // (brown, lower value/sat), and the face are all outside this window and stay untouched.
+                bool inShirt = hueDeg >= ShirtHueMinDeg && hueDeg <= ShirtHueMaxDeg &&
+                               s >= ShirtSatMin && v >= ShirtValMin;
+                if (!inShirt) continue;
+
+                // HUE → warm tan; SAT toned; VALUE PRESERVED (the toon gradient lives in V). Absolute target
+                // hue (not a relative shift) so the remap is idempotent + converges on a re-run.
+                float newH = ShirtTargetHueDeg / 360f;
+                float newS = Mathf.Clamp01(s * ShirtSatScale);
+                Color nc = Color.HSVToRGB(newH, newS, v);
+                nc.a = c.a;
+                pixels[i] = nc;
+                remapped++;
+            }
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            float frac = pixels.Length > 0 ? (float)remapped / pixels.Length : 0f;
+            Debug.Log($"[CharacterAssetGen] shirt recolored yellow->tan (luma-preserving HSV remap, {remapped} px " +
+                      $"= {frac:P1} of the atlas) — reproducible-from-code, idempotent");
+            if (remapped == 0)
+                Debug.LogWarning("[CharacterAssetGen] recolor remapped ZERO pixels — the shirt band may have " +
+                                 "already been tanned (idempotent re-run) OR the source band is mis-tuned");
+        }
+
+        // ----- helpers (mirror the spike's proven Hyper3DSpikeGen idioms) -----
+
+        // Match the Mixamo source take ("mixamo.com"), set it to loop, and RENAME it to a stable per-FBX name
+        // so the controller binds distinct Idle/Walk clips. Each FBX carries exactly one take; we loop+rename
+        // every non-preview clip whose name/take matches the source take. Guarded by the looped>0 assert.
+        private static ModelImporterClipAnimation[] LoopAndRename(ModelImporter importer, string newName, out int looped)
+        {
             var clips = importer.clipAnimations;
             if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
             var edited = new List<ModelImporterClipAnimation>();
-            int looped = 0;
+            looped = 0;
             foreach (var c in clips)
             {
                 var cc = c;
-                if (cc.name.Contains(IdleClip) || cc.name.Contains(WalkClip))
+                if (cc.name.Contains(SourceTake) || cc.takeName.Contains(SourceTake))
                 {
+                    cc.name = newName;
                     cc.loopTime = true;
                     cc.loop = true;
+                    // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
+                    // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
+                    // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
+                    //
+                    // NOTE (86ca8rdkp attempt-9 — diagnose-via-trace): the WALK-clip float is NOT fixable here.
+                    // These root-transform flags govern ROOT-MOTION EXTRACTION; with applyRootMotion=false the
+                    // baked skinned mesh is sampled IN-PLACE from the raw bone curves, so lockRootHeightY /
+                    // heightFromFeet / keepOriginalPositionY do NOT move the rendered feet (PROVEN: re-importing
+                    // the Walk clip with lockRootHeightY=true + keepOriginalPositionY=false + heightFromFeet=true
+                    // left the scale-immune baked WALK sole at +0.63..+0.69 — unchanged from the +0.66 baseline).
+                    // The Mixamo Walk clip's HIPS are authored ~0.66u higher than Idle's; that lift lives in the
+                    // BONE pose, not the root node. The fix is at the MODEL level (CastawayCharacter grounds the
+                    // scale-immune rendered sole), not in these import flags — kept at the spike's clean values.
+                    cc.lockRootRotation = true;
+                    cc.keepOriginalOrientation = false;
+                    cc.lockRootPositionXZ = true;
+                    cc.keepOriginalPositionXZ = false;
+                    cc.lockRootHeightY = false;
+                    cc.keepOriginalPositionY = true;
+                    cc.heightFromFeet = false;
                     looped++;
                 }
                 edited.Add(cc);
             }
-            importer.clipAnimations = edited.ToArray();
-
-            EditorUtility.SetDirty(importer);
-            importer.SaveAndReimport();
-            Debug.Log($"[CharacterAssetGen] FBX reimported: rig=Generic, {edited.Count} clips, " +
-                      $"{looped} set to loop (matched {IdleClip}/{WalkClip} by Contains)");
-            if (looped < 2)
-                Debug.LogError($"[CharacterAssetGen] expected to loop 2 clips ({IdleClip}+{WalkClip}) " +
-                               $"but matched {looped} — locomotion clips may freeze mid-cycle (T-pose risk)");
-
-            // Verify the toon atlas binds (the flat toon look must ship — a missing-texture grey is a
-            // silent identity loss). Checks the imported materials carry the atlas on _BaseMap.
-            int atlasBound = 0;
-            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(FbxPath))
-            {
-                if (obj is Material m && m.HasProperty("_BaseMap"))
-                {
-                    var tex = m.GetTexture("_BaseMap");
-                    if (tex != null && tex.name.Contains(AtlasTextureName)) atlasBound++;
-                }
-            }
-            if (atlasBound == 0)
-                Debug.LogError("[CharacterAssetGen] no imported material binds the toon atlas '" +
-                               AtlasTextureName + "' on _BaseMap — the flat toon look would ship as grey");
-            else
-                Debug.Log($"[CharacterAssetGen] toon atlas bound on {atlasBound} material(s)");
+            if (looped == 0)
+                Debug.LogError($"[CharacterAssetGen] no clip matched source take '{SourceTake}' to loop+rename " +
+                               $"to '{newName}' — clip will freeze mid-cycle (T-pose risk). Re-run CharacterDiagnoseTrace.");
+            return edited.ToArray();
         }
 
-        // Instantiate the currently-imported FBX, measure its renderer-bounds height (world Y extent),
-        // and clean up. Used to derive the import-scale normalization factor. Returns 0 on failure.
-        private static float MeasureImportedModelHeight()
+        private static Avatar LoadAvatar(string fbxPath)
         {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(FbxPath);
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbxPath))
+                if (obj is Avatar a) return a;
+            return null;
+        }
+
+        private static AnimationClip FindClip(string fbxPath, string token)
+        {
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbxPath))
+                if (obj is AnimationClip clip && clip.name.Contains(token) && !clip.name.StartsWith("__preview__"))
+                    return clip;
+            return null;
+        }
+
+        private static float MeasureHeight(string fbxPath)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
             if (fbx == null) return 0f;
             var inst = Object.Instantiate(fbx);
             inst.transform.position = Vector3.zero;
@@ -309,26 +390,10 @@ namespace FarHorizon.EditorTools
             return h;
         }
 
-        private static AnimationClip FindClip(string name)
-        {
-            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(FbxPath))
-            {
-                if (obj is AnimationClip clip && clip.name == name) return clip;
-            }
-            // Fallback: a clip whose name CONTAINS the token (the armature-prefix case, e.g.
-            // "Object_5|Idle 01"). Skip Unity's "__preview__" mirror clips.
-            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(FbxPath))
-            {
-                if (obj is AnimationClip clip && clip.name.Contains(name) &&
-                    !clip.name.StartsWith("__preview__")) return clip;
-            }
-            return null;
-        }
-
         private static void BuildAnimatorController()
         {
-            AnimationClip idle = FindClip(IdleClip);
-            AnimationClip walk = FindClip(WalkClip);
+            AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
+            AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
             if (idle == null || walk == null)
             {
                 Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}); " +
@@ -347,7 +412,6 @@ namespace FarHorizon.EditorTools
             walkState.motion = walk;
             sm.defaultState = idleState;
 
-            // Idle -> Walk when Moving, Walk -> Idle when !Moving; short blends for a smooth gait.
             var toWalk = idleState.AddTransition(walkState);
             toWalk.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
             toWalk.hasExitTime = false;
@@ -359,7 +423,268 @@ namespace FarHorizon.EditorTools
             toIdle.duration = 0.15f;
 
             EditorUtility.SetDirty(controller);
-            Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Walk on Moving bool");
+            Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Walk on Moving bool -> " + ControllerPath);
+        }
+
+        // Mirror MovementCameraScene.EnsureShaderAlwaysIncluded: GraphicsSettings.asset's
+        // m_AlwaysIncludedShaders is editable via SerializedObject so the URP/Lit shader never strips.
+        private static void EnsureShaderAlwaysIncluded(Shader shader)
+        {
+            if (shader == null) return;
+            var gs = AssetDatabase.LoadAssetAtPath<Object>("ProjectSettings/GraphicsSettings.asset");
+            if (gs == null) return;
+            var so = new SerializedObject(gs);
+            var arr = so.FindProperty("m_AlwaysIncludedShaders");
+            if (arr == null) return;
+            for (int i = 0; i < arr.arraySize; i++)
+                if (arr.GetArrayElementAtIndex(i).objectReferenceValue == shader) return;
+            int idx = arr.arraySize;
+            arr.InsertArrayElementAtIndex(idx);
+            arr.GetArrayElementAtIndex(idx).objectReferenceValue = shader;
+            so.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
+        }
+
+        // ===== DIAGNOSE-VIA-TRACE (throwaway entry; never on the ship path) — dump the imported asset's
+        // ground truth so the held-axe bone + the recolor + the proportion guards are tuned from EVIDENCE,
+        // not guesses (diagnostic-traces-before-hypothesized-fixes). Dumps: every sub-asset (clips/avatar);
+        // the SMR roster + the FULL bone list flagging hand/head bones; intrinsic + normalized height. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CharacterDiagnoseTrace
+        public static void CharacterDiagnoseTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[char-trace] ===== CHARACTER DIAGNOSE TRACE =====");
+            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath })
+            {
+                sb.AppendLine("[char-trace] ===== " + fbx + " =====");
+                foreach (var o in AssetDatabase.LoadAllAssetsAtPath(fbx))
+                {
+                    string extra = "";
+                    if (o is AnimationClip c) extra = $" len={c.length:F2}s looping={c.isLooping}";
+                    if (o is Avatar a) extra = $" valid={a.isValid} human={a.isHuman}";
+                    sb.AppendLine($"[char-trace]   {o.GetType().Name}: '{o.name}'{extra}");
+                }
+                var importer = AssetImporter.GetAtPath(fbx) as ModelImporter;
+                if (importer != null)
+                    foreach (var dc in importer.defaultClipAnimations)
+                        sb.AppendLine($"[char-trace]     defaultClip '{dc.name}' take='{dc.takeName}'");
+            }
+
+            var idle = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (idle != null)
+            {
+                var inst = Object.Instantiate(idle);
+                inst.transform.localScale = Vector3.one;
+                var smrs = inst.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+                sb.AppendLine($"[char-trace] Idle instantiated: SMR count={smrs.Length}");
+                var rends = inst.GetComponentsInChildren<Renderer>();
+                if (rends.Length > 0)
+                {
+                    Bounds b = rends[0].bounds;
+                    for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                    sb.AppendLine($"[char-trace] normalized height={b.size.y:F3}u bounds={b.size}");
+                }
+                if (smrs.Length > 0 && smrs[0].bones != null)
+                {
+                    sb.AppendLine($"[char-trace] bone count={smrs[0].bones.Length}:");
+                    foreach (var bone in smrs[0].bones)
+                    {
+                        if (bone == null) { sb.AppendLine("[char-trace]   <null bone>"); continue; }
+                        string n = bone.name.ToLowerInvariant();
+                        string tag = n.Contains("righthand") || (n.Contains("right") && n.Contains("hand")) ? "  <-- RIGHT HAND"
+                                   : n.Contains("hand") ? "  <-- hand"
+                                   : n.Contains("head") ? "  <-- head" : "";
+                        sb.AppendLine($"[char-trace]   bone='{bone.name}' lossyScale={bone.lossyScale}{tag}");
+                    }
+                }
+                Object.DestroyImmediate(inst);
+            }
+            sb.AppendLine("[char-trace] ===== END TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== (attempt-8 throwaway import-flag fix-probes REMOVED post-diagnosis: useFileScale=false made it
+        // WORSE — 218u tall + the 100× node SURVIVED; bakeAxisConversion=true ALSO kept the 100× node. Both
+        // REFUTED the "an importer flag collapses the cm→m node" hypothesis — the 100× is intrinsic to the FBX
+        // hierarchy. The remaining read-only ScaleChainDiagnose stays as the durable instrument that found it.) =====
+
+        // ===== SCALE-CHAIN DIAGNOSE (86ca8rdkp attempt-8 — ROOT-CAUSE the 68u intrinsic offset). Read-only
+        // diagnostic, KEPT as the durable instrument that found the root cause (re-runnable on any future
+        // character swap to catch a cm→m node). Reproduces the SCENE setup (avatar root scaled PlayerVisualHeight under a
+        // player root, the FBX instantiated as a child, BakeMesh the live mesh) and dumps EVERY node's
+        // localScale + lossyScale + the SMR.transform scale + the BakeMesh actual extents in BOTH local AND
+        // world space — so we MEASURE where the ~68 lives (the cm→m 100× node, or a bone, or the bake) instead
+        // of guessing. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ScaleChainDiagnose
+        public static void ScaleChainDiagnose()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[scale-trace] ===== SCALE-CHAIN DIAGNOSE (68u root-cause) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null)
+            {
+                sb.AppendLine("[scale-trace] FBX NOT FOUND at " + IdleFbxPath);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            // ---- (A) the importer's effective globalScale (the height-normalize result) ----
+            var importer = AssetImporter.GetAtPath(IdleFbxPath) as ModelImporter;
+            if (importer != null)
+                sb.AppendLine($"[scale-trace] importer.globalScale={importer.globalScale:F6} " +
+                              $"useFileScale={importer.useFileScale} useFileUnits={importer.useFileUnits} " +
+                              $"animationType={importer.animationType}");
+
+            // ---- (B) reproduce the SCENE: playerRoot -> avatarRoot(scale 1.8) -> FBX(scale 1) ----
+            const float PlayerVisualHeight = 1.8f; // mirror MovementCameraScene
+            var playerRoot = new GameObject("__diagPlayer");
+            playerRoot.transform.position = Vector3.zero;
+            var avatarRoot = new GameObject("__diagAvatar");
+            avatarRoot.transform.SetParent(playerRoot.transform, false);
+            avatarRoot.transform.localScale = Vector3.one * PlayerVisualHeight;
+            var model = Object.Instantiate(fbx, avatarRoot.transform, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localScale = Vector3.one; // matches BuildModel
+
+            sb.AppendLine($"[scale-trace] avatarRoot lossyScale={avatarRoot.transform.lossyScale}");
+            sb.AppendLine($"[scale-trace] modelChild '{model.name}' localScale={model.transform.localScale} " +
+                          $"lossyScale={model.transform.lossyScale}");
+
+            // ---- (C) walk EVERY transform under the model, dump local+lossy scale (find the 100× node) ----
+            sb.AppendLine("[scale-trace] --- full transform scale chain ---");
+            foreach (var t in model.GetComponentsInChildren<Transform>(true))
+            {
+                Vector3 ls = t.localScale, lossy = t.lossyScale;
+                // FLAG any node whose local OR lossy scale is far from ~1 (the 100× / cm→m suspect).
+                bool suspect = Mathf.Abs(ls.x) > 5f || Mathf.Abs(ls.x) < 0.2f ||
+                               Mathf.Abs(lossy.x) > 5f || Mathf.Abs(lossy.x) < 0.02f;
+                string flag = suspect ? "  <== SCALE SUSPECT" : "";
+                sb.AppendLine($"[scale-trace]   '{t.name}' local={ls.ToString("F4")} lossy={lossy.ToString("F5")}{flag}");
+            }
+
+            // ---- (D) the SMR(s): transform scale + BakeMesh extents in LOCAL and WORLD ----
+            var smrs = model.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            sb.AppendLine($"[scale-trace] --- {smrs.Length} SMR(s) ---");
+            foreach (var smr in smrs)
+            {
+                if (smr == null || smr.sharedMesh == null) continue;
+                sb.AppendLine($"[scale-trace] SMR '{smr.name}' transform.localScale={smr.transform.localScale} " +
+                              $"lossyScale={smr.transform.lossyScale}");
+                sb.AppendLine($"[scale-trace]   sharedMesh.bounds.size={smr.sharedMesh.bounds.size} (import-baked)");
+                sb.AppendLine($"[scale-trace]   SMR.bounds(world AABB).size={smr.bounds.size} min.y={smr.bounds.min.y:F4}");
+
+                var baked = new Mesh();
+                // useScale:FALSE — node scale applied via the matrix below (apply ONCE; matches runtime path).
+                smr.BakeMesh(baked, false);
+                var verts = baked.vertices;
+                if (verts.Length > 0)
+                {
+                    float lMinY = float.PositiveInfinity, lMaxY = float.NegativeInfinity;
+                    float wMinY = float.PositiveInfinity, wMaxY = float.NegativeInfinity;
+                    Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+                    foreach (var v in verts)
+                    {
+                        if (v.y < lMinY) lMinY = v.y; if (v.y > lMaxY) lMaxY = v.y;
+                        float wy = l2w.MultiplyPoint3x4(v).y;
+                        if (wy < wMinY) wMinY = wy; if (wy > wMaxY) wMaxY = wy;
+                    }
+                    sb.AppendLine($"[scale-trace]   BakeMesh(useScale:false) LOCAL y=[{lMinY:F4}..{lMaxY:F4}] " +
+                                  $"height={lMaxY - lMinY:F4}");
+                    sb.AppendLine($"[scale-trace]   BakeMesh->WORLD via l2w  y=[{wMinY:F4}..{wMaxY:F4}] " +
+                                  $"height={wMaxY - wMinY:F4}  <== THE SNAP READS THIS world-Y");
+                }
+                Object.DestroyImmediate(baked);
+            }
+
+            // ---- (E) overall rendered bounds (what MeasureHeight reads) ----
+            var rends = model.GetComponentsInChildren<Renderer>();
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                sb.AppendLine($"[scale-trace] OVERALL Renderer.bounds (scene, scaled 1.8): size={b.size} " +
+                              $"center.y={b.center.y:F4} min.y={b.min.y:F4} max.y={b.max.y:F4}");
+            }
+
+            Object.DestroyImmediate(playerRoot);
+            sb.AppendLine("[scale-trace] ===== END SCALE-CHAIN DIAGNOSE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CLIP-BASELINE DIAGNOSE (86ca8rdkp attempt-9 — THROWAWAY; removed before PR). Bakes the IDLE and
+        // WALK clips across their full cycle and reports the SCALE-IMMUNE baked sole-Y (lowest vertex, unit-scale
+        // TRS) at each sample — so we MEASURE whether the WALK clip lifts the whole mesh off the feet relative to
+        // IDLE (the [FloatTrace] showed GAP≈0 at rest but +0.69 walking). Reproduces the SCENE rig (avatarRoot
+        // scale 1.8 under a player root), samples each clip via AnimationClip.SampleAnimation. Run:
+        //   Unity -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ClipBaselineDiagnose
+        public static void ClipBaselineDiagnose()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[clip-trace] ===== CLIP-BASELINE DIAGNOSE (walk-lift root cause) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[clip-trace] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
+            AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[clip-trace] idle={(idle != null ? idle.name : "<null>")} walk={(walk != null ? walk.name : "<null>")}");
+
+            const float PlayerVisualHeight = 1.8f;
+            var playerRoot = new GameObject("__clipPlayer");
+            var avatarRoot = new GameObject("__clipAvatar");
+            avatarRoot.transform.SetParent(playerRoot.transform, false);
+            avatarRoot.transform.localScale = Vector3.one * PlayerVisualHeight;
+            var model = Object.Instantiate(fbx, avatarRoot.transform, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[clip-trace] {label}: <null clip>"); return; }
+                float minSole = float.PositiveInfinity, maxSole = float.NegativeInfinity;
+                int N = 12;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    float sole = BakeSoleScaleImmune(smr);
+                    if (sole < minSole) minSole = sole;
+                    if (sole > maxSole) maxSole = sole;
+                    sb.AppendLine($"[clip-trace] {label} t={t:F3}s soleY(scale-immune,root@0)={sole:F4}");
+                }
+                sb.AppendLine($"[clip-trace] {label} SUMMARY soleY min={minSole:F4} max={maxSole:F4} " +
+                              $"range={maxSole - minSole:F4}  <== a clip whose min soleY != ~0 lifts the feet off the root");
+            }
+
+            SampleClip("IDLE", idle);
+            SampleClip("WALK", walk);
+
+            Object.DestroyImmediate(playerRoot);
+            sb.AppendLine("[clip-trace] ===== END CLIP-BASELINE DIAGNOSE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // Scale-immune baked sole-Y for the diagnose (unit-scale TRS world matrix — the FBX 100× node never blows
+        // it up; matches CastawayCharacter.MeasureRenderedSoleWorldY). avatarRoot is at world 0 here, so the
+        // returned value is the sole-Y RELATIVE to the (grounded) root — ~0 means feet on the root.
+        private static float BakeSoleScaleImmune(SkinnedMeshRenderer smr)
+        {
+            if (smr == null || smr.sharedMesh == null) return float.NaN;
+            var baked = new Mesh();
+            smr.BakeMesh(baked, false);
+            var verts = baked.vertices;
+            Matrix4x4 l2w = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
+            float minY = float.PositiveInfinity;
+            foreach (var v in verts) { float y = l2w.MultiplyPoint3x4(v).y; if (y < minY) minY = y; }
+            Object.DestroyImmediate(baked);
+            return minY;
         }
     }
 }

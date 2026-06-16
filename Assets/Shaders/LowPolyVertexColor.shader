@@ -25,6 +25,16 @@ Shader "FarHorizon/LowPolyVertexColor"
         _WaveAmp ("Wave Amplitude", Float) = 0
         _WaveLen ("Wave Wavelength", Float) = 14
         _WaveSpeed ("Wave Speed", Float) = 0.9
+        // FOG-CAP (ticket 86ca9yn57 — "water reads SAME as sky"). The global Exp^2 distance fog colour ==
+        // WorldLookPalette.SkyHorizon (the mountain SEAM-KILL anchor). That same fog washes the FAR SEA all
+        // the way to the sky colour -> the sea↔sky horizon disappears (diagnosed via -seaDiag/-verifyCoast:
+        // the far-sea band read (0.80,0.88,0.91) == SkyHorizon). Mountains WANT full fog (they dissolve);
+        // the SEA must NOT. _FogCap CLAMPS the fog factor for THIS material to a floor so the water never
+        // fades more than (1-_FogCap) toward the sky colour, keeping its teal at the horizon. DEFAULTS TO 0
+        // (== no clamp == full fog) so terrain/canopy/rock that share this shader are UNAFFECTED; ONLY the
+        // water material raises it. This keeps the mountain seam-kill intact (mountains aren't this material's
+        // water instance) while giving the sea its own colour — the surgical fix vs changing the global fog.
+        _FogCap ("Fog Factor Floor (0=full fog)", Range(0,1)) = 0
     }
     SubShader
     {
@@ -52,6 +62,7 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float _WaveAmp;
                 float _WaveLen;
                 float _WaveSpeed;
+                float _FogCap;
             CBUFFER_END
 
             struct Attributes
@@ -117,7 +128,22 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float3 ambient = SampleSH(normalWS) * albedo;
 
                 float3 finalCol = lit + ambient;
-                finalCol = MixFog(finalCol, IN.fogCoord);
+                // FOG-CAP (water-vs-sky separation, ticket 86ca9yn57). URP fog: ComputeFogIntensity(fogCoord)
+                // is the SCENE-VISIBILITY factor (1 = near/clear, 0 = far/fully fogged), and MixFog does
+                // finalCol*intensity + fogColor*(1-intensity). The global Exp^2 fog drives the far sea's
+                // intensity ~0, so the sea fades fully to the sky-coloured fog -> no sea↔sky horizon. _FogCap
+                // is a FLOOR on the visibility so the water keeps at least _FogCap of its own teal no matter
+                // how far out it is — the far sea stays a distinct colour at the horizon. When _FogCap = 0
+                // (terrain/canopy/rock default) this is BIT-IDENTICAL to MixFog (max(i,0)==i) so the mountain
+                // seam-kill fog is untouched (mountains still dissolve into the sky). Only the WATER material
+                // raises _FogCap. The fog-keyword #if guards the no-fog variant (no fog -> plain colour); the
+                // manual lerp mirrors URP MixFogColor's UUM-61728-workaround form so the capped + uncapped
+                // paths match exactly (and _FogCap=0 reproduces MixFog bit-for-bit).
+                #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
+                    half fogIntensity = ComputeFogIntensity(IN.fogCoord);
+                    fogIntensity = max(fogIntensity, _FogCap);
+                    finalCol = finalCol * fogIntensity + unity_FogColor.rgb * (half(1.0) - fogIntensity);
+                #endif
                 return half4(finalCol, 1.0);
             }
             ENDHLSL

@@ -63,5 +63,71 @@ namespace FarHorizon.EditTests
                 "the Boot scene must carry CastawayVerifyCapture serialized (the -verifyCastaway identity " +
                 "close-up is inert if the scene never carries it — the component-not-serialized trap)");
         }
+
+        // The LIVE FLOAT-DIAGNOSTIC instrument (ticket 86ca8rdkp — "add logging or nudging") must be
+        // SERIALIZED onto the Boot object — same component-not-serialized-into-scene class: the F8 overlay
+        // (feet/ground/GAP live) + the ~1Hz [FloatTrace] log are inert if the scene never carries it.
+        // Regression guard: delete WireFloatDiagnostic() in MovementCameraScene and this goes red.
+        [Test]
+        public void BootScene_CarriesFloatDiagnostic_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            FloatDiagnostic diag = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                diag = root.GetComponentInChildren<FloatDiagnostic>(true);
+                if (diag != null) break;
+            }
+            Assert.IsNotNull(diag,
+                "the Boot scene must carry FloatDiagnostic serialized (the F8 float-gap overlay + the ~1Hz " +
+                "[FloatTrace] log are inert if the scene never carries it — the component-not-serialized trap)");
+        }
+
+        // The committed shipped-build capture path for the instrument must ALSO be serialized — same class:
+        // the -verifyFloatDiag overlay capture is inert if the scene never carries FloatDiagnosticVerifyCapture.
+        [Test]
+        public void BootScene_CarriesFloatDiagnosticVerifyCapture_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            FloatDiagnosticVerifyCapture cap = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                cap = root.GetComponentInChildren<FloatDiagnosticVerifyCapture>(true);
+                if (cap != null) break;
+            }
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry FloatDiagnosticVerifyCapture serialized (the -verifyFloatDiag " +
+                "overlay capture is inert if the scene never carries it — the component-not-serialized trap)");
+        }
+
+        // (The -verifyHair tilt-to-horizon crown-silhouette capture is RETIRED for the Hyper3D castaway —
+        // the chibi's procedural-hair-spike soak class does not apply; the new character ships sculpted hair
+        // in the mesh. 86ca8rdkp.)
+
+        // FullscreenBoot (now forces WINDOWED mode on a normal launch — BIG ROUND ISLAND N3, 86ca9a7qn; was
+        // borderless-fullscreen under 86ca8ce6y FIX3) must be SERIALIZED into the Boot scene — same
+        // component-not-serialized-into-scene class. If the scene never carries it, the exe ignores the new
+        // windowed mode and a stale persisted fullscreen registry value wins. Regression guard: delete the
+        // AddComponent<FullscreenBoot>() line in BootstrapProject.BuildBootScene and this goes red.
+        [Test]
+        public void BootScene_CarriesFullscreenBoot_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            FullscreenBoot fs = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                fs = root.GetComponentInChildren<FullscreenBoot>(true);
+                if (fs != null) break;
+            }
+            Assert.IsNotNull(fs,
+                "the Boot scene must carry FullscreenBoot serialized (else the exe keeps opening in the small " +
+                "persisted window on a normal launch — the component-not-serialized trap; unity-conventions.md)");
+        }
     }
 }

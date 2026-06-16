@@ -1,0 +1,27 @@
+Hyper3D + Mixamo Castaway — asset attribution
+=============================================
+
+Model:    Far Horizon castaway (young/hopeful chunky low-poly castaway)
+Pipeline: Hyper3D Rodin (Image-to-3D, Gen-2.5 Quad ~8000) → Mixamo auto-rig (Standard 65
+          skeleton) → Unity Humanoid. See .claude/docs/character-pipeline.md for the full recipe.
+Concept:  generated from an openai-image A-pose reference (inspiration/hyper3d-castaway/concepts/).
+
+This is GENERATED 3D content (Hyper3D Rodin, Creator-tier web export) animated with Mixamo
+clips (Adobe, free account). Retain this attribution in any distribution of the game (an
+in-game / about-screen credits entry covers it).
+
+Asset contents in this folder:
+  - Idle.fbx              — WITH skin: the rigged mesh (mixamorig Standard-65 skeleton, 46 bones,
+                            rootBone mixamorig:Hips) + the Idle clip (take "mixamo.com", 8.33s).
+  - Walking.fbx           — WITHOUT skin: the Walk clip only (take "mixamo.com", 1.03s),
+                            retargeted onto Idle's Humanoid avatar via CopyFromOther.
+  - texture_diffuse.png   — 2048x2048 de-lit toon color albedo (the _BaseMap). The IDENTITY RECOLOR
+                            (warm the mustard-yellow shirt toward tan) is a luma-preserving HSV remap
+                            baked into this PNG by CharacterAssetGen.RecolorShirtToTan (reproducible-
+                            from-code, idempotent — re-run on every bootstrap).
+  - texture_normal.png    — 2048x2048 normal map (bound at low strength; the albedo carries shading).
+
+Integrated as the Far Horizon castaway base (ticket 86ca8rdkp) — SUPERSEDES the Sketchfab "Mini
+Chibi Kid" (the Sponsor APPROVED the swap 2026-06-15 after the viability spike 86ca8r72j / PR #45
+proved the asset animates clean + on-style in the shipped URP exe). Imported HUMANOID (the spike's
+proven two-FBX retarget pipeline): Idle.fbx CreateFromThisModel + Walking.fbx CopyFromOther(Idle).

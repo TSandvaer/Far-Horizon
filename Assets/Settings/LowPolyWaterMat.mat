@@ -25,9 +25,10 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _WaveAmp: 0.06
-    - _WaveLen: 16
-    - _WaveSpeed: 0.8
+    - _FogCap: 0.5
+    - _WaveAmp: 0.45
+    - _WaveLen: 11
+    - _WaveSpeed: 1.1
     m_Colors:
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

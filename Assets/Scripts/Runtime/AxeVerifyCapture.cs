@@ -46,8 +46,100 @@ namespace FarHorizon
 
         void Start()
         {
-            if (HasArg("-verifyAxe"))
+            // SOAKFIX8 (86ca8ce6y FIX1) + 86ca9xz00: -verifyAxeFacings drives the held axe through a DYNAMIC
+            // facing change via the REAL facing path (CastawayCharacter.FaceWorldYawInstant → _model.localRotation
+            // + _bodyYaw), so the shipped-build artifact VISUALLY proves the axe tracks facing through turns AND
+            // does NOT lag the swing-stabilizer (the Sponsor's "seated only one direction" bug). The PlayMode
+            // tests pin the invariant deterministically; this is the eyes-on committed evidence. Distinct flag so
+            // the default -verifyAxe close-up is unchanged.
+            if (HasArg("-verifyAxeFacings"))
+                StartCoroutine(RunFacingsVerification());
+            else if (HasArg("-verifyAxe"))
                 StartCoroutine(RunVerification());
+        }
+
+        // SOAKFIX8 FIX1 + 86ca9xz00 (AC5 — DYNAMIC facing, NOT static per-facing snapshots). The prior version
+        // ROTATED THE PLAYER ROOT and settled a STATIC snapshot per facing — a FALSE-GREEN: (a) it never drove
+        // the REAL facing path (facing lives on _model.localRotation, not the root — "the visual owns facing"),
+        // and (b) the grip-anchor SETTLES to whatever facing is pinned, so a per-facing static snapshot hides
+        // the LAG (the bug only manifests DURING a facing CHANGE — the anchor eases the facing yaw away over
+        // ~8s). FIX: drive facing through CastawayCharacter.FaceWorldYawInstant (the _model + _bodyYaw path) and
+        // CONTINUOUSLY SWEEP the yaw over many frames, capturing several frames DURING the sweep (mid-turn). If
+        // the axe lagged facing the captures would show the axe out of the grip mid-turn; with the fix it stays
+        // seated through the sweep. A FIXED world-space three-quarter view so the body's re-orientation (and any
+        // axe lag) is visible across the frames.
+        private IEnumerator RunFacingsVerification()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            GameObject axe = FindHeroAxe();
+            if (axe == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HeroAxe not in scene — cannot capture facings");
+                yield return null; Application.Quit(1); yield break;
+            }
+            foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) r.enabled = true;
+
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            if (castaway == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] no CastawayCharacter found — cannot drive the REAL facing " +
+                               "path (_model.localRotation); cannot capture a dynamic facing change");
+                Application.Quit(1); yield break;
+            }
+
+            var camGo = new GameObject("AxeFacingsCamera");
+            var cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.18f, 0.20f, 0.24f);
+            cam.fieldOfView = 40f;
+            var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
+            camData.renderPostProcessing = true;
+            camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+
+            float aspect = Screen.width > 0 && Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
+            // A CONTINUOUS yaw sweep 0° → 360° driven on the REAL facing path, sampled at these stops MID-SWEEP
+            // (NOT a settle-then-snapshot — each stop is reached by sweeping THROUGH the prior facings, so the
+            // grip anchor is mid-ease the whole time; a lagging axe shows out of the grip here). The capture at
+            // each stop happens right after stepping the facing, before the anchor can re-settle.
+            float[] facings = { 0f, 60f, 120f, 180f, 240f, 300f, 360f };
+            // Seat the anchor at facing 0 first (the rest grip).
+            castaway.FaceWorldYawInstant(0f);
+            for (int i = 0; i < 6; i++) yield return null;
+            for (int n = 0; n < facings.Length; n++)
+            {
+                // Sweep CONTINUOUSLY toward this facing in small steps so the axe is captured MID-TURN (the
+                // facing is CHANGING, which is the only condition under which a stabilizer lag manifests).
+                float prev = n == 0 ? 0f : facings[n - 1];
+                const int steps = 6;
+                for (int s = 1; s <= steps; s++)
+                {
+                    float yaw = Mathf.Lerp(prev, facings[n], (float)s / steps);
+                    castaway.FaceWorldYawInstant(yaw); // the REAL _model + _bodyYaw facing path
+                    yield return null;                 // one frame per step — the axe rides the changing facing
+                }
+
+                Bounds wb = EncapsulateRenderers(axe.GetComponentsInChildren<Renderer>(true));
+                if (wb.size.magnitude < 0.02f) { yield return null; wb = EncapsulateRenderers(axe.GetComponentsInChildren<Renderer>(true)); }
+                // A FIXED world-space three-quarter view (NOT body-relative) so the axe's re-orientation (and any
+                // lag) is visible BETWEEN frames — a correctly-tracking axe stays in the grip across all frames;
+                // a lagging one (the bug) drifts out of the hand mid-turn.
+                Vector3 viewDir = new Vector3(0.6f, 0.45f, -0.8f);
+                var frame = VerifyCaptureFraming.ComputeFrame(wb.center, wb.size, viewDir, 40f, aspect, frameFill);
+                camGo.transform.SetPositionAndRotation(frame.position, frame.rotation);
+
+                yield return new WaitForEndOfFrame();
+                string file = Path.Combine(dir, $"axe_facing_{(int)facings[n]:000}.png");
+                ScreenCapture.CaptureScreenshot(file, 1);
+                Debug.Log($"[AxeVerifyCapture] dynamic facing {facings[n]}° (bodyYaw={castaway.BodyYaw:F1}) -> {file}");
+                yield return new WaitForEndOfFrame();
+                yield return null;
+            }
+
+            yield return new WaitForSeconds(0.5f);
+            Debug.Log("[AxeVerifyCapture] dynamic-facings verification complete -> " + dir);
+            Application.Quit(0);
         }
 
         private IEnumerator RunVerification()

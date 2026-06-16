@@ -52,6 +52,22 @@ namespace FarHorizon
         [Header("Smoothing")]
         public float followLerp = 12f;
 
+        // ---- TERRAIN COLLISION (BIG ROUND ISLAND N2, 86ca9a7qn — "player disappears under a hill") ----
+        // The orbit rig placed the camera at a fixed distance behind the target with NO terrain awareness, so
+        // on the hilly island the camera could (a) sink BELOW the terrain surface, or (b) have a hill between
+        // it and the character — either way the player vanishes. These keep the camera ABOVE the ground AND
+        // pull it IN when a hill occludes the character, so the player stays visible.
+        [Header("Terrain collision (hill clip / occlusion)")]
+        [Tooltip("Layers treated as solid terrain for the camera collision + above-ground clamp (the Ground " +
+                 "layer). Set editor-time so it serializes (no Awake string lookup in the build).")]
+        public LayerMask terrainMask = 0;
+        [Tooltip("How far above the terrain surface the camera must stay (so it never grazes/sinks into a hill).")]
+        public float groundClearance = 0.6f;
+        [Tooltip("Keep the camera this far off any hill it would otherwise hit between it and the player.")]
+        public float collisionPadding = 0.35f;
+        [Tooltip("Don't pull the camera closer than this when a hill occludes the player (avoids a face-zoom).")]
+        public float minCollisionDistance = 2.5f;
+
         private float _yaw;
         private float _pitch;
         private Vector3 _followPos;
@@ -96,8 +112,53 @@ namespace FarHorizon
             // Guard the pitch every Apply so a serialized/probe value can never escape the band.
             _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
             Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
-            Vector3 pos = _followPos - rot * Vector3.forward * distance;
+            Vector3 desiredPos = _followPos - rot * Vector3.forward * distance;
+            Vector3 pos = ResolveCameraCollision(_followPos, desiredPos);
             transform.SetPositionAndRotation(pos, rot);
+        }
+
+        /// <summary>
+        /// Keep the camera ABOVE the terrain and OUT of any hill between it and the player (BIG ROUND ISLAND
+        /// N2). Two steps, in order:
+        ///  1. OCCLUSION PULL-IN: raycast from the follow point (the player's head) toward the desired camera
+        ///     position; if a hill is hit, pull the camera in to just BEFORE the hill (with padding) so the
+        ///     character is never behind terrain. Clamped to minCollisionDistance so it never face-zooms.
+        ///  2. ABOVE-GROUND CLAMP: raycast straight DOWN at the resolved camera XZ; if the camera would sit
+        ///     below (terrain surface + groundClearance) — e.g. it dropped into a valley behind a ridge — lift
+        ///     it to that clearance height so it never sinks under/into the hill.
+        /// No terrainMask set (0) → no collision (the camera behaves exactly as before; tests/standalone rigs
+        /// without a Ground layer are unaffected). Pure-ish: reads physics, returns the safe position.
+        /// </summary>
+        public Vector3 ResolveCameraCollision(Vector3 followPoint, Vector3 desiredPos)
+        {
+            if (terrainMask.value == 0) return desiredPos; // collision disabled (no Ground mask wired)
+
+            Vector3 pos = desiredPos;
+
+            // 1. Occlusion pull-in: is there a hill between the player and the camera?
+            Vector3 toCam = desiredPos - followPoint;
+            float desiredDist = toCam.magnitude;
+            if (desiredDist > 0.001f)
+            {
+                Vector3 dir = toCam / desiredDist;
+                if (Physics.Raycast(followPoint, dir, out RaycastHit hit, desiredDist, terrainMask,
+                        QueryTriggerInteraction.Ignore))
+                {
+                    float pulled = Mathf.Max(minCollisionDistance, hit.distance - collisionPadding);
+                    pos = followPoint + dir * pulled;
+                }
+            }
+
+            // 2. Above-ground clamp: never let the camera sit below the terrain surface beneath it.
+            Vector3 high = pos + Vector3.up * 200f;
+            if (Physics.Raycast(high, Vector3.down, out RaycastHit down, 400f, terrainMask,
+                    QueryTriggerInteraction.Ignore))
+            {
+                float minY = down.point.y + groundClearance;
+                if (pos.y < minY) pos.y = minY;
+            }
+
+            return pos;
         }
 
         // ---- Test / programmatic hooks ----

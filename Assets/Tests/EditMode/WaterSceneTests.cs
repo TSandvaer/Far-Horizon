@@ -64,22 +64,28 @@ namespace FarHorizon.EditTests
             var cols = mesh.colors;
             Assert.AreEqual(verts.Length, cols.Length, "every ocean vert must carry a color");
 
-            // The gradient runs near-shore BRIGHT -> seaward DEEPER along local Z. Find the near-shore
-            // vert (max local Z, since the grid runs nearZ at fz=0 toward farZ seaward = decreasing Z)
-            // and the seaward-most vert (min local Z), and check their colors against the anchors.
-            int nearIdx = 0, farIdx = 0;
-            for (int i = 1; i < verts.Length; i++)
+            // BIG ROUND ISLAND (86ca9a7qn): the sea is now RADIAL — the depth gradient runs from the round
+            // coast (bright shallow) OUTWARD to the deep sea, keyed off RADIAL distance, not local Z. Probe a
+            // SHALLOW vert just seaward of the foam ring fade (r ~ IslandShoreR + 12, clear of the foam but
+            // still in the bright near band before the depth gradient deepens it) and the DEEPEST vert (largest
+            // radius). (The foam ring itself is guarded by Ocean_CarriesShorelineFoam.)
+            float shoreR = LowPolyZoneGen.IslandShoreR;
+            float shallowProbeR = shoreR + 12f;
+            int shallowIdx = 0, farIdx = 0;
+            float bestShallow = float.PositiveInfinity, bestFar = -1f;
+            for (int i = 0; i < verts.Length; i++)
             {
-                if (verts[i].z > verts[nearIdx].z) nearIdx = i; // largest Z = nearest shore
-                if (verts[i].z < verts[farIdx].z) farIdx = i;   // smallest Z = deepest sea
+                float r = new Vector2(verts[i].x, verts[i].z).magnitude;
+                if (Mathf.Abs(r - shallowProbeR) < bestShallow) { bestShallow = Mathf.Abs(r - shallowProbeR); shallowIdx = i; }
+                if (r > bestFar) { bestFar = r; farIdx = i; }
             }
-            AssertColorNear(cols[nearIdx], LowPolyZoneGen.WaterShallow,
-                "near-shore vert must be the BRIGHT shallow teal (#3FA6B0)");
+            AssertColorNear(cols[shallowIdx], LowPolyZoneGen.WaterShallow,
+                "the shallows just seaward of the radial foam ring must be the BRIGHT shallow teal (#3FA6B0)");
             AssertColorNear(cols[farIdx], LowPolyZoneGen.WaterDeep,
-                "seaward vert must be the DEEPER teal (#2E7E96)");
+                "the deepest (farthest-radius) sea vert must be the DEEPER teal (#2E7E96)");
 
             // Every channel sub-1.0 (HDR-clamp discipline — the post stack must not bloom the sea white).
-            foreach (var c in new[] { cols[nearIdx], cols[farIdx] })
+            foreach (var c in new[] { cols[shallowIdx], cols[farIdx] })
             {
                 Assert.Less(c.r, 1f, "water teal red channel must be sub-1.0 (HDR-clamp-safe)");
                 Assert.Less(c.g, 1f, "water teal green channel must be sub-1.0 (HDR-clamp-safe)");
@@ -88,35 +94,71 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Ocean_CarriesShorelineFoam_AtTheCoast_NotJustTheSeawardSand()
+        {
+            // WORLD-LOOK SHORELINE FIX (Erik water rec / Uma §2): the Sponsor's "hard flat diagonal edge"
+            // was the rectangular water grid boundary meeting the curving beach. The fix bakes a warm-white
+            // FOAM band into the WATER mesh's NEAR-SHORE rows (prior builds only foamed the terrain sand, so
+            // the water itself had no shoreline treatment). Assert the foam colour appears in the water mesh's
+            // near-shore verts — a regression dropping the water-foam bake leaves the hard edge back.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var cols = water.GetComponent<MeshFilter>().sharedMesh.colors;
+            var foam = LowPolyZoneGen.FoamEdge;
+            int foamVerts = cols.Count(c =>
+                c.r > 0.78f && c.g > 0.78f && c.b > 0.70f &&   // foam is the brightest band on the water
+                Mathf.Abs(c.r - foam.r) < 0.14f && Mathf.Abs(c.g - foam.g) < 0.14f);
+            Assert.Greater(foamVerts, 0,
+                "the WATER mesh must carry a shoreline FOAM band (warm off-white) baked into its near-shore " +
+                "rows — the surf line that softens the sea↔land boundary (Erik water rec / Uma §2). Without " +
+                "it the rectangular grid edge reads as the Sponsor's 'hard flat diagonal edge'.");
+        }
+
+        [Test]
+        public void Ocean_IsFlatShadedUnweldedFacets_NotASmoothSheet()
+        {
+            // WORLD-LOOK (Erik water rec): the sea joins the faceted-world look as UNWELDED FLAT facets
+            // (each face owns its 3 verts + a single hard normal), not a smooth welded sheet. Unwelded =>
+            // vertexCount == triangleCount*3. This is the tell that the water reads as chunky planes catching
+            // the key light per-face (consistent with the rocks/terrain/mountains), not a glassy plane.
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mesh = water.GetComponent<MeshFilter>().sharedMesh;
+            int tris = mesh.triangles.Length / 3;
+            Assert.AreEqual(tris * 3, mesh.vertexCount,
+                "the ocean must be UNWELDED flat-shaded facets (verts == tris*3) — the faceted-sea world-look; " +
+                "a welded smooth sheet (verts < tris*3) is the regression");
+        }
+
+        [Test]
         public void Ocean_BrightShallowsBand_ExtendsIntoTheMidSea_NotJustTheCoast()
         {
-            // drew/ocean-camera-fix: the bright-teal shallows band was WIDENED (70u->130u) so the sea
-            // reads teal across the frame when the camera tilts down to the horizon (the now-allowed flat
-            // pitch makes the 50-150u MID-sea dominate the upper frame, not the very-near band). Guard the
-            // bug class: a mid-sea vert (~50-70u seaward of the coast) must still be BRIGHT-leaning teal
-            // (closer to the shallow anchor than the deep anchor). A regression to a narrow band would push
-            // the deep/fog-greyed teal across the visible mid-sea — the "grey" read. nearZ = shoreZ(-12) +
-            // overlap(1.5) = -10.5, so ~Z-65 is ~55u seaward (inside the 130u bright band, outside 70u).
+            // BIG ROUND ISLAND (86ca9a7qn): the bright-teal shallows band runs RADIALLY out from the round
+            // coast (~130u band). Guard the bug class: a mid-sea vert ~55u out from the coast (r ~ IslandShoreR
+            // + 55) must still be BRIGHT-leaning teal (closer to the shallow anchor than the deep anchor) — a
+            // narrow band would grey the visible mid-sea out (the "grey sea" read).
             var water = GameObject.Find("Water_Play");
             Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
             var mesh = water.GetComponent<MeshFilter>().sharedMesh;
             var verts = mesh.vertices;
             var cols = mesh.colors;
 
-            // Find the vert nearest world Z -65 (local Z, since the water root sits at world Z 0).
-            const float midZ = -65f;
-            int midIdx = 0;
-            for (int i = 1; i < verts.Length; i++)
-                if (Mathf.Abs(verts[i].z - midZ) < Mathf.Abs(verts[midIdx].z - midZ)) midIdx = i;
+            float midR = LowPolyZoneGen.IslandShoreR + 55f;
+            int midIdx = 0; float best = float.PositiveInfinity;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                float r = new Vector2(verts[i].x, verts[i].z).magnitude;
+                if (Mathf.Abs(r - midR) < best) { best = Mathf.Abs(r - midR); midIdx = i; }
+            }
 
             var shallow = LowPolyZoneGen.WaterShallow;
             var deep = LowPolyZoneGen.WaterDeep;
             float dShallow = ChannelDist(cols[midIdx], shallow);
             float dDeep = ChannelDist(cols[midIdx], deep);
             Assert.Less(dShallow, dDeep,
-                $"a mid-sea vert (~55u seaward, localZ={verts[midIdx].z:0.0}) must still be BRIGHT-leaning " +
-                $"teal (closer to shallow #3FA6B0 than deep #2E7E96) — the widened 130u band keeps the " +
-                $"visible mid-sea teal; a narrow band lets it grey out (color={cols[midIdx]})");
+                $"a mid-sea vert (~55u out from the round coast) must still be BRIGHT-leaning teal (closer to " +
+                $"shallow #3FA6B0 than deep #2E7E96) — the radial bright band keeps the visible mid-sea teal " +
+                $"(color={cols[midIdx]})");
         }
 
         [Test]
@@ -152,8 +194,12 @@ namespace FarHorizon.EditTests
             Assert.Greater(mat.GetFloat("_WaveAmp"), 0f,
                 "the ocean material must enable the gentle swell (_WaveAmp > 0) — a dead-still plane reads " +
                 "as ice/glass and kills the 'alive world' feel (Uma §1)");
-            Assert.Less(mat.GetFloat("_WaveAmp"), 0.2f,
-                "the swell must stay SUBTLE (a breath, not surf) — small amplitude only");
+            // VISIBLE-AT-SEA-SCALE (86ca9yn57 AC2): the old < 0.2 "subtle breath" cap made the swell
+            // imperceptible over the ~1400u sea (peak ~0.05u) — the Sponsor's "static water". The bound is
+            // raised to < 1.0 (a visible rolling swell, still not surf). The exact value is pinned by
+            // Water_Material_CarriesMovingWaveParams_VisibleAtSeaScale.
+            Assert.Less(mat.GetFloat("_WaveAmp"), 1.0f,
+                "the swell must stay a calm rolling sea (a breath, not surf) — _WaveAmp < 1.0");
         }
 
         [Test]
@@ -184,23 +230,247 @@ namespace FarHorizon.EditTests
         [Test]
         public void Ocean_NotOccludedByFlatGround_SeawardSlabTrimmed()
         {
-            // THE visibility bug the shipped-build capture exposed (drew/beach-water, 2026-06-13): the
-            // flat TestGround placeholder spanned Z[-30..+30] at Y=0 and physically OCCLUDED the ocean
-            // (water sits at Y-0.20 underneath it), so the seaward orbit saw sand, never sea. The fix
-            // trims TestGround's seaward edge to just past the campfire loop spot so the slab no longer
-            // overhangs the water. Guard it: the flat ground's seaward edge must NOT extend out over the
-            // ocean's near band. A regression that restores the Z-30 slab re-buries the sea — this fails.
+            // HYGIENE check (NOT the visibility guard — see the correction below). This asserts the flat
+            // TestGround placeholder's seaward edge does not overhang the ocean's near band.
+            //
+            // IMPORTANT CORRECTION (drew/ocean-beach-soakfix2, 2026-06-13): this test PASSED while the sea
+            // stayed completely invisible across six builds — proving the seaward-slab-trim was NOT the
+            // real fix. The actual root cause was the water mesh's INVERTED winding (faces pointed DOWN ->
+            // Cull Back hid the sea); see WaterFacesUpTests for THE guard. This Z-edge check is kept as a
+            // cheap geometry-hygiene assertion (don't re-grow the slab over the water) but it is explicitly
+            // NOT the silhouette/visibility guard — a Z-edge relationship cannot prove on-frame visibility.
+            // NOTE (86ca8t9pq waterline-coverage fix): the water now reaches INLAND past the real waterline
+            // (near edge worldZ +1) so it covers the underwater foreshore, which means it now extends inland
+            // OF the TestGround seaward edge (-10). That is FINE for occlusion: TestGround's renderer is
+            // DISABLED (TestGround_IsCollisionProxyOnly guard), so the collision-only slab can never occlude
+            // the sea regardless of Z overlap. The real visibility guard is WaterFacesUpTests (winding/normals).
             var testGround = GameObject.Find("TestGround");
             Assert.IsNotNull(testGround, "the flat test ground (TestGround) must exist (NavMesh + loop surface)");
-            var tgMin = testGround.GetComponent<MeshRenderer>().bounds.min.z;
+            var tgMr = testGround.GetComponent<MeshRenderer>();
+            Assert.IsFalse(tgMr.enabled,
+                "TestGround's renderer must stay DISABLED — a collision-only proxy can't occlude the sea even " +
+                "where the inland-reaching water overlaps it (the water now covers the underwater foreshore).");
+        }
 
+        [Test]
+        public void TestGround_IsCollisionProxyOnly_RendererDisabled_NoGreySlab()
+        {
+            // REGRESSION GUARD for soak #40 (drew/ocean-beach-soakfix2, stamp 31ce95c): the Sponsor saw a
+            // "gray slab on the beach" — the flat Y=0 TestGround placeholder (muted moss-grey 0.42,0.46,0.40)
+            // poking ABOVE the dipping sandy Zone-D terrain across the seaward foreshore band (Z ~ -10..+3).
+            // The fix keeps TestGround as a COLLISION/NAVMESH proxy (collider on the Ground layer, so the
+            // baked NavMesh + click-raycast are unchanged) but DISABLES its MeshRenderer so the grey slab no
+            // longer draws — the sandy terrain is the only thing painted on the beach. Re-enabling the
+            // renderer (or dropping the collider) re-buries the sand under grey / kills click-move; either
+            // regression fails here in headless CI before it ships.
+            var testGround = GameObject.Find("TestGround");
+            Assert.IsNotNull(testGround, "TestGround must exist — it is the NavMesh + click-move collision proxy");
+
+            // Load-bearing role PRESERVED: collider on the Ground layer (feeds the NavMesh bake + click raycast).
+            var col = testGround.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "TestGround must keep its MeshCollider (NavMesh bake + click-move raycast)");
+            Assert.IsNotNull(col.sharedMesh, "the collider mesh must be serialized (no collider mesh = dead NavMesh/click)");
+            int groundLayer = LayerMask.NameToLayer("Ground");
+            if (groundLayer >= 0)
+                Assert.AreEqual(groundLayer, testGround.layer,
+                    "TestGround must stay on the Ground layer (the NavMesh layerMask + click groundMask depend on it)");
+
+            // THE grey-slab guard: the renderer must NOT draw. The component is kept (so .bounds still
+            // resolves for the occlusion-hygiene test above) but disabled — the sandy terrain renders the beach.
+            var mr = testGround.GetComponent<MeshRenderer>();
+            Assert.IsNotNull(mr, "the MeshRenderer is kept (disabled) so .bounds stays resolvable for the occlusion test");
+            Assert.IsFalse(mr.enabled,
+                "the TestGround MeshRenderer MUST be DISABLED — an enabled flat grey placeholder slab pokes " +
+                "above the dipping sandy beach (Z ~ -10..+3) and reads as a 'gray slab on the beach' (soak #40). " +
+                "The sandy Zone-D terrain is the visible ground; this is a collision/NavMesh proxy only.");
+        }
+
+        [Test]
+        public void BeachLoopObjects_SitOnDrySand_NotInTheWater_WaterlineOutGuard()
+        {
+            // BIG ROUND ISLAND (86ca9a7qn): the survival-loop objects now sit near the island CENTRE (the
+            // spawn-flattened plateau), well INLAND of the round coast (IslandShoreR 120u) — all on dry land
+            // by construction. This still guards the bug CLASS (a loop object underwater): raycast the SHIPPED
+            // terrain collider at each loop-spot XZ and assert the surface Y is above WaterY with margin. A
+            // regression that sinks the loop centre below the sea fails HERE.
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider (the ground raycast surface)");
+
+            const float WaterY = -0.20f;  // mirrors LowPolyZoneGen.WaterY
+            const float DryMargin = 0.10f;
+            var loopSpots = new (string name, float x, float z)[]
+            {
+                ("Spawn",        0f,  6f),
+                ("CraftSpot",    8f,  6f),
+                ("ChopTree",    -9f, -7f),
+                ("FirePit",      4f, -8f),
+                ("BeachDebris", -3.2f, -3.0f),
+            };
+            foreach (var (name, x, z) in loopSpots)
+            {
+                var ray = new Ray(new Vector3(x, 50f, z), Vector3.down);
+                Assert.IsTrue(col.Raycast(ray, out RaycastHit hit, 200f),
+                    $"the terrain ray at the {name} spot ({x},{z}) must hit the ground (the loop surface)");
+                Assert.Greater(hit.point.y, WaterY + DryMargin,
+                    $"the {name} loop object at ({x},{z}) must sit on DRY land (terrainY {hit.point.y:F3} > " +
+                    $"WaterY {WaterY:F2} + margin) — the loop centre must stay dry on the round island plateau.");
+            }
+        }
+
+        [Test]
+        public void Waterline_SurroundsTheLoopCentre_OnAllSides_NotJustOneEdge()
+        {
+            // BIG ROUND ISLAND (86ca9a7qn): the round coast (where the land dips below WaterY) must sit at
+            // ~IslandShoreR on EVERY side of the loop centre — the sea surrounds the island. Raycast the
+            // SHIPPED terrain collider OUTWARD along +X/−X/+Z/−Z and assert the land crosses below WaterY at
+            // a radius near IslandShoreR on each side (a round coast, not a one-edge strip waterline).
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider");
+            const float WaterY = -0.20f;
+            float shoreR = LowPolyZoneGen.IslandShoreR;
+            var dirs = new (string name, float dx, float dz)[]
+            { ("+X", 1, 0), ("-X", -1, 0), ("+Z", 0, 1), ("-Z", 0, -1) };
+            foreach (var (name, dx, dz) in dirs)
+            {
+                float coast = -1f;
+                for (float r = shoreR - 25f; r <= shoreR + 25f; r += 1f)
+                {
+                    var ray = new Ray(new Vector3(dx * r, 50f, dz * r), Vector3.down);
+                    if (col.Raycast(ray, out RaycastHit hit, 200f) && hit.point.y <= WaterY) { coast = r; break; }
+                }
+                Assert.Greater(coast, 0f,
+                    $"on the {name} side the land must dip below the sea near IslandShoreR ({shoreR}u) — the " +
+                    "round coast surrounds the island on every side (water on all sides).");
+                Assert.That(coast, Is.InRange(shoreR - 25f, shoreR + 25f),
+                    $"the {name} coast ({coast:F0}u) must sit near IslandShoreR ({shoreR}u) — a round coast.");
+            }
+        }
+
+        [Test]
+        public void ShorelineFoam_SitsOverTheShallowWetShelf_NotDeepWater_SoftWashGuard()
+        {
+            // SOFT-WASH RESTORE REGRESSION GUARD (86ca8t9pq S1, Sponsor soak of fa9f1b1: "shoreline is back
+            // to the static line instead of the water washing up on shore as before"). The diagnose-via-trace
+            // root cause: W1's STEEP beach ramp pushed the foam band out over DEEP flat water, where the
+            // swell's vertical bob produces NO visible horizontal wash — the share of strong-foam water verts
+            // sitting over the SHALLOW WET SHELF (the slope the swell visibly laps) collapsed 68% -> 10%, so
+            // the surf read as a STATIC line. The fix is a two-phase shore: a gentle wet shelf at the
+            // waterline carries the foam line so the swell laps it. This guards the bug CLASS: take the
+            // WATER mesh's strong-foam verts, raycast the SHIPPED terrain collider straight down at each, and
+            // assert a MAJORITY sit over shallow-wet terrain (within ~0.45u below WaterY) — NOT deep water.
+            // A regression that re-steepens the shore (foam back over deep water = static line) fails HERE.
             var water = GameObject.Find("Water_Play");
-            var waterNear = water.GetComponent<MeshRenderer>().bounds.max.z; // near (largest Z) edge of the sea
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider (the authoritative shore-Y reader)");
 
-            Assert.GreaterOrEqual(tgMin, waterNear - 0.5f,
-                $"the flat TestGround seaward edge (z={tgMin:0.0}) must NOT overhang the ocean's near edge " +
-                $"(z={waterNear:0.0}) — an overhanging opaque slab occludes the water from the seaward orbit " +
-                "(the shipped-capture occlusion bug). It must stop at/inland of where the sea begins.");
+            const float WaterY = -0.20f;       // mirrors LowPolyZoneGen.WaterY
+            const float WetShelfMaxDepth = 0.50f; // terrain within this far BELOW WaterY = the shallow wet shelf
+            var foam = LowPolyZoneGen.FoamEdge;
+            var verts = water.GetComponent<MeshFilter>().sharedMesh.vertices;
+            var cols = water.GetComponent<MeshFilter>().sharedMesh.colors;
+            // Measure the wash read among foam verts that OVERLAP THE LAND (the coast band) — the side-wrap
+            // foam beyond the land edges (the sea wraps 1.6x wider than the terrain) sits over open water by
+            // construction and isn't part of the coast surf read, so it's excluded from the denominator.
+            int foamOverTerrain = 0, overWetShelf = 0;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Color c = cols[i];
+                bool isStrongFoam = c.r > 0.78f && c.g > 0.78f && c.b > 0.70f &&
+                                    Mathf.Abs(c.r - foam.r) < 0.14f && Mathf.Abs(c.g - foam.g) < 0.14f;
+                if (!isStrongFoam) continue;
+                // World XZ of this foam vert (water root sits at world (cx, WaterY, 0)).
+                float wx = water.transform.position.x + verts[i].x;
+                float wz = water.transform.position.z + verts[i].z;
+                var ray = new Ray(new Vector3(wx, 50f, wz), Vector3.down);
+                if (!col.Raycast(ray, out RaycastHit hit, 200f)) continue; // off the land (side-wrap) — skip
+                foamOverTerrain++;
+                float depthBelowWater = WaterY - hit.point.y; // >0 = terrain under the water plane
+                if (depthBelowWater > -0.05f && depthBelowWater < WetShelfMaxDepth) overWetShelf++;
+            }
+            Assert.Greater(foamOverTerrain, 0, "the water mesh must carry a strong-foam surf line over the coast");
+            float washFraction = (float)overWetShelf / foamOverTerrain;
+            Assert.Greater(washFraction, 0.4f,
+                $"the foam surf line over the coast must sit over the SHALLOW WET SHELF ({overWetShelf}/" +
+                $"{foamOverTerrain} = {washFraction:P0}) so the swell laps it as a soft WASH — a foam band " +
+                "stranded over DEEP water (too-steep shore) reads as a STATIC line (the fa9f1b1 regression the " +
+                "Sponsor flagged). Gentle the shore wet-shelf so the surf rides shallow wet sand.");
+        }
+
+        [Test]
+        public void Water_BaseColors_ReadDistinctFromTheSky_NotSkyHaze()
+        {
+            // AC1 REGRESSION GUARD (ticket 86ca9yn57 — Sponsor: "I can't see any difference between water and
+            // sky"). The sea must read as its OWN saturated teal, clearly separated from the pale sky-horizon
+            // stop. Assert BOTH water anchors sit a threshold AWAY from WorldLookPalette.SkyHorizon in RGB
+            // distance. (The headline CAUSE was a backface-cull, guarded by WaterFacesUpTests; this is the
+            // COLOUR half — a regression that pales/desaturates the sea toward the sky stop fails HERE.)
+            var sky = FarHorizon.WorldLookPalette.SkyHorizon;
+            foreach (var (name, c) in new[] {
+                ("WaterShallow", LowPolyZoneGen.WaterShallow),
+                ("WaterDeep",    LowPolyZoneGen.WaterDeep) })
+            {
+                float dist = ChannelDist(c, sky);
+                Assert.Greater(dist, 0.6f,
+                    $"{name} ({c}) must read DISTINCT from the sky-horizon stop ({sky}) — RGB channel-sum " +
+                    $"distance {dist:F2} must exceed 0.6 so the sea is its own teal, not the pale sky haze " +
+                    "(AC1). The sea is a saturated low-R high-G/B teal; the sky stop is a pale near-neutral.");
+                // And the sea must be SATURATED teal: G and B clearly above R (low-R teal), unlike the sky's
+                // near-balanced pale channels.
+                Assert.Greater(c.g - c.r, 0.25f, $"{name} must be a low-R teal (G well above R) — not pale sky");
+                Assert.Greater(c.b - c.r, 0.25f, $"{name} must be a low-R teal (B well above R) — not pale sky");
+            }
+        }
+
+        [Test]
+        public void Water_Material_CapsFog_SoTheFarSeaKeepsItsTeal_NotSkyHaze()
+        {
+            // AC1 (the FAR sea half). Even with the sea rendering (winding fixed), the global Exp^2 fog
+            // (colour == SkyHorizon) would wash the FAR sea to the sky colour at the horizon. The water
+            // material caps the fog so the sea keeps a fraction of its own teal at the horizon — a distinct
+            // sea↔sky boundary, no harsh seam. Guard: the water material carries _FogCap in a sensible range
+            // (>0 so the far sea isn't fully fogged to sky; <1 so a believable atmospheric haze remains).
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mat = water.GetComponent<MeshRenderer>().sharedMaterial;
+            Assert.IsNotNull(mat, "the ocean must have a material");
+            Assert.IsTrue(mat.HasProperty("_FogCap"), "the water shader must expose _FogCap (the far-sea fog floor)");
+            float cap = mat.GetFloat("_FogCap");
+            Assert.Greater(cap, 0.2f,
+                $"_FogCap ({cap:F2}) must be > 0.2 so the FAR sea keeps its teal at the horizon (AC1) — at 0 " +
+                "the global fog washes the far sea to the sky stop == 'water reads same as sky'");
+            Assert.Less(cap, 0.95f,
+                $"_FogCap ({cap:F2}) must be < 0.95 so a believable atmospheric haze remains at the horizon " +
+                "(no harsh seam — the sea still recedes into distance softly)");
+        }
+
+        [Test]
+        public void Water_Material_CarriesMovingWaveParams_VisibleAtSeaScale()
+        {
+            // AC2 REGRESSION GUARD (ticket 86ca9yn57 — Sponsor: "the water should have waves that move"). The
+            // in-shader swell shipped at amp 0.10 (peak ~0.05u) — imperceptible over the ~1400u sea, so it
+            // read STATIC. The fix raised the amplitude so the surface visibly undulates at sea scale. Guard
+            // the wave params carry a VISIBLE, time-driven swell (the shader displaces Y by _Time.y — proven
+            // moving by the -coastWaves frame-delta capture; this pins the bake-time params).
+            var water = GameObject.Find("Water_Play");
+            Assert.IsNotNull(water, "the ocean (Water_Play) must be present");
+            var mat = water.GetComponent<MeshRenderer>().sharedMaterial;
+            Assert.IsTrue(mat.HasProperty("_WaveAmp"), "the water shader must expose _WaveAmp (the in-shader swell)");
+            float amp = mat.GetFloat("_WaveAmp");
+            Assert.Greater(amp, 0.2f,
+                $"_WaveAmp ({amp:F2}) must be > 0.2 so the swell is VISIBLE at the ~1400u sea scale (AC2) — the " +
+                "prior 0.10 (peak ~0.05u) read STATIC over the vast plane (the Sponsor's 'static water')");
+            Assert.Less(amp, 1.0f,
+                $"_WaveAmp ({amp:F2}) must stay < 1.0 — a calm rolling swell at the toy scale, not surf");
+            Assert.IsTrue(mat.HasProperty("_WaveSpeed"), "the shader must expose _WaveSpeed (the swell travels)");
+            Assert.Greater(mat.GetFloat("_WaveSpeed"), 0f,
+                "_WaveSpeed must be > 0 so the swell ADVANCES over time (a 0 speed is a frozen displacement)");
         }
 
         [Test]

@@ -9,33 +9,24 @@ using FarHorizon.EditorTools;
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// EditMode regression guards for the chunky-cartoon castaway player avatar (ticket 86ca8ca1m —
-    /// the "Mini Chibi Kid" sourced base that SUPERSEDES the Quaternius Animated-Men character). These
-    /// assert the REAL serialized Boot scene (the bytes the exe loads) + the FBX import config, so the
-    /// bug CLASSES (legs-up serialization divergence, T-pose-mid-walk non-looping clips, the
-    /// un-normalized giant, a missing toon atlas, a swap back to a realistic non-chunky base) can't
-    /// recur silently in headless CI before a Sponsor soak:
+    /// EditMode regression guards for the HYPER3D + MIXAMO castaway player avatar (ticket 86ca8rdkp — the
+    /// generated chunky low-poly castaway that SUPERSEDES the Sketchfab "Mini Chibi Kid"). These assert the
+    /// REAL serialized Boot scene (the bytes the exe loads) + the two-FBX Humanoid import config, so the bug
+    /// CLASSES can't recur silently in headless CI before a Sponsor soak:
     ///
-    ///   1. The player carries a serialized, SKINNED, BONED avatar — NOT a runtime-assembled
-    ///      hierarchy and NOT the retired capsule placeholder (the legs-up serialization guard).
-    ///   2. The FBX is the chibi character with looping Idle/Walk clips and a CreateFromThisModel
-    ///      avatar (the T-pose-mid-walk guard).
+    ///   1. The player carries a serialized, SKINNED, BONED avatar — NOT a runtime-assembled hierarchy and
+    ///      NOT the retired capsule placeholder (the legs-up serialization guard).
+    ///   2. Idle.fbx is the with-skin character (GENERIC rig) with a looping Idle clip + a VALID avatar;
+    ///      Walking.fbx carries a looping Walk clip (Generic, binds by transform path) — the T-pose-mid-walk
+    ///      guard. (Mixamo clip takes are "mixamo.com" → renamed to CastawayIdle/CastawayWalk on import. The
+    ///      GENERIC rig is the runtime-explosion fix — Humanoid retarget coned the mesh; 86ca8rdkp.)
     ///   3. The intrinsic-height normalization is configured (the un-normalized-giant guard).
-    ///   4. The chibi's flat TOON ATLAS binds on the imported materials (replaces the prior base's
-    ///      6-part recolor guard — the chibi ships its own toon materials; identity/recolor is OUT OF
-    ///      SCOPE. The guard catches the flat toon look silently lost to a missing-texture grey).
-    ///   5. The shipped scene's castaway reads CHUNKY (heads-tall in the toy band) — catches a swap
-    ///      back to a realistic ~7-8-heads base (replaces the base-specific shirt-luma identity guard,
-    ///      which was for the Quaternius recolor and does NOT apply to the chibi's default look).
-    ///
-    ///   6. The IDENTITY RECOLOR guard (86ca8ca1m): the atlas PNG's repainted UV cells read as OUR
-    ///      young/hopeful castaway — warm khaki shirt (the U2-6 luma >0.6 anchor, re-carried onto the
-    ///      chibi), sandy-ginger hair+cap (not the green-cap kid), bare-feet skin (not dark shoes).
-    ///
-    /// NOTE on guards: the prior base's 6-part recolor / per-part-smoothness asserts are gone (chibi has
-    /// its own toon materials). The Quaternius shirt-luminance (>0.6) identity guard is NOW RE-CARRIED
-    /// onto the chibi via guard #6 (atlas-cell re-sample) — the chibi's default look had NO identity
-    /// guard; the recolor restores one.
+    ///   4. The de-lit material binds texture_diffuse on _BaseMap (the flat toon look — catches a missing
+    ///      texture grey).
+    ///   5. The shipped scene's castaway reads CHUNKY (heads-tall in the toy band) — catches a swap back to
+    ///      a realistic ~7-8-heads base.
+    ///   6. The IDENTITY RECOLOR guard: the shirt region of texture_diffuse is warmed toward TAN (the
+    ///      mustard-yellow generated shirt no longer dominates) WITHOUT flattening the gradient.
     /// </summary>
     public class CastawayCharacterTests
     {
@@ -56,11 +47,9 @@ namespace FarHorizon.EditTests
             return scene;
         }
 
-        // The CORE serialization guard: the shipped scene must already hold a SKINNED, BONED avatar.
-        // A skinned mesh with a real bone hierarchy is baked into the FBX + serialized into the scene,
-        // so it cannot diverge between editor capture and the standalone exe the way the spike's
-        // Awake-assembled procedural hierarchy did (the legs-up bug). If a future change reverts to a
-        // runtime-assembled avatar OR keeps the capsule placeholder, this fails.
+        // The CORE serialization guard: the shipped scene must already hold a SKINNED, BONED avatar. A
+        // skinned mesh with a real bone hierarchy is baked into the FBX + serialized into the scene, so it
+        // cannot diverge between editor capture and the standalone exe (the legs-up bug).
         [Test]
         public void Player_HasSerializedSkinnedBonedCastaway_NotPlaceholder()
         {
@@ -69,7 +58,6 @@ namespace FarHorizon.EditTests
             var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
             Assert.IsNotNull(castaway, "the player must carry a CastawayCharacter avatar");
 
-            // The retired U3 capsule placeholder must be gone.
             var placeholder = _player.transform.Find("PlaceholderVisual");
             Assert.IsNull(placeholder, "the U3 capsule placeholder must be replaced by the castaway avatar");
 
@@ -81,8 +69,8 @@ namespace FarHorizon.EditTests
 
             Assert.IsNotNull(smr.bones, "the skinned mesh must reference a bone array");
             Assert.Greater(smr.bones.Length, 10,
-                "a real rigged humanoid has a non-trivial bone hierarchy (the legs-up bug cannot occur " +
-                "on a baked skeleton — this is the serialization guard)");
+                "a real rigged humanoid has a non-trivial bone hierarchy (the legs-up bug cannot occur on a " +
+                "baked skeleton — this is the serialization guard)");
 
             var animator = castaway.GetComponentInChildren<Animator>(true);
             Assert.IsNotNull(animator, "the avatar must have an Animator serialized in the scene");
@@ -90,10 +78,8 @@ namespace FarHorizon.EditTests
                 "the Animator must reference the serialized Idle/Walk controller (not assembled in Awake)");
         }
 
-        // Mechanized "editor build == shipped build": re-running the editor avatar build must
-        // reproduce the SAME serialized hierarchy shape (skinned mesh + same bone count + one Model
-        // child). The legs-up bug was exactly an editor-vs-shipped MISMATCH; idempotent rebuild proves
-        // there is no divergence to ship.
+        // Mechanized "editor build == shipped build": re-running the editor avatar build must reproduce the
+        // SAME serialized hierarchy shape (skinned mesh + same bone count + one Model child).
         [Test]
         public void EditorRebuild_Reproduces_SameSerializedShape()
         {
@@ -116,51 +102,65 @@ namespace FarHorizon.EditTests
                 "rebuild must be idempotent — exactly one Model child (no duplication)");
         }
 
-        // The clip-binding guard: the FBX must be the chibi character AND carry the Idle/Walk
-        // locomotion clips, both LOOPING, with a CreateFromThisModel avatar. A missing / non-looping
-        // clip is the T-pose / freeze-mid-walk failure mode; a null avatar freezes the model in its
-        // bind pose. The chibi's clip names carry the "Object_5|" armature prefix (e.g.
-        // "Object_5|Idle 01") — matched by Contains. Pinning these catches an importer-config
-        // regression in headless CI before it ships as a frozen avatar.
+        // The clip-binding guard: Idle.fbx must carry a looping Idle clip + a VALID HUMANOID avatar, and
+        // Walking.fbx must carry a looping Walk clip. A missing / non-looping clip is the T-pose / freeze-
+        // mid-walk failure mode; a null/invalid avatar freezes the model in its bind pose. The Mixamo clips
+        // export as the take "mixamo.com" — renamed to CastawayIdle/CastawayWalk on import.
         [Test]
-        public void Fbx_IsChibiCharacter_WithLoopingIdleAndWalkClips_AndAvatar()
+        public void Fbx_IsHyper3DCastaway_WithLoopingIdleAndWalk_AndHumanoidAvatar()
         {
-            Assert.AreEqual("Assets/Art/Character/MiniChibiKid/MiniChibiKid.fbx",
-                CharacterAssetGen.FbxPath, "the player FBX must be the Mini Chibi Kid character");
+            Assert.AreEqual("Assets/Art/Character/Castaway/Idle.fbx", CharacterAssetGen.IdleFbxPath,
+                "the player FBX must be the Hyper3D castaway Idle FBX (with skin)");
+            Assert.AreEqual("Assets/Art/Character/Castaway/Walking.fbx", CharacterAssetGen.WalkFbxPath,
+                "the Walk clip must come from the Hyper3D castaway Walking FBX (without skin)");
 
-            var importer = AssetImporter.GetAtPath(CharacterAssetGen.FbxPath) as ModelImporter;
-            Assert.IsNotNull(importer, "the character FBX must be importable at " + CharacterAssetGen.FbxPath);
+            var idleImporter = AssetImporter.GetAtPath(CharacterAssetGen.IdleFbxPath) as ModelImporter;
+            Assert.IsNotNull(idleImporter, "Idle.fbx must be importable at " + CharacterAssetGen.IdleFbxPath);
+            Assert.AreEqual(ModelImporterAnimationType.Generic, idleImporter.animationType,
+                "Idle.fbx must import as a GENERIC rig — the Humanoid muscle-space retarget EXPLODED the skinned " +
+                "mesh into a cone at runtime in the production scene (86ca8rdkp); Generic binds the clip by " +
+                "transform path onto the mixamorig skeleton, no retarget, and renders clean (spike captures 04/05)");
+            Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, idleImporter.avatarSetup,
+                "Idle.fbx must build its OWN avatar (CreateFromThisModel) or clips will not bind (T-pose)");
 
-            // CreateFromThisModel avatar so the Generic rig binds its own clips (the T-pose fix; the
-            // chibi imports as NoAvatar by default).
-            Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, importer.avatarSetup,
-                "the Generic rig must create its own avatar or clips will not bind (T-pose)");
-
-            AnimationClip idle = null, walk = null;
-            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.FbxPath))
+            // Idle.fbx must produce a VALID avatar.
+            Avatar idleAvatar = null;
+            AnimationClip idle = null;
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.IdleFbxPath))
             {
-                if (obj is AnimationClip c && !c.name.StartsWith("__preview__"))
-                {
-                    if (c.name.Contains(CharacterAssetGen.IdleClip)) idle = c;
-                    if (c.name.Contains(CharacterAssetGen.WalkClip)) walk = c;
-                }
+                if (obj is Avatar a) idleAvatar = a;
+                if (obj is AnimationClip c && !c.name.StartsWith("__preview__") &&
+                    c.name.Contains(CharacterAssetGen.IdleClip)) idle = c;
             }
-            Assert.IsNotNull(idle, "FBX must contain a clip matching '" + CharacterAssetGen.IdleClip + "'");
-            Assert.IsNotNull(walk, "FBX must contain a clip matching '" + CharacterAssetGen.WalkClip + "'");
+            Assert.IsNotNull(idleAvatar, "Idle.fbx must produce an avatar");
+            Assert.IsTrue(idleAvatar.isValid,
+                "Idle.fbx avatar must be VALID (so the clips bind to the skeleton)");
+            Assert.IsNotNull(idle, "Idle.fbx must contain a clip matching '" + CharacterAssetGen.IdleClip + "'");
             Assert.IsTrue(idle.isLooping, CharacterAssetGen.IdleClip + " must loop (no freeze-on-idle)");
+
+            // Walking.fbx must carry a looping Walk clip (Generic, CreateFromThisModel — binds by path).
+            var walkImporter = AssetImporter.GetAtPath(CharacterAssetGen.WalkFbxPath) as ModelImporter;
+            Assert.IsNotNull(walkImporter, "Walking.fbx must be importable at " + CharacterAssetGen.WalkFbxPath);
+            Assert.AreEqual(ModelImporterAnimationType.Generic, walkImporter.animationType,
+                "Walking.fbx must import as a GENERIC rig (the Walk clip binds by transform path, no retarget)");
+            Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, walkImporter.avatarSetup,
+                "Walking.fbx must create its own avatar (Generic path binds by transform path onto Idle's mesh)");
+            AnimationClip walk = null;
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.WalkFbxPath))
+                if (obj is AnimationClip c && !c.name.StartsWith("__preview__") &&
+                    c.name.Contains(CharacterAssetGen.WalkClip)) walk = c;
+            Assert.IsNotNull(walk, "Walking.fbx must contain a clip matching '" + CharacterAssetGen.WalkClip + "'");
             Assert.IsTrue(walk.isLooping, CharacterAssetGen.WalkClip + " must loop (no freeze-mid-walk)");
         }
 
-        // The intrinsic-height-normalization guard: the FBX importer's globalScale must normalize the
-        // (~1.82u intrinsic) model down toward ~1u, so the avatar-root scale maps directly onto
-        // on-screen height. An un-normalized import scales the character ~1.8x tall on the 1.8u avatar
-        // root (a giant whose head clips the frame). We assert the imported model's actual bounds
-        // height is in a sane normalized band, robust to small importer-scale drift.
+        // The intrinsic-height-normalization guard: the imported Idle FBX's bounds height must normalize
+        // toward ~1u so the avatar-root scale maps directly onto on-screen height. An un-normalized import
+        // scales the character to a giant whose head clips the frame.
         [Test]
         public void Fbx_IntrinsicHeight_IsNormalizedToAboutOneUnit()
         {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
-            Assert.IsNotNull(fbx, "the imported FBX must load at " + CharacterAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.IdleFbxPath);
+            Assert.IsNotNull(fbx, "the imported FBX must load at " + CharacterAssetGen.IdleFbxPath);
 
             var inst = Object.Instantiate(fbx);
             inst.transform.localScale = Vector3.one;
@@ -171,20 +171,18 @@ namespace FarHorizon.EditTests
             float h = b.size.y;
             Object.DestroyImmediate(inst);
 
-            // Target is 1u; allow a generous band so the test guards against the un-normalized ~1.82u
-            // import (or a zero-scale collapse) without being brittle to ±0.2u importer rounding.
             Assert.That(h, Is.InRange(0.6f, 1.6f),
                 $"imported model height {h:F3}u must be normalized to ~{CharacterAssetGen.TargetImportHeightU}u " +
-                "(an un-normalized ~1.82u import scales the avatar to a giant — the framing defect)");
+                "(an un-normalized import scales the avatar to a giant — the framing defect)");
         }
 
-        // The UPRIGHT guard: the chibi imports standing upright (probe-verified — head world-Y above
-        // feet, feet near origin), no -90 X bake needed. A future import-config change that lays it on
-        // its back (the Sketchfab Y-up trap) would fail here before it ships face-down.
+        // The UPRIGHT guard: the castaway imports standing upright (head world-Y above feet, feet near
+        // origin) so localPosition zero grounds the feet. A future import-config change that lays it on its
+        // back (the Y-up trap) would fail here before it ships face-down.
         [Test]
         public void Fbx_ImportsUpright_HeadAboveFeet_FeetNearOrigin()
         {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CharacterAssetGen.IdleFbxPath);
             Assert.IsNotNull(fbx);
             var inst = Object.Instantiate(fbx);
             inst.transform.position = Vector3.zero;
@@ -196,7 +194,7 @@ namespace FarHorizon.EditTests
             for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
 
             Transform head = CastawayProportions.FindHeadBone(inst.transform);
-            Assert.IsNotNull(head, "the chibi must carry a Head bone (Head_05)");
+            Assert.IsNotNull(head, "the castaway must carry a Head bone");
             float headY = head.position.y;
             float feetY = b.min.y;
             Object.DestroyImmediate(inst);
@@ -207,39 +205,25 @@ namespace FarHorizon.EditTests
                 $"the feet must sit near the model origin (feetY={feetY:F3}) so localPosition zero grounds them");
         }
 
-        // The TOON-ATLAS guard: the chibi's imported materials must bind the flat toon atlas
-        // (mini_material_baseColor) on _BaseMap. The identity recolor (86ca8ca1m) repaints cells of THIS
-        // atlas — so the binding must survive; this catches the flat toon look silently lost to a
-        // missing-texture grey (an importer change dropping the texture). The per-cell identity colours
-        // are asserted separately by Atlas_RecoloredToYoungHopefulIdentity_NotGreenCapKid.
+        // The DE-LIT MATERIAL guard: the authored CastawayMat must bind texture_diffuse on _BaseMap. The
+        // flat toon look (de-lit albedo) must ship — a missing-texture grey is a silent identity loss. The
+        // shirt recolor repaints THIS diffuse, so the binding must survive.
         [Test]
-        public void Fbx_ImportedMaterials_BindTheToonAtlas()
+        public void Material_BindsTheDiffuseToonAtlas()
         {
-            int atlasBound = 0, matCount = 0;
-            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.FbxPath))
-            {
-                if (obj is Material m)
-                {
-                    matCount++;
-                    if (m.HasProperty("_BaseMap"))
-                    {
-                        var tex = m.GetTexture("_BaseMap");
-                        if (tex != null && tex.name.Contains(CharacterAssetGen.AtlasTextureName)) atlasBound++;
-                    }
-                }
-            }
-            Assert.Greater(matCount, 0, "the chibi FBX must import its toon materials");
-            Assert.Greater(atlasBound, 0,
-                "at least one imported material must bind the toon atlas '" +
-                CharacterAssetGen.AtlasTextureName + "' on _BaseMap — else the flat toon look ships as grey");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(CharacterAssetGen.MaterialPath);
+            Assert.IsNotNull(mat, "the de-lit CastawayMat must exist at " + CharacterAssetGen.MaterialPath);
+            Assert.IsTrue(mat.HasProperty("_BaseMap"), "the material must have a _BaseMap");
+            var tex = mat.GetTexture("_BaseMap");
+            Assert.IsNotNull(tex, "the material must bind a diffuse texture on _BaseMap (else it ships grey)");
+            Assert.IsTrue(tex.name.Contains(CharacterAssetGen.DiffuseTextureName),
+                "the bound _BaseMap must be the toon diffuse '" + CharacterAssetGen.DiffuseTextureName +
+                "' — else the flat toon look ships as grey/wrong");
         }
 
-        // The CHUNKY guard (replaces the base-specific shirt-luma identity guard): the shipped scene's
-        // castaway must read in the toy proportion band. The chibi base measures ~1.07 on this BakeMesh
-        // fingerprint (a stable big-head toy ratio) vs a realistic base far higher; this catches a
-        // REGRESSION to a realistic base (e.g. an accidental swap back to the Quaternius character).
-        // Measured via BakeMesh (render-state-independent — the deserialized-SMR stale-bounds trap,
-        // unity-conventions.md §Editor-vs-runtime). See CastawayProportions for the fingerprint rationale.
+        // The CHUNKY guard: the shipped scene's castaway must read in the toy proportion band. This catches a
+        // REGRESSION to a realistic many-heads base. Measured via BakeMesh (render-state-independent — the
+        // deserialized-SMR stale-bounds trap, unity-conventions.md §Editor-vs-runtime).
         [Test]
         public void Castaway_ReadsChunky_HeadsTallInToyBand()
         {
@@ -251,178 +235,285 @@ namespace FarHorizon.EditTests
                 "the avatar must carry a Head bone for the proportion measure");
 
             float heads = CastawayProportions.MeasureHeadsTall(castaway);
-            Assert.IsFalse(float.IsNaN(heads),
-                "heads-tall must measure (skinned mesh + head bone present)");
+            Assert.IsFalse(float.IsNaN(heads), "heads-tall must measure (skinned mesh + head bone present)");
             Assert.That(heads, Is.InRange(CastawayProportions.MinHeadsTall, CastawayProportions.MaxHeadsTall),
                 $"the shipped castaway must read CHUNKY (heads-tall {heads:F2} in the toy band " +
                 $"{CastawayProportions.MinHeadsTall}-{CastawayProportions.MaxHeadsTall}) — a realistic " +
                 "~7-8-heads value means a regression to a non-chunky base");
         }
 
-        // The IDENTITY RECOLOR guard (ticket 86ca8ca1m — restores an identity guard for the chibi,
-        // which previously had NONE since its default look was shipped as-is). The atlas was repainted
-        // so the chibi reads as OUR young/hopeful castaway — NOT the generic green-cap kid: warm khaki
-        // shirt (the U2-6 anchor luma >0.6), sandy-ginger hair+cap, bare-feet skin. This re-samples the
-        // recolored UV cells in the bound atlas PNG and fails CI on any drift back toward the kid look
-        // (a grey shirt, a green cap, dark shoes). It reads the SAME atlas the materials bind on _BaseMap
-        // (probe-verified path), so a regression that drops/replaces the recolored texture is caught.
+        // ARM-POSE WIRING guard (86ca8rdkp soak-fixes #2 + #3): the shipped scene's avatar must carry a
+        // serialized CastawayArmPose with BOTH upper-arm bones resolved (mixamorig:RightArm / LeftArm) and a
+        // non-trivial relax + right-carry offset. This is the component-in-source-but-not-serialized-into-scene
+        // guard (unity-conventions.md): the arm-pose driver could compile + pass script tests while the scene
+        // never carries it (the arms ship pinched). The bones must be the UPPER arms (not the clavicle /
+        // forearm), so a future bone-resolution regression reds here.
         [Test]
-        public void Atlas_RecoloredToYoungHopefulIdentity_NotGreenCapKid()
-        {
-            // Read the bound atlas PNG bytes directly (texture isReadable=0, so load into a readable copy).
-            string path = CharacterAssetGen.AtlasPngPath;
-            Assert.IsTrue(System.IO.File.Exists(path), "the bound atlas PNG must exist at " + path);
-            var tex = new Texture2D(2, 2);
-            Assert.IsTrue(tex.LoadImage(System.IO.File.ReadAllBytes(path)), "atlas PNG must decode");
-            int W = tex.width, H = tex.height;
-
-            // Sample the CENTRE of a 16x16 UV cell. UV origin is bottom-left (v up); GetPixel uses the
-            // same bottom-up convention, so cell (col,row) centre samples directly.
-            Color CellCentre(Vector2Int cell)
-            {
-                int px = Mathf.Clamp((int)((cell.x + 0.5f) / 16f * W), 0, W - 1);
-                int py = Mathf.Clamp((int)((cell.y + 0.5f) / 16f * H), 0, H - 1);
-                return tex.GetPixel(px, py);
-            }
-            float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
-
-            var shirt = CellCentre(CharacterAssetGen.ShirtCell);
-            var hair = CellCentre(CharacterAssetGen.HairCell);
-            var cap = CellCentre(CharacterAssetGen.CapCell);
-            var capDome2 = CellCentre(CharacterAssetGen.CapDome2Cell);
-            var feet = CellCentre(CharacterAssetGen.FeetCell);
-            Object.DestroyImmediate(tex);
-
-            // SHIRT: warm khaki in a MID-TONE BAND (86ca8ca1m soak-fix). The v1 guard chased luma>0.6,
-            // but a bright shirt BLEW OUT to cream under the Zone-D warm post (the Sponsor's "no shirt /
-            // all-yellow" soak). The shirt is now a deeper saturated mid-khaki: the guard is a BAND
-            // [0.42..0.66] — below 0.42 is grizzled/grey drift (the original anti-dark intent carries),
-            // above 0.66 is the blown-bright drift the soak proved washes out. Still WARM (R>G>B).
-            Assert.That(Luma(shirt), Is.InRange(0.42f, 0.66f),
-                $"shirt must be warm MID-khaki (luma {Luma(shirt):F2}); <0.42 = grizzled drift, " +
-                ">0.66 = the blown-bright drift that washed to cream in the soak");
-            Assert.Greater(shirt.r, shirt.g,
-                $"shirt must read WARM khaki (R>G); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
-            Assert.Greater(shirt.g, shirt.b,
-                $"shirt must read WARM khaki (G>B); got rgb({shirt.r:F2},{shirt.g:F2},{shirt.b:F2})");
-
-            // HAIR / CAP-DOME: the kept crown dome (Object_41) must read sandy-ginger HAIR — warm
-            // (R>G>B). Its TWO cells are checked: CapCell(1,10) AND CapDome2(1,9). CapDome2 was left
-            // GREEN by the v1 recolor (G>R) — the single biggest "still a cap" tell; the soak-fix repaints
-            // BOTH sandy-ginger. A green dome fails R>G here.
-            Assert.Greater(hair.r, hair.b,
-                $"hair must be warm sandy/ginger (R>B); got rgb({hair.r:F2},{hair.g:F2},{hair.b:F2})");
-            Assert.Greater(cap.r, cap.g,
-                $"cap-dome cell A must be warm hair (R>G — green fails); got rgb({cap.r:F2},{cap.g:F2},{cap.b:F2})");
-            Assert.Greater(capDome2.r, capDome2.g,
-                $"cap-dome cell B (1,9) — the leftover GREEN cap band — must be recolored warm hair (R>G); " +
-                $"got rgb({capDome2.r:F2},{capDome2.g:F2},{capDome2.b:F2})");
-
-            // BARE FEET: skin tan (warm + bright), NOT the kid's dark shoes. Dark shoes fail luma>0.5.
-            Assert.Greater(Luma(feet), 0.5f,
-                $"feet must be bare skin tan, not dark shoes (luma {Luma(feet):F2} <= 0.5 = shoes); " +
-                $"rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
-            Assert.Greater(feet.r, feet.b,
-                $"bare-feet skin must read warm (R>B); got rgb({feet.r:F2},{feet.g:F2},{feet.b:F2})");
-        }
-
-        // CAP -> HAIR guard (86ca8ca1m soak-fix). The Sponsor soaked 46f2a9d and the castaway read as
-        // wearing a CAP ("still wearing the yellow cap"), not hair. The cap is two skinned-mesh nodes:
-        // Object_41 (crown dome) + Object_42 (flat brim/visor). The fix HIDES BOTH (hiding only the brim
-        // left the dome's cap-shaped arc sticking up — not hair) and adds a clean procedural sandy-ginger
-        // HAIR skull-cap (MovementCameraScene.HairObjectName) on the head bone. This guard reads the
-        // SHIPPED scene and fails CI if either cap renderer is re-enabled (the cap returns) OR the hair
-        // object is missing (bald crown). Same class as the blob-shadow scene-presence guard: a
-        // serialized-state contract a future rebuild could silently break.
-        [Test]
-        public void Castaway_CapHidden_HairPresent_InShippedScene()
+        public void Avatar_HasSerializedArmPose_WithUpperArmBonesAndNonTrivialOffsets()
         {
             OpenBootAndFindPlayer();
             var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
             Assert.IsNotNull(castaway);
 
-            int capFound = 0, capHidden = 0;
-            foreach (var smr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            Assert.IsNotNull(pose, "the avatar must carry a serialized CastawayArmPose (the #2/#3 soak-fix " +
+                "driver) — a component in source but absent from the scene ships the arms pinched");
+
+            Assert.IsNotNull(pose.rightUpperArm, "CastawayArmPose must have the RIGHT upper-arm bone wired");
+            Assert.IsNotNull(pose.leftUpperArm, "CastawayArmPose must have the LEFT upper-arm bone wired");
+            // The resolved bones must be the UPPER arms (mixamorig:RightArm/LeftArm) — exact token, NOT the
+            // clavicle (RightShoulder) or the forearm (RightForeArm).
+            Assert.AreEqual("mixamorig:RightArm", pose.rightUpperArm.name,
+                "the right arm-pose bone must be the UPPER arm 'mixamorig:RightArm' (not shoulder/forearm)");
+            Assert.AreEqual("mixamorig:LeftArm", pose.leftUpperArm.name,
+                "the left arm-pose bone must be the UPPER arm 'mixamorig:LeftArm' (not shoulder/forearm)");
+
+            // The offsets must be NON-TRIVIAL (a zeroed pose = the arms ship pinched again — #3 regresses).
+            Assert.Greater(pose.relaxSpreadDeg, 1f,
+                "the idle-relax spread must be non-trivial (>1°) or the arms ship pinched (#3 regression)");
+            // The right arm must get an EXTRA away-from-body + raised carry (#2).
+            Assert.Greater(pose.rightCarryExtraSpreadDeg + pose.rightCarryRaiseDeg, 1f,
+                "the RIGHT-arm carry (extra spread + raise) must be non-trivial (#2 regression)");
+        }
+
+        // CONSERVATIVE-DEFAULT + SEED-LOGIC guard (RE-SOAK — the Sponsor's "the auto pose made it even WORSE,
+        // axe held too high/forward"). Two contracts the re-soak default rests on:
+        //   (1) the named deg fields SEED the per-arm eulers correctly: RebuildCached() with seed=true derives
+        //       rightArmEuler/leftArmEuler from the deg fields, the RIGHT arm gets MORE total offset than the
+        //       left (the carry), and the default is CONSERVATIVE (bounded — not the prior too-high/forward pose);
+        //   (2) the F9-nudge contract: once seedEulersFromDegFields is cleared (what the nudge tool does), a
+        //       RebuildCached must NOT clobber a dialed euler. A regression that re-seeds on every rebuild would
+        //       wipe the Sponsor's live dial.
+        [Test]
+        public void ArmPose_ConservativeDefaultSeed_RightHasMoreThanLeft_AndNudgeDialSurvivesRebuild()
+        {
+            var go = new GameObject("ArmPoseSeedProbe");
+            var pose = go.AddComponent<CastawayArmPose>();
+
+            // (1) Seed from the deg fields (the authored default path).
+            pose.seedEulersFromDegFields = true;
+            pose.RebuildCached();
+            Assert.That(pose.leftArmEuler.x, Is.EqualTo(pose.relaxSpreadDeg).Within(1e-3f),
+                "the LEFT arm euler X must seed to the relax spread");
+            Assert.That(pose.rightArmEuler.x, Is.EqualTo(pose.relaxSpreadDeg + pose.rightCarryExtraSpreadDeg).Within(1e-3f),
+                "the RIGHT arm euler X must seed to relax + extra carry spread");
+            Assert.That(pose.rightArmEuler.z, Is.EqualTo(pose.rightCarryRaiseDeg).Within(1e-3f),
+                "the RIGHT arm euler Z must seed to the carry raise");
+            // RIGHT total offset > LEFT (the carry adds spread + raise on top of the shared relax).
+            Assert.Greater(pose.rightArmEuler.magnitude, pose.leftArmEuler.magnitude + 0.5f,
+                "the RIGHT arm must carry MORE total offset than the LEFT (the held-axe carry, #2)");
+            // CONSERVATIVE: the default must be a small nudge, NOT the prior 16°+20° "too high/forward" pose.
+            // Cap every component well under the rejected magnitude so a regression back to it reds here.
+            Assert.Less(pose.rightArmEuler.magnitude, 18f,
+                $"the RIGHT-arm default must be CONSERVATIVE (got {pose.rightArmEuler.magnitude:F1}° total) — the " +
+                "Sponsor rejected the prior too-high/forward pose; the in-game F9 dial finalizes it");
+            Assert.Less(pose.relaxSpreadDeg, 14f,
+                "the relax spread default must be conservative (arms only SLIGHTLY off the torso)");
+
+            // (2) The F9-nudge contract: clear the seed flag (what the nudge tool does), dial an euler, then
+            // RebuildCached must KEEP the dialed value (not re-seed over it).
+            pose.seedEulersFromDegFields = false;
+            pose.rightArmEuler = new Vector3(5f, 0f, 3f); // a Sponsor "dial"
+            pose.RebuildCached();
+            Assert.AreEqual(new Vector3(5f, 0f, 3f), pose.rightArmEuler,
+                "with seedEulersFromDegFields cleared (the nudge tool's state), RebuildCached must NOT clobber " +
+                "the dialed euler — else the Sponsor's live F9 dial would be wiped");
+
+            Object.DestroyImmediate(go);
+        }
+
+        // RE-SOAK #1 BAKED-DIAL guard (86ca8rdkp re-soak): the Sponsor dialed the held axe + the arm pose
+        // in-game via F9 and reported the values; they must SHIP as the baked defaults (what-he-dialed-is-what-
+        // ships). The held-axe values live as MovementCameraScene constants; the arm-pose eulers live as the
+        // CastawayArmPose serialized defaults with seedEulersFromDegFields FALSE (so a RebuildCached can't re-
+        // derive over the dialed values). A regression that reverts to the "reasonable" pre-dial defaults — or
+        // that flips the seed flag back on (which would clobber the dial) — reds here.
+        [Test]
+        public void ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues()
+        {
+            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86ca9zcjn FINAL SEAT BAKE:
+            // the Sponsor APPROVED the follow-the-arm behavior and dialed the FINAL F9 seat
+            // (-0.1502,-0.1602,-0.0528) via the AxeNudgeTool; that is what ships. The euler is unchanged.
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(-0.1502f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1602f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0528f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(16.0f).Within(1e-3f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(2.0f).Within(1e-3f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.z, Is.EqualTo(-82.0f).Within(1e-3f));
+
+            // Arm pose — the shipped scene's CastawayArmPose must carry the dialed eulers, seed flag OFF.
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            Assert.IsNotNull(pose, "the avatar must carry CastawayArmPose");
+            Assert.IsFalse(pose.seedEulersFromDegFields,
+                "the shipped arm pose must NOT re-seed from the deg fields (else a RebuildCached clobbers the " +
+                "Sponsor's baked F9 dial — re-soak #1)");
+            Assert.That(pose.rightArmEuler, Is.EqualTo(new Vector3(-4.0f, -50.0f, -3.0f)),
+                "the RIGHT arm euler must ship the Sponsor's dialed value (-4,-50,-3)");
+            Assert.That(pose.leftArmEuler, Is.EqualTo(new Vector3(-5.0f, 22.0f, 0.0f)),
+                "the LEFT arm euler must ship the Sponsor's dialed value (-5,22,0)");
+        }
+
+        // RE-SOAK #2 contact-shadow wiring guard (86ca8rdkp re-soak — 'he STILL seems elevated'): the foot-
+        // trace OVERTURNED the feet-float hypothesis (feet planted to ~3mm) — the real cause was the BlobShadow
+        // stranded ~9cm ABOVE the snapped feet (body floats above its own shadow). The fix wires the shadow
+        // onto CastawayCharacter so it grounds to the snapped feet. This pins the serialized wiring; the
+        // behavioral proof is CastawayGroundSnapPlayModeTests.BlobShadow_GroundsToTheSnappedFeet.
+        [Test]
+        public void Avatar_BlobShadowWiredToCastaway_ForContactGrounding()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway.blobShadow,
+                "CastawayCharacter.blobShadow must be wired (else the contact shadow strands above the snapped " +
+                "feet on the dipping foreshore — the 'elevated' re-soak #2 percept)");
+            Assert.AreEqual(MovementCameraScene.BlobShadowObjectName, castaway.blobShadow.name,
+                "the wired shadow must be the BlobShadow");
+        }
+
+        // RE-SOAK #4 finger-curl wiring guard (86ca8rdkp re-soak — 'his right finger is mangled'): the finger-
+        // trace OVERTURNED the skinning hypothesis (the weights/bones are clean) — the 'mangled' read was the
+        // OPEN clip hand around a held haft. The fix is a HasAxe-gated finger-curl driver. The shipped avatar
+        // must carry CastawayFingerCurl with the right-hand finger bones resolved (the component-in-source-but-
+        // -not-in-scene guard). Behavioral proof: CastawayFingerCurlPlayModeTests.
+        [Test]
+        public void Avatar_HasSerializedFingerCurl_WithRightHandFingerBones()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            var curl = castaway.GetComponent<CastawayFingerCurl>();
+            Assert.IsNotNull(curl, "the avatar must carry a serialized CastawayFingerCurl (the #4 grip fix) — " +
+                "a component in source but absent from the scene ships the open 'mangled' hand");
+            Assert.IsNotNull(curl.fingerBones, "the finger-curl must have its finger bones wired");
+            Assert.GreaterOrEqual(curl.fingerBones.Length, 6,
+                "the finger-curl must resolve the right-hand finger bones (Index/Middle/Ring proximal..distal); " +
+                $"got {curl.fingerBones.Length} (a partial resolve means the grip curl ships incomplete)");
+            foreach (var b in curl.fingerBones)
             {
-                foreach (var capName in CastawayCharacter.CapMeshNames)
+                Assert.IsNotNull(b, "every wired finger bone must be non-null");
+                string n = b.name.ToLowerInvariant();
+                Assert.IsTrue(n.Contains("righthand") && (n.Contains("index") || n.Contains("middle") || n.Contains("ring")),
+                    $"finger-curl bone '{b.name}' must be a right-hand Index/Middle/Ring bone (not some other bone)");
+            }
+            Assert.Greater(curl.fingerCurlDeg, 5f,
+                "the finger curl must be non-trivial (>5°) — a zeroed curl ships the open 'mangled' hand (#4 regression)");
+        }
+
+        // GROUND-SNAP wiring guard (86ca8rdkp soak-fix #1 — 'walking in the air'): the shipped avatar must
+        // ship with the ground-snap ENABLED and its raycast mask wired to a real layer (not 0/Nothing, which
+        // would make the snap a no-op and the feet float above the visible terrain). The behavioral proof is
+        // the PlayMode CastawayGroundSnapPlayModeTests; this pins the serialized scene config.
+        [Test]
+        public void Avatar_GroundSnapEnabled_WithRealMask()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+            Assert.IsTrue(castaway.groundSnap,
+                "the avatar must ship with groundSnap ENABLED (else the feet float above the visible terrain " +
+                "— the 'walking in the air' soak bug)");
+            Assert.AreNotEqual(0, castaway.groundMask.value,
+                "the ground-snap raycast mask must be wired to a real layer (0/Nothing = the snap is a no-op)");
+        }
+
+        // UNIFIED-RATE / KILL-THE-BOB config guard (86ca8rdkp EXTENSIVE-DEBUG round — 'reaching a destination
+        // causes a BOB'). The prior speed-adaptive split (60 moving / 18 rest) made the convergence rate JUMP
+        // at the moving→rest transition, so the still-converging error visibly settled the instant the agent
+        // stopped = the arrival bob. With the snap target now the STABLE BAKED sole (no animation-envelope
+        // wobble), a SINGLE unified rate tracks the descending foreshore tightly while walking AND doesn't pop
+        // at rest — no rate discontinuity at arrival, no bob. This pins: (1) the live snapRate is high enough to
+        // keep the during-walk steady-state lag sub-cm, and (2) the snap uses ONE rate (no rest/move split) so
+        // there is no rate jump at arrival. (snapRateRest/Move are retained as dead serialized fields.)
+        [Test]
+        public void Avatar_GroundSnap_UnifiedRate_HighEnoughForWalk_NoArrivalRateJump()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+            // At 5.5u/s into the ~0.047u/u worst foreshore slope, dY/dt≈0.256u/s; steady-state lag = dY/dt /
+            // snapRate must stay sub-cm. 0.256/rate < 0.01 → rate > ~26. Pin a comfortable floor.
+            Assert.GreaterOrEqual(castaway.snapRate, 40f,
+                "the unified snap rate must be high enough that the during-walk steady-state lag stays sub-cm " +
+                "(0.256u/s worst descent / rate < ~0.6cm needs rate ≥ ~40)");
+            // ActiveSnapRate is set to snapRate (the unified rate) every snap frame — proving the snap no longer
+            // branches on moving-state for its rate (the rate jump at arrival = the bob). Verified end-to-end in
+            // CastawayGroundSnapPlayModeTests.Snap_UsesUnifiedRate_NoMoveRestRateDiscontinuity.
+        }
+
+        // GROUND-Y-OFFSET knob guard (86ca8rdkp 4th-attempt — give the Sponsor the dial). The offset must SHIP
+        // at a sane default (0 = plant on the geometric ground) so a fresh build is grounded out of the box,
+        // and the field must exist for the F9 nudge tool's GROUND-Y target to drive. (The Sponsor bakes his
+        // dialed value here after the soak; until then 0 is correct — the snap plants exactly on the sand.)
+        [Test]
+        public void Avatar_GroundYOffset_ShipsAtSaneDefault()
+        {
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway);
+            Assert.That(castaway.groundYOffset, Is.EqualTo(0f).Within(0.5f),
+                "the Sponsor-dialable groundYOffset must ship near 0 (plant on the geometric ground) — a large " +
+                "baked-in offset means the feet plant off the visible sand unless the Sponsor re-dials");
+        }
+
+        // The IDENTITY RECOLOR guard (86ca8rdkp AC4): the generated MUSTARD-YELLOW shirt is warmed toward
+        // TAN (the concept read) WITHOUT flattening the toon gradient. We read the SAME diffuse the material
+        // binds and assert: (1) the saturated-yellow shirt band is now SMALL (the bulk was remapped), and
+        // (2) the remapped region reads warm-tan (R>G>B, hue below the yellow band) with REAL value variation
+        // (the gradient survived — not a flat tint). Catches a regression that drops the recolor (mustard
+        // returns) OR flattens it (gradient lost).
+        [Test]
+        public void Diffuse_ShirtWarmedToTan_NotMustardYellow_GradientPreserved()
+        {
+            string path = CharacterAssetGen.DiffusePngPath;
+            Assert.IsTrue(System.IO.File.Exists(path), "the bound diffuse PNG must exist at " + path);
+            var tex = new Texture2D(2, 2);
+            Assert.IsTrue(tex.LoadImage(System.IO.File.ReadAllBytes(path)), "diffuse PNG must decode");
+
+            var pixels = tex.GetPixels();
+            int saturatedYellow = 0;   // pixels still in the mustard-yellow band (should be ~0 after recolor)
+            int warmTan = 0;           // pixels in the post-recolor warm-tan band
+            var tanValues = new System.Collections.Generic.List<float>();
+            foreach (var c in pixels)
+            {
+                Color.RGBToHSV(c, out float h, out float s, out float v);
+                float hueDeg = h * 360f;
+                bool inYellowBand = hueDeg >= CharacterAssetGen.ShirtHueMinDeg &&
+                                    hueDeg <= CharacterAssetGen.ShirtHueMaxDeg &&
+                                    s >= CharacterAssetGen.ShirtSatMin && v >= CharacterAssetGen.ShirtValMin;
+                if (inYellowBand) saturatedYellow++;
+                // warm tan: hue near the target (28-38°), warm (R>G>B), reasonably lit.
+                if (hueDeg >= 26f && hueDeg <= 40f && c.r > c.g && c.g > c.b && v >= CharacterAssetGen.ShirtValMin)
                 {
-                    if (smr.name == capName)
-                    {
-                        capFound++;
-                        if (!smr.enabled) capHidden++;
-                    }
+                    warmTan++;
+                    tanValues.Add(v);
                 }
             }
-            Assert.AreEqual(CastawayCharacter.CapMeshNames.Length, capFound,
-                "both cap mesh nodes must exist in the avatar (hidden, not deleted — deleting risks rig breakage)");
-            Assert.AreEqual(CastawayCharacter.CapMeshNames.Length, capHidden,
-                "BOTH cap renderers (dome + brim) must be DISABLED in the shipped scene so the castaway " +
-                "reads as having hair, not a cap (the Sponsor's 'still wearing the yellow cap' soak failure)");
+            Object.DestroyImmediate(tex);
 
-            // The replacement hair skull-cap must be present under the avatar (the head bone).
-            Transform hair = null;
-            foreach (var t in castaway.GetComponentsInChildren<Transform>(true))
-                if (t.name == MovementCameraScene.HairObjectName) { hair = t; break; }
-            Assert.IsNotNull(hair,
-                "the '" + MovementCameraScene.HairObjectName + "' skull-cap must be serialized under the " +
-                "avatar (the hidden cap leaves a bare crown — this is the sandy-ginger hair)");
-            var hmr = hair.GetComponent<MeshRenderer>();
-            Assert.IsNotNull(hmr, "the hair must have a MeshRenderer");
-            var hmf = hair.GetComponent<MeshFilter>();
-            Assert.IsNotNull(hmf, "the hair must have a MeshFilter");
-            Assert.IsNotNull(hmf.sharedMesh, "the hair mesh must be serialized");
-            Assert.Greater(hmf.sharedMesh.vertexCount, 6, "the hair must be a real dome mesh");
-            Assert.IsTrue(hmr.enabled, "the hair renderer must be enabled");
-        }
+            float yellowFrac = (float)saturatedYellow / pixels.Length;
+            float tanFrac = (float)warmTan / pixels.Length;
 
-        // Mechanized cap-hide + hair reproducibility: re-running the editor avatar build must re-hide both
-        // cap meshes (the fix lives in BuildModel -> HideCap, on every editor build), so a
-        // regenerate-on-rebase can't silently ship the cap back. Sibling of
-        // EditorRebuild_Reproduces_SameSerializedShape.
-        [Test]
-        public void EditorRebuild_RehidesCap()
-        {
-            OpenBootAndFindPlayer();
-            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
-            Assert.IsNotNull(castaway);
+            // (1) The mustard-yellow shirt band must be largely GONE (the source band measured ~12.9% of the
+            // atlas; after the remap the saturated-yellow shirt is recolored, so this must drop well below 2%).
+            Assert.Less(yellowFrac, 0.02f,
+                $"the saturated mustard-yellow shirt band must be remapped away (still {yellowFrac:P1} of the " +
+                "atlas in the yellow band — the recolor did not run / regressed)");
 
-            castaway.BuildInEditor();
+            // (2) A real warm-tan region must now exist (the shirt landed in the tan band).
+            Assert.Greater(tanFrac, 0.04f,
+                $"a real warm-tan shirt region must exist after the recolor (only {tanFrac:P1} in the tan band — " +
+                "the shirt did not land warm-tan)");
 
-            int capFound = 0, capHidden = 0;
-            foreach (var smr in castaway.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-                foreach (var capName in CastawayCharacter.CapMeshNames)
-                    if (smr.name == capName) { capFound++; if (!smr.enabled) capHidden++; }
-            Assert.AreEqual(CastawayCharacter.CapMeshNames.Length, capFound, "rebuild must reproduce both cap nodes");
-            Assert.AreEqual(capFound, capHidden, "editor rebuild must RE-HIDE both cap meshes (idempotent cap->hair)");
-        }
-
-        // Blob-shadow SCENE-PRESENCE guard (the component-not-serialized-into-scene failure class,
-        // unity-conventions.md §Editor-vs-runtime — a component can exist in source while the scene
-        // never carries it, shipping silently inert). The shipped scene must hold the BlobShadow under
-        // the player, with a MeshFilter/Renderer, NO collider (must not block the click raycast or the
-        // NavMesh bake), and casting no real shadow.
-        [Test]
-        public void BootScene_HasBlobShadow_UnderPlayer_NoColliderNoCast()
-        {
-            OpenBootAndFindPlayer();
-            var blob = _player.transform.Find(MovementCameraScene.BlobShadowObjectName);
-            Assert.IsNotNull(blob,
-                "the shipped scene must carry a '" + MovementCameraScene.BlobShadowObjectName +
-                "' under the player (the contact shadow — serialized, not Awake-built)");
-
-            var mf = blob.GetComponent<MeshFilter>();
-            Assert.IsNotNull(mf, "the blob shadow must have a MeshFilter");
-            Assert.IsNotNull(mf.sharedMesh, "the blob shadow mesh must be serialized");
-            Assert.Greater(mf.sharedMesh.vertexCount, 6, "the blob shadow disc must be a real fan mesh");
-
-            var mr = blob.GetComponent<MeshRenderer>();
-            Assert.IsNotNull(mr, "the blob shadow must have a MeshRenderer");
-            Assert.IsNotNull(mr.sharedMaterial, "the blob shadow material must be serialized inline");
-            Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.Off, mr.shadowCastingMode,
-                "the fake contact shadow must cast NO real shadow");
-
-            Assert.IsNull(blob.GetComponent<Collider>(),
-                "the blob shadow must have NO collider (it must not block the click raycast / NavMesh bake)");
+            // (3) The gradient survived: the tan region carries real VALUE variation (a flat tint would have
+            // ~zero std-dev). Std-dev of HSV value over the tan pixels must be non-trivial.
+            float mean = 0f; foreach (var v in tanValues) mean += v; mean /= Mathf.Max(1, tanValues.Count);
+            float var2 = 0f; foreach (var v in tanValues) var2 += (v - mean) * (v - mean);
+            var2 /= Mathf.Max(1, tanValues.Count);
+            float std = Mathf.Sqrt(var2);
+            Assert.Greater(std, 0.03f,
+                $"the tan shirt must keep its toon light→dark gradient (value std {std:F3} > 0.03); a near-zero " +
+                "std means the recolor flattened the gradient (the per-material-tint trap)");
         }
     }
 }

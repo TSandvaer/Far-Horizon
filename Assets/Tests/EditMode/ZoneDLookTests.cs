@@ -116,11 +116,20 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void Atmosphere_WarmFogEnabled()
+        public void Atmosphere_DistanceFogEnabled_ColourMatchesHorizonStop()
         {
-            Assert.IsTrue(RenderSettings.fog, "global warm-haze fog must be enabled (the Zone-D atmosphere)");
-            Assert.Greater(RenderSettings.fogColor.r, RenderSettings.fogColor.b,
-                "fog must be WARM (red > blue) — the warm-haze direction, not a cold mist");
+            // WORLD-LOOK RE-TUNE (ticket 86ca8t9pq — Uma world-look brief §3 + Erik far-vista 86ca8t9rh):
+            // the fog contract CHANGED. The Zone-D fog was a warm-haze (R>B); the world-look pass makes fog
+            // the §2 atmospheric-fade / vista seam-kill — its colour must EQUAL the horizon sky stop
+            // (#DCE8E4) so the distant mountains dissolve into the SAME colour the sky fades to (no horizon
+            // seam; URP does not fog the skybox). The horizon stop is warm-bright cream-blue (G>B>R), so the
+            // old "R>B warm" heuristic no longer holds — the warmth now lives in the grade. Assert the new
+            // contract: fog ON + colour == the horizon stop anchor.
+            Assert.IsTrue(RenderSettings.fog, "distance fog must be enabled (the §2 atmospheric fade)");
+            Color horizon = FarHorizon.WorldLookPalette.SkyHorizon;
+            Assert.AreEqual(horizon.r, RenderSettings.fogColor.r, 0.01f, "fog R must == the horizon sky stop (seam-kill)");
+            Assert.AreEqual(horizon.g, RenderSettings.fogColor.g, 0.01f, "fog G must == the horizon sky stop (seam-kill)");
+            Assert.AreEqual(horizon.b, RenderSettings.fogColor.b, 0.01f, "fog B must == the horizon sky stop (seam-kill)");
         }
 
         [Test]

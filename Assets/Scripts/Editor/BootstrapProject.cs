@@ -29,6 +29,12 @@ namespace FarHorizon.EditorTools
         private const string ResourcesDir = "Assets/Resources";
         private const string ScenesDir = "Assets/Scenes";
         private const string UrpAssetPath = SettingsDir + "/FarHorizonURP.asset";
+
+        // AC0 LINE FIX (86ca9qwr3): main-light shadow distance pushed past the visible play area so the
+        // shadow-distance boundary never lands in the framed grass; a wider cascade-border fade softens the
+        // boundary if it ever does. See ConfigureUrp for the full trace-diagnosis rationale.
+        public const float ShadowDistanceU = 160f;     // was URP-default 50 (the line landed at r≈50 from cam)
+        public const float ShadowCascadeBorder = 0.35f; // wider fade band than the 0.2 default (soft boundary)
         private const string UrpRendererPath = SettingsDir + "/FarHorizonRenderer.asset";
         private const string BootScenePath = ScenesDir + "/Boot.unity";
         private const string BuildStampPath = ResourcesDir + "/BuildStamp.txt";
@@ -93,6 +99,22 @@ namespace FarHorizon.EditorTools
             AssetDatabase.CreateAsset(renderer, UrpRendererPath);
 
             var urp = UniversalRenderPipelineAsset.Create(renderer);
+            // AC0 "LINE THROUGH THE ISLAND" FIX (ticket 86ca9qwr3 — trace-diagnosed). The dead-straight
+            // world-fixed dark streak the Sponsor flagged is the URP MAIN-LIGHT REAL-TIME SHADOW-DISTANCE
+            // BOUNDARY: directional shadows render only within shadowDistance of the camera, and the hard
+            // edge where shadow-receiving stops paints a dark band on the terrain (a large-radius arc that
+            // reads as a straight line at island scale). The default UniversalRenderPipelineAsset.Create
+            // ships shadowDistance=50 — SMALLER than the grass the gameplay orbit frames, so the boundary
+            // lands IN the visible play area. (Proof: -diagLine isolation probe — line survives hiding the
+            // scatter, vanishes with -noShadows, vanishes at -shadowDist 160, and TRACKS the camera when it
+            // pans, i.e. a camera-relative ring that reads "world-fixed" because the orbit stays over spawn.)
+            // FIX: push shadowDistance out past the visible play area + widen the cascade-border fade so the
+            // boundary never lands in frame AND fades softly if it ever does. This is the URP shadow DISTANCE
+            // setting — it PRESERVES the tree shadows near spawn (well within 160u) and does NOT touch the Sun
+            // light or the tree-shadow setup (the ticket's OOS). Set here so it bakes into FarHorizonURP.asset
+            // reproducibly on every bootstrap (not a hand-edit that silently reverts).
+            urp.shadowDistance = ShadowDistanceU;
+            urp.cascadeBorder = ShadowCascadeBorder;
             AssetDatabase.CreateAsset(urp, UrpAssetPath);
             AssetDatabase.SaveAssets();
 
@@ -187,6 +209,21 @@ namespace FarHorizon.EditorTools
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
             // serialization trap; inert unless the exe is launched with -captureGate.
             hudGo.AddComponent<CaptureGate>();
+            // World-look polish verify capture (86ca8t9pq) — orbits to Uma's per-surface criteria
+            // (default-pitch clouds + low-pitch vista/sky dissolve). Serialized editor-time (NOT Awake)
+            // per the editor-vs-runtime trap; INERT unless the exe is launched with -verifyWorldLook.
+            hudGo.AddComponent<WorldLookVerifyCapture>();
+            // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
+            // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
+            // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
+            // of AxeNudgeTool). Serialized editor-time per the editor-vs-runtime trap; INERT unless F9.
+            hudGo.AddComponent<FarHorizon.WorldLookNudgeTool>();
+            // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
+            // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted
+            // Screenmanager registry values written by the windowed capture gate). INERT on any capture/verify
+            // launch (-captureGate/-verify*/-shot/-screen-fullscreen), so QA's windowed captures are untouched.
+            // Serialized editor-time per the editor-vs-runtime trap; FullscreenBootSceneTests guards its presence.
+            hudGo.AddComponent<FullscreenBoot>();
 
             // U2-1 (86ca8bd9m): the single survival need — WARMTH decays over time and drives the
             // M-U2 loop; the campfire (U2-4) answers it via WarmthNeed's satisfaction hook. SERIALIZED
