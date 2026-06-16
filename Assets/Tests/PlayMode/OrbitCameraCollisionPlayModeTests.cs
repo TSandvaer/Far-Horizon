@@ -1,6 +1,7 @@
 using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using FarHorizon;
 
@@ -31,9 +32,28 @@ namespace FarHorizon.PlayTests
         private int _groundLayer;
         private int _useLayer;
 
-        [SetUp]
-        public void SetUp()
+        // ISOLATION (full-run cross-fixture leak fix, mirrors CastawayGroundSnapPlayModeTests): other PlayMode
+        // fixtures LoadScene("Boot") — which carries the REAL Ground_Play island terrain spanning the origin.
+        // A deferred LoadScene can leave that terrain resident when THIS fixture's camera raycasts fire, so the
+        // raycast hits the real island terrain instead of this test's synthetic floor (proven: these tests pass
+        // in isolation, foul in the full run). Load a fresh EMPTY scene + unload every other scene first, so the
+        // synthetic Ground colliders are the ONLY ones the camera-collision raycasts can hit. THEN build the rig.
+        [UnitySetUp]
+        public IEnumerator IsolateSceneAndBuildRig()
         {
+            var empty = SceneManager.CreateScene("OrbitCamIsolated_" + System.Guid.NewGuid().ToString("N"));
+            SceneManager.SetActiveScene(empty);
+            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
+            {
+                var s = SceneManager.GetSceneAt(i);
+                if (s != empty && s.isLoaded)
+                {
+                    var op = SceneManager.UnloadSceneAsync(s);
+                    if (op != null) while (!op.isDone) yield return null;
+                }
+            }
+            yield return null;
+
             _groundLayer = LayerMask.NameToLayer("Ground");
             // Fall back to Default if the project lacks a Ground layer in this runner — the collision logic is
             // layer-driven, so we use whatever layer the colliders are actually on for the mask.
@@ -48,11 +68,13 @@ namespace FarHorizon.PlayTests
             _orbit.minCollisionDistance = 2.5f;
             _orbit.terrainMask = 1 << _useLayer;
 
-            // A big flat floor at y=0.
+            // A big flat floor at y=0 (top surface at y=0).
             _floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
             _floor.transform.position = new Vector3(0f, -0.5f, 0f);
             _floor.transform.localScale = new Vector3(200f, 1f, 200f);
             _floor.layer = _useLayer;
+            Physics.SyncTransforms();
+            yield return null;
         }
 
         [TearDown]
