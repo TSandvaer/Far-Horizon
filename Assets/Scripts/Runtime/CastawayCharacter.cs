@@ -143,6 +143,29 @@ namespace FarHorizon
         /// derive the camera position from the SAME facing it pinned (no axis assumption).</summary>
         public float BodyYaw => _bodyYaw;
 
+        /// <summary>
+        /// The instantiated FBX MODEL child — the transform that gets yaw-rotated toward facing
+        /// (<c>_model.localRotation = Euler(0, _bodyYaw, 0)</c>, see <see cref="LateUpdate"/>). Exposed
+        /// (86ca9xz00) so a held prop's swing-stabilizer can anchor its grip in the FACING-CARRYING frame.
+        ///
+        /// WHY THIS, NOT the CastawayCharacter root: facing lives on the MODEL CHILD, not on this component's
+        /// transform (the agent has updateRotation=false; "the visual owns facing", :25). A held axe whose
+        /// HeldAxeRig.stabilizeFrame was wired to the ROOT had its facing yaw land in the root-local grip-anchor
+        /// pose and get EASED AWAY by the slow anchor (anchorTrackPerSec ≈ 0.12/s ≈ 8s) → the axe LAGGED facing
+        /// ("seated only one direction"). Anchoring in _model passes facing through immediately while still
+        /// damping only the per-step arm-swing (the hand relative to _model). Resolves editor-time after
+        /// BuildInEditor (the wiring path) and at runtime after RebindFromHierarchy/BuildModel.
+        ///
+        /// STATIC-LOAD FALLBACK (the editor-vs-runtime serialization trap): _model is a private runtime field,
+        /// NOT serialized, so it is null on a freshly-deserialized scene where Awake hasn't run (an EditMode
+        /// scene-presence test, or any editor-static load). The MODEL CHILD itself IS serialized in the
+        /// hierarchy (built editor-time by BuildInEditor → the first child, named "Model"), so fall back to the
+        /// first child when _model is unresolved — RebindFromHierarchy uses the same GetChild(0) contract. This
+        /// lets the editor-time wiring + the scene-presence guard read the model child without a play loop.
+        /// </summary>
+        public Transform ModelTransform => _model != null ? _model
+            : (transform.childCount > 0 ? transform.GetChild(0) : null);
+
         void Awake()
         {
             // The agent lives on the player ROOT (this component is on a child avatar root so its

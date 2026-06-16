@@ -501,10 +501,20 @@ namespace FarHorizon.EditorTools
             Vector3 handLocalOffset = Quaternion.Inverse(hand.rotation) * HeldAxeWorldOffsetFromHand;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
             rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
-            // RE-SOAK #3 — the stabilize frame is the avatar/body root (translates with locomotion, does NOT
-            // arm-swing) so the swing low-pass is measured in a frame free of the walk translation. Without
-            // this the swing damping is computed in WORLD space and FIGHTS locomotion (makes the axe sweep worse).
-            rig.stabilizeFrame = castaway.transform;
+            // RE-SOAK #3 — the grip is stabilized in a body frame that translates with locomotion + YAWS with
+            // facing but does NOT arm-swing, so the swing low-pass passes facing through while damping the
+            // per-step swing. 86ca9xz00 — that frame is the MODEL CHILD (castaway.ModelTransform), NOT the
+            // CastawayCharacter root: facing is applied to _model.localRotation ("the visual owns facing"),
+            // NOT to the root. Wiring the stabilizeFrame to the root put the facing yaw INTO the root-local
+            // grip-anchor pose, where the slow anchor (anchorTrackPerSec ≈ 0.12/s ≈ 8s) EASED IT AWAY → the
+            // axe LAGGED facing ("seated only one direction"). Anchoring in _model passes facing through
+            // immediately; only the arm-swing (hand relative to _model) is eased. Falls back to the root if
+            // the model child is somehow not built yet (the Awake fallback also prefers the model).
+            rig.stabilizeFrame = castaway.ModelTransform != null ? castaway.ModelTransform : castaway.transform;
+            if (castaway.ModelTransform == null)
+                Debug.LogWarning("[MovementCameraScene] CastawayCharacter model child not built — held-axe " +
+                                 "stabilizeFrame fell back to the root; facing may lag (86ca9xz00). Ensure " +
+                                 "BuildInEditor ran before AttachHeroAxeToHand.");
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
