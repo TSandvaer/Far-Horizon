@@ -45,8 +45,15 @@ namespace FarHorizon
 
         [Header("Locomotion thresholds")]
         [Tooltip("Planar speed (u/s) above which the character is considered walking (drives the " +
-                 "Idle<->Walk blend). Squared internally.")]
+                 "Idle<->locomotion blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
+
+        [Tooltip("Planar speed (u/s) at/above which the WALK<->RUN blend (86ca9yq34) reads as a full RUN. " +
+                 "The blend tree is 1D on the Speed param: <= walk speed plays Walk, >= this plays Run, and " +
+                 "between them blends smoothly (AC1's smooth Walk<->Run blend). Set to the WASD run speed " +
+                 "(WasdMovement.runSpeed) so holding Shift reaches a full run; the WASD walk speed lands in the " +
+                 "Walk band. Exposed so the run state (IsRunning) reads consistently with the blend.")]
+        public float runSpeedThreshold = 9.5f;
 
         [Header("Walk-float model-sole grounding (86ca8rdkp attempt-9 — the WALK-clip body-lift fix)")]
         [Tooltip("Ground the VISIBLE rendered SOLE (scale-immune) by offsetting the MODEL CHILD's local-Y, on " +
@@ -111,8 +118,13 @@ namespace FarHorizon
         [Tooltip("Small lift (world units) of the shadow above the snapped feet so it doesn't z-fight the sand.")]
         public float blobShadowLift = 0.02f;
 
-        // Animator parameter the controller blends on (set each frame from the agent's velocity).
+        // Animator parameters the controller blends on (set each frame from the agent's velocity).
+        // Moving (bool): flips the Idle<->locomotion (Walk/Run blend tree) transition.
+        // Speed (float): the planar agent speed (u/s) the locomotion 1D blend tree blends Walk<->Run on
+        // (86ca9yq34). Walk clip <= walkSpeed, Run clip >= runSpeed, smooth blend between — driven from the
+        // SAME agent.velocity magnitude WasdMovement commands (walkSpeed walking, runSpeed sprinting).
         public const string MovingParam = "Moving";
+        public const string SpeedParam = "Speed";
 
         private NavMeshAgent _agent;
         private Animator _animator;
@@ -123,6 +135,18 @@ namespace FarHorizon
 
         // Exposed for tests / later systems: current Idle/Walk state read off the agent.
         public bool IsWalking { get; private set; }
+
+        /// <summary>The planar agent speed (u/s) fed to the Walk<->Run blend tree's Speed param LAST frame
+        /// (86ca9yq34). Exposed so the PlayMode AC5 regression can assert the run drives a FASTER speed (→ the
+        /// Run clip blends in) than walk, off the agent velocity — without depending on the Animator having
+        /// physically advanced the clip (headless Time.deltaTime≈0, the documented headless-time trap).</summary>
+        public float CurrentSpeed { get; private set; }
+
+        /// <summary>Whether the character is RUNNING this frame: the planar agent speed is at/above
+        /// runSpeedThreshold (86ca9yq34). The Walk<->Run blend reads as a full Run here. Exposed so the AC5
+        /// regression asserts the run state flips when Shift drives the faster speed (and stays false at walk
+        /// speed). Reads off the same Speed value the blend tree consumes — consistent with what renders.</summary>
+        public bool IsRunning { get; private set; }
 
         /// <summary>
         /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook). The verify
@@ -751,16 +775,28 @@ namespace FarHorizon
             // down onto the visible sand the agent's NavMesh ground point floats above.
             ApplyGroundSnap();
 
-            // Read the agent's planar velocity each frame and drive the Idle<->Walk blend + facing.
-            // Self-driving keeps this PR's surface to the visual only (no ClickToMove edit).
+            // Read the agent's planar velocity each frame and drive the Idle<->locomotion blend + the
+            // Walk<->Run blend tree (86ca9yq34) + facing. Self-driving keeps this PR's surface to the visual
+            // only (no ClickToMove/WasdMovement edit beyond reading the velocity they already command).
             Vector3 vel = _agent != null ? _agent.velocity : Vector3.zero;
             vel.y = 0f;
+            float planarSpeed = vel.magnitude;
             bool walking = vel.sqrMagnitude > (walkSpeedThreshold * walkSpeedThreshold);
             IsWalking = walking;
+            // The Speed param fed to the 1D Walk<->Run blend tree = the planar agent speed (u/s). WASD drives
+            // the agent at moveSpeed walking / runSpeed sprinting, so this magnitude lands in the blend tree's
+            // Walk band or Run band accordingly — the Run clip blends in only while actually running fast.
+            CurrentSpeed = planarSpeed;
+            // RUNNING: at/above the run threshold (the blend reads as a full Run here). A small hysteresis-free
+            // threshold compare — the blend tree itself is what smooths the visual transition.
+            IsRunning = walking && planarSpeed >= runSpeedThreshold;
             if (walking) _lastFacing = vel.normalized;
 
             if (_animator != null && _animator.runtimeAnimatorController != null)
+            {
                 _animator.SetBool(MovingParam, walking);
+                _animator.SetFloat(SpeedParam, planarSpeed);
+            }
 
             // Yaw the model smoothly toward the travel facing (frame-rate-independent lerp).
             Vector3 face = _lastFacing; face.y = 0f;

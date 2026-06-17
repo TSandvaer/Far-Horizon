@@ -57,6 +57,7 @@ namespace FarHorizon.EditorTools
         private const string CharDir = "Assets/Art/Character/Castaway";
         public const string IdleFbxPath = CharDir + "/Idle.fbx";   // WITH skin (mesh+rig+Idle clip)
         public const string WalkFbxPath = CharDir + "/Walking.fbx"; // WITHOUT skin (Walk clip only)
+        public const string RunFbxPath = CharDir + "/Running.fbx";  // WITHOUT skin (Run clip only — 86ca9yq34)
         public const string DiffusePngPath = CharDir + "/texture_diffuse.png";
         public const string NormalPngPath = CharDir + "/texture_normal.png";
         public const string MaterialPath = CharDir + "/CastawayMat.mat";
@@ -75,6 +76,15 @@ namespace FarHorizon.EditorTools
         public const string SourceTake = "mixamo.com";
         public const string IdleClip = "CastawayIdle"; // renamed-on-import (the controller binds this)
         public const string WalkClip = "CastawayWalk"; // renamed-on-import
+        public const string RunClip = "CastawayRun";   // renamed-on-import (86ca9yq34 — the Run clip)
+
+        // The 1D Walk<->Run blend-tree thresholds on the Speed param (86ca9yq34). Idle@0, Walk@WalkBlendSpeed,
+        // Run@RunBlendSpeed — so the planar agent speed WasdMovement commands (moveSpeed walking, runSpeed
+        // sprinting) lands the blend in the Walk band or the Run band, blending smoothly between. These mirror
+        // MovementCameraScene's WASD walk/run speeds (kept in sync so the Speed param maps onto the right clip).
+        public const float IdleBlendSpeed = 0f;
+        public const float WalkBlendSpeed = 5.5f;  // == MovementCameraScene WASD walk speed (agent.speed)
+        public const float RunBlendSpeed = 9.5f;   // == WasdMovement.runSpeed
 
         // The de-lit material binds texture_diffuse as the toon albedo. Asserted present so a missing-texture
         // grey regression (the flat toon look silently lost) fails the build/test.
@@ -108,8 +118,9 @@ namespace FarHorizon.EditorTools
 
         public static void PrepareCharacter()
         {
-            ConfigureIdleFbx();   // Humanoid CreateFromThisModel + loop+rename Idle + height-normalize
-            ConfigureWalkFbx();   // Humanoid CopyFromOther(Idle) + loop+rename Walk (retargets)
+            ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize
+            ConfigureWalkFbx();   // Generic CreateFromThisModel + loop+rename Walk (binds by transform path)
+            ConfigureRunFbx();    // Generic CreateFromThisModel + loop+rename Run (binds by transform path; 86ca9yq34)
             // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
             // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
             // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
@@ -200,8 +211,35 @@ namespace FarHorizon.EditorTools
             importer.clipAnimations = LoopAndRename(importer, WalkClip, out int looped);
             EditorUtility.SetDirty(importer);
             importer.SaveAndReimport();
-            Debug.Log($"[CharacterAssetGen] Walking.fbx reimported: rig=Humanoid CopyFromOther(Idle), " +
+            Debug.Log($"[CharacterAssetGen] Walking.fbx reimported: rig=Generic CreateFromThisModel, " +
                       $"looped+renamed {looped} clip(s) -> {WalkClip}");
+        }
+
+        // Running.fbx is the RUN clip WITHOUT skin (86ca9yq34). IDENTICAL import config to Walking.fbx: GENERIC
+        // rig, avatar created from its OWN (identical mixamorig) skeleton (CreateFromThisModel); the Generic Run
+        // clip binds by TRANSFORM PATH onto Idle's mesh (same bone names) — NO Humanoid muscle-space retarget
+        // (the runtime-explosion cause, 86ca8rdkp). Loop the Run clip. No skin → no material import (avoid stray
+        // materials). The Mixamo take is "mixamo.com" → renamed to CastawayRun on import (the same clip-take
+        // finding the Idle/Walk imports honor — an exact "Run" match loops ZERO clips, the T-pose-mid-walk class).
+        private static void ConfigureRunFbx()
+        {
+            var importer = AssetImporter.GetAtPath(RunFbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] Running.fbx not found at " + RunFbxPath); return; }
+
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = true;
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            importer.clipAnimations = LoopAndRename(importer, RunClip, out int looped);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] Running.fbx reimported: rig=Generic CreateFromThisModel, " +
+                      $"looped+renamed {looped} clip(s) -> {RunClip}");
         }
 
         // Build a flat de-lit URP/Lit material from texture_diffuse: _BaseMap = diffuse, smoothness ~0, no
@@ -390,40 +428,66 @@ namespace FarHorizon.EditorTools
             return h;
         }
 
+        // Build the locomotion controller (86ca9yq34 — Walk<->Run blend on Shift). The state machine is:
+        //   Idle  <--Moving bool-->  Locomotion (a 1D BLEND TREE on the Speed float: Walk@WalkBlendSpeed,
+        //                                        Run@RunBlendSpeed — smooth Walk<->Run blend, AC1).
+        // WHY A BLEND TREE (not a Walk state + a Run state with transitions): a 1D blend tree interpolates the
+        // Walk and Run clips CONTINUOUSLY on the Speed param, so accelerating from walk to run (Shift held) and
+        // back is a smooth crossfade with NO transition pops or exit-time stalls — exactly AC1's "smooth
+        // Walk<->Run blend". CastawayCharacter feeds Speed = the planar agent speed every frame (moveSpeed
+        // walking, runSpeed sprinting), so the blend reads the right clip by construction.
+        // The Idle<->Locomotion split stays on the Moving bool (keeps IsWalking + the existing Idle transition
+        // behavior; the Speed=0 floor of the blend tree is Idle too, but the explicit bool transition keeps the
+        // at-rest Idle crisp + back-compatible with the prior Moving-bool contract).
         private static void BuildAnimatorController()
         {
             AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
             AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
-            if (idle == null || walk == null)
+            AnimationClip run = FindClip(RunFbxPath, RunClip);
+            if (idle == null || walk == null || run == null)
             {
-                Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}); " +
-                               "controller not built");
+                Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}, " +
+                               $"run={run != null}); controller not built");
                 return;
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(ControllerPath));
             var controller = AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
             controller.AddParameter("Moving", AnimatorControllerParameterType.Bool);
+            controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
             idleState.motion = idle;
-            var walkState = sm.AddState("Walk");
-            walkState.motion = walk;
+
+            // The Locomotion state = a 1D blend tree on Speed (Idle floor + Walk + Run). CreateBlendTreeInController
+            // creates the tree as an asset child of the controller AND the hosting state in one call.
+            var locoState = controller.CreateBlendTreeInController("Locomotion", out BlendTree tree, 0);
+            tree.blendType = BlendTreeType.Simple1D;
+            tree.blendParameter = "Speed";
+            tree.useAutomaticThresholds = false;
+            // Idle floor @0 so a tiny residual speed reads as standing (no foot-slide); Walk @WalkBlendSpeed;
+            // Run @RunBlendSpeed. The Speed param above WalkBlendSpeed blends Walk->Run; below it blends Walk->Idle.
+            tree.AddChild(idle, IdleBlendSpeed);
+            tree.AddChild(walk, WalkBlendSpeed);
+            tree.AddChild(run, RunBlendSpeed);
+
             sm.defaultState = idleState;
 
-            var toWalk = idleState.AddTransition(walkState);
-            toWalk.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
-            toWalk.hasExitTime = false;
-            toWalk.duration = 0.12f;
+            var toLoco = idleState.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = false;
+            toLoco.duration = 0.12f;
 
-            var toIdle = walkState.AddTransition(idleState);
+            var toIdle = locoState.AddTransition(idleState);
             toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
             toIdle.hasExitTime = false;
             toIdle.duration = 0.15f;
 
             EditorUtility.SetDirty(controller);
-            Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Walk on Moving bool -> " + ControllerPath);
+            Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Locomotion(Moving) + Walk<->Run 1D " +
+                      $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) -> " +
+                      ControllerPath);
         }
 
         // Mirror MovementCameraScene.EnsureShaderAlwaysIncluded: GraphicsSettings.asset's
@@ -454,7 +518,7 @@ namespace FarHorizon.EditorTools
         {
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("[char-trace] ===== CHARACTER DIAGNOSE TRACE =====");
-            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath })
+            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath, RunFbxPath })
             {
                 sb.AppendLine("[char-trace] ===== " + fbx + " =====");
                 foreach (var o in AssetDatabase.LoadAllAssetsAtPath(fbx))
@@ -632,7 +696,8 @@ namespace FarHorizon.EditorTools
 
             AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
             AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
-            sb.AppendLine($"[clip-trace] idle={(idle != null ? idle.name : "<null>")} walk={(walk != null ? walk.name : "<null>")}");
+            AnimationClip run = FindClip(RunFbxPath, RunClip);
+            sb.AppendLine($"[clip-trace] idle={(idle != null ? idle.name : "<null>")} walk={(walk != null ? walk.name : "<null>")} run={(run != null ? run.name : "<null>")}");
 
             const float PlayerVisualHeight = 1.8f;
             var playerRoot = new GameObject("__clipPlayer");
@@ -664,6 +729,7 @@ namespace FarHorizon.EditorTools
 
             SampleClip("IDLE", idle);
             SampleClip("WALK", walk);
+            SampleClip("RUN", run);
 
             Object.DestroyImmediate(playerRoot);
             sb.AppendLine("[clip-trace] ===== END CLIP-BASELINE DIAGNOSE =====");
