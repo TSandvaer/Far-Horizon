@@ -199,6 +199,10 @@ CREATING low-poly objects, not just importing CC0 packs:
   verified by re-running capture_gate after the change (frames must stay 1280×720). `FullscreenBoot` +
   `FullscreenBootSceneTests`/`FullscreenBootPlayModeTests` are the implementation + guards.
 
+## Input System
+
+- **Switching to Unity's NEW Input System flips the project `activeInputHandler` — which BREAKS every existing legacy-`Input` consumer (Devon, WASD/run 86ca9yq2x/86ca9yq34).** `Project Settings → Player → Active Input Handling` is a project-wide enum: `Input Manager (Old)` = 0, `Input System Package (New)` = 1, `Both` = 2. Installing the Input System package and choosing "New" (or a tool/import flipping it) sets `activeInputHandler=1`, after which `UnityEngine.Input.GetAxis/GetKey/GetMouseButton/mousePosition` **return zero / throw** — silently disabling EVERY legacy consumer at once. Far Horizon's `OrbitCamera` (mouse-orbit + scroll-zoom), the F8 `FloatDiagnostic` + F9 `AxeNudgeTool`/`WorldLookNudgeTool` debug toggles, AND the WASD/run locomotion all read legacy `Input` — so a flip to New would dead-stick the camera, the nudge tools, and movement in one stroke. **For incremental input features here, DRIVE THE INPUT VIA LEGACY `Input.GetAxisRaw`/`Input.GetKey` (the project stays `activeInputHandler=0`)** — do NOT install/enable the New Input System for a single feature. WASD (`86ca9yq2x`) and run-on-Shift (`86ca9yq34`, `Input.GetKey(KeyCode.LeftShift)`) both chose legacy for exactly this reason. (unity6-mastery.md §11 documents the New Input System setup as the GENERAL Unity-6 recommendation — but that recommendation assumes a greenfield input layer; adopting it on Far Horizon is a project-wide migration that must port OrbitCamera + every debug tool in the SAME PR, not a drive-by per-feature choice. Until that migration is scoped as its own ticket, new input stays legacy.)
+
 ## FBX / rigs / characters
 
 - **Held props must be posed HAND-LOCAL, never WORLD, or the rotation won't survive a turn.** Setting a held

@@ -35,9 +35,14 @@ namespace FarHorizon
     public class WasdMovement : MonoBehaviour
     {
         [Header("Speed")]
-        [Tooltip("Walk speed (u/s) the WASD input drives. Defaults to the agent's own speed if left 0. " +
-                 "OOS: run-on-Shift is a downstream ticket (86ca9yq34) — this is the single walk speed.")]
+        [Tooltip("Walk speed (u/s) the WASD input drives. Defaults to the agent's own speed if left 0.")]
         public float moveSpeed = 5.5f;
+
+        [Tooltip("RUN speed (u/s) while Sprint (Shift) is held AND moving (ticket 86ca9yq34). Faster than " +
+                 "moveSpeed so holding Shift visibly runs. CastawayCharacter reads the resulting agent.velocity " +
+                 "MAGNITUDE to drive the Walk<->Run blend tree, so a faster run speed → the Run clip blends in. " +
+                 "Defaults ~1.8× the walk speed (a clear run). The Sponsor can re-tune from the build.")]
+        public float runSpeed = 9.5f;
 
         [Header("Camera-relative basis (AC1)")]
         [Tooltip("The orbit camera transform whose facing defines 'forward'. Auto-resolves to Camera.main " +
@@ -63,6 +68,11 @@ namespace FarHorizon
         // runs in a build where real keystrokes can't be injected. null = read real keyboard (normal play).
         private Vector2? _inputOverride;
 
+        // SPRINT (Shift) PROGRAMMATIC SEAM (86ca9yq34 — run-on-Shift). A headless PlayMode run / the shipped-
+        // build verify capture can't inject a real Shift keystroke, so the sprint state can be overridden the
+        // same way the move vector is. null = read the real keyboard (Input.GetKey(LeftShift|RightShift)).
+        private bool? _sprintOverride;
+
         /// <summary>Drive WASD programmatically (the input-independent seam — the verify capture's analog of
         /// ClickToMove.MoveTo). Pass an (x=strafe, y=forward) vector; pass null / <see cref="ClearInputOverride"/>
         /// to return to the real keyboard. Used by WasdVerifyCapture to exercise WASD in the shipped exe.</summary>
@@ -70,6 +80,15 @@ namespace FarHorizon
 
         /// <summary>Stop overriding input — return to reading the real keyboard.</summary>
         public void ClearInputOverride() => _inputOverride = null;
+
+        /// <summary>Drive the SPRINT (run-on-Shift) state programmatically — the input-independent analog of the
+        /// Shift key (ticket 86ca9yq34). Pass true to run, false to walk; <see cref="ClearSprintOverride"/> /
+        /// null returns to the real keyboard. Used by the PlayMode AC5 test + the shipped-build run capture
+        /// (headless / built-exe runs can't inject a Shift keystroke).</summary>
+        public void SetSprintOverride(bool sprint) => _sprintOverride = sprint;
+
+        /// <summary>Stop overriding sprint — return to reading the real LeftShift/RightShift key.</summary>
+        public void ClearSprintOverride() => _sprintOverride = null;
 
         /// <summary>The camera-relative planar move direction the WASD input resolved to LAST frame
         /// (unit-length while moving, zero at rest). Exposed so the PlayMode regression can assert the
@@ -80,6 +99,17 @@ namespace FarHorizon
         /// <summary>Whether WASD input is being held this frame (planar input above the deadzone).
         /// Exposed for tests / later systems.</summary>
         public bool HasInput { get; private set; }
+
+        /// <summary>Whether the player is RUNNING this frame: Sprint (Shift) held AND moving (86ca9yq34). At
+        /// rest, holding Shift does NOT run (no move → walk/run is moot). Exposed so the PlayMode AC5 regression
+        /// can assert the run state flips with Shift, and for any later system (stamina, FOV kick).</summary>
+        public bool IsSprinting { get; private set; }
+
+        /// <summary>The move speed (u/s) the WASD input drove the agent at LAST frame — runSpeed while sprinting
+        /// + moving, moveSpeed while walking, 0 at rest. Exposed so a regression can assert run drives a FASTER
+        /// speed than walk WITHOUT depending on the agent having physically traversed (headless Time.deltaTime≈0,
+        /// the documented headless-time trap — assert the commanded speed, not displacement).</summary>
+        public float CurrentSpeed { get; private set; }
 
         void Awake()
         {
@@ -128,17 +158,36 @@ namespace FarHorizon
                 input = new Vector2(h, v);
             }
 
+            // SPRINT (run-on-Shift, 86ca9yq34): the real LeftShift/RightShift key, or the programmatic override
+            // (the headless / shipped-build seam). Legacy Input (the project is activeInputHandler=0 — driving
+            // input via legacy Input avoids the project-wide NEW-Input-System flip that would BREAK the
+            // OrbitCamera mouse-orbit/zoom + the F8/F9 tools; the WASD base 86ca9yq2x chose legacy for exactly
+            // this — see unity-conventions.md §Input System).
+            bool sprint;
+            if (_sprintOverride.HasValue)
+                sprint = _sprintOverride.Value;
+            else
+                sprint = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+
             ResolveCameraBasis(out Vector3 camFwd, out Vector3 camRight);
             Vector3 dir = CameraRelativeDirection(camFwd, camRight, input);
 
             HasInput = dir.sqrMagnitude > InputDeadzone * InputDeadzone;
             LastMoveDir = HasInput ? dir : Vector3.zero;
 
+            // RUN only while MOVING: holding Shift at a standstill is not "running" (there is no travel to
+            // speed up). So sprint gates on HasInput — release Shift OR stop moving → walk speed (AC1: release
+            // returns to walk).
+            IsSprinting = HasInput && sprint;
+
             // Drive the EXISTING agent's velocity (AC3): the agent simulation keeps the player on the
             // NavMesh (grounding + obstacle handling intact) and exposes this as agent.velocity — exactly
-            // what CastawayCharacter reads for the Idle<->Walk blend (AC4) + facing yaw (AC2). Zero velocity
-            // when no input → the agent settles → CastawayCharacter flips to Idle.
-            float speed = moveSpeed > 0.001f ? moveSpeed : _agent.speed;
+            // what CastawayCharacter reads for the Walk<->Run blend tree (AC1) + the Idle<->locomotion flip
+            // (AC4) + facing yaw (AC2). Zero velocity when no input → the agent settles → Idle.
+            float walk = moveSpeed > 0.001f ? moveSpeed : _agent.speed;
+            float run = runSpeed > walk ? runSpeed : walk; // defensive: run is never slower than walk
+            float speed = IsSprinting ? run : walk;
+            CurrentSpeed = HasInput ? speed : 0f;
             if (_agent.isOnNavMesh)
                 _agent.velocity = LastMoveDir * speed;
         }

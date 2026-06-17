@@ -1375,6 +1375,10 @@ namespace FarHorizon.EditorTools
             // Ground layer each frame to plant the feet on the surface the player SEES. Wire the mask to the
             // Ground layer editor-time so it serializes (no Awake LayerMask string lookup in the build).
             castaway.groundMask = groundLayer >= 0 ? (LayerMask)(1 << groundLayer) : (LayerMask)~0;
+            // RUN threshold (86ca9yq34 — run-on-Shift). The planar agent speed at/above which the character
+            // reads as RUNNING (the Walk<->Run blend tree reads a full Run). Pinned to RunBlendSpeed so the
+            // IsRunning flag + the blend tree agree, and serialized editor-time so it ships in Boot.unity.
+            castaway.runSpeedThreshold = CharacterAssetGen.RunBlendSpeed;
             // Build the Model child NOW (editor) so the skinned mesh + bones + Animator serialize into
             // Boot.unity (the editor-vs-runtime serialization lesson).
             castaway.BuildInEditor();
@@ -1579,6 +1583,11 @@ namespace FarHorizon.EditorTools
             wasd.moveSpeed = player.GetComponent<NavMeshAgent>() != null
                 ? player.GetComponent<NavMeshAgent>().speed
                 : 5.5f;
+            // RUN speed (86ca9yq34 — run-on-Shift). Faster than the walk speed so holding Shift visibly runs;
+            // matches the Run blend-tree threshold (CharacterAssetGen.RunBlendSpeed) so the faster agent
+            // velocity lands the Walk<->Run blend on the Run clip. Serialized editor-time (the
+            // component-in-source-but-not-in-scene trap — an Awake-set value wouldn't ship).
+            wasd.runSpeed = CharacterAssetGen.RunBlendSpeed;
             wasd.cameraTransform = camGo != null ? camGo.transform : null;
             wasd.clickToMove = player.GetComponent<ClickToMove>();
             if (wasd.cameraTransform == null)
@@ -1589,8 +1598,30 @@ namespace FarHorizon.EditorTools
             // input-independent seam, proves WASD MOVED the player in the BUILT exe). Inert unless -verifyWasd.
             WireWasdVerifyCapture(player);
 
+            // Wire the RUN-ON-SHIFT shipped-build capture (86ca9yq34) — holds forward + the sprint override and
+            // captures the run cycle from the gameplay cam (walk vs run frames + the grounded-while-running gap).
+            // Inert unless -verifyRun. Sibling of WasdVerifyCapture.
+            WireRunVerifyCapture(player);
+
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
+        }
+
+        // Wire the RUN-ON-SHIFT shipped-build verify capture onto the Boot object so it SERIALIZES into
+        // Boot.unity (the component-in-source-but-not-in-scene trap). Inert unless launched with -verifyRun
+        // (86ca9yq34). Sibling of WireWasdVerifyCapture.
+        private static void WireRunVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host RunVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<RunVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<RunVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
         }
 
         // Wire the WASD shipped-build verify capture onto the Boot object so it SERIALIZES into Boot.unity
