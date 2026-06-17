@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.AI;
+using Unity.AI.Navigation;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using FarHorizon;
