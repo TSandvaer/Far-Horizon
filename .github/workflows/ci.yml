@@ -24,8 +24,30 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs-only changes skip the WHOLE CI (incl. the heavy self-hosted unity build).
+    # Every push/PR triggers a full unity build on the SINGLE far-horizon-local
+    # runner; a docs-only change needlessly contends the runner and is a known EPERM
+    # trigger when it races another build (unity-conventions.md §Process notes,
+    # ticket 86caahtbe). The structure job is fast/hosted but has nothing to check on
+    # a pure-docs change. NOTE: a paths-ignore filter makes the run not trigger at all
+    # — it does NOT report a skipped *required* check as success. `unity` is NOT a
+    # required branch-protection check today (the hosted `structure` job is the one
+    # protecting main — see job comments). If `unity` is ever promoted to required,
+    # replace this filter with a path-FILTER job that emits a green no-op (see PR body).
+    paths-ignore:
+      - '**/*.md'
+      - 'team/**'
+      - 'inspiration/**'
+      - '.claude/**'
+      - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'team/**'
+      - 'inspiration/**'
+      - '.claude/**'
+      - 'docs/**'
 
 # Cancel superseded runs on the same ref to save self-hosted runner time.
 concurrency:
@@ -69,7 +91,12 @@ jobs:
   unity:
     name: unity (self-hosted, EditMode + PlayMode + build)
     runs-on: [self-hosted, windows, unity]
-    timeout-minutes: 40
+    # A COLD / post-cache-clear build does a full package re-resolve + asset reimport
+    # (no warm Library) and was observed at 20–25+ min — the old 40-min cap auto-
+    # CANCELLED a churning cold build (run 27692339123, ticket 86caahtbe). 55 min
+    # leaves headroom for a cold reimport + EditMode + PlayMode + build + capture gate
+    # while still bounding a genuinely hung runner. Warm runs stay ~7–9 min.
+    timeout-minutes: 55
     env:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
@@ -79,6 +106,18 @@ jobs:
       - name: Prepare output dir
         shell: bash
         run: mkdir -p ci-out
+
+      # 0. PackageCache hygiene — delete stranded Library/PackageCache/.tmp-* staging
+      #    dirs BEFORE bootstrap. The resolver renames a fresh .tmp-* onto a target
+      #    dir; a stranded/locked target (left by a concurrent/cancelled build) makes
+      #    that rename EPERM (com.unity.shadergraph / com.unity.modules.terrainphysics
+      #    observed — unity-conventions.md §Headless, ticket 86caahtbe). Idempotent +
+      #    no-op on a warm cache; never fails the build (bootstrap is the gate).
+      - name: Clean stranded PackageCache .tmp dirs
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/clean_packagecache_tmp.sh
+          .github/workflows/scripts/clean_packagecache_tmp.sh
 
       # 1. Bootstrap — establish URP + boot scene + build stamp from code, exactly
       #    as U1 did. Idempotent; safe to re-run on a fresh CI checkout.
