@@ -49,6 +49,7 @@ Auto-loaded at session start via `.claude/hooks/session-start-read-docs.sh`. **S
 - [Unity Conventions](.claude/docs/unity-conventions.md) — hard-won Unity/URP findings from the eval spike + bootstrap: headless rituals, editor-vs-runtime serialization traps, FBX/rig gotchas, low-poly mesh/normals patterns
 - [Character Pipeline](.claude/docs/character-pipeline.md) — generate a chunky-low-poly character via Hyper3D Rodin Image-to-3D → Mixamo auto-rig → Unity Humanoid; non-obvious gotchas (pose is driven by the reference image, Quad-not-Tri, de-light, with-skin/without-skin Mixamo split)
 - [Unity 6 Mastery](.claude/docs/unity6-mastery.md) — **MANDATORY Unity 6/URP daily-use guardrails** (rendering path/Forward+, GPU Resident Drawer, draw-call batching, lighting budget, GC/scripting rules, ScriptableObject architecture, UI Toolkit, texture/mesh import, IL2CPP build) — read before ANY Unity code, every action. Full cited reference: `team/erik-consult/unity6-mastery-research.md` (Sponsor-commissioned 2026-06-16)
+- [Far Horizon — game concept](.claude/docs/vision-far-horizon-game-concept.md) — Sponsor's full survival-arc vision (shipwreck → branches/stones → crafting table → axe → chop wood → bonfire → berries/hunger → fresh-water/thirst); difficulty/scariness adjustable for kids + adults. ⚠ introduces hunger+thirst needs beyond the current WARMTH-only M-U2 loop — reconcile scope before building those
 
 ## Key references
 
