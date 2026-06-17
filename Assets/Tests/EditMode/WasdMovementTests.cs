@@ -101,5 +101,123 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(0f, dir.y, 1e-4f, "even a near-top-down camera yields a planar move (no vertical creep)");
             Assert.AreEqual(1f, dir.magnitude, 1e-3f, "still unit-length");
         }
+
+        // =================================================================================================
+        // AIRBORNE AIR-CONTROL (ticket 86caac81y — the "thrown violently to the sides" fix).
+        //
+        // BUG CLASS these pin (NOT one instance): while airborne, WasdMovement used to drive
+        // _agent.velocity = LastMoveDir * fullSpeed every frame — IDENTICAL to grounded — so a single A/D
+        // press in flight SNAPPED the lateral velocity to ±moveSpeed instantly = the violent throw. The fix
+        // steers via a capped acceleration that PRESERVES carried-in momentum. These guard the pure
+        // WasdMovement.AirborneVelocity core: a single-frame A/D press stays a SUBTLE nudge (well under the
+        // full move speed), forward momentum is preserved, the vertical (jump-arc) channel is untouched, and
+        // no-input coasts. They are scene-rig-free (no Animator/NavMesh/headless-time).
+        // =================================================================================================
+
+        private const float Accel = 8f;       // production default airControlAccel (u/s²)
+        private const float Cap = 5.5f;       // production default airControlMaxSpeed (u/s) — the walk speed
+        private const float MoveSpeed = 5.5f; // grounded walk speed (the OLD airborne snap magnitude)
+        private const float RunSpeed = 9.5f;  // grounded run speed
+        private const float Dt = 1f / 60f;    // a 60fps frame
+
+        [Test]
+        public void Airborne_SingleFrameStrafe_IsASubtleNudge_NotAFullSpeedSnap()
+        {
+            // Carried into the jump moving FORWARD at the run speed along +Z (a run-jump). Press D (camera-right
+            // = +X) for ONE frame. The OLD code would set velocity = (+X)*moveSpeed = 5.5 u/s lateral INSTANTLY.
+            Vector3 carried = new Vector3(0f, 2f, RunSpeed);       // +Y arc velocity present (must be preserved)
+            Vector3 dPress = new Vector3(1f, 0f, 0f);             // D resolves to +X (one frame)
+
+            Vector3 v = WasdMovement.AirborneVelocity(carried, dPress, Accel, Cap, Dt);
+
+            // The per-frame lateral (X) gain must be tiny — bounded by accel·dt (~0.133 u/s), NOWHERE NEAR the
+            // 5.5 u/s the old full-speed snap produced. THIS is the regression guard for the "violent throw".
+            Assert.LessOrEqual(Mathf.Abs(v.x), Accel * Dt + 1e-4f,
+                $"a SINGLE-FRAME airborne A/D press must nudge lateral velocity by at most accel·dt " +
+                $"({Accel * Dt:F4} u/s), not snap to the full move speed (the old bug threw it to {MoveSpeed} u/s). " +
+                $"Got vx={v.x:F4}");
+            Assert.Less(Mathf.Abs(v.x), MoveSpeed * 0.1f,
+                "the lateral nudge must be a small fraction of the grounded move speed (subtle, not a throw).");
+        }
+
+        [Test]
+        public void Airborne_PreservesVerticalArcVelocity_Untouched()
+        {
+            // The jump arc owns vertical (CastawayCharacter local-Y); air-control must NEVER touch velocity.y.
+            Vector3 carried = new Vector3(0f, 3.27f, 4f);
+            Vector3 v = WasdMovement.AirborneVelocity(carried, new Vector3(1f, 0f, 0f), Accel, Cap, Dt);
+            Assert.AreEqual(3.27f, v.y, 1e-5f, "air-control must preserve the jump arc's vertical velocity exactly.");
+        }
+
+        [Test]
+        public void Airborne_NoInput_CoastsHorizontalMomentum_Unchanged()
+        {
+            // Forward momentum carried into the jump (PR #69 — Sponsor approved): with no A/D/W/S held in flight,
+            // the horizontal velocity must COAST unchanged (we steer, we never brake the carried-in momentum).
+            Vector3 carried = new Vector3(1.2f, 1f, RunSpeed);
+            Vector3 v = WasdMovement.AirborneVelocity(carried, Vector3.zero, Accel, Cap, Dt);
+            Assert.AreEqual(carried.x, v.x, 1e-5f, "no-input airborne must not change horizontal X (coast momentum).");
+            Assert.AreEqual(carried.z, v.z, 1e-5f, "no-input airborne must not change horizontal Z (coast momentum).");
+            Assert.AreEqual(carried.y, v.y, 1e-5f, "no-input airborne must not change vertical.");
+        }
+
+        [Test]
+        public void Airborne_StrafeGentlySteers_WithoutKillingForwardMomentum()
+        {
+            // Held D for a handful of frames while carrying forward (+Z) momentum: the velocity should gain a
+            // SMALL +X component while KEEPING most of its forward +Z — a gentle steer, not a hard redirect.
+            Vector3 v = new Vector3(0f, 1.5f, MoveSpeed);
+            for (int i = 0; i < 6; i++) // ~0.1s of held D
+                v = WasdMovement.AirborneVelocity(v, new Vector3(1f, 0f, 0f), Accel, Cap, Dt);
+
+            Assert.Greater(v.x, 0f, "held D must build SOME +X lateral velocity (it does steer).");
+            Assert.Less(v.x, MoveSpeed * 0.5f,
+                "after ~0.1s the lateral velocity must still be well under the move speed (subtle, gradual steer).");
+            Assert.Greater(v.z, MoveSpeed * 0.7f,
+                "forward (+Z) momentum carried into the jump must be largely PRESERVED while strafing (PR #69 AC).");
+        }
+
+        [Test]
+        public void Airborne_RunJumpCarriedMomentum_IsNotBrakedDownToTheWalkCap()
+        {
+            // A RUN jump carries +Z momentum at runSpeed (9.5) which EXCEEDS the walk-speed cap (5.5). The nudge
+            // must NOT brake that carried-in momentum down to the cap — the cap only clamps speed the nudge BUILDS
+            // past it. Pressing W (continue forward) should keep ~the run speed, not drop to 5.5.
+            Vector3 v = new Vector3(0f, 2f, RunSpeed);
+            for (int i = 0; i < 10; i++)
+                v = WasdMovement.AirborneVelocity(v, new Vector3(0f, 0f, 1f), Accel, Cap, Dt); // hold W (+Z)
+            float horizSpeed = new Vector2(v.x, v.z).magnitude;
+            Assert.Greater(horizSpeed, Cap + 0.5f,
+                $"a run-jump's carried-in {RunSpeed} u/s forward momentum must not be braked to the walk cap " +
+                $"({Cap}); horizontal speed was {horizSpeed:F3}. The cap clamps the NUDGE, never the carried momentum.");
+        }
+
+        [Test]
+        public void Airborne_NudgeAccumulationIsCappedOverALongArc()
+        {
+            // Holding A/D for a long arc must not accumulate into a fast sideways slide: from REST, held D for
+            // many frames converges toward — and is clamped at — the cap, never blowing past it.
+            Vector3 v = Vector3.zero;
+            for (int i = 0; i < 600; i++) // 10s of held D (far longer than any real arc) — must stay clamped
+                v = WasdMovement.AirborneVelocity(v, new Vector3(1f, 0f, 0f), Accel, Cap, Dt);
+            Assert.LessOrEqual(new Vector2(v.x, v.z).magnitude, Cap + 1e-3f,
+                "the air-control nudge must clamp at airControlMaxSpeed — it can't accumulate into a fast slide.");
+        }
+
+        [Test]
+        public void Airborne_VsOldSnap_QuantifiesTheFix_DiagnoseBeforeFix()
+        {
+            // DIAGNOSE-BEFORE-FIX, quantified in a guard: the OLD airborne path was velocity = LastMoveDir*speed,
+            // so ONE frame of D from a standing-still-in-air state produced 5.5 u/s lateral INSTANTLY. The NEW
+            // path produces ≤ accel·dt (~0.133 u/s) that frame — a ~41× reduction in the single-frame lateral
+            // impulse. This pins the magnitude of the fix so a regression that re-snaps is caught loudly.
+            Vector3 dPress = new Vector3(1f, 0f, 0f);
+            float oldFrameLateral = (dPress * MoveSpeed).x;                              // the old full-speed snap
+            float newFrameLateral = WasdMovement.AirborneVelocity(Vector3.zero, dPress, Accel, Cap, Dt).x;
+            Assert.AreEqual(MoveSpeed, oldFrameLateral, 1e-4f, "sanity: old path snapped to the full move speed.");
+            Assert.Less(newFrameLateral, oldFrameLateral / 10f,
+                $"the new single-frame lateral ({newFrameLateral:F4}) must be <1/10 the old snap ({oldFrameLateral:F4}) " +
+                "— the subtle-nudge fix (86caac81y).");
+        }
     }
 }

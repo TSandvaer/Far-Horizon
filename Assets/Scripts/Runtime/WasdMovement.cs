@@ -61,6 +61,21 @@ namespace FarHorizon
                  "the children as a fallback. Null is tolerated (a bare movement test with no avatar).")]
         public CastawayCharacter castaway;
 
+        [Header("Airborne air-control (ticket 86caac81y — subtle lateral nudge in flight)")]
+        [Tooltip("How strongly A/D steers the player WHILE AIRBORNE (jump), as a per-second ACCELERATION (u/s²) " +
+                 "applied to the existing horizontal velocity — NOT a full-speed snap. GROUNDED movement is " +
+                 "unchanged (it still commands full moveSpeed/runSpeed directly). The Sponsor reported the OLD " +
+                 "behavior (full-speed snap each frame) as 'thrown violently to the sides'; this gentle accel " +
+                 "PRESERVES the forward momentum carried into the jump and nudges it slightly sideways. Default " +
+                 "8 u/s² ≈ a soft drift over the ~0.6s arc, not a whip. Sponsor-tunable from the build.")]
+        public float airControlAccel = 8f;
+        [Tooltip("Cap (u/s) on the airborne HORIZONTAL speed the air-control nudge can build to. Prevents the " +
+                 "subtle nudge from accumulating into a fast sideways slide over a long arc. Defaults to the " +
+                 "WALK speed so airborne horizontal speed never exceeds a walk — momentum carried in from a RUN " +
+                 "jump is preserved (the cap only clamps when the nudge would PUSH past it, it never brakes an " +
+                 "already-faster carried velocity below itself).")]
+        public float airControlMaxSpeed = 5.5f;
+
         // Deadzone below which input is treated as zero (the axes have a small dead band already, but a
         // squared-magnitude floor keeps a near-zero diagonal from creeping the agent).
         private const float InputDeadzone = 0.01f;
@@ -222,8 +237,26 @@ namespace FarHorizon
             float run = runSpeed > walk ? runSpeed : walk; // defensive: run is never slower than walk
             float speed = IsSprinting ? run : walk;
             CurrentSpeed = HasInput ? speed : 0f;
-            if (_agent.isOnNavMesh)
+
+            if (!_agent.isOnNavMesh) return;
+
+            // AIRBORNE AIR-CONTROL (ticket 86caac81y). GROUNDED, the WASD direction commands FULL move speed
+            // each frame (crisp keyboard locomotion — UNCHANGED). But applying that same full-speed snap WHILE
+            // AIRBORNE instantly redirects the horizontal velocity to ±moveSpeed sideways on an A/D press — the
+            // Sponsor's "thrown violently to the sides" (PR #69 soak). In flight we instead ACCELERATE the
+            // existing horizontal velocity gently toward the input direction (airControlAccel u/s², capped), so
+            // A/D is a SUBTLE lateral nudge that PRESERVES the forward momentum carried into the jump. The jump's
+            // vertical arc is owned by CastawayCharacter (local-Y); this only governs the agent's horizontal XZ.
+            bool airborne = castaway != null && castaway.IsAirborne;
+            if (airborne)
+            {
+                _agent.velocity = AirborneVelocity(_agent.velocity, LastMoveDir, airControlAccel,
+                                                   airControlMaxSpeed, Time.deltaTime);
+            }
+            else
+            {
                 _agent.velocity = LastMoveDir * speed;
+            }
         }
 
         // Resolve the camera's planar forward/right basis (the orbit camera's facing projected onto the
@@ -272,6 +305,55 @@ namespace FarHorizon
 
             Vector3 dir = fwd * input.y + right * input.x;
             return dir.sqrMagnitude > 1e-6f ? dir.normalized : Vector3.zero;
+        }
+
+        /// <summary>
+        /// PURE airborne air-control velocity (the unit-testable core of the subtle-nudge fix, ticket 86caac81y).
+        /// While airborne, the horizontal velocity is STEERED by a gentle acceleration toward the input direction
+        /// instead of being SNAPPED to full move-speed — so A/D in flight is a subtle lateral nudge that preserves
+        /// the momentum carried into the jump, not a violent sideways throw.
+        ///
+        /// Contract (what the regression guards pin — the BUG CLASS, not one instance):
+        ///  - <paramref name="currentVel"/> is the agent's current XZ velocity (Y is preserved untouched — the
+        ///    jump arc owns vertical). Output Y == input Y.
+        ///  - With input held, the horizontal velocity moves toward <paramref name="moveDir"/> by at most
+        ///    <paramref name="accel"/>·<paramref name="dt"/> u/s this frame — so a SINGLE-FRAME A/D press can
+        ///    never produce a full-speed lateral snap (the bug). The per-frame lateral delta is bounded.
+        ///  - With NO input (<paramref name="moveDir"/> ≈ zero) the horizontal velocity is UNCHANGED — momentum
+        ///    coasts (we never brake the carried-in velocity, only steer it).
+        ///  - The resulting horizontal SPEED is capped at <paramref name="maxSpeed"/>, BUT a velocity already
+        ///    faster than the cap (momentum carried in from a run-jump) is never braked DOWN to the cap — the cap
+        ///    only clamps the speed the nudge itself would BUILD past it. This keeps the nudge subtle without
+        ///    stealing the Sponsor-approved carried-in forward momentum.
+        /// Static + dependency-free so the EditMode guard can assert "one frame of A/D at the grounded full speed
+        /// stays well under the move speed" with no scene rig (no Animator/NavMesh/headless-time dependency).
+        /// </summary>
+        public static Vector3 AirborneVelocity(Vector3 currentVel, Vector3 moveDir, float accel,
+                                               float maxSpeed, float dt)
+        {
+            float vy = currentVel.y;                       // the jump arc owns vertical — never touch it
+            Vector3 horiz = new Vector3(currentVel.x, 0f, currentVel.z);
+
+            // No input → coast: keep the carried-in horizontal momentum unchanged (don't brake it).
+            if (moveDir.sqrMagnitude > 1e-6f)
+            {
+                Vector3 dir = moveDir; dir.y = 0f;
+                if (dir.sqrMagnitude > 1e-6f)
+                {
+                    dir.Normalize();
+                    float startSpeed = horiz.magnitude;        // remember the carried-in speed (for the cap rule)
+                    // GENTLE STEER: nudge the horizontal velocity toward the input direction by accel·dt this
+                    // frame (a small step), NOT a snap to dir*moveSpeed. MoveTowards bounds the per-frame change.
+                    Vector3 target = dir * Mathf.Max(maxSpeed, startSpeed); // aim no slower than what we carry in
+                    horiz = Vector3.MoveTowards(horiz, target, Mathf.Max(0f, accel) * Mathf.Max(0f, dt));
+
+                    // Cap the speed the NUDGE built — but never brake a faster carried-in momentum below the cap.
+                    float cap = Mathf.Max(maxSpeed, startSpeed);
+                    if (horiz.magnitude > cap) horiz = horiz.normalized * cap;
+                }
+            }
+
+            return new Vector3(horiz.x, vy, horiz.z);
         }
     }
 }
