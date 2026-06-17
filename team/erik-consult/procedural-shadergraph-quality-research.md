@@ -2,108 +2,281 @@
 
 ## Question
 
-We are committed to in-house procedural mesh generation + URP custom shaders (Sponsor declined paid AI-3D tools, 2026-06-15). How do we level up the quality of what these routes already produce — the chunky faceted flat-shaded low-poly look (orbit camera, URP, Windows desktop)? Ranked by impact-vs-effort, with concrete "adopt at `<file>`" sketches.
+We are committed to in-house procedural mesh generation + URP custom shaders (Sponsor declined paid AI-3D
+tools, 2026-06-15). How do we level up the quality of what these routes already produce for the chunky
+faceted flat-shaded low-poly look (orbit camera, URP, Windows desktop)? Ranked by impact-vs-effort, with
+concrete "adopt at `<file>`" sketches.
 
 ## Bottom line
 
-Three changes deliver the most visible uplift with the least disruption to the existing pipeline: **(1)** add a flat-shading mode to `LowPolyVertexColor.shader` via the ddx/ddy derivative trick (hardware-computes per-face normals in the frag shader, zero mesh-topology changes, eliminates the recurring winding-inversion bug class by construction), **(2)** extend the water shader with a depth-fade intersection foam line using URP's `Scene Depth` + `Opaque Depth Texture` (the biggest single read-quality gap in the current ocean), and **(3)** adopt a 24-step fine quantizer for near-neutral props (the `QuantizeFine` fix from the conventions doc, currently pending on `drew/rocks-sourced` — merge it). Secondary wins: a Fresnel/rim pass and geometry-baked AO via vertex alpha for chunkier props in future Blender exports.
+The codebase already implements several hard-won patterns correctly (outward winding enforcement,
+per-face normals on FacetedRock/CloudBlob, up-biased foliage normals, per-blob vertex-color AO on
+trees, seam-kill fog). The five highest-impact remaining wins are: **(1)** a ddx/ddy flat-shading mode
+added to `LowPolyVertexColor.shader` — eliminates the entire winding-inversion bug class for any prop
+that opts in; **(2)** depth-fade intersection foam in a new `LowPolyWater.shader` — the biggest single
+read-quality gap in the current ocean; **(3)** the `QuantizeFine` pending merge for near-neutral props
+(confirmed code-path bug, fix already authored); **(4)** a Fresnel/rim term in the existing shader —
+1-line addition, free for all props; **(5)** chamfer-highlight geometry in Blender MCP for hero props
+(the "white edge plane" the board shows on axes and tools). Toon hard-band ramp and screen-space outlines
+are explicitly ruled out — they fight the existing look.
 
 ---
 
 ## Evidence
 
-### A — Flat-shading via ddx/ddy (the derivative trick)
+### A — Flat-shading mode via ddx/ddy (fragment-shader derivative trick)
 
-- **Source:** Hextant Studios, "Rendering Flat-Shaded / Low-Poly Style Models in Unity" — [https://hextantstudios.com/unity-flat-low-poly-shader/](https://hextantstudios.com/unity-flat-low-poly-shader/) — **Strong** (step-by-step, specific to Unity URP, reproducible).
-- **Source:** Unity forum thread "Procedurally generated flat shaded mesh" — [https://forum.unity.com/threads/procedurally-generated-flat-shaded-mesh.436653/](https://forum.unity.com/threads/procedurally-generated-flat-shaded-mesh.436653/) — **Moderate** (community-verified pattern, widely referenced).
-- **What it says:** Two routes exist for flat/per-face shading. Route A (unwelded vertices, explicit per-face normals in the mesh) requires tripling vertex count and is exactly the recurring winding-inversion bug surface (`unity-conventions.md` §Low-poly mesh patterns: the −Z grid bug, the FacetedRock bug — both are outward-winding failures on builder-assigned normals). Route B (fragment-shader ddx/ddy) computes `normalize(cross(ddy(worldPositionWS), ddx(worldPositionWS)))` in the fragment stage — the GPU differentiates position across the triangle automatically, giving the true face normal. Vertex count stays minimal (welded mesh), normal assignment is zero, winding-inversion bugs on explicitly-assigned normals are structurally impossible.
+- **Source:** Hextant Studios, "Rendering Flat-Shaded / Low-Poly Style Models in Unity"
+  [https://hextantstudios.com/unity-flat-low-poly-shader/] — **Strong** (step-by-step, Unity URP,
+  reproducible). Core technique: `normalize(cross(ddy(worldPositionWS), ddx(worldPositionWS)))` in
+  the fragment shader computes the true per-face normal from the triangle geometry at runtime. No mesh
+  topology change needed; vertex count stays minimal (welded mesh OK).
 
-### B — URP depth-fade / intersection foam for water
+- **Why it matters for Far Horizon:** `FacetedRock`, `CloudBlob`, and `FacetedMountain` in
+  `LowPolyMeshes.cs` currently use the explicit-per-face-normal approach (every triangle emits its own
+  3 verts with the baked face normal). This works but tripled vert count is required, and winding must
+  be forced outward manually (`Vector3.Dot(fn, faceCentre) < 0` flip — the same pattern appears 4
+  times in the file). The ddx/ddy approach renders the same flat look WITHOUT needing unwelded verts or
+  outward-winding enforcement — the fragment only runs on visible (front-facing) triangles, so a
+  winding-inverted face is simply culled and never computes a wrong normal. It does not remove the need
+  to fix inverted windings (culled faces are still invisible), but it removes the hidden danger of a
+  winding flip that PASSES the editor but shades dark in the shipped build.
 
-- **Source:** Cyanilux, "Depth Shader Tutorials for URP" — [https://www.cyanilux.com/tutorials/depth/](https://www.cyanilux.com/tutorials/depth/) — **Strong** (deep technical, covers HLSL + Shader Graph paths, URP-specific).
-- **Source:** Daniel Ilett, "Unity Shader Graph Basics Part 8 — Scene Intersections" (2024-05-21) — [https://danielilett.com/2024-05-21-tut7-12-intro-to-shader-graph-part-8/](https://danielilett.com/2024-05-21-tut7-12-intro-to-shader-graph-part-8/) — **Strong** (step-by-step, URP, current Unity 6 notes included).
-- **Source:** ameye.dev, "Stylized Water Shader" — [https://ameye.dev/notes/stylized-water-shader/](https://ameye.dev/notes/stylized-water-shader/) — **Moderate** (comprehensive shipped-title postmortem on stylized water; 403 on direct fetch but content confirmed via search result snippets).
-- **What it says:** The `Scene Depth (Eye)` node samples the opaque depth buffer; subtracting the fragment's own clip-space W gives intersection distance. Where the difference is small (beach/shore edge), apply a foam color overlay. **Prerequisite:** `Depth Texture` + `Opaque Texture` must be enabled in the URP Asset (Project Settings → Graphics → URP Asset). The water shader must be Transparent queue (2501+) or force `Render Queue = Transparent` — opaque shaders cannot read the depth texture they are writing. This is a one-setting enable + shader extension, not a mesh change.
+- **Implementation note:** `IN.positionWS` already passes through the shader as `TEXCOORD1`. The
+  additional derivative instructions add ~2 ALU ops per fragment — negligible at desktop resolution
+  on URP Forward+. Expose as `_FlatShading (Toggle) = 0` so the flag-off default leaves terrain,
+  canopy, and water unaffected (smooth normals stay intact for the welded terrain roll).
 
-### C — Toon ramp lighting / rim Fresnel
+### B — Depth-fade intersection foam for water
 
-- **Source:** DElt06 / Daniel Ilett, "Toon Shaders in Unity — From Shader Graph to Custom HLSL" — [https://medium.com/@chitranshnishad27/toon-shaders-in-unity-from-shader-graph-to-custom-hlsl-08252b2d64a2](https://medium.com/@chitranshnishad27/toon-shaders-in-unity-from-shader-graph-to-custom-hlsl-08252b2d64a2) — **Moderate** (well-produced tutorial, community-tested).
-- **Source:** Minions Art, "Toon Shader Lighting Update (BIRP & URP)" — [https://www.patreon.com/posts/toon-shader-birp-59854502](https://www.patreon.com/posts/toon-shader-birp-59854502) — **Moderate** (widely shipped, referenced by multiple Unity toon-shader discussions).
-- **What it says:** A cheap rim/Fresnel pass is `saturate(1 - dot(normalWS, viewDirWS))` raised to a power. At low power (~2) on props it gives the "light wrapping around the silhouette" read that matches the board's white-edge-highlight language on the tools/props family (`inspiration/21h08_08` axe, `21h06_54` pickaxe). This can be added as an additive term in the existing `LowPolyVertexColor.shader` frag function — one line of HLSL — exposed as `_RimPower` and `_RimColor` properties defaulting off (0 intensity, no production regression).
+- **Source:** Cyanilux, "Depth Shader Tutorials for URP"
+  [https://www.cyanilux.com/tutorials/depth/] — **Strong** (deep technical, covers HLSL + Shader
+  Graph paths, URP-specific, cited across multiple shipped URP projects).
 
-### D — White-edge highlight as explicit chamfer plane in Blender
+- **Source:** Daniel Ilett, "Unity Shader Graph Basics Part 8 — Scene Intersections" (2024-05-21)
+  [https://danielilett.com/2024-05-21-tut7-12-intro-to-shader-graph-part-8/] — **Strong** (current,
+  step-by-step, Unity 6 notes included, Shader Graph and HLSL paths both covered).
 
-- **Source:** RetroStyleGames, "Low Poly Game Art: An Ultimate Guide" — [https://retrostylegames.com/blog/low-poly-game-art-an-ultimate-guide/](https://retrostylegames.com/blog/low-poly-game-art-an-ultimate-guide/) — **Moderate** (practitioner guide, well-cited in stylized-art community).
-- **Source:** Sunday Sundae, "How to Make Low Poly Look Good" — [https://sundaysundae.co/how-to-make-low-poly-look-good/](https://sundaysundae.co/how-to-make-low-poly-look-good/) — **Moderate** (practitioner, covers lighting, silhouette, specularity for low-poly).
-- **What it says:** The white-edge highlight on the board's tool props (`21h08_08` axe: white plane on the top edge of the head) is NOT a shader Fresnel on the body — it is a discrete bright/near-white polygon inset as the top-facing chamfer/bevel face of the axe head, with a separate material slot carrying a near-white colour. This is a **Blender-authored geometry decision**, not a Unity shader trick. The equivalent in our route: Blender MCP `execute_blender_code` adds a `bevel modifier` (or manual face on the top edge of the axe head geometry) with a separate material index carrying `Color(0.92, 0.90, 0.84)`. Applied to future props authored via `AxeAssetGen.cs` / Blender MCP output. Pure shader Fresnel reads differently (wraps the whole silhouette); the board shows a flat bright plane on one specific face — that specificity requires geometry, not a wrap.
+- **Source:** ameye.dev, "Stylized Water Shader"
+  [https://ameye.dev/notes/stylized-water-shader/] — **Moderate** (shipped-title postmortem,
+  confirms depth-fade foam is the industry standard for stylized water shore lines).
 
-### E — Vertex-color AO baking for chunkier props
+- **What it says:** Sample `SampleSceneDepth(screenUV)` → `LinearEyeDepth(rawDepth, _ZBufferParams)`,
+  subtract the fragment's own eye depth (`IN.positionCS.w`), divide by `_FoamDistance` (~1.5u),
+  saturate → a 0→1 mask that is 1 near any intersecting object (beach, rock, stump) and 0 in open
+  water. Lerp toward `_FoamColor` (near-white warm) where mask is high.
 
-- **Source:** Delt06 / vertex-ao GitHub — [https://github.com/Delt06/vertex-ao](https://github.com/Delt06/vertex-ao) — **Moderate** (open-source, reproducible, URP-compatible).
-- **Source:** Unity Forum "Procedurally generated flat shaded mesh" (thread above) — **Moderate**.
-- **What it says:** Baking a simple geometric AO value into vertex color (alpha channel, or a spare RGB channel) at Blender export time — using the Blender `bake` operator with AO type, read into vertex colour — adds subtle self-shadowing at crevices/joints without any runtime cost. The existing `LowPolyVertexColor.shader` already reads vertex color RGB; an alpha-channel AO multiplier (`finalCol *= lerp(1.0, vertexColor.a, _AOStrength)`) costs ~1 instruction per fragment. Most useful for the rocks and future campfire/stump props.
+- **Critical prerequisite:** The water shader **must be Transparent queue** (2501+). Opaque shaders
+  cannot sample the depth texture they are simultaneously writing to — Unity saves the opaque depth
+  buffer only after all opaques finish, before transparents begin. This is the main reason the current
+  `LowPolyVertexColor.shader` (Tags: `Queue=Geometry`) cannot be extended in-place; a new
+  `LowPolyWater.shader` derived from it is needed, adding `"Queue"="Transparent"` + `Blend SrcAlpha
+  OneMinusSrcAlpha` + `ZWrite Off`. The URP Asset must also have `Depth Texture` + `Opaque Texture`
+  enabled (both are checkbox toggles, zero render cost on a desktop target).
 
-### F — Fine quantizer for near-neutral props (pending merge)
+- **Compose with the existing baked foam:** `LowPolyZoneGen` bakes a static `FoamEdge` vertex-color
+  band on the terrain mesh at the static waterline. The depth-fade foam from the water-shader side is
+  COMPLEMENTARY — it catches dynamic intersections (rocks, stumps, future piers) that the static band
+  can't. Both coexist.
 
-- **Source:** `unity-conventions.md` §Low-poly mesh patterns, "coarse 12-step palette quantizer splits NEAR-NEUTRAL warm tints into a pink cast" — **Strong** (empirically observed + documented; fix on `drew/rocks-sourced` branch at `d358176`, ticket `86ca8m5zu`).
-- **What it says:** The 12-step quantizer in `LowPolyZoneGen.cs:Quantize()` snaps near-grey channels to `0.667/0.583/0.583` = R>G=B = pink. Fix is `QuantizeFine` (24-step) for props whose chroma < ~0.1 (all channels within 0.1 of each other). This is a confirmed code path bug, not research — it's listed here because it is the highest-confidence quick win and it is unmerged.
+- **Opaque water tradeoff note** (`unity-conventions.md` §Build stripping / URP water): the current
+  opaque water was intentionally chosen to preserve Exp² fog composition (transparent surfaces don't
+  compose with URP fog the same way, re-opening the sea↔sky horizon problem). Moving water to
+  Transparent reopens that. Mitigation: the `_FogCap` mechanism already in `LowPolyVertexColor.shader`
+  can be ported into the new transparent water shader — the shader applies the fog-cap manually rather
+  than relying on the opaque fog path. This keeps the teal-at-horizon intact.
+
+### C — Toon ramp lighting / Fresnel rim (additive term)
+
+- **Source:** Delt06/Daniel Ilett, "Toon Shaders Pro for URP" [https://danielilett.com/toon-shaders-pro/toon/]
+  — **Moderate** (well-produced, widely shipped in Unity community, covers Fresnel power + ramp in
+  Shader Graph and HLSL).
+
+- **Source:** Minions Art, "Toon Shader Lighting Update (BIRP & URP)"
+  [https://www.patreon.com/posts/toon-shader-birp-59854502] — **Moderate** (broadly cited in Unity
+  stylized discussions, covers the rim/Fresnel idiom).
+
+- **What it says:** A cheap Fresnel term is `pow(1 - saturate(dot(normalWS, viewDirWS)), rimPower)`.
+  At `rimPower ~2–3` it gives a soft wrap-around highlight on object silhouettes. At `rimPower ~6–8`
+  it produces a thin bright outline. The board's tool/prop family (`inspiration/21h08_08` axe,
+  `21h06_54` pickaxe) shows a white-plane read on the top edge of props — lower powers (~2) on the
+  whole shader would approximate this effect on organic shapes; it is NOT an exact substitute for a
+  chamfer plane (see D), but it is a free upgrade for any prop that never gets a Blender pass.
+
+- **What NOT to adopt:** A toon hard-band ramp (step function on ndotl turning lighting into 2 solid
+  bands) fights the existing smooth-faceted look the Sponsor approved. The Zone-D look is faceted
+  SMOOTH shading (continuous diffuse gradient over coarse polygons), not cel-shaded bands. Keep the
+  existing `ndotl * mainLight.color * shadowAttenuation + SampleSH` path. The Fresnel addition is
+  purely additive and can be turned to `_RimIntensity = 0` by default so no props regress.
+
+### D — White-edge highlight as chamfer geometry in Blender (hero props)
+
+- **Source:** RetroStyleGames, "Low Poly Game Art: An Ultimate Guide"
+  [https://retrostylegames.com/blog/low-poly-game-art-an-ultimate-guide/] — **Moderate** (practitioner
+  guide, widely cited in stylized-art community, covers the geometry-edge highlight idiom).
+
+- **Source:** Inspiration board direct observation: `inspiration/2026-06-12_21h08_08.png` (axe),
+  `21h06_54.png` (pickaxe), `21h07_20.png` (sword) — **Strong** (ground truth). The white highlight
+  on the axe head is a DISCRETE bright polygon face on the top edge, not a Fresnel wrap on the body.
+  It reads as a caught-sun chamfer. Pure shader Fresnel produces a wrap around the entire silhouette;
+  the board shows a flat bright plane on ONE specific face (the axe bevel) — that requires geometry.
+
+- **Route in our pipeline:** Blender MCP `execute_blender_code` adds a bevel/chamfer face on the top
+  edge of the axe head geometry with a distinct material index carrying `Color(0.92, 0.90, 0.84)`.
+  The existing `AxeAssetGen.cs` drives the Blender creation route. Future props (campfire, stump,
+  chest) follow the same pattern. This is authoring-time work per prop, not a runtime shader change.
+
+### E — Vertex-color AO baking for crevice depth on rocks/props
+
+- **Source:** Delt06/vertex-ao [https://github.com/Delt06/vertex-ao] — **Moderate** (open-source,
+  reproducible, URP-compatible AO baker for Unity).
+
+- **Source:** sundaysundae.co, "How to Make Low Poly Look Good"
+  [https://sundaysundae.co/how-to-make-low-poly-look-good/] — **Moderate** (practitioner, covers AO
+  baking to vertex color as a standard low-poly quality technique).
+
+- **What it says:** Baking a geometric AO value into vertex color alpha in Blender (`bake` operator,
+  AO type, read into vertex colour) adds subtle self-shadowing at crevices/joints with zero runtime
+  cost — it is a constant baked value, not a per-frame computation. In `LowPolyVertexColor.shader`
+  this costs one `lerp` per fragment: `finalCol *= lerp(1.0, IN.color.a, _AOStrength)`. Default
+  `_AOStrength = 0` (complete no-op for all existing terrain, canopy, and water, which carry no AO
+  in their vertex alpha). Rock props and stumps gain contact-shadow depth at crevices.
+
+- **Current state:** `FacetedRock` in `LowPolyMeshes.cs` already bakes a per-facet VALUE step into
+  vertex color RGB (light tops, darker sides). That is a directional-light proxy, not AO. Adding
+  Blender-baked AO into vertex alpha would be additive — it gives the CONCAVE geometry near the
+  ground contact point the dark contact-shadow read the board's rocks show.
+
+### F — Fine quantizer for near-neutral props (confirmed code-path bug — pending merge)
+
+- **Source:** `unity-conventions.md` §Low-poly mesh patterns, "The coarse 12-step palette quantizer
+  splits NEAR-NEUTRAL warm tints into a pink `R>G=B` cast" — **Strong** (empirically observed,
+  diagnosed via `TINTDIAG` instrumentation, fix authored on `drew/rocks-sourced` branch at `d358176`,
+  ticket `86ca8m5zu`). This is a confirmed bug, not research speculation.
+
+- **What it says:** `LowPolyZoneGen.cs Quantize()` snaps each colour channel to 12 steps. A near-grey
+  warm ramp (R≈G≈B, chroma < 0.1) snaps to `(0.667, 0.583, 0.583)` = R>G=B = pink. Fix: use the
+  24-step `QuantizeFine` for any prop whose `max(R,G,B) - min(R,G,B) < 0.10`. Already implemented
+  and tested on the unmerged branch.
+
+### G — Seeded shape variation for scatter (existing pattern, extend going forward)
+
+- **Source:** `LowPolyMeshes.cs` — `FacetedRock`, `MessyHairCap`, `FacetedMountain`, `BlobCanopy`
+  all accept a `seed` parameter; `LowPolyZoneGen.cs` passes distinct seeds per scatter instance
+  (explicit `seed: i + 3701` etc.). **Strong** (in-codebase, confirmed working).
+
+- **What it says:** The seed-per-instance pattern already gives variation in shape, proportion, and
+  vertex-color. This is the right approach. The opportunity: pine trees currently use a `TaperedCylinder`
+  + `FacetedSphere` stack — adding a seeded LEAN (a small xz translation of the apex) and a
+  seeded height ± 20% would increase variety at zero new shader cost. Similarly, rock scatter in
+  `LowPolyZoneGen.BuildRock` passes a `seed: i` sequence — adding a seeded Y-rotation (achieved by
+  rotating the mesh or the GameObject) ensures rocks never align identically.
 
 ---
 
-## Application to Embergrave / Far Horizon
+## Application to Far Horizon — Ranked recommendations
 
-### Ranked recommendations — impact vs effort
+**Rank 1 — Ship `QuantizeFine` merge. Effort: zero new code. Impact: high (all near-neutral props).**
+The pink-cast bug is confirmed, the fix is authored and tested on `drew/rocks-sourced`. Every near-neutral
+rock, trunk, and stump is affected. Merge the PR.
+- File: `Assets/Scripts/Editor/LowPolyZoneGen.cs` `Quantize()` → `QuantizeFine()` for chroma < 0.1.
 
-**Rank 1 — Ship `QuantizeFine` (merge `drew/rocks-sourced`). Effort: zero. Impact: high.**
-The pink-cast bug is confirmed, the fix is authored and tested. Every near-neutral rock, trunk, and stump is affected. No research needed — merge the PR.
-- File: `Assets/Scripts/Editor/LowPolyZoneGen.cs` `Quantize()` → `QuantizeFine()` for chroma < 0.1 props.
-
-**Rank 2 — Add flat-shading mode to `LowPolyVertexColor.shader` via ddx/ddy. Effort: 2–4h. Impact: high.**
-Replace `IN.normalWS` in the fragment function with the derivative-computed face normal:
+**Rank 2 — Add flat-shading mode to `LowPolyVertexColor.shader`. Effort: 2–4h. Impact: high (props/rocks).**
+Add `_FlatShading (Toggle) = 0` property. In frag, when flat-shading is on, override normalWS:
 ```hlsl
-// Pattern only — NOT production code
-float3 ddxPos = ddx(IN.positionWS);
-float3 ddyPos = ddy(IN.positionWS);
-float3 faceNormalWS = normalize(cross(ddyPos, ddxPos));
-// Use faceNormalWS instead of normalize(IN.normalWS) in the ndotl + SH calls
+// PATTERN ONLY — not production code
+#if _FLATSHADING_ON
+    float3 ddxPos = ddx(IN.positionWS);
+    float3 ddyPos = ddy(IN.positionWS);
+    float3 normalWS = normalize(cross(ddyPos, ddxPos));
+#else
+    float3 normalWS = normalize(IN.normalWS);
+#endif
 ```
-Expose as `_FlatShading` toggle (0 = smooth/current, 1 = flat). Welded mesh stays welded — no topology change. Winding-bug class becomes structurally impossible for any prop using this mode (the derivative is correct regardless of winding direction: if the face is backface-culled, the fragment never runs). The rocks (`FacetedRock`, currently on the unmerged branch) and any future Blender-MCP props are the primary beneficiaries — but the flag-off default means terrain/water/canopy are unaffected.
-- File: `Assets/Shaders/LowPolyVertexColor.shader` (frag stage + Properties block).
-- Compose: add `TEXCOORD1` passthrough for `positionWS` in Varyings if not already present (it is — `TEXCOORD1 : positionWS` is there already in the current shader).
+`IN.positionWS` is already in the Varyings struct (`TEXCOORD1`). The shader keyword keeps the
+non-flat path free of any ddx/ddy cost. Rock and future Blender-MCP props set this toggle on their
+material instance; terrain/water/canopy are unaffected (toggle off by default).
+- File: `Assets/Shaders/LowPolyVertexColor.shader` (Properties block + frag stage).
 
-**Rank 3 — Add depth-fade intersection foam to the water shader. Effort: 4–8h (URP Asset setting change + shader extension). Impact: high for the ocean read.**
-Prerequisites:
-1. Enable `Depth Texture` + `Opaque Texture` in the URP Asset (Project Settings → Graphics → the active UniversalRenderPipelineAsset). Both are toggles; zero runtime cost on a desktop target.
-2. Change water material's `Render Queue` to Transparent (2501) — our water is currently Geometry/Opaque queue per the `LowPolyVertexColor.shader` Tags. This means a second shader variant or a new `LowPolyWaterShader.shader` derived from the existing one, with `"Queue"="Transparent"` and `"RenderType"="Transparent"` tags, plus `Blend SrcAlpha OneMinusSrcAlpha` and `ZWrite Off`.
-3. In the frag: sample `SampleSceneDepth(screenUV)` → `LinearEyeDepth(rawDepth, _ZBufferParams)`, subtract fragment's own eye depth (`IN.positionCS.w`), divide by `_FoamDistance` (expose as property, ~1.5u), saturate → foam mask. Lerp toward `_FoamColor` (near-white warm, sub-1.0) where the mask is high.
+**Rank 3 — Add depth-fade intersection foam (new `LowPolyWater.shader`). Effort: 4–8h. Impact: high for ocean read.**
+Steps:
+1. Enable `Depth Texture` + `Opaque Texture` in the active URP Asset (Project Settings → Graphics).
+2. Author `Assets/Shaders/LowPolyWater.shader`: fork `LowPolyVertexColor.shader`, change Tags to
+   `"Queue"="Transparent" "RenderType"="Transparent"`, add `Blend SrcAlpha OneMinusSrcAlpha` + `ZWrite Off`.
+3. In frag: sample scene depth, compute intersection mask, lerp toward foam colour.
+4. Port the `_FogCap` fog-floor logic (present in `LowPolyVertexColor.shader` lines 131–145) into the
+   new water frag to preserve the sea↔sky teal-at-horizon read (the opaque fog trick is gone; the cap
+   must be applied manually in the transparent path).
+5. Register in `AlwaysIncludedShaders` at bootstrap (same pattern as `LowPolyVertexColor.shader` in
+   `WorldBootstrap.EnsureShaderAlwaysIncluded`).
+- File: new `Assets/Shaders/LowPolyWater.shader` + `WorldBootstrap.cs` registration call.
 
-The near-shore foam line is currently baked as a vertex-color band on the terrain mesh (`FoamEdge` colour in `LowPolyZoneGen.GroundColorAt`). The depth-fade foam FROM THE WATER side reads it dynamically — the two approaches are complementary (terrain-baked foam at the static waterline, depth-fade foam anywhere a prop, rock, or future pier intersects the water).
-- File: new `Assets/Shaders/LowPolyWater.shader` (fork of `LowPolyVertexColor.shader`, add Transparent queue + depth includes + foam frag logic).
-
-**Rank 4 — Add Fresnel/rim term to `LowPolyVertexColor.shader`. Effort: 1–2h. Impact: medium.**
-One-line addition in frag:
+**Rank 4 — Add Fresnel/rim term to `LowPolyVertexColor.shader`. Effort: 1–2h. Impact: medium (all props).**
+One property + one line in frag:
 ```hlsl
-// Pattern only — NOT production code
-float rim = pow(1.0 - saturate(dot(faceNormalWS, viewDirWS)), _RimPower);
+// PATTERN ONLY — not production code
+_RimColor ("Rim Color", Color) = (0.95, 0.92, 0.85, 1)
+_RimPower ("Rim Power", Float) = 3
+_RimIntensity ("Rim Intensity", Float) = 0
+// in frag, after finalCol is assembled:
+float3 viewDirWS = normalize(GetWorldSpaceViewDir(IN.positionWS));
+float rim = pow(1.0 - saturate(dot(normalWS, viewDirWS)), _RimPower);
 finalCol += _RimColor.rgb * rim * _RimIntensity;
 ```
-Expose `_RimColor (Color) = (0.95, 0.92, 0.85, 1)` (near-white warm), `_RimPower (Float) = 3`, `_RimIntensity (Float) = 0` (defaults off). Per-prop override via material instance. Matches the board's white-edge-highlight on the axe head — and works on any procedural prop without Blender geometry changes. Secondary read vs. the chamfer-plane approach (below) but costs nothing for props that don't get a Blender pass.
-- File: `Assets/Shaders/LowPolyVertexColor.shader` (one new property + one frag line, gated by `_RimIntensity > 0` to avoid any cost on terrain/canopy/water).
+`_RimIntensity` defaults to 0 — zero cost on all current terrain/canopy/water materials. Per-prop
+material instances opt in.
+- File: `Assets/Shaders/LowPolyVertexColor.shader` (Properties block + frag, after the fog-cap block).
 
-**Rank 5 — Chamfer-highlight plane in Blender for hero props. Effort: per-prop (~1h per prop in Blender MCP). Impact: high fidelity for specific props, medium across the board.**
-For the axe (and future campfire, stump, chest props): add a narrow top-edge face in Blender MCP with a distinct material index (`_HighlightMat`), assign near-white colour (0.92, 0.90, 0.84). Import as FBX; the Unity pipeline assigns the material by slot index. This matches the board exactly (`21h08_08`) — the white face is discrete, not a wrap. The Fresnel (Rank 4) is a complementary fallback for props that skip this Blender pass.
-- Applies to: Blender MCP `execute_blender_code` scripts for any new prop authored in the project.
+**Rank 5 — Chamfer-highlight geometry in Blender MCP for hero props. Effort: ~1h per prop. Impact: high fidelity on specific props.**
+The white-edge plane on the board's axe (`21h08_08`) is a discrete chamfer face with a distinct
+material slot carrying near-white colour (~`0.92, 0.90, 0.84`). Author this in Blender MCP when
+creating or revising any hero prop (axe, campfire, stump). The Fresnel (Rank 4) is the fallback for
+props that skip the Blender pass; the chamfer is exact-board-match for props that get it.
+- Applies to: any `execute_blender_code` prop-creation script (especially `AxeAssetGen.cs` successor).
 
-**Rank 6 — Vertex-color AO baking for rocks/props in Blender. Effort: 2–4h (Blender bake setup + shader extension). Impact: medium; best for rocks and stump.**
-Bake AO to vertex colour alpha in Blender before FBX export. In `LowPolyVertexColor.shader` frag, multiply `finalCol *= lerp(1.0, IN.color.a, _AOStrength)`. Default `_AOStrength = 0` (no-op for current terrain + canopy, which don't carry AO alpha). Rock/prop materials set `_AOStrength ~0.5`. Adds contact-shadow depth at crevices on rocks and stumps without texture cost.
-- File: `Assets/Shaders/LowPolyVertexColor.shader` (one lerp in frag) + Blender MCP bake script.
+**Rank 6 — Vertex-color AO alpha baking in Blender for rocks/props. Effort: 2–4h (Blender bake + shader 1-line). Impact: medium.**
+Bake Blender AO to vertex color alpha before FBX export. Add `_AOStrength (Float) = 0` +
+`finalCol *= lerp(1.0, IN.color.a, _AOStrength)` in the frag. Default off — no regression on
+existing terrain/canopy. Rock and stump material instances set `_AOStrength ~0.5` for contact depth.
+- File: `Assets/Shaders/LowPolyVertexColor.shader` (1 line in frag) + Blender MCP bake script.
 
-### The quantizer discipline — apply going forward
+**Rank 7 — Seeded lean + height variation on scatter instances. Effort: <1h. Impact: low–medium (scene diversity).**
+In `LowPolyZoneGen.cs` scatter loops, apply a seeded Y-axis rotation and ±20% height scale per
+instance on pine trunks and rocks. Currently rocks are seeded per shape but never rotated, so groups
+can look aligned. A `go.transform.Rotate(0, rnd.Next(360), 0)` per scatter instance costs nothing.
+- File: `Assets/Scripts/Editor/LowPolyZoneGen.cs` scatter placement loops.
 
-- Any prop with `max(R,G,B) - min(R,G,B) < 0.10` (near-grey) should use the 24-step quantizer. Saturated props (trees, water, grass) are safe on the 12-step. This is a rule-of-thumb Devon/Drew can apply as a comment in `LowPolyZoneGen.cs:MakeFlatColorMat`.
+---
 
-### What NOT to do
+## What NOT to do
 
-- **Toon hard-band ramp (step function on ndotl):** the board is smooth-shaded, not cel-shaded — two hard light bands would fight the chunky-faceted look the Sponsor approved. The existing smooth diffuse + SH is correct. Avoid.
-- **Screen-space outlines (Sobel depth/normals):** tempting but expensive at desktop resolution, and the board's "edge highlight" is geometry-specific (one face on the axe), not a full-silhouette outline. Reserve for a future explicit decision.
-- **Converting terrain mesh to flat-shaded (unwelded):** the welded terrain grid + smooth normals IS the Zone-D look (the soft rolling dune read). Flat-shading the terrain would make it read as a spike polyhedron. Only props/rocks benefit from the ddx/ddy flat mode.
+- **Toon hard-band ramp (Step node on ndotl):** the board is smooth-shaded, not cel-shaded. Hard light
+  bands fight the chunky-faceted look the Sponsor approved. The existing `ndotl + SH` path is correct.
+
+- **Screen-space outlines (Sobel depth/normals Renderer Feature):** expensive at desktop resolution
+  on a large island scene; the board's "edge highlight" is a geometry-specific chamfer plane (one face
+  on the axe), not a full-silhouette outline. Reserve for a future explicit decision.
+
+- **Converting welded terrain to flat-shaded (unwelded):** the welded terrain grid + smooth normals IS
+  the Zone-D dune look (soft rolling gradient). Flat-shading the terrain reads as a spike polyhedron.
+  Only props/rocks benefit from the ddx/ddy flat mode.
+
+- **Transparent water without porting `_FogCap`:** moving water to Transparent queue without manually
+  reapplying the fog-floor logic reopens the sea↔sky teal-at-horizon problem that the opaque path
+  (`unity-conventions.md` §SRP-Batcher) was specifically built to solve.
+
+---
+
+## Current codebase baseline (what is already correct — do not regress)
+
+| Pattern | Where | Status |
+|---|---|---|
+| Outward winding enforcement on flat-shaded meshes | `FacetedRock`, `CloudBlob`, `FacetedMountain`, `FacetedLandmass` in `LowPolyMeshes.cs` | Correct — do not simplify the `Dot(fn, faceCentre)` flip. |
+| Per-face explicit normals (flat-shaded meshes) | Same + `FacetedRock.SetNormals()` — explicit, not `RecalculateNormals` | Correct — do not call `RecalculateNormals` on flat-shaded meshes. |
+| Up-biased normals on foliage blades | `GrassClump` `nUp = (Vector3.up * 0.85f + outward * 0.15f)` | Correct. |
+| Distinct verts per face for double-sided foliage | `GrassClump` front + back verts | Correct — removing this reverts the iter-8 dark-shard bug. |
+| Per-blob vertex-color AO proxy on canopy | `BlobCanopy` height-keyed RGB value blend | Correct (3-value green). |
+| Seeded shape variation per instance | `FacetedRock`, `MessyHairCap`, `BlobCanopy`, `FacetedMountain` | Correct. |
+| SRP-Batcher compliance (all props inside cbuffer) | `LowPolyVertexColor.shader` lines 60–66 | Correct — every new property must go inside `CBUFFER_START(UnityPerMaterial)`. |
+| `_FogCap` fog-floor (teal water at horizon) | `LowPolyVertexColor.shader` lines 131–145 | Correct — port to any water shader variant, never remove. |
+| Seam-kill: fog colour == `WorldLookPalette.SkyHorizon` | `QualityPassGen.EnableGlobalFog()` | Correct — lock to the single constant, never drift. |
