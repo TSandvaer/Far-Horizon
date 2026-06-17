@@ -1,6 +1,8 @@
 using System.Collections;
+using System.Diagnostics;
 using NUnit.Framework;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 using UnityEngine.AI;
 using Unity.AI.Navigation;
 using UnityEngine.SceneManagement;
@@ -60,9 +62,29 @@ namespace FarHorizon.PlayTests
         private const float HandRestLocalY = 1.20f;
         private const float HandPumpLocalY = 1.72f; // run/jump arm-pump: hand rides up to the head
 
+        // WALL-CLOCK hang guard for [UnitySetUp]/[TearDown]. CRITICAL: the Unity Test Framework's
+        // [Timeout] attribute and its built-in per-coroutine timeout check (EnumerableTestMethodCommand)
+        // wrap ONLY the [UnityTest] METHOD body — BeforeAfterTestCommandBase.ExecuteEnumerable (which runs
+        // [UnitySetUp]/[UnityTearDown]) has NO HasTimedOut() check in its MoveNext loops, so a hang in
+        // SetUp/TearDown is NEVER timed out by the framework and spins forever (verified from the package
+        // source com.unity.test-framework@996f223345ba — this was the 2nd unbounded wait that hung run
+        // 27724072344 ~31 min after 57dd9dc fixed the scene-unload spin). Frame-count caps can't help a
+        // SYNCHRONOUS stall (e.g. BuildNavMesh) and Time.time can stall headless (the documented batchmode
+        // time trap) — so the SetUp guard is WALL-CLOCK (Stopwatch) and is asserted at every setup yield.
+        private const int SetupWallClockCapMs = 45000; // 45s hard cap; well under the cancelled run's 31 min
+        private Stopwatch _setupClock;
+        private void SetupWallClockGuard(string where)
+        {
+            Assert.Less(_setupClock.ElapsedMilliseconds, SetupWallClockCapMs,
+                $"[UnitySetUp] exceeded the {SetupWallClockCapMs}ms WALL-CLOCK cap at '{where}' — the Unity " +
+                "Test Framework does NOT time out SetUp/TearDown, so this guard fails loud instead of hanging " +
+                "the whole PlayMode run (86caa83wn 2nd CI hang).");
+        }
+
         [UnitySetUp]
         public IEnumerator SetUp()
         {
+            _setupClock = Stopwatch.StartNew();
             var empty = SceneManager.CreateScene("AxeClampIsolated_" + System.Guid.NewGuid().ToString("N"));
             SceneManager.SetActiveScene(empty);
             for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
@@ -89,6 +111,9 @@ namespace FarHorizon.PlayTests
                         // completes (the host scene, or a headless quirk) must FAIL the test, never hang it.
                         Assert.Less(++guard, 600, $"UnloadSceneAsync('{s.name}') did not complete within 600 " +
                             "frames — batchmode scene-unload guard (never let SetUp hang; 86caa83wn CI hang).");
+                        // AND a wall-clock cap: if frames stop being pumped (the op stalls the engine loop),
+                        // the frame counter never advances — only the Stopwatch does. Belt-and-suspenders.
+                        SetupWallClockGuard($"UnloadSceneAsync({s.name})");
                         yield return null;
                     }
                 }
@@ -213,11 +238,15 @@ namespace FarHorizon.PlayTests
             _wasd.clickToMove = ctm;
             _wasd.castaway = _castaway;
 
+            SetupWallClockGuard("after-rig-wire");
             yield return null; // Awake
+            SetupWallClockGuard("after-Awake");
             yield return null; // ClickToMove warps onto the NavMesh; WasdMovement.Start disables click
+            SetupWallClockGuard("after-warp");
             Assert.IsTrue(_agent.isOnNavMesh, "the agent must be on the NavMesh before driving the test");
             _orbit.SetYaw(0f);
             yield return null;
+            SetupWallClockGuard("end-of-setup");
         }
 
         [TearDown]
@@ -268,6 +297,10 @@ namespace FarHorizon.PlayTests
         }
 
         // ===== (1) RUN: with the hand pumped to the head, the clamp engages and the axe stays BELOW the head.
+        // [Timeout(60000)]: convert ANY unbounded wait in this test body into a NAMED 60s failure rather than
+        // a 31-min CI hang — the framework checks this wall-clock budget between coroutine MoveNexts (immune to
+        // the headless Time.time≈0 trap). 60s is generous vs the longest in-test window (2s) + agent settle.
+        [Timeout(60000)]
         [UnityTest]
         public IEnumerator Running_WithArmPumpedToHead_AxeStaysBelowTheHead_ClampActive()
         {
@@ -303,6 +336,7 @@ namespace FarHorizon.PlayTests
         }
 
         // ===== (2) JUMP: same, while airborne (the jump-clip arm-pump).
+        [Timeout(60000)]
         [UnityTest]
         public IEnumerator Airborne_WithArmPumpedToHead_AxeStaysBelowTheHead_ClampActive()
         {
@@ -336,6 +370,7 @@ namespace FarHorizon.PlayTests
         }
 
         // ===== (3) WALK / IDLE: the clamp is INERT — the followed pose is the RAW hand (locked pose preserved).
+        [Timeout(60000)]
         [UnityTest]
         public IEnumerator WalkingAndIdle_ClampIsInert_FollowedPoseIsRawHand_LockedPosePreserved()
         {
@@ -374,6 +409,7 @@ namespace FarHorizon.PlayTests
         // the RUN state (a regression that dropped the grip on the run blend would re-open the "mangled open
         // hand" read while running). The curl is state-independent (gated on HasAxe only); this pins that the
         // RUN locomotion state does not somehow clear it.
+        [Timeout(60000)]
         [UnityTest]
         public IEnumerator FingerCurl_StaysGripping_ThroughTheRunCycle_Nit68AC2()
         {
@@ -406,6 +442,7 @@ namespace FarHorizon.PlayTests
         // the hand within tolerance — the axe-to-hand offset (the grip) is invariant, the axe never detaches
         // from the hand even as the clamp caps its vertical. (The clamp only moves the VERTICAL of the followed
         // pose; the axe still rides the hand's facing/horizontal — it stays a held tool, not a free prop.)
+        [Timeout(60000)]
         [UnityTest]
         public IEnumerator AxeStaysSeatedInHand_ThroughTheRunCycle_WithinTolerance_Nit68AC4()
         {
