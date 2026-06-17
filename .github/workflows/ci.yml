@@ -24,8 +24,30 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs-only changes skip the WHOLE CI (incl. the heavy self-hosted unity build).
+    # Every push/PR triggers a full unity build on the SINGLE far-horizon-local
+    # runner; a docs-only change needlessly contends the runner and is a known EPERM
+    # trigger when it races another build (unity-conventions.md §Process notes,
+    # ticket 86caahtbe). The structure job is fast/hosted but has nothing to check on
+    # a pure-docs change. NOTE: a paths-ignore filter makes the run not trigger at all
+    # — it does NOT report a skipped *required* check as success. `unity` is NOT a
+    # required branch-protection check today (the hosted `structure` job is the one
+    # protecting main — see job comments). If `unity` is ever promoted to required,
+    # replace this filter with a path-FILTER job that emits a green no-op (see PR body).
+    paths-ignore:
+      - '**/*.md'
+      - 'team/**'
+      - 'inspiration/**'
+      - '.claude/**'
+      - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'team/**'
+      - 'inspiration/**'
+      - '.claude/**'
+      - 'docs/**'
 
 # Cancel superseded runs on the same ref to save self-hosted runner time.
 concurrency:
@@ -69,26 +91,61 @@ jobs:
   unity:
     name: unity (self-hosted, EditMode + PlayMode + build)
     runs-on: [self-hosted, windows, unity]
-    timeout-minutes: 40
+    # A COLD / post-cache-clear build does a full package re-resolve + asset reimport
+    # (no warm Library) and was observed at 20–25+ min — the old 40-min cap auto-
+    # CANCELLED a churning cold build (run 27692339123, ticket 86caahtbe). A 55-min
+    # cap still kept auto-cancelling cold builds mid-PlayMode, so no run ever greened
+    # to populate the cache (deadlock). 90 min lets ONE cold build fully complete + go
+    # green + fully warm Library/; thereafter clean:false keeps every run warm (~7–9
+    # min, well under any timeout) while still bounding a genuinely hung runner.
+    timeout-minutes: 90
     env:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
     steps:
+      # clean: false keeps the gitignored Library/ between runs. The default
+      # clean: true runs `git clean -ffdx` and WIPES Library/ every run, forcing
+      # a full cold package re-resolve + asset reimport (20–50 min) on EVERY CI
+      # build — never the ~7–9 min warm path (ticket 86caahtbe root cause). With
+      # the cache persisted, only the first build after a checkout cleanup is cold.
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Prepare output dir
         shell: bash
         run: mkdir -p ci-out
 
+      # 0. PackageCache hygiene — delete stranded Library/PackageCache/.tmp-* staging
+      #    dirs BEFORE bootstrap. The resolver renames a fresh .tmp-* onto a target
+      #    dir; a stranded/locked target (left by a concurrent/cancelled build) makes
+      #    that rename EPERM (com.unity.shadergraph / com.unity.modules.terrainphysics
+      #    observed — unity-conventions.md §Headless, ticket 86caahtbe). Idempotent +
+      #    no-op on a warm cache; never fails the build (bootstrap is the gate).
+      - name: Clean stranded PackageCache .tmp dirs
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/clean_packagecache_tmp.sh
+          .github/workflows/scripts/clean_packagecache_tmp.sh
+
       # 1. Bootstrap — establish URP + boot scene + build stamp from code, exactly
       #    as U1 did. Idempotent; safe to re-run on a fresh CI checkout.
+      #    Wrapped in bootstrap_with_retry.sh: the PackageCache EPERM-on-rename is NOT
+      #    only a PRE-stranded .tmp problem — the resolver creates a .tmp DURING the
+      #    run and its rename onto the (even cold) target can be blocked by a lingering
+      #    handle from a just-cancelled Unity resolver / an AV-indexer (proven on run
+      #    27699769706: cold runner, no concurrent build, still EPERM'd on
+      #    com.unity.test-framework.performance). The wrapper retries ONLY on the
+      #    EPERM-rename signature — deleting the regenerable PackageCache + settling
+      #    between tries; any OTHER failure (compile/real error) fails fast, no retry.
       - name: Bootstrap project (BootstrapProject.Run)
-        shell: cmd
-        run: >
-          "%UNITY%" -batchmode -quit -nographics
-          -projectPath "%GITHUB_WORKSPACE%"
-          -executeMethod FarHorizon.EditorTools.BootstrapProject.Run
-          -logFile "%RESULTS%\bootstrap.log"
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/bootstrap_with_retry.sh
+          # Relative log path (cwd = workspace root) to avoid the $RESULTS backslash
+          # under Git-bash; the later gate steps already read ci-out/bootstrap.log.
+          .github/workflows/scripts/bootstrap_with_retry.sh \
+            "$UNITY" "$GITHUB_WORKSPACE" "ci-out/bootstrap.log"
 
       # 2. EditMode tests. NO -quit with -runTests (unity-conventions.md). The
       #    runner's exit code is advisory; the XML parser is the real gate.
