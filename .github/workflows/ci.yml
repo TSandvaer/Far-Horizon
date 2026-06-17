@@ -121,13 +121,22 @@ jobs:
 
       # 1. Bootstrap — establish URP + boot scene + build stamp from code, exactly
       #    as U1 did. Idempotent; safe to re-run on a fresh CI checkout.
+      #    Wrapped in bootstrap_with_retry.sh: the PackageCache EPERM-on-rename is NOT
+      #    only a PRE-stranded .tmp problem — the resolver creates a .tmp DURING the
+      #    run and its rename onto the (even cold) target can be blocked by a lingering
+      #    handle from a just-cancelled Unity resolver / an AV-indexer (proven on run
+      #    27699769706: cold runner, no concurrent build, still EPERM'd on
+      #    com.unity.test-framework.performance). The wrapper retries ONLY on the
+      #    EPERM-rename signature — deleting the regenerable PackageCache + settling
+      #    between tries; any OTHER failure (compile/real error) fails fast, no retry.
       - name: Bootstrap project (BootstrapProject.Run)
-        shell: cmd
-        run: >
-          "%UNITY%" -batchmode -quit -nographics
-          -projectPath "%GITHUB_WORKSPACE%"
-          -executeMethod FarHorizon.EditorTools.BootstrapProject.Run
-          -logFile "%RESULTS%\bootstrap.log"
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/bootstrap_with_retry.sh
+          # Relative log path (cwd = workspace root) to avoid the $RESULTS backslash
+          # under Git-bash; the later gate steps already read ci-out/bootstrap.log.
+          .github/workflows/scripts/bootstrap_with_retry.sh \
+            "$UNITY" "$GITHUB_WORKSPACE" "ci-out/bootstrap.log"
 
       # 2. EditMode tests. NO -quit with -runTests (unity-conventions.md). The
       #    runner's exit code is advisory; the XML parser is the real gate.
