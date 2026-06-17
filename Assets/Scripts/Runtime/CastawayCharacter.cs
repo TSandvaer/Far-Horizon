@@ -118,6 +118,15 @@ namespace FarHorizon
         [Tooltip("Small lift (world units) of the shadow above the snapped feet so it doesn't z-fight the sand.")]
         public float blobShadowLift = 0.02f;
 
+        [Header("Jump (ticket 86ca9yq3q — Space → vertical impulse + arc + land)")]
+        [Tooltip("Initial upward velocity (u/s) the jump imparts. The arc apex height ≈ jumpVelocity^2 / " +
+                 "(2·gravity). 5.5 u/s with gravity 18 → ~0.84u apex (a clear hop on the 1.8u castaway, reads " +
+                 "from the gameplay orbit). Sponsor-tunable from the build.")]
+        public float jumpVelocity = 5.5f;
+        [Tooltip("Downward acceleration (u/s^2) applied to the jump arc while airborne. Higher = a snappier, " +
+                 "less floaty hop. 18 gives a brisk ~0.62s round-trip at jumpVelocity 5.5.")]
+        public float jumpGravity = 18f;
+
         // Animator parameters the controller blends on (set each frame from the agent's velocity).
         // Moving (bool): flips the Idle<->locomotion (Walk/Run blend tree) transition.
         // Speed (float): the planar agent speed (u/s) the locomotion 1D blend tree blends Walk<->Run on
@@ -125,6 +134,10 @@ namespace FarHorizon
         // SAME agent.velocity magnitude WasdMovement commands (walkSpeed walking, runSpeed sprinting).
         public const string MovingParam = "Moving";
         public const string SpeedParam = "Speed";
+        // The one-shot Jump trigger (86ca9yq3q) — pulsed on the rising edge of a jump so the Animator plays the
+        // Jump clip once (the AnyState→Jump transition the controller wires) and returns. Mirrors
+        // CharacterAssetGen.JumpParam (kept in sync so the trigger fires the state the controller built).
+        public const string JumpParam = "Jump";
 
         private NavMeshAgent _agent;
         private Animator _animator;
@@ -147,6 +160,49 @@ namespace FarHorizon
         /// regression asserts the run state flips when Shift drives the faster speed (and stays false at walk
         /// speed). Reads off the same Speed value the blend tree consumes — consistent with what renders.</summary>
         public bool IsRunning { get; private set; }
+
+        // === JUMP (ticket 86ca9yq3q). A ballistic VERTICAL arc on the avatar root, on TOP of the ground snap.
+        // The NavMeshAgent owns world XZ (it keeps the player on the NavMesh — a jump does NOT change that; you
+        // can jump while idle AND while moving, AC1); the agent has NO vertical channel, so the jump arc is a
+        // pure local-Y offset added to the avatar root here, where the grounded local-Y is already owned. While
+        // airborne the per-frame GROUND SNAP is SUSPENDED (AC3 — else modelSoleGround / the root snap would PIN
+        // the feet back to the terrain mid-jump); it RE-ENGAGES on landing with the grounded behavior UNCHANGED. ===
+        private bool _airborne;
+        private float _jumpVelY;   // current vertical velocity of the arc (u/s); +up
+        private float _jumpY;      // current arc height above the grounded position (world-up units); 0 when grounded
+        // The grounded avatar-root local-Y captured at lift-off (the snap's last settled value). The arc is added
+        // ON TOP of this; on landing we restore the snap from this baseline so grounding resumes seamlessly.
+        private float _jumpBaseLocalY;
+
+        /// <summary>Whether the castaway is mid-jump (airborne) this frame (86ca9yq3q). While true the ground
+        /// snap is suspended and the avatar rides the jump arc. Exposed so the PlayMode AC5 regression asserts
+        /// the airborne phase suspends grounding, and so later systems (jump SFX, fall damage) can read it.</summary>
+        public bool IsAirborne => _airborne;
+
+        /// <summary>The current jump-arc height above the grounded position (world-up units); 0 when grounded
+        /// (86ca9yq3q). Exposed so the AC5 regression asserts the root Y RISES then RETURNS to grounded across
+        /// the arc without depending on physical agent traversal (the head/apex is &gt; 0, landing is ~0).</summary>
+        public float JumpHeight => _airborne ? _jumpY : 0f;
+
+        /// <summary>
+        /// Begin a jump (ticket 86ca9yq3q) — Space's rising edge calls this (WasdMovement). Imparts the upward
+        /// impulse + pulses the Jump animator trigger, but ONLY when grounded (a mid-air re-press is ignored — no
+        /// double-jump; control returns on landing). Idempotent while airborne. Returns true iff a jump started
+        /// (so a caller can gate a jump SFX on the actual lift-off). Works identically idle or moving — the agent
+        /// keeps driving XZ; this only adds the vertical arc.
+        /// </summary>
+        public bool TryJump()
+        {
+            if (_airborne) return false;          // already mid-jump — no double-jump
+            if (!groundSnap) return false;        // a rig with grounding off has no settled baseline to launch from
+            _airborne = true;
+            _jumpVelY = Mathf.Max(0.01f, jumpVelocity);
+            _jumpY = 0f;
+            _jumpBaseLocalY = _snapInit ? _snapLocalY : transform.localPosition.y; // launch from the grounded local-Y
+            if (_animator != null && _animator.runtimeAnimatorController != null)
+                _animator.SetTrigger(JumpParam);  // fire the one-shot Jump state (AnyState→Jump on the trigger)
+            return true;
+        }
 
         /// <summary>
         /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook). The verify
@@ -768,12 +824,58 @@ namespace FarHorizon
             return msg;
         }
 
+        // Advance the ballistic jump arc one frame (ticket 86ca9yq3q). Integrates v -= g·dt; y += v·dt, writes
+        // the avatar-root local-Y = the lift-off grounded baseline + the arc height (so the WHOLE character —
+        // and the held axe riding the hand, which inherits this transform — rises + falls), and LANDS when the
+        // arc returns to (or below) the baseline. On landing the snap baseline is restored from _jumpBaseLocalY
+        // so the next grounded frame resumes the snap with NO pop. The XZ stays owned by the agent throughout
+        // (the player keeps moving while airborne — AC1's "jump while moving"). NO ground raycast / modelSoleGround
+        // runs here — that's the AC3 suspension; the grounded path (ApplyGroundSnap) is untouched.
+        private void AdvanceJump()
+        {
+            float dt = Time.deltaTime;
+            // Headless guard: Time.deltaTime≈0 in -batchmode (the documented headless-time trap) would freeze the
+            // arc forever (never landing) → a hung PlayMode test. Use a nominal step so the arc still advances
+            // deterministically in headless runs; live play uses the real dt.
+            if (dt < 1e-5f) dt = 1f / 60f;
+
+            _jumpVelY -= jumpGravity * dt;
+            _jumpY += _jumpVelY * dt;
+
+            if (_jumpY <= 0f)
+            {
+                // LANDED — clamp to the ground, re-engage the snap from the grounded baseline, return control.
+                _jumpY = 0f;
+                _airborne = false;
+                _jumpVelY = 0f;
+                _snapLocalY = _jumpBaseLocalY;     // resume the snap exactly where it lifted off (no pop)
+                Vector3 landed = transform.localPosition;
+                landed.y = _jumpBaseLocalY;
+                transform.localPosition = landed;
+                return;
+            }
+
+            Vector3 lp = transform.localPosition;
+            lp.y = _jumpBaseLocalY + _jumpY;       // grounded baseline + the arc height
+            transform.localPosition = lp;
+        }
+
         void LateUpdate()
         {
-            // Plant the feet on the VISIBLE terrain FIRST (before facing), so the grounded position is
-            // settled this frame (soak-fix #1 — 'walking in the air'). The avatar root's local Y is driven
-            // down onto the visible sand the agent's NavMesh ground point floats above.
-            ApplyGroundSnap();
+            // JUMP ↔ GROUND-SNAP GATE (ticket 86ca9yq3q, AC3 — load-bearing). While AIRBORNE the per-frame
+            // ground snap is SUSPENDED: ApplyGroundSnap drives the avatar root (and modelSoleGround the model
+            // child) onto the terrain every frame, which would PIN the feet back to the ground mid-jump (the
+            // 9-attempt float fix is doing its job — grounding the feet — and that's exactly wrong while jumping).
+            // So while airborne we run the arc instead; on landing we re-engage the snap with the grounded
+            // behavior UNCHANGED (the gate is an "only-when-grounded" wrapper — it does NOT alter ApplyGroundSnap).
+            if (_airborne)
+                AdvanceJump();
+            else
+                // Plant the feet on the VISIBLE terrain FIRST (before facing), so the grounded position is
+                // settled this frame (soak-fix #1 — 'walking in the air'). The avatar root's local Y is driven
+                // down onto the visible sand the agent's NavMesh ground point floats above. (UNCHANGED grounded
+                // behavior — the AC5 regression guard asserts this path is byte-identical to pre-jump.)
+                ApplyGroundSnap();
 
             // Read the agent's planar velocity each frame and drive the Idle<->locomotion blend + the
             // Walk<->Run blend tree (86ca9yq34) + facing. Self-driving keeps this PR's surface to the visual

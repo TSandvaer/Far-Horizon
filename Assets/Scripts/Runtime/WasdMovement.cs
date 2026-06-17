@@ -55,6 +55,12 @@ namespace FarHorizon
                  "stale destination can't fight the manual velocity. Null is tolerated (tests without it).")]
         public ClickToMove clickToMove;
 
+        [Header("Jump (ticket 86ca9yq3q — Space → jump)")]
+        [Tooltip("The avatar that owns the jump arc + the airborne ground-snap gate. Space's rising edge calls " +
+                 "CastawayCharacter.TryJump(). Wired editor-time (MovementCameraScene); Awake resolves it from " +
+                 "the children as a fallback. Null is tolerated (a bare movement test with no avatar).")]
+        public CastawayCharacter castaway;
+
         // Deadzone below which input is treated as zero (the axes have a small dead band already, but a
         // squared-magnitude floor keeps a near-zero diagonal from creeping the agent).
         private const float InputDeadzone = 0.01f;
@@ -73,6 +79,12 @@ namespace FarHorizon
         // same way the move vector is. null = read the real keyboard (Input.GetKey(LeftShift|RightShift)).
         private bool? _sprintOverride;
 
+        // JUMP (Space) PROGRAMMATIC SEAM (86ca9yq3q). A headless PlayMode run / the shipped-build verify capture
+        // can't inject a real Space keystroke, so a jump can be REQUESTED via this latch (consumed on the next
+        // Update, mirroring the keyboard's rising edge — one jump per request). null/false = read the real
+        // keyboard (Input.GetKeyDown(Space)).
+        private bool _jumpRequested;
+
         /// <summary>Drive WASD programmatically (the input-independent seam — the verify capture's analog of
         /// ClickToMove.MoveTo). Pass an (x=strafe, y=forward) vector; pass null / <see cref="ClearInputOverride"/>
         /// to return to the real keyboard. Used by WasdVerifyCapture to exercise WASD in the shipped exe.</summary>
@@ -89,6 +101,13 @@ namespace FarHorizon
 
         /// <summary>Stop overriding sprint — return to reading the real LeftShift/RightShift key.</summary>
         public void ClearSprintOverride() => _sprintOverride = null;
+
+        /// <summary>Request a JUMP programmatically — the input-independent analog of pressing Space (ticket
+        /// 86ca9yq3q). Latched + consumed on the next Update (mirrors the keyboard's rising edge — one jump per
+        /// call), so the PlayMode AC5 test + the shipped-build jump capture can trigger a jump where a real Space
+        /// keystroke can't be injected. CastawayCharacter.TryJump() still enforces grounded-only (no double-jump),
+        /// so a request while airborne is harmlessly ignored.</summary>
+        public void RequestJump() => _jumpRequested = true;
 
         /// <summary>The camera-relative planar move direction the WASD input resolved to LAST frame
         /// (unit-length while moving, zero at rest). Exposed so the PlayMode regression can assert the
@@ -114,6 +133,10 @@ namespace FarHorizon
         void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
+            // Resolve the avatar that owns the jump arc (86ca9yq3q) if not wired editor-time — it's a child
+            // avatar root under the player. Null is tolerated (a bare movement test with no avatar — jump is
+            // simply inert there).
+            if (castaway == null) castaway = GetComponentInChildren<CastawayCharacter>(true);
         }
 
         void Start()
@@ -168,6 +191,17 @@ namespace FarHorizon
                 sprint = _sprintOverride.Value;
             else
                 sprint = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+
+            // JUMP on Space (86ca9yq3q): the rising edge of the real Space key (legacy Input — the project is
+            // activeInputHandler=0; legacy avoids the project-wide NEW-Input-System flip that would BREAK the
+            // OrbitCamera mouse-orbit/zoom + the F8/F9 tools, the same reason WASD/run chose legacy) OR the
+            // programmatic latch (the headless / shipped-build seam, consumed once here). CastawayCharacter
+            // enforces grounded-only (no double-jump) + owns the arc + the airborne ground-snap gate; this only
+            // detects the press. Jumping does NOT touch the XZ velocity below, so the player keeps moving while
+            // airborne (AC1 — jump while idle AND while moving).
+            bool jumpPressed = _jumpRequested || Input.GetKeyDown(KeyCode.Space);
+            _jumpRequested = false;
+            if (jumpPressed && castaway != null) castaway.TryJump();
 
             ResolveCameraBasis(out Vector3 camFwd, out Vector3 camRight);
             Vector3 dir = CameraRelativeDirection(camFwd, camRight, input);

@@ -116,6 +116,15 @@ namespace FarHorizon.EditTests
                 "WasdMovement must be camera-relative to the ORBIT camera (W = the way the orbit cam faces — AC1)");
             Assert.IsNotNull(wasd.clickToMove,
                 "WasdMovement must reference the ClickToMove it replaces (to disable click-to-move on Start — AC3)");
+            // JUMP (86ca9yq3q) — the avatar that owns the jump arc must be wired editor-time so Space's rising
+            // edge calls CastawayCharacter.TryJump() (the component-in-source-but-not-in-scene trap — an Awake
+            // GetComponentInChildren is the fallback only). A regression that drops this ships an inert Space key.
+            Assert.IsNotNull(wasd.castaway,
+                "WasdMovement.castaway (the jump owner) must be wired editor-time (the avatar's CastawayCharacter)");
+            var castaway = FindInScene<CastawayCharacter>(scene);
+            Assert.IsNotNull(castaway);
+            Assert.AreSame(castaway, wasd.castaway,
+                "WasdMovement must reference the scene's CastawayCharacter as the jump owner (Space → TryJump)");
         }
 
         [Test]

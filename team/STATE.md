@@ -144,7 +144,7 @@ Each role updates its own section as it works M-U1 / M-U2 tickets. The orchestra
 (fresh — first M-U2 surface is the thin-loop UX once M-U1 closes)
 
 ### Devon (Game Developer #1, lead — engine/runtime/build/CI)
-(fresh — ported U3 input + drove U4 CI; next is M-U2 survival-loop systems)
+- **JUMP-ON-SPACE `86ca9yq3q` (ticket 3/3 of locomotion) — DONE → PR (devon/86ca9yq3q-jump-on-space off origin/main @ `03896b6`).** Space → vertical impulse + ballistic arc + land + one-shot Jump anim; works idle AND while moving (the agent keeps XZ; the jump adds a pure local-Y arc on the avatar root). **AC3 airborne gate (load-bearing):** `CastawayCharacter.LateUpdate` runs `AdvanceJump()` while airborne INSTEAD of `ApplyGroundSnap()` — an "only-when-grounded" wrapper; the grounded snap (root + `modelSoleGround`, the 9-attempt float fix) is UNCHANGED, re-engages on land from the lift-off baseline (no pop). **AC4:** `HeldAxeRig` UNTOUCHED — the axe rides the raw hand through the arc by construction (no detach). **Jump.fbx** imported GENERIC/CreateFromThisModel, NON-looping one-shot (`RenameNonLooping`), Jump state = AnyState→Jump on a `Jump` trigger + exit-time→Idle; the Walk↔Run blend tree is unchanged (Jump is an overlay, not a blend child). `WasdMovement` reads `Input.GetKeyDown(Space)` (legacy Input — no activeInputHandler flip) + a `RequestJump()` headless/shipped seam → `castaway.TryJump()` (grounded-only, no double-jump). EditMode 244/244 + PlayMode 106/106 (3 new EditMode controller/import guards + 5 new PlayMode AC5 jump tests incl. the grounded-float-unchanged regression guard). Reviewer Drew; Tess QA; Sponsor feel-soak. NOT merged.
 
 ### Drew (Game Developer #2 — content systems/tools)
 (fresh — populated as M-U2 content work dispatches)
