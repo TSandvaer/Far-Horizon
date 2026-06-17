@@ -101,7 +101,14 @@ jobs:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
     steps:
+      # clean: false keeps the gitignored Library/ between runs. The default
+      # clean: true runs `git clean -ffdx` and WIPES Library/ every run, forcing
+      # a full cold package re-resolve + asset reimport (20–50 min) on EVERY CI
+      # build — never the ~7–9 min warm path (ticket 86caahtbe root cause). With
+      # the cache persisted, only the first build after a checkout cleanup is cold.
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Prepare output dir
         shell: bash
