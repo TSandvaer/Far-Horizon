@@ -1590,6 +1590,13 @@ namespace FarHorizon.EditorTools
             wasd.runSpeed = CharacterAssetGen.RunBlendSpeed;
             wasd.cameraTransform = camGo != null ? camGo.transform : null;
             wasd.clickToMove = player.GetComponent<ClickToMove>();
+            // JUMP (86ca9yq3q) — wire the avatar that owns the jump arc + the airborne ground-snap gate so
+            // Space's rising edge calls CastawayCharacter.TryJump(). Serialized editor-time (the
+            // component-in-source-but-not-in-scene trap — an Awake GetComponentInChildren is the fallback only).
+            wasd.castaway = player.GetComponentInChildren<CastawayCharacter>(true);
+            if (wasd.castaway == null)
+                Debug.LogWarning("[MovementCameraScene] WasdMovement castaway (jump owner) not wired — Space will " +
+                                 "fall back to GetComponentInChildren at runtime; jump inert if no avatar");
             if (wasd.cameraTransform == null)
                 Debug.LogWarning("[MovementCameraScene] WasdMovement camera not wired — WASD will fall back to " +
                                  "Camera.main at runtime (camera-relative still works, just not serialized)");

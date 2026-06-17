@@ -58,6 +58,12 @@ namespace FarHorizon.EditorTools
         public const string IdleFbxPath = CharDir + "/Idle.fbx";   // WITH skin (mesh+rig+Idle clip)
         public const string WalkFbxPath = CharDir + "/Walking.fbx"; // WITHOUT skin (Walk clip only)
         public const string RunFbxPath = CharDir + "/Running.fbx";  // WITHOUT skin (Run clip only — 86ca9yq34)
+        // TWO jump clips by movement state (86ca9yq3q rework — Sponsor soak): an idle/standing jump and a
+        // walk/run jump. The single Jump.fbx is REPLACED — the controller plays Jump_idle when standing and
+        // Jump_running when moving, so a jump initiated mid-locomotion reads as a running jump and lands back
+        // into Walk/Run. Both WITHOUT skin (bind by transform path onto Idle's mesh, same as Walk/Run).
+        public const string JumpIdleFbxPath = CharDir + "/Jump_idle.fbx";       // WITHOUT skin (idle/standing jump)
+        public const string JumpRunningFbxPath = CharDir + "/Jump_running.fbx"; // WITHOUT skin (walk/run jump)
         public const string DiffusePngPath = CharDir + "/texture_diffuse.png";
         public const string NormalPngPath = CharDir + "/texture_normal.png";
         public const string MaterialPath = CharDir + "/CastawayMat.mat";
@@ -77,6 +83,22 @@ namespace FarHorizon.EditorTools
         public const string IdleClip = "CastawayIdle"; // renamed-on-import (the controller binds this)
         public const string WalkClip = "CastawayWalk"; // renamed-on-import
         public const string RunClip = "CastawayRun";   // renamed-on-import (86ca9yq34 — the Run clip)
+        // TWO jump clips by movement state (86ca9yq3q rework) — renamed-on-import, distinct in the controller.
+        public const string JumpIdleClip = "CastawayJumpIdle";       // idle/standing jump (Jump_idle.fbx)
+        public const string JumpRunningClip = "CastawayJumpRunning"; // walk/run jump (Jump_running.fbx)
+
+        // The Animator TRIGGER param that fires the one-shot Jump state (86ca9yq3q). CastawayCharacter pulses
+        // it on the rising edge of a jump (SetTrigger). The controller routes the trigger to JumpIdle (Moving
+        // false) or JumpRunning (Moving true) — clip choice keys off the SAME Moving bool the locomotion graph
+        // uses (86ca9yq3q rework). Neither jump state is a Walk<->Run blend-tree child (the blend stays {Idle,
+        // Walk, Run} — AC5 OOS protection).
+        public const string JumpParam = "Jump";
+        // The GROUNDED bool (86ca9yq3q rework — THE floating-bug fix). CastawayCharacter drives it = !IsAirborne
+        // each frame. The jump states transition back to the LOCOMOTION blend tree (Grounded && Moving) or to
+        // Idle (Grounded && !Moving) the MOMENT the character grounds — so if W is still held on landing,
+        // Walk/Run resumes on the same frame instead of stalling in the finished jump pose (which translated
+        // while non-locomotion → the "floating" percept the Sponsor reported).
+        public const string GroundedParam = "Grounded";
 
         // The 1D Walk<->Run blend-tree thresholds on the Speed param (86ca9yq34). Idle@0, Walk@WalkBlendSpeed,
         // Run@RunBlendSpeed — so the planar agent speed WasdMovement commands (moveSpeed walking, runSpeed
@@ -121,6 +143,9 @@ namespace FarHorizon.EditorTools
             ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize
             ConfigureWalkFbx();   // Generic CreateFromThisModel + loop+rename Walk (binds by transform path)
             ConfigureRunFbx();    // Generic CreateFromThisModel + loop+rename Run (binds by transform path; 86ca9yq34)
+            // TWO jump clips by movement state (86ca9yq3q rework): idle/standing + walk/run, both NON-looping one-shots.
+            ConfigureJumpFbx(JumpIdleFbxPath, JumpIdleClip);
+            ConfigureJumpFbx(JumpRunningFbxPath, JumpRunningClip);
             // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
             // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
             // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
@@ -240,6 +265,36 @@ namespace FarHorizon.EditorTools
             importer.SaveAndReimport();
             Debug.Log($"[CharacterAssetGen] Running.fbx reimported: rig=Generic CreateFromThisModel, " +
                       $"looped+renamed {looped} clip(s) -> {RunClip}");
+        }
+
+        // Jump.fbx is the JUMP clip WITHOUT skin (86ca9yq3q — In-Place, Without-Skin per the brief). IDENTICAL
+        // import config to Walking/Running.fbx (GENERIC rig, avatar from its OWN identical mixamorig skeleton —
+        // binds by TRANSFORM PATH onto Idle's mesh, NO Humanoid muscle retarget = the 86ca8rdkp runtime-explosion
+        // cause) EXCEPT the clip is NON-LOOPING — a jump is a ONE-SHOT (crouch→push→arc→land), not a cycle, so it
+        // plays once and the controller transitions back to Idle/Locomotion on exit. The Mixamo take is
+        // "mixamo.com" → renamed to CastawayJump (the same clip-take finding the Idle/Walk/Run imports honor — an
+        // exact "Jump" match loops ZERO clips, the T-pose-mid-walk class).
+        // (86ca9yq3q rework) Parameterised on the FBX path + rename target — used for BOTH Jump_idle.fbx
+        // (idle/standing jump) and Jump_running.fbx (walk/run jump). Same import config for each.
+        private static void ConfigureJumpFbx(string fbxPath, string clipName)
+        {
+            var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] jump FBX not found at " + fbxPath); return; }
+
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = true;
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            importer.clipAnimations = RenameNonLooping(importer, clipName, out int renamed);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] {fbxPath} reimported: rig=Generic CreateFromThisModel, " +
+                      $"renamed {renamed} NON-looping clip(s) -> {clipName}");
         }
 
         // Build a flat de-lit URP/Lit material from texture_diffuse: _BaseMap = diffuse, smoothness ~0, no
@@ -393,6 +448,42 @@ namespace FarHorizon.EditorTools
             return edited.ToArray();
         }
 
+        // Match the Mixamo source take ("mixamo.com") + RENAME it to a stable name, but DO NOT loop it — the
+        // Jump clip is a ONE-SHOT (86ca9yq3q), so loopTime=false so the controller's Jump state plays the arc
+        // once and transitions back on exit (a looped jump would replay the push-off forever). Same root-transform
+        // settings as LoopAndRename (in-place loco — NavMeshAgent owns world XZ; applyRootMotion=false). Guarded
+        // by the renamed>0 assert (zero matched = the T-pose-mid-jump failure class, same as LoopAndRename).
+        private static ModelImporterClipAnimation[] RenameNonLooping(ModelImporter importer, string newName, out int renamed)
+        {
+            var clips = importer.clipAnimations;
+            if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
+            var edited = new List<ModelImporterClipAnimation>();
+            renamed = 0;
+            foreach (var c in clips)
+            {
+                var cc = c;
+                if (cc.name.Contains(SourceTake) || cc.takeName.Contains(SourceTake))
+                {
+                    cc.name = newName;
+                    cc.loopTime = false; // ONE-SHOT jump — play the arc once, transition back on exit
+                    cc.loop = false;
+                    cc.lockRootRotation = true;
+                    cc.keepOriginalOrientation = false;
+                    cc.lockRootPositionXZ = true;
+                    cc.keepOriginalPositionXZ = false;
+                    cc.lockRootHeightY = false;
+                    cc.keepOriginalPositionY = true;
+                    cc.heightFromFeet = false;
+                    renamed++;
+                }
+                edited.Add(cc);
+            }
+            if (renamed == 0)
+                Debug.LogError($"[CharacterAssetGen] no clip matched source take '{SourceTake}' to rename to " +
+                               $"'{newName}' — the Jump state will be empty (T-pose-mid-jump risk). Re-run CharacterDiagnoseTrace.");
+            return edited.ToArray();
+        }
+
         private static Avatar LoadAvatar(string fbxPath)
         {
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbxPath))
@@ -444,10 +535,13 @@ namespace FarHorizon.EditorTools
             AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
             AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
             AnimationClip run = FindClip(RunFbxPath, RunClip);
-            if (idle == null || walk == null || run == null)
+            AnimationClip jumpIdle = FindClip(JumpIdleFbxPath, JumpIdleClip);
+            AnimationClip jumpRunning = FindClip(JumpRunningFbxPath, JumpRunningClip);
+            if (idle == null || walk == null || run == null || jumpIdle == null || jumpRunning == null)
             {
                 Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}, " +
-                               $"run={run != null}); controller not built");
+                               $"run={run != null}, jumpIdle={jumpIdle != null}, jumpRunning={jumpRunning != null}); " +
+                               "controller not built");
                 return;
             }
 
@@ -455,6 +549,8 @@ namespace FarHorizon.EditorTools
             var controller = AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
             controller.AddParameter("Moving", AnimatorControllerParameterType.Bool);
             controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
+            controller.AddParameter(JumpParam, AnimatorControllerParameterType.Trigger);  // 86ca9yq3q — one-shot Jump
+            controller.AddParameter(GroundedParam, AnimatorControllerParameterType.Bool); // 86ca9yq3q rework — land→loco
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
@@ -484,10 +580,74 @@ namespace FarHorizon.EditorTools
             toIdle.hasExitTime = false;
             toIdle.duration = 0.15f;
 
+            // JUMP (86ca9yq3q rework — Sponsor soak) — TWO one-shot overlay states by movement state:
+            //   JumpIdle    = the idle/standing jump (Jump_idle.fbx);    AnyState→JumpIdle    on (Jump && !Moving)
+            //   JumpRunning = the walk/run jump      (Jump_running.fbx); AnyState→JumpRunning on (Jump &&  Moving)
+            // Clip choice keys off the SAME Moving bool the locomotion graph uses, so a jump initiated mid-walk/run
+            // plays Jump_running and a standing jump plays Jump_idle (AC: two clips by movement state).
+            //
+            // THE FLOATING-BUG FIX (the rework's core): each jump state transitions BACK on the GROUNDED bool
+            // (driven = !IsAirborne by CastawayCharacter), NOT on clip exit-time. The MOMENT the character grounds:
+            //   Grounded && Moving  → Locomotion (the Walk/Run blend tree)  — W still held → Walk/Run resumes SAME frame
+            //   Grounded && !Moving → Idle
+            // The prior exit-time→Idle path stalled the character in the FINISHED jump pose after landing while it
+            // kept translating (W held) until exit-time elapsed → the "floating" percept. Routing land→locomotion
+            // on the grounded edge resumes the locomotion blend on the landing frame. Neither jump state is a
+            // blend-tree child — the Walk<->Run blend tree is UNTOUCHED (AC5 OOS protection).
+            var jumpIdleState = sm.AddState("JumpIdle");
+            jumpIdleState.motion = jumpIdle;
+            var jumpRunningState = sm.AddState("JumpRunning");
+            jumpRunningState.motion = jumpRunning;
+
+            // AnyState → JumpIdle (idle/standing jump): Jump trigger AND NOT Moving.
+            var anyToJumpIdle = sm.AddAnyStateTransition(jumpIdleState);
+            anyToJumpIdle.AddCondition(AnimatorConditionMode.If, 0f, JumpParam);
+            anyToJumpIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            anyToJumpIdle.hasExitTime = false;
+            anyToJumpIdle.duration = 0.06f;            // a quick crossfade into the push-off
+            anyToJumpIdle.canTransitionToSelf = false; // a re-trigger mid-jump won't restart the clip from 0
+
+            // AnyState → JumpRunning (walk/run jump): Jump trigger AND Moving.
+            var anyToJumpRunning = sm.AddAnyStateTransition(jumpRunningState);
+            anyToJumpRunning.AddCondition(AnimatorConditionMode.If, 0f, JumpParam);
+            anyToJumpRunning.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            anyToJumpRunning.hasExitTime = false;
+            anyToJumpRunning.duration = 0.06f;
+            anyToJumpRunning.canTransitionToSelf = false;
+
+            // Both jump states return on the GROUNDED edge — to Locomotion if still moving, else Idle. No exit-time
+            // (the physical arc, not the clip length, owns landing — AdvanceJump flips Grounded on touch-down).
+            WireJumpReturn(jumpIdleState, locoState, idleState);
+            WireJumpReturn(jumpRunningState, locoState, idleState);
+
             EditorUtility.SetDirty(controller);
             Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Locomotion(Moving) + Walk<->Run 1D " +
-                      $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) -> " +
-                      ControllerPath);
+                      $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) + " +
+                      $"JumpIdle/JumpRunning one-shots (AnyState on '{JumpParam}'+Moving; return on '{GroundedParam}' " +
+                      "edge → Locomotion if Moving else Idle) -> " + ControllerPath);
+        }
+
+        // (86ca9yq3q rework — THE floating-bug fix) Wire a jump state's return transitions on the GROUNDED edge:
+        //   Grounded && Moving  → Locomotion (Walk/Run blend resumes the SAME frame W is still held on landing)
+        //   Grounded && !Moving → Idle
+        // NO exit-time — the physical ballistic arc owns landing (CastawayCharacter.AdvanceJump flips Grounded on
+        // touch-down), not the clip length. A short crossfade keeps the land→loco transition smooth. Ordering: the
+        // Moving transition is added first so a moving landing prefers Locomotion over Idle.
+        private static void WireJumpReturn(AnimatorState jumpState, AnimatorState locoState, AnimatorState idleState)
+        {
+            var toLoco = jumpState.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, GroundedParam);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = false;
+            toLoco.duration = 0.10f;
+            toLoco.hasFixedDuration = true;
+
+            var toIdle = jumpState.AddTransition(idleState);
+            toIdle.AddCondition(AnimatorConditionMode.If, 0f, GroundedParam);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            toIdle.hasExitTime = false;
+            toIdle.duration = 0.12f;
+            toIdle.hasFixedDuration = true;
         }
 
         // Mirror MovementCameraScene.EnsureShaderAlwaysIncluded: GraphicsSettings.asset's
@@ -518,7 +678,7 @@ namespace FarHorizon.EditorTools
         {
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("[char-trace] ===== CHARACTER DIAGNOSE TRACE =====");
-            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath, RunFbxPath })
+            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath, RunFbxPath, JumpIdleFbxPath, JumpRunningFbxPath })
             {
                 sb.AppendLine("[char-trace] ===== " + fbx + " =====");
                 foreach (var o in AssetDatabase.LoadAllAssetsAtPath(fbx))
