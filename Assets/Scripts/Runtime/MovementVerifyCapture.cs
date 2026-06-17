@@ -42,6 +42,13 @@ namespace FarHorizon
             string dir = ResolveDir();
             Directory.CreateDirectory(dir);
 
+            // WASD-locomotion handoff (ticket 86ca9yq2x): WasdMovement now drives the shared NavMeshAgent's
+            // velocity every frame (zeroing it at rest), which would fight this capture's MoveTo pathing.
+            // Disable the WASD driver for the duration of this click-move verification (the MoveTo seam is
+            // the click-to-move analog and stays valid). This keeps -verifyMove a faithful click-move proof.
+            var wasd = player != null ? player.GetComponent<WasdMovement>() : Object.FindAnyObjectByType<WasdMovement>();
+            if (wasd != null) wasd.enabled = false;
+
             // 1. Wait up to 3s for the agent to be placed on the NavMesh (EnsureOnNavMesh retry).
             float t = 0f;
             while (t < 3f && (player == null || player.Agent == null || !player.Agent.isOnNavMesh))

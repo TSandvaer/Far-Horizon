@@ -40,6 +40,15 @@ namespace FarHorizon
         [Tooltip("Spawned at the move destination for PoE-feel feedback. Null = no marker.")]
         public ClickMarker markerPrefab;
 
+        [Header("Locomotion gate (ticket 86ca9yq2x — WASD replaces click-to-move)")]
+        [Tooltip("Whether a left-click sets a move destination. The Sponsor-directed pivot to WASD " +
+                 "locomotion (86ca9yq2x) sets this FALSE editor-time (WasdMovement disables it on Start), " +
+                 "so click-to-move no longer drives the player. The component stays for its PROGRAMMATIC " +
+                 "MoveTo seam — the verify captures + the PlayMode harness still drive scripted paths via " +
+                 "MoveTo regardless of this gate; only the input-driven HandleClick respects it. Default " +
+                 "true so any rig that builds ClickToMove without WasdMovement keeps click-to-move.")]
+        public bool clickEnabled = true;
+
         private NavMeshAgent _agent;
         private Camera _cam;
         private bool _wasMovingTowardGoal;
@@ -100,6 +109,10 @@ namespace FarHorizon
 
         private void HandleClick()
         {
+            // WASD locomotion (86ca9yq2x) replaces click-to-move: when clickEnabled is false a left-click
+            // no longer sets a destination. The programmatic MoveTo seam (verify captures + harness) is
+            // unaffected — only this input-driven path respects the gate.
+            if (!clickEnabled) return;
             // Legacy input (ported from the spike): left mouse button = move.
             if (_cam != null && Input.GetMouseButtonDown(0))
             {

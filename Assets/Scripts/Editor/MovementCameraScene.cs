@@ -163,7 +163,15 @@ namespace FarHorizon.EditorTools
             GameObject ground = BuildFlatGround(groundLayer);
             ClickMarker markerPrefab = BuildClickMarkerPrefab();
             GameObject player = BuildPlayer(markerPrefab, groundLayer);
-            BuildOrbitCamera(player, existingBootCamera);
+            GameObject camGo = BuildOrbitCamera(player, existingBootCamera);
+
+            // WASD keyboard locomotion (ticket 86ca9yq2x) — REPLACES click-to-move as the player's
+            // locomotion (Sponsor-directed pivot). Wired AFTER the orbit camera (it needs the camera
+            // transform for camera-relative movement) so "W = the way the camera faces". It drives the
+            // EXISTING NavMeshAgent's velocity (keeps terrain/NavMesh grounding + the float fix intact) and
+            // disables ClickToMove's click handling on Start. CastawayCharacter already reads agent.velocity
+            // for the Idle<->Walk blend + facing, so the anim + facing follow with no extra wiring.
+            BuildWasdMovement(player, camGo);
 
             // U2-2 (86ca8bdaq): the craft spot — the entry to the survival loop. A world marker the
             // castaway click-moves to; reaching it crafts the axe (one recipe, no UI tree). Authored
@@ -1519,7 +1527,7 @@ namespace FarHorizon.EditorTools
         // Replace the static boot camera with the OrbitCamera rig targeting the player. We reuse
         // the existing camera GameObject (keeps its MainCamera tag + AudioListener) and add the
         // URP camera data + OrbitCamera component, so the boot smoke test still finds a Camera.
-        private static void BuildOrbitCamera(GameObject player, GameObject existingBootCamera)
+        private static GameObject BuildOrbitCamera(GameObject player, GameObject existingBootCamera)
         {
             GameObject camGo = existingBootCamera != null ? existingBootCamera : new GameObject("Main Camera");
             var cam = camGo.GetComponent<Camera>();
@@ -1554,6 +1562,52 @@ namespace FarHorizon.EditorTools
             if (groundLayer < 0)
                 Debug.LogWarning("[MovementCameraScene] 'Ground' layer missing — OrbitCamera terrain-collision " +
                                  "(N2 hill-clip fix) will be INERT (mask 0 = no collision)");
+            return camGo;
+        }
+
+        // Wire WASD keyboard locomotion (ticket 86ca9yq2x) onto the player root — REPLACES click-to-move.
+        // Added editor-time (serializes onto the Player in Boot.unity — the component-in-source-but-not-in-
+        // scene trap; an Awake-added component would ship the player un-driveable). Camera-relative: the
+        // cameraTransform is the orbit camera (built just before this), so "W = the way the camera faces"
+        // serializes too (no Awake Camera.main lookup needed in the build). The ClickToMove ref lets
+        // WasdMovement disable click-to-move on Start while keeping its programmatic MoveTo seam for the
+        // verify captures + the PlayMode harness.
+        private static void BuildWasdMovement(GameObject player, GameObject camGo)
+        {
+            var wasd = player.GetComponent<WasdMovement>();
+            if (wasd == null) wasd = player.AddComponent<WasdMovement>();
+            wasd.moveSpeed = player.GetComponent<NavMeshAgent>() != null
+                ? player.GetComponent<NavMeshAgent>().speed
+                : 5.5f;
+            wasd.cameraTransform = camGo != null ? camGo.transform : null;
+            wasd.clickToMove = player.GetComponent<ClickToMove>();
+            if (wasd.cameraTransform == null)
+                Debug.LogWarning("[MovementCameraScene] WasdMovement camera not wired — WASD will fall back to " +
+                                 "Camera.main at runtime (camera-relative still works, just not serialized)");
+
+            // Wire the verification-only shipped-build WASD capture (holds camera-relative forward via the
+            // input-independent seam, proves WASD MOVED the player in the BUILT exe). Inert unless -verifyWasd.
+            WireWasdVerifyCapture(player);
+
+            Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
+                      wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
+        }
+
+        // Wire the WASD shipped-build verify capture onto the Boot object so it SERIALIZES into Boot.unity
+        // (the component-in-source-but-not-in-scene trap — it would ship inert otherwise). Inert unless
+        // launched with -verifyWasd. Sibling of MovementVerifyCapture/AxeVerifyCapture/etc.
+        private static void WireWasdVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host WasdVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<WasdVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<WasdVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
         }
 
         // NavMesh voxel size (BIG ROUND ISLAND, 86ca9a7qn — N1 "can't walk everywhere"). A FINE voxel size
