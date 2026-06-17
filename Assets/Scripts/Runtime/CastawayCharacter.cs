@@ -134,10 +134,17 @@ namespace FarHorizon
         // SAME agent.velocity magnitude WasdMovement commands (walkSpeed walking, runSpeed sprinting).
         public const string MovingParam = "Moving";
         public const string SpeedParam = "Speed";
-        // The one-shot Jump trigger (86ca9yq3q) — pulsed on the rising edge of a jump so the Animator plays the
-        // Jump clip once (the AnyState→Jump transition the controller wires) and returns. Mirrors
-        // CharacterAssetGen.JumpParam (kept in sync so the trigger fires the state the controller built).
+        // The one-shot Jump trigger (86ca9yq3q) — pulsed on the rising edge of a jump so the Animator plays a
+        // Jump clip once (the AnyState→JumpIdle/JumpRunning transitions the controller wires, selected by the
+        // Moving bool) and returns. Mirrors CharacterAssetGen.JumpParam (kept in sync so the trigger fires the
+        // state the controller built).
         public const string JumpParam = "Jump";
+        // The GROUNDED bool (86ca9yq3q rework — THE floating-bug fix) — driven = !IsAirborne each frame. The jump
+        // states transition back to the LOCOMOTION blend tree (Grounded && Moving) or Idle (Grounded && !Moving)
+        // the MOMENT this flips true on landing, so if W is still held Walk/Run resumes on the SAME frame instead
+        // of stalling in the finished jump pose (which translated while non-locomotion → the "floating" percept).
+        // Mirrors CharacterAssetGen.GroundedParam.
+        public const string GroundedParam = "Grounded";
 
         private NavMeshAgent _agent;
         private Animator _animator;
@@ -898,6 +905,13 @@ namespace FarHorizon
             {
                 _animator.SetBool(MovingParam, walking);
                 _animator.SetFloat(SpeedParam, planarSpeed);
+                // GROUNDED (86ca9yq3q rework — THE floating-bug fix). The airborne gate above already updated
+                // _airborne for THIS frame (AdvanceJump flips it false on the landing frame). Driving Grounded =
+                // !_airborne here lets the controller's jump→{Locomotion if Moving | Idle} transition fire on the
+                // SAME landing frame: if W is still held (walking true) the Walk/Run blend resumes immediately
+                // instead of the character stalling in the finished jump pose while still translating (the Sponsor's
+                // "floating" report). Moving (set just above) is current, so a moving landing routes to Locomotion.
+                _animator.SetBool(GroundedParam, !_airborne);
             }
 
             // Yaw the model smoothly toward the travel facing (frame-rate-independent lerp).
