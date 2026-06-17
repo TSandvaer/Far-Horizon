@@ -1597,6 +1597,12 @@ namespace FarHorizon.EditorTools
             if (wasd.castaway == null)
                 Debug.LogWarning("[MovementCameraScene] WasdMovement castaway (jump owner) not wired — Space will " +
                                  "fall back to GetComponentInChildren at runtime; jump inert if no avatar");
+            // AIRBORNE AIR-CONTROL (86caac81y — subtle lateral nudge in flight, NOT a full-speed snap). Subtle
+            // accel default; the airborne horizontal-speed cap defaults to the WALK speed so a nudge never builds
+            // past a walk (a run-jump's carried-in momentum is still preserved — the cap only clamps speed the
+            // nudge would PUSH past it). Serialized editor-time (component-in-source-but-not-in-scene trap).
+            wasd.airControlAccel = 8f;
+            wasd.airControlMaxSpeed = wasd.moveSpeed > 0.001f ? wasd.moveSpeed : 5.5f;
             if (wasd.cameraTransform == null)
                 Debug.LogWarning("[MovementCameraScene] WasdMovement camera not wired — WASD will fall back to " +
                                  "Camera.main at runtime (camera-relative still works, just not serialized)");
