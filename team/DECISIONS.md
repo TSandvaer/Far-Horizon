@@ -303,3 +303,35 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Why: Repeated Unity/URP traps (serialization, culling, GC, lighting budget) cost soak rounds; a distilled always-on reference reduces them. Sponsor flagged it as high-priority. Shipped in orch-docs PR #56.
 - Reversibility: reversible (docs) but a standing process gate.
 - Affects: every Drew/Devon Unity dispatch, dispatch-template, SessionStart hook.
+
+## 2026-06-17 — Locomotion sequence locked: WASD (merged) → run → jump → crouch
+
+- Decided by: Sponsor (order is Sponsor-set; crouch added 2026-06-17)
+- Decision: The locomotion family ships in a Sponsor-set order: **WASD MERGED** (`86ca9yq2x`, PR #63 squash `f34a829`, feel-approved) → **run-on-Shift** in flight (`86ca9yq34`) → **jump-on-Space** queued (`86ca9yq3q`) → **crouch-on-Ctrl** new (`86caa3kur`, queued). Run/jump/crouch each build on the merged WASD base; crouch is best sequenced AFTER run + jump land so its stance composes onto the finished Walk/Run/Jump Animator without blend-tree churn (but is independent enough to dispatch whenever the locomotion lane is free). Jump is the ONE ticket that touches the float system — it must SUSPEND `modelSoleGround` ground-snap airborne while leaving the grounded-state 8-attempt float fix unchanged.
+- Why: WASD is the new core feel (supersedes click-to-move; see 2026-06-16 pivot). The Sponsor set the per-feature order; each feature is feel-soaked before merge. Serializing run→jump→crouch keeps the shared Animator + the held-axe/finger-curl/grounding wiring from churning under parallel edits.
+- Reversibility: reversible (each feature is an additive input + Animator state; per-ticket revert in ≤1 PR).
+- Affects: input/locomotion (CastawayCharacter, MovementCameraScene), the Animator, held-axe + finger-curl drivers, `modelSoleGround` (jump only), Devon + Drew + Tess.
+
+## 2026-06-17 — Locomotion animation route: Sponsor-sourced Mixamo Without-Skin / In-Place clips
+
+- Decided by: Sponsor (clip sourcing) + Devon (retarget execution)
+- Decision: The locomotion clips (Running / Jump / Crouching-Idle / Sneak-Walk) are **sourced by the Sponsor from Mixamo** as **FBX-for-Unity / Without Skin / In Place / 30fps** and dropped into `Assets/Art/Character/Castaway/`; the implementing agent imports + retargets them to the castaway Humanoid like the existing Idle/Walk (Rig → Humanoid, Copy-From-Other-Avatar = the Idle avatar). **In-Place** because movement is driven by the locomotion system (NavMeshAgent-driven), not by root-motion in the clip. The Sponsor-downloaded crouch clips (`Crouching Idle.fbx`, `Sneak Walk.fbx`) are UNTRACKED in the main worktree — the agent copies them from `c:/Trunk/PRIVATE/Far-Horizon/Assets/Art/Character/Castaway/` into its own worktree AFTER its Step-0 `git clean` (else the clean wipes them). All clips carry the Mixamo MANGLED-FINGER note: the open-hand pose reads mangled holding the axe → the HasAxe-gated `CastawayFingerCurl` driver (curl axis MEASURED, not guessed) must cover every new clip.
+- Why: Mixamo + the existing Hyper3D→Mixamo pipeline already produced Idle/Walk; reusing the route keeps the rig/retarget mechanics identical. Without-Skin clips retarget onto the existing castaway mesh; In-Place avoids fighting the code-driven locomotion with baked root motion.
+- Reversibility: reversible (clip swap / re-import per feature in ≤1 PR).
+- Affects: run/jump/crouch animation (Devon), `character-pipeline.md`, the finger-curl driver, the Animator.
+
+## 2026-06-17 — Hit-reaction clips PARKED for a future damage/combat-feedback feature
+
+- Decided by: Sponsor (2026-06-17)
+- Decision: The hit-reaction clips (Head Hit / Rib Hit / Stomach Hit / Big Stomach Hit / Getting Up / Stunned) are **PARKED** — not wired now — for a FUTURE damage/combat-feedback feature. There is no damage source designed yet, so there is nothing for these reactions to respond to.
+- Why: Wiring reaction animations with no damage system to trigger them would be dead content; the clips are deferred until a damage/combat-feedback feature gives them a trigger. Keeps the locomotion + gameplay waves thin and free of speculative animation state.
+- Reversibility: reversible (the clips are parked, not deleted; pick them up when the damage feature is designed).
+- Affects: animation backlog, a future damage/combat-feedback milestone, Devon + Priya (scope).
+
+## 2026-06-17 — Gameplay wave: settings panel → inventory/belt → chop → stone (settings = extensible registry)
+
+- Decided by: Sponsor (ticket-prompts 2026-06-17; sequence Sponsor-set)
+- Decision: A new gameplay wave of four tickets ships in this strict order: **settings panel** (`86caa4bqp`) → **inventory + belt** (`86caa4bya`) → **chop trees for wood** (`86caa4c5c`) → **pick up small stones** (`86caa4c96`). The **settings panel is FIRST and FOUNDATIONAL** — it is an EXTENSIBLE registry (each setting a named, typed entry — float slider / int / min-max range — bound to a LIVE gameplay param, no restart) that the later three tickets REGISTER into (inventory registers belt-slot / inventory-slot / stack-size; chop registers tree-regrowth + tool-use-speed; stone registers stone-respawn). The inventory ticket defines the shared ITEM model — the **tool-vs-resource rule** (tools → belt-allowed + don't stack; resources → inventory-only + stack to a cap) — that chop (`chopped wood`) and stone (`picked up stones`) plug their resource items into. Inventory on Tab (20 slots), belt hotbar at the bottom (5 slots, select via 1–5 / scroll), axe = PoC tool auto-placed in belt slot 1 + shown in-hand only when selected.
+- Why: The settings panel is the soak-tuning instrument (give-him-the-knob: the Sponsor dials values live, we bake the chosen defaults — the F9 axe-nudge pattern generalized to a registry). Building it first means each downstream feature registers its tweakables instead of hard-coding them; building the inventory item model second means chop + stone are thin add-ons onto a settled item/slot system rather than re-deriving it. The strict order is a hard blocked-by chain — the downstream tickets consume the upstream tickets' shared surfaces.
+- Reversibility: reversible (additive feature systems; per-ticket revert in ≤1 PR) — but the SHARED contracts (settings-registry API + inventory item model) should be pinned before any PARALLEL dispatch (see `team/priya-pm/gameplay-wave-plan.md`).
+- Affects: settings/inventory/chop/stone systems, UI Toolkit, world-gen scatter (chop/stone), `HeldAxeRig` (selected-slot show/hide), Devon + Drew + Tess.
