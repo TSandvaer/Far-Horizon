@@ -201,6 +201,41 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxeRig_RunJumpClampWired_ShoulderAndCharacterSerialized()
+        {
+            // 86caa83wn regression guard (the component-not-serialized trap, applied to the RUN/JUMP into-head
+            // clamp). The clamp caps the followed hand world-Y while RUNNING/AIRBORNE relative to the SHOULDER
+            // bone, gated on the CharacterCharacter's IsRunning/IsAirborne. Both references + the enable flag
+            // MUST be wired editor-time (serialized into Boot.unity) — a runtime Awake fallback exists, but if
+            // the SHIP path doesn't carry them the clamp silently goes INERT and the axe rides into the head at
+            // run again (the exact bug). Drop the wiring in AttachHeroAxeToHand → RED here, not at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var rig = axe.GetComponent<HeldAxeRig>();
+            Assert.IsNotNull(rig, "the held axe must carry the HeldAxeRig driver");
+
+            Assert.IsTrue(rig.clampVigorousLocomotion,
+                "HeldAxeRig.clampVigorousLocomotion must ship ENABLED — it is the RUN/JUMP into-head fix " +
+                "(86caa83wn). Shipping it off re-opens 'the axe swings into the head when running'.");
+            Assert.IsNotNull(rig.shoulder,
+                "HeldAxeRig.shoulder must be wired editor-time (serialized) to the right upper-arm bone — the " +
+                "clamp ceiling is expressed relative to it. An unresolved shoulder makes the clamp INERT.");
+            Assert.IsNotNull(rig.character,
+                "HeldAxeRig.character must be wired editor-time (serialized) to the CastawayCharacter — its " +
+                "IsRunning/IsAirborne gates the clamp. An unresolved character makes the clamp INERT.");
+
+            // The shoulder must be a bone UNDER the castaway (the real upper-arm in the rig), not a stray xform.
+            var castaway = Object.FindObjectOfType<CastawayCharacter>();
+            Assert.IsNotNull(castaway, "the Boot scene must carry the CastawayCharacter");
+            Assert.IsTrue(rig.shoulder.IsChildOf(castaway.transform),
+                $"HeldAxeRig.shoulder ('{rig.shoulder.name}') must be a bone under the CastawayCharacter (the " +
+                "right upper-arm whose world-Y the run/jump clamp ceiling rides).");
+            Assert.AreEqual(castaway, rig.character,
+                "HeldAxeRig.character must be the scene's CastawayCharacter (the state source for the clamp gate).");
+        }
+
+        [Test]
         public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
         {
             // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the
