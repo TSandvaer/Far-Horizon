@@ -93,10 +93,12 @@ jobs:
     runs-on: [self-hosted, windows, unity]
     # A COLD / post-cache-clear build does a full package re-resolve + asset reimport
     # (no warm Library) and was observed at 20–25+ min — the old 40-min cap auto-
-    # CANCELLED a churning cold build (run 27692339123, ticket 86caahtbe). 55 min
-    # leaves headroom for a cold reimport + EditMode + PlayMode + build + capture gate
-    # while still bounding a genuinely hung runner. Warm runs stay ~7–9 min.
-    timeout-minutes: 55
+    # CANCELLED a churning cold build (run 27692339123, ticket 86caahtbe). A 55-min
+    # cap still kept auto-cancelling cold builds mid-PlayMode, so no run ever greened
+    # to populate the cache (deadlock). 90 min lets ONE cold build fully complete + go
+    # green + fully warm Library/; thereafter clean:false keeps every run warm (~7–9
+    # min, well under any timeout) while still bounding a genuinely hung runner.
+    timeout-minutes: 90
     env:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
