@@ -68,10 +68,29 @@ namespace FarHorizon.PlayTests
             for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
             {
                 var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded)
+                // Skip our own empty scene, the ACTIVE scene, and the test-runner's hosting scene
+                // ("InitTestScene*"): UnloadSceneAsync on the scene the PlayMode run is hosted in returns an
+                // op that NEVER reports isDone — `while (!op.isDone) yield return null` then spins forever, and
+                // because the coroutine keeps yielding each frame the framework heartbeat (600s) never trips it
+                // as hung. This fixture sorts FIRST in the PlayMode assembly, so it is the first to enter Play
+                // Mode with the InitTestScene as the only other (active, hosting) scene → it was THE hang in run
+                // 27721852272 (unity-conventions.md §Headless: every wait loop needs a hard cap; batchmode has
+                // no end-of-frame and async scene unloads of the host scene never complete).
+                if (s == empty || !s.isLoaded || s == SceneManager.GetActiveScene() ||
+                    s.name.StartsWith("InitTestScene"))
+                    continue;
+                var op = SceneManager.UnloadSceneAsync(s);
+                if (op != null)
                 {
-                    var op = SceneManager.UnloadSceneAsync(s);
-                    if (op != null) while (!op.isDone) yield return null;
+                    int guard = 0;
+                    while (!op.isDone)
+                    {
+                        // HARD frame cap (unity-conventions.md §Headless): a scene-unload async that never
+                        // completes (the host scene, or a headless quirk) must FAIL the test, never hang it.
+                        Assert.Less(++guard, 600, $"UnloadSceneAsync('{s.name}') did not complete within 600 " +
+                            "frames — batchmode scene-unload guard (never let SetUp hang; 86caa83wn CI hang).");
+                        yield return null;
+                    }
                 }
             }
 
@@ -222,6 +241,20 @@ namespace FarHorizon.PlayTests
             return go.transform;
         }
 
+        // Hard FRAME cap for every wait loop (unity-conventions.md §Headless: "put a HARD frame-count or
+        // Time.time cap on every wait loop so it can NEVER hang"). The body loops below are bounded by a
+        // Time.time WINDOW, but if Time.time failed to advance under -batchmode -nographics (the documented
+        // headless-time trap), a bare `while (Time.time - start < W)` would spin forever — so each loop ALSO
+        // counts frames and trips this cap, failing with a clear message instead of hanging the whole run.
+        private const int MaxFramesPerLoop = 1200; // ~20s @60fps — generous vs the longest 2s window
+        private static bool LoopGuard(ref int frames)
+        {
+            Assert.Less(++frames, MaxFramesPerLoop,
+                "wait loop exceeded the hard frame cap — batchmode hang guard (Time.time may not be advancing " +
+                "headless; never hang the PlayMode run, fail loud — 86caa83wn CI hang).");
+            return true;
+        }
+
         // Place the hand bone at a chosen local-Y on the model (rest grip, or the run/jump arm-pump to the head).
         // The HeldAxeRig runs at DefaultExecutionOrder(100) > the test's coroutine drive, so it reads this.
         private void DriveHand(float handLocalY)
@@ -241,8 +274,8 @@ namespace FarHorizon.PlayTests
             _wasd.SetSprintOverride(true);
             _wasd.SetInputOverride(new Vector2(0f, 1f)); // run forward
             // Let the agent accelerate to run speed.
-            float start = Time.time;
-            while (Time.time - start < 1.2f && !_castaway.IsRunning) { DriveHand(HandPumpLocalY); yield return null; }
+            float start = Time.time; int f0 = 0;
+            while (Time.time - start < 1.2f && !_castaway.IsRunning && LoopGuard(ref f0)) { DriveHand(HandPumpLocalY); yield return null; }
             Assert.IsTrue(_castaway.IsRunning,
                 $"the character must be RUNNING (sprint at {RunSpeed} > threshold {_castaway.runSpeedThreshold}); " +
                 $"CurrentSpeed={_castaway.CurrentSpeed:F2}");
@@ -275,8 +308,8 @@ namespace FarHorizon.PlayTests
         {
             // Settle grounded, then jump.
             _wasd.SetInputOverride(Vector2.zero);
-            float s = Time.time;
-            while (Time.time - s < 0.4f) { DriveHand(HandRestLocalY); yield return null; }
+            float s = Time.time; int fs = 0;
+            while (Time.time - s < 0.4f && LoopGuard(ref fs)) { DriveHand(HandRestLocalY); yield return null; }
             Assert.IsFalse(_castaway.IsAirborne, "must be grounded before the jump");
 
             _wasd.RequestJump();
@@ -285,8 +318,8 @@ namespace FarHorizon.PlayTests
 
             float axeTop = float.NegativeInfinity;
             bool sawClampActive = false;
-            float jumpStart = Time.time;
-            while (Time.time - jumpStart < 2f && _castaway.IsAirborne)
+            float jumpStart = Time.time; int fj = 0;
+            while (Time.time - jumpStart < 2f && _castaway.IsAirborne && LoopGuard(ref fj))
             {
                 DriveHand(HandPumpLocalY); // the jump-clip arm-pump
                 yield return null;
@@ -309,8 +342,8 @@ namespace FarHorizon.PlayTests
             // IDLE: no input. Even if the hand were pumped, at idle the clamp must NOT engage.
             _wasd.SetSprintOverride(false);
             _wasd.SetInputOverride(Vector2.zero);
-            float s = Time.time;
-            while (Time.time - s < 0.5f) { DriveHand(HandPumpLocalY); yield return null; }
+            float s = Time.time; int fi = 0;
+            while (Time.time - s < 0.5f && LoopGuard(ref fi)) { DriveHand(HandPumpLocalY); yield return null; }
             Assert.IsFalse(_castaway.IsRunning, "idle: not running");
             Assert.IsFalse(_castaway.IsAirborne, "idle: not airborne");
             Assert.IsFalse(_rig.ClampActiveThisFrame,
@@ -322,9 +355,9 @@ namespace FarHorizon.PlayTests
 
             // WALK (not run): drive at walk speed; the clamp must STILL be inert (only RUN/JUMP clamp).
             _wasd.SetInputOverride(new Vector2(0f, 1f)); // walk forward (no sprint)
-            float w = Time.time;
+            float w = Time.time; int fw = 0;
             bool sawWalking = false, clampEverActive = false;
-            while (Time.time - w < 1.5f)
+            while (Time.time - w < 1.5f && LoopGuard(ref fw))
             {
                 DriveHand(HandPumpLocalY);
                 yield return null;
@@ -352,9 +385,9 @@ namespace FarHorizon.PlayTests
             // Run forward; assert the curl stays gripping AND the fingertips stay curled across the run cycle.
             _wasd.SetSprintOverride(true);
             _wasd.SetInputOverride(new Vector2(0f, 1f));
-            float start = Time.time;
+            float start = Time.time; int fr = 0;
             bool sawRunning = false;
-            while (Time.time - start < 1.8f)
+            while (Time.time - start < 1.8f && LoopGuard(ref fr))
             {
                 DriveHand(HandPumpLocalY);
                 yield return null;
@@ -378,8 +411,8 @@ namespace FarHorizon.PlayTests
         {
             _wasd.SetSprintOverride(true);
             _wasd.SetInputOverride(new Vector2(0f, 1f));
-            float start = Time.time;
-            while (Time.time - start < 1.2f && !_castaway.IsRunning) { DriveHand(HandRestLocalY); yield return null; }
+            float start = Time.time; int f0 = 0;
+            while (Time.time - start < 1.2f && !_castaway.IsRunning && LoopGuard(ref f0)) { DriveHand(HandRestLocalY); yield return null; }
             Assert.IsTrue(_castaway.IsRunning, "the character must be running");
 
             // With the hand at its REST grip height (below the shoulder ceiling → clamp passes it through), the
