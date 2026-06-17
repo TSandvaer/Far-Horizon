@@ -96,6 +96,57 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_Player_HasWasdMovement_WiredCameraRelative()
+        {
+            // WASD locomotion (ticket 86ca9yq2x) must SERIALIZE onto the player in Boot.unity (the
+            // component-in-source-but-not-in-scene trap — an Awake-added driver would ship the player
+            // un-driveable). And it must be wired camera-relative (cameraTransform = the orbit camera) +
+            // to the ClickToMove it replaces.
+            var scene = OpenBoot();
+            var wasd = FindInScene<WasdMovement>(scene);
+            Assert.IsNotNull(wasd, "the Boot scene must carry the player's WasdMovement (the WASD pivot, 86ca9yq2x)");
+            Assert.IsNotNull(wasd.GetComponent<NavMeshAgent>(),
+                "WasdMovement must sit on the player root that carries the NavMeshAgent (it drives the agent velocity)");
+            Assert.IsNotNull(wasd.cameraTransform,
+                "WasdMovement.cameraTransform must be wired editor-time (the orbit camera) so movement is " +
+                "camera-relative without an Awake Camera.main lookup (the editor-vs-runtime serialization trap)");
+            var orbit = FindInScene<OrbitCamera>(scene);
+            Assert.IsNotNull(orbit);
+            Assert.AreSame(orbit.transform, wasd.cameraTransform,
+                "WasdMovement must be camera-relative to the ORBIT camera (W = the way the orbit cam faces — AC1)");
+            Assert.IsNotNull(wasd.clickToMove,
+                "WasdMovement must reference the ClickToMove it replaces (to disable click-to-move on Start — AC3)");
+        }
+
+        [Test]
+        public void BootScene_ClickToMove_IsDisabled_WasdReplacesIt()
+        {
+            // AC3: the Sponsor-directed pivot REPLACES click-to-move with WASD. The shipped scene must carry
+            // ClickToMove with clickEnabled FALSE (WasdMovement disables it on Start; the editor-time default is
+            // serialized true, but the contract is that WASD owns locomotion). We assert the serialized intent:
+            // the player carries BOTH (ClickToMove kept for its programmatic MoveTo seam) AND a WasdMovement that
+            // will disable the click path. A regression that dropped WasdMovement would leave click-to-move live.
+            var scene = OpenBoot();
+            var ctm = FindInScene<ClickToMove>(scene);
+            var wasd = FindInScene<WasdMovement>(scene);
+            Assert.IsNotNull(ctm, "ClickToMove stays in the scene (its MoveTo seam serves the verify captures)");
+            Assert.IsNotNull(wasd, "WasdMovement must be present — it is what disables click-to-move on Start (AC3)");
+            Assert.AreSame(ctm, wasd.clickToMove,
+                "WasdMovement must hold the SAME ClickToMove it disables — the click-to-move → WASD handoff");
+        }
+
+        [Test]
+        public void BootScene_HasWasdVerifyCapture_OnBoot()
+        {
+            // The shipped-build WASD capture must be serialized onto Boot (component-in-source-but-not-in-scene
+            // trap — it would ship inert otherwise, producing zero verify frames). Inert unless -verifyWasd.
+            var scene = OpenBoot();
+            var cap = FindInScene<WasdVerifyCapture>(scene);
+            Assert.IsNotNull(cap, "the Boot scene must carry WasdVerifyCapture (the -verifyWasd shipped-build gate)");
+            Assert.IsNotNull(cap.player, "WasdVerifyCapture must reference the WasdMovement it drives");
+        }
+
+        [Test]
         public void NavMesh_IsSavedAsAsset_NotBakeInMemory()
         {
             // The ship-or-die guard: the baked NavMeshData must exist as a project asset so it
