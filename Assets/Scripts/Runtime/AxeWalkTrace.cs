@@ -36,6 +36,11 @@ namespace FarHorizon
     public class AxeWalkTrace : MonoBehaviour
     {
         private const string Arg = "-axeWalkTrace";
+        // 86caa83wn — the RUN+JUMP into-head trace. Drives a RUN leg (agent at runSpeed → IsRunning) + a JUMP
+        // (TryJump → IsAirborne) and dumps, per frame, the axe world-Y vs the HEAD-bone world-Y and the
+        // shoulder-relative clamp ceiling — so the "axe swings into the head when running" claim is MEASURED
+        // (axe-Y must stay BELOW the head with the clamp), not eyeballed. Sibling arg to -axeWalkTrace.
+        private const string RunJumpArg = "-axeRunJumpTrace";
 
         [Tooltip("How many scripted WALK steps to drive (each is a short out-then-pause leg). ≥5 so a cumulative " +
                  "ratchet is unmistakable across the run.")]
@@ -47,7 +52,112 @@ namespace FarHorizon
 
         void Start()
         {
-            if (HasArg(Arg)) StartCoroutine(Run());
+            if (HasArg(RunJumpArg)) StartCoroutine(RunJumpTrace());
+            else if (HasArg(Arg)) StartCoroutine(Run());
+        }
+
+        // 86caa83wn — drive a RUN leg then a JUMP and dump the axe-Y vs head-Y each frame. The "axe into head"
+        // bug = axeWorldY rising to/above the HEAD bone during the RUN arm-pump (and the JUMP_running clip). With
+        // the HeldAxeRig clamp engaged, axeWorldY must stay BELOW the head across the whole RUN+JUMP window.
+        private IEnumerator RunJumpTrace()
+        {
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            var agent = castaway != null ? castaway.GetComponentInParent<NavMeshAgent>() : null;
+            var player = agent != null ? agent.transform : null;
+            var rig = Object.FindAnyObjectByType<HeldAxeRig>();
+            if (castaway == null || agent == null || player == null || rig == null)
+            {
+                Debug.LogError("[AxeRunJumpTrace] missing castaway/agent/player/HeldAxeRig — cannot trace");
+                Application.Quit(1);
+                yield break;
+            }
+            // Resolve the HEAD bone (the into-head reference) off the skeleton.
+            Transform head = FindBoneContaining(castaway.transform, "head");
+            Transform shoulder = rig.shoulder;
+            Debug.Log($"[AxeRunJumpTrace] head='{(head != null ? head.name : "<null>")}' " +
+                      $"shoulder='{(shoulder != null ? shoulder.name : "<null>")}' " +
+                      $"clampEnabled={rig.clampVigorousLocomotion} ceilingAboveShoulder={rig.clampCeilingAboveShoulder} " +
+                      $"softness={rig.clampSoftness} runThreshold={castaway.runSpeedThreshold}");
+
+            float t = 0f;
+            while (t < 3f && !agent.isOnNavMesh) { t += Time.unscaledDeltaTime; yield return null; }
+            for (int i = 0; i < 40; i++) yield return null; // settle at spawn
+
+            // ===== RUN leg: drive the agent FAST (≥ runSpeedThreshold) along a long path so IsRunning flips
+            // true and the Run clip blends in (the arm-pump that lifts the axe toward the head). Sample the
+            // worst-case axe-vs-head margin across the leg.
+            agent.speed = Mathf.Max(agent.speed, castaway.runSpeedThreshold + 0.5f);
+            agent.acceleration = Mathf.Max(agent.acceleration, 60f); // reach run speed fast
+            Vector3 spawn = player.position;
+            float worstRunMargin = float.PositiveInfinity; // min(headY - axeY); a NEGATIVE value = axe in/above head
+            bool sawRunning = false;
+            for (int leg = 0; leg < 4; leg++)
+            {
+                Vector3 dest = spawn + new Vector3(0f, 0f, (leg % 2 == 0 ? 1f : -1f) * 6f);
+                if (NavMesh.SamplePosition(dest, out var hit, 8f, NavMesh.AllAreas))
+                    agent.SetDestination(hit.position);
+                float legStart = Time.time;
+                while (Time.time - legStart < 2.0f)
+                {
+                    yield return null;
+                    if (castaway.IsRunning)
+                    {
+                        sawRunning = true;
+                        float m = SampleMargin(rig, head, shoulder, "run");
+                        if (m < worstRunMargin) worstRunMargin = m;
+                    }
+                }
+            }
+
+            // ===== JUMP: from a standing position, TryJump and sample across the airborne arc.
+            agent.ResetPath();
+            for (int i = 0; i < 20; i++) yield return null;
+            float worstJumpMargin = float.PositiveInfinity;
+            bool jumped = castaway.TryJump();
+            Debug.Log($"[AxeRunJumpTrace] TryJump started={jumped}");
+            float jumpStart = Time.time;
+            while (Time.time - jumpStart < 2.0f)
+            {
+                yield return null;
+                if (castaway.IsAirborne)
+                {
+                    float m = SampleMargin(rig, head, shoulder, "jump");
+                    if (m < worstJumpMargin) worstJumpMargin = m;
+                }
+                else if (Time.time - jumpStart > 0.3f) break; // landed
+            }
+
+            Debug.Log($"[AxeRunJumpTrace] SUMMARY sawRunning={sawRunning} jumped={jumped} " +
+                      $"worstRunMargin(headY-axeY)={Fmt(worstRunMargin)} " +
+                      $"worstJumpMargin(headY-axeY)={Fmt(worstJumpMargin)}  " +
+                      $"({((worstRunMargin > 0f && worstJumpMargin > 0f) ? "axe stays BELOW the head ✓" : "AXE RODE INTO THE HEAD — clamp failed")})");
+            yield return new WaitForSeconds(0.3f);
+            Application.Quit();
+        }
+
+        // One sample: dump axe-Y vs head-Y vs the shoulder-relative clamp ceiling; return headY - axeY (the
+        // into-head margin — positive = axe below the head). NaN head → returns +inf (no constraint).
+        private float SampleMargin(HeldAxeRig rig, Transform head, Transform shoulder, string where)
+        {
+            float axeY = rig.transform.position.y;
+            float headY = head != null ? head.position.y : float.NaN;
+            float shoulderY = shoulder != null ? shoulder.position.y : float.NaN;
+            float ceiling = float.IsNaN(shoulderY) ? float.NaN : shoulderY + rig.clampCeilingAboveShoulder;
+            float margin = float.IsNaN(headY) ? float.PositiveInfinity : headY - axeY;
+            Debug.Log($"[AxeRunJumpTrace] {where} axeY={Fmt(axeY)} headY={Fmt(headY)} shoulderY={Fmt(shoulderY)} " +
+                      $"ceiling={Fmt(ceiling)} headMinusAxe={Fmt(margin)} clampActive={rig.ClampActiveThisFrame} " +
+                      $"followY={Fmt(rig.FollowPos.y)}");
+            return margin;
+        }
+
+        private static Transform FindBoneContaining(Transform root, string token)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                string n = t.name.ToLowerInvariant();
+                if (n.Contains(token) && !n.Contains("end")) return t;
+            }
+            return null;
         }
 
         private IEnumerator Run()

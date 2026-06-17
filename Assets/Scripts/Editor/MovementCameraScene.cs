@@ -140,6 +140,15 @@ namespace FarHorizon.EditorTools
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
         public static readonly float HeldAxeFollowDamp = 0f;
+        // 86caa83wn — VIGOROUS-LOCOMOTION CEILING CLAMP defaults (the "axe swings into the head when running"
+        // fix). The follow-the-arm choice is KEPT for WALK/IDLE; ONLY while RUNNING or AIRBORNE the followed
+        // hand world-Y is soft-clamped to a ceiling expressed RELATIVE to the shoulder bone, so the RUN/JUMP
+        // arm-pump can't carry the axe to the head. The ceiling rides the shoulder (so it tracks bob/jump/
+        // ground-snap automatically). These are the REASONABLE defaults the Sponsor dials on the F9 nudge tool
+        // (CLAMP target) in the soak — what-he-dials-is-what-ships.
+        public static readonly bool HeldAxeClampVigorousLocomotion = true;
+        public static readonly float HeldAxeClampCeilingAboveShoulder = -0.05f; // just below the shoulder
+        public static readonly float HeldAxeClampSoftness = 0.12f;              // smooth shoulder-height tuck
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -522,6 +531,27 @@ namespace FarHorizon.EditorTools
             // passes through immediately (the raw hand carries the facing yaw). A LIGHT damp is available to
             // de-jitter without re-locking (followDamp); it defaults to 0 so the per-step swing is visible.
             rig.followDamp = HeldAxeFollowDamp;
+
+            // 86caa83wn — VIGOROUS-LOCOMOTION CEILING CLAMP: wire the per-state into-head clamp. The clamp is
+            // INERT at WALK/IDLE (the Sponsor's locked pose untouched) and engages ONLY while RUNNING/AIRBORNE,
+            // capping the followed hand world-Y at a ceiling relative to the SHOULDER bone so the Mixamo RUN/JUMP
+            // arm-pump can't ride the axe into the head. Wire the SHOULDER (right upper-arm) + the CHARACTER
+            // (whose IsRunning/IsAirborne gates the clamp) editor-time so they SERIALIZE into Boot.unity (the
+            // component-not-serialized trap — a runtime Awake fallback exists but must not be the ship path).
+            rig.clampVigorousLocomotion = HeldAxeClampVigorousLocomotion;
+            rig.clampCeilingAboveShoulder = HeldAxeClampCeilingAboveShoulder;
+            rig.clampSoftness = HeldAxeClampSoftness;
+            rig.character = castaway;
+            rig.shoulder = FindBoneByExactToken(castaway.transform, RightUpperArmToken);
+            if (rig.shoulder == null)
+                Debug.LogError("[MovementCameraScene] could not resolve the right upper-arm bone ('" +
+                               RightUpperArmToken + "') for the HeldAxeRig clamp — the run/jump into-head clamp " +
+                               "will be INERT (fail-safe raw follow). Re-run CharacterDiagnoseTrace to dump the rig.");
+            Debug.Log("[MovementCameraScene] held axe 86caa83wn clamp wired: enabled=" +
+                      rig.clampVigorousLocomotion + " ceilingAboveShoulder=" + rig.clampCeilingAboveShoulder +
+                      " softness=" + rig.clampSoftness + " shoulder='" +
+                      (rig.shoulder != null ? rig.shoulder.name : "<null>") + "' character='" +
+                      (rig.character != null ? rig.character.name : "<null>") + "'");
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
