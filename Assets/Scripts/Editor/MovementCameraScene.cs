@@ -132,10 +132,13 @@ namespace FarHorizon.EditorTools
         // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc): the held axe now FOLLOWS the right arm's natural
         // swing (it rides the RAW hand bone — see HeldAxeRig). FINAL SEAT BAKE (86ca9zcjn): the Sponsor
         // APPROVED the follow-the-arm behavior ("it works perfectly") and dialed the FINAL F9 seat via the
-        // AxeNudgeTool: HeldAxeWorldOffsetFromHand = (-0.1502,-0.1602,-0.0528). The euler is unchanged
-        // (16,2,-82). The F9 AxeNudgeTool still drives these fields so he can re-tune.
-        public static readonly Vector3 HeldAxeRelEuler = new Vector3(16.0f, 2.0f, -82.0f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(-0.1502f, -0.1602f, -0.0528f);
+        // AxeNudgeTool. The F9 AxeNudgeTool still drives these fields so he can re-tune.
+        // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed
+        // the FINAL held-axe seat via F9 and asked to bake it as the new shipped default (applies WITHOUT F9):
+        // HeldAxeWorldOffsetFromHand = (0.0707,-0.1988,-0.0111), HeldAxeRelEuler = (12,-8,-82). This SUPERSEDES
+        // the prior soak-#1 bake (-0.1502,-0.1602,-0.0528) / (16,2,-82). F9 AxeNudgeTool still drives these.
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(12.0f, -8.0f, -82.0f);
+        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.0707f, -0.1988f, -0.0111f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -148,7 +151,9 @@ namespace FarHorizon.EditorTools
         // on the rig's raise axis (LOCAL-Z; a negative Z lowers the arm), blended by a smoothed IsRunning weight
         // so WALK/IDLE is byte-unchanged. This is the REASONABLE default the Sponsor dials on the F9 nudge tool
         // (RUN target) WHILE running — what-he-dials-is-what-ships.
-        public static readonly Vector3 ArmRunLowerEuler = new Vector3(0f, 0f, -22f); // ~22° lower at full run
+        // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): the Sponsor F9-dialed the run arm-lower ("the perfect
+        // nudge" screenshot) and asked to bake it as the shipped default: (-10,12,-42). SUPERSEDES (0,0,-22).
+        public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open

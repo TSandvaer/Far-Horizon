@@ -103,8 +103,10 @@ namespace FarHorizon.EditTests
         // =================================================================================================
 
         // Mirror the production default (CastawayArmPose.runLowerEuler) so a change to the shipped value that
-        // would stop lowering the arm is caught here too.
-        private static readonly Vector3 RunLowerEuler = new Vector3(0f, 0f, -22f);
+        // would stop lowering the arm is caught here too. 86caa83wn soak #3 (build 2993c1c): the Sponsor's
+        // F9-dialed run carry (-10,12,-42) SUPERSEDES (0,0,-22) — now a MIXED euler (the dominant -Z still
+        // lowers; small x/y refine the carry orientation).
+        private static readonly Vector3 RunLowerEuler = new Vector3(-10f, 12f, -42f);
 
         [Test]
         public void RunLower_AtZeroWeight_IsIdentity_WalkPoseUntouched()

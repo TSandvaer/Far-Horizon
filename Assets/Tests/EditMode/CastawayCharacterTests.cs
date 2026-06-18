@@ -331,14 +331,15 @@ namespace FarHorizon.EditTests
         [Test]
         public void ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues()
         {
-            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86ca9zcjn FINAL SEAT BAKE:
-            // the Sponsor APPROVED the follow-the-arm behavior and dialed the FINAL F9 seat
-            // (-0.1502,-0.1602,-0.0528) via the AxeNudgeTool; that is what ships. The euler is unchanged.
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(-0.1502f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1602f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0528f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(16.0f).Within(1e-3f));
-            Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(2.0f).Within(1e-3f));
+            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86caa83wn soak #3 FINAL SEAT
+            // BAKE (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed the FINAL F9
+            // seat (0.0707,-0.1988,-0.0111) / euler (12,-8,-82) via the AxeNudgeTool; that is what ships. This
+            // SUPERSEDES the soak-#1 bake (-0.1502,-0.1602,-0.0528) / (16,2,-82).
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(0.0707f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1988f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0111f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(12.0f).Within(1e-3f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(-8.0f).Within(1e-3f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.z, Is.EqualTo(-82.0f).Within(1e-3f));
 
             // Arm pose — the shipped scene's CastawayArmPose must carry the dialed eulers, seed flag OFF.

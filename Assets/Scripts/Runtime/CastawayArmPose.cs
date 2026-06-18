@@ -125,7 +125,10 @@ namespace FarHorizon
                  "untouched (weight 0). The F9 AxeNudgeTool (RUN target) dials this in-game while running; paste " +
                  "RunLowerEuler to bake. The shipped default is set editor-time by " +
                  "MovementCameraScene.ArmRunLowerEuler (kept in sync with this).")]
-        public Vector3 runLowerEuler = new Vector3(0f, 0f, -22f);
+        // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): kept in sync with MovementCameraScene.ArmRunLowerEuler
+        // — the Sponsor's F9-dialed run carry (-10,12,-42). This is the runtime FALLBACK default; the shipped
+        // value is baked editor-time into Boot.unity from ArmRunLowerEuler (the authoritative ship source).
+        public Vector3 runLowerEuler = new Vector3(-10f, 12f, -42f);
 
         [Tooltip("Per-second blend rate for the run-lower weight (how fast the arm eases down on run-start / back " +
                  "up on run-end). Frame-rate-independent. Higher = snappier; ~8/s gives a smooth ~0.4s ease that " +

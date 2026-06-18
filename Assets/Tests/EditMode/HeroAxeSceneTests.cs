@@ -232,6 +232,13 @@ namespace FarHorizon.EditTests
             Assert.Less(pose.runLowerEuler.z, 0f,
                 $"CastawayArmPose.runLowerEuler.z must be NEGATIVE to LOWER the right arm while running (got " +
                 $"{pose.runLowerEuler.z}); a positive Z would RAISE the arm into the head — the bug this fixes.");
+            // 86caa83wn soak #3 BAKED-VALUE guard (build 2993c1c): the Sponsor F9-dialed the run carry to
+            // (-10,12,-42) and asked to bake it as the shipped default. Pin the EXACT baked value (not just the
+            // sign) so a regression to the soak-#2 (0,0,-22) — or any other revert — reds here, AND so the value
+            // that SHIPS in Boot.unity (the re-baked scene) is the dialed one, not an editor-only constant.
+            Assert.That(pose.runLowerEuler, Is.EqualTo(new Vector3(-10f, 12f, -42f)),
+                $"CastawayArmPose.runLowerEuler must ship the Sponsor's soak-#3 F9-dialed run carry (-10,12,-42); " +
+                $"got {pose.runLowerEuler}. The scene must be re-baked from MovementCameraScene.ArmRunLowerEuler.");
         }
 
         [Test]
