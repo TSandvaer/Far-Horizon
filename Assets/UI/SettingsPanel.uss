@@ -1,0 +1,147 @@
+/*
+ * SettingsPanel.uss — the workbench-drawer styling for the soak-tuning settings panel (86caa4bqp).
+ *
+ * Visual direction: gameplay-ui-direction.md §2 + ui-toolkit-panels-ux-spec.md §3. The carved-wood
+ * palette comes from Palette.uss (--tokens). This file is STRUCTURE/LAYOUT only — chunky rounded walnut
+ * plates, warm-cream ink, a hand-made bevel, snappy-not-floaty motion. BEM selectors (block__element--
+ * modifier); no inline styles; animate transforms (translate/scale), never width/height (unity6-mastery §9).
+ *
+ * The three row archetypes are reusable USS classes (Uma §2.2): registering a NEW setting reuses an
+ * archetype class + a label — NO new CSS. That is the extensible-registry contract's visual half.
+ */
+
+/* full-screen scrim: walnut-tinted 60% dim (NOT black) so the live tweak is visible behind the panel */
+.settings-scrim {
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+    background-color: var(--scrim);
+    align-items: center;
+    justify-content: center;
+}
+
+/* centered vertical workbench column, ~420px, max 70% height. Animates translate + opacity on open. */
+.settings-panel {
+    width: 420px;
+    max-height: 70%;
+    background-color: var(--panel-walnut);
+    border-width: 2px;
+    border-color: var(--panel-edge);
+    border-top-color: var(--panel-edge-top); /* lighter top-inner bevel line */
+    border-radius: 10px;                     /* chunky rounded — never a hard 0px corner */
+    padding: 14px 0 10px 0;
+    /* open transition: 120ms ease-out slide-up + fade (snappy, opened/closed dozens of times per soak) */
+    transition-property: translate, opacity;
+    transition-duration: 120ms, 120ms;
+    transition-timing-function: ease-out, ease-out;
+}
+
+.settings-panel__header {
+    flex-direction: row;
+    align-items: center;
+    padding: 0 16px 10px 16px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--panel-edge);
+    margin-bottom: 4px;
+}
+
+.settings-panel__title {
+    color: var(--ink-cream);
+    font-size: 20px;
+    -unity-font-style: bold;
+}
+
+/* scrollable single column of rows */
+.settings-panel__rows {
+    flex-grow: 1;
+}
+
+.settings-panel__footer {
+    flex-direction: row;
+    padding: 8px 16px 0 16px;
+    margin-top: 4px;
+    border-top-width: 1px;
+    border-top-color: var(--panel-edge);
+}
+
+/* "Reset to defaults" text button — ink-dim, lifts to cream on hover (AC5 nice-to-have) */
+.settings-reset {
+    color: var(--ink-dim);
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    -unity-font-style: bold;
+    font-size: 13px;
+    padding: 4px 6px;
+}
+.settings-reset:hover { color: var(--ink-cream); }
+
+/* ===== ROW base + the three archetypes (Uma §2.2) ===== */
+
+.setting-row {
+    flex-direction: row;
+    align-items: center;
+    height: 44px;                /* generous so a soaking Sponsor hits the right thumb without fishing */
+    padding: 0 12px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(90, 70, 50, 0.4); /* --panel-edge @ α0.4 hairline */
+}
+
+.setting-row__label {
+    color: var(--ink-cream);
+    -unity-font-style: bold;
+    font-size: 14px;
+    width: 130px;
+    flex-shrink: 0;
+}
+
+/* the control sits center; the readout sits right (fixed-width so it doesn't jitter as the value changes) */
+.setting-row__control { flex-grow: 1; margin: 0 10px; }
+
+.setting-row__readout {
+    color: var(--ink-cream);
+    font-size: 13px;
+    -unity-text-align: middle-right;
+    width: 92px;
+    flex-shrink: 0;
+}
+
+/* Archetype A — single-float slider: leaf-green fill + a chunky rounded-square thumb */
+.setting-row--slider .unity-base-slider__tracker { background-color: var(--slot-empty); }
+.setting-row--slider .unity-base-slider__dragger {
+    background-color: var(--slot-selected);   /* chunky thumb, easy to grab */
+    border-radius: 4px;
+    width: 18px; height: 18px;
+}
+
+/* Archetype B — min-max range: two readouts (min / max) with a thin dash between */
+.setting-row__readout--minmax { width: 120px; }
+
+/* Archetype C — int stepper: [ − ] value [ + ] chunky buttons */
+.setting-row--stepper .stepper__btn {
+    background-color: var(--slot-empty);
+    color: var(--ink-cream);
+    border-width: 1px;
+    border-color: var(--panel-edge);
+    border-radius: 6px;
+    width: 28px; height: 28px;
+    -unity-font-style: bold;
+}
+.setting-row--stepper .stepper__btn:hover { background-color: var(--slot-hover); }
+.setting-row--stepper .stepper__value {
+    color: var(--ink-cream);
+    -unity-text-align: middle-center;
+    width: 44px;
+}
+
+/* disabled / not-yet-built extension hook (AC3): greyed + a "(soon)" tag, present-but-not-a-live-knob */
+.setting-row--disabled .setting-row__label,
+.setting-row--disabled .setting-row__readout { color: var(--ink-dim); }
+.setting-row--disabled { opacity: 0.7; }
+
+.setting-row__soon {
+    color: var(--ink-dim);
+    font-size: 11px;
+    margin-left: 6px;
+}
+
+/* clamp-hit flash (AC4): a range thumb briefly flashes coal-red when it hits a hard limit / its partner */
+.setting-row__thumb--clamp .unity-base-slider__dragger { background-color: var(--accent-deny); }
