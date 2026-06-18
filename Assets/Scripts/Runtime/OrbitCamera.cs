@@ -116,6 +116,28 @@ namespace FarHorizon
                  "player wildly. 0.25s at run 9.5 u/s = ~2.4u lead — plenty; beyond reads as the camera racing ahead.")]
         public float maxLeadTime = 0.25f;
 
+        // 86caaqhj5 ATTEMPT 3 — THE CONFIRMED ROOT CAUSE (diagnose-via-trace, EditMode JumpCameraFollowTraceTests
+        // 2026-06-18; the prior two fixes' MATH was sound but mis-targeted). The persistent "jump+A/D = OUT of view,
+        // jump+S = INTO the camera" is the HORIZONTAL follow's STEADY-STATE LAG (v/k = run 9.5 / followLerp 18 ≈
+        // 0.53u) framing the airborne player OFF-CENTRE in the TRAVEL DIRECTION. A LEAD-OFF control trace QUANTIFIED
+        // it: at pitch 55° the 0.53u world lag projects to screenY +0.37 (W) / −0.37 (S) and screenX ±0.45 (A/D) —
+        // EXACTLY the Sponsor's per-heading percept. The attempt-2 velocity LEAD was meant to cancel that lag, but it
+        // only cancels when the agent's REPORTED velocity matches the real travel rate — during a jump the agent
+        // velocity is steered + capped by WasdMovement.AirborneVelocity (air-control), so the lead no longer matches
+        // and the lag re-frames the player by heading. That is ALSO why F7 does nothing: followLerp/lead tuning can't
+        // fix a lag the air-control breaks the lead-cancellation of. FIX: while AIRBORNE, follow the root XZ TIGHTLY
+        // (airborneFollowLerp, ~zero lag) with NO lead — the avatar stays CENTRED in every heading (trace: worst
+        // screen offset 0.10u, spread 0.006u across W/A/S/D, vs 0.37–0.45u off-centre before). Grounded follow is
+        // UNCHANGED (the smooth followLerp + lead) — only the brief airborne phase tracks tight.
+        [Header("Airborne horizontal follow (86caaqhj5 attempt 3 — the confirmed jump-pull-back fix)")]
+        [Tooltip("Horizontal (X/Z) follow rate (1/s) used ONLY WHILE the avatar is AIRBORNE (jump). High so the " +
+                 "follow has ~zero steady-state lag during the jump → the player stays CENTRED regardless of travel " +
+                 "heading (the lag framed it OFF-centre: jump+A/D out of view, jump+S into the camera). The velocity " +
+                 "LEAD is also skipped while airborne (the air-control steers/caps the agent velocity, so the lead no " +
+                 "longer matches the real travel rate — it was the broken cancellation, not a fix). Grounded follow " +
+                 "is UNCHANGED (followLerp + lead). Matches verticalFollowLerp so XZ and Y track the arc equally tight.")]
+        public float airborneFollowLerp = 60f;
+
         // ---- TERRAIN COLLISION (BIG ROUND ISLAND N2, 86ca9a7qn — "player disappears under a hill") ----
         // The orbit rig placed the camera at a fixed distance behind the target with NO terrain awareness, so
         // on the hilly island the camera could (a) sink BELOW the terrain surface, or (b) have a hill between
@@ -203,16 +225,19 @@ namespace FarHorizon
                 // track (the camera rises/falls WITH the visual jump in every direction; without it the camera
                 // height never moved and the constant horizontal follow-lag read as a directional 'pull back').
                 float jumpY = jumpHeightSource != null ? jumpHeightSource.JumpHeight : 0f;
+                bool airborne = jumpHeightSource != null && jumpHeightSource.IsAirborne;
                 Vector3 desired = target.position + targetOffset;
                 desired.y = DesiredFollowY(target.position.y, targetOffset.y, jumpY);
 
-                // HORIZONTAL VELOCITY FEED-FORWARD (86caaqhj5 attempt 2 — the A/S/D jump-pull-back mechanism fix).
-                // Lead the X/Z follow target by the agent's horizontal velocity × leadTime so the exponential
-                // follower's steady-state lag (v/k) is cancelled and the player stays framed through fast move+
-                // jump in ALL directions. Heading-independent: the lead is the velocity VECTOR, no per-dir branch.
-                // Instant snaps (Start / programmatic) skip the lead — there's no motion to lead and we want the
-                // exact head position. The vertical (jump-arc) Y already set above is preserved (lead is XZ-only).
-                if (!instant)
+                // HORIZONTAL follow target. GROUNDED: lead the X/Z by the agent's velocity × leadTime so the
+                // exponential follower's steady-state lag (v/k) is cancelled and the player stays framed during a
+                // fast move (86caaqhj5 attempt 2). AIRBORNE: SKIP the lead entirely (86caaqhj5 attempt 3 — the
+                // CONFIRMED jump fix). While airborne WasdMovement steers/caps the agent velocity (air-control), so
+                // the lead no longer matches the real travel rate and re-frames the player off-centre by heading
+                // (the trace-proven Sponsor percept: jump+A/D out of view, jump+S into the camera). Following the
+                // raw root XZ + a TIGHT airborne rate (below) gives ~zero lag → the avatar stays centred in every
+                // direction. Instant snaps (Start / programmatic) always skip the lead — exact head position wanted.
+                if (!instant && !airborne)
                 {
                     Vector3 vel = followVelocitySource != null ? followVelocitySource.velocity : Vector3.zero;
                     float lead = EffectiveLeadTime(followLeadTime, followLerp, maxLeadTime);
@@ -221,8 +246,12 @@ namespace FarHorizon
                     desired.z = ledXZ.z;   // desired.y (jump-arc head Y) left untouched — lead is horizontal only
                 }
 
+                // HORIZONTAL follow RATE: the smooth grounded followLerp normally, but a TIGHT airborneFollowLerp
+                // while airborne so the jump has ~zero horizontal lag (the avatar stays centred in all 4 headings —
+                // 86caaqhj5 attempt 3). The vertical (jump-arc) follow always uses verticalFollowLerp.
+                float horizRate = airborne ? airborneFollowLerp : followLerp;
                 _followPos = instant ? desired
-                    : FollowStep(_followPos, desired, followLerp, verticalFollowLerp, Time.deltaTime);
+                    : FollowStep(_followPos, desired, horizRate, verticalFollowLerp, Time.deltaTime);
             }
 
             // Guard the pitch every Apply so a serialized/probe value can never escape the band.

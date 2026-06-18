@@ -42,13 +42,15 @@ namespace FarHorizon
         public float vertStep = 5f;
         [Tooltip("Lead-time (followLeadTime) nudge step (s). Hold Shift for 5x; Ctrl for 0.2x.")]
         public float leadStep = 0.01f;
+        [Tooltip("Airborne horizontal follow-lerp (airborneFollowLerp) nudge step (1/s). Hold Shift for 5x; Ctrl for 0.2x.")]
+        public float airborneStep = 5f;
 
         private bool _active;
         private OrbitCamera _cam;
         private GUIStyle _style, _hintStyle, _titleStyle;
 
         public const float PanelWidth = 532f;
-        public const float PanelHeight = 244f;
+        public const float PanelHeight = 288f;
 
         /// <summary>The nudge-panel screen rect — RIGHT-anchored + vertically centred, x-clamped on-screen
         /// (mirrors AxeNudgeTool.PanelRect so the panels share placement). Pure + static so the on-screen
@@ -99,6 +101,7 @@ namespace FarHorizon
             float hs = horizStep * StepMul();
             float vs = vertStep * StepMul();
             float ls = leadStep * StepMul();
+            float abs = airborneStep * StepMul();
             bool changed = false;
 
             // HORIZONTAL follow lerp — PageUp/PageDown.
@@ -112,6 +115,12 @@ namespace FarHorizon
             // LEAD time — Y/H. Clamped to [0, maxLeadTime]; 0 = AUTO (1/followLerp).
             if (Input.GetKeyDown(KeyCode.Y)) { _cam.followLeadTime = Mathf.Clamp(_cam.followLeadTime + ls, 0f, _cam.maxLeadTime); changed = true; }
             if (Input.GetKeyDown(KeyCode.H)) { _cam.followLeadTime = Mathf.Clamp(_cam.followLeadTime - ls, 0f, _cam.maxLeadTime); changed = true; }
+
+            // AIRBORNE horizontal follow lerp (86caaqhj5 attempt 3 — the confirmed jump fix knob) — U/J. The
+            // tight rate the X/Z follow uses WHILE AIRBORNE so the jump has ~zero lag (avatar stays centred in
+            // all 4 headings). Higher = tighter/centred; lower = floatier (re-introduces the off-centre percept).
+            if (Input.GetKeyDown(KeyCode.U)) { _cam.airborneFollowLerp = Mathf.Max(0f, _cam.airborneFollowLerp + abs); changed = true; }
+            if (Input.GetKeyDown(KeyCode.J)) { _cam.airborneFollowLerp = Mathf.Max(0f, _cam.airborneFollowLerp - abs); changed = true; }
 
             if (changed) LogCurrent();
         }
@@ -136,6 +145,7 @@ namespace FarHorizon
         {
             if (_cam == null) return;
             Debug.Log($"[CameraFollowNudgeTool] followLerp={_cam.followLerp:F2}f  verticalFollowLerp={_cam.verticalFollowLerp:F2}f  " +
+                      $"airborneFollowLerp={_cam.airborneFollowLerp:F2}f  " +
                       $"followLeadTime={_cam.followLeadTime:F4}f  (effectiveLead={_cam.EffectiveLead:F4}s)");
         }
 
@@ -175,14 +185,16 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f),
                 $"VERTICAL  verticalFollowLerp = {_cam.verticalFollowLerp:F2}   (T/G — tracks the jump arc Y)", _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f),
-                $"LEAD  followLeadTime = {_cam.followLeadTime:F4}   (Y/H — 0 = AUTO)", _style);
+                $"AIRBORNE  airborneFollowLerp = {_cam.airborneFollowLerp:F2}   (U/J — tight jump XZ, keeps centred)", _style);
             GUI.Label(new Rect(lx, y + 122f, lw, 22f),
-                $"   effective lead = {_cam.EffectiveLead:F4}s   (= 1/followLerp when 0; cancels the A/S/D lag)", _hintStyle);
+                $"LEAD  followLeadTime = {_cam.followLeadTime:F4}   (Y/H — 0 = AUTO)", _style);
+            GUI.Label(new Rect(lx, y + 144f, lw, 22f),
+                $"   effective lead = {_cam.EffectiveLead:F4}s   (= 1/followLerp when 0; cancels the ground lag)", _hintStyle);
 
-            GUI.Label(new Rect(lx, y + 150f, lw, 20f), "PgUp/PgDn = horizontal follow    T/G = vertical follow", _hintStyle);
-            GUI.Label(new Rect(lx, y + 170f, lw, 20f), "Y/H = lead time (0 = auto 1/followLerp)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 190f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
-            GUI.Label(new Rect(lx, y + 214f, lw, 20f),
+            GUI.Label(new Rect(lx, y + 172f, lw, 20f), "PgUp/PgDn = horizontal    T/G = vertical    U/J = airborne XZ", _hintStyle);
+            GUI.Label(new Rect(lx, y + 192f, lw, 20f), "Y/H = lead time (0 = auto 1/followLerp)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 212f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
+            GUI.Label(new Rect(lx, y + 236f, lw, 20f),
                 "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
         }
     }

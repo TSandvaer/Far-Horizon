@@ -1635,6 +1635,14 @@ namespace FarHorizon.EditorTools
             // trap). The agent lives on the player root (BuildPlayer added it just before this).
             orbit.followVelocitySource = player.GetComponent<UnityEngine.AI.NavMeshAgent>();
             orbit.followLeadTime = 0f;   // 0 = auto (1/followLerp = the exact lag-cancelling lead); F7-dialable
+            // 86caaqhj5 ATTEMPT 3 — the CONFIRMED jump-pull-back fix (diagnose-via-trace, JumpCameraFollowTraceTests).
+            // While AIRBORNE the horizontal X/Z follow uses this TIGHT rate (no velocity lead) so the jump has ~zero
+            // lag → the avatar stays CENTRED in every heading. The attempt-2 grounded lead cancels the lag only when
+            // the agent's reported velocity matches the real travel rate; air-control breaks that mid-air, re-framing
+            // the player off-centre by heading (jump+A/D out of view, jump+S into the camera). 60 = match the
+            // vertical rate so XZ + Y track the arc equally tight. Set editor-time so it SERIALIZES into Boot.unity
+            // (the component-in-source-but-not-in-scene trap); F7-dialable (U/J) for the Sponsor to re-tune.
+            orbit.airborneFollowLerp = 60f;
             orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 8-70) — LOCKED
             // Floor WIDENED 35->8 (drew/ocean-camera-fix): lets the Sponsor tilt down to the horizon +
             // see the seaward beach ocean (the 35 floor framed the sea as a far fogged "grey pond" —
