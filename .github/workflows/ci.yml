@@ -159,7 +159,7 @@ jobs:
           -logFile "%RESULTS%\editmode.log"
         continue-on-error: true
 
-      # 3. PlayMode tests — QUARANTINED on this runner (best-effort, NON-BLOCKING).
+      # 3. PlayMode tests — QUARANTINED on this runner (step DISABLED: `if: false`).
       #    This self-hosted runner has a CONFIRMED play-mode-enter ENV-HANG: Unity
       #    freezes "Entering Playmode" and never self-quits — a MACHINE/runner
       #    deadlock, NOT a code bug (EditMode 308/308 green; the identical PlayMode
@@ -168,18 +168,24 @@ jobs:
       #    runner Unity"). Per [[sponsor-quarantines-env-blocked-tests]] (Sponsor-
       #    confirmed): quarantine-with-followup, not hold-for-the-bar.
       #
+      #    WHY DISABLE rather than best-effort (timeout + continue-on-error):
+      #    the hung headless Unity IGNORES the GH step-cancel that timeout-minutes
+      #    fires, so the orphaned Unity keeps the runner pinned until the runner
+      #    LOSES COMMUNICATION with the server — an INFRASTRUCTURE failure that
+      #    `continue-on-error` CANNOT suppress (it only catches step exit codes, not
+      #    a lost runner). Proven on run 27769261766: the job died ON this step
+      #    (Build + capture never ran), annotation "The self-hosted runner lost
+      #    communication with the server." The ONLY quarantine that keeps the job
+      #    green is to NOT enter Play Mode at all on this runner.
+      #
       #    THE MERGE GATE is EditMode result gate + Build-result gate + capture gate
-      #    (all stay BLOCKING below). PlayMode runs best-effort here:
-      #      - timeout-minutes: 12 kills the hang FAST so it does NOT eat the 90-min
-      #        job timeout — which is what skipped the Build step (the actual gate)
-      #        and turned the whole unity job red/cancelled.
-      #      - continue-on-error: true keeps a hang/fail from failing the step.
-      #    A future GREEN PlayMode run signals the env recovered. Tracked: 86caapwmt.
+      #    (all stay BLOCKING below). When the env recovers, flip `if: false` →
+      #    `if: true` (or delete the guard) to re-arm PlayMode. Tracked: 86caapwmt.
       #    Same -no-quit rule. Headless: Time.deltaTime~0 per frame — the suite
       #    samples over a Time.time window, never per-frame deltas.
       - name: PlayMode tests
+        if: false  # QUARANTINED — re-enable when the play-mode-enter env-hang clears (86caapwmt)
         shell: cmd
-        timeout-minutes: 12
         run: >
           "%UNITY%" -batchmode -nographics
           -projectPath "%GITHUB_WORKSPACE%"
@@ -238,17 +244,23 @@ jobs:
         run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-editmode.xml EditMode
 
       # PlayMode result gate — NON-BLOCKING (PlayMode is QUARANTINED on this runner;
-      # see the "PlayMode tests" step above + unity-conventions.md §Headless). When
-      # the play-mode-enter env-hang fires, the run produces NO playmode result XML
-      # (or a partial one), so this parser would fail — continue-on-error: true keeps
-      # that from failing the unity job. The MERGE GATE is the EditMode result gate +
-      # Build-result gate + capture gate (all BLOCKING). A future GREEN PlayMode run
-      # signals the env recovered. Tracked: 86caapwmt.
+      # see the "PlayMode tests" step above + unity-conventions.md §Headless). The
+      # PlayMode test step is DISABLED (`if: false`), so no playmode XML is produced;
+      # this gate notes the quarantine and exits 0 when the XML is absent. If the XML
+      # DOES exist (env recovered + step re-enabled), it gates on it normally. Belt-
+      # and-suspenders: continue-on-error: true keeps a partial/missing XML from ever
+      # failing the unity job while quarantined. The MERGE GATE is the EditMode result
+      # gate + Build-result gate + capture gate (all BLOCKING). Tracked: 86caapwmt.
       - name: PlayMode result gate
         if: always()
         continue-on-error: true
         shell: bash
-        run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
+        run: |
+          if [ ! -f ci-out/test-results-playmode.xml ]; then
+            echo "[PlayMode] QUARANTINED — PlayMode step disabled on this runner; no result XML expected. Skipping (non-blocking). Tracked: 86caapwmt."
+            exit 0
+          fi
+          python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
 
       - name: Build-result gate
         if: always()
