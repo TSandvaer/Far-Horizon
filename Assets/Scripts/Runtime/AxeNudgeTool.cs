@@ -52,14 +52,16 @@ namespace FarHorizon
     /// reads the value off the panel/log, and reports it to bake into CastawayCharacter.groundYOffset.
     /// Ground-Y has ONE scalar channel (PgUp/PgDn); X/Z + the rotation keys are inert on this target.
     ///
-    /// 5TH TARGET (86caa83wn — "the axe swings up in the player head when running"). The RUN/JUMP into-head
-    /// CLAMP. Cycling onto it (Tab) lets the Sponsor dial the HeldAxeRig's vigorous-locomotion ceiling IN-GAME:
-    /// PageUp/PageDown move clampCeilingAboveShoulder (how far below/above the shoulder the axe may rise while
-    /// RUNNING/AIRBORNE), and U/J (roll) dial clampSoftness (the soft-knee width). He RUNS + JUMPS while
-    /// dialing the ceiling DOWN until the axe stops riding into the head (the clamp is INERT at walk/idle, so
-    /// the locked WALK pose is unaffected while he tunes), reads the values off the panel/log, and reports them
-    /// to bake into HeldAxeClampCeilingAboveShoulder / HeldAxeClampSoftness. The panel surfaces whether the
-    /// clamp is ACTIVE this frame (true only while RUN/JUMP) so he knows when to judge.
+    /// 5TH TARGET (86caa83wn soak #2 — "when i run the axe is no longer in the hand"). The RUN ARM-LOWER. The
+    /// Sponsor's chosen approach reversed the earlier axe-side ceiling clamp (which DETACHED the axe from the
+    /// hand): the axe now rides the hand RIGIDLY, and the run into-head is fixed by LOWERING the right arm while
+    /// running (CastawayArmPose.runLowerEuler), so the gripped axe — which follows the hand — stays below the
+    /// head AND in the hand. Cycling onto this target (Tab) lets the Sponsor dial that run-lower offset IN-GAME
+    /// while RUNNING: U/J (roll/Z) lowers/raises the run carry (a NEGATIVE Z lowers — the rig's raise axis),
+    /// T/G (pitch) + Y/H (yaw) fine-tune. The lower is INERT at walk/idle (run weight 0 — the locked WALK pose
+    /// untouched), so he tunes it by RUNNING; the panel surfaces the live RUN WEIGHT (0 walk/idle → 1 full run)
+    /// so he knows when to judge. He reads RunLowerEuler off the panel/log and reports it to bake into
+    /// CastawayArmPose.runLowerEuler (MovementCameraScene.ArmRunLowerEuler). Arms have no position channel.
     ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
@@ -87,7 +89,7 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = CLAMP (86caa83wn)
+        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial (86caa83wn)
         private const int TargetCount = 5;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
@@ -187,12 +189,12 @@ namespace FarHorizon
             }
 
             // Bail if the current target isn't resolved (re-resolve on a cycle so a late-spawned axe is found).
-            // The CLAMP target (4) lives on the HeldAxeRig, same as the held axe (0).
+            // The RUN target (4) lives on the CastawayArmPose, same as the arm pose (2).
             bool haveTarget = _target == 0 ? _heldRig != null
                             : _target == 1 ? _stump != null
                             : _target == 2 ? _armPose != null
                             : _target == 3 ? _castaway != null
-                            : _heldRig != null;
+                            : _armPose != null;
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -259,18 +261,17 @@ namespace FarHorizon
                     // are inert on this target (one scalar channel).
                     _castaway.groundYOffset += dp.y;
                 }
-                else
+                else if (_armPose != null)
                 {
-                    // CLAMP (86caa83wn — 'axe swings into the head when running'). Dial the HeldAxeRig's
-                    // vigorous-locomotion ceiling. PageUp/PageDown (dp.y) move clampCeilingAboveShoulder — how
-                    // far below/above the SHOULDER the axe may rise while RUNNING/AIRBORNE (dial DOWN = below
-                    // shoulder = clears the head). U/J = roll (dr.z) dial clampSoftness (the soft-knee width) in
-                    // the SAME world-unit POSITION step (not the degree rotStep — softness is metres), floored
-                    // at 0. The clamp is INERT at walk/idle, so the Sponsor tunes it by RUNNING/JUMPING (the
-                    // panel shows ACTIVE=true only then). X/Z + pitch/yaw are inert on this target.
-                    _heldRig.clampCeilingAboveShoulder += dp.y;
-                    if (dr.z != 0f)
-                        _heldRig.clampSoftness = Mathf.Max(0f, _heldRig.clampSoftness + Mathf.Sign(dr.z) * ps);
+                    // RUN dial (86caa83wn soak #2 — 'when i run the axe is no longer in the hand'). The detaching
+                    // axe-side clamp is GONE; the run into-head is now fixed by LOWERING the right arm while
+                    // running (CastawayArmPose.runLowerEuler), so the gripped axe (which follows the hand) stays
+                    // BELOW the head AND in the hand. This target dials that run-lower offset (rotation only): U/J
+                    // = roll/Z lowers/raises the run carry (NEGATIVE Z lowers — the rig's raise axis), T/G =
+                    // pitch/X, Y/H = yaw/Y for fine-tuning. The lower is INERT at walk/idle (run weight 0 — the
+                    // locked WALK pose untouched), so the Sponsor tunes it by RUNNING (the panel shows the run
+                    // weight; judge while running). Position keys are inert (arms have no position channel).
+                    _armPose.runLowerEuler += dr;
                 }
                 changed = true;
             }
@@ -306,7 +307,7 @@ namespace FarHorizon
         private string TargetName() =>
             _target == 0 ? "HELD axe" : _target == 1 ? "STUMP axe"
             : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")"
-            : _target == 3 ? "GROUND-Y offset" : "RUN/JUMP CLAMP";
+            : _target == 3 ? "GROUND-Y offset" : "RUN arm-lower";
 
         private Transform FindByName(string n)
         {
@@ -348,13 +349,14 @@ namespace FarHorizon
                 // The Sponsor reads this off the log to bake into CastawayCharacter.groundYOffset.
                 Debug.Log($"[AxeNudgeTool] GROUND  groundYOffset={_castaway.groundYOffset:F4}f");
             }
-            else if (_target == 4 && _heldRig != null)
+            else if (_target == 4 && _armPose != null)
             {
-                // 86caa83wn — the Sponsor reads these off the log to bake into
-                // HeldAxeClampCeilingAboveShoulder / HeldAxeClampSoftness. ACTIVE shows whether the clamp
-                // is engaged THIS frame (true only while RUNNING/AIRBORNE — when there's something to judge).
-                Debug.Log($"[AxeNudgeTool] CLAMP HeldAxeClampCeilingAboveShoulder={_heldRig.clampCeilingAboveShoulder:F4}f  " +
-                          $"HeldAxeClampSoftness={_heldRig.clampSoftness:F4}f  (active={_heldRig.ClampActiveThisFrame})");
+                // 86caa83wn soak #2 — the Sponsor reads this off the log to bake into CastawayArmPose.runLowerEuler.
+                // runWeight shows whether the run-lower is engaged THIS frame (rises toward 1 only while RUNNING —
+                // when there's something to judge; 0 at walk/idle).
+                Vector3 rl = _armPose.runLowerEuler;
+                Debug.Log($"[AxeNudgeTool] RUN  RunLowerEuler=({rl.x:F1}f,{rl.y:F1}f,{rl.z:F1}f)  " +
+                          $"(runWeight={_armPose.RunWeight:F2})");
             }
         }
 
@@ -397,7 +399,7 @@ namespace FarHorizon
                 ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([B] switch arm; rotation only)"
                 : _target == 3
                 ? "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)"
-                : "RUN/JUMP CLAMP (into-head ceiling — PgUp/PgDn=ceiling, U/J=softness; RUN to judge)";
+                : "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -437,16 +439,18 @@ namespace FarHorizon
                     ? "GAP (feet−ground): N/A  —  no visible ground under the feet"
                     : $"GAP (feet−ground)={gap:F4}  {(Mathf.Abs(gap) > 0.01f ? "◄ FLOATING — keep dialing" : "◄ planted ✓")}";
             }
-            else if (_target == 4 && _heldRig != null)
+            else if (_target == 4 && _armPose != null)
             {
-                // 86caa83wn — the run/jump CLAMP. Show the ceiling + softness; surface ACTIVE so the Sponsor
-                // knows to RUN/JUMP to judge (the clamp is inert at walk/idle — the locked WALK pose untouched).
-                posLine = $"ceilingAboveShoulder={_heldRig.clampCeilingAboveShoulder:F4}  softness={_heldRig.clampSoftness:F4}";
-                eulerLine = _heldRig.ClampActiveThisFrame
-                    ? "CLAMP ACTIVE ✓ (running/airborne — judge the axe now; dial ceiling DOWN to clear the head)"
-                    : "clamp INERT — RUN (Shift) or JUMP (Space) to engage + judge; walk/idle is untouched";
+                // 86caa83wn soak #2 — the RUN arm-lower. Show the run-lower euler + the live run weight; surface
+                // whether it is engaged so the Sponsor knows to RUN to judge (inert at walk/idle — the locked
+                // WALK pose untouched). U/J (roll/Z) lowers/raises the run carry; a NEGATIVE Z lowers the arm.
+                Vector3 rl = _armPose.runLowerEuler;
+                posLine = $"RunLowerEuler=({rl.x:F1}, {rl.y:F1}, {rl.z:F1})  (U/J=roll/Z lowers/raises)";
+                eulerLine = _armPose.RunWeight > 0.5f
+                    ? $"RUN ENGAGED ✓ weight={_armPose.RunWeight:F2} (judge now; dial Z MORE negative to lower the arm)"
+                    : $"run weight={_armPose.RunWeight:F2} — RUN (Shift) to engage + judge; walk/idle untouched";
             }
-            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : "(axe not found)"; eulerLine = ""; }
+            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : _target == 4 ? "(arm pose not found)" : "(axe not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).

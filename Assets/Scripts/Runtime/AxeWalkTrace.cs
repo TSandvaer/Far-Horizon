@@ -71,13 +71,18 @@ namespace FarHorizon
                 Application.Quit(1);
                 yield break;
             }
-            // Resolve the HEAD bone (the into-head reference) off the skeleton.
+            // Resolve the HEAD bone (the into-head reference) off the skeleton. 86caa83wn soak #2: the into-head
+            // fix moved from an axe-side clamp to the ARM side (CastawayArmPose.runLowerEuler lowers the right arm
+            // while running), so this trace now reports the arm-pose run-lower + the live run weight, not the
+            // removed rig clamp.
             Transform head = FindBoneContaining(castaway.transform, "head");
-            Transform shoulder = rig.shoulder;
+            var armPose = Object.FindAnyObjectByType<CastawayArmPose>();
+            Transform shoulder = armPose != null ? armPose.rightUpperArm : null;
             Debug.Log($"[AxeRunJumpTrace] head='{(head != null ? head.name : "<null>")}' " +
-                      $"shoulder='{(shoulder != null ? shoulder.name : "<null>")}' " +
-                      $"clampEnabled={rig.clampVigorousLocomotion} ceilingAboveShoulder={rig.clampCeilingAboveShoulder} " +
-                      $"softness={rig.clampSoftness} runThreshold={castaway.runSpeedThreshold}");
+                      $"rightArm='{(shoulder != null ? shoulder.name : "<null>")}' " +
+                      $"runLowerEuler={(armPose != null ? armPose.runLowerEuler.ToString("F1") : "<null>")} " +
+                      $"runLowerBlendRate={(armPose != null ? armPose.runLowerBlendRate.ToString("F1") : "<null>")} " +
+                      $"runThreshold={castaway.runSpeedThreshold}");
 
             float t = 0f;
             while (t < 3f && !agent.isOnNavMesh) { t += Time.unscaledDeltaTime; yield return null; }
@@ -103,7 +108,7 @@ namespace FarHorizon
                     if (castaway.IsRunning)
                     {
                         sawRunning = true;
-                        float m = SampleMargin(rig, head, shoulder, "run");
+                        float m = SampleMargin(rig, armPose, head, shoulder, "run");
                         if (m < worstRunMargin) worstRunMargin = m;
                     }
                 }
@@ -121,7 +126,7 @@ namespace FarHorizon
                 yield return null;
                 if (castaway.IsAirborne)
                 {
-                    float m = SampleMargin(rig, head, shoulder, "jump");
+                    float m = SampleMargin(rig, armPose, head, shoulder, "jump");
                     if (m < worstJumpMargin) worstJumpMargin = m;
                 }
                 else if (Time.time - jumpStart > 0.3f) break; // landed
@@ -130,23 +135,24 @@ namespace FarHorizon
             Debug.Log($"[AxeRunJumpTrace] SUMMARY sawRunning={sawRunning} jumped={jumped} " +
                       $"worstRunMargin(headY-axeY)={Fmt(worstRunMargin)} " +
                       $"worstJumpMargin(headY-axeY)={Fmt(worstJumpMargin)}  " +
-                      $"({((worstRunMargin > 0f && worstJumpMargin > 0f) ? "axe stays BELOW the head ✓" : "AXE RODE INTO THE HEAD — clamp failed")})");
+                      $"({((worstRunMargin > 0f && worstJumpMargin > 0f) ? "axe stays BELOW the head ✓" : "AXE RODE INTO THE HEAD — run-lower failed")})");
             yield return new WaitForSeconds(0.3f);
             Application.Quit();
         }
 
-        // One sample: dump axe-Y vs head-Y vs the shoulder-relative clamp ceiling; return headY - axeY (the
-        // into-head margin — positive = axe below the head). NaN head → returns +inf (no constraint).
-        private float SampleMargin(HeldAxeRig rig, Transform head, Transform shoulder, string where)
+        // One sample: dump axe-Y vs head-Y vs the right-arm bone Y + the arm-pose run weight; return headY - axeY
+        // (the into-head margin — positive = axe below the head). 86caa83wn soak #2: the axe rides the hand
+        // rigidly (no axe-side clamp); the run-lower (CastawayArmPose) lowers the arm while running, so a healthy
+        // run shows the axe staying below the head with runWeight rising toward 1. NaN head → +inf (no constraint).
+        private float SampleMargin(HeldAxeRig rig, CastawayArmPose armPose, Transform head, Transform shoulder, string where)
         {
             float axeY = rig.transform.position.y;
             float headY = head != null ? head.position.y : float.NaN;
-            float shoulderY = shoulder != null ? shoulder.position.y : float.NaN;
-            float ceiling = float.IsNaN(shoulderY) ? float.NaN : shoulderY + rig.clampCeilingAboveShoulder;
+            float armY = shoulder != null ? shoulder.position.y : float.NaN;
+            float runWeight = armPose != null ? armPose.RunWeight : float.NaN;
             float margin = float.IsNaN(headY) ? float.PositiveInfinity : headY - axeY;
-            Debug.Log($"[AxeRunJumpTrace] {where} axeY={Fmt(axeY)} headY={Fmt(headY)} shoulderY={Fmt(shoulderY)} " +
-                      $"ceiling={Fmt(ceiling)} headMinusAxe={Fmt(margin)} clampActive={rig.ClampActiveThisFrame} " +
-                      $"followY={Fmt(rig.FollowPos.y)}");
+            Debug.Log($"[AxeRunJumpTrace] {where} axeY={Fmt(axeY)} headY={Fmt(headY)} rightArmY={Fmt(armY)} " +
+                      $"headMinusAxe={Fmt(margin)} runWeight={Fmt(runWeight)} followY={Fmt(rig.FollowPos.y)}");
             return margin;
         }
 

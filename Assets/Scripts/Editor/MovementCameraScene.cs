@@ -140,22 +140,15 @@ namespace FarHorizon.EditorTools
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
         public static readonly float HeldAxeFollowDamp = 0f;
-        // 86caa83wn — VIGOROUS-LOCOMOTION CEILING CLAMP defaults (the "axe swings into the head when running"
-        // fix). The follow-the-arm choice is KEPT for WALK/IDLE; ONLY while RUNNING or AIRBORNE the followed
-        // hand world-Y is soft-clamped to a ceiling expressed RELATIVE to the shoulder bone, so the RUN/JUMP
-        // arm-pump can't carry the axe to the head. The ceiling rides the shoulder (so it tracks bob/jump/
-        // ground-snap automatically). These are the REASONABLE defaults the Sponsor dials on the F9 nudge tool
-        // (CLAMP target) in the soak — what-he-dials-is-what-ships.
-        public static readonly bool HeldAxeClampVigorousLocomotion = true;
-        // 86caa83wn soak-refine (2026-06-18): the Sponsor reported the axe STILL swings into the head when
-        // running — the prior -0.05 "just below the shoulder" was NOT low enough (the shoulder bone sits only
-        // ~0.3u below the head on this rig, so a ceiling 5cm below the shoulder is still up near the head). Drop
-        // it to -0.25 so the followed hand is clamped a clear ~25cm BELOW the shoulder = comfortably below the
-        // head through the whole RUN/JUMP arm-pump. The clamp is INERT at WALK/IDLE (the Sponsor's locked WALK
-        // pose untouched), so lowering the run/jump ceiling does NOT change the approved walk seat. Still
-        // Sponsor-dialable on the F9 CLAMP target (PgUp/PgDn) so he sets the final value in the soak.
-        public static readonly float HeldAxeClampCeilingAboveShoulder = -0.25f; // clearly below the head (RUN/JUMP)
-        public static readonly float HeldAxeClampSoftness = 0.12f;              // smooth shoulder-height tuck
+        // 86caa83wn soak #2 (2026-06-18) — RUN ARM-LOWER default (the "when i run the axe is no longer in the
+        // hand" fix). The earlier axe-side world-Y ceiling clamp DETACHED the axe from the hand during the run
+        // arm-swing (it moved the axe-Y but not the hand-X/Z); the Sponsor's chosen approach KEEPS the axe rigidly
+        // in the hand and instead LOWERS the right arm while running (CastawayArmPose.runLowerEuler), so the
+        // gripped axe — which follows the hand — stays below the head AND in the hand. The run-lower is applied
+        // on the rig's raise axis (LOCAL-Z; a negative Z lowers the arm), blended by a smoothed IsRunning weight
+        // so WALK/IDLE is byte-unchanged. This is the REASONABLE default the Sponsor dials on the F9 nudge tool
+        // (RUN target) WHILE running — what-he-dials-is-what-ships.
+        public static readonly Vector3 ArmRunLowerEuler = new Vector3(0f, 0f, -22f); // ~22° lower at full run
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -538,27 +531,12 @@ namespace FarHorizon.EditorTools
             // passes through immediately (the raw hand carries the facing yaw). A LIGHT damp is available to
             // de-jitter without re-locking (followDamp); it defaults to 0 so the per-step swing is visible.
             rig.followDamp = HeldAxeFollowDamp;
-
-            // 86caa83wn — VIGOROUS-LOCOMOTION CEILING CLAMP: wire the per-state into-head clamp. The clamp is
-            // INERT at WALK/IDLE (the Sponsor's locked pose untouched) and engages ONLY while RUNNING/AIRBORNE,
-            // capping the followed hand world-Y at a ceiling relative to the SHOULDER bone so the Mixamo RUN/JUMP
-            // arm-pump can't ride the axe into the head. Wire the SHOULDER (right upper-arm) + the CHARACTER
-            // (whose IsRunning/IsAirborne gates the clamp) editor-time so they SERIALIZE into Boot.unity (the
-            // component-not-serialized trap — a runtime Awake fallback exists but must not be the ship path).
-            rig.clampVigorousLocomotion = HeldAxeClampVigorousLocomotion;
-            rig.clampCeilingAboveShoulder = HeldAxeClampCeilingAboveShoulder;
-            rig.clampSoftness = HeldAxeClampSoftness;
-            rig.character = castaway;
-            rig.shoulder = FindBoneByExactToken(castaway.transform, RightUpperArmToken);
-            if (rig.shoulder == null)
-                Debug.LogError("[MovementCameraScene] could not resolve the right upper-arm bone ('" +
-                               RightUpperArmToken + "') for the HeldAxeRig clamp — the run/jump into-head clamp " +
-                               "will be INERT (fail-safe raw follow). Re-run CharacterDiagnoseTrace to dump the rig.");
-            Debug.Log("[MovementCameraScene] held axe 86caa83wn clamp wired: enabled=" +
-                      rig.clampVigorousLocomotion + " ceilingAboveShoulder=" + rig.clampCeilingAboveShoulder +
-                      " softness=" + rig.clampSoftness + " shoulder='" +
-                      (rig.shoulder != null ? rig.shoulder.name : "<null>") + "' character='" +
-                      (rig.character != null ? rig.character.name : "<null>") + "'");
+            // 86caa83wn soak #2 — NO axe-side vertical clamp. The earlier per-state world-Y ceiling clamp (which
+            // moved the AXE down independently of the hand) DETACHED the axe from the grip during the run
+            // arm-swing ("when i run the axe is no longer in the hand"). It is REMOVED — the axe rides the hand
+            // RIGIDLY at all times. The run into-head is now fixed on the ARM side (CastawayArmPose.runLowerEuler,
+            // wired in AddArmPose) by lowering the right arm while running, so the gripped axe (which follows the
+            // hand) stays below the head AND in the hand.
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
@@ -686,10 +664,19 @@ namespace FarHorizon.EditorTools
                                "(right='" + RightUpperArmToken + "' found=" + (pose.rightUpperArm != null) +
                                ", left='" + LeftUpperArmToken + "' found=" + (pose.leftUpperArm != null) +
                                ") — the arm-pose soak-fix will be inert. Re-run CharacterDiagnoseTrace.");
+            // 86caa83wn soak #2 — wire the RUN-swing reduction: the CastawayCharacter (whose IsRunning weights the
+            // run-lower) + the baked run-lower euler. Wired editor-time so the run-lower ships in Boot.unity (the
+            // component-not-serialized trap; a runtime Awake fallback resolves the character but must not be the
+            // ship path). The run-lower is INERT at walk/idle (run weight 0 → the Sponsor's locked WALK pose is
+            // byte-unchanged); the Sponsor dials runLowerEuler on the F9 RUN target while running, then bakes it.
+            pose.character = castaway;
+            pose.runLowerEuler = ArmRunLowerEuler;
             pose.RebuildCached();
             Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
                       (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
-                      (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") + "')");
+                      (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") +
+                      "', character='" + (pose.character != null ? pose.character.name : "<null>") +
+                      "', runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
         }
 
         // The right-hand FINGER + THUMB bone tokens to curl (86ca8rdkp re-soak #4). Index/Middle/Ring proximal
