@@ -48,12 +48,31 @@ namespace FarHorizon
                  "Idle<->locomotion blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
+        [Header("Locomotion transition smoothing (86caay44r)")]
+        [Tooltip("Damp time (s) for the Speed param fed to the locomotion blend tree. The Sponsor reported " +
+                 "idle<->walk<->run transitions as too ABRUPT — most noticeable stopping a walk (release W), " +
+                 "where the agent velocity drops to 0 in one frame and the blend SNAPS Walk->Idle. Feeding Speed " +
+                 "through Animator.SetFloat(param, value, dampTime, dt) instead of a raw set EASES the parameter " +
+                 "toward its target over ~this many seconds, so starts/stops/speed-changes glide rather than snap. " +
+                 "~0.18s reads smooth without feeling mushy (the Sponsor judges in soak; tunable from the build). " +
+                 "0 = the old raw, instant set. Keeps the Walk<->Run blend (#68) intact — it just eases the SAME " +
+                 "Speed param the blend tree already consumes (a smoother crossfade, never a different clip).")]
+        public float speedDampTime = 0.18f;
+
         [Tooltip("Planar speed (u/s) at/above which the WALK<->RUN blend (86ca9yq34) reads as a full RUN. " +
                  "The blend tree is 1D on the Speed param: <= walk speed plays Walk, >= this plays Run, and " +
                  "between them blends smoothly (AC1's smooth Walk<->Run blend). Set to the WASD run speed " +
                  "(WasdMovement.runSpeed) so holding Shift reaches a full run; the WASD walk speed lands in the " +
                  "Walk band. Exposed so the run state (IsRunning) reads consistently with the blend.")]
         public float runSpeedThreshold = 9.5f;
+
+        // 86caa83wn fix 2 — IsRunning engages at this FRACTION of runSpeedThreshold (not strictly at it), so a
+        // NavMeshAgent simulated velocity that lags/dips just below the COMMANDED run speed still reads running
+        // and the held-axe RUN clamp stays engaged through the whole cycle (the strict ">= threshold" compare
+        // flickered false on accel/decel ramps → the clamp popped off → axe into the head). 0.85·9.5 ≈ 8.1 is
+        // safely above the 5.5 walk speed (a walk never reads running) and below the 9.5 run speed (a run
+        // reliably does). NOT a serialized field — a fixed engage margin, audited from source.
+        public const float RunEngageFraction = 0.85f;
 
         [Header("Walk-float model-sole grounding (86ca8rdkp attempt-9 — the WALK-clip body-lift fix)")]
         [Tooltip("Ground the VISIBLE rendered SOLE (scale-immune) by offsetting the MODEL CHILD's local-Y, on " +
@@ -181,6 +200,54 @@ namespace FarHorizon
         // ON TOP of this; on landing we restore the snap from this baseline so grounding resumes seamlessly.
         private float _jumpBaseLocalY;
 
+        // === JUMP IN-PLACE — HIPS-XZ LUNGE CANCEL (ticket 86caaqhj5 — the "pulled back on landing" FIX).
+        // The Mixamo "jump forward" clips bake the forward travel into the HIPS BONE's local-position curve
+        // (NOT the root node). The import flags lockRootPositionXZ=true / applyRootMotion=false neutralize the
+        // ROOT-NODE motion, but they CANNOT reach a translation that lives in the Hips bone (same mechanism as
+        // the Walk hip-LIFT Bug A — import flags govern root-MOTION extraction, not the in-place bone curve).
+        // RUNTIME-confirmed (Sponsor Player.log, build fa5232d): hipsRelRootXZ grew to ~2.97u airborne then
+        // snapped back ~3.07→1.67 over ~4 post-land frames — the lunge DOUBLE-COUNTS on top of the agent's real
+        // XZ movement (overshoot), then snaps back to the entity on landing (the "pulled back"). FIX: while the
+        // jump is active, OVERWRITE the Hips bone's animated local-XZ back to its captured grounded baseline so
+        // the jump plays IN-PLACE (vertical-only) and the ENTITY's NavMesh movement carries the character
+        // forward — no double-count, no overshoot, no snap-back. The Hips local-Y (the crouch/extend tuck) and
+        // every descendant pose (arms/legs/the tuck) are LEFT UNTOUCHED — only the horizontal TRANSLATION is
+        // removed. Engaged ONLY during a jump (airborne + a short post-land tail covering the exit crossfade),
+        // so Idle/Walk/Run hips sway is byte-unchanged (the Sponsor's lively-motion preference is preserved).
+        public bool jumpInPlace = true;                  // master enable (ships ON); a wiring guard asserts it
+        // Seconds to keep cancelling the Hips XZ AFTER touch-down — covers the Jump→Locomotion/Idle exit
+        // crossfade (0.06s) + the clip's return-to-neutral, which is where the trace saw the snap-back (~4
+        // frames). Without this tail the lunge would un-cancel as the clip eases out → the snap-back returns.
+        public float jumpInPlacePostLandSeconds = 0.25f;
+        private Vector3 _hipsBaselineLocalPos;           // the Hips' captured grounded local position (XZ baseline)
+        private bool _hipsBaselineCaptured;              // false until the first grounded frame captures it
+        private float _jumpInPlaceHoldT;                 // seconds remaining to keep cancelling past touch-down
+
+        // === RUNTIME JUMP-TRACE (ticket 86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS instrument).
+        // AUTO-fires on EVERY jump (NO toggle/launch-arg) so the Sponsor just PLAYS (W/A/S/D + Space) and the
+        // ground truth lands in Player.log; the orchestrator reads it after. Cheap + build-safe: one greppable
+        // Debug.Log per frame ONLY inside the per-jump window (launch → 0.5s post-landing), silent otherwise.
+        //
+        // WHY a RUNTIME trace (not EditMode): EditMode anim-grounding/jump traces have PASSED 3× while the soak
+        // FAILED (dispatch note; the headless Time.deltaTime≈0 trap means the Animator/arc never ticks the way
+        // live play does — unity-conventions.md §Headless). The runtime trace captures the LIVE per-frame world
+        // motion the Sponsor actually sees.
+        //
+        // WHAT IT MEASURES (the candidates the dispatch enumerates — root XZ pull-back vs avatar-child snap vs
+        // air-control decel): the PLAYER ROOT world X/Z/Y (the NavMeshAgent owns this — updatePosition=true), the
+        // AVATAR-CHILD world X/Z/Y (this transform — the jump arc is a local-Y here), agent.velocity (what
+        // WasdMovement commands), agent.desiredVelocity + hasPath/pathPending (the agent's OWN steering target —
+        // 0/none under WASD, so autoBraking/acceleration decelerate the body), agent.nextPosition (where the
+        // agent's internal sim wants the root NEXT), the airborne flag + the exact LANDING frame, _jumpY (arc),
+        // and which camera-follow path is active (airborne tight-follow vs grounded lead). The root-XZ delta
+        // launch→land is THE discriminator: if the root is pulled BACK in the world, it's the agent sim (a/c);
+        // if the root advances but the child snaps, it's (b).
+        private int _jumpTraceFrame;            // frame counter within the current trace window
+        private float _jumpTracePostLandT;      // seconds remaining to keep tracing after landing (0 = window closed)
+        private bool _jumpTraceActive;          // a trace window is open this jump
+        private Vector3 _jumpTraceLaunchRootXZ; // player-root world XZ captured at lift-off (the pull-back baseline)
+        private const float JumpTracePostLandSeconds = 0.5f; // keep tracing 0.5s past touch-down (catch the snap)
+
         /// <summary>Whether the castaway is mid-jump (airborne) this frame (86ca9yq3q). While true the ground
         /// snap is suspended and the avatar rides the jump arc. Exposed so the PlayMode AC5 regression asserts
         /// the airborne phase suspends grounding, and so later systems (jump SFX, fall damage) can read it.</summary>
@@ -190,6 +257,20 @@ namespace FarHorizon
         /// (86ca9yq3q). Exposed so the AC5 regression asserts the root Y RISES then RETURNS to grounded across
         /// the arc without depending on physical agent traversal (the head/apex is &gt; 0, landing is ~0).</summary>
         public float JumpHeight => _airborne ? _jumpY : 0f;
+
+        /// <summary>Whether the jump in-place Hips-XZ cancel is ACTIVE this frame (86caaqhj5 — airborne or the
+        /// post-land tail covering the exit crossfade). While true the Hips bone's animated local-XZ is held at
+        /// its grounded baseline so the jump plays vertical-only (no forward lunge / snap-back). Exposed so a
+        /// trace/test can assert the cancel engages exactly during the jump and is inert otherwise.</summary>
+        public bool JumpInPlaceActive => jumpInPlace && (_airborne || _jumpInPlaceHoldT > 0f);
+
+        /// <summary>Whether the RUNTIME jump-trace window is OPEN this frame (86caaqhj5 — the "pulled back on
+        /// landing" instrument). True from a jump's lift-off until ~0.5s past touch-down, while the per-frame
+        /// [JumpTrace] line auto-logs to Player.log; false otherwise (silent). Exposed READ-ONLY so the EditMode
+        /// guard can assert TryJump OPENS the window (the silent-instrument bug class — a trace that never fires
+        /// is the CaptureGate/FloatTrace silent-killer family, unity-conventions.md §Component-not-serialized).
+        /// No PlayMode fixture needed: TryJump (grounded-only) opens the window synchronously.</summary>
+        public bool JumpTraceActive => _jumpTraceActive;
 
         /// <summary>
         /// Begin a jump (ticket 86ca9yq3q) — Space's rising edge calls this (WasdMovement). Imparts the upward
@@ -208,6 +289,14 @@ namespace FarHorizon
             _jumpBaseLocalY = _snapInit ? _snapLocalY : transform.localPosition.y; // launch from the grounded local-Y
             if (_animator != null && _animator.runtimeAnimatorController != null)
                 _animator.SetTrigger(JumpParam);  // fire the one-shot Jump state (AnyState→Jump on the trigger)
+
+            // RUNTIME JUMP-TRACE (86caaqhj5): open the per-jump trace window at lift-off. Capture the player-root
+            // world XZ NOW — the launch→land delta of this baseline is the "pulled back" discriminator.
+            Transform jr = transform.parent != null ? transform.parent : transform;
+            _jumpTraceLaunchRootXZ = new Vector3(jr.position.x, 0f, jr.position.z);
+            _jumpTraceFrame = 0;
+            _jumpTracePostLandT = JumpTracePostLandSeconds;
+            _jumpTraceActive = true;
             return true;
         }
 
@@ -439,6 +528,15 @@ namespace FarHorizon
             float worldResidual = renderedSoleWorldY - plantWorldY;   // >0 ⟺ sole floats ABOVE the plant target
             return currentModelLocalY - worldResidual / rootYScale;
         }
+
+        /// <summary>PURE jump in-place cancel (ticket 86caaqhj5). Given the Hips bone's CURRENT animated local
+        /// position (carrying the Mixamo jump clip's baked forward-XZ lunge) and the captured GROUNDED baseline
+        /// local position, return the corrected local position: X/Z taken from the baseline (the lunge removed →
+        /// the jump plays in-place), Y taken from the CURRENT pose (the crouch/extend tuck rides the clip).
+        /// Static + side-effect-free so the EditMode guard exercises the EXACT math CancelJumpForwardLunge runs
+        /// (the "never ship a position-dial without testing the production math" lesson, §Walk-float saga).</summary>
+        public static Vector3 CancelHipsXZ(Vector3 currentHipsLocal, Vector3 groundedBaselineLocal)
+            => new Vector3(groundedBaselineLocal.x, currentHipsLocal.y, groundedBaselineLocal.z);
 
         // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
@@ -867,6 +965,45 @@ namespace FarHorizon
             transform.localPosition = lp;
         }
 
+        // JUMP IN-PLACE — cancel the Mixamo jump clip's baked forward HIPS-XZ lunge (ticket 86caaqhj5). Called
+        // from LateUpdate AFTER the Animator has posed the Hips for this frame and BEFORE the JumpTrace emits (so
+        // the trace measures the corrected hips) — and before HeldAxeRig (order 100) reads the hand, so the held
+        // axe seats to the un-lunged hand. The Hips is the top of the skeleton; rewriting its local-XZ shifts the
+        // whole upper body back over the root without touching the vertical tuck (local-Y) or any descendant pose.
+        //
+        // BASELINE: captured ONCE on the first GROUNDED frame (the Hips' rest local-XZ for the Idle/loco clips,
+        // which are in-place — their hips stay near-centred). While the jump is active we overwrite ONLY the
+        // Hips local-XZ back to that baseline; local-Y (crouch/extend) rides the clip untouched. Inert while
+        // grounded (the loco hips sway is preserved — the Sponsor's lively-motion preference).
+        private void CancelJumpForwardLunge()
+        {
+            if (!jumpInPlace) return;
+            if (!_bonesResolved) ResolveBones();
+            if (_hipsBone == null) return;
+
+            // Tick down the post-land hold: re-arm to full while airborne, then count down once grounded so the
+            // cancel stays engaged through the Jump→Idle/Loco exit crossfade where the trace saw the snap-back.
+            if (_airborne) _jumpInPlaceHoldT = jumpInPlacePostLandSeconds;
+            else if (_jumpInPlaceHoldT > 0f) _jumpInPlaceHoldT = Mathf.Max(0f, _jumpInPlaceHoldT - Time.deltaTime);
+
+            // Capture the grounded rest baseline once (the in-place loco hips XZ). Only ever captured while
+            // GROUNDED so a mid-jump first-frame can't bake the lunge into the baseline.
+            if (!_hipsBaselineCaptured && !_airborne)
+            {
+                _hipsBaselineLocalPos = _hipsBone.localPosition;
+                _hipsBaselineCaptured = true;
+            }
+            if (!_hipsBaselineCaptured) return;       // never captured a clean grounded baseline yet — do nothing
+
+            // Only act during the jump (airborne or the post-land tail). Grounded loco frames pass through here
+            // untouched so the walk/run hips sway is byte-unchanged.
+            if (!_airborne && _jumpInPlaceHoldT <= 0f) return;
+
+            // Overwrite ONLY the Hips local-XZ back to the grounded baseline — keep the clip's local-Y (the tuck).
+            // Uses the SAME pure CancelHipsXZ the EditMode guard exercises (shared production math).
+            _hipsBone.localPosition = CancelHipsXZ(_hipsBone.localPosition, _hipsBaselineLocalPos);
+        }
+
         void LateUpdate()
         {
             // JUMP ↔ GROUND-SNAP GATE (ticket 86ca9yq3q, AC3 — load-bearing). While AIRBORNE the per-frame
@@ -896,15 +1033,32 @@ namespace FarHorizon
             // the agent at moveSpeed walking / runSpeed sprinting, so this magnitude lands in the blend tree's
             // Walk band or Run band accordingly — the Run clip blends in only while actually running fast.
             CurrentSpeed = planarSpeed;
-            // RUNNING: at/above the run threshold (the blend reads as a full Run here). A small hysteresis-free
-            // threshold compare — the blend tree itself is what smooths the visual transition.
-            IsRunning = walking && planarSpeed >= runSpeedThreshold;
+            // RUNNING: at/above the run threshold (the blend reads as a full Run here). 86caa83wn fix 2 —
+            // the held-axe RUN clamp gates on IsRunning, and it "wasn't biting": the NavMeshAgent's SIMULATED
+            // velocity (what we read) LAGS the COMMANDED run speed (== runSpeedThreshold) and dips just below
+            // it on accel/decel ramps + obstacle steering, so a strict ">= threshold" compare FLICKERED false
+            // mid-run → the clamp disengaged for those frames → the axe popped into the head. So engage running
+            // at a MARGIN below the threshold (RunEngageFraction · threshold). The margin stays well ABOVE the
+            // walk speed (5.5 vs ~8.1 at 0.85·9.5), so a WALK never reads as running (the AC5 walk-band test +
+            // the blend tree are unaffected — the blend tree reads the Speed param, not this flag), while a RUN
+            // reads running through the whole cycle so the clamp stays engaged. The visual Walk<->Run blend is
+            // unchanged (driven by SpeedParam above, not by IsRunning).
+            IsRunning = walking && planarSpeed >= runSpeedThreshold * RunEngageFraction;
             if (walking) _lastFacing = vel.normalized;
 
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
                 _animator.SetBool(MovingParam, walking);
-                _animator.SetFloat(SpeedParam, planarSpeed);
+                // 86caay44r — DAMP the Speed param so the blend tree EASES rather than snaps on start/stop/
+                // speed-change (the Sponsor's "transitions too abrupt, most on releasing W"). SetFloat's built-in
+                // damp smooths the value toward planarSpeed over ~speedDampTime, frame-rate-independent. A 0
+                // dampTime falls back to a raw instant set (the old behavior) — so the feel is fully tunable from
+                // the build. The Walk<->Run blend (#68) is UNTOUCHED: it still reads this same Speed param; the
+                // damp only makes its crossfade smoother, never selects a different clip.
+                if (speedDampTime > 0.0001f)
+                    _animator.SetFloat(SpeedParam, planarSpeed, speedDampTime, Time.deltaTime);
+                else
+                    _animator.SetFloat(SpeedParam, planarSpeed);
                 // GROUNDED (86ca9yq3q rework — THE floating-bug fix). The airborne gate above already updated
                 // _airborne for THIS frame (AdvanceJump flips it false on the landing frame). Driving Grounded =
                 // !_airborne here lets the controller's jump→{Locomotion if Moving | Idle} transition fire on the
@@ -923,6 +1077,95 @@ namespace FarHorizon
             }
             if (_model != null)
                 _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
+
+            // JUMP IN-PLACE (86caaqhj5 fix) — cancel the Mixamo jump clip's baked forward HIPS-XZ lunge AFTER the
+            // Animator posed the Hips this frame and BEFORE the trace emits (so the trace reads the corrected
+            // hips) and before HeldAxeRig (order 100) reads the hand (so the axe seats to the un-lunged hand).
+            CancelJumpForwardLunge();
+
+            // RUNTIME JUMP-TRACE (86caaqhj5) — emit AFTER this frame's arc/snap + anim update so the trace
+            // reflects the final per-frame positions the player sees. Auto-fires on every jump, silent otherwise.
+            if (_jumpTraceActive) EmitJumpTrace();
+        }
+
+        // The per-frame RUNTIME jump-trace line (86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS). Fires
+        // every frame from lift-off (TryJump opened the window) until JumpTracePostLandSeconds past touch-down.
+        // ONE greppable [JumpTrace] Debug.Log per frame inside the window — no toggle, no launch-arg: the Sponsor
+        // just plays + jumps W/A/S/D and the orchestrator reads Player.log. Silent in every non-jump frame.
+        //
+        // The LANDING frame is marked explicitly (LANDED=YES on the touch-down frame). The load-bearing fields:
+        //   rootΔXZ      — player-root world XZ moved since lift-off; a NEGATIVE component along travel = the
+        //                  "pulled BACK in the world" the Sponsor reports (the agent sim displaced the root).
+        //   agentVel     — what WasdMovement commands (coast/steer airborne; full speed grounded).
+        //   desiredVel   — the agent's OWN steering target (≈0 under WASD — no path; autoBraking decelerates the
+        //                  body toward THIS, fighting the commanded velocity — the prime suspect for the decel).
+        //   nextPos      — where the agent's internal sim wants the root NEXT frame (updatePosition=true owns it).
+        //   childΔ vs root — the avatar child rides root XZ + a local-Y arc; if root advances but child snaps
+        //                  back, the displacement is in the child (candidate b); if root itself retreats, it's the
+        //                  agent sim (candidate a/c).
+        private void EmitJumpTrace()
+        {
+            Transform root = transform.parent != null ? transform.parent : transform;
+            Vector3 rootPos = root.position;
+            Vector3 rootXZ = new Vector3(rootPos.x, 0f, rootPos.z);
+            Vector3 dXZ = rootXZ - _jumpTraceLaunchRootXZ;        // root world XZ moved since lift-off
+            Vector3 childPos = transform.position;                // the avatar child (jump arc local-Y lives here)
+
+            Vector3 agentVel = _agent != null ? _agent.velocity : Vector3.zero;
+            Vector3 desiredVel = _agent != null ? _agent.desiredVelocity : Vector3.zero;
+            Vector3 nextPos = _agent != null ? _agent.nextPosition : Vector3.zero;
+            bool hasPath = _agent != null && _agent.hasPath;
+            bool pathPending = _agent != null && _agent.pathPending;
+            bool onMesh = _agent != null && _agent.isOnNavMesh;
+
+            // VISUAL-vs-ENTITY divergence (Sponsor root-motion hypothesis, 86caaqhj5): the HIPS BONE world pos is
+            // the VISUAL avatar's body — a Mixamo "jump forward" clip lunges the hips FORWARD off the root pivot
+            // even though the clip is imported lockRootPositionXZ=true + applyRootMotion=false (those neutralize
+            // ROOT-NODE motion, NOT the bone-pose lunge). If hipsXZ diverges FORWARD from the root during the air
+            // and SNAPS BACK to the root on landing, the "pulled back" is a bone-pose forward-lunge (visual ≠
+            // entity), confirming the Sponsor's hypothesis at the BONE level. We also log applyRootMotion to prove
+            // root motion is OFF (so any divergence is bone-pose, not extracted root motion).
+            if (!_bonesResolved) ResolveBones();
+            Vector3 hipsPos = _hipsBone != null ? _hipsBone.position : new Vector3(float.NaN, float.NaN, float.NaN);
+            // hips world XZ relative to the root XZ — the VISUAL forward-lunge magnitude (the load-bearing number).
+            Vector3 hipsRelRootXZ = _hipsBone != null
+                ? new Vector3(hipsPos.x - rootPos.x, 0f, hipsPos.z - rootPos.z)
+                : new Vector3(float.NaN, float.NaN, float.NaN);
+            bool applyRootMotion = _animator != null && _animator.applyRootMotion;
+            string animState = "n/a";
+            if (_animator != null && _animator.runtimeAnimatorController != null && _animator.layerCount > 0)
+            {
+                var st = _animator.GetCurrentAnimatorStateInfo(0);
+                animState = $"hash={st.shortNameHash} t={st.normalizedTime:F2}";
+            }
+
+            // Detect + mark the exact LANDING frame: _airborne is false this frame but a post-land countdown is
+            // still running. (TryJump set the window; AdvanceJump flipped _airborne false on touch-down.)
+            bool landedThisFrame = !_airborne && _jumpTracePostLandT == JumpTracePostLandSeconds;
+            string camPath = _airborne ? "AIRBORNE(tight-follow,no-lead)" : "GROUNDED(lead)";
+
+            _jumpTraceFrame++;
+            Debug.Log(
+                $"[JumpTrace] f={_jumpTraceFrame} airborne={_airborne} LANDED={(landedThisFrame ? "YES" : "no")} " +
+                $"jumpY={Fmt4(JumpHeight)} jumpVelY={_jumpVelY:F3} " +
+                $"rootXZ=({rootPos.x:F3},{rootPos.z:F3}) rootY={rootPos.y:F3} " +
+                $"rootDeltaXZ=({dXZ.x:F4},{dXZ.z:F4}) rootDeltaMag={new Vector2(dXZ.x, dXZ.z).magnitude:F4} " +
+                $"childXZ=({childPos.x:F3},{childPos.z:F3}) childY={childPos.y:F3} childLocalY={transform.localPosition.y:F4} " +
+                $"hipsXZ=({Fmt4(hipsPos.x)},{Fmt4(hipsPos.z)}) hipsY={Fmt4(hipsPos.y)} " +
+                $"hipsRelRootXZ=({Fmt4(hipsRelRootXZ.x)},{Fmt4(hipsRelRootXZ.z)}) " +
+                $"hipsLungeMag={Fmt4(new Vector2(hipsRelRootXZ.x, hipsRelRootXZ.z).magnitude)} " +
+                $"applyRootMotion={applyRootMotion} animState={animState} " +
+                $"agentVel=({agentVel.x:F3},{agentVel.z:F3}) agentSpeed={new Vector2(agentVel.x, agentVel.z).magnitude:F3} " +
+                $"desiredVel=({desiredVel.x:F3},{desiredVel.z:F3}) desiredSpeed={new Vector2(desiredVel.x, desiredVel.z).magnitude:F3} " +
+                $"nextPos=({nextPos.x:F3},{nextPos.z:F3}) hasPath={hasPath} pathPending={pathPending} onMesh={onMesh} " +
+                $"cam={camPath}");
+
+            // Keep the window open through the post-landing tail, then close it (silent again until the next jump).
+            if (!_airborne)
+            {
+                _jumpTracePostLandT -= Mathf.Max(Time.deltaTime, 1f / 240f);
+                if (_jumpTracePostLandT <= 0f) _jumpTraceActive = false;
+            }
         }
     }
 }

@@ -8,13 +8,16 @@ namespace FarHorizon
     /// headless, the Sponsor finalizes them himself in the shipped build: this tool lets him SELECT a target
     /// (the held axe or the stump axe), NUDGE its position (XYZ) + rotation (pitch/yaw/roll) in small steps,
     /// and READ the live values off the on-screen HUD + the log, then report the numbers to bake into the
-    /// constants. 86ca9qwvd — the HELD axe reports a SPLIT pose driven via its HeldAxeRig: POSITION is a
+    /// constants. 86caa83wn soak #4 — the HELD axe reports a SPLIT pose driven via its HeldAxeRig, dialed +
+    /// displayed + baked in the HAND-LOCAL frame END TO END (the seat-doesn't-stick fix): POSITION is a
     /// HAND-LOCAL offset (rotated by the hand each frame so it TRACKS the hand through every facing — sensible
     /// ~cm units, a nudge step is ~2 cm) and ROTATION is a HAND-RELATIVE relEuler (turns with the hand). The
-    /// tool nudges the RIG's fields, but REPORTS the WORLD-equivalent of the offset (hand.rotation * field) so
-    /// the value the Sponsor reads is what pastes into the WORLD-frame source constant HeldAxeWorldOffsetFromHand
-    /// (AttachHeroAxeToHand converts that WORLD value -> the rig's hand-local field at bake; the round-trip is
-    /// dial -> bake -> dial). held -> HeldAxeWorldOffsetFromHand / HeldAxeRelEuler. The STUMP axe is CraftSpot-
+    /// tool nudges the RIG's hand-local fields DIRECTLY and REPORTS them DIRECTLY (NO hand.rotation factor) — so
+    /// what the Sponsor dials == what bakes == what the rig applies, with NO facing injected at dial time. That
+    /// is the soak-#4 fix: the OLD tool dialed/displayed/baked a WORLD vector and converted it via
+    /// Inverse(hand.rotation) at bake, which made the dialed seat FACING-SPECIFIC (it only reproduced at the
+    /// facing he dialed it at → wrong after a pickup at a different facing). held ->
+    /// HeldAxeLocalOffsetFromHand / HeldAxeRelEuler (both facing-invariant). The STUMP axe is CraftSpot-
     /// local (unscaled, no bone trap): stump -> StumpAxeLocalPos/Euler.
     ///
     /// BUILD-GATED / INERT IN NORMAL PLAY (the hard requirement): the tool does NOTHING until the Sponsor
@@ -24,13 +27,13 @@ namespace FarHorizon
     /// time (like the verify-capture siblings) so it ships, but stays asleep behind the toggle.
     ///
     /// TARGET FRAMES handled correctly:
-    ///   - HELD axe: parented to the right-hand bone, but POSE-DRIVEN by HeldAxeRig (86ca9qwvd hand-local). The
-    ///     tool nudges the RIG's fields, NOT the transform: the arrow/PageUp keys give WORLD-frame deltas which
-    ///     are converted into the hand-local offset field (so a "right arrow" moves the axe RIGHT IN THE WORLD,
-    ///     ~2 cm/click), and ROTATION moves relEuler (hand-relative, so the haft keeps turning with the hand
-    ///     WHILE dialed). The rig re-applies position+rotation every frame from those fields, so dial == in-motion.
-    ///     It REPORTS the WORLD-equivalent offset (hand.rotation * field) + the hand-relative euler, ready to
-    ///     paste into HeldAxeWorldOffsetFromHand / HeldAxeRelEuler (the WORLD-frame source constants).
+    ///   - HELD axe: parented to the right-hand bone, but POSE-DRIVEN by HeldAxeRig (86caa83wn hand-local END
+    ///     TO END). The tool nudges the RIG's hand-local fields, NOT the transform: the arrow/PageUp keys move
+    ///     the offset along the hand's LOCAL axes (~2 cm/click), and ROTATION moves relEuler (hand-relative, so
+    ///     the haft keeps turning with the hand WHILE dialed). The rig re-applies position+rotation every frame
+    ///     from those fields, so dial == in-motion. It REPORTS the hand-local offset DIRECTLY + the hand-relative
+    ///     euler, ready to paste into HeldAxeLocalOffsetFromHand / HeldAxeRelEuler (both facing-invariant). No
+    ///     hand.rotation enters the dial/display/bake, so the dialed seat reproduces at EVERY facing + pickup.
     ///   - STUMP axe: parented to the unscaled CraftSpot (world-1u); its serialized pose IS its LOCAL
     ///     transform (no bone-frame trap). The tool nudges localPosition/localEulerAngles directly and
     ///     reports them — exactly StumpAxeLocalPos / StumpAxeLocalEuler.
@@ -51,6 +54,17 @@ namespace FarHorizon
     /// he plants the feet EXACTLY on the visible sand (rest AND walk — the snap+offset apply every frame),
     /// reads the value off the panel/log, and reports it to bake into CastawayCharacter.groundYOffset.
     /// Ground-Y has ONE scalar channel (PgUp/PgDn); X/Z + the rotation keys are inert on this target.
+    ///
+    /// 5TH TARGET (86caa83wn soak #2 — "when i run the axe is no longer in the hand"). The RUN ARM-LOWER. The
+    /// Sponsor's chosen approach reversed the earlier axe-side ceiling clamp (which DETACHED the axe from the
+    /// hand): the axe now rides the hand RIGIDLY, and the run into-head is fixed by LOWERING the right arm while
+    /// running (CastawayArmPose.runLowerEuler), so the gripped axe — which follows the hand — stays below the
+    /// head AND in the hand. Cycling onto this target (Tab) lets the Sponsor dial that run-lower offset IN-GAME
+    /// while RUNNING: U/J (roll/Z) lowers/raises the run carry (a NEGATIVE Z lowers — the rig's raise axis),
+    /// T/G (pitch) + Y/H (yaw) fine-tune. The lower is INERT at walk/idle (run weight 0 — the locked WALK pose
+    /// untouched), so he tunes it by RUNNING; the panel surfaces the live RUN WEIGHT (0 walk/idle → 1 full run)
+    /// so he knows when to judge. He reads RunLowerEuler off the panel/log and reports it to bake into
+    /// CastawayArmPose.runLowerEuler (MovementCameraScene.ArmRunLowerEuler). Arms have no position channel.
     ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
@@ -78,8 +92,8 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset (4th-attempt)
-        private const int TargetCount = 4;
+        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial (86caa83wn)
+        private const int TargetCount = 5;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         private Transform _stump;
@@ -146,6 +160,8 @@ namespace FarHorizon
             // be more than one in a scene, and the active one is the one that must be silenced).
             foreach (var world in Object.FindObjectsByType<WorldLookNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 world.Deactivate();
+            foreach (var cam in Object.FindObjectsByType<CameraFollowNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                cam.Deactivate();
             _active = true;
             Resolve();
             LogCurrent();
@@ -178,10 +194,12 @@ namespace FarHorizon
             }
 
             // Bail if the current target isn't resolved (re-resolve on a cycle so a late-spawned axe is found).
+            // The RUN target (4) lives on the CastawayArmPose, same as the arm pose (2).
             bool haveTarget = _target == 0 ? _heldRig != null
                             : _target == 1 ? _stump != null
                             : _target == 2 ? _armPose != null
-                            : _castaway != null;
+                            : _target == 3 ? _castaway != null
+                            : _armPose != null;
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -210,15 +228,17 @@ namespace FarHorizon
             {
                 if (_target == 0)
                 {
-                    // 86ca9qwvd — the HELD axe is nudged via its RIG, NOT its transform. POSITION moves the
-                    // rig's HAND-LOCAL offset and ROTATION moves the hand-relative relEuler (the haft keeps
-                    // turning with the hand WHILE dialed). The arrow/PageUp keys give WORLD-frame deltas (dp);
-                    // since the rig now rotates the offset by the hand each frame, convert the world-frame nudge
-                    // into the hand-local field so a "right arrow" moves the axe RIGHT IN THE WORLD as the
-                    // Sponsor expects (not along the bone's rotated local X). A pure rotation keeps the ~2 cm
-                    // step. The rig re-applies position+rotation every frame from these fields (dial == in-motion).
-                    var h = _heldRig.hand;
-                    _heldRig.worldOffsetFromHand += h != null ? Quaternion.Inverse(h.rotation) * dp : dp;
+                    // 86caa83wn soak #4 — the HELD axe is nudged via its RIG, NOT its transform, in the
+                    // HAND-LOCAL frame END TO END (the seat-doesn't-stick fix). POSITION moves the rig's
+                    // hand-local offset DIRECTLY (no hand.rotation conversion); ROTATION moves the hand-relative
+                    // relEuler (the haft keeps turning with the hand WHILE dialed). Dialing in the hand-local
+                    // frame means what the Sponsor dials == what bakes == what the rig applies, with NO
+                    // hand.rotation injected at dial time — so the seat is FACING-INDEPENDENT (it reproduces at
+                    // every facing AND after a pickup, the soak-#4 bug). The arrow keys move the offset along the
+                    // hand's local axes (a pure ~2 cm step); the rig re-applies position+rotation every frame
+                    // from these fields (dial == in-motion). The previous tool converted a WORLD-frame nudge via
+                    // Inverse(hand.rotation), which is exactly what made the dialed seat facing-specific.
+                    _heldRig.worldOffsetFromHand += dp;
                     _heldRig.relEuler += dr;
                 }
                 else if (_target == 1)
@@ -239,7 +259,7 @@ namespace FarHorizon
                     else _armPose.leftArmEuler += dr;
                     _armPose.RebuildCached();
                 }
-                else
+                else if (_target == 3)
                 {
                     // GROUND-Y OFFSET (4th-attempt — 'STILL elevated WHILE WALKING'). Nudge CastawayCharacter's
                     // groundYOffset with PageUp/PageDown (dp.y). This is a constant world-Y added to the snapped
@@ -247,6 +267,18 @@ namespace FarHorizon
                     // — the snap+offset apply every frame) and reads it off the HUD/log to bake. X/Z + rotation
                     // are inert on this target (one scalar channel).
                     _castaway.groundYOffset += dp.y;
+                }
+                else if (_armPose != null)
+                {
+                    // RUN dial (86caa83wn soak #2 — 'when i run the axe is no longer in the hand'). The detaching
+                    // axe-side clamp is GONE; the run into-head is now fixed by LOWERING the right arm while
+                    // running (CastawayArmPose.runLowerEuler), so the gripped axe (which follows the hand) stays
+                    // BELOW the head AND in the hand. This target dials that run-lower offset (rotation only): U/J
+                    // = roll/Z lowers/raises the run carry (NEGATIVE Z lowers — the rig's raise axis), T/G =
+                    // pitch/X, Y/H = yaw/Y for fine-tuning. The lower is INERT at walk/idle (run weight 0 — the
+                    // locked WALK pose untouched), so the Sponsor tunes it by RUNNING (the panel shows the run
+                    // weight; judge while running). Position keys are inert (arms have no position channel).
+                    _armPose.runLowerEuler += dr;
                 }
                 changed = true;
             }
@@ -281,7 +313,8 @@ namespace FarHorizon
 
         private string TargetName() =>
             _target == 0 ? "HELD axe" : _target == 1 ? "STUMP axe"
-            : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")" : "GROUND-Y offset";
+            : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")"
+            : _target == 3 ? "GROUND-Y offset" : "RUN arm-lower";
 
         private Transform FindByName(string n)
         {
@@ -291,21 +324,21 @@ namespace FarHorizon
         }
 
         // Log the values in a copy-pasteable form (the Sponsor reads these off the log to bake into the
-        // constants). SOAKFIX9 — the HELD axe reports its RIG's WORLD offsetFromHand + HAND-RELATIVE euler
-        // (paste into HeldAxeWorldOffsetFromHand / HeldAxeRelEuler); the STUMP reports its LOCAL pose
-        // (StumpAxeLocalPos/Euler). The held euler is NOT normalised-wrapped — relEuler accumulates as a raw
-        // hand-relative euler the rig feeds straight to Quaternion.Euler, so it must round-trip exactly.
+        // constants). 86caa83wn soak #4 — the HELD axe reports its RIG's HAND-LOCAL offsetFromHand +
+        // HAND-RELATIVE euler DIRECTLY (no hand.rotation factor) — paste into HeldAxeLocalOffsetFromHand /
+        // HeldAxeRelEuler (both facing-invariant); the STUMP reports its LOCAL pose (StumpAxeLocalPos/Euler).
+        // The held euler is NOT normalised-wrapped — relEuler accumulates as a raw hand-relative euler the rig
+        // feeds straight to Quaternion.Euler, so it must round-trip exactly.
         private void LogCurrent()
         {
             if (_target == 0 && _heldRig != null)
             {
-                // 86ca9qwvd — the rig field is now HAND-LOCAL, but the source constant HeldAxeWorldOffsetFromHand
-                // is the WORLD-frame value (AttachHeroAxeToHand converts WORLD -> hand-local at bake). Report the
-                // WORLD-equivalent (hand.rotation * field) so the Sponsor pastes a WORLD value into the WORLD
-                // constant — a clean round-trip (dial -> bake -> dial). At the spawn facing world == what he sees.
-                var h = _heldRig.hand;
-                Vector3 world = h != null ? h.rotation * _heldRig.worldOffsetFromHand : _heldRig.worldOffsetFromHand;
-                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeWorldOffsetFromHand=({world.x:F4}f,{world.y:F4}f,{world.z:F4}f)  " +
+                // 86caa83wn soak #4 — the seat offset is HAND-LOCAL END TO END. Report the rig's hand-local
+                // field DIRECTLY (no hand.rotation factor) so the Sponsor pastes a HAND-LOCAL value into the
+                // hand-local constant HeldAxeLocalOffsetFromHand — a facing-INVARIANT round-trip (dial == bake ==
+                // applied at every facing). The euler is hand-relative (HeldAxeRelEuler), also facing-invariant.
+                Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept for serialization)
+                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeLocalOffsetFromHand=({local.x:F4}f,{local.y:F4}f,{local.z:F4}f)  " +
                           $"HeldAxeRelEuler=({_heldRig.relEuler.x:F1}f,{_heldRig.relEuler.y:F1}f,{_heldRig.relEuler.z:F1}f)");
             }
             else if (_target == 1 && _stump != null)
@@ -322,6 +355,15 @@ namespace FarHorizon
             {
                 // The Sponsor reads this off the log to bake into CastawayCharacter.groundYOffset.
                 Debug.Log($"[AxeNudgeTool] GROUND  groundYOffset={_castaway.groundYOffset:F4}f");
+            }
+            else if (_target == 4 && _armPose != null)
+            {
+                // 86caa83wn soak #2 — the Sponsor reads this off the log to bake into CastawayArmPose.runLowerEuler.
+                // runWeight shows whether the run-lower is engaged THIS frame (rises toward 1 only while RUNNING —
+                // when there's something to judge; 0 at walk/idle).
+                Vector3 rl = _armPose.runLowerEuler;
+                Debug.Log($"[AxeNudgeTool] RUN  RunLowerEuler=({rl.x:F1}f,{rl.y:F1}f,{rl.z:F1}f)  " +
+                          $"(runWeight={_armPose.RunWeight:F2})");
             }
         }
 
@@ -357,24 +399,25 @@ namespace FarHorizon
             GUI.color = Color.white;
 
             string tgt = _target == 0
-                ? "HELD axe (in hand — WORLD offset + hand-relative angle, tracks the hand)"
+                ? "HELD axe (in hand — hand-local offset + hand-relative angle, facing-independent)"
                 : _target == 1
                 ? "STUMP axe (in block — local)"
                 : _target == 2
                 ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([B] switch arm; rotation only)"
-                : "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)";
+                : _target == 3
+                ? "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)"
+                : "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
             if (_target == 0 && _heldRig != null)
             {
-                // 86ca9qwvd — the offset is now HAND-LOCAL (tracks the hand through every facing). Show the
-                // WORLD-equivalent (hand.rotation * field) so the panel value == what pastes into the WORLD
-                // constant HeldAxeWorldOffsetFromHand (a clean dial -> bake round-trip). Sensible ~cm units;
-                // NOT hand.TransformPoint (which would re-apply the bone lossyScale — the §FBX trap).
-                Transform handT = _heldRig.hand;
-                Vector3 world = handT != null ? handT.rotation * _heldRig.worldOffsetFromHand : _heldRig.worldOffsetFromHand;
-                posLine = $"offsetFromHand=({world.x:F4}, {world.y:F4}, {world.z:F4})";
+                // 86caa83wn soak #4 — the offset is HAND-LOCAL END TO END (facing-independent). Show the rig's
+                // hand-local field DIRECTLY (no hand.rotation factor) so the panel value == what pastes into the
+                // hand-local constant HeldAxeLocalOffsetFromHand (a facing-invariant dial -> bake round-trip).
+                // Sensible ~cm units. The euler is hand-relative (turns with the hand through every facing).
+                Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept)
+                posLine = $"offsetFromHand=({local.x:F4}, {local.y:F4}, {local.z:F4})";
                 eulerLine = $"euler=({_heldRig.relEuler.x:F1}, {_heldRig.relEuler.y:F1}, {_heldRig.relEuler.z:F1})";
             }
             else if (_target == 1 && _stump != null)
@@ -402,7 +445,18 @@ namespace FarHorizon
                     ? "GAP (feet−ground): N/A  —  no visible ground under the feet"
                     : $"GAP (feet−ground)={gap:F4}  {(Mathf.Abs(gap) > 0.01f ? "◄ FLOATING — keep dialing" : "◄ planted ✓")}";
             }
-            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : "(axe not found)"; eulerLine = ""; }
+            else if (_target == 4 && _armPose != null)
+            {
+                // 86caa83wn soak #2 — the RUN arm-lower. Show the run-lower euler + the live run weight; surface
+                // whether it is engaged so the Sponsor knows to RUN to judge (inert at walk/idle — the locked
+                // WALK pose untouched). U/J (roll/Z) lowers/raises the run carry; a NEGATIVE Z lowers the arm.
+                Vector3 rl = _armPose.runLowerEuler;
+                posLine = $"RunLowerEuler=({rl.x:F1}, {rl.y:F1}, {rl.z:F1})  (U/J=roll/Z lowers/raises)";
+                eulerLine = _armPose.RunWeight > 0.5f
+                    ? $"RUN ENGAGED ✓ weight={_armPose.RunWeight:F2} (judge now; dial Z MORE negative to lower the arm)"
+                    : $"run weight={_armPose.RunWeight:F2} — RUN (Shift) to engage + judge; walk/idle untouched";
+            }
+            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : _target == 4 ? "(arm pose not found)" : "(axe not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -416,7 +470,7 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held / stump / arm / GROUND-Y    [B] right<->left arm (arm only)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held / stump / arm / GROUND-Y / CLAMP    [B] right<->left arm (arm only)", _hintStyle);
             GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe + GROUND-Y)", _hintStyle);
             GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch(spread)   Y/H = yaw   U/J = roll(raise)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);

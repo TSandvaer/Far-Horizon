@@ -44,6 +44,18 @@ namespace FarHorizon
     /// so it cannot ratchet). Keep it small; do NOT crank it up to re-lock the axe (the ticket: "if it reads
     /// wild, damp it, don't lock it").
     ///
+    /// RUN INTO-HEAD — CALM THE ARM, NEVER MOVE THE AXE OFF THE HAND (86caa83wn soak #2, 2026-06-18): an earlier
+    /// pass added a world-Y soft-clamp HERE that moved the AXE down independently of the hand while RUNNING/
+    /// AIRBORNE. That DETACHED the axe from the hand during the run arm-swing (the Sponsor's exact soak #2
+    /// report: "when i run the axe is no longer in the hand") — moving the axe-Y but not the hand-X/Z pulls the
+    /// haft out of the grip. That clamp is REMOVED. The axe now rides the hand RIGIDLY at ALL times — walk, idle,
+    /// run, jump — exactly like the Sponsor-approved walk/idle seat. The run into-head problem is solved on the
+    /// OTHER side: <see cref="CastawayArmPose"/> reduces the RIGHT-arm vertical swing amplitude while
+    /// <see cref="CastawayCharacter.IsRunning"/> (a lowered-arm additive offset weighted by a smoothed run value),
+    /// so the HAND itself stays lower during the run — and because the gripped axe follows the hand, the axe
+    /// stays below the head AND stays in the hand. The run-lower amount is RUNTIME-DIALABLE on the F9 AxeNudgeTool
+    /// (the RUN target) so the Sponsor tunes the running carry himself in the soak (his direct-tweak preference).
+    ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): the axe + this component are authored
     /// editor-time (MovementCameraScene.AttachHeroAxeToHand) and SERIALIZE into Boot.unity riding the bone.
     /// AttachHeroAxeToHand also bakes an equivalent STATIC localPosition/localRotation so a static editor
@@ -60,11 +72,14 @@ namespace FarHorizon
         public Transform hand;
 
         [Tooltip("POSITION channel — the axe is seated at hand.position + hand.rotation * this offset every " +
-                 "frame (86ca9qwvd: HAND-LOCAL, rotated by the RAW hand so it TRACKS the hand through every " +
-                 "facing AND follows the arm's natural swing — 86ca9zcjn). cm-scale units rotated by the hand's " +
-                 "rotation ONLY (never its lossyScale), so a nudge step is a sensible ~2 cm and the axe stays " +
-                 "seated no matter which way the castaway turns. Field name kept (worldOffsetFromHand) so the " +
-                 "serialized scene + the F9 AxeNudgeTool wiring carry forward.")]
+                 "frame. This offset is HAND-LOCAL (expressed in the hand bone's own frame): it is rotated by " +
+                 "the RAW hand each frame so it TRACKS the hand through every facing AND follows the arm's " +
+                 "natural swing — 86ca9zcjn. cm-scale units rotated by the hand's rotation ONLY (never its " +
+                 "lossyScale), so a nudge step is a sensible ~2 cm and the axe stays seated no matter which way " +
+                 "the castaway turns OR how it was acquired (spawn-in-hand == picked-up). 86caa83wn: dialed, " +
+                 "displayed AND baked in THIS hand-local frame end to end (no WORLD-frame round-trip) so the " +
+                 "Sponsor's F9 dial reproduces at every facing. Field name kept (worldOffsetFromHand) so the " +
+                 "serialized scene + the F9 AxeNudgeTool wiring carry forward — but the value is HAND-LOCAL.")]
         public Vector3 worldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
 
         [Tooltip("ROTATION channel — the axe's rotation is hand.rotation * Euler(this), HAND-RELATIVE, so " +
@@ -130,6 +145,12 @@ namespace FarHorizon
                 }
                 followPos = _dampedPos; followRot = _dampedRot;
             }
+
+            // NO axe-side vertical clamp (86caa83wn soak #2): the axe rides the hand RIGIDLY. The earlier world-Y
+            // clamp HERE moved the axe down independently of the hand → detached it from the grip during the run
+            // arm-swing ("when i run the axe is no longer in the hand"). The run into-head problem is solved on
+            // the ARM side (CastawayArmPose lowers the right arm while running) so the HAND stays low and the
+            // gripped axe follows it — staying both below the head AND in the hand.
 
             // POSITION in HAND-LOCAL space (86ca9qwvd): rotate the cm-scale offset by the hand rotation so it
             // TRACKS the hand through every facing — the axe stays seated in the grip no matter which way the

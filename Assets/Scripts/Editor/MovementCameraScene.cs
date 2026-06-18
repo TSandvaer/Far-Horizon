@@ -132,14 +132,47 @@ namespace FarHorizon.EditorTools
         // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc): the held axe now FOLLOWS the right arm's natural
         // swing (it rides the RAW hand bone — see HeldAxeRig). FINAL SEAT BAKE (86ca9zcjn): the Sponsor
         // APPROVED the follow-the-arm behavior ("it works perfectly") and dialed the FINAL F9 seat via the
-        // AxeNudgeTool: HeldAxeWorldOffsetFromHand = (-0.1502,-0.1602,-0.0528). The euler is unchanged
-        // (16,2,-82). The F9 AxeNudgeTool still drives these fields so he can re-tune.
-        public static readonly Vector3 HeldAxeRelEuler = new Vector3(16.0f, 2.0f, -82.0f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(-0.1502f, -0.1602f, -0.0528f);
+        // AxeNudgeTool. The F9 AxeNudgeTool still drives these fields so he can re-tune.
+        // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed
+        // the FINAL held-axe seat via F9 and asked to bake it as the new shipped default (applies WITHOUT F9):
+        // HeldAxeRelEuler = (12,-8,-82). This SUPERSEDES the prior soak-#1 bake (16,2,-82). F9 drives it.
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(12.0f, -8.0f, -82.0f);
+        // 86caa83wn soak #4 (cursor-lock OK; the held-axe seat did NOT reproduce his F9-dialed look AFTER
+        // PICKUP). ROOT CAUSE: the seat offset was an end-to-end WORLD-frame round-trip — the F9 tool DIALED +
+        // DISPLAYED + BAKED a WORLD vector (HeldAxeWorldOffsetFromHand), converted to the rig's hand-local field
+        // via Inverse(hand.rotation) AT BAKE-TIME's spawn facing. So the dialed value only described the seat at
+        // the FACING he dialed it at; at a different facing (a fresh pickup) the (dial-facing − bake-facing) yaw
+        // delta injected into the offset's X/Z (world-Y is yaw-invariant → Y reproduced; X/Z did NOT — exactly
+        // his screenshot evidence: baked X=0.0707/Z=-0.0111, fresh pickup X=-0.0600/Z=0.0421). FIX — the offset
+        // is now HAND-LOCAL END TO END: the constant below IS the rig's hand-local field (NO Inverse(hand.rotation)
+        // conversion at bake), the F9 tool dials + displays it in the SAME hand-local frame, and the rig applies
+        // it as hand.rotation * offset every frame. The euler was already hand-relative (facing-invariant) — KEPT.
+        // The seat is now IDENTICAL at every facing AND for every acquire path (spawn-in-hand == picked-up),
+        // because no hand.rotation ever enters the dial/display/bake. DEFAULT VALUE: the Sponsor's soak-#3
+        // APPROVED spawn seat (old world (0.0707,-0.1988,-0.0111)) expressed in the hand-local frame — derived
+        // deterministically from the bake-log conversion at the spawn bone rotation (handLocalOffset=
+        // (0.0512,0.2009,-0.0407)), so it VISUALLY matches his approved screenshot seat. He does ONE final
+        // micro-dial in the FIXED (hand-local) F9 tool to lock it — expected, since the old world dial can't
+        // round-trip 1:1 into the new frame. F9 AxeNudgeTool still drives this field.
+        // 86caa83wn soak #5 (build 2d90a68, 2026-06-18): the Sponsor LOCKED the FINAL held-axe seat via the F9
+        // panel in the now-correct hand-local frame and asked to bake it as the shipped default. SUPERSEDES the
+        // derived-from-soak-#3 placeholder (0.0512,0.2009,-0.0407). FINAL hand-local offset below. F9 still drives it.
+        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1312f, 0.1409f, 0.0593f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
         public static readonly float HeldAxeFollowDamp = 0f;
+        // 86caa83wn soak #2 (2026-06-18) — RUN ARM-LOWER default (the "when i run the axe is no longer in the
+        // hand" fix). The earlier axe-side world-Y ceiling clamp DETACHED the axe from the hand during the run
+        // arm-swing (it moved the axe-Y but not the hand-X/Z); the Sponsor's chosen approach KEEPS the axe rigidly
+        // in the hand and instead LOWERS the right arm while running (CastawayArmPose.runLowerEuler), so the
+        // gripped axe — which follows the hand — stays below the head AND in the hand. The run-lower is applied
+        // on the rig's raise axis (LOCAL-Z; a negative Z lowers the arm), blended by a smoothed IsRunning weight
+        // so WALK/IDLE is byte-unchanged. This is the REASONABLE default the Sponsor dials on the F9 nudge tool
+        // (RUN target) WHILE running — what-he-dials-is-what-ships.
+        // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): the Sponsor F9-dialed the run arm-lower ("the perfect
+        // nudge" screenshot) and asked to bake it as the shipped default: (-10,12,-42). SUPERSEDES (0,0,-22).
+        public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -503,15 +536,14 @@ namespace FarHorizon.EditorTools
             var rig = axe.GetComponent<HeldAxeRig>();
             if (rig == null) rig = axe.AddComponent<HeldAxeRig>();
             rig.hand = hand;
-            // AC2 — PRESERVE THE SPONSOR'S PERFECTED LOOK. His F9-dialed default (HeldAxeWorldOffsetFromHand)
-            // was a RAW WORLD offset under the prior soakfix9 formula (position = hand.position + worldOffset).
-            // The new HAND-LOCAL formula is position = hand.position + hand.rotation * offset, so to land the
-            // IDENTICAL world position at the spawn facing the field must hold the offset expressed in the hand's
-            // LOCAL frame: offset_handlocal = Inverse(hand.rotation) * dialedWorldOffset. Converted from the
-            // REAL hand rotation present at bake time (NOT a guessed bone rotation) so it is exact at spawn AND
-            // now correct at every other facing. (The constant stays the Sponsor's dialed WORLD value — the
-            // source of truth he re-confirms at soak; the conversion to the rig's hand-local field happens here.)
-            Vector3 handLocalOffset = Quaternion.Inverse(hand.rotation) * HeldAxeWorldOffsetFromHand;
+            // 86caa83wn soak #4 — the seat offset is HAND-LOCAL END TO END (the seat-doesn't-stick fix). The
+            // constant HeldAxeLocalOffsetFromHand IS the rig's hand-local field — baked DIRECTLY with NO
+            // Inverse(hand.rotation) conversion. The old code converted a WORLD constant at the bake-time spawn
+            // facing, which made the dialed seat facing-specific (the (dial-facing − bake-facing) yaw delta
+            // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
+            // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
+            // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
+            Vector3 handLocalOffset = HeldAxeLocalOffsetFromHand;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
             rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
             // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
@@ -522,19 +554,26 @@ namespace FarHorizon.EditorTools
             // passes through immediately (the raw hand carries the facing yaw). A LIGHT damp is available to
             // de-jitter without re-locking (followDamp); it defaults to 0 so the per-step swing is visible.
             rig.followDamp = HeldAxeFollowDamp;
+            // 86caa83wn soak #2 — NO axe-side vertical clamp. The earlier per-state world-Y ceiling clamp (which
+            // moved the AXE down independently of the hand) DETACHED the axe from the grip during the run
+            // arm-swing ("when i run the axe is no longer in the hand"). It is REMOVED — the axe rides the hand
+            // RIGIDLY at all times. The run into-head is now fixed on the ARM side (CastawayArmPose.runLowerEuler,
+            // wired in AddArmPose) by lowering the right arm while running, so the gripped axe (which follows the
+            // hand) stays below the head AND in the hand.
 
             // Bake an EQUIVALENT STATIC local pose so a STATIC editor load (the EditMode bounds guards, which
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
             // re-asserts at runtime. Mirrors the NEW hand-local runtime formula
             // (position = hand.position + hand.rotation * handLocalOffset): the seated world position uses the
-            // SAME rotated offset, so the static bake matches the runtime pose (and == the prior world position
-            // at the spawn facing, by the AC2 conversion above). localRot = Euler(relEuler) (hand-relative).
+            // SAME rotated offset, so the static bake matches the runtime pose at the spawn facing. The
+            // hand-local field is facing-invariant, so this static pose == the runtime pose at EVERY facing
+            // (re-expressed per facing). localRot = Euler(relEuler) (hand-relative).
             Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
             Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
             axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
             axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
-            Debug.Log("[MovementCameraScene] held axe 86ca9qwvd hand-local pose: dialedWorldOffset=" +
-                      HeldAxeWorldOffsetFromHand.ToString("F4") + " -> handLocalOffset=" + handLocalOffset.ToString("F4") +
+            Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
+                      handLocalOffset.ToString("F4") +
                       " relEuler=" + HeldAxeRelEuler.ToString("F1") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
@@ -649,10 +688,19 @@ namespace FarHorizon.EditorTools
                                "(right='" + RightUpperArmToken + "' found=" + (pose.rightUpperArm != null) +
                                ", left='" + LeftUpperArmToken + "' found=" + (pose.leftUpperArm != null) +
                                ") — the arm-pose soak-fix will be inert. Re-run CharacterDiagnoseTrace.");
+            // 86caa83wn soak #2 — wire the RUN-swing reduction: the CastawayCharacter (whose IsRunning weights the
+            // run-lower) + the baked run-lower euler. Wired editor-time so the run-lower ships in Boot.unity (the
+            // component-not-serialized trap; a runtime Awake fallback resolves the character but must not be the
+            // ship path). The run-lower is INERT at walk/idle (run weight 0 → the Sponsor's locked WALK pose is
+            // byte-unchanged); the Sponsor dials runLowerEuler on the F9 RUN target while running, then bakes it.
+            pose.character = castaway;
+            pose.runLowerEuler = ArmRunLowerEuler;
             pose.RebuildCached();
             Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
                       (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
-                      (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") + "')");
+                      (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") +
+                      "', character='" + (pose.character != null ? pose.character.name : "<null>") +
+                      "', runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
         }
 
         // The right-hand FINGER + THUMB bone tokens to curl (86ca8rdkp re-soak #4). Index/Middle/Ring proximal
@@ -791,6 +839,24 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<AxeNudgeTool>() == null)
                 bootGo.AddComponent<AxeNudgeTool>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the BUILD-GATED debug CameraFollowNudgeTool onto the Boot object so it SERIALIZES into Boot.unity
+        // (the editor-vs-runtime trap — a component in source but not in the scene ships inert). INERT in normal
+        // play (asleep behind the F7 toggle); lets the Sponsor dial the OrbitCamera follow gains (horizontal /
+        // vertical lerp + lead time) in-game while jumping in every direction and read the values to bake
+        // (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision handoff).
+        private static void WireCameraFollowNudgeTool()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CameraFollowNudgeTool");
+                return;
+            }
+            if (bootGo.GetComponent<CameraFollowNudgeTool>() == null)
+                bootGo.AddComponent<CameraFollowNudgeTool>();
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -1379,6 +1445,13 @@ namespace FarHorizon.EditorTools
             // reads as RUNNING (the Walk<->Run blend tree reads a full Run). Pinned to RunBlendSpeed so the
             // IsRunning flag + the blend tree agree, and serialized editor-time so it ships in Boot.unity.
             castaway.runSpeedThreshold = CharacterAssetGen.RunBlendSpeed;
+            // JUMP IN-PLACE (86caaqhj5 — the "pulled back on landing" fix). The Mixamo jump clips bake the
+            // forward travel into the HIPS BONE (not the root node), so lockRootPositionXZ can't strip it; the
+            // lunge double-counts on the agent's real XZ then snaps back on landing. CastawayCharacter cancels
+            // the Hips local-XZ to its grounded baseline while airborne so the jump plays vertical-only. Set the
+            // enable editor-time so it ships in Boot.unity (the disabled-flag silent-killer family). The
+            // Avatar_ShipsWithJumpInPlaceEnabled EditMode guard asserts this.
+            castaway.jumpInPlace = true;
             // Build the Model child NOW (editor) so the skinned mesh + bones + Animator serialize into
             // Boot.unity (the editor-vs-runtime serialization lesson).
             castaway.BuildInEditor();
@@ -1419,6 +1492,12 @@ namespace FarHorizon.EditorTools
             // And its committed shipped-build capture path (proves the overlay renders the live GAP in the exe —
             // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
             WireFloatDiagnosticVerifyCapture();
+
+            // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
+            // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
+            // OrbitCamera follow gains (horizontal/vertical lerp + lead time) live while jumping W/A/S/D, then
+            // read the values to bake — the "build the knob, don't grind blind iterations" handle.
+            WireCameraFollowNudgeTool();
 
             // Wire the GAMEPLAY-CAM walk-grounding capture (86ca8rdkp attempt-9 — the WALK-clip body-lift fix).
             // Captures from the REAL OrbitCamera (not an isolated rig — the false-green class) at 3 positions ×
@@ -1547,6 +1626,30 @@ namespace FarHorizon.EditorTools
             var orbit = camGo.GetComponent<OrbitCamera>();
             if (orbit == null) orbit = camGo.AddComponent<OrbitCamera>();
             orbit.target = player.transform;
+            // 86caaqhj5 — JUMP-PULL-BACK fix. The camera target is the player ROOT, whose Y is constant through a
+            // jump (the arc is a local-Y on the avatar CHILD). Wire the avatar so the camera can ADD its live
+            // JumpHeight to the follow-point Y and actually track the visual jump arc (without this the camera
+            // never rose with the player and the constant horizontal follow-lag read as a directional pull-back).
+            // Wired editor-time so it SERIALIZES into Boot.unity (no Awake lookup in the build — the
+            // component-in-source-but-not-in-scene trap). The avatar (CastawayCharacter) is a child of the player
+            // root, built by BuildPlayer just before this; resolve it from the children.
+            orbit.jumpHeightSource = player.GetComponentInChildren<CastawayCharacter>(true);
+            // 86caaqhj5 ATTEMPT 2 — HORIZONTAL follow velocity feed-forward (the A/S/D jump-pull-back MECHANISM
+            // fix). Wire the player root's NavMeshAgent so the camera LEADS the horizontal follow target by the
+            // travel velocity × leadTime — cancelling the exponential follower's steady-state lag (v/k ≈ 0.41u
+            // measured) that read as a directional 'pulled back' on strafe/back jumps. Wired editor-time so it
+            // SERIALIZES into Boot.unity (no Awake lookup in the build — the component-in-source-but-not-in-scene
+            // trap). The agent lives on the player root (BuildPlayer added it just before this).
+            orbit.followVelocitySource = player.GetComponent<UnityEngine.AI.NavMeshAgent>();
+            orbit.followLeadTime = 0f;   // 0 = auto (1/followLerp = the exact lag-cancelling lead); F7-dialable
+            // 86caaqhj5 ATTEMPT 3 — the CONFIRMED jump-pull-back fix (diagnose-via-trace, JumpCameraFollowTraceTests).
+            // While AIRBORNE the horizontal X/Z follow uses this TIGHT rate (no velocity lead) so the jump has ~zero
+            // lag → the avatar stays CENTRED in every heading. The attempt-2 grounded lead cancels the lag only when
+            // the agent's reported velocity matches the real travel rate; air-control breaks that mid-air, re-framing
+            // the player off-centre by heading (jump+A/D out of view, jump+S into the camera). 60 = match the
+            // vertical rate so XZ + Y track the arc equally tight. Set editor-time so it SERIALIZES into Boot.unity
+            // (the component-in-source-but-not-in-scene trap); F7-dialable (U/J) for the Sponsor to re-tune.
+            orbit.airborneFollowLerp = 60f;
             orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 8-70) — LOCKED
             // Floor WIDENED 35->8 (drew/ocean-camera-fix): lets the Sponsor tilt down to the horizon +
             // see the seaward beach ocean (the 35 floor framed the sea as a far fogged "grey pond" —

@@ -180,21 +180,15 @@ namespace FarHorizon
             // Defensive: if Start ran before ClickToMove resolved (init order), keep trying to disable it.
             if (!_clickDisabled) DisableClickToMove();
 
-            // Read WASD (legacy Input Manager — the project is activeInputHandler=0; Horizontal/Vertical
-            // already bind a/d + w/s + arrows). GetAxisRaw = crisp digital response (no smoothing ramp),
-            // the right feel for keyboard locomotion. A programmatic override (the verify-capture seam)
-            // takes precedence so the shipped build can exercise the SAME path without real keystrokes.
-            Vector2 input;
-            if (_inputOverride.HasValue)
-            {
-                input = _inputOverride.Value;
-            }
-            else
-            {
-                float h = Input.GetAxisRaw("Horizontal");
-                float v = Input.GetAxisRaw("Vertical");
-                input = new Vector2(h, v);
-            }
+            // Read WASD ONLY (86caa83wn fix 1 — WASD-only locomotion). The legacy Input Manager's
+            // "Horizontal"/"Vertical" axes ALSO bind the arrow keys, so the prior GetAxisRaw path let the
+            // ARROW keys drive the character too — which HIJACKED the F9 AxeNudgeTool (it uses the arrow keys
+            // + PageUp/PageDown to dial the axe/clamp): pressing an arrow to nudge ALSO walked the player, so
+            // the Sponsor couldn't dial. Read the four W/A/S/D KeyCodes directly instead (crisp digital
+            // response, the right feel for keyboard locomotion — equivalent to GetAxisRaw but arrow-free).
+            // A programmatic override (the verify-capture seam) still takes precedence so the shipped build
+            // can exercise the SAME path without real keystrokes.
+            Vector2 input = _inputOverride ?? ReadWasdKeys();
 
             // SPRINT (run-on-Shift, 86ca9yq34): the real LeftShift/RightShift key, or the programmatic override
             // (the headless / shipped-build seam). Legacy Input (the project is activeInputHandler=0 — driving
@@ -257,6 +251,30 @@ namespace FarHorizon
             {
                 _agent.velocity = LastMoveDir * speed;
             }
+        }
+
+        // Read the four W/A/S/D keys off the real keyboard into a (strafe, forward) axis pair — the
+        // ARROW-FREE replacement for GetAxisRaw("Horizontal"/"Vertical") (86caa83wn fix 1). Legacy Input
+        // (the project is activeInputHandler=0). Delegates the boolean→axis mapping to the pure static
+        // WasdAxesFromKeys so the EditMode guard can assert the mapping (incl. that arrows are NOT a source).
+        private static Vector2 ReadWasdKeys()
+            => WasdAxesFromKeys(Input.GetKey(KeyCode.W), Input.GetKey(KeyCode.A),
+                                Input.GetKey(KeyCode.S), Input.GetKey(KeyCode.D));
+
+        /// <summary>
+        /// PURE WASD-key→axis mapping (the unit-testable core of fix 1, ticket 86caa83wn): map the four
+        /// W/A/S/D key states to a (x = strafe A/D, y = forward W/S) axis pair, matching the old GetAxisRaw
+        /// digital response (−1 / 0 / +1 per axis; opposite keys cancel). This deliberately reads ONLY the
+        /// WASD letters — the arrow keys are NOT a movement source (they belong to the F9 AxeNudgeTool), which
+        /// is exactly the bug this fix removes (arrows were driving movement via the Input-Manager axes).
+        /// Static + dependency-free so the EditMode guard can assert the mapping (and the arrow-exclusion by
+        /// construction — there is no arrow parameter to pass) with no scene rig.
+        /// </summary>
+        public static Vector2 WasdAxesFromKeys(bool w, bool a, bool s, bool d)
+        {
+            float x = (d ? 1f : 0f) - (a ? 1f : 0f);   // strafe: D = +, A = −
+            float y = (w ? 1f : 0f) - (s ? 1f : 0f);   // forward: W = +, S = −
+            return new Vector2(x, y);
         }
 
         // Resolve the camera's planar forward/right basis (the orbit camera's facing projected onto the

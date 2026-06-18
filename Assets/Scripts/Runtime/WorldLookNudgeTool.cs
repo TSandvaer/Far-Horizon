@@ -105,10 +105,12 @@ namespace FarHorizon
         /// </summary>
         public void Activate()
         {
-            // Force EVERY sibling axe-nudge panel off (FindObjectsByType, not FindAnyObjectByType — there can
+            // Force EVERY sibling nudge panel off (FindObjectsByType, not FindAnyObjectByType — there can
             // be more than one in a scene, and the active one is the one that must be silenced).
             foreach (var axe in Object.FindObjectsByType<AxeNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 axe.Deactivate();
+            foreach (var cam in Object.FindObjectsByType<CameraFollowNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                cam.Deactivate();
             _active = true;
             Resolve();
             LogCurrent();

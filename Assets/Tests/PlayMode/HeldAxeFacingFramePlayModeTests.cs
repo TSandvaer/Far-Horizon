@@ -32,7 +32,7 @@ namespace FarHorizon.PlayTests
         private Transform _axe;
         private HeldAxeRig _rig;
 
-        // Representative shipped values (HeldAxeRelEuler / HeldAxeWorldOffsetFromHand class).
+        // Representative shipped values (HeldAxeRelEuler / HeldAxeLocalOffsetFromHand class).
         private static readonly Vector3 Offset = new Vector3(0.08f, -0.14f, -0.04f);
 
         // Rest hand pose in the MODEL-LOCAL frame (a non-trivial bone offset off the body center-line).

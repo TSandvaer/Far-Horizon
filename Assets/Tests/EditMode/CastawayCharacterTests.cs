@@ -331,14 +331,18 @@ namespace FarHorizon.EditTests
         [Test]
         public void ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues()
         {
-            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86ca9zcjn FINAL SEAT BAKE:
-            // the Sponsor APPROVED the follow-the-arm behavior and dialed the FINAL F9 seat
-            // (-0.1502,-0.1602,-0.0528) via the AxeNudgeTool; that is what ships. The euler is unchanged.
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(-0.1502f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1602f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0528f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(16.0f).Within(1e-3f));
-            Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(2.0f).Within(1e-3f));
+            // Held axe — HAND-LOCAL offset + hand-relative euler (the F9 nudge fields). 86caa83wn soak #4 (the
+            // seat-doesn't-stick fix): the offset is now HAND-LOCAL END TO END (dialed/displayed/baked in the
+            // hand frame, NO WORLD-frame round-trip — that round-trip is what made the dialed seat facing-
+            // specific). The default is the soak-#3 APPROVED spawn seat (old world (0.0707,-0.1988,-0.0111))
+            // expressed hand-local. soak #5 (build 2d90a68): the Sponsor LOCKED the FINAL hand-local seat via the
+            // F9 panel — HeldAxeLocalOffsetFromHand=(0.1312,0.1409,0.0593), SUPERSEDING the derived-from-soak-#3
+            // placeholder (0.0512,0.2009,-0.0407). euler (12,-8,-82) UNCHANGED.
+            Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand.x, Is.EqualTo(0.1312f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand.y, Is.EqualTo(0.1409f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand.z, Is.EqualTo(0.0593f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(12.0f).Within(1e-3f));
+            Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(-8.0f).Within(1e-3f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.z, Is.EqualTo(-82.0f).Within(1e-3f));
 
             // Arm pose — the shipped scene's CastawayArmPose must carry the dialed eulers, seed flag OFF.

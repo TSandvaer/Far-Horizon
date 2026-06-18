@@ -201,6 +201,69 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_RunSwingReduction_WiredOnArmPose_CharacterAndRunLowerSerialized()
+        {
+            // 86caa83wn soak #2 regression guard (the component-not-serialized trap, applied to the RUN-swing
+            // reduction). The Sponsor's chosen fix REVERSED the earlier axe-side world-Y ceiling clamp (which
+            // DETACHED the axe from the hand during the run arm-swing — "when i run the axe is no longer in the
+            // hand"): the axe now rides the hand RIGIDLY, and the run into-head is fixed by LOWERING the RIGHT
+            // ARM while running (CastawayArmPose.runLowerEuler), weighted by the character's IsRunning. The
+            // character ref + a non-zero run-lower MUST be wired editor-time (serialized into Boot.unity) — a
+            // runtime Awake fallback resolves the character, but if the SHIP path doesn't carry them the run-lower
+            // silently goes INERT and the axe rides into the head at run again. Drop the wiring in AddArmPose →
+            // RED here, not at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+
+            var castaway = Object.FindObjectOfType<CastawayCharacter>();
+            Assert.IsNotNull(castaway, "the Boot scene must carry the CastawayCharacter");
+            var pose = castaway.GetComponent<CastawayArmPose>();
+            Assert.IsNotNull(pose, "the castaway must carry the CastawayArmPose driver (the run-swing reduction lives here)");
+
+            Assert.IsNotNull(pose.rightUpperArm,
+                "CastawayArmPose.rightUpperArm must be wired (serialized) — the run-lower is applied to it.");
+            Assert.AreEqual(castaway, pose.character,
+                "CastawayArmPose.character must be the scene's CastawayCharacter — its IsRunning weights the " +
+                "run-lower. An unresolved character makes the run-swing reduction INERT (axe rides into the head).");
+            Assert.AreNotEqual(Vector3.zero, pose.runLowerEuler,
+                "CastawayArmPose.runLowerEuler must ship NON-ZERO — it is the RUN-swing reduction (86caa83wn). " +
+                "A zero run-lower re-opens 'the axe swings into the head when running'.");
+            // The run-lower lowers the arm on the rig's raise axis (LOCAL-Z; a negative Z lowers). Pin the
+            // direction so a future tweak that flips it (raising the arm = INTO the head) is caught here.
+            Assert.Less(pose.runLowerEuler.z, 0f,
+                $"CastawayArmPose.runLowerEuler.z must be NEGATIVE to LOWER the right arm while running (got " +
+                $"{pose.runLowerEuler.z}); a positive Z would RAISE the arm into the head — the bug this fixes.");
+            // 86caa83wn soak #3 BAKED-VALUE guard (build 2993c1c): the Sponsor F9-dialed the run carry to
+            // (-10,12,-42) and asked to bake it as the shipped default. Pin the EXACT baked value (not just the
+            // sign) so a regression to the soak-#2 (0,0,-22) — or any other revert — reds here, AND so the value
+            // that SHIPS in Boot.unity (the re-baked scene) is the dialed one, not an editor-only constant.
+            Assert.That(pose.runLowerEuler, Is.EqualTo(new Vector3(-10f, 12f, -42f)),
+                $"CastawayArmPose.runLowerEuler must ship the Sponsor's soak-#3 F9-dialed run carry (-10,12,-42); " +
+                $"got {pose.runLowerEuler}. The scene must be re-baked from MovementCameraScene.ArmRunLowerEuler.");
+        }
+
+        [Test]
+        public void BootScene_HeldAxeRig_NoVerticalClampField_RidesHandRigidly()
+        {
+            // 86caa83wn soak #2 — the axe-side world-Y clamp that detached the axe from the hand is GONE. Assert
+            // the held axe rides the hand RIGIDLY (no clamp state on the rig). This guards the revert: the axe
+            // must NOT have a separate vertical clamp that could pull it off the grip during the run arm-swing.
+            // Reflection so the test compiles even as the field set evolves — it asserts the clamp API is absent.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var rig = axe.GetComponent<HeldAxeRig>();
+            Assert.IsNotNull(rig, "the held axe must carry the HeldAxeRig driver");
+
+            var t = typeof(HeldAxeRig);
+            Assert.IsNull(t.GetField("clampVigorousLocomotion"),
+                "HeldAxeRig must NOT carry a vertical-clamp field (86caa83wn soak #2 revert) — the axe-side clamp " +
+                "DETACHED the axe from the hand during the run arm-swing. The axe must ride the hand rigidly; the " +
+                "run into-head is fixed on the arm side (CastawayArmPose.runLowerEuler).");
+            Assert.IsNull(t.GetField("clampCeilingAboveShoulder"),
+                "HeldAxeRig.clampCeilingAboveShoulder must be removed (the detaching world-Y clamp is reverted).");
+        }
+
+        [Test]
         public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
         {
             // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the
