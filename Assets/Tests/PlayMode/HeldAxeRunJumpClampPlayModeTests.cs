@@ -35,6 +35,7 @@ namespace FarHorizon.PlayTests
     /// A regression that removed the clamp (axe rides into the head at run) OR that clamped at walk (broke the
     /// Sponsor's locked pose) reds loudly.
     /// </summary>
+    [Ignore("Quarantined 2026-06-18 per Sponsor (86caapwmt) — env play-mode-ENTER deadlock on the self-hosted CI runner (not a code bug; 4-attempt diagnosis); re-enable tracked in 86caapwmt")]
     public class HeldAxeRunJumpClampPlayModeTests
     {
         private GameObject _proxySlab, _visibleTerrain, _surfaceGo, _playerGo, _avatarGo, _camGo;
