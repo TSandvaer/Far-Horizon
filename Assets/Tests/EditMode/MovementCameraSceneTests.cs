@@ -60,6 +60,28 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_OrbitCamera_JumpHeightSource_IsWiredToTheAvatar()
+        {
+            // 86caaqhj5 — JUMP-PULL-BACK fix. The orbit camera must reference the avatar (CastawayCharacter)
+            // editor-time so it can ADD the avatar's live JumpHeight to its follow-point Y and actually track the
+            // visual jump arc. The jump is a local-Y on the avatar CHILD, NOT on the camera target (the player
+            // root), so without this wiring the camera never rises with the player and the constant horizontal
+            // follow-lag reads as a directional 'pulled back on jump'. A null here = the wiring regressed →
+            // the bug returns (the component-in-source-but-not-in-scene trap; binary scenes can't be GUID-grepped,
+            // so this scene-presence assert is the authoritative reader).
+            var scene = OpenBoot();
+            var orbit = FindInScene<OrbitCamera>(scene);
+            Assert.IsNotNull(orbit);
+            Assert.IsNotNull(orbit.jumpHeightSource,
+                "the orbit camera must reference the avatar (CastawayCharacter) so it can track the JUMP ARC " +
+                "vertically — a null reverts to the camera-never-follows-the-jump bug (86caaqhj5)");
+            var avatar = FindInScene<CastawayCharacter>(scene);
+            Assert.IsNotNull(avatar, "the Boot scene must carry the CastawayCharacter avatar");
+            Assert.AreSame(avatar, orbit.jumpHeightSource,
+                "the orbit camera's jumpHeightSource must be the scene's CastawayCharacter avatar (the jump-arc owner)");
+        }
+
+        [Test]
         public void BootScene_OrbitCamera_PitchClampIs8to70_Default55()
         {
             // drew/ocean-camera-fix: the shipped Boot.unity orbit camera must carry the WIDENED pitch band

@@ -1595,6 +1595,14 @@ namespace FarHorizon.EditorTools
             var orbit = camGo.GetComponent<OrbitCamera>();
             if (orbit == null) orbit = camGo.AddComponent<OrbitCamera>();
             orbit.target = player.transform;
+            // 86caaqhj5 — JUMP-PULL-BACK fix. The camera target is the player ROOT, whose Y is constant through a
+            // jump (the arc is a local-Y on the avatar CHILD). Wire the avatar so the camera can ADD its live
+            // JumpHeight to the follow-point Y and actually track the visual jump arc (without this the camera
+            // never rose with the player and the constant horizontal follow-lag read as a directional pull-back).
+            // Wired editor-time so it SERIALIZES into Boot.unity (no Awake lookup in the build — the
+            // component-in-source-but-not-in-scene trap). The avatar (CastawayCharacter) is a child of the player
+            // root, built by BuildPlayer just before this; resolve it from the children.
+            orbit.jumpHeightSource = player.GetComponentInChildren<CastawayCharacter>(true);
             orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 8-70) — LOCKED
             // Floor WIDENED 35->8 (drew/ocean-camera-fix): lets the Sponsor tilt down to the horizon +
             // see the seaward beach ocean (the 35 floor framed the sea as a far fogged "grey pond" —

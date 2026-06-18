@@ -70,6 +70,61 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(Mathf.Lerp(0f, 3f, a), stepped.z, 1e-5f, "Z follow must equal the old followLerp ease.");
         }
 
+        // =================================================================================================
+        // JUMP-PULL-BACK ROOT CAUSE (ticket 86caaqhj5). The earlier verticalFollowLerp split tracked the camera
+        // TARGET's Y — but the target is the player ROOT, whose Y is CONSTANT through a jump (the arc is a local-Y
+        // on the avatar CHILD). Diag-proven: the camera vertical response was 0.0000u while the avatar rose
+        // ~0.80u → the camera NEVER followed the visual jump arc, and the constant horizontal follow-lag (0.41u in
+        // the travel direction, symmetric across all 4 headings) read as a directional 'pulled back on jump'.
+        // FIX: OrbitCamera.DesiredFollowY folds the avatar's live JumpHeight into the follow-point Y, so the
+        // vertical follow has the REAL arc to track in EVERY direction. These pin the BUG CLASS (camera Y must
+        // track the arc; the tracking is heading-independent), not one instance — with no scene/Time dependency.
+        // =================================================================================================
+
+        [Test]
+        public void DesiredFollowY_TracksTheJumpArc_NotJustTheRootHeight()
+        {
+            // The player root sits at world Y=2 (some terrain height); the camera vertical offset is 1. At rest
+            // (jumpHeight 0) the follow Y is the head (root+offset = 3). At the jump APEX (height 0.795) the
+            // follow Y must RISE by exactly the arc height — so the camera tracks the visual jump, not a static Y.
+            float rootY = 2f, offsetY = 1f;
+            float atRest = OrbitCamera.DesiredFollowY(rootY, offsetY, 0f);
+            float atApex = OrbitCamera.DesiredFollowY(rootY, offsetY, 0.795f);
+
+            Assert.AreEqual(3f, atRest, 1e-5f, "at rest the follow Y is the root head (root+offset) — no arc term.");
+            Assert.AreEqual(0.795f, atApex - atRest, 1e-5f,
+                "the follow Y must RISE by the FULL jump-arc height at apex — else the camera never tracks the " +
+                "visual jump (the arc is a local-Y on the avatar CHILD; the root target Y is constant through a " +
+                "jump) and the constant horizontal follow-lag reads as the directional 'pulled back on jump' (86caaqhj5).");
+        }
+
+        [Test]
+        public void JumpArcVerticalFollow_IsHeadingIndependent_NoWvsADSAsymmetry()
+        {
+            // THE asymmetry the Sponsor reported ("W works, A/D/S pull back on landing"). The jump-arc vertical
+            // follow data is the avatar's JumpHeight — a SCALAR, with NO horizontal-direction dependence. So the
+            // camera's vertical tracking of the arc MUST be byte-identical whether the player jumps moving forward
+            // (W), back (S), or strafing (A/D). This pins that the fix removes the heading-dependence by
+            // construction: DesiredFollowY only consumes the jump height, never the travel direction.
+            const float rootY = 0.5f, offsetY = 1f, apex = 0.795f;
+            float fW = OrbitCamera.DesiredFollowY(rootY, offsetY, apex);
+            float fS = OrbitCamera.DesiredFollowY(rootY, offsetY, apex);
+            float fA = OrbitCamera.DesiredFollowY(rootY, offsetY, apex);
+            float fD = OrbitCamera.DesiredFollowY(rootY, offsetY, apex);
+            Assert.AreEqual(fW, fS, 1e-6f, "vertical jump-arc follow must be identical forward vs back (no W/S asymmetry).");
+            Assert.AreEqual(fW, fA, 1e-6f, "vertical jump-arc follow must be identical forward vs strafe-left (no W/A asymmetry).");
+            Assert.AreEqual(fW, fD, 1e-6f, "vertical jump-arc follow must be identical forward vs strafe-right (no W/D asymmetry).");
+        }
+
+        [Test]
+        public void DesiredFollowY_ClampsNegativeJumpHeightToZero_NeverDipsBelowHead()
+        {
+            // JumpHeight is ≥0 by contract (CastawayCharacter returns 0 when grounded), but guard defensively: a
+            // stray negative must never pull the camera BELOW the head (which would itself read as a downward jerk).
+            Assert.AreEqual(3f, OrbitCamera.DesiredFollowY(2f, 1f, -5f), 1e-5f,
+                "a negative jump height must clamp to 0 — the camera follow Y never dips below the head.");
+        }
+
         [Test]
         public void FollowStep_NeverOvershoots_AnyAxis_AndIsFiniteAtZeroDt()
         {

@@ -64,6 +64,25 @@ namespace FarHorizon
                  "Horizontal stays on followLerp for a smooth ground feel; only the Y axis follows fast.")]
         public float verticalFollowLerp = 60f;
 
+        // 86caaqhj5 — the JUMP-PULL-BACK ROOT CAUSE (diagnose-via-trace, EditMode JumpPullBackDiag 2026-06-18).
+        // The earlier verticalFollowLerp split (fix above) was tracking a Y THAT NEVER MOVES during a jump: the
+        // camera target is the player ROOT (MovementCameraScene: orbit.target = player.transform), but the jump
+        // arc is a LOCAL-Y on the avatar CHILD (CastawayCharacter.transform.localPosition.y) — the root's world
+        // Y is constant through the whole jump. Diag PROVED it: visual avatar apex 0.795u, camera-follow vertical
+        // response 0.0000u → the camera NEVER followed the visual arc in ANY direction. The "W works, A/D/S pull
+        // back" report was the SAME constant horizontal follow-lag (0.41u in the travel direction, symmetric
+        // across all 4 dirs per the diag) reading differently per heading against a camera whose height never
+        // rose with the player. FIX: feed the avatar's actual JumpHeight (exposed by CastawayCharacter, on TOP of
+        // the root) into the desired follow-point Y, so the vertical follow has the REAL arc to track — the
+        // camera now rises/falls WITH the visual jump in every direction, killing the asymmetric pull-back.
+        [Header("Jump-arc vertical follow (86caaqhj5)")]
+        [Tooltip("The avatar whose JUMP ARC the camera must follow vertically. The jump is a local-Y on this " +
+                 "CHILD avatar, NOT on the camera target (the player root), so without this the camera never " +
+                 "tracks the visual jump rise (→ the directional 'pulled back on jump' percept). Its JumpHeight " +
+                 "is added to the follow-point Y so the camera rises/falls with the arc. Wired editor-time " +
+                 "(MovementCameraScene) so it serializes; null is tolerated (a bare camera test rig — no arc).")]
+        public CastawayCharacter jumpHeightSource;
+
         // ---- TERRAIN COLLISION (BIG ROUND ISLAND N2, 86ca9a7qn — "player disappears under a hill") ----
         // The orbit rig placed the camera at a fixed distance behind the target with NO terrain awareness, so
         // on the hilly island the camera could (a) sink BELOW the terrain surface, or (b) have a hill between
@@ -145,7 +164,14 @@ namespace FarHorizon
         {
             if (target != null)
             {
+                // The desired follow point = the root target + offset, PLUS the avatar's live jump-arc height on
+                // the Y axis (86caaqhj5). The jump arc is a local-Y on the avatar CHILD, so the root target's Y
+                // is constant through a jump — adding JumpHeight here gives the vertical follow the REAL arc to
+                // track (the camera rises/falls WITH the visual jump in every direction; without it the camera
+                // height never moved and the constant horizontal follow-lag read as a directional 'pull back').
+                float jumpY = jumpHeightSource != null ? jumpHeightSource.JumpHeight : 0f;
                 Vector3 desired = target.position + targetOffset;
+                desired.y = DesiredFollowY(target.position.y, targetOffset.y, jumpY);
                 _followPos = instant ? desired
                     : FollowStep(_followPos, desired, followLerp, verticalFollowLerp, Time.deltaTime);
             }
@@ -201,6 +227,18 @@ namespace FarHorizon
 
             return pos;
         }
+
+        /// <summary>
+        /// PURE desired-follow-point-Y (the unit-testable core of the jump-pull-back ROOT-CAUSE fix, 86caaqhj5):
+        /// the Y the camera follow point should ease toward = the root target Y + the vertical offset + the live
+        /// jump-arc height. The jump arc is a local-Y on the avatar CHILD (not the root target), so WITHOUT the
+        /// <paramref name="jumpHeight"/> term the desired Y is CONSTANT through a jump and the camera never tracks
+        /// the visual rise (the directional 'pulled back on jump' percept — diag-proven the camera vertical
+        /// response was 0.0000u while the avatar rose ~0.80u). Static + dependency-free so the EditMode guard can
+        /// assert the camera Y tracks the arc identically in every heading with no scene/Time dependency.
+        /// </summary>
+        public static float DesiredFollowY(float targetY, float offsetY, float jumpHeight)
+            => targetY + offsetY + Mathf.Max(0f, jumpHeight);
 
         /// <summary>
         /// PURE per-axis follow step (the unit-testable core of the jump-follow-lag fix, ticket 86caa83wn fix
