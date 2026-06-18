@@ -33,7 +33,12 @@ namespace FarHorizon.EditorTools
         // AC0 LINE FIX (86ca9qwr3): main-light shadow distance pushed past the visible play area so the
         // shadow-distance boundary never lands in the framed grass; a wider cascade-border fade softens the
         // boundary if it ever does. See ConfigureUrp for the full trace-diagnosis rationale.
-        public const float ShadowDistanceU = 160f;     // was URP-default 50 (the line landed at r≈50 from cam)
+        // REGRESSION FIX (86caarn6y): 160 was sized for the spawn-locked play area, but WASD (#63) + run (#68)
+        // now let the player roam the full ~240u-diameter island (IslandShoreR 120). Orbiting back across the
+        // island puts the far shore beyond 160u of the camera eye, re-entering the boundary ring into visible
+        // grass. 360 clears the worst-case vantage: island diameter 240 + max orbit reach 26 = 266u, plus ~35%
+        // headroom above the cascade-border fade band. Sized to the WHOLE roamable island from any vantage.
+        public const float ShadowDistanceU = 360f;     // was 160 (spawn-locked era); 50 URP-default before that
         public const float ShadowCascadeBorder = 0.35f; // wider fade band than the 0.2 default (soft boundary)
         private const string UrpRendererPath = SettingsDir + "/FarHorizonRenderer.asset";
         private const string BootScenePath = ScenesDir + "/Boot.unity";
@@ -106,11 +111,14 @@ namespace FarHorizon.EditorTools
             // reads as a straight line at island scale). The default UniversalRenderPipelineAsset.Create
             // ships shadowDistance=50 — SMALLER than the grass the gameplay orbit frames, so the boundary
             // lands IN the visible play area. (Proof: -diagLine isolation probe — line survives hiding the
-            // scatter, vanishes with -noShadows, vanishes at -shadowDist 160, and TRACKS the camera when it
-            // pans, i.e. a camera-relative ring that reads "world-fixed" because the orbit stays over spawn.)
-            // FIX: push shadowDistance out past the visible play area + widen the cascade-border fade so the
+            // scatter, vanishes with -noShadows, MOVES with -shadowDist, and TRACKS the camera when it pans,
+            // i.e. a camera-relative ring that reads "world-fixed" because the orbit stayed over spawn.)
+            // REGRESSION (86caarn6y): 160 cleared the spawn-locked area, but WASD (#63) + run (#68) let the
+            // player roam the full ~240u-diameter island, so the far shore re-enters the ring; ShadowDistanceU
+            // is now 360 to clear the whole roamable island from any orbit vantage (see the const for the math).
+            // FIX: push shadowDistance out past the roamable area + widen the cascade-border fade so the
             // boundary never lands in frame AND fades softly if it ever does. This is the URP shadow DISTANCE
-            // setting — it PRESERVES the tree shadows near spawn (well within 160u) and does NOT touch the Sun
+            // setting — it PRESERVES the tree shadows near spawn (well within 360u) and does NOT touch the Sun
             // light or the tree-shadow setup (the ticket's OOS). Set here so it bakes into FarHorizonURP.asset
             // reproducibly on every bootstrap (not a hand-edit that silently reverts).
             urp.shadowDistance = ShadowDistanceU;
