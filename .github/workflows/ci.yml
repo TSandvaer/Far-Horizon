@@ -159,10 +159,27 @@ jobs:
           -logFile "%RESULTS%\editmode.log"
         continue-on-error: true
 
-      # 3. PlayMode tests. Same -no-quit rule. Headless: Time.deltaTime~0 per frame
-      #    — the suite samples over a Time.time window, never per-frame deltas.
+      # 3. PlayMode tests — QUARANTINED on this runner (best-effort, NON-BLOCKING).
+      #    This self-hosted runner has a CONFIRMED play-mode-enter ENV-HANG: Unity
+      #    freezes "Entering Playmode" and never self-quits — a MACHINE/runner
+      #    deadlock, NOT a code bug (EditMode 308/308 green; the identical PlayMode
+      #    pattern PASSED on green main run 27685445841). See unity-conventions.md
+      #    §Headless ("play-mode-enter env-hang" + "GH-cancel doesn't kill the hung
+      #    runner Unity"). Per [[sponsor-quarantines-env-blocked-tests]] (Sponsor-
+      #    confirmed): quarantine-with-followup, not hold-for-the-bar.
+      #
+      #    THE MERGE GATE is EditMode result gate + Build-result gate + capture gate
+      #    (all stay BLOCKING below). PlayMode runs best-effort here:
+      #      - timeout-minutes: 12 kills the hang FAST so it does NOT eat the 90-min
+      #        job timeout — which is what skipped the Build step (the actual gate)
+      #        and turned the whole unity job red/cancelled.
+      #      - continue-on-error: true keeps a hang/fail from failing the step.
+      #    A future GREEN PlayMode run signals the env recovered. Tracked: 86caapwmt.
+      #    Same -no-quit rule. Headless: Time.deltaTime~0 per frame — the suite
+      #    samples over a Time.time window, never per-frame deltas.
       - name: PlayMode tests
         shell: cmd
+        timeout-minutes: 12
         run: >
           "%UNITY%" -batchmode -nographics
           -projectPath "%GITHUB_WORKSPACE%"
@@ -220,8 +237,16 @@ jobs:
         shell: bash
         run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-editmode.xml EditMode
 
+      # PlayMode result gate — NON-BLOCKING (PlayMode is QUARANTINED on this runner;
+      # see the "PlayMode tests" step above + unity-conventions.md §Headless). When
+      # the play-mode-enter env-hang fires, the run produces NO playmode result XML
+      # (or a partial one), so this parser would fail — continue-on-error: true keeps
+      # that from failing the unity job. The MERGE GATE is the EditMode result gate +
+      # Build-result gate + capture gate (all BLOCKING). A future GREEN PlayMode run
+      # signals the env recovered. Tracked: 86caapwmt.
       - name: PlayMode result gate
         if: always()
+        continue-on-error: true
         shell: bash
         run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
 
