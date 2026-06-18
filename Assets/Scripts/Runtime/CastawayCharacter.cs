@@ -200,6 +200,29 @@ namespace FarHorizon
         // ON TOP of this; on landing we restore the snap from this baseline so grounding resumes seamlessly.
         private float _jumpBaseLocalY;
 
+        // === JUMP IN-PLACE — HIPS-XZ LUNGE CANCEL (ticket 86caaqhj5 — the "pulled back on landing" FIX).
+        // The Mixamo "jump forward" clips bake the forward travel into the HIPS BONE's local-position curve
+        // (NOT the root node). The import flags lockRootPositionXZ=true / applyRootMotion=false neutralize the
+        // ROOT-NODE motion, but they CANNOT reach a translation that lives in the Hips bone (same mechanism as
+        // the Walk hip-LIFT Bug A — import flags govern root-MOTION extraction, not the in-place bone curve).
+        // RUNTIME-confirmed (Sponsor Player.log, build fa5232d): hipsRelRootXZ grew to ~2.97u airborne then
+        // snapped back ~3.07→1.67 over ~4 post-land frames — the lunge DOUBLE-COUNTS on top of the agent's real
+        // XZ movement (overshoot), then snaps back to the entity on landing (the "pulled back"). FIX: while the
+        // jump is active, OVERWRITE the Hips bone's animated local-XZ back to its captured grounded baseline so
+        // the jump plays IN-PLACE (vertical-only) and the ENTITY's NavMesh movement carries the character
+        // forward — no double-count, no overshoot, no snap-back. The Hips local-Y (the crouch/extend tuck) and
+        // every descendant pose (arms/legs/the tuck) are LEFT UNTOUCHED — only the horizontal TRANSLATION is
+        // removed. Engaged ONLY during a jump (airborne + a short post-land tail covering the exit crossfade),
+        // so Idle/Walk/Run hips sway is byte-unchanged (the Sponsor's lively-motion preference is preserved).
+        public bool jumpInPlace = true;                  // master enable (ships ON); a wiring guard asserts it
+        // Seconds to keep cancelling the Hips XZ AFTER touch-down — covers the Jump→Locomotion/Idle exit
+        // crossfade (0.06s) + the clip's return-to-neutral, which is where the trace saw the snap-back (~4
+        // frames). Without this tail the lunge would un-cancel as the clip eases out → the snap-back returns.
+        public float jumpInPlacePostLandSeconds = 0.25f;
+        private Vector3 _hipsBaselineLocalPos;           // the Hips' captured grounded local position (XZ baseline)
+        private bool _hipsBaselineCaptured;              // false until the first grounded frame captures it
+        private float _jumpInPlaceHoldT;                 // seconds remaining to keep cancelling past touch-down
+
         // === RUNTIME JUMP-TRACE (ticket 86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS instrument).
         // AUTO-fires on EVERY jump (NO toggle/launch-arg) so the Sponsor just PLAYS (W/A/S/D + Space) and the
         // ground truth lands in Player.log; the orchestrator reads it after. Cheap + build-safe: one greppable
@@ -234,6 +257,12 @@ namespace FarHorizon
         /// (86ca9yq3q). Exposed so the AC5 regression asserts the root Y RISES then RETURNS to grounded across
         /// the arc without depending on physical agent traversal (the head/apex is &gt; 0, landing is ~0).</summary>
         public float JumpHeight => _airborne ? _jumpY : 0f;
+
+        /// <summary>Whether the jump in-place Hips-XZ cancel is ACTIVE this frame (86caaqhj5 — airborne or the
+        /// post-land tail covering the exit crossfade). While true the Hips bone's animated local-XZ is held at
+        /// its grounded baseline so the jump plays vertical-only (no forward lunge / snap-back). Exposed so a
+        /// trace/test can assert the cancel engages exactly during the jump and is inert otherwise.</summary>
+        public bool JumpInPlaceActive => jumpInPlace && (_airborne || _jumpInPlaceHoldT > 0f);
 
         /// <summary>Whether the RUNTIME jump-trace window is OPEN this frame (86caaqhj5 — the "pulled back on
         /// landing" instrument). True from a jump's lift-off until ~0.5s past touch-down, while the per-frame
@@ -499,6 +528,15 @@ namespace FarHorizon
             float worldResidual = renderedSoleWorldY - plantWorldY;   // >0 ⟺ sole floats ABOVE the plant target
             return currentModelLocalY - worldResidual / rootYScale;
         }
+
+        /// <summary>PURE jump in-place cancel (ticket 86caaqhj5). Given the Hips bone's CURRENT animated local
+        /// position (carrying the Mixamo jump clip's baked forward-XZ lunge) and the captured GROUNDED baseline
+        /// local position, return the corrected local position: X/Z taken from the baseline (the lunge removed →
+        /// the jump plays in-place), Y taken from the CURRENT pose (the crouch/extend tuck rides the clip).
+        /// Static + side-effect-free so the EditMode guard exercises the EXACT math CancelJumpForwardLunge runs
+        /// (the "never ship a position-dial without testing the production math" lesson, §Walk-float saga).</summary>
+        public static Vector3 CancelHipsXZ(Vector3 currentHipsLocal, Vector3 groundedBaselineLocal)
+            => new Vector3(groundedBaselineLocal.x, currentHipsLocal.y, groundedBaselineLocal.z);
 
         // Reusable RaycastAll buffer (no per-frame GC). Sized for the handful of Ground colliders a single
         // down-ray can ever cross (the visible terrain + the flat NavMesh slab + a little headroom).
@@ -927,6 +965,45 @@ namespace FarHorizon
             transform.localPosition = lp;
         }
 
+        // JUMP IN-PLACE — cancel the Mixamo jump clip's baked forward HIPS-XZ lunge (ticket 86caaqhj5). Called
+        // from LateUpdate AFTER the Animator has posed the Hips for this frame and BEFORE the JumpTrace emits (so
+        // the trace measures the corrected hips) — and before HeldAxeRig (order 100) reads the hand, so the held
+        // axe seats to the un-lunged hand. The Hips is the top of the skeleton; rewriting its local-XZ shifts the
+        // whole upper body back over the root without touching the vertical tuck (local-Y) or any descendant pose.
+        //
+        // BASELINE: captured ONCE on the first GROUNDED frame (the Hips' rest local-XZ for the Idle/loco clips,
+        // which are in-place — their hips stay near-centred). While the jump is active we overwrite ONLY the
+        // Hips local-XZ back to that baseline; local-Y (crouch/extend) rides the clip untouched. Inert while
+        // grounded (the loco hips sway is preserved — the Sponsor's lively-motion preference).
+        private void CancelJumpForwardLunge()
+        {
+            if (!jumpInPlace) return;
+            if (!_bonesResolved) ResolveBones();
+            if (_hipsBone == null) return;
+
+            // Tick down the post-land hold: re-arm to full while airborne, then count down once grounded so the
+            // cancel stays engaged through the Jump→Idle/Loco exit crossfade where the trace saw the snap-back.
+            if (_airborne) _jumpInPlaceHoldT = jumpInPlacePostLandSeconds;
+            else if (_jumpInPlaceHoldT > 0f) _jumpInPlaceHoldT = Mathf.Max(0f, _jumpInPlaceHoldT - Time.deltaTime);
+
+            // Capture the grounded rest baseline once (the in-place loco hips XZ). Only ever captured while
+            // GROUNDED so a mid-jump first-frame can't bake the lunge into the baseline.
+            if (!_hipsBaselineCaptured && !_airborne)
+            {
+                _hipsBaselineLocalPos = _hipsBone.localPosition;
+                _hipsBaselineCaptured = true;
+            }
+            if (!_hipsBaselineCaptured) return;       // never captured a clean grounded baseline yet — do nothing
+
+            // Only act during the jump (airborne or the post-land tail). Grounded loco frames pass through here
+            // untouched so the walk/run hips sway is byte-unchanged.
+            if (!_airborne && _jumpInPlaceHoldT <= 0f) return;
+
+            // Overwrite ONLY the Hips local-XZ back to the grounded baseline — keep the clip's local-Y (the tuck).
+            // Uses the SAME pure CancelHipsXZ the EditMode guard exercises (shared production math).
+            _hipsBone.localPosition = CancelHipsXZ(_hipsBone.localPosition, _hipsBaselineLocalPos);
+        }
+
         void LateUpdate()
         {
             // JUMP ↔ GROUND-SNAP GATE (ticket 86ca9yq3q, AC3 — load-bearing). While AIRBORNE the per-frame
@@ -1000,6 +1077,11 @@ namespace FarHorizon
             }
             if (_model != null)
                 _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
+
+            // JUMP IN-PLACE (86caaqhj5 fix) — cancel the Mixamo jump clip's baked forward HIPS-XZ lunge AFTER the
+            // Animator posed the Hips this frame and BEFORE the trace emits (so the trace reads the corrected
+            // hips) and before HeldAxeRig (order 100) reads the hand (so the axe seats to the un-lunged hand).
+            CancelJumpForwardLunge();
 
             // RUNTIME JUMP-TRACE (86caaqhj5) — emit AFTER this frame's arc/snap + anim update so the trace
             // reflects the final per-frame positions the player sees. Auto-fires on every jump, silent otherwise.

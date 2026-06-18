@@ -1445,6 +1445,13 @@ namespace FarHorizon.EditorTools
             // reads as RUNNING (the Walk<->Run blend tree reads a full Run). Pinned to RunBlendSpeed so the
             // IsRunning flag + the blend tree agree, and serialized editor-time so it ships in Boot.unity.
             castaway.runSpeedThreshold = CharacterAssetGen.RunBlendSpeed;
+            // JUMP IN-PLACE (86caaqhj5 — the "pulled back on landing" fix). The Mixamo jump clips bake the
+            // forward travel into the HIPS BONE (not the root node), so lockRootPositionXZ can't strip it; the
+            // lunge double-counts on the agent's real XZ then snaps back on landing. CastawayCharacter cancels
+            // the Hips local-XZ to its grounded baseline while airborne so the jump plays vertical-only. Set the
+            // enable editor-time so it ships in Boot.unity (the disabled-flag silent-killer family). The
+            // Avatar_ShipsWithJumpInPlaceEnabled EditMode guard asserts this.
+            castaway.jumpInPlace = true;
             // Build the Model child NOW (editor) so the skinned mesh + bones + Animator serialize into
             // Boot.unity (the editor-vs-runtime serialization lesson).
             castaway.BuildInEditor();
