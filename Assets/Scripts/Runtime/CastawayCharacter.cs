@@ -200,6 +200,31 @@ namespace FarHorizon
         // ON TOP of this; on landing we restore the snap from this baseline so grounding resumes seamlessly.
         private float _jumpBaseLocalY;
 
+        // === RUNTIME JUMP-TRACE (ticket 86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS instrument).
+        // AUTO-fires on EVERY jump (NO toggle/launch-arg) so the Sponsor just PLAYS (W/A/S/D + Space) and the
+        // ground truth lands in Player.log; the orchestrator reads it after. Cheap + build-safe: one greppable
+        // Debug.Log per frame ONLY inside the per-jump window (launch → 0.5s post-landing), silent otherwise.
+        //
+        // WHY a RUNTIME trace (not EditMode): EditMode anim-grounding/jump traces have PASSED 3× while the soak
+        // FAILED (dispatch note; the headless Time.deltaTime≈0 trap means the Animator/arc never ticks the way
+        // live play does — unity-conventions.md §Headless). The runtime trace captures the LIVE per-frame world
+        // motion the Sponsor actually sees.
+        //
+        // WHAT IT MEASURES (the candidates the dispatch enumerates — root XZ pull-back vs avatar-child snap vs
+        // air-control decel): the PLAYER ROOT world X/Z/Y (the NavMeshAgent owns this — updatePosition=true), the
+        // AVATAR-CHILD world X/Z/Y (this transform — the jump arc is a local-Y here), agent.velocity (what
+        // WasdMovement commands), agent.desiredVelocity + hasPath/pathPending (the agent's OWN steering target —
+        // 0/none under WASD, so autoBraking/acceleration decelerate the body), agent.nextPosition (where the
+        // agent's internal sim wants the root NEXT), the airborne flag + the exact LANDING frame, _jumpY (arc),
+        // and which camera-follow path is active (airborne tight-follow vs grounded lead). The root-XZ delta
+        // launch→land is THE discriminator: if the root is pulled BACK in the world, it's the agent sim (a/c);
+        // if the root advances but the child snaps, it's (b).
+        private int _jumpTraceFrame;            // frame counter within the current trace window
+        private float _jumpTracePostLandT;      // seconds remaining to keep tracing after landing (0 = window closed)
+        private bool _jumpTraceActive;          // a trace window is open this jump
+        private Vector3 _jumpTraceLaunchRootXZ; // player-root world XZ captured at lift-off (the pull-back baseline)
+        private const float JumpTracePostLandSeconds = 0.5f; // keep tracing 0.5s past touch-down (catch the snap)
+
         /// <summary>Whether the castaway is mid-jump (airborne) this frame (86ca9yq3q). While true the ground
         /// snap is suspended and the avatar rides the jump arc. Exposed so the PlayMode AC5 regression asserts
         /// the airborne phase suspends grounding, and so later systems (jump SFX, fall damage) can read it.</summary>
@@ -209,6 +234,14 @@ namespace FarHorizon
         /// (86ca9yq3q). Exposed so the AC5 regression asserts the root Y RISES then RETURNS to grounded across
         /// the arc without depending on physical agent traversal (the head/apex is &gt; 0, landing is ~0).</summary>
         public float JumpHeight => _airborne ? _jumpY : 0f;
+
+        /// <summary>Whether the RUNTIME jump-trace window is OPEN this frame (86caaqhj5 — the "pulled back on
+        /// landing" instrument). True from a jump's lift-off until ~0.5s past touch-down, while the per-frame
+        /// [JumpTrace] line auto-logs to Player.log; false otherwise (silent). Exposed READ-ONLY so the EditMode
+        /// guard can assert TryJump OPENS the window (the silent-instrument bug class — a trace that never fires
+        /// is the CaptureGate/FloatTrace silent-killer family, unity-conventions.md §Component-not-serialized).
+        /// No PlayMode fixture needed: TryJump (grounded-only) opens the window synchronously.</summary>
+        public bool JumpTraceActive => _jumpTraceActive;
 
         /// <summary>
         /// Begin a jump (ticket 86ca9yq3q) — Space's rising edge calls this (WasdMovement). Imparts the upward
@@ -227,6 +260,14 @@ namespace FarHorizon
             _jumpBaseLocalY = _snapInit ? _snapLocalY : transform.localPosition.y; // launch from the grounded local-Y
             if (_animator != null && _animator.runtimeAnimatorController != null)
                 _animator.SetTrigger(JumpParam);  // fire the one-shot Jump state (AnyState→Jump on the trigger)
+
+            // RUNTIME JUMP-TRACE (86caaqhj5): open the per-jump trace window at lift-off. Capture the player-root
+            // world XZ NOW — the launch→land delta of this baseline is the "pulled back" discriminator.
+            Transform jr = transform.parent != null ? transform.parent : transform;
+            _jumpTraceLaunchRootXZ = new Vector3(jr.position.x, 0f, jr.position.z);
+            _jumpTraceFrame = 0;
+            _jumpTracePostLandT = JumpTracePostLandSeconds;
+            _jumpTraceActive = true;
             return true;
         }
 
@@ -959,6 +1000,90 @@ namespace FarHorizon
             }
             if (_model != null)
                 _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
+
+            // RUNTIME JUMP-TRACE (86caaqhj5) — emit AFTER this frame's arc/snap + anim update so the trace
+            // reflects the final per-frame positions the player sees. Auto-fires on every jump, silent otherwise.
+            if (_jumpTraceActive) EmitJumpTrace();
+        }
+
+        // The per-frame RUNTIME jump-trace line (86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS). Fires
+        // every frame from lift-off (TryJump opened the window) until JumpTracePostLandSeconds past touch-down.
+        // ONE greppable [JumpTrace] Debug.Log per frame inside the window — no toggle, no launch-arg: the Sponsor
+        // just plays + jumps W/A/S/D and the orchestrator reads Player.log. Silent in every non-jump frame.
+        //
+        // The LANDING frame is marked explicitly (LANDED=YES on the touch-down frame). The load-bearing fields:
+        //   rootΔXZ      — player-root world XZ moved since lift-off; a NEGATIVE component along travel = the
+        //                  "pulled BACK in the world" the Sponsor reports (the agent sim displaced the root).
+        //   agentVel     — what WasdMovement commands (coast/steer airborne; full speed grounded).
+        //   desiredVel   — the agent's OWN steering target (≈0 under WASD — no path; autoBraking decelerates the
+        //                  body toward THIS, fighting the commanded velocity — the prime suspect for the decel).
+        //   nextPos      — where the agent's internal sim wants the root NEXT frame (updatePosition=true owns it).
+        //   childΔ vs root — the avatar child rides root XZ + a local-Y arc; if root advances but child snaps
+        //                  back, the displacement is in the child (candidate b); if root itself retreats, it's the
+        //                  agent sim (candidate a/c).
+        private void EmitJumpTrace()
+        {
+            Transform root = transform.parent != null ? transform.parent : transform;
+            Vector3 rootPos = root.position;
+            Vector3 rootXZ = new Vector3(rootPos.x, 0f, rootPos.z);
+            Vector3 dXZ = rootXZ - _jumpTraceLaunchRootXZ;        // root world XZ moved since lift-off
+            Vector3 childPos = transform.position;                // the avatar child (jump arc local-Y lives here)
+
+            Vector3 agentVel = _agent != null ? _agent.velocity : Vector3.zero;
+            Vector3 desiredVel = _agent != null ? _agent.desiredVelocity : Vector3.zero;
+            Vector3 nextPos = _agent != null ? _agent.nextPosition : Vector3.zero;
+            bool hasPath = _agent != null && _agent.hasPath;
+            bool pathPending = _agent != null && _agent.pathPending;
+            bool onMesh = _agent != null && _agent.isOnNavMesh;
+
+            // VISUAL-vs-ENTITY divergence (Sponsor root-motion hypothesis, 86caaqhj5): the HIPS BONE world pos is
+            // the VISUAL avatar's body — a Mixamo "jump forward" clip lunges the hips FORWARD off the root pivot
+            // even though the clip is imported lockRootPositionXZ=true + applyRootMotion=false (those neutralize
+            // ROOT-NODE motion, NOT the bone-pose lunge). If hipsXZ diverges FORWARD from the root during the air
+            // and SNAPS BACK to the root on landing, the "pulled back" is a bone-pose forward-lunge (visual ≠
+            // entity), confirming the Sponsor's hypothesis at the BONE level. We also log applyRootMotion to prove
+            // root motion is OFF (so any divergence is bone-pose, not extracted root motion).
+            if (!_bonesResolved) ResolveBones();
+            Vector3 hipsPos = _hipsBone != null ? _hipsBone.position : new Vector3(float.NaN, float.NaN, float.NaN);
+            // hips world XZ relative to the root XZ — the VISUAL forward-lunge magnitude (the load-bearing number).
+            Vector3 hipsRelRootXZ = _hipsBone != null
+                ? new Vector3(hipsPos.x - rootPos.x, 0f, hipsPos.z - rootPos.z)
+                : new Vector3(float.NaN, float.NaN, float.NaN);
+            bool applyRootMotion = _animator != null && _animator.applyRootMotion;
+            string animState = "n/a";
+            if (_animator != null && _animator.runtimeAnimatorController != null && _animator.layerCount > 0)
+            {
+                var st = _animator.GetCurrentAnimatorStateInfo(0);
+                animState = $"hash={st.shortNameHash} t={st.normalizedTime:F2}";
+            }
+
+            // Detect + mark the exact LANDING frame: _airborne is false this frame but a post-land countdown is
+            // still running. (TryJump set the window; AdvanceJump flipped _airborne false on touch-down.)
+            bool landedThisFrame = !_airborne && _jumpTracePostLandT == JumpTracePostLandSeconds;
+            string camPath = _airborne ? "AIRBORNE(tight-follow,no-lead)" : "GROUNDED(lead)";
+
+            _jumpTraceFrame++;
+            Debug.Log(
+                $"[JumpTrace] f={_jumpTraceFrame} airborne={_airborne} LANDED={(landedThisFrame ? "YES" : "no")} " +
+                $"jumpY={Fmt4(JumpHeight)} jumpVelY={_jumpVelY:F3} " +
+                $"rootXZ=({rootPos.x:F3},{rootPos.z:F3}) rootY={rootPos.y:F3} " +
+                $"rootDeltaXZ=({dXZ.x:F4},{dXZ.z:F4}) rootDeltaMag={new Vector2(dXZ.x, dXZ.z).magnitude:F4} " +
+                $"childXZ=({childPos.x:F3},{childPos.z:F3}) childY={childPos.y:F3} childLocalY={transform.localPosition.y:F4} " +
+                $"hipsXZ=({Fmt4(hipsPos.x)},{Fmt4(hipsPos.z)}) hipsY={Fmt4(hipsPos.y)} " +
+                $"hipsRelRootXZ=({Fmt4(hipsRelRootXZ.x)},{Fmt4(hipsRelRootXZ.z)}) " +
+                $"hipsLungeMag={Fmt4(new Vector2(hipsRelRootXZ.x, hipsRelRootXZ.z).magnitude)} " +
+                $"applyRootMotion={applyRootMotion} animState={animState} " +
+                $"agentVel=({agentVel.x:F3},{agentVel.z:F3}) agentSpeed={new Vector2(agentVel.x, agentVel.z).magnitude:F3} " +
+                $"desiredVel=({desiredVel.x:F3},{desiredVel.z:F3}) desiredSpeed={new Vector2(desiredVel.x, desiredVel.z).magnitude:F3} " +
+                $"nextPos=({nextPos.x:F3},{nextPos.z:F3}) hasPath={hasPath} pathPending={pathPending} onMesh={onMesh} " +
+                $"cam={camPath}");
+
+            // Keep the window open through the post-landing tail, then close it (silent again until the next jump).
+            if (!_airborne)
+            {
+                _jumpTracePostLandT -= Mathf.Max(Time.deltaTime, 1f / 240f);
+                if (_jumpTracePostLandT <= 0f) _jumpTraceActive = false;
+            }
         }
     }
 }
