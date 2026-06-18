@@ -50,7 +50,15 @@ namespace FarHorizon
         public float maxDistance = 26f;
 
         [Header("Smoothing")]
-        public float followLerp = 12f;
+        // 86caaqhj5 ATTEMPT 2 — HORIZONTAL follow tightened 12->18. The jump-pull-back A/S/D failure is the
+        // HORIZONTAL follow LAGGING the player through a fast move+jump: a pure exponential follower trails a
+        // constant-velocity target by v/k (k = followLerp 1/s). At walk 5.5 u/s, k=12 → ~0.46u lag; the diag
+        // measured a symmetric ~0.41u horizontal follow-lag across ALL 4 headings — it is NOT direction-specific
+        // in the code; perpendicular-to-view motion (A/D strafe) + away-from-view (S) simply READ the constant
+        // lag worst (player slides toward/out of frame edge) while toward-view (W) hides it. Raising followLerp
+        // alone shrinks but never zeroes the lag; the velocity FEED-FORWARD below (followLeadTime) cancels the
+        // steady-state lag outright. Sponsor-dialable live on the F7 CameraFollowNudgeTool.
+        public float followLerp = 18f;
         // 86caa83wn fix 3 — JUMP camera-follow lag. The follow point eases toward the target each frame; with a
         // SINGLE rate on ALL axes (the old followLerp 12), the VERTICAL follow lagged the fast jump arc (the
         // avatar rises at jumpVelocity 5.5 u/s for ~0.6s) — the camera trailed the rise + drop, so on jump the
@@ -82,6 +90,31 @@ namespace FarHorizon
                  "is added to the follow-point Y so the camera rises/falls with the arc. Wired editor-time " +
                  "(MovementCameraScene) so it serializes; null is tolerated (a bare camera test rig — no arc).")]
         public CastawayCharacter jumpHeightSource;
+
+        // 86caaqhj5 ATTEMPT 2 — HORIZONTAL follow VELOCITY FEED-FORWARD (the A/S/D jump-pull-back mechanism fix).
+        // A pure exponential follower lags a constant-velocity target by a STEADY amount v/k (v = target speed,
+        // k = followLerp). During a fast move+jump the agent keeps driving XZ (the arc is vertical-only), so the
+        // camera trails the player by that constant lag in the TRAVEL direction — which reads worst when the
+        // travel is perpendicular to / away from the view (A/D strafe, S back: the player slides out of frame),
+        // and is hidden when travelling toward the view (W). The fix LEADS the horizontal follow target by the
+        // velocity × leadTime: choosing leadTime = 1/followLerp makes the lead EXACTLY cancel the exponential
+        // follower's steady-state lag (the follower lags by v/k; leading by v/k zeroes the net error), so the
+        // player stays framed through fast move+jump in EVERY direction. It is heading-INDEPENDENT by
+        // construction — it consumes the velocity VECTOR, never a per-direction branch.
+        [Header("Horizontal follow lead (velocity feed-forward, 86caaqhj5)")]
+        [Tooltip("The agent whose HORIZONTAL travel velocity the follow leads by (the player root's NavMeshAgent). " +
+                 "Wired editor-time (MovementCameraScene) so it serializes; null is tolerated (the follow falls " +
+                 "back to a plain lag-prone exponential ease — a bare camera test rig with no agent).")]
+        public UnityEngine.AI.NavMeshAgent followVelocitySource;
+        [Tooltip("Seconds of velocity feed-forward the HORIZONTAL follow leads the target by. Defaults to " +
+                 "1/followLerp (the exact lag-cancelling value: an exponential follower lags v/k = v·(1/k); " +
+                 "leading by velocity·(1/k) zeroes the steady-state lag in ALL directions). Set >0 to override " +
+                 "(more = the camera leads further ahead of the player; the F7 nudge tool dials it live). 0 = " +
+                 "use the 1/followLerp default. Clamped to a sane ceiling so a runaway value can't fling the cam.")]
+        public float followLeadTime = 0f;
+        [Tooltip("Upper clamp (s) on the effective lead time so a dialed/serialized value can never overshoot the " +
+                 "player wildly. 0.25s at run 9.5 u/s = ~2.4u lead — plenty; beyond reads as the camera racing ahead.")]
+        public float maxLeadTime = 0.25f;
 
         // ---- TERRAIN COLLISION (BIG ROUND ISLAND N2, 86ca9a7qn — "player disappears under a hill") ----
         // The orbit rig placed the camera at a fixed distance behind the target with NO terrain awareness, so
@@ -172,6 +205,22 @@ namespace FarHorizon
                 float jumpY = jumpHeightSource != null ? jumpHeightSource.JumpHeight : 0f;
                 Vector3 desired = target.position + targetOffset;
                 desired.y = DesiredFollowY(target.position.y, targetOffset.y, jumpY);
+
+                // HORIZONTAL VELOCITY FEED-FORWARD (86caaqhj5 attempt 2 — the A/S/D jump-pull-back mechanism fix).
+                // Lead the X/Z follow target by the agent's horizontal velocity × leadTime so the exponential
+                // follower's steady-state lag (v/k) is cancelled and the player stays framed through fast move+
+                // jump in ALL directions. Heading-independent: the lead is the velocity VECTOR, no per-dir branch.
+                // Instant snaps (Start / programmatic) skip the lead — there's no motion to lead and we want the
+                // exact head position. The vertical (jump-arc) Y already set above is preserved (lead is XZ-only).
+                if (!instant)
+                {
+                    Vector3 vel = followVelocitySource != null ? followVelocitySource.velocity : Vector3.zero;
+                    float lead = EffectiveLeadTime(followLeadTime, followLerp, maxLeadTime);
+                    Vector3 ledXZ = DesiredFollowXZ(desired, vel, lead);
+                    desired.x = ledXZ.x;
+                    desired.z = ledXZ.z;   // desired.y (jump-arc head Y) left untouched — lead is horizontal only
+                }
+
                 _followPos = instant ? desired
                     : FollowStep(_followPos, desired, followLerp, verticalFollowLerp, Time.deltaTime);
             }
@@ -239,6 +288,44 @@ namespace FarHorizon
         /// </summary>
         public static float DesiredFollowY(float targetY, float offsetY, float jumpHeight)
             => targetY + offsetY + Mathf.Max(0f, jumpHeight);
+
+        /// <summary>
+        /// PURE horizontal-follow velocity feed-forward (the A/S/D jump-pull-back MECHANISM fix, 86caaqhj5
+        /// attempt 2): lead the X/Z follow target by the horizontal velocity × <paramref name="leadTime"/> so
+        /// the exponential follower's STEADY-STATE LAG (v/k) is cancelled and the player stays framed during a
+        /// fast move+jump. The Y is passed through UNCHANGED (the jump-arc head Y is owned by DesiredFollowY;
+        /// the lead is purely horizontal). Only the X/Z components of <paramref name="velocity"/> are used —
+        /// any vertical velocity is ignored (the jump arc is not an agent velocity here). HEADING-INDEPENDENT
+        /// by construction: it adds the velocity VECTOR, never a per-direction branch — so W/A/S/D all get the
+        /// same lag-cancellation (the bug class: the lag READS worst on strafe/back, but the fix is symmetric).
+        /// Static + dependency-free so the EditMode per-direction trace asserts the led target tracks the player
+        /// within tolerance for every heading with no scene/Time dependency.
+        /// </summary>
+        public static Vector3 DesiredFollowXZ(Vector3 desired, Vector3 velocity, float leadTime)
+        {
+            float lt = Mathf.Max(0f, leadTime);
+            return new Vector3(
+                desired.x + velocity.x * lt,
+                desired.y,                       // Y untouched — jump-arc head Y owned by DesiredFollowY
+                desired.z + velocity.z * lt);
+        }
+
+        /// <summary>
+        /// PURE effective lead-time resolution (86caaqhj5 attempt 2): the seconds of velocity feed-forward the
+        /// horizontal follow leads by. A configured value of 0 means "auto" = 1/<paramref name="followLerp"/>,
+        /// the EXACT value that cancels the exponential follower's steady-state lag (the follower lags v/k =
+        /// v·(1/k); leading by v·(1/k) zeroes the net error). A configured value &gt;0 overrides (the F7 nudge
+        /// tool dials this live). The result is clamped to [0, <paramref name="maxLeadTime"/>] so a runaway
+        /// serialized/dialed value can never fling the camera ahead of the player. Static + dependency-free so
+        /// the auto = 1/k contract is unit-asserted with no scene.
+        /// </summary>
+        public static float EffectiveLeadTime(float configured, float followLerp, float maxLeadTime)
+        {
+            float k = Mathf.Max(0.0001f, followLerp);
+            float lead = configured > 0.0001f ? configured : 1f / k;   // 0 = auto (1/k = exact lag-cancel)
+            float ceiling = Mathf.Max(0f, maxLeadTime);
+            return Mathf.Clamp(lead, 0f, ceiling);
+        }
 
         /// <summary>
         /// PURE per-axis follow step (the unit-testable core of the jump-follow-lag fix, ticket 86caa83wn fix
@@ -311,5 +398,10 @@ namespace FarHorizon
         public float Yaw => _yaw;
         public float Pitch => _pitch;
         public float Distance => distance;
+
+        /// <summary>The effective horizontal velocity-lead time (s) in play THIS frame — the resolved
+        /// EffectiveLeadTime(followLeadTime, followLerp, maxLeadTime). Exposed so the F7 CameraFollowNudgeTool
+        /// surfaces the auto-resolved 1/followLerp value the Sponsor is actually getting when followLeadTime=0.</summary>
+        public float EffectiveLead => EffectiveLeadTime(followLeadTime, followLerp, maxLeadTime);
     }
 }

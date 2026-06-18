@@ -82,6 +82,58 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_OrbitCamera_FollowVelocitySource_IsWiredToThePlayerAgent()
+        {
+            // 86caaqhj5 ATTEMPT 2 — the A/S/D jump-pull-back MECHANISM fix. The orbit camera must reference the
+            // player root's NavMeshAgent editor-time so it can LEAD the horizontal follow target by the travel
+            // velocity (cancelling the exponential follower's ~0.41u steady-state lag that read as a directional
+            // 'pulled back' on strafe/back jumps). A null here = the lead regressed → the A/S/D lag returns
+            // (the component-in-source-but-not-in-scene trap; binary scenes can't be GUID-grepped, so this
+            // scene-presence assert is the authoritative reader).
+            var scene = OpenBoot();
+            var orbit = FindInScene<OrbitCamera>(scene);
+            Assert.IsNotNull(orbit);
+            Assert.IsNotNull(orbit.followVelocitySource,
+                "the orbit camera must reference the player's NavMeshAgent so the horizontal follow LEADS the " +
+                "travel velocity — a null reverts to the lagging-follow A/S/D jump-pull-back bug (86caaqhj5 attempt 2)");
+            var agent = FindInScene<NavMeshAgent>(scene);
+            Assert.IsNotNull(agent, "the Boot scene must carry the player's NavMeshAgent");
+            Assert.AreSame(agent, orbit.followVelocitySource,
+                "the orbit camera's followVelocitySource must be the scene's player NavMeshAgent (the travel-velocity owner)");
+            Assert.AreEqual(0f, orbit.followLeadTime, 0.0001f,
+                "followLeadTime ships at 0 = AUTO (1/followLerp, the exact lag-cancel); the F7 tool dials it live");
+        }
+
+        [Test]
+        public void BootScene_OrbitCamera_HorizontalFollowLerp_IsTheTightenedDefault()
+        {
+            // 86caaqhj5 attempt 2 — the horizontal followLerp default was tightened 12->18 so even residual lag
+            // is small (the velocity lead cancels the steady-state lag). A regression back to 12 fails here.
+            var scene = OpenBoot();
+            var orbit = FindInScene<OrbitCamera>(scene);
+            Assert.IsNotNull(orbit);
+            Assert.GreaterOrEqual(orbit.followLerp, 18f,
+                "horizontal followLerp must be the tightened >=18 (was 12) so the camera tracks fast move+jump");
+            Assert.AreEqual(60f, orbit.verticalFollowLerp, 0.001f,
+                "verticalFollowLerp stays 60 (tracks the jump arc Y) — unchanged by the horizontal fix");
+        }
+
+        [Test]
+        public void BootScene_HasCameraFollowNudgeTool_OnBoot()
+        {
+            // 86caaqhj5 attempt 2 — the BUILD-GATED F7 camera-follow nudge tool must SERIALIZE onto Boot so the
+            // Sponsor can dial the follow gains in-game (the precision handoff). Inert until F7 — a normal soak
+            // never sees it. A missing component ships the handle inert (the component-in-source-but-not-in-scene
+            // trap); this scene-presence assert is the authoritative reader for the binary scene.
+            var scene = OpenBoot();
+            var tool = FindInScene<CameraFollowNudgeTool>(scene);
+            Assert.IsNotNull(tool,
+                "the Boot scene must carry the F7 CameraFollowNudgeTool (the jump-pull-back precision handoff)");
+            Assert.AreEqual(KeyCode.F7, tool.toggleKey,
+                "the camera-follow nudge tool must toggle on F7 (FloatDiagnostic F8 / Axe F9 / WorldLook F10 — no collision)");
+        }
+
+        [Test]
         public void BootScene_OrbitCamera_PitchClampIs8to70_Default55()
         {
             // drew/ocean-camera-fix: the shipped Boot.unity orbit camera must carry the WIDENED pitch band

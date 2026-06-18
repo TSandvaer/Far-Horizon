@@ -842,6 +842,24 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED debug CameraFollowNudgeTool onto the Boot object so it SERIALIZES into Boot.unity
+        // (the editor-vs-runtime trap — a component in source but not in the scene ships inert). INERT in normal
+        // play (asleep behind the F7 toggle); lets the Sponsor dial the OrbitCamera follow gains (horizontal /
+        // vertical lerp + lead time) in-game while jumping in every direction and read the values to bake
+        // (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision handoff).
+        private static void WireCameraFollowNudgeTool()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CameraFollowNudgeTool");
+                return;
+            }
+            if (bootGo.GetComponent<CameraFollowNudgeTool>() == null)
+                bootGo.AddComponent<CameraFollowNudgeTool>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         private static void WireCastawayVerifyCapture()
         {
             var bootGo = GameObject.Find("Boot");
@@ -1468,6 +1486,12 @@ namespace FarHorizon.EditorTools
             // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
             WireFloatDiagnosticVerifyCapture();
 
+            // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
+            // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
+            // OrbitCamera follow gains (horizontal/vertical lerp + lead time) live while jumping W/A/S/D, then
+            // read the values to bake — the "build the knob, don't grind blind iterations" handle.
+            WireCameraFollowNudgeTool();
+
             // Wire the GAMEPLAY-CAM walk-grounding capture (86ca8rdkp attempt-9 — the WALK-clip body-lift fix).
             // Captures from the REAL OrbitCamera (not an isolated rig — the false-green class) at 3 positions ×
             // standing/mid-stride so the Sponsor/orchestrator judge feet-on-sand exactly as gameplay frames it.
@@ -1603,6 +1627,14 @@ namespace FarHorizon.EditorTools
             // component-in-source-but-not-in-scene trap). The avatar (CastawayCharacter) is a child of the player
             // root, built by BuildPlayer just before this; resolve it from the children.
             orbit.jumpHeightSource = player.GetComponentInChildren<CastawayCharacter>(true);
+            // 86caaqhj5 ATTEMPT 2 — HORIZONTAL follow velocity feed-forward (the A/S/D jump-pull-back MECHANISM
+            // fix). Wire the player root's NavMeshAgent so the camera LEADS the horizontal follow target by the
+            // travel velocity × leadTime — cancelling the exponential follower's steady-state lag (v/k ≈ 0.41u
+            // measured) that read as a directional 'pulled back' on strafe/back jumps. Wired editor-time so it
+            // SERIALIZES into Boot.unity (no Awake lookup in the build — the component-in-source-but-not-in-scene
+            // trap). The agent lives on the player root (BuildPlayer added it just before this).
+            orbit.followVelocitySource = player.GetComponent<UnityEngine.AI.NavMeshAgent>();
+            orbit.followLeadTime = 0f;   // 0 = auto (1/followLerp = the exact lag-cancelling lead); F7-dialable
             orbit.defaultPitch = 55f;   // Sponsor-preferred top-down-ish framing (inside 8-70) — LOCKED
             // Floor WIDENED 35->8 (drew/ocean-camera-fix): lets the Sponsor tilt down to the horizon +
             // see the seaward beach ocean (the 35 floor framed the sea as a far fogged "grey pond" —

@@ -160,6 +160,8 @@ namespace FarHorizon
             // be more than one in a scene, and the active one is the one that must be silenced).
             foreach (var world in Object.FindObjectsByType<WorldLookNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 world.Deactivate();
+            foreach (var cam in Object.FindObjectsByType<CameraFollowNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                cam.Deactivate();
             _active = true;
             Resolve();
             LogCurrent();

@@ -18,8 +18,9 @@ namespace FarHorizon.EditTests
     /// </summary>
     public class OrbitCameraFollowTests
     {
-        // Production defaults (OrbitCamera.followLerp / verticalFollowLerp).
-        private const float HorizLerp = 12f;
+        // Production defaults (OrbitCamera.followLerp / verticalFollowLerp). HorizLerp 12->18 in 86caaqhj5
+        // attempt 2 (tightened so even residual lag is small; the velocity lead cancels the steady-state lag).
+        private const float HorizLerp = 18f;
         private const float VertLerp = 60f;
         private const float Dt = 1f / 60f; // a 60fps frame
 
@@ -57,10 +58,11 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void HorizontalFollow_FeelIsUnchanged_MatchesTheOldSmoothRate()
+        public void HorizontalFollow_UsesTheHorizontalLerp_OnXZ_NotTheVerticalRate()
         {
-            // The X/Z follow must be EXACTLY the old single-rate smooth ease (followLerp) — the fix only changes
-            // the vertical axis, so the ground walk/run camera feel is byte-identical to before.
+            // The X/Z follow must use the HORIZONTAL followLerp (not the fast verticalFollowLerp) — FollowStep
+            // applies the slower horizontal rate to X/Z and the fast rate to Y only. (86caaqhj5 attempt 2 raised
+            // the horizontal default 12->18, but the AXIS contract — X/Z on horizLerp — is what this pins.)
             Vector3 current = new Vector3(0f, 0f, 0f);
             Vector3 desired = new Vector3(2f, 0f, 3f);
             Vector3 stepped = OrbitCamera.FollowStep(current, desired, HorizLerp, VertLerp, Dt);
@@ -150,6 +152,154 @@ namespace FarHorizon.EditTests
         // cursor is NEVER touched while RMB isn't held. These pin the BUG CLASS (cursor walks off-screen while
         // orbiting; cursor stays locked after release), not one instance — with no Input/Cursor dependency.
         // =================================================================================================
+
+        // =================================================================================================
+        // ATTEMPT 2 — HORIZONTAL follow VELOCITY FEED-FORWARD (the A/S/D jump-pull-back MECHANISM fix, 86caaqhj5).
+        // The vertical fix (DesiredFollowY) made the camera track the jump arc Y, but A/S/D jumps STILL failed:
+        // the HORIZONTAL follow lagged the player through the fast move+jump. A pure exponential follower trails
+        // a constant-velocity target by a STEADY v/k (k=followLerp); the diag measured ~0.41u symmetric across
+        // all 4 headings. The fix LEADS the X/Z follow target by velocity × leadTime, with leadTime = 1/k chosen
+        // to EXACTLY cancel that steady-state lag — heading-independent by construction. These pin the BUG CLASS
+        // (the led follow must track the player within tolerance in EVERY direction; the lag-cancel is symmetric),
+        // with no scene/Time dependency. The PER-DIRECTION TRACE is the diagnose-via-trace evidence (brief req 1).
+        // =================================================================================================
+
+        // Production lead defaults (OrbitCamera.followLeadTime auto / maxLeadTime).
+        private const float AutoLead = 0f;       // 0 = auto (= 1/followLerp)
+        private const float MaxLead = 0.25f;
+
+        [Test]
+        public void EffectiveLeadTime_AutoEqualsOneOverFollowLerp_TheExactLagCancel()
+        {
+            // followLeadTime 0 means AUTO = 1/followLerp — the exact value that cancels an exponential follower's
+            // steady-state lag (it lags v/k = v·(1/k); leading by v·(1/k) zeroes the net error).
+            float lead = OrbitCamera.EffectiveLeadTime(AutoLead, HorizLerp, MaxLead);
+            Assert.AreEqual(1f / HorizLerp, lead, 1e-6f,
+                "auto lead (followLeadTime=0) must resolve to 1/followLerp — the exact steady-state-lag cancel.");
+        }
+
+        [Test]
+        public void EffectiveLeadTime_ClampsRunawayConfiguredValue_NeverFlingsTheCamera()
+        {
+            // A dialed/serialized value beyond maxLeadTime must clamp — a runaway lead can never fling the cam.
+            Assert.AreEqual(MaxLead, OrbitCamera.EffectiveLeadTime(99f, HorizLerp, MaxLead), 1e-6f,
+                "an over-large configured lead must clamp to maxLeadTime.");
+            Assert.AreEqual(0f, OrbitCamera.EffectiveLeadTime(0f, HorizLerp, 0f), 1e-6f,
+                "maxLeadTime 0 disables the lead entirely (back to the plain lag-prone ease).");
+        }
+
+        [Test]
+        public void HorizontalFollow_PerDirectionTrace_AllFourHeadingsTrackWithinTolerance()
+        {
+            // DIAGNOSE-VIA-TRACE (brief req 1): simulate a constant-velocity move + jump for each of W/A/S/D at
+            // the WASD walk speed, with the velocity-feed-forward lead engaged, and assert the camera follow
+            // point tracks the player's HORIZONTAL position within a tight tolerance in EVERY direction (the W-
+            // only pass shipped before — this proves all 4 now track). The lag the Sponsor saw was ~0.41u; with
+            // the lead-cancel the residual must be a small fraction of that. Also asserts the residual is
+            // SYMMETRIC across headings (the bug was never direction-specific in the code).
+            const float speed = 5.5f;                          // WASD walk speed
+            (string name, Vector3 dir)[] headings =
+            {
+                ("W (forward)", new Vector3(0f, 0f, 1f)),
+                ("S (back)",    new Vector3(0f, 0f, -1f)),
+                ("A (left)",    new Vector3(-1f, 0f, 0f)),
+                ("D (right)",   new Vector3(1f, 0f, 0f)),
+            };
+
+            float lead = OrbitCamera.EffectiveLeadTime(AutoLead, HorizLerp, MaxLead);
+            float worst = 0f;
+            var residuals = new System.Collections.Generic.List<float>();
+            var trace = new System.Text.StringBuilder("[CameraFollowTrace] per-direction horizontal follow (lead="
+                                                       + lead.ToString("F4") + "s):\n");
+
+            foreach (var (name, dir) in headings)
+            {
+                Vector3 vel = dir * speed;
+                Vector3 playerPos = Vector3.zero;             // the player's actual XZ (root)
+                Vector3 follow = playerPos;                    // camera follow point starts on the player
+                // Simulate ~1.0s of constant-velocity move+jump (60 frames) — long enough to reach the follower's
+                // steady state (the regime the lag lives in). The jump Y is irrelevant to the HORIZONTAL track.
+                for (int f = 0; f < 60; f++)
+                {
+                    playerPos += vel * Dt;
+                    // The desired follow target = the player XZ, LED by the velocity feed-forward (the fix).
+                    Vector3 desired = OrbitCamera.DesiredFollowXZ(playerPos, vel, lead);
+                    follow = OrbitCamera.FollowStep(follow, desired, HorizLerp, VertLerp, Dt);
+                }
+                float residual = new Vector2(follow.x - playerPos.x, follow.z - playerPos.z).magnitude;
+                residuals.Add(residual);
+                worst = Mathf.Max(worst, residual);
+                trace.AppendLine($"  {name,-12} vel={vel} residual={residual:F4}u");
+            }
+            UnityEngine.Debug.Log(trace.ToString());
+
+            // (1) ALL 4 headings track within tolerance — the residual is a small fraction of the ~0.41u lag.
+            Assert.Less(worst, 0.05f,
+                $"every heading's horizontal follow residual must be < 0.05u (the ~0.41u lag is cancelled by the " +
+                $"velocity lead); worst was {worst:F4}u. The W-only pass shipped before — all 4 must track now.");
+
+            // (2) The residual is SYMMETRIC across headings (the lag was never direction-specific in the code).
+            float min = residuals[0], max = residuals[0];
+            foreach (var r in residuals) { min = Mathf.Min(min, r); max = Mathf.Max(max, r); }
+            Assert.Less(max - min, 1e-4f,
+                $"the horizontal follow residual must be identical across W/A/S/D (it consumes the velocity " +
+                $"VECTOR, no per-direction branch); spread was {(max - min):F6}u.");
+        }
+
+        [Test]
+        public void HorizontalFollow_WithoutLead_StillLags_ProvesTheLeadIsLoadBearing()
+        {
+            // The bug-class anchor: with NO lead (leadTime 0, no feed-forward applied), the same simulation
+            // leaves a real steady-state lag ≈ v/k — proving the lead term is what fixes it (not the tighter
+            // followLerp alone). This is the "could a wrong-version pass?" guard: it must FAIL to track without
+            // the lead, so the passing per-direction trace above is meaningful.
+            const float speed = 5.5f;
+            Vector3 vel = new Vector3(1f, 0f, 0f) * speed;     // D strafe
+            Vector3 playerPos = Vector3.zero, follow = Vector3.zero;
+            for (int f = 0; f < 60; f++)
+            {
+                playerPos += vel * Dt;
+                // NO lead — desired is the raw player XZ (the OLD lag-prone behaviour).
+                Vector3 desired = OrbitCamera.DesiredFollowXZ(playerPos, Vector3.zero, 0f);
+                follow = OrbitCamera.FollowStep(follow, desired, HorizLerp, VertLerp, Dt);
+            }
+            float residual = Mathf.Abs(follow.x - playerPos.x);
+            // Steady-state lag of an exponential follower at constant v is v/k. At v=5.5, k=18 → ~0.31u.
+            Assert.Greater(residual, 0.2f,
+                $"WITHOUT the velocity lead the horizontal follow must still lag (got {residual:F4}u ≈ v/k) — " +
+                "this proves the lead term (not just the tighter followLerp) is the load-bearing fix.");
+        }
+
+        [Test]
+        public void CameraFollowNudgeTool_Activate_ForcesSiblingNudgePanelsOff_NoCrossFire()
+        {
+            // The F7 camera-follow panel shares adjust keys (PageUp/PageDown/T/G/Y/H) with the axe + world-look
+            // panels, so activating it must force the siblings OFF — only one nudge panel ever active, no
+            // cross-fire. EditMode component instances (no play loop needed — Activate/Deactivate are pure state
+            // toggles). Cleaned up via DestroyImmediate (no PlayMode fixture).
+            var axeGo = new GameObject("axe"); var axe = axeGo.AddComponent<AxeNudgeTool>();
+            var worldGo = new GameObject("world"); var world = worldGo.AddComponent<WorldLookNudgeTool>();
+            var camGo = new GameObject("camfollow"); var cam = camGo.AddComponent<CameraFollowNudgeTool>();
+            try
+            {
+                axe.Activate();   // axe panel up first
+                Assert.IsTrue(axe.IsActive, "precondition: the axe panel is active");
+
+                cam.Activate();   // activating the camera panel must silence the axe panel
+                Assert.IsTrue(cam.IsActive, "the camera-follow panel must be active after Activate()");
+                Assert.IsFalse(axe.IsActive, "activating the camera-follow panel must force the axe panel OFF (no cross-fire)");
+
+                // ...and the reverse: an axe/world activation silences the camera panel.
+                world.Activate();
+                Assert.IsFalse(cam.IsActive, "activating the world-look panel must force the camera-follow panel OFF");
+            }
+            finally
+            {
+                Object.DestroyImmediate(axeGo);
+                Object.DestroyImmediate(worldGo);
+                Object.DestroyImmediate(camGo);
+            }
+        }
 
         [Test]
         public void Cursor_OnRmbPressEdge_LocksAndHides()
