@@ -154,7 +154,10 @@ namespace FarHorizon.EditorTools
         // (0.0512,0.2009,-0.0407)), so it VISUALLY matches his approved screenshot seat. He does ONE final
         // micro-dial in the FIXED (hand-local) F9 tool to lock it — expected, since the old world dial can't
         // round-trip 1:1 into the new frame. F9 AxeNudgeTool still drives this field.
-        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.0512f, 0.2009f, -0.0407f);
+        // 86caa83wn soak #5 (build 2d90a68, 2026-06-18): the Sponsor LOCKED the FINAL held-axe seat via the F9
+        // panel in the now-correct hand-local frame and asked to bake it as the shipped default. SUPERSEDES the
+        // derived-from-soak-#3 placeholder (0.0512,0.2009,-0.0407). FINAL hand-local offset below. F9 still drives it.
+        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1312f, 0.1409f, 0.0593f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").

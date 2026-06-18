@@ -107,9 +107,9 @@ namespace FarHorizon.EditTests
             // value that visually matches his approved screenshot seat; he micro-dials from here in the fixed
             // F9 tool. A revert to the old WORLD constant (or a different default) reds here.
             Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand,
-                Is.EqualTo(new Vector3(0.0512f, 0.2009f, -0.0407f)),
-                $"HeldAxeLocalOffsetFromHand must ship the approved-spawn-seat-as-hand-local default " +
-                $"(0.0512,0.2009,-0.0407); got {MovementCameraScene.HeldAxeLocalOffsetFromHand}.");
+                Is.EqualTo(new Vector3(0.1312f, 0.1409f, 0.0593f)),
+                $"HeldAxeLocalOffsetFromHand must ship the Sponsor's soak-#5 LOCKED hand-local seat " +
+                $"(0.1312,0.1409,0.0593); got {MovementCameraScene.HeldAxeLocalOffsetFromHand}.");
         }
     }
 }
