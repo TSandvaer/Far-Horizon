@@ -36,24 +36,39 @@ namespace FarHorizon.EditorTools
         // REGRESSION FIX (86caarn6y): 160 was sized for the spawn-locked play area, but WASD (#63) + run (#68)
         // now let the player roam the full ~240u-diameter island (IslandShoreR 120). Orbiting back across the
         // island puts the far shore beyond 160u of the camera eye, re-entering the boundary ring into visible
-        // grass. 360 clears the worst-case vantage: island diameter 240 + max orbit reach 26 = 266u, plus ~35%
-        // headroom above the cascade-border fade band. Sized to the WHOLE roamable island from any vantage.
-        public const float ShadowDistanceU = 360f;     // was 160 (spawn-locked era); 50 URP-default before that
-        public const float ShadowCascadeBorder = 0.35f; // wider fade band than the 0.2 default (soft boundary)
+        // grass.
+        // PERSISTENT-FLICKER FIX (86caayvfz, 2nd pass): 4 cascades killed the NEAR-field crawl but the Sponsor
+        // STILL saw flicker (build a5282c6: "still present, maybe too aggressive"). Diagnosis: the 360u distance
+        // forces every cascade to stretch thin -> the FAR cascades (cascade 2/3 spanning ~168u..360u) still sit
+        // at only ~5 texels/unit, so mid/far shadow edges crawl no matter how dense the near cascade is. More
+        // cascades cannot fix the far field at 360u — the budget is simply spread over too much world. The
+        // Sponsor's "too aggressive" hint is the real lever: combine (1) SOFT (filtered) shadows so the edge is
+        // blurred across texels and per-frame texel-quantization stops reading as flicker, (2) a GENTLER band fix
+        // — back the distance OFF to 220u (still clears the gameplay-framed grass + roam reach) and let a WIDER
+        // cascade-border (0.5) fade the boundary softly in the far distance where the Exp2 fog already hides it,
+        // instead of shoving distance past the whole island, and (3) a denser 4096 shadow map. 220u (vs 360u)
+        // is also 1.6x denser per cascade everywhere, independently cutting crawl. This is the "fade the band
+        // gently instead of pushing distance huge" approach the ticket invited.
+        public const float ShadowDistanceU = 220f;     // was 360 (band-clear-by-distance); 160/50 earlier
+        public const float ShadowCascadeBorder = 0.5f; // wider soft fade so the boundary never reads as a hard band
 
-        // FLICKER FIX (86caayvfz): the 360u distance above on a SINGLE cascade stretched the 2048^2 main-light
-        // shadow map over the whole frustum -> ~4 texels/world-unit near-field (vs ~9 at the prior 160u, ~18 at
-        // the URP-default 50u). At that texel density the shadow edge crawls between texel-quantization steps as
-        // the camera/player moves -> shimmer the Sponsor read as "light flickering / lag" (build adde6b0). The
-        // lever flagged at the 360 fix ("if crispness regresses, +1 cascade") is the minimal kill: split the
-        // 360u frustum across 4 cascades so the NEAR cascade carries the full 2048^2 over only the first slice
-        // (~24u at the default 6.7% split) -> ~85 texels/unit near-field, DENSER than even the old 50u build,
-        // while shadowDistance stays 360 so the green-line band stays gone. Splits are the URP 4-cascade
-        // defaults (cascade0 ends 6.7%, c1 20%, c2 46.7% of 360u); cascadeBorder 0.35 still softens the OUTER
-        // boundary. Cost: 4 shadow-map render passes vs 1 on the single directional light -> negligible on the
-        // static low-poly world (one sun, no additional-light shadows; m_AdditionalLightShadowsSupported 0).
-        public const int ShadowCascadeCount = 4;        // was 1 (single stretched cascade -> shimmer)
+        // 4 cascades stay: the near cascade still carries the densest texels (the near-field crawl fix from the
+        // 1st pass). With distance backed to 220u the splits cover: cascade0 0..14.7u, c1 ..44u, c2 ..103u,
+        // c3 ..220u — every cascade is denser than at 360u. Splits are the URP 4-cascade defaults.
+        public const int ShadowCascadeCount = 4;
         public static readonly Vector3 ShadowCascade4Split = new Vector3(0.067f, 0.2f, 0.467f); // URP 4-cascade default
+
+        // SOFT (filtered) main-light shadows: the 7x7 tent filter (m_SoftShadowQuality 2, already High) blurs the
+        // shadow edge across multiple texels so the per-frame texel snap that reads as "flicker" is averaged out
+        // — the direct flicker kill the cascade work alone could not deliver, and it reads SOFTER ("less
+        // aggressive" per the Sponsor). m_SoftShadowsSupported is serialized-only (the public supportsSoftShadows
+        // is get-only), so it's set via SerializedObject in ConfigureUrp, the same pattern the project uses for
+        // m_AlwaysIncludedShaders. Cost: a wider PCF tap on one directional light — negligible static-world cost.
+        public const bool SoftShadows = true;
+        // Denser shadow map: 4096 doubles linear texel density across ALL cascades vs 2048 (the brute density
+        // lever, cheap for ONE static directional light with no additional-light shadows). Backs up the
+        // distance-reduction + soft filter so far cascades also hold up.
+        public const int MainLightShadowmapResolution = 4096; // was 2048
         private const string UrpRendererPath = SettingsDir + "/FarHorizonRenderer.asset";
         private const string BootScenePath = ScenesDir + "/Boot.unity";
         private const string BuildStampPath = ResourcesDir + "/BuildStamp.txt";
@@ -128,22 +143,45 @@ namespace FarHorizon.EditorTools
             // scatter, vanishes with -noShadows, MOVES with -shadowDist, and TRACKS the camera when it pans,
             // i.e. a camera-relative ring that reads "world-fixed" because the orbit stayed over spawn.)
             // REGRESSION (86caarn6y): 160 cleared the spawn-locked area, but WASD (#63) + run (#68) let the
-            // player roam the full ~240u-diameter island, so the far shore re-enters the ring; ShadowDistanceU
-            // is now 360 to clear the whole roamable island from any orbit vantage (see the const for the math).
-            // FIX: push shadowDistance out past the roamable area + widen the cascade-border fade so the
-            // boundary never lands in frame AND fades softly if it ever does. This is the URP shadow DISTANCE
-            // setting — it PRESERVES the tree shadows near spawn (well within 360u) and does NOT touch the Sun
-            // light or the tree-shadow setup (the ticket's OOS). Set here so it bakes into FarHorizonURP.asset
-            // reproducibly on every bootstrap (not a hand-edit that silently reverts).
+            // player roam the full ~240u-diameter island, so the far shore re-enters the ring.
+            // PERSISTENT-FLICKER FIX (86caayvfz, 2nd pass): the 360u distance was the root of the lingering
+            // shimmer — it stretched even 4 cascades thin in the FAR field (~5 texels/unit). Back the distance
+            // OFF to 220u + widen the cascade-border fade (0.5) so the boundary fades GENTLY in the far distance
+            // (where fog hides it) instead of as a hard band — the gentler band fix the ticket invited — while
+            // SOFT shadows + a 4096 map kill the crawl percept. PRESERVES the tree shadows near spawn (well
+            // within 220u) and does NOT touch the Sun light / tree-shadow setup (the ticket's OOS). Set here so
+            // it bakes into FarHorizonURP.asset reproducibly on every bootstrap (not a hand-edit that reverts).
             urp.shadowDistance = ShadowDistanceU;
             urp.cascadeBorder = ShadowCascadeBorder;
-            // 86caayvfz: 4 cascades recover near-field texel density at the 360u distance (kills the shimmer
-            // the single stretched cascade caused) while keeping the green-line distance fix intact. Splits set
-            // to the URP 4-cascade defaults so the near cascade is the densest slice. See the const block above.
+            // 4 cascades stay (near-field density). Splits set to the URP 4-cascade defaults. See const block.
             urp.shadowCascadeCount = ShadowCascadeCount;
             urp.cascade4Split = ShadowCascade4Split;
+            // 4096 main-light shadow map (was 2048): doubles linear texel density across all cascades. Public
+            // mainLightShadowmapResolution is settable.
+            urp.mainLightShadowmapResolution = MainLightShadowmapResolution;
             AssetDatabase.CreateAsset(urp, UrpAssetPath);
             AssetDatabase.SaveAssets();
+
+            // SOFT (filtered) shadows: m_SoftShadowsSupported is serialized-only (public supportsSoftShadows is
+            // get-only), so set it via SerializedObject after the asset is on disk — the same SerializedObject
+            // editor-write pattern the project uses for m_AlwaysIncludedShaders (CharacterAssetGen/WorldBootstrap).
+            // The 7x7 tent filter (m_SoftShadowQuality already 2 = High) blurs the shadow edge across texels so
+            // the per-frame texel snap that reads as flicker is averaged out. This is the direct kill for the
+            // "still flickering / too aggressive" percept (build a5282c6) that the cascade work alone could not
+            // deliver. SaveAssets after so the flag persists into the committed FarHorizonURP.asset.
+            var urpSo = new SerializedObject(urp);
+            var softProp = urpSo.FindProperty("m_SoftShadowsSupported");
+            if (softProp != null)
+            {
+                softProp.boolValue = SoftShadows;
+                urpSo.ApplyModifiedPropertiesWithoutUndo();
+                AssetDatabase.SaveAssets();
+            }
+            else
+            {
+                Debug.LogWarning("[BootstrapProject] m_SoftShadowsSupported not found on URP asset — " +
+                    "soft shadows NOT enabled; the flicker fix is incomplete (86caayvfz)");
+            }
 
             GraphicsSettings.defaultRenderPipeline = urp;
             int levels = QualitySettings.names.Length;

@@ -190,35 +190,54 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void Shadows_DistanceClearsRoamableIsland_AndMultiCascadeKillsShimmer()
+        public void Shadows_BandGoneViaSoftFade_AndFlickerKilledBySoftFilterPlusDensity()
         {
-            // GREEN-LINE FIX (86ca9qwr3 / 86caarn6y) + FLICKER FIX (86caayvfz), guarded as ONE contract:
-            //   (a) shadowDistance must cover the WHOLE roamable island from any orbit vantage, or the
-            //       URP shadow-distance boundary re-enters the framed grass as a dark "green line" band
-            //       (the off-origin regression that re-opened the band once WASD+run let the player roam).
-            //   (b) the main-light shadow map must be split across MULTIPLE cascades, or that same 360u
-            //       distance on a SINGLE 2048^2 cascade stretches to ~4 texels/world-unit near-field and
-            //       the shadow edge crawls texel-by-texel as the camera moves -> the "light flickering /
-            //       lag" shimmer the Sponsor flagged (build adde6b0). A single stretched cascade is the
-            //       bug class this guards against; >=2 recovers near-field density (we ship 4).
+            // GREEN-LINE FIX (86ca9qwr3 / 86caarn6y) + FLICKER FIX (86caayvfz, 2nd pass), guarded as ONE
+            // contract. The 1st-pass approach (push shadowDistance to 360u + 4 cascades) cleared the band
+            // but the Sponsor STILL saw flicker (build a5282c6: "still present, maybe too aggressive") —
+            // because 360u stretches even 4 cascades thin in the FAR field (~5 texels/unit). The fix swaps
+            // the band strategy from "huge distance" to "GENTLE soft fade" + kills the crawl percept with
+            // SOFT shadows + a denser map:
+            //   (a) Band-gone via SOFT FADE, not huge distance: a moderate distance that covers the framed
+            //       grass + roam reach, PAIRED with a WIDE cascade-border so the boundary fades softly in
+            //       the far distance (where fog hides it) instead of as a hard band. Distance no longer has
+            //       to span the whole island — so it must NOT regress back to the huge 360u (re-opens the
+            //       far-field crawl) NOR shrink below the framed play area (re-opens the band).
+            //   (b) Flicker-killed by SOFT (filtered) shadows: the 7x7 tent filter blurs the edge across
+            //       texels so per-frame texel-quantization stops reading as flicker. This is the direct kill
+            //       the cascade work alone could not deliver. m_SoftShadowsSupported must be ON.
+            //   (c) Density backstop: 4 cascades (near-field) + a 4096 main-light map (all cascades). A single
+            //       cascade or a low-res map re-opens the crawl.
             // Read the COMMITTED URP asset (the bytes the exe ships), not a runtime tautology.
             var urp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(
                 "Assets/Settings/FarHorizonURP.asset");
             Assert.IsNotNull(urp, "the committed FarHorizonURP.asset must load as a UniversalRenderPipelineAsset");
 
-            // (a) Band-gone: distance must clear island diameter (~240u) + max orbit reach (~26u) with
-            // headroom. 360 is the shipped value; assert it stays >= the worst-case-vantage minimum so a
-            // future shrink (back toward 160/50) re-opening the band fails here, not at the Sponsor soak.
-            Assert.GreaterOrEqual(urp.shadowDistance, 300f,
-                "shadowDistance must clear the whole roamable island (~266u worst-case vantage) or the " +
-                "shadow-distance boundary re-enters the framed grass as the green-line band (86caarn6y)");
+            // (a) Band-gone via soft fade: distance must cover the framed grass + roam reach (>= ~180u) but
+            // must NOT regress to the huge 360u that re-opens the far-field crawl (<= ~280u). The wide
+            // cascade-border (>= 0.45) is what actually fades the boundary now, not the distance.
+            Assert.GreaterOrEqual(urp.shadowDistance, 180f,
+                "shadowDistance must cover the gameplay-framed grass + roam reach or the shadow-distance " +
+                "boundary re-enters the visible grass as the green-line band (86caarn6y)");
+            Assert.LessOrEqual(urp.shadowDistance, 280f,
+                "shadowDistance must NOT regress to the huge 360u band-by-distance approach — that stretches " +
+                "even 4 cascades thin in the far field and re-opens the flicker (86caayvfz 2nd pass)");
+            Assert.GreaterOrEqual(urp.cascadeBorder, 0.45f,
+                "cascadeBorder must stay wide (>=0.45) — the soft fade is what removes the band now that the " +
+                "distance is moderate, not a hard cutoff pushed past the island (86caayvfz 2nd pass)");
 
-            // (b) Shimmer-killed: multiple cascades so the near cascade carries dense texels at 360u.
-            // A single cascade over this distance is exactly the flicker the Sponsor saw (86caayvfz).
+            // (b) Flicker-killed by SOFT (filtered) shadows — the load-bearing new lever this pass.
+            Assert.IsTrue(urp.supportsSoftShadows,
+                "soft (filtered) shadows must be ON — the 7x7 tent filter blurs the shadow edge so texel " +
+                "crawl stops reading as 'flicker / too aggressive' (86caayvfz 2nd pass, build a5282c6)");
+
+            // (c) Density backstop: 4 cascades (near) + 4096 map (all cascades).
             Assert.GreaterOrEqual(urp.shadowCascadeCount, 2,
-                "main-light shadows must use >=2 cascades — a SINGLE cascade stretched over the 360u " +
-                "distance crawls/shimmers near-field (the 'light flickering / lag' bug, 86caayvfz); " +
-                "we ship 4 to recover near-field texel density while keeping the band-clearing distance");
+                "main-light shadows must use >=2 cascades for near-field texel density (we ship 4); a single " +
+                "cascade crawls (86caayvfz)");
+            Assert.GreaterOrEqual(urp.mainLightShadowmapResolution, 4096,
+                "main-light shadow map must be >=4096 — doubling density vs 2048 across all cascades backs up " +
+                "the distance-reduction + soft filter so far cascades hold up (86caayvfz 2nd pass)");
         }
 
         [Test]
