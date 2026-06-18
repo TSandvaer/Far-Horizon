@@ -135,10 +135,26 @@ namespace FarHorizon.EditorTools
         // AxeNudgeTool. The F9 AxeNudgeTool still drives these fields so he can re-tune.
         // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed
         // the FINAL held-axe seat via F9 and asked to bake it as the new shipped default (applies WITHOUT F9):
-        // HeldAxeWorldOffsetFromHand = (0.0707,-0.1988,-0.0111), HeldAxeRelEuler = (12,-8,-82). This SUPERSEDES
-        // the prior soak-#1 bake (-0.1502,-0.1602,-0.0528) / (16,2,-82). F9 AxeNudgeTool still drives these.
+        // HeldAxeRelEuler = (12,-8,-82). This SUPERSEDES the prior soak-#1 bake (16,2,-82). F9 drives it.
         public static readonly Vector3 HeldAxeRelEuler = new Vector3(12.0f, -8.0f, -82.0f);
-        public static readonly Vector3 HeldAxeWorldOffsetFromHand = new Vector3(0.0707f, -0.1988f, -0.0111f);
+        // 86caa83wn soak #4 (cursor-lock OK; the held-axe seat did NOT reproduce his F9-dialed look AFTER
+        // PICKUP). ROOT CAUSE: the seat offset was an end-to-end WORLD-frame round-trip — the F9 tool DIALED +
+        // DISPLAYED + BAKED a WORLD vector (HeldAxeWorldOffsetFromHand), converted to the rig's hand-local field
+        // via Inverse(hand.rotation) AT BAKE-TIME's spawn facing. So the dialed value only described the seat at
+        // the FACING he dialed it at; at a different facing (a fresh pickup) the (dial-facing − bake-facing) yaw
+        // delta injected into the offset's X/Z (world-Y is yaw-invariant → Y reproduced; X/Z did NOT — exactly
+        // his screenshot evidence: baked X=0.0707/Z=-0.0111, fresh pickup X=-0.0600/Z=0.0421). FIX — the offset
+        // is now HAND-LOCAL END TO END: the constant below IS the rig's hand-local field (NO Inverse(hand.rotation)
+        // conversion at bake), the F9 tool dials + displays it in the SAME hand-local frame, and the rig applies
+        // it as hand.rotation * offset every frame. The euler was already hand-relative (facing-invariant) — KEPT.
+        // The seat is now IDENTICAL at every facing AND for every acquire path (spawn-in-hand == picked-up),
+        // because no hand.rotation ever enters the dial/display/bake. DEFAULT VALUE: the Sponsor's soak-#3
+        // APPROVED spawn seat (old world (0.0707,-0.1988,-0.0111)) expressed in the hand-local frame — derived
+        // deterministically from the bake-log conversion at the spawn bone rotation (handLocalOffset=
+        // (0.0512,0.2009,-0.0407)), so it VISUALLY matches his approved screenshot seat. He does ONE final
+        // micro-dial in the FIXED (hand-local) F9 tool to lock it — expected, since the old world dial can't
+        // round-trip 1:1 into the new frame. F9 AxeNudgeTool still drives this field.
+        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.0512f, 0.2009f, -0.0407f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -517,15 +533,14 @@ namespace FarHorizon.EditorTools
             var rig = axe.GetComponent<HeldAxeRig>();
             if (rig == null) rig = axe.AddComponent<HeldAxeRig>();
             rig.hand = hand;
-            // AC2 — PRESERVE THE SPONSOR'S PERFECTED LOOK. His F9-dialed default (HeldAxeWorldOffsetFromHand)
-            // was a RAW WORLD offset under the prior soakfix9 formula (position = hand.position + worldOffset).
-            // The new HAND-LOCAL formula is position = hand.position + hand.rotation * offset, so to land the
-            // IDENTICAL world position at the spawn facing the field must hold the offset expressed in the hand's
-            // LOCAL frame: offset_handlocal = Inverse(hand.rotation) * dialedWorldOffset. Converted from the
-            // REAL hand rotation present at bake time (NOT a guessed bone rotation) so it is exact at spawn AND
-            // now correct at every other facing. (The constant stays the Sponsor's dialed WORLD value — the
-            // source of truth he re-confirms at soak; the conversion to the rig's hand-local field happens here.)
-            Vector3 handLocalOffset = Quaternion.Inverse(hand.rotation) * HeldAxeWorldOffsetFromHand;
+            // 86caa83wn soak #4 — the seat offset is HAND-LOCAL END TO END (the seat-doesn't-stick fix). The
+            // constant HeldAxeLocalOffsetFromHand IS the rig's hand-local field — baked DIRECTLY with NO
+            // Inverse(hand.rotation) conversion. The old code converted a WORLD constant at the bake-time spawn
+            // facing, which made the dialed seat facing-specific (the (dial-facing − bake-facing) yaw delta
+            // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
+            // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
+            // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
+            Vector3 handLocalOffset = HeldAxeLocalOffsetFromHand;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
             rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
             // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
@@ -547,14 +562,15 @@ namespace FarHorizon.EditorTools
             // run with no play loop -> the rig's LateUpdate never fires) sees the SAME seated pose the rig
             // re-asserts at runtime. Mirrors the NEW hand-local runtime formula
             // (position = hand.position + hand.rotation * handLocalOffset): the seated world position uses the
-            // SAME rotated offset, so the static bake matches the runtime pose (and == the prior world position
-            // at the spawn facing, by the AC2 conversion above). localRot = Euler(relEuler) (hand-relative).
+            // SAME rotated offset, so the static bake matches the runtime pose at the spawn facing. The
+            // hand-local field is facing-invariant, so this static pose == the runtime pose at EVERY facing
+            // (re-expressed per facing). localRot = Euler(relEuler) (hand-relative).
             Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
             Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
             axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
             axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
-            Debug.Log("[MovementCameraScene] held axe 86ca9qwvd hand-local pose: dialedWorldOffset=" +
-                      HeldAxeWorldOffsetFromHand.ToString("F4") + " -> handLocalOffset=" + handLocalOffset.ToString("F4") +
+            Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
+                      handLocalOffset.ToString("F4") +
                       " relEuler=" + HeldAxeRelEuler.ToString("F1") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");

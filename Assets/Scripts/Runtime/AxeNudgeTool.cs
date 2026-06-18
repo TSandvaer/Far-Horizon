@@ -8,13 +8,16 @@ namespace FarHorizon
     /// headless, the Sponsor finalizes them himself in the shipped build: this tool lets him SELECT a target
     /// (the held axe or the stump axe), NUDGE its position (XYZ) + rotation (pitch/yaw/roll) in small steps,
     /// and READ the live values off the on-screen HUD + the log, then report the numbers to bake into the
-    /// constants. 86ca9qwvd — the HELD axe reports a SPLIT pose driven via its HeldAxeRig: POSITION is a
+    /// constants. 86caa83wn soak #4 — the HELD axe reports a SPLIT pose driven via its HeldAxeRig, dialed +
+    /// displayed + baked in the HAND-LOCAL frame END TO END (the seat-doesn't-stick fix): POSITION is a
     /// HAND-LOCAL offset (rotated by the hand each frame so it TRACKS the hand through every facing — sensible
     /// ~cm units, a nudge step is ~2 cm) and ROTATION is a HAND-RELATIVE relEuler (turns with the hand). The
-    /// tool nudges the RIG's fields, but REPORTS the WORLD-equivalent of the offset (hand.rotation * field) so
-    /// the value the Sponsor reads is what pastes into the WORLD-frame source constant HeldAxeWorldOffsetFromHand
-    /// (AttachHeroAxeToHand converts that WORLD value -> the rig's hand-local field at bake; the round-trip is
-    /// dial -> bake -> dial). held -> HeldAxeWorldOffsetFromHand / HeldAxeRelEuler. The STUMP axe is CraftSpot-
+    /// tool nudges the RIG's hand-local fields DIRECTLY and REPORTS them DIRECTLY (NO hand.rotation factor) — so
+    /// what the Sponsor dials == what bakes == what the rig applies, with NO facing injected at dial time. That
+    /// is the soak-#4 fix: the OLD tool dialed/displayed/baked a WORLD vector and converted it via
+    /// Inverse(hand.rotation) at bake, which made the dialed seat FACING-SPECIFIC (it only reproduced at the
+    /// facing he dialed it at → wrong after a pickup at a different facing). held ->
+    /// HeldAxeLocalOffsetFromHand / HeldAxeRelEuler (both facing-invariant). The STUMP axe is CraftSpot-
     /// local (unscaled, no bone trap): stump -> StumpAxeLocalPos/Euler.
     ///
     /// BUILD-GATED / INERT IN NORMAL PLAY (the hard requirement): the tool does NOTHING until the Sponsor
@@ -24,13 +27,13 @@ namespace FarHorizon
     /// time (like the verify-capture siblings) so it ships, but stays asleep behind the toggle.
     ///
     /// TARGET FRAMES handled correctly:
-    ///   - HELD axe: parented to the right-hand bone, but POSE-DRIVEN by HeldAxeRig (86ca9qwvd hand-local). The
-    ///     tool nudges the RIG's fields, NOT the transform: the arrow/PageUp keys give WORLD-frame deltas which
-    ///     are converted into the hand-local offset field (so a "right arrow" moves the axe RIGHT IN THE WORLD,
-    ///     ~2 cm/click), and ROTATION moves relEuler (hand-relative, so the haft keeps turning with the hand
-    ///     WHILE dialed). The rig re-applies position+rotation every frame from those fields, so dial == in-motion.
-    ///     It REPORTS the WORLD-equivalent offset (hand.rotation * field) + the hand-relative euler, ready to
-    ///     paste into HeldAxeWorldOffsetFromHand / HeldAxeRelEuler (the WORLD-frame source constants).
+    ///   - HELD axe: parented to the right-hand bone, but POSE-DRIVEN by HeldAxeRig (86caa83wn hand-local END
+    ///     TO END). The tool nudges the RIG's hand-local fields, NOT the transform: the arrow/PageUp keys move
+    ///     the offset along the hand's LOCAL axes (~2 cm/click), and ROTATION moves relEuler (hand-relative, so
+    ///     the haft keeps turning with the hand WHILE dialed). The rig re-applies position+rotation every frame
+    ///     from those fields, so dial == in-motion. It REPORTS the hand-local offset DIRECTLY + the hand-relative
+    ///     euler, ready to paste into HeldAxeLocalOffsetFromHand / HeldAxeRelEuler (both facing-invariant). No
+    ///     hand.rotation enters the dial/display/bake, so the dialed seat reproduces at EVERY facing + pickup.
     ///   - STUMP axe: parented to the unscaled CraftSpot (world-1u); its serialized pose IS its LOCAL
     ///     transform (no bone-frame trap). The tool nudges localPosition/localEulerAngles directly and
     ///     reports them — exactly StumpAxeLocalPos / StumpAxeLocalEuler.
@@ -223,15 +226,17 @@ namespace FarHorizon
             {
                 if (_target == 0)
                 {
-                    // 86ca9qwvd — the HELD axe is nudged via its RIG, NOT its transform. POSITION moves the
-                    // rig's HAND-LOCAL offset and ROTATION moves the hand-relative relEuler (the haft keeps
-                    // turning with the hand WHILE dialed). The arrow/PageUp keys give WORLD-frame deltas (dp);
-                    // since the rig now rotates the offset by the hand each frame, convert the world-frame nudge
-                    // into the hand-local field so a "right arrow" moves the axe RIGHT IN THE WORLD as the
-                    // Sponsor expects (not along the bone's rotated local X). A pure rotation keeps the ~2 cm
-                    // step. The rig re-applies position+rotation every frame from these fields (dial == in-motion).
-                    var h = _heldRig.hand;
-                    _heldRig.worldOffsetFromHand += h != null ? Quaternion.Inverse(h.rotation) * dp : dp;
+                    // 86caa83wn soak #4 — the HELD axe is nudged via its RIG, NOT its transform, in the
+                    // HAND-LOCAL frame END TO END (the seat-doesn't-stick fix). POSITION moves the rig's
+                    // hand-local offset DIRECTLY (no hand.rotation conversion); ROTATION moves the hand-relative
+                    // relEuler (the haft keeps turning with the hand WHILE dialed). Dialing in the hand-local
+                    // frame means what the Sponsor dials == what bakes == what the rig applies, with NO
+                    // hand.rotation injected at dial time — so the seat is FACING-INDEPENDENT (it reproduces at
+                    // every facing AND after a pickup, the soak-#4 bug). The arrow keys move the offset along the
+                    // hand's local axes (a pure ~2 cm step); the rig re-applies position+rotation every frame
+                    // from these fields (dial == in-motion). The previous tool converted a WORLD-frame nudge via
+                    // Inverse(hand.rotation), which is exactly what made the dialed seat facing-specific.
+                    _heldRig.worldOffsetFromHand += dp;
                     _heldRig.relEuler += dr;
                 }
                 else if (_target == 1)
@@ -317,21 +322,21 @@ namespace FarHorizon
         }
 
         // Log the values in a copy-pasteable form (the Sponsor reads these off the log to bake into the
-        // constants). SOAKFIX9 — the HELD axe reports its RIG's WORLD offsetFromHand + HAND-RELATIVE euler
-        // (paste into HeldAxeWorldOffsetFromHand / HeldAxeRelEuler); the STUMP reports its LOCAL pose
-        // (StumpAxeLocalPos/Euler). The held euler is NOT normalised-wrapped — relEuler accumulates as a raw
-        // hand-relative euler the rig feeds straight to Quaternion.Euler, so it must round-trip exactly.
+        // constants). 86caa83wn soak #4 — the HELD axe reports its RIG's HAND-LOCAL offsetFromHand +
+        // HAND-RELATIVE euler DIRECTLY (no hand.rotation factor) — paste into HeldAxeLocalOffsetFromHand /
+        // HeldAxeRelEuler (both facing-invariant); the STUMP reports its LOCAL pose (StumpAxeLocalPos/Euler).
+        // The held euler is NOT normalised-wrapped — relEuler accumulates as a raw hand-relative euler the rig
+        // feeds straight to Quaternion.Euler, so it must round-trip exactly.
         private void LogCurrent()
         {
             if (_target == 0 && _heldRig != null)
             {
-                // 86ca9qwvd — the rig field is now HAND-LOCAL, but the source constant HeldAxeWorldOffsetFromHand
-                // is the WORLD-frame value (AttachHeroAxeToHand converts WORLD -> hand-local at bake). Report the
-                // WORLD-equivalent (hand.rotation * field) so the Sponsor pastes a WORLD value into the WORLD
-                // constant — a clean round-trip (dial -> bake -> dial). At the spawn facing world == what he sees.
-                var h = _heldRig.hand;
-                Vector3 world = h != null ? h.rotation * _heldRig.worldOffsetFromHand : _heldRig.worldOffsetFromHand;
-                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeWorldOffsetFromHand=({world.x:F4}f,{world.y:F4}f,{world.z:F4}f)  " +
+                // 86caa83wn soak #4 — the seat offset is HAND-LOCAL END TO END. Report the rig's hand-local
+                // field DIRECTLY (no hand.rotation factor) so the Sponsor pastes a HAND-LOCAL value into the
+                // hand-local constant HeldAxeLocalOffsetFromHand — a facing-INVARIANT round-trip (dial == bake ==
+                // applied at every facing). The euler is hand-relative (HeldAxeRelEuler), also facing-invariant.
+                Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept for serialization)
+                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeLocalOffsetFromHand=({local.x:F4}f,{local.y:F4}f,{local.z:F4}f)  " +
                           $"HeldAxeRelEuler=({_heldRig.relEuler.x:F1}f,{_heldRig.relEuler.y:F1}f,{_heldRig.relEuler.z:F1}f)");
             }
             else if (_target == 1 && _stump != null)
@@ -392,7 +397,7 @@ namespace FarHorizon
             GUI.color = Color.white;
 
             string tgt = _target == 0
-                ? "HELD axe (in hand — WORLD offset + hand-relative angle, tracks the hand)"
+                ? "HELD axe (in hand — hand-local offset + hand-relative angle, facing-independent)"
                 : _target == 1
                 ? "STUMP axe (in block — local)"
                 : _target == 2
@@ -405,13 +410,12 @@ namespace FarHorizon
             string posLine, eulerLine;
             if (_target == 0 && _heldRig != null)
             {
-                // 86ca9qwvd — the offset is now HAND-LOCAL (tracks the hand through every facing). Show the
-                // WORLD-equivalent (hand.rotation * field) so the panel value == what pastes into the WORLD
-                // constant HeldAxeWorldOffsetFromHand (a clean dial -> bake round-trip). Sensible ~cm units;
-                // NOT hand.TransformPoint (which would re-apply the bone lossyScale — the §FBX trap).
-                Transform handT = _heldRig.hand;
-                Vector3 world = handT != null ? handT.rotation * _heldRig.worldOffsetFromHand : _heldRig.worldOffsetFromHand;
-                posLine = $"offsetFromHand=({world.x:F4}, {world.y:F4}, {world.z:F4})";
+                // 86caa83wn soak #4 — the offset is HAND-LOCAL END TO END (facing-independent). Show the rig's
+                // hand-local field DIRECTLY (no hand.rotation factor) so the panel value == what pastes into the
+                // hand-local constant HeldAxeLocalOffsetFromHand (a facing-invariant dial -> bake round-trip).
+                // Sensible ~cm units. The euler is hand-relative (turns with the hand through every facing).
+                Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept)
+                posLine = $"offsetFromHand=({local.x:F4}, {local.y:F4}, {local.z:F4})";
                 eulerLine = $"euler=({_heldRig.relEuler.x:F1}, {_heldRig.relEuler.y:F1}, {_heldRig.relEuler.z:F1})";
             }
             else if (_target == 1 && _stump != null)

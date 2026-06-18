@@ -331,13 +331,17 @@ namespace FarHorizon.EditTests
         [Test]
         public void ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues()
         {
-            // Held axe — WORLD offset + hand-relative euler (the F9 nudge fields). 86caa83wn soak #3 FINAL SEAT
-            // BAKE (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed the FINAL F9
-            // seat (0.0707,-0.1988,-0.0111) / euler (12,-8,-82) via the AxeNudgeTool; that is what ships. This
-            // SUPERSEDES the soak-#1 bake (-0.1502,-0.1602,-0.0528) / (16,2,-82).
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.x, Is.EqualTo(0.0707f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.y, Is.EqualTo(-0.1988f).Within(1e-4f));
-            Assert.That(MovementCameraScene.HeldAxeWorldOffsetFromHand.z, Is.EqualTo(-0.0111f).Within(1e-4f));
+            // Held axe — HAND-LOCAL offset + hand-relative euler (the F9 nudge fields). 86caa83wn soak #4 (the
+            // seat-doesn't-stick fix): the offset is now HAND-LOCAL END TO END (dialed/displayed/baked in the
+            // hand frame, NO WORLD-frame round-trip — that round-trip is what made the dialed seat facing-
+            // specific). The default is the soak-#3 APPROVED spawn seat (old world (0.0707,-0.1988,-0.0111))
+            // expressed hand-local: HeldAxeLocalOffsetFromHand=(0.0512,0.2009,-0.0407), derived deterministically
+            // from the bake-log conversion at the spawn bone rotation. euler (12,-8,-82) UNCHANGED. (The Sponsor
+            // does ONE final micro-dial in the FIXED F9 tool to lock the seat — the old world dial can't round-
+            // trip 1:1 into the new frame; re-bake this constant from his reported value when he confirms.)
+            Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand.x, Is.EqualTo(0.0512f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand.y, Is.EqualTo(0.2009f).Within(1e-4f));
+            Assert.That(MovementCameraScene.HeldAxeLocalOffsetFromHand.z, Is.EqualTo(-0.0407f).Within(1e-4f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.x, Is.EqualTo(12.0f).Within(1e-3f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.y, Is.EqualTo(-8.0f).Within(1e-3f));
             Assert.That(MovementCameraScene.HeldAxeRelEuler.z, Is.EqualTo(-82.0f).Within(1e-3f));

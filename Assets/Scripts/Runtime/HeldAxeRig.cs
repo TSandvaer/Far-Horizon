@@ -72,11 +72,14 @@ namespace FarHorizon
         public Transform hand;
 
         [Tooltip("POSITION channel — the axe is seated at hand.position + hand.rotation * this offset every " +
-                 "frame (86ca9qwvd: HAND-LOCAL, rotated by the RAW hand so it TRACKS the hand through every " +
-                 "facing AND follows the arm's natural swing — 86ca9zcjn). cm-scale units rotated by the hand's " +
-                 "rotation ONLY (never its lossyScale), so a nudge step is a sensible ~2 cm and the axe stays " +
-                 "seated no matter which way the castaway turns. Field name kept (worldOffsetFromHand) so the " +
-                 "serialized scene + the F9 AxeNudgeTool wiring carry forward.")]
+                 "frame. This offset is HAND-LOCAL (expressed in the hand bone's own frame): it is rotated by " +
+                 "the RAW hand each frame so it TRACKS the hand through every facing AND follows the arm's " +
+                 "natural swing — 86ca9zcjn. cm-scale units rotated by the hand's rotation ONLY (never its " +
+                 "lossyScale), so a nudge step is a sensible ~2 cm and the axe stays seated no matter which way " +
+                 "the castaway turns OR how it was acquired (spawn-in-hand == picked-up). 86caa83wn: dialed, " +
+                 "displayed AND baked in THIS hand-local frame end to end (no WORLD-frame round-trip) so the " +
+                 "Sponsor's F9 dial reproduces at every facing. Field name kept (worldOffsetFromHand) so the " +
+                 "serialized scene + the F9 AxeNudgeTool wiring carry forward — but the value is HAND-LOCAL.")]
         public Vector3 worldOffsetFromHand = new Vector3(0.003f, -0.017f, 0.009f);
 
         [Tooltip("ROTATION channel — the axe's rotation is hand.rotation * Euler(this), HAND-RELATIVE, so " +
