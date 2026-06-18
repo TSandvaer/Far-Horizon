@@ -147,7 +147,14 @@ namespace FarHorizon.EditorTools
         // ground-snap automatically). These are the REASONABLE defaults the Sponsor dials on the F9 nudge tool
         // (CLAMP target) in the soak — what-he-dials-is-what-ships.
         public static readonly bool HeldAxeClampVigorousLocomotion = true;
-        public static readonly float HeldAxeClampCeilingAboveShoulder = -0.05f; // just below the shoulder
+        // 86caa83wn soak-refine (2026-06-18): the Sponsor reported the axe STILL swings into the head when
+        // running — the prior -0.05 "just below the shoulder" was NOT low enough (the shoulder bone sits only
+        // ~0.3u below the head on this rig, so a ceiling 5cm below the shoulder is still up near the head). Drop
+        // it to -0.25 so the followed hand is clamped a clear ~25cm BELOW the shoulder = comfortably below the
+        // head through the whole RUN/JUMP arm-pump. The clamp is INERT at WALK/IDLE (the Sponsor's locked WALK
+        // pose untouched), so lowering the run/jump ceiling does NOT change the approved walk seat. Still
+        // Sponsor-dialable on the F9 CLAMP target (PgUp/PgDn) so he sets the final value in the soak.
+        public static readonly float HeldAxeClampCeilingAboveShoulder = -0.25f; // clearly below the head (RUN/JUMP)
         public static readonly float HeldAxeClampSoftness = 0.12f;              // smooth shoulder-height tuck
 
         /// <summary>

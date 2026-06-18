@@ -55,6 +55,14 @@ namespace FarHorizon
                  "Walk band. Exposed so the run state (IsRunning) reads consistently with the blend.")]
         public float runSpeedThreshold = 9.5f;
 
+        // 86caa83wn fix 2 — IsRunning engages at this FRACTION of runSpeedThreshold (not strictly at it), so a
+        // NavMeshAgent simulated velocity that lags/dips just below the COMMANDED run speed still reads running
+        // and the held-axe RUN clamp stays engaged through the whole cycle (the strict ">= threshold" compare
+        // flickered false on accel/decel ramps → the clamp popped off → axe into the head). 0.85·9.5 ≈ 8.1 is
+        // safely above the 5.5 walk speed (a walk never reads running) and below the 9.5 run speed (a run
+        // reliably does). NOT a serialized field — a fixed engage margin, audited from source.
+        public const float RunEngageFraction = 0.85f;
+
         [Header("Walk-float model-sole grounding (86ca8rdkp attempt-9 — the WALK-clip body-lift fix)")]
         [Tooltip("Ground the VISIBLE rendered SOLE (scale-immune) by offsetting the MODEL CHILD's local-Y, on " +
                  "top of the root snap. The Mixamo WALK clip authors the body ~0.66u higher than IDLE (clip-trace: " +
@@ -896,9 +904,17 @@ namespace FarHorizon
             // the agent at moveSpeed walking / runSpeed sprinting, so this magnitude lands in the blend tree's
             // Walk band or Run band accordingly — the Run clip blends in only while actually running fast.
             CurrentSpeed = planarSpeed;
-            // RUNNING: at/above the run threshold (the blend reads as a full Run here). A small hysteresis-free
-            // threshold compare — the blend tree itself is what smooths the visual transition.
-            IsRunning = walking && planarSpeed >= runSpeedThreshold;
+            // RUNNING: at/above the run threshold (the blend reads as a full Run here). 86caa83wn fix 2 —
+            // the held-axe RUN clamp gates on IsRunning, and it "wasn't biting": the NavMeshAgent's SIMULATED
+            // velocity (what we read) LAGS the COMMANDED run speed (== runSpeedThreshold) and dips just below
+            // it on accel/decel ramps + obstacle steering, so a strict ">= threshold" compare FLICKERED false
+            // mid-run → the clamp disengaged for those frames → the axe popped into the head. So engage running
+            // at a MARGIN below the threshold (RunEngageFraction · threshold). The margin stays well ABOVE the
+            // walk speed (5.5 vs ~8.1 at 0.85·9.5), so a WALK never reads as running (the AC5 walk-band test +
+            // the blend tree are unaffected — the blend tree reads the Speed param, not this flag), while a RUN
+            // reads running through the whole cycle so the clamp stays engaged. The visual Walk<->Run blend is
+            // unchanged (driven by SpeedParam above, not by IsRunning).
+            IsRunning = walking && planarSpeed >= runSpeedThreshold * RunEngageFraction;
             if (walking) _lastFacing = vel.normalized;
 
             if (_animator != null && _animator.runtimeAnimatorController != null)

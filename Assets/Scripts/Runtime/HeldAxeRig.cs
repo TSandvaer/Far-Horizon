@@ -108,9 +108,12 @@ namespace FarHorizon
                  "RUNNING/AIRBORNE. The shoulder rides the body's vertical motion (bob/jump/ground-snap), so the " +
                  "ceiling tracks it automatically — this is a 'below shoulder height' value, so a NEGATIVE value " +
                  "keeps the axe BELOW the shoulder (the natural grip), and 0 caps it AT the shoulder. The default " +
-                 "(-0.05) keeps the axe just below the shoulder so the run arm-pump can't carry it to the head. " +
-                 "Sponsor-dialable on the F9 nudge tool (CLAMP target) in the soak.")]
-        public float clampCeilingAboveShoulder = -0.05f;
+                 "(-0.25) keeps the axe a clear ~25cm BELOW the shoulder so the run/jump arm-pump can't carry " +
+                 "it up to the head (86caa83wn soak-refine 2026-06-18: -0.05 was too high — the shoulder sits " +
+                 "only ~0.3u below the head, so a 5cm-below-shoulder ceiling was still near the head). " +
+                 "Sponsor-dialable on the F9 nudge tool (CLAMP target) in the soak. The shipped default is set " +
+                 "editor-time by MovementCameraScene.HeldAxeClampCeilingAboveShoulder (kept in sync with this).")]
+        public float clampCeilingAboveShoulder = -0.25f;
 
         [Tooltip("Soft-clamp blend width (world units). The clamp is a SOFT knee, not a hard cap — within this " +
                  "band below the ceiling the followed Y eases toward the ceiling so the axe never POPS to a hard " +

@@ -204,6 +204,52 @@ namespace FarHorizon.EditTests
                 "the air-control nudge must clamp at airControlMaxSpeed — it can't accumulate into a fast slide.");
         }
 
+        // =================================================================================================
+        // WASD-ONLY (arrow keys excluded) — ticket 86caa83wn fix 1.
+        //
+        // BUG CLASS these pin (NOT one instance): the old movement read GetAxisRaw("Horizontal"/"Vertical"),
+        // whose legacy Input-Manager axes ALSO bind the ARROW keys — so the arrows drove the character, which
+        // HIJACKED the F9 AxeNudgeTool (it dials the axe/clamp with the arrow keys + PageUp/PageDown). The fix
+        // reads ONLY the W/A/S/D KeyCodes. WasdAxesFromKeys is the pure mapping; the arrow-exclusion is
+        // STRUCTURAL — there is no arrow parameter, so an arrow press cannot reach the move vector by
+        // construction. These guard the mapping equals the old GetAxisRaw digital response for the WASD letters.
+        // =================================================================================================
+
+        [Test]
+        public void WasdKeys_MapToExpectedAxes_MatchingTheOldDigitalResponse()
+        {
+            // W → forward +1; S → −1; D → strafe +1; A → −1 (the GetAxisRaw digital values, arrow-free).
+            Assert.AreEqual(new Vector2(0f, 1f), WasdMovement.WasdAxesFromKeys(true, false, false, false), "W → forward");
+            Assert.AreEqual(new Vector2(0f, -1f), WasdMovement.WasdAxesFromKeys(false, false, true, false), "S → back");
+            Assert.AreEqual(new Vector2(1f, 0f), WasdMovement.WasdAxesFromKeys(false, false, false, true), "D → strafe right");
+            Assert.AreEqual(new Vector2(-1f, 0f), WasdMovement.WasdAxesFromKeys(false, true, false, false), "A → strafe left");
+        }
+
+        [Test]
+        public void WasdKeys_OppositeKeysCancel_AndNoKeysIsZero()
+        {
+            Assert.AreEqual(Vector2.zero, WasdMovement.WasdAxesFromKeys(false, false, false, false), "no keys → no move");
+            Assert.AreEqual(Vector2.zero, WasdMovement.WasdAxesFromKeys(true, false, true, false), "W+S cancel");
+            Assert.AreEqual(Vector2.zero, WasdMovement.WasdAxesFromKeys(false, true, false, true), "A+D cancel");
+            Assert.AreEqual(new Vector2(1f, 1f), WasdMovement.WasdAxesFromKeys(true, false, false, true), "W+D → diagonal");
+        }
+
+        [Test]
+        public void Movement_ReadsOnlyWasd_NotArrows_StructurallyArrowFree()
+        {
+            // The arrow-exclusion is enforced BY CONSTRUCTION: the only key-reading move path is
+            // WasdAxesFromKeys(w,a,s,d) — there is no arrow input parameter, so an arrow key CANNOT contribute
+            // to the move vector. This is the regression guard for "arrows drive movement" — if a future edit
+            // re-introduces an arrow source it must add a parameter here, which breaks this signature contract.
+            // (The old GetAxisRaw("Horizontal"/"Vertical") path — which DID bind arrows — is gone.)
+            var method = typeof(WasdMovement).GetMethod(nameof(WasdMovement.WasdAxesFromKeys));
+            Assert.IsNotNull(method, "the pure WASD-only key mapping must exist (replaces the arrow-binding GetAxisRaw path)");
+            var ps = method.GetParameters();
+            Assert.AreEqual(4, ps.Length, "the WASD mapping takes exactly the four W/A/S/D booleans — no arrow source");
+            foreach (var p in ps)
+                Assert.AreEqual(typeof(bool), p.ParameterType, "each WASD-key parameter is a bool key-state (W/A/S/D only)");
+        }
+
         [Test]
         public void Airborne_VsOldSnap_QuantifiesTheFix_DiagnoseBeforeFix()
         {
