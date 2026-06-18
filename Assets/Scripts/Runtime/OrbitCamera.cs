@@ -51,6 +51,18 @@ namespace FarHorizon
 
         [Header("Smoothing")]
         public float followLerp = 12f;
+        // 86caa83wn fix 3 — JUMP camera-follow lag. The follow point eases toward the target each frame; with a
+        // SINGLE rate on ALL axes (the old followLerp 12), the VERTICAL follow lagged the fast jump arc (the
+        // avatar rises at jumpVelocity 5.5 u/s for ~0.6s) — the camera trailed the rise + drop, so on jump the
+        // player appeared "pulled backwards before landing" (Sponsor soak 2026-06-18). The HORIZONTAL follow is
+        // kept smooth (followLerp) — a snappy horizontal follow reads jerky during normal walk/run — but the
+        // VERTICAL follow uses a MUCH higher rate so the camera tracks the jump arc tightly (no vertical lag).
+        // High enough to effectively pin the vertical to the target within a frame or two at 60fps, so the arc
+        // is followed at jump speed. (Walking has negligible vertical motion, so this never affects ground feel.)
+        [Tooltip("Vertical follow rate (1/s) — MUCH higher than followLerp so the camera tracks the JUMP ARC " +
+                 "vertically without lag (the old single rate trailed the rise/drop → 'pulled back on jump'). " +
+                 "Horizontal stays on followLerp for a smooth ground feel; only the Y axis follows fast.")]
+        public float verticalFollowLerp = 60f;
 
         // ---- TERRAIN COLLISION (BIG ROUND ISLAND N2, 86ca9a7qn — "player disappears under a hill") ----
         // The orbit rig placed the camera at a fixed distance behind the target with NO terrain awareness, so
@@ -106,7 +118,7 @@ namespace FarHorizon
             {
                 Vector3 desired = target.position + targetOffset;
                 _followPos = instant ? desired
-                    : Vector3.Lerp(_followPos, desired, 1f - Mathf.Exp(-followLerp * Time.deltaTime));
+                    : FollowStep(_followPos, desired, followLerp, verticalFollowLerp, Time.deltaTime);
             }
 
             // Guard the pitch every Apply so a serialized/probe value can never escape the band.
@@ -159,6 +171,26 @@ namespace FarHorizon
             }
 
             return pos;
+        }
+
+        /// <summary>
+        /// PURE per-axis follow step (the unit-testable core of the jump-follow-lag fix, ticket 86caa83wn fix
+        /// 3): ease <paramref name="current"/> toward <paramref name="desired"/> this frame, using
+        /// <paramref name="horizLerp"/> on the X/Z axes (smooth ground feel) and a HIGHER
+        /// <paramref name="vertLerp"/> on the Y axis (track the jump arc with no lag). Both are
+        /// frame-rate-independent exponential approaches (1 − e^(−rate·dt)). Static + dependency-free so the
+        /// EditMode guard can assert "the vertical follow closes the gap to the jump arc much faster than the
+        /// horizontal follow" with no scene/Time dependency. The BUG CLASS it pins: a single follow rate on all
+        /// axes makes the camera trail the fast vertical jump arc (the 'pulled back on jump' percept).
+        /// </summary>
+        public static Vector3 FollowStep(Vector3 current, Vector3 desired, float horizLerp, float vertLerp, float dt)
+        {
+            float ah = 1f - Mathf.Exp(-Mathf.Max(0f, horizLerp) * dt);
+            float av = 1f - Mathf.Exp(-Mathf.Max(0f, vertLerp) * dt);
+            return new Vector3(
+                Mathf.Lerp(current.x, desired.x, ah),
+                Mathf.Lerp(current.y, desired.y, av),   // Y follows fast — tracks the jump arc, no lag
+                Mathf.Lerp(current.z, desired.z, ah));
         }
 
         // ---- Test / programmatic hooks ----
