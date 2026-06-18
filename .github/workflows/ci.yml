@@ -9,11 +9,24 @@ name: CI
 #
 #   unity      — SELF-HOSTED Windows runner with the exact installed editor
 #                (6000.4.10f1, already licensed on this machine — no UNITY_LICENSE
-#                secret, no billed private-repo minutes). Chains
-#                BootstrapProject.Run -> EditMode -> PlayMode -> BuildWindows,
-#                parses the NUnit XML result line (exit codes lie — see
-#                unity-conventions.md), and uploads test XMLs + logs + build
-#                BEFORE the workspace is cleaned (.gitignore eats them otherwise).
+#                secret, no billed private-repo minutes). The RELIABLE MERGE GATE.
+#                Chains BootstrapProject.Run -> EditMode -> BuildWindows ->
+#                shipped-build capture gate, parses the NUnit XML result line (exit
+#                codes lie — see unity-conventions.md), and uploads test XMLs +
+#                logs + build BEFORE the workspace is cleaned (.gitignore eats them).
+#                PlayMode is intentionally NOT in this job (see `playmode` below).
+#
+#   playmode   — SELF-HOSTED, ADVISORY + non-required + fail-fast. Runs the PlayMode
+#                suite for SIGNAL but can NEVER block a merge: `continue-on-error:
+#                true` at the JOB level + a hard `timeout-minutes` cap so a future
+#                play-mode-ENTER env-deadlock fails FAST + NAMED instead of hanging
+#                to the 90-min cap and crashing the runner. `needs: unity` serializes
+#                it AFTER the merge-gate Unity build so the two never contend the
+#                single self-hosted runner's PackageCache (EPERM —
+#                [[single-unity-build-slot-serializes-orchestration]]). The
+#                play-mode-enter deadlock is environmental + fixture-presence-
+#                triggered; re-fold PlayMode into the blocking gate once the root
+#                cause is fixed. See unity-conventions.md §CI architecture. (86caapwmt)
 #
 # Route rationale (see PR body): the game-ci docker route is blocked twice over
 # on this repo — (1) no unityci/editor image exists yet for the 6000.4.x stream
@@ -89,7 +102,7 @@ jobs:
   # branch-protection coordination with U2).
   # ---------------------------------------------------------------------------
   unity:
-    name: unity (self-hosted, EditMode + PlayMode + build)
+    name: unity (self-hosted, EditMode + build + capture)
     runs-on: [self-hosted, windows, unity]
     # A COLD / post-cache-clear build does a full package re-resolve + asset reimport
     # (no warm Library) and was observed at 20–25+ min — the old 40-min cap auto-
@@ -159,40 +172,18 @@ jobs:
           -logFile "%RESULTS%\editmode.log"
         continue-on-error: true
 
-      # 3. PlayMode tests — QUARANTINED on this runner (step DISABLED: `if: false`).
-      #    This self-hosted runner has a CONFIRMED play-mode-enter ENV-HANG: Unity
-      #    freezes "Entering Playmode" and never self-quits — a MACHINE/runner
-      #    deadlock, NOT a code bug (EditMode 308/308 green; the identical PlayMode
-      #    pattern PASSED on green main run 27685445841). See unity-conventions.md
-      #    §Headless ("play-mode-enter env-hang" + "GH-cancel doesn't kill the hung
-      #    runner Unity"). Per [[sponsor-quarantines-env-blocked-tests]] (Sponsor-
-      #    confirmed): quarantine-with-followup, not hold-for-the-bar.
-      #
-      #    WHY DISABLE rather than best-effort (timeout + continue-on-error):
-      #    the hung headless Unity IGNORES the GH step-cancel that timeout-minutes
-      #    fires, so the orphaned Unity keeps the runner pinned until the runner
-      #    LOSES COMMUNICATION with the server — an INFRASTRUCTURE failure that
-      #    `continue-on-error` CANNOT suppress (it only catches step exit codes, not
-      #    a lost runner). Proven on run 27769261766: the job died ON this step
-      #    (Build + capture never ran), annotation "The self-hosted runner lost
-      #    communication with the server." The ONLY quarantine that keeps the job
-      #    green is to NOT enter Play Mode at all on this runner.
-      #
-      #    THE MERGE GATE is EditMode result gate + Build-result gate + capture gate
-      #    (all stay BLOCKING below). When the env recovers, flip `if: false` →
-      #    `if: true` (or delete the guard) to re-arm PlayMode. Tracked: 86caapwmt.
-      #    Same -no-quit rule. Headless: Time.deltaTime~0 per frame — the suite
-      #    samples over a Time.time window, never per-frame deltas.
-      - name: PlayMode tests
-        if: false  # QUARANTINED — re-enable when the play-mode-enter env-hang clears (86caapwmt)
-        shell: cmd
-        run: >
-          "%UNITY%" -batchmode -nographics
-          -projectPath "%GITHUB_WORKSPACE%"
-          -runTests -testPlatform PlayMode
-          -testResults "%RESULTS%\test-results-playmode.xml"
-          -logFile "%RESULTS%\playmode.log"
-        continue-on-error: true
+      # 3. PlayMode tests run in a SEPARATE, advisory, fail-fast `playmode` job
+      #    (see below) — NOT here. The merge-gate `unity` job is EditMode + build +
+      #    capture ONLY (the three reliable gates). Rationale: this self-hosted
+      #    runner has a CONFIRMED play-mode-ENTER env-deadlock (Unity freezes
+      #    "Entering Playmode" and never self-quits; the hung headless Unity IGNORES
+      #    the GH step-cancel, so it pins the runner until it LOSES COMMUNICATION
+      #    with the server — an INFRASTRUCTURE failure `continue-on-error` cannot
+      #    suppress). Proven on run 27769261766: an in-line PlayMode step killed the
+      #    whole unity job (Build + capture never ran). Moving PlayMode to its own
+      #    non-required job means it can NEVER block a merge again, while still
+      #    running for signal. See unity-conventions.md §CI architecture +
+      #    [[sponsor-quarantines-env-blocked-tests]]. Tracked: 86caapwmt.
 
       # 4. Windows standalone build. FarHorizonBuilder exits non-zero on a failed
       #    build, so this step's exit code IS authoritative for the build.
@@ -236,31 +227,15 @@ jobs:
         run: |
           chmod +x .github/workflows/scripts/check_unity_log.sh
           .github/workflows/scripts/check_unity_log.sh \
-            ci-out/bootstrap.log ci-out/editmode.log ci-out/playmode.log ci-out/build.log
+            ci-out/bootstrap.log ci-out/editmode.log ci-out/build.log
 
       - name: EditMode result gate
         if: always()
         shell: bash
         run: python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-editmode.xml EditMode
 
-      # PlayMode result gate — NON-BLOCKING (PlayMode is QUARANTINED on this runner;
-      # see the "PlayMode tests" step above + unity-conventions.md §Headless). The
-      # PlayMode test step is DISABLED (`if: false`), so no playmode XML is produced;
-      # this gate notes the quarantine and exits 0 when the XML is absent. If the XML
-      # DOES exist (env recovered + step re-enabled), it gates on it normally. Belt-
-      # and-suspenders: continue-on-error: true keeps a partial/missing XML from ever
-      # failing the unity job while quarantined. The MERGE GATE is the EditMode result
-      # gate + Build-result gate + capture gate (all BLOCKING). Tracked: 86caapwmt.
-      - name: PlayMode result gate
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          if [ ! -f ci-out/test-results-playmode.xml ]; then
-            echo "[PlayMode] QUARANTINED — PlayMode step disabled on this runner; no result XML expected. Skipping (non-blocking). Tracked: 86caapwmt."
-            exit 0
-          fi
-          python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
+      # NOTE: PlayMode result gating lives in the separate advisory `playmode` job
+      # below — it is NOT part of this merge-gate job. (86caapwmt)
 
       - name: Build-result gate
         if: always()
@@ -302,3 +277,96 @@ jobs:
           path: ci-out/caps/*.png
           if-no-files-found: warn
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # PlayMode gate — ADVISORY, NON-REQUIRED, FAIL-FAST. Runs the PlayMode suite for
+  # signal, but can NEVER block a merge:
+  #   * `continue-on-error: true` at the JOB level → a failed/timed-out PlayMode
+  #     run reports the job result as a (neutral) non-failure to the workflow, so
+  #     branch protection (which gates on `structure` + the `unity` merge-gate job)
+  #     is unaffected. Do NOT add this job's check to required status checks.
+  #   * `timeout-minutes: 20` is a HARD cap: a FUTURE play-mode-ENTER env-deadlock
+  #     fails FAST + NAMED (this job goes red, clearly attributable to PlayMode)
+  #     instead of hanging to the 90-min job cap and crashing the runner. The cap
+  #     covers a cold warm-up (checkout/bootstrap) + the PlayMode run; tune up if a
+  #     legitimately green PlayMode run ever approaches it.
+  #   * `needs: unity` SERIALIZES this AFTER the merge-gate Unity build so the two
+  #     Unity invocations never contend the single self-hosted runner's PackageCache
+  #     (EPERM-on-rename — [[single-unity-build-slot-serializes-orchestration]] +
+  #     unity-conventions.md §Process notes). `if: always()` lets PlayMode run for
+  #     signal even when the merge-gate job failed.
+  #
+  # The play-mode-ENTER deadlock is ENVIRONMENTAL + fixture-presence-triggered (it
+  # fires before any single fixture runs; EditMode is unaffected; the same PlayMode
+  # pattern passed on green main run 27685445841). When the root cause is fixed,
+  # re-fold PlayMode into the blocking `unity` gate + drop this job.
+  # Re-enable-blocking follow-up: ticket 86cab7u42 (this PR: 86caapwmt).
+  # ---------------------------------------------------------------------------
+  playmode:
+    name: playmode (self-hosted, advisory — non-blocking)
+    runs-on: [self-hosted, windows, unity]
+    needs: unity
+    if: always()
+    continue-on-error: true   # ADVISORY — PlayMode can NEVER block a merge (86caapwmt)
+    timeout-minutes: 20       # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
+    env:
+      UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
+      RESULTS: ${{ github.workspace }}\ci-out
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Prepare output dir
+        shell: bash
+        run: mkdir -p ci-out
+
+      - name: Clean stranded PackageCache .tmp dirs
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/clean_packagecache_tmp.sh
+          .github/workflows/scripts/clean_packagecache_tmp.sh
+
+      - name: Bootstrap project (BootstrapProject.Run)
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/bootstrap_with_retry.sh
+          .github/workflows/scripts/bootstrap_with_retry.sh \
+            "$UNITY" "$GITHUB_WORKSPACE" "ci-out/bootstrap.log"
+
+      # PlayMode tests. NO -quit with -runTests (unity-conventions.md). Headless:
+      # Time.deltaTime~0 per frame — the suite samples over a Time.time window. If
+      # the play-mode-ENTER env-deadlock fires, the job's timeout-minutes cap kills
+      # it FAST + NAMED rather than hanging the pipeline.
+      - name: PlayMode tests
+        shell: cmd
+        run: >
+          "%UNITY%" -batchmode -nographics
+          -projectPath "%GITHUB_WORKSPACE%"
+          -runTests -testPlatform PlayMode
+          -testResults "%RESULTS%\test-results-playmode.xml"
+          -logFile "%RESULTS%\playmode.log"
+        continue-on-error: true
+
+      - name: Upload PlayMode results + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-playmode-${{ github.sha }}
+          path: |
+            ci-out/test-results-playmode.xml
+            ci-out/playmode.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Advisory result gate — reports PlayMode pass/fail for SIGNAL. The job-level
+      # continue-on-error keeps a red here from ever blocking a merge.
+      - name: PlayMode result gate (advisory)
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f ci-out/test-results-playmode.xml ]; then
+            echo "[PlayMode] no result XML — PlayMode likely hung on play-mode-ENTER (env-deadlock) and was killed by the job timeout. ADVISORY only; does not block merge. Tracked: 86caapwmt." >&2
+            exit 1
+          fi
+          python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
