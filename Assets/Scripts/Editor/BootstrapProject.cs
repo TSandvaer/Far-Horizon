@@ -33,8 +33,42 @@ namespace FarHorizon.EditorTools
         // AC0 LINE FIX (86ca9qwr3): main-light shadow distance pushed past the visible play area so the
         // shadow-distance boundary never lands in the framed grass; a wider cascade-border fade softens the
         // boundary if it ever does. See ConfigureUrp for the full trace-diagnosis rationale.
-        public const float ShadowDistanceU = 160f;     // was URP-default 50 (the line landed at r≈50 from cam)
-        public const float ShadowCascadeBorder = 0.35f; // wider fade band than the 0.2 default (soft boundary)
+        // REGRESSION FIX (86caarn6y): 160 was sized for the spawn-locked play area, but WASD (#63) + run (#68)
+        // now let the player roam the full ~240u-diameter island (IslandShoreR 120). Orbiting back across the
+        // island puts the far shore beyond 160u of the camera eye, re-entering the boundary ring into visible
+        // grass.
+        // PERSISTENT-FLICKER FIX (86caayvfz, 2nd pass): 4 cascades killed the NEAR-field crawl but the Sponsor
+        // STILL saw flicker (build a5282c6: "still present, maybe too aggressive"). Diagnosis: the 360u distance
+        // forces every cascade to stretch thin -> the FAR cascades (cascade 2/3 spanning ~168u..360u) still sit
+        // at only ~5 texels/unit, so mid/far shadow edges crawl no matter how dense the near cascade is. More
+        // cascades cannot fix the far field at 360u — the budget is simply spread over too much world. The
+        // Sponsor's "too aggressive" hint is the real lever: combine (1) SOFT (filtered) shadows so the edge is
+        // blurred across texels and per-frame texel-quantization stops reading as flicker, (2) a GENTLER band fix
+        // — back the distance OFF to 220u (still clears the gameplay-framed grass + roam reach) and let a WIDER
+        // cascade-border (0.5) fade the boundary softly in the far distance where the Exp2 fog already hides it,
+        // instead of shoving distance past the whole island, and (3) a denser 4096 shadow map. 220u (vs 360u)
+        // is also 1.6x denser per cascade everywhere, independently cutting crawl. This is the "fade the band
+        // gently instead of pushing distance huge" approach the ticket invited.
+        public const float ShadowDistanceU = 220f;     // was 360 (band-clear-by-distance); 160/50 earlier
+        public const float ShadowCascadeBorder = 0.5f; // wider soft fade so the boundary never reads as a hard band
+
+        // 4 cascades stay: the near cascade still carries the densest texels (the near-field crawl fix from the
+        // 1st pass). With distance backed to 220u the splits cover: cascade0 0..14.7u, c1 ..44u, c2 ..103u,
+        // c3 ..220u — every cascade is denser than at 360u. Splits are the URP 4-cascade defaults.
+        public const int ShadowCascadeCount = 4;
+        public static readonly Vector3 ShadowCascade4Split = new Vector3(0.067f, 0.2f, 0.467f); // URP 4-cascade default
+
+        // SOFT (filtered) main-light shadows: the 7x7 tent filter (m_SoftShadowQuality 2, already High) blurs the
+        // shadow edge across multiple texels so the per-frame texel snap that reads as "flicker" is averaged out
+        // — the direct flicker kill the cascade work alone could not deliver, and it reads SOFTER ("less
+        // aggressive" per the Sponsor). m_SoftShadowsSupported is serialized-only (the public supportsSoftShadows
+        // is get-only), so it's set via SerializedObject in ConfigureUrp, the same pattern the project uses for
+        // m_AlwaysIncludedShaders. Cost: a wider PCF tap on one directional light — negligible static-world cost.
+        public const bool SoftShadows = true;
+        // Denser shadow map: 4096 doubles linear texel density across ALL cascades vs 2048 (the brute density
+        // lever, cheap for ONE static directional light with no additional-light shadows). Backs up the
+        // distance-reduction + soft filter so far cascades also hold up.
+        public const int MainLightShadowmapResolution = 4096; // was 2048
         private const string UrpRendererPath = SettingsDir + "/FarHorizonRenderer.asset";
         private const string BootScenePath = ScenesDir + "/Boot.unity";
         private const string BuildStampPath = ResourcesDir + "/BuildStamp.txt";
@@ -106,17 +140,48 @@ namespace FarHorizon.EditorTools
             // reads as a straight line at island scale). The default UniversalRenderPipelineAsset.Create
             // ships shadowDistance=50 — SMALLER than the grass the gameplay orbit frames, so the boundary
             // lands IN the visible play area. (Proof: -diagLine isolation probe — line survives hiding the
-            // scatter, vanishes with -noShadows, vanishes at -shadowDist 160, and TRACKS the camera when it
-            // pans, i.e. a camera-relative ring that reads "world-fixed" because the orbit stays over spawn.)
-            // FIX: push shadowDistance out past the visible play area + widen the cascade-border fade so the
-            // boundary never lands in frame AND fades softly if it ever does. This is the URP shadow DISTANCE
-            // setting — it PRESERVES the tree shadows near spawn (well within 160u) and does NOT touch the Sun
-            // light or the tree-shadow setup (the ticket's OOS). Set here so it bakes into FarHorizonURP.asset
-            // reproducibly on every bootstrap (not a hand-edit that silently reverts).
+            // scatter, vanishes with -noShadows, MOVES with -shadowDist, and TRACKS the camera when it pans,
+            // i.e. a camera-relative ring that reads "world-fixed" because the orbit stayed over spawn.)
+            // REGRESSION (86caarn6y): 160 cleared the spawn-locked area, but WASD (#63) + run (#68) let the
+            // player roam the full ~240u-diameter island, so the far shore re-enters the ring.
+            // PERSISTENT-FLICKER FIX (86caayvfz, 2nd pass): the 360u distance was the root of the lingering
+            // shimmer — it stretched even 4 cascades thin in the FAR field (~5 texels/unit). Back the distance
+            // OFF to 220u + widen the cascade-border fade (0.5) so the boundary fades GENTLY in the far distance
+            // (where fog hides it) instead of as a hard band — the gentler band fix the ticket invited — while
+            // SOFT shadows + a 4096 map kill the crawl percept. PRESERVES the tree shadows near spawn (well
+            // within 220u) and does NOT touch the Sun light / tree-shadow setup (the ticket's OOS). Set here so
+            // it bakes into FarHorizonURP.asset reproducibly on every bootstrap (not a hand-edit that reverts).
             urp.shadowDistance = ShadowDistanceU;
             urp.cascadeBorder = ShadowCascadeBorder;
+            // 4 cascades stay (near-field density). Splits set to the URP 4-cascade defaults. See const block.
+            urp.shadowCascadeCount = ShadowCascadeCount;
+            urp.cascade4Split = ShadowCascade4Split;
+            // 4096 main-light shadow map (was 2048): doubles linear texel density across all cascades. Public
+            // mainLightShadowmapResolution is settable.
+            urp.mainLightShadowmapResolution = MainLightShadowmapResolution;
             AssetDatabase.CreateAsset(urp, UrpAssetPath);
             AssetDatabase.SaveAssets();
+
+            // SOFT (filtered) shadows: m_SoftShadowsSupported is serialized-only (public supportsSoftShadows is
+            // get-only), so set it via SerializedObject after the asset is on disk — the same SerializedObject
+            // editor-write pattern the project uses for m_AlwaysIncludedShaders (CharacterAssetGen/WorldBootstrap).
+            // The 7x7 tent filter (m_SoftShadowQuality already 2 = High) blurs the shadow edge across texels so
+            // the per-frame texel snap that reads as flicker is averaged out. This is the direct kill for the
+            // "still flickering / too aggressive" percept (build a5282c6) that the cascade work alone could not
+            // deliver. SaveAssets after so the flag persists into the committed FarHorizonURP.asset.
+            var urpSo = new SerializedObject(urp);
+            var softProp = urpSo.FindProperty("m_SoftShadowsSupported");
+            if (softProp != null)
+            {
+                softProp.boolValue = SoftShadows;
+                urpSo.ApplyModifiedPropertiesWithoutUndo();
+                AssetDatabase.SaveAssets();
+            }
+            else
+            {
+                Debug.LogWarning("[BootstrapProject] m_SoftShadowsSupported not found on URP asset — " +
+                    "soft shadows NOT enabled; the flicker fix is incomplete (86caayvfz)");
+            }
 
             GraphicsSettings.defaultRenderPipeline = urp;
             int levels = QualitySettings.names.Length;
