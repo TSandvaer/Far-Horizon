@@ -190,6 +190,38 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Shadows_DistanceClearsRoamableIsland_AndMultiCascadeKillsShimmer()
+        {
+            // GREEN-LINE FIX (86ca9qwr3 / 86caarn6y) + FLICKER FIX (86caayvfz), guarded as ONE contract:
+            //   (a) shadowDistance must cover the WHOLE roamable island from any orbit vantage, or the
+            //       URP shadow-distance boundary re-enters the framed grass as a dark "green line" band
+            //       (the off-origin regression that re-opened the band once WASD+run let the player roam).
+            //   (b) the main-light shadow map must be split across MULTIPLE cascades, or that same 360u
+            //       distance on a SINGLE 2048^2 cascade stretches to ~4 texels/world-unit near-field and
+            //       the shadow edge crawls texel-by-texel as the camera moves -> the "light flickering /
+            //       lag" shimmer the Sponsor flagged (build adde6b0). A single stretched cascade is the
+            //       bug class this guards against; >=2 recovers near-field density (we ship 4).
+            // Read the COMMITTED URP asset (the bytes the exe ships), not a runtime tautology.
+            var urp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(
+                "Assets/Settings/FarHorizonURP.asset");
+            Assert.IsNotNull(urp, "the committed FarHorizonURP.asset must load as a UniversalRenderPipelineAsset");
+
+            // (a) Band-gone: distance must clear island diameter (~240u) + max orbit reach (~26u) with
+            // headroom. 360 is the shipped value; assert it stays >= the worst-case-vantage minimum so a
+            // future shrink (back toward 160/50) re-opening the band fails here, not at the Sponsor soak.
+            Assert.GreaterOrEqual(urp.shadowDistance, 300f,
+                "shadowDistance must clear the whole roamable island (~266u worst-case vantage) or the " +
+                "shadow-distance boundary re-enters the framed grass as the green-line band (86caarn6y)");
+
+            // (b) Shimmer-killed: multiple cascades so the near cascade carries dense texels at 360u.
+            // A single cascade over this distance is exactly the flicker the Sponsor saw (86caayvfz).
+            Assert.GreaterOrEqual(urp.shadowCascadeCount, 2,
+                "main-light shadows must use >=2 cascades — a SINGLE cascade stretched over the 360u " +
+                "distance crawls/shimmers near-field (the 'light flickering / lag' bug, 86caayvfz); " +
+                "we ship 4 to recover near-field texel density while keeping the band-clearing distance");
+        }
+
+        [Test]
         public void NavMesh_BakedAndSavedAsAsset_ShipsInBuild()
         {
             // Bake-in-memory ships a dead click-to-move; the data must be SAVED as an asset to embed

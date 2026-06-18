@@ -40,6 +40,20 @@ namespace FarHorizon.EditorTools
         // headroom above the cascade-border fade band. Sized to the WHOLE roamable island from any vantage.
         public const float ShadowDistanceU = 360f;     // was 160 (spawn-locked era); 50 URP-default before that
         public const float ShadowCascadeBorder = 0.35f; // wider fade band than the 0.2 default (soft boundary)
+
+        // FLICKER FIX (86caayvfz): the 360u distance above on a SINGLE cascade stretched the 2048^2 main-light
+        // shadow map over the whole frustum -> ~4 texels/world-unit near-field (vs ~9 at the prior 160u, ~18 at
+        // the URP-default 50u). At that texel density the shadow edge crawls between texel-quantization steps as
+        // the camera/player moves -> shimmer the Sponsor read as "light flickering / lag" (build adde6b0). The
+        // lever flagged at the 360 fix ("if crispness regresses, +1 cascade") is the minimal kill: split the
+        // 360u frustum across 4 cascades so the NEAR cascade carries the full 2048^2 over only the first slice
+        // (~24u at the default 6.7% split) -> ~85 texels/unit near-field, DENSER than even the old 50u build,
+        // while shadowDistance stays 360 so the green-line band stays gone. Splits are the URP 4-cascade
+        // defaults (cascade0 ends 6.7%, c1 20%, c2 46.7% of 360u); cascadeBorder 0.35 still softens the OUTER
+        // boundary. Cost: 4 shadow-map render passes vs 1 on the single directional light -> negligible on the
+        // static low-poly world (one sun, no additional-light shadows; m_AdditionalLightShadowsSupported 0).
+        public const int ShadowCascadeCount = 4;        // was 1 (single stretched cascade -> shimmer)
+        public static readonly Vector3 ShadowCascade4Split = new Vector3(0.067f, 0.2f, 0.467f); // URP 4-cascade default
         private const string UrpRendererPath = SettingsDir + "/FarHorizonRenderer.asset";
         private const string BootScenePath = ScenesDir + "/Boot.unity";
         private const string BuildStampPath = ResourcesDir + "/BuildStamp.txt";
@@ -123,6 +137,11 @@ namespace FarHorizon.EditorTools
             // reproducibly on every bootstrap (not a hand-edit that silently reverts).
             urp.shadowDistance = ShadowDistanceU;
             urp.cascadeBorder = ShadowCascadeBorder;
+            // 86caayvfz: 4 cascades recover near-field texel density at the 360u distance (kills the shimmer
+            // the single stretched cascade caused) while keeping the green-line distance fix intact. Splits set
+            // to the URP 4-cascade defaults so the near cascade is the densest slice. See the const block above.
+            urp.shadowCascadeCount = ShadowCascadeCount;
+            urp.cascade4Split = ShadowCascade4Split;
             AssetDatabase.CreateAsset(urp, UrpAssetPath);
             AssetDatabase.SaveAssets();
 
