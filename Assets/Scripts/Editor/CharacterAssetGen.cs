@@ -570,15 +570,22 @@ namespace FarHorizon.EditorTools
 
             sm.defaultState = idleState;
 
+            // 86caay44r — SOFTEN the Idle<->Locomotion crossfades. The Sponsor reported idle<->walk<->run
+            // transitions as too ABRUPT, most on releasing W (the walk->stop). The Moving bool flips in one frame
+            // at walkSpeedThreshold, so a SHORT transition duration snaps the state crossfade even with the Speed
+            // param damped. Lengthening the crossfade (0.12->0.22 start, 0.15->0.30 stop — the stop is the
+            // most-noticed case, so it eases out a touch longer) makes the Idle<->Locomotion blend glide. Pairs
+            // with the damped Speed param (CastawayCharacter.speedDampTime) for the full smoothing. Feel-tuned;
+            // the Sponsor judges in soak.
             var toLoco = idleState.AddTransition(locoState);
             toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
             toLoco.hasExitTime = false;
-            toLoco.duration = 0.12f;
+            toLoco.duration = 0.22f;
 
             var toIdle = locoState.AddTransition(idleState);
             toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
             toIdle.hasExitTime = false;
-            toIdle.duration = 0.15f;
+            toIdle.duration = 0.30f;
 
             // JUMP (86ca9yq3q rework — Sponsor soak) — TWO one-shot overlay states by movement state:
             //   JumpIdle    = the idle/standing jump (Jump_idle.fbx);    AnyState→JumpIdle    on (Jump && !Moving)

@@ -48,6 +48,17 @@ namespace FarHorizon
                  "Idle<->locomotion blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
+        [Header("Locomotion transition smoothing (86caay44r)")]
+        [Tooltip("Damp time (s) for the Speed param fed to the locomotion blend tree. The Sponsor reported " +
+                 "idle<->walk<->run transitions as too ABRUPT — most noticeable stopping a walk (release W), " +
+                 "where the agent velocity drops to 0 in one frame and the blend SNAPS Walk->Idle. Feeding Speed " +
+                 "through Animator.SetFloat(param, value, dampTime, dt) instead of a raw set EASES the parameter " +
+                 "toward its target over ~this many seconds, so starts/stops/speed-changes glide rather than snap. " +
+                 "~0.18s reads smooth without feeling mushy (the Sponsor judges in soak; tunable from the build). " +
+                 "0 = the old raw, instant set. Keeps the Walk<->Run blend (#68) intact — it just eases the SAME " +
+                 "Speed param the blend tree already consumes (a smoother crossfade, never a different clip).")]
+        public float speedDampTime = 0.18f;
+
         [Tooltip("Planar speed (u/s) at/above which the WALK<->RUN blend (86ca9yq34) reads as a full RUN. " +
                  "The blend tree is 1D on the Speed param: <= walk speed plays Walk, >= this plays Run, and " +
                  "between them blends smoothly (AC1's smooth Walk<->Run blend). Set to the WASD run speed " +
@@ -920,7 +931,16 @@ namespace FarHorizon
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
                 _animator.SetBool(MovingParam, walking);
-                _animator.SetFloat(SpeedParam, planarSpeed);
+                // 86caay44r — DAMP the Speed param so the blend tree EASES rather than snaps on start/stop/
+                // speed-change (the Sponsor's "transitions too abrupt, most on releasing W"). SetFloat's built-in
+                // damp smooths the value toward planarSpeed over ~speedDampTime, frame-rate-independent. A 0
+                // dampTime falls back to a raw instant set (the old behavior) — so the feel is fully tunable from
+                // the build. The Walk<->Run blend (#68) is UNTOUCHED: it still reads this same Speed param; the
+                // damp only makes its crossfade smoother, never selects a different clip.
+                if (speedDampTime > 0.0001f)
+                    _animator.SetFloat(SpeedParam, planarSpeed, speedDampTime, Time.deltaTime);
+                else
+                    _animator.SetFloat(SpeedParam, planarSpeed);
                 // GROUNDED (86ca9yq3q rework — THE floating-bug fix). The airborne gate above already updated
                 // _airborne for THIS frame (AdvanceJump flips it false on the landing frame). Driving Grounded =
                 // !_airborne here lets the controller's jump→{Locomotion if Moving | Idle} transition fire on the
