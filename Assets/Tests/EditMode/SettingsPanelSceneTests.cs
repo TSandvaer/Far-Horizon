@@ -77,5 +77,27 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(panel.panelUss,
                 "SettingsPanel.uss must be serialized (the workbench-drawer layout + archetype row classes)");
         }
+
+        [Test]
+        public void BootScene_UIDocument_HasNoVisualTreeAsset_SinglePanelOwnsTheClone()
+        {
+            // Regression guard for the codereview-#83 DOUBLE-CLONE: if the serialized UIDocument carries a
+            // visualTreeAsset, it auto-clones the shell on enable AND SettingsPanel.BuildView CloneTree's the
+            // SAME panelUxml again → two settings-scrim copies, the second an always-visible orphan overlay
+            // Q("settings-scrim") never binds/hides. The panel must own the SINGLE clone, so the UIDocument's
+            // visualTreeAsset stays UNASSIGNED while panel.panelUxml carries the shell asset.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            var doc = panel.GetComponent<UIDocument>();
+            Assert.IsNull(doc.visualTreeAsset,
+                "the UIDocument must NOT carry a visualTreeAsset — SettingsPanel.BuildView owns the single " +
+                "CloneTree; assigning it here double-clones the shell into a duplicate orphan settings-scrim " +
+                "overlay (codereview #83)");
+            Assert.IsNotNull(panel.panelUxml,
+                "the panel still needs panelUxml serialized so BuildView's single clone renders the shell " +
+                "(the build-safety-net BuildShellInCode only fires when this is null)");
+        }
     }
 }

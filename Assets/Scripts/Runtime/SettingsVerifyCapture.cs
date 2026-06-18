@@ -74,8 +74,20 @@ namespace FarHorizon
             yield return null;
 
             // 3. TWEAK walk speed to its slider max and prove the LIVE param changed (AC2).
-            float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;
+            //
+            // PLAYERPREFS HYGIENE (codereview #83): the SetValue/SetMax calls below write-through to PlayerPrefs
+            // (the single persist authority — FloatSettingEntry/RangeSettingEntry). On the shared self-hosted /
+            // soak machine those tweaked values would otherwise survive to the NEXT launch and pollute the
+            // Sponsor's soak (it must start from SHIPPED defaults, not the verify run's max-walk / 18u-zoom).
+            // Snapshot the exact keys this run touches, then RESTORE them before Quit (restore beats a blind
+            // DeleteKey — it also preserves any value the machine genuinely had persisted before this run).
             var walk = reg?.Get(SettingsCatalog.WalkSpeedId) as FloatSettingEntry;
+            var zoom = reg?.Get(SettingsCatalog.ZoomRangeId) as RangeSettingEntry;
+            var prefsSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
+            if (walk != null) SnapshotFloat(prefsSnapshot, walk.PrefsKey);
+            if (zoom != null) { SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".min"); SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".max"); }
+
+            float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;
             float applied = float.NaN;
             if (walk != null) applied = walk.SetValue(walk.Max);
             float walkAfter = wasd != null ? wasd.moveSpeed : float.NaN;
@@ -84,7 +96,6 @@ namespace FarHorizon
                       $"changedLive={(!float.IsNaN(walkAfter) && !Mathf.Approximately(walkBefore, walkAfter))} (AC2)");
 
             // Also drive + log the ZOOM range clamping the live camera (AC4).
-            var zoom = reg?.Get(SettingsCatalog.ZoomRangeId) as RangeSettingEntry;
             if (zoom != null && orbit != null)
             {
                 float newMax = Mathf.Min(zoom.UpperLimit, 18f);
@@ -99,11 +110,33 @@ namespace FarHorizon
             yield return null;
             yield return new WaitForSeconds(0.5f);
 
-            Debug.Log("[SettingsVerifyCapture] verification complete -> " + dir);
+            // Restore PlayerPrefs so the next launch (the Sponsor soak) loads shipped defaults, not this run's tweaks.
+            RestorePrefs(prefsSnapshot);
+            Debug.Log("[SettingsVerifyCapture] verification complete (PlayerPrefs restored) -> " + dir);
             Application.Quit();
         }
 
         private static string Fmt(float v) => float.IsNaN(v) ? "N/A" : v.ToString("F2");
+
+        // A captured PlayerPrefs float key + its prior presence/value, so the verify run can leave PlayerPrefs
+        // exactly as it found them (codereview #83 — no soak-defaults pollution).
+        private struct PrefSnapshot { public string Key; public bool Existed; public float Value; }
+
+        private static void SnapshotFloat(System.Collections.Generic.List<PrefSnapshot> into, string key)
+        {
+            bool existed = PlayerPrefs.HasKey(key);
+            into.Add(new PrefSnapshot { Key = key, Existed = existed, Value = existed ? PlayerPrefs.GetFloat(key) : 0f });
+        }
+
+        private static void RestorePrefs(System.Collections.Generic.List<PrefSnapshot> snapshot)
+        {
+            foreach (var s in snapshot)
+            {
+                if (s.Existed) PlayerPrefs.SetFloat(s.Key, s.Value); // had a genuine persisted value → put it back
+                else PlayerPrefs.DeleteKey(s.Key);                   // verify run created it → remove it
+            }
+            PlayerPrefs.Save();
+        }
 
         private void ShotTo(string file)
         {

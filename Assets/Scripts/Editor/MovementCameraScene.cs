@@ -1754,7 +1754,11 @@ namespace FarHorizon.EditorTools
             var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(SettingsPanelUxmlPath);
             var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(PaletteUssPath);
             var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(SettingsPanelUssPath);
-            doc.visualTreeAsset = uxml; // the UIDocument also clones it; the panel re-resolves elements by name
+            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the SINGLE clone (it CloneTree's
+            // the serialized panelUxml, adds the stylesheets, and re-resolves elements by name; it also carries
+            // the build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
+            // here would make the UIDocument ALSO auto-clone the shell on enable → a duplicate, always-visible
+            // orphan settings-scrim laid over the world that Q("settings-scrim") never binds (codereview #83).
 
             var panel = go.AddComponent<SettingsPanel>();
             panel.document = doc;
