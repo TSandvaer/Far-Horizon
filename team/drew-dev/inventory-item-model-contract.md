@@ -147,10 +147,15 @@ with `public enum SlotArea { Inventory, Belt }`. (Exact names — drag/drop sour
 ## 5. Held-item coherence (selected belt slot ⇄ in-world tool)
 
 `InventoryModel.SelectedBeltIndex` is the SINGLE source of "what's in hand". The held-item driver reads:
-the `ItemStack` at `BeltSlots[SelectedBeltIndex]`; if its `Def.Id == "axe"` → show the rig, else hide it.
-Wired to the existing **`HeldAxeRig`** (`Assets/Scripts/Runtime/HeldAxeRig.cs`) — show/hide only;
-its seat/follow internals are UNTOUCHED (the held-axe saga is settled, out of this scope). This is the
-load-bearing UI-rim ⇄ in-hand coherence: `.slot--selected` (Uma §4.1) and the in-world axe never disagree.
+the `ItemStack` at `BeltSlots[SelectedBeltIndex]`; if its `Def.Id == "axe"` → show the axe, else hide it.
+The show/hide + grip coherence drivers are **`HeldAxe.cs`** (`Assets/Scripts/Runtime/HeldAxe.cs` — gates the
+held hatchet renderer's visibility, `r.enabled = show`) and **`CastawayFingerCurl.cs`**
+(`Assets/Scripts/Runtime/CastawayFingerCurl.cs` — gates the hand grip/curl), both currently gated on
+`Inventory.HasAxe`. (Note: `HeldAxeRig.cs` is **seat/follow only** — it carries NO visibility logic, so it is
+NOT the coherence driver.) The migration repoints these `HasAxe` reads at the slot model's selected-axe test
+(per §7's full-surface preservation); their seat/follow internals are UNTOUCHED (the held-axe saga is settled,
+out of this scope). This is the load-bearing UI-rim ⇄ in-hand coherence: `.slot--selected` (Uma §4.1) and the
+in-world axe never disagree.
 
 ---
 
@@ -166,18 +171,30 @@ this contract reserves the enum-not-bool shape precisely so that extension is no
 
 ## 7. Migration seam — thin ledger → slot model (no stranded callers)
 
-`86caa4bya` replaces the thin `Inventory.cs` ledger. To avoid breaking the HUD + `ChopTree`:
+`86caa4bya` replaces the thin `Inventory.cs` ledger. The migration MUST **preserve the FULL `Inventory`
+public surface (`HasAxe` / `WoodCount` / `Changed` + ALL callers)** — NOT just the two named below. The
+`HasAxe` / `WoodCount` ledger surface is **wider than the HUD + `ChopTree`**: ground-truth callers include
+`SurvivalHud.cs` (HUD), `ChopTree.cs` (`AddWood`), `StumpAxe.cs` (`!HasAxe` gate), `CastawayFingerCurl.cs`
+(grip gate on `HasAxe`), `HeldAxe.cs` (visibility gate on `HasAxe`), `CampfirePlacement.cs` (`SpendWood`),
+`CraftSpot.cs` (`CraftAxe`), the `*VerifyCapture` probes (`AxeVerifyCapture` / `ChopVerifyCapture` /
+`CampfireVerifyCapture` / `CraftVerifyCapture` / `WalkGroundingVerifyCapture`), plus ~14 EditMode/PlayMode
+tests asserting these gates. An implementer who migrates only the 2 named call-sites strands the rest — so
+the façade preserves the WHOLE surface:
 
 - **Keep `Inventory` as a thin façade over `InventoryModel`** (or fold the model into it). It MUST keep
-  exposing, for the HUD: `bool HasAxe` (→ any belt/inv slot holds `axe`), `int WoodCount`
-  (→ summed `Count` of all `wood` stacks), `event Action Changed`. The U2-5 HUD wiring is unchanged.
+  exposing **every member every caller reads/writes**: `bool HasAxe` (→ any belt/inv slot holds `axe`),
+  `int WoodCount` (→ summed `Count` of all `wood` stacks), `event Action Changed`, and the write paths
+  `CraftAxe()` / `AddWood(int)` / `SpendWood(int)`. The U2-5 HUD wiring AND every other caller above are
+  unchanged.
 - **`ChopTree.cs` `inventory.AddWood(n)`** → becomes `AddItem(woodDef, n)` internally; keep an `AddWood(int)`
   shim that forwards to `AddItem(woodDef, n)` so the chop call-site compiles unchanged until `86caa4c5c`
   is rebased onto the slot model. (Chop ticket then switches to `AddItem` directly.)
-- `CraftAxe()` / `SpendWood()` façade shims forward to the slot model the same way.
+- `CraftAxe()` / `SpendWood()` façade shims forward to the slot model the same way; `HasAxe` (read by
+  `StumpAxe` / `HeldAxe` / `CastawayFingerCurl` / the probes) becomes a slot-model query (any slot holds `axe`).
 
-> Implementers: do this façade in `86caa4bya` so the HUD + chop keep green; the resource tickets then call
-> `AddItem(catalog.ById("wood"/"stone"/"berry"), amount)` directly. The façade is the no-second-PR bridge.
+> Implementers: do this full-surface façade in `86caa4bya` so the HUD, chop, axe-gate, held-axe visibility,
+> grip, campfire spend, craft, AND every `*VerifyCapture` probe + test keep green; the resource tickets then
+> call `AddItem(catalog.ById("wood"/"stone"/"berry"), amount)` directly. The façade is the no-second-PR bridge.
 
 ---
 
@@ -209,7 +226,7 @@ unresolved in UXML — keeps the model swappable/testable (AC6 / research §E4).
 | Consume/eat | `InventoryModel.TryConsumeSelected()` | `InventoryModel` |
 | Catalog/export | `ItemCatalog.ById(string)` / `.All` | `Assets/Data/Items/ItemCatalog.asset` |
 | Canonical ids | `axe` · `wood` · `stone` · `berry` | §3 |
-| Held-item source | `InventoryModel.SelectedBeltIndex` → `HeldAxeRig` show/hide | §5 |
+| Held-item source | `InventoryModel.SelectedBeltIndex` → `HeldAxe.cs` show/hide + `CastawayFingerCurl.cs` grip | §5 |
 
 **The three things every parallel ticket MUST honor:** (1) `wood` is ONE item — chop + sticks both
 `AddItem(woodDef, …)`; (2) belt-eligibility is `ItemDef.IsBeltEligible` (Tool only) — never a local bool;
