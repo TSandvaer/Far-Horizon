@@ -84,6 +84,13 @@ namespace FarHorizon
         private float _pitch;
         private Vector3 _followPos;
 
+        // 86caatv7k — cursor lock during RMB camera-orbit. While the RIGHT mouse button is HELD (orbiting) the
+        // cursor is LOCKED to the window centre + hidden, so dragging to orbit never walks the pointer off-screen
+        // / out of the window. On RMB RELEASE we restore the free, visible cursor so the Sponsor can click menus /
+        // inventory / belt. We only mutate Cursor state on the press/release EDGE (tracked here), never while RMB
+        // is up — so UI that wants the cursor free between orbits is left alone.
+        private bool _orbiting;
+
         void Start()
         {
             _yaw = defaultYaw;
@@ -92,10 +99,32 @@ namespace FarHorizon
             Apply(instant: true);
         }
 
+        // 86caatv7k — safety net: if the orbit camera is disabled/destroyed mid-orbit (RMB still held), restore
+        // the free, visible cursor so it can never be left locked + hidden when no orbit is driving it.
+        void OnDisable()
+        {
+            if (_orbiting)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                _orbiting = false;
+            }
+        }
+
         void LateUpdate()
         {
             // RMB-drag orbit (legacy input, ported from the spike).
-            if (Input.GetMouseButton(1))
+            bool rmbHeld = Input.GetMouseButton(1);
+
+            // 86caatv7k — CURSOR LOCK on the RMB press/release EDGE only (the decision lives in the pure-static
+            // ResolveCursorForOrbit so the edge contract is unit-testable headlessly without Input/Cursor).
+            if (ResolveCursorForOrbit(rmbHeld, ref _orbiting, out CursorLockMode lockState, out bool visible))
+            {
+                Cursor.lockState = lockState;
+                Cursor.visible = visible;
+            }
+
+            if (rmbHeld)
             {
                 _yaw += Input.GetAxisRaw("Mouse X") * yawSpeed * Time.deltaTime;
                 _pitch -= Input.GetAxisRaw("Mouse Y") * pitchSpeed * Time.deltaTime;
@@ -191,6 +220,41 @@ namespace FarHorizon
                 Mathf.Lerp(current.x, desired.x, ah),
                 Mathf.Lerp(current.y, desired.y, av),   // Y follows fast — tracks the jump arc, no lag
                 Mathf.Lerp(current.z, desired.z, ah));
+        }
+
+        /// <summary>
+        /// PURE cursor-lock edge decision (86caatv7k — the unit-testable core of the RMB-orbit cursor lock).
+        /// Given whether the right mouse button is held this frame and the prior orbiting state, decide whether
+        /// the cursor state must CHANGE this frame and to what. Mutates <paramref name="orbiting"/> to the new
+        /// state. Returns TRUE only on a press/release EDGE (the caller then applies <paramref name="lockState"/>
+        /// + <paramref name="visible"/> to Cursor); returns FALSE when nothing changed (RMB up-and-was-up, or
+        /// held-and-was-held) so the cursor is NEVER touched while RMB isn't held. Contract:
+        ///   • rising edge  (held &amp;&amp; !orbiting) → Locked + hidden, orbiting=true,  returns true.
+        ///   • falling edge (!held &amp;&amp; orbiting)  → None   + visible, orbiting=false, returns true.
+        ///   • no edge → leaves orbiting + cursor untouched, returns false.
+        /// Static + dependency-free so the EditMode guard can assert the full edge sequence with no scene/Input.
+        /// </summary>
+        public static bool ResolveCursorForOrbit(bool rmbHeld, ref bool orbiting,
+            out CursorLockMode lockState, out bool visible)
+        {
+            if (rmbHeld && !orbiting)
+            {
+                orbiting = true;
+                lockState = CursorLockMode.Locked;
+                visible = false;
+                return true;
+            }
+            if (!rmbHeld && orbiting)
+            {
+                orbiting = false;
+                lockState = CursorLockMode.None;
+                visible = true;
+                return true;
+            }
+            // No edge — RMB isn't being pressed/released this frame; leave the cursor exactly as it is.
+            lockState = CursorLockMode.None;
+            visible = true;
+            return false;
         }
 
         // ---- Test / programmatic hooks ----

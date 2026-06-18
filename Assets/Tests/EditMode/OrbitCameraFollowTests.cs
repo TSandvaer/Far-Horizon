@@ -86,5 +86,87 @@ namespace FarHorizon.EditTests
             Vector3 zero = OrbitCamera.FollowStep(current, desired, HorizLerp, VertLerp, 0f);
             Assert.AreEqual(current, zero, "at dt=0 the follow point does not move (no NaN, no jump).");
         }
+
+        // =================================================================================================
+        // CURSOR LOCK during RMB camera-orbit (ticket 86caatv7k). OrbitCamera.ResolveCursorForOrbit is the
+        // pure, dependency-free edge decision: while RMB is HELD the cursor is Locked + hidden (so the orbit
+        // drag can't walk the pointer out of the window); on RMB RELEASE it restores None + visible (so the
+        // Sponsor can click menus / inventory / belt). The decision fires ONLY on a press/release EDGE — the
+        // cursor is NEVER touched while RMB isn't held. These pin the BUG CLASS (cursor walks off-screen while
+        // orbiting; cursor stays locked after release), not one instance — with no Input/Cursor dependency.
+        // =================================================================================================
+
+        [Test]
+        public void Cursor_OnRmbPressEdge_LocksAndHides()
+        {
+            bool orbiting = false;
+            bool changed = OrbitCamera.ResolveCursorForOrbit(true, ref orbiting,
+                out CursorLockMode lockState, out bool visible);
+            Assert.IsTrue(changed, "the press edge (RMB down, was-not-orbiting) must signal a cursor change.");
+            Assert.AreEqual(CursorLockMode.Locked, lockState, "RMB-held must LOCK the cursor (no off-screen walk).");
+            Assert.IsFalse(visible, "RMB-held must HIDE the cursor while orbiting.");
+            Assert.IsTrue(orbiting, "the orbiting flag must latch true on the press edge.");
+        }
+
+        [Test]
+        public void Cursor_OnRmbReleaseEdge_RestoresFreeVisibleCursor()
+        {
+            bool orbiting = true; // mid-orbit
+            bool changed = OrbitCamera.ResolveCursorForOrbit(false, ref orbiting,
+                out CursorLockMode lockState, out bool visible);
+            Assert.IsTrue(changed, "the release edge (RMB up, was-orbiting) must signal a cursor change.");
+            Assert.AreEqual(CursorLockMode.None, lockState,
+                "RMB-release must FREE the cursor so the Sponsor can click menus / inventory / belt.");
+            Assert.IsTrue(visible, "RMB-release must show the cursor again.");
+            Assert.IsFalse(orbiting, "the orbiting flag must clear on the release edge.");
+        }
+
+        [Test]
+        public void Cursor_WhileRmbNotHeld_DoesNotTouchCursorState()
+        {
+            // The contract's load-bearing half: when RMB isn't being pressed/released this frame, the function
+            // must NOT signal a change (so the caller leaves Cursor exactly as it is — a menu that freed the
+            // cursor between orbits is never overridden). Two no-edge cases: idle (up, was-up) and held-steady.
+            bool idleOrbiting = false;
+            Assert.IsFalse(OrbitCamera.ResolveCursorForOrbit(false, ref idleOrbiting, out _, out _),
+                "RMB up while not orbiting must NOT touch the cursor (no edge).");
+            Assert.IsFalse(idleOrbiting, "no edge must leave the orbiting flag false.");
+
+            bool heldOrbiting = true;
+            Assert.IsFalse(OrbitCamera.ResolveCursorForOrbit(true, ref heldOrbiting, out _, out _),
+                "RMB held-steady (already orbiting) must NOT re-signal a cursor change every frame.");
+            Assert.IsTrue(heldOrbiting, "held-steady must leave the orbiting flag latched true.");
+        }
+
+        [Test]
+        public void Cursor_FullPressHoldReleaseSequence_LocksOnceThenFreesOnce()
+        {
+            // Walk the real frame sequence: idle → press → hold → hold → release → idle. The lock must fire
+            // exactly ONCE (press) and the free exactly ONCE (release); the hold + idle frames must be no-ops.
+            bool orbiting = false;
+            int changes = 0;
+
+            // idle frame (RMB up)
+            if (OrbitCamera.ResolveCursorForOrbit(false, ref orbiting, out _, out _)) changes++;
+            Assert.AreEqual(0, changes, "no change on the leading idle frame.");
+
+            // press frame (RMB down) → lock
+            Assert.IsTrue(OrbitCamera.ResolveCursorForOrbit(true, ref orbiting, out var s1, out var v1));
+            Assert.AreEqual(CursorLockMode.Locked, s1); Assert.IsFalse(v1); changes++;
+
+            // two hold frames (RMB still down) → no change
+            Assert.IsFalse(OrbitCamera.ResolveCursorForOrbit(true, ref orbiting, out _, out _));
+            Assert.IsFalse(OrbitCamera.ResolveCursorForOrbit(true, ref orbiting, out _, out _));
+
+            // release frame (RMB up) → free
+            Assert.IsTrue(OrbitCamera.ResolveCursorForOrbit(false, ref orbiting, out var s2, out var v2));
+            Assert.AreEqual(CursorLockMode.None, s2); Assert.IsTrue(v2); changes++;
+
+            // trailing idle frame → no change
+            Assert.IsFalse(OrbitCamera.ResolveCursorForOrbit(false, ref orbiting, out _, out _));
+
+            Assert.AreEqual(2, changes, "exactly two cursor-state changes across the orbit: lock on press, free on release.");
+            Assert.IsFalse(orbiting, "the orbiting flag returns to false after release.");
+        }
     }
 }
