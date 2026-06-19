@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!--
+      Inventory pack + belt hotbar shell (ticket 86caa4bya). The slot wells are built imperatively in
+      C# (InventoryUI) so the grid/belt slot counts follow the settings (AC1/AC2). This UXML provides the
+      named containers + the always-on belt bar + the drag ghost. Styling lives in InventoryPalette.uss +
+      InventoryPanel.uss (assigned via the UIDocument / StyleSheet references, not inline here).
+    -->
+    <ui:VisualElement name="root" picking-mode="Ignore" style="position: absolute; left:0; top:0; right:0; bottom:0;">
+
+        <!-- Standalone belt hotbar — bottom-center, visible during normal (inventory-closed) play. -->
+        <ui:VisualElement name="belt-bar" class="belt-bar" picking-mode="Ignore">
+            <ui:VisualElement name="belt-bar-strip" class="belt-bar__strip" />
+        </ui:VisualElement>
+
+        <!-- The inventory pack scrim + centered panel (display:None until Tab opens it). -->
+        <ui:VisualElement name="inv-scrim" class="inv-scrim" style="display: none;">
+            <ui:VisualElement name="inv-panel" class="inv-panel">
+                <ui:Label name="inv-header" text="Pack" class="inv-panel__header" />
+                <ui:VisualElement name="inv-grid" class="inv-grid" />
+                <ui:Label name="belt-divider" text="Belt" class="inv-panel__divider" />
+                <ui:VisualElement name="belt-dock" class="inv-belt-row" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- The dragged-icon ghost that rides the cursor during a drag (display:None when idle). -->
+        <ui:VisualElement name="drag-ghost" class="drag-ghost" picking-mode="Ignore" style="display: none;" />
+    </ui:VisualElement>
+</ui:UXML>

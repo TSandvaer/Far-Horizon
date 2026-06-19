@@ -3,6 +3,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.UIElements;
 using Unity.AI.Navigation;
 using FarHorizon;
 
@@ -229,6 +230,14 @@ namespace FarHorizon.EditorTools
             // trap). Built AFTER the tree (so the loop reads spawn -> craft -> chop -> build fire) and BEFORE
             // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
             BuildCampfire(player, groundLayer);
+
+            // 86caa4bya: the INVENTORY pack (Tab) + BELT hotbar UI (UI Toolkit) + a pickable world axe.
+            // The InventoryUI's UIDocument + UXML/USS + the Inventory reference SERIALIZE into Boot.unity
+            // (editor-vs-runtime trap). The pickable axe is the AC3 PoC pickup (auto-places in belt slot 1).
+            // Built collider-free (no NavMesh/raycast impact) so order vs the bake is flexible; placed here
+            // so the loop reads spawn -> pick up axe -> craft/chop/build with the belt+pack in play.
+            BuildInventoryUI(player);
+            BuildAxePickup(player, groundLayer);
 
             // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
             // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
@@ -635,6 +644,183 @@ namespace FarHorizon.EditorTools
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
                       ", inverse-HasAxe-gated, visible from spawn)");
+        }
+
+        // === 86caa4bya — INVENTORY pack + BELT hotbar UI (UI Toolkit) ============================
+        public const string InventoryPanelSettingsAssetPath = SettingsDir + "/InventoryPanelSettings.asset";
+        public const string InventoryUxmlPath = "Assets/UI/InventoryPanel.uxml";
+        public const string InventoryPaletteUssPath = "Assets/UI/InventoryPalette.uss";
+        public const string InventoryPanelUssPath = "Assets/UI/InventoryPanel.uss";
+        public const string InventoryUiObjectName = "InventoryUI";
+        public static readonly Vector3 AxePickupPosition = new Vector3(3f, 0f, 2f);
+        public const string AxePickupObjectName = "AxePickup";
+
+        // The inventory/belt UI lives on its own GameObject hosting a UIDocument + the InventoryUI view.
+        // The UXML/USS + the Inventory reference are loaded/wired here so they SERIALIZE into Boot.unity
+        // (editor-vs-runtime trap). InventoryUI.BuildView owns the single CloneTree (we do NOT assign
+        // doc.visualTreeAsset — same duplicate-shell pitfall the settings panel documented).
+        private static void BuildInventoryUI(GameObject player)
+        {
+            var go = new GameObject(InventoryUiObjectName);
+
+            var doc = go.AddComponent<UIDocument>();
+            doc.panelSettings = EnsureInventoryPanelSettings();
+            doc.sortingOrder = 90f; // below the settings panel (100), above the IMGUI HUD
+
+            var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(InventoryUxmlPath);
+            var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(InventoryPaletteUssPath);
+            var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(InventoryPanelUssPath);
+
+            var ui = go.AddComponent<InventoryUI>();
+            ui.document = doc;
+            ui.panelUxml = uxml;
+            ui.paletteUss = palette;
+            ui.panelUss = panelUss;
+            ui.inventory = Object.FindObjectOfType<Inventory>();
+
+            if (uxml == null || palette == null || panelUss == null)
+                Debug.LogWarning("[MovementCameraScene] InventoryUI assets missing (uxml=" + (uxml != null) +
+                                 ", palette=" + (palette != null) + ", panelUss=" + (panelUss != null) +
+                                 ") — check Assets/UI/Inventory*");
+            if (ui.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire InventoryUI to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            EditorUtility.SetDirty(go);
+            Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)");
+        }
+
+        // Create-or-load the runtime PanelSettings for the inventory UIDocument (own asset; reconciled to
+        // share the settings panel's PanelSettings when 86caa4bqp/PR #83 merges — cross-lane follow-up).
+        private static PanelSettings EnsureInventoryPanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(InventoryPanelSettingsAssetPath);
+            if (existing != null) return existing;
+
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            ps.themeStyleSheet = EnsureRuntimeTheme();
+            AssetDatabase.CreateAsset(ps, InventoryPanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
+        }
+
+        public const string InventoryRuntimeThemePath = SettingsDir + "/InventoryRuntimeTheme.tss";
+
+        // The ONLY content that makes a .tss a USABLE runtime theme: it must @import Unity's built-in
+        // runtime base theme (resolved internally by the .tss importer from the `unity-theme://default`
+        // URL). This pulls in the default control styles + the base USS variables every UIElements panel
+        // resolves against. An EMPTY .tss imports to a NON-NULL but BASE-LESS ThemeStyleSheet — which is
+        // exactly the PR #90 capture-gate HANG (see EnsureRuntimeTheme below). This is the same string the
+        // editor writes into Assets/UI Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss when you create a
+        // PanelSettings from the menu.
+        private const string DefaultRuntimeThemeTss = "@import url(\"unity-theme://default\");\n";
+
+        // Resolve a runtime ThemeStyleSheet for the inventory PanelSettings that ACTUALLY RESOLVES STYLES
+        // (BLOCKER-1 fix, PR #90 — round 2). History of this bug:
+        //   • round 0: the theme was loaded from two HARDCODED package paths that don't exist in this
+        //     project's package layout → both loads returned null → the panel shipped with a NULL theme →
+        //     the UIDocument threw at panel init in the windowed exe → capture gate = 0 frames (run
+        //     27810143643).
+        //   • round 1 (commit 8563b42): created a .tss but wrote it EMPTY, on the FALSE belief that "an
+        //     empty .tss inherits Unity's base runtime defaults". It does NOT — an empty .tss imports to a
+        //     NON-NULL but BASE-LESS ThemeStyleSheet (so the null-guard + the `themeStyleSheet != null`
+        //     test went GREEN — a false-green PROXY guard), and a UIDocument resolving its first repaint
+        //     against a base-less theme NEVER completes the first frame's layout in the shipped player →
+        //     the exe HANGS before the CaptureGate coroutine reaches a rendered frame → "did not self-quit
+        //     within 120s", 0 frames (run 27810923815; the exe boots fully — D3D12/physics/input/NavMesh
+        //     all log — then stalls BEFORE `[CaptureGate] start`). The null→hang transition is exactly the
+        //     symptom the brief flagged.
+        // The real fix: write the .tss with the `@import url("unity-theme://default")` content
+        // (DefaultRuntimeThemeTss) so the created theme carries Unity's runtime base styles — a USABLE
+        // theme, not just a non-null one. This NEVER returns null:
+        //   1. Reuse a project ThemeStyleSheet that ALREADY imports the default (Unity's auto-generated
+        //      UnityDefaultRuntimeTheme.tss if the editor created one) — verified by reading its source,
+        //      NOT trusted blindly (a base-less found theme would re-hang).
+        //   2. Otherwise CREATE/REPAIR our own at InventoryRuntimeThemePath with the proper import content.
+        private static ThemeStyleSheet EnsureRuntimeTheme()
+        {
+            // 1. Reuse any project ThemeStyleSheet whose SOURCE imports the runtime default (path-
+            //    independent — picks up Unity's auto-generated theme wherever the editor imported it). We
+            //    READ the .tss text (not just the loaded object) because a base-less theme is non-null but
+            //    re-triggers the hang — guard the resolving condition, not the non-null proxy.
+            string[] guids = AssetDatabase.FindAssets("t:ThemeStyleSheet");
+            foreach (string guid in guids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
+                if (!ThemeImportsRuntimeDefault(path)) continue;   // skip empty / base-less themes
+                var found = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(path);
+                if (found != null) return found;
+            }
+
+            // 2. None usable — create (or repair, if a prior empty one exists) ours with the import content
+            //    so the PanelSettings always has a theme that resolves Unity's runtime base styles. The
+            //    inventory's OWN look still comes from InventoryPalette.uss + InventoryPanel.uss; the theme
+            //    only supplies the base default styles the panel layout resolves against.
+            Directory.CreateDirectory(SettingsDir);
+            bool needsWrite = !File.Exists(InventoryRuntimeThemePath)
+                              || !ThemeImportsRuntimeDefault(InventoryRuntimeThemePath);
+            if (needsWrite)
+            {
+                File.WriteAllText(InventoryRuntimeThemePath, DefaultRuntimeThemeTss);
+                AssetDatabase.ImportAsset(InventoryRuntimeThemePath, ImportAssetOptions.ForceUpdate);
+            }
+            var created = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(InventoryRuntimeThemePath);
+            if (created == null)
+                Debug.LogError("[MovementCameraScene] FAILED to create a runtime UI theme at " +
+                               InventoryRuntimeThemePath + " — the inventory UIDocument will throw/hang at " +
+                               "startup (theme-less PanelSettings). Capture gate will produce 0 frames.");
+            return created;
+        }
+
+        // True iff the .tss at <path> imports Unity's runtime default theme (the one line that makes a
+        // .tss a USABLE runtime theme vs an empty/base-less shell). Reads the SOURCE text — the imported
+        // ThemeStyleSheet object is non-null either way, so the source is the only honest signal.
+        private static bool ThemeImportsRuntimeDefault(string path)
+        {
+            try { return File.ReadAllText(path).Contains("unity-theme://default"); }
+            catch { return false; }
+        }
+
+        // 86caa4bya AC3 — a PICKABLE axe lying in the world: walk near it → it lands in belt slot 1. Uses
+        // the SAME sourced hatchet FBX as the held/stump axe (one asset, identical read). Collider-free so
+        // it never blocks the click-raycast or the NavMesh bake. Authored editor-time so the mesh + the
+        // AxePickup wiring SERIALIZE into Boot.unity (editor-vs-runtime trap).
+        private static void BuildAxePickup(GameObject player, int groundLayer)
+        {
+            var go = new GameObject(AxePickupObjectName);
+            go.transform.position = AxePickupPosition;
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            Transform visual = go.transform;
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "AxePickupVisual";
+                mesh.transform.SetParent(go.transform, false);
+                mesh.transform.localPosition = new Vector3(0f, 0.4f, 0f); // float just above the sand
+                mesh.transform.localRotation = Quaternion.Euler(0f, 45f, 90f); // lying/leaning read
+                mesh.transform.localScale = Vector3.one * 1.0f;
+                visual = mesh.transform;
+                var litShader = Shader.Find("Universal Render Pipeline/Lit");
+                if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            }
+            else
+            {
+                Debug.LogWarning("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                                 " — AxePickup has no visual mesh (pickup logic still wires)");
+            }
+
+            var pickup = go.AddComponent<AxePickup>();
+            pickup.inventory = Object.FindObjectOfType<Inventory>();
+            pickup.player = player != null ? player.transform : null;
+            pickup.visual = visual;
+
+            EditorUtility.SetDirty(go);
+            Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition + " (auto-belt-slot-1 PoC)");
         }
 
         // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time
