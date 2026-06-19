@@ -91,17 +91,23 @@ namespace FarHorizon
                 if (!_tracedFirstEat)
                 {
                     _tracedFirstEat = true;
-                    Debug.Log("[eat-trace] ate 1 berry (key=" + eatKey + ", restore=" + (hunger != null) +
-                              ") -> berries=" + inventory.Model.CountItem(ItemCatalog.BerryId) +
-                              (hunger != null ? ", hunger=" + hunger.Current01.ToString("F2") : ""));
+                    EatTrace("ate 1 berry (key=" + eatKey + ", restore=" + (hunger != null) +
+                             ") -> berries=" + inventory.Model.CountItem(ItemCatalog.BerryId) +
+                             (hunger != null ? ", hunger=" + hunger.Current01.ToString("F2") : ""));
                 }
             }
             else if (!_tracedFirstEmpty)
             {
                 _tracedFirstEmpty = true;
-                Debug.Log("[eat-trace] eat pressed with NO berries held -> no-op (key=" + eatKey + ")");
+                EatTrace("eat pressed with NO berries held -> no-op (key=" + eatKey + ")");
             }
             return eaten;
         }
+
+        // [eat-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call +
+        // its argument evaluation (the string concat) from the shipped IL2CPP release exe so the trace costs
+        // the player nothing (unity6-mastery §5/§10). The first-press guards keep it one-shot.
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        private static void EatTrace(string msg) => Debug.Log("[eat-trace] " + msg);
     }
 }

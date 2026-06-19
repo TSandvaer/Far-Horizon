@@ -1325,6 +1325,9 @@ namespace FarHorizon.EditorTools
             bb.berriesVisual = berries.transform;
             bb.player = player.transform;
             bb.inventory = Object.FindObjectOfType<Inventory>();
+            // Wire the HungerNeed editor-time (serialized) so the no-arg EatBerry() never does a per-use
+            // FindObjectOfType in the build (BootstrapProject adds Survival/HungerNeed before this runs).
+            bb.hunger = Object.FindObjectOfType<HungerNeed>();
             bb.regrowSeed = 53121; // deterministic regrow roll so headless/capture behavior is stable
             if (bb.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire BerryBush to — " +

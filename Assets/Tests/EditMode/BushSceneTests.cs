@@ -125,6 +125,47 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // === AC2: the scatter's SIZE distribution spans the authored range + its DENSITY rises inland ===
+        // Guards the two AC2 "reads natural, not cloned" properties against the baked Boot scene:
+        //   (1) bush localScale spans the authored 0.55–1.5 range (not all one size) — a wide spread, with
+        //       at least one genuinely small and one genuinely large bush, every scale in-band;
+        //   (2) density rises INLAND (LowPolyZoneGen.BuildBush density `0.30 + inlandT*0.55`) — bushes are
+        //       AREA-DENSER near the island centre than at the outer plant ring. Asserting per-area density
+        //       (not raw counts) is the gradient-honest check: an outer annulus has more area, so raw counts
+        //       can mislead; density (count ÷ annulus area) must be higher inland.
+        [Test]
+        public void BootScene_BushScatter_HasVariedScale_AndInlandDensityGradient()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var bushes = scene.GetRootGameObjects()
+                .SelectMany(r => r.GetComponentsInChildren<Transform>(true))
+                .Where(t => t.gameObject.name == "LP_Bush" || t.gameObject.name == "LP_BerryBush")
+                .ToArray();
+
+            Assert.Greater(bushes.Length, 20,
+                "the scatter must place a meaningful population (>20) for the distribution check to be sound");
+
+            // (1) SCALE distribution — every bush in the authored 0.55–1.5 band, with real spread.
+            float minScale = bushes.Min(b => b.localScale.x);
+            float maxScale = bushes.Max(b => b.localScale.x);
+            Assert.GreaterOrEqual(minScale, 0.55f - 0.001f, "no bush smaller than the authored min (0.55)");
+            Assert.LessOrEqual(maxScale, 1.5f + 0.001f, "no bush larger than the authored max (1.5)");
+            Assert.Less(minScale, 0.75f, "the scatter includes genuinely SMALL bushes (varied, not cloned — AC2)");
+            Assert.Greater(maxScale, 1.25f, "the scatter includes genuinely LARGE bushes (varied, not cloned — AC2)");
+
+            // (2) INLAND DENSITY gradient — per-area density higher in the inner half than the outer half.
+            // Split at the radius that halves the populated disc's AREA (so each region has equal area),
+            // then compare counts (equal-area regions ⇒ count IS density). Planar XZ radius from origin.
+            float maxR = bushes.Max(b => Mathf.Sqrt(b.position.x * b.position.x + b.position.z * b.position.z));
+            float splitR = maxR / Mathf.Sqrt(2f); // inner disc area == outer annulus area
+            int inner = bushes.Count(b =>
+                Mathf.Sqrt(b.position.x * b.position.x + b.position.z * b.position.z) <= splitR);
+            int outer = bushes.Length - inner;
+            Assert.Greater(inner, outer,
+                $"density rises inland: with the disc split into EQUAL-AREA inner/outer regions, the inner " +
+                $"region must hold MORE bushes (inner={inner} > outer={outer}) — the BuildBush inland gradient");
+        }
+
         // Find the FIXED wired berry bush authored by MovementCameraScene (named "BerryBush"), preferring
         // it over the scatter ones (named LP_BerryBush) so the wired-bush asserts target the deterministic one.
         private static BerryBush FindWiredBerryBush(Scene scene)

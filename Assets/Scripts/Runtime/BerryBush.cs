@@ -57,6 +57,11 @@ namespace FarHorizon
                  "bootstrap. If unwired the harvest still works (berries just don't visibly toggle).")]
         public Transform berriesVisual;
 
+        [Tooltip("The hunger need the no-arg EatBerry() restores. Wired at bootstrap; cached from a scene " +
+                 "search in Awake as a build-safety net. May be null — eating then consumes the berry " +
+                 "gracefully with no restore (AC5b, no null-ref).")]
+        public HungerNeed hunger;
+
         [Header("Variant")]
         [Tooltip("Only a berry-bush variant carries berries (AC3). A plain (decorative) bush sets this " +
                  "false — it never yields berries and is never harvestable. The world scatter mixes both.")]
@@ -106,6 +111,10 @@ namespace FarHorizon
                 var ctm = FindObjectOfType<ClickToMove>();
                 if (ctm != null) player = ctm.transform;
             }
+            // Cache the HungerNeed once (build-safety net for the no-arg EatBerry overload) — never a
+            // per-eat FindObjectOfType (unity6-mastery §6 "no per-frame/per-use Find"). The serialized
+            // ref (wired at bootstrap) is the source of truth; this fills it only if unwired.
+            if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
             _rng = new System.Random(regrowSeed != 0 ? regrowSeed : Environment.TickCount);
             ApplyRipeVisual();
         }
@@ -120,10 +129,15 @@ namespace FarHorizon
 
             if (!hasBerries || inventory == null || player == null) return;
 
-            // Planar XZ distance only — height-robust, same as ChopTree / CraftSpot.
-            Vector2 bush = new Vector2(transform.position.x, transform.position.z);
-            Vector2 here = new Vector2(player.position.x, player.position.z);
-            bool inRange = Vector2.Distance(bush, here) <= harvestRadius;
+            // Planar XZ distance only — height-robust, same as ChopTree / CraftSpot. Scalar squared-
+            // distance (no Vector2 construction / sqrt per frame — this Update polls on every scattered
+            // bush; unity6-mastery §5 GC/hot-path rule). EFFECTIVE radius SCALES with the bush's visual
+            // size (transform.localScale.x: 0.55–1.5× across the scatter) so a small bush isn't harvestable
+            // from metres away and a large one only from on top of it — the reach matches what the player sees.
+            Vector3 bp = transform.position, pp = player.position;
+            float dx = bp.x - pp.x, dz = bp.z - pp.z;
+            float effRadius = harvestRadius * transform.localScale.x;
+            bool inRange = dx * dx + dz * dz <= effRadius * effRadius;
 
             if (!inRange)
             {
@@ -164,7 +178,7 @@ namespace FarHorizon
             if (!_tracedFirstHarvest)
             {
                 _tracedFirstHarvest = true;
-                Debug.Log("[bush-trace] Harvest +" + added + " berry (yield=" + berriesPerHarvest +
+                BushTrace("Harvest +" + added + " berry (yield=" + berriesPerHarvest +
                           ", leftover=" + leftover + ") -> berries=" +
                           inventory.Model.CountItem(ItemCatalog.BerryId) +
                           "; bush BARE, regrow in " + (_regrowAt - Time.time).ToString("F1") + "s");
@@ -205,14 +219,15 @@ namespace FarHorizon
             }
 
             if (eaten)
-                Debug.Log("[bush-trace] EatBerry -1 berry (restore=" + (hunger != null) +
+                BushTrace("EatBerry -1 berry (restore=" + (hunger != null) +
                           ") -> berries=" + inventory.Model.CountItem(ItemCatalog.BerryId));
             return eaten;
         }
 
-        /// <summary>Convenience overload: eat one berry, finding a HungerNeed in the scene if present
-        /// (AC5b graceful when absent). Number-key / UI eat-action call-site.</summary>
-        public bool EatBerry() => EatBerry(FindObjectOfType<HungerNeed>());
+        /// <summary>Convenience overload: eat one berry, restoring through the CACHED <see cref="hunger"/>
+        /// ref (wired at bootstrap; Awake-cached fallback) — never a per-use FindObjectOfType. Graceful
+        /// when no HungerNeed exists (AC5b). UI / eat-action call-site.</summary>
+        public bool EatBerry() => EatBerry(hunger);
 
         // Schedule the regrow at a RANDOM time within [min,max] (AC4). Min clamped non-negative; max
         // clamped to >= min so a mis-authored max never schedules a regrow in the past.
@@ -229,8 +244,15 @@ namespace FarHorizon
         {
             _ripe = true;
             ApplyRipeVisual();
-            Debug.Log("[bush-trace] Regrow -> berries RIPE again (bush persisted)");
+            BushTrace("Regrow -> berries RIPE again (bush persisted)");
         }
+
+        // [bush-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call
+        // (AND its argument evaluation, incl. the string concatenation) from the shipped IL2CPP release exe,
+        // so the trace never costs the player a string alloc + log write (unity6-mastery §5 "no Debug.Log in
+        // hot paths" / §10 "strip all logging from shipping builds"). The first-time guards keep it one-shot.
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        private static void BushTrace(string msg) => Debug.Log("[bush-trace] " + msg);
 
         // Show/hide the berries visual to match ripe state (the bush body stays; only berries toggle).
         private void ApplyRipeVisual()

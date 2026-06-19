@@ -200,5 +200,48 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(0, yielded, "a plain bush yields no berries");
             Assert.AreEqual(0, Berries, "a plain bush adds nothing to the inventory");
         }
+
+        // === AC3 leftover handling: harvesting into an inventory with only PARTIAL room returns ONLY the
+        // amount that actually landed (the rest spills/leftover) — Harvest() reflects AddItem's leftover
+        // contract, never over-credits the pack, and the bush still goes BARE + schedules regrow. ===
+        [Test]
+        public void Harvest_IntoNearlyFullInventory_AddsOnlyWhatFits_AndStillDepletes()
+        {
+            // Fill the inventory so EXACTLY 1 berry of slot-room remains: 20 slots × 20/stack = 400 cap;
+            // pre-load 399 so a 3-berry harvest can only land 1 (2 spill as leftover).
+            var berryDef = _inv.Catalog.ById(ItemCatalog.BerryId);
+            Assert.IsNotNull(berryDef, "precondition: the catalog defines the berry item");
+            int cap = berryDef.MaxStack * _inv.Model.InventorySlots.Count; // 400
+            int leftoverFromFill = _inv.Model.AddItem(berryDef, cap - 1);  // pack now holds cap-1 (399)
+            Assert.AreEqual(0, leftoverFromFill, "precondition: the fill itself fit (no spill)");
+            Assert.AreEqual(cap - 1, Berries, "precondition: inventory loaded to cap-1");
+
+            _bush.berriesPerHarvest = 3; // yield exceeds the 1 remaining slot of room
+            int added = _bush.Harvest();
+
+            Assert.AreEqual(1, added,
+                "Harvest returns ONLY the count that fit (1 of 3) — it never over-credits a full pack (AddItem leftover contract)");
+            Assert.AreEqual(cap, Berries, "the inventory tops out at cap; the overflow (2) was dropped, not negative-stored");
+            Assert.IsFalse(_bush.IsRipe, "the bush still goes BARE on harvest even when the pack couldn't hold the full yield");
+            Assert.Greater(_bush.RegrowAt, 0f, "a regrow is still scheduled (the bush persists + will re-ripen)");
+        }
+
+        // === AC3 fully-full case: harvesting into a COMPLETELY full inventory lands 0 — no negative store,
+        // no over-credit — and the bush still depletes (a wasted harvest, but never corrupts the pack). ===
+        [Test]
+        public void Harvest_IntoFullInventory_AddsNothing_NoOverCredit()
+        {
+            var berryDef = _inv.Catalog.ById(ItemCatalog.BerryId);
+            int cap = berryDef.MaxStack * _inv.Model.InventorySlots.Count; // 400
+            _inv.Model.AddItem(berryDef, cap); // pack completely full
+            Assert.AreEqual(cap, Berries, "precondition: inventory full");
+
+            _bush.berriesPerHarvest = 3;
+            int added = _bush.Harvest();
+
+            Assert.AreEqual(0, added, "a full pack accepts 0 berries — Harvest credits nothing");
+            Assert.AreEqual(cap, Berries, "the count is unchanged (no over-credit, no negative store)");
+            Assert.IsFalse(_bush.IsRipe, "the bush still depletes on the (wasted) harvest");
+        }
     }
 }

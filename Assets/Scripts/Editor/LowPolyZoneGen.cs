@@ -811,6 +811,9 @@ namespace FarHorizon.EditorTools
             bb.inventory = Object.FindObjectOfType<FarHorizon.Inventory>();
             var ctm = Object.FindObjectOfType<FarHorizon.ClickToMove>();
             if (ctm != null) bb.player = ctm.transform;
+            // Wire the HungerNeed editor-time (serialized) so a scatter bush's no-arg EatBerry() never does a
+            // per-use FindObjectOfType in the build (bake-time Find only, matching the Inventory/player wiring).
+            bb.hunger = Object.FindObjectOfType<FarHorizon.HungerNeed>();
             bb.regrowSeed = rnd.Next(1, int.MaxValue);
         }
 
