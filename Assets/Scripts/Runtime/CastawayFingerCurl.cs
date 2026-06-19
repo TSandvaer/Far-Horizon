@@ -26,10 +26,14 @@ namespace FarHorizon
     /// WHY A RELATIVE OFFSET (multiply), not an absolute set: the clip animates the fingers every frame; we
     /// NUDGE that pose by a fixed curl, preserving any clip motion. bone.localRotation = clip * Euler(curl,0,0).
     ///
-    /// GATED ON HasAxe: the curl applies ONLY when the axe is held (Inventory.HasAxe). Empty-handed, the hand
-    /// keeps its natural open clip pose — we only close the hand when there is a haft to grip. Subscribes to
-    /// Inventory.Changed + applies on enable, so it is correct at spawn (no axe → open hand) and after the
-    /// craft (→ gripping hand), no per-frame polling of the ledger.
+    /// GATED ON THE HELD AXE BEING SHOWN: the curl applies ONLY when the axe is the SELECTED belt item
+    /// (Inventory.IsAxeSelectedInBelt — AC4 86caa4bya), coherent with HeldAxe's visibility. Empty-handed
+    /// OR with the axe in a non-selected belt slot / in the pack, the hand keeps its natural open clip
+    /// pose — we only close the hand when a haft is actually shown in it. This SUPERSEDES the old HasAxe
+    /// (ownership) gate (before the belt, owning == holding; now selection is the right signal — item-model
+    /// contract §5). Subscribes to Inventory.Changed + applies on enable, so it is correct at spawn (no
+    /// axe → open hand) and after every selection/move (→ gripping only when the axe is in hand), no
+    /// per-frame polling of the ledger.
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): authored editor-time by MovementCameraScene
     /// (BuildPlayer → AddFingerCurl) and serialized onto the avatar root with the finger bones resolved from
@@ -57,10 +61,11 @@ namespace FarHorizon
         public float thumbCurlDeg = 14f;
 
         [Header("Gate")]
-        [Tooltip("The ledger whose HasAxe gates the curl. Wired editor-time; scene-found fallback in Awake. " +
-                 "When no axe is held the hand keeps its natural OPEN clip pose (we only grip a real haft).")]
+        [Tooltip("The inventory whose IsAxeSelectedInBelt gates the curl (AC4). Wired editor-time; " +
+                 "scene-found fallback in Awake. When the axe is not the selected belt item (or none is " +
+                 "held), the hand keeps its natural OPEN clip pose (we only grip a haft actually in hand).")]
         public Inventory inventory;
-        [Tooltip("If true, always curl regardless of HasAxe (verification/diagnostic only).")]
+        [Tooltip("If true, always curl regardless of selection (verification/diagnostic only).")]
         public bool alwaysCurl = false;
 
         private Quaternion _fingerOffset, _thumbOffset;
@@ -90,10 +95,11 @@ namespace FarHorizon
             _thumbOffset = Quaternion.Euler(thumbCurlDeg, 0f, 0f);
         }
 
-        // Gripping = the axe is held (or alwaysCurl). Exposed implicitly via the LateUpdate gate.
+        // Gripping = the axe is the SELECTED belt item (shown in hand), or alwaysCurl (AC4). Coherent
+        // with HeldAxe's visibility — the hand only closes around a haft that is actually shown.
         private void ApplyGate()
         {
-            _gripping = alwaysCurl || (inventory != null && inventory.HasAxe);
+            _gripping = alwaysCurl || (inventory != null && inventory.IsAxeSelectedInBelt);
         }
 
         /// <summary>Whether the curl is currently applied (the hand is gripping). Exposed for the PlayMode

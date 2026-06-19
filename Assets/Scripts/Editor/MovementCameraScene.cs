@@ -3,6 +3,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.UIElements;
 using Unity.AI.Navigation;
 using FarHorizon;
 
@@ -229,6 +230,14 @@ namespace FarHorizon.EditorTools
             // trap). Built AFTER the tree (so the loop reads spawn -> craft -> chop -> build fire) and BEFORE
             // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
             BuildCampfire(player, groundLayer);
+
+            // 86caa4bya: the INVENTORY pack (Tab) + BELT hotbar UI (UI Toolkit) + a pickable world axe.
+            // The InventoryUI's UIDocument + UXML/USS + the Inventory reference SERIALIZE into Boot.unity
+            // (editor-vs-runtime trap). The pickable axe is the AC3 PoC pickup (auto-places in belt slot 1).
+            // Built collider-free (no NavMesh/raycast impact) so order vs the bake is flexible; placed here
+            // so the loop reads spawn -> pick up axe -> craft/chop/build with the belt+pack in play.
+            BuildInventoryUI(player);
+            BuildAxePickup(player, groundLayer);
 
             // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
             // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
@@ -635,6 +644,111 @@ namespace FarHorizon.EditorTools
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
                       ", inverse-HasAxe-gated, visible from spawn)");
+        }
+
+        // === 86caa4bya — INVENTORY pack + BELT hotbar UI (UI Toolkit) ============================
+        public const string InventoryPanelSettingsAssetPath = SettingsDir + "/InventoryPanelSettings.asset";
+        public const string InventoryUxmlPath = "Assets/UI/InventoryPanel.uxml";
+        public const string InventoryPaletteUssPath = "Assets/UI/InventoryPalette.uss";
+        public const string InventoryPanelUssPath = "Assets/UI/InventoryPanel.uss";
+        public const string InventoryUiObjectName = "InventoryUI";
+        public static readonly Vector3 AxePickupPosition = new Vector3(3f, 0f, 2f);
+        public const string AxePickupObjectName = "AxePickup";
+
+        // The inventory/belt UI lives on its own GameObject hosting a UIDocument + the InventoryUI view.
+        // The UXML/USS + the Inventory reference are loaded/wired here so they SERIALIZE into Boot.unity
+        // (editor-vs-runtime trap). InventoryUI.BuildView owns the single CloneTree (we do NOT assign
+        // doc.visualTreeAsset — same duplicate-shell pitfall the settings panel documented).
+        private static void BuildInventoryUI(GameObject player)
+        {
+            var go = new GameObject(InventoryUiObjectName);
+
+            var doc = go.AddComponent<UIDocument>();
+            doc.panelSettings = EnsureInventoryPanelSettings();
+            doc.sortingOrder = 90f; // below the settings panel (100), above the IMGUI HUD
+
+            var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(InventoryUxmlPath);
+            var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(InventoryPaletteUssPath);
+            var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(InventoryPanelUssPath);
+
+            var ui = go.AddComponent<InventoryUI>();
+            ui.document = doc;
+            ui.panelUxml = uxml;
+            ui.paletteUss = palette;
+            ui.panelUss = panelUss;
+            ui.inventory = Object.FindObjectOfType<Inventory>();
+
+            if (uxml == null || palette == null || panelUss == null)
+                Debug.LogWarning("[MovementCameraScene] InventoryUI assets missing (uxml=" + (uxml != null) +
+                                 ", palette=" + (palette != null) + ", panelUss=" + (panelUss != null) +
+                                 ") — check Assets/UI/Inventory*");
+            if (ui.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire InventoryUI to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            EditorUtility.SetDirty(go);
+            Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)");
+        }
+
+        // Create-or-load the runtime PanelSettings for the inventory UIDocument (own asset; reconciled to
+        // share the settings panel's PanelSettings when 86caa4bqp/PR #83 merges — cross-lane follow-up).
+        private static PanelSettings EnsureInventoryPanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(InventoryPanelSettingsAssetPath);
+            if (existing != null) return existing;
+
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            var theme = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(
+                "Packages/com.unity.ui/PackageResources/StyleSheets/Generated/DefaultRuntimeTheme.tss")
+                ?? AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(
+                "Packages/com.unity.modules.uielements/PackageResources/StyleSheets/Generated/DefaultRuntimeTheme.tss");
+            if (theme != null) ps.themeStyleSheet = theme;
+            else Debug.LogWarning("[MovementCameraScene] default runtime UI theme not found — inventory UI " +
+                                  "controls may render unstyled (USS palette still applies)");
+            AssetDatabase.CreateAsset(ps, InventoryPanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
+        }
+
+        // 86caa4bya AC3 — a PICKABLE axe lying in the world: walk near it → it lands in belt slot 1. Uses
+        // the SAME sourced hatchet FBX as the held/stump axe (one asset, identical read). Collider-free so
+        // it never blocks the click-raycast or the NavMesh bake. Authored editor-time so the mesh + the
+        // AxePickup wiring SERIALIZE into Boot.unity (editor-vs-runtime trap).
+        private static void BuildAxePickup(GameObject player, int groundLayer)
+        {
+            var go = new GameObject(AxePickupObjectName);
+            go.transform.position = AxePickupPosition;
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            Transform visual = go.transform;
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "AxePickupVisual";
+                mesh.transform.SetParent(go.transform, false);
+                mesh.transform.localPosition = new Vector3(0f, 0.4f, 0f); // float just above the sand
+                mesh.transform.localRotation = Quaternion.Euler(0f, 45f, 90f); // lying/leaning read
+                mesh.transform.localScale = Vector3.one * 1.0f;
+                visual = mesh.transform;
+                var litShader = Shader.Find("Universal Render Pipeline/Lit");
+                if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            }
+            else
+            {
+                Debug.LogWarning("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                                 " — AxePickup has no visual mesh (pickup logic still wires)");
+            }
+
+            var pickup = go.AddComponent<AxePickup>();
+            pickup.inventory = Object.FindObjectOfType<Inventory>();
+            pickup.player = player != null ? player.transform : null;
+            pickup.visual = visual;
+
+            EditorUtility.SetDirty(go);
+            Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition + " (auto-belt-slot-1 PoC)");
         }
 
         // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time

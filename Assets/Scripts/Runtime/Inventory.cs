@@ -4,90 +4,154 @@ using UnityEngine;
 namespace FarHorizon
 {
     /// <summary>
-    /// The held-resource ledger for the M-U2 thin survival loop (ticket 86ca8bdaq, U2-2).
+    /// The inventory component — now a thin FAÇADE over the slot/stack <see cref="InventoryModel"/>
+    /// (ticket 86caa4bya; supersedes the U2-2 thin ledger 86ca8bdaq). The model is the real owner of the
+    /// inventory grid + belt hotbar; this MonoBehaviour is the SCENE-SERIALIZED host that wires it into
+    /// Boot.unity, exposes the model to the UI, AND preserves the FULL legacy ledger surface so every
+    /// existing caller stays green (item-model contract §7 "migration seam — no stranded callers").
     ///
-    /// The entry to the loop is crafting the axe (the chop tool); this is the data SEED the
-    /// inventory readout reads. Deliberately THIN: two held resources this milestone — the axe
-    /// (a have/have-not flag) and wood (a running count the chop step, U2-3, will increment).
-    /// No item grid, no recipe system, no durability (all out of scope per ticket / future texture).
+    /// === Legacy surface preserved VERBATIM (contract §7) ===
+    /// The whole U2 ledger API maps onto the model with NO behavior change for the callers:
+    ///   bool  HasAxe        -> the model OWNS an axe in any slot (CountItem("axe") > 0).
+    ///   int   WoodCount     -> summed Count of all "wood" stacks across inventory + belt.
+    ///   event Action Changed-> forwarded from the model's Changed (HUD subscribes, never polls).
+    ///   bool  CraftAxe()    -> mint + auto-place an axe TOOL on the belt (idempotent; one-shot true).
+    ///   int   AddWood(int)  -> AddItem(woodDef, n) (the chop shim until 86caa4c5c switches to AddItem).
+    ///   bool  SpendWood(int)-> all-or-nothing debit of "wood" across stacks (the campfire build gate).
+    /// Callers unchanged: SurvivalHud / ChopTree / StumpAxe / HeldAxe / CastawayFingerCurl /
+    /// CampfirePlacement / CraftSpot + the *VerifyCapture probes + InventoryTests.
     ///
-    /// === Public data surface (U2-5 HUD — Uma/Devon — consumes EXACTLY this) ===
-    /// VOCABULARY CONTRACT (team/uma-ux/u2-5-survival-hud-spec.md §7 Q4 — these EXACT names):
-    ///   bool  HasAxe     : true once the axe is crafted. The HUD shows the axe slot only when true
-    ///                      (absent-when-false — no "axe x0" clutter, per the diegetic-quiet spec).
-    ///   int   WoodCount  : live wood tally (0 before any chop). The HUD leans absent-when-zero.
-    ///   event Action Changed : fires whenever HasAxe or WoodCount changes (craft OR future chop).
-    ///                      The HUD subscribes and never polls — same pattern as WarmthNeed.Changed.
-    /// The HUD treats this component as READ-ONLY (subscribe to Changed, read HasAxe / WoodCount);
-    /// only gameplay (the craft spot here, the chop step in U2-3) writes, via CraftAxe / AddWood.
-    /// Keep this surface stable — U2-5's wiring consumes these names verbatim.
+    /// === New slot-model surface (AC1-AC7) ===
+    ///   <see cref="Model"/>             — the InventoryModel (slots/belt/selection); the UI binds to it.
+    ///   <see cref="Catalog"/>           — the ItemDef lookup (axe/wood/stone/berry).
+    ///   <see cref="PickUpAxe"/>         — AC3 axe pickup -> auto-placed in belt slot 1.
+    ///   <see cref="IsAxeSelectedInBelt"/> — AC4 held-axe show/hide query (axe IS the selected belt item).
     ///
     /// === Serialization (unity-conventions.md §editor-vs-runtime) ===
-    /// Serialized into the Boot scene editor-time (BootstrapProject), NOT added at Awake — an
-    /// Awake-only add could ship mangled/absent. CraftSceneTests guards the scene presence,
-    /// the sibling of WarmthNeedSceneTests.
+    /// Serialized into Boot.unity editor-time (BootstrapProject), NOT added at Awake. The model + catalog
+    /// are pure C# built in <see cref="EnsureModel"/> (called from Awake AND lazily by every accessor so
+    /// the legacy EditMode tests, which AddComponent then call immediately, see a ready model). The
+    /// canonical defs are built in code (catalog.BuildDefaults) so no .asset wiring is required for the
+    /// PoC; an authored ItemCatalog.asset can be assigned later without changing this surface.
     /// </summary>
     public class Inventory : MonoBehaviour
     {
-        // Backing fields — mutated only through the single write paths so Changed fires consistently.
-        [SerializeField, Tooltip("Whether the axe has been crafted. Starts false; the craft spot sets it.")]
-        private bool _hasAxe;
+        [Header("Slot counts (AC1/AC2 — adjustable later via the settings panel registry, follow-up)")]
+        [SerializeField, Tooltip("Inventory grid slot count (AC1 default 20).")]
+        private int _inventorySlots = InventoryModel.DefaultInventorySlots;
+        [SerializeField, Tooltip("Belt hotbar slot count (AC2 default 5).")]
+        private int _beltSlots = InventoryModel.DefaultBeltSlots;
 
-        [SerializeField, Tooltip("Wood units held. Starts 0; the chop step (U2-3) increments it.")]
-        private int _woodCount;
+        [SerializeField,
+         Tooltip("Optional authored ItemCatalog asset. If unset, the catalog is built in code at Awake " +
+                 "with the four canonical defs (axe/wood/stone/berry) — no .asset wiring required.")]
+        private ItemCatalog _catalogAsset;
 
-        /// <summary>Fires whenever HasAxe or WoodCount changes (craft OR chop). The HUD subscribes
-        /// and never polls — mirrors WarmthNeed.Changed so U2-5 wires both the same way.</summary>
+        private InventoryModel _model;
+        private ItemCatalog _catalog;
+
+        /// <summary>The slot/stack model (the UI binds to this). Built lazily so EditMode tests that
+        /// AddComponent then call immediately see a ready model.</summary>
+        public InventoryModel Model { get { EnsureModel(); return _model; } }
+
+        /// <summary>The item catalog (axe/wood/stone/berry lookup) — the resource-pickup seam.</summary>
+        public ItemCatalog Catalog { get { EnsureModel(); return _catalog; } }
+
+        /// <summary>Fires whenever the model changes (craft / add / move / select / spend). The HUD + UI
+        /// subscribe and never poll — same contract as the legacy ledger's Changed.</summary>
         public event Action Changed;
 
-        /// <summary>True once the axe is crafted. The HUD shows the axe slot only when true.</summary>
-        public bool HasAxe => _hasAxe;
+        void Awake() => EnsureModel();
 
-        /// <summary>Live wood tally. 0 before any chop (U2-3). The HUD leans absent-when-zero.</summary>
-        public int WoodCount => _woodCount;
-
-        /// <summary>
-        /// Craft the axe — THE entry to the survival loop (the single recipe this milestone). Idempotent:
-        /// crafting an axe you already hold is a no-op (no Changed, no double-fire). Returns true only on
-        /// the transition false->true, so the craft spot can play its one-shot feedback exactly once.
-        /// </summary>
-        public bool CraftAxe()
+        private void EnsureModel()
         {
-            if (_hasAxe) return false; // already crafted — idempotent, no event
-            _hasAxe = true;
-            Changed?.Invoke();
-            return true;
+            if (_model != null) return;
+
+            // Catalog: prefer an authored asset; otherwise build the canonical defs in code.
+            if (_catalogAsset != null && _catalogAsset.All != null && _catalogAsset.All.Count > 0)
+            {
+                _catalog = _catalogAsset;
+            }
+            else
+            {
+                _catalog = ScriptableObject.CreateInstance<ItemCatalog>();
+                _catalog.BuildDefaults();
+            }
+
+            _model = new InventoryModel(_inventorySlots, _beltSlots);
+            _model.Changed += OnModelChanged;
         }
 
+        private void OnModelChanged() => Changed?.Invoke();
+
+        // ============================================================================================
+        // NEW slot-model surface (AC1-AC7).
+        // ============================================================================================
+
         /// <summary>
-        /// Add wood to the ledger (the chop step, U2-3, calls this). Clamped at 0 — never negative.
-        /// Seeded here so U2-2's inventory surface is complete the moment U2-3 wires the chop, with
-        /// no second data-surface PR. A zero/negative amount is a no-op (no Changed).
+        /// AC3 — pick up the axe: add the axe TOOL and auto-place it in the first free belt slot
+        /// (belt slot 1). Returns true on the transition (the axe was actually placed), false if an axe
+        /// is already held (idempotent, mirrors the old CraftAxe one-shot). The world axe pickup calls
+        /// this; later the craft step calls it too.
+        /// </summary>
+        public bool PickUpAxe()
+        {
+            EnsureModel();
+            if (_model.OwnsItem(ItemCatalog.AxeId)) return false; // already holds an axe — one-shot
+            var axe = _catalog.ById(ItemCatalog.AxeId);
+            if (axe == null) return false;
+            return _model.AddToolToBelt(axe).HasValue;
+        }
+
+        /// <summary>AC4 — the held-axe show/hide query: true when the axe IS the SELECTED belt item (not
+        /// merely owned). HeldAxe gates its renderer on this; CastawayFingerCurl gates its grip on it.</summary>
+        public bool IsAxeSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.AxeId);
+
+        // ============================================================================================
+        // LEGACY ledger surface — preserved VERBATIM (contract §7). Every caller stays green.
+        // ============================================================================================
+
+        /// <summary>True once the castaway OWNS an axe (in any slot). The chop gate / stump-axe / craft
+        /// idempotency read this (ownership, NOT selection — selection is IsAxeSelectedInBelt).</summary>
+        public bool HasAxe => Model.OwnsItem(ItemCatalog.AxeId);
+
+        /// <summary>Live wood tally — summed Count of all "wood" stacks. The HUD reads it.</summary>
+        public int WoodCount => Model.CountItem(ItemCatalog.WoodId);
+
+        /// <summary>
+        /// Craft (== acquire) the axe — the legacy entry to the loop, now placing the axe tool on the
+        /// belt. Idempotent: crafting an axe you already hold is a no-op (no Changed). Returns true only
+        /// on the false->true transition so the craft spot fires its one-shot feedback exactly once.
+        /// </summary>
+        public bool CraftAxe() => PickUpAxe();
+
+        /// <summary>
+        /// Add wood to the inventory (the chop shim — contract §7). Forwards to AddItem(woodDef, n) so the
+        /// chop call-site compiles unchanged until 86caa4c5c switches to AddItem directly. Returns the new
+        /// total wood count. A zero/negative amount is a no-op.
         /// </summary>
         public int AddWood(int amount)
         {
-            if (amount <= 0) return _woodCount;
-            _woodCount += amount;
-            Changed?.Invoke();
-            return _woodCount;
+            EnsureModel();
+            if (amount <= 0) return WoodCount;
+            var wood = _catalog.ById(ItemCatalog.WoodId);
+            if (wood != null) _model.AddItem(wood, amount);
+            return WoodCount;
         }
 
         /// <summary>
-        /// Spend wood from the ledger — the seam the campfire (U2-4) consumes to BUILD: a campfire
-        /// costs wood, so placing one debits it here. ALL-OR-NOTHING gate (matches the Don't-Starve
-        /// "you have the mats or you don't" feel): if the ledger holds fewer than <paramref name="amount"/>,
-        /// NOTHING is spent and false is returned (no partial debit, no Changed) — this is the
-        /// load-bearing "no wood -> no campfire" negative case. On success debits the wood, fires
-        /// Changed (so the HUD's wood count drops), and returns true. A zero/negative amount is a
-        /// no-op that returns true (asking to spend nothing always "succeeds", changes nothing).
+        /// Spend wood — the campfire BUILD seam (contract §7). ALL-OR-NOTHING: if fewer than
+        /// <paramref name="amount"/> wood is held, NOTHING is spent and false is returned (no partial
+        /// debit, no Changed) — the load-bearing "no wood -> no campfire" gate. On success debits the
+        /// wood across stacks, fires Changed, returns true. A zero/negative amount is a no-op success.
         /// </summary>
         public bool SpendWood(int amount)
         {
-            if (amount <= 0) return true;        // spending nothing trivially succeeds, no event
-            if (_woodCount < amount) return false; // can't afford -> spend nothing (the build gate)
-            _woodCount -= amount;
-            Changed?.Invoke();
-            return true;
+            EnsureModel();
+            if (amount <= 0) return true;                 // spending nothing trivially succeeds
+            // RemoveItem is itself all-or-nothing: it returns false + debits nothing if fewer than
+            // 'amount' are held — the load-bearing "no wood -> no campfire" gate (contract §7).
+            return _model.RemoveItem(ItemCatalog.WoodId, amount);
         }
     }
 }
