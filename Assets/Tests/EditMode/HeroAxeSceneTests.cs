@@ -405,6 +405,35 @@ namespace FarHorizon.EditTests
                 "the AXE (index 0) must have UNIT mesh scale — its seat is Sponsor-LOCKED.");
         }
 
+        [Test]
+        public void HeldWeaponCycleDebug_NonAxeHeldScales_ReadProportionateToTheAxe_NotShrunkToHalf()
+        {
+            // 86cabh907 SOAK-FIX regression guard (the bug CLASS, not the instance). The Sponsor soaked the [B]
+            // cycle and reported "knife/sword/spear are MUCH SMALLER than the axe when held" — the FIRST values
+            // {1, 0.55, 0.50, 0.42} down-scaled the non-axe weapons to ~half the axe's in-hand presence. The
+            // MODELS are correctly sized (the Blender family render was Sponsor-accepted); only the HELD scale
+            // was wrong. The fix bumps each non-axe held scale UP toward ~1.0 so it reads proportionate to the
+            // axe in the hand. This guard floors every non-axe scale at 0.7 of the axe's UNIT scale, so a
+            // regression back to the ~0.42-0.55 shrink reds in CI rather than re-shipping the dwarfed weapons.
+            // (The exact per-weapon value is the Sponsor's to dial via the live scale dial + bake; the FLOOR is
+            // the bug-class catch.) The live dial only mutates the runtime _liveScale copy — the SHIPPED default
+            // is this static array, so pinning it here pins what ships.
+            float axe = HeldWeaponCycleDebug.WeaponMeshScale[0]; // 1.0 (locked)
+            for (int i = 1; i < HeldWeaponCycleDebug.WeaponMeshScale.Length; i++)
+            {
+                float s = HeldWeaponCycleDebug.WeaponMeshScale[i];
+                Assert.GreaterOrEqual(s, 0.7f * axe,
+                    $"the held {HeldWeaponCycleDebug.WeaponLabels[i]} scale ({s:F2}) must read proportionate to " +
+                    $"the axe ({axe:F2}) in the hand — ≥0.7× the axe. A value back near the soak-rejected " +
+                    "0.42-0.55 shrink re-ships the 'MUCH SMALLER than the axe' bug (86cabh907).");
+                // Sanity ceiling: no non-axe weapon should ship grossly LARGER than the axe (a fat-finger bake);
+                // a sword/spear can read a bit bigger but not 2x the axe in the hand.
+                Assert.LessOrEqual(s, 2.0f * axe,
+                    $"the held {HeldWeaponCycleDebug.WeaponLabels[i]} scale ({s:F2}) must not ship grossly larger " +
+                    $"than the axe ({axe:F2}) — ≤2× (catches a fat-finger bake of the live-dial value).");
+            }
+        }
+
         private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
 
         private static GameObject FindByNameInScene(string name)

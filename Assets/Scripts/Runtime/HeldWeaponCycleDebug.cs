@@ -47,6 +47,22 @@ namespace FarHorizon
                  "panel, which is mutually exclusive with normal play).")]
         public KeyCode cycleKey = KeyCode.B;
 
+        // LIVE SCALE DIAL (this soak's reframe — the held knife/sword/spear read MUCH SMALLER than the axe).
+        // Scale the CURRENT held weapon's mesh-holder up/down LIVE so the Sponsor dials each weapon's in-hand
+        // size BY EYE and reads the number off the HUD/log to bake into WeaponMeshScale. ~5% steps. Two key
+        // pairs each direction so a non-US-layout keyboard still has a working pair. The AXE (index 0) is
+        // Sponsor-LOCKED — the dial REFUSES to scale it (it always restores the captured original TRS).
+        //   ] or =  -> scale the held weapon UP   (+5%)
+        //   [ or -  -> scale the held weapon DOWN (-5%)
+        // Chosen to NOT collide with the always-on [B] cycle NOR the F9 AxeNudgeTool's keys (F9/Tab/B/arrows/
+        // PgUp-Dn/TGYHUJ/Shift/Ctrl) — bracket+equals+minus are free in both normal play and that panel.
+        public KeyCode scaleUpKey = KeyCode.RightBracket;   // ]
+        public KeyCode scaleUpKeyAlt = KeyCode.Equals;      // =
+        public KeyCode scaleDownKey = KeyCode.LeftBracket;  // [
+        public KeyCode scaleDownKeyAlt = KeyCode.Minus;     // -
+        [Tooltip("Per-keypress multiplicative scale step for the live dial (1.05 = +5% up / -5% down).")]
+        public float scaleStep = 1.05f;
+
         // The four family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names =
         // the FBX file-name-without-extension; see WeaponPackAssetGen.BuildLineupPrefab). Order = cycle order.
         // PUBLIC + static so the EditMode guard reads the cycle contract directly (no reflection): the lineup
@@ -55,23 +71,31 @@ namespace FarHorizon
         public static readonly string[] WeaponLabels = { "AXE", "KNIFE", "SWORD", "SPEAR" };
         public const string LineupResourcePath = "WeaponSetLineup"; // Assets/Resources/WeaponSetLineup.prefab
 
-        // ROUGH per-weapon mesh-holder compensation (look-soak only, NOT the precise grip — that is the
-        // later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe seat is Sponsor-LOCKED and is
-        // restored to its captured original. knife/sword/spear: the axe FBX is height-normalized (~1u) with a
-        // grip-MIDPOINT origin (z=0.45); these are un-normalized (taller) with a grip origin at the base
-        // (0,0,0, blade +Z), so without compensation they would float ABOVE the hand and read oversized. A
-        // uniform down-scale brings them to a hand-sized read, and a small drop along the mesh-holder's local
-        // axis sinks the grip into the palm. These are REASONABLE defaults; the exact per-weapon grip is OOS.
+        // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
+        // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
+        // seat is Sponsor-LOCKED and is restored to its captured original.
+        //
+        // SOAK REFRAME (this ticket): the FIRST values {1, 0.55, 0.50, 0.42} read MUCH SMALLER than the axe in
+        // the hand — the down-scale was far too aggressive. The MODELS are correctly sized (the Blender family
+        // render was Sponsor-accepted); only the HELD scale was wrong. So these are BUMPED UP to read
+        // proportionate to the axe's in-hand presence: a knife a solid knife, a sword sword-sized, a spear
+        // long — all much closer to 1.0. The axe holds at 1.0 and looks right; match that apparent presence.
+        // These are the best FIRST-GUESS; the LIVE SCALE DIAL ([ ] / - =) lets the Sponsor dial each by eye +
+        // read the number to bake here, so we don't blind-iterate.
         // PUBLIC so the EditMode guard pins the axe-locked-default contract (index 0 == identity).
-        public static readonly float[] WeaponMeshScale = { 1f, 0.55f, 0.50f, 0.42f };
+        public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f };
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
+        // Re-seated DEEPER for the larger scale above: a bigger mesh's grip-base sits further from the palm, so
+        // the pull-back along the blade axis scales up too (≈ old-offset × new-scale/old-scale) — keeps the
+        // grip in the hand + the tip clear of the ground at the bumped size. The live dial only changes scale;
+        // if a weapon clips after dialing, re-tune these offsets in the same bake.
         public static readonly Vector3[] WeaponMeshLocalOffset =
         {
             Vector3.zero,                       // axe — LOCKED, no compensation
-            new Vector3(0f, 0f, -0.22f),        // knife
-            new Vector3(0f, 0f, -0.42f),        // sword
-            new Vector3(0f, 0f, -0.70f),        // spear (longest — pull the grip furthest back)
+            new Vector3(0f, 0f, -0.34f),        // knife
+            new Vector3(0f, 0f, -0.80f),        // sword
+            new Vector3(0f, 0f, -1.50f),        // spear (longest — pull the grip furthest back)
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)
@@ -84,8 +108,17 @@ namespace FarHorizon
         private bool _resolved;
         private GUIStyle _labelStyle, _keyStyle;
 
+        // LIVE per-weapon scale — seeded from the baked WeaponMeshScale defaults, then mutated by the live dial
+        // ([ ] / - =) so the Sponsor can dial the CURRENT weapon's in-hand size by eye. Index 0 (axe) is never
+        // changed (Sponsor-LOCKED; the dial refuses to touch it). The HUD/log surface the live value to bake.
+        private float[] _liveScale;
+
         private void Awake()
         {
+            // Seed the LIVE scale from the baked defaults (copy — never mutate the static array). The dial
+            // edits this per-weapon; index 0 (axe) stays at the locked default and is never dialed.
+            _liveScale = (float[])WeaponMeshScale.Clone();
+
             // The MeshFilter lives on a CHILD of HeroAxe (the imported FBX mesh node). Capture its ORIGINAL
             // local TRS so cycling BACK to the axe restores the Sponsor-locked seat byte-for-byte.
             _meshHolder = GetComponentInChildren<MeshFilter>(true);
@@ -135,13 +168,38 @@ namespace FarHorizon
         private void Update()
         {
             if (_meshHolder == null) return;
-            if (!Input.GetKeyDown(cycleKey)) return;
 
-            if (!_resolved) ResolveMeshes();
-            _index = (_index + 1) % WeaponNodeNames.Length;
-            ApplyCurrent();
-            Debug.Log("[HeldWeaponCycleDebug] held weapon -> " + WeaponLabels[_index] +
-                      " (" + WeaponNodeNames[_index] + ")  [DEBUG cycle, key=" + cycleKey + "]");
+            // [B] — cycle the held weapon.
+            if (Input.GetKeyDown(cycleKey))
+            {
+                if (!_resolved) ResolveMeshes();
+                _index = (_index + 1) % WeaponNodeNames.Length;
+                ApplyCurrent();
+                Debug.Log("[HeldWeaponCycleDebug] held weapon -> " + WeaponLabels[_index] +
+                          " (" + WeaponNodeNames[_index] + ")  [DEBUG cycle, key=" + cycleKey + "]");
+                return;
+            }
+
+            // LIVE SCALE DIAL ([ ] / - =) — scale the CURRENT held weapon's mesh-holder up/down in ~5% steps so
+            // the Sponsor dials its in-hand size by eye + reads the value to bake. REFUSES the axe (Sponsor-
+            // LOCKED): on index 0 the dial only logs that the axe is locked, never changes the seat.
+            bool up = Input.GetKeyDown(scaleUpKey) || Input.GetKeyDown(scaleUpKeyAlt);
+            bool down = Input.GetKeyDown(scaleDownKey) || Input.GetKeyDown(scaleDownKeyAlt);
+            if (up || down)
+            {
+                if (_index == 0)
+                {
+                    Debug.Log("[HeldWeaponCycleDebug] AXE seat is Sponsor-LOCKED — scale dial refused. " +
+                              "Cycle [" + cycleKey + "] to a knife/sword/spear to dial its held size.");
+                    return;
+                }
+                if (!_resolved) ResolveMeshes(); // dialing before any cycle still resolves + applies cleanly
+                float factor = up ? scaleStep : 1f / scaleStep;
+                _liveScale[_index] = Mathf.Max(0.01f, _liveScale[_index] * factor);
+                ApplyCurrent();
+                Debug.Log("[HeldWeaponCycleDebug] " + WeaponLabels[_index] + " held scale -> " +
+                          _liveScale[_index].ToString("F3") + "  (bake into WeaponMeshScale[" + _index + "])");
+            }
         }
 
         // Swap the displayed mesh + apply the per-weapon mesh-holder compensation. The axe (index 0)
@@ -162,12 +220,13 @@ namespace FarHorizon
             }
             else
             {
-                // knife / sword / spear — ROUGH look-soak seat on the SHARED seat (precise grip is OOS).
-                // Compose the per-weapon offset/scale ON TOP of the axe's captured baseline so the weapon
-                // rides the same seat the axe does, just nudged to seat reasonably in the hand.
+                // knife / sword / spear — look-soak seat on the SHARED seat (precise grip is OOS). Compose the
+                // per-weapon offset/scale ON TOP of the axe's captured baseline so the weapon rides the same
+                // seat the axe does, just nudged to seat reasonably in the hand. Scale comes from the LIVE
+                // dial (_liveScale, seeded from WeaponMeshScale) so the Sponsor's dial shows immediately.
                 t.localPosition = _holderOrigPos + WeaponMeshLocalOffset[_index];
                 t.localRotation = _holderOrigRot;
-                t.localScale = _holderOrigScale * WeaponMeshScale[_index];
+                t.localScale = _holderOrigScale * _liveScale[_index];
             }
         }
 
@@ -182,7 +241,8 @@ namespace FarHorizon
             }
 
             // Bottom-CENTER, clear of SurvivalHud's bottom-left hotbar + the AxeNudgeTool's right panel.
-            float w = 360f, h = 44f;
+            // Taller now: it carries the live scale read-out + the scale-dial key hint (this soak's reframe).
+            float w = 430f, h = 64f;
             float x = Mathf.Max(8f, (Screen.width - w) * 0.5f);
             float y = Screen.height - h - 10f;
             var panel = new Rect(x, y, w, h);
@@ -190,10 +250,17 @@ namespace FarHorizon
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
+            // Line 1: which weapon + its LIVE held scale (the bake number). Axe shows LOCKED (no dial).
+            string scaleText = _index == 0
+                ? "scale 1.000 (LOCKED)"
+                : "scale " + (_liveScale != null ? _liveScale[_index].ToString("F3") : WeaponMeshScale[_index].ToString("F3"));
             GUI.Label(new Rect(x + 10f, y + 5f, w - 20f, 20f),
-                "DEBUG — held weapon: " + WeaponLabels[_index], _labelStyle);
+                "DEBUG — held weapon: " + WeaponLabels[_index] + "   " + scaleText, _labelStyle);
+            // Line 2: the cycle key. Line 3: the live scale-dial keys (so the Sponsor dials each size by eye).
             GUI.Label(new Rect(x + 10f, y + 24f, w - 20f, 18f),
                 "[" + cycleKey + "] cycle  axe -> knife -> sword -> spear   (soak view, not equip)", _keyStyle);
+            GUI.Label(new Rect(x + 10f, y + 42f, w - 20f, 18f),
+                "[ ] or [=] bigger   [[] or [-] smaller  (±5% — dial held size; axe locked)", _keyStyle);
         }
     }
 }
