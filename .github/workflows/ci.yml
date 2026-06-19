@@ -8,7 +8,7 @@ name: CI
 #                licensing dependency).
 #
 #   unity      — SELF-HOSTED Windows runner with the exact installed editor
-#                (6000.4.10f1, already licensed on this machine — no UNITY_LICENSE
+#                (6000.4.11f1, already licensed on this machine — no UNITY_LICENSE
 #                secret, no billed private-repo minutes). The RELIABLE MERGE GATE.
 #                Chains BootstrapProject.Run -> EditMode -> BuildWindows ->
 #                shipped-build capture gate, parses the NUnit XML result line (exit
@@ -113,7 +113,7 @@ jobs:
     # min, well under any timeout) while still bounding a genuinely hung runner.
     timeout-minutes: 90
     env:
-      UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
+      UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
     steps:
       # clean: false keeps the gitignored Library/ between runs. The default
@@ -310,7 +310,7 @@ jobs:
     continue-on-error: true   # ADVISORY — PlayMode can NEVER block a merge (86caapwmt)
     timeout-minutes: 20       # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
     env:
-      UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Unity.exe'
+      UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
     steps:
       - uses: actions/checkout@v4

@@ -192,7 +192,7 @@ make_min_repo() {
     && printf 'public static void BuildWindows()' > Assets/Scripts/Editor/FarHorizonBuilder.cs \
     && printf 'fileFormatVersion: 2\nguid: 00000000000000000000000000000002\n' > Assets/Scripts/Editor/FarHorizonBuilder.cs.meta \
     && printf '{}\n' > Packages/manifest.json \
-    && printf 'm_EditorVersion: 6000.4.10f1\n' > ProjectSettings/ProjectVersion.txt \
+    && printf 'm_EditorVersion: 6000.4.11f1\n' > ProjectSettings/ProjectVersion.txt \
     && git add -A >/dev/null 2>&1 ) || return 1
 }
 
