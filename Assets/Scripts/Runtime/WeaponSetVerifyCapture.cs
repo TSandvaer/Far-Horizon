@@ -46,8 +46,13 @@ namespace FarHorizon
                 yield return null; Application.Quit(1); yield break;
             }
 
+            // Spawn the stand FAR from the gameplay scene (high up) so the capture frames ONLY the
+            // axe against the clear colour — the live world (grass, the old CC-BY axe, the held axe)
+            // sits at the origin and would otherwise bleed into the shot. A dedicated culling layer
+            // would be cleaner, but distance + a tight frame + the camera's own clear is enough here.
             var inst = Object.Instantiate(prefab);
-            inst.transform.position = Vector3.zero;
+            Vector3 farOrigin = new Vector3(0f, 500f, 0f);
+            inst.transform.position = farOrigin;
             foreach (var r in inst.GetComponentsInChildren<Renderer>(true)) r.enabled = true;
 
             // Settle a valid bounds (one frame for transforms/renderers to go live).
@@ -70,11 +75,19 @@ namespace FarHorizon
             float aspect = Screen.width > 0 && Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
             var frame = VerifyCaptureFraming.ComputeFrame(wb.center, wb.size, viewDir, 38f, aspect, frameFill);
 
+            // Disable any existing cameras so ONLY the capture camera renders the screen (the gameplay
+            // cameras would otherwise composite the live world behind/around the axe).
+            foreach (var existing in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                existing.enabled = false;
+
             var camGo = new GameObject("WeaponAxeCaptureCamera");
             var cam = camGo.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.42f, 0.46f, 0.52f); // neutral slate — honest flint read
             cam.fieldOfView = 38f;
+            cam.depth = 100f;        // render last / on top
+            cam.nearClipPlane = 0.01f;
+            cam.farClipPlane = 50f;  // axe is ~1m; tight far-clip keeps the distant world out
             var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
             camData.renderPostProcessing = true;
             camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
