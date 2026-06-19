@@ -62,6 +62,11 @@ crashlog.txt
 /_u5_out/
 /_verify_out/
 
+# Blender working backups + throwaway debug render outputs (the FBX + palette PNG +
+# .blend source are the committed deliverables; renders are PR Self-Test evidence only).
+*.blend1
+/tools/debug/axe_*.png
+
 # OS cruft
 .DS_Store
 .DS_Store?
