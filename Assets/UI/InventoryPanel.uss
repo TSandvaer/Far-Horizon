@@ -92,6 +92,8 @@
     border-bottom-right-radius: 8px;
     align-items: center;
     justify-content: center;
+    /* Clip any icon/chip content to the rounded well — belt-and-suspenders containment (#90). */
+    overflow: hidden;
     transition-property: background-color, translate;
     transition-duration: 80ms, 80ms;
 }
@@ -130,15 +132,29 @@
     border-bottom-color: var(--accent-deny);
 }
 
-/* ---- Slot content ---- */
+/* ---- Slot content ----
+ * #90 fix: icon + chip are MUTUALLY EXCLUSIVE (PaintSlot shows one OR the other), but a Label in normal
+ * flow reserves its line-box height even with empty text — so an in-flow empty chip stacked under the
+ * icon pushed the column-flow stack taller than the 64px cell and justify-content:center shoved the icon
+ * UP past the top edge (the "shifted up-and-left" overflow). Pin BOTH absolutely to fill the cell so
+ * neither reserves flow space; each then centers itself inside the well. Small inset keeps the icon off
+ * the rounded rim. */
 .slot__icon {
-    width: 52px;
-    height: 52px;
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    right: 6px;
+    bottom: 6px;
     -unity-background-scale-mode: scale-to-fit;
 }
 
 /* The letter-chip fallback when an icon sprite isn't baked (direction §6.3) */
 .slot__chip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
     color: var(--ink-cream);
     font-size: 26px;
     -unity-font-style: bold;
