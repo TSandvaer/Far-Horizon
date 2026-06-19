@@ -195,6 +195,97 @@ namespace FarHorizon.PlayTests
                 "clicking the bottom hotbar strip DOES select that slot (the strip is the selector)");
         }
 
+        // #90 DUP-FIX — while a drag is active, the SOURCE slot's item content is hidden (dimmed) so the
+        // item reads in ONE place (the #drag-ghost), not two (source + ghost = the "duplicate" the Sponsor
+        // saw holding the mouse down on the berries). Restored on a LANDED drop.
+        [UnityTest]
+        public IEnumerator DraggingASlot_HidesTheSourceContent_RestoredOnDrop()
+        {
+            yield return WaitFrames(4);
+            _inv.AddWood(3);          // wood in inventory slot 0
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            var src = SlotRef.Inventory(0);
+            Assert.IsFalse(_ui.IsSourceDimmed(src), "source is not dimmed before the drag starts");
+
+            // Begin the drag (real lifecycle seam — dims the source + raises the ghost).
+            var grid = Grid();
+            var cells = Children(grid);
+            _ui.BeginDrag(src);
+            yield return null;
+
+            Assert.IsTrue(_ui.IsSourceDimmed(src),
+                "while dragging, the source slot's content is hidden so the item shows only on the ghost " +
+                "(#90 dup-fix — the source+ghost double-render was the reported 'duplicate')");
+
+            // Drop onto a DIFFERENT slot (a landed move) — resolved by cursor position; the source restores.
+            bool moved = _ui.EndDrag(cells[5].worldBound.center);
+            yield return null;
+
+            Assert.IsTrue(moved, "a position-resolved drop onto a different slot lands the move");
+            Assert.IsFalse(_ui.IsSourceDimmed(src), "the source-dim is cleared once the drag ends (landed drop)");
+            Assert.IsTrue(_inv.Model.InventorySlots[0].IsEmpty, "the item moved out of the source");
+            Assert.AreEqual("wood", _inv.Model.InventorySlots[5].Def.Id, "the item landed in the drop target");
+        }
+
+        // #90 DUP-FIX — a CANCELLED drag (drop OUTSIDE any slot) must fully restore the source: no dim left
+        // behind AND no item lost (the item never left the source).
+        [UnityTest]
+        public IEnumerator CancellingADrag_RestoresTheSource_NoDimNoLoss()
+        {
+            yield return WaitFrames(4);
+            _inv.AddWood(3);
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            var src = SlotRef.Inventory(0);
+
+            _ui.BeginDrag(src);
+            yield return null;
+            Assert.IsTrue(_ui.IsSourceDimmed(src), "the source dims at drag start");
+
+            // Drop far outside every slot → no move; the item stays put and the dim must clear.
+            bool moved = _ui.EndDrag(new Vector2(10000, 10000));
+            yield return null;
+
+            Assert.IsFalse(moved, "a drop outside every slot does not move anything");
+            Assert.IsFalse(_ui.IsSourceDimmed(src),
+                "a cancelled drag (drop outside any slot) clears the source-dim — no permanent dim (#90)");
+            Assert.AreEqual("wood", _inv.Model.InventorySlots[0].Def.Id, "the item is still in the source");
+            Assert.AreEqual(3, _inv.Model.InventorySlots[0].Count, "no item lost on a cancelled drag");
+        }
+
+        // #90 DUP-FIX (belt mirror) — a belt slot is drawn in BOTH the docked row and the bottom strip;
+        // dragging it must dim BOTH mirrors, else the item still draws in the un-dimmed one.
+        [UnityTest]
+        public IEnumerator DraggingABeltSlot_DimsBothMirrors()
+        {
+            yield return WaitFrames(4);
+            _inv.PickUpAxe();         // axe in belt slot 0
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            var dock = DockBelt();
+            var strip = StripBelt();
+            var dockCells = Children(dock);
+
+            _ui.BeginDrag(SlotRef.Belt(0));
+            yield return null;
+
+            Assert.IsTrue(_ui.IsSourceDimmed(SlotRef.Belt(0)),
+                "dragging a belt slot dims its source ref (both the dock + strip mirrors carry the class)");
+            Assert.IsTrue(Children(dock)[0].ClassListContains(InventoryUI.DraggingSourceClass),
+                "the docked-row mirror of the dragged belt slot is dimmed");
+            Assert.IsTrue(Children(strip)[0].ClassListContains(InventoryUI.DraggingSourceClass),
+                "the bottom-strip mirror of the same belt slot is ALSO dimmed (no un-dimmed duplicate)");
+
+            // End the drag back on the same slot (a no-op drop) — both mirrors restore.
+            _ui.EndDrag(dockCells[0].worldBound.center);
+            yield return null;
+            Assert.IsFalse(_ui.IsSourceDimmed(SlotRef.Belt(0)), "both mirrors restore on drag end");
+        }
+
         // ---- helpers ----
 
         private VisualElement Root() => _uiGo.GetComponent<UIDocument>().rootVisualElement;

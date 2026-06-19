@@ -63,6 +63,40 @@ namespace FarHorizon.EditTests
                 "a cursor outside all slots resolves to no slot (the drop is dropped, not mis-applied)");
         }
 
+        // #90 DUP-FIX — the source-dim USS class the C# fix toggles must stay in lockstep with the USS
+        // selector that hides the slot content. This pins the contract: change one side without the other and
+        // the source slot dims to nothing (C# constant changed) or never dims (USS selector renamed). The
+        // live dim-on-drag + restore-on-drop/cancel behavior is asserted end-to-end in the PlayMode suite
+        // (InventoryUiInteractionPlayModeTests) over a real laid-out panel — this is the cheap always-run
+        // half that reds even if that PlayMode suite is ever environment-quarantined.
+        [Test]
+        public void DraggingSourceClass_MatchesTheUssSelector()
+        {
+            Assert.AreEqual("slot--dragging-source", InventoryUI.DraggingSourceClass,
+                "the C# source-dim class must match the .slot--dragging-source selector in InventoryPanel.uss " +
+                "(its descendant rules hide .slot__icon/.slot__chip/.slot__badge — the #90 dup-fix). Rename " +
+                "one side without the other and the source either dims to nothing or never dims.");
+        }
+
+        // #90 DUP-FIX — the drag lifecycle seams are NULL-safe before the panel is built: calling them on a
+        // bare component (no UIDocument laid out) must not throw and must report no dim (the build-safety net,
+        // since BeginDrag/EndDrag/IsSourceDimmed are public seams the PlayMode test drives directly).
+        [Test]
+        public void DragLifecycleSeams_AreSafeBeforeTheViewIsBuilt()
+        {
+            var go = new GameObject("InventoryUI", typeof(UnityEngine.UIElements.UIDocument));
+            var ui = go.AddComponent<InventoryUI>();   // no inventory wired, no panel laid out
+
+            Assert.DoesNotThrow(() => ui.BeginDrag(SlotRef.Inventory(0)),
+                "BeginDrag on an unbuilt view must not throw (model null → no-op)");
+            Assert.IsFalse(ui.IsSourceDimmed(SlotRef.Inventory(0)),
+                "no slot is dimmed when the view has no model/panel");
+            Assert.DoesNotThrow(() => ui.EndDrag(Vector2.zero),
+                "EndDrag with no active drag must not throw (returns false, no-op)");
+
+            Object.DestroyImmediate(go);
+        }
+
         // BUG 2 — the model has exactly ONE programmatic select path; the UI fix routes the docked-row click
         // AWAY from it (asserted end-to-end in PlayMode). Here: SelectBelt is the only mutator of selection,
         // so a view that does not call it on the docked row cannot change selection (the invariant the fix
