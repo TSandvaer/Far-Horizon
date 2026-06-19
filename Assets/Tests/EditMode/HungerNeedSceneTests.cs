@@ -38,6 +38,18 @@ namespace FarHorizon.EditTests
                 "the shipped HungerNeed decay must be slower than warmth's 0.55 (slower background pressure)");
             Assert.Greater(need.berryRestoreAmount, 0f,
                 "HungerNeed.berryRestoreAmount must be positive — eating a berry must restore SOMETHING");
+
+            // #101 EAT-REFILL FIX (regression guard): the shipped hunger must NOT start FULL, else an early
+            // eat clamps against an already-full bar with NO visible refill (the exact percept the #101 soak
+            // rejected) AND SetCurrent's Approximately early-return means Changed never fires. It must ship
+            // pressured-WITH-HEADROOM: below max so an eat climbs visibly, above the floor so it can decay too.
+            Assert.IsFalse(need.startFull,
+                "the shipped HungerNeed must NOT start full — an eat against a full bar shows no refill (#101). " +
+                "Ship pressured-with-headroom (startFull=false + a mid startFraction01).");
+            Assert.Greater(need.startFraction01, need.floor01,
+                "the shipped hunger start fraction must sit ABOVE the floor (room to decay into)");
+            Assert.Less(need.startFraction01, 1f,
+                "the shipped hunger start fraction must sit BELOW full (room for an eat to VISIBLY refill into)");
         }
 
         private static T FindInScene<T>(Scene scene) where T : Component

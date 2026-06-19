@@ -318,6 +318,14 @@ namespace FarHorizon.EditorTools
             hunger.medDecayPerSecond  = HungerNeed.HungerMedDecayPerSecond;
             hunger.hardDecayPerSecond = HungerNeed.HungerHardDecayPerSecond;
             hunger.decayPerSecond     = HungerNeed.HungerMedDecayPerSecond; // medium tier by default
+            // #101 EAT-REFILL FIX (root cause: the eat seam was correct, but hunger shipped startFull=true so
+            // an eat clamped against an already-full bar with NO visible change — and SetCurrent's
+            // Approximately early-return meant Changed never even fired). Start hunger PRESSURED WITH HEADROOM
+            // (the fiction: "he starts to get hungry") so pressing E VISIBLY refills the hunger bar. Hunger's
+            // 0.35/sec decay would take ~30s real-time to drop one of the 10 segments, so without this the
+            // refill is unobservable in a soak. (Warmth keeps startFull=true — the campfire restores it.)
+            hunger.startFull       = false;
+            hunger.startFraction01 = HungerNeed.HungerStartFraction01; // 0.55 -> ~5 of 10 segments at spawn
 
             // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
             // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the

@@ -1,5 +1,7 @@
+using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using FarHorizon;
 
 namespace FarHorizon.PlayTests
@@ -114,6 +116,62 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(0, Berries);
             Assert.IsFalse(_eat.TryEatOneBerry(), "3rd eat with an empty stack is a no-op");
             Assert.AreEqual(0, Berries, "no negative inventory after draining the stack");
+        }
+
+        // === #101 EAT-REFILL FIX: eating VISIBLY refills the hunger HUD BAR (the soak-rejected percept) ==
+        // ROOT CAUSE the soak hit: the eat seam was correct, but the SHIPPED hunger need started FULL
+        // (startFull=true), so an early eat clamped against an already-full bar -> NO visible change AND
+        // SetCurrent's Approximately early-return meant Changed never even fired. The fix ships hunger
+        // PRESSURED-WITH-HEADROOM (startFull=false, startFraction01=0.55). This test rigs hunger EXACTLY as
+        // BootstrapProject now does, drives a live Start()+OnGUI scene, eats, and asserts the HUD bar lights
+        // MORE segments after the eat (computed via the same pinned FilledSegments rule the bar draws with).
+        // Catches the exact bug class: an eat that produces no on-screen bar change.
+        [UnityTest]
+        public IEnumerator EatInput_RefillsTheHungerHudBar_FromAPressuredStart()
+        {
+            // Rig hunger as the SHIPPED scene now does (BootstrapProject): pressured, with headroom to refill.
+            var sceneGo = new GameObject("HungerHudRefillScene");
+            var inv = sceneGo.AddComponent<Inventory>();
+            var hunger = sceneGo.AddComponent<HungerNeed>();
+            hunger.max = 100f;
+            hunger.startFull = false;
+            hunger.startFraction01 = HungerNeed.HungerStartFraction01; // 0.55 -> ~5 of 10 segments at spawn
+            hunger.berryRestoreAmount = 18f;
+
+            var hud = sceneGo.AddComponent<SurvivalHud>();
+            hud.hunger = hunger; // wire the bar to this need exactly as BootstrapProject does
+
+            var eat = sceneGo.AddComponent<EatBerryAction>();
+            eat.inventory = inv;
+            eat.hunger = hunger;
+
+            var def = inv.Catalog.ById(ItemCatalog.BerryId);
+            Assert.IsNotNull(def, "the catalog must define the berry item");
+            inv.Model.AddItem(def, 1);
+
+            yield return null; // Start() seeds _current = startFraction01*max + fires the initial Changed
+
+            // Precondition: the bar starts BELOW full (so an eat has somewhere to climb — the missing headroom
+            // was the whole bug). Computed via the same pinned FilledSegments rule the HUD bar paints with.
+            int litBefore = SurvivalHud.FilledSegments(hud.hunger.Current01);
+            Assert.Less(litBefore, SurvivalHud.SegmentCount,
+                "the SHIPPED hunger config must NOT start the bar full — an eat against a full bar shows no " +
+                $"refill (the #101 percept bug). lit={litBefore}/{SurvivalHud.SegmentCount} " +
+                $"Current01={hud.hunger.Current01:0.00}");
+
+            // Eat one berry through the in-game input seam (the same path E drives).
+            bool ate = eat.TryEatOneBerry();
+            Assert.IsTrue(ate, "eating with a berry held succeeds");
+            Assert.AreEqual(0, inv.Model.CountItem(ItemCatalog.BerryId),
+                "exactly one (the only) berry was consumed");
+
+            // The HUD bar lights MORE segments after the eat — the player SEES the hunger bar refill.
+            int litAfter = SurvivalHud.FilledSegments(hud.hunger.Current01);
+            Assert.Greater(litAfter, litBefore,
+                "after eating, the HUD lights MORE hunger segments — the bar VISIBLY refills (the #101 fix); " +
+                $"before={litBefore} -> after={litAfter} (Current01={hud.hunger.Current01:0.00})");
+
+            Object.Destroy(sceneGo);
         }
 
         // === No inventory wired -> safe no-op (build-safety: never null-ref) ==========================
