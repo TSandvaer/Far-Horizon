@@ -13,10 +13,27 @@ if cam is None:
     scene.collection.objects.link(cam)
 scene.camera = cam
 # obj origin now at grip (0,0,0.45 was applied to location; geometry unchanged in world)
-target = Vector((-0.02, 0.0, 0.62))
-cam.location = Vector((-0.70, -2.6, 0.85))
+# 3/4 from the cutting-edge side + slightly above, so the wedge TAPER reads (the head
+# thins to the working edge) and the knapped facets catch raking light.
+target = Vector((-0.08, 0.0, 0.50))
+cam.location = Vector((-1.05, -2.2, 1.05))
 cam.rotation_euler = (target - cam.location).to_track_quat('-Z','Y').to_euler()
-cam.data.lens = 85
+cam.data.lens = 78
+
+# NEUTRAL white lighting so the flint reads its TRUE grey (the warm key tinted grey
+# facets reddish against the blue bg — a render illusion, not the asset). Cool-neutral
+# bg + white suns -> honest palette read for the style soak.
+world = scene.world; world.use_nodes = True
+bg = world.node_tree.nodes.get('Background')
+bg.inputs[0].default_value = (0.42, 0.46, 0.52, 1.0)  # neutral slate
+bg.inputs[1].default_value = 1.0
+# a stronger key + dimmer fill so the modeled facets cast clear value steps (raking
+# light reveals the knapped relief; flat fill alone washed it out).
+for ln,energy in (('key_sun',4.0),('fill_sun',0.7)):
+    o = bpy.data.objects.get(ln)
+    if o:
+        o.data.energy = energy
+        o.data.color = (1.0,1.0,1.0)  # pure white — no warm tint
 
 scene.render.engine = 'BLENDER_EEVEE'
 scene.view_settings.view_transform = 'Standard'

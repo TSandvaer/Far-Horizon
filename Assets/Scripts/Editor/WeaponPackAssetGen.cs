@@ -30,15 +30,63 @@ namespace FarHorizon.EditorTools
         public const string PalettePngPath = Dir + "/weapon_palette.png";
         public const string MaterialPath = Dir + "/Mat_WeaponPalette.mat";
 
+        public const string PrefabPath = "Assets/Resources/WeaponAxeStand.prefab";
+
         public static void PrepareWeaponPack()
         {
             ConfigurePalette();
             var mat = CreateOrUpdateMaterial();
             ConfigureFbxImporter();
             AssignMaterial(AxeFbxPath, mat);
+            BuildStandPrefab(mat);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[WeaponPackAssetGen] weapon pack prepared (axe-only checkpoint): " + AxeFbxPath);
+        }
+
+        // Build Resources/WeaponAxeStand.prefab = the flint axe stood up on a simple stand, with the
+        // shared Mat_WeaponPalette applied + a directional light, so WeaponSetVerifyCapture can load +
+        // capture it from the BUILT exe (AssetDatabase is editor-only; the build path needs Resources).
+        private static void BuildStandPrefab(Material mat)
+        {
+            if (mat == null) return;
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeFbxPath);
+            if (fbx == null) { Debug.LogError("[WeaponPackAssetGen] axe FBX missing for prefab"); return; }
+
+            var root = new GameObject("WeaponAxeStand");
+
+            // the axe: instantiate the imported mesh, apply the shared palette material to every renderer.
+            var axe = Object.Instantiate(fbx);
+            axe.name = "wpn_axe_01";
+            axe.transform.SetParent(root.transform, false);
+            // grip origin is at the haft mid; stand it upright a touch above the stand top.
+            axe.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+            foreach (var mr in axe.GetComponentsInChildren<MeshRenderer>(true))
+                mr.sharedMaterial = mat;
+            // box collider (cheap hand tool), not mesh collider.
+            var col = axe.AddComponent<BoxCollider>();
+
+            // a simple stand: a short post the axe leans on, neutral grey (reuse the palette stone block).
+            var stand = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            stand.name = "stand";
+            stand.transform.SetParent(root.transform, false);
+            stand.transform.localScale = new Vector3(0.06f, 0.28f, 0.06f);
+            stand.transform.localPosition = new Vector3(0.10f, 0.28f, 0f);
+            // leave the stand on the default material (it's just a prop to imply "on a stand").
+
+            // a directional light so the flint facets read in-engine (the prefab is self-lit for capture).
+            var lightGo = new GameObject("StandLight");
+            lightGo.transform.SetParent(root.transform, false);
+            var light = lightGo.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = 1.1f;
+            light.color = Color.white;
+            lightGo.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+
+            Directory.CreateDirectory("Assets/Resources");
+            PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
+            Object.DestroyImmediate(root);
+            Debug.Log("[WeaponPackAssetGen] built " + PrefabPath + " (flint axe on a stand, shared material)");
         }
 
         // Palette PNG: flat-colour blocks viewed at fixed UV dots -> sRGB, point-filtered, no mips,

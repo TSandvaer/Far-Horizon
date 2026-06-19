@@ -89,6 +89,12 @@ namespace FarHorizon.EditorTools
             // MovementCameraScene.AttachHeroAxeToHand can parent the imported mesh under the chibi's hand
             // bone and serialize it into Boot.unity. (Replaces the retired procedural HeroAxeMesh.)
             AxeAssetGen.PrepareAxe();
+            // Ticket 86cabh907 (Route A weapon set, STYLE CHECKPOINT — axe only): import the IN-HOUSE
+            // re-made knapped-flint axe, wire the shared palette material, and build the
+            // Resources/WeaponAxeStand.prefab that WeaponSetVerifyCapture loads for the shipped-build
+            // capture. Standalone — does NOT touch the held-axe rig (next dispatch). The CC-BY
+            // CastawayAxe stays imported until the in-house axe replaces it in-engine.
+            WeaponPackAssetGen.PrepareWeaponPack();
             WriteBuildStamp("zoned");
             var scene = BuildBootScene();
 
@@ -274,6 +280,10 @@ namespace FarHorizon.EditorTools
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
             // serialization trap; inert unless the exe is launched with -captureGate.
             hudGo.AddComponent<CaptureGate>();
+            // Weapon-set STYLE-CHECKPOINT capture (86cabh907) — loads Resources/WeaponAxeStand and
+            // captures the in-house knapped-flint axe from the built exe. Serialized editor-time (NOT
+            // Awake) per the editor-vs-runtime trap; INERT unless launched with -verifyWeaponAxe.
+            hudGo.AddComponent<WeaponSetVerifyCapture>();
             // World-look polish verify capture (86ca8t9pq) — orbits to Uma's per-surface criteria
             // (default-pitch clouds + low-pitch vista/sky dissolve). Serialized editor-time (NOT Awake)
             // per the editor-vs-runtime trap; INERT unless the exe is launched with -verifyWorldLook.
