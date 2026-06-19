@@ -304,6 +304,21 @@ namespace FarHorizon.EditorTools
             // there) finds + wires this Inventory.
             var inventory = survivalGo.AddComponent<Inventory>();
 
+            // HUNGER (86caamkp8): the second survival need — hunger decays as a SLOWER background
+            // pressure than warmth and is restored by eating berries (the eat-action lives in the
+            // bushes/inventory lane; HungerNeed.AddFood is the restore seam). IS-A SurvivalNeed (the
+            // shared base this ticket owns; thirst 86caamkv7 extends it next). SERIALIZED here
+            // editor-time (NOT Awake) per the editor-vs-runtime trap — HungerNeedSceneTests guards it.
+            // Author the slower-than-warmth decay defaults onto the serialized component (Reset() only
+            // runs on an editor add, not on a headless AddComponent, so set them explicitly here so the
+            // shipped scene carries the gentler pressure). The HUD bar that RENDERS this rides the
+            // need-meter HUD ticket (86caamkxv) — not wired to SurvivalHud here (OOS this ticket).
+            var hunger = survivalGo.AddComponent<HungerNeed>();
+            hunger.easyDecayPerSecond = HungerNeed.HungerEasyDecayPerSecond;
+            hunger.medDecayPerSecond  = HungerNeed.HungerMedDecayPerSecond;
+            hunger.hardDecayPerSecond = HungerNeed.HungerHardDecayPerSecond;
+            hunger.decayPerSecond     = HungerNeed.HungerMedDecayPerSecond; // medium tier by default
+
             // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
             // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the
             // U2-1 WarmthReadout + U2-2 InventoryReadout placeholders (removed). Both data references are
