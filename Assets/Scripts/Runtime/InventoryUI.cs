@@ -166,25 +166,32 @@ namespace FarHorizon
             BuildSlotRow(_invGrid, _invSlots, _model.InventorySlots.Count, SlotArea.Inventory, showHotkey: false);
             // Docked belt row (inside the open pack) + the always-on bottom belt strip — both render the
             // SAME belt slots (direction §4.1 "dock-the-same-state, mirror visually").
-            BuildSlotRow(_beltDock, _beltDockSlots, _model.BeltSlots.Count, SlotArea.Belt, showHotkey: true);
-            BuildSlotRow(_beltStrip, _beltStripSlots, _model.BeltSlots.Count, SlotArea.Belt, showHotkey: true);
+            //
+            // BUG 2 (#90): clicking the DOCKED belt row (inside the pack) must NOT change the active belt
+            // selection — the pack's belt row is an ORGANIZE target (a drag dest), NOT a selector. Active
+            // selection changes ONLY via 1–N / scroll (AC2). The bottom STRIP is the hotbar, so a tap THERE
+            // still selects. We pass selectsOnTap=false for the docked row, true for the strip.
+            BuildSlotRow(_beltDock, _beltDockSlots, _model.BeltSlots.Count, SlotArea.Belt,
+                         showHotkey: true, selectsOnTap: false);
+            BuildSlotRow(_beltStrip, _beltStripSlots, _model.BeltSlots.Count, SlotArea.Belt,
+                         showHotkey: true, selectsOnTap: true);
         }
 
         private void BuildSlotRow(VisualElement container, List<VisualElement> cache, int count,
-                                  SlotArea area, bool showHotkey)
+                                  SlotArea area, bool showHotkey, bool selectsOnTap = false)
         {
             if (container == null) return;
             container.Clear();
             cache.Clear();
             for (int i = 0; i < count; i++)
             {
-                var slot = MakeSlot(area, i, showHotkey);
+                var slot = MakeSlot(area, i, showHotkey, selectsOnTap);
                 container.Add(slot);
                 cache.Add(slot);
             }
         }
 
-        private VisualElement MakeSlot(SlotArea area, int index, bool showHotkey)
+        private VisualElement MakeSlot(SlotArea area, int index, bool showHotkey, bool selectsOnTap)
         {
             var slot = new VisualElement();
             slot.AddToClassList("slot");
@@ -215,11 +222,12 @@ namespace FarHorizon
 
             var slotRef = new SlotRef(area, index);
 
-            // Click selects a belt slot (a tap with no drag); drag starts a move (AC6).
-            slot.RegisterCallback<PointerDownEvent>(e => OnSlotPointerDown(e, slotRef, slot));
-            slot.RegisterCallback<PointerEnterEvent>(e => OnSlotPointerEnter(slotRef, slot));
-            slot.RegisterCallback<PointerLeaveEvent>(e => OnSlotPointerLeave(slot));
-            slot.RegisterCallback<PointerUpEvent>(e => OnSlotPointerUp(e, slotRef, slot));
+            // Drag starts a move (AC6); a tap on the bottom STRIP also selects (selectsOnTap) — the docked
+            // pack belt row does NOT select (BUG 2, #90). PointerMove drives the deny/ok hover preview while
+            // dragging (the captured-pointer redirect makes PointerEnter/Leave unreliable mid-drag — BUG 1).
+            slot.RegisterCallback<PointerDownEvent>(e => OnSlotPointerDown(e, slotRef, slot, selectsOnTap));
+            slot.RegisterCallback<PointerMoveEvent>(e => OnSlotPointerMove(e));
+            slot.RegisterCallback<PointerUpEvent>(e => OnSlotPointerUp(e, slot));
 
             return slot;
         }
@@ -330,13 +338,16 @@ namespace FarHorizon
         // Pointer interaction — select (tap) + drag/drop (AC6).
         // ============================================================================================
 
-        private void OnSlotPointerDown(PointerDownEvent e, SlotRef slotRef, VisualElement slot)
+        private void OnSlotPointerDown(PointerDownEvent e, SlotRef slotRef, VisualElement slot, bool selectsOnTap)
         {
             if (_model == null) return;
             ItemStack here = _model.At(slotRef);
 
-            // A tap on a belt slot selects it (AC2). Selection is harmless even on an empty slot.
-            if (slotRef.Area == SlotArea.Belt)
+            // BUG 2 (#90): a tap selects a belt slot ONLY on the bottom hotbar STRIP (selectsOnTap). The
+            // docked belt row inside the pack is an ORGANIZE target, NOT a selector — clicking it must leave
+            // the active selection unchanged (the selection moves only via 1–N / scroll). Selection is
+            // harmless even on an empty slot.
+            if (selectsOnTap && slotRef.Area == SlotArea.Belt)
                 _model.SelectBelt(slotRef.Index);
 
             // Begin a drag only if the slot holds something.
@@ -348,34 +359,124 @@ namespace FarHorizon
             slot.CapturePointer(e.pointerId);
         }
 
-        private void OnSlotPointerEnter(SlotRef slotRef, VisualElement slot)
+        // BUG 1 (#90): while dragging, the SOURCE slot has pointer capture, so PointerMove fires on the
+        // SOURCE (not the slot under the cursor). Resolve the hovered slot by hit-testing the cursor against
+        // the slot caches each move + repaint its deny/ok preview — PointerEnter/Leave do NOT fire mid-drag
+        // on the non-captured slots, so they cannot drive the preview (the old approach silently no- op'd).
+        private void OnSlotPointerMove(PointerMoveEvent e)
         {
             if (!_dragging) return;
-            // Preview the drop validity: a resource over a belt slot denies (AC6 tool-vs-resource).
-            bool deny = slotRef.Area == SlotArea.Belt && !ItemDef.IsBeltEligible(_dragDef);
-            slot.EnableInClassList("slot--drop-deny", deny);
-            slot.EnableInClassList("slot--drop-ok", !deny);
+            ClearDropPreview();
+            if (TryResolveSlotAt(e.position, out _, out VisualElement target, out SlotArea area))
+            {
+                bool deny = area == SlotArea.Belt && !ItemDef.IsBeltEligible(_dragDef);
+                target.EnableInClassList("slot--drop-deny", deny);
+                target.EnableInClassList("slot--drop-ok", !deny);
+            }
         }
 
-        private void OnSlotPointerLeave(VisualElement slot)
-        {
-            slot.RemoveFromClassList("slot--drop-ok");
-            slot.RemoveFromClassList("slot--drop-deny");
-        }
-
-        private void OnSlotPointerUp(PointerUpEvent e, SlotRef slotRef, VisualElement slot)
+        private void OnSlotPointerUp(PointerUpEvent e, VisualElement slot)
         {
             if (!_dragging) return;
             slot.ReleasePointer(e.pointerId);
             HideGhost();
+            ClearDropPreview();
 
-            // The move goes THROUGH the model (TryMove enforces the tool-vs-resource gate — the view never
-            // bypasses it). A rejected move (resource→belt) is a no-op; the model state is the truth.
-            _model.TryMove(_dragFrom, slotRef);
+            // BUG 1 (#90): the captured-pointer redirect sends THIS PointerUp to the SOURCE slot, so the
+            // event target is the source — using it as the drop dest meant TryMove(from, from) = a same-slot
+            // no-op, which is why drag/move did nothing at runtime. Resolve the real drop TARGET by hit-
+            // testing the cursor position against the slot caches. ApplyDrop is pure + EditMode-testable.
+            ApplyDrop(_dragFrom, e.position);
 
             _dragging = false;
             _dragDef = null;
             RefreshAll();
+        }
+
+        /// <summary>
+        /// Resolve the drop target under <paramref name="panelPos"/> and route the move through the model
+        /// (BUG 1 #90 — the captured-pointer redirect prevents using the PointerUp event target). The move
+        /// goes THROUGH InventoryModel.TryMove, which enforces the tool-vs-resource gate (a resource onto
+        /// the belt is rejected — the view never bypasses it). Returns true if a real move landed. PUBLIC +
+        /// pure-ish (only reads layout + mutates the model) so an EditMode test can assert drop resolution
+        /// without a live pointer device.
+        /// </summary>
+        public bool ApplyDrop(SlotRef from, Vector2 panelPos)
+        {
+            if (_model == null) return false;
+            if (!TryResolveSlotAt(panelPos, out SlotRef to, out _, out _)) return false;
+            return _model.TryMove(from, to);
+        }
+
+        // Hit-test a panel-space position against the painted slot caches, returning the SlotRef it lands on
+        // (inventory grid first, then the docked belt row, then the bottom strip). worldBound is in panel
+        // coordinates (same space as PointerEvent.position), so Contains is the authoritative hit test even
+        // while the source slot holds pointer capture.
+        private bool TryResolveSlotAt(Vector2 panelPos, out SlotRef slotRef, out VisualElement element, out SlotArea area)
+        {
+            if (TryHit(_invSlots, SlotArea.Inventory, panelPos, out slotRef, out element)) { area = SlotArea.Inventory; return true; }
+            if (TryHit(_beltDockSlots, SlotArea.Belt, panelPos, out slotRef, out element)) { area = SlotArea.Belt; return true; }
+            if (TryHit(_beltStripSlots, SlotArea.Belt, panelPos, out slotRef, out element)) { area = SlotArea.Belt; return true; }
+            slotRef = default; element = null; area = SlotArea.Inventory;
+            return false;
+        }
+
+        private static bool TryHit(List<VisualElement> slots, SlotArea area, Vector2 panelPos,
+                                   out SlotRef slotRef, out VisualElement element)
+        {
+            int idx = HitIndex(slots, panelPos);
+            if (idx >= 0)
+            {
+                slotRef = new SlotRef(area, idx);
+                element = slots[idx];
+                return true;
+            }
+            slotRef = default; element = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Pure hit-test over slot elements (BUG 1 #90): the index of the first slot whose worldBound
+        /// contains <paramref name="panelPos"/>, or -1. Delegates to the rect overload so the resolution
+        /// logic is unit-testable WITHOUT a laid-out panel (feed synthetic rects in EditMode).
+        /// </summary>
+        public static int HitIndex(IReadOnlyList<VisualElement> slots, Vector2 panelPos)
+        {
+            for (int i = 0; i < slots.Count; i++)
+                if (slots[i] != null && slots[i].worldBound.Contains(panelPos))
+                    return i;
+            return -1;
+        }
+
+        /// <summary>
+        /// Pure rect hit-test (BUG 1 #90 regression seam): the index of the first rect containing
+        /// <paramref name="panelPos"/>, or -1. Static + side-effect-free + layout-free so an EditMode test
+        /// asserts the position→index resolution the captured-pointer drop relies on with SYNTHETIC rects
+        /// (no live panel needed). The element overload above feeds it each slot's worldBound.
+        /// </summary>
+        public static int HitIndex(IReadOnlyList<Rect> rects, Vector2 panelPos)
+        {
+            for (int i = 0; i < rects.Count; i++)
+                if (rects[i].Contains(panelPos))
+                    return i;
+            return -1;
+        }
+
+        private void ClearDropPreview()
+        {
+            ClearPreview(_invSlots);
+            ClearPreview(_beltDockSlots);
+            ClearPreview(_beltStripSlots);
+        }
+
+        private static void ClearPreview(List<VisualElement> slots)
+        {
+            for (int i = 0; i < slots.Count; i++)
+            {
+                if (slots[i] == null) continue;
+                slots[i].RemoveFromClassList("slot--drop-ok");
+                slots[i].RemoveFromClassList("slot--drop-deny");
+            }
         }
 
         // ============================================================================================

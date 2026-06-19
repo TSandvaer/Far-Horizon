@@ -313,6 +313,9 @@ namespace FarHorizon.EditorTools
             hud.warmth = warmth;       // serialized reference, no Awake FindObjectOfType in the build
             hud.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
 
+            // DIAGNOSTIC-ONLY: inert unless launched with -invDiag (86cabfa21 / the #90 soak trace).
+            survivalGo.AddComponent<InventoryDiag>();
+
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
             MovementCameraScene.Author(camGo);

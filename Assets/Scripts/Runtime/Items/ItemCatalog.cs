@@ -71,14 +71,21 @@ namespace FarHorizon
             var axe = CreateInstance<ItemDef>(); axe.name = "axe";
             axe.Init(AxeId, "Axe", ItemKind.Tool, axeIcon);
 
+            // BUG 3 (#90): chopped wood shipped with a NULL icon → the slot rendered only a bare "W" letter-
+            // chip (model + paint were correct — invDiag trace `0=woodx3` / `chip='W'`), which the Sponsor
+            // did not read as "wood obtained". AC5 calls for a recognizable wood ICON. Until a 3D render-the-
+            // prop IconBaker lands (Uma's direction), bake a small procedural wood-bundle sprite IN CODE so
+            // obtained wood reads as a wood item. Reproducible-from-code (no hand-edited PNG that silently
+            // reverts on re-import — unity-conventions.md §recolor-must-be-reproducible). A caller-supplied
+            // icon (a future baked sprite) still wins.
             var wood = CreateInstance<ItemDef>(); wood.name = "wood";
-            wood.Init(WoodId, "Wood", ItemKind.Resource, woodIcon);
+            wood.Init(WoodId, "Wood", ItemKind.Resource, woodIcon ?? ItemIconGen.WoodBundle());
 
             var stone = CreateInstance<ItemDef>(); stone.name = "stone";
-            stone.Init(StoneId, "Stone", ItemKind.Resource, stoneIcon);
+            stone.Init(StoneId, "Stone", ItemKind.Resource, stoneIcon ?? ItemIconGen.StonePile());
 
             var berry = CreateInstance<ItemDef>(); berry.name = "berry";
-            berry.Init(BerryId, "Berries", ItemKind.Resource, berryIcon);
+            berry.Init(BerryId, "Berries", ItemKind.Resource, berryIcon ?? ItemIconGen.BerryCluster());
 
             SetAll(new[] { axe, wood, stone, berry });
         }
