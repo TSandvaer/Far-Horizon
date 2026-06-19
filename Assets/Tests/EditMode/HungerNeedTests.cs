@@ -40,7 +40,7 @@ namespace FarHorizon.EditTests
         }
 
         [TearDown]
-        public void TearDown() => Object.DestroyImmediate(_go);
+        public void TearDown() => UnityEngine.Object.DestroyImmediate(_go);
 
         // ===== Decay / floor / clamp (mirror WarmthNeedTests) =====
 

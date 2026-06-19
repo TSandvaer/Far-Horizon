@@ -37,7 +37,7 @@ namespace FarHorizon.PlayTests
         }
 
         [TearDown]
-        public void TearDown() => Object.Destroy(_go);
+        public void TearDown() => UnityEngine.Object.Destroy(_go);
 
         [UnityTest]
         public IEnumerator Hunger_Decays_OverARealTimeWindow()
