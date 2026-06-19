@@ -278,6 +278,42 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # 8. Settings-panel shipped-build capture gate (ticket 86caa4bqp) — the
+      #    panel-specific sibling of step 7. The generic -captureGate renders a
+      #    closed-world gameplay frame with NO panel, so it can never satisfy the
+      #    settings success-test ("panel OPENS + a tweak TAKES EFFECT LIVE" — Tess
+      #    QA bounce on PR #83). This launches the SAME built exe windowed with
+      #    -verifySettings, driving SettingsVerifyCapture to open the panel + drag
+      #    the walk-speed slider to max. It then asserts BOTH: (a) frame_check.py on
+      #    settings_{closed,open,tweaked}.png (the panel really rendered in the
+      #    shipped player), and (b) the player log carries `changedLive=True` (the
+      #    live param actually changed — the end-to-end "tweak takes effect" proof).
+      #    Runs only when the build produced an exe; frames + log upload AFTER
+      #    (if: always()) so the panel evidence survives a fail.
+      - name: Settings-panel capture gate (panel opens + live tweak)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_settings_gate.sh
+            .github/workflows/scripts/verify_settings_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/settings-caps ci-out/verify-settings.log
+          else
+            echo "[verify-settings] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload settings-panel frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-settings-caps-${{ github.sha }}
+          path: |
+            ci-out/settings-caps/*.png
+            ci-out/verify-settings.log
+          if-no-files-found: warn
+          retention-days: 14
+
   # ---------------------------------------------------------------------------
   # PlayMode gate — ADVISORY, NON-REQUIRED, FAIL-FAST. Runs the PlayMode suite for
   # signal, but can NEVER block a merge:

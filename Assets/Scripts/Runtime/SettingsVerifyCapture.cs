@@ -89,19 +89,35 @@ namespace FarHorizon
 
             float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;
             float applied = float.NaN;
-            if (walk != null) applied = walk.SetValue(walk.Max);
-            float walkAfter = wasd != null ? wasd.moveSpeed : float.NaN;
-            Debug.Log($"[SettingsVerifyCapture] WALK SPEED tweak: before={Fmt(walkBefore)} " +
-                      $"setTo={Fmt(applied)} liveAfter={Fmt(walkAfter)} " +
-                      $"changedLive={(!float.IsNaN(walkAfter) && !Mathf.Approximately(walkBefore, walkAfter))} (AC2)");
 
-            // Also drive + log the ZOOM range clamping the live camera (AC4).
-            if (zoom != null && orbit != null)
+            // try/finally (codereview #83, Drew NIT): an exception ANYWHERE between the snapshot above and the
+            // restore below would otherwise leak this run's max-walk / 18u-zoom tweaks into PlayerPrefs and
+            // pollute the Sponsor's next soak (it must boot from SHIPPED defaults). finally guarantees the
+            // snapshot is restored on any exit path. (Note: a coroutine body cannot `yield` inside try/finally,
+            // so the post-tweak settle yields stay OUTSIDE the block — they touch no PlayerPrefs and the frame
+            // they capture is unaffected by an early restore.)
+            try
             {
-                float newMax = Mathf.Min(zoom.UpperLimit, 18f);
-                float setMax = zoom.SetMax(newMax);
-                Debug.Log($"[SettingsVerifyCapture] ZOOM range: setMax={Fmt(setMax)} -> orbit.maxDistance=" +
-                          $"{Fmt(orbit.maxDistance)} (live system clamps to the range, AC4)");
+                if (walk != null) applied = walk.SetValue(walk.Max);
+                float walkAfter = wasd != null ? wasd.moveSpeed : float.NaN;
+                Debug.Log($"[SettingsVerifyCapture] WALK SPEED tweak: before={Fmt(walkBefore)} " +
+                          $"setTo={Fmt(applied)} liveAfter={Fmt(walkAfter)} " +
+                          $"changedLive={(!float.IsNaN(walkAfter) && !Mathf.Approximately(walkBefore, walkAfter))} (AC2)");
+
+                // Also drive + log the ZOOM range clamping the live camera (AC4).
+                if (zoom != null && orbit != null)
+                {
+                    float newMax = Mathf.Min(zoom.UpperLimit, 18f);
+                    float setMax = zoom.SetMax(newMax);
+                    Debug.Log($"[SettingsVerifyCapture] ZOOM range: setMax={Fmt(setMax)} -> orbit.maxDistance=" +
+                              $"{Fmt(orbit.maxDistance)} (live system clamps to the range, AC4)");
+                }
+            }
+            finally
+            {
+                // Restore PlayerPrefs so the next launch (the Sponsor soak) loads shipped defaults, not this run's
+                // tweaks — runs even if SetValue/SetMax threw between snapshot and here.
+                RestorePrefs(prefsSnapshot);
             }
 
             for (int i = 0; i < 5; i++) yield return null;
@@ -110,8 +126,6 @@ namespace FarHorizon
             yield return null;
             yield return new WaitForSeconds(0.5f);
 
-            // Restore PlayerPrefs so the next launch (the Sponsor soak) loads shipped defaults, not this run's tweaks.
-            RestorePrefs(prefsSnapshot);
             Debug.Log("[SettingsVerifyCapture] verification complete (PlayerPrefs restored) -> " + dir);
             Application.Quit();
         }
