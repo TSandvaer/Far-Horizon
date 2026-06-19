@@ -12,5 +12,7 @@ One-line index of durable debug/build instruments. Reuse before rebuilding.
 | `bl_05_hero_render.py` | Eevee hero 3/4 render of the axe (blade-left / beak-right framing) -> `axe_hero_render.png`. |
 | `bl_06_save.py` | Saves the working `.blend` to `Assets/Art/Props/WeaponPack/weapon_set_src.blend`. |
 | `bl_07_fix_palette.py` | Rewrites `weapon_palette.png` with TRUE sRGB hex bytes (manual PNG encoder, no PIL) so Unity reads the exact locked hexes; reloads + re-packs the Blender image datablock. |
+| `bl_10_knife_sword_spear.py` | Builds the matched `wpn_knife_01` / `wpn_sword_01` / `wpn_spear_01` to the look-locked axe style (faceted, Shade Smooth + Mark-Sharp-all, shared `WeaponPalette`, UVs parked on palette blocks). Honors the Sponsor locks: spear-tip STONE/flint, sword edge full-length one-side tapering before the crossguard. Grip-origin at (0,0,0), blade +Z. |
+| `bl_11_export_set.py` | Merge-by-distance + recalc-normals + zero-location + export `wpn_knife_01/wpn_sword_01/wpn_spear_01.fbx` to `Assets/Art/Props/WeaponPack/` with spec-exact FBX settings (-Y fwd / Z up / FBX-unit-scale / Apply-Transform OFF / Normals Only). |
 
-Render outputs (`axe_*.png`, `*.blend1`) are gitignored build artifacts.
+Render outputs (`axe_*.png`, `_*.png`, `_*.py`, `*.blend1`) are gitignored build/throwaway artifacts.
