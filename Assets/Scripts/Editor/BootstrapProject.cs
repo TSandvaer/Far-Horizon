@@ -319,6 +319,27 @@ namespace FarHorizon.EditorTools
             hunger.hardDecayPerSecond = HungerNeed.HungerHardDecayPerSecond;
             hunger.decayPerSecond     = HungerNeed.HungerMedDecayPerSecond; // medium tier by default
 
+            // THIRST (86caamkv7): the third survival need — thirst decays FASTER than hunger (pressing
+            // "after eating the berries") but slower than warmth, and is restored by drinking from a
+            // freshwater pond by hand (the drink-action lives in PondDrink on the pond GameObject Drew
+            // places; ThirstNeed.AddWater is the restore seam). IS-A SurvivalNeed (the shared base). The
+            // drink interaction is a PROXIMITY interact (NOT an inventory item — thirst is NOT berries).
+            // SERIALIZED here editor-time (NOT Awake) per the editor-vs-runtime trap — ThirstNeedSceneTests
+            // guards it. Author the faster-than-hunger decay defaults onto the serialized component
+            // (Reset() only runs on an editor add, not a headless AddComponent, so set them explicitly so
+            // the shipped scene carries the right pressure). The HUD bar that RENDERS this rides the
+            // need-meter HUD ticket (86caamkxv) — not wired to SurvivalHud here (OOS this ticket).
+            var thirst = survivalGo.AddComponent<ThirstNeed>();
+            thirst.easyDecayPerSecond = ThirstNeed.ThirstEasyDecayPerSecond;
+            thirst.medDecayPerSecond  = ThirstNeed.ThirstMedDecayPerSecond;
+            thirst.hardDecayPerSecond = ThirstNeed.ThirstHardDecayPerSecond;
+            thirst.decayPerSecond     = ThirstNeed.ThirstMedDecayPerSecond; // medium tier by default
+            // NOTE: the PondDrink interaction is NOT authored here — it sits on the freshwater POND
+            // GameObject (AC2/AC2a, Drew's seed-42 placement lane). When Drew places the pond he attaches
+            // PondDrink and wires .thirst = this component + .player = the player root (the same serialized
+            // editor-time pattern). PondDrink also Awake-falls-back to FindObjectOfType<ThirstNeed>() so a
+            // pond placed before this wiring still finds the need (graceful, AC2b).
+
             // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
             // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the
             // U2-1 WarmthReadout + U2-2 InventoryReadout placeholders (removed). Both data references are
