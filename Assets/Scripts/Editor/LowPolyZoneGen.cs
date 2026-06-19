@@ -795,11 +795,12 @@ namespace FarHorizon.EditorTools
 
             if (!berry) return;
 
-            // BERRIES (the harvestable variant): a child mesh of small red faceted spheres over the dome.
-            // A SEPARATE child so BerryBush can show/hide JUST the berries on harvest/regrow (the bush body
-            // persists). The berry red is in vertex colour -> the SAME vertex-color material.
+            // BERRIES (the harvestable variant): a child mesh of MANY small dense red faceted spheres
+            // studding the dome. A SEPARATE child so BerryBush can show/hide JUST the berries on
+            // harvest/regrow (the bush body persists). The berry red is in vertex colour -> the SAME
+            // vertex-color material. MANY (20-30) small dots so it reads as berries, not flowers (#101 soak-fix).
             var berries = MakeMeshObject(bush, "Berries",
-                LowPolyMeshes.BerryCluster(bushR, 6 + rnd.Next(0, 5), BerryRed, rnd.Next()),
+                LowPolyMeshes.BerryCluster(bushR, 20 + rnd.Next(0, 11), BerryRed, rnd.Next()),
                 CanopyVertexColorMat());
 
             // Wire the harvest+regrow component to the scene Inventory + player so a wandering castaway can

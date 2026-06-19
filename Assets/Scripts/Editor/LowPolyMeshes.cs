@@ -567,17 +567,28 @@ namespace FarHorizon.EditorTools
             return mesh;
         }
 
-        // The BERRIES on a berry bush (ticket 86caa5zz3) — a scatter of small red faceted spheres nestled
-        // over the bush dome, the visible "this bush has food" cue. A SEPARATE mesh from the bush body so
-        // the berry bush authoring can show/hide JUST the berries on harvest/regrow (the bush persists,
-        // only the berries toggle — AC4) by toggling the berries child's active state. Material-honest warm
-        // RED (the berry colour reads as the fruit; no arbitrary tint — weapon/asset material-honest memory).
-        // The berry value is baked into vertex COLOR (top-lit/shadow per berry) so the shared vertex-color
-        // material renders them; welded-per-berry -> smooth faceted spheres.
+        // The BERRIES on a berry bush (ticket 86caa5zz3) — a SCATTER of SMALL, DENSE, MANY red faceted
+        // spheres nestled over the bush dome, the visible "this bush has food" cue. A SEPARATE mesh from the
+        // bush body so the berry bush authoring can show/hide JUST the berries on harvest/regrow (the bush
+        // persists, only the berries toggle — AC4) by toggling the berries child's active state. Material-
+        // honest warm RED (the berry colour reads as the fruit; no arbitrary tint — weapon/asset material-
+        // honest memory). The berry value is baked into vertex COLOR (per-berry top-lit/shadow) so the shared
+        // vertex-color material renders them; welded-per-berry -> smooth faceted spheres.
         //
-        //   bushRadius — the bush body radius the berries nestle over (they ring its upper dome)
-        //   count      — how many berries (6-12 reads as a generous cluster; min 3)
-        //   berry      — the berry top-lit colour (a darker shade is derived for the underside)
+        // === SOAK-FIX (#101, Sponsor: "they look like FLOWERS") ===
+        // The prior cluster read as flowers, not berries: TOO FEW berries (~6-12) that were TOO LARGE
+        // (berryR 0.16*bushRadius ≈ 0.15u — a 30cm "berry"), each built as TWO overlapping blobs so it bulged
+        // even larger, spread over a WIDE thin ring. A few big rounded lumps on a dome = a flower head. Berries
+        // read as berries when they are SMALL, DENSE, and MANY (a tight studding of little dots). FIX:
+        //   - berryR ≈ 0.055*bushRadius (≈ 5cm — a real berry dot, ~3× smaller than before);
+        //   - ONE blob per berry (a small sphere is already a clear dot; the 2-blob top/dark split only bulked
+        //     it up — the 2-value read is kept by alternating per-berry top-lit / shadow COLOUR instead);
+        //   - MANY berries (default ~24, callers pass 20-30) packed into a TIGHT spread (smaller ring + height
+        //     band) so the dome reads STUDDED with fruit, not dotted with flowers.
+        //
+        //   bushRadius — the bush body radius the berries nestle over (they stud its upper dome)
+        //   count      — how many berries (20-30 reads as a dense studding of fruit; min 3)
+        //   berry      — the berry colour (a darker shade is derived for shadowed berries / undersides)
         //   seed       — deterministic placement (reproducible baked scene)
         public static Mesh BerryCluster(float bushRadius, int count, Color berry, int seed)
         {
@@ -587,22 +598,25 @@ namespace FarHorizon.EditorTools
             var cols = new List<Color>();
             var tris = new List<int>();
 
+            // 2-value berry read: a top-lit highlight + a shadowed dark, alternated per berry so the studding
+            // reads with depth rather than as one flat red mass (replaces the old per-berry 2-blob bulge).
+            Color berryTop  = Color.Lerp(berry, Color.white, 0.14f);
             Color berryDark = new Color(berry.r * 0.55f, berry.g * 0.45f, berry.b * 0.50f, 1f);
-            float berryR = bushRadius * 0.16f; // small relative to the bush — readable dots, not lumps
+            float berryR = bushRadius * 0.055f; // SMALL dot (~5cm on a ~0.95u bush) — a berry, not a flower head
 
             for (int i = 0; i < count; i++)
             {
-                // Ring the berries over the upper dome of the bush (a small radial + height spread).
-                float ang = (i / (float)count) * Mathf.PI * 2f + (float)rnd.NextDouble() * 0.9f;
-                float ringR = bushRadius * (0.45f + (float)rnd.NextDouble() * 0.45f);
-                float up = bushRadius * (0.45f + (float)rnd.NextDouble() * 0.45f);
+                // STUD the upper dome densely: a tight radial + height band (was a wide thin ring), with a
+                // golden-angle phase so MANY berries pack evenly without clumping into a few visible lumps.
+                float ang = i * 2.39996323f + (float)rnd.NextDouble() * 0.5f; // golden angle, light jitter
+                float ringR = bushRadius * (0.20f + (float)rnd.NextDouble() * 0.62f); // fills the dome, not a rim
+                float up = bushRadius * (0.50f + (float)rnd.NextDouble() * 0.42f);
                 Vector3 center = new Vector3(Mathf.Cos(ang) * ringR, up, Mathf.Sin(ang) * ringR);
-                // Per-berry value: top-lit on top, darker underside (a 2-value read so the dots aren't flat).
-                Color top = Color.Lerp(berry, Color.white, 0.12f);
-                AppendBlob(verts, cols, tris, center + Vector3.up * (berryR * 0.4f), berryR,
-                           1, jitter: 0.10f, color: top, seed: rnd.Next());
-                AppendBlob(verts, cols, tris, center - Vector3.up * (berryR * 0.4f), berryR,
-                           0, jitter: 0.10f, color: berryDark, seed: rnd.Next());
+                // Alternate top-lit / shadowed berries so the dense studding reads with 2-value depth. A small
+                // per-berry radius wobble keeps the dots from looking machine-uniform.
+                Color c = (i % 3 == 0) ? berryDark : berryTop;
+                float r = berryR * (0.85f + (float)rnd.NextDouble() * 0.35f);
+                AppendBlob(verts, cols, tris, center, r, 0, jitter: 0.12f, color: c, seed: rnd.Next());
             }
 
             var mesh = new Mesh { name = "LP_BerryCluster" };

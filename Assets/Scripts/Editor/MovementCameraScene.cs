@@ -1312,12 +1312,13 @@ namespace FarHorizon.EditorTools
                 LowPolyMeshes.BushBlob(bushR, 5, BushBody, BushTop, BushShadow, 53117), Vector3.zero);
 
             // Berries: a SEPARATE child so BerryBush toggles JUST the berries on harvest/regrow (the bush
-            // body persists). Small red faceted spheres over the dome (vertex-colour red — same material).
+            // body persists). MANY small dense red faceted spheres STUDDING the dome (vertex-colour red —
+            // same material) so the deterministic capture bush reads as berries, not flowers (#101 soak-fix).
             var berries = new GameObject("Berries");
             berries.transform.SetParent(bush.transform, false);
             berries.transform.localPosition = Vector3.zero;
             BuildBlobCanopyPart(berries, "BerriesMesh",
-                LowPolyMeshes.BerryCluster(bushR, 9, BerryRed, 53119), Vector3.zero);
+                LowPolyMeshes.BerryCluster(bushR, 26, BerryRed, 53119), Vector3.zero);
 
             var bb = bush.AddComponent<BerryBush>();
             bb.hasBerries = true;
