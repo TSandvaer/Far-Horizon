@@ -10,12 +10,17 @@
 #   settings_closed.png  settings_open.png  settings_tweaked.png
 # plus the ground-truth log line `[SettingsVerifyCapture] WALK SPEED tweak: ... changedLive=True`.
 #
-# Two authoritative checks, BOTH must pass:
+# Three authoritative checks, ALL must pass:
 #   1. frame_check.py on the panel PNGs — the open + tweaked frames are not black/uniform/
 #      magenta (the panel actually RENDERED in the shipped player, not just the editor).
 #   2. a grep of the player log for `changedLive=True` — the LIVE param actually changed
 #      (a rendered panel that doesn't drive the game would still pass #1; this is the
 #      end-to-end "tweak takes effect" proof the success-test demands).
+#   3. frames_differ.py settings_open.png vs settings_tweaked.png — the tweak is VISIBLE.
+#      Checks 1+2 BOTH passed on PR #83 while settings_tweaked.png was a PIXEL-IDENTICAL copy
+#      of settings_open.png (the entry-setter tweak bypassed the slider readout repaint), so
+#      a human eye was the only thing that caught the un-tweaked readout. This check makes that
+#      bug class a red gate: the tweaked frame must visibly differ from the open frame.
 #
 # Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 /
 # unity-conventions.md). The component calls Application.Quit() when done; a wall-clock
@@ -87,9 +92,24 @@ else
   log_rc=1
 fi
 
-if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ]; then
-  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc)" >&2
+# Check 3 — the tweak is VISIBLE: settings_tweaked.png must differ from settings_open.png.
+# A repainted readout label changes only a small region, so the floor is tiny but strictly > 0
+# (a byte-identical copy fails). This is the PR #83 re-QA regression guard.
+diff_rc=0
+OPEN_PNG="$ABS_CAP/settings_open.png"
+TWEAKED_PNG="$ABS_CAP/settings_tweaked.png"
+if [ ! -f "$OPEN_PNG" ] || [ ! -f "$TWEAKED_PNG" ]; then
+  echo "[verify_settings] FAILED — missing open/tweaked frame for the visible-tweak diff " \
+       "(open=$OPEN_PNG tweaked=$TWEAKED_PNG)" >&2
+  diff_rc=1
+else
+  python3 "$HERE/frames_differ.py" "$OPEN_PNG" "$TWEAKED_PNG"
+  diff_rc=$?
+fi
+
+if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ]; then
+  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc)" >&2
   exit 1
 fi
-echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect"
+echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + the tweak is VISIBLE"
 exit 0

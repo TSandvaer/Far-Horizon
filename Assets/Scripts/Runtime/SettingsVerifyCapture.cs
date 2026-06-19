@@ -120,6 +120,18 @@ namespace FarHorizon
                 RestorePrefs(prefsSnapshot);
             }
 
+            // REPAINT the panel so settings_tweaked.png VISIBLY shows the changed value (re-QA #83 fix).
+            // The tweak above drove the LIVE param via the entry setter (walk.SetValue / zoom.SetMax) — the
+            // single write authority — but that path BYPASSES the slider's RegisterValueChangedCallback, which
+            // is what repaints the row readout on a real drag (SettingsPanel.cs:215-219). So the live param
+            // changed (the gate log's changedLive=True proves it) yet the captured FRAME still showed the
+            // un-tweaked readout → settings_tweaked.png came out pixel-identical to settings_open.png. Drive
+            // the same RefreshReadouts() repaint the panel uses on open/Reset (it re-reads each entry's live
+            // Value and rewrites the readout text), then settle frames so UI Toolkit lays out + renders the
+            // new text before the screenshot. NOTE: RestorePrefs() above only rewrites PlayerPrefs keys — it
+            // does NOT re-apply to the live params — so the live walk/zoom values stay at the tweaked numbers
+            // here, and RefreshReadouts() reads those tweaked values. (AC2/AC4 now VISIBLE, not just logged.)
+            panel.RefreshReadouts();
             for (int i = 0; i < 5; i++) yield return null;
             ShotTo(Path.Combine(dir, "settings_tweaked.png"));
             yield return new WaitForEndOfFrame();

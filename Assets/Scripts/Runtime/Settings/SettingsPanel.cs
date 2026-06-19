@@ -271,7 +271,12 @@ namespace FarHorizon
             inc.clicked += () => { e.Increment(); refresh(); };
         }
 
-        private void RefreshReadouts()
+        /// <summary>Repaint every row's value text from its entry's CURRENT live value. Called on open + after
+        /// a Reset so the readouts always match the live params. PUBLIC so a harness that drives a tweak through
+        /// the entry setter directly (bypassing the slider callback, e.g. SettingsVerifyCapture) can force the
+        /// view to repaint the changed value before a capture — a real slider drag repaints via the slider's
+        /// RegisterValueChangedCallback; an entry-setter tweak must call this to get the same visible refresh.</summary>
+        public void RefreshReadouts()
         {
             for (int i = 0; i < _readouts.Count; i++) _readouts[i]?.Invoke();
         }
