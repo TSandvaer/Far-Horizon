@@ -97,7 +97,8 @@ namespace FarHorizon
 
             for (int i = 0; i < 8; i++) yield return null;
             yield return new WaitForEndOfFrame();
-            string file = Path.Combine(dir, "wpn_axe_01.png");
+            // iteration 2 capture (reshaped asymmetric axe-head; checkpoint 2)
+            string file = Path.Combine(dir, "wpn_axe_02.png");
             ScreenCapture.CaptureScreenshot(file, 1);
             Debug.Log("[WeaponSetVerifyCapture] wrote " + file);
             yield return new WaitForEndOfFrame();

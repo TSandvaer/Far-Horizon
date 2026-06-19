@@ -15,10 +15,13 @@ scene.camera = cam
 # obj origin now at grip (0,0,0.45 was applied to location; geometry unchanged in world)
 # 3/4 from the cutting-edge side + slightly above, so the wedge TAPER reads (the head
 # thins to the working edge) and the knapped facets catch raking light.
-target = Vector((-0.08, 0.0, 0.50))
-cam.location = Vector((-1.05, -2.2, 1.05))
+# target the head band (z~0.50 local = ~0.95 world geometry); pull cam back + lower
+# lens so the FULL head (high blade flare to low) sits in frame, viewed 3/4 from the
+# cutting-edge side so the wedge taper + blade-vs-poll asymmetry read.
+target = Vector((-0.10, 0.0, 0.46))
+cam.location = Vector((-1.15, -2.6, 1.15))
 cam.rotation_euler = (target - cam.location).to_track_quat('-Z','Y').to_euler()
-cam.data.lens = 78
+cam.data.lens = 62
 
 # NEUTRAL white lighting so the flint reads its TRUE grey (the warm key tinted grey
 # facets reddish against the blue bg — a render illusion, not the asset). Cool-neutral
