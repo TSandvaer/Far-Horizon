@@ -5,6 +5,16 @@ Locks the two open parameters (shading model + palette hexes) against the **live
 look** — verified against the inspiration board, the tool refs, and the live world
 materials/shaders — not decided in the abstract.
 
+> **Correction 2026-06-19 (axe-head material).** The hero axe HEAD is **STONE / knapped
+> FLINT**, not a red metal — the Sponsor rejected a red axe head (memory
+> `weapon-asset-material-honest-pattern-via-geometry`: a tool reads as its MATERIAL; a red
+> metal head reads forged, fighting the hand-whittled anchor). The head maps to
+> `flint-grey #8E8A82` + `dark-flint #5C5853` (the value already used in the built axe), and
+> its surface PATTERN is **knapped flake-scar facets modeled into the geometry** — NOT a
+> detail-texture / normal-map (preserves the shared ~1-draw-call palette material). The red
+> `grip-wrap-red #7E3A3A` LASHING (the cord wrap that binds head to haft) STAYS red — that's
+> rope, not the head.
+
 **Tonal anchor.** *The whole tool family reads as if the castaway whittled them himself,
 from the same wood and the same will, on the same beach.* Every item is hand-carved,
 toy-like, a little asymmetric — a child's-storybook adventurer's kit, never a smith's
@@ -83,17 +93,21 @@ palette from PR #83). The weapon set reuses the world's own colors so it reads o
 |---|---|---|---|---|---|
 | W1 | `haft-wood` | `#7A5230` | 0.48, 0.32, 0.19 | `style-guide-v2 §6` haft/trunk wood | Axe/knife/spear/sword haft + shaft — the family's shared handle wood |
 | W2 | `haft-wood-shadow` | `#5A3B22` | 0.35, 0.23, 0.13 | derived shade-step of W1 (–1 value) | Haft shadow facets + grip-wrap shadow band (the shade-step the faceted read needs) |
-| W3 | `metal-barn-red` | `#A33B30` | 0.64, 0.23, 0.19 | `style-guide-v2 §3/§6` axe-head barn red | **Axe head** (primary metal) — confident warm red, NOT fire-engine |
-| W4 | `metal-barn-red-shadow` | `#7E2C24` | 0.49, 0.17, 0.14 | derived shade-step of W3 (–1 value) | Axe-head shadow cheek + top-horn shadow facet |
+| W3 | `flint-grey` | `#8E8A82` | 0.56, 0.54, 0.51 | `style-guide-v2 §6` world rock (warm-grey); value already in the built axe | **Axe head** (knapped-flint body) + any stone tool head + stone spear-tip (Q1) — **warm-grey flint, NOT blue-grey, NOT metal**. Surface pattern = modeled flake-scar facets, not a texture. |
+| W4 | `dark-flint` | `#5C5853` | 0.36, 0.35, 0.33 | knapped working-flint dark; value already in the built axe (same as W9) | Axe-head shadow cheek + the inner shadow facets between flake scars — the working-flint dark that makes the modeled flake-scar read |
 | W5 | `blade-steel` | `#8C93A8` | 0.55, 0.58, 0.66 | sword/curved-blade refs `21h07_20`/`21h07_42` (cool slate-steel body) | **Sword + knife blade body** — the cool slate of the ref blades |
 | W6 | `edge-bevel` | `#E4E2DC` | 0.89, 0.89, 0.86 | `style-guide-v2 §3/§6` tool edge bevel | **The signature near-white chamfer plane** on every hero edge (axe bit, sword/knife edge). Sub-1.0 — does NOT bloom. The identity detail of the whole family. |
-| W7 | `bone-fitting` | `#CFC6AD` | 0.81, 0.78, 0.68 | `style-guide-v2 §3/§6` pommel/crossguard bone | Crossguard, pommel, spear-tip (see Q1), bindings — off-white bone family |
-| W8 | `grip-wrap-red` | `#7E3A3A` | 0.49, 0.23, 0.23 | `style-guide-v2 §3/§6` grip wrap | Segmented grip wrapping (sword/curved blade) — dark desat red, chunky segments |
-| W9 | `rock-grey` | `#8E8A82` | 0.56, 0.54, 0.51 | `style-guide-v2 §6` world rock (warm-grey) | Stone spear-tip option (Q1), any stone tool head — **warm-grey, NOT blue-grey** |
+| W7 | `bone-fitting` | `#CFC6AD` | 0.81, 0.78, 0.68 | `style-guide-v2 §3/§6` pommel/crossguard bone | Crossguard, pommel, bone spear-tip alternate (see Q1), bindings — off-white bone family |
+| W8 | `grip-wrap-red` | `#7E3A3A` | 0.49, 0.23, 0.23 | `style-guide-v2 §3/§6` grip wrap | Segmented grip wrapping (sword/curved blade) **+ the axe-head LASHING** (the red cord that binds head to haft) — dark desat red, chunky segments. This is rope, NOT the head. |
+| W9 | `dark-flint` | `#5C5853` | 0.36, 0.35, 0.33 | knapped working-flint dark; value already in the built axe | The deepest knapped-flint facets on the axe head (struck flake hollows) + the darkest stone-tip facets — the working-flint dark that makes the flake-scar read |
 
-**Total: 9 slots** — 5 base anchors + 2 derived shade-steps (W2/W4, which the faceted
-shade-read needs) + 2 alternates (W5 blade-steel, W9 rock-grey). A 128×128 grid holds these
-in generous 16-px blocks with room to extend without disturbing existing UV placements.
+**Total: 9 slots** — base anchors (`haft-wood` W1, `flint-grey` W3, `blade-steel` W5,
+`edge-bevel` W6, `bone-fitting` W7, `grip-wrap-red` W8) + derived shade-step (`haft-wood-shadow`
+W2, which the faceted shade-read needs) + the knapped-flint pair (`flint-grey` W3 body /
+`dark-flint` W9 dark, with W4 carrying the same dark-flint `#5C5853` as the axe-head shadow
+step). A 128×128 grid holds these in generous 16-px blocks with room to extend without
+disturbing existing UV placements. (W4 and W9 share the dark-flint hex by design — W4 is the
+axe-head shadow facet, W9 is the deep stone-tip facet; both are the same struck-flint dark.)
 
 **Discipline notes:**
 - **Every channel sub-1.0** — `edge-bevel #E4E2DC` is deliberately off-white, NOT `#FFFFFF`;
@@ -136,7 +150,7 @@ in generous 16-px blocks with room to extend without disturbing existing UV plac
 
 | Item | Read | Palette mapping | Notes |
 |---|---|---|---|
-| **Axe** | wedge head on a stout bent handle | head=`metal-barn-red` W3 (+W4 shadow), bit=`edge-bevel` W6, haft=`haft-wood` W1 (+W2) | Re-make of the hero axe; the family's scale + grip reference. Build to read exactly like `21h08_08` (red head, white edge, bent brown haft). |
+| **Axe** | wedge head on a stout bent handle | head=`flint-grey` W3 (+W4/W9 `dark-flint` flake-scar shadows), bit=`edge-bevel` W6, haft=`haft-wood` W1 (+W2), lashing=`grip-wrap-red` W8 | Re-make of the hero axe; the family's scale + grip reference. Head is **knapped FLINT** (warm-grey stone), its flake-scar pattern **modeled as facets** (not a texture). White chamfer bit, bent brown haft, **red cord lashing** binding head to haft. Match the built axe's flint head (`#8E8A82`/`#5C5853`), not a metal head. |
 | **Knife** | short single blade, stubby grip | blade=`blade-steel` W5, edge=`edge-bevel` W6, grip=`haft-wood` W1 (+W2 wrap) | Shortest grip, smallest silhouette. Edge-bevel along the cutting edge. |
 | **Sword** | long blade + crossguard + wrapped grip | blade=`blade-steel` W5, edge=`edge-bevel` W6 (see Q2), guard/pommel=`bone-fitting` W7, grip=`grip-wrap-red` W8 (+W2) | Longest blade; crossguard is the family's only "extra" detail beat. Build to `21h07_20`. |
 | **Spear** | long shaft + compact point | shaft=`haft-wood` W1 (+W2), point=see **Q1** | Longest overall; thin-but-NOT-spindly shaft (chunky rule holds). No board ref exists — see Q1. |
@@ -179,11 +193,13 @@ in generous 16-px blocks with room to extend without disturbing existing UV plac
 These three are flagged for the Sponsor. Uma's recommendation on each:
 
 **Q1 — Spear-tip material (bone / stone / iron).** No spear ref exists on the board.
-> **Uma recommends: STONE** (`rock-grey #8E8A82` W9, warm-grey not blue-grey).
+> **Uma recommends: STONE** (`flint-grey #8E8A82` W3 body + `dark-flint #5C5853` W9 facets,
+> warm-grey not blue-grey — the same knapped-flint pair as the axe head).
 > *Rationale:* the castaway is early-survival, shipwrecked, whittling his own kit — a
 > lashed-stone spear-point is the most on-narrative ("found a sharp rock, bound it to a
-> stick"), and it reuses the world's own rock anchor so the spear reads of-the-world with
-> ZERO new color. Angular faceted stone tip (Erik §E5: stone = angular facets) sits perfectly
+> stick"), and it reuses the world's own rock/flint anchor (now the axe-head material too) so
+> the spear reads of-the-world with ZERO new color and visibly belongs to the same maker as
+> the axe. Angular faceted stone tip (Erik §E5: stone = angular facets) sits perfectly
 > with the Mark-Sharp shading. Bone (`bone-fitting #CFC6AD` W7) is the strong alternate if the
 > Sponsor wants a softer/lighter read; iron would re-introduce a "forged" register that
 > fights the hand-whittled anchor (not recommended). Both alternates are already in the
