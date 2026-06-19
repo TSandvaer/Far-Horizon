@@ -346,6 +346,65 @@ namespace FarHorizon.EditTests
                 "tool), serialized into the scene — not Awake-added");
         }
 
+        [Test]
+        public void BootScene_CarriesHeldWeaponCycleDebug_OnTheHeroAxe()
+        {
+            // 86cabh907 regression guard (the component-not-serialized class, applied to the DEBUG cycle
+            // handle). The Sponsor's "let me SEE each weapon held" soak handle must be SERIALIZED onto the
+            // HeroAxe object (added in AttachHeroAxeToHand) — else the shipped build has NO way to cycle the
+            // held weapon and the soak can't view knife/sword/spear in-hand. Drop the AddComponent in
+            // AttachHeroAxeToHand and this reds in CI rather than at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present (the cycle handle rides it)");
+            Assert.IsNotNull(axe.GetComponent<HeldWeaponCycleDebug>(),
+                "the HeroAxe must carry the HeldWeaponCycleDebug component (the [B] cycle-held-weapon soak " +
+                "handle, 86cabh907), serialized into the scene — not Awake-added.");
+        }
+
+        [Test]
+        public void WeaponLineupPrefab_CarriesEveryFamilyMeshNode_TheCycleSourceResolves()
+        {
+            // 86cabh907 regression guard (the runtime-mesh-source class). The cycle handle resolves the
+            // knife/sword/spear meshes at runtime from Resources/WeaponSetLineup.prefab BY NODE NAME (Asset
+            // Database is editor-only). If a node name drifts (or the lineup loses a weapon), cycling shows
+            // nothing/falls back to the axe — a silent soak failure. Pin that EVERY cycle node name resolves
+            // to a real mesh in the shipped Resources prefab.
+            var prefab = Resources.Load<GameObject>(HeldWeaponCycleDebug.LineupResourcePath);
+            Assert.IsNotNull(prefab,
+                "Resources/" + HeldWeaponCycleDebug.LineupResourcePath + " must exist — it is the runtime " +
+                "mesh source the cycle handle loads knife/sword/spear from (built by WeaponPackAssetGen).");
+            foreach (var nodeName in HeldWeaponCycleDebug.WeaponNodeNames)
+            {
+                Transform node = FindByName(prefab.transform, nodeName);
+                Assert.IsNotNull(node, $"the lineup prefab must carry a '{nodeName}' node (a cycle weapon).");
+                var mf = node.GetComponent<MeshFilter>();
+                Assert.IsNotNull(mf, $"lineup node '{nodeName}' must carry a MeshFilter.");
+                Assert.IsNotNull(mf.sharedMesh, $"lineup node '{nodeName}' must carry a serialized mesh.");
+                Assert.Greater(mf.sharedMesh.vertexCount, 10, $"lineup node '{nodeName}' must be a real weapon mesh.");
+            }
+        }
+
+        [Test]
+        public void HeldWeaponCycleDebug_AxeIsTheLockedDefault_NoCompensation()
+        {
+            // 86cabh907 regression guard (the axe-seat-LOCKED contract). The Sponsor LOCKED the axe seat — the
+            // cycle handle must leave it byte-unchanged. The handle expresses that as: index 0 (axe) gets ZERO
+            // mesh-holder offset and UNIT scale (and restores the captured original TRS). Pin index 0 ==
+            // identity so a future tweak that accidentally compensates the axe (moving the locked seat) reds
+            // here. Also pin the four per-weapon arrays are length-aligned (a misaligned array would apply the
+            // wrong weapon's compensation).
+            int n = HeldWeaponCycleDebug.WeaponNodeNames.Length;
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponLabels.Length, "WeaponLabels must align with WeaponNodeNames.");
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
+            Assert.AreEqual("wpn_axe_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the axe must be cycle index 0 (the locked default).");
+            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
+                "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0],
+                "the AXE (index 0) must have UNIT mesh scale — its seat is Sponsor-LOCKED.");
+        }
+
         private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
 
         private static GameObject FindByNameInScene(string name)

@@ -610,6 +610,12 @@ namespace FarHorizon.EditorTools
             if (held == null) held = axe.AddComponent<HeldAxe>();
             held.inventory = Object.FindObjectOfType<Inventory>();
 
+            // DEBUG / SOAK-VIEWING handle (86cabh907) — cycle the HELD mesh axe->knife->sword->spear with [B]
+            // so the Sponsor can SEE each weapon wielded in-engine. NOT the real equip gameplay (belt->wield
+            // is a later ticket): it only swaps the displayed mesh on THIS shared seat (+ a rough per-weapon
+            // offset) and starts on the LOCKED axe, so a soak that never presses [B] sees the shipped axe.
+            if (axe.GetComponent<HeldWeaponCycleDebug>() == null) axe.AddComponent<HeldWeaponCycleDebug>();
+
             // URP/Unlit (the shared weapon palette material) must survive the stripped build.
             var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
             if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
