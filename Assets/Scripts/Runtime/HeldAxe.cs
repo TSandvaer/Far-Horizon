@@ -23,42 +23,14 @@ namespace FarHorizon
     /// polling). The Inventory reference is wired editor-time (serialized) with an Awake FindObjectOfType
     /// fallback.
     /// </summary>
-    public class HeldAxe : MonoBehaviour
+    /// 86cabh907: HeldAxe is now a thin subclass of the SHARED HeldTool gate — the renderer-toggle +
+    /// Inventory.Changed wiring live ONCE in the base. The axe-specific bit is the selection predicate
+    /// (the axe shows when it is the selected belt item). The inventory field is inherited (same name →
+    /// the committed Boot.unity wiring + HeroAxeSceneTests' held.inventory read carry forward unchanged).
+    public class HeldAxe : HeldTool
     {
-        [Tooltip("The ledger whose HasAxe drives this held axe's visibility. Wired editor-time; " +
-                 "scene-found fallback in Awake.")]
-        public Inventory inventory;
-
-        private Renderer[] _renderers;
-
-        void Awake()
-        {
-            if (inventory == null) inventory = FindObjectOfType<Inventory>();
-            // Cache the hatchet's renderers (the sourced FBX is a single mesh, but cache the subtree so a
-            // future multi-part axe still toggles whole).
-            _renderers = GetComponentsInChildren<Renderer>(true);
-        }
-
-        void OnEnable()
-        {
-            if (inventory != null) inventory.Changed += Apply;
-            Apply();
-        }
-
-        void OnDisable()
-        {
-            if (inventory != null) inventory.Changed -= Apply;
-        }
-
-        // Show the held axe only when the axe is the SELECTED belt item (AC4). If there is no inventory
-        // wired (defensive), default to VISIBLE so a wiring regression fails loud in the soak (a visible
-        // axe with no inventory) rather than a silently-invisible hero tool.
-        private void Apply()
-        {
-            bool show = inventory == null || inventory.IsAxeSelectedInBelt;
-            if (_renderers == null) _renderers = GetComponentsInChildren<Renderer>(true);
-            foreach (var r in _renderers)
-                if (r != null) r.enabled = show;
-        }
+        // Show the held axe only when the axe is the SELECTED belt item (AC4 86caa4bya). The defensive
+        // no-inventory case (default VISIBLE so a wiring regression fails loud) is handled by the base.
+        protected override bool ShouldShow() => inventory.IsAxeSelectedInBelt;
     }
 }

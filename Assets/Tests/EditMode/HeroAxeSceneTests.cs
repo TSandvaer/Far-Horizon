@@ -65,6 +65,26 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxe_UsesTheInHouseFlintPaletteMaterial_NotTheCcByAtlas()
+        {
+            // 86cabh907 CC-BY retirement guard: the gameplay held axe must now render with the SHARED
+            // in-house Mat_WeaponPalette (URP/Unlit flat-shaded palette) — NOT the retired Viktor.G CC-BY
+            // baked atlas. A regression that re-points the held axe at a per-asset/baked material reds here
+            // (and would re-introduce the attribution obligation Route A retired).
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var mr = axe.GetComponentInChildren<MeshRenderer>(true);
+            Assert.IsNotNull(mr, "the held axe must have a MeshRenderer");
+            Assert.IsNotNull(mr.sharedMaterial, "the held axe's material must be serialized");
+            Assert.AreEqual("Universal Render Pipeline/Unlit", mr.sharedMaterial.shader.name,
+                "the held axe must render with the URP/Unlit shared palette material (Mat_WeaponPalette) — " +
+                "NOT a lit/baked-atlas material (the CC-BY axe outlier Route A retired).");
+            StringAssert.Contains("WeaponPalette", mr.sharedMaterial.name,
+                $"the held axe material must be the shared Mat_WeaponPalette (got '{mr.sharedMaterial.name}').");
+        }
+
+        [Test]
         public void BootScene_HeldAxe_GatesVisibilityOnHasAxe()
         {
             // The HeldAxe component (HasAxe-gated visibility) must be SERIALIZED on the held axe with its

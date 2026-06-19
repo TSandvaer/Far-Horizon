@@ -502,6 +502,22 @@ namespace FarHorizon.EditorTools
         // child SERIALIZES into Boot.unity under the bone — NOT an Awake-built attach (the "legs-up" /
         // component-not-serialized classes). A HeldAxe runtime component gates the renderer on
         // Inventory.HasAxe (hidden until crafted; the craft reads as "the kid picks up the axe").
+        // 86cabh907 (CC-BY retirement): bind the SHARED in-house weapon palette material onto every
+        // MeshRenderer of an instantiated flint-axe (held / stump / pickup), so the re-made axe reads
+        // with the faceted flat-shaded palette look (URP/Unlit) — NOT the retired CC-BY baked atlas.
+        private static void ApplyWeaponPaletteMaterial(GameObject inst)
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(WeaponPackAssetGen.MaterialPath);
+            if (mat == null)
+            {
+                Debug.LogError("[MovementCameraScene] Mat_WeaponPalette not found at " +
+                               WeaponPackAssetGen.MaterialPath + " — run WeaponPackAssetGen.PrepareWeaponPack()");
+                return;
+            }
+            foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+                mr.sharedMaterial = mat;
+        }
+
         private static void AttachHeroAxeToHand(GameObject player)
         {
             var castaway = player.GetComponentInChildren<CastawayCharacter>(true);
@@ -520,11 +536,12 @@ namespace FarHorizon.EditorTools
                 return;
             }
 
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
             if (fbx == null)
             {
-                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
-                               " — run AxeAssetGen.PrepareAxe() before authoring the scene");
+                Debug.LogError("[MovementCameraScene] in-house flint axe FBX not found at " +
+                               WeaponPackAssetGen.HeroAxeFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene");
                 return;
             }
 
@@ -534,6 +551,7 @@ namespace FarHorizon.EditorTools
             var axe = Object.Instantiate(fbx);
             axe.name = HeroAxeObjectName;
             axe.transform.SetParent(hand, false);
+            ApplyWeaponPaletteMaterial(axe);
             // Scale is uniform-local. The Hyper3D wrist bone reads lossyScale (1,1,1) (probe-verified — NO 267×
             // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.77u longest.
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
@@ -592,9 +610,9 @@ namespace FarHorizon.EditorTools
             if (held == null) held = axe.AddComponent<HeldAxe>();
             held.inventory = Object.FindObjectOfType<Inventory>();
 
-            // URP/Lit (the imported material) must survive the stripped build.
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            // URP/Unlit (the shared weapon palette material) must survive the stripped build.
+            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
 
             // Wire the verification-only shipped-build AXE CLOSE-UP capture onto the Boot object — sibling
             // of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe. It frames
@@ -618,11 +636,12 @@ namespace FarHorizon.EditorTools
         // the axe mesh + StumpAxe wiring SERIALIZE into Boot.unity (the editor-vs-runtime trap).
         private static void AttachStumpAxe(GameObject craftSpot)
         {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
             if (fbx == null)
             {
-                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
-                               " — run AxeAssetGen.PrepareAxe() before authoring the scene; no stump axe planted");
+                Debug.LogError("[MovementCameraScene] in-house flint axe FBX not found at " +
+                               WeaponPackAssetGen.HeroAxeFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no stump axe planted");
                 return;
             }
 
@@ -632,14 +651,15 @@ namespace FarHorizon.EditorTools
             axe.transform.localPosition = StumpAxeLocalPos;
             axe.transform.localRotation = Quaternion.Euler(StumpAxeLocalEuler);
             axe.transform.localScale = Vector3.one * StumpAxeLocalScaleUniform;
+            ApplyWeaponPaletteMaterial(axe);
 
             // Gate visibility as the INVERSE of HasAxe: shown at spawn, hidden once crafted.
             var stump = axe.GetComponent<StumpAxe>();
             if (stump == null) stump = axe.AddComponent<StumpAxe>();
             stump.inventory = Object.FindObjectOfType<Inventory>();
 
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
@@ -794,7 +814,7 @@ namespace FarHorizon.EditorTools
             var go = new GameObject(AxePickupObjectName);
             go.transform.position = AxePickupPosition;
 
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
             Transform visual = go.transform;
             if (fbx != null)
             {
@@ -805,12 +825,14 @@ namespace FarHorizon.EditorTools
                 mesh.transform.localRotation = Quaternion.Euler(0f, 45f, 90f); // lying/leaning read
                 mesh.transform.localScale = Vector3.one * 1.0f;
                 visual = mesh.transform;
-                var litShader = Shader.Find("Universal Render Pipeline/Lit");
-                if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+                ApplyWeaponPaletteMaterial(mesh);
+                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
             }
             else
             {
-                Debug.LogWarning("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                Debug.LogWarning("[MovementCameraScene] in-house flint axe FBX not found at " +
+                                 WeaponPackAssetGen.HeroAxeFbxPath +
                                  " — AxePickup has no visual mesh (pickup logic still wires)");
             }
 

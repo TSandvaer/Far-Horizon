@@ -6,30 +6,30 @@ using UnityEngine.Rendering.Universal;
 namespace FarHorizon
 {
     /// <summary>
-    /// STYLE-CHECKPOINT shipped-build capture of the in-house re-made hero axe (ticket 86cabh907,
-    /// Route A weapon set). Sibling of AxeVerifyCapture — but standalone: it does NOT touch the
-    /// held-axe rig (that generalization is the NEXT dispatch). It loads a self-contained
-    /// "WeaponAxeStand" prefab from Resources (the flint axe + a simple stand, with the shared
-    /// Mat_WeaponPalette applied), parks a post-enabled capture camera framing the whole axe via
-    /// the deterministic VerifyCaptureFraming math, and captures wpn_axe_01.png from the BUILT exe.
+    /// Shipped-build capture of the in-house weapon SET (ticket 86cabh907, Route A) — the re-made
+    /// knapped-flint axe + knife + sword + spear lined up, all on the shared Mat_WeaponPalette. Sibling
+    /// of AxeVerifyCapture — standalone: it does NOT touch the held-tool rig. It loads a self-contained
+    /// "WeaponSetLineup" prefab from Resources (the four weapons in a row, shared material), parks a
+    /// post-enabled capture camera framing the whole family via the deterministic VerifyCaptureFraming
+    /// math, and captures weapon_set.png from the BUILT exe.
     ///
-    /// This is the shipped-build evidence the capture gate requires for the knapped-flint look
-    /// (geometry + the 2 flint palette shades reading in-engine, not just a Blender render).
+    /// This is the shipped-build evidence the capture gate requires for the family look (faceted shading
+    /// + shared palette + edge-bevel + flint reading in-engine as ONE family, not just a Blender render).
     ///
-    /// Inert unless launched with -verifyWeaponAxe. MUST run WINDOWED (ScreenCapture needs a real
-    /// swapchain — spike iter-4 / unity-conventions.md).
-    ///   FarHorizon.exe -screen-fullscreen 0 -verifyWeaponAxe -captureDir &lt;dir&gt;
-    /// Captures wpn_axe_01.png. Quits non-zero if the prefab is missing or bounds never settle.
+    /// Inert unless launched with -verifyWeaponSet (legacy -verifyWeaponAxe still accepted). MUST run
+    /// WINDOWED (ScreenCapture needs a real swapchain — spike iter-4 / unity-conventions.md).
+    ///   FarHorizon.exe -screen-fullscreen 0 -verifyWeaponSet -captureDir &lt;dir&gt;
+    /// Captures weapon_set.png. Quits non-zero if the prefab is missing or bounds never settle.
     /// </summary>
     public class WeaponSetVerifyCapture : MonoBehaviour
     {
-        public const string ResourcePath = "WeaponAxeStand"; // Assets/Resources/WeaponAxeStand.prefab
+        public const string ResourcePath = "WeaponSetLineup"; // Assets/Resources/WeaponSetLineup.prefab
         public string subDir = "Captures";
-        public float frameFill = 0.66f;
+        public float frameFill = 0.78f;
 
         void Start()
         {
-            if (HasArg("-verifyWeaponAxe"))
+            if (HasArg("-verifyWeaponSet") || HasArg("-verifyWeaponAxe"))
                 StartCoroutine(Run());
         }
 
@@ -46,10 +46,10 @@ namespace FarHorizon
                 yield return null; Application.Quit(1); yield break;
             }
 
-            // Spawn the stand FAR from the gameplay scene (high up) so the capture frames ONLY the
-            // axe against the clear colour — the live world (grass, the old CC-BY axe, the held axe)
-            // sits at the origin and would otherwise bleed into the shot. A dedicated culling layer
-            // would be cleaner, but distance + a tight frame + the camera's own clear is enough here.
+            // Spawn the lineup FAR from the gameplay scene (high up) so the capture frames ONLY the
+            // weapon family against the clear colour — the live world (grass, the held axe) sits at the
+            // origin and would otherwise bleed into the shot. Distance + a tight frame + the camera's own
+            // clear is enough.
             var inst = Object.Instantiate(prefab);
             Vector3 farOrigin = new Vector3(0f, 500f, 0f);
             inst.transform.position = farOrigin;
@@ -69,9 +69,9 @@ namespace FarHorizon
                 Application.Quit(1); yield break;
             }
 
-            // Three-quarter view from the cutting-edge side so the knapped facets + the wedge
-            // taper + the lashing all read. Fixed viewDir (deterministic).
-            Vector3 viewDir = new Vector3(-0.85f, 0.40f, -0.95f);
+            // Three-quarter front view so all four silhouettes + the faceted shading + the edge-bevel
+            // + flint reads sit in one frame. Fixed viewDir (deterministic).
+            Vector3 viewDir = new Vector3(-0.30f, 0.32f, -1.0f);
             float aspect = Screen.width > 0 && Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
             var frame = VerifyCaptureFraming.ComputeFrame(wb.center, wb.size, viewDir, 38f, aspect, frameFill);
 
@@ -97,8 +97,7 @@ namespace FarHorizon
 
             for (int i = 0; i < 8; i++) yield return null;
             yield return new WaitForEndOfFrame();
-            // iteration 2 capture (reshaped asymmetric axe-head; checkpoint 2)
-            string file = Path.Combine(dir, "wpn_axe_02.png");
+            string file = Path.Combine(dir, "weapon_set.png");
             ScreenCapture.CaptureScreenshot(file, 1);
             Debug.Log("[WeaponSetVerifyCapture] wrote " + file);
             yield return new WaitForEndOfFrame();

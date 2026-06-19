@@ -84,16 +84,13 @@ namespace FarHorizon.EditorTools
             // scene is authored, so BuildBootScene's player build (MovementCameraScene.BuildPlayer)
             // can instantiate + serialize the avatar's SkinnedMeshRenderer/bones/controller.
             CharacterAssetGen.PrepareCharacter();
-            // Ticket 86ca8ce6y (RE-DONE): import the SOURCED hero axe FBX (rustic hatchet) — downsample
-            // its oversized atlas, normalize scale, static prop — BEFORE the scene is authored, so
-            // MovementCameraScene.AttachHeroAxeToHand can parent the imported mesh under the chibi's hand
-            // bone and serialize it into Boot.unity. (Replaces the retired procedural HeroAxeMesh.)
-            AxeAssetGen.PrepareAxe();
-            // Ticket 86cabh907 (Route A weapon set, STYLE CHECKPOINT — axe only): import the IN-HOUSE
-            // re-made knapped-flint axe, wire the shared palette material, and build the
-            // Resources/WeaponAxeStand.prefab that WeaponSetVerifyCapture loads for the shipped-build
-            // capture. Standalone — does NOT touch the held-axe rig (next dispatch). The CC-BY
-            // CastawayAxe stays imported until the in-house axe replaces it in-engine.
+            // Ticket 86cabh907 (Route A weapon SET): import the IN-HOUSE re-made knapped-flint axe + the
+            // matched knife/sword/spear, wire the shared palette material, build the
+            // Resources/WeaponSetLineup.prefab that WeaponSetVerifyCapture loads for the shipped-build
+            // capture. The in-house flint axe REPLACES the retired CC-BY Sketchfab axe (Viktor.G) for the
+            // held / stump / pickup gameplay axe — AxeAssetGen + the CastawayAxe asset + its CC-BY license
+            // are removed in this PR (attribution obligation retired). Runs BEFORE the scene is authored so
+            // MovementCameraScene.AttachHeroAxeToHand can parent the imported flint axe under the hand bone.
             WeaponPackAssetGen.PrepareWeaponPack();
             WriteBuildStamp("zoned");
             var scene = BuildBootScene();
