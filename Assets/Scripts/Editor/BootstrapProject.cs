@@ -316,6 +316,10 @@ namespace FarHorizon.EditorTools
             // DIAGNOSTIC-ONLY: inert unless launched with -invDiag (86cabfa21 / the #90 soak trace).
             survivalGo.AddComponent<InventoryDiag>();
 
+            // VERIFY-ONLY: inert unless launched with -verifyInvIcons (#90 icon-centering shipped-build
+            // capture — opens the pack with wood+axe and shoots the laid-out grid for the by-eye check).
+            survivalGo.AddComponent<InventoryVerifyCapture>();
+
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
             MovementCameraScene.Author(camGo);
