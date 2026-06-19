@@ -36,13 +36,32 @@ namespace FarHorizon.EditTests
             // BLOCKER-1 regression guard (PR #90): a PanelSettings with a NULL themeStyleSheet THROWS
             // during panel init in the shipped player → the capture gate produced ZERO frames on run
             // 27810143643 (the prior code loaded the theme from two non-existent package paths). The
-            // panelSettings-non-null assert above did NOT catch it — the asset existed, its THEME was
-            // null. Assert the theme too so a theme-less panel reds here, not as a silent zero-frame
-            // capture (guard the failing condition, not a proxy — unity-conventions.md §editor-vs-runtime).
-            Assert.IsNotNull(ui.document.panelSettings.themeStyleSheet,
+            // panelSettings-non-null assert above did NOT catch it — the asset existed, its THEME was null.
+            var theme = ui.document.panelSettings.themeStyleSheet;
+            Assert.IsNotNull(theme,
                 "the inventory PanelSettings must carry a NON-NULL themeStyleSheet — a UIDocument whose " +
                 "PanelSettings has no theme throws at startup in the build and zeroes the capture gate " +
                 "(EnsureRuntimeTheme must resolve or create one)");
+            // ROUND 2 (PR #90): a NON-NULL theme is NECESSARY but NOT SUFFICIENT. An EMPTY .tss imports to
+            // a non-null BUT BASE-LESS ThemeStyleSheet — the panel resolves its first repaint against no
+            // base styles and NEVER completes the first frame's layout → the exe HANGS ("did not self-quit
+            // within 120s", 0 frames, run 27810923815). The non-null assert was a FALSE-GREEN PROXY. Guard
+            // the RESOLVING condition: the theme's SOURCE .tss must @import the runtime default base theme
+            // (the one line that makes a .tss a usable runtime theme). The imported object is non-null
+            // either way, so the .tss source text is the only honest signal (perceptual-vs-proxy guard,
+            // unity-conventions.md §editor-vs-runtime "guard the percept, not a proxy").
+            string themePath = UnityEditor.AssetDatabase.GetAssetPath(theme);
+            Assert.IsFalse(string.IsNullOrEmpty(themePath),
+                "the inventory theme must be a project asset with a resolvable .tss path");
+            Assert.IsTrue(System.IO.File.Exists(themePath),
+                "the inventory theme .tss must be a readable on-disk project asset at " + themePath +
+                " (EnsureRuntimeTheme assigns either a verified project theme or the one it creates)");
+            string themeSrc = System.IO.File.ReadAllText(themePath);
+            StringAssert.Contains("unity-theme://default", themeSrc,
+                "the inventory theme .tss must @import url(\"unity-theme://default\") so it carries Unity's " +
+                "runtime base styles — an EMPTY/base-less .tss is non-null but HANGS the shipped exe at " +
+                "panel init (capture gate 0 frames, run 27810923815). EnsureRuntimeTheme must write the " +
+                "import content, not an empty file.");
             Assert.IsNotNull(ui.inventory,
                 "InventoryUI's Inventory reference must be wired editor-time so it binds to the model " +
                 "without an Awake-time scene search in the build");

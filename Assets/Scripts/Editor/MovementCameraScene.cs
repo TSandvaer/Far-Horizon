@@ -709,48 +709,80 @@ namespace FarHorizon.EditorTools
 
         public const string InventoryRuntimeThemePath = SettingsDir + "/InventoryRuntimeTheme.tss";
 
-        // Resolve a NON-NULL runtime ThemeStyleSheet for the inventory PanelSettings (BLOCKER-1 fix,
-        // PR #90). A UIDocument whose PanelSettings carries a NULL themeStyleSheet THROWS during panel
-        // init in the shipped player — which is exactly what zeroed the capture gate on run 27810143643
-        // (capture produced 0 frames; build/EditMode/bootstrap all passed). The prior code loaded the
-        // theme from two HARDCODED package paths
-        // (Packages/com.unity.ui/... and Packages/com.unity.modules.uielements/...) that DO NOT EXIST
-        // in this project's package layout (only the builtin com.unity.modules.uielements@1.0.0 module
-        // is present, and it ships NO PackageResources/.../DefaultRuntimeTheme.tss) → both loads
-        // returned null → the panel shipped theme-less and threw at startup (editor-vs-runtime
-        // ship-inert/throw class, unity-conventions.md §editor-vs-runtime). This NEVER returns null:
-        //   1. Find ANY ThemeStyleSheet already in the project (Unity auto-imports
-        //      Assets/UI Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss on first UI Toolkit use —
-        //      confirmed present in the build manifest), regardless of path.
-        //   2. If none exists, CREATE a minimal one (a .tss is valid empty — it inherits Unity's base
-        //      runtime defaults) so the panel always has a valid theme to init against.
+        // The ONLY content that makes a .tss a USABLE runtime theme: it must @import Unity's built-in
+        // runtime base theme (resolved internally by the .tss importer from the `unity-theme://default`
+        // URL). This pulls in the default control styles + the base USS variables every UIElements panel
+        // resolves against. An EMPTY .tss imports to a NON-NULL but BASE-LESS ThemeStyleSheet — which is
+        // exactly the PR #90 capture-gate HANG (see EnsureRuntimeTheme below). This is the same string the
+        // editor writes into Assets/UI Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss when you create a
+        // PanelSettings from the menu.
+        private const string DefaultRuntimeThemeTss = "@import url(\"unity-theme://default\");\n";
+
+        // Resolve a runtime ThemeStyleSheet for the inventory PanelSettings that ACTUALLY RESOLVES STYLES
+        // (BLOCKER-1 fix, PR #90 — round 2). History of this bug:
+        //   • round 0: the theme was loaded from two HARDCODED package paths that don't exist in this
+        //     project's package layout → both loads returned null → the panel shipped with a NULL theme →
+        //     the UIDocument threw at panel init in the windowed exe → capture gate = 0 frames (run
+        //     27810143643).
+        //   • round 1 (commit 8563b42): created a .tss but wrote it EMPTY, on the FALSE belief that "an
+        //     empty .tss inherits Unity's base runtime defaults". It does NOT — an empty .tss imports to a
+        //     NON-NULL but BASE-LESS ThemeStyleSheet (so the null-guard + the `themeStyleSheet != null`
+        //     test went GREEN — a false-green PROXY guard), and a UIDocument resolving its first repaint
+        //     against a base-less theme NEVER completes the first frame's layout in the shipped player →
+        //     the exe HANGS before the CaptureGate coroutine reaches a rendered frame → "did not self-quit
+        //     within 120s", 0 frames (run 27810923815; the exe boots fully — D3D12/physics/input/NavMesh
+        //     all log — then stalls BEFORE `[CaptureGate] start`). The null→hang transition is exactly the
+        //     symptom the brief flagged.
+        // The real fix: write the .tss with the `@import url("unity-theme://default")` content
+        // (DefaultRuntimeThemeTss) so the created theme carries Unity's runtime base styles — a USABLE
+        // theme, not just a non-null one. This NEVER returns null:
+        //   1. Reuse a project ThemeStyleSheet that ALREADY imports the default (Unity's auto-generated
+        //      UnityDefaultRuntimeTheme.tss if the editor created one) — verified by reading its source,
+        //      NOT trusted blindly (a base-less found theme would re-hang).
+        //   2. Otherwise CREATE/REPAIR our own at InventoryRuntimeThemePath with the proper import content.
         private static ThemeStyleSheet EnsureRuntimeTheme()
         {
-            // 1. Reuse any ThemeStyleSheet already in the project (path-independent — picks up Unity's
-            //    auto-generated UnityDefaultRuntimeTheme.tss wherever the editor imported it).
+            // 1. Reuse any project ThemeStyleSheet whose SOURCE imports the runtime default (path-
+            //    independent — picks up Unity's auto-generated theme wherever the editor imported it). We
+            //    READ the .tss text (not just the loaded object) because a base-less theme is non-null but
+            //    re-triggers the hang — guard the resolving condition, not the non-null proxy.
             string[] guids = AssetDatabase.FindAssets("t:ThemeStyleSheet");
             foreach (string guid in guids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
+                if (!ThemeImportsRuntimeDefault(path)) continue;   // skip empty / base-less themes
                 var found = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(path);
                 if (found != null) return found;
             }
 
-            // 2. None found — create one so the PanelSettings is never theme-less. An empty .tss is a
-            //    valid theme (inherits Unity's built-in runtime defaults); the inventory's own look
-            //    comes from InventoryPalette.uss + InventoryPanel.uss, not the theme.
-            var existing = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(InventoryRuntimeThemePath);
-            if (existing != null) return existing;
-
+            // 2. None usable — create (or repair, if a prior empty one exists) ours with the import content
+            //    so the PanelSettings always has a theme that resolves Unity's runtime base styles. The
+            //    inventory's OWN look still comes from InventoryPalette.uss + InventoryPanel.uss; the theme
+            //    only supplies the base default styles the panel layout resolves against.
             Directory.CreateDirectory(SettingsDir);
-            File.WriteAllText(InventoryRuntimeThemePath, string.Empty);
-            AssetDatabase.ImportAsset(InventoryRuntimeThemePath);
+            bool needsWrite = !File.Exists(InventoryRuntimeThemePath)
+                              || !ThemeImportsRuntimeDefault(InventoryRuntimeThemePath);
+            if (needsWrite)
+            {
+                File.WriteAllText(InventoryRuntimeThemePath, DefaultRuntimeThemeTss);
+                AssetDatabase.ImportAsset(InventoryRuntimeThemePath, ImportAssetOptions.ForceUpdate);
+            }
             var created = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(InventoryRuntimeThemePath);
             if (created == null)
                 Debug.LogError("[MovementCameraScene] FAILED to create a runtime UI theme at " +
-                               InventoryRuntimeThemePath + " — the inventory UIDocument will throw at " +
-                               "startup (null PanelSettings theme). Capture gate will produce 0 frames.");
+                               InventoryRuntimeThemePath + " — the inventory UIDocument will throw/hang at " +
+                               "startup (theme-less PanelSettings). Capture gate will produce 0 frames.");
             return created;
+        }
+
+        // True iff the .tss at <path> imports Unity's runtime default theme (the one line that makes a
+        // .tss a USABLE runtime theme vs an empty/base-less shell). Reads the SOURCE text — the imported
+        // ThemeStyleSheet object is non-null either way, so the source is the only honest signal.
+        private static bool ThemeImportsRuntimeDefault(string path)
+        {
+            try { return File.ReadAllText(path).Contains("unity-theme://default"); }
+            catch { return false; }
         }
 
         // 86caa4bya AC3 — a PICKABLE axe lying in the world: walk near it → it lands in belt slot 1. Uses
