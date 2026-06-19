@@ -199,6 +199,53 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void TryMove_SwapToolOutOfBelt_AgainstResource_IsRejected()
+        {
+            // BLOCKER-2 regression guard (PR #90): dragging a belt TOOL onto a pack RESOURCE slot is a
+            // SWAP — and the swap must NOT land the displaced RESOURCE on the belt. The forward gate
+            // (src→to) only fires when `to.Area == Belt`; here `to` is Inventory, so the swap path must
+            // ALSO reject when `from` is a belt slot and the displaced dst is not belt-eligible.
+            var m = NewModel();
+            m.AddToolToBelt(Axe);   // axe → belt slot 0 (a tool, belt-eligible)
+            m.AddItem(Wood, 3);     // wood → pack slot 0 (a resource, inventory-only)
+
+            bool moved = m.TryMove(SlotRef.Belt(0), SlotRef.Inventory(0));
+
+            Assert.IsFalse(moved,
+                "swapping a belt tool against a pack resource must be REJECTED — the swap would land the " +
+                "wood on belt slot 0, breaking the belt=tools-only invariant (AC6 / contract §2)");
+            Assert.AreEqual("axe", m.BeltSlots[0].Def.Id, "the axe stays on the belt (swap rejected)");
+            Assert.AreEqual("wood", m.InventorySlots[0].Def.Id, "the wood stays in the pack (swap rejected)");
+            Assert.AreEqual(3, m.InventorySlots[0].Count, "the wood stack is intact (no debit)");
+            foreach (var b in m.BeltSlots)
+                Assert.IsTrue(b.IsEmpty || ItemDef.IsBeltEligible(b.Def),
+                    "no belt slot may hold a non-belt-eligible item after the rejected swap");
+        }
+
+        [Test]
+        public void TryMove_SwapToolBeltAgainstToolBelt_IsAllowed_PositiveControl()
+        {
+            // Positive control so the swap gate isn't "reject every belt-source swap": a TOOL↔TOOL belt
+            // swap (both belt-eligible) IS allowed.
+            var m = NewModel();
+            var axe2 = ScriptableObject.CreateInstance<ItemDef>();
+            try
+            {
+                axe2.Init("axe2", "Axe Mk2", ItemKind.Tool, null);
+                m.AddToolToBelt(Axe);  // belt slot 0
+                // Seed a second tool directly onto belt slot 1 via a tool move from the pack.
+                m.AddItem(axe2, 1);                                  // pack slot 0
+                Assert.IsTrue(m.TryMove(SlotRef.Inventory(0), SlotRef.Belt(1)), "seed axe2 onto belt slot 1");
+
+                bool moved = m.TryMove(SlotRef.Belt(0), SlotRef.Belt(1));
+                Assert.IsTrue(moved, "a TOOL↔TOOL belt swap is allowed (both belt-eligible)");
+                Assert.AreEqual("axe2", m.BeltSlots[0].Def.Id, "tools swapped on the belt");
+                Assert.AreEqual("axe", m.BeltSlots[1].Def.Id, "tools swapped on the belt");
+            }
+            finally { Object.DestroyImmediate(axe2); }
+        }
+
+        [Test]
         public void TryMove_BetweenInventorySlots_ConservesCount_NoDupeNoVanish()
         {
             var m = NewModel();

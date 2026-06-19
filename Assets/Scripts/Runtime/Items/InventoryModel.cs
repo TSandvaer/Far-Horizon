@@ -148,13 +148,18 @@ namespace FarHorizon
                 Changed?.Invoke();
                 return SlotRef.Belt(i);
             }
-            // Belt full — fall back to the pack so the pickup is never silently dropped.
+            // Belt full — fall back to the pack so the pickup is never silently dropped. Record the
+            // first EMPTY pack slot BEFORE the add: AddItem→FillFreeSlots fills the lowest-index empty
+            // inventory slot first, and a tool (non-stackable, cap 1) never merges — so the tool lands
+            // in exactly that slot. Returning it (not a re-scan for `Def == def`, which could match a
+            // PRE-EXISTING same-def tool in a lower slot) reports the slot the pickup ACTUALLY landed in
+            // (NIT fix, PR #90). This is a rare cold path (belt full on pickup) — no per-frame alloc.
+            int landed = -1;
+            for (int i = 0; i < _inventory.Length; i++)
+                if (_inventory[i].IsEmpty) { landed = i; break; }
             int left = AddItem(def, 1);
-            if (left == 0)
-            {
-                for (int i = 0; i < _inventory.Length; i++)
-                    if (_inventory[i].Def == def) return SlotRef.Inventory(i);
-            }
+            if (left == 0 && landed >= 0 && _inventory[landed].Def == def)
+                return SlotRef.Inventory(landed);
             return null;
         }
 
@@ -196,11 +201,17 @@ namespace FarHorizon
                 return true;
             }
 
-            // Swap (or move into an empty slot). If swapping INTO an occupied belt slot, the displaced
-            // item must itself be belt-eligible to land where 'src' came from? No — 'from' is wherever
-            // (inventory or belt); the displaced 'dst' goes to 'from', which is always allowed (it can't
-            // be a belt slot receiving a resource unless 'from' was a belt slot, which only ever held a
-            // tool). So a plain swap is safe.
+            // Swap (or move into an empty slot). BOTH sides of the swap must respect belt-eligibility
+            // (BLOCKER-2 fix, PR #90). The gate above guards the FORWARD item (src→to); the swap also
+            // moves the DISPLACED item (dst→from), so if 'from' is a BELT slot the displaced 'dst' must
+            // ALSO be belt-eligible — else a tool-out-of-belt drag lands a RESOURCE on the belt. Concrete
+            // bug: Belt[0]=axe (tool), Inventory[0]=wood (resource); drag Belt[0]→Inventory[0] ⇒ to is
+            // Inventory ⇒ forward gate skipped ⇒ defs differ ⇒ swap ⇒ wood→Belt[0], breaking the
+            // belt=tools-only invariant (AC6 / contract §2). The prior comment wrongly assumed a belt
+            // 'from' "only ever held a tool" and concluded the swap was safe — that reasoning WAS the bug.
+            if (from.Area == SlotArea.Belt && !dst.IsEmpty && !ItemDef.IsBeltEligible(dst.Def))
+                return false;
+
             Set(to, src);
             Set(from, dst);
             Changed?.Invoke();

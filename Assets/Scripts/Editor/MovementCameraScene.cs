@@ -701,16 +701,56 @@ namespace FarHorizon.EditorTools
             ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
             ps.referenceResolution = new Vector2Int(1920, 1080);
             ps.match = 0.5f;
-            var theme = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(
-                "Packages/com.unity.ui/PackageResources/StyleSheets/Generated/DefaultRuntimeTheme.tss")
-                ?? AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(
-                "Packages/com.unity.modules.uielements/PackageResources/StyleSheets/Generated/DefaultRuntimeTheme.tss");
-            if (theme != null) ps.themeStyleSheet = theme;
-            else Debug.LogWarning("[MovementCameraScene] default runtime UI theme not found — inventory UI " +
-                                  "controls may render unstyled (USS palette still applies)");
+            ps.themeStyleSheet = EnsureRuntimeTheme();
             AssetDatabase.CreateAsset(ps, InventoryPanelSettingsAssetPath);
             AssetDatabase.SaveAssets();
             return ps;
+        }
+
+        public const string InventoryRuntimeThemePath = SettingsDir + "/InventoryRuntimeTheme.tss";
+
+        // Resolve a NON-NULL runtime ThemeStyleSheet for the inventory PanelSettings (BLOCKER-1 fix,
+        // PR #90). A UIDocument whose PanelSettings carries a NULL themeStyleSheet THROWS during panel
+        // init in the shipped player — which is exactly what zeroed the capture gate on run 27810143643
+        // (capture produced 0 frames; build/EditMode/bootstrap all passed). The prior code loaded the
+        // theme from two HARDCODED package paths
+        // (Packages/com.unity.ui/... and Packages/com.unity.modules.uielements/...) that DO NOT EXIST
+        // in this project's package layout (only the builtin com.unity.modules.uielements@1.0.0 module
+        // is present, and it ships NO PackageResources/.../DefaultRuntimeTheme.tss) → both loads
+        // returned null → the panel shipped theme-less and threw at startup (editor-vs-runtime
+        // ship-inert/throw class, unity-conventions.md §editor-vs-runtime). This NEVER returns null:
+        //   1. Find ANY ThemeStyleSheet already in the project (Unity auto-imports
+        //      Assets/UI Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss on first UI Toolkit use —
+        //      confirmed present in the build manifest), regardless of path.
+        //   2. If none exists, CREATE a minimal one (a .tss is valid empty — it inherits Unity's base
+        //      runtime defaults) so the panel always has a valid theme to init against.
+        private static ThemeStyleSheet EnsureRuntimeTheme()
+        {
+            // 1. Reuse any ThemeStyleSheet already in the project (path-independent — picks up Unity's
+            //    auto-generated UnityDefaultRuntimeTheme.tss wherever the editor imported it).
+            string[] guids = AssetDatabase.FindAssets("t:ThemeStyleSheet");
+            foreach (string guid in guids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var found = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(path);
+                if (found != null) return found;
+            }
+
+            // 2. None found — create one so the PanelSettings is never theme-less. An empty .tss is a
+            //    valid theme (inherits Unity's built-in runtime defaults); the inventory's own look
+            //    comes from InventoryPalette.uss + InventoryPanel.uss, not the theme.
+            var existing = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(InventoryRuntimeThemePath);
+            if (existing != null) return existing;
+
+            Directory.CreateDirectory(SettingsDir);
+            File.WriteAllText(InventoryRuntimeThemePath, string.Empty);
+            AssetDatabase.ImportAsset(InventoryRuntimeThemePath);
+            var created = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(InventoryRuntimeThemePath);
+            if (created == null)
+                Debug.LogError("[MovementCameraScene] FAILED to create a runtime UI theme at " +
+                               InventoryRuntimeThemePath + " — the inventory UIDocument will throw at " +
+                               "startup (null PanelSettings theme). Capture gate will produce 0 frames.");
+            return created;
         }
 
         // 86caa4bya AC3 — a PICKABLE axe lying in the world: walk near it → it lands in belt slot 1. Uses

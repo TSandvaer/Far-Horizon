@@ -33,6 +33,16 @@ namespace FarHorizon.EditTests
                 "InventoryUI's UIDocument must be wired editor-time so the panel renders in the built exe");
             Assert.IsNotNull(ui.document.panelSettings,
                 "the UIDocument must have a PanelSettings (or UI Toolkit renders nothing in the build)");
+            // BLOCKER-1 regression guard (PR #90): a PanelSettings with a NULL themeStyleSheet THROWS
+            // during panel init in the shipped player → the capture gate produced ZERO frames on run
+            // 27810143643 (the prior code loaded the theme from two non-existent package paths). The
+            // panelSettings-non-null assert above did NOT catch it — the asset existed, its THEME was
+            // null. Assert the theme too so a theme-less panel reds here, not as a silent zero-frame
+            // capture (guard the failing condition, not a proxy — unity-conventions.md §editor-vs-runtime).
+            Assert.IsNotNull(ui.document.panelSettings.themeStyleSheet,
+                "the inventory PanelSettings must carry a NON-NULL themeStyleSheet — a UIDocument whose " +
+                "PanelSettings has no theme throws at startup in the build and zeroes the capture gate " +
+                "(EnsureRuntimeTheme must resolve or create one)");
             Assert.IsNotNull(ui.inventory,
                 "InventoryUI's Inventory reference must be wired editor-time so it binds to the model " +
                 "without an Awake-time scene search in the build");
