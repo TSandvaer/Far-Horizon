@@ -353,6 +353,11 @@ namespace FarHorizon.EditorTools
             // capture — opens the pack with wood+axe and shoots the laid-out grid for the by-eye check).
             survivalGo.AddComponent<InventoryVerifyCapture>();
 
+            // VERIFY-ONLY: inert unless launched with -verifyInvDragDim (#90 drag-DUPLICATE fix shipped-build
+            // capture — opens the pack with berries+axe, BEGINS a drag, and shoots the frame proving the
+            // SOURCE slot is dimmed/empty while only the #drag-ghost carries the item).
+            survivalGo.AddComponent<InventoryDragSourceDimVerifyCapture>();
+
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
             MovementCameraScene.Author(camGo);
