@@ -1111,7 +1111,14 @@ namespace FarHorizon.EditorTools
         public static Material MakeWaterMaterial(string assetPath)
         {
             Material mat;
-            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            // TRANSPARENT depth-fade FOAM water (ticket 86caamnmb): the water now rides the NEW
+            // FarHorizon/LowPolyWater shader (a fork of LowPolyVertexColor on the Transparent queue with the
+            // depth-fade foam + the PORTED _FogCap floor). The opaque LowPolyVertexColor shader stays for
+            // every NON-water surface (terrain/canopy/rock). Registered in AlwaysIncludedShaders by
+            // WorldBootstrap so it does not strip. Falls back to LowPolyVertexColor (opaque, no foam — still
+            // teal + fog-cap), then to a flat teal URP/Lit, if unresolved (never magenta).
+            var vc = Shader.Find("FarHorizon/LowPolyWater");
+            if (vc == null) vc = Shader.Find("FarHorizon/LowPolyVertexColor");
             if (vc != null)
             {
                 mat = new Material(vc) { name = "LowPolyWaterMat" };
@@ -1138,6 +1145,14 @@ namespace FarHorizon.EditorTools
                 // preserved). 0.5 keeps a believable atmospheric haze on the far sea (no harsh seam) yet a clear
                 // teal-vs-sky boundary.
                 if (mat.HasProperty("_FogCap")) mat.SetFloat("_FogCap", 0.5f);
+                // DEPTH-FADE FOAM (ticket 86caamnmb AC2/AC4). _FoamColor == FoamEdge (#E8E2D0) so the dynamic
+                // depth-fade foam and the static baked FoamEdge band read as ONE warm foam line where they
+                // overlap (no double-bright seam). _FoamDistance ~1.5u: the foam band's seaward fade width at
+                // a water↔object intersection (beach waterline, rocks, stumps). Both are no-ops on the
+                // LowPolyVertexColor fallback (HasProperty guards) — that path ships opaque, no foam.
+                if (mat.HasProperty("_FoamColor")) mat.SetColor("_FoamColor", FoamEdge);
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 1.5f);
+                if (mat.HasProperty("_WaterAlpha")) mat.SetFloat("_WaterAlpha", 1f); // solid teal sea (not see-through)
             }
             else
             {
