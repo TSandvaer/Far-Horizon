@@ -352,6 +352,14 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Reversibility: reversible (doc + tickets; no code shipped in this PR — each code ticket reverts in ≤1 PR).
 - Affects: all visual/mesh/shader work, Drew + Devon (+ Sponsor-Blender for chamfer geometry), Tess (the visual-UX gate already requires an SRP-Batcher check per `86ca9a3b3`).
 
+## 2026-06-18 — Locomotion-first gate RELEASED; gameplay wave un-gated; crouch deferred
+
+- Decided by: Sponsor (2026-06-18)
+- Decision: The locomotion-first sequence gate is **released** — the gameplay/survival wave (settings panel → inventory/belt → chop → stone → bushes/berries → hunger → thirst → three-bar HUD) is now **un-gated** and dispatchable without waiting for run/jump to fully land. **Crouch (`86caa3kur`) is DEPRIORITIZED** ("it can wait") — set to low priority, to be picked up after the gameplay wave. The settings panel (`86caa4bqp`) remains the foundational first dispatch (extensible registry the downstream tickets register into); the inventory item model (`86caa4bya`) remains the second, gating the world-resource family (chop/stone/bushes).
+- Why: the Sponsor judged the locomotion lane far enough along that the gameplay wave should not idle behind it; crouch is the lowest-value locomotion remainder and composes onto the finished Animator just as well later. Capacity discipline: the wave is constrained by the single-Unity-build slot (one Unity-build ticket in flight at a time per `single-unity-build-slot-serializes-orchestration`), so the wave serializes on the build-bearing tickets even though the dependency graph would allow more parallelism.
+- Reversibility: reversible (priority + sequence calls; re-gate or re-prioritize crouch in a single board edit).
+- Affects: dispatch order, the gameplay wave, crouch ticket priority, orchestrator + Devon + Drew + Tess.
+
 ## 2026-06-19 — Route A: unified hand-tool/weapon visual style via ONE in-house Blender pipeline
 
 - Decided by: Sponsor (2026-06-19, "Route A")
