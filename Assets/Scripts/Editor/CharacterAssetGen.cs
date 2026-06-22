@@ -70,8 +70,8 @@ namespace FarHorizon.EditorTools
         public const string ControllerPath = CharDir + "/CastawayAnimator.controller";
 
         // The model prefab MovementCameraScene instantiates IS the Idle FBX (it carries the skin + rig).
-        // Kept as the canonical "FbxPath" name so existing callers (MovementCameraScene, AxeAssetGen,
-        // tests) need no rename — it now points at the with-skin Idle FBX.
+        // Kept as the canonical "FbxPath" name so existing callers (MovementCameraScene, tests) need no
+        // rename — it now points at the with-skin Idle FBX.
         public const string FbxPath = IdleFbxPath;
 
         // Mixamo clip-take finding (EMPIRICAL, spike Hyper3DSpikeDiag 2026-06-15): BOTH FBX export their

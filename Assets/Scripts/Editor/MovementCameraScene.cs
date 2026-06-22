@@ -44,13 +44,14 @@ namespace FarHorizon.EditorTools
         // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
         private const float PlayerVisualHeight = 1.8f;
 
-        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp). The
-        // procedural HeroAxeMesh wedge is RETIRED (it did not read as an axe); the axe is the SOURCED rustic
-        // hatchet "One-handed stylized axe" by Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the
-        // committed license file). It is ATTACHED to the castaway's RIGHT HAND bone (mixamorig:RightHand —
-        // probe-verified by CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it,
-        // and is shown only once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the
-        // verify-capture + scene-presence guards key on it. ----
+        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp;
+        // re-made IN-HOUSE under 86cabh907 — Route A weapon SET). The procedural HeroAxeMesh wedge AND the
+        // earlier CC-BY sourced hatchet are both RETIRED; the axe is the in-house faceted flat-shaded
+        // wpn_axe_01 (WeaponPackAssetGen.HeroAxeFbxPath, shared palette material). It is ATTACHED to the
+        // castaway's RIGHT HAND bone (mixamorig:RightHand — probe-verified by
+        // CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it, and is shown only
+        // once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture +
+        // scene-presence guards key on it. ----
         public const string HeroAxeObjectName = "HeroAxe";
 
         // The Hyper3D castaway's right-hand WRIST bone. The Mixamo rig names it "mixamorig:RightHand"; the
@@ -64,7 +65,7 @@ namespace FarHorizon.EditorTools
         // Attach pose for the sourced hatchet (SOAKFIX2 2026-06-13 — the NO-AXE soak fix). The held axe must
         // read UNMISTAKABLY in the GAMEPLAY orbit view (dist 14u, pitch 55°), not just the -verifyAxe close-up.
         //
-        // ROOT CAUSE the gameplay-view trace (AxeAssetGen.GameplayViewTrace) PROVED the Sponsor's "no axe":
+        // ROOT CAUSE the gameplay-view trace (the historical axe gameplay-view trace) PROVED the Sponsor's "no axe":
         // the prior pose (scale 0.0015 → 0.43u longest, blade-DOWN at the HIP, max.y=0.71) projected to only
         // ~3.7% of the frame height at the orbit framing — a thin vertical sliver hanging by the leg, lost
         // beside a chibi whose own silhouette is only ~8% of frame from 55° top-down. The -verifyAxe capture
@@ -76,7 +77,7 @@ namespace FarHorizon.EditorTools
         // localPos went the WRONG way). Fix: pose the held axe in WORLD space after parenting (Unity back-
         // solves + serializes the local transform), so the pose is intuitive + robust to the bone frame.
         //
-        // VALUES (dialed via AxeAssetGen.DialInTrace + SOAKFIX4 PoseTrace against the orbit render):
+        // VALUES (dialed via the historical axe dial-in trace + SOAKFIX4 pose trace against the orbit render):
         // SOAKFIX4 (the Sponsor's "handle sticks out by the EAR"): the prior +0.55 up-offset seated the axe
         // CENTER at world-y 0.66 with its TOP at 1.040 — and the chibi's head bone is at world-y 0.775, so
         // the haft top rose level with the EAR (PoseTrace: HeroAxe max.y 1.040 vs head-bone 0.775; the huge
@@ -118,7 +119,7 @@ namespace FarHorizon.EditorTools
         // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
         // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is normalized to ~1.0u longest
-        // (AxeAssetGen.TargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
+        // (WeaponPackAssetGen.HeroAxeTargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
         // localScale 0.45 → ~0.77u longest extent (ScaleTrace-measured) — a believable kid-sized hatchet that
         // clears the gameplay-visibility floor (≥0.7u, the invisible-sliver soak guard). REASONABLE default —
         // the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
@@ -505,12 +506,13 @@ namespace FarHorizon.EditorTools
                       " (inventory wired: " + (craft.inventory != null) + ")");
         }
 
-        // Attach the SOURCED hero axe (ticket 86ca8ce6y — RE-DONE) to the chibi's RIGHT HAND bone so the
-        // castaway HOLDS the hatchet. The procedural HeroAxeMesh wedge is RETIRED. The imported FBX
-        // (AxeAssetGen — rustic leather-wrapped hatchet, single mesh + baseColor atlas) is instantiated as
-        // a child of the RightHand_010 bone (probe-verified by AxeAssetGen.DiagnoseTrace) so it RIDES the
-        // hand's animated transform every frame; the attach-local pose puts the handle in the palm + the
-        // blade forward, and the attach-local scale brings the normalized prop to a believable hatchet size.
+        // Attach the IN-HOUSE hero axe (ticket 86cabh907 — Route A weapon SET) to the chibi's RIGHT HAND bone
+        // so the castaway HOLDS the axe. The procedural HeroAxeMesh wedge AND the earlier CC-BY sourced
+        // hatchet are both RETIRED. The imported FBX (WeaponPackAssetGen.HeroAxeFbxPath — faceted flat-shaded
+        // wpn_axe_01, shared palette material) is instantiated as a child of the right-hand bone
+        // (probe-verified) so it RIDES the hand's animated transform every frame; the attach-local pose puts
+        // the handle in the palm + the blade forward, and the attach-local scale brings the normalized prop
+        // to a believable axe size.
         //
         // SERIALIZATION (unity-conventions.md §editor-vs-runtime): called AFTER the avatar is built
         // editor-time (castaway.BuildInEditor in BuildPlayer), so the bone hierarchy exists and the axe
@@ -645,7 +647,7 @@ namespace FarHorizon.EditorTools
             WireAxeNudgeTool();
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
-            Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
+            Debug.Log("[MovementCameraScene] attached HeroAxe (in-house wpn_axe_01) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
         }
 
