@@ -206,4 +206,3 @@ Shader "FarHorizon/LowPolyWater"
     }
     Fallback "Universal Render Pipeline/Lit"
 }
-</content>

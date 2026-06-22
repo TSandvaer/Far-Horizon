@@ -133,6 +133,9 @@ namespace FarHorizon.EditTests
             // any future water refraction); URP only generates these when the URP Asset requests them. If a
             // regression flips them OFF, the build ships foam-less water (SampleSceneDepth reads garbage) — a
             // silent shipped failure this guards in headless CI before it reaches the Sponsor.
+            // NOTE (86caamnmb fix): these flags are set in BootstrapProject.ConfigureUrp (NOT only on the
+            // committed asset) because bootstrap RE-CREATES FarHorizonURP.asset from Create() each run, which
+            // defaults them OFF — a committed-asset-only edit was silently reverted (the original CI failure).
             var urp = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             Assert.IsNotNull(urp, "the active render pipeline must be a UniversalRenderPipelineAsset");
             Assert.IsTrue(urp.supportsCameraDepthTexture,
@@ -140,6 +143,25 @@ namespace FarHorizon.EditTests
                 "foam samples _CameraDepthTexture; without it the foam is absent in the shipped build");
             Assert.IsTrue(urp.supportsCameraOpaqueTexture,
                 "AC1: the active URP Asset must enable Opaque Texture (m_RequireOpaqueTexture)");
+        }
+
+        [Test]
+        public void ActiveRenderer_CopyDepthMode_IsAfterOpaques()
+        {
+            // AC1 (86caamnmb — blocker 3, trace-diagnosed). The transparent foam frag samples the resolved
+            // OPAQUE scene depth DURING the transparent pass. With CopyDepthMode = AfterTransparents the depth
+            // copy runs AFTER the water draws, so SampleSceneDepth reads STALE/EMPTY depth and the foam reads
+            // nothing. The renderer must copy depth AfterOpaques (0) so _CameraDepthTexture holds resolved
+            // opaque depth while the water (transparent) is shading. Bootstrap RE-CREATES the renderer from a
+            // default UniversalRendererData each run, so this is forced in BootstrapProject.ConfigureUrp; a
+            // committed-asset edit alone is silently reverted (same class as the depth/opaque flags above).
+            var renderer = UnityEditor.AssetDatabase.LoadAssetAtPath<UniversalRendererData>(
+                "Assets/Settings/FarHorizonRenderer.asset");
+            Assert.IsNotNull(renderer,
+                "the project renderer asset (Assets/Settings/FarHorizonRenderer.asset) must load");
+            Assert.AreEqual(CopyDepthMode.AfterOpaques, renderer.copyDepthMode,
+                "AC1: the active renderer must copy depth AfterOpaques (m_CopyDepthMode: 0) — with " +
+                "AfterTransparents the depth-fade foam samples stale/empty depth and ships foam-less water");
         }
     }
 }

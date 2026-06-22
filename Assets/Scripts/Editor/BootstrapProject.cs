@@ -130,9 +130,29 @@ namespace FarHorizon.EditorTools
         private static void ConfigureUrp()
         {
             var renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
+            // DEPTH-FADE FOAM PREREQUISITE (ticket 86caamnmb — blocker 3, trace-diagnosed from CI
+            // test-results-editmode.xml ActiveUrpAsset failure + Assets/Settings/FarHorizonRenderer.asset
+            // m_CopyDepthMode:1). The transparent LowPolyWater frag samples the resolved OPAQUE scene depth
+            // (_CameraDepthTexture) DURING the transparent pass to find water↔object intersections (foam).
+            // A FRESH UniversalRendererData defaults CopyDepthMode to AfterTransparents, which copies depth
+            // AFTER the water has drawn -> the foam samples STALE/EMPTY depth and reads nothing. Force
+            // AfterOpaques (0) so the depth copy holds resolved OPAQUE depth while the transparent water draws.
+            // Set HERE (not on the committed .asset) because bootstrap RE-CREATES FarHorizonRenderer.asset
+            // from a default instance every run — a hand-edit to the committed asset is silently reverted.
+            renderer.copyDepthMode = CopyDepthMode.AfterOpaques;
             AssetDatabase.CreateAsset(renderer, UrpRendererPath);
 
             var urp = UniversalRenderPipelineAsset.Create(renderer);
+            // DEPTH-FADE FOAM PREREQUISITE (ticket 86caamnmb — blocker 2, trace-diagnosed from CI
+            // ActiveUrpAsset_HasDepthAndOpaqueTextureEnabled failure: Expected True/was False). URP only
+            // generates _CameraDepthTexture (+ _CameraOpaqueTexture) when the URP Asset requests them, and
+            // UniversalRenderPipelineAsset.Create ships them OFF by default. Without Depth Texture the
+            // transparent foam frag's SampleSceneDepth reads garbage -> foam-less water silently ships.
+            // Set HERE (not on the committed FarHorizonURP.asset) because bootstrap RE-CREATES the URP asset
+            // from Create() every run, wiping any committed m_RequireDepthTexture edit — the same
+            // "bake reproducibly in bootstrap, not a hand-edit that reverts" pattern as the shadow params below.
+            urp.supportsCameraDepthTexture = true;
+            urp.supportsCameraOpaqueTexture = true;
             // AC0 "LINE THROUGH THE ISLAND" FIX (ticket 86ca9qwr3 — trace-diagnosed). The dead-straight
             // world-fixed dark streak the Sponsor flagged is the URP MAIN-LIGHT REAL-TIME SHADOW-DISTANCE
             // BOUNDARY: directional shadows render only within shadowDistance of the camera, and the hard
