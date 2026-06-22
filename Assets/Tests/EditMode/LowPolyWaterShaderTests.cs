@@ -58,9 +58,15 @@ namespace FarHorizon.EditTests
             var mat = new Material(FindShader());
             try
             {
+                // REGRESSION GUARD (86caamnmb — trace-diagnosed): a `Fallback "Universal Render Pipeline/Lit"`
+                // would re-fail this. The opaque fallback appends Geometry/2000 SubShaders and Unity then
+                // resolves Shader.renderQueue (+ a fresh Material's queue) to 2000, MASKING this shader's
+                // authored Transparent SubShader (proven: subshaderCount 4→1, renderQueue 2000→3000 once the
+                // fallback was removed). Keep LowPolyWater fallback-free.
                 Assert.GreaterOrEqual(mat.renderQueue, (int)RenderQueue.Transparent,
                     $"AC1: LowPolyWater must render on the TRANSPARENT queue (>= {(int)RenderQueue.Transparent}) " +
-                    $"— it sampled {mat.renderQueue}. Opaque can't sample the depth it writes.");
+                    $"— it sampled {mat.renderQueue}. Opaque can't sample the depth it writes. A `Fallback` to an " +
+                    "opaque shader re-introduces this (its Geometry SubShaders win Shader.renderQueue).");
             }
             finally { Object.DestroyImmediate(mat); }
         }

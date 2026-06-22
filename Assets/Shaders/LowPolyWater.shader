@@ -204,5 +204,11 @@ Shader "FarHorizon/LowPolyWater"
         // No ShadowCaster pass: the sea does not cast shadows (its MeshRenderer sets ShadowCastingMode.Off
         // in BuildIslandWater) and a transparent ZWrite-Off surface has no meaningful shadow contribution.
     }
-    Fallback "Universal Render Pipeline/Lit"
+    // NO Fallback. The opaque URP/Lit fallback appends its own SubShaders (all Surface=Opaque →
+    // Queue=Geometry/2000); Unity then resolves Shader.renderQueue (and a fresh Material's queue) to that
+    // 2000 instead of this shader's authored Transparent SubShader — proven by the [water-queue-trace]
+    // (subshaderCount=4, SubShader0.Queue='Transparent', yet shader.renderQueue=2000). The authored
+    // ForwardLit pass is self-sufficient (Core+Lighting+DeclareDepthTexture, byte-aligned with the proven
+    // LowPolyVertexColor lit path); a fallback to an OPAQUE Lit shader would also break the depth-fade
+    // anyway, so dropping it is correct, not a regression (ticket 86caamnmb).
 }
