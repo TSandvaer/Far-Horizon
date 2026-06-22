@@ -311,13 +311,21 @@ namespace FarHorizon.EditorTools
             // editor-time (NOT Awake) per the editor-vs-runtime trap — HungerNeedSceneTests guards it.
             // Author the slower-than-warmth decay defaults onto the serialized component (Reset() only
             // runs on an editor add, not on a headless AddComponent, so set them explicitly here so the
-            // shipped scene carries the gentler pressure). The HUD bar that RENDERS this rides the
-            // need-meter HUD ticket (86caamkxv) — not wired to SurvivalHud here (OOS this ticket).
+            // shipped scene carries the gentler pressure). #101: the HUNGER BAR that renders this IS now
+            // wired to SurvivalHud below (the loop-verify piece — folds in part of need-meter 86caamkxv).
             var hunger = survivalGo.AddComponent<HungerNeed>();
             hunger.easyDecayPerSecond = HungerNeed.HungerEasyDecayPerSecond;
             hunger.medDecayPerSecond  = HungerNeed.HungerMedDecayPerSecond;
             hunger.hardDecayPerSecond = HungerNeed.HungerHardDecayPerSecond;
             hunger.decayPerSecond     = HungerNeed.HungerMedDecayPerSecond; // medium tier by default
+            // #101 EAT-REFILL FIX (root cause: the eat seam was correct, but hunger shipped startFull=true so
+            // an eat clamped against an already-full bar with NO visible change — and SetCurrent's
+            // Approximately early-return meant Changed never even fired). Start hunger PRESSURED WITH HEADROOM
+            // (the fiction: "he starts to get hungry") so pressing E VISIBLY refills the hunger bar. Hunger's
+            // 0.35/sec decay would take ~30s real-time to drop one of the 10 segments, so without this the
+            // refill is unobservable in a soak. (Warmth keeps startFull=true — the campfire restores it.)
+            hunger.startFull       = false;
+            hunger.startFraction01 = HungerNeed.HungerStartFraction01; // 0.55 -> ~5 of 10 segments at spawn
 
             // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
             // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the
@@ -326,7 +334,17 @@ namespace FarHorizon.EditorTools
             // trap; WarmthNeedSceneTests / CraftSceneTests guard the serialized presence + wiring.
             var hud = survivalGo.AddComponent<SurvivalHud>();
             hud.warmth = warmth;       // serialized reference, no Awake FindObjectOfType in the build
+            hud.hunger = hunger;       // #101: the HUNGER bar — the player SEES hunger deplete + refill on eating
             hud.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
+
+            // EAT INPUT (#101 — "I can't eat berries"): the in-game call-site for the (already-tested) eat
+            // seam. Pressing E consumes one berry from the inventory + restores hunger through the atomic
+            // HungerNeed.TryEatBerry path. SERIALIZED here editor-time (NOT Awake) per the editor-vs-runtime
+            // trap; the Inventory + HungerNeed refs are wired so the shipped build never relies on a
+            // FindObjectOfType. EatBerryActionSceneTests guards the serialized presence + wiring.
+            var eat = survivalGo.AddComponent<EatBerryAction>();
+            eat.inventory = inventory; // serialized reference
+            eat.hunger = hunger;       // serialized reference
 
             // DIAGNOSTIC-ONLY: inert unless launched with -invDiag (86cabfa21 / the #90 soak trace).
             survivalGo.AddComponent<InventoryDiag>();

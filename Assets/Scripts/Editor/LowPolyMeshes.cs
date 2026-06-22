@@ -504,6 +504,133 @@ namespace FarHorizon.EditorTools
             return mesh;
         }
 
+        // A low-poly BUSH BODY (ticket 86caa5zz3) — the SAME clustered-spheroid construction language as
+        // BlobCanopy (so bushes read as ONE idiom with the world's trees, per the art-direction gate), but
+        // LOW + WIDE: a squat dome of overlapping faceted green spheroids sitting on the ground, NOT a tall
+        // crown on a trunk. The board nature sheets (inspiration/21h10_44 / 21h12_49) show bushes as small
+        // rounded leafy clumps — this rides that read. Multi-value greens baked per-blob into vertex COLOR
+        // (one shared vertex-color material renders the whole bush, no per-blob churn — same as the canopy).
+        // Welded-per-blob -> smooth-shaded faceted lumps (solid volume, sidesteps the thin-foliage normal
+        // trap, unity-conventions.md §Low-poly mesh patterns). Base at y=0 so it grounds like the stones.
+        //
+        //   radius   — overall bush radius (the squat cluster roughly fits a flattened sphere of this radius)
+        //   blobs    — how many spheroids cluster (4-6 reads like the board's leafy clumps; min 3)
+        //   bodyGreen / topGreen / shadowGreen — the 3-value green palette (same family as the tree canopy)
+        //   seed     — deterministic cluster layout + per-blob jitter (reproducible baked scene)
+        public static Mesh BushBlob(float radius, int blobs, Color bodyGreen, Color topGreen,
+            Color shadowGreen, int seed)
+        {
+            blobs = Mathf.Max(3, blobs);
+            var rnd = new System.Random(seed);
+            var allVerts = new List<Vector3>();
+            var allCols = new List<Color>();
+            var allTris = new List<int>();
+
+            // Lay the blobs LOW + WIDE: a broad squat dome (bushes hug the ground), the first blob centred
+            // + low (the body), the rest ringed around it at a small up-bias so the silhouette is a rounded
+            // leafy mound, not a rising crown. upBias capped low (vs BlobCanopy's tall crown) so it reads
+            // as a bush, not a small tree.
+            for (int b = 0; b < blobs; b++)
+            {
+                float t = b / (float)blobs;
+                float ang = t * Mathf.PI * 2f + (float)rnd.NextDouble() * 1.2f;
+                float ringR = (b == 0) ? 0f : radius * (0.38f + (float)rnd.NextDouble() * 0.40f);
+                // LOW up-bias (squat dome): the crown rises only a little above the body.
+                float upBias = (b == 0) ? radius * 0.18f
+                                        : radius * (0.10f + (float)rnd.NextDouble() * 0.28f);
+                Vector3 center = new Vector3(Mathf.Cos(ang) * ringR, upBias, Mathf.Sin(ang) * ringR);
+                float blobR = radius * (0.50f + (float)rnd.NextDouble() * 0.28f);
+
+                // Per-blob green: blend shadow->top by the blob's height in the cluster + a small jitter so
+                // adjacent blobs differ (the multi-value clustering — style-guide §4).
+                float heightK = Mathf.Clamp01((center.y + blobR) / (radius * 1.1f));
+                Color lo = Color.Lerp(shadowGreen, bodyGreen, Mathf.Clamp01(heightK * 1.6f));
+                Color blobCol = Color.Lerp(lo, topGreen, Mathf.Clamp01((heightK - 0.45f) * 1.8f));
+                float vj = (float)(rnd.NextDouble() - 0.5) * 0.06f;
+                blobCol = new Color(Mathf.Clamp01(blobCol.r + vj),
+                                    Mathf.Clamp01(blobCol.g + vj),
+                                    Mathf.Clamp01(blobCol.b + vj), 1f);
+
+                AppendBlob(allVerts, allCols, allTris, center, blobR,
+                           (b % 2 == 0) ? 1 : 0, jitter: 0.24f, color: blobCol, seed: rnd.Next());
+            }
+
+            var mesh = new Mesh { name = "LP_BushBlob" };
+            mesh.indexFormat = allVerts.Count > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.SetVertices(allVerts);
+            mesh.SetColors(allCols);
+            mesh.SetTriangles(allTris, 0);
+            mesh.RecalculateNormals(); // welded-per-blob -> smooth-shaded faceted lumps (solid volume)
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // The BERRIES on a berry bush (ticket 86caa5zz3) — a SCATTER of SMALL, DENSE, MANY red faceted
+        // spheres nestled over the bush dome, the visible "this bush has food" cue. A SEPARATE mesh from the
+        // bush body so the berry bush authoring can show/hide JUST the berries on harvest/regrow (the bush
+        // persists, only the berries toggle — AC4) by toggling the berries child's active state. Material-
+        // honest warm RED (the berry colour reads as the fruit; no arbitrary tint — weapon/asset material-
+        // honest memory). The berry value is baked into vertex COLOR (per-berry top-lit/shadow) so the shared
+        // vertex-color material renders them; welded-per-berry -> smooth faceted spheres.
+        //
+        // === SOAK-FIX (#101, Sponsor: "they look like FLOWERS") ===
+        // The prior cluster read as flowers, not berries: TOO FEW berries (~6-12) that were TOO LARGE
+        // (berryR 0.16*bushRadius ≈ 0.15u — a 30cm "berry"), each built as TWO overlapping blobs so it bulged
+        // even larger, spread over a WIDE thin ring. A few big rounded lumps on a dome = a flower head. Berries
+        // read as berries when they are SMALL, DENSE, and MANY (a tight studding of little dots). FIX:
+        //   - berryR ≈ 0.055*bushRadius (≈ 5cm — a real berry dot, ~3× smaller than before);
+        //   - ONE blob per berry (a small sphere is already a clear dot; the 2-blob top/dark split only bulked
+        //     it up — the 2-value read is kept by alternating per-berry top-lit / shadow COLOUR instead);
+        //   - MANY berries (default ~24, callers pass 20-30) packed into a TIGHT spread (smaller ring + height
+        //     band) so the dome reads STUDDED with fruit, not dotted with flowers.
+        //
+        //   bushRadius — the bush body radius the berries nestle over (they stud its upper dome)
+        //   count      — how many berries (20-30 reads as a dense studding of fruit; min 3)
+        //   berry      — the berry colour (a darker shade is derived for shadowed berries / undersides)
+        //   seed       — deterministic placement (reproducible baked scene)
+        public static Mesh BerryCluster(float bushRadius, int count, Color berry, int seed)
+        {
+            count = Mathf.Max(3, count);
+            var rnd = new System.Random(seed);
+            var verts = new List<Vector3>();
+            var cols = new List<Color>();
+            var tris = new List<int>();
+
+            // 2-value berry read: a top-lit highlight + a shadowed dark, alternated per berry so the studding
+            // reads with depth rather than as one flat red mass (replaces the old per-berry 2-blob bulge).
+            Color berryTop  = Color.Lerp(berry, Color.white, 0.14f);
+            Color berryDark = new Color(berry.r * 0.55f, berry.g * 0.45f, berry.b * 0.50f, 1f);
+            float berryR = bushRadius * 0.055f; // SMALL dot (~5cm on a ~0.95u bush) — a berry, not a flower head
+
+            for (int i = 0; i < count; i++)
+            {
+                // STUD the upper dome densely: a tight radial + height band (was a wide thin ring), with a
+                // golden-angle phase so MANY berries pack evenly without clumping into a few visible lumps.
+                float ang = i * 2.39996323f + (float)rnd.NextDouble() * 0.5f; // golden angle, light jitter
+                float ringR = bushRadius * (0.20f + (float)rnd.NextDouble() * 0.62f); // fills the dome, not a rim
+                float up = bushRadius * (0.50f + (float)rnd.NextDouble() * 0.42f);
+                Vector3 center = new Vector3(Mathf.Cos(ang) * ringR, up, Mathf.Sin(ang) * ringR);
+                // Alternate top-lit / shadowed berries so the dense studding reads with 2-value depth. A small
+                // per-berry radius wobble keeps the dots from looking machine-uniform.
+                Color c = (i % 3 == 0) ? berryDark : berryTop;
+                float r = berryR * (0.85f + (float)rnd.NextDouble() * 0.35f);
+                AppendBlob(verts, cols, tris, center, r, 0, jitter: 0.12f, color: c, seed: rnd.Next());
+            }
+
+            var mesh = new Mesh { name = "LP_BerryCluster" };
+            mesh.indexFormat = verts.Count > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.SetVertices(verts);
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // A FACETED CLOUD BLOB (world-look polish, ticket 86ca8t9pq — Uma world-look brief §1). The
         // SAME clustered-spheroid construction language as BlobCanopy (so clouds and tree canopies are
         // ONE idiom), but with two deliberate differences that make it read as a chunky cyan CLOUD, not

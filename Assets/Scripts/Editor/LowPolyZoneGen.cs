@@ -78,6 +78,16 @@ namespace FarHorizon.EditorTools
         static readonly Color CanopyTop    = new Color(0.48f, 0.74f, 0.34f); // bright top-lit green
         static readonly Color CanopyShadow = new Color(0.18f, 0.40f, 0.17f); // deep shadow-side green
 
+        // ---- BUSH greens + BERRY red (ticket 86caa5zz3). The bush rides the SAME 3-value blob-green
+        // language as the canopy (one idiom), pulled a touch more saturated/leafy so a low ground bush
+        // reads distinct from a tree crown. The berry is a material-honest warm RED (the fruit reads as
+        // the berry; no arbitrary tint — weapon/asset material-honest memory) — board v2 nature sheets
+        // (21h12_49) show small red berries/fruit. Sub-1.0 (HDR-clamp-safe under the Zone-D post stack).
+        static readonly Color BushBody   = new Color(0.26f, 0.52f, 0.22f); // leafy mid-green bush body
+        static readonly Color BushTop    = new Color(0.44f, 0.70f, 0.30f); // bright top-lit leaf
+        static readonly Color BushShadow = new Color(0.15f, 0.35f, 0.15f); // deep shadow-side leaf
+        static readonly Color BerryRed   = new Color(0.78f, 0.16f, 0.22f); // warm berry red (material-honest)
+
         // ---- BEACH OCEAN water gradient (drew/beach-water-scene; Uma beach-water-direction §1).
         // Toy-bright teal that catches the sun — calm/inviting, NOT a realistic reflective shader-ocean.
         // The gradient is baked per-VERTEX (near-shore bright -> seaward deeper) and rides the existing
@@ -611,9 +621,42 @@ namespace FarHorizon.EditorTools
                 clumpsPlaced++;
             }
 
+            // ---- BUSHES (ticket 86caa5zz3, AC1/AC2) — varied-size, varied-type leafy bushes across the
+            // island; SOME carry berries (a berry-bush variant, AC3). ADDITIVE to the seed-42 world: this
+            // uses its OWN System.Random (seed + 777), so it draws from a SEPARATE stream and does NOT
+            // perturb the island shape (IslandSeed/ShoreRadiusAt), the terrain mesh, the existing
+            // tree/rock/grass placement (which consumed `rnd` (seed+555) in a fixed order, untouched), or
+            // the NavMesh (bushes are collider-free + carve NO obstacle — the player walks up to harvest).
+            // The seed-42 lock is honored by construction (a parallel sub-stream, not a re-roll of the
+            // existing one). Bushes ground via GroundPoint (scale-immune, like the stones). Berry bushes
+            // get a BerryBush component (harvest+regrow); plain bushes are decorative.
+            var bushRnd = new System.Random(seed + 777);
+            int bushTarget = 80, bushesPlaced = 0, berryBushes = 0, bushGuard = 0;
+            while (bushesPlaced < bushTarget && bushGuard++ < bushTarget * 8)
+            {
+                float ang = (float)bushRnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantOuterR * Mathf.Sqrt((float)bushRnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (rr < spawnClearR) continue;                 // keep the loop-centre clearing open
+                if (!OnLandmass(x, z)) continue;                // warped coast (reject sea / beach strip)
+                // Density rises inland (like the trees) so bushes read as undergrowth in the jungle.
+                float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
+                if (bushRnd.NextDouble() > Mathf.Clamp01(0.30f + inlandT * 0.55f)) continue;
+                // VARIED SIZE (AC2): a wide scale range so the scatter reads natural, not cloned.
+                float scale = 0.55f + (float)bushRnd.NextDouble() * 0.95f; // 0.55 .. 1.5
+                // VARIED TYPE (AC2/AC3): ~40% of bushes are the BERRY variant (food source); the rest are
+                // plain leafy bushes (variety + so berries feel found, not everywhere).
+                bool berry = bushRnd.NextDouble() < 0.40f;
+                BuildBush(parent, GroundPoint(groundCol, x, z), scale, berry, bushRnd);
+                bushesPlaced++;
+                if (berry) berryBushes++;
+            }
+
             Debug.Log($"[world-trace] ScatterIslandProps placed {treesPlaced} trees (dense tall jungle), " +
-                      $"{rocksPlaced} rocks, {clumpsPlaced} grass tufts on the ORGANIC island " +
-                      $"(warped coast, outerR {plantOuterR:F0}u, fringe {coastalFringe:F0}u)");
+                      $"{rocksPlaced} rocks, {clumpsPlaced} grass tufts, {bushesPlaced} bushes " +
+                      $"({berryBushes} berry-bearing) on the ORGANIC island " +
+                      $"(warped coast, outerR {plantOuterR:F0}u, fringe {coastalFringe:F0}u). " +
+                      "Bushes use sub-seed (seed+777) — additive, seed-42 island/scatter/NavMesh untouched.");
         }
 
         // Raycast straight down onto the terrain collider to find the surface Y at (x,z) so props
@@ -724,6 +767,54 @@ namespace FarHorizon.EditorTools
             var mr = go.AddComponent<MeshRenderer>();
             mr.sharedMaterial = mat;
             return go;
+        }
+
+        // A low-poly BUSH (ticket 86caa5zz3): a squat leafy blob dome (BushBlob — the same blob-green
+        // idiom as the tree canopies) sitting ON the ground. The BERRY variant adds a child "Berries"
+        // mesh (small red faceted spheres) + a BerryBush component (harvest+regrow) wired to the scene's
+        // Inventory + player so the castaway can forage it. NO collider + carves NO NavMesh obstacle (the
+        // player walks up to harvest). The berry red is baked into vertex colour, so the berries ride the
+        // SAME vertex-color material as the bush greens (one shader, ~1-draw-call discipline). Built
+        // editor-time + serialized (the visual + the wired component ship in Boot.unity — not Awake).
+        static void BuildBush(GameObject parent, Vector3 at, float scale, bool berry, System.Random rnd)
+        {
+            var bush = new GameObject(berry ? "LP_BerryBush" : "LP_Bush");
+            bush.transform.SetParent(parent.transform, false);
+            bush.transform.position = at;
+            bush.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
+            bush.transform.localScale = Vector3.one * scale;
+
+            // The bush body: a squat blob dome in multi-value greens (vertex colour). Shared vertex-color
+            // material (CanopyVertexColorMat — the canopy/bush both bake greens into vertex colour, so they
+            // batch on one shader). 4-6 blobs reads like the board's leafy clumps.
+            float bushR = 0.85f;
+            int blobs = 4 + rnd.Next(0, 3);
+            MakeMeshObject(bush, "BushBody",
+                LowPolyMeshes.BushBlob(bushR, blobs, BushBody, BushTop, BushShadow, rnd.Next()),
+                CanopyVertexColorMat());
+
+            if (!berry) return;
+
+            // BERRIES (the harvestable variant): a child mesh of MANY small dense red faceted spheres
+            // studding the dome. A SEPARATE child so BerryBush can show/hide JUST the berries on
+            // harvest/regrow (the bush body persists). The berry red is in vertex colour -> the SAME
+            // vertex-color material. MANY (20-30) small dots so it reads as berries, not flowers (#101 soak-fix).
+            var berries = MakeMeshObject(bush, "Berries",
+                LowPolyMeshes.BerryCluster(bushR, 20 + rnd.Next(0, 11), BerryRed, rnd.Next()),
+                CanopyVertexColorMat());
+
+            // Wire the harvest+regrow component to the scene Inventory + player so a wandering castaway can
+            // forage any berry bush. A deterministic regrowSeed (per-bush) so headless behavior is stable.
+            var bb = bush.AddComponent<FarHorizon.BerryBush>();
+            bb.hasBerries = true;
+            bb.berriesVisual = berries.transform;
+            bb.inventory = Object.FindObjectOfType<FarHorizon.Inventory>();
+            var ctm = Object.FindObjectOfType<FarHorizon.ClickToMove>();
+            if (ctm != null) bb.player = ctm.transform;
+            // Wire the HungerNeed editor-time (serialized) so a scatter bush's no-arg EatBerry() never does a
+            // per-use FindObjectOfType in the build (bake-time Find only, matching the Inventory/player wiring).
+            bb.hunger = Object.FindObjectOfType<FarHorizon.HungerNeed>();
+            bb.regrowSeed = rnd.Next(1, int.MaxValue);
         }
 
         // ---- The beach OCEAN (drew/beach-water-scene; Uma beach-water-direction §1-2) ----
