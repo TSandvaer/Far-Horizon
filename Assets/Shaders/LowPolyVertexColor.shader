@@ -42,8 +42,9 @@ Shader "FarHorizon/LowPolyVertexColor"
         // winding enforcement. DEFAULTS TO 0 (OFF) so terrain/canopy/water (smooth roll = the Zone-D dune
         // look) render BYTE-IDENTICAL to before this property existed — the OFF path is the exact prior
         // `normalize(IN.normalWS)`. Only opt-in PROPS (rocks, future Blender-MCP props) set this ON. A
-        // [Toggle] drives the `_FLATSHADING_ON` shader_feature keyword; the keyword keeps the OFF path
-        // free of any ddx/ddy cost (no variant compiled for it). ADDITIVE — the existing explicit-per-face-
+        // [Toggle] drives the `_FLATSHADING_ON` keyword (a multi_compile_local variant so the ON path always
+        // ships in the build — see the pragma note in the pass; the OFF variant carries zero ddx/ddy cost).
+        // ADDITIVE — the existing explicit-per-face-
         // normal mesh path (FacetedRock/CloudBlob/FacetedMountain in LowPolyMeshes.cs) is UNCHANGED; this
         // is an alternative for props that prefer a welded mesh. The `_FlatShading` float lives INSIDE the
         // cbuffer below for SRP-Batcher compliance (unity-conventions.md §SRP-Batcher — any new float/color
@@ -67,11 +68,22 @@ Shader "FarHorizon/LowPolyVertexColor"
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS_CASCADE
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile_fog
-            // FLAT-SHADING keyword (ticket 86caamnjb). shader_feature_local: the variant compiles ONLY for
-            // materials that enable it (opt-in props), and the keyword stays LOCAL to this material (not the
-            // global keyword space — unity6-mastery.md §2 "don't proliferate keywords globally"). The OFF
-            // default ships ZERO ddx/ddy cost for terrain/canopy/water (no _FLATSHADING_ON variant bound).
-            #pragma shader_feature_local _ _FLATSHADING_ON
+            // FLAT-SHADING keyword (ticket 86caamnjb). multi_compile_local (NOT shader_feature_local — see
+            // below): both the OFF and ON variants ALWAYS ship in the build, and the keyword stays LOCAL to
+            // this material (not the global keyword space — unity6-mastery.md §2 "don't proliferate keywords
+            // globally"). The OFF default selects the zero-ddx/ddy variant for terrain/canopy/water; opt-in
+            // props switch to the ON variant at material/runtime.
+            //   ⚠ WHY multi_compile, NOT shader_feature: shader_feature_local strips any variant NO BAKED
+            //   MATERIAL references. This feature is OPT-IN (no material in Boot.unity enables it by default —
+            //   per-prop adoption is a SEPARATE ticket), so under shader_feature the ON variant gets stripped
+            //   from the build and a runtime EnableKeyword silently falls back to OFF (CONFIRMED: the first
+            //   shipped -verifyFlatShading A/B rendered byte-identical OFF==ON — keyword toggled True but no
+            //   ON variant existed to switch to; editor-vs-runtime shader-strip trap, the exact class AC5's
+            //   shipped-capture gate exists to catch). multi_compile_local ships the ON variant unconditionally
+            //   so any prop can opt in in the shipped build. Cost: one extra always-compiled variant (negligible
+            //   — one tiny shader). When a baked material adopts the toggle (its own ticket), this could revert
+            //   to shader_feature, but multi_compile is the correct, robust choice for the opt-in capability.
+            #pragma multi_compile_local _ _FLATSHADING_ON
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
