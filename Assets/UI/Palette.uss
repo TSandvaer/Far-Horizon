@@ -1,0 +1,31 @@
+/*
+ * Palette.uss — the "carved from the same wood" UI material (ticket 86caa4bqp + 86caa4bya).
+ *
+ * The single source of the gameplay-UI palette: the 9-token block from Uma's spec
+ * (team/uma-ux/gameplay-ui-direction.md §1 / ui-toolkit-panels-ux-spec.md §2), verbatim values, all
+ * sub-1.0. Every panel/slot/text references a --token, never a literal hex — one edit recolors the
+ * whole UI family. Deliberately a SIBLING of the existing BootHud/SurvivalHud chrome (warm-cream ink
+ * on warm dark-walnut plates) so the UI Toolkit panels read as ONE family with the shipped IMGUI HUD.
+ *
+ * DISCIPLINE (carry from the HUD + Zone-D): no pure white, no pure-saturated red, no neon — cream not
+ * white, coal-red not error-red, gold not amber-LED. The "neutral" plate is walnut-BROWN, not grey-black
+ * (the single token that stops the UI reading as a generic engine overlay). Every channel < 255.
+ */
+
+:root {
+    /* plates & wells */
+    --panel-walnut:   rgba(42, 35, 32, 0.88);   /* #2A2320 — warm dark walnut, brown bias */
+    --panel-edge:     rgb(90, 70, 50);          /* #5A4632 — warm-brown bevel rim */
+    --panel-edge-top: rgb(120, 96, 70);         /* lighter top-inner bevel line ("catches light") */
+    --slot-empty:     rgba(58, 48, 42, 0.92);   /* #3A302A — recessed well / slider track */
+    --slot-hover:     rgba(74, 61, 51, 0.95);   /* #4A3D33 — warm lift on hover */
+    --badge-bg:       rgba(42, 35, 32, 0.85);   /* #2A2320 — count-chip walnut */
+    --scrim:          rgba(42, 35, 32, 0.60);   /* walnut-tinted dim, NOT black (world stays warm behind) */
+    /* ink */
+    --ink-cream:      rgb(234, 217, 184);       /* #EAD9B8 — primary text (HUD ledger cream) */
+    --ink-dim:        rgb(156, 144, 122);       /* #9C907A — secondary / disabled / "(soon)" */
+    /* affordance — one language the player learns once */
+    --slot-selected:  rgb(232, 178, 92);        /* #E8B25C — ember-gold (REUSES HUD warmth fill) */
+    --accent-leaf:    rgb(76, 158, 58);         /* #4C9E3A — positive: slider fill / valid drop */
+    --accent-deny:    rgb(181, 86, 60);         /* #B5563C — denied: clamp-hit / invalid (coal-red) */
+}

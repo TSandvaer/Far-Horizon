@@ -207,6 +207,13 @@ namespace FarHorizon.EditorTools
             // for the Idle<->Walk blend + facing, so the anim + facing follow with no extra wiring.
             BuildWasdMovement(player, camGo);
 
+            // 86caa4bqp: the in-game tweakable SETTINGS PANEL (UI Toolkit). Wired AFTER the orbit camera +
+            // WASD so the live targets the settings bind to (zoom/pitch range → OrbitCamera; walk/run speed
+            // → WasdMovement) exist + serialize as references. A dedicated GameObject hosts the UIDocument +
+            // SettingsPanel; the PanelSettings + UXML/USS assets are created/loaded here so the panel ships
+            // (the component-in-source-but-not-in-scene + asset-not-serialized traps). Esc toggles it in play.
+            BuildSettingsPanel(camGo, player);
+
             // U2-2 (86ca8bdaq): the craft spot — the entry to the survival loop. A world marker the
             // castaway click-moves to; reaching it crafts the axe (one recipe, no UI tree). Authored
             // editor-time so the spot mesh + CraftSpot's Inventory/player references SERIALIZE into
@@ -1971,6 +1978,87 @@ namespace FarHorizon.EditorTools
 
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
+        }
+
+        // ---- SETTINGS PANEL (86caa4bqp) ----
+        public const string PanelSettingsAssetPath = SettingsDir + "/SettingsPanelSettings.asset";
+        public const string SettingsPanelUxmlPath = "Assets/UI/SettingsPanel.uxml";
+        public const string PaletteUssPath = "Assets/UI/Palette.uss";
+        public const string SettingsPanelUssPath = "Assets/UI/SettingsPanel.uss";
+        public const string SettingsPanelObjectName = "SettingsPanel";
+
+        // Author the UI Toolkit settings panel into the scene (86caa4bqp). A dedicated GameObject hosts a
+        // UIDocument + the SettingsPanel component, with the PanelSettings + UXML/USS assets created/loaded
+        // here so they SERIALIZE into Boot.unity (the component-in-source-but-not-in-scene + asset-not-
+        // serialized traps). The live targets (OrbitCamera on camGo, WasdMovement on the player) are wired as
+        // serialized references so the registry binds them with NO Awake lookup in the build.
+        private static void BuildSettingsPanel(GameObject camGo, GameObject player)
+        {
+            var go = new GameObject(SettingsPanelObjectName);
+
+            var doc = go.AddComponent<UIDocument>();
+            doc.panelSettings = EnsurePanelSettings();
+            doc.sortingOrder = 100f; // above any future inventory/HUD overlay
+
+            var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(SettingsPanelUxmlPath);
+            var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(PaletteUssPath);
+            var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(SettingsPanelUssPath);
+            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the SINGLE clone (it CloneTree's
+            // the serialized panelUxml, adds the stylesheets, and re-resolves elements by name; it also carries
+            // the build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
+            // here would make the UIDocument ALSO auto-clone the shell on enable → a duplicate, always-visible
+            // orphan settings-scrim laid over the world that Q("settings-scrim") never binds (codereview #83).
+
+            var panel = go.AddComponent<SettingsPanel>();
+            panel.document = doc;
+            panel.panelUxml = uxml;
+            panel.paletteUss = palette;
+            panel.panelUss = panelUss;
+            panel.orbit = camGo != null ? camGo.GetComponent<OrbitCamera>() : null;
+            panel.wasd = player != null ? player.GetComponent<WasdMovement>() : null;
+
+            if (uxml == null || palette == null || panelUss == null)
+                Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +
+                                 ", palette=" + (palette != null) + ", panelUss=" + (panelUss != null) +
+                                 ") — the panel falls back to building its shell in code; check Assets/UI/*");
+            if (panel.orbit == null || panel.wasd == null)
+                Debug.LogWarning("[MovementCameraScene] SettingsPanel live targets not fully wired (orbit=" +
+                                 (panel.orbit != null) + ", wasd=" + (panel.wasd != null) +
+                                 ") — those settings fall back to a runtime FindObjectOfType");
+
+            // The shipped-build verify capture (-verifySettings): opens the panel + drives a tweak in the
+            // BUILT exe so the capture gate proves it renders + the live param changes. Serialized onto the
+            // same GameObject (the component-in-source-but-not-in-scene trap). Inert in normal play.
+            go.AddComponent<SettingsVerifyCapture>();
+
+            EditorUtility.SetDirty(go);
+            Debug.Log("[MovementCameraScene] authored SettingsPanel (UI Toolkit; orbit+wasd bound, Esc-toggled)");
+        }
+
+        // Create-or-load the runtime PanelSettings asset for the settings panel. PanelSettings is a runtime
+        // ScriptableObject; it needs a theme StyleSheet (the default runtime theme) or UI Toolkit logs a
+        // missing-theme error + renders unstyled. Scale-with-screen-size at 1920x1080 (Uma §1 topology).
+        private static PanelSettings EnsurePanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsAssetPath);
+            if (existing != null) return existing;
+
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            // Assign the default runtime theme so controls (Slider/MinMaxSlider/Button) render with base
+            // styles; our USS layers the carved-wood palette on top. The theme ships with UI Toolkit.
+            var theme = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(
+                "Packages/com.unity.ui/PackageResources/StyleSheets/Generated/DefaultRuntimeTheme.tss")
+                ?? AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(
+                "Packages/com.unity.modules.uielements/PackageResources/StyleSheets/Generated/DefaultRuntimeTheme.tss");
+            if (theme != null) ps.themeStyleSheet = theme;
+            else Debug.LogWarning("[MovementCameraScene] default runtime UI theme not found — the settings " +
+                                  "panel controls may render unstyled (USS palette still applies)");
+            AssetDatabase.CreateAsset(ps, PanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
         }
 
         // Wire the RUN-ON-SHIFT shipped-build verify capture onto the Boot object so it SERIALIZES into

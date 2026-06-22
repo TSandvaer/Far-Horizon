@@ -206,6 +206,123 @@ STRAY_REPO="$TMP/stray_repo"; mkdir -p "$STRAY_REPO"; make_min_repo "$STRAY_REPO
 assert_rc_and_grep 1 "structure check FAILED" "structure: stray results.xml + VerifyCaptures flagged" \
   -- bash -c "cd '$STRAY_REPO' && bash '$STRUCT'"
 
+echo "=== verify_settings_gate.sh (settings-panel capture gate, 86caa4bqp) ==="
+
+# THE bug class this guards (Tess QA bounce, PR #83): the settings success-test is
+# "the panel OPENS + a tweak TAKES EFFECT LIVE". A gate that only checks that frames
+# rendered would PASS a panel that draws but never drives the game — so the gate must
+# ALSO require the `changedLive=True` ground-truth log line. We exercise the gate's
+# pass/fail logic with a FAKE exe (a bash script that writes controllable frames + log
+# from the -captureDir / -logFile args it is handed), zero Unity dependency. All
+# fixtures live under $TMP so nothing is left in the tracked tree.
+SETTINGS_GATE="$SCRIPTS/verify_settings_gate.sh"
+
+# Shared PNG writer (reuses the same 'good'-frame shape as the frame_check fixtures).
+# $4 = "tweaked" → paint an extra block so settings_tweaked.png VISIBLY differs from
+# settings_open.png (mimics the repainted readout); anything else → identical frame.
+PNG_HELPER="$TMP/_make_settings_pngs.py"
+cat > "$PNG_HELPER" <<'PY'
+import os, sys, struct, zlib
+d = sys.argv[1]; os.makedirs(d, exist_ok=True)
+def write_png(path, w, h, tweaked=False):
+    def chunk(typ, data):
+        return struct.pack(">I", len(data)) + typ + data + struct.pack(">I", zlib.crc32(typ+data)&0xFFFFFFFF)
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)
+        for x in range(w):
+            base = (x*3)%200+20
+            # A second bright block ONLY on the tweaked frame = the repainted readout region.
+            if tweaked and 44<=x<60 and 44<=y<60: raw += bytes((20,240,40))
+            elif 20<=x<44 and 20<=y<44: raw += bytes((240,230,120))
+            else: raw += bytes((base, base//2+30, 200-base//2))
+    with open(path,"wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))
+                +chunk(b"IDAT",zlib.compress(bytes(raw)))+chunk(b"IEND",b""))
+# sys.argv[2] = "identical" → tweaked frame is a byte-copy of open (the PR #83 bug repro).
+identical = len(sys.argv) > 2 and sys.argv[2] == "identical"
+write_png(os.path.join(d,"settings_closed.png"),64,64)
+write_png(os.path.join(d,"settings_open.png"),64,64)
+write_png(os.path.join(d,"settings_tweaked.png"),64,64, tweaked=not identical)
+PY
+
+# Standalone fixtures for the direct frames_differ.py unit tests (open vs differ vs identical).
+FRAMES_DIFFER="$SCRIPTS/frames_differ.py"
+DIFFDIR="$TMP/frames_differ_fix"; python3 "$PNG_HELPER" "$DIFFDIR"                 # tweaked DIFFERS
+IDENTDIR="$TMP/frames_ident_fix"; python3 "$PNG_HELPER" "$IDENTDIR" identical      # tweaked IDENTICAL
+
+# Fake-exe factory: writes 3 good PNGs into -captureDir and a log into -logFile.
+# $1 = output path, $2 = the changedLive token (True / False / empty = no proof line),
+# $3 = "identical" → tweaked frame is a byte-copy of open (the PR #83 pixel-identical bug).
+make_fake_exe() {
+  local exe="$1" changed="$2" ident="${3:-}"
+  cat > "$exe" <<FAKE
+#!/usr/bin/env bash
+capdir=""; logf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -captureDir) capdir="\$2"; shift 2;;
+    -logFile)    logf="\$2"; shift 2;;
+    *) shift;;
+  esac
+done
+python3 "$PNG_HELPER" "\$capdir" "$ident"
+if [ -n "$changed" ]; then
+  echo "[SettingsVerifyCapture] WALK SPEED tweak: before=5.00 setTo=9.00 liveAfter=9.00 changedLive=$changed (AC2)" >> "\$logf"
+fi
+echo "[SettingsVerifyCapture] verification complete -> \$capdir" >> "\$logf"
+exit 0
+FAKE
+  chmod +x "$exe"
+}
+
+# 1. Good frames + changedLive=True + tweaked frame DIFFERS → PASS.
+make_fake_exe "$TMP/fake_pass.sh" "True"
+assert_rc_and_grep 0 "SETTINGS CAPTURE GATE PASSED" "panel rendered + live tweak + visible-diff passes" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_pass.sh" "$TMP/scaps_pass" "$TMP/slog_pass.log"
+
+# 2. THE load-bearing case — frames render but changedLive=False → FAIL. A frame-only
+#    gate would green this (the exact gap that let PR #83 ship without proving the tweak).
+make_fake_exe "$TMP/fake_nochange.sh" "False"
+assert_rc_and_grep 1 "SETTINGS CAPTURE GATE FAILED" "rendered panel w/o live change fails" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_nochange.sh" "$TMP/scaps_nc" "$TMP/slog_nc.log"
+
+# 3. No SettingsVerifyCapture proof line at all (panel never drove the tweak) → FAIL.
+make_fake_exe "$TMP/fake_silent.sh" ""
+assert_rc_and_grep 1 "no 'changedLive=True'" "missing proof line fails loud" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_silent.sh" "$TMP/scaps_si" "$TMP/slog_si.log"
+
+# 4. Missing exe → FAIL loud (the build step must run first).
+assert_rc_and_grep 1 "exe not found" "missing exe fails loud" \
+  -- bash "$SETTINGS_GATE" "$TMP/does_not_exist.exe" "$TMP/scaps_x" "$TMP/slog_x.log"
+
+# 5. Check 3 (visible-tweak diff) is QUARANTINED-NON-FATAL (86cabe3e5). With changedLive=True
+#    (the live param DID change) but settings_tweaked.png a BYTE-COPY of settings_open.png (the
+#    SYNTHETIC -verifySettings drive bypasses the UI Toolkit ChangeEvent so the readout never
+#    repaints under capture), the gate now PASSES (rc=0) — Checks 1+2 (the real shipped-build
+#    backstops) both pass, and the pixel-identical diff_rc is logged for signal but does NOT red
+#    the gate. The quarantine marker must be present so the un-tweaked frame is visible in CI. The
+#    REAL drag repaints (Tess+Drew confirmed); proper fix tracked in 86cabe3e5. This assertion is
+#    the regression guard for the quarantine: if Check 3 ever silently becomes fatal again (or the
+#    quarantine marker is dropped) this fails.
+make_fake_exe "$TMP/fake_identical.sh" "True" "identical"
+assert_rc_and_grep 0 "QUARANTINED-non-fatal" "pixel-identical tweaked frame is quarantined-non-fatal (86cabe3e5)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_identical.sh" "$TMP/scaps_id" "$TMP/slog_id.log"
+
+echo "=== frames_differ.py (visible-tweak diff, 86caa4bqp re-QA) ==="
+
+# 6. Direct unit: a tweaked frame that DIFFERS from open → PASS.
+assert_rc_and_grep 0 "differ" "frames_differ: changed frames pass" \
+  -- python3 "$FRAMES_DIFFER" "$DIFFDIR/settings_open.png" "$DIFFDIR/settings_tweaked.png"
+
+# 7. Direct unit: a byte-identical tweaked frame → FAIL (the bug class, isolated).
+assert_rc_and_grep 1 "PIXEL-IDENTICAL" "frames_differ: identical frames fail" \
+  -- python3 "$FRAMES_DIFFER" "$IDENTDIR/settings_open.png" "$IDENTDIR/settings_tweaked.png"
+
+# 8. Direct unit: a missing frame → FAIL loud (a check that can't read its input is a failure).
+assert_rc_and_grep 1 "not found" "frames_differ: missing frame fails loud" \
+  -- python3 "$FRAMES_DIFFER" "$DIFFDIR/settings_open.png" "$TMP/does_not_exist.png"
+
 echo "=== bootstrap_with_retry.sh (86cabtc83 — completion-marker gate + cold-cancel retry) ==="
 # The wrapper must NOT report success unless BootstrapProject.Run finished end-to-end
 # (logged "[BootstrapProject] complete" → Boot.unity re-baked). The 6000.4.11f1 cold-cache

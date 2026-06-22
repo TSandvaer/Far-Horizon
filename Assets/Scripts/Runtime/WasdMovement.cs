@@ -188,7 +188,13 @@ namespace FarHorizon
             // response, the right feel for keyboard locomotion — equivalent to GetAxisRaw but arrow-free).
             // A programmatic override (the verify-capture seam) still takes precedence so the shipped build
             // can exercise the SAME path without real keystrokes.
-            Vector2 input = _inputOverride ?? ReadWasdKeys();
+            // Swallow keyboard locomotion while a modal gameplay-UI panel is open (settings/inventory) —
+            // UI Toolkit does NOT block legacy Input.* polling (research §E1), so without this the player
+            // would walk while the Sponsor types/drags in the settings panel. A programmatic override (the
+            // verify-capture seam) still drives so the shipped-build capture can exercise the path. The
+            // agent simply holds position (zero commanded velocity) → Idle while the panel is up.
+            Vector2 input = _inputOverride
+                ?? (UiInputGate.CaptureWorldInput ? Vector2.zero : ReadWasdKeys());
 
             // SPRINT (run-on-Shift, 86ca9yq34): the real LeftShift/RightShift key, or the programmatic override
             // (the headless / shipped-build seam). Legacy Input (the project is activeInputHandler=0 — driving
@@ -208,7 +214,8 @@ namespace FarHorizon
             // enforces grounded-only (no double-jump) + owns the arc + the airborne ground-snap gate; this only
             // detects the press. Jumping does NOT touch the XZ velocity below, so the player keeps moving while
             // airborne (AC1 — jump while idle AND while moving).
-            bool jumpPressed = _jumpRequested || Input.GetKeyDown(KeyCode.Space);
+            bool jumpPressed = _jumpRequested
+                || (!UiInputGate.CaptureWorldInput && Input.GetKeyDown(KeyCode.Space));
             _jumpRequested = false;
             if (jumpPressed && castaway != null) castaway.TryJump();
 
