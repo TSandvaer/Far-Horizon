@@ -97,14 +97,15 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void AxeSeatConstants_AreByteUnchanged_NoSeatRegression()
+        public void AxeSeatConstants_ShipTheSoakRound2StartingPoint()
         {
-            // The brief's hard gate: generalize, do NOT regress the soak-locked axe seat. Pin the exact
-            // Sponsor-locked values (soak #5 build 2d90a68 + soak #3 run-lower) so any drift reds here.
-            Assert.AreEqual(new Vector3(0.1312f, 0.1409f, 0.0593f), MovementCameraScene.HeldAxeLocalOffsetFromHand,
-                "HeldAxeLocalOffsetFromHand must stay the soak-#5 locked hand-local seat offset.");
-            Assert.AreEqual(new Vector3(12f, -8f, -82f), MovementCameraScene.HeldAxeRelEuler,
-                "HeldAxeRelEuler must stay the soak-#3 locked hand-relative grip.");
+            // 86cabh907 soak ROUND 2 (PR #100): the Sponsor re-dialed the held-axe seat in the shipped build;
+            // the recovered Player.log values are the NEW STARTING POINT (re-confirmed in the re-soak, then a
+            // later pass bakes the lock). Pin them so an accidental revert to the prior soak-#5 lock reds here.
+            Assert.AreEqual(new Vector3(0.1712f, 0.1209f, -0.0007f), MovementCameraScene.HeldAxeLocalOffsetFromHand,
+                "HeldAxeLocalOffsetFromHand must ship the soak-round-2 re-dialed hand-local seat offset.");
+            Assert.AreEqual(new Vector3(-186f, -168f, -84f), MovementCameraScene.HeldAxeRelEuler,
+                "HeldAxeRelEuler must ship the soak-round-2 re-dialed hand-relative grip.");
             Assert.AreEqual(0.45f, MovementCameraScene.HeldAxeLocalScaleUniform,
                 "HeldAxeLocalScaleUniform must stay the established in-hand reference scale.");
             Assert.AreEqual(0f, MovementCameraScene.HeldAxeFollowDamp,

@@ -63,6 +63,28 @@ namespace FarHorizon
         [Tooltip("Per-keypress multiplicative scale step for the live dial (1.05 = +5% up / -5% down).")]
         public float scaleStep = 1.05f;
 
+        // LIVE AXE HEAD-SIZE DIAL (86cabh907 soak round 2 — "axe head still too big, head proportion isn't a
+        // uniform scale"). The whole-weapon scale dial ([ ]) scales the ENTIRE axe uniformly; it cannot shrink
+        // the HEAD relative to the handle. This separate dial scales ONLY the axe BLADE-CLUSTER vertices (the
+        // head) toward the eye, leaving the haft length + grip-point origin + forward axis untouched — so the
+        // Sponsor dials the head proportion by eye in-game. It operates on a per-instance CLONE of the held
+        // mesh (never the shared asset), so it is reversible and safe. ONLY the axe has a head; on knife/sword/
+        // spear the dial is inert. The Sponsor reads the factor off the HUD/log to bake into the .blend head
+        // re-author later (this round does NOT bake — OOS). Keys chosen free in normal play + outside the F9
+        // AxeNudgeTool's key set (F9/Tab/N/arrows/PgUp-Dn/TGYHUJ/Shift/Ctrl) and the [ ]/= - scale dial:
+        //   ' (apostrophe)  -> head SMALLER (-5%)
+        //   ; (semicolon)   -> head BIGGER  (+5%)
+        public KeyCode headSmallerKey = KeyCode.Quote;      // '
+        public KeyCode headBiggerKey = KeyCode.Semicolon;   // ;
+        [Tooltip("Per-keypress multiplicative head-size step for the axe head dial (1.05 = +5%/-5%).")]
+        public float headStep = 1.05f;
+        [Tooltip("Local-mesh-space |X| threshold (after FBX import) above which a vertex belongs to the axe " +
+                 "BLADE CLUSTER (the head), not the haft core. 0.06 cleanly selects the 44 blade verts vs the " +
+                 "72 haft-core verts (Blender-probed in art-src/weapon-pack/weapon_set_src.blend). Resolved " +
+                 "against the imported mesh's blade-bulge axis at runtime; this is the fraction of the mesh's " +
+                 "half-width on that axis.")]
+        public float headBladeFraction = 0.30f;
+
         // The four family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names =
         // the FBX file-name-without-extension; see WeaponPackAssetGen.BuildLineupPrefab). Order = cycle order.
         // PUBLIC + static so the EditMode guard reads the cycle contract directly (no reflection): the lineup
@@ -97,6 +119,20 @@ namespace FarHorizon
             new Vector3(0f, 0f, -0.80f),        // sword
             new Vector3(0f, 0f, -1.50f),        // spear (longest — pull the grip furthest back)
         };
+        // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
+        // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
+        // shared seat the axe uses; this is a per-weapon rotation tweak composed ON TOP of the seat so each
+        // sits at a believable in-hand angle. Axe = zero/identity (the axe's hold is the shared-seat baseline,
+        // dialed via the F9 held target's rig fields — not here). First-guess identity for all; the F9 tool's
+        // generalized HELD target dials each weapon's offset+euler+scale by eye and the Sponsor reads the
+        // values to bake here.
+        public static readonly Vector3[] WeaponMeshLocalEuler =
+        {
+            Vector3.zero,   // axe — shared-seat baseline (rig fields), no mesh-holder euler
+            Vector3.zero,   // knife
+            Vector3.zero,   // sword
+            Vector3.zero,   // spear
+        };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)
         private Mesh[] _meshes;             // resolved family meshes, indexed to match WeaponNodeNames
@@ -110,14 +146,83 @@ namespace FarHorizon
 
         // LIVE per-weapon scale — seeded from the baked WeaponMeshScale defaults, then mutated by the live dial
         // ([ ] / - =) so the Sponsor can dial the CURRENT weapon's in-hand size by eye. Index 0 (axe) is never
-        // changed (Sponsor-LOCKED; the dial refuses to touch it). The HUD/log surface the live value to bake.
+        // changed by the SCALE dial (the axe's uniform size is locked); its HEAD is dialed separately below.
+        // The HUD/log surface the live value to bake.
         private float[] _liveScale;
+        // LIVE per-weapon mesh-holder offset + euler — seeded from the baked WeaponMeshLocalOffset/Euler, then
+        // mutated by the F9 AxeNudgeTool's generalized HELD target (86cabh907 soak round 2) so the Sponsor
+        // positions+angles each weapon in-hand. Index 0 (axe) stays at zero (its hold is the shared-seat rig
+        // baseline). The F9 tool reads/writes these via the public accessors below.
+        private Vector3[] _liveOffset;
+        private Vector3[] _liveEuler;
+
+        // LIVE AXE HEAD-SIZE dial (86cabh907 soak round 2). The held axe FBX is a SINGLE mesh; to shrink only
+        // the HEAD relative to the haft we clone the axe mesh per-instance and scale the blade-cluster verts
+        // toward the eye by this live factor. _axeHeadFactor=1 == the shipped (already 0.8x-baked) head; the
+        // Sponsor dials it DOWN further by eye and reports the factor to bake into the .blend.
+        private float _axeHeadFactor = 1f;
+        private Mesh _axeHeadDialMesh;          // per-instance clone we deform (never the shared asset)
+        private Vector3[] _axeBaseVerts;        // the axe mesh's ORIGINAL local verts (factor=1 baseline)
+        private int[] _axeHeadVertIdx;          // indices of the blade-cluster (head) verts in _axeBaseVerts
+        private Vector3 _axeHeadPivot;          // local-space eye the head verts scale toward
+        private bool _axeHeadResolved;
+
+        /// <summary>The currently-held weapon index (0=axe,1=knife,2=sword,3=spear) — read by the F9 tool so
+        /// its generalized HELD target dials whichever weapon is shown.</summary>
+        public int CurrentIndex => _index;
+        /// <summary>Label of the currently-held weapon (AXE/KNIFE/SWORD/SPEAR) — for the F9 tool's panel.</summary>
+        public string CurrentLabel => WeaponLabels[Mathf.Clamp(_index, 0, WeaponLabels.Length - 1)];
+        /// <summary>Live per-weapon mesh-holder offset for the F9 tool to read (the bake value).</summary>
+        public Vector3 CurrentOffset => _liveOffset != null ? _liveOffset[_index] : WeaponMeshLocalOffset[_index];
+        /// <summary>Live per-weapon mesh-holder euler for the F9 tool to read (the bake value).</summary>
+        public Vector3 CurrentEuler => _liveEuler != null ? _liveEuler[_index] : WeaponMeshLocalEuler[_index];
+        /// <summary>Live per-weapon held scale for the F9 tool to read (the bake value).</summary>
+        public float CurrentScale => _liveScale != null ? _liveScale[_index] : WeaponMeshScale[_index];
+        /// <summary>The live axe head-size factor (1 == shipped head) — for the F9 tool's HEAD-SIZE target.</summary>
+        public float AxeHeadFactor => _axeHeadFactor;
+
+        /// <summary>
+        /// F9-tool entry point (86cabh907 soak round 2): nudge the CURRENTLY-HELD weapon's in-hand placement —
+        /// mesh-holder offset (dp) + euler (dr) + a multiplicative scale factor (scaleFactor; 1 = no change).
+        /// The AXE (index 0) routes scale/offset/euler nudges to NOTHING here (its hold is the shared-seat rig
+        /// baseline the F9 tool nudges directly on the HeldAxeRig); for the axe this method only re-applies. For
+        /// knife/sword/spear it edits the live per-weapon arrays + re-seats the mesh-holder immediately so the
+        /// dial shows this frame. Returns true if a non-axe weapon was actually edited.
+        /// </summary>
+        public bool NudgeCurrentWeapon(Vector3 dp, Vector3 dr, float scaleFactor)
+        {
+            if (_index == 0) return false; // axe hold = shared-seat rig (F9 tool nudges HeldAxeRig directly)
+            if (!_resolved) ResolveMeshes();
+            _liveOffset[_index] += dp;
+            _liveEuler[_index] += dr;
+            if (!Mathf.Approximately(scaleFactor, 1f))
+                _liveScale[_index] = Mathf.Max(0.01f, _liveScale[_index] * scaleFactor);
+            ApplyCurrent();
+            return true;
+        }
+
+        /// <summary>
+        /// F9-tool entry point (86cabh907 soak round 2): dial the AXE HEAD size by a multiplicative factor
+        /// (1.05 = +5%). Inert unless the axe is the currently-held weapon. Returns true if the axe head was
+        /// dialed. Mirrors the always-on ;/' dial so the Sponsor can drive the head from either panel.
+        /// </summary>
+        public bool DialAxeHead(float factor)
+        {
+            if (_index != 0) return false;          // only the axe has a head
+            if (!_axeHeadResolved) ResolveAxeHead();
+            if (_axeHeadVertIdx == null || _axeHeadVertIdx.Length == 0) return false;
+            _axeHeadFactor = Mathf.Clamp(_axeHeadFactor * factor, 0.2f, 2f);
+            ApplyAxeHead();
+            return true;
+        }
 
         private void Awake()
         {
-            // Seed the LIVE scale from the baked defaults (copy — never mutate the static array). The dial
-            // edits this per-weapon; index 0 (axe) stays at the locked default and is never dialed.
+            // Seed the LIVE scale/offset/euler from the baked defaults (copy — never mutate the static arrays).
+            // The dials edit these per-weapon; index 0 (axe) stays at the locked defaults.
             _liveScale = (float[])WeaponMeshScale.Clone();
+            _liveOffset = (Vector3[])WeaponMeshLocalOffset.Clone();
+            _liveEuler = (Vector3[])WeaponMeshLocalEuler.Clone();
 
             // The MeshFilter lives on a CHILD of HeroAxe (the imported FBX mesh node). Capture its ORIGINAL
             // local TRS so cycling BACK to the axe restores the Sponsor-locked seat byte-for-byte.
@@ -199,6 +304,26 @@ namespace FarHorizon
                 ApplyCurrent();
                 Debug.Log("[HeldWeaponCycleDebug] " + WeaponLabels[_index] + " held scale -> " +
                           _liveScale[_index].ToString("F3") + "  (bake into WeaponMeshScale[" + _index + "])");
+                return;
+            }
+
+            // LIVE AXE HEAD-SIZE DIAL (; / ') — shrink/grow ONLY the axe BLADE-CLUSTER toward the eye, leaving
+            // the haft length + origin untouched, so the Sponsor dials the head proportion by eye + reads the
+            // factor to bake into the .blend head re-author later (86cabh907 soak round 2). ONLY the axe has a
+            // head; on knife/sword/spear the dial logs that it is inert.
+            bool headBigger = Input.GetKeyDown(headBiggerKey);
+            bool headSmaller = Input.GetKeyDown(headSmallerKey);
+            if (headBigger || headSmaller)
+            {
+                if (_index != 0)
+                {
+                    Debug.Log("[HeldWeaponCycleDebug] head-size dial only applies to the AXE — cycle [" +
+                              cycleKey + "] to the axe to dial its head.");
+                    return;
+                }
+                if (DialAxeHead(headBigger ? headStep : 1f / headStep))
+                    Debug.Log("[HeldWeaponCycleDebug] AXE head factor -> " + _axeHeadFactor.ToString("F3") +
+                              "  (bake into the .blend head re-author; 1.000 == current shipped head)");
             }
         }
 
@@ -209,26 +334,113 @@ namespace FarHorizon
             Mesh m = (_meshes != null && _index < _meshes.Length) ? _meshes[_index] : null;
             if (m == null) m = _axeOriginalMesh; // fall back to the axe if a family mesh failed to resolve
 
-            _meshHolder.sharedMesh = m;
             var t = _meshHolder.transform;
             if (_index == 0)
             {
-                // AXE — Sponsor-LOCKED default: restore the exact captured original local TRS (byte-unchanged).
+                // AXE — Sponsor-LOCKED seat: restore the captured original local TRS (byte-unchanged). The
+                // displayed mesh is the head-dial CLONE if the head has been dialed (so the shrink shows),
+                // else the original axe mesh. The head dial NEVER touches the seat transform — only the verts.
+                _meshHolder.sharedMesh = (_axeHeadDialMesh != null) ? _axeHeadDialMesh : _axeOriginalMesh;
                 t.localPosition = _holderOrigPos;
                 t.localRotation = _holderOrigRot;
                 t.localScale = _holderOrigScale;
             }
             else
             {
-                // knife / sword / spear — look-soak seat on the SHARED seat (precise grip is OOS). Compose the
-                // per-weapon offset/scale ON TOP of the axe's captured baseline so the weapon rides the same
-                // seat the axe does, just nudged to seat reasonably in the hand. Scale comes from the LIVE
-                // dial (_liveScale, seeded from WeaponMeshScale) so the Sponsor's dial shows immediately.
-                t.localPosition = _holderOrigPos + WeaponMeshLocalOffset[_index];
-                t.localRotation = _holderOrigRot;
+                // knife / sword / spear — look-soak seat on the SHARED seat. Compose the per-weapon LIVE
+                // offset/euler/scale ON TOP of the axe's captured baseline so the weapon rides the same seat
+                // the axe does, just nudged to seat + angle reasonably in the hand. All three come from the
+                // LIVE arrays (seeded from the WeaponMeshLocal* defaults) so the F9 dial shows immediately.
+                _meshHolder.sharedMesh = m;
+                t.localPosition = _holderOrigPos + _liveOffset[_index];
+                t.localRotation = _holderOrigRot * Quaternion.Euler(_liveEuler[_index]);
                 t.localScale = _holderOrigScale * _liveScale[_index];
             }
         }
+
+        // Resolve the axe head dial: capture the axe mesh's original verts, classify the BLADE-CLUSTER (head)
+        // verts vs the haft core, and compute the eye pivot the head scales toward. Lazy (first head dial).
+        // The blade-bulge axis = the local mesh axis with the LARGEST asymmetric extent off the haft centre
+        // (the head fans out along it). Verts whose |coord on that axis| exceeds headBladeFraction × the
+        // half-extent are the head; the rest are the haft core. The pivot is the eye: the head verts' centroid
+        // projected back onto the haft axis (so scaling toward it shrinks the blade while keeping it on the haft).
+        private void ResolveAxeHead()
+        {
+            _axeHeadResolved = true;
+            if (_axeOriginalMesh == null) return;
+            _axeBaseVerts = _axeOriginalMesh.vertices;
+            int n = _axeBaseVerts.Length;
+            if (n == 0) return;
+
+            // Mesh-local bounds centre + per-axis extent.
+            Vector3 bMin = _axeBaseVerts[0], bMax = _axeBaseVerts[0];
+            for (int i = 1; i < n; i++)
+            {
+                bMin = Vector3.Min(bMin, _axeBaseVerts[i]);
+                bMax = Vector3.Max(bMax, _axeBaseVerts[i]);
+            }
+            Vector3 ext = (bMax - bMin) * 0.5f;
+            Vector3 ctr = (bMax + bMin) * 0.5f;
+            // The HAFT is the long thin axis (largest extent); the BLADE bulges along a SHORT axis. Pick the
+            // blade axis = the axis (other than the longest) along which verts spread most asymmetrically. In
+            // the imported axe the haft runs along local-Y (height); the blade fans along local-X. Choose the
+            // axis with the SMALLEST extent-vs-others that still carries a clear off-centre cluster: simplest
+            // robust pick = the axis perpendicular to the longest, with the larger remaining extent.
+            int longAxis = (ext.x >= ext.y && ext.x >= ext.z) ? 0 : (ext.y >= ext.z ? 1 : 2);
+            int a1 = (longAxis + 1) % 3, a2 = (longAxis + 2) % 3;
+            int bladeAxis = (Comp(ext, a1) >= Comp(ext, a2)) ? a1 : a2;
+            float halfExt = Comp(ext, bladeAxis);
+            float thresh = headBladeFraction * Mathf.Max(1e-4f, halfExt);
+
+            // Classify head (off-haft) vs haft-core verts by their offset on the blade axis from the blade-axis
+            // CENTRE LINE. The haft runs along the long axis at the blade-axis centre; the head bulges off it.
+            // The reference centre for "off the haft" is the HAFT-CORE centroid on the blade axis (the verts
+            // near the centre line), NOT the full-mesh centre (which the bulky head pulls off-axis).
+            float refCentre = Comp(ctr, bladeAxis);
+            var idx = new System.Collections.Generic.List<int>(n);
+            Vector3 headSum = Vector3.zero;
+            float haftSum = 0f; int haftN = 0;
+            for (int i = 0; i < n; i++)
+            {
+                float off = Mathf.Abs(Comp(_axeBaseVerts[i], bladeAxis) - refCentre);
+                if (off > thresh) { idx.Add(i); headSum += _axeBaseVerts[i]; }
+                else { haftSum += Comp(_axeBaseVerts[i], bladeAxis); haftN++; }
+            }
+            _axeHeadVertIdx = idx.ToArray();
+            if (_axeHeadVertIdx.Length == 0) return;
+            float haftAxisCoord = haftN > 0 ? haftSum / haftN : refCentre; // where the haft sits on the blade axis
+
+            // Pivot = the head centroid pulled onto the HAFT centre line (blade-axis coord = the haft's coord),
+            // so scaling the head verts toward it shrinks the BLADE while keeping it attached at the haft (the
+            // long-axis/depth coords stay at the head centroid so it shrinks in plane, not down the handle).
+            Vector3 headCtr = headSum / _axeHeadVertIdx.Length;
+            _axeHeadPivot = headCtr;
+            SetComp(ref _axeHeadPivot, bladeAxis, haftAxisCoord); // on the haft centre line, not the mesh centre
+            Debug.Log($"[HeldWeaponCycleDebug] axe head dial resolved: {_axeHeadVertIdx.Length}/{n} blade verts " +
+                      $"(bladeAxis={bladeAxis}, thresh={thresh:F4}, haftCoord={haftAxisCoord:F3}), pivot={_axeHeadPivot.ToString("F3")}");
+        }
+
+        // Apply the live head factor to the per-instance clone (never the shared asset) + re-display it.
+        private void ApplyAxeHead()
+        {
+            if (_axeBaseVerts == null || _axeHeadVertIdx == null) return;
+            if (_axeHeadDialMesh == null)
+            {
+                _axeHeadDialMesh = Object.Instantiate(_axeOriginalMesh);
+                _axeHeadDialMesh.name = _axeOriginalMesh.name + "_headDial";
+            }
+            var verts = (Vector3[])_axeBaseVerts.Clone();
+            foreach (int i in _axeHeadVertIdx)
+                verts[i] = _axeHeadPivot + (_axeBaseVerts[i] - _axeHeadPivot) * _axeHeadFactor;
+            _axeHeadDialMesh.vertices = verts;
+            _axeHeadDialMesh.RecalculateBounds();
+            // Do NOT RecalculateNormals — the faceted flat-shaded normals are load-bearing (lowpoly-quality.md
+            // §1). Scaling toward a pivot preserves face planarity, so the baked per-face normals stay valid.
+            if (_index == 0 && _meshHolder != null) _meshHolder.sharedMesh = _axeHeadDialMesh;
+        }
+
+        private static float Comp(Vector3 v, int a) => a == 0 ? v.x : a == 1 ? v.y : v.z;
+        private static void SetComp(ref Vector3 v, int a, float val) { if (a == 0) v.x = val; else if (a == 1) v.y = val; else v.z = val; }
 
         private void OnGUI()
         {
@@ -241,8 +453,8 @@ namespace FarHorizon
             }
 
             // Bottom-CENTER, clear of SurvivalHud's bottom-left hotbar + the AxeNudgeTool's right panel.
-            // Taller now: it carries the live scale read-out + the scale-dial key hint (this soak's reframe).
-            float w = 430f, h = 64f;
+            // Taller now: carries the live scale/head read-out + both dial-key hints (soak round 2).
+            float w = 470f, h = 82f;
             float x = Mathf.Max(8f, (Screen.width - w) * 0.5f);
             float y = Screen.height - h - 10f;
             var panel = new Rect(x, y, w, h);
@@ -250,17 +462,20 @@ namespace FarHorizon
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            // Line 1: which weapon + its LIVE held scale (the bake number). Axe shows LOCKED (no dial).
-            string scaleText = _index == 0
-                ? "scale 1.000 (LOCKED)"
+            // Line 1: which weapon + its LIVE read-out. The AXE shows its HEAD factor (the round-2 dial); the
+            // others show their held SCALE (the round-1 dial). Both are the bake numbers.
+            string readOut = _index == 0
+                ? "head " + _axeHeadFactor.ToString("F3") + "  (scale 1.000 LOCKED)"
                 : "scale " + (_liveScale != null ? _liveScale[_index].ToString("F3") : WeaponMeshScale[_index].ToString("F3"));
             GUI.Label(new Rect(x + 10f, y + 5f, w - 20f, 20f),
-                "DEBUG — held weapon: " + WeaponLabels[_index] + "   " + scaleText, _labelStyle);
-            // Line 2: the cycle key. Line 3: the live scale-dial keys (so the Sponsor dials each size by eye).
+                "DEBUG — held weapon: " + WeaponLabels[_index] + "   " + readOut, _labelStyle);
+            // Line 2: the cycle key. Line 3: scale dial (non-axe). Line 4: HEAD-size dial (axe).
             GUI.Label(new Rect(x + 10f, y + 24f, w - 20f, 18f),
                 "[" + cycleKey + "] cycle  axe -> knife -> sword -> spear   (soak view, not equip)", _keyStyle);
             GUI.Label(new Rect(x + 10f, y + 42f, w - 20f, 18f),
-                "[ ] or [=] bigger   [[] or [-] smaller  (±5% — dial held size; axe locked)", _keyStyle);
+                "[ ] / [=] bigger   [[] / [-] smaller   whole weapon (±5%; knife/sword/spear)", _keyStyle);
+            GUI.Label(new Rect(x + 10f, y + 60f, w - 20f, 18f),
+                "[;] / ['] axe HEAD bigger/smaller (±5%)   F9: position+angle each weapon", _keyStyle);
         }
     }
 }

@@ -138,7 +138,12 @@ namespace FarHorizon.EditorTools
         // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed
         // the FINAL held-axe seat via F9 and asked to bake it as the new shipped default (applies WITHOUT F9):
         // HeldAxeRelEuler = (12,-8,-82). This SUPERSEDES the prior soak-#1 bake (16,2,-82). F9 drives it.
-        public static readonly Vector3 HeldAxeRelEuler = new Vector3(12.0f, -8.0f, -82.0f);
+        // 86cabh907 soak ROUND 2 (PR #100, 2026-06-22): the Sponsor re-dialed the held-axe seat via F9 in the
+        // shipped build; recovered from Player.log (Danish-locale decimals — "(-186,0f,-168,0f,-84,0f)" =
+        // (-186,-168,-84)). Set as the NEW STARTING POINT so the re-soak builds on his dialed placement rather
+        // than re-dialing from scratch — NOT a final bake (he re-confirms + may micro-dial in the re-soak; a
+        // later pass bakes the locked value). F9 still drives it. SUPERSEDES (12,-8,-82).
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(-186.0f, -168.0f, -84.0f);
         // 86caa83wn soak #4 (cursor-lock OK; the held-axe seat did NOT reproduce his F9-dialed look AFTER
         // PICKUP). ROOT CAUSE: the seat offset was an end-to-end WORLD-frame round-trip — the F9 tool DIALED +
         // DISPLAYED + BAKED a WORLD vector (HeldAxeWorldOffsetFromHand), converted to the rig's hand-local field
@@ -159,7 +164,12 @@ namespace FarHorizon.EditorTools
         // 86caa83wn soak #5 (build 2d90a68, 2026-06-18): the Sponsor LOCKED the FINAL held-axe seat via the F9
         // panel in the now-correct hand-local frame and asked to bake it as the shipped default. SUPERSEDES the
         // derived-from-soak-#3 placeholder (0.0512,0.2009,-0.0407). FINAL hand-local offset below. F9 still drives it.
-        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1312f, 0.1409f, 0.0593f);
+        // 86cabh907 soak ROUND 2 (PR #100, 2026-06-22): re-dialed via F9 in the shipped build; recovered from
+        // Player.log (Danish-locale decimals — "(0,1712f,0,1209f,-0,0007f)" = (0.1712,0.1209,-0.0007), the
+        // final logged dial state). Set as the NEW STARTING POINT so the re-soak builds on his dialed placement
+        // — NOT a final bake (he re-confirms + may micro-dial; a later pass bakes). F9 still drives it.
+        // SUPERSEDES (0.1312,0.1409,0.0593).
+        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").

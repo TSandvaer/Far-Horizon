@@ -66,6 +66,17 @@ namespace FarHorizon
     /// so he knows when to judge. He reads RunLowerEuler off the panel/log and reports it to bake into
     /// CastawayArmPose.runLowerEuler (MovementCameraScene.ArmRunLowerEuler). Arms have no position channel.
     ///
+    /// 86cabh907 SOAK ROUND 2 — GENERALIZED to the WEAPON FAMILY (the Sponsor: "nudged values only work for
+    /// axe and not for the rest of the weapons"). The HELD target now edits WHICHEVER weapon [B] has selected
+    /// (axe/knife/sword/spear): for the AXE it nudges the shared-seat HeldAxeRig (the locked baseline); for
+    /// knife/sword/spear it routes the offset+angle into HeldWeaponCycleDebug's per-weapon arrays
+    /// (WeaponMeshLocalOffset / WeaponMeshLocalEuler / WeaponMeshScale[index]) so each weapon is positioned +
+    /// angled IN-HAND independently, with its own copy-pasteable bake values logged. A 6TH target — AXE HEAD
+    /// SIZE — dials the axe BLADE-CLUSTER smaller/bigger relative to the haft (the head still read too big even
+    /// after the 0.8x bake, and head proportion isn't a uniform scale) so the Sponsor shrinks the head by eye +
+    /// reports the factor to bake into the .blend head re-author later. The arm-switch moved off [B] to [N] so
+    /// it never cross-fires with the always-on weapon-cycle [B] (the [B]-binding-conflict fix).
+    ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
     /// </summary>
@@ -77,10 +88,14 @@ namespace FarHorizon
         [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it. " +
                  "F9 (the WorldLookNudgeTool is on F10) so the two soak panels never collide.")]
         public KeyCode toggleKey = KeyCode.F9;
-        [Tooltip("Cycle the nudge target (held axe -> stump axe -> arm pose -> ...).")]
+        [Tooltip("Cycle the nudge target (held weapon -> stump axe -> arm pose -> ...).")]
         public KeyCode cycleKey = KeyCode.Tab;
-        [Tooltip("On the ARM-POSE target: switch which arm is dialed (right <-> left).")]
-        public KeyCode armSwitchKey = KeyCode.B;
+        // [B]-CONFLICT FIX (86cabh907 soak round 2): the arm-switch was on [B], which ALSO cycles the held
+        // weapon (HeldWeaponCycleDebug.cycleKey = B) — pressing [B] on the arm target fired BOTH. Moved to [N]
+        // so [B] is solely the weapon-cycle (soak view) and [N] is solely the F9 arm right/left switch.
+        [Tooltip("On the ARM-POSE target: switch which arm is dialed (right <-> left). [N] (was [B]; [B] now " +
+                 "solely cycles the held weapon so the two never cross-fire).")]
+        public KeyCode armSwitchKey = KeyCode.N;
         [Tooltip("Position nudge step (world units). Hold Shift for 5x; Ctrl for 0.2x.")]
         public float posStep = 0.02f;
         [Tooltip("Rotation nudge step (degrees). Hold Shift for 5x; Ctrl for 0.2x.")]
@@ -92,10 +107,15 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial (86caa83wn)
-        private const int TargetCount = 5;
+        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial, 5 = AXE HEAD size
+        private const int TargetCount = 6;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
+        // 86cabh907 soak round 2 — the HELD target is GENERALIZED to whatever weapon [B] has selected. For the
+        // AXE the tool nudges the shared-seat _heldRig (the locked axe baseline); for knife/sword/spear it
+        // routes the nudge into this component's per-weapon offset/euler/scale arrays so each weapon is
+        // positioned + angled in-hand independently (the Sponsor's "nudged values only work for axe" report).
+        private HeldWeaponCycleDebug _weaponCycle;
         private Transform _stump;
         private CastawayArmPose _armPose; // RE-SOAK — the tool nudges its per-arm LOCAL-euler offsets
         private CastawayCharacter _castaway; // 4th-attempt — the tool nudges its groundYOffset (feet-on-ground knob)
@@ -185,7 +205,8 @@ namespace FarHorizon
                 LogCurrent();
             }
 
-            // On the ARM target, [B] switches which arm is dialed (right <-> left).
+            // On the ARM target, [N] switches which arm is dialed (right <-> left). [N] (was [B]) so it never
+            // cross-fires with the always-on weapon-cycle [B] (86cabh907 soak round 2 [B]-conflict fix).
             if (_target == 2 && Input.GetKeyDown(armSwitchKey))
             {
                 _armSel = 1 - _armSel;
@@ -194,12 +215,14 @@ namespace FarHorizon
             }
 
             // Bail if the current target isn't resolved (re-resolve on a cycle so a late-spawned axe is found).
-            // The RUN target (4) lives on the CastawayArmPose, same as the arm pose (2).
-            bool haveTarget = _target == 0 ? _heldRig != null
+            // The RUN target (4) lives on the CastawayArmPose, same as the arm pose (2); the HEAD target (5)
+            // needs the weapon-cycle component (which owns the axe head dial).
+            bool haveTarget = _target == 0 ? (_heldRig != null || _weaponCycle != null)
                             : _target == 1 ? _stump != null
                             : _target == 2 ? _armPose != null
                             : _target == 3 ? _castaway != null
-                            : _armPose != null;
+                            : _target == 4 ? _armPose != null
+                            : _weaponCycle != null;
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -224,22 +247,49 @@ namespace FarHorizon
             if (Input.GetKeyDown(KeyCode.U)) dr.z += rs;
             if (Input.GetKeyDown(KeyCode.J)) dr.z -= rs;
 
+            // HEAD-SIZE target (5): the axe head dial has ONE multiplicative channel. PageUp = bigger, PageDown
+            // = smaller (±5% via the weapon-cycle's DialAxeHead). Inert unless the held weapon is the axe.
+            if (_target == 5)
+            {
+                bool hb = Input.GetKeyDown(KeyCode.PageUp);
+                bool hs = Input.GetKeyDown(KeyCode.PageDown);
+                if ((hb || hs) && _weaponCycle != null)
+                {
+                    if (_weaponCycle.DialAxeHead(hb ? 1.05f : 1f / 1.05f)) changed = true;
+                    else Debug.Log("[AxeNudgeTool] HEAD-SIZE: cycle [B] to the AXE first (only the axe has a head)");
+                }
+                if (changed) LogCurrent();
+                return;
+            }
+
             if (dp != Vector3.zero || dr != Vector3.zero)
             {
                 if (_target == 0)
                 {
-                    // 86caa83wn soak #4 — the HELD axe is nudged via its RIG, NOT its transform, in the
-                    // HAND-LOCAL frame END TO END (the seat-doesn't-stick fix). POSITION moves the rig's
-                    // hand-local offset DIRECTLY (no hand.rotation conversion); ROTATION moves the hand-relative
-                    // relEuler (the haft keeps turning with the hand WHILE dialed). Dialing in the hand-local
-                    // frame means what the Sponsor dials == what bakes == what the rig applies, with NO
-                    // hand.rotation injected at dial time — so the seat is FACING-INDEPENDENT (it reproduces at
-                    // every facing AND after a pickup, the soak-#4 bug). The arrow keys move the offset along the
-                    // hand's local axes (a pure ~2 cm step); the rig re-applies position+rotation every frame
-                    // from these fields (dial == in-motion). The previous tool converted a WORLD-frame nudge via
-                    // Inverse(hand.rotation), which is exactly what made the dialed seat facing-specific.
-                    _heldRig.worldOffsetFromHand += dp;
-                    _heldRig.relEuler += dr;
+                    // 86cabh907 soak round 2 — the HELD target is GENERALIZED to the currently-held weapon. If
+                    // the weapon-cycle has a NON-axe weapon selected, route the offset+angle nudge into that
+                    // weapon's per-weapon arrays (so knife/sword/spear are positioned + angled independently —
+                    // the Sponsor's "nudged values only work for axe" report). If it's the axe (or there is no
+                    // weapon-cycle), nudge the shared-seat rig as before (the axe IS the locked baseline).
+                    if (_weaponCycle != null && _weaponCycle.CurrentIndex != 0)
+                    {
+                        _weaponCycle.NudgeCurrentWeapon(dp, dr, 1f);
+                        changed = true;
+                    }
+                    else if (_heldRig != null)
+                    {
+                        // 86caa83wn soak #4 — the HELD axe is nudged via its RIG, NOT its transform, in the
+                        // HAND-LOCAL frame END TO END (the seat-doesn't-stick fix). POSITION moves the rig's
+                        // hand-local offset DIRECTLY (no hand.rotation conversion); ROTATION moves the hand-
+                        // relative relEuler (the haft keeps turning with the hand WHILE dialed). Dialing in the
+                        // hand-local frame means what the Sponsor dials == what bakes == what the rig applies,
+                        // with NO hand.rotation injected at dial time — so the seat is FACING-INDEPENDENT (it
+                        // reproduces at every facing AND after a pickup, the soak-#4 bug). The previous tool
+                        // converted a WORLD-frame nudge via Inverse(hand.rotation), which is exactly what made
+                        // the dialed seat facing-specific.
+                        _heldRig.worldOffsetFromHand += dp;
+                        _heldRig.relEuler += dr;
+                    }
                 }
                 else if (_target == 1)
                 {
@@ -300,6 +350,10 @@ namespace FarHorizon
             // resolve the CastawayArmPose (the tool nudges its per-arm LOCAL-euler offsets).
             Transform held = FindByName(HeldAxeName);
             _heldRig = held != null ? held.GetComponent<HeldAxeRig>() : null;
+            // 86cabh907 soak round 2 — the weapon-cycle component owns the per-weapon offset/euler/scale + the
+            // axe head dial; the generalized HELD target + the HEAD-SIZE target route through it.
+            _weaponCycle = held != null ? held.GetComponent<HeldWeaponCycleDebug>()
+                                        : Object.FindAnyObjectByType<HeldWeaponCycleDebug>(FindObjectsInactive.Include);
             _stump = FindByName(StumpAxeName);
             _armPose = Object.FindAnyObjectByType<CastawayArmPose>(FindObjectsInactive.Include);
             _castaway = Object.FindAnyObjectByType<CastawayCharacter>(FindObjectsInactive.Include);
@@ -312,9 +366,13 @@ namespace FarHorizon
         }
 
         private string TargetName() =>
-            _target == 0 ? "HELD axe" : _target == 1 ? "STUMP axe"
+            _target == 0 ? "HELD weapon (" + HeldWeaponLabel() + ")" : _target == 1 ? "STUMP axe"
             : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")"
-            : _target == 3 ? "GROUND-Y offset" : "RUN arm-lower";
+            : _target == 3 ? "GROUND-Y offset" : _target == 4 ? "RUN arm-lower"
+            : "AXE HEAD size";
+
+        // The currently-held weapon's label (AXE/KNIFE/SWORD/SPEAR) for the generalized HELD target panel.
+        private string HeldWeaponLabel() => _weaponCycle != null ? _weaponCycle.CurrentLabel : "AXE";
 
         private Transform FindByName(string n)
         {
@@ -331,15 +389,35 @@ namespace FarHorizon
         // feeds straight to Quaternion.Euler, so it must round-trip exactly.
         private void LogCurrent()
         {
-            if (_target == 0 && _heldRig != null)
+            if (_target == 0)
             {
-                // 86caa83wn soak #4 — the seat offset is HAND-LOCAL END TO END. Report the rig's hand-local
-                // field DIRECTLY (no hand.rotation factor) so the Sponsor pastes a HAND-LOCAL value into the
-                // hand-local constant HeldAxeLocalOffsetFromHand — a facing-INVARIANT round-trip (dial == bake ==
-                // applied at every facing). The euler is hand-relative (HeldAxeRelEuler), also facing-invariant.
-                Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept for serialization)
-                Debug.Log($"[AxeNudgeTool] HELD  HeldAxeLocalOffsetFromHand=({local.x:F4}f,{local.y:F4}f,{local.z:F4}f)  " +
-                          $"HeldAxeRelEuler=({_heldRig.relEuler.x:F1}f,{_heldRig.relEuler.y:F1}f,{_heldRig.relEuler.z:F1}f)");
+                // 86cabh907 soak round 2 — the HELD target is per-weapon. NON-axe weapons report their
+                // mesh-holder offset+euler+scale (bake into HeldWeaponCycleDebug.WeaponMeshLocalOffset/
+                // WeaponMeshLocalEuler/WeaponMeshScale[index]). The AXE reports the shared-seat rig fields
+                // (HeldAxeLocalOffsetFromHand / HeldAxeRelEuler — facing-invariant).
+                if (_weaponCycle != null && _weaponCycle.CurrentIndex != 0)
+                {
+                    int idx = _weaponCycle.CurrentIndex;
+                    Vector3 o = _weaponCycle.CurrentOffset, e = _weaponCycle.CurrentEuler;
+                    Debug.Log($"[AxeNudgeTool] HELD {_weaponCycle.CurrentLabel}[{idx}]  " +
+                              $"WeaponMeshLocalOffset=({o.x:F3}f,{o.y:F3}f,{o.z:F3}f)  " +
+                              $"WeaponMeshLocalEuler=({e.x:F1}f,{e.y:F1}f,{e.z:F1}f)  " +
+                              $"WeaponMeshScale={_weaponCycle.CurrentScale:F3}f");
+                }
+                else if (_heldRig != null)
+                {
+                    // 86caa83wn soak #4 — the AXE seat offset is HAND-LOCAL END TO END (facing-invariant).
+                    Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset
+                    Debug.Log($"[AxeNudgeTool] HELD AXE  HeldAxeLocalOffsetFromHand=({local.x:F4}f,{local.y:F4}f,{local.z:F4}f)  " +
+                              $"HeldAxeRelEuler=({_heldRig.relEuler.x:F1}f,{_heldRig.relEuler.y:F1}f,{_heldRig.relEuler.z:F1}f)");
+                }
+            }
+            else if (_target == 5 && _weaponCycle != null)
+            {
+                // 86cabh907 soak round 2 — the AXE HEAD factor (bake into the .blend head re-author; 1.000 ==
+                // current shipped head). Inert unless the axe is held; the panel/log surfaces that.
+                Debug.Log($"[AxeNudgeTool] AXE HEAD  factor={_weaponCycle.AxeHeadFactor:F3}f  " +
+                          $"(held weapon = {_weaponCycle.CurrentLabel}; head dial applies to the AXE only)");
             }
             else if (_target == 1 && _stump != null)
                 Debug.Log($"[AxeNudgeTool] STUMP StumpAxeLocalPos=({_stump.localPosition.x:F3}f,{_stump.localPosition.y:F3}f,{_stump.localPosition.z:F3}f)  " +
@@ -399,26 +477,37 @@ namespace FarHorizon
             GUI.color = Color.white;
 
             string tgt = _target == 0
-                ? "HELD axe (in hand — hand-local offset + hand-relative angle, facing-independent)"
+                ? "HELD weapon: " + HeldWeaponLabel() + " (cycle [B]; offset + angle — per weapon)"
                 : _target == 1
                 ? "STUMP axe (in block — local)"
                 : _target == 2
-                ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([B] switch arm; rotation only)"
+                ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([N] switch arm; rotation only)"
                 : _target == 3
                 ? "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)"
-                : "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)";
+                : _target == 4
+                ? "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)"
+                : "AXE HEAD size (shrink the blade vs the haft — PgUp/PgDn; cycle [B] to the axe)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
-            if (_target == 0 && _heldRig != null)
+            if (_target == 0)
             {
-                // 86caa83wn soak #4 — the offset is HAND-LOCAL END TO END (facing-independent). Show the rig's
-                // hand-local field DIRECTLY (no hand.rotation factor) so the panel value == what pastes into the
-                // hand-local constant HeldAxeLocalOffsetFromHand (a facing-invariant dial -> bake round-trip).
-                // Sensible ~cm units. The euler is hand-relative (turns with the hand through every facing).
-                Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept)
-                posLine = $"offsetFromHand=({local.x:F4}, {local.y:F4}, {local.z:F4})";
-                eulerLine = $"euler=({_heldRig.relEuler.x:F1}, {_heldRig.relEuler.y:F1}, {_heldRig.relEuler.z:F1})";
+                // 86cabh907 soak round 2 — per-weapon. NON-axe weapons show their mesh-holder offset+euler
+                // (bake into WeaponMeshLocalOffset/Euler[index]); the AXE shows the shared-seat rig fields
+                // (hand-local offset + hand-relative euler, facing-invariant).
+                if (_weaponCycle != null && _weaponCycle.CurrentIndex != 0)
+                {
+                    Vector3 o = _weaponCycle.CurrentOffset, e = _weaponCycle.CurrentEuler;
+                    posLine = $"offset=({o.x:F3}, {o.y:F3}, {o.z:F3})   scale={_weaponCycle.CurrentScale:F3}";
+                    eulerLine = $"euler=({e.x:F1}, {e.y:F1}, {e.z:F1})";
+                }
+                else if (_heldRig != null)
+                {
+                    Vector3 local = _heldRig.worldOffsetFromHand; // field IS the hand-local offset (name kept)
+                    posLine = $"offsetFromHand=({local.x:F4}, {local.y:F4}, {local.z:F4})";
+                    eulerLine = $"euler=({_heldRig.relEuler.x:F1}, {_heldRig.relEuler.y:F1}, {_heldRig.relEuler.z:F1})";
+                }
+                else { posLine = "(held weapon not found)"; eulerLine = ""; }
             }
             else if (_target == 1 && _stump != null)
             {
@@ -456,13 +545,23 @@ namespace FarHorizon
                     ? $"RUN ENGAGED ✓ weight={_armPose.RunWeight:F2} (judge now; dial Z MORE negative to lower the arm)"
                     : $"run weight={_armPose.RunWeight:F2} — RUN (Shift) to engage + judge; walk/idle untouched";
             }
-            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : _target == 4 ? "(arm pose not found)" : "(axe not found)"; eulerLine = ""; }
+            else if (_target == 5 && _weaponCycle != null)
+            {
+                // 86cabh907 soak round 2 — the AXE HEAD-size dial (one multiplicative channel). PgUp/PgDn = ±5%.
+                // Inert unless the axe is held; surface that so the Sponsor cycles [B] to the axe first.
+                bool axeHeld = _weaponCycle.CurrentIndex == 0;
+                posLine = $"axe head factor={_weaponCycle.AxeHeadFactor:F3}   (PgUp bigger / PgDn smaller; 1.000 = shipped)";
+                eulerLine = axeHeld
+                    ? "shrinks the BLADE vs the haft — read the factor to bake into the .blend head"
+                    : $"◄ held weapon is {_weaponCycle.CurrentLabel} — cycle [B] to the AXE to dial its head";
+            }
+            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : _target == 4 ? "(arm pose not found)" : "(weapon-cycle not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
-            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "AXE NUDGE TOOL  (debug — F9 to close)", _titleStyle);
+            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "WEAPON NUDGE TOOL  (debug — F9 to close)", _titleStyle);
             GUI.Label(new Rect(lx, y + 30f, lw, 20f),
-                "Dial the axe's position/angle in-game, then read the values to bake.", _hintStyle);
+                "Dial each weapon's position/angle (+axe head) in-game, then read the values to bake.", _hintStyle);
 
             GUI.Label(new Rect(lx, y + 56f, lw, 22f), "Editing: " + tgt, _style);
             // SOAKFIX10 — position + euler on their OWN lines so all three components of EACH are always
@@ -470,9 +569,9 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held / stump / arm / GROUND-Y / CLAMP    [B] right<->left arm (arm only)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe + GROUND-Y)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch(spread)   Y/H = yaw   U/J = roll(raise)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held weapon / stump / arm / GROUND-Y / RUN / AXE-HEAD    [N] right<->left arm", _hintStyle);
+            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe-head: PgUp/PgDn = ±size)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
             GUI.Label(new Rect(lx, y + 210f, lw, 20f),
                 "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
