@@ -17,7 +17,7 @@ namespace FarHorizon
     /// overlay). Serialized onto the Boot object editor-time (like the verify-capture siblings) so it ships,
     /// but stays asleep behind the toggle.
     ///
-    /// TARGETS (Tab to cycle): SKY (3 gradient stops), FOG (distance/density + colour, seam-kill PRESERVED
+    /// TARGETS ([K] to cycle — was Tab; Tab is the inventory toggle): SKY (3 gradient stops), FOG (distance/density + colour, seam-kill PRESERVED
     /// — the fog colour is kept == the skybox horizon stop on every nudge so the dissolve can't drift),
     /// CLOUDS (scale + altitude of every cloud), MOUNTAINS (distance + scale of every vista cluster).
     ///
@@ -36,8 +36,12 @@ namespace FarHorizon
         [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it. " +
                  "F10 (the AxeNudgeTool is on F9) so the two soak panels never collide.")]
         public KeyCode toggleKey = KeyCode.F10;
-        [Tooltip("Cycle the nudge target (Sky / Fog / Clouds / Mountains). Acts ONLY while this panel is active.")]
-        public KeyCode cycleKey = KeyCode.Tab;
+        // CYCLE-KEY REBIND (86cabh907 dial-tool round, Sponsor blocker #3): [Tab] is the inventory toggle, so
+        // the target-cycle moved to [K] (matches the sibling AxeNudgeTool; the two panels are mutually
+        // exclusive, so sharing the cycle key is safe). Acts ONLY while this panel is active.
+        [Tooltip("Cycle the nudge target (Sky / Fog / Clouds / Mountains). [K] (was [Tab]; Tab is inventory). " +
+                 "Acts ONLY while this panel is active.")]
+        public KeyCode cycleKey = KeyCode.K;
 
         public enum Target { Sky, Fog, Clouds, Mountains }
         private static readonly string[] TargetNames = { "SKY (gradient stops)", "FOG (distance + colour)",
@@ -148,7 +152,7 @@ namespace FarHorizon
         {
             if (_skyMat == null) return false;
             bool changed = false;
-            if (Input.GetKeyDown(KeyCode.Tab)) return false; // handled above
+            if (Input.GetKeyDown(cycleKey)) return false; // the target-cycle ([K]) is handled above
             if (Input.GetKeyDown(KeyCode.LeftBracket))  { _skyStop = (_skyStop + 2) % 3; LogCurrent(); }
             if (Input.GetKeyDown(KeyCode.RightBracket)) { _skyStop = (_skyStop + 1) % 3; LogCurrent(); }
 
@@ -389,7 +393,7 @@ namespace FarHorizon
                     l2 = "↑/↓ = distance   PgUp/Dn = peak scale   ←/→ = warmth   Home/End = brightness  (faceting=bake-time mesh 'sides')"; break;
             }
             GUI.Label(new Rect(lx, y + 80f, lw, 22f), l1, _style);
-            GUI.Label(new Rect(lx, y + 110f, lw, 20f), "[Tab] cycle target (sky / fog / clouds / mountains)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 110f, lw, 20f), "[K] cycle target (sky / fog / clouds / mountains)", _hintStyle);
             GUI.Label(new Rect(lx, y + 132f, lw, 20f), l2, _hintStyle);
             GUI.Label(new Rect(lx, y + 158f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
             GUI.Label(new Rect(lx, y + 182f, lw, 20f),

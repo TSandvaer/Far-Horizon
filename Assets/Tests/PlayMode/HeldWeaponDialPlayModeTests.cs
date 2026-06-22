@@ -189,5 +189,27 @@ namespace FarHorizon.PlayTests
             Object.Destroy(nudge.gameObject);
             Object.Destroy(cycleGo);
         }
+
+        // (4) The F9 nudge tool's TARGET-CYCLE key must NOT be Tab — Tab is the inventory toggle
+        // (InventoryUI.toggleKey), and the two conflicted (86cabh907 dial-tool round, Sponsor blocker #3).
+        // Catches the bug CLASS: any rebind of the nudge cycle back onto Tab (or onto the belt 1..9 / [B] / [N]
+        // / a dial key) reds here.
+        [Test]
+        public void NudgeTargetCycle_IsNotTheInventoryToggle_NorAGameplayKey()
+        {
+            var axeNudge = new GameObject("Boot").AddComponent<AxeNudgeTool>();
+            var worldNudge = new GameObject("BootW").AddComponent<WorldLookNudgeTool>();
+            Assert.AreNotEqual(KeyCode.Tab, axeNudge.cycleKey,
+                "the F9 nudge target-cycle must NOT be Tab (Tab is the inventory toggle — Sponsor blocker #3)");
+            Assert.AreNotEqual(KeyCode.Tab, worldNudge.cycleKey,
+                "the F10 world-look nudge target-cycle must NOT be Tab either (same inventory conflict)");
+            // Not a reserved gameplay / belt / dial key.
+            foreach (var reserved in new[] { KeyCode.B, KeyCode.N, KeyCode.Space, KeyCode.LeftShift,
+                KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.W, KeyCode.A, KeyCode.S, KeyCode.D })
+                Assert.AreNotEqual(reserved, axeNudge.cycleKey,
+                    "the nudge cycle key must be free of gameplay/belt keys (got " + axeNudge.cycleKey + ")");
+            Object.Destroy(axeNudge.gameObject);
+            Object.Destroy(worldNudge.gameObject);
+        }
     }
 }

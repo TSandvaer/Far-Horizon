@@ -12,8 +12,9 @@ namespace FarHorizon
     ///
     /// What it does:
     ///   • AC1 — Tab opens/closes the inventory pack (a 5×4 grid by default; count follows the model).
-    ///   • AC2 — a belt hotbar (default 5 slots) at bottom-center; number keys 1–N and mouse-scroll select;
-    ///           the selected slot wears the ember-gold rim (.slot--selected) + a small upward lift.
+    ///   • AC2 — a belt hotbar (default 5 slots) at bottom-center; number keys 1–N (or a tap on the bottom
+    ///           strip) select; the selected slot wears the ember-gold rim (.slot--selected) + a small upward
+    ///           lift. (The mouse-scroll -> belt binding was REMOVED in 86cabh907 — the wheel is camera zoom.)
     ///   • AC4 — selection drives the held item via the model (HeldAxe reads Inventory.IsAxeSelectedInBelt);
     ///           this view only visualizes the selection — the in-world axe coherence is the model's.
     ///   • AC6 — drag/move among inventory slots, down into the belt, reassign belt slots — every move goes
@@ -25,6 +26,7 @@ namespace FarHorizon
     /// keys here are read directly. (When the settings panel PR #83 lands its shared UiInputGate, the
     /// reconciliation PR routes both modal panels through it so locomotion is swallowed while open —
     /// cross-lane follow-up; on main today WasdMovement reads no gate, so the inventory does not regress it.)
+    /// The belt number-keys here are read directly; the wheel is NOT read here (it is camera zoom).
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): the UIDocument + UXML/USS + the Inventory
     /// reference are wired editor-time (MovementCameraScene) + serialized into Boot.unity. The Awake
@@ -121,10 +123,12 @@ namespace FarHorizon
                 }
             }
 
-            // AC2 — mouse-scroll cycles the selected belt slot (wraps at the ends).
-            float scroll = Input.mouseScrollDelta.y;
-            if (scroll > 0.01f) _model.CycleBelt(-1);   // scroll up -> previous slot
-            else if (scroll < -0.01f) _model.CycleBelt(+1); // scroll down -> next slot
+            // Belt selection is NUMBER-KEYS-ONLY (86cabh907 dial-tool round, Sponsor blocker #2). The
+            // mouse-scroll -> belt-slot binding was REMOVED: the wheel is the camera ZOOM (OrbitCamera reads
+            // Input.mouseScrollDelta on the same axis), so scrolling to zoom ALSO walked the belt selection —
+            // a conflict the Sponsor flagged as "not necessary." The wheel now only zooms; belt slots select
+            // via 1..N (above) and a tap on the bottom hotbar strip (BuildSlotRow selectsOnTap). InventoryModel
+            // .CycleBelt stays (used by tests + future rebindable input), it is just no longer wired to scroll.
 
             // Track the drag ghost to the cursor while dragging.
             if (_dragging && _dragGhost != null) PositionGhostAtMouse();

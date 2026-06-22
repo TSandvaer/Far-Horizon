@@ -88,8 +88,15 @@ namespace FarHorizon
         [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it. " +
                  "F9 (the WorldLookNudgeTool is on F10) so the two soak panels never collide.")]
         public KeyCode toggleKey = KeyCode.F9;
-        [Tooltip("Cycle the nudge target (held weapon -> stump axe -> arm pose -> ...).")]
-        public KeyCode cycleKey = KeyCode.Tab;
+        // CYCLE-KEY REBIND (86cabh907 dial-tool round, Sponsor blocker #3): the target-cycle was [Tab], which
+        // is the INVENTORY toggle (InventoryUI.toggleKey = Tab) — pressing Tab to step the nudge target ALSO
+        // opened/closed the inventory pack. Moved to [K] (a free key: not WASD/Space/Shift, not 1..9 belt, not
+        // the [B] weapon-cycle, not the [N] arm-switch, not the ]/[ ;/' dials, not the F7-F10 toggles, not the
+        // arrows/PgUp-Dn/TGYHUJ nudge keys, not the mouse-wheel zoom). The sibling WorldLookNudgeTool's cycle
+        // is rebound to [K] too — the two panels are mutually exclusive, so they can share the cycle key.
+        [Tooltip("Cycle the nudge target (held weapon -> stump axe -> arm -> GROUND-Y -> RUN -> AXE-HEAD). " +
+                 "[K] (was [Tab]; Tab is the inventory toggle, so they no longer conflict).")]
+        public KeyCode cycleKey = KeyCode.K;
         // [B]-CONFLICT FIX (86cabh907 soak round 2): the arm-switch was on [B], which ALSO cycles the held
         // weapon (HeldWeaponCycleDebug.cycleKey = B) — pressing [B] on the arm target fired BOTH. Moved to [N]
         // so [B] is solely the weapon-cycle (soak view) and [N] is solely the F9 arm right/left switch.
@@ -569,7 +576,7 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[Tab] held weapon / stump / arm / GROUND-Y / RUN / AXE-HEAD    [N] right<->left arm", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held weapon / stump / arm / GROUND-Y / RUN / AXE-HEAD    [N] right<->left arm", _hintStyle);
             GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe-head: PgUp/PgDn = ±size)", _hintStyle);
             GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
