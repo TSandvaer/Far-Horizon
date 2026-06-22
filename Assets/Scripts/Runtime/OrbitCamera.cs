@@ -187,8 +187,12 @@ namespace FarHorizon
 
         void LateUpdate()
         {
-            // RMB-drag orbit (legacy input, ported from the spike).
-            bool rmbHeld = Input.GetMouseButton(1);
+            // While a modal gameplay-UI panel is open (settings/inventory), swallow orbit + zoom + the
+            // RMB cursor-lock (UI Toolkit does NOT block legacy Input.* polling — research §E1): the Sponsor
+            // drags sliders with the cursor FREE, and the camera must not orbit/zoom under the panel. The
+            // follow (Apply, below) still runs so the camera keeps framing the player. rmbHeld is forced
+            // false so the cursor-lock edge releases to free+visible the frame the panel opens.
+            bool rmbHeld = !UiInputGate.CaptureWorldInput && Input.GetMouseButton(1);
 
             // 86caatv7k — CURSOR LOCK on the RMB press/release EDGE only (the decision lives in the pure-static
             // ResolveCursorForOrbit so the edge contract is unit-testable headlessly without Input/Cursor).
@@ -205,7 +209,7 @@ namespace FarHorizon
                 _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
             }
 
-            float scroll = Input.GetAxisRaw("Mouse ScrollWheel");
+            float scroll = UiInputGate.CaptureWorldInput ? 0f : Input.GetAxisRaw("Mouse ScrollWheel");
             if (Mathf.Abs(scroll) > 0.0001f)
             {
                 distance -= scroll * zoomSpeed;
