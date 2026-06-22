@@ -75,6 +75,10 @@ namespace FarHorizon
         private SlotRef _dragFrom;
         private ItemDef _dragDef;
 
+        /// <summary>USS class that hides a slot's item content (icon/chip/badge) while it is the SOURCE of an
+        /// active drag — so the item reads in ONE place (the #drag-ghost), not two (#90 dup-fix).</summary>
+        public const string DraggingSourceClass = "slot--dragging-source";
+
         void Awake()
         {
             if (document == null) document = GetComponent<UIDocument>();
@@ -352,11 +356,29 @@ namespace FarHorizon
 
             // Begin a drag only if the slot holds something.
             if (here.IsEmpty) return;
+            BeginDrag(slotRef);
+            slot.CapturePointer(e.pointerId);
+        }
+
+        /// <summary>
+        /// Start a drag from <paramref name="slotRef"/>: arm the drag state, raise the #drag-ghost carrying
+        /// the item, and DIM the source slot's content so the item reads in ONE place (the ghost), not two —
+        /// the #90 "duplicate" the Sponsor saw holding the mouse on the berries. Public lifecycle seam so an
+        /// EditMode/PlayMode test can drive a drag without synthesizing a captured-pointer device. No-op if
+        /// the model is missing or the slot is empty.
+        /// </summary>
+        public void BeginDrag(SlotRef slotRef)
+        {
+            if (_model == null) return;
+            ItemStack here = _model.At(slotRef);
+            if (here.IsEmpty) return;
             _dragging = true;
             _dragFrom = slotRef;
             _dragDef = here.Def;
             ShowGhost(here.Def);
-            slot.CapturePointer(e.pointerId);
+            // Dim EVERY view of the source ref (a belt slot is mirrored in the dock + the strip — dimming
+            // just the clicked element would still leave the item drawn in the mirror).
+            SetSourceDim(slotRef, true);
         }
 
         // BUG 1 (#90): while dragging, the SOURCE slot has pointer capture, so PointerMove fires on the
@@ -379,18 +401,30 @@ namespace FarHorizon
         {
             if (!_dragging) return;
             slot.ReleasePointer(e.pointerId);
+            EndDrag(e.position);
+        }
+
+        /// <summary>
+        /// End the active drag with a drop at <paramref name="dropPosition"/> (panel space): hide the ghost,
+        /// resolve + apply the move by POSITION (BUG 1 — the captured-pointer redirect makes the event target
+        /// the SOURCE, so position is the authoritative drop target), then RESTORE the source slot's content
+        /// — on a LANDED drop (RefreshAll repaints the now-empty source + the filled dest) AND on a CANCEL /
+        /// drop-outside (the item never left, so the source must read full again). Clearing the dim before
+        /// RefreshAll guarantees no permanent dim survives whether or not the move landed (no item lost, no
+        /// stuck dim). Public lifecycle seam (pairs with <see cref="BeginDrag"/>). Returns true iff a move
+        /// actually landed.
+        /// </summary>
+        public bool EndDrag(Vector2 dropPosition)
+        {
+            if (!_dragging) return false;
             HideGhost();
             ClearDropPreview();
-
-            // BUG 1 (#90): the captured-pointer redirect sends THIS PointerUp to the SOURCE slot, so the
-            // event target is the source — using it as the drop dest meant TryMove(from, from) = a same-slot
-            // no-op, which is why drag/move did nothing at runtime. Resolve the real drop TARGET by hit-
-            // testing the cursor position against the slot caches. ApplyDrop is pure + EditMode-testable.
-            ApplyDrop(_dragFrom, e.position);
-
+            bool moved = ApplyDrop(_dragFrom, dropPosition);
+            SetSourceDim(_dragFrom, false);
             _dragging = false;
             _dragDef = null;
             RefreshAll();
+            return moved;
         }
 
         /// <summary>
@@ -460,6 +494,47 @@ namespace FarHorizon
                 if (rects[i].Contains(panelPos))
                     return i;
             return -1;
+        }
+
+        // ============================================================================================
+        // Source-slot dim during drag (#90 dup-fix).
+        // ============================================================================================
+
+        /// <summary>
+        /// Toggle the source-dim class on EVERY painted view of <paramref name="slotRef"/> (#90 dup-fix). A
+        /// belt slot is mirrored in BOTH the docked row and the bottom strip — so a belt drag must dim both
+        /// mirrors or the item still draws in the un-dimmed one. Inventory slots have a single view. Public +
+        /// element-collection-driven so an EditMode test can assert the class lands on the source's view(s).
+        /// </summary>
+        private void SetSourceDim(SlotRef slotRef, bool on)
+        {
+            foreach (var el in SlotViews(slotRef))
+                el?.EnableInClassList(DraggingSourceClass, on);
+        }
+
+        /// <summary>Every painted VisualElement that renders <paramref name="slotRef"/>: the single grid cell
+        /// for an inventory ref, or BOTH the dock + strip cells for a belt ref (the two mirrors).</summary>
+        private IEnumerable<VisualElement> SlotViews(SlotRef slotRef)
+        {
+            if (slotRef.Area == SlotArea.Inventory)
+            {
+                if (slotRef.Index >= 0 && slotRef.Index < _invSlots.Count) yield return _invSlots[slotRef.Index];
+            }
+            else
+            {
+                if (slotRef.Index >= 0 && slotRef.Index < _beltDockSlots.Count) yield return _beltDockSlots[slotRef.Index];
+                if (slotRef.Index >= 0 && slotRef.Index < _beltStripSlots.Count) yield return _beltStripSlots[slotRef.Index];
+            }
+        }
+
+        /// <summary>Test seam (#90 dup-fix): true iff ANY painted view of <paramref name="slotRef"/> currently
+        /// carries the source-dim class. Lets an EditMode/PlayMode test assert dim-on-drag + restore-on-end
+        /// without poking USS-computed styles.</summary>
+        public bool IsSourceDimmed(SlotRef slotRef)
+        {
+            foreach (var el in SlotViews(slotRef))
+                if (el != null && el.ClassListContains(DraggingSourceClass)) return true;
+            return false;
         }
 
         private void ClearDropPreview()

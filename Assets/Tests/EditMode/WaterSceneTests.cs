@@ -184,9 +184,15 @@ namespace FarHorizon.EditTests
             var mr = water.GetComponent<MeshRenderer>();
             var mat = mr.sharedMaterial;
             Assert.IsNotNull(mat, "the ocean must have a material");
-            Assert.AreEqual("FarHorizon/LowPolyVertexColor", mat.shader.name,
-                "the ocean must render through FarHorizon/LowPolyVertexColor so the vertex-color teal " +
-                "gradient shows (URP/Lit IGNORES vertex color -> the old single-tone water)");
+            // TRANSPARENT DEPTH-FADE FOAM (ticket 86caamnmb): the ocean now rides the NEW
+            // FarHorizon/LowPolyWater shader (a Transparent-queue fork of LowPolyVertexColor with depth-fade
+            // foam + the PORTED _FogCap floor). It still carries the vertex-color teal gradient + the swell;
+            // the LowPolyVertexColor opaque shader is the headless fallback if the new one fails to resolve.
+            Assert.That(mat.shader.name,
+                Is.EqualTo("FarHorizon/LowPolyWater").Or.EqualTo("FarHorizon/LowPolyVertexColor"),
+                "the ocean must render through FarHorizon/LowPolyWater (transparent depth-fade foam, ticket " +
+                "86caamnmb) — or the LowPolyVertexColor fallback — so the vertex-color teal gradient shows " +
+                "(URP/Lit IGNORES vertex color -> the old single-tone water)");
 
             // The gentle swell is in-shader (_WaveAmp > 0). This is the WATER ONLY — the terrain/canopy
             // materials share this shader but leave _WaveAmp at its 0 default (so they don't wobble).

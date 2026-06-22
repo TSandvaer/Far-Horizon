@@ -222,6 +222,14 @@ namespace FarHorizon.EditorTools
             // it neither blocks the ground raycast nor the bake — the player walks up to it).
             BuildChopTree(player, groundLayer);
 
+            // 86caa5zz3: a wired BERRY BUSH near the loop centre — the food source for the merged hunger
+            // loop. The castaway walks up (no tool) and HARVESTS berries into the inventory; the berries
+            // regrow after a tweakable delay. Authored editor-time so the bush mesh + berries visual +
+            // BerryBush's Inventory/player refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A
+            // RELIABLE, fixed-position berry bush (vs the random scatter ones) so the PlayMode/shipped-build
+            // capture has a deterministic foraging target. No collider — the player walks up to harvest.
+            BuildBerryBush(player, groundLayer);
+
             // U2-4 (86ca8bdep): the campfire — the loop's CLOSE. A human-scale fire pit the castaway
             // click-moves to; arriving WITH WOOD (from the chop, U2-3) builds + lights it, and the lit
             // fire RESTORES warmth (U2-1's AddWarmth seam) while the castaway stands by it — warmth decays
@@ -1300,6 +1308,62 @@ namespace FarHorizon.EditorTools
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
             EditorUtility.SetDirty(bootGo);
+        }
+
+        // World position of the wired berry bush (86caa5zz3). Near the loop centre but off the craft
+        // spot (8,6) / tree (-9,-7) / fire (4,-8) so the foraging beat reads as its own spot. Inside the
+        // walkable extent + on the NavMesh; the capture/PlayMode can drive the player here to harvest.
+        public static readonly Vector3 BerryBushPosition = new Vector3(-6f, 0f, 7f);
+
+        // Berry-bush greens + berry red (86caa5zz3) — the same leafy-blob language as the world bushes
+        // (LowPolyZoneGen.Bush*), so the wired bush matches the scatter bushes. Baked into vertex colour.
+        private static readonly Color BushBody   = new Color(0.26f, 0.52f, 0.22f);
+        private static readonly Color BushTop    = new Color(0.44f, 0.70f, 0.30f);
+        private static readonly Color BushShadow = new Color(0.15f, 0.35f, 0.15f);
+        private static readonly Color BerryRed   = new Color(0.78f, 0.16f, 0.22f);
+
+        // A wired BERRY BUSH (86caa5zz3): a squat leafy blob dome (BushBlob) with a child "Berries" mesh
+        // (small red faceted spheres) + a BerryBush component (harvest+regrow+eat-bridge) wired to the
+        // scene Inventory + player. The castaway walks up (no tool — the stone-pickup idiom, not the
+        // axe-gated chop) and harvests berries into the inventory; berries regrow after a tweakable delay
+        // (the bush persists). Authored editor-time so the visual + the wired component SERIALIZE into
+        // Boot.unity (editor-vs-runtime trap). NO collider — the player walks up to harvest; never blocks
+        // the ground raycast or the NavMesh bake (built BEFORE the bake, collider-free).
+        private static void BuildBerryBush(GameObject player, int groundLayer)
+        {
+            var bush = new GameObject("BerryBush");
+            bush.transform.position = BerryBushPosition;
+
+            // Body: a squat leafy blob dome (the same idiom as the world scatter bushes / tree canopies).
+            const float bushR = 0.95f;
+            BuildBlobCanopyPart(bush, "BushBody",
+                LowPolyMeshes.BushBlob(bushR, 5, BushBody, BushTop, BushShadow, 53117), Vector3.zero);
+
+            // Berries: a SEPARATE child so BerryBush toggles JUST the berries on harvest/regrow (the bush
+            // body persists). MANY small dense red faceted spheres STUDDING the dome (vertex-colour red —
+            // same material) so the deterministic capture bush reads as berries, not flowers (#101 soak-fix).
+            var berries = new GameObject("Berries");
+            berries.transform.SetParent(bush.transform, false);
+            berries.transform.localPosition = Vector3.zero;
+            BuildBlobCanopyPart(berries, "BerriesMesh",
+                LowPolyMeshes.BerryCluster(bushR, 26, BerryRed, 53119), Vector3.zero);
+
+            var bb = bush.AddComponent<BerryBush>();
+            bb.hasBerries = true;
+            bb.berriesVisual = berries.transform;
+            bb.player = player.transform;
+            bb.inventory = Object.FindObjectOfType<Inventory>();
+            // Wire the HungerNeed editor-time (serialized) so the no-arg EatBerry() never does a per-use
+            // FindObjectOfType in the build (BootstrapProject adds Survival/HungerNeed before this runs).
+            bb.hunger = Object.FindObjectOfType<HungerNeed>();
+            bb.regrowSeed = 53121; // deterministic regrow roll so headless/capture behavior is stable
+            if (bb.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire BerryBush to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored BerryBush at " + BerryBushPosition +
+                      " (inventory wired: " + (bb.inventory != null) + ", berries visual wired: " +
+                      (bb.berriesVisual != null) + ")");
         }
 
         // World position of the campfire fire-pit on the flat test ground (U2-4, 86ca8bdep). Distinct from

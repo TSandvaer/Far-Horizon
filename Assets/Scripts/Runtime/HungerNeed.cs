@@ -42,6 +42,14 @@ namespace FarHorizon
         public const float HungerMedDecayPerSecond  = 0.35f;  // the default tier; < warmth's 0.55
         public const float HungerHardDecayPerSecond = 0.60f;
 
+        // #101 EAT-REFILL FIX: hunger ships PRESSURED-WITH-HEADROOM (not startFull) so eating a berry
+        // VISIBLY refills the bar. 0.55 -> ~5 of 10 segments at spawn; a berry's berryRestoreAmount (18 of
+        // 100 = ~2 segments) climbs to ~7, an unmistakable on-screen change. Higher than the floor (0.05)
+        // and below full so there's room both to decay into AND to refill into. The bootstrap authors this
+        // onto the serialized component (Reset() doesn't run on a headless AddComponent); kept as a const so
+        // the bootstrap + the EditMode default-guard read ONE source (matches the decay-const pattern above).
+        public const float HungerStartFraction01 = 0.55f;
+
         /// <summary>Editor-time defaults when the component is first added — hunger decays SLOWER than
         /// warmth. Runtime still honors a serialized inspector/scene override (unity6-mastery §5); the
         /// bootstrap authors the same values so the shipped scene carries the slower pressure.</summary>
@@ -51,6 +59,9 @@ namespace FarHorizon
             medDecayPerSecond  = HungerMedDecayPerSecond;
             hardDecayPerSecond = HungerHardDecayPerSecond;
             decayPerSecond     = HungerMedDecayPerSecond; // start on the medium tier
+            // #101 EAT-REFILL FIX: ship pressured-with-headroom so an eat VISIBLY refills (see HungerStartFraction01).
+            startFull       = false;
+            startFraction01 = HungerStartFraction01;
         }
 
         /// <summary>

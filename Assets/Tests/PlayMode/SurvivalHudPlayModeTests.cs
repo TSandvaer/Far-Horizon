@@ -22,6 +22,7 @@ namespace FarHorizon.PlayTests
     {
         private GameObject _go;
         private WarmthNeed _warmth;
+        private HungerNeed _hunger;
         private Inventory _inventory;
         private SurvivalHud _hud;
 
@@ -37,10 +38,19 @@ namespace FarHorizon.PlayTests
             _warmth.floor01 = 0.05f;
             _warmth.startFull = true;
 
+            // #101: a HUNGER need wired to the HUD's new hunger bar. Fast decay (same rationale as warmth).
+            _hunger = _go.AddComponent<HungerNeed>();
+            _hunger.max = 100f;
+            _hunger.decayPerSecond = 30f;
+            _hunger.floor01 = 0.05f;
+            _hunger.startFull = true;
+            _hunger.berryRestoreAmount = 18f;
+
             _inventory = _go.AddComponent<Inventory>();
 
             _hud = _go.AddComponent<SurvivalHud>();
             _hud.warmth = _warmth;       // wire exactly as BootstrapProject does (serialized ref analogue)
+            _hud.hunger = _hunger;       // #101: the hunger bar's wired need
             _hud.inventory = _inventory;
         }
 
@@ -100,6 +110,36 @@ namespace FarHorizon.PlayTests
                 "after AddWood(3) the HUD's WIRED inventory reads WoodCount == 3 (wood slot tracks live)");
 
             yield return null;
+        }
+
+        // === #101: the HUNGER bar tracks the live hunger need — depletes on decay, REFILLS on eating ====
+        // This is the loop-verify guard: the player must SEE hunger deplete + refill. Bound to the SAME
+        // pinned FilledSegments rule the bar draws with, computed from the WIRED hud.hunger reference.
+        [UnityTest]
+        public IEnumerator Hud_HungerSegments_DepleteOnDecay_AndRefillOnEat_OverARealWindow()
+        {
+            yield return null; // Start() seeds hunger _current = max + the tick clock
+
+            int litFull = SurvivalHud.FilledSegments(_hud.hunger.Current01);
+            Assert.GreaterOrEqual(litFull, SurvivalHud.SegmentCount - 1,
+                "at (near-)full hunger the HUD lights ~all hunger segments (from the WIRED live need); " +
+                $"lit={litFull} Current01={_hud.hunger.Current01:0.000}");
+
+            // Decay over a REAL Time.time window — the hunger bar empties tracking the live need.
+            float start = Time.time;
+            while (Time.time - start < 2f) yield return null;
+
+            int litAfter = SurvivalHud.FilledSegments(_hud.hunger.Current01);
+            Assert.Less(litAfter, litFull,
+                "after a real decay window the HUD lights FEWER hunger segments (the bar empties tracking " +
+                $"the live need; full={litFull} -> after={litAfter}, Current01={_hud.hunger.Current01:0.00})");
+
+            // Eat (the restore seam the eat-input drives) — the bar REFILLS, the player sees hunger recover.
+            _hunger.AddFood();
+            int litAfterEat = SurvivalHud.FilledSegments(_hud.hunger.Current01);
+            Assert.Greater(litAfterEat, litAfter,
+                "after eating, the HUD lights MORE hunger segments — the bar refills on the restore seam " +
+                $"(after-decay={litAfter} -> after-eat={litAfterEat})");
         }
 
         private static void AssertSameColor(Color expected, Color actual, string msg)

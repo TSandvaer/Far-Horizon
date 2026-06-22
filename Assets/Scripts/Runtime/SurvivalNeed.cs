@@ -49,6 +49,15 @@ namespace FarHorizon
         [Tooltip("Start at max on Start(). The castaway begins merely pressured, not at the floor.")]
         public bool startFull = true;
 
+        [Tooltip(
+            "When startFull is OFF, seed the need at this fraction of max on Start() (0..1). Default 0 " +
+            "(preserves the historic startFull=false -> empty-at-start contract the tests rely on). A need " +
+            "that should START PRESSURED-BUT-WITH-HEADROOM (e.g. hunger, so eating a berry VISIBLY refills " +
+            "the bar instead of clamping against an already-full max) sets startFull=false + a mid value " +
+            "like 0.55. Ignored entirely when startFull is ON.")]
+        [Range(0f, 1f)]
+        public float startFraction01 = 0f;
+
         [Header("Decay")]
         [Tooltip(
             "ACTIVE decay lost per second. This is the single field the decay path + tests read; the " +
@@ -105,7 +114,10 @@ namespace FarHorizon
 
         protected virtual void Start()
         {
-            _current = startFull ? max : _current;
+            // startFull -> seed at max. Otherwise seed at startFraction01*max (default 0 preserves the
+            // historic "startFull=false -> empty" contract; a pressured-with-headroom need like hunger
+            // sets a mid fraction so a satisfaction hook VISIBLY refills the bar — #101 eat-refill fix).
+            _current = startFull ? max : Mathf.Clamp01(startFraction01) * max;
             _lastTickTime = Time.time;
             _started = true;
             // Announce the initial value so a HUD that subscribed before Start() paints immediately.

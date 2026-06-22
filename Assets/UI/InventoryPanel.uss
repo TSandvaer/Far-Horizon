@@ -228,6 +228,17 @@
     padding-bottom: 6px;
 }
 
+/* SOURCE slot of an active drag (#90 dup-fix): hide the slot's item content while the drag-ghost
+ * carries it, so the item reads in ONE place (the ghost), not two (source + ghost). The slot WELL
+ * stays visible (it's where the item came from); only its icon/chip/badge go invisible. visibility
+ * (not display:none) keeps the cell's layout box so worldBound stays valid for the cursor hit-test
+ * (BUG 1 drop resolution depends on the source slot's rect). Restored on drop OR cancel. */
+.slot--dragging-source .slot__icon,
+.slot--dragging-source .slot__chip,
+.slot--dragging-source .slot__badge {
+    visibility: hidden;
+}
+
 /* The dragged-icon ghost that follows the cursor (direction §4.2) */
 .drag-ghost {
     position: absolute;
