@@ -493,7 +493,7 @@ namespace FarHorizon
                 ? "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)"
                 : _target == 4
                 ? "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)"
-                : "AXE HEAD size (shrink the blade vs the haft — PgUp/PgDn; cycle [B] to the axe)";
+                : "AXE HEAD size (resize the whole head uniformly — PgUp/PgDn; cycle [B] to the axe)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -559,7 +559,7 @@ namespace FarHorizon
                 bool axeHeld = _weaponCycle.CurrentIndex == 0;
                 posLine = $"axe head factor={_weaponCycle.AxeHeadFactor:F3}   (PgUp bigger / PgDn smaller; 1.000 = shipped)";
                 eulerLine = axeHeld
-                    ? "shrinks the BLADE vs the haft — read the factor to bake into the .blend head"
+                    ? "resizes the WHOLE head uniformly (shape kept) — read the factor to bake into the .blend head"
                     : $"◄ held weapon is {_weaponCycle.CurrentLabel} — cycle [B] to the AXE to dial its head";
             }
             else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : _target == 4 ? "(arm pose not found)" : "(weapon-cycle not found)"; eulerLine = ""; }

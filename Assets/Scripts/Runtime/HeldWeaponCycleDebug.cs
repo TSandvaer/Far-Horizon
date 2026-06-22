@@ -63,34 +63,38 @@ namespace FarHorizon
         [Tooltip("Per-keypress multiplicative scale step for the live dial (1.05 = +5% up / -5% down).")]
         public float scaleStep = 1.05f;
 
-        // LIVE AXE HEAD-SIZE DIAL (86cabh907 soak round 2 — "axe head still too big, head proportion isn't a
-        // uniform scale"). The whole-weapon scale dial ([ ]) scales the ENTIRE axe uniformly; it cannot shrink
-        // the HEAD relative to the handle. This separate dial scales ONLY the axe BLADE-CLUSTER vertices (the
-        // head) toward the eye, leaving the haft length + grip-point origin + forward axis untouched — so the
-        // Sponsor dials the head proportion by eye in-game. It operates on a per-instance CLONE of the held
-        // mesh (never the shared asset), so it is reversible and safe. ONLY the axe has a head; on knife/sword/
-        // spear the dial is inert. The Sponsor reads the factor off the HUD/log to bake into the .blend head
-        // re-author later (this round does NOT bake — OOS). Keys chosen free in normal play + outside the F9
-        // AxeNudgeTool's key set (F9/Tab/N/arrows/PgUp-Dn/TGYHUJ/Shift/Ctrl) and the [ ]/= - scale dial:
+        // LIVE AXE HEAD-SIZE DIAL — REWRITTEN for the 86cabh907 "STOP chipping" blocker (Sponsor: "everytime
+        // you make the axe head smaller it looks worse. its like youre chipping off the axe head instead of
+        // just resizing it"). The OLD dial classified a vertex SUBSET (off-centreline "blade" verts in the
+        // upper haft) and scaled THAT subset toward an eye pivot — leaving the head-base/junction verts that
+        // failed the subset test UNMOVED while the classified verts pulled inward, which SQUISHED/FLATTENED the
+        // head into a sliver (the chipping). The NEW dial treats the WHOLE head as ONE rigid unit:
+        //   - The head = EVERY vert ABOVE the head<->haft junction along the haft axis (bl_15 cut the head as a
+        //     clean island at JUNCTION_FRACTION of the haft span). Not a subset; the entire head.
+        //   - It scales those verts UNIFORMLY (x==y==z, one factor — Vector3.one * factor) about the junction
+        //     point on the haft centreline. A uniform scale of a coherent unit PRESERVES the head's shape and
+        //     proportions (a true resize), so shrinking can never chip again.
+        // The haft length, grip-point origin, and +Z forward axis are untouched (everything at/below the
+        // junction is the haft and never moves). Operates on a per-instance CLONE (never the shared asset), so
+        // it is reversible. ONLY the axe has a head; knife/sword/spear are inert. The Sponsor reads the factor
+        // off the HUD/log to bake into the .blend default later (this round does NOT bake — OOS). Keys free in
+        // normal play + outside the F9 AxeNudgeTool key set (F9/Tab/N/arrows/PgUp-Dn/TGYHUJ/Shift/Ctrl) and the
+        // [ ]/= - scale dial:
         //   ' (apostrophe)  -> head SMALLER (-5%)
         //   ; (semicolon)   -> head BIGGER  (+5%)
         public KeyCode headSmallerKey = KeyCode.Quote;      // '
         public KeyCode headBiggerKey = KeyCode.Semicolon;   // ;
-        [Tooltip("Per-keypress multiplicative head-size step for the axe head dial (1.05 = +5%/-5%).")]
+        [Tooltip("Per-keypress multiplicative head-size step for the axe head dial (1.05 = +5%/-5%). UNIFORM " +
+                 "scale (x==y==z) of the whole head about the junction.")]
         public float headStep = 1.05f;
-        [Tooltip("Local-mesh-space |X| threshold (after FBX import) above which a vertex belongs to the axe " +
-                 "BLADE CLUSTER (the head), not the haft core. 0.06 cleanly selects the 44 blade verts vs the " +
-                 "72 haft-core verts (Blender-probed in art-src/weapon-pack/weapon_set_src.blend). Resolved " +
-                 "against the imported mesh's blade-bulge axis at runtime; this is the fraction of the mesh's " +
-                 "half-width on that axis.")]
-        public float headBladeFraction = 0.30f;
-        [Tooltip("#100 head-dial fix: the BLADE head sits in the UPPER part of the haft. A vert is a head vert " +
-                 "only if its haft-axis coord is above haftMin + headHaftTopFraction × haftSpan (i.e. in the " +
-                 "top (1 − this) of the haft) AND it is off the haft centreline (headBladeFraction). 0.5 = the " +
-                 "top half of the haft — on wpn_axe_01 this + the blade test isolates ~139/359 verts (the real " +
-                 "head) instead of the old single-test 283/359 (most of the axe). Lower to include more of the " +
-                 "haft as 'head'; raise to tighten onto just the blade tip.")]
-        public float headHaftTopFraction = 0.5f;
+        [Tooltip("STOP-chipping head-dial: the head<->haft junction expressed as a FRACTION of the haft (long) " +
+                 "axis span (haftMin + this × haftSpan). bl_15 cut the clean head as an island whose base sits " +
+                 "at this fraction; EVERY vert ABOVE it (along the haft axis) is the whole head and is scaled " +
+                 "UNIFORMLY about the junction — no off-centreline subset test (that was the chipping). On the " +
+                 "imported wpn_axe_01 (grip z=0, haft to z=1.0, head base z=0.62) this is 0.62 — fraction-based " +
+                 "so it survives the FBX height-normalization. Lower to include more haft as 'head'; raise to " +
+                 "lift the junction toward the head tip.")]
+        public float headJunctionFraction = 0.62f;
 
         // The four family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names =
         // the FBX file-name-without-extension; see WeaponPackAssetGen.BuildLineupPrefab). Order = cycle order.
@@ -163,15 +167,16 @@ namespace FarHorizon
         private Vector3[] _liveOffset;
         private Vector3[] _liveEuler;
 
-        // LIVE AXE HEAD-SIZE dial (86cabh907 soak round 2). The held axe FBX is a SINGLE mesh; to shrink only
-        // the HEAD relative to the haft we clone the axe mesh per-instance and scale the blade-cluster verts
-        // toward the eye by this live factor. _axeHeadFactor=1 == the shipped (already 0.8x-baked) head; the
-        // Sponsor dials it DOWN further by eye and reports the factor to bake into the .blend.
+        // LIVE AXE HEAD-SIZE dial (86cabh907 STOP-chipping rewrite). The held axe FBX is a SINGLE mesh; bl_15
+        // cut the head as a clean island whose base is the head<->haft junction. To resize the head we clone
+        // the axe mesh per-instance and scale the WHOLE head (every vert above the junction) UNIFORMLY about
+        // the junction by this live factor. _axeHeadFactor=1 == the shipped (clean 0.8x-baked) head; the
+        // Sponsor dials it DOWN further by eye and reports the factor to bake into the .blend default.
         private float _axeHeadFactor = 1f;
         private Mesh _axeHeadDialMesh;          // per-instance clone we deform (never the shared asset)
         private Vector3[] _axeBaseVerts;        // the axe mesh's ORIGINAL local verts (factor=1 baseline)
-        private int[] _axeHeadVertIdx;          // indices of the blade-cluster (head) verts in _axeBaseVerts
-        private Vector3 _axeHeadPivot;          // local-space eye the head verts scale toward
+        private int[] _axeHeadVertIdx;          // indices of the WHOLE head (verts above the junction) in _axeBaseVerts
+        private Vector3 _axeHeadPivot;          // the head<->haft junction point (uniform scale is about THIS)
         private bool _axeHeadResolved;
 
         /// <summary>The currently-held weapon index (0=axe,1=knife,2=sword,3=spear) — read by the F9 tool so
@@ -412,12 +417,12 @@ namespace FarHorizon
             }
         }
 
-        // Resolve the axe head dial: capture the axe mesh's original verts, classify the BLADE-CLUSTER (head)
-        // verts vs the haft core, and compute the eye pivot the head scales toward. Lazy (first head dial).
-        // The blade-bulge axis = the local mesh axis with the LARGEST asymmetric extent off the haft centre
-        // (the head fans out along it). Verts whose |coord on that axis| exceeds headBladeFraction × the
-        // half-extent are the head; the rest are the haft core. The pivot is the eye: the head verts' centroid
-        // projected back onto the haft axis (so scaling toward it shrinks the blade while keeping it on the haft).
+        // Resolve the axe head dial (STOP-chipping rewrite): capture the axe mesh's original verts, identify the
+        // WHOLE head (every vert ABOVE the head<->haft junction along the haft axis — bl_15 cut the head as a
+        // clean island whose base is the junction), and compute the junction point the whole head scales
+        // UNIFORMLY about. Lazy (first head dial). NO off-centreline subset test — that subset/directional scale
+        // WAS the chipping (it squished the head into a sliver by moving only some verts). The head is treated
+        // as ONE rigid unit and scaled uniformly, so its shape/proportions are preserved on every resize.
         private void ResolveAxeHead()
         {
             _axeHeadResolved = true;
@@ -426,7 +431,8 @@ namespace FarHorizon
             int n = _axeBaseVerts.Length;
             if (n == 0) return;
 
-            // Mesh-local bounds centre + per-axis extent.
+            // Mesh-local bounds → the haft is the LONG axis (grip..haft-top). The junction sits at
+            // headJunctionFraction of that span; everything ABOVE it is the whole head.
             Vector3 bMin = _axeBaseVerts[0], bMax = _axeBaseVerts[0];
             for (int i = 1; i < n; i++)
             {
@@ -435,58 +441,33 @@ namespace FarHorizon
             }
             Vector3 ext = (bMax - bMin) * 0.5f;
             Vector3 ctr = (bMax + bMin) * 0.5f;
-            // The HAFT is the long thin axis (largest extent); the BLADE bulges along a SHORT axis. Pick the
-            // blade axis = the axis (other than the longest) along which verts spread most asymmetrically. In
-            // the imported axe the haft runs along local-Y (height); the blade fans along local-X. Choose the
-            // axis with the SMALLEST extent-vs-others that still carries a clear off-centre cluster: simplest
-            // robust pick = the axis perpendicular to the longest, with the larger remaining extent.
             int longAxis = (ext.x >= ext.y && ext.x >= ext.z) ? 0 : (ext.y >= ext.z ? 1 : 2);
-            int a1 = (longAxis + 1) % 3, a2 = (longAxis + 2) % 3;
-            int bladeAxis = (Comp(ext, a1) >= Comp(ext, a2)) ? a1 : a2;
-            float halfExt = Comp(ext, bladeAxis);
 
-            // #100 HEAD-DIAL FIX (addendum — "axe head still too big" + the head dial "did nothing"). The OLD
-            // classifier called a vert "head" by a SINGLE test: its offset on the blade axis exceeds
-            // headBladeFraction × the half-extent. On the real wpn_axe_01 (359 verts) that mis-classified
-            // 283/359 verts (79% — nearly the WHOLE axe, haft included) as "head" — empirically probed — so
-            // dialing the head "smaller" shrank ~80% of the mesh toward a pivot (a near-uniform shrink, NOT a
-            // head-vs-haft proportion change), which reads as "nothing changed / head still too big".
-            //
-            // The blade HEAD physically sits in the UPPER portion of the haft AND fans OFF the haft centreline.
-            // So a head vert must satisfy BOTH: (a) upper-haft — its haft-axis coord is in the top
-            // (1 - headHaftTopФraction) of the haft span; AND (b) off-centreline — its blade-axis offset from
-            // the haft centreline exceeds headBladeFraction × halfExt. This isolates the real blade cluster
-            // (~139/359 on the shipped axe) and leaves the handle + grip untouched, so the dial visibly shrinks
-            // the HEAD relative to the haft (the Sponsor's intent). The pivot is the head centroid pulled onto
-            // the haft centreline at its OWN haft-axis height, so the head shrinks in place toward the handle.
             float haftMin = Comp(bMin, longAxis), haftMax = Comp(bMax, longAxis);
             float haftSpan = Mathf.Max(1e-4f, haftMax - haftMin);
-            float upperCut = haftMin + haftSpan * headHaftTopFraction; // verts ABOVE this are upper-haft
-            float refCentre = Comp(ctr, bladeAxis);
-            float bladeThresh = headBladeFraction * Mathf.Max(1e-4f, halfExt);
+            float junctionCoord = haftMin + haftSpan * headJunctionFraction; // head base along the haft axis
+
+            // The WHOLE head = every vert above the junction along the haft axis (NOT an off-centreline subset).
             var idx = new System.Collections.Generic.List<int>(n);
-            Vector3 headSum = Vector3.zero;
             for (int i = 0; i < n; i++)
-            {
-                bool upper = Comp(_axeBaseVerts[i], longAxis) >= upperCut;
-                float bladeOff = Mathf.Abs(Comp(_axeBaseVerts[i], bladeAxis) - refCentre);
-                if (upper && bladeOff > bladeThresh) { idx.Add(i); headSum += _axeBaseVerts[i]; }
-            }
+                if (Comp(_axeBaseVerts[i], longAxis) > junctionCoord) idx.Add(i);
             _axeHeadVertIdx = idx.ToArray();
             if (_axeHeadVertIdx.Length == 0) return;
 
-            // Pivot = the head centroid pulled onto the HAFT centre line (blade-axis coord = the haft's coord),
-            // so scaling the head verts toward it shrinks the BLADE in-plane while keeping it attached on the
-            // haft (the long-axis / depth coords stay at the head centroid → shrinks the head, not down the handle).
-            Vector3 headCtr = headSum / _axeHeadVertIdx.Length;
-            _axeHeadPivot = headCtr;
-            SetComp(ref _axeHeadPivot, bladeAxis, refCentre); // on the haft centre line, not off toward the blade
-            Debug.Log($"[HeldWeaponCycleDebug] axe head dial resolved: {_axeHeadVertIdx.Length}/{n} blade verts " +
-                      $"(longAxis={longAxis}, bladeAxis={bladeAxis}, upperCut={upperCut:F3}, bladeThresh={bladeThresh:F4}), " +
+            // Junction pivot = on the haft CENTRELINE (the off-haft axes take the bounds-centre so the pivot is
+            // the haft axis) at the junction coord along the haft axis. Uniform-scaling the whole head about
+            // THIS keeps the head's base seated on the haft while the head resizes coherently (shape preserved).
+            _axeHeadPivot = ctr;
+            SetComp(ref _axeHeadPivot, longAxis, junctionCoord);
+            Debug.Log($"[HeldWeaponCycleDebug] axe head dial resolved (UNIFORM, whole-head): " +
+                      $"{_axeHeadVertIdx.Length}/{n} head verts above junction " +
+                      $"(longAxis={longAxis}, junctionFraction={headJunctionFraction:F2}, junctionCoord={junctionCoord:F3}), " +
                       $"pivot={_axeHeadPivot.ToString("F3")}");
         }
 
         // Apply the live head factor to the per-instance clone (never the shared asset) + re-display it.
+        // UNIFORM scale (x==y==z = Vector3.one * factor) of the WHOLE head about the junction — the head resizes
+        // as a coherent unit; its proportions are preserved (no axis-squish, no chipping).
         private void ApplyAxeHead()
         {
             if (_axeBaseVerts == null || _axeHeadVertIdx == null) return;
@@ -497,11 +478,12 @@ namespace FarHorizon
             }
             var verts = (Vector3[])_axeBaseVerts.Clone();
             foreach (int i in _axeHeadVertIdx)
-                verts[i] = _axeHeadPivot + (_axeBaseVerts[i] - _axeHeadPivot) * _axeHeadFactor;
+                verts[i] = _axeHeadPivot + (_axeBaseVerts[i] - _axeHeadPivot) * _axeHeadFactor; // uniform x==y==z
             _axeHeadDialMesh.vertices = verts;
             _axeHeadDialMesh.RecalculateBounds();
             // Do NOT RecalculateNormals — the faceted flat-shaded normals are load-bearing (lowpoly-quality.md
-            // §1). Scaling toward a pivot preserves face planarity, so the baked per-face normals stay valid.
+            // §1). A UNIFORM scale about a point preserves every face's planarity AND its normal DIRECTION, so
+            // the baked per-face normals stay valid (a non-uniform/axis scale would NOT — another reason uniform).
             if (_index == 0 && _meshHolder != null) _meshHolder.sharedMesh = _axeHeadDialMesh;
         }
 

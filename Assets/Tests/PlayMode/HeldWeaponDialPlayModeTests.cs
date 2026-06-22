@@ -8,8 +8,9 @@ using FarHorizon;
 namespace FarHorizon.PlayTests
 {
     /// <summary>
-    /// PlayMode coverage for the 86cabh907 soak-ROUND-2 weapon dial handles, REWORKED for the #100 soak bugs
-    /// (the dial mutated DATA the rendered weapon never picked up — the test tested the wrong layer):
+    /// PlayMode coverage for the 86cabh907 weapon dial handles, REWORKED for the "STOP chipping" blocker
+    /// (Sponsor: "everytime you make the axe head smaller it looks worse. its like youre chipping off the axe
+    /// head instead of just resizing it"):
     ///
     ///   1. The generalized HELD-weapon nudge actually MOVES the rendered mesh-holder transform for a NON-axe
     ///      weapon — AND that move SURVIVES a HeldToolRig.LateUpdate frame. #100 root cause: the in-house axe
@@ -18,37 +19,57 @@ namespace FarHorizon.PlayTests
     ///      STOMPED next frame and the F9 nudge "did nothing" for knife/sword/spear. The fix re-homes the mesh
     ///      onto a child the rig never touches; this test reproduces the rig-on-root topology and asserts the
     ///      VISIBLE holder localPosition/localRotation changed after the nudge AND after a rig frame.
-    ///   2. The axe HEAD-size dial shrinks the rendered BLADE-CLUSTER verts toward the eye WHILE the GRIP/haft
-    ///      verts stay anchored (the Sponsor's "head still too big, head proportion isn't a uniform scale").
-    ///      It operates on a per-instance CLONE, never the shared asset.
+    ///   2. The axe HEAD-size dial resizes the WHOLE head UNIFORMLY about the head<->haft junction — it scales
+    ///      the head's bounding box by the SAME factor on EVERY axis (no axis-squish) and PRESERVES the head's
+    ///      aspect ratio, WHILE the grip/haft below the junction stays anchored. This is the STOP-chipping
+    ///      contract: the OLD dial classified an off-centreline blade SUBSET and scaled it toward an eye pivot,
+    ///      squishing the head into a sliver. A regression back to a non-uniform / subset scale (head aspect
+    ///      ratio changes, or one axis squishes more than another) reds here. Operates on a per-instance CLONE.
     ///   3. The [B] (weapon-cycle) and [N] (F9 arm-switch) bindings are DISTINCT — the soak-round-2 conflict fix.
     ///
     /// These catch the bug CLASS, not the instance: a regression that lets the rig stomp the per-weapon nudge,
-    /// or makes the head dial scale uniformly (moving the grip), or makes the non-axe nudge a no-op, reds here.
+    /// or makes the head dial NON-uniform / squish the head / move the grip, or makes the non-axe nudge a
+    /// no-op, reds here.
     /// </summary>
     public class HeldWeaponDialPlayModeTests
     {
-        // A taller "axe-like" mesh: a HAFT column of verts along +Y from the grip (y=0) to the top, plus a
-        // BLADE cluster offset along +X near the TOP (the head). The #100 head-dial must shrink ONLY the
-        // upper-haft off-centreline blade verts, leaving the grip + lower haft anchored.
+        // The head<->haft junction fraction the dial cuts at (matches HeldWeaponCycleDebug.headJunctionFraction
+        // default 0.62 — bl_15 cuts the head island at z=0.62 of the haft). For the synthetic mesh below the
+        // haft runs y=0..2.0, so the junction is at y = 0.62*2.0 = 1.24: verts above that are the WHOLE head.
+        private const float JunctionFraction = 0.62f;
+
+        // A taller "axe-like" mesh whose HEAD is a clean island ABOVE the head<->haft junction (a coherent
+        // box-ish head with distinct width/height/depth so an aspect-ratio check is meaningful), plus a HAFT
+        // column from the grip (y=0) up THROUGH the junction. The STOP-chipping head dial must resize the WHOLE
+        // head (every vert above the junction) UNIFORMLY — preserving its aspect ratio — and leave the
+        // grip/lower-haft anchored.
         private static Mesh MakeAxeLikeMesh()
         {
             var m = new Mesh { name = "synthetic_axe" };
             var verts = new Vector3[]
             {
-                // grip + lower haft (x ~ 0; bottom of the Y span — must NOT move when the head shrinks)
+                // --- HAFT / grip: below the junction (y = 1.24). These must NOT move when the head resizes. ---
                 new Vector3(0f, 0.0f, 0f), new Vector3(0.02f, 0.4f, 0f), new Vector3(-0.02f, 0.8f, 0f),
-                new Vector3(0f, 1.2f, 0f),
-                // upper haft core (still near centreline — also stays put)
-                new Vector3(0.02f, 1.7f, 0f), new Vector3(-0.02f, 2.0f, 0f),
-                // blade cluster (large +X off the haft, UPPER Y — the head; must shrink toward the eye)
-                new Vector3(0.40f, 1.8f, 0.05f), new Vector3(0.45f, 1.9f, -0.05f),
-                new Vector3(0.42f, 2.0f, 0.05f), new Vector3(0.38f, 1.7f, -0.05f),
+                new Vector3(0f, 1.1f, 0f),
+                // --- HEAD: a coherent box ABOVE the junction (y 1.4..2.0; x -0.30..0.30; z -0.06..0.06). A clear
+                //     width(0.60) != height(0.60) != depth(0.12) so a UNIFORM resize is provable by aspect ratio.
+                new Vector3(-0.30f, 1.4f, -0.06f), new Vector3(0.30f, 1.4f, -0.06f),
+                new Vector3(0.30f, 1.4f,  0.06f), new Vector3(-0.30f, 1.4f, 0.06f),
+                new Vector3(-0.30f, 2.0f, -0.06f), new Vector3(0.30f, 2.0f, -0.06f),
+                new Vector3(0.30f, 2.0f,  0.06f), new Vector3(-0.30f, 2.0f, 0.06f),
             };
             m.vertices = verts;
-            m.triangles = new[] { 0, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 8, 8, 9, 6 };
+            m.triangles = new[] { 0, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 8, 8, 9, 10, 10, 11, 4 };
             m.RecalculateBounds();
             return m;
+        }
+
+        // Axis-aligned bounds of a vert subset (for the head aspect-ratio check).
+        private static Bounds BoundsOf(Vector3[] v, params int[] idx)
+        {
+            var b = new Bounds(v[idx[0]], Vector3.zero);
+            foreach (int i in idx) b.Encapsulate(v[i]);
+            return b;
         }
 
         private GameObject _go;
@@ -125,20 +146,25 @@ namespace FarHorizon.PlayTests
                 "root, not the child holder — the bug was the rig stomping the nudge every frame)");
         }
 
-        // (2) The axe HEAD dial shrinks the BLADE verts toward the eye but leaves the GRIP/haft-core verts anchored.
+        // (2) STOP-chipping: the axe HEAD dial resizes the WHOLE head UNIFORMLY about the junction — same factor
+        // on every axis (no axis-squish), head ASPECT RATIO preserved — while the grip/haft below the junction
+        // stays anchored. The OLD dial scaled an off-centreline blade SUBSET toward an eye pivot, squishing the
+        // head into a sliver (the chipping). This is the regression guard for that whole class.
         [UnityTest]
-        public IEnumerator AxeHeadDial_ShrinksBladeVerts_LeavesGripAnchored()
+        public IEnumerator AxeHeadDial_ResizesWholeHeadUniformly_PreservesAspect_LeavesGripAnchored()
         {
             BuildRigDrivenHeroAxe();
             yield return null; // Awake captures the holder + seeds the live arrays
 
             Mesh src = MakeAxeLikeMesh();
             Vector3[] baseV = src.vertices;
-            // Indices: 0-5 = haft/grip (|x| small), 6-9 = blade (large +X, upper Y).
-            float gripXBefore = baseV[0].x, gripYBefore = baseV[0].y; // the grip vert at y=0
-            float bladeXBefore = baseV[7].x;                          // a blade vert (max +X)
+            // Indices: 0-3 = haft/grip (below junction y=1.24), 4-11 = the head box (above the junction).
+            int[] headIdx = { 4, 5, 6, 7, 8, 9, 10, 11 };
+            float gripXBefore = baseV[0].x, gripYBefore = baseV[0].y; // the grip vert at y=0 (below junction)
+            Bounds headBefore = BoundsOf(baseV, headIdx);
 
-            Assert.IsTrue(_cycle.DialAxeHead(0.5f), "DialAxeHead must succeed with the axe held (index 0)");
+            const float factor = 0.5f;
+            Assert.IsTrue(_cycle.DialAxeHead(factor), "DialAxeHead must succeed with the axe held (index 0)");
             Assert.Less(_cycle.AxeHeadFactor, 1f, "the head factor must drop below 1 after a shrink");
 
             var holderField = typeof(HeldWeaponCycleDebug).GetField("_meshHolder",
@@ -149,17 +175,34 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(shown.name.Contains("headDial"),
                 "the head dial must display a per-instance CLONE, never mutate the shared mesh asset");
             Vector3[] dialV = shown.vertices;
+            Bounds headAfter = BoundsOf(dialV, headIdx);
 
-            float bladeXAfter = dialV[7].x;
-            float gripXAfter = dialV[0].x, gripYAfter = dialV[0].y;
-            Assert.Less(Mathf.Abs(bladeXAfter), Mathf.Abs(bladeXBefore) - 0.05f,
-                $"the blade vert must shrink toward the eye (|x| {bladeXBefore:F3} -> {bladeXAfter:F3})");
-            // The GRIP vert (bottom of the haft, on the centreline) must NOT move — the head shrinks relative
-            // to the handle (#100: the old classifier moved ~80% of the mesh, so the grip drifted too).
-            Assert.That(gripXAfter, Is.EqualTo(gripXBefore).Within(0.001f),
-                $"the grip vert X must NOT move (head shrinks vs the handle; x {gripXBefore:F3} -> {gripXAfter:F3})");
-            Assert.That(gripYAfter, Is.EqualTo(gripYBefore).Within(0.001f),
-                $"the grip vert Y must NOT move (the handle length is preserved; y {gripYBefore:F3} -> {gripYAfter:F3})");
+            // --- UNIFORM: each axis of the head's bounding box scaled by the SAME factor (within tolerance).
+            // (A directional / single-axis squish — the chipping — would scale one axis far more than another.)
+            Vector3 sBefore = headBefore.size, sAfter = headAfter.size;
+            float fx = sAfter.x / sBefore.x, fy = sAfter.y / sBefore.y, fz = sAfter.z / sBefore.z;
+            Assert.That(fx, Is.EqualTo(factor).Within(0.02f), $"head WIDTH must scale by {factor} (got {fx:F3}) — uniform, no squish");
+            Assert.That(fy, Is.EqualTo(factor).Within(0.02f), $"head HEIGHT must scale by {factor} (got {fy:F3}) — uniform, no squish");
+            Assert.That(fz, Is.EqualTo(factor).Within(0.02f), $"head DEPTH must scale by {factor} (got {fz:F3}) — uniform, no squish");
+            Assert.That(fx, Is.EqualTo(fy).Within(0.02f), "head x-scale must equal y-scale (x==y==z — no axis-squish / chipping)");
+            Assert.That(fy, Is.EqualTo(fz).Within(0.02f), "head y-scale must equal z-scale (x==y==z — no axis-squish / chipping)");
+
+            // --- ASPECT RATIO preserved: the head's width:height:depth ratios are unchanged after the resize.
+            float arWH_before = sBefore.x / sBefore.y, arWH_after = sAfter.x / sAfter.y;
+            float arWD_before = sBefore.x / sBefore.z, arWD_after = sAfter.x / sAfter.z;
+            Assert.That(arWH_after, Is.EqualTo(arWH_before).Within(0.02f),
+                $"head width:height aspect must be preserved ({arWH_before:F3} -> {arWH_after:F3}) — a resize, not a chip");
+            Assert.That(arWD_after, Is.EqualTo(arWD_before).Within(0.02f),
+                $"head width:depth aspect must be preserved ({arWD_before:F3} -> {arWD_after:F3}) — a resize, not a chip");
+
+            // --- the head actually got SMALLER (the dial does something).
+            Assert.Less(sAfter.x, sBefore.x - 0.05f, "the head must actually shrink (width down)");
+
+            // --- the GRIP vert (below the junction, on the centreline) must NOT move — handle length preserved.
+            Assert.That(dialV[0].x, Is.EqualTo(gripXBefore).Within(0.001f),
+                $"the grip vert X must NOT move (head resizes vs the handle; x {gripXBefore:F3} -> {dialV[0].x:F3})");
+            Assert.That(dialV[0].y, Is.EqualTo(gripYBefore).Within(0.001f),
+                $"the grip vert Y must NOT move (the handle length is preserved; y {gripYBefore:F3} -> {dialV[0].y:F3})");
             Object.Destroy(src);
         }
 
