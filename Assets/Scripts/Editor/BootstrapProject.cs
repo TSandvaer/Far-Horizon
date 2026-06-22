@@ -278,6 +278,13 @@ namespace FarHorizon.EditorTools
             // (default-pitch clouds + low-pitch vista/sky dissolve). Serialized editor-time (NOT Awake)
             // per the editor-vs-runtime trap; INERT unless the exe is launched with -verifyWorldLook.
             hudGo.AddComponent<WorldLookVerifyCapture>();
+            // FLAT-SHADING A/B verify capture (86caamnjb) — renders one welded smooth sphere TWICE on the
+            // FarHorizon/LowPolyVertexColor material (keyword OFF then ON) so the SHIPPED-build smooth-vs-
+            // faceted A/B is judged from real frames (the ddx/ddy toggle's AC5 evidence; editor capture is
+            // necessary-not-sufficient). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
+            // INERT unless the exe is launched with -verifyFlatShading. FlatShadingVerifyCaptureSceneTests
+            // guards its serialized presence.
+            hudGo.AddComponent<FarHorizon.FlatShadingVerifyCapture>();
             // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
             // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
