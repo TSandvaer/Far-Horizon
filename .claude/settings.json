@@ -3,12 +3,25 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "permissions": {
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(git branch -D:*)"
+    ],
     "allow": [
       "Bash(gh pr merge:*)",
       "Edit(.claude/agents/*.md)",
+      "mcp__clickup__get_tasks",
+      "mcp__clickup__get_task_details",
       "mcp__clickup__update_task",
       "mcp__clickup__create_task",
       "mcp__clickup__create_task_comment",
+      "mcp__clickup__get_task_comments",
       "Bash(git status)",
       "Bash(git log:*)",
       "Bash(git diff:*)",

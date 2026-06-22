@@ -95,6 +95,13 @@ jobs:
           chmod +x tests/scripts/test_gate_scripts.sh
           tests/scripts/test_gate_scripts.sh
 
+      # The destructive-bash deny-hook protects every persona/orch session; its
+      # field-scoping behavior (ticket 86cabe3gx) is regression-guarded here.
+      - name: Destructive-bash hook unit tests
+        run: |
+          chmod +x tests/scripts/test_block_destructive_hook.sh
+          tests/scripts/test_block_destructive_hook.sh
+
   # ---------------------------------------------------------------------------
   # Unity gate — self-hosted Windows runner. Skips cleanly (does not fail the
   # PR) until a runner with the `unity` + `windows` labels is registered and
