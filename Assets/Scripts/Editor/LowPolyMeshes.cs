@@ -376,6 +376,24 @@ namespace FarHorizon.EditorTools
                 displaced[i] = p;
             }
 
+            // VERTEX-COLOR AO BAKE (ticket 86caamnra — Erik R&D §E / Rank 6). Our rocks are PROCEDURAL (not
+            // Blender FBX), so the "Blender AO bake → vertex alpha" route is done CODE-side here: a cheap
+            // GEOMETRIC occlusion proxy baked into each facet's vertex-color ALPHA. The proxy: a facet is more
+            // occluded (darker AO, lower alpha) the LOWER it sits (near the ground-contact crevices the board's
+            // rocks shade dark) and the more it faces DOWN/SIDEWAYS (a downward/concave facet sees less sky).
+            // Exposed top facets keep alpha ~1 (unoccluded). The LowPolyVertexColor shader multiplies the lit
+            // colour by lerp(1, alpha, _AOStrength), so the rock material (which sets _AOStrength ~0.5) gets the
+            // contact-shadow depth while a default-0 material is byte-identical (AO is in ALPHA; the RGB per-
+            // facet VALUE step is untouched — they are ADDITIVE reads). Pre-scan the displaced Y extents so AO
+            // keys off the rock's own height range (scale-independent, deterministic from the same seed).
+            float minY = float.MaxValue, maxY = float.MinValue;
+            for (int i = 0; i < displaced.Length; i++)
+            {
+                if (displaced[i].y < minY) minY = displaced[i].y;
+                if (displaced[i].y > maxY) maxY = displaced[i].y;
+            }
+            float yRange = Mathf.Max(maxY - minY, 1e-4f);
+
             // FLAT SHADING: emit every triangle with its OWN 3 verts + the face normal, and bake a per-face
             // value into vertex colour (light for up-facing facets, dark for side/down) — the facet-to-facet
             // value contrast that makes it read as carved stone.
@@ -414,7 +432,23 @@ namespace FarHorizon.EditorTools
                 float val = Mathf.Lerp(0.80f, 1.0f, up);            // mid-grey sides .. light tops (never black)
                 val += ((float)rnd.NextDouble() - 0.5f) * 0.05f;    // tiny per-face break so planes differ
                 val = Mathf.Clamp(val, 0.74f, 1.05f);
-                Color fc = new Color(val, val, val, 1f);
+
+                // AO ALPHA (ticket 86caamnra): bake a geometric occlusion proxy into the facet's vertex
+                // ALPHA. Two cheap signals combine: (1) HEIGHT — facets low on the rock (near the ground
+                // contact) are more occluded; facets at the top see open sky → alpha ~1. (2) DOWN-FACING —
+                // a facet pointing down/sideways (a crevice underside) is more occluded than an up-facing
+                // top. ao = 1 (no occlusion) .. _aoFloor (most occluded, at the low downward facets). A
+                // FLOOR of 0.55 keeps even the most-occluded crevice readable (× the _Tint × value × light,
+                // it darkens for depth, never crushes to black). Stored in alpha ONLY — RGB (the value step
+                // above) is unchanged, so the default-_AOStrength=0 material is byte-identical.
+                float faceCY = faceCentre.y;
+                float heightT = Mathf.Clamp01((faceCY - minY) / yRange);     // 0 low (occluded) .. 1 top (open)
+                float downT = Mathf.Clamp01(0.5f - fn.y * 0.5f);             // 0 up-facing .. 1 down-facing
+                // occlusion grows toward the low + down facets; bias toward height (the dominant contact cue).
+                float occ = (1f - heightT) * 0.7f + downT * 0.3f;            // 0 (open) .. 1 (most occluded)
+                const float aoFloor = 0.55f;
+                float ao = Mathf.Lerp(1f, aoFloor, Mathf.Clamp01(occ));
+                Color fc = new Color(val, val, val, ao);
 
                 verts.Add(v0); verts.Add(v1); verts.Add(v2);
                 normals.Add(fn); normals.Add(fn); normals.Add(fn);

@@ -65,6 +65,21 @@ Shader "FarHorizon/LowPolyVertexColor"
         _RimColor ("Rim Color", Color) = (0.95, 0.92, 0.85, 1)
         _RimPower ("Rim Power", Float) = 3
         _RimIntensity ("Rim Intensity (0 = off)", Float) = 0
+        // VERTEX-COLOR AO (ticket 86caamnra — Erik R&D §E / Rank 6; Delt06/vertex-ao + sundaysundae
+        // "low-poly look good" idiom). A geometric ambient-occlusion value baked into the mesh's vertex-
+        // color ALPHA darkens the lit colour at crevices / ground-contact points for contact-shadow depth —
+        // zero runtime cost (a baked constant, not a per-frame computation). NO KEYWORD: this is a plain
+        // multiply by `lerp(1, IN.color.a, _AOStrength)`, so when _AOStrength = 0 (the DEFAULT) the factor
+        // is exactly `lerp(1, a, 0) = 1` → finalCol unchanged, BYTE-IDENTICAL to before this property
+        // existed on EVERY current terrain/canopy/water/prop material — REGARDLESS of what they carry in
+        // vertex alpha (terrain/canopy/water bake a=1; even if they baked a≠1, _AOStrength=0 makes the
+        // term a no-op). No shader_feature-strip concern (same pure-arithmetic no-op as the rim term — the
+        // off path is the identity, not a stripped variant). Only opt-in PROPS with REAL baked AO in their
+        // vertex alpha (FacetedRock) raise _AOStrength (~0.5) to surface the crevice depth. ADDITIVE to the
+        // existing per-facet vertex-color VALUE step (a directional-light proxy in RGB, NOT AO — this is the
+        // distinct contact-occlusion read in alpha). Lives INSIDE the cbuffer below for SRP-Batcher
+        // compliance (unity-conventions.md §SRP-Batcher — any new float must be in CBUFFER_START).
+        _AOStrength ("AO Strength (0 = off; reads vertex-color alpha)", Range(0,1)) = 0
     }
     SubShader
     {
@@ -113,6 +128,7 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float4 _RimColor;     // ticket 86caamnnj — Fresnel/rim term (additive; default-0 intensity = no-op)
                 float _RimPower;
                 float _RimIntensity;
+                float _AOStrength;    // ticket 86caamnra — vertex-color-alpha AO (default-0 = no-op; props raise it)
             CBUFFER_END
 
             struct Attributes
@@ -209,6 +225,18 @@ Shader "FarHorizon/LowPolyVertexColor"
                     fogIntensity = max(fogIntensity, _FogCap);
                     finalCol = finalCol * fogIntensity + unity_FogColor.rgb * (half(1.0) - fogIntensity);
                 #endif
+
+                // VERTEX-COLOR AO (ticket 86caamnra). Multiply the lit colour by a baked ambient-occlusion
+                // value carried in the mesh's vertex-color ALPHA — darker (more occluded) at crevices /
+                // ground-contact facets, ~1 on exposed faces. `lerp(1, IN.color.a, _AOStrength)` blends
+                // between "no AO" (1.0) and "full baked AO" (the alpha) by the per-material strength. When
+                // _AOStrength = 0 (DEFAULT) this is exactly `lerp(1, a, 0) = 1` → finalCol UNCHANGED on
+                // every current material (terrain/canopy/water/prop), regardless of their vertex alpha
+                // (AC6a no-op). APPLIED BEFORE the rim term so the additive silhouette highlight is NOT
+                // occlusion-darkened (the rim is a caught-light edge that sits on top, mirroring the
+                // after-fog placement of the rim block below). Only opt-in props (FacetedRock) bake real AO
+                // into alpha + raise _AOStrength (~0.5) to surface crevice depth.
+                finalCol *= lerp(1.0, IN.color.a, _AOStrength);
 
                 // FRESNEL / RIM-LIGHT (ticket 86caamnnj). ADDED AFTER the fog-cap block (per AC1) so the
                 // rim highlight is NOT capped/washed by the distance fog — it sits on top as a crisp

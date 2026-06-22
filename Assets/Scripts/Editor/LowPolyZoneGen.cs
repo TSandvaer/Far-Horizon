@@ -682,8 +682,30 @@ namespace FarHorizon.EditorTools
             var tree = new GameObject("LP_Tree");
             tree.transform.SetParent(parent.transform, false);
             tree.transform.position = at;
-            tree.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
-            tree.transform.localScale = Vector3.one * scale;
+
+            // SEEDED LEAN + HEIGHT VARIATION (ticket 86caamnra — Erik R&D §G / Rank 7). The existing Y-yaw
+            // (rnd) already keeps trees from facing identically; Rec 7 adds the two MISSING variations the
+            // note calls out for "pine trunks": a seeded ±20% HEIGHT scale + a small APEX LEAN (a few degrees
+            // off vertical). Both come from a per-tree DERIVED sub-stream keyed off the (rounded) plant
+            // POSITION — NOT extra draws on the shared scatter `rnd` — so the existing tree/rock/grass
+            // PLACEMENT (which consumes `rnd` (seed+555) in a fixed order) stays BYTE-IDENTICAL; this only
+            // adds per-instance shape variation (AC7a: seed-42 island/scatter/NavMesh/waterline UNCHANGED —
+            // the island shape is driven by SeedOffset/HeightAtRadial, never the scatter stream). The lean is
+            // a small tilt of the whole tree composed AFTER the yaw, so the trunk base stays seated on the
+            // ground while the apex leans (the note's "small xz translation of the apex", via a rotation).
+            float yaw = (float)rnd.NextDouble() * 360f; // the existing seeded yaw (unchanged draw on `rnd`)
+            var leanRnd = new System.Random(
+                Mathf.RoundToInt(at.x * 31.7f) * 73856093 ^ Mathf.RoundToInt(at.z * 31.7f) * 19349663);
+            float heightVar = 0.80f + (float)leanRnd.NextDouble() * 0.40f;   // ±20% trunk-height scale (0.80..1.20)
+            float leanDeg = 3f + (float)leanRnd.NextDouble() * 5f;           // 3..8° apex lean off vertical
+            float leanDir = (float)leanRnd.NextDouble() * 360f;              // which way it leans
+            // Compose: yaw about Y, then a small tilt about the lean axis (a horizontal axis at leanDir).
+            Quaternion tilt = Quaternion.AngleAxis(leanDeg,
+                new Vector3(Mathf.Cos(leanDir * Mathf.Deg2Rad), 0f, Mathf.Sin(leanDir * Mathf.Deg2Rad)));
+            tree.transform.rotation = tilt * Quaternion.Euler(0f, yaw, 0f);
+            // Non-uniform: vary HEIGHT (Y) by ±20%, keep the trunk girth (XZ) at the base scale so a tall
+            // tree stays slender, not a fat scaled-up blob.
+            tree.transform.localScale = new Vector3(scale, scale * heightVar, scale);
 
             // TALL JUNGLE: a much taller, slightly thinner trunk (the canopy rides high) so the forest reads
             // as HIGH trees from orbit. The mid tree keeps the original chunky proportions.
@@ -1031,6 +1053,12 @@ namespace FarHorizon.EditorTools
             {
                 mat = new Material(vc) { name = key };
                 if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", q);
+                // VERTEX-COLOR AO (ticket 86caamnra — Rec 6): the FacetedRock mesh bakes a geometric AO proxy
+                // into vertex-color ALPHA (low/downward crevice facets darker); raise _AOStrength so the
+                // shader's lerp(1, alpha, _AOStrength) surfaces that contact-shadow depth at the rock's base.
+                // ~0.5 = a believable contact darkening without crushing the crevices (the mesh AO floor is
+                // 0.55). Guarded — a no-op on the URP/Lit fallback (which lacks the property).
+                if (mat.HasProperty("_AOStrength")) mat.SetFloat("_AOStrength", 0.5f);
             }
             else
             {
