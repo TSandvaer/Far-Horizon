@@ -129,5 +129,27 @@ namespace FarHorizon.EditTests
                 "the Boot scene must carry FullscreenBoot serialized (else the exe keeps opening in the small " +
                 "persisted window on a normal launch — the component-not-serialized trap; unity-conventions.md)");
         }
+
+        // The FLAT-SHADING A/B verify capture (ticket 86caamnjb — _FlatShading ddx/ddy toggle) must be
+        // SERIALIZED into the Boot scene — same component-not-serialized-into-scene class: the
+        // -verifyFlatShading shipped-build smooth-vs-faceted A/B is inert if the scene never carries it.
+        // Regression guard: delete the AddComponent<FlatShadingVerifyCapture>() line in
+        // BootstrapProject.BuildBootScene and this goes red.
+        [Test]
+        public void BootScene_CarriesFlatShadingVerifyCapture_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            FlatShadingVerifyCapture cap = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                cap = root.GetComponentInChildren<FlatShadingVerifyCapture>(true);
+                if (cap != null) break;
+            }
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry FlatShadingVerifyCapture serialized (the -verifyFlatShading " +
+                "smooth-vs-faceted A/B is inert if the scene never carries it — the component-not-serialized trap)");
+        }
     }
 }
