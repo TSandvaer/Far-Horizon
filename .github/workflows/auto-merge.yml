@@ -1,0 +1,57 @@
+name: Auto-merge on label
+
+# No-paste merges (Sponsor request 2026-06-22).
+#
+# Goal: the Sponsor approves a PR in chat; the orchestrator adds the `auto-merge`
+# label; GitHub merges it SERVER-SIDE. No `gh pr merge` command pasted by hand.
+#
+# How it works:
+#   - Triggers when ANY label is added to a PR; the job is gated to fire ONLY for
+#     the `auto-merge` label (`if: github.event.label.name == 'auto-merge'`).
+#   - Runs on the HOSTED ubuntu-latest runner — NEVER the self-hosted Unity runner
+#     (`far-horizon-local`). This job must not touch the single Unity build slot
+#     ([[single-unity-build-slot-serializes-orchestration]]); it does no Unity work.
+#   - Merges via `gh pr merge --squash --delete-branch`, authenticated with the
+#     default `GITHUB_TOKEN`. `main` is NOT GitHub-protected (private repo on the
+#     FREE plan — `gh api .../branches/main/protection` returns 403 "Upgrade to
+#     Pro"), so there is NO required-review gate the token must satisfy; the token's
+#     `contents: write` is sufficient to merge directly.
+#
+# Trigger choice — `pull_request` (NOT `pull_request_target`):
+#   All Far Horizon PRs are SAME-REPO persona branches (no fork PRs). A same-repo
+#   `pull_request` event with an explicit `permissions:` block grants the
+#   GITHUB_TOKEN write scope, which is all the merge needs. `pull_request_target`
+#   exists for FORK PRs that need base-repo secrets/write — it runs untrusted head
+#   code in the privileged base context and is a known privilege-escalation footgun.
+#   We have no forks, so `pull_request` is both sufficient and the safer choice.
+#
+# SAFETY CONTRACT (process, not enforced by YAML):
+#   The orchestrator adds the `auto-merge` label ONLY after the Sponsor's explicit
+#   PRESENT-MODE approval of that specific PR. NEVER in away mode — away mode keeps
+#   the no-auto-merge-to-main safety by STAGING a one-click merge command to
+#   away-queue.md instead of labelling. The label IS the Sponsor's approval made
+#   actionable; it is never applied autonomously.
+
+on:
+  pull_request:
+    types: [labeled]
+
+# Least-privilege: only what `gh pr merge` needs.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.label.name == 'auto-merge'
+    # HOSTED runner only — must not contend the single Unity build slot.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge the labelled PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --squash \
+            --delete-branch \
+            --repo "${{ github.repository }}"
