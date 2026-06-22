@@ -285,6 +285,12 @@ namespace FarHorizon.EditorTools
             // INERT unless the exe is launched with -verifyFlatShading. FlatShadingVerifyCaptureSceneTests
             // guards its serialized presence.
             hudGo.AddComponent<FarHorizon.FlatShadingVerifyCapture>();
+            // FRESNEL/RIM A/B verify capture (86caamnnj) — renders one welded smooth sphere TWICE on the
+            // FarHorizon/LowPolyVertexColor material (_RimIntensity 0 then dialed) so the SHIPPED-build
+            // rim-OFF-vs-dialed A/B is judged from real frames (the rim term's AC4 evidence; editor capture
+            // is necessary-not-sufficient). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
+            // INERT unless the exe is launched with -verifyRim. CaptureGateSceneTests guards its serialized presence.
+            hudGo.AddComponent<FarHorizon.RimVerifyCapture>();
             // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
             // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling

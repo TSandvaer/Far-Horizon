@@ -50,6 +50,21 @@ Shader "FarHorizon/LowPolyVertexColor"
         // cbuffer below for SRP-Batcher compliance (unity-conventions.md §SRP-Batcher — any new float/color
         // must be in CBUFFER_START(UnityPerMaterial), even one only read via the keyword).
         [Toggle(_FLATSHADING_ON)] _FlatShading ("Flat Shading (per-face ddx/ddy)", Float) = 0
+        // FRESNEL / RIM-LIGHT (ticket 86caamnnj — Erik R&D §C / Rank 4; Daniel Ilett Toon Shaders Pro +
+        // Minions Art rim idiom). A cheap ADDITIVE silhouette highlight: brighten fragments whose normal
+        // faces away from the camera (the grazing-angle rim), so an opt-in prop gets a soft wrap-around
+        // edge glow — the cheap fallback for props that never get a Blender chamfer-highlight pass
+        // (lowpoly-quality.md §2 Rec 4). NO KEYWORD: this is a plain multiply by _RimIntensity, so when
+        // _RimIntensity = 0 (the DEFAULT) the added term is exactly `rgb * rim * 0` = 0 → BYTE-IDENTICAL
+        // to before this property existed on ALL current terrain/canopy/water/prop materials (AC2 no-op;
+        // no shader_feature-strip concern, unlike the keyworded _FlatShading — the OFF path is pure-zero).
+        // Only opt-in PROPS raise _RimIntensity (per-prop adoption is a SEPARATE ticket). _RimPower ~2-3
+        // → soft silhouette highlight; ~6-8 → thin outline. _RimColor is warm-white by default (reads as
+        // a soft key-side bounce, not a neon edge). All three live INSIDE the cbuffer below for SRP-Batcher
+        // compliance (unity-conventions.md §SRP-Batcher — any new float/color must be in the cbuffer).
+        _RimColor ("Rim Color", Color) = (0.95, 0.92, 0.85, 1)
+        _RimPower ("Rim Power", Float) = 3
+        _RimIntensity ("Rim Intensity (0 = off)", Float) = 0
     }
     SubShader
     {
@@ -95,6 +110,9 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float _WaveSpeed;
                 float _FogCap;
                 float _FlatShading;   // ticket 86caamnjb — in-cbuffer for SRP-Batcher (read via the keyword)
+                float4 _RimColor;     // ticket 86caamnnj — Fresnel/rim term (additive; default-0 intensity = no-op)
+                float _RimPower;
+                float _RimIntensity;
             CBUFFER_END
 
             struct Attributes
@@ -191,6 +209,22 @@ Shader "FarHorizon/LowPolyVertexColor"
                     fogIntensity = max(fogIntensity, _FogCap);
                     finalCol = finalCol * fogIntensity + unity_FogColor.rgb * (half(1.0) - fogIntensity);
                 #endif
+
+                // FRESNEL / RIM-LIGHT (ticket 86caamnnj). ADDED AFTER the fog-cap block (per AC1) so the
+                // rim highlight is NOT capped/washed by the distance fog — it sits on top as a crisp
+                // silhouette edge. rim = (1 - saturate(N·V))^_RimPower: maximal where the surface grazes
+                // the view (silhouette), ~0 where it faces the camera. normalWS here is whichever normal
+                // the frag resolved above — interpolated (smooth, default) OR the per-face ddx/ddy normal
+                // (when _FLATSHADING_ON), so the rim follows the chosen shading model for free. When
+                // _RimIntensity = 0 (DEFAULT for terrain/canopy/water/prop) the whole term is `rgb*rim*0`
+                // = 0 → finalCol unchanged, BYTE-IDENTICAL to before this property existed (AC2 no-op,
+                // no keyword needed). Only opt-in props raise _RimIntensity (per-prop adoption is its own
+                // ticket). GetWorldSpaceViewDir gives the unnormalized camera->frag direction (URP
+                // ShaderVariablesFunctions, via Lighting.hlsl); normalize for the dot.
+                float3 viewDirWS = normalize(GetWorldSpaceViewDir(IN.positionWS));
+                float rim = pow(1.0 - saturate(dot(normalWS, viewDirWS)), _RimPower);
+                finalCol += _RimColor.rgb * rim * _RimIntensity;
+
                 return half4(finalCol, 1.0);
             }
             ENDHLSL
