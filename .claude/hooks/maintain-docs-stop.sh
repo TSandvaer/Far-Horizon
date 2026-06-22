@@ -3,16 +3,15 @@
 # actually did something doc-worthy.
 #
 # Heuristic: scan the transcript since the most recent real user message, and
-# block-with-reason only if the assistant invoked one of:
-#   - Edit         (file edit)
-#   - Write        (file write)
-#   - NotebookEdit (notebook edit)
-#   - Agent        (subagent dispatch — its work may produce doc-worthy output)
+# block-with-reason only when the turn made a SUBSTANTIVE edit — an Edit / Write /
+# NotebookEdit to a file that is NOT a pure coordination/state doc. Agent
+# dispatches and coordination-only edits (STATE.md etc.) do NOT trigger — see the
+# rationale at the trigger block below.
 #
-# Pure Q&A / status-pulse / read-only turns exit 0 silently — no "blocking
-# error" banner, no skill invocation. This mirrors the skill's own Step 1
-# early-exit filter one level earlier so the UI does not surface a banner for
-# turns the skill would early-exit on anyway.
+# Pure Q&A / status-pulse / dispatch / coordination-only / read-only turns exit 0
+# silently — no "blocking error" banner, no skill invocation. This mirrors the
+# skill's own Step 1 early-exit filter one level earlier so the UI does not
+# surface a banner for turns the skill would early-exit on anyway.
 #
 # Re-entry after maintain-docs itself runs is gated by stop_hook_active=true.
 #
@@ -55,13 +54,36 @@ if [[ -z "${last_user_line:-}" ]]; then
   last_user_line=1
 fi
 
-# Scan everything from that boundary forward for any tool_use of interest.
-# If we find one, the turn was doc-worthy — invoke maintain-docs.
-if tail -n "+${last_user_line}" "$transcript_path" \
-    | grep -Eq '"type":"tool_use","id":"[^"]+","name":"(Edit|Write|NotebookEdit|Agent)"'; then
-  printf '%s' "$block_response"
-  exit 0
+# Scan the turn (from the last real user message forward). Invoke maintain-docs
+# ONLY when the turn EDITED a SUBSTANTIVE file — an Edit/Write/NotebookEdit whose
+# target is NOT a pure coordination/state doc.
+#
+# Why (tuned 2026-06-18, responsiveness investigation): maintain-docs was the
+# heaviest per-turn orchestrator tax — it fired on every Agent dispatch and every
+# STATE.md/coordination edit, then early-exited NO_PROPOSALS (those turns produce
+# zero .claude/docs findings). Removing Agent + coordination-only edits from the
+# trigger cuts the wasted 4-agent spawns WITHOUT losing any doc value: every real
+# code / .claude/docs edit STILL triggers the full skill, so doc quality is
+# unchanged. Coordination/state docs excluded: STATE.md, DECISIONS.md, RESUME.md,
+# away-queue.md, decisions-while-away.md, clickup-pending.md,
+# autonomy-tuning-plan.md, MEMORY.md / memory/*, auto-status.state.
+slice=$(tail -n "+${last_user_line}" "$transcript_path")
+
+if printf '%s' "$slice" \
+    | grep -Eq '"type":"tool_use","id":"[^"]+","name":"(Edit|Write|NotebookEdit)"'; then
+  # At least one file edit this turn — is any edited file SUBSTANTIVE (not a
+  # coordination/state doc)? If so, the turn is doc-worthy → invoke maintain-docs.
+  substantive=$(printf '%s' "$slice" \
+    | grep -oE '"file_path":"[^"]+"' \
+    | sed -E 's/.*"file_path":"([^"]+)".*/\1/' \
+    | grep -viE 'STATE\.md|DECISIONS\.md|RESUME\.md|away-queue\.md|decisions-while-away\.md|clickup-pending\.md|autonomy-tuning-plan\.md|MEMORY\.md|auto-status\.state|[\\/]memory[\\/]' \
+    | head -1 || true)
+  if [[ -n "${substantive:-}" ]]; then
+    printf '%s' "$block_response"
+    exit 0
+  fi
 fi
 
-# No file-modifying / agent-spawning tool calls this turn — skip silently.
+# Pure agent-dispatch, coordination-only, or read-only turn — nothing doc-worthy.
+# Skip silently (no banner, no 4-agent skill).
 exit 0

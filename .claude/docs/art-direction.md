@@ -35,6 +35,9 @@ The **axe** is immediately actionable — the survival loop's hero tool should r
 `21h08_08` (red head, white edge, bent brown haft). Sword + curved blade signal future interest
 (combat-ish props) but nothing is scheduled — style reference only until the Sponsor shapes M-U3+.
 
+#### Hand-tool / weapon family — cohesion is a style-SYSTEM decision (Sponsor, 2026-06-19 "Route A")
+The axe/knife/sword/spear family is produced via **ONE in-house Blender pipeline + one shared style spec + one shared flat-shaded low-poly palette material** — NOT per-asset sourcing. Cohesion across the family is a *style-system* call, and the deciding parameter is the **shading/texturing model**: a per-asset baked texture atlas (what the current axe uses) is the primary OUTLIER-maker against a flat-shaded palette world — it imports its own baked lighting and reads as a foreign, more-detailed object beside faceted flat geometry. So the current shipped axe (`Assets/Art/Props/CastawayAxe/`, Sketchfab CC-BY) is a **placeholder, NOT the style anchor** — hold `21h08_08` as the visual target and the shared flat-shaded palette material as the shading model; don't tune the placeholder's look as if it were final. Draft spec: `team/uma-ux/weapon-tool-style-spec.md`. Code implication: generalize `HeldAxe.cs` / `HeldAxeRig.cs` into a shared `HeldTool` rig so any family item slots in without per-weapon hold logic.
+
 ### Nature family — `21h10_44` (trees/clouds/rocks/grass set), `21h11_03` (four trees)
 Blob-canopy low-poly trees (faceted polygonal clusters in varied greens on simple trunks),
 bright teal cartoon clouds, faceted grey rocks, simple grass tufts. This is the WORLD direction:

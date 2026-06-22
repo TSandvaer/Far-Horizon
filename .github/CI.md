@@ -23,8 +23,8 @@ The `unity` job is **inert until a runner with the `unity` + `windows` labels is
 
 1. Repo → **Settings → Actions → Runners → New self-hosted runner** → Windows x64. GitHub shows a download + `config.cmd` command with a one-time registration token.
 2. Run `config.cmd` in a working dir on this machine; when prompted for **labels**, add: `unity,windows` (the `self-hosted` label is automatic).
-3. Install as a service (`config.cmd` offers this) so it survives reboots, OR run `run.cmd` to start it interactively.
-4. The runner account must be able to launch `Unity.exe` headless with the machine's existing license (the same context U1's local runs used).
+3. **Run it interactively with `run.cmd` — do NOT install as a service.** A Windows-service install (`config.cmd` offers this, and `svc.cmd install` does it) runs the runner as `NT AUTHORITY\NETWORK SERVICE` in **session 0**, which is non-interactive and **cannot reach Unity's per-user license** → Unity builds fail with a "sign-in required" / license error even though GitHub shows the runner online (diagnosed 2026-06-19). Start the runner with `run.cmd` in the **Sponsor's interactive desktop session** instead, where the machine's Unity license is active (the same context U1's local runs used).
+4. **Reboot-survival without storing credentials:** use the `runner-autostart` project skill (`.claude/skills/runner-autostart/`). It installs a logon-triggered Scheduled Task ("run only when user is logged on") that re-launches `run.cmd` in the interactive session on each sign-in, and disables the dormant service so it can't grab the shared runner registration and conflict. This is **attended-reboot** survival (you log in; the task then starts the runner). True unattended/overnight auto-start is unsupported on this domain-joined machine — it would require storing the EDC domain password on disk and may be silently reset by GPO.
 
 Once the runner is online, re-run any open PR's checks (or push a trivial commit) and the `unity` job picks up.
 
