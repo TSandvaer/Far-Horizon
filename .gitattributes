@@ -4,3 +4,14 @@
 *.py   text eol=lf
 *.yml  text eol=lf
 *.yaml text eol=lf
+
+# Unity Package Manager rewrites Packages/packages-lock.json on project
+# open/bootstrap (it re-resolves the dependency graph + writes the file with LF).
+# The committed blob is LF, but with core.autocrlf=true git checks the file out
+# as CRLF, so the worktree copy diffs against the LF blob → a phantom ` M` that
+# dirties the worktree EVERY bootstrap, blocking serve_soak's clean-tree
+# pre-flight (86cacvhc6). Pinning `eol=lf` stops autocrlf from converting it to
+# CRLF in the worktree, so the worktree stays LF == the LF-committed blob → no
+# recurring churn (no renormalization commit needed; content is fully derived
+# from manifest.json so the committed copy stays stable across machines).
+Packages/packages-lock.json text eol=lf
