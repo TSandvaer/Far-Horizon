@@ -41,6 +41,16 @@ namespace FarHorizon
                  "near the axe counts (mirrors CraftSpot/ChopTree radii).")]
         public float pickupRadius = 2.0f;
 
+        [Tooltip("#100 BUG-1: whether this PoC pickup is ACTIVE at spawn. The Boot scene carries TWO redundant " +
+                 "axe-acquisition cues — the StumpAxe craft block AND this AC3 PoC pickup — both gated on " +
+                 "Inventory.HasAxe, so the Sponsor saw 'the axe in two places' and 'pick up one, both " +
+                 "disappear'. To make the dial-tool soak unambiguous (ONE clear axe), the scene leaves the " +
+                 "StumpAxe as the single VISIBLE spawn axe and authors this pickup INACTIVE: the component + " +
+                 "Inventory/player wiring still serialize (the AC3 PoC + its EditMode guard carry forward), but " +
+                 "the visual is hidden and the proximity pickup does not fire. Flip this true to re-enable the " +
+                 "standalone PoC pickup. NOT a deletion of the PoC — a spawn-visibility gate.")]
+        public bool activeAtSpawn = true;
+
         private bool _pickedUp;
 
         /// <summary>True once the axe has been picked up here. Exposed for PlayMode tests + capture.</summary>
@@ -55,11 +65,16 @@ namespace FarHorizon
                 if (ctm != null) player = ctm.transform;
             }
             if (visual == null) visual = transform;
+
+            // #100 BUG-1: when authored inactive, hide the redundant second world axe at spawn so the dial-tool
+            // soak presents ONE clear acquisition axe (the StumpAxe craft cue). The pickup logic also stands
+            // down (Update early-outs on !activeAtSpawn) so an invisible axe can never be silently collected.
+            if (!activeAtSpawn) HideVisual();
         }
 
         void Update()
         {
-            if (_pickedUp || inventory == null || player == null) return;
+            if (!activeAtSpawn || _pickedUp || inventory == null || player == null) return;
 
             Vector2 axe = new Vector2(transform.position.x, transform.position.z);
             Vector2 here = new Vector2(player.position.x, player.position.z);
@@ -77,7 +92,12 @@ namespace FarHorizon
 
         // Hide the world axe's renderers (it's now in the belt). Keep the GameObject (its transform may be
         // read by tests/bounds) — only the visuals go.
-        private void ConsumeWorldAxe()
+        private void ConsumeWorldAxe() => HideVisual();
+
+        // Hide the pickup's visual renderers (the GameObject + component + wiring stay — the AC3 PoC + its
+        // EditMode presence/wiring guard carry forward; #100 BUG-1 uses this to suppress the redundant second
+        // spawn axe).
+        private void HideVisual()
         {
             var root = visual != null ? visual : transform;
             foreach (var r in root.GetComponentsInChildren<Renderer>(true))

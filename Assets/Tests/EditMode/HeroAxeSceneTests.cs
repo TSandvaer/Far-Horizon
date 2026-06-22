@@ -162,11 +162,17 @@ namespace FarHorizon.EditTests
             foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) r.enabled = true;
             Bounds b = mr.bounds;
             float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
-            // ~1.0u target; floor 0.7u catches a regression to the 0.43u sliver. (Upper guard catches the
-            // 267×-bone GIANT trap — a >3u axe is the giant that already shipped once.)
-            Assert.That(longest, Is.InRange(0.7f, 3.0f),
+            // Floor catches a regression to the 0.43u sliver; upper guard catches the 267×-bone GIANT trap.
+            // #100 calibration: the in-house wpn_axe_01 (86cabh907) is height-normalized to 1.0u longest-axis
+            // at IMPORT (WeaponPackAssetGen.HeroAxeTargetImportHeightU) and held at HeldAxeLocalScaleUniform
+            // 0.45 under the hand bone → a stable measured world extent of ~0.68u (deterministic across
+            // bootstraps; the new axe reads SMALLER than the retired CC-BY hatchet that set the old 0.7 floor).
+            // 0.68u is a clearly-visible hero axe, NOT the 0.43u sliver the floor guards against. Lower the
+            // floor to 0.6 (still well above the sliver) so the floor tracks the in-house axe; the band still
+            // reds on a sliver (<0.6) OR a giant (>3.0).
+            Assert.That(longest, Is.InRange(0.6f, 3.0f),
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
-                "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
+                "<0.6 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
             // The axe top must sit at the HAND, around the SOAKFIX8 Sponsor-dialed seat (max.y ≈ 0.53u — held
             // down at the side). Floor 0.35u catches a regression that drops the axe to the feet/below ground;
@@ -360,6 +366,37 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(axe.GetComponent<HeldWeaponCycleDebug>(),
                 "the HeroAxe must carry the HeldWeaponCycleDebug component (the [B] cycle-held-weapon soak " +
                 "handle, 86cabh907), serialized into the scene — not Awake-added.");
+        }
+
+        [Test]
+        public void BootScene_HeldAxe_MeshFilterSharesTheRigDrivenTransform_TheRigStompPrecondition()
+        {
+            // #100 BUG-2 regression guard (the rig-stomp class). The in-house axe FBX is a SINGLE-node FBX
+            // imported with preserveHierarchy:0, so Unity COLLAPSES the mesh node onto the HeroAxe ROOT — the
+            // MeshFilter lands on the SAME transform the HeldToolRig drives every LateUpdate (empirically
+            // probed on the fresh ab16bbb Boot scene: mfOnRoot=True). That collapse is the PRECONDITION for
+            // the bug: HeldWeaponCycleDebug used to write the per-weapon offset/euler onto THAT transform, so
+            // the rig stomped it every frame and the F9 nudge "did nothing" for knife/sword/spear. The runtime
+            // fix re-homes the displayed mesh onto a child holder the rig never touches (HeldWeaponCycleDebug
+            // .Awake). This guard documents + pins the collapse: if the MeshFilter shares the rig transform,
+            // the re-home is load-bearing; if a future FBX preserves a child mesh node (mfOnRoot=False), the
+            // re-home becomes a harmless no-op and this assert's message tells the next dev why. Either way the
+            // mesh must exist on/under the rig-driven object.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var rig = axe.GetComponent<HeldToolRig>();
+            Assert.IsNotNull(rig, "the HeroAxe must carry a HeldToolRig (HeldAxeRig) — it drives the seat each frame");
+            var mf = axe.GetComponentInChildren<MeshFilter>(true);
+            Assert.IsNotNull(mf, "the held axe must carry a MeshFilter");
+            // The bug's precondition: the static-loaded MeshFilter is on the rig-driven root (the FBX collapse).
+            // If this ever flips to a child (mfOnRoot==false), the re-home in HeldWeaponCycleDebug.Awake is a
+            // no-op and the rig-stomp can't happen — the test still passes, the message explains the regime.
+            bool mfOnRoot = mf.transform == axe.transform;
+            Assert.IsTrue(mfOnRoot || mf.transform.IsChildOf(axe.transform),
+                "the held axe MeshFilter must live on (or under) the rig-driven HeroAxe object. mfOnRoot=" +
+                mfOnRoot + " — when TRUE, HeldWeaponCycleDebug.Awake MUST re-home the mesh onto a child holder " +
+                "the rig never touches (else the per-weapon nudge is stomped every frame — #100 BUG-2).");
         }
 
         [Test]

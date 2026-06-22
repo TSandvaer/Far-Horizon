@@ -29,6 +29,18 @@ namespace FarHorizon
             _renderers = GetComponentsInChildren<Renderer>(true);
         }
 
+        /// <summary>
+        /// Re-scan the renderer subtree and re-apply the current visibility (#100): the HeldWeaponCycleDebug
+        /// soak handle re-homes the displayed mesh onto a NEW child holder at Awake (the rig-stomp fix), which
+        /// adds a renderer this gate may have cached before. Calling this after that re-home keeps the gate
+        /// authoritative over the child holder's renderer regardless of Awake order. Idempotent.
+        /// </summary>
+        public void RefreshRenderers()
+        {
+            _renderers = GetComponentsInChildren<Renderer>(true);
+            Apply();
+        }
+
         protected virtual void OnEnable()
         {
             if (inventory != null) inventory.Changed += Apply;

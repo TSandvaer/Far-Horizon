@@ -84,6 +84,13 @@ namespace FarHorizon
                  "against the imported mesh's blade-bulge axis at runtime; this is the fraction of the mesh's " +
                  "half-width on that axis.")]
         public float headBladeFraction = 0.30f;
+        [Tooltip("#100 head-dial fix: the BLADE head sits in the UPPER part of the haft. A vert is a head vert " +
+                 "only if its haft-axis coord is above haftMin + headHaftTopFraction × haftSpan (i.e. in the " +
+                 "top (1 − this) of the haft) AND it is off the haft centreline (headBladeFraction). 0.5 = the " +
+                 "top half of the haft — on wpn_axe_01 this + the blade test isolates ~139/359 verts (the real " +
+                 "head) instead of the old single-test 283/359 (most of the axe). Lower to include more of the " +
+                 "haft as 'head'; raise to tighten onto just the blade tip.")]
+        public float headHaftTopFraction = 0.5f;
 
         // The four family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names =
         // the FBX file-name-without-extension; see WeaponPackAssetGen.BuildLineupPrefab). Order = cycle order.
@@ -224,21 +231,68 @@ namespace FarHorizon
             _liveOffset = (Vector3[])WeaponMeshLocalOffset.Clone();
             _liveEuler = (Vector3[])WeaponMeshLocalEuler.Clone();
 
-            // The MeshFilter lives on a CHILD of HeroAxe (the imported FBX mesh node). Capture its ORIGINAL
-            // local TRS so cycling BACK to the axe restores the Sponsor-locked seat byte-for-byte.
-            _meshHolder = GetComponentInChildren<MeshFilter>(true);
-            if (_meshHolder != null)
+            // Find the imported FBX mesh node (the MeshFilter the cycle drives).
+            var fbxMesh = GetComponentInChildren<MeshFilter>(true);
+            if (fbxMesh == null)
             {
-                _axeOriginalMesh = _meshHolder.sharedMesh;
-                var t = _meshHolder.transform;
-                _holderOrigPos = t.localPosition;
-                _holderOrigRot = t.localRotation;
-                _holderOrigScale = t.localScale;
+                Debug.LogWarning("[HeldWeaponCycleDebug] no MeshFilter under HeroAxe — cannot swap held weapon meshes");
+                return;
+            }
+
+            // #100 BUG-2 FIX (the empirical root cause — diagnose-via-trace, EditMode hierarchy probe on the
+            // fresh ab16bbb Boot scene): the in-house axe FBX is a SINGLE-node FBX with preserveHierarchy:0, so
+            // Unity COLLAPSES the mesh node onto the imported ROOT — the MeshFilter lands on the HeroAxe object
+            // ITSELF, the SAME transform HeldToolRig.LateUpdate (DefaultExecutionOrder 100) overwrites every
+            // frame (transform.position/rotation = hand-seat). The previous code wrote the per-weapon
+            // offset/euler onto THAT transform, so the rig STOMPED them next frame → the F9 nudge "did nothing"
+            // for knife/sword/spear (only localScale survived, since the rig leaves scale alone — which is why
+            // the [ ] scale dial worked but offset/euler didn't). The old Awake comment ASSUMED "the MeshFilter
+            // lives on a CHILD" — the probe proved it's on the ROOT. Fix: re-home the displayed mesh onto a
+            // dedicated CHILD holder the rig never touches, and drive the per-weapon TRS there. The axe (index
+            // 0) keeps the holder at IDENTITY local TRS → it renders byte-identically to the Sponsor-locked
+            // seat (the rig drives the root world pose; an identity child = the same pose).
+            if (fbxMesh.transform.GetComponent<HeldToolRig>() != null)
+            {
+                // The mesh is on the rig-driven root — split it onto a child holder.
+                var rootMr = fbxMesh.GetComponent<MeshRenderer>();
+                var holderGo = new GameObject("WeaponMeshHolder");
+                holderGo.transform.SetParent(fbxMesh.transform, false); // identity local TRS under the root
+                var holderMf = holderGo.AddComponent<MeshFilter>();
+                holderMf.sharedMesh = fbxMesh.sharedMesh;
+                var holderMr = holderGo.AddComponent<MeshRenderer>();
+                if (rootMr != null)
+                {
+                    holderMr.sharedMaterials = rootMr.sharedMaterials;
+                    holderMr.shadowCastingMode = rootMr.shadowCastingMode;
+                    holderMr.receiveShadows = rootMr.receiveShadows;
+                    // Remove the ROOT renderer/filter so only the child holder draws (one mesh on screen, not
+                    // two). Destroying them (vs disabling) keeps the HeldTool visibility gate's renderer cache
+                    // clean — it caches the SUBTREE, and the child holder's renderer is the only one left.
+                    Destroy(rootMr);
+                    var rootMf = fbxMesh; // == the root MeshFilter (fbxMesh.transform is the rig root)
+                    Destroy(rootMf);
+                }
+                _meshHolder = holderMf;
+                // The displayed renderer moved to a NEW child the visibility gate may have cached BEFORE this
+                // re-home (Awake order is not guaranteed). Make the gate re-scan so it owns the child holder's
+                // renderer (the held axe still hides until selected; shows on craft/pickup — #100 must NOT
+                // leave the axe stuck visible/invisible). Both HeldAxe + StumpAxe are siblings on other objects.
+                var gate = GetComponent<HeldTool>();
+                if (gate != null) gate.RefreshRenderers();
             }
             else
             {
-                Debug.LogWarning("[HeldWeaponCycleDebug] no MeshFilter under HeroAxe — cannot swap held weapon meshes");
+                // The mesh is already on a non-rig child (a multi-node FBX) — drive it directly.
+                _meshHolder = fbxMesh;
             }
+
+            // Capture the holder's ORIGINAL local TRS so cycling BACK to the axe restores the Sponsor-locked
+            // seat byte-for-byte (identity for the re-homed-child case; the FBX node's local TRS otherwise).
+            _axeOriginalMesh = _meshHolder.sharedMesh;
+            var ht = _meshHolder.transform;
+            _holderOrigPos = ht.localPosition;
+            _holderOrigRot = ht.localRotation;
+            _holderOrigScale = ht.localScale;
         }
 
         // Resolve the family meshes from the lineup prefab lazily (the first cycle), so a soak that never
@@ -390,34 +444,46 @@ namespace FarHorizon
             int a1 = (longAxis + 1) % 3, a2 = (longAxis + 2) % 3;
             int bladeAxis = (Comp(ext, a1) >= Comp(ext, a2)) ? a1 : a2;
             float halfExt = Comp(ext, bladeAxis);
-            float thresh = headBladeFraction * Mathf.Max(1e-4f, halfExt);
 
-            // Classify head (off-haft) vs haft-core verts by their offset on the blade axis from the blade-axis
-            // CENTRE LINE. The haft runs along the long axis at the blade-axis centre; the head bulges off it.
-            // The reference centre for "off the haft" is the HAFT-CORE centroid on the blade axis (the verts
-            // near the centre line), NOT the full-mesh centre (which the bulky head pulls off-axis).
+            // #100 HEAD-DIAL FIX (addendum — "axe head still too big" + the head dial "did nothing"). The OLD
+            // classifier called a vert "head" by a SINGLE test: its offset on the blade axis exceeds
+            // headBladeFraction × the half-extent. On the real wpn_axe_01 (359 verts) that mis-classified
+            // 283/359 verts (79% — nearly the WHOLE axe, haft included) as "head" — empirically probed — so
+            // dialing the head "smaller" shrank ~80% of the mesh toward a pivot (a near-uniform shrink, NOT a
+            // head-vs-haft proportion change), which reads as "nothing changed / head still too big".
+            //
+            // The blade HEAD physically sits in the UPPER portion of the haft AND fans OFF the haft centreline.
+            // So a head vert must satisfy BOTH: (a) upper-haft — its haft-axis coord is in the top
+            // (1 - headHaftTopФraction) of the haft span; AND (b) off-centreline — its blade-axis offset from
+            // the haft centreline exceeds headBladeFraction × halfExt. This isolates the real blade cluster
+            // (~139/359 on the shipped axe) and leaves the handle + grip untouched, so the dial visibly shrinks
+            // the HEAD relative to the haft (the Sponsor's intent). The pivot is the head centroid pulled onto
+            // the haft centreline at its OWN haft-axis height, so the head shrinks in place toward the handle.
+            float haftMin = Comp(bMin, longAxis), haftMax = Comp(bMax, longAxis);
+            float haftSpan = Mathf.Max(1e-4f, haftMax - haftMin);
+            float upperCut = haftMin + haftSpan * headHaftTopFraction; // verts ABOVE this are upper-haft
             float refCentre = Comp(ctr, bladeAxis);
+            float bladeThresh = headBladeFraction * Mathf.Max(1e-4f, halfExt);
             var idx = new System.Collections.Generic.List<int>(n);
             Vector3 headSum = Vector3.zero;
-            float haftSum = 0f; int haftN = 0;
             for (int i = 0; i < n; i++)
             {
-                float off = Mathf.Abs(Comp(_axeBaseVerts[i], bladeAxis) - refCentre);
-                if (off > thresh) { idx.Add(i); headSum += _axeBaseVerts[i]; }
-                else { haftSum += Comp(_axeBaseVerts[i], bladeAxis); haftN++; }
+                bool upper = Comp(_axeBaseVerts[i], longAxis) >= upperCut;
+                float bladeOff = Mathf.Abs(Comp(_axeBaseVerts[i], bladeAxis) - refCentre);
+                if (upper && bladeOff > bladeThresh) { idx.Add(i); headSum += _axeBaseVerts[i]; }
             }
             _axeHeadVertIdx = idx.ToArray();
             if (_axeHeadVertIdx.Length == 0) return;
-            float haftAxisCoord = haftN > 0 ? haftSum / haftN : refCentre; // where the haft sits on the blade axis
 
             // Pivot = the head centroid pulled onto the HAFT centre line (blade-axis coord = the haft's coord),
-            // so scaling the head verts toward it shrinks the BLADE while keeping it attached at the haft (the
-            // long-axis/depth coords stay at the head centroid so it shrinks in plane, not down the handle).
+            // so scaling the head verts toward it shrinks the BLADE in-plane while keeping it attached on the
+            // haft (the long-axis / depth coords stay at the head centroid → shrinks the head, not down the handle).
             Vector3 headCtr = headSum / _axeHeadVertIdx.Length;
             _axeHeadPivot = headCtr;
-            SetComp(ref _axeHeadPivot, bladeAxis, haftAxisCoord); // on the haft centre line, not the mesh centre
+            SetComp(ref _axeHeadPivot, bladeAxis, refCentre); // on the haft centre line, not off toward the blade
             Debug.Log($"[HeldWeaponCycleDebug] axe head dial resolved: {_axeHeadVertIdx.Length}/{n} blade verts " +
-                      $"(bladeAxis={bladeAxis}, thresh={thresh:F4}, haftCoord={haftAxisCoord:F3}), pivot={_axeHeadPivot.ToString("F3")}");
+                      $"(longAxis={longAxis}, bladeAxis={bladeAxis}, upperCut={upperCut:F3}, bladeThresh={bladeThresh:F4}), " +
+                      $"pivot={_axeHeadPivot.ToString("F3")}");
         }
 
         // Apply the live head factor to the per-instance clone (never the shared asset) + re-display it.

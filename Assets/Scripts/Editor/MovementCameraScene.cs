@@ -873,9 +873,20 @@ namespace FarHorizon.EditorTools
             pickup.inventory = Object.FindObjectOfType<Inventory>();
             pickup.player = player != null ? player.transform : null;
             pickup.visual = visual;
+            // #100 BUG-1 (the axe-in-two-places fix): the StumpAxe craft block is the SINGLE visible spawn axe
+            // for the dial-tool soak. This AC3 PoC pickup is authored INACTIVE so it doesn't render a SECOND
+            // world axe (the Sponsor's "axe in two places" / "pick up one, both disappear" report). The
+            // component + Inventory/player wiring still serialize, so the AC3 PoC + its EditMode presence guard
+            // (InventorySceneTests.BootScene_CarriesAxePickup_WiredToInventoryAndPlayer) carry forward unchanged
+            // — only the spawn visual + proximity pickup stand down. Flip activeAtSpawn true to re-enable the PoC.
+            pickup.activeAtSpawn = false;
+            if (visual != null)
+                foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+                    if (r != null) r.enabled = false; // serialize the hidden state into Boot.unity (static load too)
 
             EditorUtility.SetDirty(go);
-            Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition + " (auto-belt-slot-1 PoC)");
+            Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition +
+                      " (auto-belt-slot-1 PoC; #100 spawn-inactive — StumpAxe is the single visible spawn axe)");
         }
 
         // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time
