@@ -35,6 +35,51 @@ Shader "FarHorizon/LowPolyVertexColor"
         // water material raises it. This keeps the mountain seam-kill intact (mountains aren't this material's
         // water instance) while giving the sea its own colour — the surgical fix vs changing the global fog.
         _FogCap ("Fog Factor Floor (0=full fog)", Range(0,1)) = 0
+        // FLAT-SHADING (ticket 86caamnjb — Erik R&D §A / Rank 2; Hextant Studios flat-low-poly technique).
+        // When ON, frag derives the TRUE per-face normal from screen-space derivatives of positionWS
+        // (normalize(cross(ddy, ddx))) instead of the interpolated vertex normal — so a WELDED, smooth-
+        // normalled mesh renders the FACETED flat-shaded look WITHOUT unwelded verts or manual outward-
+        // winding enforcement. DEFAULTS TO 0 (OFF) so terrain/canopy/water (smooth roll = the Zone-D dune
+        // look) render BYTE-IDENTICAL to before this property existed — the OFF path is the exact prior
+        // `normalize(IN.normalWS)`. Only opt-in PROPS (rocks, future Blender-MCP props) set this ON. A
+        // [Toggle] drives the `_FLATSHADING_ON` keyword (a multi_compile_local variant so the ON path always
+        // ships in the build — see the pragma note in the pass; the OFF variant carries zero ddx/ddy cost).
+        // ADDITIVE — the existing explicit-per-face-
+        // normal mesh path (FacetedRock/CloudBlob/FacetedMountain in LowPolyMeshes.cs) is UNCHANGED; this
+        // is an alternative for props that prefer a welded mesh. The `_FlatShading` float lives INSIDE the
+        // cbuffer below for SRP-Batcher compliance (unity-conventions.md §SRP-Batcher — any new float/color
+        // must be in CBUFFER_START(UnityPerMaterial), even one only read via the keyword).
+        [Toggle(_FLATSHADING_ON)] _FlatShading ("Flat Shading (per-face ddx/ddy)", Float) = 0
+        // FRESNEL / RIM-LIGHT (ticket 86caamnnj — Erik R&D §C / Rank 4; Daniel Ilett Toon Shaders Pro +
+        // Minions Art rim idiom). A cheap ADDITIVE silhouette highlight: brighten fragments whose normal
+        // faces away from the camera (the grazing-angle rim), so an opt-in prop gets a soft wrap-around
+        // edge glow — the cheap fallback for props that never get a Blender chamfer-highlight pass
+        // (lowpoly-quality.md §2 Rec 4). NO KEYWORD: this is a plain multiply by _RimIntensity, so when
+        // _RimIntensity = 0 (the DEFAULT) the added term is exactly `rgb * rim * 0` = 0 → BYTE-IDENTICAL
+        // to before this property existed on ALL current terrain/canopy/water/prop materials (AC2 no-op;
+        // no shader_feature-strip concern, unlike the keyworded _FlatShading — the OFF path is pure-zero).
+        // Only opt-in PROPS raise _RimIntensity (per-prop adoption is a SEPARATE ticket). _RimPower ~2-3
+        // → soft silhouette highlight; ~6-8 → thin outline. _RimColor is warm-white by default (reads as
+        // a soft key-side bounce, not a neon edge). All three live INSIDE the cbuffer below for SRP-Batcher
+        // compliance (unity-conventions.md §SRP-Batcher — any new float/color must be in the cbuffer).
+        _RimColor ("Rim Color", Color) = (0.95, 0.92, 0.85, 1)
+        _RimPower ("Rim Power", Float) = 3
+        _RimIntensity ("Rim Intensity (0 = off)", Float) = 0
+        // VERTEX-COLOR AO (ticket 86caamnra — Erik R&D §E / Rank 6; Delt06/vertex-ao + sundaysundae
+        // "low-poly look good" idiom). A geometric ambient-occlusion value baked into the mesh's vertex-
+        // color ALPHA darkens the lit colour at crevices / ground-contact points for contact-shadow depth —
+        // zero runtime cost (a baked constant, not a per-frame computation). NO KEYWORD: this is a plain
+        // multiply by `lerp(1, IN.color.a, _AOStrength)`, so when _AOStrength = 0 (the DEFAULT) the factor
+        // is exactly `lerp(1, a, 0) = 1` → finalCol unchanged, BYTE-IDENTICAL to before this property
+        // existed on EVERY current terrain/canopy/water/prop material — REGARDLESS of what they carry in
+        // vertex alpha (terrain/canopy/water bake a=1; even if they baked a≠1, _AOStrength=0 makes the
+        // term a no-op). No shader_feature-strip concern (same pure-arithmetic no-op as the rim term — the
+        // off path is the identity, not a stripped variant). Only opt-in PROPS with REAL baked AO in their
+        // vertex alpha (FacetedRock) raise _AOStrength (~0.5) to surface the crevice depth. ADDITIVE to the
+        // existing per-facet vertex-color VALUE step (a directional-light proxy in RGB, NOT AO — this is the
+        // distinct contact-occlusion read in alpha). Lives INSIDE the cbuffer below for SRP-Batcher
+        // compliance (unity-conventions.md §SRP-Batcher — any new float must be in CBUFFER_START).
+        _AOStrength ("AO Strength (0 = off; reads vertex-color alpha)", Range(0,1)) = 0
     }
     SubShader
     {
@@ -53,6 +98,22 @@ Shader "FarHorizon/LowPolyVertexColor"
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS_CASCADE
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile_fog
+            // FLAT-SHADING keyword (ticket 86caamnjb). multi_compile_local (NOT shader_feature_local — see
+            // below): both the OFF and ON variants ALWAYS ship in the build, and the keyword stays LOCAL to
+            // this material (not the global keyword space — unity6-mastery.md §2 "don't proliferate keywords
+            // globally"). The OFF default selects the zero-ddx/ddy variant for terrain/canopy/water; opt-in
+            // props switch to the ON variant at material/runtime.
+            //   ⚠ WHY multi_compile, NOT shader_feature: shader_feature_local strips any variant NO BAKED
+            //   MATERIAL references. This feature is OPT-IN (no material in Boot.unity enables it by default —
+            //   per-prop adoption is a SEPARATE ticket), so under shader_feature the ON variant gets stripped
+            //   from the build and a runtime EnableKeyword silently falls back to OFF (CONFIRMED: the first
+            //   shipped -verifyFlatShading A/B rendered byte-identical OFF==ON — keyword toggled True but no
+            //   ON variant existed to switch to; editor-vs-runtime shader-strip trap, the exact class AC5's
+            //   shipped-capture gate exists to catch). multi_compile_local ships the ON variant unconditionally
+            //   so any prop can opt in in the shipped build. Cost: one extra always-compiled variant (negligible
+            //   — one tiny shader). When a baked material adopts the toggle (its own ticket), this could revert
+            //   to shader_feature, but multi_compile is the correct, robust choice for the opt-in capability.
+            #pragma multi_compile_local _ _FLATSHADING_ON
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -63,6 +124,11 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float _WaveLen;
                 float _WaveSpeed;
                 float _FogCap;
+                float _FlatShading;   // ticket 86caamnjb — in-cbuffer for SRP-Batcher (read via the keyword)
+                float4 _RimColor;     // ticket 86caamnnj — Fresnel/rim term (additive; default-0 intensity = no-op)
+                float _RimPower;
+                float _RimIntensity;
+                float _AOStrength;    // ticket 86caamnra — vertex-color-alpha AO (default-0 = no-op; props raise it)
             CBUFFER_END
 
             struct Attributes
@@ -116,7 +182,22 @@ Shader "FarHorizon/LowPolyVertexColor"
             half4 frag (Varyings IN) : SV_Target
             {
                 float3 albedo = IN.color.rgb * _Tint.rgb;
-                float3 normalWS = normalize(IN.normalWS);
+
+                // NORMAL: per-face (flat-shaded) when the keyword is ON, else the interpolated vertex normal.
+                // FLAT (ticket 86caamnjb): the true geometric face normal is the cross of the screen-space
+                // partial derivatives of the world position — every fragment of a triangle shares one normal,
+                // so a welded smooth mesh reads as hard faceted planes (Erik §A / Hextant Studios). The sign
+                // is normalize(cross(ddy, ddx)) so it points toward the camera for outward (front-facing)
+                // triangles under URP Cull Back — winding-inverted faces are simply culled (the whole point:
+                // a flipped face is never shaded with a wrong normal, killing the winding-inversion bug class).
+                // OFF (default): BYTE-IDENTICAL to the prior shader — the exact `normalize(IN.normalWS)` so
+                // terrain/canopy/water are unaffected (no-regression, AC2). The keyword guards out the ddx/ddy
+                // ALU entirely for the OFF variant.
+                #if defined(_FLATSHADING_ON)
+                    float3 normalWS = normalize(cross(ddy(IN.positionWS), ddx(IN.positionWS)));
+                #else
+                    float3 normalWS = normalize(IN.normalWS);
+                #endif
 
                 // main directional light + shadow
                 float4 shadowCoord = TransformWorldToShadowCoord(IN.positionWS);
@@ -144,6 +225,34 @@ Shader "FarHorizon/LowPolyVertexColor"
                     fogIntensity = max(fogIntensity, _FogCap);
                     finalCol = finalCol * fogIntensity + unity_FogColor.rgb * (half(1.0) - fogIntensity);
                 #endif
+
+                // VERTEX-COLOR AO (ticket 86caamnra). Multiply the lit colour by a baked ambient-occlusion
+                // value carried in the mesh's vertex-color ALPHA — darker (more occluded) at crevices /
+                // ground-contact facets, ~1 on exposed faces. `lerp(1, IN.color.a, _AOStrength)` blends
+                // between "no AO" (1.0) and "full baked AO" (the alpha) by the per-material strength. When
+                // _AOStrength = 0 (DEFAULT) this is exactly `lerp(1, a, 0) = 1` → finalCol UNCHANGED on
+                // every current material (terrain/canopy/water/prop), regardless of their vertex alpha
+                // (AC6a no-op). APPLIED BEFORE the rim term so the additive silhouette highlight is NOT
+                // occlusion-darkened (the rim is a caught-light edge that sits on top, mirroring the
+                // after-fog placement of the rim block below). Only opt-in props (FacetedRock) bake real AO
+                // into alpha + raise _AOStrength (~0.5) to surface crevice depth.
+                finalCol *= lerp(1.0, IN.color.a, _AOStrength);
+
+                // FRESNEL / RIM-LIGHT (ticket 86caamnnj). ADDED AFTER the fog-cap block (per AC1) so the
+                // rim highlight is NOT capped/washed by the distance fog — it sits on top as a crisp
+                // silhouette edge. rim = (1 - saturate(N·V))^_RimPower: maximal where the surface grazes
+                // the view (silhouette), ~0 where it faces the camera. normalWS here is whichever normal
+                // the frag resolved above — interpolated (smooth, default) OR the per-face ddx/ddy normal
+                // (when _FLATSHADING_ON), so the rim follows the chosen shading model for free. When
+                // _RimIntensity = 0 (DEFAULT for terrain/canopy/water/prop) the whole term is `rgb*rim*0`
+                // = 0 → finalCol unchanged, BYTE-IDENTICAL to before this property existed (AC2 no-op,
+                // no keyword needed). Only opt-in props raise _RimIntensity (per-prop adoption is its own
+                // ticket). GetWorldSpaceViewDir gives the unnormalized camera->frag direction (URP
+                // ShaderVariablesFunctions, via Lighting.hlsl); normalize for the dot.
+                float3 viewDirWS = normalize(GetWorldSpaceViewDir(IN.positionWS));
+                float rim = pow(1.0 - saturate(dot(normalWS, viewDirWS)), _RimPower);
+                finalCol += _RimColor.rgb * rim * _RimIntensity;
+
                 return half4(finalCol, 1.0);
             }
             ENDHLSL

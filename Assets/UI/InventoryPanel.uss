@@ -1,0 +1,250 @@
+/*
+ * Inventory pack + belt hotbar styling (gameplay-ui-direction.md §3/§4/§5). BEM-named selectors
+ * (block__element--modifier per unity6-mastery §9). Animations are USS transitions on transform/opacity
+ * (never layout) — no per-frame script.
+ */
+
+/* ---- Full-screen scrim host (the show/hide target — display:None when closed) ---- */
+.inv-scrim {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--scrim);   /* warm walnut scrim — world dims but stays visible */
+    align-items: center;
+    justify-content: center;
+}
+
+/* ---- The inventory pack panel (centered tackle box) ---- */
+.inv-panel {
+    background-color: var(--panel-walnut);
+    border-left-color: var(--panel-edge);
+    border-right-color: var(--panel-edge);
+    border-top-color: var(--panel-edge);
+    border-bottom-color: var(--panel-edge);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    /* "pops open" — 150ms ease-out scale-up + fade (direction §4.1). Set inline at runtime. */
+    transition-property: scale, opacity;
+    transition-duration: 150ms, 150ms;
+    transition-timing-function: ease-out, ease-out;
+}
+
+.inv-panel__header {
+    color: var(--ink-cream);
+    font-size: 18px;
+    -unity-font-style: bold;
+    margin-bottom: 8px;
+    border-bottom-color: var(--panel-edge);
+    border-bottom-width: 1px;
+    padding-bottom: 6px;
+}
+
+.inv-panel__divider {
+    color: var(--ink-dim);
+    font-size: 12px;
+    -unity-font-style: bold;
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+
+/* ---- Slot grids (inventory grid + docked belt row) ---- */
+.inv-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 384px;   /* 5 * 64 + 4 * 8 gaps + slack */
+    justify-content: flex-start;
+}
+
+.inv-belt-row {
+    flex-direction: row;
+    justify-content: center;
+}
+
+/* ---- A single slot well ---- */
+.slot {
+    width: 64px;
+    height: 64px;
+    margin: 4px;
+    background-color: var(--slot-empty);
+    border-left-color: var(--panel-edge);
+    border-right-color: var(--panel-edge);
+    border-top-color: var(--panel-edge);
+    border-bottom-color: var(--panel-edge);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    align-items: center;
+    justify-content: center;
+    /* Clip any icon/chip content to the rounded well — belt-and-suspenders containment (#90). */
+    overflow: hidden;
+    transition-property: background-color, translate;
+    transition-duration: 80ms, 80ms;
+}
+
+.slot:hover {
+    background-color: var(--slot-hover);
+}
+
+/* SELECTED belt slot — ember-gold rim + a small upward lift (direction §3.2) */
+.slot--selected {
+    border-left-color: var(--slot-selected);
+    border-right-color: var(--slot-selected);
+    border-top-color: var(--slot-selected);
+    border-bottom-color: var(--slot-selected);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    translate: 0 -3px;
+}
+
+/* Valid drop target (tool over the belt / any over the pack) */
+.slot--drop-ok {
+    background-color: var(--slot-hover);
+    border-left-color: var(--accent-leaf);
+    border-right-color: var(--accent-leaf);
+    border-top-color: var(--accent-leaf);
+    border-bottom-color: var(--accent-leaf);
+}
+
+/* Invalid drop (a RESOURCE dragged at the belt — the tool-vs-resource deny, AC6) */
+.slot--drop-deny {
+    border-left-color: var(--accent-deny);
+    border-right-color: var(--accent-deny);
+    border-top-color: var(--accent-deny);
+    border-bottom-color: var(--accent-deny);
+}
+
+/* ---- Slot content ----
+ * #90 fix: icon + chip are MUTUALLY EXCLUSIVE (PaintSlot shows one OR the other), but a Label in normal
+ * flow reserves its line-box height even with empty text — so an in-flow empty chip stacked under the
+ * icon pushed the column-flow stack taller than the 64px cell and justify-content:center shoved the icon
+ * UP past the top edge (the "shifted up-and-left" overflow). Pin BOTH absolutely to fill the cell so
+ * neither reserves flow space; each then centers itself inside the well. Small inset keeps the icon off
+ * the rounded rim. */
+.slot__icon {
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    right: 6px;
+    bottom: 6px;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+/* The letter-chip fallback when an icon sprite isn't baked (direction §6.3) */
+.slot__chip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    color: var(--ink-cream);
+    font-size: 26px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+/* The hotkey digit (top-left corner of belt slots) */
+.slot__hotkey {
+    position: absolute;
+    left: 4px;
+    top: 2px;
+    color: var(--ink-dim);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+/* Stack-count badge (bottom-right; shown only at count >= 2 — direction §5) */
+.slot__badge {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    min-width: 18px;
+    height: 16px;
+    background-color: var(--badge-bg);
+    color: var(--ink-cream);
+    font-size: 12px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+    padding-left: 3px;
+    padding-right: 3px;
+}
+
+/* A full stack reads gold-ish (direction §4.3) */
+.slot__badge--full {
+    color: var(--slot-selected);
+}
+
+/* ---- Standalone belt hotbar (bottom-center, visible during closed-inventory play — direction §3.1) ---- */
+.belt-bar {
+    position: absolute;
+    bottom: 16px;
+    left: 0;
+    right: 0;
+    flex-direction: row;
+    justify-content: center;
+    align-items: flex-end;
+}
+
+.belt-bar__strip {
+    flex-direction: row;
+    background-color: var(--panel-walnut);
+    border-left-color: var(--panel-edge);
+    border-right-color: var(--panel-edge);
+    border-top-color: var(--panel-edge);
+    border-bottom-color: var(--panel-edge);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+/* SOURCE slot of an active drag (#90 dup-fix): hide the slot's item content while the drag-ghost
+ * carries it, so the item reads in ONE place (the ghost), not two (source + ghost). The slot WELL
+ * stays visible (it's where the item came from); only its icon/chip/badge go invisible. visibility
+ * (not display:none) keeps the cell's layout box so worldBound stays valid for the cursor hit-test
+ * (BUG 1 drop resolution depends on the source slot's rect). Restored on drop OR cancel. */
+.slot--dragging-source .slot__icon,
+.slot--dragging-source .slot__chip,
+.slot--dragging-source .slot__badge {
+    visibility: hidden;
+}
+
+/* The dragged-icon ghost that follows the cursor (direction §4.2) */
+.drag-ghost {
+    position: absolute;
+    width: 56px;
+    height: 56px;
+    -unity-background-scale-mode: scale-to-fit;
+    opacity: 0.92;
+    scale: 1.1 1.1;
+}

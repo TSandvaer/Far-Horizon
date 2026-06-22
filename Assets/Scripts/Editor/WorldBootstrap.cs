@@ -97,6 +97,12 @@ namespace FarHorizon.EditorTools
             var vcShader = Shader.Find("FarHorizon/LowPolyVertexColor");
             if (vcShader != null) EnsureShaderAlwaysIncluded(vcShader);
             else Debug.LogWarning("[WorldBootstrap] LowPolyVertexColor shader not found at bootstrap");
+            // The new TRANSPARENT depth-fade FOAM water shader (ticket 86caamnmb AC1) — pin it too or the
+            // standalone build strips it to the URP/Lit fallback (no foam, no fog-cap, unity-conventions.md
+            // §Build stripping). Registered BEFORE MakeWaterMaterial keys off it below.
+            var waterShader = Shader.Find("FarHorizon/LowPolyWater");
+            if (waterShader != null) EnsureShaderAlwaysIncluded(waterShader);
+            else Debug.LogWarning("[WorldBootstrap] LowPolyWater shader not found at bootstrap");
             // URP/Lit (used by the flat-color scatter materials) — also pin it so scatter never strips.
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (litShader != null) EnsureShaderAlwaysIncluded(litShader);

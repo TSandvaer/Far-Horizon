@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "vault_root": "C:\\Users\\538252\\OneDrive - EDC-Gruppen A S\\Documents\\EDC Obsidian vault\\EDC_Notes\\Privat\\Far Horizon",
+  "clickup_list_id": "901523878268",
+  "new_ticket_status": "to do",
+  "routing": {
+    "Ticket prompts": "clickup-ticket",
+    "visions": "vision-doc"
+  },
+  "files": [
+    {
+      "rel_path": "Ticket prompts/Bushes (created).md",
+      "type": "clickup-ticket",
+      "title": "Bushes",
+      "content_hash": "90d9a134b03e8fe5e30a44132435e66aea8bdcf6b53b430f8e6b8c8426181279",
+      "clickup_id": "86caa5zz3",
+      "marker": "created",
+      "backfill": "migrated-from-sent",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/Chop tree (created).md",
+      "type": "clickup-ticket",
+      "title": "Chop tree",
+      "content_hash": "e42d2bd2e645b5f57d9a0e67475fa1d03d0a54d09eeba076ef2bca5582848b7b",
+      "clickup_id": "86caa4c5c",
+      "marker": "created",
+      "backfill": "migrated-from-sent",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/Inventory and belt (created).md",
+      "type": "clickup-ticket",
+      "title": "Inventory and belt",
+      "content_hash": "1265fd2099c80a7708eae32728d3eba76a8819949a253319796b53c6de5a7f45",
+      "clickup_id": "86caa4bya",
+      "marker": "created",
+      "backfill": "migrated-from-sent",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/Pick up stone (created).md",
+      "type": "clickup-ticket",
+      "title": "Pick up stone",
+      "content_hash": "83a262389b0ea2b19babd112a172759b2e291af4e4e0cd7a2a164d8382f49949",
+      "clickup_id": "86caa4c96",
+      "marker": "created",
+      "backfill": "migrated-from-sent",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/Tweakable settings panel (created).md",
+      "type": "clickup-ticket",
+      "title": "Tweakable settings panel",
+      "content_hash": "d6c8ddca311007504dba70adfe5bbfd7c723d28064914feb9f17d39548aae431",
+      "clickup_id": "86caa4bqp",
+      "marker": "created",
+      "backfill": "migrated-from-sent",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/Sticks and branches (created).md",
+      "type": "clickup-ticket",
+      "title": "Sticks and branches",
+      "content_hash": "2bc975da6724a077cb8e6f728b13fc087705029b6e99e920af56a7fcf734a0a8",
+      "clickup_id": ["86caa96rd", "86caa96x2"],
+      "split": true,
+      "marker": "created",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/The next island (created).md",
+      "type": "clickup-ticket",
+      "title": "The next island",
+      "content_hash": "a3c1440143bd9964a1bdafa41f5d0059e0bc614a947d666207780fe92ade0666",
+      "clickup_id": ["86caa9zju", "86caa9zpp"],
+      "split": true,
+      "marker": "created",
+      "last_synced": "2026-06-17"
+    },
+    {
+      "rel_path": "Ticket prompts/Far Horizon (created).md",
+      "type": "clickup-ticket",
+      "title": "Erik: deep investigation — game UI approach (menus/inventory/belt/status bars)",
+      "content_hash": "055916eee3cbd645b44dbd3638178442ba5698ae0fa2d158e3cefb5b2645b9a2",
+      "clickup_id": "86caaz4tq",
+      "marker": "created",
+      "last_synced": "2026-06-18"
+    },
+    {
+      "rel_path": "Ticket prompts/Game development Juice concept (created).md",
+      "type": "clickup-ticket",
+      "title": "Game development Juice concept",
+      "content_hash": "32d7738c3343643003f979a7672ebe1df5abcc2486630aed0cb195250d773b92",
+      "clickup_id": "86caaz4un",
+      "marker": "created",
+      "last_synced": "2026-06-18"
+    },
+    {
+      "rel_path": "Ticket prompts/Snake (created).md",
+      "type": "clickup-ticket",
+      "title": "Snake",
+      "content_hash": "bb9804532a933b62f7e09b03f3a8564aad15e72cd83560713ff8a4a3fb368568",
+      "clickup_id": "86caaz4vn",
+      "marker": "created",
+      "last_synced": "2026-06-18"
+    },
+    {
+      "rel_path": "Ticket prompts/Grass (created).md",
+      "type": "clickup-ticket",
+      "title": "Grass",
+      "content_hash": "305e2bd476c24e53c01005a9539f9923bc99717b257ae59d7a0367c2663861db",
+      "clickup_id": "86cabc737",
+      "marker": "created",
+      "last_synced": "2026-06-19"
+    },
+    {
+      "rel_path": "Ticket prompts/Make nice low poly trees (created).md",
+      "type": "clickup-ticket",
+      "title": "Make nice low poly trees",
+      "content_hash": "1078a32ed09a77c0e58cc378fdec3c4a9c4e00b9d588397097c95d3c6f93d640",
+      "clickup_id": "86cabc73q",
+      "marker": "created",
+      "last_synced": "2026-06-19"
+    },
+    {
+      "rel_path": "Ticket prompts/Unity Low Poly stylized sky (created).md",
+      "type": "clickup-ticket",
+      "title": "Unity Low Poly stylized sky",
+      "content_hash": "9bdd0bede761537c969b8c81b88c78009b6db18f8332f20d4bfb76382303d38a",
+      "clickup_id": "86cabc743",
+      "marker": "created",
+      "last_synced": "2026-06-19"
+    },
+    {
+      "rel_path": "visions/Far Horizon - game concept (integrated).md",
+      "type": "vision-doc",
+      "title": "Far Horizon - game concept",
+      "content_hash": "8a331691736a19f3f5aa2ca2613d5b20e34577a329ea292b0edfe8298e2f7c29",
+      "docs_path": ".claude/docs/vision-far-horizon-game-concept.md",
+      "marker": "integrated",
+      "last_synced": "2026-06-18"
+    }
+  ]
+}

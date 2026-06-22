@@ -192,7 +192,7 @@ make_min_repo() {
     && printf 'public static void BuildWindows()' > Assets/Scripts/Editor/FarHorizonBuilder.cs \
     && printf 'fileFormatVersion: 2\nguid: 00000000000000000000000000000002\n' > Assets/Scripts/Editor/FarHorizonBuilder.cs.meta \
     && printf '{}\n' > Packages/manifest.json \
-    && printf 'm_EditorVersion: 6000.4.10f1\n' > ProjectSettings/ProjectVersion.txt \
+    && printf 'm_EditorVersion: 6000.4.11f1\n' > ProjectSettings/ProjectVersion.txt \
     && git add -A >/dev/null 2>&1 ) || return 1
 }
 
@@ -322,6 +322,47 @@ assert_rc_and_grep 1 "PIXEL-IDENTICAL" "frames_differ: identical frames fail" \
 # 8. Direct unit: a missing frame → FAIL loud (a check that can't read its input is a failure).
 assert_rc_and_grep 1 "not found" "frames_differ: missing frame fails loud" \
   -- python3 "$FRAMES_DIFFER" "$DIFFDIR/settings_open.png" "$TMP/does_not_exist.png"
+
+echo "=== bootstrap_with_retry.sh (86cabtc83 — completion-marker gate + cold-cancel retry) ==="
+# The wrapper must NOT report success unless BootstrapProject.Run finished end-to-end
+# (logged "[BootstrapProject] complete" → Boot.unity re-baked). The 6000.4.11f1 cold-cache
+# package-resolve was CANCELLED before Run() ran, yet the old wrapper reported success off
+# the advisory -quit exit code → EditMode tested the STALE committed Boot.unity → 6 false-RED
+# scene-presence failures. These cases pin the marker-gate + the broadened retry signature.
+RETRY="$SCRIPTS/bootstrap_with_retry.sh"
+# A fake Unity: ignores its args, writes a canned -logFile body + exit code chosen by env
+# vars, so we can drive the wrapper deterministically with zero real Unity.
+FAKE_UNITY="$TMP/fake_unity.sh"
+cat > "$FAKE_UNITY" <<'FAKE'
+#!/usr/bin/env bash
+log=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-logFile" ]; then log="$2"; shift 2; continue; fi
+  shift
+done
+[ -n "$log" ] && printf '%b' "$FAKE_LOG_BODY" > "$log"
+exit "${FAKE_EXIT:-0}"
+FAKE
+chmod +x "$FAKE_UNITY"
+RETRY_PROJ="$TMP/retry_proj"; mkdir -p "$RETRY_PROJ/Library/PackageCache"
+
+# Case A: Run() COMPLETED (marker present) + exit 0 → wrapper SUCCESS.
+assert_rc_and_grep 0 "bootstrap COMPLETE" "bootstrap-retry: completion marker → success" \
+  -- env FAKE_EXIT=0 FAKE_LOG_BODY='[BootstrapProject] start\nauthored stuff\n[BootstrapProject] complete\n' \
+     bash -c "cd '$RETRY_PROJ' && bash '$RETRY' '$FAKE_UNITY' '$RETRY_PROJ' '$RETRY_PROJ/boot.log'"
+
+# Case B (THE 86cabtc83 BUG): advisory exit 0 BUT no completion marker (the cold-cancel
+# signature) → wrapper must NOT report success. It retries the transient flake, then gives
+# up NON-ZERO — never a silent green. A non-re-baked scene MUST fail the gate. SETTLE_SECONDS=0
+# keeps the test fast (the real CI value is the script default 20s).
+assert_rc_and_grep 1 "no '[BootstrapProject] complete' marker" "bootstrap-retry: cold-cancel + no marker → NOT success (the 86cabtc83 bug)" \
+  -- env SETTLE_SECONDS=0 FAKE_EXIT=0 FAKE_LOG_BODY='[Package Manager] Failed to resolve packages: operation cancelled.\nApplication will terminate with return code 1\n' \
+     bash -c "cd '$RETRY_PROJ' && bash '$RETRY' '$FAKE_UNITY' '$RETRY_PROJ' '$RETRY_PROJ/boot.log'"
+
+# Case C: a REAL compile error (no marker, no transient signature) → fail FAST, no retry.
+assert_rc_and_grep 1 "not retrying (real error" "bootstrap-retry: real error → fail fast, no retry" \
+  -- env FAKE_EXIT=1 FAKE_LOG_BODY='Assets/Foo.cs(3,5): error CS0103: name does not exist\nCompilation failed\n' \
+     bash -c "cd '$RETRY_PROJ' && bash '$RETRY' '$FAKE_UNITY' '$RETRY_PROJ' '$RETRY_PROJ/boot.log'"
 
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"

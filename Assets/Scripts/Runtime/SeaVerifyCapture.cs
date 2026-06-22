@@ -47,14 +47,72 @@ namespace FarHorizon
         public int waveFrames = 6;
         public float waveStepSeconds = 0.4f;
 
+        // FPS A/B window (ticket 86caamnmb AC5 — the transparent-water OVERDRAW cost on the ~600u ocean). The
+        // seaward orbit (yaw 180) is the worst-case overdraw view (the most transparent water pixels on screen).
+        // Sample unscaled frame time over this window; mean + 95th-percentile let the orchestrator/Sponsor A/B
+        // the foam-water build against the prior opaque-water build (run -fpsProbe on each, compare the numbers).
+        public int fpsSampleFrames = 240;     // ~4s at 60fps — enough to average out hitches
+        public int fpsWarmupFrames = 60;      // let the swapchain/post settle before sampling (first-frame spikes)
+
         void Start()
         {
-            if (HasArg("-verifyCoast"))
+            if (HasArg("-fpsProbe"))
+                StartCoroutine(RunFpsProbe());
+            else if (HasArg("-verifyCoast"))
                 StartCoroutine(RunCoastVantage());
             else if (HasArg("-verifyWaves"))
                 StartCoroutine(RunWaveSequence());
             else if (HasArg("-verifySea"))
                 StartCoroutine(RunVerification());
+        }
+
+        // -fpsProbe (ticket 86caamnmb AC5): measure shipped-exe frame time at the worst-case overdraw view
+        // (the seaward orbit, where the full transparent ocean fills the frame). vSync is the desktop default
+        // (unity6-mastery §12) which would CLAMP the measurement to the refresh rate — so we DISABLE vSync for
+        // the probe window (targetFrameRate uncapped) to read the true GPU-bound frame time the overdraw costs,
+        // then log mean + p95 ms. Run this on the foam-water build AND on a prior opaque-water build; the
+        // delta is the AC5 overdraw cost. INERT unless -fpsProbe is passed.
+        private System.Collections.IEnumerator RunFpsProbe()
+        {
+            // Uncap the frame rate so the measurement reflects the true frame time, not the vSync clamp.
+            int prevVSync = QualitySettings.vSyncCount;
+            int prevTarget = Application.targetFrameRate;
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = 0; // 0 = uncapped when vSync is off
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            float pitch = ArgFloat("-seawardPitch", 22f);   // a low seaward pitch so the ocean fills the frame
+            float dist = ArgFloat("-seawardDistance", 20f);
+            if (orbit != null)
+            {
+                orbit.SetYaw(seawardYaw);
+                orbit.SetPitch(pitch);
+                orbit.SetDistance(dist);
+            }
+            for (int i = 0; i < fpsWarmupFrames; i++) yield return null;
+
+            int n = ArgInt("-fpsFrames", fpsSampleFrames);
+            var ms = new System.Collections.Generic.List<float>(n);
+            for (int i = 0; i < n; i++)
+            {
+                ms.Add(Time.unscaledDeltaTime * 1000f);
+                yield return null;
+            }
+            ms.Sort();
+            double sum = 0; foreach (var v in ms) sum += v;
+            float mean = n > 0 ? (float)(sum / n) : 0f;
+            float p95 = n > 0 ? ms[Mathf.Clamp((int)(n * 0.95f), 0, n - 1)] : 0f;
+            float p50 = n > 0 ? ms[n / 2] : 0f;
+            float meanFps = mean > 0.0001f ? 1000f / mean : 0f;
+            Debug.Log($"[fpsProbe] seaward-orbit overdraw view (yaw {seawardYaw} pitch {pitch} dist {dist}) " +
+                      $"frames={n} vSyncOff: meanMs={mean:F3} (~{meanFps:F0}fps) p50Ms={p50:F3} p95Ms={p95:F3}. " +
+                      "A/B this against the prior opaque-water build's -fpsProbe to read the transparent-water " +
+                      "overdraw cost (ticket 86caamnmb AC5).");
+
+            QualitySettings.vSyncCount = prevVSync;
+            Application.targetFrameRate = prevTarget;
+            yield return new WaitForSeconds(0.2f);
+            Application.Quit();
         }
 
         // -verifyCoast (ticket 86ca9yn57): the BIG ROUND ISLAND moved the sea ~120u out behind dense jungle,
@@ -479,6 +537,16 @@ namespace FarHorizon
                 if (args[i] == flag && float.TryParse(args[i + 1],
                     System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out float v))
+                    return v;
+            return fallback;
+        }
+
+        // Read an int arg (-flag <value>); falls back to the default if absent/unparseable.
+        private int ArgInt(string flag, int fallback)
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+                if (args[i] == flag && int.TryParse(args[i + 1], out int v))
                     return v;
             return fallback;
         }

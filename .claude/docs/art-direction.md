@@ -35,6 +35,8 @@ The **axe** is immediately actionable — the survival loop's hero tool should r
 `21h08_08` (red head, white edge, bent brown haft). Sword + curved blade signal future interest
 (combat-ish props) but nothing is scheduled — style reference only until the Sponsor shapes M-U3+.
 
+> **Weapon/tool FAMILY-COHESION is a STYLE-SYSTEM decision, not per-asset sourcing (Route A, Sponsor 2026-06-19).** The hand-tool/weapon family (axe, knife, sword, spear, …) reads as ONE family only if it shares ONE style spec + ONE shading model + ONE shared low-poly palette material through ONE in-house Blender pipeline — NOT by sourcing each item separately (which is what produced today's outlier axe with its baked photographic atlas). The currently-shipped CC-BY axe (`Assets/Art/Props/CastawayAxe/`, Viktor.G) is a **PLACEHOLDER to be re-made in the family style — NOT the style anchor.** The anchor is the spec (`team/uma-ux/weapon-tool-style-spec.md`, Uma owns) + the world palette extracted from the live build. Re-making in-house also retires the CC-BY attribution obligation. (DECISIONS 2026-06-19; rationale memory `weapon-tool-unified-style-inhouse-blender-set`.)
+
 ### Nature family — `21h10_44` (trees/clouds/rocks/grass set), `21h11_03` (four trees)
 Blob-canopy low-poly trees (faceted polygonal clusters in varied greens on simple trunks),
 bright teal cartoon clouds, faceted grey rocks, simple grass tufts. This is the WORLD direction:

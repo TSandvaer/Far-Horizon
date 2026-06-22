@@ -44,6 +44,12 @@ namespace FarHorizon
                  "the Awake fallback is a build-safety net only.")]
         public WarmthNeed warmth;
 
+        [Tooltip("The HUNGER need this HUD reads (#101 — the missing piece that makes the eat loop verifiable: " +
+                 "the player SEES hunger deplete + refill on eating). Same read-only surface as warmth " +
+                 "(Current01 / IsCritical / Changed). Wired editor-time by BootstrapProject (serialized); the " +
+                 "Awake fallback is a build-safety net only. May be null — the hunger bar is simply not drawn.")]
+        public HungerNeed hunger;
+
         [Tooltip("The inventory ledger this HUD reads. Wired editor-time by BootstrapProject (serialized); " +
                  "the Awake fallback is a build-safety net only.")]
         public Inventory inventory;
@@ -61,7 +67,16 @@ namespace FarHorizon
         private const float WarmBand = 0.60f;
         private const float CoolBand = 0.30f;
 
-        private GUIStyle _flameStyle, _ledgerStyle;
+        // --- HUNGER bar palette (#101 — a SECOND need bar above warmth; distinct from warmth's ember so the
+        // player tells them apart at a glance). Food/fruit tones: a ripe berry-leaf green when fed, warming
+        // through amber to a hungry berry-red as it empties — material-honest "food" colour, never alarm red.
+        // All sub-1.0 per channel (HDR-clamp-safe, the same discipline as the warmth band). The hunger bar
+        // empties RIGHT-TO-LEFT like warmth, and shares the FilledSegments FLOOR rule + segment geometry.
+        private static readonly Color FedGreen  = new Color(0.55f, 0.72f, 0.36f); // #8CB85C  fed   (>=60%)
+        private static readonly Color RipeAmber = new Color(0.85f, 0.62f, 0.30f); // #D99E4D  peckish(30-60%)
+        private static readonly Color BerryRed  = new Color(0.74f, 0.30f, 0.30f); // #BD4D4D  hungry(<30%) — a berry red, NOT alarm red
+
+        private GUIStyle _flameStyle, _ledgerStyle, _berryStyle;
 
         void Awake()
         {
@@ -70,13 +85,15 @@ namespace FarHorizon
             // path the shipped build relies on (the serialized ref already points at the scene's
             // WarmthNeed/Inventory).
             if (warmth == null) warmth = FindObjectOfType<WarmthNeed>();
+            if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
         }
 
         void OnGUI()
         {
             EnsureStyles();
-            DrawInventoryLedger(); // ledger row sits ABOVE the warmth bar (spec §2 layout)
+            DrawInventoryLedger(); // ledger row sits ABOVE the need bars (spec §2 layout)
+            DrawHungerBar();       // hunger bar sits ABOVE the warmth bar (#101 — the loop-verify piece)
             DrawWarmthBar();
         }
 
@@ -86,6 +103,51 @@ namespace FarHorizon
             _flameStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold };
             _ledgerStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
             _ledgerStyle.normal.textColor = Cream; // warm-cream ledger ink (spec §4)
+            // The hunger glyph (a berry) left of the hunger bar — the language-free label distinguishing it
+            // from the warmth flame glyph (#101 AC2 "tell warmth vs hunger apart at a glance").
+            _berryStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold };
+        }
+
+        // === Hunger bar (#101 — the second need bar that makes the eat loop VERIFIABLE) ==============
+        // The SAME segmented geometry + FLOOR fill rule + right-to-left empty as the warmth bar (one bar
+        // idiom), but a DISTINCT food palette (fed-green -> ripe-amber -> hungry berry-red) + a berry glyph
+        // so the player tells it apart from warmth. Sits one row ABOVE the warmth bar. Bound to HungerNeed's
+        // read-only surface (Current01) — the HUD subscribes/reads, never writes (eating goes through
+        // HungerNeed.AddFood elsewhere). Skipped entirely if no hunger need is wired.
+        private void DrawHungerBar()
+        {
+            if (hunger == null) return;
+
+            float current01 = hunger.Current01;
+            int filled = FilledSegments(current01);      // shares warmth's pinned FLOOR rule
+            Color bandColor = HungerBandColor(current01);
+
+            // One row above the warmth bar (warmth baseline y = Screen.height - 44; hunger at -80, the same
+            // slot the inventory ledger used — the ledger moves up to -116 below so all three rows stack).
+            const float x = 16f, w = 260f, h = 28f;
+            float y = Screen.height - 80f;
+
+            DrawPlate(x - 6f, y - 6f, w + 12f, h + 12f);
+
+            // Berry glyph left of the bar — language-free, dims at empty (mirrors the warmth flame glyph).
+            float glyphAlpha = filled > 0 ? 1f : 0.4f;
+            _berryStyle.normal.textColor = new Color(bandColor.r, bandColor.g, bandColor.b, glyphAlpha);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(x, y + 3f, 18f, 22f), "●", _berryStyle); // ● berry glyph (vs ▲ warmth flame)
+
+            const float glyphW = 22f, gap = 3f;
+            float segArea = w - glyphW;
+            float segW = (segArea - gap * (SegmentCount - 1)) / SegmentCount;
+            float segY = y + 4f, segH = h - 8f;
+
+            for (int i = 0; i < SegmentCount; i++)
+            {
+                float segX = x + glyphW + i * (segW + gap);
+                bool lit = i < filled;
+                GUI.color = lit ? bandColor : Charcoal;
+                GUI.DrawTexture(new Rect(segX, segY, segW, segH), Texture2D.whiteTexture);
+            }
+            GUI.color = Color.white;
         }
 
         // === Warmth glow-bar (spec §3) ===========================================================
@@ -159,10 +221,11 @@ namespace FarHorizon
             if (hasAxe) ledger += "axe 1";
             if (wood > 0) ledger += (ledger.Length > 0 ? "    " : "") + "wood " + wood;
 
-            // Inventory ledger row: directly above the warmth bar — y = Screen.height - 80, x = 16,
-            // height ~28 (spec §2). Never rises above Screen.height - 96.
+            // Inventory ledger row: above the need bars. The bottom-left now stacks three rows (warmth at
+            // -44, hunger at -80 added in #101), so the ledger moves UP to -116 to sit clear above hunger
+            // (was -80 when warmth was the only bar). x = 16, height ~28 (spec §2).
             const float x = 16f, w = 260f, h = 28f;
-            float y = Screen.height - 80f;
+            float y = Screen.height - 116f;
 
             DrawPlate(x - 6f, y - 3f, w + 12f, h + 6f);
 
@@ -192,6 +255,20 @@ namespace FarHorizon
             if (c >= WarmBand) return WarmGold;
             if (c >= CoolBand) return DuskOrange;
             return CoalRed;
+        }
+
+        /// <summary>
+        /// The HUNGER bar's filled-run band color (#101): fed green >=0.60, ripe amber 0.30..0.60, hungry
+        /// berry-red &lt;0.30 — the food/fruit analogue of <see cref="BandColor"/>, using the SAME band
+        /// cutoffs so the two bars read consistently (only the palette differs). Exposed so the paired
+        /// EditMode test asserts the hunger band mapping the same way it asserts warmth's.
+        /// </summary>
+        public static Color HungerBandColor(float current01)
+        {
+            float c = Mathf.Clamp01(current01);
+            if (c >= WarmBand) return FedGreen;
+            if (c >= CoolBand) return RipeAmber;
+            return BerryRed;
         }
 
         // Low-alpha dark plate (spec §3/§4 plate idiom; alpha 0.55 == BootHud's stamp-plate family).

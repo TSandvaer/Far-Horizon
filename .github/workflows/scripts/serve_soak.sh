@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-UNITY="${UNITY:-/c/Program Files/Unity/Hub/Editor/6000.4.10f1/Editor/Unity.exe}"
+UNITY="${UNITY:-/c/Program Files/Unity/Hub/Editor/6000.4.11f1/Editor/Unity.exe}"
 EXE="Build/Windows/FarHorizon.exe"
 STAMP="Assets/Resources/BuildStamp.txt"
 SOAK_DIR="ci-out/soak"        # gitignored (ci-out/)

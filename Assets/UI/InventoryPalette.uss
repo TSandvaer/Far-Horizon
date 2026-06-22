@@ -1,0 +1,23 @@
+/*
+ * Shared "carved from the same wood" UI palette (gameplay-ui-direction.md §1).
+ * A sibling of the BootHud/SurvivalHud chrome — warm walnut plates + cream ink, NOT a second visual
+ * system. Every channel sub-1.0 (HDR/sRGB-clamp discipline carries from the HUD + Zone-D).
+ *
+ * NOTE: when the settings panel (PR #83) merges, its `Assets/UI/Palette.uss` carries the same tokens;
+ * the reconciliation PR collapses these to one shared palette file (cross-lane follow-up). Named
+ * InventoryPalette.uss here to avoid a file-name collision with #83's Palette.uss on parallel branches.
+ */
+
+:root {
+    --panel-walnut: rgba(42, 35, 32, 0.88);   /* #2A2320 @ a0.88 — warm dark walnut, brown bias */
+    --panel-edge:   rgb(90, 70, 50);          /* #5A4632 — warm-brown rim / bevel highlight */
+    --slot-empty:   rgba(58, 48, 42, 0.92);   /* #3A302A @ a0.92 — recessed well */
+    --slot-hover:   rgba(74, 61, 51, 0.95);   /* #4A3D33 @ a0.95 — warm lift on hover */
+    --slot-selected: rgb(232, 178, 92);       /* #E8B25C — ember gold (reused from the HUD warmth fill) */
+    --ink-cream:    rgb(234, 217, 184);       /* #EAD9B8 — primary cream ink */
+    --ink-dim:      rgb(156, 144, 122);       /* #9C907A — secondary / disabled */
+    --accent-leaf:  rgb(76, 158, 58);         /* #4C9E3A — positive affordance / valid drop */
+    --accent-deny:  rgb(181, 86, 60);         /* #B5563C — invalid drop / coal-red "no" */
+    --badge-bg:     rgba(42, 35, 32, 0.85);   /* #2A2320 @ a0.85 — count-badge walnut chip */
+    --scrim:        rgba(42, 35, 32, 0.40);   /* walnut-tinted scrim — the world stays warm behind */
+}

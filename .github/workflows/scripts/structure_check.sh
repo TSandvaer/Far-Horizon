@@ -115,7 +115,7 @@ if python3 -c "import json; json.load(open('Packages/manifest.json'))" 2>/dev/nu
 else
   bad "Packages/manifest.json is not valid JSON"
 fi
-EXPECTED_UNITY="6000.4.10f1"
+EXPECTED_UNITY="6000.4.11f1"
 if grep -qF "m_EditorVersion: ${EXPECTED_UNITY}" ProjectSettings/ProjectVersion.txt; then
   ok "ProjectVersion pinned to ${EXPECTED_UNITY}"
 else

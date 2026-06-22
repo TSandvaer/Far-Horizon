@@ -130,9 +130,29 @@ namespace FarHorizon.EditorTools
         private static void ConfigureUrp()
         {
             var renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
+            // DEPTH-FADE FOAM PREREQUISITE (ticket 86caamnmb — blocker 3, trace-diagnosed from CI
+            // test-results-editmode.xml ActiveUrpAsset failure + Assets/Settings/FarHorizonRenderer.asset
+            // m_CopyDepthMode:1). The transparent LowPolyWater frag samples the resolved OPAQUE scene depth
+            // (_CameraDepthTexture) DURING the transparent pass to find water↔object intersections (foam).
+            // A FRESH UniversalRendererData defaults CopyDepthMode to AfterTransparents, which copies depth
+            // AFTER the water has drawn -> the foam samples STALE/EMPTY depth and reads nothing. Force
+            // AfterOpaques (0) so the depth copy holds resolved OPAQUE depth while the transparent water draws.
+            // Set HERE (not on the committed .asset) because bootstrap RE-CREATES FarHorizonRenderer.asset
+            // from a default instance every run — a hand-edit to the committed asset is silently reverted.
+            renderer.copyDepthMode = CopyDepthMode.AfterOpaques;
             AssetDatabase.CreateAsset(renderer, UrpRendererPath);
 
             var urp = UniversalRenderPipelineAsset.Create(renderer);
+            // DEPTH-FADE FOAM PREREQUISITE (ticket 86caamnmb — blocker 2, trace-diagnosed from CI
+            // ActiveUrpAsset_HasDepthAndOpaqueTextureEnabled failure: Expected True/was False). URP only
+            // generates _CameraDepthTexture (+ _CameraOpaqueTexture) when the URP Asset requests them, and
+            // UniversalRenderPipelineAsset.Create ships them OFF by default. Without Depth Texture the
+            // transparent foam frag's SampleSceneDepth reads garbage -> foam-less water silently ships.
+            // Set HERE (not on the committed FarHorizonURP.asset) because bootstrap RE-CREATES the URP asset
+            // from Create() every run, wiping any committed m_RequireDepthTexture edit — the same
+            // "bake reproducibly in bootstrap, not a hand-edit that reverts" pattern as the shadow params below.
+            urp.supportsCameraDepthTexture = true;
+            urp.supportsCameraOpaqueTexture = true;
             // AC0 "LINE THROUGH THE ISLAND" FIX (ticket 86ca9qwr3 — trace-diagnosed). The dead-straight
             // world-fixed dark streak the Sponsor flagged is the URP MAIN-LIGHT REAL-TIME SHADOW-DISTANCE
             // BOUNDARY: directional shadows render only within shadowDistance of the camera, and the hard
@@ -278,6 +298,19 @@ namespace FarHorizon.EditorTools
             // (default-pitch clouds + low-pitch vista/sky dissolve). Serialized editor-time (NOT Awake)
             // per the editor-vs-runtime trap; INERT unless the exe is launched with -verifyWorldLook.
             hudGo.AddComponent<WorldLookVerifyCapture>();
+            // FLAT-SHADING A/B verify capture (86caamnjb) — renders one welded smooth sphere TWICE on the
+            // FarHorizon/LowPolyVertexColor material (keyword OFF then ON) so the SHIPPED-build smooth-vs-
+            // faceted A/B is judged from real frames (the ddx/ddy toggle's AC5 evidence; editor capture is
+            // necessary-not-sufficient). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
+            // INERT unless the exe is launched with -verifyFlatShading. FlatShadingVerifyCaptureSceneTests
+            // guards its serialized presence.
+            hudGo.AddComponent<FarHorizon.FlatShadingVerifyCapture>();
+            // FRESNEL/RIM A/B verify capture (86caamnnj) — renders one welded smooth sphere TWICE on the
+            // FarHorizon/LowPolyVertexColor material (_RimIntensity 0 then dialed) so the SHIPPED-build
+            // rim-OFF-vs-dialed A/B is judged from real frames (the rim term's AC4 evidence; editor capture
+            // is necessary-not-sufficient). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
+            // INERT unless the exe is launched with -verifyRim. CaptureGateSceneTests guards its serialized presence.
+            hudGo.AddComponent<FarHorizon.RimVerifyCapture>();
             // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
             // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
@@ -304,6 +337,29 @@ namespace FarHorizon.EditorTools
             // there) finds + wires this Inventory.
             var inventory = survivalGo.AddComponent<Inventory>();
 
+            // HUNGER (86caamkp8): the second survival need — hunger decays as a SLOWER background
+            // pressure than warmth and is restored by eating berries (the eat-action lives in the
+            // bushes/inventory lane; HungerNeed.AddFood is the restore seam). IS-A SurvivalNeed (the
+            // shared base this ticket owns; thirst 86caamkv7 extends it next). SERIALIZED here
+            // editor-time (NOT Awake) per the editor-vs-runtime trap — HungerNeedSceneTests guards it.
+            // Author the slower-than-warmth decay defaults onto the serialized component (Reset() only
+            // runs on an editor add, not on a headless AddComponent, so set them explicitly here so the
+            // shipped scene carries the gentler pressure). #101: the HUNGER BAR that renders this IS now
+            // wired to SurvivalHud below (the loop-verify piece — folds in part of need-meter 86caamkxv).
+            var hunger = survivalGo.AddComponent<HungerNeed>();
+            hunger.easyDecayPerSecond = HungerNeed.HungerEasyDecayPerSecond;
+            hunger.medDecayPerSecond  = HungerNeed.HungerMedDecayPerSecond;
+            hunger.hardDecayPerSecond = HungerNeed.HungerHardDecayPerSecond;
+            hunger.decayPerSecond     = HungerNeed.HungerMedDecayPerSecond; // medium tier by default
+            // #101 EAT-REFILL FIX (root cause: the eat seam was correct, but hunger shipped startFull=true so
+            // an eat clamped against an already-full bar with NO visible change — and SetCurrent's
+            // Approximately early-return meant Changed never even fired). Start hunger PRESSURED WITH HEADROOM
+            // (the fiction: "he starts to get hungry") so pressing E VISIBLY refills the hunger bar. Hunger's
+            // 0.35/sec decay would take ~30s real-time to drop one of the 10 segments, so without this the
+            // refill is unobservable in a soak. (Warmth keeps startFull=true — the campfire restores it.)
+            hunger.startFull       = false;
+            hunger.startFraction01 = HungerNeed.HungerStartFraction01; // 0.55 -> ~5 of 10 segments at spawn
+
             // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
             // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the
             // U2-1 WarmthReadout + U2-2 InventoryReadout placeholders (removed). Both data references are
@@ -311,7 +367,29 @@ namespace FarHorizon.EditorTools
             // trap; WarmthNeedSceneTests / CraftSceneTests guard the serialized presence + wiring.
             var hud = survivalGo.AddComponent<SurvivalHud>();
             hud.warmth = warmth;       // serialized reference, no Awake FindObjectOfType in the build
+            hud.hunger = hunger;       // #101: the HUNGER bar — the player SEES hunger deplete + refill on eating
             hud.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
+
+            // EAT INPUT (#101 — "I can't eat berries"): the in-game call-site for the (already-tested) eat
+            // seam. Pressing E consumes one berry from the inventory + restores hunger through the atomic
+            // HungerNeed.TryEatBerry path. SERIALIZED here editor-time (NOT Awake) per the editor-vs-runtime
+            // trap; the Inventory + HungerNeed refs are wired so the shipped build never relies on a
+            // FindObjectOfType. EatBerryActionSceneTests guards the serialized presence + wiring.
+            var eat = survivalGo.AddComponent<EatBerryAction>();
+            eat.inventory = inventory; // serialized reference
+            eat.hunger = hunger;       // serialized reference
+
+            // DIAGNOSTIC-ONLY: inert unless launched with -invDiag (86cabfa21 / the #90 soak trace).
+            survivalGo.AddComponent<InventoryDiag>();
+
+            // VERIFY-ONLY: inert unless launched with -verifyInvIcons (#90 icon-centering shipped-build
+            // capture — opens the pack with wood+axe and shoots the laid-out grid for the by-eye check).
+            survivalGo.AddComponent<InventoryVerifyCapture>();
+
+            // VERIFY-ONLY: inert unless launched with -verifyInvDragDim (#90 drag-DUPLICATE fix shipped-build
+            // capture — opens the pack with berries+axe, BEGINS a drag, and shoots the frame proving the
+            // SOURCE slot is dimmed/empty while only the #drag-ghost carries the item).
+            survivalGo.AddComponent<InventoryDragSourceDimVerifyCapture>();
 
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.
