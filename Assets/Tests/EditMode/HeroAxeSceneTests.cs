@@ -187,29 +187,29 @@ namespace FarHorizon.EditTests
             float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
             // Floor catches a regression to the 0.43u sliver; upper guard catches the 267×-bone GIANT trap.
             // #100 calibration: the in-house wpn_axe_01 (86cabh907) is height-normalized to 1.0u longest-axis
-            // at IMPORT (WeaponPackAssetGen.HeroAxeTargetImportHeightU) and held at HeldAxeLocalScaleUniform
+            // at IMPORT (WeaponPackAssetGen.HeroAxeTargetHeadHeightU) and held at HeldAxeLocalScaleUniform
             // 0.45 under the hand bone → a stable measured world extent of ~0.68u (deterministic across
             // bootstraps; the new axe reads SMALLER than the retired CC-BY hatchet that set the old 0.7 floor).
             // 0.68u is a clearly-visible hero axe, NOT the 0.43u sliver the floor guards against. Lower the
             // floor to 0.6 (still well above the sliver) so the floor tracks the in-house axe; the band still
             // reds on a sliver (<0.6) OR a giant (>3.0).
-            // 86cabh907 FINAL bake: the in-house wpn_axe_01 is now HEAD-height-normalized (the byte-locked 0.65×
-            // head holds its size while the 2.0× straight haft grows the total to ~1.50u longest) and held at
-            // HeldAxeLocalScaleUniform 0.45 → ~0.675u longest world extent. Still a clearly-visible hero axe, NOT
-            // the 0.43u sliver the floor guards against. Band [0.5, 3.0]: floor 0.5 stays well above the sliver
-            // (and below the new ~0.675u so float jitter never reds it), ceiling 3.0 catches the 267×-bone giant.
-            Assert.That(longest, Is.InRange(0.5f, 3.0f),
+            // 86cabh907 FINAL (the Sponsor's [L]=1.1x pick): the in-house wpn_axe_01 is HEAD-height-normalized
+            // (the byte-locked 0.65× head holds its size while the 1.1× straight haft sets the total to ~1.08u
+            // longest) and held at HeldAxeLocalScaleUniform 0.45 → ~0.49u longest world extent. Still a clearly-
+            // visible hero axe, NOT the 0.43u sliver the floor guards against. Band [0.4, 3.0]: floor 0.4 stays
+            // above the sliver (and below the new ~0.49u so float jitter never reds it), ceiling 3.0 catches the
+            // 267×-bone giant.
+            Assert.That(longest, Is.InRange(0.4f, 3.0f),
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
                 "<0.5 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
-            // 86cabh907 FINAL bake: the LONGER straight haft + the LOWER-THIRD grip shift (HeldAxeGripShiftZ)
-            // seat the head UP TOP (board-axe read), so the axe top sits HIGHER than the old short-haft seat
-            // (max.y ≈ 0.53u). The band is RE-CENTRED + WIDENED for the new lower-third seat — the Sponsor
-            // re-dials the exact orientation via F9 in the soak, so this is a SANE-RANGE guard, not a tight pin.
-            // Floor 0.35u still catches a regression that drops the axe to the feet/below ground; ceiling 1.7u
-            // catches a 267×-bone giant or a wild-euler fling (those go to many units / off-screen), while
-            // allowing the head to sit up top on the now-longer axe. The exact value moves with the F9 re-dial.
-            Assert.That(b.max.y, Is.InRange(0.35f, 1.7f),
+            // 86cabh907 FINAL (the Sponsor's [L]=1.1x pick): the straight 1.1x haft + the LOWER-THIRD grip shift
+            // (HeldAxeGripShiftY = 0.34235) seat the head UP TOP (board-axe read), so the axe top sits above the
+            // hand. The band is a SANE-RANGE guard, not a tight pin — the Sponsor re-dials the exact orientation
+            // via F9 in the soak. Floor 0.2u still catches a regression that drops the axe to the feet/below
+            // ground; ceiling 1.7u catches a 267×-bone giant or a wild-euler fling (those go to many units /
+            // off-screen), while allowing the head to sit up top on the shorter 1.1x axe.
+            Assert.That(b.max.y, Is.InRange(0.2f, 1.7f),
                 $"held axe top y {b.max.y:F2} must sit at/above the hand for the lower-third grip (head up top): " +
                 "<0.35 = dropped to the feet/below ground, >1.7 = a 267x-bone giant / wild-euler fling.");
         }

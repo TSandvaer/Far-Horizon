@@ -119,11 +119,11 @@ namespace FarHorizon.EditorTools
         // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
         // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is HEAD-height-normalized so the
-        // byte-locked 0.65× head keeps its approved size while the 2.0× haft grows the total to ~1.50u longest
-        // (WeaponPackAssetGen.HeroAxeTargetHeadHeightU; 86cabh907 FINAL bake). Effective world length ≈ localScale
-        // × 1.8 (root) × 1.50 (axe). localScale 0.45 → ~0.675u longest extent — a believable kid-sized hatchet
-        // that clears the gameplay-visibility floor (the invisible-sliver soak guard). REASONABLE default — the
-        // exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
+        // byte-locked 0.65× head keeps its approved size while the 1.1× straight haft sets the total to ~1.08u
+        // longest (WeaponPackAssetGen.HeroAxeTargetHeadHeightU; 86cabh907 FINAL — the Sponsor's [L]=1.1x pick).
+        // Effective world length ≈ localScale × 1.8 (root) × 1.08 (axe). localScale 0.45 → ~0.49u longest extent
+        // — a believable kid-sized hatchet that clears the gameplay-visibility floor (the invisible-sliver soak
+        // guard). REASONABLE default — the exact Sponsor F9 dial is a FOLLOW-UP (drives the HeldAxeRig fields).
         public static readonly float HeldAxeLocalScaleUniform = 0.45f;
         // GRIP-POINT SHIFT (86cabh907 FINAL bake — the longer STRAIGHT haft re-seats the grip). The axe FBX origin
         // is (0,0,0) — preserved (the §6 grip-point semantics). On the original short haft that origin sat ~mid-
@@ -136,15 +136,16 @@ namespace FarHorizon.EditorTools
         // axis is UNITY +Y (NOT Z), HEAD at +Y, grip-end at −Y (Blender +Z → Unity +Y). A first pass shifted +Z
         // (off-axis) → the held capture showed the hand still at the HEAD (the shift went sideways, not down the
         // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + handleLen/3.
-        // 86cabh907 RE-BAKE (PR #100 re-soak): the haft shortened 2.0x->1.5x, so the grip RE-SEATS. Re-derived for
-        // the 1.5x handle (globalScale 1.05758 baked): grip_end_Y=−0.72586, head_base_Y=+0.03627 → handleLen(Unity)
-        // =0.76213 → lower_third_Y = grip_end_Y + handleLen/3 = −0.47181. Shifting the mesh +0.47181 Y brings that
-        // point to the root origin (the hand seat) → head UP, grip-end DOWN. VERIFIED in-scene replication: after
-        // the shift the hand (Y=0) sits at GRIP_FRACTION 0.3333 of the graspable handle = the lower-third grip.
-        // (Was 0.6427 for the longer 2.0x handle.) Authored on the WeaponMeshHolder at EDIT-TIME so it serializes
-        // into Boot.unity (static EditMode bounds == runtime). The F9 held target + the soak let the Sponsor
-        // micro-dial; this is the reasonable lower-third default.
-        public static readonly float HeldAxeGripShiftY = 0.47181f;
+        // 86cabh907 FINAL (PR #100, the Sponsor's [L]=1.1x pick — "not wasting more time on the axe"): the haft
+        // shortened 1.5x->1.1x, so the grip RE-SEATS to the shorter handle. Re-derived from ground truth (bl_20,
+        // the canonical now = the coaxial 1.1x len11 mesh, globalScale 1.05680): grip_end_Y=−0.52551,
+        // head_base_Y=+0.02396 → handleLen(Unity)=0.54947 → lower_third_Y = grip_end_Y + handleLen/3 = −0.34235.
+        // Shifting the mesh +0.34235 Y brings that point to the root origin (the hand seat) → head UP, grip-end
+        // DOWN. The hand (Y=0) then sits at GRIP_FRACTION 0.3333 of the graspable handle = the lower-third grip.
+        // (Was 0.47181 for the 1.5x handle, 0.6427 for 2.0x.) Authored on the WeaponMeshHolder at EDIT-TIME so it
+        // serializes into Boot.unity (static EditMode bounds == runtime). The F9 held target + the soak let the
+        // Sponsor micro-dial; this is the lower-third default for the FINAL 1.1x axe.
+        public static readonly float HeldAxeGripShiftY = 0.34235f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×

@@ -306,7 +306,7 @@ namespace FarHorizon
             // CHILD "WeaponMeshHolder" the rig never touches, and the per-weapon TRS is driven there.
             //
             // 86cabh907 FINAL bake: the holder is now AUTHORED AT EDIT-TIME (MovementCameraScene.EnsureWeaponMesh
-            // Holder), carrying the LOWER-THIRD grip shift (HeldAxeGripShiftZ) so it SERIALIZES into Boot.unity
+            // Holder), carrying the LOWER-THIRD grip shift (HeldAxeGripShiftY) so it SERIALIZES into Boot.unity
             // (static EditMode bounds == runtime). So on the shipped scene the MeshFilter is ALREADY on the child
             // holder → the `else` branch below captures THAT holder (with its authored grip offset) as the axe's
             // locked baseline. The re-home branch is kept as a FALLBACK for any scene where the mesh is still on

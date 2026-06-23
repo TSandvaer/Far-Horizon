@@ -56,8 +56,9 @@ namespace FarHorizon.EditorTools
 
         // Normalize the hero axe by its HEAD HEIGHT (not its longest axis) to this many world units, so the
         // Sponsor-LOCKED 0.65x head keeps its approved ABSOLUTE in-game size INDEPENDENTLY of the haft length
-        // (86cabh907 FINAL bake — 2.0x straight haft + locked head). WHY head-height, not longest-axis: the
-        // longest axis is now the 2.0x HAFT, so normalizing the longest axis to 1.0u would SHRINK the byte-locked
+        // (86cabh907 FINAL — 1.1x straight haft + locked head, the Sponsor's [L] pick). WHY head-height, not
+        // longest-axis: the longest axis is the HAFT, so normalizing the longest axis to 1.0u would SHRINK the
+        // byte-locked
         // head ~33% (1.418u total -> 1.0u) — defeating "head 0.65x LOCKED". 0.4710u == the head's size under the
         // PRIOR shipped normalization (old head_h 0.4453 mesh-u x the old longest-axis globalScale 1.05781), so
         // pinning the head to 0.4710u reproduces the exact approved head while the haft grows to ~1.50u total
@@ -82,6 +83,9 @@ namespace FarHorizon.EditorTools
         // locates the blade-TIP end (the wide cross-section end) and reads the head as the verts within this
         // distance of the tip — SIGN-ROBUST to the bake-axis conversion. Do NOT use a fraction-of-span
         // junction — the haft moves the 50%-of-span point mid-haft. (Was 0.47267 for the TILTED head.)
+        // 86cabh907 FINAL: the shipped axe is now the COAXIAL 1.1x mesh, so the canonical normalizes by
+        // HeroAxeCoaxialHeadHeightFromTipU below — this 0.48962 constant is RETAINED only as the historical
+        // tilted-1.5x-head value (no live caller uses it post-finalize).
         public const float HeroAxeHeadHeightFromTipU = 0.48962f;
 
         // 86cabh907 SHAFT-LENGTH PICKER (bl_19): the length-variant FBX heads were RIGID-ROTATED FULLY COAXIAL
@@ -90,9 +94,10 @@ namespace FarHorizon.EditorTools
         // the variant heads' head-height-from-tip is DIFFERENT from the (still-tilted) shipped axe's: bl_19
         // measured tip_z=0.52514 down to the fixed head-base junction HEAD_BASE_Z=0.022674 = 0.50247u. The
         // variant importer normalizes by THIS so the coaxial head renders the SAME approved absolute world size
-        // as the shipped head (HeroAxeTargetHeadHeightU held invariant). When the Sponsor picks a length and the
-        // FINAL bake re-authors wpn_axe_01.fbx with the coaxial head, HeroAxeHeadHeightFromTipU above is updated
-        // to 0.50247 too. (Source: bl_19 "HEAD_HEIGHT_FROM_TIP=0.50247" + "re-derive Unity consts" lines.)
+        // as the shipped head (HeroAxeTargetHeadHeightU held invariant). 86cabh907 FINAL (bl_20): the Sponsor
+        // picked 1.1x; wpn_axe_01.fbx is now the byte-copy of wpn_axe_01_len11.fbx, so the CANONICAL axe ALSO
+        // normalizes by this coaxial constant (PrepareWeaponPack passes it to the Set loop). bl_20 re-measured
+        // the canonical post-copy: head-height-from-tip=0.50247, globalScale=1.05680, haft:head=1.0348.
         public const float HeroAxeCoaxialHeadHeightFromTipU = 0.50247f;
 
         // The set, paired with whether to height-normalize (only the hero axe rides the held-rig scale).
@@ -108,8 +113,15 @@ namespace FarHorizon.EditorTools
         {
             ConfigurePalette();
             var mat = CreateOrUpdateMaterial();
+            // 86cabh907 FINAL: the shipped wpn_axe_01.fbx is now the Sponsor's [L]-picked 1.1x variant
+            // (byte-copy of wpn_axe_01_len11.fbx, bl_20) — the COAXIAL head (junction 0.0000deg). So the
+            // canonical axe normalizes by HeroAxeCoaxialHeadHeightFromTipU (the coaxial head's tip-span
+            // projection 0.50247u), the SAME constant the length-variants use — NOT the old tilted-head
+            // 0.48962u (HeroAxeHeadHeightFromTipU, now unused for the canonical). §9 rotation corollary:
+            // uprighting the head changed its long-axis projection, so the head-height-from-tip band must
+            // match the coaxial mesh or the head re-scales. knife/sword/spear ignore the const (norm=false).
             foreach (var (path, norm) in Set)
-                ConfigureFbxImporter(path, norm, HeroAxeHeadHeightFromTipU);
+                ConfigureFbxImporter(path, norm, HeroAxeCoaxialHeadHeightFromTipU);
             BuildLineupPrefab(mat);
             // 86cabh907 shaft-length picker: import the four COAXIAL-head length variants (head-height-
             // normalized by HeroAxeCoaxialHeadHeightFromTipU so the coaxial head matches the approved world
