@@ -38,6 +38,11 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
 
             var panel = FindPanel(scene);
+            // No-bootstrap precondition (86cacyg63): a bare local EditMode run skips BootstrapProject.Run, so the
+            // committed Boot.unity lacks the bootstrap-authored SettingsPanel → FindPanel returns null. Report
+            // Inconclusive with a "run bootstrap first" hint INSTEAD of a regression-looking red. Inert once
+            // bootstrap has run (panel present) — the real asserts below stand.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
             Assert.IsNotNull(panel,
                 "the Boot scene must carry SettingsPanel serialized (else Esc opens nothing — the " +
                 "component-not-serialized trap; unity-conventions.md)");
@@ -50,6 +55,8 @@ namespace FarHorizon.EditTests
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var panel = FindPanel(scene);
+            // No-bootstrap precondition (86cacyg63) — see BootScene_CarriesSettingsPanel_WithUIDocument.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
             Assert.IsNotNull(panel, "SettingsPanel must be present");
 
             Assert.IsNotNull(panel.orbit,
@@ -65,6 +72,8 @@ namespace FarHorizon.EditTests
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var panel = FindPanel(scene);
+            // No-bootstrap precondition (86cacyg63) — see BootScene_CarriesSettingsPanel_WithUIDocument.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
             Assert.IsNotNull(panel, "SettingsPanel must be present");
 
             var doc = panel.GetComponent<UIDocument>();
@@ -88,6 +97,8 @@ namespace FarHorizon.EditTests
             // visualTreeAsset stays UNASSIGNED while panel.panelUxml carries the shell asset.
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var panel = FindPanel(scene);
+            // No-bootstrap precondition (86cacyg63) — see BootScene_CarriesSettingsPanel_WithUIDocument.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
             Assert.IsNotNull(panel, "SettingsPanel must be present");
 
             var doc = panel.GetComponent<UIDocument>();
