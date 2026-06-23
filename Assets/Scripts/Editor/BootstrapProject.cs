@@ -297,7 +297,7 @@ namespace FarHorizon.EditorTools
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
             // serialization trap; inert unless the exe is launched with -captureGate.
             hudGo.AddComponent<CaptureGate>();
-            // Weapon-set STYLE-CHECKPOINT capture (86cabh907) — loads Resources/WeaponAxeStand and
+            // Weapon-set STYLE-CHECKPOINT capture (86cabh907) — loads Resources/WeaponSetLineup and
             // captures the in-house knapped-flint axe from the built exe. Serialized editor-time (NOT
             // Awake) per the editor-vs-runtime trap; INERT unless launched with -verifyWeaponAxe.
             hudGo.AddComponent<WeaponSetVerifyCapture>();

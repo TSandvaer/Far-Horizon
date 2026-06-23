@@ -17,16 +17,20 @@ the imported-Unity handle geometry so the const is re-derived from ground truth,
 It also re-asserts the FINAL canonical is exactly the picked 1.1x variant (head locked + coaxial,
 single material, grip origin (0,0,0), faceted normals) so the finalize is self-verifying.
 
-Run (from the worktree root; wpn_axe_01_len11.fbx must be present = the committed bl_19 variant):
+Run (paths derive from __file__, so this re-runs from any worktree; wpn_axe_01_len11.fbx
+must be present in Assets/Art/Props/WeaponPack/ = the committed bl_19 variant):
   "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" --background \
     --python tools/debug/bl_20_axe_final_1p1x_measure.py
 """
 import bpy, math, collections, os, shutil
 from mathutils import Vector
 
-DIR = r'C:/Trunk/PRIVATE/Far-Horizon-devon-wt/Assets/Art/Props/WeaponPack'
-LEN11 = DIR + r'/wpn_axe_01_len11.fbx'      # the Sponsor's [L] pick (bl_19 1.1x variant)
-CANON = DIR + r'/wpn_axe_01.fbx'            # the shipped DEFAULT axe
+# Repo-root-relative (portable): this script lives at <repo>/tools/debug/bl_20_*.py, so the
+# repo root is two parents up from __file__. Re-runs from any worktree without a path edit.
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+DIR = os.path.join(REPO_ROOT, 'Assets', 'Art', 'Props', 'WeaponPack')
+LEN11 = os.path.join(DIR, 'wpn_axe_01_len11.fbx')  # the Sponsor's [L] pick (bl_19 1.1x variant)
+CANON = os.path.join(DIR, 'wpn_axe_01.fbx')        # the shipped DEFAULT axe
 HEAD_BASE_Z = 0.022674                       # fixed head-base junction (bl_17/bl_18/bl_19); INVARIANT
 # Unity importer constant the COAXIAL head is normalized by (HeroAxeCoaxialHeadHeightFromTipU,
 # WeaponPackAssetGen.cs) + the target head world-height the normalize pins (HeroAxeTargetHeadHeightU).
