@@ -225,6 +225,63 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(edited, "the axe nudge must route to the shared-seat HeldAxeRig, not the per-weapon arrays");
         }
 
+        // (2c) DANISH-KEYBOARD MOUSE SLIDER driver (86cabh907). The F9 panel's mouse slider calls
+        // SetAxeHeadFactor(absolute) — it must (a) set the factor to the requested ABSOLUTE value within the
+        // clamp range, (b) drive the SAME uniform-scale path the multiplicative dial uses (a per-instance CLONE
+        // resized uniformly about the junction — NOT a new scale path, NOT the shared asset), and (c) CLAMP out
+        // of range. This catches the bug class: a slider that drove a separate/non-uniform scale path, mutated
+        // the shared mesh, or didn't clamp, reds here. It proves the slider == the dial's resize, just absolute.
+        [UnityTest]
+        public IEnumerator SetAxeHeadFactor_AbsoluteSet_ResizesViaTheSameUniformClonePath_AndClamps()
+        {
+            BuildRigDrivenHeroAxe();
+            yield return null; // Awake captures the holder + seeds the live arrays
+
+            var holderField = typeof(HeldWeaponCycleDebug).GetField("_meshHolder",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var holder = (MeshFilter)holderField.GetValue(_cycle);
+
+            // (a) absolute set lands the factor exactly (within the clamp range).
+            Assert.IsTrue(_cycle.SetAxeHeadFactor(0.6f), "SetAxeHeadFactor must succeed with the axe held (index 0)");
+            Assert.That(_cycle.AxeHeadFactor, Is.EqualTo(0.6f).Within(1e-4f),
+                "the slider's ABSOLUTE set must land the factor at exactly the requested value (not a relative step)");
+
+            // (b) it drives the SAME uniform-clone path the multiplicative dial uses — a per-instance CLONE, never
+            // the shared asset, and the head box scales uniformly (same factor every axis) about the junction.
+            Mesh shown = holder.sharedMesh;
+            Assert.IsTrue(shown.name.Contains("headDial"),
+                "SetAxeHeadFactor must display the per-instance CLONE (the same ApplyAxeHead path as the dial) — " +
+                "never mutate the shared mesh asset, never a separate scale path");
+            int[] headIdx = { 4, 5, 6, 7, 8, 9, 10, 11 };
+            Vector3[] baseV = MakeAxeLikeMeshVertsForCheck();
+            Bounds headBefore = BoundsOf(baseV, headIdx);
+            Bounds headAfter = BoundsOf(shown.vertices, headIdx);
+            Vector3 sB = headBefore.size, sA = headAfter.size;
+            float fx = sA.x / sB.x, fy = sA.y / sB.y, fz = sA.z / sB.z;
+            Assert.That(fx, Is.EqualTo(0.6f).Within(0.02f), $"head WIDTH must scale to the absolute factor (got {fx:F3})");
+            Assert.That(fx, Is.EqualTo(fy).Within(0.02f), "uniform: x-scale == y-scale (no axis-squish)");
+            Assert.That(fy, Is.EqualTo(fz).Within(0.02f), "uniform: y-scale == z-scale (no axis-squish)");
+
+            // (c) out-of-range absolute values CLAMP to [HeadFactorMin..HeadFactorMax].
+            _cycle.SetAxeHeadFactor(99f);
+            Assert.That(_cycle.AxeHeadFactor, Is.EqualTo(HeldWeaponCycleDebug.HeadFactorMax).Within(1e-4f),
+                "an above-range slider value must clamp to HeadFactorMax");
+            _cycle.SetAxeHeadFactor(-5f);
+            Assert.That(_cycle.AxeHeadFactor, Is.EqualTo(HeldWeaponCycleDebug.HeadFactorMin).Within(1e-4f),
+                "a below-range slider value must clamp to HeadFactorMin");
+            yield return null;
+        }
+
+        // The synthetic axe's base verts (factor=1 baseline) for the resize-ratio check above — built fresh so
+        // the test does not depend on a shared mesh instance that ApplyAxeHead may have cloned/replaced.
+        private static Vector3[] MakeAxeLikeMeshVertsForCheck()
+        {
+            var m = MakeAxeLikeMesh();
+            var v = m.vertices;
+            Object.Destroy(m);
+            return v;
+        }
+
         // (3) The [B] weapon-cycle and the [N] F9 arm-switch are DISTINCT keys (the soak-round-2 conflict fix).
         [Test]
         public void WeaponCycle_AndArmSwitch_UseDistinctKeys()

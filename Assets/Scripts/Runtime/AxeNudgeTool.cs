@@ -576,12 +576,83 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held weapon / stump / arm / GROUND-Y / RUN / AXE-HEAD    [N] right<->left arm", _hintStyle);
-            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe-head: PgUp/PgDn = ±size)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
-            GUI.Label(new Rect(lx, y + 210f, lw, 20f),
-                "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
+            // 86cabh907 DANISH-KEYBOARD MOUSE CONTROL (primary deliverable): on the AXE-HEAD target, draw a
+            // mouse-driven head-size control — a slider (drag to resize LIVE) + [Head -]/[Head +] buttons
+            // (click for ±5% steps). The Sponsor cannot use ;/' (Danish punctuation) NOR PgUp/PgDn (laptop
+            // Fn-layer), so the MOUSE is the layout-independent, laptop-independent control that cannot fail.
+            // It drives HeldWeaponCycleDebug's EXISTING uniform-scale path (SetAxeHeadFactor / DialAxeHead ->
+            // ApplyAxeHead — Vector3.one * factor about the junction); stone shape + material unchanged.
+            if (_target == 5)
+            {
+                DrawHeadSizeMouseControl(lx, y + 126f, lw);
+                GUI.Label(new Rect(lx, y + 184f, lw, 20f),
+                    "Mouse drag / buttons resize the head LIVE (Danish-safe).  Keyboard fallback: [O]/[I] bigger/smaller.", _hintStyle);
+                GUI.Label(new Rect(lx, y + 204f, lw, 20f),
+                    "[K] cycle target   [B] cycle held weapon (cycle to the AXE to resize its head)", _hintStyle);
+                GUI.Label(new Rect(lx, y + 224f, lw, 20f),
+                    "Factor also prints to the log — copy it to bake the head default.", _hintStyle);
+            }
+            else
+            {
+                GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held weapon / stump / arm / GROUND-Y / RUN / AXE-HEAD    [N] right<->left arm", _hintStyle);
+                GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe-head: MOUSE slider/buttons or [O]/[I])", _hintStyle);
+                GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
+                GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
+                GUI.Label(new Rect(lx, y + 210f, lw, 20f),
+                    "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
+            }
+        }
+
+        // 86cabh907 — the MOUSE-driven axe head-size control (the Danish-keyboard fix). A horizontal slider
+        // (drag = resize LIVE) + [Head -] / [Head +] buttons (click = ±5% step) + the live factor label, all
+        // pointer-driven so they are layout-independent + laptop-independent (no key registration involved).
+        // Every path routes through HeldWeaponCycleDebug's EXISTING uniform-scale code (SetAxeHeadFactor for the
+        // slider's absolute value; DialAxeHead for the ±5% buttons) — NO new scale path, NO mesh re-author. The
+        // stone shape + material stay exactly the restored 4208067 head; only the SIZE changes. Inert (controls
+        // disabled) unless the held weapon is the AXE — only the axe has a head.
+        private void DrawHeadSizeMouseControl(float lx, float topY, float lw)
+        {
+            bool axeHeld = _weaponCycle != null && _weaponCycle.CurrentIndex == 0;
+            float factor = _weaponCycle != null ? _weaponCycle.AxeHeadFactor : 1f;
+
+            // Live factor read-out (always shown so the Sponsor sees the current head size).
+            GUI.Label(new Rect(lx, topY, lw, 20f),
+                "Head size  ×" + factor.ToString("F3") + "   (1.000 = shipped)", _style);
+
+            // The control row is INERT unless the axe is held — grey it out + tell the Sponsor to cycle [B].
+            bool prevEnabled = GUI.enabled;
+            GUI.enabled = axeHeld && _weaponCycle != null;
+
+            // --- the SLIDER (drag to resize LIVE). Bound to the head factor over the full clamp range; dragging
+            //     it calls SetAxeHeadFactor (absolute) -> the same uniform-scale path. ---
+            float sliderY = topY + 22f;
+            float btnW = 74f, gap = 8f;
+            float sliderW = lw - (btnW * 2f) - (gap * 2f);
+            float newFactor = GUI.HorizontalSlider(
+                new Rect(lx, sliderY + 3f, sliderW, 18f),
+                factor, HeldWeaponCycleDebug.HeadFactorMin, HeldWeaponCycleDebug.HeadFactorMax);
+            if (axeHeld && _weaponCycle != null && !Mathf.Approximately(newFactor, factor))
+            {
+                if (_weaponCycle.SetAxeHeadFactor(newFactor)) LogCurrent();
+            }
+
+            // --- the two ±5% BUTTONS (click = one step; same DialAxeHead path as PgUp/PgDn / [O]/[I]). ---
+            float bx = lx + sliderW + gap;
+            if (GUI.Button(new Rect(bx, sliderY, btnW, 24f), "Head −"))
+            {
+                if (_weaponCycle != null && _weaponCycle.DialAxeHead(1f / 1.05f)) LogCurrent();
+            }
+            if (GUI.Button(new Rect(bx + btnW + gap, sliderY, btnW, 24f), "Head +"))
+            {
+                if (_weaponCycle != null && _weaponCycle.DialAxeHead(1.05f)) LogCurrent();
+            }
+
+            GUI.enabled = prevEnabled;
+
+            if (!axeHeld)
+                GUI.Label(new Rect(lx, sliderY + 26f, lw, 20f),
+                    "◄ held weapon is " + (_weaponCycle != null ? _weaponCycle.CurrentLabel : "?") +
+                    " — cycle [B] to the AXE to resize its head", _hintStyle);
         }
     }
 }

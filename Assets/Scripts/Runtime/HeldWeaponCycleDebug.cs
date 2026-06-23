@@ -84,6 +84,15 @@ namespace FarHorizon
         //   ; (semicolon)   -> head BIGGER  (+5%)
         public KeyCode headSmallerKey = KeyCode.Quote;      // '
         public KeyCode headBiggerKey = KeyCode.Semicolon;   // ;
+        // DANISH-KEYBOARD FALLBACK KEYS (86cabh907 — [[sponsor-danish-keyboard-layout]]). The ;/' dial above is
+        // US-position PUNCTUATION that does NOT register on the Sponsor's DANISH LAPTOP keyboard, and the F9
+        // tool's PgUp/PgDn also failed (laptop Fn-layer). LETTER keys sit at ~the same physical position on
+        // Danish vs US, so they always land. O = head BIGGER, I = head SMALLER (adjacent, both free: not WASD/
+        // Space/Shift, not 1..9 belt, not [B] cycle, not [N] arm-switch, not [K] target-cycle, not TGYHUJ F9
+        // rotation, not the F9 arrows/PgUp-Dn). The MOUSE slider/buttons in the F9 panel are the PRIMARY control;
+        // these letters are the keyboard fallback.
+        public KeyCode headBiggerKeyAlt = KeyCode.O;        // O — Danish-safe letter
+        public KeyCode headSmallerKeyAlt = KeyCode.I;       // I — Danish-safe letter
         [Tooltip("Per-keypress multiplicative head-size step for the axe head dial (1.05 = +5%/-5%). UNIFORM " +
                  "scale (x==y==z) of the whole head about the junction.")]
         public float headStep = 1.05f;
@@ -216,6 +225,11 @@ namespace FarHorizon
             return true;
         }
 
+        /// <summary>The clamp range the head-size factor is held within (shared by the multiplicative dial,
+        /// the absolute set, and the F9 mouse slider so all three agree).</summary>
+        public const float HeadFactorMin = 0.2f;
+        public const float HeadFactorMax = 2f;
+
         /// <summary>
         /// F9-tool entry point (86cabh907 soak round 2): dial the AXE HEAD size by a multiplicative factor
         /// (1.05 = +5%). Inert unless the axe is the currently-held weapon. Returns true if the axe head was
@@ -226,7 +240,27 @@ namespace FarHorizon
             if (_index != 0) return false;          // only the axe has a head
             if (!_axeHeadResolved) ResolveAxeHead();
             if (_axeHeadVertIdx == null || _axeHeadVertIdx.Length == 0) return false;
-            _axeHeadFactor = Mathf.Clamp(_axeHeadFactor * factor, 0.2f, 2f);
+            _axeHeadFactor = Mathf.Clamp(_axeHeadFactor * factor, HeadFactorMin, HeadFactorMax);
+            ApplyAxeHead();
+            return true;
+        }
+
+        /// <summary>
+        /// F9-tool entry point (86cabh907 Danish-keyboard MOUSE control — the Sponsor cannot use ;/' (Danish
+        /// punctuation) NOR PgUp/PgDn (laptop Fn-layer), so the F9 panel's mouse slider drives this directly).
+        /// Sets the AXE HEAD size to an ABSOLUTE factor (clamped to [HeadFactorMin..HeadFactorMax]) and drives
+        /// the SAME uniform-scale path the multiplicative dial uses (ResolveAxeHead -> ApplyAxeHead). The stone
+        /// shape + material are unchanged — only the SIZE scales (Vector3.one * factor about the junction).
+        /// Inert unless the axe is the currently-held weapon. Returns true if the axe head was set.
+        /// </summary>
+        public bool SetAxeHeadFactor(float factor)
+        {
+            if (_index != 0) return false;          // only the axe has a head
+            if (!_axeHeadResolved) ResolveAxeHead();
+            if (_axeHeadVertIdx == null || _axeHeadVertIdx.Length == 0) return false;
+            float clamped = Mathf.Clamp(factor, HeadFactorMin, HeadFactorMax);
+            if (Mathf.Approximately(clamped, _axeHeadFactor)) return false; // no-op: don't churn the clone
+            _axeHeadFactor = clamped;
             ApplyAxeHead();
             return true;
         }
@@ -373,8 +407,10 @@ namespace FarHorizon
             // the haft length + origin untouched, so the Sponsor dials the head proportion by eye + reads the
             // factor to bake into the .blend head re-author later (86cabh907 soak round 2). ONLY the axe has a
             // head; on knife/sword/spear the dial logs that it is inert.
-            bool headBigger = Input.GetKeyDown(headBiggerKey);
-            bool headSmaller = Input.GetKeyDown(headSmallerKey);
+            // ;/' are the original (US-punctuation) keys; O/I are the DANISH-SAFE LETTER fallback (the Sponsor's
+            // Danish laptop can't press ;/' NOR PgUp/PgDn — [[sponsor-danish-keyboard-layout]]).
+            bool headBigger = Input.GetKeyDown(headBiggerKey) || Input.GetKeyDown(headBiggerKeyAlt);
+            bool headSmaller = Input.GetKeyDown(headSmallerKey) || Input.GetKeyDown(headSmallerKeyAlt);
             if (headBigger || headSmaller)
             {
                 if (_index != 0)
@@ -526,7 +562,7 @@ namespace FarHorizon
             GUI.Label(new Rect(x + 10f, y + 42f, w - 20f, 18f),
                 "[ ] / [=] bigger   [[] / [-] smaller   whole weapon (±5%; knife/sword/spear)", _keyStyle);
             GUI.Label(new Rect(x + 10f, y + 60f, w - 20f, 18f),
-                "[;] / ['] axe HEAD bigger/smaller (±5%)   F9: position+angle each weapon", _keyStyle);
+                "[O] / [I] axe HEAD bigger/smaller (±5%)   F9 panel: MOUSE slider + buttons resize the head", _keyStyle);
         }
     }
 }
