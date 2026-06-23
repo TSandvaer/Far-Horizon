@@ -73,6 +73,26 @@ namespace FarHorizon
         /// <summary>The currently-picked length factor, or 0 while on the shipped axe (no variant picked).</summary>
         public float CurrentLengthFactor => _index >= 0 ? VariantLengthFactor[_index] : 0f;
 
+        /// <summary>
+        /// VERIFICATION entry point (-verifyAxeLengths shipped-build capture, 86cabh907): force-select a
+        /// specific length variant by index (0..3) and apply it to the held holder, so the shipped-build
+        /// capture proves the mesh actually swaps per length (the #100 dial passed tests but no-opped at
+        /// runtime — this drives the SAME [L] mesh-swap path the Sponsor uses). Resolves the variants if
+        /// needed. Returns the applied length factor, or 0 if the index is out of range / unresolved.
+        /// </summary>
+        public float ForceSelectVariant(int index)
+        {
+            if (index < 0 || index >= VariantNodeNames.Length) return 0f;
+            if (!_resolved) ResolveVariants();
+            _index = index;
+            ApplyVariant();
+            return VariantLengthFactor[_index];
+        }
+
+        /// <summary>The MeshFilter the picker drives (shared with the cycle) — for the verify capture to read
+        /// the held bounds + confirm the swapped mesh's vertex count per length. Null until the cycle's Awake.</summary>
+        public MeshFilter HolderForVerify => _cycle != null ? _cycle.MeshHolder : null;
+
         private void Awake()
         {
             _cycle = GetComponent<HeldWeaponCycleDebug>();

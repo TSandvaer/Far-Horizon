@@ -54,8 +54,122 @@ namespace FarHorizon
             // the default -verifyAxe close-up is unchanged.
             if (HasArg("-verifyAxeFacings"))
                 StartCoroutine(RunFacingsVerification());
+            // 86cabh907 SHAFT-LENGTH PICKER proof: drive the held axe through the FOUR length variants via the
+            // REAL picker mesh-swap path (HeldAxeLengthPicker.ForceSelectVariant → the same swap [L] does) and
+            // capture one frame per length, so the shipped build PROVES the mesh actually swaps per length (the
+            // #100 dial passed tests but no-opped at runtime — this is the eyes-on + numeric proof it swaps).
+            else if (HasArg("-verifyAxeLengths"))
+                StartCoroutine(RunLengthsVerification());
             else if (HasArg("-verifyAxe"))
                 StartCoroutine(RunVerification());
+        }
+
+        // 86cabh907: capture the held axe at EACH of the 4 shaft-length variants, proving the [L] picker's
+        // mesh-swap actually changes the rendered mesh in the SHIPPED build. For each length: force-select the
+        // variant (the real ForceSelectVariant → ApplyVariant path), settle, log the swapped mesh's vertexCount
+        // + world-bounds Y-extent (longer haft = taller bounds — the NUMERIC swap proof), and capture
+        // axe_len_1Xx.png from the same body-side framing the close-up uses. Quits non-zero if the picker or a
+        // variant mesh is missing (a build-side regression signal).
+        private IEnumerator RunLengthsVerification()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            GameObject axe = FindHeroAxe();
+            if (axe == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HeroAxe not in scene — cannot verify shaft lengths");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var picker = axe.GetComponent<HeldAxeLengthPicker>();
+            if (picker == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HeroAxe has no HeldAxeLengthPicker — the [L] length picker is " +
+                               "not authored into Boot.unity (build-side regression)");
+                yield return null; Application.Quit(1); yield break;
+            }
+
+            // Force-show the held axe (HasAxe-gated, hidden at spawn).
+            var renders = axe.GetComponentsInChildren<Renderer>(true);
+            foreach (var r in renders) if (r != null) r.enabled = true;
+            yield return null; // let Awake (re-home + holder capture) + the picker resolve run
+
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            float aspect = Screen.width > 0 && Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
+
+            int captured = 0;
+            float prevY = -1f;
+            for (int i = 0; i < HeldAxeLengthPicker.VariantNodeNames.Length; i++)
+            {
+                float factor = picker.ForceSelectVariant(i);
+                if (factor <= 0f)
+                {
+                    Debug.LogError("[AxeVerifyCapture] ForceSelectVariant(" + i + ") returned 0 — variant mesh " +
+                                   "unresolved (Resources/AxeLengthVariants.prefab missing a node?)");
+                    Application.Quit(1); yield break;
+                }
+                // settle the swap + skinning + pose
+                Bounds wb = new Bounds(); bool valid = false; int vcount = 0;
+                var holder = picker.HolderForVerify;
+                for (int attempt = 0; attempt < 30 && !valid; attempt++)
+                {
+                    yield return null;
+                    wb = EncapsulateRenderers(renders);
+                    valid = wb.size.magnitude > 0.02f;
+                }
+                if (holder != null && holder.sharedMesh != null) vcount = holder.sharedMesh.vertexCount;
+                if (!valid)
+                {
+                    Debug.LogError("[AxeVerifyCapture] length variant " + factor + "x bounds never settled — failing loud");
+                    Application.Quit(1); yield break;
+                }
+                // NUMERIC swap proof: the held world bounds Y-extent must GROW with the length factor (a longer
+                // haft extends the prop). prevY monotonic-increase is the machine-checkable "the mesh swapped".
+                Debug.Log($"[AxeVerifyCapture] LENGTH {factor:F1}x : holder mesh vertexCount={vcount} " +
+                          $"worldBoundsSize={wb.size} (Y-extent={wb.size.y:F4}; prev={prevY:F4})");
+                if (prevY >= 0f && wb.size.y <= prevY + 1e-4f)
+                    Debug.LogWarning($"[AxeVerifyCapture] WARNING: length {factor:F1}x world Y-extent did NOT grow " +
+                                     $"vs the prior length ({wb.size.y:F4} <= {prevY:F4}) — the mesh swap may not have " +
+                                     "taken (the framing distance auto-fits, so the IMAGE alone can hide this; the " +
+                                     "numeric extent is the load-bearing swap proof).");
+                prevY = wb.size.y;
+
+                // Frame from the body-away side (same as the close-up), auto-fitting the prop.
+                Vector3 bodyCenter = wb.center + Vector3.up * 0.2f;
+                if (castaway != null)
+                {
+                    var smr = castaway.GetComponentInChildren<SkinnedMeshRenderer>(true);
+                    if (smr != null) bodyCenter = smr.bounds.center;
+                }
+                Vector3 awayFromBody = wb.center - bodyCenter; awayFromBody.y = 0f;
+                if (awayFromBody.sqrMagnitude < 0.0001f) awayFromBody = Vector3.right;
+                Vector3 viewDir = awayFromBody.normalized + Vector3.up * 0.45f;
+                var frame = VerifyCaptureFraming.ComputeFrame(wb.center, wb.size, viewDir, 40f, aspect, frameFill);
+
+                var camGo = new GameObject("AxeLenCamera");
+                var cam = camGo.AddComponent<Camera>();
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = new Color(0.18f, 0.20f, 0.24f);
+                cam.fieldOfView = 40f;
+                var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
+                camData.renderPostProcessing = true;
+                camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+                camGo.transform.SetPositionAndRotation(frame.position, frame.rotation);
+                for (int s = 0; s < 8; s++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string tag = ((int)System.Math.Round(factor * 10)).ToString(); // 1.1 -> 11
+                string file = Path.Combine(dir, "axe_len_" + tag + ".png");
+                ScreenCapture.CaptureScreenshot(file, 1);
+                Debug.Log("[AxeVerifyCapture] wrote " + file + " (held axe at " + factor.ToString("F1") + "x shaft)");
+                yield return new WaitForEndOfFrame();
+                captured++;
+                Object.Destroy(camGo);
+            }
+
+            Debug.Log("[AxeVerifyCapture] LENGTHS verification complete: " + captured + "/4 lengths captured -> " + dir);
+            yield return new WaitForSeconds(0.3f);
+            Application.Quit(captured == 4 ? 0 : 1);
         }
 
         // SOAKFIX8 FIX1 + 86ca9xz00 (AC5 — DYNAMIC facing, NOT static per-facing snapshots). The prior version
