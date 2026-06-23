@@ -88,13 +88,16 @@ namespace FarHorizon
                  "scale (x==y==z) of the whole head about the junction.")]
         public float headStep = 1.05f;
         [Tooltip("STOP-chipping head-dial: the head<->haft junction expressed as a FRACTION of the haft (long) " +
-                 "axis span (haftMin + this × haftSpan). bl_15 cut the clean head as an island whose base sits " +
-                 "at this fraction; EVERY vert ABOVE it (along the haft axis) is the whole head and is scaled " +
-                 "UNIFORMLY about the junction — no off-centreline subset test (that was the chipping). On the " +
-                 "imported wpn_axe_01 (grip z=0, haft to z=1.0, head base z=0.62) this is 0.62 — fraction-based " +
-                 "so it survives the FBX height-normalization. Lower to include more haft as 'head'; raise to " +
-                 "lift the junction toward the head tip.")]
-        public float headJunctionFraction = 0.62f;
+                 "axis span (haftMin + this × haftSpan). The whole head = EVERY vert ABOVE it along the haft " +
+                 "axis, scaled UNIFORMLY about the junction — no off-centreline subset test (that was the " +
+                 "chipping). RESTORED 4208067 stone-axe FBX (86cabh907): the head<->haft gap was measured " +
+                 "empirically from the imported mesh (128 verts; long axis Z, span 1.146; the clean gap with " +
+                 "NO verts spans Z=-0.117..0.050) — a fraction in 0.40..0.55 all cut the same clean 104-vert " +
+                 "head wedge (a stable plateau, robust to FBX float jitter), so 0.50 sits mid-gap. NOTE the " +
+                 "old 0.62 was tuned for the REJECTED flat-wood re-author and mis-grabbed 42 haft verts as " +
+                 "'head' on the restored stone mesh. Fraction-based so it survives FBX height-normalization. " +
+                 "Lower to include more haft as 'head'; raise to lift the junction toward the head tip.")]
+        public float headJunctionFraction = 0.50f;
 
         // The four family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names =
         // the FBX file-name-without-extension; see WeaponPackAssetGen.BuildLineupPrefab). Order = cycle order.

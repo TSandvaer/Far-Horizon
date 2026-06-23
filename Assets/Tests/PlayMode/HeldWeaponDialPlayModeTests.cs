@@ -33,9 +33,14 @@ namespace FarHorizon.PlayTests
     /// </summary>
     public class HeldWeaponDialPlayModeTests
     {
-        // The head<->haft junction fraction the dial cuts at (matches HeldWeaponCycleDebug.headJunctionFraction
-        // default 0.62 — bl_15 cuts the head island at z=0.62 of the haft). For the synthetic mesh below the
-        // haft runs y=0..2.0, so the junction is at y = 0.62*2.0 = 1.24: verts above that are the WHOLE head.
+        // The head<->haft junction fraction the dial cuts at for THIS synthetic mesh. The PRODUCTION default
+        // (HeldWeaponCycleDebug.headJunctionFraction) is geometry-specific — it was re-measured to 0.50 for the
+        // restored 4208067 stone-axe FBX (86cabh907; the old 0.62 was tuned for the rejected flat-wood mesh and
+        // mis-grabbed haft verts on the stone mesh). This is an ALGORITHM test on a SYNTHETIC mesh, so it SETS
+        // the fraction EXPLICITLY (in BuildRigDrivenHeroAxe) to decouple from the real-FBX default — the dial's
+        // uniform-scale contract is what's under test, not the real axe's specific junction. For the synthetic
+        // mesh the haft runs y=0..2.0, head box y=1.4..2.0, grip y=0..1.1; 0.62 → junction y=1.24 sits in the
+        // clean gap (1.1..1.4) so verts above it are exactly the WHOLE head box.
         private const float JunctionFraction = 0.62f;
 
         // A taller "axe-like" mesh whose HEAD is a clean island ABOVE the head<->haft junction (a coherent
@@ -99,6 +104,10 @@ namespace FarHorizon.PlayTests
             var rig = _go.AddComponent<HeldAxeRig>();  // drives the ROOT transform every LateUpdate
             rig.hand = hand;
             _cycle = _go.AddComponent<HeldWeaponCycleDebug>();
+            // ALGORITHM test: pin the junction fraction to THIS synthetic mesh's gap (0.62 → y=1.24 in the
+            // 1.1..1.4 gap), decoupled from the production default (0.50 for the real stone FBX). The uniform-
+            // scale contract is what's under test, not the real axe's specific junction.
+            _cycle.headJunctionFraction = JunctionFraction;
         }
 
         // (1) The generalized HELD nudge moves the RENDERED holder transform for a NON-axe weapon, and the move
