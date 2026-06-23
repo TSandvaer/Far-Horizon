@@ -71,7 +71,7 @@ Every new asset must:
 - **Mirror Modifier (X axis, Clipping = ON)** for all symmetric heads. Apply before export.
 - Use **Knife (K)** and **Loop Cut (Ctrl+R)** + **Extrude (E)** to shape. Use **Edge Slide (GG)** to push loops toward the cutting edge for blade taper — no extra geometry added.
 - **Haft/handle:** 5–6-sided cylinder. 8+ sides is too round for this style.
-- **Chunky cartoon look requires intentional imperfection:** slight haft bend (2–5° via vertex nudge), off-center axe head, notched grip bands. Machine-straight = wrong style.
+- **Chunky cartoon look comes from off-center axe heads, notched grip bands, and faceted facets — NOT a bent haft.** The HAFT is STRAIGHT (Sponsor decision 2026-06-23: the whole weapon family — axe/knife/sword/spear — has straight handles, matching the board axe `21h08_08`; the earlier "slight 2–5° haft bend" rule is RETIRED). Keep the imperfection in the head / grip / facet detail, not in a curved handle.
 - **White edge-highlight plane** (the crisp read in the inspiration board): inset (I, ~0.05m) the front blade face → separate that thin strip as its own mesh island → UV it to the `EdgeWhite` palette block. This is physical geometry, NOT a shader effect.
 
 **Triangle budgets (Far Horizon style):**
@@ -185,6 +185,8 @@ After dragging the FBX into `Assets/Art/Props/WeaponPack/`:
 - Add a **Box Collider** (not MeshCollider — too expensive for a hand tool).
 - Open Frame Debugger and verify all weapons in the scene batch into one SetPass call.
 
+**Import scale — normalize by the STYLE-LOCKED dimension, not total/longest-axis (PR #100, `86cabh907`):** when a multi-part asset has one component whose size is Sponsor-LOCKED (e.g. the axe HEAD locked at 0.65×) and another that resizes (the haft lengthened 2×), do NOT normalize `globalScale` by the longest axis (≈ total length) — that holds total length constant and silently RE-SCALES the locked part when the other grows (it would have shrunk the approved head). Instead pin `globalScale` to hold the LOCKED dimension at its approved absolute size: head-height locked → keep head 0.471u → total length grows freely to 1.500u (`globalScale` 1.0576). Verify with the §12 vertex-bounds snippet that the locked component's measurement is invariant before/after the resize.
+
 ---
 
 ## 10. Blender MCP — What to Automate, What Not To
@@ -203,6 +205,29 @@ MCP (`execute_blender_code`) is useful for mechanical batch steps. It cannot mak
 | Mark Sharp on specific edges | PARTIAL | Human pre-selects edges; MCP runs `bpy.ops.mesh.mark_sharp()` |
 | Set origin from grip vertex | PARTIAL | Human selects vertices; MCP runs Set Origin |
 
+### MCP availability — orchestrator R&D lane ONLY; dispatched personas use headless CLI
+
+**The `mcp__blender__*` tools (including `execute_blender_code`) are available ONLY to the orchestrator's own session.** A dispatched persona's tool allow-set is Read / Write / Edit / Grep / Glob / Bash / Skill / WebFetch + the ClickUp MCP tools — it contains **no** `mcp__blender__*` tool. If you are a dispatched Devon/Drew reading this, you cannot call any Blender MCP tool, and `ToolSearch("blender")` will not surface a usable one.
+
+**Dispatched personas drive Blender headlessly via CLI instead:**
+
+```bash
+"C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" \
+  --background <path/to/source.blend> \
+  --python <path/to/script.py>
+```
+
+Write the `bpy` operations (material setup, UV placement, transform-apply, normals, FBX export) as a standalone `.py` script and pass it via `--python`. **The `bpy` API is identical** — every snippet that would run in `execute_blender_code` runs unchanged in the script; every YES/PARTIAL row in the table above is achievable this way. Exit code 0 = success; non-zero = a Python exception (read stdout for the traceback). Commit the script next to the FBX so future passes re-run deterministically.
+
+**Empirical precedent (PR #100, ticket `86cabh907`):** Devon re-authored `Assets/Art/Props/WeaponPack/wpn_axe_01.fbx` (axe-head shrink to 0.8×) by running Blender 5.1 `--background --python` headlessly — scaling only the 45 blade verts about the head-base pivot, preserving grip-point origin (0,0,0) + +Z forward axis + the single `WeaponPalette` material slot, then re-exporting FBX (`-Y Forward / Z Up / Normals Only`) — *because the MCP tools were not exposed to his agent.*
+
+| Route | Who | When |
+|---|---|---|
+| `mcp__blender__execute_blender_code` | Orchestrator only (R&D lane) | Interactive iteration with a live Blender instance |
+| `blender --background --python script.py` | Dispatched Devon / Drew | Deterministic mechanical steps: transforms, UV, export |
+
+When briefing a dispatched Blender asset task, include the exact Blender executable path + a pointer to the `.blend` source so the persona scripts it headless from the start.
+
 ---
 
 ## 11. Style Checklist — Sign Off Before Calling an Asset "Done"
@@ -210,7 +235,7 @@ MCP (`execute_blender_code`) is useful for mechanical batch steps. It cannot mak
 Check every item against the inspiration board (`21h08_08` for axe; `21h06_54`, `21h07_20`, `21h07_42` for the family):
 
 - [ ] No smooth curved surfaces — all faces planar and visually faceted.
-- [ ] Haft has a slight intentional bend (2–5°). Not machine-straight.
+- [ ] Haft is STRAIGHT (Sponsor decision 2026-06-23 — weapon family handles are straight, not bent; the prior 2–5° bend rule is retired).
 - [ ] White edge-highlight plane exists on every blade — narrow inset, UV on `EdgeWhite` block.
 - [ ] Proportions match the 1.8m character reference — haft diameter ~0.08m.
 - [ ] All faces use palette colours only — no per-face vertex colour paint, no per-asset textures.
@@ -219,6 +244,27 @@ Check every item against the inspiration board (`21h08_08` for axe; `21h06_54`, 
 - [ ] Origin at grip midpoint, blade points +Z in Blender.
 - [ ] UV islands scaled to ~0.001, parked on correct palette blocks.
 - [ ] Single material slot: `WeaponPalette`.
+
+---
+
+## 12. Pre-Serve Weapon Verification — Measure in Blender, NOT the Gameplay Capture
+
+**The default CI gameplay capture CANNOT confirm a held weapon's size or look.** It's taken at SPAWN, where the weapon is a GROUND pickup not yet equipped (the held mesh is visibility-gated) — so the castaway is empty-handed and no weapon shows; and even once equipped, the rear-orbit gameplay angle frames it poorly. Do NOT treat a green CI capture as visual confirmation of weapon proportion. (Full evidence: `unity-conventions.md` § "DEFAULT gameplay capture does NOT frame a HELD weapon".)
+
+**Pre-serve verification for a held-weapon geometry change (proven on PR #100 / `86cabh907`):**
+
+1. **Measure in Blender (preferred).** After the headless scale op, print the actual vertex bounds of the resized component:
+   ```python
+   import bpy
+   obj = bpy.data.objects["wpn_axe_01"]  # adjust mesh name
+   xs = [(obj.matrix_world @ v.co).x for v in obj.data.vertices]
+   print(f"Head X-width: {max(xs)-min(xs):.4f}m")
+   ```
+   Confirm the value matches the intended factor (e.g. `0.6638 × 0.65 = 0.4315`).
+2. **Verify FBX identity.** Confirm the exported FBX is byte-identical to the known-good source mesh THEN a pure uniform scale (never a re-author) — uniform-scale-only is the hard rule that ended the #100 flat-wood saga.
+3. **Confirm Unity import scale** — catches a wrong FBX Unit-Scale reimport (100× / 0.01×).
+
+For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `WeaponSetVerifyCapture` / lineup-prefab path), not the default gameplay-back capture. The Sponsor still judges in-game by orbiting the cam himself — these steps are the TEAM's confidence gate before handing off the soak.
 
 ---
 
