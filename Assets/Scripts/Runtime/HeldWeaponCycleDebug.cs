@@ -182,8 +182,11 @@ namespace FarHorizon
         // LIVE AXE HEAD-SIZE dial (86cabh907 STOP-chipping rewrite). The held axe FBX is a SINGLE mesh; bl_15
         // cut the head as a clean island whose base is the head<->haft junction. To resize the head we clone
         // the axe mesh per-instance and scale the WHOLE head (every vert above the junction) UNIFORMLY about
-        // the junction by this live factor. _axeHeadFactor=1 == the shipped (clean 0.8x-baked) head; the
-        // Sponsor dials it DOWN further by eye and reports the factor to bake into the .blend default.
+        // the junction by this live factor. _axeHeadFactor=1 == the shipped head, which is now the
+        // OFFLINE-BAKED 0.65x stone head (tools/debug/bl_17_axe_head_bake_065.py baked a uniform 0.65x of the
+        // restored 4208067 head about the 0.50-fraction junction directly into wpn_axe_01.fbx — the runtime
+        // dial was broken across all inputs, so the size is baked + verifiable in the CI capture). Default 1.0
+        // therefore shows the baked 0.65x head with NO double-apply.
         private float _axeHeadFactor = 1f;
         private Mesh _axeHeadDialMesh;          // per-instance clone we deform (never the shared asset)
         private Vector3[] _axeBaseVerts;        // the axe mesh's ORIGINAL local verts (factor=1 baseline)
