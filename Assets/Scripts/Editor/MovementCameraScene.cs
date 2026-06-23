@@ -135,14 +135,16 @@ namespace FarHorizon.EditorTools
         // AXIS (diagnose-via-trace, AxeSeatProbe — the §FBX bakeAxisConversion trap): after import the axe's long
         // axis is UNITY +Y (NOT Z), HEAD at +Y, grip-end at −Y (Blender +Z → Unity +Y). A first pass shifted +Z
         // (off-axis) → the held capture showed the hand still at the HEAD (the shift went sideways, not down the
-        // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + haftLen/3;
-        // in the imported mesh (globalScale 1.0576 baked) grip_end_Y≈−0.976, haftLen≈1.000 → lower-third Y≈−0.6427.
-        // Shifting the mesh +0.6427 Y brings that point to the root origin (the hand seat) → head UP, grip-end DOWN.
-        // VERIFIED in-scene: root-local handle Y spans [−0.333..1.167], hand at Y=0 → GRIP_FRACTION 0.222 (lower
-        // third). Authored on the WeaponMeshHolder at EDIT-TIME so it serializes into Boot.unity (static EditMode
-        // bounds == runtime). The F9 held target + the soak let the Sponsor micro-dial; this is the reasonable
-        // lower-third default.
-        public static readonly float HeldAxeGripShiftY = 0.6427f;
+        // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + handleLen/3.
+        // 86cabh907 RE-BAKE (PR #100 re-soak): the haft shortened 2.0x->1.5x, so the grip RE-SEATS. Re-derived for
+        // the 1.5x handle (globalScale 1.05758 baked): grip_end_Y=−0.72586, head_base_Y=+0.03627 → handleLen(Unity)
+        // =0.76213 → lower_third_Y = grip_end_Y + handleLen/3 = −0.47181. Shifting the mesh +0.47181 Y brings that
+        // point to the root origin (the hand seat) → head UP, grip-end DOWN. VERIFIED in-scene replication: after
+        // the shift the hand (Y=0) sits at GRIP_FRACTION 0.3333 of the graspable handle = the lower-third grip.
+        // (Was 0.6427 for the longer 2.0x handle.) Authored on the WeaponMeshHolder at EDIT-TIME so it serializes
+        // into Boot.unity (static EditMode bounds == runtime). The F9 held target + the soak let the Sponsor
+        // micro-dial; this is the reasonable lower-third default.
+        public static readonly float HeldAxeGripShiftY = 0.47181f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×

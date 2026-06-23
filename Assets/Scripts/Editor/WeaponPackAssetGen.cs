@@ -51,15 +51,24 @@ namespace FarHorizon.EditorTools
         // the head's ABSOLUTE size. headJunctionFraction (0.50) splits head-from-haft the same way the runtime
         // dial does (HeldWeaponCycleDebug). If the head .blend is ever re-baked at a different size, re-derive
         // this target from the new approved head.
-        public const float HeroAxeTargetHeadHeightU = 0.4710f;
-        // The head's long-axis height in the .blend / FINAL-bake mesh units: head_top (z=+0.495347) minus the
-        // byte-locked head<->haft junction (z=+0.022674) = 0.47267u. The head is byte-LOCKED, so this distance
-        // from the blade TIP down to the junction is INVARIANT to haft length (the 2.0x haft only extends the
-        // OTHER end downward). MeasureImportedModelHeadHeight locates the blade-TIP end (the wide cross-section
-        // end) and reads the head as the verts within this distance of the tip — SIGN-ROBUST to the bake-axis
-        // conversion (no assumption about which Unity axis/sign the Blender +Z maps to). Do NOT use a
-        // fraction-of-span junction — the 2x haft moves the 50%-of-span point mid-haft.
-        public const float HeroAxeHeadHeightFromTipU = 0.47267f;
+        // 86cabh907 RE-BAKE (PR #100 re-soak): the head was RIGIDLY ROTATED coaxial (the 20.14deg dogleg
+        // killed -> ~2.7deg) and the haft shortened 2.0x->1.5x. Uprighting the head brought its blade TIP
+        // ONTO the long axis, so the head's measured long-axis Z-SPAN GREW 0.44535u -> 0.48842u (a rigid
+        // rotation preserves the head's TRUE 3D size; only its axis PROJECTION changed). To keep the
+        // Sponsor-approved head's ABSOLUTE WORLD SIZE invariant, hold the globalScale at the prior shipped
+        // 1.05760 (NOT the head world-height): target = 1.05760 x newHeadH 0.48842 = 0.51655. (If we had
+        // kept target=0.4710, globalScale would drop to 0.96432 and the head would render ~9% SMALLER than
+        // the approved head — the §9 locked-dimension trap. globalScale-invariant is the correct hold for a
+        // rigid-rotated locked part.) Verified: importer headH=0.48842 x gs 1.05758 reproduces gs 1.0576.
+        public const float HeroAxeTargetHeadHeightU = 0.51655f;
+        // The head's long-axis (blade-TIP -> head-base) Z-SPAN in mesh units AFTER the coaxial uprighting:
+        // tip z=+0.52392 down to head-base z=+0.03430 = 0.48962u (the importer's tip-band selection reads
+        // 0.48842u of that). The head is byte-LOCKED (rigid), so this tip-to-base distance is INVARIANT to
+        // haft length (the 1.5x haft only extends the OTHER end downward). MeasureImportedModelHeadHeight
+        // locates the blade-TIP end (the wide cross-section end) and reads the head as the verts within this
+        // distance of the tip — SIGN-ROBUST to the bake-axis conversion. Do NOT use a fraction-of-span
+        // junction — the haft moves the 50%-of-span point mid-haft. (Was 0.47267 for the TILTED head.)
+        public const float HeroAxeHeadHeightFromTipU = 0.48962f;
 
         // The set, paired with whether to height-normalize (only the hero axe rides the held-rig scale).
         private static readonly (string path, bool normalizeHeight)[] Set =
