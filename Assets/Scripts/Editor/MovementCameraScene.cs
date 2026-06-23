@@ -118,12 +118,25 @@ namespace FarHorizon.EditorTools
         // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
         // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
-        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is normalized to ~1.0u longest
-        // (WeaponPackAssetGen.HeroAxeTargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
-        // localScale 0.45 → ~0.77u longest extent (ScaleTrace-measured) — a believable kid-sized hatchet that
-        // clears the gameplay-visibility floor (≥0.7u, the invisible-sliver soak guard). REASONABLE default —
-        // the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
+        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is HEAD-height-normalized so the
+        // byte-locked 0.65× head keeps its approved size while the 2.0× haft grows the total to ~1.50u longest
+        // (WeaponPackAssetGen.HeroAxeTargetHeadHeightU; 86cabh907 FINAL bake). Effective world length ≈ localScale
+        // × 1.8 (root) × 1.50 (axe). localScale 0.45 → ~0.675u longest extent — a believable kid-sized hatchet
+        // that clears the gameplay-visibility floor (the invisible-sliver soak guard). REASONABLE default — the
+        // exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
         public static readonly float HeldAxeLocalScaleUniform = 0.45f;
+        // GRIP-POINT SHIFT (86cabh907 FINAL bake — the longer STRAIGHT haft re-seats the grip). The axe FBX origin
+        // is (0,0,0) — preserved (the §6 grip-point semantics). On the original short haft that origin sat ~mid-
+        // axe; the 2.0× haft moves the origin to ~65% UP the total length (near the head), so seating the FBX
+        // origin at the hand would grip near the HEAD. To grip the LOWER-THIRD of the handle (head up top, like
+        // the board axe 21h08_08), we slide the DISPLAYED MESH up its long (Z) axis via the WeaponMeshHolder so
+        // the hand lands on the lower-third grip point. Lower-third = grip_end + haftLen/3 in mesh units
+        // = -0.922674 + 0.945348/3 = -0.607558; × the head-normalize globalScale (1.05760, baked into the mesh)
+        // = -0.64255 in imported-mesh Z. Shifting the mesh +0.64255 Z brings that point to the root origin (the
+        // hand seat) → head UP, grip-end DOWN, hand on the lower third. Authored on the WeaponMeshHolder at
+        // EDIT-TIME so it serializes into Boot.unity (static EditMode bounds == runtime). The F9 held target +
+        // the soak let the Sponsor micro-dial; this is the reasonable lower-third default.
+        public static readonly float HeldAxeGripShiftZ = 0.64255f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
@@ -545,6 +558,45 @@ namespace FarHorizon.EditorTools
                 mr.sharedMaterial = mat;
         }
 
+        // Re-home a single-node weapon FBX's mesh from the (rig-driven) ROOT onto a "WeaponMeshHolder" child at
+        // the given local offset, so a per-weapon mesh shift survives the rig's per-frame root-transform writes
+        // (#100 BUG-2). Edit-time mirror of HeldWeaponCycleDebug's runtime re-home — but authored here so the
+        // shifted mesh SERIALIZES into Boot.unity (static == runtime). Idempotent: if a holder already exists it
+        // just re-applies the offset. Destroys the root MeshFilter/MeshRenderer so only the child holder draws.
+        private static void EnsureWeaponMeshHolder(GameObject weapon, Vector3 holderLocalOffset)
+        {
+            var existing = weapon.transform.Find("WeaponMeshHolder");
+            if (existing != null)
+            {
+                existing.localPosition = holderLocalOffset;
+                return;
+            }
+            var rootMf = weapon.GetComponent<MeshFilter>();
+            var rootMr = weapon.GetComponent<MeshRenderer>();
+            if (rootMf == null || rootMf.sharedMesh == null)
+            {
+                // Multi-node FBX (mesh already on a child) — find it + offset that child instead.
+                var childMf = weapon.GetComponentInChildren<MeshFilter>(true);
+                if (childMf != null && childMf.transform != weapon.transform)
+                    childMf.transform.localPosition += holderLocalOffset;
+                return;
+            }
+            var holderGo = new GameObject("WeaponMeshHolder");
+            holderGo.transform.SetParent(weapon.transform, false);
+            holderGo.transform.localPosition = holderLocalOffset;
+            var holderMf = holderGo.AddComponent<MeshFilter>();
+            holderMf.sharedMesh = rootMf.sharedMesh;
+            var holderMr = holderGo.AddComponent<MeshRenderer>();
+            if (rootMr != null)
+            {
+                holderMr.sharedMaterials = rootMr.sharedMaterials;
+                holderMr.shadowCastingMode = rootMr.shadowCastingMode;
+                holderMr.receiveShadows = rootMr.receiveShadows;
+                Object.DestroyImmediate(rootMr);
+            }
+            Object.DestroyImmediate(rootMf);
+        }
+
         private static void AttachHeroAxeToHand(GameObject player)
         {
             var castaway = player.GetComponentInChildren<CastawayCharacter>(true);
@@ -580,8 +632,20 @@ namespace FarHorizon.EditorTools
             axe.transform.SetParent(hand, false);
             ApplyWeaponPaletteMaterial(axe);
             // Scale is uniform-local. The Hyper3D wrist bone reads lossyScale (1,1,1) (probe-verified — NO 267×
-            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.77u longest.
+            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.675u longest.
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
+
+            // GRIP-POINT SHIFT (86cabh907 FINAL bake): re-home the displayed mesh onto a WeaponMeshHolder CHILD
+            // and slide it +HeldAxeGripShiftZ up the long (Z) axis so the hand grips the LOWER-THIRD of the longer
+            // straight haft (head up top, board-axe read), NOT near the head. Authored HERE at EDIT-TIME so the
+            // shifted pose SERIALIZES into Boot.unity — the static EditMode bounds guards see the SAME lower-third
+            // seat the runtime shows (no static-vs-runtime divergence). The single-node axe FBX collapses its
+            // MeshFilter onto the rig-driven ROOT (preserveHierarchy:0), and HeldToolRig.LateUpdate stomps the
+            // root transform every frame — so the per-weapon mesh-holder MUST be a child the rig never touches
+            // (#100 BUG-2: "nudging does nothing, scaling works"). HeldWeaponCycleDebug.Awake DETECTS this
+            // pre-authored holder and reuses it (no runtime re-home needed). The FBX origin stays (0,0,0) — only
+            // the displayed mesh slides within the holder; the §6 grip-origin semantics are preserved.
+            EnsureWeaponMeshHolder(axe, new Vector3(0f, 0f, HeldAxeGripShiftZ));
 
             // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a HAND-LOCAL offset
             // (rotated by the hand rotation, so it TRACKS the hand through every facing — 86ca9qwvd); ROTATION

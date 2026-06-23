@@ -291,11 +291,16 @@ namespace FarHorizon
             // frame (transform.position/rotation = hand-seat). The previous code wrote the per-weapon
             // offset/euler onto THAT transform, so the rig STOMPED them next frame → the F9 nudge "did nothing"
             // for knife/sword/spear (only localScale survived, since the rig leaves scale alone — which is why
-            // the [ ] scale dial worked but offset/euler didn't). The old Awake comment ASSUMED "the MeshFilter
-            // lives on a CHILD" — the probe proved it's on the ROOT. Fix: re-home the displayed mesh onto a
-            // dedicated CHILD holder the rig never touches, and drive the per-weapon TRS there. The axe (index
-            // 0) keeps the holder at IDENTITY local TRS → it renders byte-identically to the Sponsor-locked
-            // seat (the rig drives the root world pose; an identity child = the same pose).
+            // the [ ] scale dial worked but offset/euler didn't). Fix: the displayed mesh lives on a dedicated
+            // CHILD "WeaponMeshHolder" the rig never touches, and the per-weapon TRS is driven there.
+            //
+            // 86cabh907 FINAL bake: the holder is now AUTHORED AT EDIT-TIME (MovementCameraScene.EnsureWeaponMesh
+            // Holder), carrying the LOWER-THIRD grip shift (HeldAxeGripShiftZ) so it SERIALIZES into Boot.unity
+            // (static EditMode bounds == runtime). So on the shipped scene the MeshFilter is ALREADY on the child
+            // holder → the `else` branch below captures THAT holder (with its authored grip offset) as the axe's
+            // locked baseline. The re-home branch is kept as a FALLBACK for any scene where the mesh is still on
+            // the rig-driven root (e.g. a stale/old Boot.unity before this bake) — it builds the holder at
+            // IDENTITY (no grip shift) so an un-migrated scene still cycles, just without the new lower-third seat.
             if (fbxMesh.transform.GetComponent<HeldToolRig>() != null)
             {
                 // The mesh is on the rig-driven root — split it onto a child holder.

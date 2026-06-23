@@ -170,17 +170,25 @@ namespace FarHorizon.EditTests
             // 0.68u is a clearly-visible hero axe, NOT the 0.43u sliver the floor guards against. Lower the
             // floor to 0.6 (still well above the sliver) so the floor tracks the in-house axe; the band still
             // reds on a sliver (<0.6) OR a giant (>3.0).
-            Assert.That(longest, Is.InRange(0.6f, 3.0f),
+            // 86cabh907 FINAL bake: the in-house wpn_axe_01 is now HEAD-height-normalized (the byte-locked 0.65×
+            // head holds its size while the 2.0× straight haft grows the total to ~1.50u longest) and held at
+            // HeldAxeLocalScaleUniform 0.45 → ~0.675u longest world extent. Still a clearly-visible hero axe, NOT
+            // the 0.43u sliver the floor guards against. Band [0.5, 3.0]: floor 0.5 stays well above the sliver
+            // (and below the new ~0.675u so float jitter never reds it), ceiling 3.0 catches the 267×-bone giant.
+            Assert.That(longest, Is.InRange(0.5f, 3.0f),
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
-                "<0.6 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
+                "<0.5 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
-            // The axe top must sit at the HAND, around the SOAKFIX8 Sponsor-dialed seat (max.y ≈ 0.53u — held
-            // down at the side). Floor 0.35u catches a regression that drops the axe to the feet/below ground;
-            // ceiling 0.95u catches a 267×-bone giant or a wild euler that flings the axe up to the ear. The
-            // band is centred on the dialed-in default the Sponsor judged — re-bake the default and it moves.
-            Assert.That(b.max.y, Is.InRange(0.35f, 0.95f),
-                $"held axe top y {b.max.y:F2} must sit at the hand near the SOAKFIX8 dialed-in seat (~0.53u): " +
-                "<0.35 = dropped to the feet/below ground, >0.95 = a 267x-bone giant / wild-euler fling to the ear.");
+            // 86cabh907 FINAL bake: the LONGER straight haft + the LOWER-THIRD grip shift (HeldAxeGripShiftZ)
+            // seat the head UP TOP (board-axe read), so the axe top sits HIGHER than the old short-haft seat
+            // (max.y ≈ 0.53u). The band is RE-CENTRED + WIDENED for the new lower-third seat — the Sponsor
+            // re-dials the exact orientation via F9 in the soak, so this is a SANE-RANGE guard, not a tight pin.
+            // Floor 0.35u still catches a regression that drops the axe to the feet/below ground; ceiling 1.7u
+            // catches a 267×-bone giant or a wild-euler fling (those go to many units / off-screen), while
+            // allowing the head to sit up top on the now-longer axe. The exact value moves with the F9 re-dial.
+            Assert.That(b.max.y, Is.InRange(0.35f, 1.7f),
+                $"held axe top y {b.max.y:F2} must sit at/above the hand for the lower-third grip (head up top): " +
+                "<0.35 = dropped to the feet/below ground, >1.7 = a 267x-bone giant / wild-euler fling.");
         }
 
         [Test]
