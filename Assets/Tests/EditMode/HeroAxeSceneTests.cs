@@ -103,6 +103,29 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxe_CarriesTheShaftLengthPicker_AndItsCycleComponent()
+        {
+            // 86cabh907 SHAFT-LENGTH PICKER scene-presence guard. The HeldAxeLengthPicker (the unstick
+            // instrument) must be SERIALIZED on the held axe alongside the HeldWeaponCycleDebug whose mesh
+            // holder it shares — else the Sponsor's soak build has no [L] length picker (the component-not-
+            // serialized trap, unity-conventions.md editor-vs-runtime). Drop the picker authoring and this reds.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present (see BootScene_CarriesHeroAxe_HeldUnderTheRightHandBone)");
+
+            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
+            Assert.IsNotNull(cycle, "the held axe must carry HeldWeaponCycleDebug (the picker shares its mesh holder)");
+            var picker = axe.GetComponent<HeldAxeLengthPicker>();
+            Assert.IsNotNull(picker,
+                "the held axe must carry the HeldAxeLengthPicker (the 86cabh907 in-hand shaft-length picker) — " +
+                "serialized into the scene so the Sponsor's soak build has the [L] length cycle");
+            // The picker's cycle key must be a layout-safe LETTER (Danish-keyboard-safe — [[sponsor-danish-
+            // keyboard-layout]]); a regression to US-position punctuation reds here.
+            Assert.IsTrue(picker.lengthCycleKey >= KeyCode.A && picker.lengthCycleKey <= KeyCode.Z,
+                "the picker's length-cycle key must be a layout-safe LETTER (got " + picker.lengthCycleKey + ")");
+        }
+
+        [Test]
         public void BootScene_HeldAxe_PosedHandLocal_SoRotationTracksTheBone()
         {
             // SOAKFIX8 regression guard (the bug CLASS at the serialization layer). The Sponsor's bug ("the

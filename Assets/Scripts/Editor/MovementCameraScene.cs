@@ -718,6 +718,13 @@ namespace FarHorizon.EditorTools
             // offset) and starts on the LOCKED axe, so a soak that never presses [B] sees the shipped axe.
             if (axe.GetComponent<HeldWeaponCycleDebug>() == null) axe.AddComponent<HeldWeaponCycleDebug>();
 
+            // SHAFT-LENGTH PICKER (86cabh907 — the unstick instrument): cycle the held axe through 4 pre-baked
+            // length variants (1.1x->1.4x, head LOCKED + coaxial) with [L] so the Sponsor PICKS the haft length
+            // in-hand instead of us guessing (he rejected 2.0x + 1.5x as too long). Shares the cycle's mesh
+            // holder; only acts while the axe is held. Starts UNSELECTED (shipped length) so a soak that never
+            // presses [L] sees the shipped axe. Authored after the cycle so its Awake finds the cycle component.
+            if (axe.GetComponent<HeldAxeLengthPicker>() == null) axe.AddComponent<HeldAxeLengthPicker>();
+
             // URP/Unlit (the shared weapon palette material) must survive the stripped build.
             var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
             if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);

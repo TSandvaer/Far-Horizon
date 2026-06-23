@@ -40,6 +40,20 @@ namespace FarHorizon.EditorTools
 
         public const string PrefabPath = "Assets/Resources/WeaponSetLineup.prefab";
 
+        // SHAFT-LENGTH PICKER variants (86cabh907) — four pre-baked length variants of the axe (head LOCKED +
+        // RIGID-ROTATED COAXIAL via bl_19, haft 1.1x/1.2x/1.3x/1.4x of the original short haft). The in-hand
+        // picker (HeldAxeLengthPicker) swaps the held axe through these so the Sponsor PICKS the length by eye
+        // instead of us guessing. Loaded at runtime from AxeLengthVariantsPrefabPath. The DEFAULT wpn_axe_01.fbx
+        // is NOT one of these — it stays the shipped length until the Sponsor's pick triggers the final bake.
+        public static readonly string[] LengthVariantFbxPaths =
+        {
+            Dir + "/wpn_axe_01_len11.fbx",
+            Dir + "/wpn_axe_01_len12.fbx",
+            Dir + "/wpn_axe_01_len13.fbx",
+            Dir + "/wpn_axe_01_len14.fbx",
+        };
+        public const string AxeLengthVariantsPrefabPath = "Assets/Resources/AxeLengthVariants.prefab";
+
         // Normalize the hero axe by its HEAD HEIGHT (not its longest axis) to this many world units, so the
         // Sponsor-LOCKED 0.65x head keeps its approved ABSOLUTE in-game size INDEPENDENTLY of the haft length
         // (86cabh907 FINAL bake — 2.0x straight haft + locked head). WHY head-height, not longest-axis: the
@@ -70,6 +84,17 @@ namespace FarHorizon.EditorTools
         // junction — the haft moves the 50%-of-span point mid-haft. (Was 0.47267 for the TILTED head.)
         public const float HeroAxeHeadHeightFromTipU = 0.48962f;
 
+        // 86cabh907 SHAFT-LENGTH PICKER (bl_19): the length-variant FBX heads were RIGID-ROTATED FULLY COAXIAL
+        // (mount-line -> +Z about the haft-top junction; junction angle 0.0198deg — killing the 2.71deg residual
+        // bl_18 left). Per the §9 ROTATION COROLLARY, uprighting the head changed its long-axis Z-PROJECTION, so
+        // the variant heads' head-height-from-tip is DIFFERENT from the (still-tilted) shipped axe's: bl_19
+        // measured tip_z=0.52514 down to the fixed head-base junction HEAD_BASE_Z=0.022674 = 0.50247u. The
+        // variant importer normalizes by THIS so the coaxial head renders the SAME approved absolute world size
+        // as the shipped head (HeroAxeTargetHeadHeightU held invariant). When the Sponsor picks a length and the
+        // FINAL bake re-authors wpn_axe_01.fbx with the coaxial head, HeroAxeHeadHeightFromTipU above is updated
+        // to 0.50247 too. (Source: bl_19 "HEAD_HEIGHT_FROM_TIP=0.50247" + "re-derive Unity consts" lines.)
+        public const float HeroAxeCoaxialHeadHeightFromTipU = 0.50247f;
+
         // The set, paired with whether to height-normalize (only the hero axe rides the held-rig scale).
         private static readonly (string path, bool normalizeHeight)[] Set =
         {
@@ -84,11 +109,53 @@ namespace FarHorizon.EditorTools
             ConfigurePalette();
             var mat = CreateOrUpdateMaterial();
             foreach (var (path, norm) in Set)
-                ConfigureFbxImporter(path, norm);
+                ConfigureFbxImporter(path, norm, HeroAxeHeadHeightFromTipU);
             BuildLineupPrefab(mat);
+            // 86cabh907 shaft-length picker: import the four COAXIAL-head length variants (head-height-
+            // normalized by HeroAxeCoaxialHeadHeightFromTipU so the coaxial head matches the approved world
+            // size) + build the runtime-loadable AxeLengthVariants prefab the picker swaps through. Skipped
+            // gracefully if the variant FBXs aren't present (e.g. a checkout before the bl_19 bake).
+            int variantsPresent = 0;
+            foreach (var vp in LengthVariantFbxPaths)
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(vp) != null)
+                {
+                    ConfigureFbxImporter(vp, true, HeroAxeCoaxialHeadHeightFromTipU);
+                    variantsPresent++;
+                }
+            if (variantsPresent == LengthVariantFbxPaths.Length)
+                BuildLengthVariantsPrefab(mat);
+            else
+                Debug.LogWarning("[WeaponPackAssetGen] only " + variantsPresent + "/" + LengthVariantFbxPaths.Length +
+                                 " length-variant FBXs present — skipping AxeLengthVariants prefab build");
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[WeaponPackAssetGen] weapon SET prepared: axe + knife + sword + spear (shared palette)");
+            Debug.Log("[WeaponPackAssetGen] weapon SET prepared: axe + knife + sword + spear (shared palette)" +
+                      (variantsPresent > 0 ? " + " + variantsPresent + " axe length variants" : ""));
+        }
+
+        // Build Resources/AxeLengthVariants.prefab = the four length-variant axe meshes as child nodes (named
+        // after their FBX: wpn_axe_01_len11..len14), all sharing Mat_WeaponPalette, so the in-hand length
+        // picker (HeldAxeLengthPicker) loads them at runtime in the BUILT exe (AssetDatabase is editor-only).
+        // The children are NOT positioned/lit (this is a mesh BANK the picker reads sharedMesh from, not a
+        // display lineup like WeaponSetLineup). 86cabh907.
+        private static void BuildLengthVariantsPrefab(Material mat)
+        {
+            if (mat == null) return;
+            var root = new GameObject("AxeLengthVariants");
+            foreach (var path in LengthVariantFbxPaths)
+            {
+                var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (fbx == null) { Debug.LogWarning("[WeaponPackAssetGen] variants: FBX missing " + path); continue; }
+                var item = Object.Instantiate(fbx);
+                item.name = Path.GetFileNameWithoutExtension(path);
+                item.transform.SetParent(root.transform, false);
+                foreach (var mr in item.GetComponentsInChildren<MeshRenderer>(true))
+                    mr.sharedMaterial = mat;
+            }
+            Directory.CreateDirectory("Assets/Resources");
+            PrefabUtility.SaveAsPrefabAsset(root, AxeLengthVariantsPrefabPath);
+            Object.DestroyImmediate(root);
+            Debug.Log("[WeaponPackAssetGen] built " + AxeLengthVariantsPrefabPath + " (4 axe length variants, shared material)");
         }
 
         // Build Resources/WeaponSetLineup.prefab = the four weapons stood up in a row, all sharing
@@ -186,7 +253,7 @@ namespace FarHorizon.EditorTools
             return mat;
         }
 
-        private static void ConfigureFbxImporter(string fbxPath, bool normalizeHeight)
+        private static void ConfigureFbxImporter(string fbxPath, bool normalizeHeight, float headHeightFromTipU)
         {
             var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
             if (importer == null)
@@ -216,7 +283,7 @@ namespace FarHorizon.EditorTools
                 // absolute size while the 2.0x haft grows the total length (86cabh907 FINAL bake). The head is
                 // identified by its RADIAL WIDTH (the blade is far wider than the ~0.07u haft), so the split is
                 // independent of haft LENGTH — robust to the 2x handle.
-                float headH = MeasureImportedModelHeadHeight(fbxPath);
+                float headH = MeasureImportedModelHeadHeight(fbxPath, headHeightFromTipU);
                 if (headH > 0.0001f)
                 {
                     importer.globalScale = importer.globalScale * (HeroAxeTargetHeadHeightU / headH);
@@ -238,7 +305,7 @@ namespace FarHorizon.EditorTools
         // height is INVARIANT to haft length — exactly what keeps the head's absolute size locked (86cabh907).
         // The model is imported at globalScale=1 when this runs (ConfigureFbxImporter sets it to 1f first), so the
         // long-axis coords are in .blend/mesh units and the junction const compares directly.
-        private static float MeasureImportedModelHeadHeight(string fbxPath)
+        private static float MeasureImportedModelHeadHeight(string fbxPath, float headHeightFromTipU)
         {
             var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
             if (fbx == null) return 0f;
@@ -279,7 +346,7 @@ namespace FarHorizon.EditorTools
                     }
                     float tipCoord = SpreadNear(hiEnd) >= SpreadNear(loEnd) ? hiEnd : loEnd;
                     int dir = (tipCoord == hiEnd) ? -1 : 1; // toward the junction from the tip
-                    float junctionCoord = tipCoord + dir * HeroAxeHeadHeightFromTipU;
+                    float junctionCoord = tipCoord + dir * headHeightFromTipU;
                     float headLo = float.MaxValue, headHi = float.MinValue;
                     for (int i = 0; i < n; i++)
                     {

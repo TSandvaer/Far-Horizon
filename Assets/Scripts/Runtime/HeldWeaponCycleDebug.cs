@@ -208,6 +208,17 @@ namespace FarHorizon
         /// <summary>The live axe head-size factor (1 == shipped head) — for the F9 tool's HEAD-SIZE target.</summary>
         public float AxeHeadFactor => _axeHeadFactor;
 
+        /// <summary>The MeshFilter the cycle drives (the WeaponMeshHolder child, post-#100 re-home) — exposed
+        /// so the <see cref="HeldAxeLengthPicker"/> (86cabh907 shaft-length picker) swaps the axe through its
+        /// 4 length-variant meshes on the SAME holder via the SAME proven mesh-swap mechanism. Null until Awake.</summary>
+        public MeshFilter MeshHolder => _meshHolder;
+        /// <summary>The captured original (shipped) axe mesh — index-0 baseline. The length picker restores this
+        /// when the chosen length is the shipped one and uses it as the "current" source-of-truth for index 0.</summary>
+        public Mesh AxeOriginalMesh => _axeOriginalMesh;
+        /// <summary>True while the AXE (index 0) is the currently-displayed weapon — the length picker only acts
+        /// on the axe (knife/sword/spear have no shaft-length variants).</summary>
+        public bool IsAxeHeld => _index == 0;
+
         /// <summary>
         /// F9-tool entry point (86cabh907 soak round 2): nudge the CURRENTLY-HELD weapon's in-hand placement —
         /// mesh-holder offset (dp) + euler (dr) + a multiplicative scale factor (scaleFactor; 1 = no change).
