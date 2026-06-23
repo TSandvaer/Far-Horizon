@@ -65,6 +65,26 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HeldAxe_UsesTheInHouseFlintPaletteMaterial_NotTheCcByAtlas()
+        {
+            // 86cabh907 CC-BY retirement guard: the gameplay held axe must now render with the SHARED
+            // in-house Mat_WeaponPalette (URP/Unlit flat-shaded palette) — NOT the retired Viktor.G CC-BY
+            // baked atlas. A regression that re-points the held axe at a per-asset/baked material reds here
+            // (and would re-introduce the attribution obligation Route A retired).
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var mr = axe.GetComponentInChildren<MeshRenderer>(true);
+            Assert.IsNotNull(mr, "the held axe must have a MeshRenderer");
+            Assert.IsNotNull(mr.sharedMaterial, "the held axe's material must be serialized");
+            Assert.AreEqual("Universal Render Pipeline/Unlit", mr.sharedMaterial.shader.name,
+                "the held axe must render with the URP/Unlit shared palette material (Mat_WeaponPalette) — " +
+                "NOT a lit/baked-atlas material (the CC-BY axe outlier Route A retired).");
+            StringAssert.Contains("WeaponPalette", mr.sharedMaterial.name,
+                $"the held axe material must be the shared Mat_WeaponPalette (got '{mr.sharedMaterial.name}').");
+        }
+
+        [Test]
         public void BootScene_HeldAxe_GatesVisibilityOnHasAxe()
         {
             // The HeldAxe component (HasAxe-gated visibility) must be SERIALIZED on the held axe with its
@@ -80,6 +100,29 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(held.inventory,
                 "HeldAxe.inventory must be wired editor-time (serialized) — an Awake FindObjectOfType in " +
                 "the build is the component-not-serialized trap this guards");
+        }
+
+        [Test]
+        public void BootScene_HeldAxe_CarriesTheShaftLengthPicker_AndItsCycleComponent()
+        {
+            // 86cabh907 SHAFT-LENGTH PICKER scene-presence guard. The HeldAxeLengthPicker (the unstick
+            // instrument) must be SERIALIZED on the held axe alongside the HeldWeaponCycleDebug whose mesh
+            // holder it shares — else the Sponsor's soak build has no [L] length picker (the component-not-
+            // serialized trap, unity-conventions.md editor-vs-runtime). Drop the picker authoring and this reds.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present (see BootScene_CarriesHeroAxe_HeldUnderTheRightHandBone)");
+
+            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
+            Assert.IsNotNull(cycle, "the held axe must carry HeldWeaponCycleDebug (the picker shares its mesh holder)");
+            var picker = axe.GetComponent<HeldAxeLengthPicker>();
+            Assert.IsNotNull(picker,
+                "the held axe must carry the HeldAxeLengthPicker (the 86cabh907 in-hand shaft-length picker) — " +
+                "serialized into the scene so the Sponsor's soak build has the [L] length cycle");
+            // The picker's cycle key must be a layout-safe LETTER (Danish-keyboard-safe — [[sponsor-danish-
+            // keyboard-layout]]); a regression to US-position punctuation reds here.
+            Assert.IsTrue(picker.lengthCycleKey >= KeyCode.A && picker.lengthCycleKey <= KeyCode.Z,
+                "the picker's length-cycle key must be a layout-safe LETTER (got " + picker.lengthCycleKey + ")");
         }
 
         [Test]
@@ -142,19 +185,33 @@ namespace FarHorizon.EditTests
             foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) r.enabled = true;
             Bounds b = mr.bounds;
             float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
-            // ~1.0u target; floor 0.7u catches a regression to the 0.43u sliver. (Upper guard catches the
-            // 267×-bone GIANT trap — a >3u axe is the giant that already shipped once.)
-            Assert.That(longest, Is.InRange(0.7f, 3.0f),
+            // Floor catches a regression to the 0.43u sliver; upper guard catches the 267×-bone GIANT trap.
+            // #100 calibration: the in-house wpn_axe_01 (86cabh907) is height-normalized to 1.0u longest-axis
+            // at IMPORT (WeaponPackAssetGen.HeroAxeTargetHeadHeightU) and held at HeldAxeLocalScaleUniform
+            // 0.45 under the hand bone → a stable measured world extent of ~0.68u (deterministic across
+            // bootstraps; the new axe reads SMALLER than the retired CC-BY hatchet that set the old 0.7 floor).
+            // 0.68u is a clearly-visible hero axe, NOT the 0.43u sliver the floor guards against. Lower the
+            // floor to 0.6 (still well above the sliver) so the floor tracks the in-house axe; the band still
+            // reds on a sliver (<0.6) OR a giant (>3.0).
+            // 86cabh907 FINAL (the Sponsor's [L]=1.1x pick): the in-house wpn_axe_01 is HEAD-height-normalized
+            // (the byte-locked 0.65× head holds its size while the 1.1× straight haft sets the total to ~1.08u
+            // longest) and held at HeldAxeLocalScaleUniform 0.45 → ~0.49u longest world extent. Still a clearly-
+            // visible hero axe, NOT the 0.43u sliver the floor guards against. Band [0.4, 3.0]: floor 0.4 stays
+            // above the sliver (and below the new ~0.49u so float jitter never reds it), ceiling 3.0 catches the
+            // 267×-bone giant.
+            Assert.That(longest, Is.InRange(0.4f, 3.0f),
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
-                "<0.7 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
+                "<0.5 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
 
-            // The axe top must sit at the HAND, around the SOAKFIX8 Sponsor-dialed seat (max.y ≈ 0.53u — held
-            // down at the side). Floor 0.35u catches a regression that drops the axe to the feet/below ground;
-            // ceiling 0.95u catches a 267×-bone giant or a wild euler that flings the axe up to the ear. The
-            // band is centred on the dialed-in default the Sponsor judged — re-bake the default and it moves.
-            Assert.That(b.max.y, Is.InRange(0.35f, 0.95f),
-                $"held axe top y {b.max.y:F2} must sit at the hand near the SOAKFIX8 dialed-in seat (~0.53u): " +
-                "<0.35 = dropped to the feet/below ground, >0.95 = a 267x-bone giant / wild-euler fling to the ear.");
+            // 86cabh907 FINAL (the Sponsor's [L]=1.1x pick): the straight 1.1x haft + the LOWER-THIRD grip shift
+            // (HeldAxeGripShiftY = 0.34235) seat the head UP TOP (board-axe read), so the axe top sits above the
+            // hand. The band is a SANE-RANGE guard, not a tight pin — the Sponsor re-dials the exact orientation
+            // via F9 in the soak. Floor 0.2u still catches a regression that drops the axe to the feet/below
+            // ground; ceiling 1.7u catches a 267×-bone giant or a wild-euler fling (those go to many units /
+            // off-screen), while allowing the head to sit up top on the shorter 1.1x axe.
+            Assert.That(b.max.y, Is.InRange(0.2f, 1.7f),
+                $"held axe top y {b.max.y:F2} must sit at/above the hand for the lower-third grip (head up top): " +
+                "<0.35 = dropped to the feet/below ground, >1.7 = a 267x-bone giant / wild-euler fling.");
         }
 
         [Test]
@@ -324,6 +381,125 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(boot.GetComponent<AxeNudgeTool>(),
                 "the Boot object must carry the AxeNudgeTool component (the build-gated in-game axe-nudge " +
                 "tool), serialized into the scene — not Awake-added");
+        }
+
+        [Test]
+        public void BootScene_CarriesHeldWeaponCycleDebug_OnTheHeroAxe()
+        {
+            // 86cabh907 regression guard (the component-not-serialized class, applied to the DEBUG cycle
+            // handle). The Sponsor's "let me SEE each weapon held" soak handle must be SERIALIZED onto the
+            // HeroAxe object (added in AttachHeroAxeToHand) — else the shipped build has NO way to cycle the
+            // held weapon and the soak can't view knife/sword/spear in-hand. Drop the AddComponent in
+            // AttachHeroAxeToHand and this reds in CI rather than at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present (the cycle handle rides it)");
+            Assert.IsNotNull(axe.GetComponent<HeldWeaponCycleDebug>(),
+                "the HeroAxe must carry the HeldWeaponCycleDebug component (the [B] cycle-held-weapon soak " +
+                "handle, 86cabh907), serialized into the scene — not Awake-added.");
+        }
+
+        [Test]
+        public void BootScene_HeldAxe_MeshFilterSharesTheRigDrivenTransform_TheRigStompPrecondition()
+        {
+            // #100 BUG-2 regression guard (the rig-stomp class). The in-house axe FBX is a SINGLE-node FBX
+            // imported with preserveHierarchy:0, so Unity COLLAPSES the mesh node onto the HeroAxe ROOT — the
+            // MeshFilter lands on the SAME transform the HeldToolRig drives every LateUpdate (empirically
+            // probed on the fresh ab16bbb Boot scene: mfOnRoot=True). That collapse is the PRECONDITION for
+            // the bug: HeldWeaponCycleDebug used to write the per-weapon offset/euler onto THAT transform, so
+            // the rig stomped it every frame and the F9 nudge "did nothing" for knife/sword/spear. The runtime
+            // fix re-homes the displayed mesh onto a child holder the rig never touches (HeldWeaponCycleDebug
+            // .Awake). This guard documents + pins the collapse: if the MeshFilter shares the rig transform,
+            // the re-home is load-bearing; if a future FBX preserves a child mesh node (mfOnRoot=False), the
+            // re-home becomes a harmless no-op and this assert's message tells the next dev why. Either way the
+            // mesh must exist on/under the rig-driven object.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            var rig = axe.GetComponent<HeldToolRig>();
+            Assert.IsNotNull(rig, "the HeroAxe must carry a HeldToolRig (HeldAxeRig) — it drives the seat each frame");
+            var mf = axe.GetComponentInChildren<MeshFilter>(true);
+            Assert.IsNotNull(mf, "the held axe must carry a MeshFilter");
+            // The bug's precondition: the static-loaded MeshFilter is on the rig-driven root (the FBX collapse).
+            // If this ever flips to a child (mfOnRoot==false), the re-home in HeldWeaponCycleDebug.Awake is a
+            // no-op and the rig-stomp can't happen — the test still passes, the message explains the regime.
+            bool mfOnRoot = mf.transform == axe.transform;
+            Assert.IsTrue(mfOnRoot || mf.transform.IsChildOf(axe.transform),
+                "the held axe MeshFilter must live on (or under) the rig-driven HeroAxe object. mfOnRoot=" +
+                mfOnRoot + " — when TRUE, HeldWeaponCycleDebug.Awake MUST re-home the mesh onto a child holder " +
+                "the rig never touches (else the per-weapon nudge is stomped every frame — #100 BUG-2).");
+        }
+
+        [Test]
+        public void WeaponLineupPrefab_CarriesEveryFamilyMeshNode_TheCycleSourceResolves()
+        {
+            // 86cabh907 regression guard (the runtime-mesh-source class). The cycle handle resolves the
+            // knife/sword/spear meshes at runtime from Resources/WeaponSetLineup.prefab BY NODE NAME (Asset
+            // Database is editor-only). If a node name drifts (or the lineup loses a weapon), cycling shows
+            // nothing/falls back to the axe — a silent soak failure. Pin that EVERY cycle node name resolves
+            // to a real mesh in the shipped Resources prefab.
+            var prefab = Resources.Load<GameObject>(HeldWeaponCycleDebug.LineupResourcePath);
+            Assert.IsNotNull(prefab,
+                "Resources/" + HeldWeaponCycleDebug.LineupResourcePath + " must exist — it is the runtime " +
+                "mesh source the cycle handle loads knife/sword/spear from (built by WeaponPackAssetGen).");
+            foreach (var nodeName in HeldWeaponCycleDebug.WeaponNodeNames)
+            {
+                Transform node = FindByName(prefab.transform, nodeName);
+                Assert.IsNotNull(node, $"the lineup prefab must carry a '{nodeName}' node (a cycle weapon).");
+                var mf = node.GetComponent<MeshFilter>();
+                Assert.IsNotNull(mf, $"lineup node '{nodeName}' must carry a MeshFilter.");
+                Assert.IsNotNull(mf.sharedMesh, $"lineup node '{nodeName}' must carry a serialized mesh.");
+                Assert.Greater(mf.sharedMesh.vertexCount, 10, $"lineup node '{nodeName}' must be a real weapon mesh.");
+            }
+        }
+
+        [Test]
+        public void HeldWeaponCycleDebug_AxeIsTheLockedDefault_NoCompensation()
+        {
+            // 86cabh907 regression guard (the axe-seat-LOCKED contract). The Sponsor LOCKED the axe seat — the
+            // cycle handle must leave it byte-unchanged. The handle expresses that as: index 0 (axe) gets ZERO
+            // mesh-holder offset and UNIT scale (and restores the captured original TRS). Pin index 0 ==
+            // identity so a future tweak that accidentally compensates the axe (moving the locked seat) reds
+            // here. Also pin the four per-weapon arrays are length-aligned (a misaligned array would apply the
+            // wrong weapon's compensation).
+            int n = HeldWeaponCycleDebug.WeaponNodeNames.Length;
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponLabels.Length, "WeaponLabels must align with WeaponNodeNames.");
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
+            Assert.AreEqual("wpn_axe_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the axe must be cycle index 0 (the locked default).");
+            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
+                "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0],
+                "the AXE (index 0) must have UNIT mesh scale — its seat is Sponsor-LOCKED.");
+        }
+
+        [Test]
+        public void HeldWeaponCycleDebug_NonAxeHeldScales_ReadProportionateToTheAxe_NotShrunkToHalf()
+        {
+            // 86cabh907 SOAK-FIX regression guard (the bug CLASS, not the instance). The Sponsor soaked the [B]
+            // cycle and reported "knife/sword/spear are MUCH SMALLER than the axe when held" — the FIRST values
+            // {1, 0.55, 0.50, 0.42} down-scaled the non-axe weapons to ~half the axe's in-hand presence. The
+            // MODELS are correctly sized (the Blender family render was Sponsor-accepted); only the HELD scale
+            // was wrong. The fix bumps each non-axe held scale UP toward ~1.0 so it reads proportionate to the
+            // axe in the hand. This guard floors every non-axe scale at 0.7 of the axe's UNIT scale, so a
+            // regression back to the ~0.42-0.55 shrink reds in CI rather than re-shipping the dwarfed weapons.
+            // (The exact per-weapon value is the Sponsor's to dial via the live scale dial + bake; the FLOOR is
+            // the bug-class catch.) The live dial only mutates the runtime _liveScale copy — the SHIPPED default
+            // is this static array, so pinning it here pins what ships.
+            float axe = HeldWeaponCycleDebug.WeaponMeshScale[0]; // 1.0 (locked)
+            for (int i = 1; i < HeldWeaponCycleDebug.WeaponMeshScale.Length; i++)
+            {
+                float s = HeldWeaponCycleDebug.WeaponMeshScale[i];
+                Assert.GreaterOrEqual(s, 0.7f * axe,
+                    $"the held {HeldWeaponCycleDebug.WeaponLabels[i]} scale ({s:F2}) must read proportionate to " +
+                    $"the axe ({axe:F2}) in the hand — ≥0.7× the axe. A value back near the soak-rejected " +
+                    "0.42-0.55 shrink re-ships the 'MUCH SMALLER than the axe' bug (86cabh907).");
+                // Sanity ceiling: no non-axe weapon should ship grossly LARGER than the axe (a fat-finger bake);
+                // a sword/spear can read a bit bigger but not 2x the axe in the hand.
+                Assert.LessOrEqual(s, 2.0f * axe,
+                    $"the held {HeldWeaponCycleDebug.WeaponLabels[i]} scale ({s:F2}) must not ship grossly larger " +
+                    $"than the axe ({axe:F2}) — ≤2× (catches a fat-finger bake of the live-dial value).");
+            }
         }
 
         private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);

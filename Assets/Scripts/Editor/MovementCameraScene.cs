@@ -44,13 +44,14 @@ namespace FarHorizon.EditorTools
         // NavMeshAgent height (1.8u) so the visible character lines up with the agent capsule.
         private const float PlayerVisualHeight = 1.8f;
 
-        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp). The
-        // procedural HeroAxeMesh wedge is RETIRED (it did not read as an axe); the axe is the SOURCED rustic
-        // hatchet "One-handed stylized axe" by Viktor.G (Sketchfab, CC-Attribution — see AxeAssetGen + the
-        // committed license file). It is ATTACHED to the castaway's RIGHT HAND bone (mixamorig:RightHand —
-        // probe-verified by CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it,
-        // and is shown only once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the
-        // verify-capture + scene-presence guards key on it. ----
+        // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp;
+        // re-made IN-HOUSE under 86cabh907 — Route A weapon SET). The procedural HeroAxeMesh wedge AND the
+        // earlier CC-BY sourced hatchet are both RETIRED; the axe is the in-house faceted flat-shaded
+        // wpn_axe_01 (WeaponPackAssetGen.HeroAxeFbxPath, shared palette material). It is ATTACHED to the
+        // castaway's RIGHT HAND bone (mixamorig:RightHand — probe-verified by
+        // CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it, and is shown only
+        // once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture +
+        // scene-presence guards key on it. ----
         public const string HeroAxeObjectName = "HeroAxe";
 
         // The Hyper3D castaway's right-hand WRIST bone. The Mixamo rig names it "mixamorig:RightHand"; the
@@ -64,7 +65,7 @@ namespace FarHorizon.EditorTools
         // Attach pose for the sourced hatchet (SOAKFIX2 2026-06-13 — the NO-AXE soak fix). The held axe must
         // read UNMISTAKABLY in the GAMEPLAY orbit view (dist 14u, pitch 55°), not just the -verifyAxe close-up.
         //
-        // ROOT CAUSE the gameplay-view trace (AxeAssetGen.GameplayViewTrace) PROVED the Sponsor's "no axe":
+        // ROOT CAUSE the gameplay-view trace (the historical axe gameplay-view trace) PROVED the Sponsor's "no axe":
         // the prior pose (scale 0.0015 → 0.43u longest, blade-DOWN at the HIP, max.y=0.71) projected to only
         // ~3.7% of the frame height at the orbit framing — a thin vertical sliver hanging by the leg, lost
         // beside a chibi whose own silhouette is only ~8% of frame from 55° top-down. The -verifyAxe capture
@@ -76,7 +77,7 @@ namespace FarHorizon.EditorTools
         // localPos went the WRONG way). Fix: pose the held axe in WORLD space after parenting (Unity back-
         // solves + serializes the local transform), so the pose is intuitive + robust to the bone frame.
         //
-        // VALUES (dialed via AxeAssetGen.DialInTrace + SOAKFIX4 PoseTrace against the orbit render):
+        // VALUES (dialed via the historical axe dial-in trace + SOAKFIX4 pose trace against the orbit render):
         // SOAKFIX4 (the Sponsor's "handle sticks out by the EAR"): the prior +0.55 up-offset seated the axe
         // CENTER at world-y 0.66 with its TOP at 1.040 — and the chibi's head bone is at world-y 0.775, so
         // the haft top rose level with the EAR (PoseTrace: HeroAxe max.y 1.040 vs head-bone 0.775; the huge
@@ -117,12 +118,34 @@ namespace FarHorizon.EditorTools
         // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
         // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
-        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is normalized to ~1.0u longest
-        // (AxeAssetGen.TargetImportHeightU). Effective world length ≈ localScale × 1.8 (root) × 1.0 (axe). A
-        // localScale 0.45 → ~0.77u longest extent (ScaleTrace-measured) — a believable kid-sized hatchet that
-        // clears the gameplay-visibility floor (≥0.7u, the invisible-sliver soak guard). REASONABLE default —
-        // the exact Sponsor F9 dial is a FOLLOW-UP (the nudge tool drives the HeldAxeRig fields).
+        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is HEAD-height-normalized so the
+        // byte-locked 0.65× head keeps its approved size while the 1.1× straight haft sets the total to ~1.08u
+        // longest (WeaponPackAssetGen.HeroAxeTargetHeadHeightU; 86cabh907 FINAL — the Sponsor's [L]=1.1x pick).
+        // Effective world length ≈ localScale × 1.8 (root) × 1.08 (axe). localScale 0.45 → ~0.49u longest extent
+        // — a believable kid-sized hatchet that clears the gameplay-visibility floor (the invisible-sliver soak
+        // guard). REASONABLE default — the exact Sponsor F9 dial is a FOLLOW-UP (drives the HeldAxeRig fields).
         public static readonly float HeldAxeLocalScaleUniform = 0.45f;
+        // GRIP-POINT SHIFT (86cabh907 FINAL bake — the longer STRAIGHT haft re-seats the grip). The axe FBX origin
+        // is (0,0,0) — preserved (the §6 grip-point semantics). On the original short haft that origin sat ~mid-
+        // axe; the 2.0× haft moves the origin to ~65% UP the total length (near the head), so seating the FBX
+        // origin at the hand would grip near the HEAD. To grip the LOWER-THIRD of the handle (head up top, like
+        // the board axe 21h08_08), we slide the DISPLAYED MESH up its long axis toward the HEAD via the
+        // WeaponMeshHolder so the hand lands on the lower-third grip point.
+        //
+        // AXIS (diagnose-via-trace, AxeSeatProbe — the §FBX bakeAxisConversion trap): after import the axe's long
+        // axis is UNITY +Y (NOT Z), HEAD at +Y, grip-end at −Y (Blender +Z → Unity +Y). A first pass shifted +Z
+        // (off-axis) → the held capture showed the hand still at the HEAD (the shift went sideways, not down the
+        // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + handleLen/3.
+        // 86cabh907 FINAL (PR #100, the Sponsor's [L]=1.1x pick — "not wasting more time on the axe"): the haft
+        // shortened 1.5x->1.1x, so the grip RE-SEATS to the shorter handle. Re-derived from ground truth (bl_20,
+        // the canonical now = the coaxial 1.1x len11 mesh, globalScale 1.05680): grip_end_Y=−0.52551,
+        // head_base_Y=+0.02396 → handleLen(Unity)=0.54947 → lower_third_Y = grip_end_Y + handleLen/3 = −0.34235.
+        // Shifting the mesh +0.34235 Y brings that point to the root origin (the hand seat) → head UP, grip-end
+        // DOWN. The hand (Y=0) then sits at GRIP_FRACTION 0.3333 of the graspable handle = the lower-third grip.
+        // (Was 0.47181 for the 1.5x handle, 0.6427 for 2.0x.) Authored on the WeaponMeshHolder at EDIT-TIME so it
+        // serializes into Boot.unity (static EditMode bounds == runtime). The F9 held target + the soak let the
+        // Sponsor micro-dial; this is the lower-third default for the FINAL 1.1x axe.
+        public static readonly float HeldAxeGripShiftY = 0.34235f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
@@ -137,7 +160,12 @@ namespace FarHorizon.EditorTools
         // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): walk/run/idle/jump all APPROVED; the Sponsor dialed
         // the FINAL held-axe seat via F9 and asked to bake it as the new shipped default (applies WITHOUT F9):
         // HeldAxeRelEuler = (12,-8,-82). This SUPERSEDES the prior soak-#1 bake (16,2,-82). F9 drives it.
-        public static readonly Vector3 HeldAxeRelEuler = new Vector3(12.0f, -8.0f, -82.0f);
+        // 86cabh907 soak ROUND 2 (PR #100, 2026-06-22): the Sponsor re-dialed the held-axe seat via F9 in the
+        // shipped build; recovered from Player.log (Danish-locale decimals — "(-186,0f,-168,0f,-84,0f)" =
+        // (-186,-168,-84)). Set as the NEW STARTING POINT so the re-soak builds on his dialed placement rather
+        // than re-dialing from scratch — NOT a final bake (he re-confirms + may micro-dial in the re-soak; a
+        // later pass bakes the locked value). F9 still drives it. SUPERSEDES (12,-8,-82).
+        public static readonly Vector3 HeldAxeRelEuler = new Vector3(-186.0f, -168.0f, -84.0f);
         // 86caa83wn soak #4 (cursor-lock OK; the held-axe seat did NOT reproduce his F9-dialed look AFTER
         // PICKUP). ROOT CAUSE: the seat offset was an end-to-end WORLD-frame round-trip — the F9 tool DIALED +
         // DISPLAYED + BAKED a WORLD vector (HeldAxeWorldOffsetFromHand), converted to the rig's hand-local field
@@ -158,7 +186,12 @@ namespace FarHorizon.EditorTools
         // 86caa83wn soak #5 (build 2d90a68, 2026-06-18): the Sponsor LOCKED the FINAL held-axe seat via the F9
         // panel in the now-correct hand-local frame and asked to bake it as the shipped default. SUPERSEDES the
         // derived-from-soak-#3 placeholder (0.0512,0.2009,-0.0407). FINAL hand-local offset below. F9 still drives it.
-        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1312f, 0.1409f, 0.0593f);
+        // 86cabh907 soak ROUND 2 (PR #100, 2026-06-22): re-dialed via F9 in the shipped build; recovered from
+        // Player.log (Danish-locale decimals — "(0,1712f,0,1209f,-0,0007f)" = (0.1712,0.1209,-0.0007), the
+        // final logged dial state). Set as the NEW STARTING POINT so the re-soak builds on his dialed placement
+        // — NOT a final bake (he re-confirms + may micro-dial; a later pass bakes). F9 still drives it.
+        // SUPERSEDES (0.1312,0.1409,0.0593).
+        public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -505,18 +538,74 @@ namespace FarHorizon.EditorTools
                       " (inventory wired: " + (craft.inventory != null) + ")");
         }
 
-        // Attach the SOURCED hero axe (ticket 86ca8ce6y — RE-DONE) to the chibi's RIGHT HAND bone so the
-        // castaway HOLDS the hatchet. The procedural HeroAxeMesh wedge is RETIRED. The imported FBX
-        // (AxeAssetGen — rustic leather-wrapped hatchet, single mesh + baseColor atlas) is instantiated as
-        // a child of the RightHand_010 bone (probe-verified by AxeAssetGen.DiagnoseTrace) so it RIDES the
-        // hand's animated transform every frame; the attach-local pose puts the handle in the palm + the
-        // blade forward, and the attach-local scale brings the normalized prop to a believable hatchet size.
+        // Attach the IN-HOUSE hero axe (ticket 86cabh907 — Route A weapon SET) to the chibi's RIGHT HAND bone
+        // so the castaway HOLDS the axe. The procedural HeroAxeMesh wedge AND the earlier CC-BY sourced
+        // hatchet are both RETIRED. The imported FBX (WeaponPackAssetGen.HeroAxeFbxPath — faceted flat-shaded
+        // wpn_axe_01, shared palette material) is instantiated as a child of the right-hand bone
+        // (probe-verified) so it RIDES the hand's animated transform every frame; the attach-local pose puts
+        // the handle in the palm + the blade forward, and the attach-local scale brings the normalized prop
+        // to a believable axe size.
         //
         // SERIALIZATION (unity-conventions.md §editor-vs-runtime): called AFTER the avatar is built
         // editor-time (castaway.BuildInEditor in BuildPlayer), so the bone hierarchy exists and the axe
         // child SERIALIZES into Boot.unity under the bone — NOT an Awake-built attach (the "legs-up" /
         // component-not-serialized classes). A HeldAxe runtime component gates the renderer on
         // Inventory.HasAxe (hidden until crafted; the craft reads as "the kid picks up the axe").
+        // 86cabh907 (CC-BY retirement): bind the SHARED in-house weapon palette material onto every
+        // MeshRenderer of an instantiated flint-axe (held / stump / pickup), so the re-made axe reads
+        // with the faceted flat-shaded palette look (URP/Unlit) — NOT the retired CC-BY baked atlas.
+        private static void ApplyWeaponPaletteMaterial(GameObject inst)
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(WeaponPackAssetGen.MaterialPath);
+            if (mat == null)
+            {
+                Debug.LogError("[MovementCameraScene] Mat_WeaponPalette not found at " +
+                               WeaponPackAssetGen.MaterialPath + " — run WeaponPackAssetGen.PrepareWeaponPack()");
+                return;
+            }
+            foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+                mr.sharedMaterial = mat;
+        }
+
+        // Re-home a single-node weapon FBX's mesh from the (rig-driven) ROOT onto a "WeaponMeshHolder" child at
+        // the given local offset, so a per-weapon mesh shift survives the rig's per-frame root-transform writes
+        // (#100 BUG-2). Edit-time mirror of HeldWeaponCycleDebug's runtime re-home — but authored here so the
+        // shifted mesh SERIALIZES into Boot.unity (static == runtime). Idempotent: if a holder already exists it
+        // just re-applies the offset. Destroys the root MeshFilter/MeshRenderer so only the child holder draws.
+        private static void EnsureWeaponMeshHolder(GameObject weapon, Vector3 holderLocalOffset)
+        {
+            var existing = weapon.transform.Find("WeaponMeshHolder");
+            if (existing != null)
+            {
+                existing.localPosition = holderLocalOffset;
+                return;
+            }
+            var rootMf = weapon.GetComponent<MeshFilter>();
+            var rootMr = weapon.GetComponent<MeshRenderer>();
+            if (rootMf == null || rootMf.sharedMesh == null)
+            {
+                // Multi-node FBX (mesh already on a child) — find it + offset that child instead.
+                var childMf = weapon.GetComponentInChildren<MeshFilter>(true);
+                if (childMf != null && childMf.transform != weapon.transform)
+                    childMf.transform.localPosition += holderLocalOffset;
+                return;
+            }
+            var holderGo = new GameObject("WeaponMeshHolder");
+            holderGo.transform.SetParent(weapon.transform, false);
+            holderGo.transform.localPosition = holderLocalOffset;
+            var holderMf = holderGo.AddComponent<MeshFilter>();
+            holderMf.sharedMesh = rootMf.sharedMesh;
+            var holderMr = holderGo.AddComponent<MeshRenderer>();
+            if (rootMr != null)
+            {
+                holderMr.sharedMaterials = rootMr.sharedMaterials;
+                holderMr.shadowCastingMode = rootMr.shadowCastingMode;
+                holderMr.receiveShadows = rootMr.receiveShadows;
+                Object.DestroyImmediate(rootMr);
+            }
+            Object.DestroyImmediate(rootMf);
+        }
+
         private static void AttachHeroAxeToHand(GameObject player)
         {
             var castaway = player.GetComponentInChildren<CastawayCharacter>(true);
@@ -535,11 +624,12 @@ namespace FarHorizon.EditorTools
                 return;
             }
 
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
             if (fbx == null)
             {
-                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
-                               " — run AxeAssetGen.PrepareAxe() before authoring the scene");
+                Debug.LogError("[MovementCameraScene] in-house flint axe FBX not found at " +
+                               WeaponPackAssetGen.HeroAxeFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene");
                 return;
             }
 
@@ -549,9 +639,25 @@ namespace FarHorizon.EditorTools
             var axe = Object.Instantiate(fbx);
             axe.name = HeroAxeObjectName;
             axe.transform.SetParent(hand, false);
+            ApplyWeaponPaletteMaterial(axe);
             // Scale is uniform-local. The Hyper3D wrist bone reads lossyScale (1,1,1) (probe-verified — NO 267×
-            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.77u longest.
+            // chibi trap); effective world size = localScale × the avatar-root scale (1.8). 0.45 → ~0.675u longest.
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
+
+            // GRIP-POINT SHIFT (86cabh907 FINAL bake): re-home the displayed mesh onto a WeaponMeshHolder CHILD
+            // and slide it +HeldAxeGripShiftY along the long (Unity +Y, head-ward) axis so the hand grips the
+            // LOWER-THIRD of the longer straight haft (head up top, board-axe read), NOT near the head. The shift
+            // is +Y because the imported axe's long axis is Unity Y, not Z (the §FBX bakeAxisConversion trap —
+            // AxeSeatProbe diagnose-via-trace; a first +Z pass shifted off-axis and the held capture still gripped
+            // the head). Authored HERE at EDIT-TIME so the shifted pose SERIALIZES into Boot.unity — the static
+            // EditMode bounds guards see the SAME lower-third seat the runtime shows (no static-vs-runtime
+            // divergence). The single-node axe FBX collapses its MeshFilter onto the rig-driven ROOT
+            // (preserveHierarchy:0), and HeldToolRig.LateUpdate stomps the root transform every frame — so the
+            // per-weapon mesh-holder MUST be a child the rig never touches (#100 BUG-2: "nudging does nothing,
+            // scaling works"). HeldWeaponCycleDebug.Awake DETECTS this pre-authored holder and reuses it (no
+            // runtime re-home needed). The FBX origin stays (0,0,0) — only the displayed mesh slides within the
+            // holder; the §6 grip-origin semantics are preserved.
+            EnsureWeaponMeshHolder(axe, new Vector3(0f, HeldAxeGripShiftY, 0f));
 
             // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a HAND-LOCAL offset
             // (rotated by the hand rotation, so it TRACKS the hand through every facing — 86ca9qwvd); ROTATION
@@ -607,9 +713,22 @@ namespace FarHorizon.EditorTools
             if (held == null) held = axe.AddComponent<HeldAxe>();
             held.inventory = Object.FindObjectOfType<Inventory>();
 
-            // URP/Lit (the imported material) must survive the stripped build.
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            // DEBUG / SOAK-VIEWING handle (86cabh907) — cycle the HELD mesh axe->knife->sword->spear with [B]
+            // so the Sponsor can SEE each weapon wielded in-engine. NOT the real equip gameplay (belt->wield
+            // is a later ticket): it only swaps the displayed mesh on THIS shared seat (+ a rough per-weapon
+            // offset) and starts on the LOCKED axe, so a soak that never presses [B] sees the shipped axe.
+            if (axe.GetComponent<HeldWeaponCycleDebug>() == null) axe.AddComponent<HeldWeaponCycleDebug>();
+
+            // SHAFT-LENGTH PICKER (86cabh907 — the unstick instrument): cycle the held axe through 4 pre-baked
+            // length variants (1.1x->1.4x, head LOCKED + coaxial) with [L] so the Sponsor PICKS the haft length
+            // in-hand instead of us guessing (he rejected 2.0x + 1.5x as too long). Shares the cycle's mesh
+            // holder; only acts while the axe is held. Starts UNSELECTED (shipped length) so a soak that never
+            // presses [L] sees the shipped axe. Authored after the cycle so its Awake finds the cycle component.
+            if (axe.GetComponent<HeldAxeLengthPicker>() == null) axe.AddComponent<HeldAxeLengthPicker>();
+
+            // URP/Unlit (the shared weapon palette material) must survive the stripped build.
+            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
 
             // Wire the verification-only shipped-build AXE CLOSE-UP capture onto the Boot object — sibling
             // of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe. It frames
@@ -621,7 +740,7 @@ namespace FarHorizon.EditorTools
             WireAxeNudgeTool();
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
-            Debug.Log("[MovementCameraScene] attached HeroAxe (sourced hatchet) to bone '" + hand.name +
+            Debug.Log("[MovementCameraScene] attached HeroAxe (in-house wpn_axe_01) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
         }
 
@@ -633,11 +752,12 @@ namespace FarHorizon.EditorTools
         // the axe mesh + StumpAxe wiring SERIALIZE into Boot.unity (the editor-vs-runtime trap).
         private static void AttachStumpAxe(GameObject craftSpot)
         {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
             if (fbx == null)
             {
-                Debug.LogError("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
-                               " — run AxeAssetGen.PrepareAxe() before authoring the scene; no stump axe planted");
+                Debug.LogError("[MovementCameraScene] in-house flint axe FBX not found at " +
+                               WeaponPackAssetGen.HeroAxeFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no stump axe planted");
                 return;
             }
 
@@ -647,14 +767,15 @@ namespace FarHorizon.EditorTools
             axe.transform.localPosition = StumpAxeLocalPos;
             axe.transform.localRotation = Quaternion.Euler(StumpAxeLocalEuler);
             axe.transform.localScale = Vector3.one * StumpAxeLocalScaleUniform;
+            ApplyWeaponPaletteMaterial(axe);
 
             // Gate visibility as the INVERSE of HasAxe: shown at spawn, hidden once crafted.
             var stump = axe.GetComponent<StumpAxe>();
             if (stump == null) stump = axe.AddComponent<StumpAxe>();
             stump.inventory = Object.FindObjectOfType<Inventory>();
 
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
             Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
@@ -809,7 +930,7 @@ namespace FarHorizon.EditorTools
             var go = new GameObject(AxePickupObjectName);
             go.transform.position = AxePickupPosition;
 
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(AxeAssetGen.FbxPath);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
             Transform visual = go.transform;
             if (fbx != null)
             {
@@ -820,12 +941,14 @@ namespace FarHorizon.EditorTools
                 mesh.transform.localRotation = Quaternion.Euler(0f, 45f, 90f); // lying/leaning read
                 mesh.transform.localScale = Vector3.one * 1.0f;
                 visual = mesh.transform;
-                var litShader = Shader.Find("Universal Render Pipeline/Lit");
-                if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+                ApplyWeaponPaletteMaterial(mesh);
+                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
             }
             else
             {
-                Debug.LogWarning("[MovementCameraScene] sourced axe FBX not found at " + AxeAssetGen.FbxPath +
+                Debug.LogWarning("[MovementCameraScene] in-house flint axe FBX not found at " +
+                                 WeaponPackAssetGen.HeroAxeFbxPath +
                                  " — AxePickup has no visual mesh (pickup logic still wires)");
             }
 
@@ -833,9 +956,20 @@ namespace FarHorizon.EditorTools
             pickup.inventory = Object.FindObjectOfType<Inventory>();
             pickup.player = player != null ? player.transform : null;
             pickup.visual = visual;
+            // #100 BUG-1 (the axe-in-two-places fix): the StumpAxe craft block is the SINGLE visible spawn axe
+            // for the dial-tool soak. This AC3 PoC pickup is authored INACTIVE so it doesn't render a SECOND
+            // world axe (the Sponsor's "axe in two places" / "pick up one, both disappear" report). The
+            // component + Inventory/player wiring still serialize, so the AC3 PoC + its EditMode presence guard
+            // (InventorySceneTests.BootScene_CarriesAxePickup_WiredToInventoryAndPlayer) carry forward unchanged
+            // — only the spawn visual + proximity pickup stand down. Flip activeAtSpawn true to re-enable the PoC.
+            pickup.activeAtSpawn = false;
+            if (visual != null)
+                foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+                    if (r != null) r.enabled = false; // serialize the hidden state into Boot.unity (static load too)
 
             EditorUtility.SetDirty(go);
-            Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition + " (auto-belt-slot-1 PoC)");
+            Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition +
+                      " (auto-belt-slot-1 PoC; #100 spawn-inactive — StumpAxe is the single visible spawn axe)");
         }
 
         // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time

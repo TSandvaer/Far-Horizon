@@ -97,6 +97,29 @@ namespace FarHorizon.EditTests
             Assert.Greater(pickup.pickupRadius, 0f, "pickupRadius must be positive — a zero radius never picks up");
         }
 
+        [Test]
+        public void BootScene_AxePickup_IsSpawnInactive_SingleVisibleSpawnAxe()
+        {
+            // #100 BUG-1 regression guard (the axe-in-two-places class). The Boot scene carries TWO redundant
+            // axe-acquisition cues — the StumpAxe craft block AND this AC3 PoC pickup — both gated on
+            // Inventory.HasAxe. The Sponsor saw "the axe in two places" and "pick up one, both disappear". The
+            // fix keeps the StumpAxe as the SINGLE visible spawn axe and authors this pickup INACTIVE
+            // (activeAtSpawn=false) — the component + wiring still serialize (the AC3 PoC + the wiring guard
+            // above carry forward), but no second world axe renders + the proximity pickup stands down. If a
+            // future change re-activates it (two visible axes again), this reds.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            AxePickup pickup = FindInScene<AxePickup>(scene);
+            Assert.IsNotNull(pickup, "the AxePickup must still be in the scene (component + wiring preserved)");
+            Assert.IsFalse(pickup.activeAtSpawn,
+                "#100: the AxePickup must be authored spawn-INACTIVE so the StumpAxe is the single visible spawn " +
+                "axe (the 'axe in two places' fix). Its visual renderers must also be serialized disabled.");
+            // The visual renderers must be serialized OFF (no second world axe drawn at spawn).
+            if (pickup.visual != null)
+                foreach (var r in pickup.visual.GetComponentsInChildren<Renderer>(true))
+                    Assert.IsFalse(r.enabled,
+                        "the inactive AxePickup's visual renderers must be serialized disabled (no second spawn axe).");
+        }
+
         private static T FindInScene<T>(Scene scene) where T : Component
         {
             foreach (var root in scene.GetRootGameObjects())

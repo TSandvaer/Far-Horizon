@@ -62,6 +62,16 @@ crashlog.txt
 /_u5_out/
 /_verify_out/
 
+# Blender working backups + throwaway debug render outputs. The FBX + palette PNG are
+# the Unity-imported deliverables; the .blend modeling source lives in art-src/ (outside
+# Assets/ so Unity never imports it). Stray .blend/.blend1 + their Unity-generated .meta
+# must never land under Assets/Art/Props/WeaponPack.
+*.blend1
+/tools/debug/axe_*.png
+/Assets/Art/Props/WeaponPack/*.blend
+/Assets/Art/Props/WeaponPack/*.blend.meta
+/Assets/Art/Props/WeaponPack/*.blend1.meta
+
 # OS cruft
 .DS_Store
 .DS_Store?
@@ -72,3 +82,6 @@ ehthumbs.db
 [Tt]humbs.db
 __pycache__/
 *.pyc
+
+# Downloaded CI build artifacts (held-pose capture source — never commit)
+team/devon-dev/_ci_build*/
