@@ -129,14 +129,20 @@ namespace FarHorizon.EditorTools
         // is (0,0,0) — preserved (the §6 grip-point semantics). On the original short haft that origin sat ~mid-
         // axe; the 2.0× haft moves the origin to ~65% UP the total length (near the head), so seating the FBX
         // origin at the hand would grip near the HEAD. To grip the LOWER-THIRD of the handle (head up top, like
-        // the board axe 21h08_08), we slide the DISPLAYED MESH up its long (Z) axis via the WeaponMeshHolder so
-        // the hand lands on the lower-third grip point. Lower-third = grip_end + haftLen/3 in mesh units
-        // = -0.922674 + 0.945348/3 = -0.607558; × the head-normalize globalScale (1.05760, baked into the mesh)
-        // = -0.64255 in imported-mesh Z. Shifting the mesh +0.64255 Z brings that point to the root origin (the
-        // hand seat) → head UP, grip-end DOWN, hand on the lower third. Authored on the WeaponMeshHolder at
-        // EDIT-TIME so it serializes into Boot.unity (static EditMode bounds == runtime). The F9 held target +
-        // the soak let the Sponsor micro-dial; this is the reasonable lower-third default.
-        public static readonly float HeldAxeGripShiftZ = 0.64255f;
+        // the board axe 21h08_08), we slide the DISPLAYED MESH up its long axis toward the HEAD via the
+        // WeaponMeshHolder so the hand lands on the lower-third grip point.
+        //
+        // AXIS (diagnose-via-trace, AxeSeatProbe — the §FBX bakeAxisConversion trap): after import the axe's long
+        // axis is UNITY +Y (NOT Z), HEAD at +Y, grip-end at −Y (Blender +Z → Unity +Y). A first pass shifted +Z
+        // (off-axis) → the held capture showed the hand still at the HEAD (the shift went sideways, not down the
+        // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + haftLen/3;
+        // in the imported mesh (globalScale 1.0576 baked) grip_end_Y≈−0.976, haftLen≈1.000 → lower-third Y≈−0.6427.
+        // Shifting the mesh +0.6427 Y brings that point to the root origin (the hand seat) → head UP, grip-end DOWN.
+        // VERIFIED in-scene: root-local handle Y spans [−0.333..1.167], hand at Y=0 → GRIP_FRACTION 0.222 (lower
+        // third). Authored on the WeaponMeshHolder at EDIT-TIME so it serializes into Boot.unity (static EditMode
+        // bounds == runtime). The F9 held target + the soak let the Sponsor micro-dial; this is the reasonable
+        // lower-third default.
+        public static readonly float HeldAxeGripShiftY = 0.6427f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
@@ -636,16 +642,19 @@ namespace FarHorizon.EditorTools
             axe.transform.localScale = Vector3.one * HeldAxeLocalScaleUniform;
 
             // GRIP-POINT SHIFT (86cabh907 FINAL bake): re-home the displayed mesh onto a WeaponMeshHolder CHILD
-            // and slide it +HeldAxeGripShiftZ up the long (Z) axis so the hand grips the LOWER-THIRD of the longer
-            // straight haft (head up top, board-axe read), NOT near the head. Authored HERE at EDIT-TIME so the
-            // shifted pose SERIALIZES into Boot.unity — the static EditMode bounds guards see the SAME lower-third
-            // seat the runtime shows (no static-vs-runtime divergence). The single-node axe FBX collapses its
-            // MeshFilter onto the rig-driven ROOT (preserveHierarchy:0), and HeldToolRig.LateUpdate stomps the
-            // root transform every frame — so the per-weapon mesh-holder MUST be a child the rig never touches
-            // (#100 BUG-2: "nudging does nothing, scaling works"). HeldWeaponCycleDebug.Awake DETECTS this
-            // pre-authored holder and reuses it (no runtime re-home needed). The FBX origin stays (0,0,0) — only
-            // the displayed mesh slides within the holder; the §6 grip-origin semantics are preserved.
-            EnsureWeaponMeshHolder(axe, new Vector3(0f, 0f, HeldAxeGripShiftZ));
+            // and slide it +HeldAxeGripShiftY along the long (Unity +Y, head-ward) axis so the hand grips the
+            // LOWER-THIRD of the longer straight haft (head up top, board-axe read), NOT near the head. The shift
+            // is +Y because the imported axe's long axis is Unity Y, not Z (the §FBX bakeAxisConversion trap —
+            // AxeSeatProbe diagnose-via-trace; a first +Z pass shifted off-axis and the held capture still gripped
+            // the head). Authored HERE at EDIT-TIME so the shifted pose SERIALIZES into Boot.unity — the static
+            // EditMode bounds guards see the SAME lower-third seat the runtime shows (no static-vs-runtime
+            // divergence). The single-node axe FBX collapses its MeshFilter onto the rig-driven ROOT
+            // (preserveHierarchy:0), and HeldToolRig.LateUpdate stomps the root transform every frame — so the
+            // per-weapon mesh-holder MUST be a child the rig never touches (#100 BUG-2: "nudging does nothing,
+            // scaling works"). HeldWeaponCycleDebug.Awake DETECTS this pre-authored holder and reuses it (no
+            // runtime re-home needed). The FBX origin stays (0,0,0) — only the displayed mesh slides within the
+            // holder; the §6 grip-origin semantics are preserved.
+            EnsureWeaponMeshHolder(axe, new Vector3(0f, HeldAxeGripShiftY, 0f));
 
             // SPLIT the pose channels (HeldAxeRig drives both each frame). POSITION is a HAND-LOCAL offset
             // (rotated by the hand rotation, so it TRACKS the hand through every facing — 86ca9qwvd); ROTATION
