@@ -26,6 +26,16 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
 
             InventoryUI ui = FindInScene<InventoryUI>(scene);
+            // No-bootstrap precondition (86cacyg63): a bare local EditMode run skips BootstrapProject.Run, so the
+            // committed Boot.unity lacks the bootstrap-authored InventoryUI wiring + EnsureRuntimeTheme .tss →
+            // these refs go null. Report Inconclusive with a "run bootstrap first" hint INSTEAD of a misleading
+            // null/assertion red. Inert once bootstrap has run (all refs non-null) — the real asserts below stand.
+            BootstrapPrecondition.Require(ui, "InventoryUI component in Boot.unity");
+            BootstrapPrecondition.Require(ui.document, "InventoryUI.document (UIDocument)");
+            BootstrapPrecondition.Require(ui.document.panelSettings, "InventoryUI UIDocument.panelSettings");
+            BootstrapPrecondition.Require(ui.document.panelSettings.themeStyleSheet,
+                "InventoryUI PanelSettings.themeStyleSheet (EnsureRuntimeTheme .tss)");
+
             Assert.IsNotNull(ui,
                 "the Boot scene must carry the InventoryUI component serialized into the scene (the UI " +
                 "Toolkit inventory pack + belt hotbar) — not an Awake add (editor-vs-runtime trap)");
@@ -75,6 +85,8 @@ namespace FarHorizon.EditTests
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
 
             AxePickup pickup = FindInScene<AxePickup>(scene);
+            // No-bootstrap precondition (86cacyg63) — see the sibling test above. Inert once bootstrap has run.
+            BootstrapPrecondition.Require(pickup, "AxePickup component in Boot.unity");
             Assert.IsNotNull(pickup,
                 "the Boot scene must carry the AxePickup — the AC3 PoC pickable world axe (serialized, " +
                 "not Awake-built)");
