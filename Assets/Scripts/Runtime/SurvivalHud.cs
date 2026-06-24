@@ -15,9 +15,11 @@ namespace FarHorizon
     /// the inventory ledger moves UP to -152 to clear the new top need row. Warmth + hunger anchors,
     /// palettes, and look are UNCHANGED (AC3 no-regression) — the refactor lifts the two near-identical
     /// DrawWarmthBar/DrawHungerBar copies into ONE <see cref="DrawNeedBar"/> called 3× (AC4: one widget,
-    /// a 4th need is one NeedBar[] entry + one band function). The three bars bind the shared
-    /// <see cref="SurvivalNeed"/> base (Current01 / IsCritical / Changed) through the ONE path — the
-    /// HUD subscribes/reads, never polls, never writes. All references are SERIALIZED editor-time by
+    /// a 4th need is one more call + one band function). The three needs share the SAME duck-typed read
+    /// surface (Current01 / IsCritical / Changed) but NOT a common base type — WarmthNeed is a standalone
+    /// MonoBehaviour (the Sponsor-locked original, predates the SurvivalNeed base) while HungerNeed /
+    /// ThirstNeed extend <see cref="SurvivalNeed"/>; so the caller reads each need's state and the ONE
+    /// widget renders it — the HUD subscribes/reads, never polls, never writes. References are SERIALIZED editor-time by
     /// BootstrapProject (NOT an Awake FindObjectOfType) per the editor-vs-runtime serialization trap
     /// (unity-conventions.md); the Awake fallback is a build-safety net only.
     ///
@@ -114,12 +116,18 @@ namespace FarHorizon
             DrawInventoryLedger(); // ledger row sits ABOVE the need column (spec §2.3, moved to -152)
 
             // The three-bar column (spec §3.1): warmth bottom (-44), hunger middle (-80), thirst top (-116).
-            // ONE DrawNeedBar widget, called 3× — differs only by (need, band function, glyph style, glyph,
-            // baseline-y, ember-flicker). A 4th need is one more call (AC4). Warmth keeps its ember-flicker
-            // (warmth-ONLY — flicker = fire); hunger + thirst do not flicker (spec §1).
-            DrawNeedBar(thirst, ThirstBandColor, _dropStyle,  "◆", Screen.height - 116f, emberFlicker: false); // ◆ droplet
-            DrawNeedBar(hunger, HungerBandColor, _berryStyle, "●", Screen.height - 80f,  emberFlicker: false); // ● berry
-            DrawNeedBar(warmth, BandColor,       _flameStyle, "▲", Screen.height - 44f,  emberFlicker: true);  // ▲ flame
+            // ONE DrawNeedBar widget, called 3× — differs only by (need state, band function, glyph style,
+            // glyph, baseline-y, ember-flicker). A 4th need is one more call (AC4). Warmth keeps its
+            // ember-flicker (warmth-ONLY — flicker = fire); hunger + thirst do not flicker (spec §1).
+            //
+            // ⚠ The three needs do NOT share a common base TYPE — WarmthNeed is a standalone MonoBehaviour
+            // (the Sponsor-locked original, predates the SurvivalNeed base); HungerNeed/ThirstNeed extend
+            // SurvivalNeed. But all three expose the SAME duck-typed read surface (Current01 / IsCritical).
+            // So the caller reads those two values per need and passes them in — the widget is uniform
+            // without retrofitting an interface onto the locked WarmthNeed (OOS). Null-guarded per need.
+            if (thirst != null) DrawNeedBar(thirst.Current01, thirst.IsCritical, ThirstBandColor, _dropStyle,  "◆", Screen.height - 116f, emberFlicker: false); // ◆ droplet
+            if (hunger != null) DrawNeedBar(hunger.Current01, hunger.IsCritical, HungerBandColor, _berryStyle, "●", Screen.height - 80f,  emberFlicker: false); // ● berry
+            if (warmth != null) DrawNeedBar(warmth.Current01, warmth.IsCritical, BandColor,       _flameStyle, "▲", Screen.height - 44f,  emberFlicker: true);  // ▲ flame
         }
 
         private void EnsureStyles()
@@ -135,24 +143,22 @@ namespace FarHorizon
         }
 
         // === The ONE generalized need-bar widget (86caamkxv, AC4 — replaces DrawWarmthBar/DrawHungerBar) ===
-        // Draws a segmented glow-bar for any SurvivalNeed: a low-alpha dark plate, a band-colored glyph left
-        // of the bar (dims at empty + slow-breathes when IsCritical), and 10 segments that empty RIGHT-TO-LEFT
-        // as the need decays. The band-color function + glyph + baseline-y are the ONLY per-need differences
-        // (one family, three glows — spec §3.2). Bound to the SurvivalNeed base surface (Current01 /
-        // IsCritical) — reads, never writes; skipped entirely when the need is not wired (null-guard, so a
-        // missing thirst ref simply doesn't draw, mirroring the shipped hunger guard).
+        // Draws a segmented glow-bar for ANY of the three needs: a low-alpha dark plate, a band-colored glyph
+        // left of the bar (dims at empty + slow-breathes when critical), and 10 segments that empty
+        // RIGHT-TO-LEFT as the need decays. The band-color function + glyph + baseline-y are the ONLY per-need
+        // differences (one family, three glows — spec §3.2). Takes the need's read state (current01 /
+        // isCritical) by VALUE — the three needs share the same duck-typed surface but NOT a common base type
+        // (WarmthNeed is a standalone MonoBehaviour; the caller reads the two values and the null-guard lives
+        // at the call site). The widget reads, never writes.
         //
         // BYTE-IDENTICAL GUARANTEE (AC4 regression trap): for warmth + hunger the geometry below is the
         // SAME plate rect, glyph rect, segment count/gap/size, and band/charcoal fill as the shipped
         // DrawWarmthBar/DrawHungerBar. The ember-flicker stays warmth-ONLY (emberFlicker arg). The new
-        // critical glyph-pulse only modulates GLYPH alpha when need.IsCritical — the non-critical path is
+        // critical glyph-pulse only modulates GLYPH alpha when isCritical — the non-critical path is
         // identical to the shipped draw (the existing SurvivalHudTests + the anchor/look soak guard this).
-        private void DrawNeedBar(SurvivalNeed need, Func<float, Color> bandColor, GUIStyle glyphStyle,
-                                 string glyph, float baselineY, bool emberFlicker)
+        private void DrawNeedBar(float current01, bool isCritical, Func<float, Color> bandColor,
+                                 GUIStyle glyphStyle, string glyph, float baselineY, bool emberFlicker)
         {
-            if (need == null) return;
-
-            float current01 = need.Current01;
             int filled = FilledSegments(current01);   // shared pinned FLOOR rule
             Color band = bandColor(current01);
 
@@ -168,7 +174,7 @@ namespace FarHorizon
             // (spec §4: shared ~1.0s pulse, glyph-only, one phase clock across all three). Non-critical →
             // GlyphPulseAlpha returns 1.0, so the alpha is the shipped (filled>0 ? 1 : 0.4) value unchanged.
             float baseAlpha = filled > 0 ? 1f : 0.4f;
-            float pulse = GlyphPulseAlpha(need.IsCritical, Time.unscaledTime);
+            float pulse = GlyphPulseAlpha(isCritical, Time.unscaledTime);
             glyphStyle.normal.textColor = new Color(band.r, band.g, band.b, baseAlpha * pulse);
             GUI.color = Color.white;
             GUI.Label(new Rect(x, y + 3f, 18f, 22f), glyph, glyphStyle);
