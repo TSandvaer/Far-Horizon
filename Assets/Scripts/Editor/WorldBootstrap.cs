@@ -178,62 +178,68 @@ namespace FarHorizon.EditorTools
             //      standalone build (the spike's iter-3 "NavMesh not shipping" lesson). ----
             BakeNavMesh(grounds, islandSeed);
 
-            // ---- RE-GROUND the freshwater pond onto the REAL terrain (ticket 86cadj4g7) ----
-            // The pond is authored by MovementCameraScene.Author at the assumed flat-ground Y=0, but it runs
-            // BEFORE this terrain is built — so it cannot know the real Zone-D terrain height. The Zone-D
-            // terrain at the inland pond (7,-3) sits ~+0.40 (HeightAtRadial plateau + spawn-flattened hill),
-            // ~0.46u ABOVE the pond water at Y=-0.06 → the opaque terrain OCCLUDES the sunken fresh-blue disc,
-            // so the gameplay-pitch view (+ the -verifyPond sample box) reads terrain GREEN not the water's
-            // B>G (the green-dominant defect, B-G=-0.139). The disc itself renders correctly fresh-blue
-            // (proven by the isolated-layer capture, RGB ~(0.26,0.82,1.00) B-G=+0.17). The fix is to LIFT the
-            // pond root to the actual terrain surface here — AFTER the terrain + its collider exist — so the
-            // water sits in the real ground the player walks on (the same surface the NavMesh baked onto),
-            // not buried under it. Re-grounded by raycast against the real Ground_Play collider (the honest
-            // surface), so it survives any future terrain/seed re-tune with no hardcoded height.
-            RegroundFreshwaterPond();
+            // ---- GROUND the freshwater pond IN ITS CARVED BOWL (ticket 86cadj4g7 — #130 re-soak) ----
+            // The pond is authored by MovementCameraScene.Author at the assumed flat-ground Y=0, BEFORE this
+            // terrain (and its bowl carve) exist. LowPolyZoneGen.HeightAtRadial now CARVES a recessed bowl at
+            // the pond XZ (PondDepressionDelta), so the real terrain here is a basin: a floor ~0.55u below the
+            // local plateau, walls sloping up to undisturbed grass. This positions the pond root so the WATER
+            // SURFACE sits just below the original ground level (where the bowl rim is) while the carved FLOOR
+            // sits below the water — the player wades in KNEE-DEEP (the NavMesh, baked onto the same carved
+            // collider, follows the floor down; the water is above it). REPLACES the old LIFT (which raised the
+            // water +0.10u ABOVE the terrain → the collar read as a raised lip casting a shadow + the water read
+            // flush, not sunken — the #130 defect). The bowl solves occlusion NATURALLY (water in a visible
+            // low spot, no lift). Grounded by RAYCAST against the carved Ground_Play collider, so it tracks any
+            // future terrain/seed/bowl re-tune with no hardcoded height. Runs AFTER BakeNavMesh so the carved
+            // mesh + collider exist to raycast (and the NavMesh has already baked the walkable bowl floor).
+            GroundPondInBowl();
 
             Debug.Log("[WorldBootstrap] BuildEnvironment complete -> " + zone.ground.name);
             return envRoot;
         }
 
-        // The pond water-surface should sit just ABOVE the local terrain so the fresh-blue disc reads (not
-        // buried) and does not z-fight the ground; the grassy bank ring then frames it as a found pool on the
-        // land. 0.10u clearance = comfortably above the terrain facet jitter without floating, AND it is the
-        // depth-gap the pond's depth-fade foam reads — it MUST exceed the material's _FoamDistance (0.06, set
-        // in LowPolyZoneGen.MakePondMaterial) so the open-water disc reads gap > _FoamDistance → foam=0 →
-        // fresh-blue (else the foam floods the flat disc pale/green — ticket 86cadj4g7). Keep this > _FoamDistance.
-        const float PondWaterClearanceAboveTerrain = 0.10f;
+        // The KNEE-DEEP wade depth: the water surface sits this far ABOVE the carved BOWL FLOOR, so the player
+        // standing on the floor (NavMesh agent Y follows it) is submerged to ~knee height (castaway knee ≈
+        // 0.45u). This is the water DEPTH at the floor. It is < LowPolyZoneGen.PondBowlFloorDrop (0.55) so the
+        // water surface itself sits a touch BELOW the original ground level (the rim) → the pool reads RECESSED,
+        // sunk into the bowl, not flush. It MUST exceed the pond material's _FoamDistance (0.06, set in
+        // LowPolyZoneGen.MakePondMaterial) so the open-water disc reads gap > _FoamDistance → foam=0 →
+        // fresh-blue (else depth-fade foam floods the disc pale/green — ticket 86cadj4g7). Keep > _FoamDistance.
+        const float PondWaterDepthAboveFloor = 0.45f;
         // The PondWater child's local Y inside the FreshwaterPond root (MovementCameraScene.PondSurfaceY). The
-        // root lift targets: water world Y = terrainY + clearance  ⇒  rootY = terrainY + clearance - localY.
+        // root grounding targets: water world Y = floorY + depth  ⇒  rootY = floorY + depth − localY.
         const float PondWaterLocalY = -0.06f;
 
         /// <summary>
-        /// RE-GROUND the freshwater pond onto the REAL Zone-D terrain (ticket 86cadj4g7). The pond is authored
-        /// (MovementCameraScene.Author) at the assumed flat Y=0 BEFORE this terrain exists, so it ships sunk
-        /// ~0.46u under the +0.40 inland terrain → the opaque ground OCCLUDES the fresh-blue disc and the
-        /// shipped render reads terrain-green (the green-dominant defect). This lifts the whole pond root so
-        /// the water surface sits just above the local terrain — grounded by RAYCAST against the real
-        /// Ground_Play collider (the same surface the player walks + the NavMesh baked onto), so it is correct
-        /// by construction and survives a terrain/seed re-tune with no hardcoded height. Runs AFTER BakeNavMesh
-        /// so the terrain mesh + its collider exist to raycast. Idempotent: re-runs land at the same height.
+        /// GROUND the freshwater pond in its CARVED BOWL (ticket 86cadj4g7 — #130 re-soak). The pond is authored
+        /// (MovementCameraScene.Author) at the assumed flat Y=0 BEFORE this terrain exists. LowPolyZoneGen.
+        /// HeightAtRadial now carves a recessed BOWL at the pond XZ (PondDepressionDelta), so the real terrain
+        /// here is a basin. This positions the pond root so the water SURFACE sits PondWaterDepthAboveFloor
+        /// above the carved bowl FLOOR — the player wades in KNEE-DEEP (the NavMesh, baked on the same carved
+        /// collider, follows the floor down; the water is above it). REPLACES the old LIFT (which raised the
+        /// water ABOVE the terrain → the collar read as a raised lip, the water read flush). Grounded by RAYCAST
+        /// against the carved Ground_Play collider (the same surface the player walks + the NavMesh baked onto),
+        /// so it tracks any terrain/seed/bowl re-tune with no hardcoded height. Runs AFTER BakeNavMesh so the
+        /// carved mesh + collider exist to raycast. Idempotent: re-runs land at the same height.
         /// </summary>
-        static void RegroundFreshwaterPond()
+        static void GroundPondInBowl()
         {
             var pond = Object.FindAnyObjectByType<FarHorizon.FreshwaterPond>(FindObjectsInactive.Include);
             if (pond == null)
             {
-                Debug.LogWarning("[pond-reground] no FreshwaterPond in scene — nothing to re-ground");
+                Debug.LogWarning("[pond-bowl] no FreshwaterPond in scene — nothing to ground");
                 return;
             }
 
-            // The real terrain surface: the Zone-D play ground (Ground_Play) carries a MeshCollider on the
-            // Ground layer (BakeNavMesh ran on it). Raycast straight DOWN through the pond's XZ from well above.
+            // The carved terrain surface: the Zone-D play ground (Ground_Play) carries a MeshCollider on the
+            // Ground layer (BakeNavMesh ran on it). Raycast straight DOWN through the pond's XZ from well above
+            // — this samples the carved BOWL FLOOR (the pond centre sits inside PondBowlInnerRadius, the flat
+            // floor band), the same surface the NavMesh baked + the player's agent will stand on.
             var groundGo = GameObject.Find("Ground_Play");
             var col = groundGo != null ? groundGo.GetComponent<MeshCollider>() : null;
             if (col == null)
             {
-                Debug.LogWarning("[pond-reground] no Ground_Play MeshCollider to raycast — pond left at authored Y " +
-                                 "(re-ground skipped; the green-dominant defect would persist — investigate the terrain build order)");
+                Debug.LogWarning("[pond-bowl] no Ground_Play MeshCollider to raycast — pond left at authored Y " +
+                                 "(grounding skipped — investigate the terrain build order)");
                 return;
             }
 
@@ -241,22 +247,22 @@ namespace FarHorizon.EditorTools
             var ray = new Ray(new Vector3(p.x, 200f, p.z), Vector3.down);
             if (!col.Raycast(ray, out RaycastHit hit, 400f))
             {
-                Debug.LogWarning($"[pond-reground] terrain raycast MISSED at pond XZ ({p.x:F1},{p.z:F1}) — " +
-                                 "pond left at authored Y (the defect would persist)");
+                Debug.LogWarning($"[pond-bowl] terrain raycast MISSED at pond XZ ({p.x:F1},{p.z:F1}) — " +
+                                 "pond left at authored Y (the bowl grounding would not apply)");
                 return;
             }
 
-            float terrainY = hit.point.y;
-            float targetRootY = terrainY + PondWaterClearanceAboveTerrain - PondWaterLocalY;
+            float floorY = hit.point.y;  // the carved bowl floor at the pond centre
+            float targetRootY = floorY + PondWaterDepthAboveFloor - PondWaterLocalY;
             float beforeY = p.y;
             pond.transform.position = new Vector3(p.x, targetRootY, p.z);
             EditorUtility.SetDirty(pond.gameObject);
 
-            Debug.Log($"[pond-reground] terrainY at pond ({p.x:F1},{p.z:F1}) = {terrainY:F3}; " +
-                      $"lifted pond root Y {beforeY:F3} -> {targetRootY:F3} " +
-                      $"(water surface world Y = {targetRootY + PondWaterLocalY:F3} = terrain + " +
-                      $"{PondWaterClearanceAboveTerrain:F2} clearance) — fresh-blue disc now sits ON the terrain, " +
-                      "no longer occluded (ticket 86cadj4g7)");
+            float waterY = targetRootY + PondWaterLocalY;
+            Debug.Log($"[pond-bowl] carved bowl floorY at pond ({p.x:F1},{p.z:F1}) = {floorY:F3}; " +
+                      $"set pond root Y {beforeY:F3} -> {targetRootY:F3} " +
+                      $"(water surface world Y = {waterY:F3} = floor + {PondWaterDepthAboveFloor:F2} knee-deep " +
+                      $"depth) — the pool sits RECESSED in the bowl; the player wades in knee-deep (ticket 86cadj4g7)");
         }
 
         // Warm directional key (~48deg) models the sun; cool ambient fill keeps shadowed facets from

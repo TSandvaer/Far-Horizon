@@ -1580,16 +1580,27 @@ namespace FarHorizon.EditorTools
                 float rr = PondSurfaceRadius + 0.7f;
                 var tuft = new GameObject("BankTuft" + i);
                 tuft.transform.SetParent(pond.transform, false);
-                tuft.transform.localPosition = new Vector3(Mathf.Cos(a) * rr, 0f, Mathf.Sin(a) * rr);
+                // Nestle the tuft ON the carved bowl wall at its radius (NOT the old flat y=0, which after the
+                // bowl drop would float at the water-surface plane above the sloping wall — ticket 86cadj4g7).
+                tuft.transform.localPosition = new Vector3(Mathf.Cos(a) * rr, CollarOuterLocalY(rr), Mathf.Sin(a) * rr);
                 var tmf = tuft.AddComponent<MeshFilter>();
                 tmf.sharedMesh = LowPolyMeshes.GrassClump(0.6f, 5, 86010 + i);
                 var tmr = tuft.AddComponent<MeshRenderer>();
-                if (vc != null) { var m = new Material(vc) { name = "BankTuftMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", Color.white); tmr.sharedMaterial = m; }
+                // WHITE-GRASS FIX (ticket 86cadj4g7, Sponsor #130 soak): GrassClump bakes NO vertex colours, so
+                // the mesh vertex colour defaults to WHITE (1,1,1). On the LowPolyVertexColor shader albedo =
+                // IN.color.rgb * _Tint.rgb, so a _Tint of white gave white×white = WHITE TUFTS (the defect). Tint
+                // with the bank grass-green (PondBankGrass — the world meadow green these tufts must read as) so
+                // albedo = white × green = green. (Sibling of the correctly-green scatter tufts, which use the
+                // flat-colour URP/Lit path; here we keep the vertex-colour shader + supply the green via _Tint.)
+                if (vc != null) { var m = new Material(vc) { name = "BankTuftMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", PondBankGrass); tmr.sharedMaterial = m; }
             }
-            // One small rock nestled on the near bank.
+            // One small rock nestled on the near bank — sit it ON the carved bowl wall at its radius (not the
+            // old flat y=0; the bowl drop would otherwise float it above the sloping wall — ticket 86cadj4g7).
             var rock = new GameObject("BankRock");
             rock.transform.SetParent(pond.transform, false);
-            rock.transform.localPosition = new Vector3(-(PondSurfaceRadius + 0.5f), 0f, 0.6f);
+            float rockX = -(PondSurfaceRadius + 0.5f), rockZ = 0.6f;
+            float rockRad = Mathf.Sqrt(rockX * rockX + rockZ * rockZ);
+            rock.transform.localPosition = new Vector3(rockX, CollarOuterLocalY(rockRad), rockZ);
             var rmf = rock.AddComponent<MeshFilter>();
             rmf.sharedMesh = LowPolyMeshes.FacetedRock(0.55f, 0.35f, 86020);
             var rmr = rock.AddComponent<MeshRenderer>();
@@ -1620,14 +1631,24 @@ namespace FarHorizon.EditorTools
                       ", effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
         }
 
-        // A thin flat grassy RING (the pond bank lip): two concentric rings of verts (inner = water edge,
-        // outer = grass collar) wound to face +Y, faceted, vertex-colour green. Sibling of the BlobShadowDisc
-        // fan but an annulus (the centre is open — the water disc fills it). Collider-free, serializes inline.
-        // ORGANIC (ticket 86cadj4g7): the inner edge tracks the ORGANIC water rim exactly (same nominal radius
-        // <paramref name="innerNominalR"/> × the SHARED LowPolyZoneGen.PondRimFactor), so the bank frames the
-        // lobed pool with NO gap / poke-through; the outer collar adds a CONSTANT <paramref name="collarWidth"/>
-        // band on top of the (already-lobed) inner radius so the grass collar stays a uniform width that follows
-        // the same lobes. sides matches BuildPondWaterMesh (22) so the bank lobes align with the water lobes.
+        // A grassy RING collar that SLOPES DOWN into the carved bowl (the pond bank): two concentric rings of
+        // verts (inner = water edge, outer = grass collar) wound to face +Y, faceted, vertex-colour green.
+        // Sibling of the BlobShadowDisc fan but an annulus (the centre is open — the water disc fills it).
+        // Collider-free, serializes inline. ORGANIC (ticket 86cadj4g7): the inner edge tracks the ORGANIC water
+        // rim exactly (same nominal radius <paramref name="innerNominalR"/> × the SHARED LowPolyZoneGen.
+        // PondRimFactor), so the bank frames the lobed pool with NO gap / poke-through; the outer collar adds a
+        // CONSTANT <paramref name="collarWidth"/> band on top of the (already-lobed) inner radius so the grass
+        // collar stays a uniform width that follows the same lobes. sides matches BuildPondWaterMesh (22) so the
+        // bank lobes align with the water lobes.
+        //
+        // FLUSH-COLLAR / NO-RAISED-LIP (ticket 86cadj4g7 — Sponsor #130 re-soak): the pond now sits in a CARVED
+        // bowl (LowPolyZoneGen.PondDepressionDelta) and GroundPondInBowl positions the root so the WATER SURFACE
+        // sits PondWaterDepthAboveFloor above the bowl FLOOR. The collar must SLOPE DOWN into that bowl flush
+        // with the carved wall — NOT sit as a flat raised lip above the surrounding grass (the #130 defect: the
+        // old +0.04 outer lip floated above the terrain after the lift, casting a shadow). So the outer edge Y
+        // is computed from the BOWL-WALL profile: at the collar's outer radius the carved terrain is partway UP
+        // the wall (PondBowlFloorDrop·t above the floor); the collar outer edge meets THAT height (in root-local
+        // Y) → the collar grass DRAPES on the wall, reading as the bowl's grassy slope, no lip, no self-shadow.
         private static Mesh BuildPondBankRing(float innerNominalR, float collarWidth, Color grass)
         {
             const int sides = 22; // align with BuildPondWaterMesh sides so the lobes register
@@ -1635,8 +1656,8 @@ namespace FarHorizon.EditorTools
             var cols = new System.Collections.Generic.List<Color>();
             var normals = new System.Collections.Generic.List<Vector3>();
             var tris = new System.Collections.Generic.List<int>();
-            // Inner ring sits slightly BELOW ground (meets the water lip); outer sits AT ground (the raised collar).
-            float innerY = PondSurfaceY + 0.02f, outerY = 0.04f;
+            // Inner ring sits at the water lip (slightly above PondSurfaceY so it meets the waterline cleanly).
+            float innerY = PondSurfaceY + 0.02f;
             for (int i = 0; i < sides; i++)
             {
                 float a0 = i / (float)sides * Mathf.PI * 2f;
@@ -1646,10 +1667,15 @@ namespace FarHorizon.EditorTools
                 float ir0 = innerNominalR * LowPolyZoneGen.PondRimFactor(a0);
                 float ir1 = innerNominalR * LowPolyZoneGen.PondRimFactor(a1);
                 float or0 = ir0 + collarWidth, or1 = ir1 + collarWidth;
+                // The outer collar rim sits on the bowl WALL: rise from the inner (water-lip) Y up to the wall
+                // height at the outer radius (root-local). This makes the collar SLOPE DOWN-IN, flush with the
+                // carved wall, never a raised lip. (Inner edge stays at the water lip — it meets the waterline.)
+                float oy0 = CollarOuterLocalY(or0);
+                float oy1 = CollarOuterLocalY(or1);
                 Vector3 i0 = new Vector3(Mathf.Cos(a0) * ir0, innerY, Mathf.Sin(a0) * ir0);
                 Vector3 i1 = new Vector3(Mathf.Cos(a1) * ir1, innerY, Mathf.Sin(a1) * ir1);
-                Vector3 o0 = new Vector3(Mathf.Cos(a0) * or0, outerY, Mathf.Sin(a0) * or0);
-                Vector3 o1 = new Vector3(Mathf.Cos(a1) * or1, outerY, Mathf.Sin(a1) * or1);
+                Vector3 o0 = new Vector3(Mathf.Cos(a0) * or0, oy0, Mathf.Sin(a0) * or0);
+                Vector3 o1 = new Vector3(Mathf.Cos(a1) * or1, oy1, Mathf.Sin(a1) * or1);
                 // Two faceted tris per segment, wound to face up (+Y) for Cull Back from the orbit camera above.
                 EmitBankTri(verts, cols, normals, tris, i0, o1, o0, grass);
                 EmitBankTri(verts, cols, normals, tris, i0, i1, o1, grass);
@@ -1661,6 +1687,31 @@ namespace FarHorizon.EditorTools
             mesh.SetTriangles(tris, 0);
             mesh.RecalculateBounds();
             return mesh;
+        }
+
+        // The KNEE-DEEP wade depth — the water surface sits this far ABOVE the carved bowl floor. MUST match
+        // WorldBootstrap.PondWaterDepthAboveFloor (GroundPondInBowl positions the root by it). Mirrored here so
+        // the bank-collar geometry knows where the floor is relative to the (local) water surface without a
+        // cross-file const reference. (BankCollarMatchesBowlWall_FlushNoLip guards they agree.)
+        private const float PondKneeDeepDepth = 0.45f;
+
+        /// <summary>
+        /// The pond-bank collar's OUTER-rim local Y at planar radius <paramref name="rad"/> from the pond
+        /// centre (ticket 86cadj4g7 — flush collar, no raised lip). The collar must DRAPE on the carved bowl
+        /// WALL: at <paramref name="rad"/> the terrain sits PondBowlFloorDrop·t above the bowl FLOOR (t = the
+        /// smoothstep wall fraction across [inner,outer], the SAME profile LowPolyZoneGen.PondDepressionDelta
+        /// carves). In pond-root-local Y the floor is (PondSurfaceY − PondKneeDeepDepth) below the surface, so
+        /// the wall height = floorLocalY + PondBowlFloorDrop·t. This makes the collar slope DOWN into the bowl
+        /// flush with the wall, never a flat raised lip above the surrounding grass.
+        /// </summary>
+        private static float CollarOuterLocalY(float rad)
+        {
+            float floorLocalY = PondSurfaceY - PondKneeDeepDepth; // the carved bowl floor, in root-local Y
+            // The wall fraction at this radius (0 on the flat floor, 1 at the bowl mouth) — the SAME smoothstep
+            // LowPolyZoneGen.PondDepressionDelta uses, so the collar wall == the carved terrain wall.
+            float t = Mathf.SmoothStep(0f, 1f,
+                Mathf.InverseLerp(LowPolyZoneGen.PondBowlInnerRadius, LowPolyZoneGen.PondBowlOuterRadius, rad));
+            return floorLocalY + LowPolyZoneGen.PondBowlFloorDrop * t;
         }
 
         private static void EmitBankTri(System.Collections.Generic.List<Vector3> verts,

@@ -240,6 +240,61 @@ namespace FarHorizon.EditorTools
         // character). The 3-4 seed VARIANTS captured for the Sponsor pick the value baked here.
         public const int IslandSeed = 42;          // Sponsor's pick from the seed-variant captures (86ca9qwr3)
 
+        // ============================================================================================
+        // FRESHWATER-POND BOWL DEPRESSION (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is an ELEVATED
+        // LIP, not a depression; carve a recessed BOWL"). REPLACES the old WorldBootstrap.RegroundFreshwaterPond
+        // LIFT (which raised the water disc +0.10u ABOVE the terrain → the darker-green collar read as a raised
+        // lip casting a shadow, and the water read flush, NOT sunken). Instead we CARVE the heightfield down at
+        // the pond so the water sits in a visibly recessed bowl: the bowl FLOOR below the water surface, the
+        // collar SLOPING DOWN into it (flush, no lip). Because HeightAtRadial is the SINGLE source of truth for
+        // terrain height, the carve flows automatically into (a) the visible terrain mesh, (b) its MeshCollider,
+        // and (c) the NavMesh bake — so the player NAVIGATES INTO the bowl and stands KNEE-DEEP (the agent Y
+        // follows the carved floor; the water surface is above it). This solves the occlusion NATURALLY (the
+        // water sits in a carved low spot — no lift needed). The carve is a LOCAL deliberate dip at the pond
+        // ONLY; outside PondBowlOuterRadius the height is UNCHANGED, so the seed-42 island silhouette / scatter /
+        // NavMesh elsewhere are untouched (asserted by the non-regression tests).
+        // ============================================================================================
+        // The pond centre in world XZ — MUST match MovementCameraScene.PondPosition (7,0,-3). The carve is
+        // centred here so the bowl sits exactly under the authored pond water disc + bank.
+        public const float PondCenterX = 7f;
+        public const float PondCenterZ = -3f;
+        // How far the bowl FLOOR sits below the LOCAL (pre-carve) terrain at the pond. The water surface is set
+        // near the original ground level (WorldBootstrap.GroundPondInBowl), so this drop ≈ the water DEPTH at
+        // the floor → the player wading to the centre stands ~knee-deep (castaway knee ≈ 0.45u; a touch of the
+        // drop sits below the surface offset so the read lands knee-deep, not waist-deep).
+        public const float PondBowlFloorDrop = 0.55f;
+        // The flat-ish bowl FLOOR extends to this radius from the pond centre — wide enough to sit UNDER the
+        // whole organic water disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water
+        // everywhere the disc covers (the player stands knee-deep anywhere in the pool, not just dead centre).
+        public const float PondBowlInnerRadius = 3.2f;
+        // The bowl WALL slopes from the floor back up to UNDISTURBED terrain by this radius. Wide enough that
+        // (a) the grassy collar (bank reaches ≈ disc + 0.9u collar ≈ 4u) sits ON the sloping wall — so it
+        // SLOPES DOWN into the bowl, NOT a raised lip — and (b) the wall stays GENTLE: 0.55u drop over the
+        // (6.0-3.2)=2.8u run ≈ 11° slope, far under the NavMesh agent's 45° max → the bake covers the bowl
+        // floor + walls so the player can walk in. (Keep outer−inner ≳ floorDrop so the wall never exceeds 45°.)
+        public const float PondBowlOuterRadius = 6.0f;
+
+        /// <summary>
+        /// The pond-bowl depression DELTA (≤ 0, a downward carve) at world XZ — the local recess that turns the
+        /// flat pond plateau into a recessed BOWL (ticket 86cadj4g7). 0 outside PondBowlOuterRadius (the island
+        /// elsewhere is UNCHANGED — the seed-42 silhouette lock), eases down across the wall (smoothstep, a
+        /// gentle slope the NavMesh covers), and reaches the full −PondBowlFloorDrop on the flat floor inside
+        /// PondBowlInnerRadius (below the water disc → knee-deep wade-in). Pure function of XZ (deterministic,
+        /// byte-stable capture). PUBLIC so the bowl-geometry + NavMesh-coverage tests sample it directly.
+        /// </summary>
+        public static float PondDepressionDelta(float wx, float wz)
+        {
+            float dx = wx - PondCenterX, dz = wz - PondCenterZ;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            if (d >= PondBowlOuterRadius) return 0f;            // undisturbed terrain past the bowl mouth
+            if (d <= PondBowlInnerRadius) return -PondBowlFloorDrop; // the flat bowl floor (full depth)
+            // The wall: ease from the floor (full depth at the inner radius) up to 0 at the outer radius. A
+            // smoothstep gives a soft basin lip (no hard crease) that the welded terrain + RecalculateNormals
+            // read as a smooth dip, and that the NavMesh voxelizer resolves as one continuous walkable slope.
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlInnerRadius, PondBowlOuterRadius, d));
+            return -PondBowlFloorDrop * (1f - t);
+        }
+
         /// <summary>
         /// Build a low-poly smooth-shaded zone: a height-varied terrain MESH (dunes near the shore
         /// rising to a gentle meadow inland), vertex-color gradient material (beach->field ramp by
@@ -470,6 +525,12 @@ namespace FarHorizon.EditorTools
 
             // Hills only ADD on the interior land (not on the beach strip / past the coast).
             if (r < coast - BeachWidth) h += hillH;
+
+            // FRESHWATER-POND BOWL (ticket 86cadj4g7): carve a local recessed bowl at the pond so the water sits
+            // in a visible low spot (the player wades in knee-deep). A downward delta (≤0) centred on the pond
+            // XZ, 0 outside PondBowlOuterRadius → the island elsewhere is UNCHANGED (seed-42 silhouette lock).
+            // Applied LAST so the dip rides on top of whatever land/hill height is here (the carve is relative).
+            h += PondDepressionDelta(wx, wz);
 
             return h;
         }
@@ -1243,17 +1304,17 @@ namespace FarHorizon.EditorTools
                 //
                 // ⚠ FOAM-FLOOD FIX (ticket 86cadj4g7). The depth-fade foam mask is foam = saturate(1 - gap /
                 // _FoamDistance) where gap = (opaque depth behind the surface) − (surface depth). Unlike the
-                // sea (deep seabed → large gap → foam≈0 in open water), the pond is a FLAT disc sitting just
-                // above the FLAT Zone-D terrain (WorldBootstrap.RegroundFreshwaterPond seats it
-                // PondWaterClearanceAboveTerrain=0.10u above the ground). So the gap is a near-UNIFORM ~0.10u
-                // across the whole disc. With the sea-scale _FoamDistance the foam FLOODED the entire disc
-                // toward the warm near-white FoamEdge → the pond shipped pale/green-dominant (B-G≈-0.01), not
-                // fresh-blue. _FoamDistance MUST be < the clearance so the open-water disc reads gap >
-                // _FoamDistance → foam=0 → the fresh-blue PondShallow/PondDeep shows; foam then only fires in
-                // the THIN band where the bank ring / a dipped rock brings an opaque surface within
-                // _FoamDistance of the water (the crisp damp bank line Uma §1c wants). 0.06 < 0.10 clearance.
+                // sea (deep seabed → large gap → foam≈0 in open water), the pond is a flat disc whose open water
+                // could flood pale if the gap to the floor were small. With the BOWL CARVE (ticket 86cadj4g7
+                // #130 re-soak) the water now sits ~PondWaterDepthAboveFloor (0.45u) above the carved bowl FLOOR
+                // — a LARGE, near-uniform gap across the disc — so foam=0 in open water as long as _FoamDistance
+                // ≪ that depth. (Even larger margin than the old +0.10u lift the bowl replaced.) _FoamDistance
+                // MUST stay < the water→floor depth so the open-water disc reads gap > _FoamDistance → foam=0 →
+                // the fresh-blue PondShallow/PondDeep shows; foam then only fires in the THIN band where the
+                // bank ring brings an opaque surface within _FoamDistance of the water (the crisp damp bank line
+                // Uma §1c wants). 0.06 ≪ 0.45 bowl depth.
                 if (mat.HasProperty("_FoamColor"))    mat.SetColor("_FoamColor", FoamEdge);
-                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.06f); // < 0.10 reground clearance: foam hugs the bank, never floods the disc (86cadj4g7)
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.06f); // ≪ 0.45u bowl water-depth: foam hugs the bank, never floods the disc (86cadj4g7)
                 if (mat.HasProperty("_WaterAlpha"))   mat.SetFloat("_WaterAlpha", 1f);     // solid coloured sheet (no modelled bottom — OOS)
             }
             else
@@ -1279,10 +1340,12 @@ namespace FarHorizon.EditorTools
         // grassy BANK ring share the SAME outline (both call this) — the bank keeps framing the water with no
         // gap/poke-through. Amplitude is BOUNDED (±~18%): the pond sits on the FLAT spawn-plateau (r<16; the
         // pond centre is at world (7,-3) ⇒ r≈7.6, max reach with bank ≈11.7 ≪ 16), so the rim stays within the
-        // flat zone and the WorldBootstrap.RegroundFreshwaterPond +0.10u clearance holds UNIFORMLY around the
-        // whole irregular rim — the rim can never dip below the terrain (⚠ -verifyPond samples frame-CENTRE
-        // only, so this whole-rim grounding is enforced here by construction, not by the gate). The bounded
-        // amplitude also keeps every rim vert at r > 0 (a positive radius) so the outline never self-crosses.
+        // flat zone where the carved BOWL (WorldBootstrap.GroundPondInBowl + PondDepressionDelta) recesses the
+        // whole pond uniformly — the water disc sits in the bowl, above its carved floor, around the whole
+        // irregular rim (⚠ -verifyPond samples frame-CENTRE only, so this whole-rim recessing is enforced here
+        // by construction, not by the gate). The bounded amplitude also keeps the rim well inside the bowl-floor
+        // band (PondBowlInnerRadius 3.2u > the max rim ~3.07u) AND every rim vert at r > 0 (a positive radius)
+        // so the disc sits over the flat floor everywhere and the outline never self-crosses.
         //
         // PER-VERTEX MULTIPLIER in [1-AMP*..., 1+AMP*...]; the three terms give 3 + 2 + 1 = soft compound lobes
         // around the ring without any single dominant axis (reads as a found natural pool, not an ellipse).
