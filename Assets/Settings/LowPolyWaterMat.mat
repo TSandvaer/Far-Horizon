@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: LowPolyWaterMat
-  m_Shader: {fileID: 4800000, guid: 3940cb47c8d8af14e86ed0e91f377a2b, type: 3}
+  m_Shader: {fileID: 4800000, guid: 0c932efd6b8740978733ec7a3b966328, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -25,11 +25,15 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _FoamAmount: 1
+    - _FoamDistance: 1.5
     - _FogCap: 0.5
+    - _WaterAlpha: 1
     - _WaveAmp: 0.45
     - _WaveLen: 11
     - _WaveSpeed: 1.1
     m_Colors:
+    - _FoamColor: {r: 0.91, g: 0.89, b: 0.82, a: 1}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

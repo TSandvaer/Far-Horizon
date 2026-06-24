@@ -25,7 +25,8 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _FoamDistance: 0.6
+    - _FoamAmount: 0
+    - _FoamDistance: 0
     - _FogCap: 0
     - _WaterAlpha: 1
     - _WaveAmp: 0.04
