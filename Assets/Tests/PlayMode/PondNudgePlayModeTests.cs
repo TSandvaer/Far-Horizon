@@ -117,17 +117,32 @@ namespace FarHorizon.PlayTests
             // EditMode PondNudgeTests pins it == LowPolyZoneGen.PondFoamOff — PlayMode can't see the editor asmdef).
             Assert.AreEqual(PondNudge.FoamStepValue[PondNudge.FoamDefaultStep], resolvedMat.GetFloat("_FoamDistance"), 1e-3f,
                 "the DEFAULT foam step must set _FoamDistance OFF (a still pool — Sponsor #130)");
+            // #130 re-soak — the MASTER _FoamAmount gate is what actually removes the shoreline ring. Assert the
+            // DEFAULT (off) step drives it to 0 (the real off-layer, not the _FoamDistance proxy — the silent-killer
+            // lesson: _FoamDistance=0 alone left the gap≈0 razor line; the gate is the fix). Skip on a fallback mat.
+            bool hasGate = resolvedMat.HasProperty("_FoamAmount");
+            if (hasGate)
+                Assert.AreEqual(0f, resolvedMat.GetFloat("_FoamAmount"), 1e-3f,
+                    "the DEFAULT (off) foam step must drive the master _FoamAmount to 0 — the real OFF switch that " +
+                    "zeroes the shoreline razor line (_FoamDistance=0 alone does not; #130 re-soak).");
 
-            // SEA-LIKE — the material _FoamDistance must actually change to the sea-like value (not a no-op).
+            // SEA-LIKE — the material _FoamDistance must actually change to the sea-like value (not a no-op), AND
+            // the master gate must flip ON (1) so the foam is actually present.
             int seaLike = PondNudge.FoamStepValue.Length - 1;
             _nudge.ForceFoamStep(seaLike);
             Assert.AreEqual(PondNudge.FoamStepValue[seaLike], ResolvedPondMat().GetFloat("_FoamDistance"), 1e-3f,
                 "a SEA-LIKE foam step must set the live material _FoamDistance to the sea-like value (a real mutation)");
+            if (hasGate)
+                Assert.AreEqual(1f, ResolvedPondMat().GetFloat("_FoamAmount"), 1e-3f,
+                    "a SEA-LIKE foam step must flip the master _FoamAmount ON (1) so the foam actually renders");
 
-            // Back to OFF — the foam must turn fully off again (round-trip).
+            // Back to OFF — the foam must turn fully off again (round-trip), gate back to 0.
             _nudge.ForceFoamStep(0);
             Assert.AreEqual(PondNudge.FoamStepValue[0], ResolvedPondMat().GetFloat("_FoamDistance"), 1e-3f,
                 "stepping foam back to OFF must restore _FoamDistance to 0 (a still pool again)");
+            if (hasGate)
+                Assert.AreEqual(0f, ResolvedPondMat().GetFloat("_FoamAmount"), 1e-3f,
+                    "stepping foam back to OFF must restore the master _FoamAmount to 0 (the shoreline ring gone again)");
         }
 
         // (3) Out-of-range Force* calls are graceful no-ops (return -1, never throw).
