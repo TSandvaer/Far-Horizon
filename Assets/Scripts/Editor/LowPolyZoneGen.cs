@@ -298,6 +298,16 @@ namespace FarHorizon.EditorTools
         public const float PondFoamOff     = 0.0f;   // DEFAULT: no foam ring — a still glassy fresh pool (#130)
         public const float PondFoamLight   = 0.06f;  // a thin damp line hugging the bank only (≪ the 0.45u wade depth so the open disc never floods)
         public const float PondFoamSeaLike = 1.5f;   // the sea's foam band width (for A/B only — reads wrong on a pond, but the Sponsor can see the contrast)
+        // The MASTER foam-amount gate (ticket 86cadj4g7 #130 re-soak — _FoamAmount on LowPolyWater.shader). OFF
+        // (0) zeroes the WHOLE foam term incl. the gap≈0 shoreline razor line that _FoamDistance=0 alone left;
+        // ON (1) lets _FoamDistance govern the band width. PondFoamAmountFor maps a foam STEP to its amount.
+        public const float PondFoamAmountOff = 0.0f;  // master OFF: zero foam anywhere (kills the shoreline ring)
+        public const float PondFoamAmountOn  = 1.0f;  // master ON: foam present, width per _FoamDistance
+        /// <summary>The master _FoamAmount for a given pond foam _FoamDistance: 0 (off) when the distance is the
+        /// OFF level, else 1 (the light/sea-like steps want foam, width per their distance). Keeps PondNudge +
+        /// MakePondMaterial in lockstep so a foam step drives BOTH _FoamDistance and _FoamAmount consistently.</summary>
+        public static float PondFoamAmountFor(float foamDistance) =>
+            foamDistance <= PondFoamOff + 1e-4f ? PondFoamAmountOff : PondFoamAmountOn;
 
         /// <summary>
         /// The pond-bowl depression DELTA (≤ 0, a downward carve) at world XZ — the local recess that turns the
@@ -338,20 +348,71 @@ namespace FarHorizon.EditorTools
         public const float PondRimFlattenFade = 3.0f; // u of collar over which the hills fade back in past the bowl mouth
 
         /// <summary>
-        /// Hill-suppression weight at world XZ for the pond footprint (1 = full hills, 0 = hills fully flattened).
-        /// 0 inside PondBowlOuterRadius (the rim + bowl ground sit at a uniform plateau, so the centre-grounded
-        /// water is below the rim on every azimuth — the #130 asymmetric-mound fix), eases to 1 over the fade
-        /// collar, and is EXACTLY 1 beyond it (the island is byte-unchanged — seed-42 lock). PUBLIC so the
-        /// flush-rim non-regression test samples it. Pure function of XZ (deterministic; byte-stable capture).
+        /// Hill-LEVELLING blend weight at world XZ for the pond footprint (1 = full per-vertex hills, 0 = the hill
+        /// height is fully levelled toward FootprintHillLevel — the LOCAL surrounding ground level). 0 inside
+        /// PondBowlOuterRadius (the footprint is a uniform plateau AT the local ground level → no asymmetric mound
+        /// AND no raised fade-ramp rim), eases to 1 over the fade collar, and is EXACTLY 1 beyond it (the island is
+        /// byte-unchanged — seed-42 lock). PUBLIC so the flush-rim non-regression tests sample it. Pure function of
+        /// XZ (deterministic; byte-stable capture). NOTE: at weight 0 the footprint is NOT pulled to baseH=0.15 (the
+        /// earlier defect that left the surrounding hills rising above it as a shadow-casting rim) — it is levelled
+        /// to FootprintHillLevel so the footprint sits AT the local ground and the fade band is nearly flat.
         /// </summary>
         public static float PondHillFlatten(float wx, float wz)
         {
             float dx = wx - PondCenterX, dz = wz - PondCenterZ;
             float d = Mathf.Sqrt(dx * dx + dz * dz);
-            if (d <= PondBowlOuterRadius) return 0f;                              // inside the bowl mouth: hills OFF
+            if (d <= PondBowlOuterRadius) return 0f;                              // inside the bowl mouth: levelled
             float fadeEnd = PondBowlOuterRadius + PondRimFlattenFade;
-            if (d >= fadeEnd) return 1f;                                          // beyond the collar: hills FULL (island unchanged)
+            if (d >= fadeEnd) return 1f;                                          // beyond the collar: full hills (island unchanged)
             return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d));
+        }
+
+        /// <summary>
+        /// The damped multi-octave HILL height at world XZ (factored out of HeightAtRadial so the pond footprint
+        /// levelling can sample the SAME hill field). Includes the landMask² interior-only fade and the spawn-
+        /// flatten near-origin damping (0.06 within ~16u, easing to full by ~32u). <paramref name="landMask"/> and
+        /// <paramref name="r"/> are passed in (the caller already computed them) so this is a pure arithmetic
+        /// helper, not a re-derivation. Deterministic → byte-stable capture.
+        /// </summary>
+        public static float HillHeightAt(float wx, float wz, float ox, float oz, float landMask, float r)
+        {
+            float hill = (Mathf.PerlinNoise(ox + wx * 0.012f, oz + wz * 0.012f) - 0.5f) * 2f * 0.62f
+                       + (Mathf.PerlinNoise(ox + wx * 0.030f, oz + wz * 0.030f) - 0.5f) * 2f * 0.28f
+                       + (Mathf.PerlinNoise(ox + wx * 0.075f, oz + wz * 0.075f) - 0.5f) * 2f * 0.10f;
+            float hillH = (hill * 0.5f + 0.5f) * IslandHillAmp * landMask * landMask;
+            // SPAWN-FLATTEN: keep the immediate spawn + loop centre gentle (loop objects sit level, click-move
+            // clean). Holds out to ~16u then eases the hills in over the next ~16u.
+            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r));
+            return hillH * (0.06f + 0.94f * spawnFlat);
+        }
+
+        /// <summary>
+        /// The single UNIFORM hill height the pond footprint is levelled to (ticket 86cadj4g7 #130 re-soak — the
+        /// elevated-collar/berm fix). = the average damped hill height around a representative RING just OUTSIDE
+        /// the bowl mouth, so the levelled footprint plateau sits at the LOCAL surrounding ground level (not the
+        /// bare baseH). Averaging over azimuth gives ONE deterministic value (kills the asymmetric mound) that
+        /// tracks the actual local terrain (kills the raised fade-ramp rim) — the two #130 defects reconciled.
+        /// The ring is at PondBowlOuterRadius + half the fade (~6.3u): inside the spawn-flat zone (r&lt;16 from
+        /// origin) where the pond sits, this samples the same damped-hill regime the surrounding grass shows.
+        /// Pure function of the seed offset (no per-vertex term) → ONE constant per island, byte-stable.
+        /// </summary>
+        public static float FootprintHillLevel(float ox, float oz)
+        {
+            // Sample the damped hill on a ring at the fade midpoint, averaged over azimuth → the representative
+            // local ground level the footprint should match. landMask is 1 here (the pond is deep interior, r≈7.6
+            // ≪ IslandCoreR=78). r (from world origin) is recomputed per sample for the spawn-flatten damping.
+            const int samples = 16;
+            float ringR = PondBowlOuterRadius + PondRimFlattenFade * 0.5f;   // ~6.3u from the pond centre
+            float sum = 0f;
+            for (int i = 0; i < samples; i++)
+            {
+                float a = i / (float)samples * Mathf.PI * 2f;
+                float wx = PondCenterX + Mathf.Cos(a) * ringR;
+                float wz = PondCenterZ + Mathf.Sin(a) * ringR;
+                float rFromOrigin = Mathf.Sqrt(wx * wx + wz * wz);
+                sum += HillHeightAt(wx, wz, ox, oz, 1f, rFromOrigin);
+            }
+            return sum / samples;
         }
 
         /// <summary>
@@ -572,23 +633,25 @@ namespace FarHorizon.EditorTools
 
             // HILLS: multi-octave Perlin elevation over the LAND interior only (faded off by landMask so the
             // beach strip + waterline stay flat/clean). World-space noise (ox/oz) — deterministic + continuous.
-            float hill = (Mathf.PerlinNoise(ox + wx * 0.012f, oz + wz * 0.012f) - 0.5f) * 2f * 0.62f
-                       + (Mathf.PerlinNoise(ox + wx * 0.030f, oz + wz * 0.030f) - 0.5f) * 2f * 0.28f
-                       + (Mathf.PerlinNoise(ox + wx * 0.075f, oz + wz * 0.075f) - 0.5f) * 2f * 0.10f;
-            float hillH = (hill * 0.5f + 0.5f) * IslandHillAmp * landMask * landMask;
+            // Damped by the same spawn-flatten the footprint level uses (factored into HillHeightAt).
+            float hillH = HillHeightAt(wx, wz, ox, oz, landMask, r);
 
-            // SPAWN-FLATTEN: keep the immediate spawn + loop centre gentle (loop objects sit level, click-move
-            // clean). Holds out to ~16u then eases the hills in over the next ~16u.
-            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r));
-            hillH *= (0.06f + 0.94f * spawnFlat);
-
-            // POND-RIM HILL FLATTEN (ticket 86cadj4g7 #130 — the asymmetric-mound fix): suppress the residual
-            // azimuthal hill variation across the pond footprint so the rim is one uniform plateau on EVERY side.
-            // Without this, the ~0.5u of damped hill that survives the spawn-flatten here varies around the rim,
-            // and the centre-grounded water lands above the rim on the low-hill azimuth → a one-sided mound. The
-            // flatten is 0 inside the bowl mouth and 1 (no-op) beyond a short fade collar, so the island silhouette
-            // OUTSIDE PondBowlOuterRadius+fade is byte-unchanged (seed-42 lock). See PondHillFlatten.
-            hillH *= PondHillFlatten(wx, wz);
+            // POND-RIM HILL LEVELLING (ticket 86cadj4g7 #130 re-soak — the asymmetric-mound fix AND the elevated-
+            // collar/berm fix in ONE). Inside the pond footprint, LEVEL the per-vertex hill height toward a single
+            // uniform value = the LOCAL surrounding hill height (FootprintHillLevel), so:
+            //  (1) the footprint is a UNIFORM plateau on EVERY azimuth → the centre-grounded water sits below the
+            //      rim on all sides (no one-sided mound — the original #130 fix intent), AND
+            //  (2) that plateau sits at the LOCAL SURROUNDING ground level (not pulled down to the bare baseH=0.15
+            //      while the hilly surroundings stay ~0.40) → the fade band from footprint to surroundings is
+            //      nearly FLAT, with NO rising rim/lip encircling the pond. The earlier fix levelled toward ZERO
+            //      hill (a 0.15 plateau), so the surrounding hills (~0.40) rose ABOVE it across the fade collar —
+            //      a raised green rim casting an inner shadow (the #130 re-soak "green elevated with shadow").
+            // PondHillFlatten is the blend weight (0 = fully levelled to the local value inside the mouth; 1 = full
+            // per-vertex hills beyond the fade collar). Byte-IDENTICAL beyond the collar (weight 1 = no-op → seed-42
+            // lock). The fade band is the ONLY terrain delta vs the locked island outside the bowl.
+            float flatten = PondHillFlatten(wx, wz);                          // 1 = local hills, 0 = uniform level
+            float footprintLevel = FootprintHillLevel(ox, oz);               // the LOCAL surrounding hill level
+            hillH = Mathf.Lerp(footprintLevel, hillH, flatten);              // level toward the LOCAL ground (not 0)
 
             // Hills only ADD on the interior land (not on the beach strip / past the coast).
             if (r < coast - BeachWidth) h += hillH;
@@ -1404,17 +1467,19 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_FogCap")) mat.SetFloat("_FogCap", 0f);          // 0.5 sea -> 0 (no sea<->sky seam at pond range)
                 // FOAM/EDGE delta — FOAM OFF (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond water should
                 // NOT foam like the sea; the freshwater pond must be STILL, no foam ring"). The SEA keeps its
-                // foam; only the POND loses it. The depth-fade foam mask is foam = saturate(1 - gap /
-                // max(_FoamDistance, 0.001)), so _FoamDistance == 0 → max→0.001 → foam = saturate(1 - gap/0.001)
-                // = 0 for any gap > 0.001u → NO foam anywhere on the pond (a still, glassy fresh pool). This is
-                // the DEFAULT the Sponsor soaks first; the live PondNudge [foam] handle can dial it back up
-                // (light 0.06 = a thin damp bank line / sea-like 1.5) so he picks the final amount to bake.
-                // _FoamColor stays the FoamEdge constant (unused while distance=0; kept so the light/sea-like
-                // steps read the right warm colour without a re-set, per lowpoly-quality §1 don't-drift-FoamEdge).
-                // NO static surf RING is baked into the pond mesh (BuildPondWaterMesh omits it) — a pond has no
-                // wave-break — so OFF means OFF: zero foam from either source.
+                // foam; only the POND loses it. ⚠ #130 RE-SOAK FIX: _FoamDistance == 0 is NOT sufficient. The
+                // mask is foam = saturate(1 - gap/max(_FoamDistance,0.001)); for any gap > 0.001u it is 0 (no
+                // open-water foam), BUT at the EXACT shoreline (water grazes the bank → gap → 0) it is still 1.0
+                // — a razor-thin WHITE intersection line surviving along the whole bank (the white foam ring the
+                // Sponsor STILL saw with the HUD showing FOAM:OFF). The real OFF switch is the master _FoamAmount
+                // gate (LowPolyWater.shader): _FoamAmount == 0 zeroes the WHOLE foam term — colour AND alpha —
+                // including those gap≈0 pixels, so OFF means ZERO foam anywhere on the pond. The SEA never sets
+                // _FoamAmount (defaults to 1) so it is untouched. _FoamDistance is set to PondFoamOff (0) too for
+                // consistency, but _FoamAmount is what actually removes the shoreline ring. The live PondNudge
+                // [foam] handle drives BOTH (off → amount 0; light/sea-like → amount 1 + distance 0.06/1.5).
                 if (mat.HasProperty("_FoamColor"))    mat.SetColor("_FoamColor", FoamEdge);
-                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", PondFoamOff); // 0 = no foam ring (#130 "must be STILL")
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", PondFoamOff); // 0 = no band width
+                if (mat.HasProperty("_FoamAmount"))   mat.SetFloat("_FoamAmount", PondFoamAmountOff); // 0 = master OFF (kills the shoreline ring too)
                 if (mat.HasProperty("_WaterAlpha"))   mat.SetFloat("_WaterAlpha", 1f);     // solid coloured sheet (no modelled bottom — OOS)
             }
             else

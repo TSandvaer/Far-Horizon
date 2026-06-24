@@ -153,12 +153,26 @@ namespace FarHorizon
             _pondRoot.position = new Vector3(p.x, _baseRootY - delta, p.z);
         }
 
-        // === FOAM: drive the pond material _FoamDistance (off / light / sea-like) ===
+        // === FOAM: drive the pond material foam (off / light / sea-like) ===
+        // Drives BOTH _FoamDistance (band width) AND the master _FoamAmount gate (ticket 86cadj4g7 #130 re-soak).
+        // _FoamDistance=0 alone leaves a razor white shoreline line at the gap≈0 bank intersection (the white ring
+        // the Sponsor still saw with FOAM:OFF); _FoamAmount=0 zeroes the WHOLE foam term so OFF removes that ring
+        // too. The amount is derived from the distance step so off→amount 0, light/sea-like→amount 1.
         private void ApplyFoam()
         {
-            if (_pondMat != null && _pondMat.HasProperty("_FoamDistance"))
-                _pondMat.SetFloat("_FoamDistance", CurrentFoamDistance);
+            if (_pondMat == null) return;
+            float dist = CurrentFoamDistance;
+            if (_pondMat.HasProperty("_FoamDistance")) _pondMat.SetFloat("_FoamDistance", dist);
+            // The master gate lives only on FarHorizon/LowPolyWater (the depth-fade foam path); a URP/Lit fallback
+            // pond has no foam at all, so the HasProperty guard cleanly skips it.
+            if (_pondMat.HasProperty("_FoamAmount"))
+                _pondMat.SetFloat("_FoamAmount",
+                    dist <= LowPolyZoneGen_PondFoamOff + 1e-4f ? 0f : 1f);
         }
+
+        // Mirror of LowPolyZoneGen.PondFoamOff (the runtime asmdef can't reference the editor asmdef where
+        // LowPolyZoneGen lives). FoamStepValue[0] IS this value; kept as a named constant for the OFF compare.
+        private const float LowPolyZoneGen_PondFoamOff = 0.0f;
 
         /// <summary>VERIFICATION: force a recess step (0..N) + apply — for the shipped-build capture to prove
         /// the step moves the real root. Returns the applied recess (or -1 if out of range).</summary>
