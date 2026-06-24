@@ -1,5 +1,7 @@
 # U2-5 — Minimal Survival HUD Spec (warmth + inventory readout)
 
+> **⚠ SUPERSEDED for the 3-bar HUD by [`hud-three-bar-spec.md`](hud-three-bar-spec.md)** — the canonical implement-to spec for the warmth+hunger+thirst meter (`86caamkxv`). This doc remains the source for the ORIGINAL single-warmth-bar look/feel (the shipped baseline the 3-bar spec preserves), but the three-bar layout/colors/anchors live in the reconciled spec; implement the HUD from there.
+
 **Ticket:** 86ca8bdge · **Owner:** Uma (spec) → Devon (wiring) · **Reviewer:** Tess
 **Depends on:** U2-1 warmth model (86ca8bd9m, Drew, in flight) · U2-2 inventory seed (axe/wood)
 **Status:** SPEC — Devon implements this verbatim in a later phase. No code here.

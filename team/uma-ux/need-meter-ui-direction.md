@@ -1,5 +1,7 @@
 # Need-Meter UI — Visual + UX Direction (warmth · hunger · thirst)
 
+> **⚠ SUPERSEDED (for implementation) by [`hud-three-bar-spec.md`](hud-three-bar-spec.md)** — the reconciled implement-to spec for `86caamkxv`. This doc proposed berry-red hunger; the SHIPPED build resolves hunger to GREEN (`#8CB85C`) and thirst to water-blue (`#3E8FC4`+droplet) — the reconciled spec wins where they differ. Kept for the design rationale / tonal exploration; do not implement from it.
+
 **Scope:** M-U2 EXPANDED to three survival needs (`mu2-scope-expanded-hunger-thirst` — Sponsor 2026-06-17: WARMTH-only loop now ALSO carries hunger (berries) + thirst (pond)). The gameplay wave + bushes ticket `86caa5zz3` carry it.
 **Owner:** Uma (direction) → Drew/Devon (implement later) · Reviewer: orchestrator.
 **Status:** DIRECTION — docs only, no implementation here. Engine-agnostic; UI-Toolkit specifics noted where useful.
