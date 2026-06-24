@@ -84,22 +84,36 @@ namespace FarHorizon
             Debug.Log("[FreshwaterPondVerifyCapture] framing pond at " + target.ToString("F2") +
                       " (effDrinkR=" + pond.EffectiveDrinkRadius.ToString("F1") + ")");
 
-            // A dedicated post-enabled camera framed on the pond, INDEPENDENT of the gameplay camera's
-            // player-follow. Renders the Zone-D post Volume so the capture sees the SAME warm-graded look the
-            // Sponsor's gameplay orbit applies (the false-green fix — post must stay ON; an editor/no-post
-            // cam lies, the castaway-recolor false-green precedent).
+            // REUSE the gameplay camera (Camera.main) and PARK it on the pond — the PROVEN sibling pattern
+            // (SeaVerifyCapture.RunCoastVantage: drive Camera.main, disable the OrbitCamera COMPONENT so it
+            // stops re-driving the transform each LateUpdate, then position by hand). The prior version built
+            // a NEW PondVerifyCamera and only disabled the orbit's Camera (not the OrbitCamera component) —
+            // the gameplay camera kept rendering the player-follow vista, so the pond disc landed off-centre
+            // (frac x≈0.20) and the fixed central sample box read terrain-green not water (the false
+            // B-G=-0.139; ticket 86cadj4g7 trace). Reusing Camera.main + disabling the component is the
+            // framing the gate's perceptual sample assumes (pond at frame centre). Camera.main already runs
+            // the gameplay render path (Zone-D post + skybox) so the warm-graded look matches the Sponsor's
+            // view — no separate post-enable needed (the castaway-recolor false-green lesson: ride the real
+            // gameplay camera, don't author a divergent capture rig).
             var orbit = Object.FindAnyObjectByType<OrbitCamera>();
-            var camGo = new GameObject("PondVerifyCamera");
-            var cam = camGo.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.Skybox; // the gradient sky behind the pond, as in gameplay
-            cam.fieldOfView = 40f;
-            var camData = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
-            camData.renderPostProcessing = true;
-            if (orbit != null)
+            if (orbit != null) orbit.enabled = false; // stop the rig re-driving the transform each LateUpdate
+            var cam = Camera.main;
+            if (cam == null)
             {
-                var ocam = orbit.GetComponent<Camera>();
-                if (ocam != null) ocam.enabled = false; // else both cameras draw
+                Debug.LogError("[FreshwaterPondVerifyCapture] no Camera.main — cannot frame the pond");
+                yield return null;
+                Application.Quit(1);
+                yield break;
             }
+            cam.fieldOfView = 40f;
+            var camGo = cam.gameObject;
+
+            // One-shot camera-roster trace (diagnose-via-trace): which cameras are enabled + their depth, so a
+            // future mis-render (wrong camera winning) is readable from the build log. One-shot at warmup —
+            // negligible cost on a verify-only launch.
+            foreach (var c in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                Debug.Log($"[pond-cam-roster] '{c.name}' enabled={c.enabled} depth={c.depth} " +
+                          $"isMain={(c == Camera.main)} tag={c.tag}");
 
             for (int i = 0; i < warmupFrames; i++) yield return null;
 
@@ -111,21 +125,20 @@ namespace FarHorizon
                 Vector3 offset = rot * new Vector3(0f, 0f, -viewDistance);
                 camGo.transform.position = target + offset;
                 camGo.transform.LookAt(target);
-                Debug.Log($"[FreshwaterPondVerifyCapture] frame {tag}: yaw={yaw} pitch={viewPitch} " +
-                          $"dist={viewDistance} pos={camGo.transform.position.ToString("F1")}");
 
                 for (int i = 0; i < settleFrames; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                string file = Path.Combine(dir, $"pond_{tag}.png");
-                ScreenCapture.CaptureScreenshot(file, 1);
-                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + file);
-                yield return new WaitForEndOfFrame();
-                yield return null;
+                // ACTUAL camera pose at capture time (vs the intended pos) — a component re-driving the
+                // transform during settle would diverge here (ticket 86cadj4g7 framing guard).
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame {tag}: yaw={yaw} pitch={viewPitch} dist={viewDistance} " +
+                          $"ACTUAL pos={cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")} " +
+                          $"fov={cam.fieldOfView:F1} orbitEnabled={(orbit != null ? orbit.enabled.ToString() : "n/a")}");
 
-                // Perceptual read on the FRONT frame (yaw 0): sample the pond-water region (frame centre,
-                // where the camera looks at the disc) vs the surround, and assert fresh-blue (B > G). Guard
-                // the PERCEPT, not a geometry proxy: a wrong (teal/green) water that still 'renders fine'
+                // Perceptual read on the FRONT frame (yaw 0): sample the pond-water region (frame centre, where
+                // the camera looks at the disc) vs the surround, and assert fresh-blue (B > G). Read INSIDE the
+                // WaitForEndOfFrame block (the rendered frame is resolved) — ReadPixels needs a settled frame.
+                // Guard the PERCEPT, not a geometry proxy: a wrong (teal/green) water that still 'renders fine'
                 // would slip a frame-sanity gate but FAILS this.
                 if (tag == 'a')
                 {
@@ -143,6 +156,12 @@ namespace FarHorizon
                                        "— the pond does NOT read fresh-blue/visible at frame centre (wrong water shipped?)");
                     }
                 }
+
+                string file = Path.Combine(dir, $"pond_{tag}.png");
+                ScreenCapture.CaptureScreenshot(file, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + file);
+                yield return new WaitForEndOfFrame();
+                yield return null;
                 tag++;
             }
 

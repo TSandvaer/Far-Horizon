@@ -133,6 +133,99 @@ namespace FarHorizon.EditTests
                 "silent-killer the capture gate exists to prevent)");
         }
 
+        // === REGRESSION GUARD (ticket 86cadj4g7) — the pond water disc must sit ABOVE the real terrain ====
+        // The pond shipped GREEN-DOMINANT (B-G=-0.139) NOT because the water material was wrong (its vertex
+        // colours are fresh-blue — guarded above) but because the pond was authored at the assumed flat Y=0
+        // while the real Zone-D terrain at the inland pond (7,-3) sits ~+0.40 → the opaque terrain OCCLUDED
+        // the sunken fresh-blue disc and the shipped render read terrain-green. WorldBootstrap.RegroundFresh-
+        // waterPond lifts the pond root so the water sits PondWaterClearanceAboveTerrain above the ground.
+        // This guards the bug CLASS: the pond water surface must be measurably ABOVE the terrain it sits over,
+        // so it can never be occluded again (the vertex-colour test green-passed through the entire defect —
+        // it tests the wrong layer; THIS asserts the on-terrain geometry that actually decides visibility).
+        [Test]
+        public void Pond_WaterSurface_SitsAboveTerrain_NotOccluded()
+        {
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            FreshwaterPond pond = FindAnyInScene<FreshwaterPond>();
+            Assert.IsNotNull(pond, "the pond must be present");
+            var waterT = pond.transform.Find("PondWater");
+            Assert.IsNotNull(waterT, "the pond must carry the PondWater surface child");
+            float waterWorldY = waterT.position.y;
+
+            var ground = GameObject.Find("Ground_Play");
+            Assert.IsNotNull(ground, "the play-space terrain (Ground_Play) must exist (re-ground raycasts it)");
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the terrain must carry a MeshCollider (the re-ground raycast surface)");
+
+            Vector3 p = pond.transform.position;
+            var ray = new Ray(new Vector3(p.x, 200f, p.z), Vector3.down);
+            Assert.IsTrue(col.Raycast(ray, out RaycastHit hit, 400f),
+                $"the terrain ray at the pond XZ ({p.x:F1},{p.z:F1}) must hit Ground_Play");
+            float terrainY = hit.point.y;
+
+            // The water surface must sit ABOVE the terrain (not buried) by a clear margin — else the opaque
+            // terrain occludes the fresh-blue disc and the shipped render reads terrain-green again. A small
+            // floor (0.03) tolerates terrain facet jitter while catching a re-sink.
+            Assert.Greater(waterWorldY, terrainY + 0.03f,
+                $"the pond WATER surface (worldY {waterWorldY:F3}) must sit ABOVE the terrain at the pond " +
+                $"({terrainY:F3}) — the green-dominant defect (86cadj4g7) was the disc SUNK under the terrain. " +
+                "WorldBootstrap.RegroundFreshwaterPond must lift it onto the ground.");
+        }
+
+        // === REGRESSION GUARD (ticket 86cadj4g7) — the depth-fade foam must not FLOOD the flat disc ========
+        // Once the disc sits just above the FLAT terrain, the shared depth-fade foam (foam = saturate(1 -
+        // gap/_FoamDistance)) fires UNIFORMLY across the whole disc unless _FoamDistance is SMALLER than the
+        // near-uniform water→terrain gap (the clearance) — at the sea-scale _FoamDistance the pond shipped
+        // PALE/near-white (B-G≈-0.01), the foam-flood half of the same defect. This pins the invariant that
+        // makes the open-water disc read fresh-blue: the pond material's _FoamDistance MUST be < the
+        // water→terrain clearance so gap > _FoamDistance → foam=0 in open water (foam then only rides the
+        // thin bank band). Guards against a future re-tune raising _FoamDistance back into flood territory.
+        [Test]
+        public void Pond_FoamDistance_BelowWaterTerrainGap_NoFoamFlood()
+        {
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            FreshwaterPond pond = FindAnyInScene<FreshwaterPond>();
+            Assert.IsNotNull(pond, "the pond must be present");
+            var waterT = pond.transform.Find("PondWater");
+            var wmr = waterT != null ? waterT.GetComponent<MeshRenderer>() : null;
+            Assert.IsNotNull(wmr, "the pond water surface must carry a MeshRenderer");
+            var mat = wmr.sharedMaterial;
+            Assert.IsNotNull(mat, "the pond water must carry a material");
+
+            // Only meaningful on the LowPolyWater shader (the depth-fade foam path). The fallback URP/Lit pond
+            // has no foam, so the flood can't happen — skip the assert there.
+            if (!mat.HasProperty("_FoamDistance"))
+            {
+                Assert.Pass("pond material has no _FoamDistance (URP/Lit fallback — no depth-fade foam to flood)");
+                return;
+            }
+            float foamDistance = mat.GetFloat("_FoamDistance");
+
+            // The actual water→terrain gap (the clearance the re-ground established).
+            var ground = GameObject.Find("Ground_Play");
+            var col = ground != null ? ground.GetComponent<MeshCollider>() : null;
+            Assert.IsNotNull(col, "Ground_Play MeshCollider must exist to measure the water→terrain gap");
+            Vector3 p = pond.transform.position;
+            Assert.IsTrue(col.Raycast(new Ray(new Vector3(p.x, 200f, p.z), Vector3.down), out RaycastHit hit, 400f),
+                "the terrain ray at the pond XZ must hit Ground_Play");
+            float gap = waterT.position.y - hit.point.y;
+
+            Assert.Greater(gap, foamDistance,
+                $"the pond water→terrain gap ({gap:F3}) MUST exceed _FoamDistance ({foamDistance:F3}) so the " +
+                "open-water disc reads foam=0 (fresh-blue) — a _FoamDistance >= the gap FLOODS the flat disc " +
+                "toward warm-white FoamEdge (the pale/green-dominant defect, ticket 86cadj4g7).");
+        }
+
+        private static T FindAnyInScene<T>() where T : Component
+        {
+            foreach (var root in EditorSceneManager.GetActiveScene().GetRootGameObjects())
+            {
+                var c = root.GetComponentInChildren<T>(true);
+                if (c != null) return c;
+            }
+            return null;
+        }
+
         private static T FindInScene<T>(Scene scene) where T : Component
         {
             foreach (var root in scene.GetRootGameObjects())

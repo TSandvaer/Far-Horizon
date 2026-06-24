@@ -1240,8 +1240,20 @@ namespace FarHorizon.EditorTools
                 // Same warm FoamEdge constant (reads as a damp bank as readily as surf; no new colour, per
                 // lowpoly-quality §1 don't-drift-FoamEdge). NO static surf RING is baked into the pond mesh
                 // (BuildPondWaterMesh omits it) — a pond has no wave-break.
+                //
+                // ⚠ FOAM-FLOOD FIX (ticket 86cadj4g7). The depth-fade foam mask is foam = saturate(1 - gap /
+                // _FoamDistance) where gap = (opaque depth behind the surface) − (surface depth). Unlike the
+                // sea (deep seabed → large gap → foam≈0 in open water), the pond is a FLAT disc sitting just
+                // above the FLAT Zone-D terrain (WorldBootstrap.RegroundFreshwaterPond seats it
+                // PondWaterClearanceAboveTerrain=0.10u above the ground). So the gap is a near-UNIFORM ~0.10u
+                // across the whole disc. With the sea-scale _FoamDistance the foam FLOODED the entire disc
+                // toward the warm near-white FoamEdge → the pond shipped pale/green-dominant (B-G≈-0.01), not
+                // fresh-blue. _FoamDistance MUST be < the clearance so the open-water disc reads gap >
+                // _FoamDistance → foam=0 → the fresh-blue PondShallow/PondDeep shows; foam then only fires in
+                // the THIN band where the bank ring / a dipped rock brings an opaque surface within
+                // _FoamDistance of the water (the crisp damp bank line Uma §1c wants). 0.06 < 0.10 clearance.
                 if (mat.HasProperty("_FoamColor"))    mat.SetColor("_FoamColor", FoamEdge);
-                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.6f); // 1.5 sea -> 0.6 (crisp pond edge)
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.06f); // < 0.10 reground clearance: foam hugs the bank, never floods the disc (86cadj4g7)
                 if (mat.HasProperty("_WaterAlpha"))   mat.SetFloat("_WaterAlpha", 1f);     // solid coloured sheet (no modelled bottom — OOS)
             }
             else

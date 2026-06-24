@@ -178,8 +178,85 @@ namespace FarHorizon.EditorTools
             //      standalone build (the spike's iter-3 "NavMesh not shipping" lesson). ----
             BakeNavMesh(grounds, islandSeed);
 
+            // ---- RE-GROUND the freshwater pond onto the REAL terrain (ticket 86cadj4g7) ----
+            // The pond is authored by MovementCameraScene.Author at the assumed flat-ground Y=0, but it runs
+            // BEFORE this terrain is built — so it cannot know the real Zone-D terrain height. The Zone-D
+            // terrain at the inland pond (7,-3) sits ~+0.40 (HeightAtRadial plateau + spawn-flattened hill),
+            // ~0.46u ABOVE the pond water at Y=-0.06 → the opaque terrain OCCLUDES the sunken fresh-blue disc,
+            // so the gameplay-pitch view (+ the -verifyPond sample box) reads terrain GREEN not the water's
+            // B>G (the green-dominant defect, B-G=-0.139). The disc itself renders correctly fresh-blue
+            // (proven by the isolated-layer capture, RGB ~(0.26,0.82,1.00) B-G=+0.17). The fix is to LIFT the
+            // pond root to the actual terrain surface here — AFTER the terrain + its collider exist — so the
+            // water sits in the real ground the player walks on (the same surface the NavMesh baked onto),
+            // not buried under it. Re-grounded by raycast against the real Ground_Play collider (the honest
+            // surface), so it survives any future terrain/seed re-tune with no hardcoded height.
+            RegroundFreshwaterPond();
+
             Debug.Log("[WorldBootstrap] BuildEnvironment complete -> " + zone.ground.name);
             return envRoot;
+        }
+
+        // The pond water-surface should sit just ABOVE the local terrain so the fresh-blue disc reads (not
+        // buried) and does not z-fight the ground; the grassy bank ring then frames it as a found pool on the
+        // land. 0.10u clearance = comfortably above the terrain facet jitter without floating, AND it is the
+        // depth-gap the pond's depth-fade foam reads — it MUST exceed the material's _FoamDistance (0.06, set
+        // in LowPolyZoneGen.MakePondMaterial) so the open-water disc reads gap > _FoamDistance → foam=0 →
+        // fresh-blue (else the foam floods the flat disc pale/green — ticket 86cadj4g7). Keep this > _FoamDistance.
+        const float PondWaterClearanceAboveTerrain = 0.10f;
+        // The PondWater child's local Y inside the FreshwaterPond root (MovementCameraScene.PondSurfaceY). The
+        // root lift targets: water world Y = terrainY + clearance  ⇒  rootY = terrainY + clearance - localY.
+        const float PondWaterLocalY = -0.06f;
+
+        /// <summary>
+        /// RE-GROUND the freshwater pond onto the REAL Zone-D terrain (ticket 86cadj4g7). The pond is authored
+        /// (MovementCameraScene.Author) at the assumed flat Y=0 BEFORE this terrain exists, so it ships sunk
+        /// ~0.46u under the +0.40 inland terrain → the opaque ground OCCLUDES the fresh-blue disc and the
+        /// shipped render reads terrain-green (the green-dominant defect). This lifts the whole pond root so
+        /// the water surface sits just above the local terrain — grounded by RAYCAST against the real
+        /// Ground_Play collider (the same surface the player walks + the NavMesh baked onto), so it is correct
+        /// by construction and survives a terrain/seed re-tune with no hardcoded height. Runs AFTER BakeNavMesh
+        /// so the terrain mesh + its collider exist to raycast. Idempotent: re-runs land at the same height.
+        /// </summary>
+        static void RegroundFreshwaterPond()
+        {
+            var pond = Object.FindAnyObjectByType<FarHorizon.FreshwaterPond>(FindObjectsInactive.Include);
+            if (pond == null)
+            {
+                Debug.LogWarning("[pond-reground] no FreshwaterPond in scene — nothing to re-ground");
+                return;
+            }
+
+            // The real terrain surface: the Zone-D play ground (Ground_Play) carries a MeshCollider on the
+            // Ground layer (BakeNavMesh ran on it). Raycast straight DOWN through the pond's XZ from well above.
+            var groundGo = GameObject.Find("Ground_Play");
+            var col = groundGo != null ? groundGo.GetComponent<MeshCollider>() : null;
+            if (col == null)
+            {
+                Debug.LogWarning("[pond-reground] no Ground_Play MeshCollider to raycast — pond left at authored Y " +
+                                 "(re-ground skipped; the green-dominant defect would persist — investigate the terrain build order)");
+                return;
+            }
+
+            Vector3 p = pond.transform.position;
+            var ray = new Ray(new Vector3(p.x, 200f, p.z), Vector3.down);
+            if (!col.Raycast(ray, out RaycastHit hit, 400f))
+            {
+                Debug.LogWarning($"[pond-reground] terrain raycast MISSED at pond XZ ({p.x:F1},{p.z:F1}) — " +
+                                 "pond left at authored Y (the defect would persist)");
+                return;
+            }
+
+            float terrainY = hit.point.y;
+            float targetRootY = terrainY + PondWaterClearanceAboveTerrain - PondWaterLocalY;
+            float beforeY = p.y;
+            pond.transform.position = new Vector3(p.x, targetRootY, p.z);
+            EditorUtility.SetDirty(pond.gameObject);
+
+            Debug.Log($"[pond-reground] terrainY at pond ({p.x:F1},{p.z:F1}) = {terrainY:F3}; " +
+                      $"lifted pond root Y {beforeY:F3} -> {targetRootY:F3} " +
+                      $"(water surface world Y = {targetRootY + PondWaterLocalY:F3} = terrain + " +
+                      $"{PondWaterClearanceAboveTerrain:F2} clearance) — fresh-blue disc now sits ON the terrain, " +
+                      "no longer occluded (ticket 86cadj4g7)");
         }
 
         // Warm directional key (~48deg) models the sun; cool ambient fill keeps shadowed facets from
