@@ -116,6 +116,79 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(freshLean, "the built pond water carries the freshwater B>G lean");
         }
 
+        // === REGRESSION GUARD (ticket 86cadj4g7, Sponsor 2026-06-24 "the pond should not be perfectly round") =
+        // The pond outline must read ORGANIC — a natural lobed blob, NOT a perfect circle. The rim radius is
+        // perturbed per-vertex by LowPolyZoneGen.PondRimFactor (deterministic smooth noise). This guards the
+        // bug CLASS: a future change that reverted the outline to a uniform circle (every rim vert at the same
+        // radius) reds here. Asserts (a) the rim is genuinely IRREGULAR (a meaningful spread of rim radii), and
+        // (b) the perturbation stays BOUNDED + POSITIVE (no self-crossing, and — load-bearing for grounding —
+        // the rim never balloons out of the flat spawn-plateau where the +0.10u reground clearance holds; the
+        // -verifyPond gate only samples frame-CENTRE so the whole-rim grounding is enforced by THIS bound).
+        [Test]
+        public void BuildPondWaterMesh_OutlineIsOrganic_NotAPerfectCircle()
+        {
+            const float nominal = 2.6f;
+            var mesh = LowPolyZoneGen.BuildPondWaterMesh(nominal);
+            var verts = mesh.vertices;
+
+            // Collect the planar radius of every RIM vertex (the centre verts sit at the origin, r≈0 — skip them).
+            float minR = float.MaxValue, maxR = 0f;
+            int rimCount = 0;
+            foreach (var v in verts)
+            {
+                float r = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+                if (r < 0.01f) continue;           // a centre (deep) vertex
+                rimCount++;
+                if (r < minR) minR = r;
+                if (r > maxR) maxR = r;
+            }
+            Assert.Greater(rimCount, 0, "the pond mesh must carry rim vertices");
+
+            // (a) ORGANIC: the rim radii must SPREAD — a perfect circle has minR == maxR. Require a clear spread
+            // (the lobes), so a revert to a uniform-radius circle fails. (~10% of nominal is a comfortable floor
+            // below the ±18% design amplitude.)
+            float spread = maxR - minR;
+            Assert.Greater(spread, nominal * 0.10f,
+                $"the pond outline must be ORGANIC (irregular rim) — rim radii spread {spread:F3} must exceed " +
+                $"{nominal * 0.10f:F3} (a perfect circle has zero spread; Sponsor 'not perfectly round', 86cadj4g7)");
+
+            // (b) BOUNDED + POSITIVE: the rim must stay within ~±25% of nominal (well inside the flat plateau so
+            // the reground clearance holds around the whole rim) and never collapse to/through the centre.
+            Assert.Greater(minR, nominal * 0.70f,
+                $"the pond rim min radius {minR:F3} must stay positive + near nominal (never self-cross/collapse)");
+            Assert.Less(maxR, nominal * 1.30f,
+                $"the pond rim max radius {maxR:F3} must stay bounded (the rim must not balloon off the flat " +
+                "spawn-plateau where the +0.10u reground clearance — and thus whole-rim grounding — holds)");
+        }
+
+        // The bank ring's inner edge must TRACK the organic water rim (same shared PondRimFactor) so the grassy
+        // collar frames the lobed pool with no gap / poke-through. Asserts the bank carries an irregular inner
+        // ring too (a circular bank around a lobed pool would gap). Guards the shared-outline contract.
+        [Test]
+        public void BootScene_PondBank_TracksOrganicWaterRim()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            FreshwaterPond pond = FindInScene<FreshwaterPond>(scene);
+            Assert.IsNotNull(pond, "the pond must be present");
+            var bankMesh = FindChildMeshNamed(pond.transform, "LP_PondBank");
+            Assert.IsNotNull(bankMesh, "the pond must carry the bank ring mesh (LP_PondBank)");
+
+            // The bank's INNER ring sits at the water-lip Y (PondSurfaceY + 0.02). Collect those verts' radii and
+            // assert they spread (the bank inner edge follows the organic water rim, not a circle).
+            float minR = float.MaxValue, maxR = 0f;
+            foreach (var v in bankMesh.vertices)
+            {
+                float r = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+                if (r < 0.01f) continue;
+                if (r < minR) minR = r;
+                if (r > maxR) maxR = r;
+            }
+            Assert.Greater(maxR - minR, 0.10f,
+                "the pond bank ring must be ORGANIC too (its radii spread) so the grassy collar frames the " +
+                "lobed pool with no gap/poke-through — a circular bank around a lobed pool would leave gaps " +
+                "(shared LowPolyZoneGen.PondRimFactor; ticket 86cadj4g7)");
+        }
+
         [Test]
         public void BootScene_CarriesFreshwaterPondVerifyCapture_Serialized()
         {

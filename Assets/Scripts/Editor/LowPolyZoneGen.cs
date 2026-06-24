@@ -1268,16 +1268,55 @@ namespace FarHorizon.EditorTools
             return mat;
         }
 
+        // ===== ORGANIC POND OUTLINE (ticket 86cadj4g7, Sponsor 2026-06-24 "the pond should not be perfectly
+        // round"; memory pond-organic-not-round) =====================================================
+        // The pond outline must read ORGANIC — a natural blob / kidney / lily-pad lobe matching the organic
+        // island (memory world-is-big-round-island) — NOT a clean geometric circle. We perturb the per-vertex
+        // rim RADIUS by a smooth, low-frequency angular noise (a sum of a few sinusoids with irrational
+        // frequencies + fixed phases). Low frequency = soft LOBES (natural + slightly kidney-shaped), never
+        // jagged/spiky. The function is DETERMINISTIC (a pure function of the angle — no RNG) so the capture
+        // stays byte-stable (BuildPondWaterMesh_IsDeterministic guards this) and so the WATER disc and the
+        // grassy BANK ring share the SAME outline (both call this) — the bank keeps framing the water with no
+        // gap/poke-through. Amplitude is BOUNDED (±~18%): the pond sits on the FLAT spawn-plateau (r<16; the
+        // pond centre is at world (7,-3) ⇒ r≈7.6, max reach with bank ≈11.7 ≪ 16), so the rim stays within the
+        // flat zone and the WorldBootstrap.RegroundFreshwaterPond +0.10u clearance holds UNIFORMLY around the
+        // whole irregular rim — the rim can never dip below the terrain (⚠ -verifyPond samples frame-CENTRE
+        // only, so this whole-rim grounding is enforced here by construction, not by the gate). The bounded
+        // amplitude also keeps every rim vert at r > 0 (a positive radius) so the outline never self-crosses.
+        //
+        // PER-VERTEX MULTIPLIER in [1-AMP*..., 1+AMP*...]; the three terms give 3 + 2 + 1 = soft compound lobes
+        // around the ring without any single dominant axis (reads as a found natural pool, not an ellipse).
+        const float PondRimNoiseAmp = 0.18f;   // ±18% radius wobble — clearly organic, never spiky at this low freq
+        /// <summary>
+        /// Deterministic organic-rim radius multiplier for the pond outline at angle <paramref name="ang"/>
+        /// (radians). Shared by the water disc + the bank ring so they stay concentric/lobed together. Pure
+        /// function of the angle (no RNG) — byte-stable capture. Returns a factor near 1.0 (±~PondRimNoiseAmp),
+        /// always > 0, smoothly varying (low-frequency sinusoids → soft lobes, not jagged teeth).
+        /// </summary>
+        public static float PondRimFactor(float ang)
+        {
+            // Irrational-ish frequencies + fixed phases → a non-repeating soft blob over [0,2π). Weighted so the
+            // 3-lobe term dominates (the kidney/lily-pad read), the 5-lobe adds a gentle secondary wobble, the
+            // 2-lobe gives a slight overall elongation. Sum is bounded by the weight total (1.0) ⇒ factor in
+            // [1-AMP, 1+AMP]. Low max frequency (5) keeps adjacent rim verts close in radius → smooth, not spiky.
+            float n = 0.60f * Mathf.Sin(ang * 3f + 0.7f)
+                    + 0.25f * Mathf.Sin(ang * 5f + 2.3f)
+                    + 0.15f * Mathf.Sin(ang * 2f + 4.1f);
+            return 1f + PondRimNoiseAmp * n;
+        }
+
         /// <summary>
         /// Build the FRESHWATER POND water-surface mesh (ticket 86caamkv7 / Uma §1a): a flat faceted disc of
-        /// radius <paramref name="radius"/> with a bank(shallow)->centre(deep) vertex-colour gradient
+        /// nominal radius <paramref name="radius"/> with an ORGANIC/IRREGULAR rim (PondRimFactor — Sponsor "not
+        /// perfectly round", ticket 86cadj4g7) and a bank(shallow)->centre(deep) vertex-colour gradient
         /// (PondShallow -> PondDeep), faces UP (+Y) so the orbit camera above sees it (the same winding/cull
         /// contract the sea grid honours — a fan disc wound CCW-from-above is front-facing under URP Cull Back).
         /// NO static surf ring (a pond has no wave-break — the dynamic depth-fade foam at the bank is the whole
-        /// foam story, Uma §1c). UNWELDED flat facets so the low-poly faceting reads. Public so the scene
-        /// author (MovementCameraScene.BuildFreshwaterPond) + tests build it.
+        /// foam story, Uma §1c). UNWELDED flat facets so the low-poly faceting reads. More <paramref name="sides"/>
+        /// than the old circle (the lobes need enough segments to read smoothly faceted, not coarse). Public so
+        /// the scene author (MovementCameraScene.BuildFreshwaterPond) + tests build it.
         /// </summary>
-        public static Mesh BuildPondWaterMesh(float radius, int sides = 14)
+        public static Mesh BuildPondWaterMesh(float radius, int sides = 22)
         {
             sides = Mathf.Max(8, sides);
             var verts = new List<Vector3>();
@@ -1285,17 +1324,21 @@ namespace FarHorizon.EditorTools
             var normals = new List<Vector3>();
             var tris = new List<int>();
 
-            // A radial fan: a centre vert (deep) + a ring of rim verts (shallow). Each triangle is its own
-            // UNWELDED facet so the faceting reads (sibling of the sea's per-face emit). The gradient runs
-            // bank->centre: rim = PondShallow (the bright fresh bank water), centre = PondDeep (the cool blue
-            // pool depth) — the SAME depthT idiom the sea uses, keyed off distance-to-centre instead of coast.
+            // A radial fan: a centre vert (deep) + a ring of ORGANIC rim verts (shallow). Each triangle is its
+            // own UNWELDED facet so the faceting reads (sibling of the sea's per-face emit). The rim radius is
+            // perturbed by PondRimFactor (deterministic smooth noise) so the outline reads as a natural lobed
+            // blob, not a circle. The gradient runs bank->centre: rim = PondShallow (the bright fresh bank
+            // water), centre = PondDeep (the cool blue pool depth) — the SAME depthT idiom the sea uses, keyed
+            // off distance-to-centre instead of coast.
             for (int i = 0; i < sides; i++)
             {
                 float a0 = i / (float)sides * Mathf.PI * 2f;
                 float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
+                float r0r = radius * PondRimFactor(a0);                                // organic rim radius @ a0
+                float r1r = radius * PondRimFactor(a1);                                // organic rim radius @ a1
                 Vector3 c = Vector3.zero;                                              // centre (deep)
-                Vector3 r0 = new Vector3(Mathf.Cos(a0) * radius, 0f, Mathf.Sin(a0) * radius); // rim (shallow)
-                Vector3 r1 = new Vector3(Mathf.Cos(a1) * radius, 0f, Mathf.Sin(a1) * radius);
+                Vector3 r0 = new Vector3(Mathf.Cos(a0) * r0r, 0f, Mathf.Sin(a0) * r0r); // rim (shallow)
+                Vector3 r1 = new Vector3(Mathf.Cos(a1) * r1r, 0f, Mathf.Sin(a1) * r1r);
                 int bi = verts.Count;
                 // Wind centre -> r1 -> r0 so the geometric front (CCW from above) faces +Y (Cull Back keeps it).
                 verts.Add(c); verts.Add(r1); verts.Add(r0);

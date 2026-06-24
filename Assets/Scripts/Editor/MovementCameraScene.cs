@@ -1550,7 +1550,7 @@ namespace FarHorizon.EditorTools
             bank.transform.SetParent(pond.transform, false);
             bank.transform.localPosition = Vector3.zero;
             var bmf = bank.AddComponent<MeshFilter>();
-            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, PondSurfaceRadius + 0.9f, PondBankGrass);
+            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, 0.9f, PondBankGrass);
             var bmr = bank.AddComponent<MeshRenderer>();
             var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
             if (vc != null)
@@ -1623,9 +1623,14 @@ namespace FarHorizon.EditorTools
         // A thin flat grassy RING (the pond bank lip): two concentric rings of verts (inner = water edge,
         // outer = grass collar) wound to face +Y, faceted, vertex-colour green. Sibling of the BlobShadowDisc
         // fan but an annulus (the centre is open — the water disc fills it). Collider-free, serializes inline.
-        private static Mesh BuildPondBankRing(float innerR, float outerR, Color grass)
+        // ORGANIC (ticket 86cadj4g7): the inner edge tracks the ORGANIC water rim exactly (same nominal radius
+        // <paramref name="innerNominalR"/> × the SHARED LowPolyZoneGen.PondRimFactor), so the bank frames the
+        // lobed pool with NO gap / poke-through; the outer collar adds a CONSTANT <paramref name="collarWidth"/>
+        // band on top of the (already-lobed) inner radius so the grass collar stays a uniform width that follows
+        // the same lobes. sides matches BuildPondWaterMesh (22) so the bank lobes align with the water lobes.
+        private static Mesh BuildPondBankRing(float innerNominalR, float collarWidth, Color grass)
         {
-            const int sides = 16;
+            const int sides = 22; // align with BuildPondWaterMesh sides so the lobes register
             var verts = new System.Collections.Generic.List<Vector3>();
             var cols = new System.Collections.Generic.List<Color>();
             var normals = new System.Collections.Generic.List<Vector3>();
@@ -1636,10 +1641,15 @@ namespace FarHorizon.EditorTools
             {
                 float a0 = i / (float)sides * Mathf.PI * 2f;
                 float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
-                Vector3 i0 = new Vector3(Mathf.Cos(a0) * innerR, innerY, Mathf.Sin(a0) * innerR);
-                Vector3 i1 = new Vector3(Mathf.Cos(a1) * innerR, innerY, Mathf.Sin(a1) * innerR);
-                Vector3 o0 = new Vector3(Mathf.Cos(a0) * outerR, outerY, Mathf.Sin(a0) * outerR);
-                Vector3 o1 = new Vector3(Mathf.Cos(a1) * outerR, outerY, Mathf.Sin(a1) * outerR);
+                // SHARED organic rim factor (same function the water disc uses) → the bank inner edge == the
+                // water rim at every angle; the collar is a constant band outside it (so it lobes in parallel).
+                float ir0 = innerNominalR * LowPolyZoneGen.PondRimFactor(a0);
+                float ir1 = innerNominalR * LowPolyZoneGen.PondRimFactor(a1);
+                float or0 = ir0 + collarWidth, or1 = ir1 + collarWidth;
+                Vector3 i0 = new Vector3(Mathf.Cos(a0) * ir0, innerY, Mathf.Sin(a0) * ir0);
+                Vector3 i1 = new Vector3(Mathf.Cos(a1) * ir1, innerY, Mathf.Sin(a1) * ir1);
+                Vector3 o0 = new Vector3(Mathf.Cos(a0) * or0, outerY, Mathf.Sin(a0) * or0);
+                Vector3 o1 = new Vector3(Mathf.Cos(a1) * or1, outerY, Mathf.Sin(a1) * or1);
                 // Two faceted tris per segment, wound to face up (+Y) for Cull Back from the orbit camera above.
                 EmitBankTri(verts, cols, normals, tris, i0, o1, o0, grass);
                 EmitBankTri(verts, cols, normals, tris, i0, i1, o1, grass);
