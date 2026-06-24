@@ -246,10 +246,110 @@ namespace FarHorizon
                 tag++;
             }
 
+            // === 4th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
+            // The 3 frames above are gameplay-PITCH down-angle looks; up-vs-down is invisible from those (a mound
+            // and a hole both read "blue disc in green"). This 4th frame parks the camera at EYE LEVEL looking
+            // HORIZONTALLY across the pond so mound-vs-sunk is UNAMBIGUOUS — a mound bulges the water ABOVE the
+            // far-grass line, a true hole shows the water dipping BELOW it. Wired into -verifyPond (NOT a separate
+            // flag) so the CI pond gate produces + asserts it every run. Writes pond_side.png + SELF-ASSERTS the
+            // silhouette (water band sits below the surrounding-grass band) → Quit(1) on a mound.
+            bool sideSunk = false;
+            {
+                // Eye-level horizontal look ACROSS the pond from the front yaw. Camera ~waist-high above the water
+                // surface, pitched gently down (~4°) so BOTH the near rim and the FAR grass bank land in frame and
+                // the surrounding-grass HORIZON line crosses the upper frame. A recess reads as the water sitting
+                // BELOW that grass line; a mound bulges the water above it.
+                float sideEyePitch = 4f;     // near-horizontal eye-level look (dispatch: pitch ~0-5°)
+                float sideEyeDist = 7.0f;    // close enough the pool + both rims read big
+                float sideEyeHeight = 1.25f; // ~waist-high above the water surface (a low cross-look)
+                Quaternion sideRot = Quaternion.Euler(0f, 0f, 0f);
+                Vector3 sideBack = sideRot * new Vector3(0f, 0f, -sideEyeDist);
+                Vector3 sidePos = target + sideBack; sidePos.y = target.y + sideEyeHeight;
+                camGo.transform.position = sidePos;
+                camGo.transform.rotation = Quaternion.Euler(sideEyePitch, 0f, 0f);
+
+                for (int i = 0; i < settleFrames; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame side: pitch={sideEyePitch} dist={sideEyeDist} " +
+                          $"eyeH={sideEyeHeight} ACTUAL pos={cam.transform.position.ToString("F2")} " +
+                          $"fwd={cam.transform.forward.ToString("F2")}");
+
+                // Geometric mound-vs-sunk assert: compare the screen-Y of the WATER band against the SURROUNDING-
+                // GRASS band. In a near-horizontal cross-look the far grass-bank line sits in the UPPER frame; the
+                // fresh-blue water must read in a band BELOW it (sunk). If the dominant water row is at/above the
+                // grass line, it's a mound — fail loud.
+                sideSunk = CheckWaterBelowGrassLine(out float waterRowFrac, out float grassRowFrac, out float bMinusGw);
+                if (sideSunk)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] SIDE-PROFILE SUNK PASS: water band at yFrac={waterRowFrac:F3} " +
+                              $"sits BELOW grass line yFrac={grassRowFrac:F3} (B-G={bMinusGw:F3}) — a hole, not a mound");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] SIDE-PROFILE MOUND FAIL: water band yFrac={waterRowFrac:F3} " +
+                                   $"is NOT clearly below the grass line yFrac={grassRowFrac:F3} (B-G={bMinusGw:F3}) — " +
+                                   "the pond reads as a MOUND/flush from eye level (the #130 defect)");
+
+                string sideFile = Path.Combine(dir, "pond_side.png");
+                ScreenCapture.CaptureScreenshot(sideFile, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + sideFile);
+                yield return new WaitForEndOfFrame();
+                yield return null;
+            }
+
             yield return new WaitForSeconds(0.5f);
-            Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue + ") -> " + dir);
-            // Fail loud in the shipped build if the pond did not read fresh-blue + visible — the build-side gate.
-            Application.Quit(anyFreshBlue ? 0 : 1);
+            Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
+                      " sideSunk=" + sideSunk + ") -> " + dir);
+            // Fail loud in the shipped build if the pond did not read fresh-blue+visible OR reads as a mound from
+            // the eye-level side profile — both are build-side gates now (the #130 mound was metric-green nonsense).
+            Application.Quit(anyFreshBlue && sideSunk ? 0 : 1);
+        }
+
+        /// <summary>
+        /// SIDE-PROFILE mound-vs-sunk read (ticket 86cadj4g7 #130). From the eye-level horizontal cross-look,
+        /// find the vertical screen position of (a) the fresh-blue WATER band and (b) the SURROUNDING-GRASS line,
+        /// and return true iff the water band sits clearly BELOW the grass line (a sunk pool — a mound would push
+        /// the water at/above it). Scans column-averaged rows down the frame centre: the grass line is the
+        /// upper-frame green→blue transition; the water band is the row range whose dominant tone reads fresh-blue
+        /// (B > G). yFrac is 0 at the BOTTOM of the screen, 1 at the TOP (Unity ReadPixels origin is bottom-left),
+        /// so "below" = a SMALLER yFrac. Guards the PERCEPT (the silhouette), not a transform proxy.
+        /// </summary>
+        private bool CheckWaterBelowGrassLine(out float waterRowFrac, out float grassRowFrac, out float bMinusG)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            // Sample a central vertical strip (the camera looks straight across the pond, so the pool + the far
+            // grass bank stack vertically in the middle columns). Average each row across the strip.
+            int sx0 = (int)(w * 0.38f), sx1 = (int)(w * 0.62f);
+            float topWaterY = -1f;     // highest (largest-y) row that reads fresh-blue water
+            float botGrassY = -1f;     // lowest grass row sitting ABOVE a water row (the far bank line)
+            float waterBSum = 0f, waterGSum = 0f; int waterRows = 0;
+            // Walk rows bottom→top; track the band where water (B>G) gives way to grass (G>B) higher up.
+            int lastWaterRow = -1, firstGrassAboveWater = -1;
+            for (int y = (int)(h * 0.20f); y < (int)(h * 0.90f); y++)
+            {
+                double r = 0, g = 0, b = 0; int n = 0;
+                for (int x = sx0; x < sx1; x++) { Color c = tex.GetPixel(x, y); r += c.r; g += c.g; b += c.b; n++; }
+                if (n == 0) continue;
+                float gr = (float)(g / n), bl = (float)(b / n);
+                bool isWater = bl - gr > 0.03f;          // fresh-blue tell
+                bool isGrass = gr - bl > 0.03f;          // green
+                if (isWater) { lastWaterRow = y; waterBSum += bl; waterGSum += gr; waterRows++; }
+                else if (isGrass && lastWaterRow >= 0 && firstGrassAboveWater < 0) firstGrassAboveWater = y;
+            }
+            Object.Destroy(tex);
+
+            if (waterRows == 0) { waterRowFrac = -1f; grassRowFrac = -1f; bMinusG = 0f; return false; }
+            // Representative water row: the TOP of the water band (largest-y water row); grass line: the first
+            // grass row above the water. The pool is SUNK iff a grass band exists ABOVE the water (the far bank
+            // rises above the waterline). A mound has water at/above the grass — no grass row above it.
+            topWaterY = lastWaterRow;
+            botGrassY = firstGrassAboveWater >= 0 ? firstGrassAboveWater : -1f;
+            waterRowFrac = topWaterY / h;
+            grassRowFrac = botGrassY >= 0 ? botGrassY / h : -1f;
+            bMinusG = (waterBSum - waterGSum) / Mathf.Max(1, waterRows);
+            // Sunk: a grass line exists ABOVE the water top by a clear margin (the far bank rises above the pool).
+            return botGrassY >= 0 && (botGrassY - topWaterY) > h * 0.02f;
         }
 
         /// <summary>

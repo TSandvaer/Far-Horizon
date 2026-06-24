@@ -6,12 +6,16 @@
 # render was never gated, so the generic -captureGate (spawn-frame sanity only) never framed it).
 #
 # This launches the BUILT exe WINDOWED with -verifyPond, which drives FreshwaterPondVerifyCapture: it
-# frames the GAMEPLAY-pitch orbit camera onto the pond at three yaws, writes pond_a/b/c.png, and
-# SELF-ASSERTS the perceptual FRESH-BLUE read (centre B > G by a clear margin — the freshwater tell;
-# the sea's teal never passes) + VISIBLE (the disc differs from the sky/grass surround). The component
-# calls Application.Quit(1) if the pond is NOT fresh-blue/visible (or is missing from Boot.unity), so
-# the exe's exit code IS the gate verdict — this wrapper just launches it windowed and propagates that,
-# with a frame_check.py backstop on the PNGs (a real swapchain frame, not black/uniform/magenta).
+# frames the GAMEPLAY-pitch orbit camera onto the pond at three yaws (pond_a/b/c.png), THEN shoots a 4th
+# EYE-LEVEL SIDE-PROFILE frame looking horizontally across the pond (pond_side.png — ticket 86cadj4g7
+# #130 / lowpoly-quality.md §0: up-vs-down is invisible from the down-angle frames, obvious side-on). It
+# SELF-ASSERTS two PERCEPTS: (1) FRESH-BLUE — centre B > G by a clear margin (the freshwater tell; the
+# sea's teal never passes) + VISIBLE (the disc differs from the sky/grass surround), and (2) SIDE-PROFILE
+# SUNK — the water band sits BELOW the surrounding-grass line (a mound bulges it ABOVE; the #130 defect).
+# The component calls Application.Quit(1) if the pond is NOT fresh-blue/visible OR reads as a MOUND from
+# the side profile (or is missing from Boot.unity), so the exe's exit code IS the gate verdict — this
+# wrapper just launches it windowed and propagates that, with a frame_check.py backstop on the PNGs (a
+# real swapchain frame, not black/uniform/magenta).
 #
 # Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 / unity-conventions.md).
 # A wall-clock timeout fails a hung launch instead of blocking CI forever (mirrors capture_gate.sh).
@@ -65,16 +69,17 @@ if [ -f "$LOG_FILE" ]; then
   grep -F "[FreshwaterPondVerifyCapture]" "$LOG_FILE" | sed 's/^/[verify_pond]   /' || true
 fi
 
-# Check 1 — the exit code IS the gate (the component self-asserts FRESH-BLUE + visible, else Quit(1)).
-# A non-zero exe_rc means the pond did NOT read fresh-blue/visible in the shipped frame, or was missing.
+# Check 1 — the exit code IS the gate. The component self-asserts FRESH-BLUE + visible AND the eye-level
+# SIDE-PROFILE SUNK read (water below the grass line), else Quit(1). A non-zero exe_rc means the pond did
+# NOT read fresh-blue/visible OR reads as a MOUND from the side profile (the #130 defect), or was missing.
 exe_gate_rc=0
 if [ "$exe_rc" -ne 0 ]; then
-  echo "[verify_pond] FAILED — -verifyPond self-assert reported the pond is NOT fresh-blue/visible (exe_rc=$exe_rc)" >&2
+  echo "[verify_pond] FAILED — -verifyPond self-assert reported the pond is NOT fresh-blue/visible OR reads as a MOUND from the side profile (exe_rc=$exe_rc)" >&2
   exe_gate_rc=1
 fi
 
 # Check 2 — frame backstop: the pond frames must be real swapchain content (not black/uniform/magenta).
-# Three frames expected (pond_a/b/c); require >= 1 so a partial capture still gives signal.
+# Four frames expected now (pond_a/b/c + pond_side); require >= 1 so a partial capture still gives signal.
 set +e
 python3 "$HERE/frame_check.py" "$ABS_CAP" --min-frames 1
 frame_rc=$?
@@ -84,5 +89,5 @@ if [ "$exe_gate_rc" -ne 0 ] || [ "$frame_rc" -ne 0 ]; then
   echo "[verify_pond] POND CAPTURE GATE FAILED (exe_rc=$exe_rc frame_rc=$frame_rc)" >&2
   exit 1
 fi
-echo "[verify_pond] POND CAPTURE GATE PASSED — the freshwater pond reads fresh-blue + visible in the shipped build"
+echo "[verify_pond] POND CAPTURE GATE PASSED — the freshwater pond reads fresh-blue + visible AND sits SUNK below the grass line (eye-level side profile) in the shipped build"
 exit 0
