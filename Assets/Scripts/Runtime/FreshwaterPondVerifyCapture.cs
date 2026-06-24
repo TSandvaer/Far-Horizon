@@ -253,7 +253,7 @@ namespace FarHorizon
             // far-grass line, a true hole shows the water dipping BELOW it. Wired into -verifyPond (NOT a separate
             // flag) so the CI pond gate produces + asserts it every run. Writes pond_side.png + SELF-ASSERTS the
             // silhouette (water band sits below the surrounding-grass band) → Quit(1) on a mound.
-            bool sideSunk = false;
+            bool sideSunk = false, collarFlush = false, noShorelineFoam = false;
             {
                 // Eye-level horizontal look ACROSS the pond from the front yaw. Camera ~waist-high above the water
                 // surface, pitched gently down (~4°) so BOTH the near rim and the FAR grass bank land in frame and
@@ -288,6 +288,40 @@ namespace FarHorizon
                                    $"(need <0.62 = LOW) greenAbove={greenAboveFrac:F2} (need >0.45 = far bank above water) " +
                                    "— the pond does NOT read as a sunk hole from eye level (the #130 mound defect)");
 
+                // === NEW GATE A (ticket 86cadj4g7 #130 re-soak) — COLLAR FLUSH, NOT A RAISED BERM ==============
+                // The prior gate only proved water-below-bank; it MISSED the raised green collar/fade-rim casting a
+                // shadow. In the eye-level cross-look a raised berm encircling the pond reads as the GREEN band
+                // immediately around the water CRESTING ABOVE the far-surrounding-ground line (a bump on the
+                // horizon); a FLUSH collar reads as the green being LEVEL with (or below) the far ground — the
+                // ground just dips into the water hole with no bump. Sample the green collar-rim band's TOP screen-Y
+                // vs the far surrounding-ground band's screen-Y: the collar must NOT crest above the far ground.
+                collarFlush = CheckCollarFlushNotBerm(out float collarTopFrac, out float farGroundFrac);
+                if (collarFlush)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] COLLAR-FLUSH PASS: collar-rim top yFrac={collarTopFrac:F3} " +
+                              $"does NOT crest above the far surrounding ground yFrac={farGroundFrac:F3} — the green is " +
+                              "FLAT ground dipping into the hole, not a raised berm (the #130 re-soak shadow-lip).");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] COLLAR-BERM FAIL: collar-rim top yFrac={collarTopFrac:F3} " +
+                                   $"crests ABOVE the far surrounding ground yFrac={farGroundFrac:F3} (a raised green berm " +
+                                   "casting a shadow on its outer edge — the #130 re-soak elevated-collar defect).");
+
+                // === NEW GATE B (ticket 86cadj4g7 #130 re-soak) — NO WHITE FOAM RING when foam is OFF ===========
+                // The prior gate never checked foam. With FOAM:OFF the HUD said off but a razor white shoreline ring
+                // survived (foam=1 at the gap≈0 bank intersection). Sample the WATER↔BANK boundary band (the thin
+                // band just at/below the waterline where the foam ring would sit): with foam off it must read
+                // fresh-BLUE/dark, never a near-WHITE band. Only asserted when the pond ships foam OFF (the default).
+                bool foamOff = PondFoamIsOff();
+                noShorelineFoam = !foamOff || CheckNoShorelineFoamRing(out float boundaryWhiteFrac, out float boundaryLuma);
+                if (!foamOff)
+                    Debug.Log("[FreshwaterPondVerifyCapture] shoreline-foam gate SKIPPED — pond foam is not OFF (a soak dialed it up)");
+                else if (noShorelineFoam)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] NO-SHORELINE-FOAM PASS: water-bank boundary band is not " +
+                              "near-white — FOAM:OFF removed the shoreline ring (the #130 re-soak white-band defect).");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-FOAM FAIL: the water-bank boundary band reads " +
+                                   "near-WHITE while foam is OFF — a foam ring survived at the shoreline (the #130 re-soak " +
+                                   "white-band: _FoamDistance=0 left the gap≈0 razor line; the master _FoamAmount gate must zero it).");
+
                 string sideFile = Path.Combine(dir, "pond_side.png");
                 ScreenCapture.CaptureScreenshot(sideFile, 1);
                 Debug.Log("[FreshwaterPondVerifyCapture] wrote " + sideFile);
@@ -297,10 +331,13 @@ namespace FarHorizon
 
             yield return new WaitForSeconds(0.5f);
             Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
-                      " sideSunk=" + sideSunk + ") -> " + dir);
-            // Fail loud in the shipped build if the pond did not read fresh-blue+visible OR reads as a mound from
-            // the eye-level side profile — both are build-side gates now (the #130 mound was metric-green nonsense).
-            Application.Quit(anyFreshBlue && sideSunk ? 0 : 1);
+                      " sideSunk=" + sideSunk + " collarFlush=" + collarFlush + " noShorelineFoam=" + noShorelineFoam +
+                      ") -> " + dir);
+            // Fail loud in the shipped build on ANY of: not fresh-blue/visible, reads as a mound, the collar is a
+            // raised berm, or a white foam ring survives with foam off — all four are build-side gates now (the
+            // gate was widened in the #130 re-soak so a partial fix can't slip through; the prior gate only proved
+            // water-below-bank and missed both the berm and the shoreline foam).
+            Application.Quit(anyFreshBlue && sideSunk && collarFlush && noShorelineFoam ? 0 : 1);
         }
 
         /// <summary>
@@ -366,6 +403,145 @@ namespace FarHorizon
             bool waterIsLow = waterRowFrac < 0.62f;
             bool bankAbove = greenAboveFrac > 0.45f;
             return waterIsLow && bankAbove;
+        }
+
+        /// <summary>
+        /// COLLAR-FLUSH read (ticket 86cadj4g7 #130 re-soak — the raised-berm gate). In the eye-level cross-look a
+        /// raised green berm encircling the pond reads as the GREEN immediately around the water CRESTING ABOVE the
+        /// far surrounding-ground line; a FLUSH collar reads as the near green being LEVEL with (or below) the far
+        /// ground. Robust silhouette: find the largest fresh-BLUE run (the water band), take the GREEN band just
+        /// above its top (the near collar rim) and measure its TOP screen-Y; compare to the FAR surrounding-ground
+        /// green line higher up the frame. The collar is FLUSH iff its rim top does NOT crest ABOVE the far ground
+        /// (within a tolerance) — a berm pushes the near-green rim up into a bump above the far line. yFrac: 0
+        /// bottom, 1 top. Returns true when flush (no berm).
+        /// </summary>
+        private bool CheckCollarFlushNotBerm(out float collarTopFrac, out float farGroundFrac)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            int sx0 = (int)(w * 0.40f), sx1 = (int)(w * 0.60f);
+            int yLo = (int)(h * 0.10f), yHi = (int)(h * 0.80f);
+            var rowIsWater = new bool[h];
+            var rowIsGreen = new bool[h];
+            for (int y = yLo; y < yHi; y++)
+            {
+                double g = 0, b = 0; int n = 0;
+                for (int x = sx0; x < sx1; x++) { Color c = tex.GetPixel(x, y); g += c.g; b += c.b; n++; }
+                if (n == 0) continue;
+                float gr = (float)(g / n), bl = (float)(b / n);
+                rowIsWater[y] = bl - gr > 0.04f;
+                rowIsGreen[y] = gr - bl > 0.04f;
+            }
+            Object.Destroy(tex);
+
+            // Largest fresh-blue run = the water band.
+            int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+            for (int y = yLo; y < yHi; y++)
+            {
+                if (rowIsWater[y]) { if (curLen == 0) curStart = y; curLen++; if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } }
+                else curLen = 0;
+            }
+            if (bestLen <= 0) { collarTopFrac = -1f; farGroundFrac = -1f; return false; }
+            int waterTop = bestStart + bestLen - 1;
+
+            // The NEAR collar rim = the contiguous GREEN run directly above the water top (the bank around the pool).
+            int collarTop = waterTop;
+            for (int y = waterTop + 1; y < yHi; y++) { if (rowIsGreen[y]) collarTop = y; else break; }
+            collarTopFrac = (float)collarTop / h;
+
+            // The FAR surrounding ground = the next GREEN run higher up (above any gap), the distant grass line.
+            int farLo = collarTop + 1;
+            // skip any non-green gap (e.g. a sky sliver between the near rim and the far ground)
+            while (farLo < yHi && !rowIsGreen[farLo]) farLo++;
+            int farGround = farLo < yHi ? farLo : collarTop;
+            // take the TOP of that far-ground green run
+            for (int y = farLo; y < yHi; y++) { if (rowIsGreen[y]) farGround = y; else break; }
+            farGroundFrac = (float)farGround / h;
+
+            // FLUSH iff the near collar rim does NOT crest ABOVE the far ground line by more than a tolerance.
+            // A raised berm pushes the near rim UP (higher yFrac) so it sits clearly above the far ground; a flush
+            // collar sits at or below it. Tolerance allows for the perspective foreshortening of the near rim.
+            const float bermTol = 0.06f; // the near rim may sit a touch higher from perspective; a real berm exceeds this
+            return collarTopFrac <= farGroundFrac + bermTol;
+        }
+
+        /// <summary>
+        /// NO-SHORELINE-FOAM read (ticket 86cadj4g7 #130 re-soak — the FOAM:OFF white-ring gate). With foam off the
+        /// thin band at the WATER↔BANK boundary (just at/below the waterline, where a depth-fade foam ring would
+        /// sit) must NOT read near-WHITE. Find the largest fresh-blue water run; sample the boundary band straddling
+        /// its TOP edge (the shoreline) and measure the fraction of near-white pixels + the mean luma. Returns true
+        /// when the boundary is NOT a near-white ring (foam genuinely off). A surviving razor foam line pushes the
+        /// boundary band bright + desaturated → fails.
+        /// </summary>
+        private bool CheckNoShorelineFoamRing(out float boundaryWhiteFrac, out float boundaryLuma)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            int sx0 = (int)(w * 0.34f), sx1 = (int)(w * 0.66f);
+            int yLo = (int)(h * 0.10f), yHi = (int)(h * 0.80f);
+            var rowIsWater = new bool[h];
+            for (int y = yLo; y < yHi; y++)
+            {
+                double g = 0, b = 0; int n = 0;
+                for (int x = sx0; x < sx1; x++) { Color c = tex.GetPixel(x, y); g += c.g; b += c.b; n++; }
+                if (n == 0) continue;
+                rowIsWater[y] = (float)(b / n) - (float)(g / n) > 0.04f;
+            }
+
+            int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+            for (int y = yLo; y < yHi; y++)
+            {
+                if (rowIsWater[y]) { if (curLen == 0) curStart = y; curLen++; if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } }
+                else curLen = 0;
+            }
+            if (bestLen <= 0) { Object.Destroy(tex); boundaryWhiteFrac = -1f; boundaryLuma = -1f; return false; }
+            int waterTop = bestStart + bestLen - 1;
+
+            // The boundary band straddles the shoreline (a few rows around the water-band top edge). Count near-white
+            // pixels: high luma AND low saturation (R≈G≈B, all bright) — the foam tell. Fresh-blue water (B>G) and
+            // green bank (G>B) are NOT near-white, so a clean shoreline scores ~0.
+            int bandHalf = Mathf.Max(2, (int)(h * 0.015f)); // ~3% of frame height across the shoreline
+            int y0 = Mathf.Max(yLo, waterTop - bandHalf), y1 = Mathf.Min(yHi, waterTop + bandHalf);
+            int white = 0, total = 0; double lumaSum = 0;
+            for (int y = y0; y < y1; y++)
+            for (int x = sx0; x < sx1; x++)
+            {
+                Color c = tex.GetPixel(x, y);
+                float maxc = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                float minc = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                lumaSum += luma;
+                if (luma > 0.72f && (maxc - minc) < 0.10f) white++; // bright + near-neutral = foam white
+                total++;
+            }
+            Object.Destroy(tex);
+            boundaryWhiteFrac = total > 0 ? (float)white / total : 0f;
+            boundaryLuma = total > 0 ? (float)(lumaSum / total) : 0f;
+
+            // NO foam ring iff few near-white pixels in the shoreline band. A surviving razor foam line lights up a
+            // clear fraction of the boundary; a clean off-foam shoreline reads blue-into-green with ~0 white.
+            return boundaryWhiteFrac < 0.12f;
+        }
+
+        /// <summary>Whether the pond ships foam OFF (the default the shoreline-foam gate asserts against). Reads the
+        /// pond water material's _FoamAmount master gate (== 0 → off) with a _FoamDistance fallback for safety. A
+        /// soak that dialed foam up (PondNudge Home/End) sets _FoamAmount=1 → the gate skips (foam is expected).</summary>
+        private bool PondFoamIsOff()
+        {
+            var pond = Object.FindAnyObjectByType<FreshwaterPond>();
+            var waterT = pond != null ? pond.transform.Find("PondWater") : null;
+            var mr = waterT != null ? waterT.GetComponent<MeshRenderer>() : null;
+            var mat = mr != null ? mr.material : null;
+            if (mat == null) return true; // no material → no foam to worry about (assert vacuously)
+            if (mat.HasProperty("_FoamAmount")) return mat.GetFloat("_FoamAmount") <= 0.0001f;
+            if (mat.HasProperty("_FoamDistance")) return mat.GetFloat("_FoamDistance") <= 0.0001f;
+            return true; // URP/Lit fallback pond has no foam path
         }
 
         /// <summary>

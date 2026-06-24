@@ -331,6 +331,47 @@ namespace FarHorizon.EditTests
                 "side — not flush/borderline (a borderline rim still reads as a flush lens on the soak).");
         }
 
+        // === NEW (ticket 86cadj4g7 #130 re-soak) — the COLLAR is FLUSH, not a raised berm =====================
+        // The #130 re-soak defect: the green collar/bank ring sat ABOVE the surrounding grass as a raised berm
+        // casting a shadow on its outer edge. ROOT (diagnose-via-trace, seed-42 numeric): PondHillFlatten levelled
+        // the pond footprint hill to ZERO, so the bowl-mouth ground sat at baseH=0.15 while the surrounding hilly
+        // grass sits ~0.40 — the fade collar (4.8->7.8u) RAMPED UP 0.15->0.44, a raised rim. FIX: level the
+        // footprint toward FootprintHillLevel (the LOCAL surrounding hill), so the mouth plateau sits AT the local
+        // ground and the fade band is nearly flat (no rising rim). This guards the bug CLASS: sample the terrain
+        // height at the bowl-MOUTH (the collar outer edge pins here) vs the FAR surrounding ground (well past the
+        // fade collar) on MANY azimuths; the mouth must be ~LEVEL with the far ground (a small dip is fine — the
+        // ground dipping into the hole — but the mouth must NOT sit ABOVE the far ground = the berm). A regression
+        // that re-levels the footprint to a fixed plateau below the local hills (re-introducing the rising rim)
+        // reds HERE. Pure-function check (HeightAtRadial is the single source of truth the collar pins to).
+        [Test]
+        public void PondCollar_MouthGroundFlushWithSurroundingTerrain_NotARaisedBerm_OnEveryAzimuth()
+        {
+            LowPolyZoneGen.SeedOffset(LowPolyZoneGen.IslandSeed, out float ox, out float oz);
+            float cx = LowPolyZoneGen.PondCenterX, cz = LowPolyZoneGen.PondCenterZ;
+
+            // The bowl MOUTH ground (where the collar outer edge pins, flatten≈0) vs the FAR surrounding ground
+            // (well beyond the fade collar, flatten=1 — the real local hills). The collar reads as a raised berm
+            // iff the mouth ground sits ABOVE the far ground (the green crests above the surrounding grass).
+            float mouthR = LowPolyZoneGen.PondBowlOuterRadius;                                   // 4.8 — collar outer edge
+            float farR   = LowPolyZoneGen.PondBowlOuterRadius + LowPolyZoneGen.PondRimFlattenFade + 1.5f; // ~9.3 — undisturbed local ground
+            float worstBerm = float.MinValue; float worstAz = 0f;
+            int flush = 0;
+            for (int deg = 0; deg < 360; deg += 5)
+            {
+                float a = deg * Mathf.Deg2Rad;
+                float mouthH = LowPolyZoneGen.HeightAtRadial(cx + Mathf.Cos(a) * mouthR, cz + Mathf.Sin(a) * mouthR, ox, oz);
+                float farH   = LowPolyZoneGen.HeightAtRadial(cx + Mathf.Cos(a) * farR,   cz + Mathf.Sin(a) * farR,   ox, oz);
+                float berm = mouthH - farH;     // > 0 means the collar-edge ground rises above the surrounding grass (a berm)
+                if (berm > worstBerm) { worstBerm = berm; worstAz = deg; }
+                if (berm <= 0.10f) flush++;     // the mouth is at/below the far ground (flush) within a 0.10u tolerance
+            }
+            Assert.AreEqual(72, flush,
+                $"the collar-edge (bowl-mouth) ground must be FLUSH with — not a raised berm above — the surrounding " +
+                $"terrain on ALL 72 azimuths. The WORST azimuth was {worstAz:F0}° with the mouth {worstBerm:F3}u ABOVE " +
+                $"the far ground (>0.10u = a raised green rim casting a shadow, the #130 re-soak defect). Cause-fix: " +
+                "FootprintHillLevel must level the footprint to the LOCAL hill, not to a fixed sub-hill plateau.");
+        }
+
         // === NEW (ticket 86cadj4g7 #130) — the rim-hill flatten is a LOCAL no-op outside its collar ===========
         // PondHillFlatten suppresses the hills inside the pond footprint to kill the azimuthal mound. It MUST be
         // a strict no-op (weight == 1) beyond PondBowlOuterRadius + PondRimFlattenFade so the seed-42 island
@@ -531,6 +572,24 @@ namespace FarHorizon.EditTests
                 $"the pond must ship FOAM OFF by default (_FoamDistance {foamDistance:F3} must == " +
                 $"PondFoamOff {LowPolyZoneGen.PondFoamOff:F3}) — Sponsor #130: 'the pond should not foam like the " +
                 "sea; the freshwater pond must be STILL'. The live PondNudge [foam] handle dials it up for A/B.");
+
+            // === #130 re-soak: the MASTER _FoamAmount gate must be 0 (the real OFF switch) ====================
+            // _FoamDistance=0 alone leaves a razor white shoreline line at the gap≈0 bank intersection (foam=1
+            // there). The master _FoamAmount==0 zeroes the WHOLE foam term incl. that ring — THIS is what removes
+            // the shoreline foam the Sponsor still saw with FOAM:OFF. A revert that dropped the gate (or set it 1)
+            // reds here. (The sea never sets _FoamAmount → defaults to 1 → keeps its foam; this is pond-only.)
+            if (mat.HasProperty("_FoamAmount"))
+                Assert.AreEqual(LowPolyZoneGen.PondFoamAmountOff, mat.GetFloat("_FoamAmount"), 1e-4f,
+                    $"the pond must ship the master _FoamAmount gate OFF ({mat.GetFloat("_FoamAmount"):F3} must == " +
+                    $"PondFoamAmountOff {LowPolyZoneGen.PondFoamAmountOff:F3}) — _FoamDistance=0 alone leaves the " +
+                    "gap≈0 shoreline razor foam line; the master gate is what zeroes the whole foam term (#130 re-soak).");
+            // The step->amount mapping the live nudge + bake share: off->0, light/sea-like->1.
+            Assert.AreEqual(0f, LowPolyZoneGen.PondFoamAmountFor(LowPolyZoneGen.PondFoamOff), 1e-4f,
+                "PondFoamAmountFor(off) must be 0 (master OFF)");
+            Assert.AreEqual(1f, LowPolyZoneGen.PondFoamAmountFor(LowPolyZoneGen.PondFoamLight), 1e-4f,
+                "PondFoamAmountFor(light) must be 1 (foam on, width per _FoamDistance)");
+            Assert.AreEqual(1f, LowPolyZoneGen.PondFoamAmountFor(LowPolyZoneGen.PondFoamSeaLike), 1e-4f,
+                "PondFoamAmountFor(sea-like) must be 1 (foam on, width per _FoamDistance)");
 
             // The actual water→terrain gap (the clearance the re-ground established) — even if a soak dials foam
             // up to LIGHT (0.06), this gap must dwarf it so the open disc never floods (only the bank band foams).
