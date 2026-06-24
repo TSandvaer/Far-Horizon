@@ -1,5 +1,7 @@
 # Need-Meter HUD — Three-Bar Direction (warmth + hunger + thirst)
 
+> **⚠ SUPERSEDED (for implementation) by [`hud-three-bar-spec.md`](hud-three-bar-spec.md)** — the reconciled implement-to spec for `86caamkxv`. That doc aligns to the SHIPPED build (hunger `#8CB85C`, thirst `#3E8FC4`+droplet) and wins where they differ (this doc's hunger value diverges). Kept for the design rationale / tonal exploration; do not implement from it.
+
 **Ticket:** `86caamkxv` (3-bar need HUD) — this doc is the DESIGN INPUT the ticket implements. **Owner:** Uma (direction) → Devon (HUD wiring) · **Reviewer:** Drew
 **Depends on (runtime read surfaces):** `86caamkp8` (HUNGER need) · `86caamkv7` (THIRST need) — both expose the SAME surface as `WarmthNeed` (`Current01`/`Max`/`IsCritical`/`Changed`).
 **Status:** DIRECTION — docs only, no implementation here. Devon generalizes the existing `SurvivalHud.cs` to N bars per this spec; he does NOT rebuild from scratch (ticket instruction).
