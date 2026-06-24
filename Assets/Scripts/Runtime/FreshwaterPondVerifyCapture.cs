@@ -196,6 +196,12 @@ namespace FarHorizon
                 Debug.Log($"[pond-cam-roster] '{c.name}' enabled={c.enabled} depth={c.depth} " +
                           $"isMain={(c == Camera.main)} tag={c.tag}");
 
+            // GROUND-TRUTH MATERIAL TRACE (ticket 86cadj4g7 #130 third re-soak — instrument the REAL render, do
+            // NOT trust a gate per [[verify-soak-builds-or-bake-and-judge]] + [[soak-fail-test-pass-instrument-runtime]]).
+            // Dump EVERY float/colour on the LIVE pond water + bank materials AS SHIPPED so the white-band root is
+            // read from ground truth, not the editor asset (which CI regenerates — the committed asset can be stale).
+            DumpPondMaterials(pond);
+
             for (int i = 0; i < warmupFrames; i++) yield return null;
 
             char tag = 'a';
@@ -246,7 +252,53 @@ namespace FarHorizon
                 tag++;
             }
 
-            // === 4th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
+            // === TOP-DOWN frame — THE SURFACE-FOAM BLIND-SPOT FIX (ticket 86cadj4g7 #130 THIRD re-soak) =========
+            // The 3 gameplay-pitch frames + the eye-level side profile are ALL near-horizontal/down-angle looks
+            // that are PHYSICALLY BLIND to foam/lightening on the WATER SURFACE: a broad white band lying flat on
+            // the water shows from ABOVE (the Sponsor's 3-4 orbit cam / a top-down look) but is invisible EDGE-ON.
+            // That blind spot is exactly why two prior foam removals "passed" the side-profile gate while the
+            // Sponsor still saw white from above. This frame parks the camera DIRECTLY OVERHEAD looking straight
+            // DOWN at the pond and SELF-ASSERTS no near-white on the water surface (CheckNoSurfaceWhite). Writes
+            // pond_top.png — the capture the human eyeball judges for "white GONE" (the dispatch verify gate).
+            bool topNoWhite = false;
+            {
+                Vector3 topTarget = pond.transform.position;
+                var topWaterT = pond.transform.Find("PondWater");
+                if (topWaterT != null) topTarget = topWaterT.position;
+                // Straight overhead, looking down -Y. Close enough the pond disc fills the frame so the surface
+                // (not the surrounding grass) dominates the central sample — the broad white band lives there.
+                float topHeight = 6.0f;
+                camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
+                camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // look straight down
+                cam.fieldOfView = 40f;
+
+                for (int i = 0; i < settleFrames; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame top: height={topHeight} ACTUAL pos=" +
+                          $"{cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")}");
+
+                // TOP-DOWN no-surface-white assert (the blind-spot fix). The pond disc fills the frame centre;
+                // count near-white pixels (bright + near-neutral) over the central water region. A clean still
+                // pool reads fresh-blue with ~0 white; a surface foam/lightening band lights up a clear fraction.
+                topNoWhite = CheckNoSurfaceWhite(out float surfaceWhiteFrac, out float surfaceLuma);
+                if (topNoWhite)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] TOP-DOWN NO-SURFACE-WHITE PASS: pond surface white " +
+                              $"fraction={surfaceWhiteFrac:F3} (luma={surfaceLuma:F3}) — the water reads fresh-blue " +
+                              "from overhead, NO broad white band on the surface (the #130 third re-soak defect gone).");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] TOP-DOWN SURFACE-WHITE FAIL: pond surface white " +
+                                   $"fraction={surfaceWhiteFrac:F3} (luma={surfaceLuma:F3}) reads near-WHITE from " +
+                                   "overhead — a broad white band still renders on the water surface (the #130 third " +
+                                   "re-soak: the side-profile gate is BLIND to surface foam; this top-down gate catches it).");
+
+                string topFile = Path.Combine(dir, "pond_top.png");
+                ScreenCapture.CaptureScreenshot(topFile, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + topFile);
+                yield return new WaitForEndOfFrame();
+                yield return null;
+            }
+
+            // === 5th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
             // The 3 frames above are gameplay-PITCH down-angle looks; up-vs-down is invisible from those (a mound
             // and a hole both read "blue disc in green"). This 4th frame parks the camera at EYE LEVEL looking
             // HORIZONTALLY across the pond so mound-vs-sunk is UNAMBIGUOUS — a mound bulges the water ABOVE the
@@ -331,13 +383,85 @@ namespace FarHorizon
 
             yield return new WaitForSeconds(0.5f);
             Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
-                      " sideSunk=" + sideSunk + " collarFlush=" + collarFlush + " noShorelineFoam=" + noShorelineFoam +
-                      ") -> " + dir);
-            // Fail loud in the shipped build on ANY of: not fresh-blue/visible, reads as a mound, the collar is a
-            // raised berm, or a white foam ring survives with foam off — all four are build-side gates now (the
-            // gate was widened in the #130 re-soak so a partial fix can't slip through; the prior gate only proved
-            // water-below-bank and missed both the berm and the shoreline foam).
-            Application.Quit(anyFreshBlue && sideSunk && collarFlush && noShorelineFoam ? 0 : 1);
+                      " topNoWhite=" + topNoWhite + " sideSunk=" + sideSunk + " collarFlush=" + collarFlush +
+                      " noShorelineFoam=" + noShorelineFoam + ") -> " + dir);
+            // Fail loud in the shipped build on ANY of: not fresh-blue/visible, a broad white band on the water
+            // SURFACE from overhead (the #130 THIRD re-soak — the side-profile gate is blind to surface foam),
+            // reads as a mound, the collar is a raised berm, or a white shoreline foam ring survives. Five
+            // build-side gates now — the TOP-DOWN no-surface-white gate is the load-bearing addition this round
+            // (the eye-level side-profile is physically blind to flat-on-the-water foam; only an overhead sample
+            // catches the band the Sponsor saw from his 3-4 cam).
+            Application.Quit(anyFreshBlue && topNoWhite && sideSunk && collarFlush && noShorelineFoam ? 0 : 1);
+        }
+
+        /// <summary>
+        /// GROUND-TRUTH material trace (ticket 86cadj4g7 #130 third re-soak). Dumps every float + colour property
+        /// on the LIVE pond water material (and the bank) AS SHIPPED, so the white-band root is read from the
+        /// actual rendered material, not the committed editor asset (CI regenerates the asset at bootstrap — the
+        /// committed .mat can be stale). Names the foam terms explicitly so the log line says which term is hot.
+        /// </summary>
+        private void DumpPondMaterials(FreshwaterPond pond)
+        {
+            var waterT = pond.transform.Find("PondWater");
+            var wmr = waterT != null ? waterT.GetComponent<MeshRenderer>() : null;
+            var wmat = wmr != null ? wmr.material : null;
+            if (wmat != null)
+            {
+                string shaderName = wmat.shader != null ? wmat.shader.name : "<null>";
+                string foamDist = wmat.HasProperty("_FoamDistance") ? wmat.GetFloat("_FoamDistance").ToString("F3") : "n/a";
+                string foamAmt  = wmat.HasProperty("_FoamAmount")   ? wmat.GetFloat("_FoamAmount").ToString("F3")   : "n/a";
+                string foamCol  = wmat.HasProperty("_FoamColor")    ? wmat.GetColor("_FoamColor").ToString("F2")    : "n/a";
+                string waterAlpha = wmat.HasProperty("_WaterAlpha") ? wmat.GetFloat("_WaterAlpha").ToString("F3")   : "n/a";
+                string tint     = wmat.HasProperty("_Tint")         ? wmat.GetColor("_Tint").ToString("F2")         : "n/a";
+                string fogCap   = wmat.HasProperty("_FogCap")       ? wmat.GetFloat("_FogCap").ToString("F3")       : "n/a";
+                Debug.Log($"[pond-mat-trace] PondWater shader='{shaderName}' _FoamDistance={foamDist} " +
+                          $"_FoamAmount={foamAmt} _FoamColor={foamCol} _WaterAlpha={waterAlpha} _Tint={tint} _FogCap={fogCap}");
+            }
+            else
+            {
+                Debug.Log("[pond-mat-trace] PondWater material is null (no MeshRenderer/material resolved)");
+            }
+        }
+
+        /// <summary>
+        /// TOP-DOWN no-surface-white read (ticket 86cadj4g7 #130 THIRD re-soak — the blind-spot fix). From the
+        /// straight-overhead look, a broad white band lying FLAT on the water surface fills the central frame; a
+        /// clean still fresh-blue pool reads ~0 near-white. Sample a central box (the pond disc fills the frame
+        /// when overhead) and measure the fraction of near-white pixels (high luma AND near-neutral R≈G≈B — the
+        /// foam/lightening tell) + mean luma. Fresh-blue (B>G) and green bank (G>B) are NOT near-white, so a
+        /// clean surface scores ~0. Returns true when the surface is NOT a near-white band. THE eye-level side
+        /// profile is physically blind to this — only an overhead sample catches it (the dispatch verify gate).
+        /// </summary>
+        private bool CheckNoSurfaceWhite(out float surfaceWhiteFrac, out float surfaceLuma)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            // Central box — overhead the pond disc fills the frame centre, so this samples the WATER SURFACE
+            // (not the surrounding grass). A broad white surface band lives squarely here.
+            int cx0 = (int)(w * 0.34f), cx1 = (int)(w * 0.66f);
+            int cy0 = (int)(h * 0.34f), cy1 = (int)(h * 0.66f);
+            int white = 0, total = 0; double lumaSum = 0;
+            for (int y = cy0; y < cy1; y++)
+            for (int x = cx0; x < cx1; x++)
+            {
+                Color c = tex.GetPixel(x, y);
+                float maxc = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                float minc = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                lumaSum += luma;
+                if (luma > 0.72f && (maxc - minc) < 0.10f) white++; // bright + near-neutral = foam/white-band tell
+                total++;
+            }
+            Object.Destroy(tex);
+            surfaceWhiteFrac = total > 0 ? (float)white / total : 0f;
+            surfaceLuma = total > 0 ? (float)(lumaSum / total) : 0f;
+
+            // NO surface white iff few near-white pixels over the central water region. A surviving broad band
+            // lights up a clear fraction; a clean fresh-blue still pool reads ~0.
+            return surfaceWhiteFrac < 0.12f;
         }
 
         /// <summary>
