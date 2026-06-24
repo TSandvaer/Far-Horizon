@@ -1577,11 +1577,14 @@ namespace FarHorizon.EditorTools
             for (int i = 0; i < 5; i++)
             {
                 float a = i / 5f * Mathf.PI * 2f + 0.4f;
-                float rr = PondSurfaceRadius + 0.7f;
+                // Place the decorative tufts on the DRY bowl RIM — just inside PondBowlOuterRadius, OUTSIDE the
+                // waterline (~4.0u) — so they sit on grass ABOVE the water, not submerged on the wet wall
+                // (ticket 86cadj4g7 #130: the recessed bowl moved the waterline out; keep the accents dry).
+                float rr = LowPolyZoneGen.PondBowlOuterRadius - 0.3f;
                 var tuft = new GameObject("BankTuft" + i);
                 tuft.transform.SetParent(pond.transform, false);
-                // Nestle the tuft ON the carved bowl wall at its radius (NOT the old flat y=0, which after the
-                // bowl drop would float at the water-surface plane above the sloping wall — ticket 86cadj4g7).
+                // Nestle the tuft ON the carved bowl rim at its radius (NOT the old flat y=0, which after the
+                // bowl drop would float above the sloping wall — ticket 86cadj4g7).
                 tuft.transform.localPosition = new Vector3(Mathf.Cos(a) * rr, CollarOuterLocalY(rr), Mathf.Sin(a) * rr);
                 var tmf = tuft.AddComponent<MeshFilter>();
                 tmf.sharedMesh = LowPolyMeshes.GrassClump(0.6f, 5, 86010 + i);
@@ -1594,12 +1597,14 @@ namespace FarHorizon.EditorTools
                 // flat-colour URP/Lit path; here we keep the vertex-colour shader + supply the green via _Tint.)
                 if (vc != null) { var m = new Material(vc) { name = "BankTuftMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", PondBankGrass); tmr.sharedMaterial = m; }
             }
-            // One small rock nestled on the near bank — sit it ON the carved bowl wall at its radius (not the
-            // old flat y=0; the bowl drop would otherwise float it above the sloping wall — ticket 86cadj4g7).
+            // One small rock nestled on the DRY bowl rim (just inside PondBowlOuterRadius, outside the waterline)
+            // — sit it ON the carved bowl rim at its radius (not the old flat y=0; the bowl drop would otherwise
+            // float it above the sloping wall, or submerge it on the wet wall if too close in — ticket 86cadj4g7).
             var rock = new GameObject("BankRock");
             rock.transform.SetParent(pond.transform, false);
-            float rockX = -(PondSurfaceRadius + 0.5f), rockZ = 0.6f;
-            float rockRad = Mathf.Sqrt(rockX * rockX + rockZ * rockZ);
+            float rockRad = LowPolyZoneGen.PondBowlOuterRadius - 0.3f;
+            float rockAng = Mathf.Atan2(0.6f, -(PondSurfaceRadius + 0.5f)); // keep the original near-bank direction
+            float rockX = Mathf.Cos(rockAng) * rockRad, rockZ = Mathf.Sin(rockAng) * rockRad;
             rock.transform.localPosition = new Vector3(rockX, CollarOuterLocalY(rockRad), rockZ);
             var rmf = rock.AddComponent<MeshFilter>();
             rmf.sharedMesh = LowPolyMeshes.FacetedRock(0.55f, 0.35f, 86020);

@@ -162,5 +162,77 @@ namespace FarHorizon.EditTests
                 $"every tree must still sit on the warped landmass — {offLand}/{trees.Length} are past the coast " +
                 "(the lean/height change must not move the plant point)");
         }
+
+        // ---- GRASS-IN-STONE FIX (ticket 86cadj4g7, Sponsor #130 soak) ----
+
+        // The reject SEAM, unit-tested directly (the bug CLASS, not just the instance): grass inside a boulder's
+        // footprint (+ pad) is rejected; grass clear of every rock is accepted. Drives OverlapsAnyRock with a
+        // synthetic rock list so the predicate is pinned regardless of the seeded scatter outcome.
+        [Test]
+        public void OverlapsAnyRock_RejectsGrassInsideABoulder_AcceptsGrassClear()
+        {
+            var rocks = new System.Collections.Generic.List<Vector4>
+            {
+                new Vector4(10f, 5f, LowPolyZoneGen.RockFootprintRadius * 1.0f, 0f), // a unit-scale rock at (10,5)
+                new Vector4(-20f, 30f, LowPolyZoneGen.RockFootprintRadius * 1.5f, 0f),
+            };
+
+            // DEAD CENTRE of the first rock — must be rejected (grass would sprout through the stone).
+            Assert.IsTrue(LowPolyZoneGen.OverlapsAnyRock(rocks, 10f, 5f),
+                "grass at a boulder's centre must be REJECTED (no grass through a stone — the #130 defect)");
+            // Just inside the footprint + pad — still rejected.
+            float justInside = LowPolyZoneGen.RockFootprintRadius * 1.0f + LowPolyZoneGen.GrassRockPad - 0.05f;
+            Assert.IsTrue(LowPolyZoneGen.OverlapsAnyRock(rocks, 10f + justInside, 5f),
+                "grass just inside the footprint + pad must be REJECTED");
+            // Clear of every rock — accepted.
+            Assert.IsFalse(LowPolyZoneGen.OverlapsAnyRock(rocks, 0f, 0f),
+                "grass well clear of every boulder must be ACCEPTED (the fix must not reject open ground)");
+            // Just OUTSIDE the footprint + pad — accepted (the reject is tight, not a wide exclusion zone).
+            float justOutside = LowPolyZoneGen.RockFootprintRadius * 1.0f + LowPolyZoneGen.GrassRockPad + 0.1f;
+            Assert.IsFalse(LowPolyZoneGen.OverlapsAnyRock(rocks, 10f + justOutside, 5f),
+                "grass just past the footprint + pad must be ACCEPTED (a tight reject, not over-exclusion)");
+        }
+
+        // END-TO-END in the shipped scene: NO scattered grass clump sits inside a scattered rock's footprint
+        // (the actual #130 percept — grass through a stone). Pair the geometric seam test above. Match the
+        // rock footprint = RockFootprintRadius × the rock's lossy XZ scale (BuildRock applies a uniform scale).
+        [Test]
+        public void ShippedScene_NoGrassClump_SitsInsideARock_Pad()
+        {
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+
+            var roots = EditorSceneManager.GetActiveScene().GetRootGameObjects();
+            var rocks = new System.Collections.Generic.List<(Vector3 pos, float radius)>();
+            var grass = new System.Collections.Generic.List<Vector3>();
+            foreach (var root in roots)
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name == "LP_Rock")
+                {
+                    float s = Mathf.Max(t.lossyScale.x, t.lossyScale.z);
+                    rocks.Add((t.position, LowPolyZoneGen.RockFootprintRadius * s));
+                }
+                else if (t.name == "LP_GrassClump")
+                {
+                    grass.Add(t.position);
+                }
+            }
+            Assert.Greater(rocks.Count, 0, "the shipped scene must carry scattered rocks (LP_Rock)");
+            Assert.Greater(grass.Count, 0, "the shipped scene must carry scattered grass clumps (LP_GrassClump)");
+
+            int inside = 0;
+            foreach (var g in grass)
+                foreach (var (pos, radius) in rocks)
+                {
+                    float dx = g.x - pos.x, dz = g.z - pos.z;
+                    // The clump CENTRE must clear the rock footprint (allow the bare radius, no pad, so a
+                    // tuft just grazing the edge isn't flagged — the defect is grass squarely INSIDE a stone).
+                    if (dx * dx + dz * dz < radius * radius) { inside++; break; }
+                }
+            Assert.AreEqual(0, inside,
+                $"NO grass clump may sit inside a boulder — {inside}/{grass.Count} clumps are inside a rock " +
+                "footprint (grass sprouting through a stone, the #130 defect; ScatterIslandProps.OverlapsAnyRock " +
+                "must reject these).");
+        }
     }
 }

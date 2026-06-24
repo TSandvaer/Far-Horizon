@@ -258,21 +258,24 @@ namespace FarHorizon.EditorTools
         // centred here so the bowl sits exactly under the authored pond water disc + bank.
         public const float PondCenterX = 7f;
         public const float PondCenterZ = -3f;
-        // How far the bowl FLOOR sits below the LOCAL (pre-carve) terrain at the pond. The water surface is set
-        // near the original ground level (WorldBootstrap.GroundPondInBowl), so this drop ≈ the water DEPTH at
-        // the floor → the player wading to the centre stands ~knee-deep (castaway knee ≈ 0.45u; a touch of the
-        // drop sits below the surface offset so the read lands knee-deep, not waist-deep).
+        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau at the pond. The water surface sits
+        // PondWaterDepthAboveFloor (0.45) above the floor (WorldBootstrap), so the water is RECESSED ~0.10u
+        // below the plateau (the surrounding grass/collar rim sits ABOVE the water → the pool reads sunk, AND
+        // the rim CONTAINS the water). The player wading to the floor stands ~knee-deep (castaway knee ≈ 0.45u).
         public const float PondBowlFloorDrop = 0.55f;
-        // The flat-ish bowl FLOOR extends to this radius from the pond centre — wide enough to sit UNDER the
-        // whole organic water disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water
-        // everywhere the disc covers (the player stands knee-deep anywhere in the pool, not just dead centre).
-        public const float PondBowlInnerRadius = 3.2f;
-        // The bowl WALL slopes from the floor back up to UNDISTURBED terrain by this radius. Wide enough that
-        // (a) the grassy collar (bank reaches ≈ disc + 0.9u collar ≈ 4u) sits ON the sloping wall — so it
-        // SLOPES DOWN into the bowl, NOT a raised lip — and (b) the wall stays GENTLE: 0.55u drop over the
-        // (6.0-3.2)=2.8u run ≈ 11° slope, far under the NavMesh agent's 45° max → the bake covers the bowl
-        // floor + walls so the player can walk in. (Keep outer−inner ≳ floorDrop so the wall never exceeds 45°.)
-        public const float PondBowlOuterRadius = 6.0f;
+        // The flat-ish bowl FLOOR extends to this radius from the pond centre — covers the whole organic water
+        // disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water everywhere the disc
+        // shows (the player stands knee-deep anywhere in the pool, not just dead centre). Just under the disc
+        // rim so the wall begins right at the disc edge (no wide exposed flat floor outside the disc).
+        public const float PondBowlInnerRadius = 3.0f;
+        // The bowl WALL slopes from the floor back up to UNDISTURBED plateau by this radius. Sized so (a) the
+        // WATERLINE — where the rising wall meets the water surface (floor + 0.45) — lands at ~4.0u, right at
+        // the grassy collar's outer edge (bank reaches ≈ disc 3.07 + 0.9u collar ≈ 3.97u), so the collar frames
+        // the waterline with no wide exposed wet-floor ring; and (b) the wall stays GENTLE: 0.55u drop over the
+        // (4.4-3.0)=1.4u run → steepest ~30° (smoothstep peaks 1.5× its average), well under the NavMesh agent's
+        // 45° max → the bake covers the bowl floor + walls so the player can wade in. (Keep outer−inner ≳
+        // 1.5×floorDrop so the steepest wall point stays < 45°.)
+        public const float PondBowlOuterRadius = 4.4f;
 
         /// <summary>
         /// The pond-bowl depression DELTA (≤ 0, a downward carve) at world XZ — the local recess that turns the
