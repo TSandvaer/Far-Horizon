@@ -320,6 +320,40 @@ namespace FarHorizon.EditorTools
             return -PondBowlFloorDrop * (1f - t);
         }
 
+        // ===== POND-RIM HILL FLATTEN (ticket 86cadj4g7 #130 re-soak — the ASYMMETRIC-MOUND root cause) =========
+        // DIAGNOSIS (diagnose-via-trace, confirmed numerically): the bowl carve is a FIXED −PondBowlFloorDrop and
+        // GroundPondInBowl raycasts only the CENTRE floor, but the multi-octave Perlin HILLS (IslandHillAmp 9.0)
+        // still contribute up to ~0.54u of elevation INSIDE the pond footprint (the spawn-flatten holds hillDamp
+        // at 0.06 here, but 0.06·9.0·1 ≈ 0.54u) — and that hill height VARIES azimuthally across the 9.6u-wide
+        // footprint. So the surrounding RIM terrain is NOT a uniform plateau: on an azimuth where the rim's hill
+        // sits >PondWadeDepth (0.45u) BELOW the centre's hill, the centre-grounded water surface lands ABOVE that
+        // rim → a one-sided MOUND (the #130 capture: pond_b yaw=70° bulged, pond_c yaw=-70° read sunk = ASYMMETRY).
+        // FIX (cause, not metric): flatten the HILL contribution to a single uniform value across the pond
+        // footprint so the rim is one consistent plateau on EVERY azimuth; then the fixed carve + centre-grounding
+        // puts the water below the rim on all sides — a true hole. The hills fade back in across a short collar
+        // band [PondBowlOuterRadius, PondBowlOuterRadius + PondRimFlattenFade] so there is NO hard crease at the
+        // mouth, and the island is byte-IDENTICAL beyond that band (seed-42 silhouette lock — the flatten is 1.0
+        // there, a no-op). The fade band is the ONLY new terrain delta vs c7da32d outside the bowl; it is local,
+        // small, and tracked by the non-regression test (zero at FarAway, full flatten inside the mouth).
+        public const float PondRimFlattenFade = 3.0f; // u of collar over which the hills fade back in past the bowl mouth
+
+        /// <summary>
+        /// Hill-suppression weight at world XZ for the pond footprint (1 = full hills, 0 = hills fully flattened).
+        /// 0 inside PondBowlOuterRadius (the rim + bowl ground sit at a uniform plateau, so the centre-grounded
+        /// water is below the rim on every azimuth — the #130 asymmetric-mound fix), eases to 1 over the fade
+        /// collar, and is EXACTLY 1 beyond it (the island is byte-unchanged — seed-42 lock). PUBLIC so the
+        /// flush-rim non-regression test samples it. Pure function of XZ (deterministic; byte-stable capture).
+        /// </summary>
+        public static float PondHillFlatten(float wx, float wz)
+        {
+            float dx = wx - PondCenterX, dz = wz - PondCenterZ;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            if (d <= PondBowlOuterRadius) return 0f;                              // inside the bowl mouth: hills OFF
+            float fadeEnd = PondBowlOuterRadius + PondRimFlattenFade;
+            if (d >= fadeEnd) return 1f;                                          // beyond the collar: hills FULL (island unchanged)
+            return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d));
+        }
+
         /// <summary>
         /// Build a low-poly smooth-shaded zone: a height-varied terrain MESH (dunes near the shore
         /// rising to a gentle meadow inland), vertex-color gradient material (beach->field ramp by
@@ -547,6 +581,14 @@ namespace FarHorizon.EditorTools
             // clean). Holds out to ~16u then eases the hills in over the next ~16u.
             float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r));
             hillH *= (0.06f + 0.94f * spawnFlat);
+
+            // POND-RIM HILL FLATTEN (ticket 86cadj4g7 #130 — the asymmetric-mound fix): suppress the residual
+            // azimuthal hill variation across the pond footprint so the rim is one uniform plateau on EVERY side.
+            // Without this, the ~0.5u of damped hill that survives the spawn-flatten here varies around the rim,
+            // and the centre-grounded water lands above the rim on the low-hill azimuth → a one-sided mound. The
+            // flatten is 0 inside the bowl mouth and 1 (no-op) beyond a short fade collar, so the island silhouette
+            // OUTSIDE PondBowlOuterRadius+fade is byte-unchanged (seed-42 lock). See PondHillFlatten.
+            hillH *= PondHillFlatten(wx, wz);
 
             // Hills only ADD on the interior land (not on the beach strip / past the coast).
             if (r < coast - BeachWidth) h += hillH;
