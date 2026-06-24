@@ -332,6 +332,14 @@ namespace FarHorizon.EditorTools
             // gameplay distance (not a hero close-up). Inert unless launched with -verifyRock.
             WireRockVerifyCapture();
 
+            // Wire the verification-only shipped-build FRESHWATER POND capture (86caamkv7 — the THIRST
+            // drink-from-hand source). The generic -captureGate is a frame-SANITY check that NEVER frames
+            // the pond; this drives a gameplay-pitch over-shoulder orbit onto the pond at (7,0,-3) in the
+            // BUILT exe so the pond is judged fresh-blue + grounded from a SHIPPED frame (the gameplay-cam
+            // grounding gate, memory verify-grounding-soaks-by-gameplay-cam-visual). Inert unless launched
+            // with -verifyPond. Sibling of WireRockVerifyCapture / WireSeaVerifyCapture.
+            WireFreshwaterPondVerifyCapture();
+
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -2566,6 +2574,24 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<RockVerifyCapture>() == null)
                 bootGo.AddComponent<RockVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the verification-only FRESHWATER POND capture (86caamkv7) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). Inert unless launched with -verifyPond; never affects a normal play/boot/soak. Frames
+        // the pond at (7,0,-3) from the over-shoulder gameplay orbit pitch + asserts fresh-blue (B>G) from
+        // the shipped frame — the pond capture the generic -captureGate never produces.
+        private static void WireFreshwaterPondVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — pond-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<FreshwaterPondVerifyCapture>() == null)
+                bootGo.AddComponent<FreshwaterPondVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 

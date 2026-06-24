@@ -116,6 +116,23 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(freshLean, "the built pond water carries the freshwater B>G lean");
         }
 
+        [Test]
+        public void BootScene_CarriesFreshwaterPondVerifyCapture_Serialized()
+        {
+            // The shipped-build pond capture component (FreshwaterPondVerifyCapture) must SERIALIZE into the
+            // Boot scene — the component-in-source-but-not-in-scene trap (CaptureGate.cs shipped inert in
+            // PR #6 the same way). If it isn't on the Boot object, a reviewer's -verifyPond re-run produces
+            // ZERO pond frames (the exact silent failure the shipped-build capture gate exists to catch), so
+            // "the pond renders fresh-blue + grounded in the shipped build" goes UNPROVEN. Inert at normal
+            // play (no -verifyPond flag) — this only guards the verify path's presence, never gameplay.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var cap = FindInScene<FreshwaterPondVerifyCapture>(scene);
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry FreshwaterPondVerifyCapture serialized onto the Boot object — " +
+                "without it a -verifyPond re-run captures nothing (the component-in-source-but-not-in-scene " +
+                "silent-killer the capture gate exists to prevent)");
+        }
+
         private static T FindInScene<T>(Scene scene) where T : Component
         {
             foreach (var root in scene.GetRootGameObjects())
