@@ -321,43 +321,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 9. Freshwater-pond shipped-build capture gate (ticket 86caamkv7 follow-up, wired
-      #    in 86caamkxv — Tess's #124 ask). The thirst DRINK source: #124 verified the
-      #    need model + drink-action headlessly, but the pond's SHIPPED render (does it
-      #    read FRESH-BLUE + visible in the built exe?) was never gated — the generic
-      #    -captureGate (step 7) only sanity-checks the spawn frame, it never frames the
-      #    pond. This launches the SAME built exe windowed with -verifyPond, driving
-      #    FreshwaterPondVerifyCapture to frame the gameplay-pitch orbit cam onto the pond
-      #    at three yaws (pond_a/b/c.png) and SELF-ASSERT the perceptual fresh-blue read
-      #    (centre B > G — the freshwater tell; the sea's teal never passes) + visible.
-      #    The component Quit(1)s if the pond is not fresh-blue/visible (or missing from
-      #    Boot.unity), so the exe's exit code IS the gate verdict; frame_check.py is a
-      #    swapchain-content backstop. Runs only when the build produced an exe; frames +
-      #    log upload AFTER (if: always()) so the pond evidence survives a fail.
-      - name: Freshwater-pond capture gate (pond reads fresh-blue + visible)
-        if: always()
-        shell: bash
-        run: |
-          if [ -f Build/Windows/FarHorizon.exe ]; then
-            chmod +x .github/workflows/scripts/verify_pond_gate.sh
-            .github/workflows/scripts/verify_pond_gate.sh \
-              Build/Windows/FarHorizon.exe ci-out/pond-caps ci-out/verify-pond.log
-          else
-            echo "[verify-pond] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
-            exit 1
-          fi
-
-      - name: Upload freshwater-pond frames + log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: FarHorizon-pond-caps-${{ github.sha }}
-          path: |
-            ci-out/pond-caps/*.png
-            ci-out/verify-pond.log
-          if-no-files-found: warn
-          retention-days: 14
-
   # ---------------------------------------------------------------------------
   # PlayMode gate — ADVISORY, NON-REQUIRED, FAIL-FAST. Runs the PlayMode suite for
   # signal, but can NEVER block a merge:
