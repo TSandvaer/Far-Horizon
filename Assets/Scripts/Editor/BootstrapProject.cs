@@ -393,6 +393,7 @@ namespace FarHorizon.EditorTools
             var hud = survivalGo.AddComponent<SurvivalHud>();
             hud.warmth = warmth;       // serialized reference, no Awake FindObjectOfType in the build
             hud.hunger = hunger;       // #101: the HUNGER bar — the player SEES hunger deplete + refill on eating
+            hud.thirst = thirst;       // 86caamkxv: the THIRST bar — the player SEES thirst deplete + refill on drinking (Q)
             hud.inventory = inventory; // serialized reference, no Awake FindObjectOfType in the build
 
             // EAT INPUT (#101 — "I can't eat berries"): the in-game call-site for the (already-tested) eat

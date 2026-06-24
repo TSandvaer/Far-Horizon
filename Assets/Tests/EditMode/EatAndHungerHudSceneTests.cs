@@ -41,6 +41,28 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_SurvivalHud_IsWiredToTheThirstNeed()
+        {
+            // 86caamkxv: the THIRD need bar. Drop the bootstrap wiring (hud.thirst = thirst;) and this goes
+            // RED in headless CI — rather than the shipped build silently shipping a null thirst ref so the
+            // thirst bar is never drawn (the null-guard mirrors hunger -> NO error, NO red without this test;
+            // the editor-vs-runtime serialization trap, unity-conventions.md).
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            SurvivalHud hud = FindInScene<SurvivalHud>(scene);
+            Assert.IsNotNull(hud, "the Boot scene must carry the SurvivalHud");
+            Assert.IsNotNull(hud.thirst,
+                "the HUD's ThirstNeed reference must be wired editor-time (serialized) so the THIRST BAR " +
+                "paints in the build — the 86caamkxv loop-verify piece (the player SEES thirst deplete + " +
+                "refill on drinking at the pond)");
+            // The wired need must be the same scene ThirstNeed (not a stray detached instance).
+            ThirstNeed sceneThirst = FindInScene<ThirstNeed>(scene);
+            Assert.AreSame(sceneThirst, hud.thirst,
+                "the HUD must bind the SCENE ThirstNeed (the same instance the pond drink-action restores)");
+        }
+
+        [Test]
         public void BootScene_CarriesEatBerryAction_WiredToInventoryAndHunger()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
