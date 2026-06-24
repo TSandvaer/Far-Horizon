@@ -279,6 +279,83 @@ namespace FarHorizon.EditTests
                 "elsewhere are unchanged (the depression is a LOCAL deliberate carve at the pond ONLY)");
         }
 
+        // === NEW (ticket 86cadj4g7 #130 re-soak — the ASYMMETRIC-MOUND bug class) ============================
+        // The defect: the pond rendered as a one-sided MOUND (pond_b yaw=70° bulged, pond_c yaw=-70° sunk). ROOT:
+        // the bowl carve is a FIXED depth and GroundPondInBowl grounds the water on the CENTRE floor, but the
+        // residual Perlin HILLS still added ~0.5u of AZIMUTHALLY-VARYING elevation across the pond footprint —
+        // so on the low-hill azimuth the centre-grounded water surface landed ABOVE the local rim (a mound on
+        // that side). This test guards the bug CLASS, not the instance: sample the ACTUAL carved terrain height
+        // (HeightAtRadial, with the new PondHillFlatten applied) all the way around the rim at MANY azimuths and
+        // assert the water surface sits BELOW the surrounding terrain on EVERY side. A future regression that
+        // re-introduces azimuthal rim variation > the wade margin (e.g. removing PondHillFlatten, or deepening
+        // the hills) reds HERE — which the old centre-only depth test (PondBowl_FloorIsBelowWaterSurface) and the
+        // colour metric both MISSED (a mound passes both). Pure-function check (no scene; HeightAtRadial +
+        // PondDepressionDelta are the single source of truth the carve/collider/NavMesh all derive from).
+        [Test]
+        public void PondRim_WaterSurfaceBelowSurroundingTerrain_OnEveryAzimuth_NotAMound()
+        {
+            LowPolyZoneGen.SeedOffset(LowPolyZoneGen.IslandSeed, out float ox, out float oz);
+            float cx = LowPolyZoneGen.PondCenterX, cz = LowPolyZoneGen.PondCenterZ;
+
+            // The grounded water surface world Y = carved FLOOR at the centre + the wade depth (this is exactly
+            // what WorldBootstrap.GroundPondInBowl computes: floorY + PondWadeDepth, then water child sits there).
+            float floorYCentre = LowPolyZoneGen.HeightAtRadial(cx, cz, ox, oz);
+            float waterSurfaceY = floorYCentre + LowPolyZoneGen.PondWadeDepth;
+
+            // Walk the SURROUNDING terrain just past the bowl mouth (where delta=0 → the real local ground the
+            // collar must end flush with) at 72 azimuths (every 5°). Every sample must sit ABOVE the water
+            // surface — i.e. the player looks DOWN into a hole from any direction; no side bulges above the water.
+            float rimSampleR = LowPolyZoneGen.PondBowlOuterRadius + 0.05f; // just outside the mouth: undisturbed ground
+            float worstAboveWater = float.MaxValue; float worstAzimuth = 0f;
+            int below = 0;
+            for (int deg = 0; deg < 360; deg += 5)
+            {
+                float a = deg * Mathf.Deg2Rad;
+                float wx = cx + Mathf.Cos(a) * rimSampleR;
+                float wz = cz + Mathf.Sin(a) * rimSampleR;
+                float terrainY = LowPolyZoneGen.HeightAtRadial(wx, wz, ox, oz);
+                float margin = terrainY - waterSurfaceY; // > 0 means the ground rises above the water (a hole)
+                if (margin < worstAboveWater) { worstAboveWater = margin; worstAzimuth = deg; }
+                if (margin > 0f) below++;
+            }
+
+            Assert.AreEqual(72, below,
+                $"the surrounding terrain must sit ABOVE the water surface on ALL 72 azimuths (the pool is a HOLE " +
+                $"the player looks DOWN into from any direction). The WORST azimuth was {worstAzimuth:F0}° with the " +
+                $"ground only {worstAboveWater:F3}u above the water (≤0 = the water bulges above that side = the " +
+                $"#130 MOUND). waterSurfaceY={waterSurfaceY:F3} floorYCentre={floorYCentre:F3}. Cause-fix: " +
+                "PondHillFlatten must keep the rim a uniform plateau so the centre-grounded water is below it.");
+            Assert.Greater(worstAboveWater, 0.05f,
+                $"even the LOWEST surrounding-ground azimuth ({worstAzimuth:F0}°) must clear the water by a margin " +
+                $"(>0.05u, got {worstAboveWater:F3}u) so the rim reads unambiguously ABOVE the water from every " +
+                "side — not flush/borderline (a borderline rim still reads as a flush lens on the soak).");
+        }
+
+        // === NEW (ticket 86cadj4g7 #130) — the rim-hill flatten is a LOCAL no-op outside its collar ===========
+        // PondHillFlatten suppresses the hills inside the pond footprint to kill the azimuthal mound. It MUST be
+        // a strict no-op (weight == 1) beyond PondBowlOuterRadius + PondRimFlattenFade so the seed-42 island
+        // silhouette / scatter / NavMesh elsewhere are byte-IDENTICAL to c7da32d (the silhouette lock). Guards
+        // that a future widening of the flatten can't silently warp the locked island.
+        [Test]
+        public void PondHillFlatten_IsLocal_NoOpBeyondTheFadeCollar_Seed42Unchanged()
+        {
+            float cx = LowPolyZoneGen.PondCenterX, cz = LowPolyZoneGen.PondCenterZ;
+            // Inside the bowl mouth: hills fully OFF (uniform rim plateau).
+            Assert.AreEqual(0f, LowPolyZoneGen.PondHillFlatten(cx, cz), 1e-6f,
+                "the hill flatten must be 0 (hills OFF) at the pond centre — a uniform rim plateau");
+            // Just past the mouth, still inside the fade collar: a partial flatten (0..1) — a smooth easing, no crease.
+            float midR = LowPolyZoneGen.PondBowlOuterRadius + LowPolyZoneGen.PondRimFlattenFade * 0.5f;
+            float mid = LowPolyZoneGen.PondHillFlatten(cx + midR, cz);
+            Assert.That(mid, Is.GreaterThan(0f).And.LessThan(1f),
+                $"the hill flatten must ease (0..1) across the fade collar — no hard crease at the mouth (got {mid:F3})");
+            // Beyond the collar + far away: EXACTLY 1 (hills full — the island is byte-unchanged, seed-42 lock).
+            float beyondR = LowPolyZoneGen.PondBowlOuterRadius + LowPolyZoneGen.PondRimFlattenFade + 0.5f;
+            Assert.AreEqual(1f, LowPolyZoneGen.PondHillFlatten(cx + beyondR, cz), 1e-6f,
+                "the hill flatten must be EXACTLY 1 (no-op) just past the fade collar — the island silhouette there is unchanged");
+            Assert.AreEqual(1f, LowPolyZoneGen.PondHillFlatten(60f, -40f), 1e-6f,
+                "the hill flatten must be EXACTLY 1 far from the pond — the seed-42 island elsewhere is byte-identical");
+        }
+
         // === NEW (ticket 86cadj4g7 #130) — the bowl WALL is GENTLE so the NavMesh covers the floor =========
         // The player must be able to NAVIGATE INTO the bowl (wade in knee-deep). The NavMesh bakes on the
         // carved terrain collider with the default agent max-slope (45°). If the bowl wall were steeper than
