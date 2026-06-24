@@ -23,6 +23,7 @@ namespace FarHorizon.PlayTests
         private GameObject _go;
         private WarmthNeed _warmth;
         private HungerNeed _hunger;
+        private ThirstNeed _thirst;
         private Inventory _inventory;
         private SurvivalHud _hud;
 
@@ -46,11 +47,23 @@ namespace FarHorizon.PlayTests
             _hunger.startFull = true;
             _hunger.berryRestoreAmount = 18f;
 
+            // 86caamkxv: a THIRST need wired to the HUD's new thirst bar. ⚠ The SHIPPED ThirstNeed seeds at
+            // startFraction01 = 0.50 (~5 segments, NOT full); this test pins the seed EXPLICITLY (startFull =
+            // true) so the loop assertions reason about a KNOWN start state rather than inheriting the half
+            // seed silently (the QA-plan trap #2). Fast decay (same rationale as warmth/hunger).
+            _thirst = _go.AddComponent<ThirstNeed>();
+            _thirst.max = 100f;
+            _thirst.decayPerSecond = 30f;
+            _thirst.floor01 = 0.05f;
+            _thirst.startFull = true;            // pinned seed — do NOT inherit the shipped 0.50 idiom here
+            _thirst.waterScoopAmount = 18f;
+
             _inventory = _go.AddComponent<Inventory>();
 
             _hud = _go.AddComponent<SurvivalHud>();
             _hud.warmth = _warmth;       // wire exactly as BootstrapProject does (serialized ref analogue)
             _hud.hunger = _hunger;       // #101: the hunger bar's wired need
+            _hud.thirst = _thirst;       // 86caamkxv: the thirst bar's wired need
             _hud.inventory = _inventory;
         }
 
@@ -140,6 +153,78 @@ namespace FarHorizon.PlayTests
             Assert.Greater(litAfterEat, litAfter,
                 "after eating, the HUD lights MORE hunger segments — the bar refills on the restore seam " +
                 $"(after-decay={litAfter} -> after-eat={litAfterEat})");
+        }
+
+        // === 86caamkxv: the THIRST bar tracks the live thirst need — depletes on decay, REFILLS on DRINK ==
+        // The loop-verify guard for the third bar (the deferred-from-#124 drink loop, finally VISIBLE): the
+        // player must SEE thirst deplete + refill. Bound to the SAME pinned FilledSegments rule the bar draws
+        // with, computed from the WIRED hud.thirst reference, driving AddWater() (NOT AddFood/Satisfy — the
+        // thirst-specific restore seam) as the restore. Decay over a REAL Time.time window (headless
+        // deltaTime~=0, unity-conventions.md §headless time). The test thirst is seeded full in SetUp (the
+        // shipped 0.50 seed is pinned away here so the assertions reason about a known start).
+        [UnityTest]
+        public IEnumerator Hud_ThirstSegments_DepleteOnDecay_AndRefillOnDrink_OverARealWindow()
+        {
+            yield return null; // Start() seeds thirst _current = max (pinned startFull=true) + the tick clock
+
+            int litFull = SurvivalHud.FilledSegments(_hud.thirst.Current01);
+            Assert.GreaterOrEqual(litFull, SurvivalHud.SegmentCount - 1,
+                "at (near-)full thirst the HUD lights ~all thirst segments (from the WIRED live need); " +
+                $"lit={litFull} Current01={_hud.thirst.Current01:0.000}");
+
+            // Decay over a REAL Time.time window — the thirst bar empties tracking the live need.
+            float start = Time.time;
+            while (Time.time - start < 2f) yield return null;
+
+            int litAfter = SurvivalHud.FilledSegments(_hud.thirst.Current01);
+            Assert.Less(litAfter, litFull,
+                "after a real decay window the HUD lights FEWER thirst segments (the bar empties tracking " +
+                $"the live need; full={litFull} -> after={litAfter}, Current01={_hud.thirst.Current01:0.00})");
+
+            // Drink (the restore seam the pond drink-action drives via AddWater) — the bar REFILLS, the player
+            // sees thirst recover. This is the drink loop the whole ticket exists to make visible.
+            _thirst.AddWater();
+            int litAfterDrink = SurvivalHud.FilledSegments(_hud.thirst.Current01);
+            Assert.Greater(litAfterDrink, litAfter,
+                "after drinking, the HUD lights MORE thirst segments — the bar refills on the AddWater seam " +
+                $"(after-decay={litAfter} -> after-drink={litAfterDrink})");
+
+            // Refilling reads back toward stream-blue (the band warms back as the need recovers).
+            Color band = SurvivalHud.ThirstBandColor(_hud.thirst.Current01);
+            Assert.Greater(band.b, band.r, "the refilled thirst band reads BLUE (blue > red — the cool note)");
+        }
+
+        // === 86caamkxv: all THREE bars coexist in ONE scene, each reads its own LIVE need (AC1 coexistence) ==
+        // Catches the "thirst bar drawn but never bound" silent-null trap (QA-plan trap #3): all three refs
+        // wired + each FilledSegments(hud.<need>.Current01) reads a sane lit count — proving the WIRING is
+        // live for all three, not just that the type compiles.
+        [UnityTest]
+        public IEnumerator Hud_AllThreeNeedBars_AreWiredAndTrackTheirOwnLiveNeed()
+        {
+            yield return null; // Start() seeds all three needs + the tick clocks
+
+            Assert.IsNotNull(_hud.warmth, "the warmth bar's need must be wired");
+            Assert.IsNotNull(_hud.hunger, "the hunger bar's need must be wired");
+            Assert.IsNotNull(_hud.thirst, "the thirst bar's need must be wired (86caamkxv — the new third bar)");
+
+            // Each bar reads its OWN need's live fill through the one pinned rule (sane 0..SegmentCount count).
+            int litW = SurvivalHud.FilledSegments(_hud.warmth.Current01);
+            int litH = SurvivalHud.FilledSegments(_hud.hunger.Current01);
+            int litT = SurvivalHud.FilledSegments(_hud.thirst.Current01);
+            foreach (var (lit, name) in new[] { (litW, "warmth"), (litH, "hunger"), (litT, "thirst") })
+            {
+                Assert.GreaterOrEqual(lit, 0, $"{name} lit-segment count must be in range");
+                Assert.LessOrEqual(lit, SurvivalHud.SegmentCount, $"{name} lit-segment count must be in range");
+            }
+
+            // The three bars are computed by three DISTINCT band functions — confirm they're not collapsed to
+            // one (a generalization that accidentally shares one band function would defeat the three-color read).
+            Color w = SurvivalHud.BandColor(0.7f);
+            Color h = SurvivalHud.HungerBandColor(0.7f);
+            Color t = SurvivalHud.ThirstBandColor(0.7f);
+            Assert.AreNotEqual(w, h, "warmth + hunger bands must differ");
+            Assert.AreNotEqual(w, t, "warmth + thirst bands must differ");
+            Assert.AreNotEqual(h, t, "hunger + thirst bands must differ");
         }
 
         private static void AssertSameColor(Color expected, Color actual, string msg)
