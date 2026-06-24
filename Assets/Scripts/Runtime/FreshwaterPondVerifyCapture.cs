@@ -51,10 +51,91 @@ namespace FarHorizon
         public int warmupFrames = 8;
         public int settleFrames = 14;
 
+        // SIDE-PROFILE capture (ticket 86cadj4g7 #130 — Sponsor demands a ground-level horizontal look across
+        // the pond that unambiguously shows recessed-NOT-mound + no foam, alongside the player-eye gameplay
+        // frame). A near-ground camera looking horizontally across the pond: a raised lens/mound reads as a
+        // BULGE above the horizon line; a true recess reads as the water dipping BELOW the surrounding grass.
+        // A LOW look ACROSS the pond — close + just above the surrounding grass, pitched gently down so the
+        // pool + its NEAR rim + the FAR rim + the grass behind all land in frame. The recess then reads
+        // unambiguously: the water surface sits BELOW the surrounding-grass line (a mound would bulge ABOVE
+        // it). Tuned off the d6bf755 side-frames (sideHeight 0.55 / pitch 4° framed grass+trees, pond occluded
+        // below frame): raise the eye + pitch down so the pond fills the lower-centre, grass horizon up top.
+        public float sidePitch = 13f;         // gentle downward pitch — pond fills lower-centre, grass line up top
+        public float sideDistance = 6.8f;     // close enough the ~5.5u-wide pool + both rims read big in frame
+        public float sideHeight = 1.35f;      // camera eye ~waist-high above the pond surface (a low cross-look)
+
         void Start()
         {
-            if (HasArg("-verifyPond"))
+            if (HasArg("-verifyPondSide"))
+                StartCoroutine(RunSideProfile());
+            else if (HasArg("-verifyPond"))
                 StartCoroutine(RunVerification());
+        }
+
+        // Ground-level SIDE-PROFILE pass (ticket 86cadj4g7 #130). Parks Camera.main near the ground looking
+        // horizontally across the pond from three yaws so the Sponsor/Tess judges recessed-vs-mound + no-foam
+        // from a SHIPPED frame. Writes pond_side_a/b/c.png. Reuses the proven Camera.main + disable-OrbitCamera
+        // framing (the gameplay render path → the warm-graded look the Sponsor sees). No perceptual assert here
+        // (the profile is a human eyeball gate, per the dispatch); quits 0 after the captures.
+        private System.Collections.IEnumerator RunSideProfile()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            var pond = Object.FindAnyObjectByType<FreshwaterPond>();
+            Debug.Log("[FreshwaterPondVerifyCapture] (side) FreshwaterPond found: " + (pond != null));
+            if (pond == null)
+            {
+                Debug.LogError("[FreshwaterPondVerifyCapture] (side) no FreshwaterPond — build-side regression");
+                yield return null; Application.Quit(1); yield break;
+            }
+
+            Vector3 target = pond.transform.position;
+            var waterT = pond.transform.Find("PondWater");
+            if (waterT != null) target = waterT.position; // aim at the water surface so the dip is centred
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[FreshwaterPondVerifyCapture] (side) no Camera.main");
+                yield return null; Application.Quit(1); yield break;
+            }
+            cam.fieldOfView = 42f;
+            var camGo = cam.gameObject;
+
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            char tag = 'a';
+            foreach (float yaw in yaws)
+            {
+                // Position the camera near ground level, sideDistance back, almost horizontal. Look at a point
+                // at the water surface height so the surrounding-grass horizon line crosses the frame and a
+                // recess reads as the water sitting BELOW that line (a mound would bulge above it).
+                Quaternion yawRot = Quaternion.Euler(0f, yaw, 0f);
+                Vector3 back = yawRot * new Vector3(0f, 0f, -sideDistance);
+                Vector3 pos = target + back; pos.y = target.y + sideHeight;
+                camGo.transform.position = pos;
+                // Nearly-horizontal look across the pond with a small downward pitch so both the near rim + the
+                // far rim land in frame; the surrounding-grass horizon line then reveals recess (water below it)
+                // vs mound (water bulging above it).
+                camGo.transform.rotation = Quaternion.Euler(sidePitch, yaw, 0f);
+
+                for (int i = 0; i < settleFrames; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+                Debug.Log($"[FreshwaterPondVerifyCapture] side frame {tag}: yaw={yaw} pitch={sidePitch} " +
+                          $"pos={cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")}");
+                string file = Path.Combine(dir, $"pond_side_{tag}.png");
+                ScreenCapture.CaptureScreenshot(file, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + file);
+                yield return new WaitForEndOfFrame();
+                yield return null;
+                tag++;
+            }
+            yield return new WaitForSeconds(0.4f);
+            Debug.Log("[FreshwaterPondVerifyCapture] side-profile verification complete -> " + dir);
+            Application.Quit(0);
         }
 
         private IEnumerator RunVerification()

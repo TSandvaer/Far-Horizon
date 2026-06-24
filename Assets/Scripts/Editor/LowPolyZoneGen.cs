@@ -258,24 +258,46 @@ namespace FarHorizon.EditorTools
         // centred here so the bowl sits exactly under the authored pond water disc + bank.
         public const float PondCenterX = 7f;
         public const float PondCenterZ = -3f;
-        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau at the pond. The water surface sits
-        // PondWaterDepthAboveFloor (0.45) above the floor (WorldBootstrap), so the water is RECESSED ~0.10u
-        // below the plateau (the surrounding grass/collar rim sits ABOVE the water → the pool reads sunk, AND
-        // the rim CONTAINS the water). The player wading to the floor stands ~knee-deep (castaway knee ≈ 0.45u).
-        public const float PondBowlFloorDrop = 0.55f;
+
+        // ===== RECESS GEOMETRY (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is on a little hill;
+        // recess it DOWN INTO the ground so the green collar sits at the SAME LEVEL as the surrounding
+        // terrain — I should walk on the green, not inside it") ===========================================
+        // The PRIMARY tunable is now the RECESS — how far the WATER SURFACE sits BELOW the surrounding ground
+        // plateau. The earlier build recessed the water only ~0.10u below the plateau (FloorDrop 0.55 − wade
+        // 0.45), so the green-rimmed pool read as a RAISED LENS/MOUND, not a sunk pool. This decouples the
+        // RECESS (how deep the pool reads below ground) from the WADE depth (how deep the player stands in the
+        // water once on the floor): the bowl FLOOR is carved RECESS + WADE below the plateau, so the water
+        // surface (floor + wade) lands exactly RECESS below the plateau. A clearly knee-deep RECESS (0.45u,
+        // the default the Sponsor soaks first) sinks the pool so the collar is walkable AT ground level. The
+        // live PondRecessNudge handle drives the recess at discrete steps so the Sponsor dials the final value.
+        public const float PondRecessKneeDeep = 0.45f;   // DEFAULT recess: water surface 0.45u BELOW the plateau (clearly knee-deep sunk pool)
+        // The WADE depth: how deep the player standing on the bowl FLOOR is submerged (water surface − floor).
+        // Castaway knee ≈ 0.45u. Mirrored in WorldBootstrap.PondWaterDepthAboveFloor + MovementCameraScene.
+        public const float PondWadeDepth = 0.45f;
+        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau = RECESS + WADE. With the knee-deep
+        // recess (0.45) + wade (0.45) the floor is carved 0.90u down, the water surface lands 0.45u below the
+        // plateau (a clearly sunk pool), and the player on the floor stands knee-deep. (Previously 0.55 → the
+        // water sat only 0.10 below the plateau, reading as a raised lens — the #130 mound defect.)
+        public const float PondBowlFloorDrop = PondRecessKneeDeep + PondWadeDepth; // 0.90
         // The flat-ish bowl FLOOR extends to this radius from the pond centre — covers the whole organic water
         // disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water everywhere the disc
         // shows (the player stands knee-deep anywhere in the pool, not just dead centre). Just under the disc
         // rim so the wall begins right at the disc edge (no wide exposed flat floor outside the disc).
         public const float PondBowlInnerRadius = 3.0f;
-        // The bowl WALL slopes from the floor back up to UNDISTURBED plateau by this radius. Sized so (a) the
-        // WATERLINE — where the rising wall meets the water surface (floor + 0.45) — lands at ~4.0u, right at
-        // the grassy collar's outer edge (bank reaches ≈ disc 3.07 + 0.9u collar ≈ 3.97u), so the collar frames
-        // the waterline with no wide exposed wet-floor ring; and (b) the wall stays GENTLE: 0.55u drop over the
-        // (4.4-3.0)=1.4u run → steepest ~30° (smoothstep peaks 1.5× its average), well under the NavMesh agent's
-        // 45° max → the bake covers the bowl floor + walls so the player can wade in. (Keep outer−inner ≳
-        // 1.5×floorDrop so the steepest wall point stays < 45°.)
-        public const float PondBowlOuterRadius = 4.4f;
+        // The bowl WALL slopes from the floor back up to UNDISTURBED plateau by this radius. Sized so the wall
+        // stays GENTLE: the deeper 0.90u FloorDrop over the (4.8-3.0)=1.8u run → steepest ~37° (smoothstep
+        // peaks 1.5× its average: atan(1.5·0.90/1.8)=36.9°), still WELL under the NavMesh agent's 45° max →
+        // the bake covers the bowl floor + walls so the player can wade in. WIDENED from 4.4 → 4.8 to keep the
+        // steepest wall < 40° now that the bowl is deeper (keep outer−inner ≳ 1.8×floorDrop/tan40° so the
+        // steepest point stays < 40° — the PondBowl_WallSlope test pins this).
+        public const float PondBowlOuterRadius = 4.8f;
+
+        // ===== POND FOAM LEVELS (ticket 86cadj4g7 — Sponsor #130: "the pond should NOT foam like the sea") ==
+        // The pond's _FoamDistance on the FarHorizon/LowPolyWater shader (foam = saturate(1 - gap/distance)).
+        // Three discrete levels the live PondNudge [foam] handle cycles; the DEFAULT is OFF (a still pool).
+        public const float PondFoamOff     = 0.0f;   // DEFAULT: no foam ring — a still glassy fresh pool (#130)
+        public const float PondFoamLight   = 0.06f;  // a thin damp line hugging the bank only (≪ the 0.45u wade depth so the open disc never floods)
+        public const float PondFoamSeaLike = 1.5f;   // the sea's foam band width (for A/B only — reads wrong on a pond, but the Sponsor can see the contrast)
 
         /// <summary>
         /// The pond-bowl depression DELTA (≤ 0, a downward carve) at world XZ — the local recess that turns the
@@ -1338,25 +1360,19 @@ namespace FarHorizon.EditorTools
                 // sea's teal-vs-sky fog-floor is irrelevant — 0 lets normal fog apply + avoids a faint over-
                 // bright cast up close.
                 if (mat.HasProperty("_FogCap")) mat.SetFloat("_FogCap", 0f);          // 0.5 sea -> 0 (no sea<->sky seam at pond range)
-                // FOAM/EDGE delta (Uma §1c): keep the shared depth-fade foam ON (the pond meets its bank like
-                // the sea meets the beach) but TIGHT — a thin damp line hugging the bank, not a wide surf band.
-                // Same warm FoamEdge constant (reads as a damp bank as readily as surf; no new colour, per
-                // lowpoly-quality §1 don't-drift-FoamEdge). NO static surf RING is baked into the pond mesh
-                // (BuildPondWaterMesh omits it) — a pond has no wave-break.
-                //
-                // ⚠ FOAM-FLOOD FIX (ticket 86cadj4g7). The depth-fade foam mask is foam = saturate(1 - gap /
-                // _FoamDistance) where gap = (opaque depth behind the surface) − (surface depth). Unlike the
-                // sea (deep seabed → large gap → foam≈0 in open water), the pond is a flat disc whose open water
-                // could flood pale if the gap to the floor were small. With the BOWL CARVE (ticket 86cadj4g7
-                // #130 re-soak) the water now sits ~PondWaterDepthAboveFloor (0.45u) above the carved bowl FLOOR
-                // — a LARGE, near-uniform gap across the disc — so foam=0 in open water as long as _FoamDistance
-                // ≪ that depth. (Even larger margin than the old +0.10u lift the bowl replaced.) _FoamDistance
-                // MUST stay < the water→floor depth so the open-water disc reads gap > _FoamDistance → foam=0 →
-                // the fresh-blue PondShallow/PondDeep shows; foam then only fires in the THIN band where the
-                // bank ring brings an opaque surface within _FoamDistance of the water (the crisp damp bank line
-                // Uma §1c wants). 0.06 ≪ 0.45 bowl depth.
+                // FOAM/EDGE delta — FOAM OFF (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond water should
+                // NOT foam like the sea; the freshwater pond must be STILL, no foam ring"). The SEA keeps its
+                // foam; only the POND loses it. The depth-fade foam mask is foam = saturate(1 - gap /
+                // max(_FoamDistance, 0.001)), so _FoamDistance == 0 → max→0.001 → foam = saturate(1 - gap/0.001)
+                // = 0 for any gap > 0.001u → NO foam anywhere on the pond (a still, glassy fresh pool). This is
+                // the DEFAULT the Sponsor soaks first; the live PondNudge [foam] handle can dial it back up
+                // (light 0.06 = a thin damp bank line / sea-like 1.5) so he picks the final amount to bake.
+                // _FoamColor stays the FoamEdge constant (unused while distance=0; kept so the light/sea-like
+                // steps read the right warm colour without a re-set, per lowpoly-quality §1 don't-drift-FoamEdge).
+                // NO static surf RING is baked into the pond mesh (BuildPondWaterMesh omits it) — a pond has no
+                // wave-break — so OFF means OFF: zero foam from either source.
                 if (mat.HasProperty("_FoamColor"))    mat.SetColor("_FoamColor", FoamEdge);
-                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.06f); // ≪ 0.45u bowl water-depth: foam hugs the bank, never floods the disc (86cadj4g7)
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", PondFoamOff); // 0 = no foam ring (#130 "must be STILL")
                 if (mat.HasProperty("_WaterAlpha"))   mat.SetFloat("_WaterAlpha", 1f);     // solid coloured sheet (no modelled bottom — OOS)
             }
             else

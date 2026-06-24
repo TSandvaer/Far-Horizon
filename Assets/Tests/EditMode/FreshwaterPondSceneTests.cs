@@ -239,8 +239,9 @@ namespace FarHorizon.EditTests
             // The water surface must sit ABOVE the carved floor by a clear margin — the disc renders over the
             // floor (never occluded), and the gap IS the wade depth: deep enough to read knee-deep (the player's
             // NavMesh-agent Y follows this floor), not a flush puddle. A floor band catches a re-sink; a ceiling
-            // keeps it from being a deep WELL (knee, not waist). The carve is PondBowlFloorDrop (0.55) with the
-            // water PondWaterDepthAboveFloor (0.45) up from the floor → expect ~0.45u here (bounded 0.2..0.9).
+            // keeps it from being a deep WELL (knee, not waist). The carve is PondBowlFloorDrop (RECESS 0.45 +
+            // WADE 0.45 = 0.90) with the water PondWadeDepth (0.45) up from the floor → expect ~0.45u here
+            // (bounded 0.2..0.9). The wade depth is unchanged by the #130 recess deepening (only the recess grew).
             float depth = waterWorldY - floorY;
             Assert.Greater(depth, 0.20f,
                 $"the pond WATER surface (worldY {waterWorldY:F3}) must sit clearly ABOVE the carved bowl floor " +
@@ -301,13 +302,23 @@ namespace FarHorizon.EditTests
                 "(ticket 86cadj4g7: knee-deep wade-in requires NavMesh on the floor).");
         }
 
-        // === NEW (ticket 86cadj4g7 #130) — the collar is FLUSH (drapes on the wall), NOT a raised lip =======
-        // The #130 defect: the lift raised the whole pond so the collar floated ABOVE the surrounding terrain
-        // (a raised lip casting a shadow). Now the collar must DRAPE on the carved bowl wall — its outer rim
-        // must sit at/below the surrounding terrain, never proud of it. Sample the bank's outer-ring verts in
-        // WORLD space and raycast the terrain at each: the collar vert must NOT poke up above the ground.
+        // === REWORKED (ticket 86cadj4g7 #130 re-soak) — the collar DRAPES the WHOLE wall up to GROUND LEVEL ==
+        // The #130 mound defect: the pool read as a RAISED LENS the player stood INSIDE because (a) the recess
+        // was only ~0.10u (now 0.45u — a clearly sunk pool) and (b) the green collar stopped partway up the
+        // wall, leaving bare carved-wall dirt between the green and the surrounding grass — "I should walk on
+        // the green, not inside it". NOW the collar reaches the BOWL MOUTH (PondBowlOuterRadius) so its OUTER
+        // rim sits at the surrounding GROUND LEVEL — a continuous grassy slope from the water lip up to the rim,
+        // walkable on green at ground level. Two complementary invariants (this REPLACES the old check-2, which
+        // asserted the OPPOSITE — that the collar stayed BELOW the water lip — a proxy that was correct only for
+        // the shallow-recess geometry and would now wrongly red the correct ground-level-reaching collar; the
+        // bug-CLASS invariant is "flush with terrain + reaches ground level", not "stays below the water lip"):
+        //  (1) the collar must NOT float PROUD of the terrain (the raised-lip defect) — every outer-rim vert
+        //      raycast against Ground_Play sits at/below the ground (generous 0.15u tolerance for grid discretization);
+        //  (2) the collar's outer rim must RISE to ~GROUND LEVEL at the bowl mouth — its max world Y must reach
+        //      within a tolerance of the surrounding terrain plateau (so the player walks on green at ground
+        //      level, not on bare wall). A collar that stopped short (the #130 partial-drape) reds here.
         [Test]
-        public void Pond_BankCollar_DrapesOnBowlWall_FlushNotRaisedLip()
+        public void Pond_BankCollar_DrapesWholeWall_ReachesGroundLevel_NotRaisedLip()
         {
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             FreshwaterPond pond = FindAnyInScene<FreshwaterPond>();
@@ -321,42 +332,56 @@ namespace FarHorizon.EditTests
             var col = ground != null ? ground.GetComponent<MeshCollider>() : null;
             Assert.IsNotNull(col, "the terrain MeshCollider must exist to compare the collar against the ground");
 
-            // The OUTER collar ring DRAPES on the bowl wall: its verts sit at a LOWER local Y than the inner
-            // water-lip ring (which is at exactly local Y −0.04). The INNER ring is at the water lip — it is
-            // SUPPOSED to sit above the (carved-floor) terrain, framing the recessed water, so we must NOT flag
-            // it. Discriminate by LOCAL Y: the inner ring is at exactly −0.04; every outer vert (CollarOuterLocalY)
-            // is ≤ −0.08, so a −0.06 cut cleanly selects the outer rim. TWO complementary checks (the second is
-            // robust to terrain-grid discretization, which the analytic collar can diverge from on the 1.65u grid):
-            //  (1) the outer collar must NOT float PROUD of the terrain beneath it (the raised-lip defect) —
-            //      generous 0.15u tolerance so grid discretization of the 0.55u bowl never false-reds, but the
-            //      old +0.08-and-floating flat lip (which sat well above the surrounding grass) still trips it;
-            //  (2) the outer rim must sit clearly BELOW the inner water-lip plane (it slopes DOWN-into the bowl,
-            //      NOT a flat raised collar) — a collar-to-collar check, immune to terrain discretization.
+            // The OUTER collar ring drapes up the bowl wall to ground level. Discriminate inner-vs-outer by
+            // PLANAR RADIUS (NOT local Y — the outer rim now climbs ABOVE the inner water lip to reach ground
+            // level, so a Y cut would wrongly skip the ground-reaching outer verts). The inner ring sits at the
+            // water rim (~2.6×rim ≈ 2.6-3.07u); the outer ring runs out toward the bowl mouth (up to 4.8u). A
+            // radius cut at the midpoint cleanly selects outer verts. (The old Y-cut was correct only for the
+            // shallow-recess geometry where the outer rim stayed below the lip — the #130-superseded design.)
             var verts = bankMesh.vertices;
             int outerChecked = 0, raisedLip = 0;
-            float innerLipWorldY = bankT.TransformPoint(new Vector3(0f, -0.04f, 0f)).y; // the water-lip ring plane
             float maxOuterWorldY = float.MinValue;
+            // Radius midpoint between the inner water rim (~PondSurfaceRadius) and the bowl mouth: outer verts sit
+            // beyond it. PondSurfaceRadius is internal to MovementCameraScene; use the nominal 2.6 (the pond's
+            // authored radius) + a margin so organic-rim lobes never reclassify an inner vert as outer.
+            const float radiusCut = 3.3f; // between the inner rim (≤3.07) and the bowl mouth (4.8)
+            // The surrounding GROUND LEVEL just OUTSIDE the bowl mouth (raycast the plateau a touch past the rim).
+            Vector3 pondPos = pond.transform.position;
+            float plateauWorldY = float.MinValue;
+            var plateauRay = new Ray(new Vector3(pondPos.x + LowPolyZoneGen.PondBowlOuterRadius + 1.0f, 200f, pondPos.z), Vector3.down);
+            if (col.Raycast(plateauRay, out RaycastHit pHit, 400f)) plateauWorldY = pHit.point.y;
+            Assert.Greater(plateauWorldY, float.MinValue, "must sample the surrounding plateau just past the bowl mouth");
+
             foreach (var v in verts)
             {
-                if (v.y > -0.06f) continue; // skip the inner water-lip ring (−0.04; it legitimately sits above the floor)
+                float planarR = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+                if (planarR < radiusCut) continue; // skip the inner water-lip ring (frames the recessed water)
                 Vector3 w = bankT.TransformPoint(v);
                 maxOuterWorldY = Mathf.Max(maxOuterWorldY, w.y);
-                var ray = new Ray(new Vector3(w.x, 200f, w.z), Vector3.down);
-                if (!col.Raycast(ray, out RaycastHit hit, 400f)) continue; // off the mesh — skip
                 outerChecked++;
-                if (w.y > hit.point.y + 0.15f) raisedLip++; // proud of the ground = the raised-lip bug
+                // RAISED-LIP defect = the collar rising ABOVE the surrounding GRASS plateau (a proud lip casting
+                // a shadow over the meadow). We compare to the PLATEAU level, NOT the coarsely-sampled bowl-wall
+                // terrain directly beneath: the bowl wall (1.8u radial span) is NARROWER than one terrain grid
+                // cell (~2.2u), so the discretized wall mesh badly under-samples the smoothstep wall — comparing
+                // the analytic collar to that coarse wall false-flags mid-slope verts as "proud" (the analytic-
+                // vs-grid divergence false-symptom family). The Sponsor-visible invariant is "no lip above the
+                // grass"; a collar that DRAPES the wall (between the water lip and the plateau) is correct even
+                // if it sits a few cm above the coarse-grid wall mid-slope (it's bare wall, under the green).
+                if (w.y > plateauWorldY + 0.06f) raisedLip++; // above the surrounding grass = the raised-lip bug
             }
             Assert.Greater(outerChecked, 0, "must have sampled outer-collar verts against the terrain");
+            // (1) flush — no part of the collar rises above the surrounding grass plateau (no raised lip).
             Assert.AreEqual(0, raisedLip,
-                $"the bank collar must DRAPE flush on the carved bowl wall — {raisedLip}/{outerChecked} outer-rim " +
-                "verts float PROUD of the terrain (a raised lip casting a shadow, the #130 defect). " +
-                "CollarOuterLocalY must track the PondDepressionDelta wall profile.");
-            // (2) the outer rim does NOT rise above the inner water-lip plane — it drapes down-and-out onto the
-            // bowl wall toward the waterline (a small tolerance for facet jitter). A collar whose outer rim rose
-            // ABOVE the water lip would be the raised-lip defect (the old +0.04 outer-above-inner geometry).
-            Assert.LessOrEqual(maxOuterWorldY, innerLipWorldY + 0.02f,
-                $"the collar outer rim (max worldY {maxOuterWorldY:F3}) must NOT rise above the inner water-lip " +
-                $"plane ({innerLipWorldY:F3}) — it drapes DOWN-and-out onto the bowl wall, never a RAISED lip (#130).");
+                $"the bank collar must NOT rise above the surrounding grass — {raisedLip}/{outerChecked} outer-rim " +
+                $"verts float ABOVE the plateau ({plateauWorldY:F3}) (a raised lip casting a shadow, the #130 " +
+                "defect). CollarOuterLocalY must top out AT the plateau (t=1 at the bowl mouth), never above it.");
+            // (2) reaches ground level — the outer rim climbs to ~the surrounding plateau at the bowl mouth, so
+            // the player walks on GREEN at ground level (not on bare wall between the green and the grass). The
+            // #130 partial-drape (collar stopping below the rim) reds here. 0.12u tolerance for grid + facet jitter.
+            Assert.GreaterOrEqual(maxOuterWorldY, plateauWorldY - 0.12f,
+                $"the collar outer rim (max worldY {maxOuterWorldY:F3}) must RISE to ~the surrounding ground level " +
+                $"({plateauWorldY:F3}) at the bowl mouth — the green must be walkable AT ground level, not stop " +
+                "partway up the wall leaving bare dirt (ticket 86cadj4g7 #130: 'walk on the green, not inside it').");
         }
 
         // === NEW (ticket 86cadj4g7 #130) — the bank TUFTS read GREEN, not WHITE ==============================
@@ -420,7 +445,18 @@ namespace FarHorizon.EditTests
             }
             float foamDistance = mat.GetFloat("_FoamDistance");
 
-            // The actual water→terrain gap (the clearance the re-ground established).
+            // === #130 re-soak: the pond ships FOAM OFF (a STILL pool — "should not foam like the sea") ======
+            // The DEFAULT pond foam is OFF (_FoamDistance == PondFoamOff == 0): the shader's
+            // foam = saturate(1 - gap/max(distance,0.001)) is 0 everywhere for any gap > 0.001u → no foam ring
+            // at all. This is the strongest no-flood guarantee (off, not just thin). A future re-tune that
+            // turned foam back ON by default (sea-like) reds here.
+            Assert.AreEqual(LowPolyZoneGen.PondFoamOff, foamDistance, 1e-4f,
+                $"the pond must ship FOAM OFF by default (_FoamDistance {foamDistance:F3} must == " +
+                $"PondFoamOff {LowPolyZoneGen.PondFoamOff:F3}) — Sponsor #130: 'the pond should not foam like the " +
+                "sea; the freshwater pond must be STILL'. The live PondNudge [foam] handle dials it up for A/B.");
+
+            // The actual water→terrain gap (the clearance the re-ground established) — even if a soak dials foam
+            // up to LIGHT (0.06), this gap must dwarf it so the open disc never floods (only the bank band foams).
             var ground = GameObject.Find("Ground_Play");
             var col = ground != null ? ground.GetComponent<MeshCollider>() : null;
             Assert.IsNotNull(col, "Ground_Play MeshCollider must exist to measure the water→terrain gap");
@@ -429,10 +465,10 @@ namespace FarHorizon.EditTests
                 "the terrain ray at the pond XZ must hit Ground_Play");
             float gap = waterT.position.y - hit.point.y;
 
-            Assert.Greater(gap, foamDistance,
-                $"the pond water→terrain gap ({gap:F3}) MUST exceed _FoamDistance ({foamDistance:F3}) so the " +
-                "open-water disc reads foam=0 (fresh-blue) — a _FoamDistance >= the gap FLOODS the flat disc " +
-                "toward warm-white FoamEdge (the pale/green-dominant defect, ticket 86cadj4g7).");
+            Assert.Greater(gap, LowPolyZoneGen.PondFoamLight,
+                $"the pond water→terrain gap ({gap:F3}) MUST exceed even the LIGHT foam distance " +
+                $"({LowPolyZoneGen.PondFoamLight:F3}) so a soak that dials foam to LIGHT still reads foam=0 on the " +
+                "open disc (only the bank band foams) — never a flat-disc flood (ticket 86cadj4g7).");
         }
 
         private static T FindAnyInScene<T>() where T : Component

@@ -1512,9 +1512,14 @@ namespace FarHorizon.EditorTools
         private const float PondSurfaceY = -0.06f;
         private const float PondSurfaceRadius = 2.6f; // a few metres across — reads as one pool, not a 2nd sea (Uma §1e scale)
 
-        // The grassy bank lip (Uma §1e: a clean slightly-raised green collar ringing the pool). A low ring
-        // mesh in the world grass language so the pool reads FOUND, not stamped.
+        // The grassy bank lip (Uma §1e: a clean green collar ringing the pool). A low ring mesh in the world
+        // grass language so the pool reads FOUND, not stamped.
         private static readonly Color PondBankGrass = new Color(0.30f, 0.52f, 0.24f); // matches the world meadow greens
+        // Collar WIDTH: the green band reaches from the water rim OUT to the bowl MOUTH (ground level), so the
+        // player walks ON the green at ground level — not on bare carved-wall dirt (ticket 86cadj4g7 #130).
+        // = mouth − nominal water radius; the per-vertex outer rim is clamped to the mouth in BuildPondBankRing
+        // (organic-rim-aware), so wherever the (lobed) water rim sits the collar still ends exactly at the rim.
+        private const float PondBankCollarWidth = LowPolyZoneGen.PondBowlOuterRadius - PondSurfaceRadius; // 4.8 - 2.6 = 2.2
 
         // A wired FRESHWATER POND (86caamkv7 / Uma §1): a small still freshwater pool the castaway walks up to
         // and DRINKS FROM HAND (proximity + interact, no tool, NOT an inventory item — distinct from the
@@ -1550,7 +1555,13 @@ namespace FarHorizon.EditorTools
             bank.transform.SetParent(pond.transform, false);
             bank.transform.localPosition = Vector3.zero;
             var bmf = bank.AddComponent<MeshFilter>();
-            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, 0.9f, PondBankGrass);
+            // The collar must reach the BOWL MOUTH (LowPolyZoneGen.PondBowlOuterRadius) so its outer edge sits
+            // at the surrounding GROUND LEVEL — the player walks ON the green AT ground level, not on bare
+            // carved-wall dirt between the green and the grass (ticket 86cadj4g7 #130: "I should walk on the
+            // green, not inside it"). The collar then drapes as a continuous grassy slope from the water lip up
+            // the whole bowl wall to the rim. Width = mouth − nominal water radius (so the outer edge lands at
+            // the mouth); BuildPondBankRing clamps the outer rim to the mouth per-vertex (organic-rim-aware).
+            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, PondBankCollarWidth, PondBankGrass);
             var bmr = bank.AddComponent<MeshRenderer>();
             var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
             if (vc != null)
@@ -1671,7 +1682,12 @@ namespace FarHorizon.EditorTools
                 // water rim at every angle; the collar is a constant band outside it (so it lobes in parallel).
                 float ir0 = innerNominalR * LowPolyZoneGen.PondRimFactor(a0);
                 float ir1 = innerNominalR * LowPolyZoneGen.PondRimFactor(a1);
-                float or0 = ir0 + collarWidth, or1 = ir1 + collarWidth;
+                // Outer rim = inner + collarWidth, but CLAMPED to the bowl MOUTH (PondBowlOuterRadius) so the
+                // collar's outer edge lands exactly at GROUND LEVEL — the player walks on green at ground level,
+                // never beyond it onto bare carved wall (ticket 86cadj4g7 #130). At the mouth CollarOuterLocalY
+                // returns the full plateau height (t=1), so the outer rim sits flush with the surrounding grass.
+                float or0 = Mathf.Min(ir0 + collarWidth, LowPolyZoneGen.PondBowlOuterRadius);
+                float or1 = Mathf.Min(ir1 + collarWidth, LowPolyZoneGen.PondBowlOuterRadius);
                 // The outer collar rim sits on the bowl WALL: rise from the inner (water-lip) Y up to the wall
                 // height at the outer radius (root-local). This makes the collar SLOPE DOWN-IN, flush with the
                 // carved wall, never a raised lip. (Inner edge stays at the water lip — it meets the waterline.)
@@ -1694,11 +1710,11 @@ namespace FarHorizon.EditorTools
             return mesh;
         }
 
-        // The KNEE-DEEP wade depth — the water surface sits this far ABOVE the carved bowl floor. MUST match
-        // WorldBootstrap.PondWaterDepthAboveFloor (GroundPondInBowl positions the root by it). Mirrored here so
-        // the bank-collar geometry knows where the floor is relative to the (local) water surface without a
-        // cross-file const reference. (BankCollarMatchesBowlWall_FlushNoLip guards they agree.)
-        private const float PondKneeDeepDepth = 0.45f;
+        // The KNEE-DEEP wade depth — the water surface sits this far ABOVE the carved bowl floor. Sourced from
+        // the SHARED LowPolyZoneGen.PondWadeDepth (= WorldBootstrap.PondWaterDepthAboveFloor; GroundPondInBowl
+        // positions the root by it). So the bank-collar geometry knows where the floor is relative to the
+        // (local) water surface, in lockstep with the carve + grounding. (BankCollarMatchesBowlWall guards.)
+        private const float PondKneeDeepDepth = LowPolyZoneGen.PondWadeDepth;
 
         /// <summary>
         /// The pond-bank collar's OUTER-rim local Y at planar radius <paramref name="rad"/> from the pond
