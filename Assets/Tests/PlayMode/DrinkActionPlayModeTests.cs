@@ -70,11 +70,22 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_pond.PlayerInRange, "precondition: at the pond, in range");
 
             float before = _thirst.Current;
+            float before01 = _thirst.Current01;
+            float lastChanged = -1f;
+            _thirst.Changed += v => lastChanged = v;     // the HUD subscribe-never-poll seam
+
             bool drank = _drink.TryDrinkOneScoop();
 
             Assert.IsTrue(drank, "drinking at the pond succeeds (the drink input fires the seam)");
             Assert.AreEqual(before + _thirst.waterScoopAmount, _thirst.Current, 0.01f,
                 "the drink input restores exactly waterScoopAmount thirst (end-to-end through the pond seam)");
+            // Tie the Q-input path to the HUD-VISIBLE effect (Drew NIT): the visible Current01 rises AND the
+            // scoop fired Changed with the new Current01 — the surface the thirst bar (86caamkxv) will bind.
+            // Mirrors FreshwaterPondPlayModeTests.AtPond_InRange_ScoopRaisesThirst_AndFiresChanged.
+            Assert.Greater(_thirst.Current01, before01,
+                "the drink input raises the VISIBLE Current01 (the HUD-bound surface), not just the raw Current");
+            Assert.AreEqual(_thirst.Current01, lastChanged, 0.001f,
+                "the drink input fired Changed with the new Current01 (the load-bearing HUD subscribe-never-poll seam)");
         }
 
         // === Drink AWAY from the pond -> clean no-op (proximity is load-bearing) =======================

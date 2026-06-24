@@ -1574,7 +1574,6 @@ namespace FarHorizon.EditorTools
             //     bank, in the existing scatter language, so the pool reads tended-by-nature, not built. A
             //     couple of clouds' worth of care; don't over-decorate. Deterministic placement (no RNG) so
             //     the capture is stable. Collider-free (the player walks up to drink).
-            var rng = new System.Random(86001); // deterministic accent seed
             for (int i = 0; i < 5; i++)
             {
                 float a = i / 5f * Mathf.PI * 2f + 0.4f;
