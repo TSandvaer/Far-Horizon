@@ -86,3 +86,29 @@ The four tickets' `SettingsCatalog.Populate` registrations collide. Recommended:
 - **sticks `86caa96rd`** — READY. Full ACs + the 2026-06-19 block (AC4a chop-yield-setting ownership / AC4b panel-gate). The chop↔stick seam is pinned on both sides.
 
 All four are dispatch-ready — an author can pick any up without a clarifying question.
+
+---
+
+## RE-VERIFY ADDENDUM (Priya, 2026-06-24 — post thirst/3-bar-HUD/pond merges; main @ `b1afb05`)
+
+The body above was authored 2026-06-23 @ `6936989`. Since then thirst (#124), the three-bar HUD (#129), and the pond landed on main, and the pond re-soak rework (PR #130, `devon/86cadj4g7-pond-fresh-blue`, OPEN/MERGEABLE) is in flight. Re-verifying the three to-do wave tickets (chop `86caa4c5c` / sticks `86caa96rd` / stones `86caa4c96`) against current main:
+
+**Verdict: all 3 STILL dispatch-ready.** No dep regressed; the deltas below are AC-accuracy refinements (now pinned on each ticket as a "MAIN-STATE RE-VERIFY" block), not new blockers.
+
+### What changed on main vs the matrix above
+
+1. **`SettingsCatalog` de-collision is now PROVEN, not theoretical.** Thirst landed its tweakables via a NEW `SettingsCatalog.PopulateThirst(reg, thirst)` method called from `Build(...)` — NOT by editing `Populate`'s body. So the matrix's "four PRs all append to `Populate` → textual conflict" risk is mitigated: each wave ticket adds its OWN `PopulateChop`/`PopulateSticks`/`PopulateStones` method; the only shared line is the one-line call inside `Build` (trivial). Pinned on all 3 tickets (V2/V3).
+
+2. **`tool-use speed` is ALREADY a greyed extension-hook row in `Populate`** (`ToolSpeedId` = `"tool_use_speed"`, `available:false`, dummy getter). Chop FLIPS IT LIVE — it does NOT register a new row (would be a duplicate-id collision). Pinned on chop (V1).
+
+3. **`ItemCatalog` ids are all on main:** `WoodId="wood"`, `StoneId="stone"`, `BerryId="berry"`, `AxeId="axe"`. The tickets' Sponsor-resource names ("chopped wood" / "picked up stones") are display labels — the canonical code ids are `WoodId`/`StoneId`. Stones' AC2a "if not yet named, coordinate" fallback is now MOOT (the id exists). Pinned on chop (V3) / sticks (V2) / stones (V1).
+
+4. **Settings-panel host (86caa4bqp) is MERGED** → the AC5a/AC4b/AC3a "ship behind a hook if the panel isn't on main" fallbacks are RESOLVED for the panel-availability axis. The registrations land LIVE. (The chop↔stick yield-read seam (chop AC2a ↔ sticks AC4a) is unchanged and still the one hard cross-ticket seam.)
+
+### ⚠ NEW SEAM — #130 `OverlapsAnyRock` (was NOT in the matrix above)
+
+PR #130 reworks `LowPolyZoneGen.ScatterIslandProps`: the rock pass now records `rockFootprints` (a `List<Vector4>` of placed-rock XZ + `RockFootprintRadius*scale`) and the grass pass calls the new PUBLIC `LowPolyZoneGen.OverlapsAnyRock(rockFootprints, x, z)` (consts `RockFootprintRadius=0.55f`, `GrassRockPad=0.35f`) so grass never sprouts through a stone.
+
+- **Stones + sticks DO scatter into the SAME rock-region #130 rewrites** → they MUST (a) dispatch AFTER #130 merges, (b) extend the #130-reworked rock pass (which already maintains `rockFootprints`), and (c) consume `OverlapsAnyRock` so the new small-stone / stick props don't bury inside a boulder AND don't regress the grass-in-stone fix. A scatter PR that ignores `rockFootprints` = REQUEST_CHANGES. Pinned on stones (V2) / sticks (V1).
+- **Chop only READS the tree scatter** → no #130 collision; rebase-only. Pinned on chop (V4).
+- **Sequencing impact:** #130 joins thirst-pond as a `ScatterIslandProps`+`Boot.unity` writer. The "never two `ScatterIslandProps` writers concurrent" rule now means: land #130 FIRST, then stones/sticks serialize behind it (rebase via `merge-from-main`, no force-push). The net recommended order is unchanged — `thirst`(merged) → `chop` → `sticks` → `stones` — with the added gate that the two scatter tickets (stones/sticks) wait for #130 to land before their scatter pass goes in.
