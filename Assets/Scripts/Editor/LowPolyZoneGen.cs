@@ -657,6 +657,12 @@ namespace FarHorizon.EditorTools
             // ---- ROCK OUTCROPS on the hills ----
             // Clustered boulders, biased toward the higher inland ground (the hill rock reads elevation).
             // Natural piles (2-4 each), spawn-clear, across the disc.
+            // GRASS-IN-STONE FIX (ticket 86cadj4g7, Sponsor #130 soak): record each placed rock's XZ + footprint
+            // radius so the grass loop below can REJECT any tuft that would land inside a boulder (the defect:
+            // independent RNG draws let grass sprout through a stone). FacetedRock has base radius ~0.55u; the
+            // rock's world footprint ≈ 0.55 × scale. Recording consumes NO extra rnd draws, so the seed-42
+            // tree/rock placement is byte-identical (only overlapping GRASS candidates are now skipped).
+            var rockFootprints = new List<Vector4>(64); // (x, z, radius, _) per placed rock
             int rockTarget = 60, rocksPlaced = 0, rockGuard = 0;
             while (rocksPlaced < rockTarget && rockGuard++ < rockTarget * 8)
             {
@@ -672,11 +678,17 @@ namespace FarHorizon.EditorTools
                     if (!OnLandmass(x, z)) continue;             // warped coast (reject sea / beach strip)
                     float scale = 0.55f + (float)rnd.NextDouble() * 1.0f;
                     BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+                    rockFootprints.Add(new Vector4(x, z, RockFootprintRadius * scale, 0f));
                     rocksPlaced++;
                 }
             }
 
             // ---- GRASS TUFTS — dense ground cover across the interior, sparse at the coast. ----
+            // GRASS-IN-STONE FIX (ticket 86cadj4g7): reject any candidate that lands inside a placed boulder's
+            // footprint (+ GrassRockPad margin) BEFORE building it — so grass never sprouts through a stone. A
+            // linear scan over the ≤60 recorded rocks per candidate is cheap (≤ 60×360 ≈ 22k planar checks at
+            // bootstrap, editor-time only). The candidate is still DRAWN from rnd in the same order (the reject
+            // is a `continue` like the existing land/density rejects), so the seed-42 stream stays consistent.
             int clumpTarget = 360, clumpsPlaced = 0, clumpGuard = 0;
             while (clumpsPlaced < clumpTarget && clumpGuard++ < clumpTarget * 6)
             {
@@ -686,6 +698,7 @@ namespace FarHorizon.EditorTools
                 if (!OnLandmass(x, z)) continue;                 // warped coast (reject sea / beach strip)
                 float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
                 if (rnd.NextDouble() > Mathf.Clamp01(0.25f + inlandT * 0.7f)) continue;
+                if (OverlapsAnyRock(rockFootprints, x, z)) continue; // no grass sprouting through a stone (#130)
                 BuildGrassClump(parent, GroundPoint(groundCol, x, z),
                     0.5f + (float)rnd.NextDouble() * 0.5f, rnd);
                 clumpsPlaced++;
@@ -848,6 +861,32 @@ namespace FarHorizon.EditorTools
             MakeMeshObject(clump, "Blades",
                 LowPolyMeshes.GrassClump(0.55f, 7, rnd.Next()),
                 MakeFlatColorMat(blade, "LPGrassMat"));
+        }
+
+        // ---- GRASS-IN-STONE FIX (ticket 86cadj4g7, Sponsor #130 soak) ----
+        // FacetedRock(0.55) base radius — the boulder's world footprint ≈ this × the rock's scale. Public so the
+        // overlap-rejection test can size a rock + assert grass placed inside it is rejected.
+        public const float RockFootprintRadius = 0.55f;
+        // Extra margin past a boulder's footprint within which grass is rejected — so a tuft doesn't even brush
+        // the stone's edge (a tuft is ~0.5u wide). Tuned so grass keeps a visible gap to the rock.
+        public const float GrassRockPad = 0.35f;
+
+        /// <summary>
+        /// True if planar XZ point (<paramref name="x"/>,<paramref name="z"/>) falls inside ANY recorded rock's
+        /// footprint (+ GrassRockPad) — the reject test that keeps grass from sprouting through a boulder
+        /// (ticket 86cadj4g7). <paramref name="rockFootprints"/> entries are (x, z, radius, _). PUBLIC so the
+        /// overlap-rejection EditMode test drives it directly with a synthetic rock list.
+        /// </summary>
+        public static bool OverlapsAnyRock(List<Vector4> rockFootprints, float x, float z)
+        {
+            for (int i = 0; i < rockFootprints.Count; i++)
+            {
+                Vector4 f = rockFootprints[i];
+                float dx = x - f.x, dz = z - f.y;
+                float reach = f.z + GrassRockPad;
+                if (dx * dx + dz * dz < reach * reach) return true;
+            }
+            return false;
         }
 
         static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat)
