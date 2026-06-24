@@ -28,6 +28,7 @@ Read `CLAUDE.md` + every `.claude/docs/*.md` file on your first task of a sessio
 4. **Verify PR #216 process gates:**
    - **Regression guard** line in Done clause
    - **Cross-lane integration check** in Self-Test Report
+   - **Real-world human-eye line (physical-world features — Sponsor directive 2026-06-24, PR #130 pond lift→mound lesson):** for any PR shaping a thing with a real-world referent (pond / fire / hill / dune / terrain carve / water body / shaped prop whose up-vs-down read matters), the human-eye question — "would a person standing here call this a <pond / fire / hill>?" — sits BESIDE the seed-42 / byte / metric checks, not instead of them. A metric can be green on nonsense (the `-verifyPond` color metric passed on a raised mound). Confirm the Self-Test Report carries a **side-profile (silhouette) capture** the author eyeballed against their real-world anchor sentence; if it's missing for a shape feature, REQUEST CHANGES. See `.claude/docs/lowpoly-quality.md` §0.
 5. **Verify Self-Test Report adequacy** for UX-visible PRs (audio / combat / level / inventory). If missing, REQUEST CHANGES — don't bounce for trivial nits, but Self-Test Report missing is a hard gate.
 6. **HTML5 release-build spot-check** for combat / audio / visual PRs:
    - Pull the SHA-pinned artifact (use Devon's PR #211 SHA-pin: `gh workflow run playwright-e2e.yml -f artifact_run_id=<id>` or `-f artifact_sha=<sha>`)
