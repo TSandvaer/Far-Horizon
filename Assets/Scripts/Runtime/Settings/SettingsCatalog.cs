@@ -34,6 +34,10 @@ namespace FarHorizon.Settings
         public const string RunSpeedId     = "run_speed";
         public const string JumpHeightId   = "jump_height";
         public const string ToolSpeedId    = "tool_use_speed";
+        // Thirst tweakables (ticket 86caamkv7 AC5). Labels are the AC-mandated names ("thirst decay rate",
+        // "water scoop amount") — the gameplay-wave/hunger naming convention. LIVE-bound to the ThirstNeed.
+        public const string ThirstDecayId  = "thirst_decay_rate";
+        public const string WaterScoopId   = "water_scoop_amount";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -44,6 +48,10 @@ namespace FarHorizon.Settings
         public const float WalkMin = 1f, WalkMax = 12f;
         // Run-speed slider band (around the runSpeed 9.5 default) — used when the hook is wired live.
         public const float RunMin = 2f, RunMax = 18f;
+        // Thirst-decay slider band (around the ThirstMedDecayPerSecond 0.45 default) — gentle..punishing.
+        public const float ThirstDecayMin = 0.05f, ThirstDecayMax = 1.5f;
+        // Water-scoop slider band (around the waterScoopAmount 14 default) — a sip..a big gulp.
+        public const float WaterScoopMin = 2f, WaterScoopMax = 40f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -52,9 +60,18 @@ namespace FarHorizon.Settings
         /// drives both ranges.
         /// </summary>
         public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd)
+            => Build(orbit, wasd, null);
+
+        /// <summary>
+        /// Build the standard registry AND register the thirst tweakables (ticket 86caamkv7 AC5) bound to the
+        /// live <paramref name="thirst"/> need. A null thirst SKIPS the thirst settings (the catalog never
+        /// null-refs), so existing callers / bare test rigs are unaffected.
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
+            PopulateThirst(reg, thirst);
             return reg;
         }
 
@@ -105,6 +122,32 @@ namespace FarHorizon.Settings
             //     animation-speed param exists yet, so reserve the row greyed. ---
             reg.AddFloat(ToolSpeedId, "Tool-use speed",
                 () => 1f, _ => { }, 0.25f, 3f, available: false, unit: "x");
+        }
+
+        /// <summary>
+        /// Register the THIRST tweakables (ticket 86caamkv7 AC5) into the registry, LIVE-bound to the given
+        /// <paramref name="thirst"/> need: `thirst decay rate` (drives ThirstNeed.decayPerSecond) + `water
+        /// scoop amount` (drives ThirstNeed.waterScoopAmount). Idempotent w.r.t. a null target — a null thirst
+        /// registers NOTHING (the settings panel for a thirst-less rig simply lacks these rows). The settings
+        /// panel host (86caa4bqp / PR #83) is MERGED, so these are LIVE rows, not greyed extension hooks. The
+        /// labels are the AC-mandated names ("thirst decay rate" / "water scoop amount").
+        /// </summary>
+        public static void PopulateThirst(SettingsRegistry reg, FarHorizon.ThirstNeed thirst)
+        {
+            if (reg == null || thirst == null) return;
+
+            // THIRST DECAY RATE (live) — drives the ACTIVE ThirstNeed.decayPerSecond (the single field the
+            // decay path reads). Tightening it makes thirst nag sooner; loosening it, gentler (the difficulty
+            // tiers also write this field, but the slider is a direct soak-tuning knob over the active rate).
+            reg.AddFloat(ThirstDecayId, "Thirst decay rate",
+                () => thirst.decayPerSecond, v => thirst.decayPerSecond = v,
+                ThirstDecayMin, ThirstDecayMax, unit: "/s");
+
+            // WATER SCOOP AMOUNT (live) — drives ThirstNeed.waterScoopAmount, the per-scoop restore. Bigger =
+            // fewer scoops to comfortable; smaller = more sips (the "small amount with each scoop" cadence).
+            reg.AddFloat(WaterScoopId, "Water scoop amount",
+                () => thirst.waterScoopAmount, v => thirst.waterScoopAmount = v,
+                WaterScoopMin, WaterScoopMax, unit: "");
         }
     }
 }

@@ -42,6 +42,9 @@ namespace FarHorizon
         public OrbitCamera orbit;
         [Tooltip("The WASD locomotion — walk speed (+ run speed) bind here.")]
         public WasdMovement wasd;
+        [Tooltip("The thirst need (86caamkv7) — thirst decay rate + water scoop amount bind here (AC5). " +
+                 "May be null; the thirst rows then simply don't appear.")]
+        public ThirstNeed thirst;
 
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the panel. Esc per Uma §8 (free — no clash with WASD/Shift/Ctrl/Space/Tab/1-5).")]
@@ -64,12 +67,14 @@ namespace FarHorizon
             if (document == null) document = GetComponent<UIDocument>();
             if (orbit == null) orbit = FindObjectOfType<OrbitCamera>();
             if (wasd == null) wasd = FindObjectOfType<WasdMovement>();
+            if (thirst == null) thirst = FindObjectOfType<ThirstNeed>();
         }
 
         void Start()
         {
             // Build the registry from the live targets (AC3), load persisted soak tweaks (AC5), apply them.
-            Registry = SettingsCatalog.Build(orbit, wasd);
+            // The thirst overload (86caamkv7 AC5) adds the thirst decay rate + water scoop amount rows.
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst);
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 
