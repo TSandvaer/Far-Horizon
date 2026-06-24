@@ -267,30 +267,30 @@ namespace FarHorizon.EditorTools
         // 0.45), so the green-rimmed pool read as a RAISED LENS/MOUND, not a sunk pool. This decouples the
         // RECESS (how deep the pool reads below ground) from the WADE depth (how deep the player stands in the
         // water once on the floor): the bowl FLOOR is carved RECESS + WADE below the plateau, so the water
-        // surface (floor + wade) lands exactly RECESS below the plateau. A clearly knee-deep RECESS (0.45u,
-        // the default the Sponsor soaks first) sinks the pool so the collar is walkable AT ground level. The
-        // live PondRecessNudge handle drives the recess at discrete steps so the Sponsor dials the final value.
-        public const float PondRecessKneeDeep = 0.45f;   // DEFAULT recess: water surface 0.45u BELOW the plateau (clearly knee-deep sunk pool)
+        // surface (floor + wade) lands exactly RECESS below the plateau. The Sponsor soaked the recess dial
+        // (PondNudge PgUp/PgDn) on build 1a3a427 and CHOSE DEEPER (0.75u below ground) — BAKED here as the new
+        // default (#130 third re-soak). The live PondRecessNudge handle stays (PgUp/PgDn) for any future dial.
+        public const float PondRecessKneeDeep = 0.75f;   // DEFAULT recess: water surface 0.75u BELOW the plateau (Sponsor's chosen DEEPER, #130 re-soak)
         // The WADE depth: how deep the player standing on the bowl FLOOR is submerged (water surface − floor).
         // Castaway knee ≈ 0.45u. Mirrored in WorldBootstrap.PondWaterDepthAboveFloor + MovementCameraScene.
         public const float PondWadeDepth = 0.45f;
-        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau = RECESS + WADE. With the knee-deep
-        // recess (0.45) + wade (0.45) the floor is carved 0.90u down, the water surface lands 0.45u below the
-        // plateau (a clearly sunk pool), and the player on the floor stands knee-deep. (Previously 0.55 → the
-        // water sat only 0.10 below the plateau, reading as a raised lens — the #130 mound defect.)
-        public const float PondBowlFloorDrop = PondRecessKneeDeep + PondWadeDepth; // 0.90
+        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau = RECESS + WADE. With the DEEPER
+        // recess (0.75, the Sponsor's chosen #130 re-soak value) + wade (0.45) the floor is carved 1.20u down,
+        // the water surface lands 0.75u below the plateau (a clearly sunk pool), and the player on the floor
+        // stands knee-deep. (Was 0.90 at the knee-deep 0.45 recess; the Sponsor dialed DEEPER on 1a3a427.)
+        public const float PondBowlFloorDrop = PondRecessKneeDeep + PondWadeDepth; // 1.20
         // The flat-ish bowl FLOOR extends to this radius from the pond centre — covers the whole organic water
         // disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water everywhere the disc
         // shows (the player stands knee-deep anywhere in the pool, not just dead centre). Just under the disc
         // rim so the wall begins right at the disc edge (no wide exposed flat floor outside the disc).
         public const float PondBowlInnerRadius = 3.0f;
         // The bowl WALL slopes from the floor back up to UNDISTURBED plateau by this radius. Sized so the wall
-        // stays GENTLE: the deeper 0.90u FloorDrop over the (4.8-3.0)=1.8u run → steepest ~37° (smoothstep
-        // peaks 1.5× its average: atan(1.5·0.90/1.8)=36.9°), still WELL under the NavMesh agent's 45° max →
-        // the bake covers the bowl floor + walls so the player can wade in. WIDENED from 4.4 → 4.8 to keep the
-        // steepest wall < 40° now that the bowl is deeper (keep outer−inner ≳ 1.8×floorDrop/tan40° so the
-        // steepest point stays < 40° — the PondBowl_WallSlope test pins this).
-        public const float PondBowlOuterRadius = 4.8f;
+        // stays GENTLE: the deeper 1.20u FloorDrop over the (5.4-3.0)=2.4u run → steepest ~37° (smoothstep
+        // peaks 1.5× its average: atan(1.5·1.20/2.4)=36.9°), still WELL under the NavMesh agent's 45° max →
+        // the bake covers the bowl floor + walls so the player can wade in. WIDENED 4.8 → 5.4 to keep the
+        // steepest wall < 40° now that the bowl is DEEPER (0.75 recess; #130 re-soak) — keep outer−inner ≳
+        // 1.5×floorDrop/tan40° (=2.14) so the steepest point stays < 40° (the PondBowl_WallSlope test pins this).
+        public const float PondBowlOuterRadius = 5.4f;
 
         // ===== POND FOAM LEVELS (ticket 86cadj4g7 — Sponsor #130: "the pond should NOT foam like the sea") ==
         // The pond's _FoamDistance on the FarHorizon/LowPolyWater shader (foam = saturate(1 - gap/distance)).

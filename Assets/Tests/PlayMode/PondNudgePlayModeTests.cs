@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -8,14 +7,17 @@ using FarHorizon;
 namespace FarHorizon.PlayTests
 {
     /// <summary>
-    /// PlayMode coverage for the POND RECESS + FOAM live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak).
+    /// PlayMode coverage for the POND RECESS live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak).
     ///
     /// CATCHES THE BUG CLASS, not the instance. The #100 axe-head DIAL passed unit tests but NO-OPPED at runtime
-    /// (data-layer-only / silently stomped). So the load-bearing assertions here are NOT "the step index advanced"
-    /// — they are that a recess step actually MOVES the pond ROOT transform Y (the real terrain/collar
-    /// relationship the dispatch demands "move the REAL relationship, not just the water-surface Y") and a foam
-    /// step actually MUTATES the material's live _FoamDistance. A synthetic pond (a FreshwaterPond root + a
-    /// PondWater child carrying a LowPolyWater material) stands in for the baked scene.
+    /// (data-layer-only / silently stomped). So the load-bearing assertion here is NOT "the step index advanced"
+    /// — it is that a recess step actually MOVES the pond ROOT transform Y (the real terrain/collar relationship
+    /// the dispatch demands "move the REAL relationship, not just the water-surface Y"). A synthetic pond (a
+    /// FreshwaterPond root + a PondWater child) stands in for the baked scene.
+    ///
+    /// FOAM DIAL DROPPED (#130 third re-soak): the foam step test was removed — foam is now baked OFF on the pond
+    /// material unconditionally (no runtime dial; the old Home/End dial was DEAD). The pond's foam-off shipping
+    /// is covered by FreshwaterPondSceneTests.Pond_FoamDistance_* + the top-down no-surface-white verify gate.
     /// </summary>
     public class PondNudgePlayModeTests
     {
@@ -95,57 +97,7 @@ namespace FarHorizon.PlayTests
                 "the flush root Y must rise by exactly (defaultRecess − flushRecess) above the shipped Y");
         }
 
-        // (2) A foam step actually MUTATES the live material _FoamDistance (off/light/sea-like), and the DEFAULT
-        // foam step sets it OFF (#130 "still pool"). Only meaningful when the LowPolyWater shader is present
-        // (the _FoamDistance property exists); skip on the URP/Lit harness fallback.
-        [UnityTest]
-        public IEnumerator FoamStep_MutatesMaterialFoamDistance_DefaultOff()
-        {
-            BuildSyntheticPond();
-            yield return null;
-
-            // Touch the runtime material instance the nudge resolves (.material on the renderer). Resolve once.
-            _nudge.ForceFoamStep(PondNudge.FoamDefaultStep);
-            var resolvedMat = ResolvedPondMat();
-            if (resolvedMat == null || !resolvedMat.HasProperty("_FoamDistance"))
-            {
-                Assert.Pass("no _FoamDistance on the harness material (URP/Lit fallback) — foam mutation not testable here");
-                yield break;
-            }
-
-            // DEFAULT = OFF (PondNudge.FoamStepValue[FoamDefaultStep] is the runtime source of truth; the
-            // EditMode PondNudgeTests pins it == LowPolyZoneGen.PondFoamOff — PlayMode can't see the editor asmdef).
-            Assert.AreEqual(PondNudge.FoamStepValue[PondNudge.FoamDefaultStep], resolvedMat.GetFloat("_FoamDistance"), 1e-3f,
-                "the DEFAULT foam step must set _FoamDistance OFF (a still pool — Sponsor #130)");
-            // #130 re-soak — the MASTER _FoamAmount gate is what actually removes the shoreline ring. Assert the
-            // DEFAULT (off) step drives it to 0 (the real off-layer, not the _FoamDistance proxy — the silent-killer
-            // lesson: _FoamDistance=0 alone left the gap≈0 razor line; the gate is the fix). Skip on a fallback mat.
-            bool hasGate = resolvedMat.HasProperty("_FoamAmount");
-            if (hasGate)
-                Assert.AreEqual(0f, resolvedMat.GetFloat("_FoamAmount"), 1e-3f,
-                    "the DEFAULT (off) foam step must drive the master _FoamAmount to 0 — the real OFF switch that " +
-                    "zeroes the shoreline razor line (_FoamDistance=0 alone does not; #130 re-soak).");
-
-            // SEA-LIKE — the material _FoamDistance must actually change to the sea-like value (not a no-op), AND
-            // the master gate must flip ON (1) so the foam is actually present.
-            int seaLike = PondNudge.FoamStepValue.Length - 1;
-            _nudge.ForceFoamStep(seaLike);
-            Assert.AreEqual(PondNudge.FoamStepValue[seaLike], ResolvedPondMat().GetFloat("_FoamDistance"), 1e-3f,
-                "a SEA-LIKE foam step must set the live material _FoamDistance to the sea-like value (a real mutation)");
-            if (hasGate)
-                Assert.AreEqual(1f, ResolvedPondMat().GetFloat("_FoamAmount"), 1e-3f,
-                    "a SEA-LIKE foam step must flip the master _FoamAmount ON (1) so the foam actually renders");
-
-            // Back to OFF — the foam must turn fully off again (round-trip), gate back to 0.
-            _nudge.ForceFoamStep(0);
-            Assert.AreEqual(PondNudge.FoamStepValue[0], ResolvedPondMat().GetFloat("_FoamDistance"), 1e-3f,
-                "stepping foam back to OFF must restore _FoamDistance to 0 (a still pool again)");
-            if (hasGate)
-                Assert.AreEqual(0f, ResolvedPondMat().GetFloat("_FoamAmount"), 1e-3f,
-                    "stepping foam back to OFF must restore the master _FoamAmount to 0 (the shoreline ring gone again)");
-        }
-
-        // (3) Out-of-range Force* calls are graceful no-ops (return -1, never throw).
+        // (2) Out-of-range Force* calls are graceful no-ops (return -1, never throw).
         [UnityTest]
         public IEnumerator ForceSteps_OutOfRange_AreGracefulNoOps()
         {
@@ -153,13 +105,6 @@ namespace FarHorizon.PlayTests
             yield return null;
             Assert.AreEqual(-1f, _nudge.ForceRecessStep(99), "out-of-range recess step returns -1, no throw");
             Assert.AreEqual(-1f, _nudge.ForceRecessStep(-1), "negative recess step returns -1, no throw");
-            Assert.AreEqual(-1f, _nudge.ForceFoamStep(99), "out-of-range foam step returns -1, no throw");
-        }
-
-        private Material ResolvedPondMat()
-        {
-            var f = typeof(PondNudge).GetField("_pondMat", BindingFlags.NonPublic | BindingFlags.Instance);
-            return (Material)f.GetValue(_nudge);
         }
     }
 }

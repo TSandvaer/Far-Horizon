@@ -536,12 +536,12 @@ namespace FarHorizon.EditTests
         // === REGRESSION GUARD (ticket 86cadj4g7) — the depth-fade foam must not FLOOD the flat disc ========
         // The shared depth-fade foam (foam = saturate(1 - gap/_FoamDistance)) fires UNIFORMLY across the disc
         // unless _FoamDistance is SMALLER than the water→floor gap — at the sea-scale _FoamDistance the pond
-        // shipped PALE/near-white (B-G≈-0.01), the foam-flood half of the original defect. With the BOWL CARVE
-        // (#130 re-soak) the gap is now the knee-deep water DEPTH (~0.45u above the carved floor) — an even
-        // larger margin than the old lift. This pins the invariant that makes the open-water disc read fresh-
-        // blue: the pond material's _FoamDistance MUST be < the water→floor depth so gap > _FoamDistance →
-        // foam=0 in open water (foam then only rides the thin bank band). Guards a future re-tune raising
-        // _FoamDistance back into flood territory.
+        // shipped PALE/near-white (the BROAD white surface band the Sponsor saw from above). With the DEEPER
+        // BOWL CARVE (#130 third re-soak) the gap is now the wade water DEPTH (~0.45u above the carved floor) —
+        // but the load-bearing OFF switch is the master _FoamAmount gate (asserted below), zeroing the whole
+        // foam term regardless of the gap. This test reads the SCENE material AFTER the harness's bootstrap
+        // regen; the COMMITTED-asset-ships-off guard (CommittedPondMaterialAsset_ShipsFoamOff_NotStale) is the
+        // sibling that catches a STALE committed asset shipping foam ON (the actual #130 root cause).
         [Test]
         public void Pond_FoamDistance_BelowWaterTerrainGap_NoFoamFlood()
         {
@@ -605,6 +605,63 @@ namespace FarHorizon.EditTests
                 $"the pond water→terrain gap ({gap:F3}) MUST exceed even the LIGHT foam distance " +
                 $"({LowPolyZoneGen.PondFoamLight:F3}) so a soak that dials foam to LIGHT still reads foam=0 on the " +
                 "open disc (only the bank band foams) — never a flat-disc flood (ticket 86cadj4g7).");
+        }
+
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 THIRD re-soak) — the COMMITTED material asset ships foam-OFF.
+        // ROOT CAUSE of the Sponsor's white band: the white IS the depth-fade foam term (foam = saturate(1 −
+        // gap/_FoamDistance) lerping to near-white _FoamColor). Over the shallow recessed pond the water→floor gap
+        // is small across the WHOLE disc, so when foam is ON the term saturates to ~1 across the entire surface →
+        // a BROAD white band visible from ABOVE (the Sponsor's 3-4 cam) but INVISIBLE EDGE-ON (so the side-profile
+        // gate was blind). The COMMITTED PondWaterMat.mat asset was STALE — it predated the _FoamAmount gate
+        // (last recommitted in #124, before cae8c52 added the gate) and shipped _FoamDistance=0.6 + NO _FoamAmount
+        // (→ shader default 1 = foam ON). A build that does NOT re-run BootstrapProject before BuildPlayer ships
+        // that stale asset → the white band. The other foam test (above) reads the scene material AFTER the test
+        // harness's bootstrap regen, so it CANNOT catch the stale committed asset. THIS test loads the committed
+        // asset directly from disk and asserts it ships foam-off — so a future stale-asset regression reds HERE,
+        // not silently at the Sponsor's soak. (The dial was also dropped — foam is baked OFF, not a runtime knob.)
+        [Test]
+        public void CommittedPondMaterialAsset_ShipsFoamOff_NotStale()
+        {
+            const string matPath = "Assets/Settings/PondWaterMat.mat";
+            var mat = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            Assert.IsNotNull(mat, $"the committed pond material asset must exist at {matPath}");
+
+            // Only meaningful on the LowPolyWater shader (the depth-fade foam path). A URP/Lit fallback asset has
+            // no foam to ship on, so skip the assert there (the build would have no depth-fade foam anyway).
+            if (!mat.HasProperty("_FoamAmount") && !mat.HasProperty("_FoamDistance"))
+            {
+                Assert.Pass("committed pond asset has no foam properties (URP/Lit fallback — no depth-fade foam)");
+                return;
+            }
+
+            // The master _FoamAmount gate MUST be present AND 0 on the committed asset — this is the load-bearing
+            // OFF switch (it zeroes the WHOLE foam term incl. the broad shallow-disc band + the gap≈0 shoreline
+            // razor). A missing _FoamAmount entry on the asset means the shader default (1 = foam ON) governs → the
+            // white band ships. So we assert it is explicitly present and 0 (not relying on a default).
+            Assert.IsTrue(mat.HasProperty("_FoamAmount"),
+                "the committed pond material must carry the _FoamAmount master gate (a stale asset predating the " +
+                "gate ships foam ON via the shader default = the #130 white band)");
+            Assert.AreEqual(0f, mat.GetFloat("_FoamAmount"), 1e-4f,
+                "the COMMITTED pond material asset must ship _FoamAmount = 0 (foam OFF) — a stale asset that ships " +
+                "foam ON renders the broad white surface band the Sponsor saw (the #130 third re-soak root cause). " +
+                "Re-run BootstrapProject + recommit Assets/Settings/PondWaterMat.mat if this reds.");
+            if (mat.HasProperty("_FoamDistance"))
+                Assert.AreEqual(0f, mat.GetFloat("_FoamDistance"), 1e-4f,
+                    "the committed pond material must also ship _FoamDistance = 0 (belt-and-suspenders foam-off).");
+        }
+
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 THIRD re-soak) — the recess default is BAKED to DEEPER ======
+        // The Sponsor dialed the recess on build 1a3a427 and chose DEEPER (0.75u below ground). Pin the baked
+        // recess so a future re-tune that reverts toward the rejected shallower mound reds here.
+        [Test]
+        public void PondRecess_BakedToSponsorChosenDeeper()
+        {
+            Assert.AreEqual(0.75f, LowPolyZoneGen.PondRecessKneeDeep, 1e-4f,
+                "the baked pond recess must be 0.75u (the Sponsor's chosen DEEPER value, #130 third re-soak)");
+            // The PondNudge default step must ALSO equal the baked recess so a no-key soak shows the shipped pond.
+            Assert.AreEqual(LowPolyZoneGen.PondRecessKneeDeep,
+                PondNudge.RecessStepValue[PondNudge.RecessDefaultStep], 1e-4f,
+                "the PondNudge default recess step must equal the baked recess (a no-key soak sees the shipped pond)");
         }
 
         private static T FindAnyInScene<T>() where T : Component

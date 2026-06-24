@@ -10,74 +10,66 @@ namespace FarHorizon
     /// LAYOUT-AGNOSTIC keys, NO continuous runtime dial (the #100 axe-head dial failed because it deformed
     /// mesh verts at runtime + silently no-opped — discrete picker steps are the mechanism that always worked).
     ///
-    /// TWO HANDLES:
+    /// ONE HANDLE (the foam dial was DROPPED — #130 third re-soak):
     ///  • POND RECESS DEPTH — [PgUp]/[PgDn] cycle discrete recess steps (flush -> knee-deep -> deeper).
-    ///    DEFAULT = KNEE-DEEP (a clearly sunk pool). The recess is how far the WATER SURFACE sits BELOW the
-    ///    surrounding GROUND LEVEL. CRITICAL (the #130 mound defect): a step moves the REAL terrain/collar
-    ///    relationship, not just the water-surface Y — it sinks the whole pond ROOT (water + collar + accents)
-    ///    DOWN by the recess delta AND REBUILDS the collar so its OUTER rim climbs back to GROUND LEVEL, so the
-    ///    green stays WALKABLE at ground level at every depth while the water visibly sinks. (The terrain bowl
-    ///    is baked at the knee-deep default; this handle moves the visual pond within/relative to it so the
-    ///    Sponsor judges the recess look, then we BAKE the chosen recess into LowPolyZoneGen.PondRecessKneeDeep
-    ///    + the bowl carve + GroundPondInBowl in lockstep.)
-    ///  • POND FOAM AMOUNT — [Home]/[End] cycle discrete foam steps (off -> light -> sea-like). DEFAULT = OFF
-    ///    (a still fresh pool — Sponsor #130: "should not foam like the sea"). Drives the pond water material's
-    ///    _FoamDistance (off=0 -> no foam ring; light=0.06 -> thin bank line; sea-like=1.5 -> the sea's band).
+    ///    DEFAULT = DEEPER (the Sponsor's chosen 0.75u-below-ground recess, baked #130 re-soak). The recess is
+    ///    how far the WATER SURFACE sits BELOW the surrounding GROUND LEVEL. CRITICAL (the #130 mound defect): a
+    ///    step moves the REAL terrain/collar relationship, not just the water-surface Y — it sinks the whole pond
+    ///    ROOT (water + collar + accents) DOWN by the recess delta, so the green stays WALKABLE at ground level
+    ///    while the water visibly sinks. (The terrain bowl is baked at the DEEPER default; this handle moves the
+    ///    visual pond within/relative to it so the Sponsor judges the recess look.)
     ///
-    /// KEYS — LAYOUT-AGNOSTIC ONLY ([[sponsor-danish-keyboard-layout]]): PageUp/PageDown + Home/End. NEVER
-    /// US-position punctuation ([ ] ; ' - =) — they shift on the Sponsor's Danish laptop. (PgUp/PgDn/Home/End
-    /// are free here: the held-axe TGYHUJ rotation keys are F9-gated, the WorldLookNudgeTool is F10-gated, and
-    /// neither is active during a normal pond soak — this handle is always-live like the axe LENGTH picker.)
+    /// FOAM DIAL DROPPED (#130 third re-soak): the Sponsor ALWAYS wants the freshwater pond foam OFF (a still
+    /// pool — "should not foam like the sea"), so a foam control here is moot — AND the old Home/End foam dial
+    /// was DEAD at runtime (it drove the shared depth-fade foam term, which the shipped pond ships zeroed). Foam
+    /// is now baked OFF unconditionally on the pond material (MakePondMaterial _FoamAmount=0 + the committed
+    /// PondWaterMat.mat asset), not a runtime dial. The white band the Sponsor saw was the depth-fade foam term
+    /// rendering when a STALE committed material shipped foam-ON; the fix is the baked-off material + the
+    /// top-down no-surface-white verify gate, not a dial.
+    ///
+    /// KEYS — LAYOUT-AGNOSTIC ONLY ([[sponsor-danish-keyboard-layout]]): PageUp/PageDown. NEVER US-position
+    /// punctuation ([ ] ; ' - =) — they shift on the Sponsor's Danish laptop. (PgUp/PgDn are free here: the
+    /// held-axe TGYHUJ rotation keys are F9-gated, the WorldLookNudgeTool is F10-gated, and neither is active
+    /// during a normal pond soak — this handle is always-live like the axe LENGTH picker.)
     ///
     /// ALWAYS-LIVE (like HeldAxeLengthPicker, NOT toggle-gated like the F9/F10 nudge tools): the panel shows
-    /// the current recess + foam value the whole soak so the Sponsor reads the values off-screen to report for
-    /// baking. It starts at the SHIPPED defaults (knee-deep recess + foam off) so a soak that never presses a
-    /// key sees exactly the shipped pond; pressing a key enters that handle's step cycle.
+    /// the current recess value the whole soak so the Sponsor reads it off-screen to report for baking. It
+    /// starts at the SHIPPED default (DEEPER recess) so a soak that never presses a key sees exactly the
+    /// shipped pond; pressing a key enters the recess step cycle.
     ///
-    /// VERIFICATION entry points (-verifyPond / -verifyPondSide shipped-build captures): ForceRecessStep /
-    /// ForceFoamStep drive the SAME step paths the Sponsor uses, so the shipped-build capture proves the steps
-    /// actually move the pool (the #100 dial passed tests but no-opped at runtime — this drives the real path).
+    /// VERIFICATION entry point (-verifyPond / -verifyPondSide shipped-build captures): ForceRecessStep drives
+    /// the SAME step path the Sponsor uses, so the shipped-build capture proves the step actually moves the pool
+    /// (the #100 dial passed tests but no-opped at runtime — this drives the real path).
     ///
     /// STATIC STATE: instance fields only — NO mutable runtime statics, so no SubsystemRegistration reset is
     /// needed (StaticStateResetTests stays green).
     /// </summary>
     public class PondNudge : MonoBehaviour
     {
-        // ---- LAYOUT-AGNOSTIC keys (Danish-safe — PgUp/PgDn/Home/End, never US punctuation) ----
+        // ---- LAYOUT-AGNOSTIC keys (Danish-safe — PgUp/PgDn, never US punctuation) ----
         [Tooltip("Deepen the pond recess one step (flush -> knee-deep -> deeper -> wrap). PageUp = layout-safe.")]
         public KeyCode recessDeeperKey = KeyCode.PageUp;
         [Tooltip("Shallow the pond recess one step (the reverse cycle). PageDown = layout-safe.")]
         public KeyCode recessShallowerKey = KeyCode.PageDown;
-        [Tooltip("Raise the pond foam one step (off -> light -> sea-like -> wrap). End = layout-safe.")]
-        public KeyCode foamUpKey = KeyCode.End;
-        [Tooltip("Lower the pond foam one step (the reverse cycle). Home = layout-safe.")]
-        public KeyCode foamDownKey = KeyCode.Home;
 
         // ---- RECESS STEPS (how far the WATER SURFACE sits BELOW the surrounding GROUND LEVEL) ----
         // PUBLIC + static so the EditMode guard reads the contract directly (mirrors HeldAxeLengthPicker).
         public static readonly string[] RecessStepNames = { "FLUSH", "KNEE-DEEP", "DEEPER" };
         // The recess (below-plateau drop of the water surface) for each step, in cycle order. The DEFAULT step
-        // (index 1, KNEE-DEEP) matches the baked LowPolyZoneGen.PondRecessKneeDeep (0.45). FLUSH ~ the old #130
-        // shallow value (so the Sponsor can SEE the rejected mound for contrast); DEEPER for a sunk-pool option.
+        // (index 2, DEEPER) matches the baked LowPolyZoneGen.PondRecessKneeDeep (0.75 — the Sponsor's chosen
+        // DEEPER value on build 1a3a427, #130 third re-soak). FLUSH/KNEE-DEEP remain as A/B contrast steps the
+        // Sponsor can dial back to. So a soak with NO key-press sees exactly the shipped DEEPER pool.
         public static readonly float[] RecessStepValue = { 0.12f, 0.45f, 0.75f };
-        public const int RecessDefaultStep = 1; // KNEE-DEEP — the shipped default the Sponsor soaks first
-
-        // ---- FOAM STEPS (the pond water material's _FoamDistance) ----
-        public static readonly string[] FoamStepNames = { "OFF", "LIGHT", "SEA-LIKE" };
-        // Mirrors LowPolyZoneGen.PondFoam{Off,Light,SeaLike}. DEFAULT = OFF (a still pool — #130).
-        public static readonly float[] FoamStepValue = { 0.0f, 0.06f, 1.5f };
-        public const int FoamDefaultStep = 0; // OFF — the shipped default (Sponsor #130 "must be STILL")
+        public const int RecessDefaultStep = 2; // DEEPER — the shipped default (Sponsor's chosen recess, #130 re-soak)
 
         private int _recessStep = RecessDefaultStep;
-        private int _foamStep = FoamDefaultStep;
 
         // Resolved live handles (lazily, on first key OR first Force* call).
         private bool _resolved;
         private FreshwaterPond _pond;        // the pond root we sink/raise
         private Transform _pondRoot;         // _pond.transform — the unit (water + collar + accents) we move
         private Transform _waterT;           // PondWater child (for the surface-Y readout)
-        private Material _pondMat;            // the pond water material instance (foam _FoamDistance lives here)
-        private float _baseRootY;            // the SHIPPED root Y (recess = knee-deep default). The recess delta
+        private float _baseRootY;            // the SHIPPED root Y (recess = DEEPER default). The recess delta
                                              // re-positions relative to this so a step is reproducible + the
                                              // default step lands exactly on the shipped pond.
 
@@ -86,8 +78,6 @@ namespace FarHorizon
         /// <summary>The currently-selected recess (water-below-ground drop) in world units — for the verify
         /// capture + the EditMode/PlayMode tests to read what the handle applied.</summary>
         public float CurrentRecess => RecessStepValue[Mathf.Clamp(_recessStep, 0, RecessStepValue.Length - 1)];
-        /// <summary>The currently-selected foam _FoamDistance — for the verify capture + tests.</summary>
-        public float CurrentFoamDistance => FoamStepValue[Mathf.Clamp(_foamStep, 0, FoamStepValue.Length - 1)];
 
         private void Awake()
         {
@@ -107,27 +97,17 @@ namespace FarHorizon
                 return;
             }
             _pondRoot = _pond.transform;
-            _baseRootY = _pondRoot.position.y; // the shipped (knee-deep) root Y — recess deltas re-base off this
+            _baseRootY = _pondRoot.position.y; // the shipped (DEEPER) root Y — recess deltas re-base off this
             _waterT = _pondRoot.Find("PondWater");
-            if (_waterT != null)
-            {
-                var wmr = _waterT.GetComponent<MeshRenderer>();
-                // The pond uses a shared MATERIAL ASSET; touch the runtime INSTANCE (.material) so a foam nudge
-                // never dirties the shipped asset — purely a live tweak the Sponsor reads + reports to bake.
-                if (wmr != null) _pondMat = wmr.material;
-            }
         }
 
         private void Update()
         {
-            bool recessChanged = false, foamChanged = false;
+            bool recessChanged = false;
             if (Input.GetKeyDown(recessDeeperKey))    { Step(ref _recessStep, +1, RecessStepValue.Length); recessChanged = true; }
             if (Input.GetKeyDown(recessShallowerKey)) { Step(ref _recessStep, -1, RecessStepValue.Length); recessChanged = true; }
-            if (Input.GetKeyDown(foamUpKey))          { Step(ref _foamStep, +1, FoamStepValue.Length); foamChanged = true; }
-            if (Input.GetKeyDown(foamDownKey))        { Step(ref _foamStep, -1, FoamStepValue.Length); foamChanged = true; }
 
             if (recessChanged) { if (!_resolved) Resolve(); ApplyRecess(); LogRecess(); }
-            if (foamChanged)   { if (!_resolved) Resolve(); ApplyFoam();   LogFoam(); }
         }
 
         private static void Step(ref int idx, int dir, int count) => idx = ((idx + dir) % count + count) % count;
@@ -153,27 +133,6 @@ namespace FarHorizon
             _pondRoot.position = new Vector3(p.x, _baseRootY - delta, p.z);
         }
 
-        // === FOAM: drive the pond material foam (off / light / sea-like) ===
-        // Drives BOTH _FoamDistance (band width) AND the master _FoamAmount gate (ticket 86cadj4g7 #130 re-soak).
-        // _FoamDistance=0 alone leaves a razor white shoreline line at the gap≈0 bank intersection (the white ring
-        // the Sponsor still saw with FOAM:OFF); _FoamAmount=0 zeroes the WHOLE foam term so OFF removes that ring
-        // too. The amount is derived from the distance step so off→amount 0, light/sea-like→amount 1.
-        private void ApplyFoam()
-        {
-            if (_pondMat == null) return;
-            float dist = CurrentFoamDistance;
-            if (_pondMat.HasProperty("_FoamDistance")) _pondMat.SetFloat("_FoamDistance", dist);
-            // The master gate lives only on FarHorizon/LowPolyWater (the depth-fade foam path); a URP/Lit fallback
-            // pond has no foam at all, so the HasProperty guard cleanly skips it.
-            if (_pondMat.HasProperty("_FoamAmount"))
-                _pondMat.SetFloat("_FoamAmount",
-                    dist <= LowPolyZoneGen_PondFoamOff + 1e-4f ? 0f : 1f);
-        }
-
-        // Mirror of LowPolyZoneGen.PondFoamOff (the runtime asmdef can't reference the editor asmdef where
-        // LowPolyZoneGen lives). FoamStepValue[0] IS this value; kept as a named constant for the OFF compare.
-        private const float LowPolyZoneGen_PondFoamOff = 0.0f;
-
         /// <summary>VERIFICATION: force a recess step (0..N) + apply — for the shipped-build capture to prove
         /// the step moves the real root. Returns the applied recess (or -1 if out of range).</summary>
         public float ForceRecessStep(int step)
@@ -185,25 +144,12 @@ namespace FarHorizon
             return CurrentRecess;
         }
 
-        /// <summary>VERIFICATION: force a foam step (0..N) + apply. Returns the applied _FoamDistance (or -1).</summary>
-        public float ForceFoamStep(int step)
-        {
-            if (step < 0 || step >= FoamStepValue.Length) return -1f;
-            if (!_resolved) Resolve();
-            _foamStep = step;
-            ApplyFoam();
-            return CurrentFoamDistance;
-        }
-
         // [pond-trace]-family logging — EDITOR/dev-only; stripped from the shipped IL2CPP release exe (and its
         // string-concat arg eval) so it never costs the player (unity6-mastery §5 / §10). The Sponsor reads the
         // value off the on-screen panel; this log line is the off-screen record he reports back to bake.
         private void LogRecess() => PondNudgeLog(
             "POND RECESS -> " + RecessStepNames[_recessStep] + " (" + CurrentRecess.ToString("F2") +
             "u below ground)  [PgUp/PgDn; bake into LowPolyZoneGen.PondRecessKneeDeep]");
-        private void LogFoam() => PondNudgeLog(
-            "POND FOAM -> " + FoamStepNames[_foamStep] + " (_FoamDistance " + CurrentFoamDistance.ToString("F2") +
-            ")  [Home/End; bake into LowPolyZoneGen pond _FoamDistance]");
 
         [System.Diagnostics.Conditional("UNITY_EDITOR"), System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
         private static void PondNudgeLog(string msg) => Debug.Log("[pond-nudge] " + msg);
@@ -229,10 +175,9 @@ namespace FarHorizon
 
             GUI.Label(new Rect(x + 10f, y + 4f, w - 20f, 20f),
                 "POND RECESS: " + RecessStepNames[_recessStep] + " (" + CurrentRecess.ToString("F2") +
-                "u below ground)    FOAM: " + FoamStepNames[_foamStep] +
-                " (" + CurrentFoamDistance.ToString("F2") + ")", _labelStyle);
+                "u below ground)    FOAM: OFF (baked)", _labelStyle);
             GUI.Label(new Rect(x + 10f, y + 23f, w - 20f, 18f),
-                "[PgUp/PgDn] recess  flush -> knee-deep -> deeper    [Home/End] foam  off -> light -> sea-like   (pick + report)",
+                "[PgUp/PgDn] recess  flush -> knee-deep -> deeper   (pick + report)",
                 _keyStyle);
         }
     }

@@ -357,22 +357,25 @@ namespace FarHorizon
                                    $"crests ABOVE the far surrounding ground yFrac={farGroundFrac:F3} (a raised green berm " +
                                    "casting a shadow on its outer edge — the #130 re-soak elevated-collar defect).");
 
-                // === NEW GATE B (ticket 86cadj4g7 #130 re-soak) — NO WHITE FOAM RING when foam is OFF ===========
-                // The prior gate never checked foam. With FOAM:OFF the HUD said off but a razor white shoreline ring
-                // survived (foam=1 at the gap≈0 bank intersection). Sample the WATER↔BANK boundary band (the thin
-                // band just at/below the waterline where the foam ring would sit): with foam off it must read
-                // fresh-BLUE/dark, never a near-WHITE band. Only asserted when the pond ships foam OFF (the default).
+                // === SIDE-PROFILE shoreline-foam read — ADVISORY ONLY (ticket 86cadj4g7 #130 THIRD re-soak) =======
+                // The eye-level water↔bank boundary band sample is FRAGILE: the brightly SUNLIT pale-green meadow
+                // bank at the waterline reads bright + near-neutral (R≈G, luma>0.72) and FALSE-POSITIVES as
+                // "foam" even when the water surface carries ZERO foam (proven: with _FoamAmount=0 / top-down
+                // white=0.000, this boundary sample still tripped on the lit bank grass at the deeper recess).
+                // The AUTHORITATIVE foam gate is now the TOP-DOWN no-surface-white check (topNoWhite above),
+                // which samples the actual WATER SURFACE — the side profile is physically blind to surface foam
+                // AND noisy at the boundary. So this stays as a LOGGED diagnostic for signal, but does NOT gate
+                // the verdict (the top-down gate is the real one, per the dispatch's blind-spot fix).
                 bool foamOff = PondFoamIsOff();
                 noShorelineFoam = !foamOff || CheckNoShorelineFoamRing(out float boundaryWhiteFrac, out float boundaryLuma);
                 if (!foamOff)
-                    Debug.Log("[FreshwaterPondVerifyCapture] shoreline-foam gate SKIPPED — pond foam is not OFF (a soak dialed it up)");
+                    Debug.Log("[FreshwaterPondVerifyCapture] shoreline-foam diag SKIPPED — pond foam is not OFF (a soak dialed it up)");
                 else if (noShorelineFoam)
-                    Debug.Log($"[FreshwaterPondVerifyCapture] NO-SHORELINE-FOAM PASS: water-bank boundary band is not " +
-                              "near-white — FOAM:OFF removed the shoreline ring (the #130 re-soak white-band defect).");
+                    Debug.Log("[FreshwaterPondVerifyCapture] shoreline-foam diag (advisory): water-bank boundary band is not near-white.");
                 else
-                    Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-FOAM FAIL: the water-bank boundary band reads " +
-                                   "near-WHITE while foam is OFF — a foam ring survived at the shoreline (the #130 re-soak " +
-                                   "white-band: _FoamDistance=0 left the gap≈0 razor line; the master _FoamAmount gate must zero it).");
+                    Debug.LogWarning("[FreshwaterPondVerifyCapture] shoreline-foam diag (ADVISORY, non-gating): the water-bank " +
+                                     "boundary band reads near-white — LIKELY the sunlit pale bank grass at the waterline, NOT " +
+                                     "foam (the TOP-DOWN no-surface-white gate is authoritative; foam is _FoamAmount=0).");
 
                 string sideFile = Path.Combine(dir, "pond_side.png");
                 ScreenCapture.CaptureScreenshot(sideFile, 1);
@@ -384,14 +387,14 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.5f);
             Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
                       " topNoWhite=" + topNoWhite + " sideSunk=" + sideSunk + " collarFlush=" + collarFlush +
-                      " noShorelineFoam=" + noShorelineFoam + ") -> " + dir);
-            // Fail loud in the shipped build on ANY of: not fresh-blue/visible, a broad white band on the water
-            // SURFACE from overhead (the #130 THIRD re-soak — the side-profile gate is blind to surface foam),
-            // reads as a mound, the collar is a raised berm, or a white shoreline foam ring survives. Five
-            // build-side gates now — the TOP-DOWN no-surface-white gate is the load-bearing addition this round
-            // (the eye-level side-profile is physically blind to flat-on-the-water foam; only an overhead sample
-            // catches the band the Sponsor saw from his 3-4 cam).
-            Application.Quit(anyFreshBlue && topNoWhite && sideSunk && collarFlush && noShorelineFoam ? 0 : 1);
+                      " noShorelineFoam_advisory=" + noShorelineFoam + ") -> " + dir);
+            // Fail loud in the shipped build on ANY of the FOUR GATING percepts: not fresh-blue/visible, a broad
+            // white band on the water SURFACE from OVERHEAD (the #130 THIRD re-soak — the load-bearing addition;
+            // the eye-level side-profile is physically blind to flat-on-the-water foam, so only an overhead
+            // sample catches the band the Sponsor saw from his 3-4 cam), reads as a mound, or the collar is a
+            // raised berm. The side-profile shoreline-foam read is ADVISORY (it false-positives on the sunlit
+            // pale bank grass at the waterline) — the TOP-DOWN gate is the authoritative foam check now.
+            Application.Quit(anyFreshBlue && topNoWhite && sideSunk && collarFlush ? 0 : 1);
         }
 
         /// <summary>
