@@ -270,6 +270,17 @@ namespace FarHorizon.EditorTools
             // capture has a deterministic foraging target. No collider — the player walks up to harvest.
             BuildBerryBush(player, groundLayer);
 
+            // 86caamkv7: a wired FRESHWATER POND inland near the loop centre — the thirst source for the merged
+            // survival loop. The castaway walks up (no tool) and DRINKS FROM HAND — a small per-scoop restore,
+            // repeatable, NOT an inventory item (distinct from the berry harvest). The pond water rides the
+            // SAME LowPolyWater shader as the sea via a sibling material with Uma's freshwater deltas (bluer/
+            // brighter/calm/tight-foam) so it reads as DIFFERENT, drinkable water. Authored editor-time so the
+            // pond mesh + bank + FreshwaterPond's ThirstNeed/player refs SERIALIZE into Boot.unity (editor-vs-
+            // runtime trap). A DETERMINISTIC scene-author ADD OUTSIDE the seeded LowPolyZoneGen stream — it
+            // provably cannot perturb the seed-42 island/scatter/NavMesh (AC2a). No collider — the player walks
+            // up to drink; built BEFORE the bake (collider-free, no raycast/NavMesh impact).
+            BuildFreshwaterPond(player, groundLayer);
+
             // U2-4 (86ca8bdep): the campfire — the loop's CLOSE. A human-scale fire pit the castaway
             // click-moves to; arriving WITH WOOD (from the chop, U2-3) builds + lights it, and the lit
             // fire RESTORES warmth (U2-1's AddWarmth seam) while the castaway stands by it — warmth decays
@@ -1479,6 +1490,186 @@ namespace FarHorizon.EditorTools
                       (bb.berriesVisual != null) + ")");
         }
 
+        // World position of the wired FRESHWATER POND (86caamkv7). Inland east of spawn (0,6); clear of the
+        // bush (-6,7), tree (-9,-7), fire (4,-8), craft (8,6). Comfortably inside the GroundHalf=30 walkable
+        // extent + on the NavMesh (collider-free; the player walks up to drink). A DETERMINISTIC scene-author
+        // ADD on the flat player-loop ground — it is OUTSIDE the seeded LowPolyZoneGen generation stream
+        // entirely (authored here, not in ScatterIslandProps), so it provably CANNOT perturb the seed-42
+        // island silhouette / scatter / NavMesh (AC2a — the seed lock is honoured by construction).
+        public static readonly Vector3 PondPosition = new Vector3(7f, 0f, -3f);
+
+        // The pond water-surface sits just BELOW the flat ground (Y=0) so the bank reads as a shallow natural
+        // depression the water fills (Uma §1e nestle-don't-stamp) and the depth-fade foam has a waterline to
+        // ride. Shallow (the pond is a found pool, not a deep well). The grassy lip rim sits AT ground level.
+        private const float PondSurfaceY = -0.06f;
+        private const float PondSurfaceRadius = 2.6f; // a few metres across — reads as one pool, not a 2nd sea (Uma §1e scale)
+
+        // The grassy bank lip (Uma §1e: a clean slightly-raised green collar ringing the pool). A low ring
+        // mesh in the world grass language so the pool reads FOUND, not stamped.
+        private static readonly Color PondBankGrass = new Color(0.30f, 0.52f, 0.24f); // matches the world meadow greens
+
+        // A wired FRESHWATER POND (86caamkv7 / Uma §1): a small still freshwater pool the castaway walks up to
+        // and DRINKS FROM HAND (proximity + interact, no tool, NOT an inventory item — distinct from the
+        // berry-bush harvest). The water-surface rides the SAME LowPolyWater shader as the sea via the pond
+        // SIBLING material (MakePondMaterial) with Uma's freshwater deltas (bluer/brighter/calm/tight-foam) so
+        // it reads as DIFFERENT, drinkable water vs the salt sea. A grassy bank lip + a couple of rocks/grass
+        // tufts nestle it (found, not placed). Authored editor-time so the pond mesh + bank + FreshwaterPond's
+        // ThirstNeed/player refs SERIALIZE into Boot.unity (editor-vs-runtime trap). NO collider — the player
+        // walks up to drink; never blocks the ground raycast or the NavMesh bake (built collider-free, BEFORE
+        // the bake). FreshwaterPondSceneTests guards the serialized presence + the no-collider contract.
+        private static void BuildFreshwaterPond(GameObject player, int groundLayer)
+        {
+            var pond = new GameObject("FreshwaterPond");
+            pond.transform.position = PondPosition;
+
+            // --- Water surface: the fresh-blue faceted disc on the shared LowPolyWater shader (Uma §1a-d) ---
+            var water = new GameObject("PondWater");
+            water.transform.SetParent(pond.transform, false);
+            water.transform.localPosition = new Vector3(0f, PondSurfaceY, 0f);
+            water.layer = 0; // not walkable / not NavMesh (no collider)
+            var wmf = water.AddComponent<MeshFilter>();
+            wmf.sharedMesh = LowPolyZoneGen.BuildPondWaterMesh(PondSurfaceRadius);
+            var wmr = water.AddComponent<MeshRenderer>();
+            wmr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; // a flat water sheet casts no shadow
+            var pondMat = LowPolyZoneGen.MakePondMaterial(SettingsDir + "/PondWaterMat.mat");
+            wmr.sharedMaterial = pondMat;
+            if (pondMat != null && pondMat.shader != null) EnsureShaderAlwaysIncluded(pondMat.shader);
+
+            // --- Grassy bank lip: a low ring just outside the water, AT ground level, in the meadow-green
+            //     language so the pool reads as a found depression with a green collar (Uma §1e). A thin
+            //     faceted torus-ish ring; reuse the grass-clump idiom for a couple of reed/tuft accents below.
+            var bank = new GameObject("PondBank");
+            bank.transform.SetParent(pond.transform, false);
+            bank.transform.localPosition = Vector3.zero;
+            var bmf = bank.AddComponent<MeshFilter>();
+            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, PondSurfaceRadius + 0.9f, PondBankGrass);
+            var bmr = bank.AddComponent<MeshRenderer>();
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var bankMat = new Material(vc) { name = "PondBankMat" };
+                if (bankMat.HasProperty("_Tint")) bankMat.SetColor("_Tint", Color.white);
+                bmr.sharedMaterial = bankMat; // inline -> serializes into the scene
+                EnsureShaderAlwaysIncluded(vc);
+            }
+            else
+            {
+                var lit = Shader.Find("Universal Render Pipeline/Lit");
+                var bankMat = new Material(lit) { name = "PondBankMat" };
+                if (bankMat.HasProperty("_BaseColor")) bankMat.SetColor("_BaseColor", PondBankGrass);
+                if (bankMat.HasProperty("_Smoothness")) bankMat.SetFloat("_Smoothness", 0.06f);
+                bmr.sharedMaterial = bankMat;
+                EnsureShaderAlwaysIncluded(lit);
+            }
+
+            // --- "Found" accents (Uma §1e nestle-don't-stamp): a couple of grass tufts + a small rock on the
+            //     bank, in the existing scatter language, so the pool reads tended-by-nature, not built. A
+            //     couple of clouds' worth of care; don't over-decorate. Deterministic placement (no RNG) so
+            //     the capture is stable. Collider-free (the player walks up to drink).
+            var rng = new System.Random(86001); // deterministic accent seed
+            for (int i = 0; i < 5; i++)
+            {
+                float a = i / 5f * Mathf.PI * 2f + 0.4f;
+                float rr = PondSurfaceRadius + 0.7f;
+                var tuft = new GameObject("BankTuft" + i);
+                tuft.transform.SetParent(pond.transform, false);
+                tuft.transform.localPosition = new Vector3(Mathf.Cos(a) * rr, 0f, Mathf.Sin(a) * rr);
+                var tmf = tuft.AddComponent<MeshFilter>();
+                tmf.sharedMesh = LowPolyMeshes.GrassClump(0.6f, 5, 86010 + i);
+                var tmr = tuft.AddComponent<MeshRenderer>();
+                if (vc != null) { var m = new Material(vc) { name = "BankTuftMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", Color.white); tmr.sharedMaterial = m; }
+            }
+            // One small rock nestled on the near bank.
+            var rock = new GameObject("BankRock");
+            rock.transform.SetParent(pond.transform, false);
+            rock.transform.localPosition = new Vector3(-(PondSurfaceRadius + 0.5f), 0f, 0.6f);
+            var rmf = rock.AddComponent<MeshFilter>();
+            rmf.sharedMesh = LowPolyMeshes.FacetedRock(0.55f, 0.35f, 86020);
+            var rmr = rock.AddComponent<MeshRenderer>();
+            if (vc != null) { var m = new Material(vc) { name = "BankRockMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", new Color(0.55f, 0.55f, 0.55f)); rmr.sharedMaterial = m; }
+
+            // --- The drink seam (FreshwaterPond): proximity gate + DrinkScoop -> ThirstNeed.AddWater. The
+            //     ThirstNeed + player refs are wired editor-time (serialized) so the build never relies on a
+            //     per-use FindObjectOfType (BootstrapProject adds Survival/ThirstNeed before this runs). ---
+            var fp = pond.AddComponent<FarHorizon.FreshwaterPond>();
+            fp.player = player.transform;
+            fp.thirst = Object.FindObjectOfType<ThirstNeed>();
+            fp.pondSurfaceRadius = PondSurfaceRadius;
+            fp.drinkRadius = 2.0f;
+            if (fp.thirst == null)
+                Debug.LogWarning("[MovementCameraScene] no ThirstNeed in scene to wire FreshwaterPond to — " +
+                                 "BootstrapProject must add the Survival ThirstNeed before MovementCameraScene.Author");
+
+            // Wire the DrinkAction's pond ref now that the pond exists (BootstrapProject added the DrinkAction
+            // component to the Survival object; the pond is authored here, AFTER that). Serialized so the build
+            // never relies on a per-use FindObjectOfType.
+            var drink = Object.FindObjectOfType<FarHorizon.DrinkAction>();
+            if (drink != null) drink.pond = fp;
+            else Debug.LogWarning("[MovementCameraScene] no DrinkAction in scene to wire the pond to — " +
+                                  "BootstrapProject must add the Survival DrinkAction before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored FreshwaterPond at " + PondPosition +
+                      " (thirst wired: " + (fp.thirst != null) + ", drinkAction wired: " + (drink != null) +
+                      ", effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
+        }
+
+        // A thin flat grassy RING (the pond bank lip): two concentric rings of verts (inner = water edge,
+        // outer = grass collar) wound to face +Y, faceted, vertex-colour green. Sibling of the BlobShadowDisc
+        // fan but an annulus (the centre is open — the water disc fills it). Collider-free, serializes inline.
+        private static Mesh BuildPondBankRing(float innerR, float outerR, Color grass)
+        {
+            const int sides = 16;
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var cols = new System.Collections.Generic.List<Color>();
+            var normals = new System.Collections.Generic.List<Vector3>();
+            var tris = new System.Collections.Generic.List<int>();
+            // Inner ring sits slightly BELOW ground (meets the water lip); outer sits AT ground (the raised collar).
+            float innerY = PondSurfaceY + 0.02f, outerY = 0.04f;
+            for (int i = 0; i < sides; i++)
+            {
+                float a0 = i / (float)sides * Mathf.PI * 2f;
+                float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
+                Vector3 i0 = new Vector3(Mathf.Cos(a0) * innerR, innerY, Mathf.Sin(a0) * innerR);
+                Vector3 i1 = new Vector3(Mathf.Cos(a1) * innerR, innerY, Mathf.Sin(a1) * innerR);
+                Vector3 o0 = new Vector3(Mathf.Cos(a0) * outerR, outerY, Mathf.Sin(a0) * outerR);
+                Vector3 o1 = new Vector3(Mathf.Cos(a1) * outerR, outerY, Mathf.Sin(a1) * outerR);
+                // Two faceted tris per segment, wound to face up (+Y) for Cull Back from the orbit camera above.
+                EmitBankTri(verts, cols, normals, tris, i0, o1, o0, grass);
+                EmitBankTri(verts, cols, normals, tris, i0, i1, o1, grass);
+            }
+            var mesh = new Mesh { name = "LP_PondBank" };
+            mesh.SetVertices(verts);
+            mesh.SetColors(cols);
+            mesh.SetNormals(normals);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        private static void EmitBankTri(System.Collections.Generic.List<Vector3> verts,
+            System.Collections.Generic.List<Color> cols, System.Collections.Generic.List<Vector3> normals,
+            System.Collections.Generic.List<int> tris, Vector3 a, Vector3 b, Vector3 c, Color col)
+        {
+            Vector3 fn = Vector3.Cross(b - a, c - a);
+            if (fn.sqrMagnitude < 1e-12f) return;
+            fn.Normalize();
+            int bi = verts.Count;
+            // Ensure the front face points up (a grass collar viewed from above): flip the winding if it faces down.
+            if (fn.y >= 0f)
+            {
+                verts.Add(a); verts.Add(b); verts.Add(c);
+                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
+                normals.Add(fn); normals.Add(fn); normals.Add(fn);
+            }
+            else
+            {
+                verts.Add(a); verts.Add(c); verts.Add(b);
+                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
+                normals.Add(-fn); normals.Add(-fn); normals.Add(-fn);
+            }
+            cols.Add(col); cols.Add(col); cols.Add(col);
+        }
+
         // World position of the campfire fire-pit on the flat test ground (U2-4, 86ca8bdep). Distinct from
         // spawn (origin), the craft spot (8,6) and the tree (-9,-7) so the loop is a real journey: spawn ->
         // craft axe -> chop tree -> BUILD FIRE. Comfortably inside the GroundHalf=30 walkable extent + on
@@ -2150,6 +2341,9 @@ namespace FarHorizon.EditorTools
             panel.panelUss = panelUss;
             panel.orbit = camGo != null ? camGo.GetComponent<OrbitCamera>() : null;
             panel.wasd = player != null ? player.GetComponent<WasdMovement>() : null;
+            // Thirst tweakables (86caamkv7 AC5) bind to the ThirstNeed BootstrapProject added to the Survival
+            // object BEFORE this runs — serialized so the panel never relies on a runtime FindObjectOfType.
+            panel.thirst = Object.FindObjectOfType<ThirstNeed>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +

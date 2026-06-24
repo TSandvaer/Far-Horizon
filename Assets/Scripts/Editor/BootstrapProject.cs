@@ -367,6 +367,24 @@ namespace FarHorizon.EditorTools
             hunger.startFull       = false;
             hunger.startFraction01 = HungerNeed.HungerStartFraction01; // 0.55 -> ~5 of 10 segments at spawn
 
+            // THIRST (86caamkv7): the THIRD survival need — thirst decays as a FASTER pressure than hunger
+            // (the fiction: "thirsty AFTER eating the berries" — it becomes pressing sooner) and is restored by
+            // DRINKING FROM HAND at the freshwater pond (the drink interaction lives on FreshwaterPond, authored
+            // by MovementCameraScene; ThirstNeed.AddWater is the restore seam — NOT an inventory item, distinct
+            // from berries). IS-A SurvivalNeed (the shared base hunger owns; thirst EXTENDS it). SERIALIZED here
+            // editor-time (NOT Awake) per the editor-vs-runtime trap — ThirstNeedSceneTests guards it. Author
+            // the faster-than-hunger decay defaults onto the serialized component (Reset() only runs on an
+            // editor add, not on a headless AddComponent), and ship pressured-with-headroom so a scoop VISIBLY
+            // raises the bar (the #101 eat-refill fix applied to thirst). The thirst bar that RENDERS this is
+            // owned by the need-meter HUD ticket (86caamkxv) — this ticket only exposes the read surface.
+            var thirst = survivalGo.AddComponent<ThirstNeed>();
+            thirst.easyDecayPerSecond = ThirstNeed.ThirstEasyDecayPerSecond;
+            thirst.medDecayPerSecond  = ThirstNeed.ThirstMedDecayPerSecond;
+            thirst.hardDecayPerSecond = ThirstNeed.ThirstHardDecayPerSecond;
+            thirst.decayPerSecond     = ThirstNeed.ThirstMedDecayPerSecond; // medium tier by default
+            thirst.startFull       = false;
+            thirst.startFraction01 = ThirstNeed.ThirstStartFraction01; // 0.50 -> ~5 of 10 segments at spawn
+
             // U2-5 (86ca8bdge): the diegetic-light survival HUD — segmented ember warmth glow-bar +
             // quiet warm-cream inventory ledger (team/uma-ux/u2-5-survival-hud-spec.md). SUPERSEDES the
             // U2-1 WarmthReadout + U2-2 InventoryReadout placeholders (removed). Both data references are
@@ -385,6 +403,14 @@ namespace FarHorizon.EditorTools
             var eat = survivalGo.AddComponent<EatBerryAction>();
             eat.inventory = inventory; // serialized reference
             eat.hunger = hunger;       // serialized reference
+
+            // DRINK INPUT (86caamkv7): the in-game call-site for the drink seam. Pressing Q drinks one scoop
+            // at the FreshwaterPond IF the castaway is in range, restoring thirst through the atomic
+            // FreshwaterPond.DrinkScoop -> ThirstNeed.TryDrinkScoop path. SERIALIZED here editor-time (NOT
+            // Awake) per the editor-vs-runtime trap. The pond ref is wired by MovementCameraScene AFTER the
+            // pond is authored (the pond doesn't exist yet at this point) — like BerryBush wires hunger; an
+            // Awake FindObjectOfType is the build-safety net. DrinkActionSceneTests guards its presence.
+            survivalGo.AddComponent<DrinkAction>();
 
             // DIAGNOSTIC-ONLY: inert unless launched with -invDiag (86cabfa21 / the #90 soak trace).
             survivalGo.AddComponent<InventoryDiag>();

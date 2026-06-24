@@ -130,6 +130,15 @@ namespace FarHorizon.EditorTools
         // (NOT pure white — would bloom). Exposed for the scene-presence test's color-pin check.
         public static readonly Color FoamEdge     = new Color(0.91f, 0.89f, 0.82f); // #E8E2D0 warm foam
 
+        // FRESHWATER POND colours (ticket 86caamkv7 / Uma §1a). The pond reads as DIFFERENT water from the
+        // salt sea by CONTRAST: a cooler, brighter, BLUER freshwater cyan vs the sea's warm-leaning teal — the
+        // single fastest "this is drinkable fresh water" signal at orbit distance. Its OWN two constants (the
+        // sea's WaterShallow/WaterDeep are coast-tuned + Sponsor-soaked — DO NOT retune them). The freshwater
+        // tell is B > G (the pond leans BLUE); the sea keeps G >= B (teal-green). Sub-1.0 every channel
+        // (HDR-clamp-safe, same convention the sea follows). Gradient runs bank(shallow) -> centre(deep).
+        public static readonly Color PondShallow = new Color(0.22f, 0.66f, 0.74f); // bank-edge fresh water: lighter + bluer than WaterShallow
+        public static readonly Color PondDeep    = new Color(0.14f, 0.48f, 0.70f); // pool centre: cool blue (B > G = the freshwater tell)
+
         // Result of building the low-poly zone: the ground GameObject (Ground-layered, NavMesh +
         // raycast surface) so the caller can parent scatter + bake NavMesh over it.
         public class ZoneResult
@@ -1192,6 +1201,104 @@ namespace FarHorizon.EditorTools
             }
             AssetDatabase.CreateAsset(mat, assetPath);
             return mat;
+        }
+
+        // ============================================================================================
+        // FRESHWATER POND (ticket 86caamkv7 / Uma §1). The pond REUSES the ocean water infra (the same
+        // FarHorizon/LowPolyWater shader) — NO new shader — with the deltas Uma §1 specifies so it reads as a
+        // small, still, SAFE freshwater pool vs the vast salt sea. One extra material instance + one extra
+        // mesh = additive, ~1-draw-call-friendly, no per-frame CPU (the swell is in-shader).
+        // ============================================================================================
+
+        /// <summary>
+        /// Build the FRESHWATER POND material (ticket 86caamkv7 / Uma §1 deltas). A SIBLING of
+        /// <see cref="MakeWaterMaterial"/> on the SAME FarHorizon/LowPolyWater shader — NO new shader — with
+        /// the pond-feel deltas: glassy-calm swell (tiny amp/short wavelength/slow), a TIGHT damp bank
+        /// (low _FoamDistance, no static surf ring), no horizon fog-floor (the pond is near). The vertex teal
+        /// the sea uses is replaced by the pond's OWN PondShallow/PondDeep gradient baked into the mesh
+        /// (BuildPondWaterMesh) — the material's _Tint stays white so it doesn't recolour the fresh blue.
+        /// </summary>
+        public static Material MakePondMaterial(string assetPath)
+        {
+            Material mat;
+            var vc = Shader.Find("FarHorizon/LowPolyWater");
+            if (vc == null) vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                mat = new Material(vc) { name = "PondWaterMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white); // pond's fresh-blue vertex colour unmodified
+                // CALM delta (Uma §1b): a glassy-calm pool with the faintest breath — NOT the sea's swell.
+                if (mat.HasProperty("_WaveAmp"))   mat.SetFloat("_WaveAmp", 0.04f);   // 0.45 sea -> 0.04 (barely-there shimmer)
+                if (mat.HasProperty("_WaveLen"))   mat.SetFloat("_WaveLen", 4f);      // 11 sea -> 4 (short ripple at pond scale)
+                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.4f);  // 1.1 sea -> 0.4 (slow)
+                // FOG-CAP delta (Uma §1d): the pond is inland + near, never reaches the fog horizon, so the
+                // sea's teal-vs-sky fog-floor is irrelevant — 0 lets normal fog apply + avoids a faint over-
+                // bright cast up close.
+                if (mat.HasProperty("_FogCap")) mat.SetFloat("_FogCap", 0f);          // 0.5 sea -> 0 (no sea<->sky seam at pond range)
+                // FOAM/EDGE delta (Uma §1c): keep the shared depth-fade foam ON (the pond meets its bank like
+                // the sea meets the beach) but TIGHT — a thin damp line hugging the bank, not a wide surf band.
+                // Same warm FoamEdge constant (reads as a damp bank as readily as surf; no new colour, per
+                // lowpoly-quality §1 don't-drift-FoamEdge). NO static surf RING is baked into the pond mesh
+                // (BuildPondWaterMesh omits it) — a pond has no wave-break.
+                if (mat.HasProperty("_FoamColor"))    mat.SetColor("_FoamColor", FoamEdge);
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.6f); // 1.5 sea -> 0.6 (crisp pond edge)
+                if (mat.HasProperty("_WaterAlpha"))   mat.SetFloat("_WaterAlpha", 1f);     // solid coloured sheet (no modelled bottom — OOS)
+            }
+            else
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = "PondWaterMat" };
+                mat.SetColor("_BaseColor", PondShallow); // fresh blue (gradient lost in fallback)
+                mat.SetFloat("_Smoothness", 0.6f);
+                mat.SetFloat("_Metallic", 0.0f);
+                Debug.LogWarning("[LowPolyZoneGen] water shader not found; pond falls back to flat blue URP/Lit (no gradient, no swell)");
+            }
+            AssetDatabase.CreateAsset(mat, assetPath);
+            return mat;
+        }
+
+        /// <summary>
+        /// Build the FRESHWATER POND water-surface mesh (ticket 86caamkv7 / Uma §1a): a flat faceted disc of
+        /// radius <paramref name="radius"/> with a bank(shallow)->centre(deep) vertex-colour gradient
+        /// (PondShallow -> PondDeep), faces UP (+Y) so the orbit camera above sees it (the same winding/cull
+        /// contract the sea grid honours — a fan disc wound CCW-from-above is front-facing under URP Cull Back).
+        /// NO static surf ring (a pond has no wave-break — the dynamic depth-fade foam at the bank is the whole
+        /// foam story, Uma §1c). UNWELDED flat facets so the low-poly faceting reads. Public so the scene
+        /// author (MovementCameraScene.BuildFreshwaterPond) + tests build it.
+        /// </summary>
+        public static Mesh BuildPondWaterMesh(float radius, int sides = 14)
+        {
+            sides = Mathf.Max(8, sides);
+            var verts = new List<Vector3>();
+            var cols = new List<Color>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+
+            // A radial fan: a centre vert (deep) + a ring of rim verts (shallow). Each triangle is its own
+            // UNWELDED facet so the faceting reads (sibling of the sea's per-face emit). The gradient runs
+            // bank->centre: rim = PondShallow (the bright fresh bank water), centre = PondDeep (the cool blue
+            // pool depth) — the SAME depthT idiom the sea uses, keyed off distance-to-centre instead of coast.
+            for (int i = 0; i < sides; i++)
+            {
+                float a0 = i / (float)sides * Mathf.PI * 2f;
+                float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
+                Vector3 c = Vector3.zero;                                              // centre (deep)
+                Vector3 r0 = new Vector3(Mathf.Cos(a0) * radius, 0f, Mathf.Sin(a0) * radius); // rim (shallow)
+                Vector3 r1 = new Vector3(Mathf.Cos(a1) * radius, 0f, Mathf.Sin(a1) * radius);
+                int bi = verts.Count;
+                // Wind centre -> r1 -> r0 so the geometric front (CCW from above) faces +Y (Cull Back keeps it).
+                verts.Add(c); verts.Add(r1); verts.Add(r0);
+                cols.Add(PondDeep); cols.Add(PondShallow); cols.Add(PondShallow);
+                normals.Add(Vector3.up); normals.Add(Vector3.up); normals.Add(Vector3.up);
+                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
+            }
+
+            var mesh = new Mesh { name = "LP_PondWater" };
+            mesh.SetVertices(verts);
+            mesh.SetColors(cols);
+            mesh.SetNormals(normals);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
         }
 
         // The per-seed noise OFFSET used by the height/colour/water fields. Deterministic from the seed so
