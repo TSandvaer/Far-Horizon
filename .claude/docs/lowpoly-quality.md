@@ -9,6 +9,18 @@ The Sponsor-approved look is **faceted SMOOTH-shaded low-poly** (chunky polygons
 
 ---
 
+## 0. Anchor in the real-world thing — metrics can't see nonsense
+
+**Before any guardrail below, the feature has to actually BE the thing it represents.** A green metric does not mean the shape is right. Two rules, every physical-world feature (pond, fire, hill, dune, terrain carve, water body, shaped prop):
+
+- **Open with the real-world anchor.** State in one plain sentence what the thing IS — what a person would mechanically call it. "A pond is a HOLE in the ground the player steps DOWN into; water collects in the bottom." The build must satisfy that sentence, not just a numeric / color / byte / seed gate.
+- **Verify with a side-profile (silhouette) capture.** Up-vs-down is invisible from the player-eye and top-down angles and obvious side-on. The author eyeballs the side profile against the anchor sentence before the feature goes to QA/Sponsor — every time.
+- **Fix the cause, never the symptom.** A fix that contradicts the anchor sentence is a band-aid; rethink or escalate.
+
+**Cautionary case — the pond lift→mound saga (PR #130).** The freshwater pond shipped as a raised MOUND *twice*. The team chased the `-verifyPond` color metric (green on a mound — the metric can't tell a hole from a hill) and "fixed" a water-hidden-under-terrain occlusion bug by LIFTING the water above the ground. Result: a pond on a hill — nonsense, because a pond is a hole. The cause-level fix was to CARVE the pond INTO the terrain so the water sits in the depression; a single side-profile shot would have caught the mound on the first pass. Anchor + silhouette is cheaper than two soak-reject rounds. (Sponsor directive 2026-06-24; the dispatch-template "Real-world anchor + silhouette gate" block is the dispatch-side enforcement.)
+
+---
+
 ## 1. Already correct — DO NOT regress
 
 The codebase implements several hard-won patterns correctly. Touching any of these reopens a closed bug:

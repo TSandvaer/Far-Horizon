@@ -12,7 +12,7 @@ Every dispatch to a named persona (Priya / Uma / Devon / Drew / Tess) via the `A
 
 **Mandatory blocks** (always included): Worktree state, Scoped contract, ClickUp lifecycle, Final-report shape, Doc-update reporting, Done clause (which carries the reviewer-track gate), Lesson reminder, STATE.md update, Merge identity.
 
-**Situational blocks** (included when the predicate matches): Self-Test Report (UX-visible PRs), Visual-primitive test bar (tween / modulate / Polygon2D / CPUParticles2D PRs), HTML5-visual-gated merge-gate (gated-class PRs), Vocabulary contract (parallel dispatches sharing a NEW concept), Diagnose-Before-Fix (every `fix(...)` dispatch).
+**Situational blocks** (included when the predicate matches): Self-Test Report (UX-visible PRs), Visual-primitive test bar (tween / modulate / Polygon2D / CPUParticles2D PRs), HTML5-visual-gated merge-gate (gated-class PRs), Vocabulary contract (parallel dispatches sharing a NEW concept), Diagnose-Before-Fix (every `fix(...)` dispatch), Real-world anchor + silhouette gate (every physical-world-feature PR — pond / fire / hill / terrain / water body / shaped prop).
 
 ---
 
@@ -140,6 +140,24 @@ This is a `fix(...)`, so your PR body must OPEN with a diagnosis block, before d
 ```
 
 Skip this block for `feat(...)` / `chore(...)` / `docs(...)` / `test(...)` dispatches — it is `fix(...)`-specific. (The Lesson reminder block carries a one-line pointer to this convention in every dispatch; this is the full paste-able block for the `fix(...)` case.)
+
+## Real-world anchor + silhouette gate (paste when the dispatch shapes a physical-world feature)
+
+Per the Sponsor directive 2026-06-24 ("bake all four in") and `.claude/docs/lowpoly-quality.md` § "Anchor in the real-world thing — metrics can't see nonsense." Inline this block whenever the PR builds or reshapes something that has a real-world referent and a 3D silhouette: a **pond / lake / stream**, a **fire / campfire / bonfire**, a **hill / mound / dune / mountain**, a **terrain carve or raise**, any **water body**, or a **shaped prop whose up-vs-down read matters** (stump, rock, chest). The pond shipped as a raised MOUND twice (PR #130) because the team chased a color metric + "fixed" an occlusion bug by lifting water ABOVE the ground — a pond on a hill, which is nonsense. This gate exists to make a physical feature look RIGHT on the FIRST try.
+
+```markdown
+**Real-world anchor + silhouette gate (REQUIRED — this PR shapes a physical-world feature):**
+
+1. **Open with the real-world anchor sentence.** Your PR body MUST open with one plain sentence naming what the thing IS in the real world — what a person would say it is, mechanically. Examples: "A pond is a HOLE in the ground the player steps DOWN into; water collects in the bottom." / "A campfire is logs on the ground with flame rising ABOVE them." / "A hill rises UP out of the surrounding ground." The build must satisfy THAT sentence — not just a numeric / color / byte / seed metric. A metric can be green while the thing is nonsense (PR #130: the `-verifyPond` color metric passed on a raised mound).
+
+2. **Capture a side-profile (silhouette) shot and EYEBALL IT YOURSELF before requesting review.** Up-vs-down is invisible from the player-eye and top-down angles but obvious side-on. Add the side-profile capture to your Self-Test Report and confirm in the report text that you looked at it and it matches the anchor sentence (e.g. "side-profile confirms the water sits BELOW the surrounding terrain lip — a hole, not a mound"). This is the author's eyeball, every time — not deferred to QA or Sponsor.
+
+3. **Fix the CAUSE, not the symptom.** If a symptom tempts a fix that contradicts the anchor sentence, STOP — that fix is a band-aid. The pond cautionary case: "water hidden under terrain" → the band-aid was RAISING water above ground (→ a pond on a hill); the real fix is to CARVE the pond INTO the terrain so the water sits in the hole. State your diagnosed cause + the cause-level fix in the PR body; if the only fix you can see contradicts the anchor, ESCALATE (surface a one-line note for the orchestrator) rather than ship the band-aid.
+
+4. **Human-eye line in the report.** Add one line answering: "Would a person standing here call this a <pond / fire / hill>?" — beside (not instead of) the seed-42 / byte / metric checks. If the honest answer is "no" or "only from one angle," it does not ship.
+```
+
+Skip this block for `chore(...)` / `docs(...)` / `test(...)` PRs and for feature PRs with no physical-world referent (HUD, input, save schema, audio routing, settings panel). When the surface is a physical-world shape, this block pairs with — does not replace — the Diagnose-Before-Fix block (a physical `fix(...)` carries both: the anchor sentence frames "what RIGHT looks like," the diagnosis block proves "what the actual cause was").
 
 ## Merge identity (mandatory in every dispatch)
 
@@ -400,6 +418,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **Lesson reminder, STATE.md update, Merge identity, Done clause** all present.
 - [ ] **Elite-techniques + Diagnose-Before-Fix pointer present** in the Lesson reminder block — agent reads `.claude/docs/elite-techniques.md` + (for `fix(...)` PRs) states diagnosed root cause + evidence before the fix per `team/TESTING_BAR.md` §Accuracy + performance gates.
 - [ ] **If this is a `fix(...)` dispatch:** the full **Diagnose-Before-Fix** block is inlined (root-cause sentence + ONE cited isolation result required in the PR body before the fix; Tess bounces otherwise). The Lesson-reminder one-liner is the pointer; the situational block is the full spec. See `team/TESTING_BAR.md` § "Diagnose-Before-Fix".
+- [ ] **If this dispatch shapes a physical-world feature** (pond / fire / hill / dune / terrain carve-or-raise / water body / shaped prop whose up-vs-down read matters): the **Real-world anchor + silhouette gate** block is inlined — anchor sentence opens the PR body, side-profile capture eyeballed by the author in the Self-Test Report, fix-the-cause discipline, human-eye line. The pond lift→mound saga (PR #130) is the cautionary case.
 - [ ] **If parallel dispatch shares a NEW concept:** Vocabulary contract block present in BOTH briefs verbatim, OR Pattern A sequencing chosen (type-author first → consumer next). See Vocabulary contract above.
 - [ ] **If UX-visible:** Self-Test Report block present.
 - [ ] **If tween / modulate / Polygon2D / CPUParticles2D / Area2D-state surface:** Visual-primitive test bar block present + HTML5-visual-gated merge-gate block present.
