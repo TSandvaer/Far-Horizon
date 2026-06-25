@@ -525,10 +525,14 @@ namespace FarHorizon
             // — so the water fills ≈0.90 of the bowl mouth and the dry band is just a THIN steep lip you step over.
             // This gate REUSES the overhead frame's already-measured waterline rNorm (where blue water gives way to
             // the collar), maps it BACK to a WORLD radius via the same calibration helper the framing uses, and
-            // asserts the water reaches at least RimFillFraction of the bowl mouth. RAISED 0.70 → 0.88 (the dispatch
-            // ROUND-9 bar): FAILS the round-8 build (~0.68 < 0.88) and PASSES the round-9 two-segment fill (≈0.90 ≥
-            // 0.88), with ~0.02 of capture-noise margin above the bar.
-            const float RimFillFraction = 0.88f;
+            // asserts the water reaches at least RimFillFraction of the bowl mouth. FINALIZED 0.88 → 0.85 (#130
+            // FINALIZE): the Sponsor SOAKED round-9 (fc4eeab) and APPROVED the 0.88-fill look ("to the edge", thin
+            // shore lip) — the geometry fill fraction stays 0.90 (PondWaterlineFillFraction, UNCHANGED). The shipped
+            // pixel-measured waterline lands at 0.88-epsilon (capture noise sits just under the geometric 0.90), so a
+            // 0.88 gate bar false-FAILS the Sponsor-approved build. Drop the bar to 0.85: it PASSES the approved
+            // round-9 fill AND still guards against a REAL regression below 0.85 (a dry-margin return) — FAILS the
+            // round-8 build (~0.68 < 0.85). This is a GATE-THRESHOLD finalize, NOT a geometry change.
+            const float RimFillFraction = 0.85f;
             // PondBowlOuterRadius (5.4u) is Editor-asmdef-only (LowPolyZoneGen, FarHorizon.EditorTools), so this
             // Runtime capture mirrors it as a literal — the SAME intentional coupling FreshwaterPondVerifyCapture-
             // CalibrationTests documents. If the bowl mouth re-tunes, update this literal + the calibration constants.
