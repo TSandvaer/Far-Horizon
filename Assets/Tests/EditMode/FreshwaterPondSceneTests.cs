@@ -222,16 +222,21 @@ namespace FarHorizon.EditTests
             Assert.Less(c.g, 0.55f, "the collar green's G must stay well under the bloom threshold even when lit");
         }
 
-        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 6) — the SEA does NOT render through the pond bowl ===
-        // PROVEN root cause of the persistent white shoreline ring (-verifyPondDiag toggle isolation, round-6 build:
-        // sea-plane-OFF dropped the overhead annulus-white 0.215 -> 0.000; bloom-off + collar-removed both LEFT it).
-        // The sea (Water_Play) is a world-spanning plane at WaterY (-0.20); the pond bowl is carved DOWN to a water
-        // surface at -0.35 (0.15u BELOW WaterY after the #130 recess deepened to 0.75u), so the sea plane was
-        // EXPOSED inside the bowl and its teal+foam read as a PALE WHITE RING from overhead. FIX: hole the sea
-        // plane over the pond footprint (BuildIslandWater drops any sea triangle whose centroid is within
-        // PondBowlOuterRadius of the pond centre). This guards the bug CLASS: if a future change re-emits sea
-        // geometry over the pond footprint (re-opening the through-bowl ring), it reds HERE — the down-angle /
-        // side-profile gates were physically blind to it; only the overhead view caught it.
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 6 → strengthened ROUND 7) — the SEA does NOT render
+        // through the pond bowl, INCLUDING edge/vertex slivers ===
+        // PROVEN root cause of the persistent white shoreline ring (-verifyPondDiag toggle isolation: sea-plane-OFF
+        // dropped the overhead annulus-white 0.215 -> 0.000; bloom-off + collar-removed both LEFT it). The sea
+        // (Water_Play) is a world-spanning plane at WaterY (-0.20); the pond bowl is carved DOWN to a water surface
+        // at -0.35, so the sea plane was EXPOSED inside the bowl and read as a PALE WHITE RING from overhead.
+        // FIX: hole the sea plane over the pond footprint. ROUND 7 STRENGTHENING — the round-6 fix (and this test's
+        // OLD form) used a CENTROID test, which was BLIND to the actual ship bug: the coarse ~8.75u sea cells are
+        // larger than the whole 5.4u bowl, so a tri whose CENTROID sat just outside the cut radius still BLANKETED
+        // the bowl from one side (a sea sliver at the waterline on the lobe azimuths → 0.182 pale at rNorm 0.30).
+        // The centroid guard passed while the bug shipped — the classic proxy-predicate silent killer. This test
+        // now asserts the SAME robust OVERLAP predicate the fix uses (closest XZ point on the tri to the pond
+        // centre within SeaHoleCutRadius) so it catches an edge/vertex sliver, not only a centroid hit. Guards the
+        // bug CLASS: any future change re-emitting sea geometry that TOUCHES the footprint reds HERE — the
+        // down-angle / side-profile gates were physically blind to it; only the overhead view caught the percept.
         [Test]
         public void BootScene_SeaPlane_HasNoTrianglesOverThePondFootprint_NoSeaThroughBowl()
         {
@@ -244,25 +249,67 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(mesh, "Water_Play must carry a mesh");
 
             // Sea verts are in the object's local space; the object sits at (0, WaterY, 0) with identity rotation,
-            // so localXZ == worldXZ. Walk every triangle; assert NO centroid falls within the pond footprint (the
-            // cutout radius BuildIslandWater uses). A surviving tri there is the sea showing through the bowl.
+            // so localXZ == worldXZ. Walk every triangle; assert NO triangle OVERLAPS the pond footprint (closest
+            // XZ point on the tri to the pond centre within SeaHoleCutRadius). A surviving overlapping tri is the
+            // sea showing through the bowl — the #130 white-ring source. Using the SAME overlap predicate as the
+            // BuildIslandWater cut (not a weaker centroid test) is what makes this guard catch the sliver class.
             Vector3[] verts = mesh.vertices;
             int[] tris = mesh.triangles;
-            float r = LowPolyZoneGen.PondBowlOuterRadius;
-            float r2 = r * r;
             int offenders = 0;
             for (int t = 0; t + 2 < tris.Length; t += 3)
             {
                 Vector3 a = verts[tris[t]], b = verts[tris[t + 1]], c = verts[tris[t + 2]];
-                float cx = (a.x + b.x + c.x) / 3f - LowPolyZoneGen.PondCenterX;
-                float cz = (a.z + b.z + c.z) / 3f - LowPolyZoneGen.PondCenterZ;
-                if (cx * cx + cz * cz <= r2) offenders++;
+                if (LowPolyZoneGen.SeaTriOverlapsPondFootprint(a, b, c)) offenders++;
             }
             Assert.AreEqual(0, offenders,
-                $"the sea plane must have NO triangles over the pond footprint (centre {LowPolyZoneGen.PondCenterX}," +
-                $"{LowPolyZoneGen.PondCenterZ} radius {r}u) — {offenders} found. The sea showing through the carved " +
-                "bowl is the PROVEN #130 white-ring source (diag: sea-OFF killed the ring). The cutout in " +
-                "LowPolyZoneGen.BuildIslandWater (EmitTri centroid skip) must hole the sea over the pond.");
+                $"the sea plane must have NO triangles OVERLAPPING the pond footprint (centre " +
+                $"{LowPolyZoneGen.PondCenterX},{LowPolyZoneGen.PondCenterZ} cut radius " +
+                $"{LowPolyZoneGen.SeaHoleCutRadius:F2}u) — {offenders} found. A surviving overlapping tri is the " +
+                "sea showing through the carved bowl = the PROVEN #130 white-ring source (diag: sea-OFF killed the " +
+                "ring). The cutout in LowPolyZoneGen.BuildIslandWater (EmitTri closest-point overlap skip) must " +
+                "hole the sea over the pond. NOTE: a CENTROID test passes while edge/vertex slivers ship — the " +
+                "round-7 crescent bug; this guard uses the overlap predicate precisely to catch that class.");
+        }
+
+        // === UNIT GUARD (ticket 86cadj4g7 #130 ROUND 7) — the overlap predicate catches the SLIVER class a
+        // centroid test misses. Pure math, no scene. This is the test that would have CAUGHT the round-6 bug. ===
+        [Test]
+        public void SeaTriOverlap_DetectsEdgeCrossingSliver_ACentroidTestWouldMiss()
+        {
+            float cx = LowPolyZoneGen.PondCenterX, cz = LowPolyZoneGen.PondCenterZ;
+            float cut = LowPolyZoneGen.SeaHoleCutRadius;
+
+            // A big coarse sea triangle whose THREE vertices all sit OUTSIDE the cut radius, but whose EDGE
+            // straddles right across the pond centre (an edge spanning from one side of the bowl to the other).
+            // Its centroid lands near the centre (so the old centroid test WOULD catch this particular one) — so
+            // build the sliver case: a long thin tri whose edge clips the footprint while the centroid is FAR
+            // outside. Place two verts well past the cut on one side and one vert just past the cut beyond the
+            // far rim, so the connecting edge shaves through the footprint but the centroid sits outside.
+            Vector3 a = new Vector3(cx - (cut + 6f), 0f, cz - 0.2f);   // far one side
+            Vector3 b = new Vector3(cx + (cut + 6f), 0f, cz + 0.2f);   // far other side — edge a-b crosses centre
+            Vector3 c = new Vector3(cx, 0f, cz - (cut + 12f));         // far below → centroid pulled well outside
+
+            // Sanity: all three verts are OUTSIDE the cut radius (a vertex test would not fire on a/b/c alone).
+            Assert.Greater((new Vector2(a.x - cx, a.z - cz)).magnitude, cut, "vert a must be outside the cut");
+            Assert.Greater((new Vector2(b.x - cx, b.z - cz)).magnitude, cut, "vert b must be outside the cut");
+            Assert.Greater((new Vector2(c.x - cx, c.z - cz)).magnitude, cut, "vert c must be outside the cut");
+            // Sanity: the centroid is OUTSIDE the cut radius (the round-6 centroid test would PASS this tri).
+            float gx = (a.x + b.x + c.x) / 3f - cx, gz = (a.z + b.z + c.z) / 3f - cz;
+            Assert.Greater(Mathf.Sqrt(gx * gx + gz * gz), cut,
+                "centroid must be outside the cut radius — this is the sliver a centroid test misses");
+
+            // The overlap predicate MUST flag it (edge a-b passes through the pond centre → distance 0 ≤ cut).
+            Assert.IsTrue(LowPolyZoneGen.SeaTriOverlapsPondFootprint(a, b, c),
+                "the overlap predicate must DROP a tri whose edge crosses the footprint even when all verts AND " +
+                "the centroid are outside the cut radius — exactly the round-6 sliver class. If this fails the " +
+                "sea will show through the pond bowl as a shoreline crescent.");
+
+            // And a tri comfortably clear of the footprint must NOT be flagged (no over-cutting the open sea).
+            Vector3 fa = new Vector3(cx + (cut + 20f), 0f, cz);
+            Vector3 fb = new Vector3(cx + (cut + 30f), 0f, cz + 8f);
+            Vector3 fc = new Vector3(cx + (cut + 28f), 0f, cz - 8f);
+            Assert.IsFalse(LowPolyZoneGen.SeaTriOverlapsPondFootprint(fa, fb, fc),
+                "a tri well clear of the footprint must survive — the hole must not eat the open sea");
         }
 
         [Test]

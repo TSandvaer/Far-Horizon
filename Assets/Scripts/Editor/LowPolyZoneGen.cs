@@ -306,6 +306,27 @@ namespace FarHorizon.EditorTools
         // 1.5×floorDrop/tan40° (=2.14) so the steepest point stays < 40° (the PondBowl_WallSlope test pins this).
         public const float PondBowlOuterRadius = 5.4f;
 
+        // SEA-HOLE CUT RADIUS (ticket 86cadj4g7 #130 ROUND 7). The sea plane is HOLED over the pond footprint so
+        // it can never render through the carved bowl (the PROVEN #130 white-ring source). ROUND 6 dropped only
+        // tris whose CENTROID was within PondBowlOuterRadius — but the open-sea grid is COARSE (WaterSeg 160 over
+        // 1400u → ~8.75u cells, each tri LARGER than the whole bowl), so a tri whose centroid sat just OUTSIDE
+        // 5.4u still BLANKETED the bowl from one side: a sea SLIVER survived at the waterline on the lobe
+        // (crescent) azimuths → 0.182 pale fraction at rNorm 0.30 (down from 0.215 but not 0). FIX (round 7):
+        // (1) drop a tri if the CLOSEST POINT on the triangle to the pond centre is within the cut radius — an
+        //     overlap test that catches edge/vertex slivers a centroid test is blind to (a tri straddling the
+        //     bowl mouth has all 3 verts outside yet an edge crossing the footprint); and
+        // (2) cut at PondBowlOuterRadius + a half sea-cell-diagonal of MARGIN so the overlap test has slack for
+        //     the organic rim lobes + the coarse grid's azimuth-dependent alignment (the crescent showed on ONE
+        //     side = an asymmetric grid straddle). The closest-point overlap test ALONE already guarantees no
+        //     retained tri reaches within the cut radius; the margin just sets that radius safely past the
+        //     waterline annulus (world ~3.4u) and the bowl mouth (5.4u). Still INLAND (pond centre is ~107u
+        //     inside the coast) + fully ringed by terrain above WaterY past PondBowlOuterRadius → the enlarged
+        //     hole is invisible (no sea-gap), it only removes the intruding-through-bowl tris. The salt sea
+        //     elsewhere (all coasts) is UNCHANGED. Computed from the grid constants so it tracks any future
+        //     WaterSeg / extent change. One sea cell = (WaterHalfExtent*2)/WaterSeg = 8.75u; half its diagonal ≈ 6.19u.
+        public static float SeaCellSize => (WaterHalfExtent * 2f) / WaterSeg;
+        public static float SeaHoleCutRadius => PondBowlOuterRadius + SeaCellSize * Mathf.Sqrt(2f) * 0.5f;
+
         // ===== POND FOAM LEVELS (ticket 86cadj4g7 — Sponsor #130: "the pond should NOT foam like the sea") ==
         // The pond's _FoamDistance on the FarHorizon/LowPolyWater shader (foam = saturate(1 - gap/distance)).
         // Three discrete levels the live PondNudge [foam] handle cycles; the DEFAULT is OFF (a still pool).
@@ -1240,12 +1261,14 @@ namespace FarHorizon.EditorTools
             // tris. The salt sea elsewhere (the coast, all sides) is UNCHANGED.
             void EmitTri(int a, int b, int c2)
             {
-                // Cut the sea hole over the pond bowl: if the triangle's centroid is inside the pond footprint,
-                // drop it (the sea must not render through the recessed bowl — the #130 white-ring source).
-                float cxw = (gridPos[a].x + gridPos[b].x + gridPos[c2].x) / 3f;
-                float czw = (gridPos[a].z + gridPos[b].z + gridPos[c2].z) / 3f;
-                float pdx = cxw - PondCenterX, pdz = czw - PondCenterZ;
-                if (pdx * pdx + pdz * pdz <= PondBowlOuterRadius * PondBowlOuterRadius) return;
+                // Cut the sea hole over the pond bowl: drop the triangle if it OVERLAPS the pond footprint (the
+                // sea must not render through the recessed bowl — the #130 white-ring source). ROUND 7: an
+                // OVERLAP test (closest point on the triangle to the pond centre within SeaHoleCutRadius), NOT
+                // the round-6 CENTROID test — the coarse ~8.75u sea cells are larger than the whole bowl, so a
+                // tri whose centroid sat just outside the cut radius still blanketed the bowl from one side
+                // (the crescent sliver, 0.182 pale). The XZ closest-point-on-triangle distance catches any tri
+                // whose vertex OR edge crosses the footprint, on every azimuth.
+                if (SeaTriOverlapsPondFootprint(gridPos[a], gridPos[b], gridPos[c2])) return;
 
                 Vector3 p0 = gridPos[a], p1 = gridPos[b], p2 = gridPos[c2];
                 Vector3 fn = Vector3.Cross(p1 - p0, p2 - p0);
@@ -1288,7 +1311,67 @@ namespace FarHorizon.EditorTools
             mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
             Debug.Log($"[world-trace] BuildIslandWater built all-sides sea plane (half-extent {WaterHalfExtent:F0}u, " +
-                      $"radial foam ring at r={IslandShoreR:F0}u, {verts.Count} verts)");
+                      $"radial foam ring at r={IslandShoreR:F0}u, {verts.Count} verts, " +
+                      $"pond hole r={SeaHoleCutRadius:F2}u closest-point overlap)");
+        }
+
+        /// <summary>
+        /// True if the sea triangle (a,b,c) OVERLAPS the pond footprint — i.e. the XZ closest point on the
+        /// triangle to the pond centre is within <see cref="SeaHoleCutRadius"/>. Used to HOLE the sea plane over
+        /// the recessed pond bowl (ticket 86cadj4g7 #130 ROUND 7). Unlike a centroid test, this catches a coarse
+        /// sea tri whose vertices all sit OUTSIDE the cut radius but whose EDGE crosses the footprint (the
+        /// crescent-sliver class on lobe azimuths). Pure XZ math (the sea + pond are both axis-flat at their own
+        /// Y), deterministic — testable in EditMode against the shipped mesh.
+        /// </summary>
+        public static bool SeaTriOverlapsPondFootprint(Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector2 centre = new Vector2(PondCenterX, PondCenterZ);
+            Vector2 pa = new Vector2(a.x, a.z), pb = new Vector2(b.x, b.z), pc = new Vector2(c.x, c.z);
+            float d2 = ClosestPointOnTriangleSqDist(centre, pa, pb, pc);
+            float r = SeaHoleCutRadius;
+            return d2 <= r * r;
+        }
+
+        /// <summary>Squared distance from point <paramref name="p"/> to the closest point on triangle
+        /// (a,b,c), all in 2D (XZ). Standard Ericson "Real-Time Collision Detection" barycentric region
+        /// decomposition — returns 0 when p is inside the triangle. No allocations.</summary>
+        private static float ClosestPointOnTriangleSqDist(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        {
+            // Check voronoi region of vertex a.
+            Vector2 ab = b - a, ac = c - a, ap = p - a;
+            float d1 = Vector2.Dot(ab, ap), d2 = Vector2.Dot(ac, ap);
+            if (d1 <= 0f && d2 <= 0f) return ap.sqrMagnitude;
+            // Vertex b.
+            Vector2 bp = p - b;
+            float d3 = Vector2.Dot(ab, bp), d4 = Vector2.Dot(ac, bp);
+            if (d3 >= 0f && d4 <= d3) return bp.sqrMagnitude;
+            // Edge ab.
+            float vc = d1 * d4 - d3 * d2;
+            if (vc <= 0f && d1 >= 0f && d3 <= 0f)
+            {
+                float v = d1 / (d1 - d3);
+                return (p - (a + v * ab)).sqrMagnitude;
+            }
+            // Vertex c.
+            Vector2 cp = p - c;
+            float d5 = Vector2.Dot(ab, cp), d6 = Vector2.Dot(ac, cp);
+            if (d6 >= 0f && d5 <= d6) return cp.sqrMagnitude;
+            // Edge ac.
+            float vb = d5 * d2 - d1 * d6;
+            if (vb <= 0f && d2 >= 0f && d6 <= 0f)
+            {
+                float w = d2 / (d2 - d6);
+                return (p - (a + w * ac)).sqrMagnitude;
+            }
+            // Edge bc.
+            float va = d3 * d6 - d5 * d4;
+            if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
+            {
+                float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                return (p - (b + w * (c - b))).sqrMagnitude;
+            }
+            // Inside the triangle's face region → distance 0.
+            return 0f;
         }
 
         // ---- Materials ----
