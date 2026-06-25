@@ -136,7 +136,27 @@ jobs:
         shell: bash
         run: mkdir -p ci-out
 
-      # 0. PackageCache hygiene — delete stranded Library/PackageCache/.tmp-* staging
+      # 0a. STALE-EVIDENCE hygiene (ticket 86cadj4g7 #130 ROUND 6 — the false-green Tess
+      #     caught). With clean:false the gitignored ci-out/ persists between runs, so a
+      #     PRIOR run's gate logs/captures linger on the warm runner. The "Upload test
+      #     results + logs" step (step 5) runs RIGHT AFTER the build but BEFORE the gate
+      #     steps (7/8/9) — its `ci-out/*.log` glob therefore swept up a STALE
+      #     verify-pond.log from the previous run, which a reviewer read as THIS PR's
+      #     gate output (it showed pre-round-5 code → looked like the new gate never
+      #     ran, when it actually did — the REAL log was in the post-gate pond-caps
+      #     artifact). Deleting last run's gate logs + caps at job START makes every
+      #     uploaded artifact reflect ONLY this run: a missing log now means the gate
+      #     genuinely didn't write it, not a stale carry-over. Idempotent; the gate
+      #     scripts also rm their own log, but that's too late for the step-5 upload.
+      - name: Clean stale gate outputs (prevent stale-log false-green)
+        shell: bash
+        run: |
+          rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/editmode.log \
+                ci-out/build.log ci-out/bootstrap.log ci-out/playmode.log
+          rm -f ci-out/*.xml
+          rm -rf ci-out/pond-caps ci-out/settings-caps ci-out/caps
+
+      # 0b. PackageCache hygiene — delete stranded Library/PackageCache/.tmp-* staging
       #    dirs BEFORE bootstrap. The resolver renames a fresh .tmp-* onto a target
       #    dir; a stranded/locked target (left by a concurrent/cancelled build) makes
       #    that rename EPERM (com.unity.shadergraph / com.unity.modules.terrainphysics
@@ -202,8 +222,15 @@ jobs:
           -executeMethod FarHorizon.EditorTools.FarHorizonBuilder.BuildWindows
           -logFile "%RESULTS%\build.log"
 
-      # 5. Upload EVERYTHING before any cleanup — .gitignore eats *.log /
+      # 5. Upload the PRE-GATE logs before any cleanup — .gitignore eats *.log /
       #    test-results*.xml / Build/, so artifacts are the only way they survive.
+      #    NOTE (ticket 86cadj4g7 #130 ROUND 6): this step runs BEFORE the gate steps
+      #    (7/8/9), so it MUST NOT glob the gate logs (verify-pond.log /
+      #    verify-settings.log) — they don't exist yet here, and globbing `ci-out/*.log`
+      #    used to upload a STALE pond log from a prior warm-cache run, which a reviewer
+      #    read as this PR's gate output (the false-green Tess caught). The gate logs are
+      #    uploaded by their OWN post-gate steps below; this artifact carries only the
+      #    bootstrap/editmode/build/playmode logs + the test XMLs.
       - name: Upload test results + logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -211,7 +238,10 @@ jobs:
           name: unity-ci-logs-${{ github.sha }}
           path: |
             ci-out/*.xml
-            ci-out/*.log
+            ci-out/bootstrap.log
+            ci-out/editmode.log
+            ci-out/build.log
+            ci-out/playmode.log
           if-no-files-found: warn
           retention-days: 14
 
