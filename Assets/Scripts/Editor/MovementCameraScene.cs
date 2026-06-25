@@ -1510,7 +1510,22 @@ namespace FarHorizon.EditorTools
         // depression the water fills (Uma §1e nestle-don't-stamp) and the depth-fade foam has a waterline to
         // ride. Shallow (the pond is a found pool, not a deep well). The grassy lip rim sits AT ground level.
         private const float PondSurfaceY = -0.06f;
-        private const float PondSurfaceRadius = 2.6f; // a few metres across — reads as one pool, not a 2nd sea (Uma §1e scale)
+        // WATER-FILLS-THE-BOWL-TO-ITS-RIM (ticket 86cadj4g7 #130 ROUND 8 — Sponsor round-7 soak): the carved bowl
+        // (PondDepressionDelta, floor radius 3.0u → wall up to the rim at PondBowlOuterRadius 5.4u) was LARGER than
+        // the water disc, so a DRY carved margin (the darker bowl wall) showed between the water edge (the old
+        // 2.6u×rim ≈ 2.13–3.07u, entirely on the floor/lower wall) and the hole rim — the Sponsor walked DOWN that
+        // dry slope into a smaller pool. He drew the water reaching the FULL hole rim. The natural WATERLINE (where
+        // the bowl wall top == the knee-deep water surface, recess 0.75u below the plateau) is at world r ≈ 4.0u
+        // (solved from PondDepressionDelta's smoothstep wall: carve(r) = −PondRecessKneeDeep). To fill the bowl to
+        // that waterline on EVERY azimuth with the ±18% organic rim (PondRimFactor 0.82–1.18) AND never leave a dry
+        // crescent on a min-radius lobe, the disc MIN reach must clear ~4.0u: 4.0/0.82 ≈ 4.88, so nominal 5.0u (min
+        // reach 4.10u — clears the waterline with margin; mean 5.0u; MAX reach 5.90u, PAST the 5.4u bowl mouth). The
+        // overshoot past ~4.0u is SUBMERGED in the rising bowl wall (wall top is ABOVE the −0.75u water surface there)
+        // and TERRAIN-OCCLUDED, so the VISIBLE waterline lands exactly on the wall intersection (~4.0u) — a clean
+        // organic shoreline by terrain-clipping, no dry slope, knee-deep right at the rim. The disc Y (−0.75 rel
+        // plateau) is everywhere ≤ terrain so the disc never pokes ABOVE ground. (Was 2.6u for the old flat-ground
+        // pool before the bowl carve; the carve moved the waterline out to the wall, so the disc had to follow.)
+        private const float PondSurfaceRadius = 5.0f; // fills the carved bowl to its rim waterline (~4.0u); overshoot terrain-occluded
 
         // The grass-green the bank ACCENTS (tufts) read as (Uma §1e: the meadow-green language so the pool reads
         // FOUND, not stamped). The raised collar RING mesh was removed (#130 round 5 — it was the white-ring
@@ -1605,7 +1620,12 @@ namespace FarHorizon.EditorTools
             var fp = pond.AddComponent<FarHorizon.FreshwaterPond>();
             fp.player = player.transform;
             fp.thirst = Object.FindObjectOfType<ThirstNeed>();
-            fp.pondSurfaceRadius = PondSurfaceRadius;
+            // Drink-from-the-EDGE reach is keyed to the VISIBLE waterline (~PondWaterlineRadius ≈ 4.0u, where the
+            // bowl wall meets the water surface), NOT the disc NOMINAL radius (5.0u, whose overshoot is submerged in
+            // the bowl wall + terrain-occluded — invisible). Feeding the nominal disc radius would over-extend the
+            // proximity gate to a spot the player can't see water at (ticket 86cadj4g7 #130 ROUND 8 — the disc grew
+            // to fill the bowl, but the drink edge must follow the VISIBLE pool, not the buried disc rim).
+            fp.pondSurfaceRadius = LowPolyZoneGen.PondWaterlineRadius;
             fp.drinkRadius = 2.0f;
             if (fp.thirst == null)
                 Debug.LogWarning("[MovementCameraScene] no ThirstNeed in scene to wire FreshwaterPond to — " +
@@ -1623,6 +1643,12 @@ namespace FarHorizon.EditorTools
                       " (thirst wired: " + (fp.thirst != null) + ", drinkAction wired: " + (drink != null) +
                       ", effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
         }
+
+        /// <summary>TEST SEAM (ticket 86cadj4g7 #130 ROUND 8): build the pond water mesh at the SHIPPED
+        /// <see cref="PondSurfaceRadius"/> so the fill-to-rim EditMode guard reads the ACTUAL authored disc reach
+        /// (not a literal that could drift out of sync). Keeps PondSurfaceRadius private while letting the guard
+        /// assert the real shipped geometry. Build-only, no scene side effects.</summary>
+        public static Mesh BuildShippedPondWaterMeshForTest() => LowPolyZoneGen.BuildPondWaterMesh(PondSurfaceRadius);
 
         // The KNEE-DEEP wade depth — the water surface sits this far ABOVE the carved bowl floor. Sourced from
         // the SHARED LowPolyZoneGen.PondWadeDepth (= WorldBootstrap.PondWaterDepthAboveFloor; GroundPondInBowl

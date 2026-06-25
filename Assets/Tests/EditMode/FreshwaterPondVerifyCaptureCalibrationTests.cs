@@ -22,13 +22,16 @@ namespace FarHorizon.EditTests
     /// </summary>
     public class FreshwaterPondVerifyCaptureCalibrationTests
     {
-        // The pond's world geometry the gate must frame (matches FreshwaterPond.pondSurfaceRadius default 2.6u,
-        // organically perturbed up to ~3.0u, and LowPolyZoneGen.PondBowlOuterRadius 5.4u — the bowl wall the
-        // raised-collar white ring draped). PondBowlOuterRadius is Editor-asmdef-only, so it's mirrored here as a
-        // literal; if it changes, this guard's bowl-wall assertion must be revisited (intentional coupling note).
-        private const float WaterlineRadiusMin = 2.6f;   // FreshwaterPond.pondSurfaceRadius default
-        private const float WaterlineRadiusMax = 3.0f;   // organic outline upper bound
-        private const float BowlWallOuterRadius = 5.4f;  // LowPolyZoneGen.PondBowlOuterRadius (collar mouth)
+        // The pond's world geometry the gate must frame. ROUND 8 (ticket 86cadj4g7 — "fill the bowl to its rim"):
+        // the water disc grew to fill the carved bowl, so the VISIBLE waterline is now the TERRAIN-CLIP circle where
+        // the bowl wall meets the water surface (LowPolyZoneGen.PondWaterlineRadius ≈ 4.0u), NOT the old disc's
+        // organic 2.6–3.0u rim (the disc overshoots to ~5.0–5.9u but is submerged in the wall + terrain-occluded).
+        // The waterline is a near-circle (the bowl wall is radially symmetric), so min≈max≈4.0u with only capture
+        // noise spread. PondBowlOuterRadius / PondWaterlineRadius are Editor-asmdef-only, so mirrored here as
+        // literals; if the recess/bowl re-tunes (which moves the waterline), revisit these (intentional coupling).
+        private const float WaterlineRadiusMin = 3.85f;  // PondWaterlineRadius (~4.0u) minus capture-noise margin
+        private const float WaterlineRadiusMax = 4.15f;  // PondWaterlineRadius (~4.0u) plus capture-noise margin
+        private const float BowlWallOuterRadius = 5.4f;  // LowPolyZoneGen.PondBowlOuterRadius (the hole rim / collar mouth)
         private const float CollarFadeOuterRadius = 6.8f; // collar paint fade-end (~PondBowlOuterRadius + 1.4)
 
         // The gate's self-calibration anchor window: outside this the gate declares a framing FAIL (a wrong-
@@ -98,6 +101,35 @@ namespace FarHorizon.EditTests
                 $"the bowl-wall ring (rNorm {waterlineMin:F3}..{bowlWall:F3}) must overlap the gate's sampled band " +
                 $"[waterline±0.10] so a white shoreline ring WOULD light the band — otherwise the gate can't FAIL " +
                 "on a ring (the round-5 open-water trivial-pass bug class).");
+        }
+
+        // === COUPLING GUARD (ticket 86cadj4g7 #130 ROUND 8) — the mirrored bowl-mouth literals track the source ==
+        // PondBowlOuterRadius is Editor-asmdef-only, so it is MIRRORED as a literal in TWO Runtime-visible spots:
+        // (1) this test's BowlWallOuterRadius, and (2) FreshwaterPondVerifyCapture's `bowlMouthWorld = 5.4f` const
+        // (the FILL-TO-RIM gate's denominator). EditMode sees both asmdefs, so pin the test mirror to the real
+        // source here — if the bowl mouth re-tunes and someone forgets a mirror, this reds. (The capture's own const
+        // is documented to track this same value; this guard is the cheap reminder the mirrors exist.)
+        [Test]
+        public void MirroredBowlMouthLiteral_MatchesTheEditorSourceConstant()
+        {
+            Assert.That(BowlWallOuterRadius, Is.EqualTo(FarHorizon.EditorTools.LowPolyZoneGen.PondBowlOuterRadius).Within(1e-4f),
+                $"the mirrored bowl-mouth literal ({BowlWallOuterRadius}) must equal the source " +
+                $"LowPolyZoneGen.PondBowlOuterRadius ({FarHorizon.EditorTools.LowPolyZoneGen.PondBowlOuterRadius}); " +
+                "if it drifted, ALSO update FreshwaterPondVerifyCapture.bowlMouthWorld (the fill-to-rim gate denominator).");
+        }
+
+        // The real waterline (Editor source) must land where the calibration constants assume it (the visible
+        // shoreline the overhead gate frames). Pins the round-8 fill-to-rim geometry: a recess/bowl re-tune that
+        // moved the waterline out of [WaterlineRadiusMin, WaterlineRadiusMax] reds here → revisit the disc radius +
+        // these constants together.
+        [Test]
+        public void RealWaterlineRadius_LandsInTheCalibrationWindow()
+        {
+            float wl = FarHorizon.EditorTools.LowPolyZoneGen.PondWaterlineRadius;
+            Assert.That(wl, Is.InRange(WaterlineRadiusMin, WaterlineRadiusMax),
+                $"the solved PondWaterlineRadius ({wl:F3}u) must sit in the calibration window " +
+                $"[{WaterlineRadiusMin}, {WaterlineRadiusMax}]; a drift means the recess/bowl re-tuned — re-check " +
+                "PondSurfaceRadius (the disc must still fill to this waterline) and these constants.");
         }
 
         [Test]

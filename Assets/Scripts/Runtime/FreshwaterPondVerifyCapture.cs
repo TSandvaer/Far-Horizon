@@ -512,6 +512,42 @@ namespace FarHorizon
                                "around the water (the #130 white shoreline ring — the centre-box gate is BLIND to it; this " +
                                "self-calibrating annulus gate catches the raised-collar wash the Sponsor kept soaking).");
 
+            // === TOP-DOWN WATER-FILLS-THE-BOWL-TO-ITS-RIM HARD GATE (ticket 86cadj4g7 #130 ROUND 8) ==============
+            // THE round-8 defect + dispatch new-gate: the prior gates proved no-foam, no-pale-ring, recessed-not-mound
+            // — but NONE asserted the water REACHES the rim. The Sponsor's round-7 soak: the carved bowl (mouth at
+            // PondBowlOuterRadius ≈ 5.4u) was LARGER than the water disc (old waterline ~2.6–3.0u), so a DRY carved
+            // margin (the bowl wall, darker-green) showed between the water edge and the hole rim — he walked DOWN that
+            // dry slope into a smaller pool. The top-down gate MISSED it (it only checks surface-white + ring-pale);
+            // he caught it from the gameplay cam ([[verify-grounding-soaks-by-gameplay-cam-visual]]). This gate REUSES
+            // the overhead frame's already-measured waterline rNorm (where blue water gives way to the collar), maps
+            // it BACK to a WORLD radius via the same calibration helper the framing uses, and asserts the water
+            // reaches at least RimFillFraction of the bowl mouth — i.e. the dry wall band from the waterline to the
+            // rim is only the THIN natural upper bank, not a wide dry slope. FAILS on the round-7 build (waterline
+            // ~3.0u / 5.4u = 0.56 < 0.70) and PASSES once the disc fills the bowl (waterline ~4.0u / 5.4u = 0.74).
+            // 0.70 sits clear of both: the round-7 0.56 fails, the filled ~0.74 passes, with margin for capture noise.
+            const float RimFillFraction = 0.70f;
+            // PondBowlOuterRadius (5.4u) is Editor-asmdef-only (LowPolyZoneGen, FarHorizon.EditorTools), so this
+            // Runtime capture mirrors it as a literal — the SAME intentional coupling FreshwaterPondVerifyCapture-
+            // CalibrationTests documents. If the bowl mouth re-tunes, update this literal + the calibration constants.
+            const float bowlMouthWorld = 5.4f;                            // == LowPolyZoneGen.PondBowlOuterRadius (the hole rim)
+            // Invert WorldRadiusToFrameRNorm: world u at rNorm 1.0 (short axis) = height*tan(halfFov); the waterline's
+            // world radius = waterlineRNorm * that extent. Uses the SAME overhead height/FOV the frame was shot at.
+            float worldHalfExtent = OverheadHeight * Mathf.Tan(OverheadFov * 0.5f * Mathf.Deg2Rad);
+            float waterlineWorld = waterlineRNorm > 0f ? waterlineRNorm * worldHalfExtent : -1f;
+            float rimFillRatio = waterlineWorld > 0f ? waterlineWorld / bowlMouthWorld : -1f;
+            bool waterFillsBowl = rimFillRatio >= RimFillFraction;
+            if (waterFillsBowl)
+                Debug.Log($"[FreshwaterPondVerifyCapture] FILL-TO-RIM PASS: waterline world r≈{waterlineWorld:F2}u " +
+                          $"(rNorm={waterlineRNorm:F2}) reaches {rimFillRatio:F2} of the bowl mouth ({bowlMouthWorld:F2}u) " +
+                          $"≥ {RimFillFraction:F2} — the WATER FILLS THE CARVED BOWL to its rim, NO dry carved margin " +
+                          "between the water edge and the hole rim (the #130 round-7 dry-slope defect is GONE).");
+            else
+                Debug.LogError($"[FreshwaterPondVerifyCapture] FILL-TO-RIM FAIL: waterline world r≈{waterlineWorld:F2}u " +
+                               $"(rNorm={waterlineRNorm:F2}) reaches only {rimFillRatio:F2} of the bowl mouth " +
+                               $"({bowlMouthWorld:F2}u) < {RimFillFraction:F2} — a DRY carved margin shows between the " +
+                               "water edge and the hole rim (the #130 round-7 defect: the bowl is bigger than the water, " +
+                               "the player walks down a dry slope into a smaller pool — the water must fill the bowl to its rim).");
+
             // === 5th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
             // The 3 frames above are gameplay-PITCH down-angle looks; up-vs-down is invisible from those (a mound
             // and a hole both read "blue disc in green"). This 4th frame parks the camera at EYE LEVEL looking
@@ -601,6 +637,7 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.5f);
             Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
                       " topNoWhite=" + topNoWhite + " topNoShorelineRing=" + topNoShorelineRing +
+                      " waterFillsBowl=" + waterFillsBowl +
                       " sideSunk=" + sideSunk + " collarFlush=" + collarFlush +
                       " noShorelineFoam_advisory=" + noShorelineFoam + ") -> " + dir);
             // Fail loud in the shipped build on ANY of the FIVE GATING percepts: not fresh-blue/visible; a broad
@@ -608,9 +645,11 @@ namespace FarHorizon
             // SHORELINE RING in the waterline ANNULUS from overhead (#130 ROUND 5 — THE load-bearing addition this
             // round: the centre-box gate is blind to the ring, which is where the Sponsor's white actually lived —
             // the raised-collar wash; this gate FAILS on the old collar build e5207d1 + PASSES with the collar
-            // removed); reads as a mound; or the collar is a raised berm. The side-profile shoreline-foam read is
-            // ADVISORY (it false-positives on the sunlit pale bank grass at the waterline).
-            Application.Quit(anyFreshBlue && topNoWhite && topNoShorelineRing && sideSunk && collarFlush ? 0 : 1);
+            // removed); reads as a mound; the collar is a raised berm; OR the water does NOT fill the carved bowl to
+            // its rim (#130 ROUND 8 — the dispatch new-gate: a dry carved margin between the water edge and the hole
+            // rim). The side-profile shoreline-foam read is ADVISORY (it false-positives on the sunlit pale bank
+            // grass at the waterline).
+            Application.Quit(anyFreshBlue && topNoWhite && topNoShorelineRing && waterFillsBowl && sideSunk && collarFlush ? 0 : 1);
         }
 
         /// <summary>

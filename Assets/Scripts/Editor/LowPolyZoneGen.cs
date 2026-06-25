@@ -306,6 +306,32 @@ namespace FarHorizon.EditorTools
         // 1.5×floorDrop/tan40° (=2.14) so the steepest point stays < 40° (the PondBowl_WallSlope test pins this).
         public const float PondBowlOuterRadius = 5.4f;
 
+        // ===== WATERLINE RADIUS (ticket 86cadj4g7 #130 ROUND 8 — Sponsor round-7 soak "fill the bowl to its rim") ==
+        // The world radius (from the pond centre) where the carved bowl WALL rises to meet the KNEE-DEEP water
+        // surface — i.e. where PondDepressionDelta(r) == −PondRecessKneeDeep. This is the VISIBLE shoreline: inward
+        // of it the wall floor is BELOW the water (covered by water → wet); outward of it the wall is ABOVE the
+        // water (dry bank rising to the rim). The water disc must reach AT LEAST this radius on every azimuth or a
+        // DRY carved margin shows between the water edge and the rim (the round-7 defect). Solved once (bisection
+        // on the monotonic smoothstep wall) from the recess constants so it tracks any future recess/bowl re-tune — NOT a magic
+        // number. With recess 0.75 / floorDrop 1.20 / inner 3.0 / outer 5.4 → ~4.0u. PUBLIC so the scene author feeds
+        // it to the drink-edge proximity (FreshwaterPond.pondSurfaceRadius) + the gate/tests anchor to it.
+        public static float PondWaterlineRadius => SolveWaterlineRadius();
+        private static float SolveWaterlineRadius()
+        {
+            // Bisect r in [inner, outer] for PondDepressionDelta(r) == −PondRecessKneeDeep. PondDepressionDelta is
+            // monotonic on the wall (smoothstep, 0 at outer → −floorDrop at inner), so bisection converges cleanly.
+            float lo = PondBowlInnerRadius, hi = PondBowlOuterRadius;
+            float targetCarve = -PondRecessKneeDeep; // water surface is recess below the plateau (carve==0 at outer)
+            for (int it = 0; it < 60; it++)
+            {
+                float mid = (lo + hi) * 0.5f;
+                // carve(mid) less negative (HIGHER) than the target → the wall there is ABOVE water → move inward.
+                if (PondDepressionDelta(PondCenterX + mid, PondCenterZ) > targetCarve) hi = mid;
+                else lo = mid;
+            }
+            return (lo + hi) * 0.5f;
+        }
+
         // SEA-HOLE CUT RADIUS (ticket 86cadj4g7 #130 ROUND 7). The sea plane is HOLED over the pond footprint so
         // it can never render through the carved bowl (the PROVEN #130 white-ring source). ROUND 6 dropped only
         // tris whose CENTROID was within PondBowlOuterRadius — but the open-sea grid is COARSE (WaterSeg 160 over

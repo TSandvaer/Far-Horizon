@@ -374,6 +374,56 @@ namespace FarHorizon.EditTests
                 "not swims (bounded by PondWaterDepthAboveFloor; a runaway depth means the bowl/grounding drifted).");
         }
 
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 8) — the WATER FILLS THE CARVED BOWL TO ITS RIM ======
+        // The round-7 defect (Sponsor soak): the carved bowl (floor radius 3.0u → wall up to the rim at
+        // PondBowlOuterRadius 5.4u) was LARGER than the water disc (old nominal 2.6u × rim 0.82–1.18 = 2.13–3.07u,
+        // entirely on the floor/lower wall), so a DRY carved margin showed between the water edge and the hole rim
+        // — the player walked DOWN that dry slope into a smaller pool. THE FIX: the disc must reach the WATERLINE
+        // (where the bowl wall rises to meet the knee-deep water surface, LowPolyZoneGen.PondWaterlineRadius ≈ 4.0u)
+        // on EVERY azimuth — the disc MIN reach (nominal × min rim factor) must clear it, so the visible (terrain-
+        // clipped) shoreline lands at the wall, NOT short of it. This guards the bug CLASS: a future shrink of the
+        // disc (or a deeper recess that pushes the waterline out) that re-opens a dry margin reds HERE — BEFORE a
+        // soak. Pure geometry (no scene): the recess solver + the disc-builder's rim bound. (The -verifyPond
+        // FILL-TO-RIM gate is the shipped-pixel sibling; this is the cheap headless EditMode catch.)
+        [Test]
+        public void Pond_WaterDisc_FillsTheCarvedBowl_ToItsWaterline_NoDryMargin()
+        {
+            // The waterline: where the bowl wall rises to the knee-deep water surface. Solved from the recess
+            // constants (PondDepressionDelta == −PondRecessKneeDeep). With recess 0.75 / floorDrop 1.20 / inner 3.0
+            // / outer 5.4 this lands ~4.0u — well inside the bowl mouth (5.4u), well outside the floor edge (3.0u).
+            float waterline = LowPolyZoneGen.PondWaterlineRadius;
+            Assert.That(waterline, Is.InRange(LowPolyZoneGen.PondBowlInnerRadius, LowPolyZoneGen.PondBowlOuterRadius),
+                $"the waterline ({waterline:F3}u) must sit between the floor edge ({LowPolyZoneGen.PondBowlInnerRadius}u) " +
+                $"and the bowl mouth ({LowPolyZoneGen.PondBowlOuterRadius}u) — it's where the wall meets the water surface");
+            Assert.That(waterline, Is.EqualTo(4.0f).Within(0.25f),
+                $"the waterline must solve to ~4.0u for the locked recess geometry (got {waterline:F3}u); a big drift " +
+                "means the recess/bowl re-tuned — re-check the disc radius + the calibration-test constants");
+
+            // The disc's MINIMUM reach across all azimuths = the actual scene radius × the min organic rim factor.
+            // It must CLEAR the waterline so NO azimuth leaves a dry crescent (the round-7 defect). Read the scene's
+            // shipped disc radius from the built mesh (the radial-fan max rim radius is the disc's outermost reach;
+            // its min is the disc's tightest lobe) so this tracks the actual authored PondSurfaceRadius, not a literal.
+            var mesh = MovementCameraScene.BuildShippedPondWaterMeshForTest();
+            float minRim = float.MaxValue, maxRim = 0f;
+            foreach (var v in mesh.vertices)
+            {
+                float r = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+                if (r < 0.01f) continue; // skip the centre verts
+                if (r < minRim) minRim = r;
+                if (r > maxRim) maxRim = r;
+            }
+            Assert.Greater(minRim, waterline,
+                $"the water disc MIN reach ({minRim:F3}u) must exceed the waterline ({waterline:F3}u) so the water " +
+                "fills the bowl to the wall on EVERY azimuth — a min reach short of the waterline leaves a DRY carved " +
+                "margin (the #130 round-7 dry-slope defect). Raise PondSurfaceRadius.");
+
+            // The disc MAX reach must REACH PAST the bowl mouth so the overshoot is submerged in the wall + terrain-
+            // occluded (a clean terrain-clipped shoreline), but the overshoot is harmless because the disc Y (recess
+            // below the plateau) is everywhere ≤ the terrain there. Just assert it clears the waterline comfortably.
+            Assert.Greater(maxRim, waterline,
+                $"the water disc MAX reach ({maxRim:F3}u) must clear the waterline ({waterline:F3}u)");
+        }
+
         // === NEW (ticket 86cadj4g7 #130) — the bowl is a LOCAL carve; the seed-42 island is UNCHANGED away ===
         // The depression must be a deliberate LOCAL dip at the pond ONLY: full depth at the centre, zero past
         // PondBowlOuterRadius. This guards the seed-42 silhouette lock — a carve that bled across the island
