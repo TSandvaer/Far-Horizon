@@ -376,6 +376,14 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Reversibility: reversible (the base type + its extension are a refactor in ≤1 PR; the ownership rule is an AC pin, re-editable on the board).
 - Affects: hunger (`86caamkp8`) + thirst (`86caamkv7`) + the need HUD (`86caamkxv`), the survival-need model, Devon (owner of both needs) + Drew (reviewer) + Tess (the vocabulary-grep review gate).
 
+## 2026-06-24 — The 3 survival needs do NOT share a common base TYPE; the HUD binds by read-state value, not by `SurvivalNeed` param
+
+- Decided by: Devon (implementation finding on the three-bar HUD, ticket `86caamkxv` / PR #129)
+- Decision: The three survival needs do **NOT** all share a common base type. **`WarmthNeed` is a standalone `MonoBehaviour`** that PREDATES `SurvivalNeed` and does NOT extend it; only **Hunger + Thirst extend the `SurvivalNeed` base**. Consequently the HUD's generalized `DrawNeedBar` takes the need read-state **BY VALUE** (the `current01` fill fraction + the `isCritical` flag, duck-typed and null-guarded) rather than a `SurvivalNeed`-typed widget parameter. This **supersedes** the assumption in the #125 HUD spec / #127 QA-plan that a `SurvivalNeed`-typed widget param would be the bindable surface. The earlier Pattern-A decision (2026-06-19) still holds for Hunger↔Thirst (Thirst extends the base Hunger owns); this entry only corrects the cross-need HUD-binding assumption — WarmthNeed is NOT on the base, so a base-typed HUD param could not bind all three.
+- Why: `WarmthNeed` shipped first (M-U2 warmth-only loop, PR #11) before `SurvivalNeed` existed, and was never refactored onto the base (the Pattern-A decision explicitly did not require it). A `SurvivalNeed`-typed widget param therefore cannot accept WarmthNeed; passing the read-state by value (fill fraction + critical flag) is the only surface all three needs share, and it keeps `DrawNeedBar` decoupled from the need class hierarchy.
+- Reversibility: reversible (refactoring WarmthNeed onto `SurvivalNeed` and re-typing the HUD param is a ≤1 PR change if a base-typed binding is later wanted).
+- Affects: the three-bar need HUD (`86caamkxv`), the survival-need model + WarmthNeed, the #125 HUD spec + #127 QA-plan assumptions, Devon + Uma (HUD spec) + Tess (QA plan).
+
 ## 2026-06-24 — Real-world anchor + silhouette gate for physical-world features (four standing rules)
 
 - Decided by: Sponsor (2026-06-24, popup "bake all four in")
