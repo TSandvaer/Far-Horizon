@@ -43,6 +43,11 @@ namespace FarHorizon.EditTests
                 "ChopTree's poseDriver reference must be wired editor-time (86caa4c5c AC1) so each landed " +
                 "chop swings the arm in the shipped build — an Awake-only FindObjectOfType fallback exists " +
                 "but is the non-ship path (editor-vs-runtime serialization trap, unity-conventions.md)");
+            Assert.IsNotNull(tree.inventoryUI,
+                "ChopTree's inventoryUI reference must be wired editor-time (86caa4c5c CHANGE 1) so a left-click " +
+                "OVER the belt/inventory UI does NOT chop the tree behind it in the shipped build — wired in " +
+                "BuildInventoryUI (which runs after BuildChopTree); an Awake FindObjectOfType is the build-safety " +
+                "fallback (editor-vs-runtime serialization trap, unity-conventions.md)");
         }
 
         [Test]

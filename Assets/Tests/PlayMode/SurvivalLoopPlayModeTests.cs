@@ -85,7 +85,8 @@ namespace FarHorizon.PlayTests
             _tree.chopRadius = 2.2f;
             _tree.woodPerChop = 1;
             _tree.chopsToFell = 3;
-            _tree.chopInterval = 0.05f;    // fast so the felling lands within a short CI window
+            _tree.chopInterval = 0f;       // CHANGE 1: chop is per LEFT-CLICK; no cooldown in the test
+            _tree.inventoryUI = null;      // no UI rig → over-UI guard skipped (modal/RMB false in headless)
 
             // Campfire + placement gate.
             _fireGo = new GameObject("Campfire");
@@ -148,13 +149,18 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_inv.HasAxe, "Beat 1: reaching the craft spot crafts the axe (the loop's entry)");
             Assert.IsTrue(_spot.HasCrafted, "Beat 1: CraftSpot latched");
 
-            // --- Beat 2: CHOP. Carry the axe to the tree -> wood ticks up -> the tree fells. ---
-            // This is the load-bearing HAND-OFF #1: the axe crafted in Beat 1 is what unlocks the chop here
-            // (same _inv). Stand until we've chopped ENOUGH to afford the fire (the tree fells at chopsToFell).
+            // --- Beat 2: CHOP. Carry the axe to the tree -> LEFT-CLICK to chop -> wood ticks up -> the tree
+            //     fells. --- This is the load-bearing HAND-OFF #1: the axe crafted in Beat 1 is what unlocks the
+            // chop here (same _inv). CHANGE 1 (86caa4c5c): the chop is now per LEFT-CLICK (not proximity-auto),
+            // so drive chopsToFell click-requests via the programmatic seam (a headless run can't inject a real
+            // mouse button) — one chop per click — until the tree fells.
             _playerGo.transform.position = TreePos;
-            float chopStart = Time.time;
-            while (Time.time - chopStart < 2f && !_tree.IsFelled) yield return null;
-            Assert.IsTrue(_tree.IsFelled, "Beat 2: the axe-holding castaway fells the tree");
+            for (int i = 0; i < _tree.chopsToFell && !_tree.IsFelled; i++)
+            {
+                _tree.RequestChopClick();
+                yield return null;
+            }
+            Assert.IsTrue(_tree.IsFelled, "Beat 2: the axe-holding castaway fells the tree by clicking (CHANGE 1)");
             Assert.GreaterOrEqual(_inv.WoodCount, _place.woodCost,
                 "Beat 2: one felled tree yields ENOUGH wood to afford the fire (the loop closes from one chop session)");
             int woodBeforeBuild = _inv.WoodCount;

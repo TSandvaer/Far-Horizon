@@ -1097,10 +1097,43 @@ namespace FarHorizon.EditorTools
                 var obstacle = tree.AddComponent<UnityEngine.AI.NavMeshObstacle>();
                 obstacle.carving = true;
                 obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
-                obstacle.radius = tall ? 0.5f : 0.4f;
+                // TREE-BARRIER FIX (86caa4c5c CHANGE 2 — the Sponsor's "invisible barrier MUCH larger than the
+                // trunk; can't walk up close", worst on SOME (the tall) trees). ROOT CAUSE: NavMeshObstacle.radius
+                // is a LOCAL value, multiplied by the tree's localScale (here scale 1.0..2.4, with the TALL
+                // variant the largest). The OLD fixed `tall ? 0.5 : 0.4` therefore carved an effective WORLD
+                // radius of radius×scale — up to 0.5×2.4 = 1.2u for a tall tree whose trunk is only botR×scale =
+                // 0.22×2.4 ≈ 0.53u (a carve >2× the trunk silhouette). Plus the NavMesh bake erodes the walkable
+                // boundary by the agent radius (0.4u), so the player stopped ~1.6u from a trunk ~0.5u wide — the
+                // reported barrier. FIX: size the LOCAL radius so the WORLD footprint == the trunk's WORLD radius
+                // (botR×scale) + a small clearance, by DIVIDING OUT the scale (TrunkObstacleLocalRadius). The
+                // obstacle is then a snug collar on the visible stem at every scale, so the player can walk right
+                // up to the trunk; the agent still paths AROUND the trunk (it isn't a free-walkthrough).
+                obstacle.radius = TrunkObstacleLocalRadius(botR, scale);
                 obstacle.height = trunkH + 1.6f;
                 obstacle.center = new Vector3(0f, (trunkH + 1.6f) * 0.5f, 0f);
             }
+        }
+
+        // TREE-BARRIER FIX (86caa4c5c CHANGE 2). Clearance (WORLD units) added past the trunk's WORLD radius
+        // before dividing out the scale — so the carve hugs the visible stem with just enough room that the
+        // bake's agent-radius erosion still lets the player reach the trunk, without a free walk-through.
+        public const float TrunkObstacleClearance = 0.12f;
+
+        /// <summary>
+        /// PURE right-sized tree-obstacle LOCAL radius (86caa4c5c CHANGE 2 — the barrier fix). The
+        /// NavMeshObstacle.radius is a LOCAL value scaled by the tree's localScale, so to carve a WORLD
+        /// footprint == the trunk's WORLD radius (<paramref name="trunkBottomRadius"/> × <paramref name="scale"/>)
+        /// + <see cref="TrunkObstacleClearance"/>, the LOCAL radius must be (trunkWorldRadius + clearance) / scale
+        /// = trunkBottomRadius + clearance/scale. So the effective WORLD carve is the trunk silhouette + a fixed
+        /// small clearance at EVERY scale (the OLD fixed local radius grew the carve with scale → the tall-tree
+        /// barrier). Scale is clamped &gt; 0 so a degenerate 0 scale can't divide-by-zero. Static + dependency-free
+        /// so the EditMode guard asserts "effective world carve ≈ trunk + clearance, NOT growing unbounded with
+        /// scale" and "a tall tree's carve is no longer &gt;2× its trunk" with no scene rig.
+        /// </summary>
+        public static float TrunkObstacleLocalRadius(float trunkBottomRadius, float scale)
+        {
+            float s = Mathf.Max(0.0001f, scale);
+            return trunkBottomRadius + TrunkObstacleClearance / s;
         }
 
         static void BuildRock(GameObject parent, Vector3 at, float scale, System.Random rnd)

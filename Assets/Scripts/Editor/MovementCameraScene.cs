@@ -841,8 +841,22 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire InventoryUI to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
 
+            // CHANGE 1 (86caa4c5c) — wire the ChopTree's over-UI left-click guard ref now that the InventoryUI
+            // exists (BuildChopTree ran BEFORE this, so its serialized inventoryUI was unresolvable then). A
+            // left-click OVER the belt/inventory UI must NOT chop the tree behind it; ChopTree asks
+            // InventoryUI.IsPointerOverUI. Serialized here so the ref ships in Boot.unity (an Awake
+            // FindObjectOfType is the build-safety fallback). Null-graceful: a missing ref just skips the
+            // over-UI guard (the modal-panel + RMB guards still apply).
+            var chop = Object.FindObjectOfType<ChopTree>();
+            if (chop != null)
+            {
+                chop.inventoryUI = ui;
+                EditorUtility.SetDirty(chop);
+            }
+
             EditorUtility.SetDirty(go);
-            Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)");
+            Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)" +
+                      " (chop over-UI guard wired: " + (chop != null) + ")");
         }
 
         // Create-or-load the runtime PanelSettings for the inventory UIDocument (own asset; reconciled to
@@ -1472,6 +1486,11 @@ namespace FarHorizon.EditorTools
             if (cap == null) cap = bootGo.AddComponent<ChopVerifyCapture>();
             cap.player = player.GetComponent<ClickToMove>();
             cap.inventory = Object.FindObjectOfType<Inventory>();
+            // CHANGE 1 (86caa4c5c) — the verify capture drives the chop via the LEFT-CLICK seam (the chop is no
+            // longer proximity-auto), so it needs the ChopTree to RequestChopClick once at the tree. Wired here
+            // (BuildChopTree created the ChopTree just before this call) so it serializes; an Awake
+            // FindAnyObjectByType is the runtime fallback.
+            cap.chop = Object.FindObjectOfType<ChopTree>();
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
             EditorUtility.SetDirty(bootGo);

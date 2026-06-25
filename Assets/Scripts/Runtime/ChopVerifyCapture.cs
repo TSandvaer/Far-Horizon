@@ -14,6 +14,11 @@ namespace FarHorizon
     /// end-to-end "craft axe -> chop tree -> wood in the readout" in the shipped player with the HUD
     /// build stamp visible. Asserts WoodCount > 0 in the log so a headless run is auditable.
     ///
+    /// CHANGE 1 (86caa4c5c): the chop is now triggered by an active LEFT-CLICK, not proximity-auto. The shipped
+    /// exe can't inject a real mouse button into this scripted capture, so once the player has REACHED the tree
+    /// this capture drives the chop via the programmatic <see cref="ChopTree.RequestChopClick"/> seam (the same
+    /// input-independent seam the PlayMode tests use) — exercising the SAME chop path a real left-click takes.
+    ///
     /// Inert unless launched with -verifyChop (so the normal game / boot capture is unaffected).
     ///   FarHorizon.exe -screen-fullscreen 0 -verifyChop -captureDir &lt;dir&gt;
     /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the tree, wood in readout),
@@ -23,6 +28,7 @@ namespace FarHorizon
     {
         public ClickToMove player;
         public Inventory inventory;
+        public ChopTree chop;
         public Vector3 craftSpot = new Vector3(8f, 0f, 6f);
         public Vector3 treeSpot = new Vector3(-9f, 0f, -7f);
         public string subDir = "Captures";
@@ -33,6 +39,7 @@ namespace FarHorizon
             {
                 if (player == null) player = Object.FindAnyObjectByType<ClickToMove>();
                 if (inventory == null) inventory = Object.FindAnyObjectByType<Inventory>();
+                if (chop == null) chop = Object.FindAnyObjectByType<ChopTree>();
                 StartCoroutine(RunVerification());
             }
         }
@@ -71,19 +78,26 @@ namespace FarHorizon
             }
             Debug.Log("[ChopVerifyCapture] axe crafted: " + (inventory != null && inventory.HasAxe));
 
-            // 3. Now chop — drive to the tree and wait for wood to be yielded.
+            // 3. Now chop — drive to the tree, then (CHANGE 1) drive LEFT-CLICK chop requests once in range
+            // until wood is yielded. The chop is per-click now, so standing at the tree alone does nothing —
+            // RequestChopClick() is the input-independent analog of a real left-click (range + axe-selected +
+            // over-UI/RMB guards still apply, exactly like a real click). Request a chop EACH frame while at
+            // the tree (the click cooldown paces the actual chops); the chop is a no-op until truly in range.
             bool setTree = player != null && player.MoveTo(treeSpot);
             Debug.Log("[ChopVerifyCapture] MoveTo tree set: " + setTree + " target=" + treeSpot);
             start = Time.time;
             while (Time.time - start < 14f)
             {
                 if (inventory != null && inventory.WoodCount > 0) break;
+                // Drive the left-click chop (CHANGE 1). Harmless until the player is actually in range with the
+                // selected axe — mirrors a real off-target click being ignored.
+                if (chop != null) chop.RequestChopClick();
                 yield return null;
             }
             bool gotWood = inventory != null && inventory.WoodCount > 0;
             Debug.Log("[ChopVerifyCapture] wood yielded: " + gotWood + " (wood=" +
                       (inventory != null ? inventory.WoodCount : -1) +
-                      ", true means click-move REACHED the tree AND the axe-gated chop fired)");
+                      ", true means click-move REACHED the tree AND the left-click-triggered, axe-gated chop fired)");
 
             // Let the camera settle, then capture the 'after' shot with wood in the readout.
             for (int i = 0; i < 8; i++) yield return null;

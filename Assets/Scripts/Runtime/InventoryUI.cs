@@ -587,5 +587,55 @@ namespace FarHorizon
             _dragGhost.style.left = m.x - 28f;
             _dragGhost.style.top = panelY - 28f;
         }
+
+        // ============================================================================================
+        // Pointer-over-UI test (86caa4c5c CHANGE 1 — the left-click-chop UI guard).
+        // ============================================================================================
+
+        /// <summary>
+        /// True when the SCREEN-space cursor (origin bottom-left, Y up — <c>Input.mousePosition</c> space) is
+        /// over an interactive element of THIS inventory UI — the always-on bottom belt STRIP, or any slot of
+        /// the open pack. The left-click chop (ChopTree, 86caa4c5c CHANGE 1) consults this so a click that
+        /// lands on the belt/inventory UI selects/drags a slot rather than swinging the axe at a tree behind
+        /// the panel. UI Toolkit panels do NOT block the legacy <c>Input.*</c> world-click polling (research
+        /// §E1, same reason <see cref="UiInputGate"/> exists), so the world consumer must ASK the panel whether
+        /// the pointer is over a pickable element. Uses the panel's hit-test (<c>panel.Pick</c>) against the
+        /// painted slot caches — picking-mode-aware: only the slot wells (PickingMode.Position) register; the
+        /// transparent scrim/labels (PickingMode.Ignore) do not. Returns false if the view isn't built yet (no
+        /// panel) so a world click is never wrongly swallowed before the UI exists. Public so an EditMode test
+        /// can drive the pure rect-overlap core (<see cref="ScreenPointOverlapsAnyRect"/>) without a live panel.
+        /// </summary>
+        public bool IsPointerOverUI(Vector2 screenPos)
+        {
+            if (_root == null) return false;
+            // Screen (Y-up) -> panel (Y-down) — the same flip PositionGhostAtMouse uses.
+            Vector2 panelPos = new Vector2(screenPos.x, Screen.height - screenPos.y);
+
+            // The always-on belt STRIP (interactive whether or not the pack is open).
+            if (HitIndex(_beltStripSlots, panelPos) >= 0) return true;
+
+            // The open pack's grid + docked belt row are only on-screen (and only pick) while the pack is open.
+            if (IsOpen)
+            {
+                if (HitIndex(_invSlots, panelPos) >= 0) return true;
+                if (HitIndex(_beltDockSlots, panelPos) >= 0) return true;
+                // Over the open panel body itself (a click on the pack chrome must not chop the world behind it).
+                if (_panel != null && _panel.worldBound.Contains(panelPos)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// PURE screen-point-over-UI core (the unit-testable seam for <see cref="IsPointerOverUI"/>): given a
+        /// SCREEN-space point (Y-up), the screen HEIGHT, and the panel-space rects of the interactive UI
+        /// elements (Y-down), return true iff the flipped point lands in ANY rect. Static + layout-free so the
+        /// EditMode guard asserts the screen→panel flip + overlap with SYNTHETIC rects (no live UIDocument).
+        /// </summary>
+        public static bool ScreenPointOverlapsAnyRect(Vector2 screenPos, float screenHeight,
+                                                      IReadOnlyList<Rect> uiRects)
+        {
+            Vector2 panelPos = new Vector2(screenPos.x, screenHeight - screenPos.y);
+            return HitIndex(uiRects, panelPos) >= 0;
+        }
     }
 }

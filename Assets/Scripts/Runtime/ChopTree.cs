@@ -6,19 +6,38 @@ namespace FarHorizon
     /// <summary>
     /// The chop-a-tree mechanic + the player SWING animation (ticket 86caa4c5c). The gameplay-wave
     /// successor to the U2-3 thin chop (86ca8bdd8): a tree the castaway reaches, then — WITH THE AXE
-    /// SELECTED in the belt — chops over a few strikes; each chop SWINGS the arm (ChopPoseDriver) + yields
-    /// <c>wood</c> into the inventory; the tree FELLS to a STUMP, and the stump REGROWS into a tree after a
-    /// tweakable random delay.
+    /// SELECTED in the belt — chops by LEFT-CLICKING (like an attack); each click SWINGS the arm
+    /// (ChopPoseDriver) + yields <c>wood</c> into the inventory; after <see cref="chopsToFell"/> clicks the
+    /// tree FELLS to a STUMP, and the stump REGROWS into a tree after a tweakable random delay.
     ///
-    /// === AC1 — THE AXE-SELECTED GATE (load-bearing) ===
-    /// The chop requires the axe to be the SELECTED belt item (<see cref="Inventory.IsAxeSelectedInBelt"/>),
-    /// NOT merely owned (HasAxe). This MATCHES the held-axe visual gate (HeldAxe.ShouldShow) + the finger
-    /// grip — you chop with the axe you're HOLDING, the one shown in-hand. Axe owned but a different belt
-    /// slot selected → proximity does nothing, no wood, the tree stays standing (success test: "chopping
-    /// without the [selected] axe does nothing"). This SUPERSEDES the old HasAxe gate (ticket AC1 correction,
-    /// 2026-06-25): before the belt existed owns==holds, so HasAxe was right; with the belt, SELECTION is the
-    /// signal (item-model contract §5). Each landed chop fires <see cref="ChopPoseDriver.TriggerSwing"/> so
-    /// the arm swings; the held axe (HeldAxeRig, order 100) follows the swung hand automatically.
+    /// === AC1 — THE TRIGGER IS AN ACTIVE LEFT-CLICK (Sponsor soak, 2026-06-25 — CHANGE 1) ===
+    /// The chop is INITIATED BY THE PLAYER, not auto-fired by proximity. With the axe SELECTED and a tree in
+    /// range, a LEFT-CLICK (<c>Input.GetMouseButtonDown(0)</c>) triggers ONE chop strike (one swing + one
+    /// wood) — chopping reads like attacking. The proximity-auto trigger (the prior behaviour: stand at the
+    /// tree → it chops itself on a timer) is REPLACED. Three guards keep the world-click clean (the Sponsor's
+    /// "left-click must only chop in the game world"):
+    ///   • a click while a modal panel is open (inventory pack / settings) is swallowed —
+    ///     <see cref="UiInputGate.CaptureWorldInput"/>;
+    ///   • a click OVER the inventory/belt UI (the always-on belt strip, or the open pack) does NOT chop —
+    ///     <see cref="InventoryUI.IsPointerOverUI"/> (UI Toolkit does NOT block legacy Input.* world polling,
+    ///     research §E1, so the world consumer must ask the panel);
+    ///   • a click while the RIGHT mouse button is held (a camera ORBIT drag) does NOT chop —
+    ///     <c>Input.GetMouseButton(1)</c> (the OrbitCamera owns RMB-drag).
+    /// The decision is the pure static <see cref="ShouldChopOnClick"/> so the full guard truth-table is
+    /// unit-testable headlessly. A programmatic <see cref="RequestChopClick"/> latch is the input-independent
+    /// seam (the analog of WasdMovement.RequestJump) so headless PlayMode + the shipped-build capture exercise
+    /// the SAME chop path without injecting a real mouse button.
+    ///
+    /// === AC1 — THE AXE-SELECTED GATE (load-bearing, UNCHANGED) ===
+    /// The chop still requires the axe to be the SELECTED belt item (<see cref="Inventory.IsAxeSelectedInBelt"/>),
+    /// NOT merely owned (HasAxe), AND the player in range — only the TRIGGER changed (proximity-auto → click).
+    /// This MATCHES the held-axe visual gate (HeldAxe.ShouldShow) + the finger grip — you chop with the axe
+    /// you're HOLDING, the one shown in-hand. Axe owned but a different belt slot selected → a click does
+    /// nothing, no wood, the tree stays standing (success test: "chopping without the [selected] axe does
+    /// nothing"). This SUPERSEDES the old HasAxe gate (ticket AC1 correction, 2026-06-25): before the belt
+    /// existed owns==holds, so HasAxe was right; with the belt, SELECTION is the signal (item-model contract
+    /// §5). Each landed chop fires <see cref="ChopPoseDriver.TriggerSwing"/> so the arm swings; the held axe
+    /// (HeldAxeRig, order 100) follows the swung hand automatically.
     ///
     /// === AC2 — wood yield ===
     /// Each chop adds <see cref="WoodPerChop"/> (the NAMED yield constant — ticket AC2a: the chop OWNS the
@@ -82,6 +101,12 @@ namespace FarHorizon
                  "Null is graceful — the chop still yields wood, just without the arm swing.")]
         public ChopPoseDriver poseDriver;
 
+        [Tooltip("The inventory/belt UI (CHANGE 1 — left-click chop). A left-click OVER this UI (the always-on " +
+                 "belt strip, or the open pack) must NOT chop the tree behind it; the chop asks IsPointerOverUI. " +
+                 "Wired at bootstrap; an Awake scene-search fallback. Null is tolerated — the over-UI guard is " +
+                 "simply skipped (a bare test rig with no UI), but the modal-panel + RMB-orbit guards still apply.")]
+        public InventoryUI inventoryUI;
+
         [Header("Interaction")]
         [Tooltip("Planar (XZ) distance within which the castaway is 'at' the tree and (with the selected " +
                  "axe) chops. Generous enough that arriving near the tree counts. Mirrors CraftSpot.craftRadius.")]
@@ -95,9 +120,12 @@ namespace FarHorizon
                  "(AC3). Small so the loop reads quickly.")]
         public int chopsToFell = 3;
 
-        [Tooltip("Seconds between chops while the axe-holding player stands at the tree — paces the chops " +
-                 "so wood ticks up one at a time, not all in a single frame (the 'felt' beat).")]
-        public float chopInterval = 0.6f;
+        [Tooltip("Minimum seconds between landed chops (CHANGE 1 — left-click trigger). The chop is now per " +
+                 "LEFT-CLICK (one strike per click, not auto-paced), so this is a small COOLDOWN: a second " +
+                 "chop-click within this window is ignored, so a stray double-edge (or a frantic mash) can't " +
+                 "out-pace the swing read. A normal click cadence is always slower than this, so it never " +
+                 "throttles deliberate chopping. 0 = no cooldown (every click chops).")]
+        public float chopInterval = 0.25f;
 
         [Header("Regrowth (AC3 — TWEAKABLE; the `tree regrowth time` setting drives min/max)")]
         [Tooltip("Minimum seconds before a felled STUMP regrows into a tree. The actual regrow time is " +
@@ -116,10 +144,18 @@ namespace FarHorizon
         // Runtime state.
         private int _chops;          // chops landed on the CURRENT tree (resets on regrow)
         private bool _felled;        // true while the tree is a stump (felled, awaiting regrow)
-        private float _nextChopAt;   // wall-clock time the next chop may land
-        private bool _atTree;        // was the (axe-selected) player in range last frame (edge detect)
         private float _regrowAt;     // wall-clock time the stump regrows (only meaningful while felled)
         private System.Random _rng;
+
+        // CHANGE 1 — programmatic LEFT-CLICK latch (the input-independent seam, the analog of
+        // WasdMovement.RequestJump). A headless PlayMode run / the shipped-build capture can't inject a real
+        // mouse button, so a chop-click can be REQUESTED via this latch (consumed once on the next Update,
+        // mirroring the mouse's rising edge — one chop per request). The range + axe-selected + over-UI/RMB
+        // guards still apply to a requested click (it goes through the SAME ShouldChopOnClick decision).
+        private bool _chopClickRequested;
+        // CHANGE 1 — wall-clock time of the last landed chop, for the chopInterval click cooldown (a stray
+        // double-edge / frantic mash can't out-pace the swing read). float.NegativeInfinity = "never chopped".
+        private float _lastChopAt = float.NegativeInfinity;
 
         // Felling/regrow tween state (runtime-only transform animation on the serialized visual).
         private bool _felling;       // playing the sink+tip tween
@@ -156,6 +192,9 @@ namespace FarHorizon
             }
             if (visual == null) visual = transform;
             if (poseDriver == null) poseDriver = FindObjectOfType<ChopPoseDriver>();
+            // CHANGE 1 — the inventory/belt UI for the over-UI left-click guard (serialized editor-time; this
+            // scene-search is the build-safety net). Null is tolerated — the over-UI guard is then skipped.
+            if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
             // Capture the standing pose at spawn so felling/regrow tweens have an anchor. The tree ships
             // standing, so transform-at-Awake == the standing pose.
             _standPos = visual.position;
@@ -178,36 +217,60 @@ namespace FarHorizon
 
             if (inventory == null || player == null) return;
 
+            // CHANGE 1 — the chop is triggered by an ACTIVE LEFT-CLICK (like an attack), NOT proximity-auto.
+            // Read the real mouse rising edge OR consume the programmatic latch (the headless / shipped-build
+            // seam). Consume the latch unconditionally each frame (one chop per RequestChopClick, matching the
+            // mouse's one-edge-per-press) so it can't stick across frames.
+            bool clickEdge = _chopClickRequested || Input.GetMouseButtonDown(0);
+            _chopClickRequested = false;
+            if (!clickEdge) return;
+
             // Planar distance only — ignore any Y offset between the tree origin and the player root ground
             // point (height-robust, same as CraftSpot / BerryBush).
             Vector2 tree = new Vector2(transform.position.x, transform.position.z);
             Vector2 here = new Vector2(player.position.x, player.position.z);
             bool inRange = Vector2.Distance(tree, here) <= chopRadius;
 
-            // === THE AXE-SELECTED GATE (AC1) === proximity alone does nothing; the axe must be the SELECTED
-            // belt item (not merely owned). Without it, a player at the tree (axe in pack, or a different belt
-            // slot selected) yields no wood and never fells it — the load-bearing rule + matches the held-axe
-            // visual (you chop with the axe you're holding).
-            if (!inRange || inventory == null || !inventory.IsAxeSelectedInBelt)
+            // The full chop-on-click decision (pure static so the guard truth-table is unit-testable): range +
+            // the axe-SELECTED gate (load-bearing, unchanged) + the three world-click guards (modal panel open;
+            // pointer over the inventory/belt UI; RMB camera-orbit drag). Only when ALL hold does ONE chop land.
+            bool overUI = inventoryUI != null && inventoryUI.IsPointerOverUI(Input.mousePosition);
+            bool rmbHeld = Input.GetMouseButton(1);
+            if (ShouldChopOnClick(inRange, inventory.IsAxeSelectedInBelt,
+                                  UiInputGate.CaptureWorldInput, overUI, rmbHeld))
             {
-                _atTree = false;
-                return;
-            }
-
-            // Just arrived (with the axe selected): land the first chop immediately so the loop feels
-            // responsive, then pace subsequent chops by chopInterval.
-            if (!_atTree)
-            {
-                _atTree = true;
-                _nextChopAt = 0f; // chop now
-            }
-
-            if (Time.time >= _nextChopAt)
-            {
+                // Click cooldown: ignore a chop that lands within chopInterval of the last (a stray double-edge
+                // / mash can't out-pace the swing). A deliberate click cadence is always slower than this.
+                if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
+                _lastChopAt = Time.time;
                 Chop();
-                _nextChopAt = Time.time + chopInterval;
             }
         }
+
+        /// <summary>
+        /// PURE chop-on-a-left-click decision (CHANGE 1 — the unit-testable guard truth-table). Given that a
+        /// left-click edge fired this frame, decide whether ONE chop should land:
+        ///   • <paramref name="inRange"/> — the player is within <see cref="chopRadius"/> of the tree;
+        ///   • <paramref name="axeSelected"/> — the axe is the SELECTED belt item (the load-bearing gate);
+        ///   • NOT <paramref name="uiPanelOpen"/> — no modal panel (inventory pack / settings) owns the screen;
+        ///   • NOT <paramref name="pointerOverUI"/> — the click is NOT over the inventory/belt UI;
+        ///   • NOT <paramref name="rmbHeld"/> — the right mouse button is NOT held (no camera-orbit drag).
+        /// All five must hold. Static + dependency-free so the EditMode guard asserts the whole table
+        /// (no-chop-without-each-precondition; chop only when all hold) with no scene/Input/UI rig.
+        /// </summary>
+        public static bool ShouldChopOnClick(bool inRange, bool axeSelected,
+                                             bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
+            => inRange && axeSelected && !uiPanelOpen && !pointerOverUI && !rmbHeld;
+
+        /// <summary>
+        /// Request ONE chop strike programmatically — the input-independent analog of a left-click (CHANGE 1).
+        /// Latched + consumed on the next Update (mirrors the mouse's rising edge — one chop per call), so a
+        /// headless PlayMode test + the shipped-build chop capture trigger a chop where a real mouse button
+        /// can't be injected. The range + axe-selected + over-UI/RMB guards still apply (it runs the SAME
+        /// ShouldChopOnClick decision) — a request out of range / without the selected axe is harmlessly
+        /// ignored, exactly like a real off-target click.
+        /// </summary>
+        public void RequestChopClick() => _chopClickRequested = true;
 
         // Land one chop: SWING the arm (AC1), yield wood (AC2), advance the count, and fell the tree on the
         // final chop. Public so PlayMode tests can drive it directly (isolating it from pathfinding).
@@ -301,8 +364,7 @@ namespace FarHorizon
             {
                 _regrowing = false;
                 _felled = false;
-                _chops = 0;         // a fresh tree — chop it anew
-                _atTree = false;    // re-arm so an in-range player chops the regrown tree
+                _chops = 0;         // a fresh tree — chop it anew (the next left-click in range lands a chop)
                 visual.position = _standPos;
                 visual.rotation = _standRot;
             }
