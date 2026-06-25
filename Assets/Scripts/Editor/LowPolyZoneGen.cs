@@ -144,8 +144,14 @@ namespace FarHorizon.EditorTools
         // sea's WaterShallow/WaterDeep are coast-tuned + Sponsor-soaked — DO NOT retune them). The freshwater
         // tell is B > G (the pond leans BLUE); the sea keeps G >= B (teal-green). Sub-1.0 every channel
         // (HDR-clamp-safe, same convention the sea follows). Gradient runs bank(shallow) -> centre(deep).
-        public static readonly Color PondShallow = new Color(0.22f, 0.66f, 0.74f); // bank-edge fresh water: lighter + bluer than WaterShallow
-        public static readonly Color PondDeep    = new Color(0.14f, 0.48f, 0.70f); // pool centre: cool blue (B > G = the freshwater tell)
+        // #130 ROUND 5: the OLD bright PondShallow (0.22,0.66,0.74) read PALE-CYAN at the grazing gameplay-orbit
+        // pitch (the bright G+B caught the warm key on the far rim) — a light patch the Sponsor could still read
+        // as "too white" even after the collar-ring fix. Per the dispatch Issue-3 contingency ("make the pond
+        // uniformly fresh-blue with NO bright shallow rim — drop the rim below the bloom threshold / flatten the
+        // gradient"), PondShallow is pulled DOWN toward PondDeep: a calmer fresh blue, still a CLEAR B>G freshwater
+        // tell (0.70>0.50) but no longer bright/cyan, so the whole disc reads UNIFORMLY fresh-blue (no pale rim).
+        public static readonly Color PondShallow = new Color(0.16f, 0.50f, 0.72f); // bank-edge fresh water: a calm fresh blue (B>G), NOT bright cyan (#130 round 5)
+        public static readonly Color PondDeep    = new Color(0.12f, 0.42f, 0.68f); // pool centre: deeper cool blue (B > G = the freshwater tell)
 
         // Result of building the low-poly zone: the ground GameObject (Ground-layered, NavMesh +
         // raycast surface) so the caller can parent scatter + bake NavMesh over it.
