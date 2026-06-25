@@ -279,15 +279,14 @@ namespace FarHorizon.EditTests
             float cx = LowPolyZoneGen.PondCenterX, cz = LowPolyZoneGen.PondCenterZ;
             float cut = LowPolyZoneGen.SeaHoleCutRadius;
 
-            // A big coarse sea triangle whose THREE vertices all sit OUTSIDE the cut radius, but whose EDGE
-            // straddles right across the pond centre (an edge spanning from one side of the bowl to the other).
-            // Its centroid lands near the centre (so the old centroid test WOULD catch this particular one) — so
-            // build the sliver case: a long thin tri whose edge clips the footprint while the centroid is FAR
-            // outside. Place two verts well past the cut on one side and one vert just past the cut beyond the
-            // far rim, so the connecting edge shaves through the footprint but the centroid sits outside.
-            Vector3 a = new Vector3(cx - (cut + 6f), 0f, cz - 0.2f);   // far one side
-            Vector3 b = new Vector3(cx + (cut + 6f), 0f, cz + 0.2f);   // far other side — edge a-b crosses centre
-            Vector3 c = new Vector3(cx, 0f, cz - (cut + 12f));         // far below → centroid pulled well outside
+            // A long thin sea triangle whose THREE vertices all sit OUTSIDE the cut radius AND whose CENTROID is
+            // OUTSIDE the cut radius too, but whose EDGE a-b spans right across the pond centre (one side of the
+            // bowl to the other). The third vert c is far away on one side so the centroid is pulled well clear —
+            // so a centroid test PASSES this tri (the round-6 silent killer) while the edge shaves through the
+            // footprint. This is the exact class the closest-point overlap test must catch.
+            Vector3 a = new Vector3(cx - 30f, 0f, cz - 0.2f);   // far one side
+            Vector3 b = new Vector3(cx + 30f, 0f, cz + 0.2f);   // far other side — edge a-b crosses the centre
+            Vector3 c = new Vector3(cx, 0f, cz + 60f);          // far away → centroid pulled well outside the cut
 
             // Sanity: all three verts are OUTSIDE the cut radius (a vertex test would not fire on a/b/c alone).
             Assert.Greater((new Vector2(a.x - cx, a.z - cz)).magnitude, cut, "vert a must be outside the cut");
