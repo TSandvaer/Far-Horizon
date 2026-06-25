@@ -50,6 +50,14 @@ namespace FarHorizon.EditorTools
         static readonly Color GrassLo = new Color(0.30f, 0.48f, 0.20f); // mid leaf green (more saturated)
         static readonly Color GrassHi = new Color(0.48f, 0.64f, 0.28f); // sunlit grass
         static readonly Color GrassRise = new Color(0.38f, 0.56f, 0.24f); // meadow rise
+        // POND COLLAR RING (ticket 86cadj4g7 #130 ROUND 5 — Sponsor: "REMOVE the raised collar; paint a FLAT
+        // darker-green ring on the terrain instead — I should walk on the green at ground level"). A darker
+        // meadow green PAINTED into the terrain vertex colour around the pond bowl — NO raised geometry, NO
+        // shadow lip. Clearly darker than the surrounding GrassLo/GrassHi so the collar reads as a distinct
+        // green band; all channels well below 1.0 even under the warm key (intensity 1.25) so it CANNOT bloom
+        // to the pale shoreline ring the OLD raised PondBank mesh produced (the #130 round-5 PROVEN white source:
+        // toggle c removed the collar mesh → the pale ring vanished, build e5207d1).
+        public static readonly Color PondCollarGreen = new Color(0.20f, 0.38f, 0.15f); // darker meadow collar
         // ROCK-AS-BOULDER soak-fix (86ca8m5zu, Sponsor soak 5f7e7ba: "items sticking up... all over").
         // The old warm-grey RockCol (0.55,0.52,0.47) silhouetted DARK under the Zone-D warm fog + grade at
         // small scatter size — a grey-blob spike read. Lifted to a warmer, LIGHTER sun-bleached stone so the
@@ -365,6 +373,33 @@ namespace FarHorizon.EditorTools
             float fadeEnd = PondBowlOuterRadius + PondRimFlattenFade;
             if (d >= fadeEnd) return 1f;                                          // beyond the collar: full hills (island unchanged)
             return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d));
+        }
+
+        // ===== POND COLLAR PAINT (ticket 86cadj4g7 #130 ROUND 5) — replaces the removed raised PondBank mesh =====
+        // The Sponsor's redesign: REMOVE the raised collar ring mesh (the PROVEN white-shoreline-ring source —
+        // its draped wall facets read pale/washed under the warm key) and PAINT a FLAT darker-green ring directly
+        // into the terrain vertex colour around the pond bowl, so the player walks on green AT GROUND LEVEL with
+        // no raised geometry + no shadow lip. The band covers the bowl WALL + MOUTH (where the old collar mesh
+        // sat) plus a short fade past the mouth so the darker green eases into the surrounding grass with no hard
+        // seam. Inner edge starts at the water rim (PondBowlInnerRadius — under the disc, never seen) so the
+        // green reads as the bank framing the pool. ZERO past the fade so the seed-42 grass elsewhere is
+        // UNCHANGED. Pure function of XZ (deterministic; byte-stable capture).
+        public const float PondCollarPaintFade = 1.4f; // u past the bowl mouth over which the darker green eases into grass
+        /// <summary>
+        /// The pond-collar paint WEIGHT at world XZ (0 = pure surrounding grass, 1 = full PondCollarGreen). 1 across
+        /// the bowl wall + mouth band [PondBowlInnerRadius, PondBowlOuterRadius], eases to 0 over a short fade past
+        /// the mouth, EXACTLY 0 beyond it (seed-42 grass unchanged) AND 0 well inside the inner radius (under the
+        /// water disc — no need to paint where the water hides it). PUBLIC so the collar-paint guard samples it.
+        /// </summary>
+        public static float PondCollarPaintWeight(float wx, float wz)
+        {
+            float dx = wx - PondCenterX, dz = wz - PondCenterZ;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            float fadeEnd = PondBowlOuterRadius + PondCollarPaintFade;
+            if (d >= fadeEnd) return 0f;                                  // beyond the fade: pure grass (seed-42 lock)
+            if (d <= PondBowlInnerRadius) return 1f;                      // the bowl wall under/around the rim: full collar
+            if (d <= PondBowlOuterRadius) return 1f;                      // wall + mouth band: full collar green
+            return 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d)); // ease into grass
         }
 
         /// <summary>
@@ -712,6 +747,15 @@ namespace FarHorizon.EditorTools
             float foamDist = Mathf.Abs(r - coast);
             float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((foamDist - 3.0f) / 5.5f));
             c = Color.Lerp(c, FoamEdge, foamT * 0.95f * (1f - cliffy * 0.55f));
+
+            // POND COLLAR (ticket 86cadj4g7 #130 ROUND 5): paint the FLAT darker-green ring into the terrain
+            // around the pond bowl (replaces the removed raised PondBank mesh — the PROVEN white-ring source).
+            // Applied AFTER the foam blend so the (inland) pond collar is never washed by the coastal foam (the
+            // pond sits at r≈7.6, far from any coast → foamT≈0 here anyway) and BEFORE the value jitter so the
+            // collar green still gets the per-facet liveliness step. Painted on the terrain vertex colour = NO
+            // raised geometry, NO shadow lip — the player walks on the green at ground level.
+            float collarW = PondCollarPaintWeight(wx, wz);
+            if (collarW > 0f) c = Color.Lerp(c, PondCollarGreen, collarW);
 
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
             float j = (Hash01(Mathf.RoundToInt(wx * 13f), Mathf.RoundToInt(wz * 13f), seed) - 0.5f) * 0.10f;

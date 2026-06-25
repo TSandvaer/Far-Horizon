@@ -444,6 +444,28 @@ namespace FarHorizon
                 yield return null;
             }
 
+            // === TOP-DOWN SHORELINE-ANNULUS no-pale-ring HARD GATE (ticket 86cadj4g7 #130 ROUND 5 — the gate the
+            // Sponsor's white ring needed). The old CheckNoSurfaceWhite samples the DISC CENTRE (0.34..0.66 box) —
+            // clean by construction (deep fresh-blue), so it scored 0.000 through every round while the Sponsor
+            // still soaked a white SHORELINE RING. The white was the raised PondBank collar mesh draping the bowl
+            // wall, reading PALE/washed at the WATERLINE RADIUS (a RING around the disc, not the centre). This gate
+            // samples the SHORELINE ANNULUS (the waterline ring band) from overhead and FAILS on a bright PALE ring
+            // there — catching BOTH near-white foam AND the pale-warm collar wash (high luma in the ring, regardless
+            // of neutrality). PROMOTED to a HARD gating percept (it was demoted to advisory before). On the OLD
+            // collar build (e5207d1) the annulus reads a clear pale fraction → this FAILS; with the collar removed +
+            // the flat terrain-paint ring, the annulus reads blue→green with ~0 pale → this PASSES. (Reuses the
+            // same overhead frame already captured above — no extra frame.)
+            bool topNoShorelineRing = CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma);
+            if (topNoShorelineRing)
+                Debug.Log($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS PASS: waterline-ring pale fraction=" +
+                          $"{ringPaleFrac:F3} (luma={ringLuma:F3}) — the shoreline reads blue→green, NO pale/white " +
+                          "ring (the #130 round-5 raised-collar white ring is GONE; the collar is flat terrain paint).");
+            else
+                Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS FAIL: waterline-ring pale fraction=" +
+                               $"{ringPaleFrac:F3} (luma={ringLuma:F3}) reads as a bright PALE/WHITE RING around the " +
+                               "water (the #130 white shoreline ring — the centre-box gate is BLIND to it; this " +
+                               "annulus gate catches the raised-collar wash the Sponsor kept soaking).");
+
             // === 5th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
             // The 3 frames above are gameplay-PITCH down-angle looks; up-vs-down is invisible from those (a mound
             // and a hole both read "blue disc in green"). This 4th frame parks the camera at EYE LEVEL looking
@@ -532,15 +554,17 @@ namespace FarHorizon
 
             yield return new WaitForSeconds(0.5f);
             Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
-                      " topNoWhite=" + topNoWhite + " sideSunk=" + sideSunk + " collarFlush=" + collarFlush +
+                      " topNoWhite=" + topNoWhite + " topNoShorelineRing=" + topNoShorelineRing +
+                      " sideSunk=" + sideSunk + " collarFlush=" + collarFlush +
                       " noShorelineFoam_advisory=" + noShorelineFoam + ") -> " + dir);
-            // Fail loud in the shipped build on ANY of the FOUR GATING percepts: not fresh-blue/visible, a broad
-            // white band on the water SURFACE from OVERHEAD (the #130 THIRD re-soak — the load-bearing addition;
-            // the eye-level side-profile is physically blind to flat-on-the-water foam, so only an overhead
-            // sample catches the band the Sponsor saw from his 3-4 cam), reads as a mound, or the collar is a
-            // raised berm. The side-profile shoreline-foam read is ADVISORY (it false-positives on the sunlit
-            // pale bank grass at the waterline) — the TOP-DOWN gate is the authoritative foam check now.
-            Application.Quit(anyFreshBlue && topNoWhite && sideSunk && collarFlush ? 0 : 1);
+            // Fail loud in the shipped build on ANY of the FIVE GATING percepts: not fresh-blue/visible; a broad
+            // white band on the water SURFACE CENTRE from overhead (#130 THIRD re-soak); a bright PALE/WHITE
+            // SHORELINE RING in the waterline ANNULUS from overhead (#130 ROUND 5 — THE load-bearing addition this
+            // round: the centre-box gate is blind to the ring, which is where the Sponsor's white actually lived —
+            // the raised-collar wash; this gate FAILS on the old collar build e5207d1 + PASSES with the collar
+            // removed); reads as a mound; or the collar is a raised berm. The side-profile shoreline-foam read is
+            // ADVISORY (it false-positives on the sunlit pale bank grass at the waterline).
+            Application.Quit(anyFreshBlue && topNoWhite && topNoShorelineRing && sideSunk && collarFlush ? 0 : 1);
         }
 
         /// <summary>
@@ -611,6 +635,53 @@ namespace FarHorizon
             // NO surface white iff few near-white pixels over the central water region. A surviving broad band
             // lights up a clear fraction; a clean fresh-blue still pool reads ~0.
             return surfaceWhiteFrac < 0.12f;
+        }
+
+        /// <summary>
+        /// TOP-DOWN SHORELINE-ANNULUS no-pale-ring read (ticket 86cadj4g7 #130 ROUND 5 — THE gate the Sponsor's
+        /// white ring needed). From the straight-overhead frame the pond disc fills the centre and the WATERLINE
+        /// sits in a RING band around it. The #130 white the Sponsor kept soaking was a PALE shoreline RING (the
+        /// raised PondBank collar mesh draping the bowl wall, reading washed under the warm key) — at the waterline
+        /// RADIUS, NOT the disc centre (which is clean deep fresh-blue, so CheckNoSurfaceWhite's centre box scored
+        /// 0.000 through every round). Sample the normalized-radius SHORELINE ANNULUS (0.30..0.52 of the half-min
+        /// dimension from frame centre — where the waterline ring renders) and count BRIGHT PALE pixels: high luma
+        /// (>0.70) — catches BOTH a near-white foam ring AND the pale-warm collar wash, regardless of neutrality
+        /// (the collar read warm-beige, NOT near-neutral, so the old white-detector's maxc−minc<0.10 clause MISSED
+        /// it). Fresh-blue water (luma~0.31) and darker-green collar paint (luma~0.30) are NOT bright, so a clean
+        /// blue→green shoreline scores ~0. Returns true (no ring) when the bright-pale fraction is low.
+        /// </summary>
+        private bool CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            float cx = w * 0.5f, cy = h * 0.5f;
+            float rad = Mathf.Min(w, h) * 0.5f;
+            const float annInner = 0.30f, annOuter = 0.52f; // the waterline ring band from overhead
+            int pale = 0, total = 0; double lumaSum = 0;
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float dx = (x - cx) / rad, dy = (y - cy) / rad;
+                float rNorm = Mathf.Sqrt(dx * dx + dy * dy);
+                if (rNorm < annInner || rNorm > annOuter) continue;
+                Color c = tex.GetPixel(x, y);
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                lumaSum += luma;
+                // BRIGHT-PALE tell: high luma. Catches near-white foam AND the pale-warm collar wash alike (the
+                // fresh-blue water + the darker-green collar paint both read dark, luma~0.30 — only a pale RING
+                // lights up). No neutrality clause (the collar wash was warm-beige, R>B — a near-neutral-only
+                // detector MISSED it, the #130 round-5 foundation error).
+                if (luma > 0.70f) pale++;
+                total++;
+            }
+            Object.Destroy(tex);
+            ringPaleFrac = total > 0 ? (float)pale / total : 0f;
+            ringLuma = total > 0 ? (float)(lumaSum / total) : 0f;
+            // NO ring iff few bright-pale pixels in the shoreline annulus. A surviving pale collar/foam ring lights
+            // up a clear fraction; a clean blue→green shoreline reads ~0. 0.10 threshold (a real ring is a broad band).
+            return ringPaleFrac < 0.10f;
         }
 
         /// <summary>

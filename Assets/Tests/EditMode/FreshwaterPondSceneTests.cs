@@ -161,32 +161,65 @@ namespace FarHorizon.EditTests
                 "spawn-plateau where the +0.10u reground clearance — and thus whole-rim grounding — holds)");
         }
 
-        // The bank ring's inner edge must TRACK the organic water rim (same shared PondRimFactor) so the grassy
-        // collar frames the lobed pool with no gap / poke-through. Asserts the bank carries an irregular inner
-        // ring too (a circular bank around a lobed pool would gap). Guards the shared-outline contract.
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 5) — the raised PondBank collar MESH is GONE ========
+        // The raised PondBank ring mesh was the PROVEN white-shoreline-ring source (the #130 round-5
+        // -verifyPondDiag, build e5207d1: toggle c "collar/bank REMOVED" made the pale ring VANISH while bloom-
+        // off / sea-off / foam-off-water all left it present). Its draped bowl-wall facets read pale/washed under
+        // the warm key. Sponsor verbatim: "REMOVE the raised collar entirely — no bank ring mesh." This guards
+        // the bug CLASS: a future re-add of any raised PondBank collar mesh reds here. (The collar is now PAINTED
+        // into the terrain vertex colour — asserted by PondCollar_PaintedIntoTerrain_NotARaisedMesh below.)
         [Test]
-        public void BootScene_PondBank_TracksOrganicWaterRim()
+        public void BootScene_HasNoRaisedPondBankCollarMesh()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             FreshwaterPond pond = FindInScene<FreshwaterPond>(scene);
             Assert.IsNotNull(pond, "the pond must be present");
-            var bankMesh = FindChildMeshNamed(pond.transform, "LP_PondBank");
-            Assert.IsNotNull(bankMesh, "the pond must carry the bank ring mesh (LP_PondBank)");
 
-            // The bank's INNER ring sits at the water-lip Y (PondSurfaceY + 0.02). Collect those verts' radii and
-            // assert they spread (the bank inner edge follows the organic water rim, not a circle).
-            float minR = float.MaxValue, maxR = 0f;
-            foreach (var v in bankMesh.vertices)
-            {
-                float r = Mathf.Sqrt(v.x * v.x + v.z * v.z);
-                if (r < 0.01f) continue;
-                if (r < minR) minR = r;
-                if (r > maxR) maxR = r;
-            }
-            Assert.Greater(maxR - minR, 0.10f,
-                "the pond bank ring must be ORGANIC too (its radii spread) so the grassy collar frames the " +
-                "lobed pool with no gap/poke-through — a circular bank around a lobed pool would leave gaps " +
-                "(shared LowPolyZoneGen.PondRimFactor; ticket 86cadj4g7)");
+            // NO child named "PondBank" + NO mesh named "LP_PondBank" anywhere under the pond.
+            var bankGo = pond.transform.Find("PondBank");
+            Assert.IsNull(bankGo,
+                "the pond must NOT carry a raised PondBank collar GameObject — it was the #130 round-5 PROVEN " +
+                "white-shoreline-ring source (Sponsor: 'REMOVE the raised collar entirely — no bank ring mesh'). " +
+                "The collar is now PAINTED into the terrain vertex colour (LowPolyZoneGen.PondCollarGreen).");
+            var bankMesh = FindChildMeshNamed(pond.transform, "LP_PondBank");
+            Assert.IsNull(bankMesh,
+                "no LP_PondBank ring mesh may exist under the pond — a re-add of the raised collar mesh re-opens " +
+                "the white-ring defect (its draped bowl-wall facets read pale/washed under the warm key, #130 round 5)");
+        }
+
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 5) — the collar is a FLAT terrain-painted ring =======
+        // The collar is now a FLAT darker-green ring painted into the TERRAIN vertex colour (no raised geometry,
+        // no shadow lip — Sponsor: "I should walk on the green at ground level"). Assert PondCollarPaintWeight is
+        // a real ring (full across the bowl wall + mouth band, 0 well beyond it = seed-42 grass unchanged) and
+        // PondCollarGreen is a darker meadow green that CANNOT bloom (all channels well below the bloom threshold
+        // even under the warm key). Pure-function check (the paint is deterministic; HeightAtRadial/IslandColorAt
+        // are the single source of truth the terrain mesh derives from).
+        [Test]
+        public void PondCollar_PaintedIntoTerrain_NotARaisedMesh()
+        {
+            // (a) the paint is a real RING: full collar at the bowl mouth, eased to 0 a short way past it,
+            // EXACTLY 0 far away (seed-42 grass byte-unchanged).
+            float atMouth = LowPolyZoneGen.PondCollarPaintWeight(
+                LowPolyZoneGen.PondCenterX, LowPolyZoneGen.PondCenterZ + LowPolyZoneGen.PondBowlOuterRadius - 0.2f);
+            Assert.AreEqual(1f, atMouth, 1e-4f,
+                "the collar paint must be FULL across the bowl wall + mouth band (a clear darker-green ring)");
+            float farAway = LowPolyZoneGen.PondCollarPaintWeight(60f, -40f);
+            Assert.AreEqual(0f, farAway, 1e-6f,
+                "the collar paint must be EXACTLY 0 far from the pond — the seed-42 grass elsewhere is byte-unchanged");
+            float pastFade = LowPolyZoneGen.PondCollarPaintWeight(
+                LowPolyZoneGen.PondCenterX, LowPolyZoneGen.PondCenterZ +
+                LowPolyZoneGen.PondBowlOuterRadius + LowPolyZoneGen.PondCollarPaintFade + 0.5f);
+            Assert.AreEqual(0f, pastFade, 1e-6f,
+                "the collar paint must be EXACTLY 0 just past the fade band — a LOCAL ring, not an island-wide warp");
+
+            // (b) PondCollarGreen is a DARKER meadow green that cannot bloom (every channel ≪ 1.0 even × the warm
+            // key intensity 1.25 + ambient ≈ 0.5; the OLD raised collar bloomed to the pale ring — the new flat
+            // paint must read green, never white). Assert G dominates (a green) + all channels bounded low.
+            Color c = LowPolyZoneGen.PondCollarGreen;
+            Assert.Greater(c.g, c.r + 0.05f, "the collar paint must read GREEN (G > R) — a darker meadow green");
+            Assert.Greater(c.g, c.b + 0.05f, "the collar paint must read GREEN (G > B), not a pale/neutral wash");
+            Assert.Less(c.r, 0.40f, "the collar green's R must stay low (no warm wash that blooms)");
+            Assert.Less(c.g, 0.55f, "the collar green's G must stay well under the bloom threshold even when lit");
         }
 
         [Test]
@@ -420,86 +453,65 @@ namespace FarHorizon.EditTests
                 "(ticket 86cadj4g7: knee-deep wade-in requires NavMesh on the floor).");
         }
 
-        // === REWORKED (ticket 86cadj4g7 #130 re-soak) — the collar DRAPES the WHOLE wall up to GROUND LEVEL ==
-        // The #130 mound defect: the pool read as a RAISED LENS the player stood INSIDE because (a) the recess
-        // was only ~0.10u (now 0.45u — a clearly sunk pool) and (b) the green collar stopped partway up the
-        // wall, leaving bare carved-wall dirt between the green and the surrounding grass — "I should walk on
-        // the green, not inside it". NOW the collar reaches the BOWL MOUTH (PondBowlOuterRadius) so its OUTER
-        // rim sits at the surrounding GROUND LEVEL — a continuous grassy slope from the water lip up to the rim,
-        // walkable on green at ground level. Two complementary invariants (this REPLACES the old check-2, which
-        // asserted the OPPOSITE — that the collar stayed BELOW the water lip — a proxy that was correct only for
-        // the shallow-recess geometry and would now wrongly red the correct ground-level-reaching collar; the
-        // bug-CLASS invariant is "flush with terrain + reaches ground level", not "stays below the water lip"):
-        //  (1) the collar must NOT float PROUD of the terrain (the raised-lip defect) — every outer-rim vert
-        //      raycast against Ground_Play sits at/below the ground (generous 0.15u tolerance for grid discretization);
-        //  (2) the collar's outer rim must RISE to ~GROUND LEVEL at the bowl mouth — its max world Y must reach
-        //      within a tolerance of the surrounding terrain plateau (so the player walks on green at ground
-        //      level, not on bare wall). A collar that stopped short (the #130 partial-drape) reds here.
+        // === REWORKED (ticket 86cadj4g7 #130 ROUND 5) — the collar is FLAT terrain paint, walkable at ground ===
+        // The raised PondBank collar MESH (the white-ring source) is GONE; the collar is now a flat darker-green
+        // ring PAINTED into the terrain vertex colour. So "walk on the green at ground level, no raised lip" is
+        // satisfied BY CONSTRUCTION — there is no collar geometry to rise above the terrain. This test pins that
+        // the terrain ACTUALLY carries the painted darker-green ring (the bowl-wall + mouth band reads as the
+        // PondCollarGreen, distinct from the surrounding grass) AND that the painted band coincides with WALKABLE
+        // terrain at ground level (raycast the collar band → it hits the carved terrain, never floating geometry).
         [Test]
-        public void Pond_BankCollar_DrapesWholeWall_ReachesGroundLevel_NotRaisedLip()
+        public void Pond_Collar_IsFlatTerrainPaint_WalkableAtGroundLevel_NoRaisedGeometry()
         {
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             FreshwaterPond pond = FindAnyInScene<FreshwaterPond>();
             Assert.IsNotNull(pond, "the pond must be present");
-            var bankT = pond.transform.Find("PondBank");
-            Assert.IsNotNull(bankT, "the pond must carry the PondBank collar child");
-            var bankMesh = bankT.GetComponent<MeshFilter>().sharedMesh;
-            Assert.IsNotNull(bankMesh, "the bank must carry its ring mesh");
 
             var ground = GameObject.Find("Ground_Play");
             var col = ground != null ? ground.GetComponent<MeshCollider>() : null;
-            Assert.IsNotNull(col, "the terrain MeshCollider must exist to compare the collar against the ground");
+            var mf = ground != null ? ground.GetComponent<MeshFilter>() : null;
+            Assert.IsNotNull(col, "the terrain MeshCollider must exist (the collar paints onto the terrain mesh)");
+            Assert.IsNotNull(mf, "the terrain MeshFilter must exist to read the painted vertex colours");
+            var mesh = mf.sharedMesh;
+            Assert.IsNotNull(mesh, "the terrain mesh must exist");
 
-            // The OUTER collar ring drapes up the bowl wall to ground level. Discriminate inner-vs-outer by
-            // PLANAR RADIUS (NOT local Y — the outer rim now climbs ABOVE the inner water lip to reach ground
-            // level, so a Y cut would wrongly skip the ground-reaching outer verts). The inner ring sits at the
-            // water rim (~2.6×rim ≈ 2.6-3.07u); the outer ring runs out toward the bowl mouth (up to 4.8u). A
-            // radius cut at the midpoint cleanly selects outer verts. (The old Y-cut was correct only for the
-            // shallow-recess geometry where the outer rim stayed below the lip — the #130-superseded design.)
-            var verts = bankMesh.vertices;
-            int outerChecked = 0, raisedLip = 0;
-            float maxOuterWorldY = float.MinValue;
-            // Radius midpoint between the inner water rim (~PondSurfaceRadius) and the bowl mouth: outer verts sit
-            // beyond it. PondSurfaceRadius is internal to MovementCameraScene; use the nominal 2.6 (the pond's
-            // authored radius) + a margin so organic-rim lobes never reclassify an inner vert as outer.
-            const float radiusCut = 3.3f; // between the inner rim (≤3.07) and the bowl mouth (4.8)
-            // The surrounding GROUND LEVEL just OUTSIDE the bowl mouth (raycast the plateau a touch past the rim).
-            Vector3 pondPos = pond.transform.position;
-            float plateauWorldY = float.MinValue;
-            var plateauRay = new Ray(new Vector3(pondPos.x + LowPolyZoneGen.PondBowlOuterRadius + 1.0f, 200f, pondPos.z), Vector3.down);
-            if (col.Raycast(plateauRay, out RaycastHit pHit, 400f)) plateauWorldY = pHit.point.y;
-            Assert.Greater(plateauWorldY, float.MinValue, "must sample the surrounding plateau just past the bowl mouth");
+            // (1) NO raised collar geometry: there is no PondBank child to float above the terrain (the white-ring
+            // source is gone). Asserted structurally in BootScene_HasNoRaisedPondBankCollarMesh; re-pin here.
+            Assert.IsNull(pond.transform.Find("PondBank"),
+                "there must be no PondBank collar GameObject — the collar is FLAT terrain paint, not raised geometry");
 
-            foreach (var v in verts)
+            // (2) the collar band coincides with WALKABLE terrain at ground level: raycast straight down through a
+            // point in the painted collar band (just inside the bowl mouth) — it must hit the carved Ground_Play
+            // terrain (the player walks on green at ground level), never empty space or floating geometry.
+            float cx = LowPolyZoneGen.PondCenterX, cz = LowPolyZoneGen.PondCenterZ;
+            float bandR = LowPolyZoneGen.PondBowlOuterRadius - 0.3f; // inside the mouth, in the full-paint band
+            var ray = new Ray(new Vector3(cx + bandR, 200f, cz), Vector3.down);
+            Assert.IsTrue(col.Raycast(ray, out RaycastHit hit, 400f),
+                "the painted collar band must sit on WALKABLE carved terrain (the ray must hit Ground_Play) — " +
+                "the player walks ON the green at ground level (ticket 86cadj4g7 #130 round 5)");
+
+            // (3) the terrain ACTUALLY carries the painted darker-green ring: at least one terrain vertex inside
+            // the collar paint band must read clearly GREENER + DARKER than the surrounding grass (the paint took).
+            // Sample the nearest terrain verts to the collar band and assert one leans toward PondCollarGreen.
+            var verts = mesh.vertices;
+            var cols = mesh.colors;
+            Assert.AreEqual(verts.Length, cols.Length, "the terrain mesh must carry a vertex colour per vertex");
+            bool collarPainted = false;
+            for (int i = 0; i < verts.Length; i++)
             {
-                float planarR = Mathf.Sqrt(v.x * v.x + v.z * v.z);
-                if (planarR < radiusCut) continue; // skip the inner water-lip ring (frames the recessed water)
-                Vector3 w = bankT.TransformPoint(v);
-                maxOuterWorldY = Mathf.Max(maxOuterWorldY, w.y);
-                outerChecked++;
-                // RAISED-LIP defect = the collar rising ABOVE the surrounding GRASS plateau (a proud lip casting
-                // a shadow over the meadow). We compare to the PLATEAU level, NOT the coarsely-sampled bowl-wall
-                // terrain directly beneath: the bowl wall (1.8u radial span) is NARROWER than one terrain grid
-                // cell (~2.2u), so the discretized wall mesh badly under-samples the smoothstep wall — comparing
-                // the analytic collar to that coarse wall false-flags mid-slope verts as "proud" (the analytic-
-                // vs-grid divergence false-symptom family). The Sponsor-visible invariant is "no lip above the
-                // grass"; a collar that DRAPES the wall (between the water lip and the plateau) is correct even
-                // if it sits a few cm above the coarse-grid wall mid-slope (it's bare wall, under the green).
-                if (w.y > plateauWorldY + 0.06f) raisedLip++; // above the surrounding grass = the raised-lip bug
+                Vector3 v = verts[i]; // terrain root at origin → world == local
+                float w = LowPolyZoneGen.PondCollarPaintWeight(v.x, v.z);
+                if (w < 0.5f) continue; // only verts inside the full-paint collar band
+                Color c = cols[i];
+                // The collar green is darker + greener than GrassHi/GrassLo: G dominates, and it is DARKER (lower
+                // luma) than mid grass. A vert that took the paint reads close to PondCollarGreen.
+                if (c.g > c.r + 0.05f && c.g > c.b + 0.05f && c.r < 0.34f) { collarPainted = true; break; }
             }
-            Assert.Greater(outerChecked, 0, "must have sampled outer-collar verts against the terrain");
-            // (1) flush — no part of the collar rises above the surrounding grass plateau (no raised lip).
-            Assert.AreEqual(0, raisedLip,
-                $"the bank collar must NOT rise above the surrounding grass — {raisedLip}/{outerChecked} outer-rim " +
-                $"verts float ABOVE the plateau ({plateauWorldY:F3}) (a raised lip casting a shadow, the #130 " +
-                "defect). CollarOuterLocalY must top out AT the plateau (t=1 at the bowl mouth), never above it.");
-            // (2) reaches ground level — the outer rim climbs to ~the surrounding plateau at the bowl mouth, so
-            // the player walks on GREEN at ground level (not on bare wall between the green and the grass). The
-            // #130 partial-drape (collar stopping below the rim) reds here. 0.12u tolerance for grid + facet jitter.
-            Assert.GreaterOrEqual(maxOuterWorldY, plateauWorldY - 0.12f,
-                $"the collar outer rim (max worldY {maxOuterWorldY:F3}) must RISE to ~the surrounding ground level " +
-                $"({plateauWorldY:F3}) at the bowl mouth — the green must be walkable AT ground level, not stop " +
-                "partway up the wall leaving bare dirt (ticket 86cadj4g7 #130: 'walk on the green, not inside it').");
+            Assert.IsTrue(collarPainted,
+                "the terrain must carry the painted darker-green collar ring — at least one terrain vertex in the " +
+                "collar band must read as PondCollarGreen (darker + greener than the surrounding grass). If this " +
+                "reds, the terrain grid is too coarse to land a vert in the band, or IslandColorAt didn't apply " +
+                "the collar paint (ticket 86cadj4g7 #130 round 5).");
         }
 
         // === NEW (ticket 86cadj4g7 #130) — the bank TUFTS read GREEN, not WHITE ==============================

@@ -1512,14 +1512,11 @@ namespace FarHorizon.EditorTools
         private const float PondSurfaceY = -0.06f;
         private const float PondSurfaceRadius = 2.6f; // a few metres across — reads as one pool, not a 2nd sea (Uma §1e scale)
 
-        // The grassy bank lip (Uma §1e: a clean green collar ringing the pool). A low ring mesh in the world
-        // grass language so the pool reads FOUND, not stamped.
+        // The grass-green the bank ACCENTS (tufts) read as (Uma §1e: the meadow-green language so the pool reads
+        // FOUND, not stamped). The raised collar RING mesh was removed (#130 round 5 — it was the white-ring
+        // source); the collar is now PAINTED into the terrain (LowPolyZoneGen.PondCollarGreen). This tint stays
+        // for the dry-rim grass tufts that still nestle the pool.
         private static readonly Color PondBankGrass = new Color(0.30f, 0.52f, 0.24f); // matches the world meadow greens
-        // Collar WIDTH: the green band reaches from the water rim OUT to the bowl MOUTH (ground level), so the
-        // player walks ON the green at ground level — not on bare carved-wall dirt (ticket 86cadj4g7 #130).
-        // = mouth − nominal water radius; the per-vertex outer rim is clamped to the mouth in BuildPondBankRing
-        // (organic-rim-aware), so wherever the (lobed) water rim sits the collar still ends exactly at the rim.
-        private const float PondBankCollarWidth = LowPolyZoneGen.PondBowlOuterRadius - PondSurfaceRadius; // 4.8 - 2.6 = 2.2
 
         // A wired FRESHWATER POND (86caamkv7 / Uma §1): a small still freshwater pool the castaway walks up to
         // and DRINKS FROM HAND (proximity + interact, no tool, NOT an inventory item — distinct from the
@@ -1548,38 +1545,18 @@ namespace FarHorizon.EditorTools
             wmr.sharedMaterial = pondMat;
             if (pondMat != null && pondMat.shader != null) EnsureShaderAlwaysIncluded(pondMat.shader);
 
-            // --- Grassy bank lip: a low ring just outside the water, AT ground level, in the meadow-green
-            //     language so the pool reads as a found depression with a green collar (Uma §1e). A thin
-            //     faceted torus-ish ring; reuse the grass-clump idiom for a couple of reed/tuft accents below.
-            var bank = new GameObject("PondBank");
-            bank.transform.SetParent(pond.transform, false);
-            bank.transform.localPosition = Vector3.zero;
-            var bmf = bank.AddComponent<MeshFilter>();
-            // The collar must reach the BOWL MOUTH (LowPolyZoneGen.PondBowlOuterRadius) so its outer edge sits
-            // at the surrounding GROUND LEVEL — the player walks ON the green AT ground level, not on bare
-            // carved-wall dirt between the green and the grass (ticket 86cadj4g7 #130: "I should walk on the
-            // green, not inside it"). The collar then drapes as a continuous grassy slope from the water lip up
-            // the whole bowl wall to the rim. Width = mouth − nominal water radius (so the outer edge lands at
-            // the mouth); BuildPondBankRing clamps the outer rim to the mouth per-vertex (organic-rim-aware).
-            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, PondBankCollarWidth, PondBankGrass);
-            var bmr = bank.AddComponent<MeshRenderer>();
+            // --- COLLAR: NO raised mesh (ticket 86cadj4g7 #130 ROUND 5 — Sponsor verbatim: "REMOVE the raised
+            //     collar entirely — no bank ring mesh. Paint a FLAT darker-green vertex-color ring on the terrain
+            //     around the pond instead — no raised geometry, no shadow lip, I should walk on the green at
+            //     ground level"). The OLD raised PondBank ring mesh was the PROVEN white-shoreline-ring source
+            //     (the #130 round-5 -verifyPondDiag, build e5207d1: toggle c "collar/bank REMOVED" made the pale
+            //     ring VANISH while bloom-off, sea-off, and the foam-off water all left it present). Its draped
+            //     bowl-wall facets read pale/washed under the warm key — exactly the white ring the Sponsor kept
+            //     soaking. So the collar is now PAINTED into the terrain vertex colour (LowPolyZoneGen.IslandColorAt
+            //     + PondCollarPaintWeight → PondCollarGreen), a FLAT darker-green ring at ground level with no
+            //     geometry to catch light or cast a lip-shadow. The accents (tufts + rock) stay (they nestle the
+            //     pool), draped on the carved bowl rim at terrain height.
             var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
-            if (vc != null)
-            {
-                var bankMat = new Material(vc) { name = "PondBankMat" };
-                if (bankMat.HasProperty("_Tint")) bankMat.SetColor("_Tint", Color.white);
-                bmr.sharedMaterial = bankMat; // inline -> serializes into the scene
-                EnsureShaderAlwaysIncluded(vc);
-            }
-            else
-            {
-                var lit = Shader.Find("Universal Render Pipeline/Lit");
-                var bankMat = new Material(lit) { name = "PondBankMat" };
-                if (bankMat.HasProperty("_BaseColor")) bankMat.SetColor("_BaseColor", PondBankGrass);
-                if (bankMat.HasProperty("_Smoothness")) bankMat.SetFloat("_Smoothness", 0.06f);
-                bmr.sharedMaterial = bankMat;
-                EnsureShaderAlwaysIncluded(lit);
-            }
 
             // --- "Found" accents (Uma §1e nestle-don't-stamp): a couple of grass tufts + a small rock on the
             //     bank, in the existing scatter language, so the pool reads tended-by-nature, not built. A
@@ -1647,116 +1624,29 @@ namespace FarHorizon.EditorTools
                       ", effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
         }
 
-        // A grassy RING collar that SLOPES DOWN into the carved bowl (the pond bank): two concentric rings of
-        // verts (inner = water edge, outer = grass collar) wound to face +Y, faceted, vertex-colour green.
-        // Sibling of the BlobShadowDisc fan but an annulus (the centre is open — the water disc fills it).
-        // Collider-free, serializes inline. ORGANIC (ticket 86cadj4g7): the inner edge tracks the ORGANIC water
-        // rim exactly (same nominal radius <paramref name="innerNominalR"/> × the SHARED LowPolyZoneGen.
-        // PondRimFactor), so the bank frames the lobed pool with NO gap / poke-through; the outer collar adds a
-        // CONSTANT <paramref name="collarWidth"/> band on top of the (already-lobed) inner radius so the grass
-        // collar stays a uniform width that follows the same lobes. sides matches BuildPondWaterMesh (22) so the
-        // bank lobes align with the water lobes.
-        //
-        // FLUSH-COLLAR / NO-RAISED-LIP (ticket 86cadj4g7 — Sponsor #130 re-soak): the pond now sits in a CARVED
-        // bowl (LowPolyZoneGen.PondDepressionDelta) and GroundPondInBowl positions the root so the WATER SURFACE
-        // sits PondWaterDepthAboveFloor above the bowl FLOOR. The collar must SLOPE DOWN into that bowl flush
-        // with the carved wall — NOT sit as a flat raised lip above the surrounding grass (the #130 defect: the
-        // old +0.04 outer lip floated above the terrain after the lift, casting a shadow). So the outer edge Y
-        // is computed from the BOWL-WALL profile: at the collar's outer radius the carved terrain is partway UP
-        // the wall (PondBowlFloorDrop·t above the floor); the collar outer edge meets THAT height (in root-local
-        // Y) → the collar grass DRAPES on the wall, reading as the bowl's grassy slope, no lip, no self-shadow.
-        private static Mesh BuildPondBankRing(float innerNominalR, float collarWidth, Color grass)
-        {
-            const int sides = 22; // align with BuildPondWaterMesh sides so the lobes register
-            var verts = new System.Collections.Generic.List<Vector3>();
-            var cols = new System.Collections.Generic.List<Color>();
-            var normals = new System.Collections.Generic.List<Vector3>();
-            var tris = new System.Collections.Generic.List<int>();
-            // Inner ring sits at the water lip (slightly above PondSurfaceY so it meets the waterline cleanly).
-            float innerY = PondSurfaceY + 0.02f;
-            for (int i = 0; i < sides; i++)
-            {
-                float a0 = i / (float)sides * Mathf.PI * 2f;
-                float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
-                // SHARED organic rim factor (same function the water disc uses) → the bank inner edge == the
-                // water rim at every angle; the collar is a constant band outside it (so it lobes in parallel).
-                float ir0 = innerNominalR * LowPolyZoneGen.PondRimFactor(a0);
-                float ir1 = innerNominalR * LowPolyZoneGen.PondRimFactor(a1);
-                // Outer rim = inner + collarWidth, but CLAMPED to the bowl MOUTH (PondBowlOuterRadius) so the
-                // collar's outer edge lands exactly at GROUND LEVEL — the player walks on green at ground level,
-                // never beyond it onto bare carved wall (ticket 86cadj4g7 #130). At the mouth CollarOuterLocalY
-                // returns the full plateau height (t=1), so the outer rim sits flush with the surrounding grass.
-                float or0 = Mathf.Min(ir0 + collarWidth, LowPolyZoneGen.PondBowlOuterRadius);
-                float or1 = Mathf.Min(ir1 + collarWidth, LowPolyZoneGen.PondBowlOuterRadius);
-                // The outer collar rim sits on the bowl WALL: rise from the inner (water-lip) Y up to the wall
-                // height at the outer radius (root-local). This makes the collar SLOPE DOWN-IN, flush with the
-                // carved wall, never a raised lip. (Inner edge stays at the water lip — it meets the waterline.)
-                float oy0 = CollarOuterLocalY(or0);
-                float oy1 = CollarOuterLocalY(or1);
-                Vector3 i0 = new Vector3(Mathf.Cos(a0) * ir0, innerY, Mathf.Sin(a0) * ir0);
-                Vector3 i1 = new Vector3(Mathf.Cos(a1) * ir1, innerY, Mathf.Sin(a1) * ir1);
-                Vector3 o0 = new Vector3(Mathf.Cos(a0) * or0, oy0, Mathf.Sin(a0) * or0);
-                Vector3 o1 = new Vector3(Mathf.Cos(a1) * or1, oy1, Mathf.Sin(a1) * or1);
-                // Two faceted tris per segment, wound to face up (+Y) for Cull Back from the orbit camera above.
-                EmitBankTri(verts, cols, normals, tris, i0, o1, o0, grass);
-                EmitBankTri(verts, cols, normals, tris, i0, i1, o1, grass);
-            }
-            var mesh = new Mesh { name = "LP_PondBank" };
-            mesh.SetVertices(verts);
-            mesh.SetColors(cols);
-            mesh.SetNormals(normals);
-            mesh.SetTriangles(tris, 0);
-            mesh.RecalculateBounds();
-            return mesh;
-        }
-
         // The KNEE-DEEP wade depth — the water surface sits this far ABOVE the carved bowl floor. Sourced from
         // the SHARED LowPolyZoneGen.PondWadeDepth (= WorldBootstrap.PondWaterDepthAboveFloor; GroundPondInBowl
-        // positions the root by it). So the bank-collar geometry knows where the floor is relative to the
-        // (local) water surface, in lockstep with the carve + grounding. (BankCollarMatchesBowlWall guards.)
+        // positions the root by it). So the dry-rim accent placement knows where the floor is relative to the
+        // (local) water surface, in lockstep with the carve + grounding.
         private const float PondKneeDeepDepth = LowPolyZoneGen.PondWadeDepth;
 
         /// <summary>
-        /// The pond-bank collar's OUTER-rim local Y at planar radius <paramref name="rad"/> from the pond
-        /// centre (ticket 86cadj4g7 — flush collar, no raised lip). The collar must DRAPE on the carved bowl
-        /// WALL: at <paramref name="rad"/> the terrain sits PondBowlFloorDrop·t above the bowl FLOOR (t = the
-        /// smoothstep wall fraction across [inner,outer], the SAME profile LowPolyZoneGen.PondDepressionDelta
-        /// carves). In pond-root-local Y the floor is (PondSurfaceY − PondKneeDeepDepth) below the surface, so
-        /// the wall height = floorLocalY + PondBowlFloorDrop·t. This makes the collar slope DOWN into the bowl
-        /// flush with the wall, never a flat raised lip above the surrounding grass.
+        /// The carved bowl-WALL local Y at planar radius <paramref name="rad"/> from the pond centre (ticket
+        /// 86cadj4g7). The accent tufts + rock DRAPE on the carved bowl WALL: at <paramref name="rad"/> the
+        /// terrain sits PondBowlFloorDrop·t above the bowl FLOOR (t = the smoothstep wall fraction across
+        /// [inner,outer], the SAME profile LowPolyZoneGen.PondDepressionDelta carves). In pond-root-local Y the
+        /// floor is (PondSurfaceY − PondKneeDeepDepth) below the surface, so the wall height = floorLocalY +
+        /// PondBowlFloorDrop·t. Keeps the accents sitting on the carved wall at terrain height (no float, no
+        /// submerge). (Was also the removed PondBank collar's outer-rim Y; the collar is now terrain-painted.)
         /// </summary>
         private static float CollarOuterLocalY(float rad)
         {
             float floorLocalY = PondSurfaceY - PondKneeDeepDepth; // the carved bowl floor, in root-local Y
             // The wall fraction at this radius (0 on the flat floor, 1 at the bowl mouth) — the SAME smoothstep
-            // LowPolyZoneGen.PondDepressionDelta uses, so the collar wall == the carved terrain wall.
+            // LowPolyZoneGen.PondDepressionDelta uses, so the accent wall == the carved terrain wall.
             float t = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(LowPolyZoneGen.PondBowlInnerRadius, LowPolyZoneGen.PondBowlOuterRadius, rad));
             return floorLocalY + LowPolyZoneGen.PondBowlFloorDrop * t;
-        }
-
-        private static void EmitBankTri(System.Collections.Generic.List<Vector3> verts,
-            System.Collections.Generic.List<Color> cols, System.Collections.Generic.List<Vector3> normals,
-            System.Collections.Generic.List<int> tris, Vector3 a, Vector3 b, Vector3 c, Color col)
-        {
-            Vector3 fn = Vector3.Cross(b - a, c - a);
-            if (fn.sqrMagnitude < 1e-12f) return;
-            fn.Normalize();
-            int bi = verts.Count;
-            // Ensure the front face points up (a grass collar viewed from above): flip the winding if it faces down.
-            if (fn.y >= 0f)
-            {
-                verts.Add(a); verts.Add(b); verts.Add(c);
-                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
-                normals.Add(fn); normals.Add(fn); normals.Add(fn);
-            }
-            else
-            {
-                verts.Add(a); verts.Add(c); verts.Add(b);
-                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
-                normals.Add(-fn); normals.Add(-fn); normals.Add(-fn);
-            }
-            cols.Add(col); cols.Add(col); cols.Add(col);
         }
 
         // World position of the campfire fire-pit on the flat test ground (U2-4, 86ca8bdep). Distinct from
