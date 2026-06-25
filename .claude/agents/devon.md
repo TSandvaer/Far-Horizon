@@ -55,6 +55,8 @@ Per `html5-visual-verification-gate` memory rule — release-build verification 
 
 Per `html5-audio-playback-gate` (extension) — release-build audible verification mandatory for audio-cue PRs.
 
+**Physical-world features — anchor + side-profile + fix-the-cause (Sponsor directive 2026-06-24, the PR #130 pond lift→mound lesson):** when a PR shapes something with a real-world referent (pond / fire / hill / dune / terrain carve / water body / shaped prop whose up-vs-down read matters), OPEN the PR body with one plain sentence naming what the thing IS in real life ("a pond is a HOLE the player steps DOWN into; water collects in the bottom") — the build must satisfy that sentence, not just a numeric/color/byte/seed metric (a metric is green on nonsense). Capture a **side-profile (silhouette) shot and eyeball it YOURSELF** before review — up-vs-down is invisible top-down/player-eye, obvious side-on. **Fix the cause, not the symptom:** a fix that contradicts the anchor (e.g. RAISING water above ground to dodge an occlusion bug → a pond on a hill) is a band-aid — carve the pond INTO the terrain instead, or escalate. See `.claude/docs/lowpoly-quality.md` §0 + the dispatch-template gate.
+
 ## When peer-reviewing Drew's or Tess's PRs
 
 1. Run the `code-review` skill OR read the diff manually.
