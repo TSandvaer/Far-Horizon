@@ -222,6 +222,49 @@ namespace FarHorizon.EditTests
             Assert.Less(c.g, 0.55f, "the collar green's G must stay well under the bloom threshold even when lit");
         }
 
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 6) — the SEA does NOT render through the pond bowl ===
+        // PROVEN root cause of the persistent white shoreline ring (-verifyPondDiag toggle isolation, round-6 build:
+        // sea-plane-OFF dropped the overhead annulus-white 0.215 -> 0.000; bloom-off + collar-removed both LEFT it).
+        // The sea (Water_Play) is a world-spanning plane at WaterY (-0.20); the pond bowl is carved DOWN to a water
+        // surface at -0.35 (0.15u BELOW WaterY after the #130 recess deepened to 0.75u), so the sea plane was
+        // EXPOSED inside the bowl and its teal+foam read as a PALE WHITE RING from overhead. FIX: hole the sea
+        // plane over the pond footprint (BuildIslandWater drops any sea triangle whose centroid is within
+        // PondBowlOuterRadius of the pond centre). This guards the bug CLASS: if a future change re-emits sea
+        // geometry over the pond footprint (re-opening the through-bowl ring), it reds HERE — the down-angle /
+        // side-profile gates were physically blind to it; only the overhead view caught it.
+        [Test]
+        public void BootScene_SeaPlane_HasNoTrianglesOverThePondFootprint_NoSeaThroughBowl()
+        {
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var sea = GameObject.Find("Water_Play");
+            Assert.IsNotNull(sea, "the salt-sea plane (Water_Play) must exist in the shipped scene");
+            var mf = sea.GetComponent<MeshFilter>();
+            Assert.IsNotNull(mf, "Water_Play must carry a MeshFilter");
+            var mesh = mf.sharedMesh;
+            Assert.IsNotNull(mesh, "Water_Play must carry a mesh");
+
+            // Sea verts are in the object's local space; the object sits at (0, WaterY, 0) with identity rotation,
+            // so localXZ == worldXZ. Walk every triangle; assert NO centroid falls within the pond footprint (the
+            // cutout radius BuildIslandWater uses). A surviving tri there is the sea showing through the bowl.
+            Vector3[] verts = mesh.vertices;
+            int[] tris = mesh.triangles;
+            float r = LowPolyZoneGen.PondBowlOuterRadius;
+            float r2 = r * r;
+            int offenders = 0;
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+            {
+                Vector3 a = verts[tris[t]], b = verts[tris[t + 1]], c = verts[tris[t + 2]];
+                float cx = (a.x + b.x + c.x) / 3f - LowPolyZoneGen.PondCenterX;
+                float cz = (a.z + b.z + c.z) / 3f - LowPolyZoneGen.PondCenterZ;
+                if (cx * cx + cz * cz <= r2) offenders++;
+            }
+            Assert.AreEqual(0, offenders,
+                $"the sea plane must have NO triangles over the pond footprint (centre {LowPolyZoneGen.PondCenterX}," +
+                $"{LowPolyZoneGen.PondCenterZ} radius {r}u) — {offenders} found. The sea showing through the carved " +
+                "bowl is the PROVEN #130 white-ring source (diag: sea-OFF killed the ring). The cutout in " +
+                "LowPolyZoneGen.BuildIslandWater (EmitTri centroid skip) must hole the sea over the pond.");
+        }
+
         [Test]
         public void BootScene_CarriesFreshwaterPondVerifyCapture_Serialized()
         {

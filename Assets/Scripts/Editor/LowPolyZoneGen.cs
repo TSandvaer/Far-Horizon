@@ -1227,8 +1227,26 @@ namespace FarHorizon.EditorTools
             var cols = new List<Color>();
             var normals = new List<Vector3>();
             var tris = new List<int>();
+            // POND-FOOTPRINT CUTOUT (ticket 86cadj4g7 #130 ROUND 6 — the PROVEN white-ring source). The sea is a
+            // world-spanning plane at WaterY (-0.20); inland it is hidden UNDER the terrain — EXCEPT the freshwater
+            // pond bowl, carved DOWN to its floor (water surface -0.35, 0.15u BELOW WaterY since the #130 recess
+            // deepened to 0.75u). There the sea plane is EXPOSED inside the bowl and its teal+foam reads as a PALE
+            // WHITE RING around the pond from overhead — the white the Sponsor kept soaking. Toggle-isolation PROVED
+            // it (diag run: sea-plane-OFF dropped the overhead annulus-white 0.215 -> 0.000; bloom-off + collar-
+            // removed both LEFT it). FIX: HOLE the sea plane over the pond footprint — skip any sea triangle whose
+            // centroid falls within the pond bowl (PondBowlOuterRadius, where the terrain rises back above WaterY
+            // and re-hides the sea), so the sea can never show through the bowl. The hole is inland + fully ringed
+            // by terrain above WaterY, so it is invisible (no sea-gap) — it only removes the intruding-through-bowl
+            // tris. The salt sea elsewhere (the coast, all sides) is UNCHANGED.
             void EmitTri(int a, int b, int c2)
             {
+                // Cut the sea hole over the pond bowl: if the triangle's centroid is inside the pond footprint,
+                // drop it (the sea must not render through the recessed bowl — the #130 white-ring source).
+                float cxw = (gridPos[a].x + gridPos[b].x + gridPos[c2].x) / 3f;
+                float czw = (gridPos[a].z + gridPos[b].z + gridPos[c2].z) / 3f;
+                float pdx = cxw - PondCenterX, pdz = czw - PondCenterZ;
+                if (pdx * pdx + pdz * pdz <= PondBowlOuterRadius * PondBowlOuterRadius) return;
+
                 Vector3 p0 = gridPos[a], p1 = gridPos[b], p2 = gridPos[c2];
                 Vector3 fn = Vector3.Cross(p1 - p0, p2 - p0);
                 if (fn.sqrMagnitude < 1e-12f) return;
