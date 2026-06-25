@@ -136,6 +136,16 @@ namespace FarHorizon
                  "weight rests at 0 until IsRunning, and returns to 0 on stop.")]
         public float runLowerBlendRate = 8f;
 
+        // ACTION-VERB SWING OFFSET (chop 86caa4c5c; later: drink/pick-up/throw — Erik's procedural-action-verb
+        // playbook). A one-shot LOCAL-euler offset a verb driver (ChopPoseDriver, order 10 — BEFORE this order
+        // 50) writes each frame DURING a swing, then resets to Vector3.zero at rest. It is right-multiplied onto
+        // the RIGHT-arm clip pose AFTER the carry + run-lower offsets, so the swing composes on top of the held-
+        // axe carry pose and the gripped axe (HeldAxeRig, order 100) follows the swung hand automatically. At
+        // rest the driver writes Vector3.zero → Quaternion.Euler(zero) is identity → ZERO cost and the locked
+        // carry pose is byte-unchanged. NOT serialized as a tuned default (it is a transient runtime channel the
+        // driver owns); [HideInInspector] so it never looks like an authored pose field.
+        [HideInInspector] public Vector3 swingOverrideEuler = Vector3.zero;
+
         // Cached so the offset composes on the clip pose, not on the prior frame's offset (which would drift).
         private Quaternion _rightOffsetQ, _leftOffsetQ;
 
@@ -195,7 +205,11 @@ namespace FarHorizon
                 // full run the right arm — and the hand + gripped axe that follow it — is held lower, below the
                 // head. Scaled by _runWeight (0 at walk/idle → the run-lower vanishes → the locked pose is intact).
                 Quaternion runLowerQ = Quaternion.Euler(runLowerEuler * _runWeight);
-                rightUpperArm.localRotation = rightUpperArm.localRotation * _rightOffsetQ * runLowerQ;
+                // ACTION-VERB SWING (chop 86caa4c5c): right-multiply the one-shot swing offset (written by
+                // ChopPoseDriver order 10, BEFORE this) AFTER the carry + run-lower, so a chop swing composes on
+                // top of the carry pose. Zero at rest → identity → the locked pose is byte-unchanged.
+                Quaternion swingQ = Quaternion.Euler(swingOverrideEuler);
+                rightUpperArm.localRotation = rightUpperArm.localRotation * _rightOffsetQ * runLowerQ * swingQ;
             }
             if (leftUpperArm != null)
                 leftUpperArm.localRotation = leftUpperArm.localRotation * _leftOffsetQ;

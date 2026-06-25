@@ -38,6 +38,10 @@ namespace FarHorizon.Settings
         // "water scoop amount") — the gameplay-wave/hunger naming convention. LIVE-bound to the ThirstNeed.
         public const string ThirstDecayId  = "thirst_decay_rate";
         public const string WaterScoopId   = "water_scoop_amount";
+        // Chop tweakable (ticket 86caa4c5c AC3). The `tree regrowth time` row drives the ChopTree's
+        // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
+        // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
+        public const string TreeRegrowthId = "tree_regrowth_time";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -52,6 +56,13 @@ namespace FarHorizon.Settings
         public const float ThirstDecayMin = 0.05f, ThirstDecayMax = 1.5f;
         // Water-scoop slider band (around the waterScoopAmount 14 default) — a sip..a big gulp.
         public const float WaterScoopMin = 2f, WaterScoopMax = 40f;
+        // Tool-use-speed slider band (ticket V1 — flips the reserved ToolSpeedId row LIVE to the chop swing
+        // speed). Keep in sync with ChopPoseDriver.SwingSpeedMin/Max (a slow..fast chop).
+        public const float ToolSpeedMin = 0.25f, ToolSpeedMax = 3f;
+        // Tree-regrowth range hard-limits in SECONDS — the band the `tree regrowth time` range can be dialed
+        // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR set a
+        // realistic ecology. Range row → drives ChopTree.regrowthMin/Max (organic regrowth within [min,max]).
+        public const float TreeRegrowthLower = 0f, TreeRegrowthUpper = 1800f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
