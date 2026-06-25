@@ -1510,10 +1510,29 @@ namespace FarHorizon.EditorTools
         // depression the water fills (Uma §1e nestle-don't-stamp) and the depth-fade foam has a waterline to
         // ride. Shallow (the pond is a found pool, not a deep well). The grassy lip rim sits AT ground level.
         private const float PondSurfaceY = -0.06f;
-        private const float PondSurfaceRadius = 2.6f; // a few metres across — reads as one pool, not a 2nd sea (Uma §1e scale)
+        // WATER-FILLS-THE-BOWL-TO-A-THIN-LIP (ticket 86cadj4g7 #130 ROUND 9 — Sponsor round-8 soak "STILL a walkable
+        // dry slope"). The round-8 even-grade wall left the waterline at only ~4.0u = ~0.74 of the 5.4u mouth → a
+        // LONG GENTLE DRY SLOPE (4.0→5.4u) the Sponsor walked DOWN into the water. The ROUND-9 cause-fix is the
+        // TWO-SEGMENT wall (LowPolyZoneGen.PondDepressionDelta): a submerged gentle lower bowl + a SHORT STEEP shore
+        // lip, with the waterline now DEFINED as PondWaterlineFillFraction (0.90) × the bowl mouth = ≈ 4.86u. So the
+        // dry band is just 5.4−4.86 = 0.54u — a thin steep lip you STEP OVER, not a slope you walk down.
+        //
+        // To fill the bowl to that ≈4.86u waterline on EVERY azimuth with the ±18% organic rim (PondRimFactor
+        // 0.82–1.18) AND never leave a dry crescent on a min-radius lobe, the disc MIN reach must clear 4.86u:
+        // 4.86/0.82 ≈ 5.93, so nominal 6.1u (MIN reach 6.1×0.82 = 5.00u — clears the waterline with margin; mean
+        // 6.1u; MAX reach 6.1×1.18 = 7.20u, PAST the 5.4u bowl mouth). The overshoot past ≈4.86u is SUBMERGED in the
+        // rising dry lip (lip terrain is ABOVE the −0.30u water surface there) and TERRAIN-OCCLUDED, so the VISIBLE
+        // waterline lands exactly on the lip intersection (≈4.86u) — a clean organic shoreline by terrain-clipping,
+        // a thin short lip, knee-deep right up to it. The disc Y (−0.30u rel plateau = the recess) is everywhere ≤
+        // the terrain so the disc never pokes ABOVE ground (the dry lip + the past-mouth plateau both sit at/above
+        // −0.30u). MAX reach 7.20u is well inside the sea-hole cut radius (≈11.6u) so no sea shows. (Was 5.0u for
+        // the round-8 even-grade waterline at ~4.0u; the round-9 wall pushed the waterline out, so the disc followed.)
+        private const float PondSurfaceRadius = 6.1f; // fills the carved bowl to the ≈4.86u lip waterline (0.90 of mouth); overshoot terrain-occluded
 
-        // The grassy bank lip (Uma §1e: a clean slightly-raised green collar ringing the pool). A low ring
-        // mesh in the world grass language so the pool reads FOUND, not stamped.
+        // The grass-green the bank ACCENTS (tufts) read as (Uma §1e: the meadow-green language so the pool reads
+        // FOUND, not stamped). The raised collar RING mesh was removed (#130 round 5 — it was the white-ring
+        // source); the collar is now PAINTED into the terrain (LowPolyZoneGen.PondCollarGreen). This tint stays
+        // for the dry-rim grass tufts that still nestle the pool.
         private static readonly Color PondBankGrass = new Color(0.30f, 0.52f, 0.24f); // matches the world meadow greens
 
         // A wired FRESHWATER POND (86caamkv7 / Uma §1): a small still freshwater pool the castaway walks up to
@@ -1543,32 +1562,18 @@ namespace FarHorizon.EditorTools
             wmr.sharedMaterial = pondMat;
             if (pondMat != null && pondMat.shader != null) EnsureShaderAlwaysIncluded(pondMat.shader);
 
-            // --- Grassy bank lip: a low ring just outside the water, AT ground level, in the meadow-green
-            //     language so the pool reads as a found depression with a green collar (Uma §1e). A thin
-            //     faceted torus-ish ring; reuse the grass-clump idiom for a couple of reed/tuft accents below.
-            var bank = new GameObject("PondBank");
-            bank.transform.SetParent(pond.transform, false);
-            bank.transform.localPosition = Vector3.zero;
-            var bmf = bank.AddComponent<MeshFilter>();
-            bmf.sharedMesh = BuildPondBankRing(PondSurfaceRadius, PondSurfaceRadius + 0.9f, PondBankGrass);
-            var bmr = bank.AddComponent<MeshRenderer>();
+            // --- COLLAR: NO raised mesh (ticket 86cadj4g7 #130 ROUND 5 — Sponsor verbatim: "REMOVE the raised
+            //     collar entirely — no bank ring mesh. Paint a FLAT darker-green vertex-color ring on the terrain
+            //     around the pond instead — no raised geometry, no shadow lip, I should walk on the green at
+            //     ground level"). The OLD raised PondBank ring mesh was the PROVEN white-shoreline-ring source
+            //     (the #130 round-5 -verifyPondDiag, build e5207d1: toggle c "collar/bank REMOVED" made the pale
+            //     ring VANISH while bloom-off, sea-off, and the foam-off water all left it present). Its draped
+            //     bowl-wall facets read pale/washed under the warm key — exactly the white ring the Sponsor kept
+            //     soaking. So the collar is now PAINTED into the terrain vertex colour (LowPolyZoneGen.IslandColorAt
+            //     + PondCollarPaintWeight → PondCollarGreen), a FLAT darker-green ring at ground level with no
+            //     geometry to catch light or cast a lip-shadow. The accents (tufts + rock) stay (they nestle the
+            //     pool), draped on the carved bowl rim at terrain height.
             var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
-            if (vc != null)
-            {
-                var bankMat = new Material(vc) { name = "PondBankMat" };
-                if (bankMat.HasProperty("_Tint")) bankMat.SetColor("_Tint", Color.white);
-                bmr.sharedMaterial = bankMat; // inline -> serializes into the scene
-                EnsureShaderAlwaysIncluded(vc);
-            }
-            else
-            {
-                var lit = Shader.Find("Universal Render Pipeline/Lit");
-                var bankMat = new Material(lit) { name = "PondBankMat" };
-                if (bankMat.HasProperty("_BaseColor")) bankMat.SetColor("_BaseColor", PondBankGrass);
-                if (bankMat.HasProperty("_Smoothness")) bankMat.SetFloat("_Smoothness", 0.06f);
-                bmr.sharedMaterial = bankMat;
-                EnsureShaderAlwaysIncluded(lit);
-            }
 
             // --- "Found" accents (Uma §1e nestle-don't-stamp): a couple of grass tufts + a small rock on the
             //     bank, in the existing scatter language, so the pool reads tended-by-nature, not built. A
@@ -1577,19 +1582,35 @@ namespace FarHorizon.EditorTools
             for (int i = 0; i < 5; i++)
             {
                 float a = i / 5f * Mathf.PI * 2f + 0.4f;
-                float rr = PondSurfaceRadius + 0.7f;
+                // Place the decorative tufts on the DRY shore lip — just inside PondBowlOuterRadius (5.1u), OUTSIDE
+                // the waterline (≈4.86u, ROUND 9) — so they sit on the lip ABOVE the water, not submerged on the
+                // wet lower wall (ticket 86cadj4g7 #130: the fill moved the waterline out; keep the accents dry).
+                float rr = LowPolyZoneGen.PondBowlOuterRadius - 0.3f;
                 var tuft = new GameObject("BankTuft" + i);
                 tuft.transform.SetParent(pond.transform, false);
-                tuft.transform.localPosition = new Vector3(Mathf.Cos(a) * rr, 0f, Mathf.Sin(a) * rr);
+                // Nestle the tuft ON the carved bowl rim at its radius (NOT the old flat y=0, which after the
+                // bowl drop would float above the sloping wall — ticket 86cadj4g7).
+                tuft.transform.localPosition = new Vector3(Mathf.Cos(a) * rr, CollarOuterLocalY(rr), Mathf.Sin(a) * rr);
                 var tmf = tuft.AddComponent<MeshFilter>();
                 tmf.sharedMesh = LowPolyMeshes.GrassClump(0.6f, 5, 86010 + i);
                 var tmr = tuft.AddComponent<MeshRenderer>();
-                if (vc != null) { var m = new Material(vc) { name = "BankTuftMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", Color.white); tmr.sharedMaterial = m; }
+                // WHITE-GRASS FIX (ticket 86cadj4g7, Sponsor #130 soak): GrassClump bakes NO vertex colours, so
+                // the mesh vertex colour defaults to WHITE (1,1,1). On the LowPolyVertexColor shader albedo =
+                // IN.color.rgb * _Tint.rgb, so a _Tint of white gave white×white = WHITE TUFTS (the defect). Tint
+                // with the bank grass-green (PondBankGrass — the world meadow green these tufts must read as) so
+                // albedo = white × green = green. (Sibling of the correctly-green scatter tufts, which use the
+                // flat-colour URP/Lit path; here we keep the vertex-colour shader + supply the green via _Tint.)
+                if (vc != null) { var m = new Material(vc) { name = "BankTuftMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", PondBankGrass); tmr.sharedMaterial = m; }
             }
-            // One small rock nestled on the near bank.
+            // One small rock nestled on the DRY bowl rim (just inside PondBowlOuterRadius, outside the waterline)
+            // — sit it ON the carved bowl rim at its radius (not the old flat y=0; the bowl drop would otherwise
+            // float it above the sloping wall, or submerge it on the wet wall if too close in — ticket 86cadj4g7).
             var rock = new GameObject("BankRock");
             rock.transform.SetParent(pond.transform, false);
-            rock.transform.localPosition = new Vector3(-(PondSurfaceRadius + 0.5f), 0f, 0.6f);
+            float rockRad = LowPolyZoneGen.PondBowlOuterRadius - 0.3f;
+            float rockAng = Mathf.Atan2(0.6f, -(PondSurfaceRadius + 0.5f)); // keep the original near-bank direction
+            float rockX = Mathf.Cos(rockAng) * rockRad, rockZ = Mathf.Sin(rockAng) * rockRad;
+            rock.transform.localPosition = new Vector3(rockX, CollarOuterLocalY(rockRad), rockZ);
             var rmf = rock.AddComponent<MeshFilter>();
             rmf.sharedMesh = LowPolyMeshes.FacetedRock(0.55f, 0.35f, 86020);
             var rmr = rock.AddComponent<MeshRenderer>();
@@ -1601,7 +1622,12 @@ namespace FarHorizon.EditorTools
             var fp = pond.AddComponent<FarHorizon.FreshwaterPond>();
             fp.player = player.transform;
             fp.thirst = Object.FindObjectOfType<ThirstNeed>();
-            fp.pondSurfaceRadius = PondSurfaceRadius;
+            // Drink-from-the-EDGE reach is keyed to the VISIBLE waterline (~PondWaterlineRadius ≈ 4.0u, where the
+            // bowl wall meets the water surface), NOT the disc NOMINAL radius (5.0u, whose overshoot is submerged in
+            // the bowl wall + terrain-occluded — invisible). Feeding the nominal disc radius would over-extend the
+            // proximity gate to a spot the player can't see water at (ticket 86cadj4g7 #130 ROUND 8 — the disc grew
+            // to fill the bowl, but the drink edge must follow the VISIBLE pool, not the buried disc rim).
+            fp.pondSurfaceRadius = LowPolyZoneGen.PondWaterlineRadius;
             fp.drinkRadius = 2.0f;
             if (fp.thirst == null)
                 Debug.LogWarning("[MovementCameraScene] no ThirstNeed in scene to wire FreshwaterPond to — " +
@@ -1620,61 +1646,41 @@ namespace FarHorizon.EditorTools
                       ", effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
         }
 
-        // A thin flat grassy RING (the pond bank lip): two concentric rings of verts (inner = water edge,
-        // outer = grass collar) wound to face +Y, faceted, vertex-colour green. Sibling of the BlobShadowDisc
-        // fan but an annulus (the centre is open — the water disc fills it). Collider-free, serializes inline.
-        private static Mesh BuildPondBankRing(float innerR, float outerR, Color grass)
-        {
-            const int sides = 16;
-            var verts = new System.Collections.Generic.List<Vector3>();
-            var cols = new System.Collections.Generic.List<Color>();
-            var normals = new System.Collections.Generic.List<Vector3>();
-            var tris = new System.Collections.Generic.List<int>();
-            // Inner ring sits slightly BELOW ground (meets the water lip); outer sits AT ground (the raised collar).
-            float innerY = PondSurfaceY + 0.02f, outerY = 0.04f;
-            for (int i = 0; i < sides; i++)
-            {
-                float a0 = i / (float)sides * Mathf.PI * 2f;
-                float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
-                Vector3 i0 = new Vector3(Mathf.Cos(a0) * innerR, innerY, Mathf.Sin(a0) * innerR);
-                Vector3 i1 = new Vector3(Mathf.Cos(a1) * innerR, innerY, Mathf.Sin(a1) * innerR);
-                Vector3 o0 = new Vector3(Mathf.Cos(a0) * outerR, outerY, Mathf.Sin(a0) * outerR);
-                Vector3 o1 = new Vector3(Mathf.Cos(a1) * outerR, outerY, Mathf.Sin(a1) * outerR);
-                // Two faceted tris per segment, wound to face up (+Y) for Cull Back from the orbit camera above.
-                EmitBankTri(verts, cols, normals, tris, i0, o1, o0, grass);
-                EmitBankTri(verts, cols, normals, tris, i0, i1, o1, grass);
-            }
-            var mesh = new Mesh { name = "LP_PondBank" };
-            mesh.SetVertices(verts);
-            mesh.SetColors(cols);
-            mesh.SetNormals(normals);
-            mesh.SetTriangles(tris, 0);
-            mesh.RecalculateBounds();
-            return mesh;
-        }
+        /// <summary>TEST SEAM (ticket 86cadj4g7 #130 ROUND 8): build the pond water mesh at the SHIPPED
+        /// <see cref="PondSurfaceRadius"/> so the fill-to-rim EditMode guard reads the ACTUAL authored disc reach
+        /// (not a literal that could drift out of sync). Keeps PondSurfaceRadius private while letting the guard
+        /// assert the real shipped geometry. Build-only, no scene side effects.</summary>
+        public static Mesh BuildShippedPondWaterMeshForTest() => LowPolyZoneGen.BuildPondWaterMesh(PondSurfaceRadius);
 
-        private static void EmitBankTri(System.Collections.Generic.List<Vector3> verts,
-            System.Collections.Generic.List<Color> cols, System.Collections.Generic.List<Vector3> normals,
-            System.Collections.Generic.List<int> tris, Vector3 a, Vector3 b, Vector3 c, Color col)
+        // The KNEE-DEEP wade depth — the water surface sits this far ABOVE the carved bowl floor. Sourced from
+        // the SHARED LowPolyZoneGen.PondWadeDepth (= WorldBootstrap.PondWaterDepthAboveFloor; GroundPondInBowl
+        // positions the root by it). So the dry-rim accent placement knows where the floor is relative to the
+        // (local) water surface, in lockstep with the carve + grounding.
+        private const float PondKneeDeepDepth = LowPolyZoneGen.PondWadeDepth;
+
+        /// <summary>
+        /// The carved bowl-WALL local Y at planar radius <paramref name="rad"/> from the pond centre (ticket
+        /// 86cadj4g7). The accent tufts + rock DRAPE on the carved bowl WALL — so this MUST mirror the actual
+        /// carved terrain profile, LowPolyZoneGen.PondDepressionDelta. ROUND 9: that profile is now TWO-SEGMENT
+        /// (a gentle submerged lower bowl + a short dry lip), NOT a single smoothstep — so we derive the wall Y
+        /// DIRECTLY from PondDepressionDelta instead of re-deriving a (now-wrong) single-grade smoothstep here.
+        /// The carve is radially symmetric inside the footprint (PondHillFlatten levels it), so sampling along +X
+        /// from the pond centre gives the wall profile at any azimuth. Conversion to pond-root-local Y: the water
+        /// SURFACE is at PondSurfaceY (root-local) and sits PondRecessKneeDeep below the plateau, so terrain at
+        /// radius rad (delta below the plateau) maps to local Y = PondSurfaceY + (PondDepressionDelta + recess).
+        /// At the floor that is PondSurfaceY − PondKneeDeepDepth (the old floorLocalY); at the mouth it is
+        /// PondSurfaceY + recess (the plateau). Keeps the accents sitting on the carved wall at terrain height
+        /// (no float, no submerge) under the new two-segment profile.
+        /// </summary>
+        private static float CollarOuterLocalY(float rad)
         {
-            Vector3 fn = Vector3.Cross(b - a, c - a);
-            if (fn.sqrMagnitude < 1e-12f) return;
-            fn.Normalize();
-            int bi = verts.Count;
-            // Ensure the front face points up (a grass collar viewed from above): flip the winding if it faces down.
-            if (fn.y >= 0f)
-            {
-                verts.Add(a); verts.Add(b); verts.Add(c);
-                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
-                normals.Add(fn); normals.Add(fn); normals.Add(fn);
-            }
-            else
-            {
-                verts.Add(a); verts.Add(c); verts.Add(b);
-                tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2);
-                normals.Add(-fn); normals.Add(-fn); normals.Add(-fn);
-            }
-            cols.Add(col); cols.Add(col); cols.Add(col);
+            // Sample the ACTUAL carved profile (two-segment) at this radius along +X from the pond centre. The
+            // footprint is radially symmetric (PondHillFlatten levels it), so azimuth doesn't matter.
+            float deltaBelowPlateau = LowPolyZoneGen.PondDepressionDelta(
+                LowPolyZoneGen.PondCenterX + rad, LowPolyZoneGen.PondCenterZ); // ≤ 0 (a downward carve)
+            // Local Y: the water surface (PondSurfaceY) sits PondRecessKneeDeep below the plateau, so the plateau is
+            // at PondSurfaceY + recess; the terrain at this radius is `deltaBelowPlateau` below the plateau.
+            return PondSurfaceY + LowPolyZoneGen.PondRecessKneeDeep + deltaBelowPlateau;
         }
 
         // World position of the campfire fire-pit on the flat test ground (U2-4, 86ca8bdep). Distinct from

@@ -323,6 +323,14 @@ namespace FarHorizon.EditorTools
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
             // of AxeNudgeTool). Serialized editor-time per the editor-vs-runtime trap; INERT unless F9.
             hudGo.AddComponent<FarHorizon.WorldLookNudgeTool>();
+            // POND RECESS + FOAM live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak: he dials the
+            // final pond recess depth + foam amount IN THE SHIPPED BUILD + reports the values to bake).
+            // ALWAYS-LIVE (like HeldAxeLengthPicker, NOT F-key-toggle-gated) — the on-screen panel shows the
+            // current recess + foam value the whole soak; PgUp/PgDn step the recess (flush->knee-deep->deeper,
+            // default knee-deep), Home/End step the foam (off->light->sea-like, default OFF). LAYOUT-AGNOSTIC
+            // keys (Danish-keyboard-safe). Starts at the shipped defaults so a soak that never presses a key
+            // sees exactly the shipped pond. Serialized editor-time per the editor-vs-runtime trap.
+            hudGo.AddComponent<FarHorizon.PondNudge>();
             // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
             // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted
             // Screenmanager registry values written by the windowed capture gate). INERT on any capture/verify

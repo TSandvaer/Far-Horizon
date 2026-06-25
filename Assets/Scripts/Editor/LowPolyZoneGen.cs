@@ -50,6 +50,14 @@ namespace FarHorizon.EditorTools
         static readonly Color GrassLo = new Color(0.30f, 0.48f, 0.20f); // mid leaf green (more saturated)
         static readonly Color GrassHi = new Color(0.48f, 0.64f, 0.28f); // sunlit grass
         static readonly Color GrassRise = new Color(0.38f, 0.56f, 0.24f); // meadow rise
+        // POND COLLAR RING (ticket 86cadj4g7 #130 ROUND 5 — Sponsor: "REMOVE the raised collar; paint a FLAT
+        // darker-green ring on the terrain instead — I should walk on the green at ground level"). A darker
+        // meadow green PAINTED into the terrain vertex colour around the pond bowl — NO raised geometry, NO
+        // shadow lip. Clearly darker than the surrounding GrassLo/GrassHi so the collar reads as a distinct
+        // green band; all channels well below 1.0 even under the warm key (intensity 1.25) so it CANNOT bloom
+        // to the pale shoreline ring the OLD raised PondBank mesh produced (the #130 round-5 PROVEN white source:
+        // toggle c removed the collar mesh → the pale ring vanished, build e5207d1).
+        public static readonly Color PondCollarGreen = new Color(0.20f, 0.38f, 0.15f); // darker meadow collar
         // ROCK-AS-BOULDER soak-fix (86ca8m5zu, Sponsor soak 5f7e7ba: "items sticking up... all over").
         // The old warm-grey RockCol (0.55,0.52,0.47) silhouetted DARK under the Zone-D warm fog + grade at
         // small scatter size — a grey-blob spike read. Lifted to a warmer, LIGHTER sun-bleached stone so the
@@ -136,8 +144,14 @@ namespace FarHorizon.EditorTools
         // sea's WaterShallow/WaterDeep are coast-tuned + Sponsor-soaked — DO NOT retune them). The freshwater
         // tell is B > G (the pond leans BLUE); the sea keeps G >= B (teal-green). Sub-1.0 every channel
         // (HDR-clamp-safe, same convention the sea follows). Gradient runs bank(shallow) -> centre(deep).
-        public static readonly Color PondShallow = new Color(0.22f, 0.66f, 0.74f); // bank-edge fresh water: lighter + bluer than WaterShallow
-        public static readonly Color PondDeep    = new Color(0.14f, 0.48f, 0.70f); // pool centre: cool blue (B > G = the freshwater tell)
+        // #130 ROUND 5: the OLD bright PondShallow (0.22,0.66,0.74) read PALE-CYAN at the grazing gameplay-orbit
+        // pitch (the bright G+B caught the warm key on the far rim) — a light patch the Sponsor could still read
+        // as "too white" even after the collar-ring fix. Per the dispatch Issue-3 contingency ("make the pond
+        // uniformly fresh-blue with NO bright shallow rim — drop the rim below the bloom threshold / flatten the
+        // gradient"), PondShallow is pulled DOWN toward PondDeep: a calmer fresh blue, still a CLEAR B>G freshwater
+        // tell (0.70>0.50) but no longer bright/cyan, so the whole disc reads UNIFORMLY fresh-blue (no pale rim).
+        public static readonly Color PondShallow = new Color(0.16f, 0.50f, 0.72f); // bank-edge fresh water: a calm fresh blue (B>G), NOT bright cyan (#130 round 5)
+        public static readonly Color PondDeep    = new Color(0.12f, 0.42f, 0.68f); // pool centre: deeper cool blue (B > G = the freshwater tell)
 
         // Result of building the low-poly zone: the ground GameObject (Ground-layered, NavMesh +
         // raycast surface) so the caller can parent scatter + bake NavMesh over it.
@@ -239,6 +253,303 @@ namespace FarHorizon.EditorTools
         // this unless overridden with `-islandSeed N`. A different seed re-rolls the coast/cliff layout (same
         // character). The 3-4 seed VARIANTS captured for the Sponsor pick the value baked here.
         public const int IslandSeed = 42;          // Sponsor's pick from the seed-variant captures (86ca9qwr3)
+
+        // ============================================================================================
+        // FRESHWATER-POND BOWL DEPRESSION (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is an ELEVATED
+        // LIP, not a depression; carve a recessed BOWL"). REPLACES the old WorldBootstrap.RegroundFreshwaterPond
+        // LIFT (which raised the water disc +0.10u ABOVE the terrain → the darker-green collar read as a raised
+        // lip casting a shadow, and the water read flush, NOT sunken). Instead we CARVE the heightfield down at
+        // the pond so the water sits in a visibly recessed bowl: the bowl FLOOR below the water surface, the
+        // collar SLOPING DOWN into it (flush, no lip). Because HeightAtRadial is the SINGLE source of truth for
+        // terrain height, the carve flows automatically into (a) the visible terrain mesh, (b) its MeshCollider,
+        // and (c) the NavMesh bake — so the player NAVIGATES INTO the bowl and stands KNEE-DEEP (the agent Y
+        // follows the carved floor; the water surface is above it). This solves the occlusion NATURALLY (the
+        // water sits in a carved low spot — no lift needed). The carve is a LOCAL deliberate dip at the pond
+        // ONLY; outside PondBowlOuterRadius the height is UNCHANGED, so the seed-42 island silhouette / scatter /
+        // NavMesh elsewhere are untouched (asserted by the non-regression tests).
+        // ============================================================================================
+        // The pond centre in world XZ — MUST match MovementCameraScene.PondPosition (7,0,-3). The carve is
+        // centred here so the bowl sits exactly under the authored pond water disc + bank.
+        public const float PondCenterX = 7f;
+        public const float PondCenterZ = -3f;
+
+        // ===== RECESS GEOMETRY (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is on a little hill;
+        // recess it DOWN INTO the ground so the green collar sits at the SAME LEVEL as the surrounding
+        // terrain — I should walk on the green, not inside it") ===========================================
+        // The geometry decouples two depths:
+        //   RECESS (PondRecessKneeDeep) — how far the WATER SURFACE sits BELOW the surrounding ground plateau.
+        //   WADE  (PondWadeDepth)       — how deep the player standing on the bowl FLOOR is submerged (water − floor).
+        // The bowl FLOOR is carved RECESS + WADE below the plateau, so the water surface (floor + wade) lands
+        // exactly RECESS below the plateau.
+        //
+        // ROUND-9 RE-BALANCE (ticket 86cadj4g7 — Sponsor round-8 soak "step over the shore straight INTO knee-deep
+        // water — NO walkable dry slope"). The round-8 split (recess 0.75 + wade 0.45) put the water surface DEEP
+        // (0.75u) below the plateau, so the bowl wall had to climb 0.75u back up to the rim AFTER the waterline —
+        // a LONG GENTLE DRY SLOPE (the only NavMesh-traversable way up at the default 45° agent). THE TENSION
+        // (traced from the bake settings): the bowl wall must stay ≤ the 45° NavMesh agent max EVERYWHERE so the
+        // floor stays a CONNECTED walkable surface (the player wades in via the NavMeshAgent, MovementCameraScene
+        // ConfigureIslandNavSettings — a steeper lip would NOT bake → the floor becomes an unreachable island AND
+        // RoundIslandNavCoveragePlayModeTests loses pond coverage). A traversable wall + a DEEP recess can only fill
+        // ~0.74 of the mouth — the round-8 ceiling. To FILL the bowl to ≈0.90 of the mouth (the dispatch bar) WITH a
+        // traversable wall, the dry band (waterline→rim) must be SHORT, which means the RECESS must be small. The
+        // dispatch sanctioned this explicitly: "redefine SUNK as floor knee-deep BELOW the WATERLINE (the depth),
+        // not water surface low — the Sponsor wants the hole FILLED" + "Knee-deep depth 0.75u at the centre". So:
+        //   - WADE rises 0.45 → 0.75 (the dispatch's "knee-deep 0.75u at the centre" — the player stands 0.75u
+        //     submerged on the floor; the SUNK percept is now this DEPTH below the waterline, not a low surface).
+        //   - RECESS drops 0.75 → 0.30 (the water surface sits 0.30u below the plateau — still a sunk read, margin
+        //     0.30u > the rim guard's 0.05u on every azimuth — but shallow enough that the dry shore lip rising the
+        //     recess back to the rim is a SHORT THIN lip you STEP OVER (≈0.54u run, ≈40° — traversable, NavMesh
+        //     bakes it), NOT a long walkable dry slope).
+        // The floor still sits FloorDrop = 1.05u below the plateau — a genuinely recessed bowl. The PondNudge recess
+        // handle stays (PgUp/PgDn) for any future dial.
+        public const float PondRecessKneeDeep = 0.30f;   // RECESS: water surface 0.30u BELOW the plateau (#130 round 9 — short dry lip → high fill, traversable)
+        // The WADE / knee-deep DEPTH: how deep the player standing on the bowl FLOOR is submerged (water surface −
+        // floor) = the dispatch's "knee-deep 0.75u at the centre" (the SUNK percept as DEPTH below the waterline).
+        // Mirrored in WorldBootstrap.PondWaterDepthAboveFloor + MovementCameraScene.
+        public const float PondWadeDepth = 0.75f;
+        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau = RECESS + WADE = 0.30 + 0.75 = 1.05u — a
+        // genuinely recessed bowl (the water surface 0.30u below the plateau, the floor a further 0.75u below the
+        // water = knee-deep). (Was 1.20 at the round-8 recess 0.75 + wade 0.45.)
+        public const float PondBowlFloorDrop = PondRecessKneeDeep + PondWadeDepth; // 1.05
+        // The flat-ish bowl FLOOR extends to this radius from the pond centre — covers the whole organic water
+        // disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water everywhere the disc
+        // shows (the player stands knee-deep anywhere in the pool, not just dead centre). Just under the disc
+        // rim so the wall begins right at the disc edge (no wide exposed flat floor outside the disc).
+        public const float PondBowlInnerRadius = 3.0f;
+        // The bowl MOUTH (rim) radius — where the carved wall rises back to the UNDISTURBED plateau (carve 0).
+        // ROUND-9 TWO-SEGMENT wall (PondDepressionDelta): the wall is NO LONGER one even grade. It is split at the
+        // WATERLINE (PondWaterlineRadius ≈ 4.86u = 0.90 × this mouth) into a GENTLE submerged lower bowl
+        // (inner→waterline, carries the WADE drop 0.75u over ≈1.86u → ≈31° peak) + a SHORT DRY shore lip
+        // (waterline→mouth, the small recess drop 0.30u over ≈0.54u → ≈40° peak). BOTH segments stay under the 45°
+        // NavMesh agent max so the WHOLE wall BAKES and the bowl floor stays a CONNECTED walkable surface (the
+        // player wades in via the NavMeshAgent — a steeper un-bakeable lip would orphan the floor). The "no
+        // walkable dry slope" (Sponsor round-8) comes from the dry lip being SHORT (≈0.54u — a step-over), not
+        // steep. (PondBowl_WallTraversableForWadeIn_DryLipIsShort pins both.) Kept at 5.4u from round 8 (the mouth
+        // radius is the fill-fraction denominator).
+        public const float PondBowlOuterRadius = 5.4f;
+
+        // ===== WATERLINE RADIUS + FILL FRACTION (ticket 86cadj4g7 #130 ROUND 9 — Sponsor round-8 soak "STILL a
+        // walkable dry slope") ============================================================================
+        // ROUND-8 (single-grade wall) FILLED only ~0.68–0.74 of the bowl mouth: the wall ran the WHOLE 1.20u floor
+        // drop evenly across inner→outer (3.0→5.4u), so the waterline (carve == −recess) landed at ~4.0u = only
+        // ~0.74 of the 5.4u mouth — leaving a LONG GENTLE DRY SLOPE (4.0u→5.4u) the Sponsor walked DOWN into the
+        // water. THE ROUND-9 CAUSE-FIX is the WALL PROFILE (PondDepressionDelta below) + a RECESS/WADE re-balance:
+        // split into a SUBMERGED LOWER BOWL (gentle, floor→waterline) + a SHORT DRY SHORE LIP (waterline→rim), and
+        // drop the RECESS (water-below-plateau) 0.75 → 0.30 so the dry lip is SHORT (a step-over, not a slope) while
+        // BOTH segments stay under the 45° NavMesh agent max (the whole wall bakes → the floor stays a connected
+        // walkable surface the player wades into). The knee-deep DEPTH moves into the WADE (0.45 → 0.75).
+        //
+        // The waterline is now DEFINED as a fraction of the bowl mouth (no longer the byproduct of an even-grade
+        // wall): PondWaterlineFillFraction × PondBowlOuterRadius. The wall is then BUILT so carve(waterline) ==
+        // −PondRecessKneeDeep exactly (by construction — the lower-bowl segment ends at the waterline at the water
+        // surface level), so the visible shoreline lands at this radius. The disc must reach ≥ this on every
+        // azimuth (the round-7 fill guard still holds, now against the larger waterline). PUBLIC so the scene
+        // author feeds it to the drink-edge proximity (FreshwaterPond.pondSurfaceRadius) + the gate/tests anchor.
+        //
+        // 0.90 → waterline ≈ 4.86u (0.90 × 5.4u); the dry lip is just 5.4−4.86 = 0.54u — a thin traversable
+        // step-over. The -verifyPond FILL-TO-RIM gate now requires ≥ 0.88; 0.90 clears it with capture-noise margin.
+        public const float PondWaterlineFillFraction = 0.90f; // water reaches this fraction of the bowl mouth (#130 round 9)
+        // The VISIBLE shoreline radius — where the bowl wall rises to meet the knee-deep water surface. Derived
+        // from the fill fraction (NOT solved off an even-grade wall), and the wall is built so carve here ==
+        // −PondRecessKneeDeep exactly. Inward of it the floor/lower-wall is BELOW the water (wet); outward is the
+        // thin steep dry lip rising to the rim.
+        public static float PondWaterlineRadius => PondWaterlineFillFraction * PondBowlOuterRadius;
+
+        // SEA-HOLE CUT RADIUS (ticket 86cadj4g7 #130 ROUND 7). The sea plane is HOLED over the pond footprint so
+        // it can never render through the carved bowl (the PROVEN #130 white-ring source). ROUND 6 dropped only
+        // tris whose CENTROID was within PondBowlOuterRadius — but the open-sea grid is COARSE (WaterSeg 160 over
+        // 1400u → ~8.75u cells, each tri LARGER than the whole bowl), so a tri whose centroid sat just OUTSIDE
+        // 5.4u still BLANKETED the bowl from one side: a sea SLIVER survived at the waterline on the lobe
+        // (crescent) azimuths → 0.182 pale fraction at rNorm 0.30 (down from 0.215 but not 0). FIX (round 7):
+        // (1) drop a tri if the CLOSEST POINT on the triangle to the pond centre is within the cut radius — an
+        //     overlap test that catches edge/vertex slivers a centroid test is blind to (a tri straddling the
+        //     bowl mouth has all 3 verts outside yet an edge crossing the footprint); and
+        // (2) cut at PondBowlOuterRadius + a half sea-cell-diagonal of MARGIN so the overlap test has slack for
+        //     the organic rim lobes + the coarse grid's azimuth-dependent alignment (the crescent showed on ONE
+        //     side = an asymmetric grid straddle). The closest-point overlap test ALONE already guarantees no
+        //     retained tri reaches within the cut radius; the margin just sets that radius safely past the
+        //     waterline annulus (world ~3.4u) and the bowl mouth (5.4u). Still INLAND (pond centre is ~107u
+        //     inside the coast) + fully ringed by terrain above WaterY past PondBowlOuterRadius → the enlarged
+        //     hole is invisible (no sea-gap), it only removes the intruding-through-bowl tris. The salt sea
+        //     elsewhere (all coasts) is UNCHANGED. Computed from the grid constants so it tracks any future
+        //     WaterSeg / extent change. One sea cell = (WaterHalfExtent*2)/WaterSeg = 8.75u; half its diagonal ≈ 6.19u.
+        public static float SeaCellSize => (WaterHalfExtent * 2f) / WaterSeg;
+        public static float SeaHoleCutRadius => PondBowlOuterRadius + SeaCellSize * Mathf.Sqrt(2f) * 0.5f;
+
+        // ===== POND FOAM LEVELS (ticket 86cadj4g7 — Sponsor #130: "the pond should NOT foam like the sea") ==
+        // The pond's _FoamDistance on the FarHorizon/LowPolyWater shader (foam = saturate(1 - gap/distance)).
+        // Three discrete levels the live PondNudge [foam] handle cycles; the DEFAULT is OFF (a still pool).
+        public const float PondFoamOff     = 0.0f;   // DEFAULT: no foam ring — a still glassy fresh pool (#130)
+        public const float PondFoamLight   = 0.06f;  // a thin damp line hugging the bank only (≪ the 0.45u wade depth so the open disc never floods)
+        public const float PondFoamSeaLike = 1.5f;   // the sea's foam band width (for A/B only — reads wrong on a pond, but the Sponsor can see the contrast)
+        // The MASTER foam-amount gate (ticket 86cadj4g7 #130 re-soak — _FoamAmount on LowPolyWater.shader). OFF
+        // (0) zeroes the WHOLE foam term incl. the gap≈0 shoreline razor line that _FoamDistance=0 alone left;
+        // ON (1) lets _FoamDistance govern the band width. PondFoamAmountFor maps a foam STEP to its amount.
+        public const float PondFoamAmountOff = 0.0f;  // master OFF: zero foam anywhere (kills the shoreline ring)
+        public const float PondFoamAmountOn  = 1.0f;  // master ON: foam present, width per _FoamDistance
+        /// <summary>The master _FoamAmount for a given pond foam _FoamDistance: 0 (off) when the distance is the
+        /// OFF level, else 1 (the light/sea-like steps want foam, width per their distance). Keeps PondNudge +
+        /// MakePondMaterial in lockstep so a foam step drives BOTH _FoamDistance and _FoamAmount consistently.</summary>
+        public static float PondFoamAmountFor(float foamDistance) =>
+            foamDistance <= PondFoamOff + 1e-4f ? PondFoamAmountOff : PondFoamAmountOn;
+
+        /// <summary>
+        /// The pond-bowl depression DELTA (≤ 0, a downward carve) at world XZ — the local recess that turns the
+        /// flat pond plateau into a recessed BOWL (ticket 86cadj4g7). 0 outside PondBowlOuterRadius (the island
+        /// elsewhere is UNCHANGED — the seed-42 silhouette lock), reaches the full −PondBowlFloorDrop on the flat
+        /// floor inside PondBowlInnerRadius (below the water disc → knee-deep wade-in). Pure function of XZ
+        /// (deterministic, byte-stable capture). PUBLIC so the bowl-geometry + NavMesh-coverage tests sample it.
+        ///
+        /// ROUND-9 TWO-SEGMENT WALL (ticket 86cadj4g7 — Sponsor round-8 soak "step over the shore straight INTO
+        /// knee-deep water — NO walkable dry slope"). The wall is split at the WATERLINE (PondWaterlineRadius =
+        /// fill-fraction × mouth ≈ 4.86u) into:
+        ///   (1) a SUBMERGED LOWER BOWL [inner, waterline]: smoothstep from the floor (−PondBowlFloorDrop) up to
+        ///       the WATER-SURFACE level (−PondRecessKneeDeep). This whole segment is BELOW the water, so it is
+        ///       wet/covered — and it carries the WADE drop (PondWadeDepth = 0.75u, the knee-deep depth) over a
+        ///       LONG run (inner→waterline ≈ 1.86u) → a GENTLE slope (≈31° peak) the NavMesh covers (the player
+        ///       wades in down this submerged grade).
+        ///   (2) a SHORT DRY SHORE LIP [waterline, outer]: smoothstep from the water-surface level
+        ///       (−PondRecessKneeDeep) up to the undisturbed plateau (0) over the SHORT remaining run
+        ///       (waterline→outer ≈ 0.54u). It carries only the SMALL recess (0.30u) → ≈40° peak — UNDER the 45°
+        ///       NavMesh agent max so it STILL BAKES (the whole wall stays a connected walkable surface — a steeper
+        ///       un-bakeable lip would orphan the floor + break wade-in/coverage). The "no walkable dry slope"
+        ///       comes from this dry lip being SHORT (a step-over), NOT steep — it is the ONLY dry band and it is thin.
+        /// carve(waterline) == −PondRecessKneeDeep EXACTLY (the segments meet there), so the visible shoreline
+        /// lands at PondWaterlineRadius (= the chosen fill fraction of the mouth) by construction. Monotonic
+        /// (each segment rises with radius), so the derived waterline is exact (no bisection needed).
+        /// </summary>
+        public static float PondDepressionDelta(float wx, float wz)
+        {
+            float dx = wx - PondCenterX, dz = wz - PondCenterZ;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            if (d >= PondBowlOuterRadius) return 0f;            // undisturbed terrain past the bowl mouth
+            if (d <= PondBowlInnerRadius) return -PondBowlFloorDrop; // the flat bowl floor (full depth)
+
+            float waterline = PondWaterlineRadius;              // = fill-fraction × mouth (the segment split point)
+            if (d <= waterline)
+            {
+                // SUBMERGED LOWER BOWL: floor (−FloorDrop at inner) → water surface (−RecessKneeDeep at waterline).
+                // Gentle: it spans the WADE drop (FloorDrop − recess = PondWadeDepth) over the long inner→waterline run.
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlInnerRadius, waterline, d));
+                return Mathf.Lerp(-PondBowlFloorDrop, -PondRecessKneeDeep, t);
+            }
+            // SHORT DRY SHORE LIP: water surface (−RecessKneeDeep at waterline) → plateau (0 at outer). It spans
+            // only the small recess drop over the SHORT waterline→outer run → a thin traversable lip you step over.
+            float lt = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(waterline, PondBowlOuterRadius, d));
+            return Mathf.Lerp(-PondRecessKneeDeep, 0f, lt);
+        }
+
+        // ===== POND-RIM HILL FLATTEN (ticket 86cadj4g7 #130 re-soak — the ASYMMETRIC-MOUND root cause) =========
+        // DIAGNOSIS (diagnose-via-trace, confirmed numerically): the bowl carve is a FIXED −PondBowlFloorDrop and
+        // GroundPondInBowl raycasts only the CENTRE floor, but the multi-octave Perlin HILLS (IslandHillAmp 9.0)
+        // still contribute up to ~0.54u of elevation INSIDE the pond footprint (the spawn-flatten holds hillDamp
+        // at 0.06 here, but 0.06·9.0·1 ≈ 0.54u) — and that hill height VARIES azimuthally across the 9.6u-wide
+        // footprint. So the surrounding RIM terrain is NOT a uniform plateau: on an azimuth where the rim's hill
+        // sits >PondWadeDepth (0.45u) BELOW the centre's hill, the centre-grounded water surface lands ABOVE that
+        // rim → a one-sided MOUND (the #130 capture: pond_b yaw=70° bulged, pond_c yaw=-70° read sunk = ASYMMETRY).
+        // FIX (cause, not metric): flatten the HILL contribution to a single uniform value across the pond
+        // footprint so the rim is one consistent plateau on EVERY azimuth; then the fixed carve + centre-grounding
+        // puts the water below the rim on all sides — a true hole. The hills fade back in across a short collar
+        // band [PondBowlOuterRadius, PondBowlOuterRadius + PondRimFlattenFade] so there is NO hard crease at the
+        // mouth, and the island is byte-IDENTICAL beyond that band (seed-42 silhouette lock — the flatten is 1.0
+        // there, a no-op). The fade band is the ONLY new terrain delta vs c7da32d outside the bowl; it is local,
+        // small, and tracked by the non-regression test (zero at FarAway, full flatten inside the mouth).
+        public const float PondRimFlattenFade = 3.0f; // u of collar over which the hills fade back in past the bowl mouth
+
+        /// <summary>
+        /// Hill-LEVELLING blend weight at world XZ for the pond footprint (1 = full per-vertex hills, 0 = the hill
+        /// height is fully levelled toward FootprintHillLevel — the LOCAL surrounding ground level). 0 inside
+        /// PondBowlOuterRadius (the footprint is a uniform plateau AT the local ground level → no asymmetric mound
+        /// AND no raised fade-ramp rim), eases to 1 over the fade collar, and is EXACTLY 1 beyond it (the island is
+        /// byte-unchanged — seed-42 lock). PUBLIC so the flush-rim non-regression tests sample it. Pure function of
+        /// XZ (deterministic; byte-stable capture). NOTE: at weight 0 the footprint is NOT pulled to baseH=0.15 (the
+        /// earlier defect that left the surrounding hills rising above it as a shadow-casting rim) — it is levelled
+        /// to FootprintHillLevel so the footprint sits AT the local ground and the fade band is nearly flat.
+        /// </summary>
+        public static float PondHillFlatten(float wx, float wz)
+        {
+            float dx = wx - PondCenterX, dz = wz - PondCenterZ;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            if (d <= PondBowlOuterRadius) return 0f;                              // inside the bowl mouth: levelled
+            float fadeEnd = PondBowlOuterRadius + PondRimFlattenFade;
+            if (d >= fadeEnd) return 1f;                                          // beyond the collar: full hills (island unchanged)
+            return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d));
+        }
+
+        // ===== POND COLLAR PAINT (ticket 86cadj4g7 #130 ROUND 5) — replaces the removed raised PondBank mesh =====
+        // The Sponsor's redesign: REMOVE the raised collar ring mesh (the PROVEN white-shoreline-ring source —
+        // its draped wall facets read pale/washed under the warm key) and PAINT a FLAT darker-green ring directly
+        // into the terrain vertex colour around the pond bowl, so the player walks on green AT GROUND LEVEL with
+        // no raised geometry + no shadow lip. The band covers the bowl WALL + MOUTH (where the old collar mesh
+        // sat) plus a short fade past the mouth so the darker green eases into the surrounding grass with no hard
+        // seam. Inner edge starts at the water rim (PondBowlInnerRadius — under the disc, never seen) so the
+        // green reads as the bank framing the pool. ZERO past the fade so the seed-42 grass elsewhere is
+        // UNCHANGED. Pure function of XZ (deterministic; byte-stable capture).
+        public const float PondCollarPaintFade = 1.4f; // u past the bowl mouth over which the darker green eases into grass
+        /// <summary>
+        /// The pond-collar paint WEIGHT at world XZ (0 = pure surrounding grass, 1 = full PondCollarGreen). 1 across
+        /// the bowl wall + mouth band [PondBowlInnerRadius, PondBowlOuterRadius], eases to 0 over a short fade past
+        /// the mouth, EXACTLY 0 beyond it (seed-42 grass unchanged) AND 0 well inside the inner radius (under the
+        /// water disc — no need to paint where the water hides it). PUBLIC so the collar-paint guard samples it.
+        /// </summary>
+        public static float PondCollarPaintWeight(float wx, float wz)
+        {
+            float dx = wx - PondCenterX, dz = wz - PondCenterZ;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            float fadeEnd = PondBowlOuterRadius + PondCollarPaintFade;
+            if (d >= fadeEnd) return 0f;                                  // beyond the fade: pure grass (seed-42 lock)
+            if (d <= PondBowlInnerRadius) return 1f;                      // the bowl wall under/around the rim: full collar
+            if (d <= PondBowlOuterRadius) return 1f;                      // wall + mouth band: full collar green
+            return 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d)); // ease into grass
+        }
+
+        /// <summary>
+        /// The damped multi-octave HILL height at world XZ (factored out of HeightAtRadial so the pond footprint
+        /// levelling can sample the SAME hill field). Includes the landMask² interior-only fade and the spawn-
+        /// flatten near-origin damping (0.06 within ~16u, easing to full by ~32u). <paramref name="landMask"/> and
+        /// <paramref name="r"/> are passed in (the caller already computed them) so this is a pure arithmetic
+        /// helper, not a re-derivation. Deterministic → byte-stable capture.
+        /// </summary>
+        public static float HillHeightAt(float wx, float wz, float ox, float oz, float landMask, float r)
+        {
+            float hill = (Mathf.PerlinNoise(ox + wx * 0.012f, oz + wz * 0.012f) - 0.5f) * 2f * 0.62f
+                       + (Mathf.PerlinNoise(ox + wx * 0.030f, oz + wz * 0.030f) - 0.5f) * 2f * 0.28f
+                       + (Mathf.PerlinNoise(ox + wx * 0.075f, oz + wz * 0.075f) - 0.5f) * 2f * 0.10f;
+            float hillH = (hill * 0.5f + 0.5f) * IslandHillAmp * landMask * landMask;
+            // SPAWN-FLATTEN: keep the immediate spawn + loop centre gentle (loop objects sit level, click-move
+            // clean). Holds out to ~16u then eases the hills in over the next ~16u.
+            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r));
+            return hillH * (0.06f + 0.94f * spawnFlat);
+        }
+
+        /// <summary>
+        /// The single UNIFORM hill height the pond footprint is levelled to (ticket 86cadj4g7 #130 re-soak — the
+        /// elevated-collar/berm fix). = the average damped hill height around a representative RING just OUTSIDE
+        /// the bowl mouth, so the levelled footprint plateau sits at the LOCAL surrounding ground level (not the
+        /// bare baseH). Averaging over azimuth gives ONE deterministic value (kills the asymmetric mound) that
+        /// tracks the actual local terrain (kills the raised fade-ramp rim) — the two #130 defects reconciled.
+        /// The ring is at PondBowlOuterRadius + half the fade (~6.3u): inside the spawn-flat zone (r&lt;16 from
+        /// origin) where the pond sits, this samples the same damped-hill regime the surrounding grass shows.
+        /// Pure function of the seed offset (no per-vertex term) → ONE constant per island, byte-stable.
+        /// </summary>
+        public static float FootprintHillLevel(float ox, float oz)
+        {
+            // Sample the damped hill on a ring at the fade midpoint, averaged over azimuth → the representative
+            // local ground level the footprint should match. landMask is 1 here (the pond is deep interior, r≈7.6
+            // ≪ IslandCoreR=78). r (from world origin) is recomputed per sample for the spawn-flatten damping.
+            const int samples = 16;
+            float ringR = PondBowlOuterRadius + PondRimFlattenFade * 0.5f;   // ~6.3u from the pond centre
+            float sum = 0f;
+            for (int i = 0; i < samples; i++)
+            {
+                float a = i / (float)samples * Mathf.PI * 2f;
+                float wx = PondCenterX + Mathf.Cos(a) * ringR;
+                float wz = PondCenterZ + Mathf.Sin(a) * ringR;
+                float rFromOrigin = Mathf.Sqrt(wx * wx + wz * wz);
+                sum += HillHeightAt(wx, wz, ox, oz, 1f, rFromOrigin);
+            }
+            return sum / samples;
+        }
 
         /// <summary>
         /// Build a low-poly smooth-shaded zone: a height-varied terrain MESH (dunes near the shore
@@ -458,18 +769,34 @@ namespace FarHorizon.EditorTools
 
             // HILLS: multi-octave Perlin elevation over the LAND interior only (faded off by landMask so the
             // beach strip + waterline stay flat/clean). World-space noise (ox/oz) — deterministic + continuous.
-            float hill = (Mathf.PerlinNoise(ox + wx * 0.012f, oz + wz * 0.012f) - 0.5f) * 2f * 0.62f
-                       + (Mathf.PerlinNoise(ox + wx * 0.030f, oz + wz * 0.030f) - 0.5f) * 2f * 0.28f
-                       + (Mathf.PerlinNoise(ox + wx * 0.075f, oz + wz * 0.075f) - 0.5f) * 2f * 0.10f;
-            float hillH = (hill * 0.5f + 0.5f) * IslandHillAmp * landMask * landMask;
+            // Damped by the same spawn-flatten the footprint level uses (factored into HillHeightAt).
+            float hillH = HillHeightAt(wx, wz, ox, oz, landMask, r);
 
-            // SPAWN-FLATTEN: keep the immediate spawn + loop centre gentle (loop objects sit level, click-move
-            // clean). Holds out to ~16u then eases the hills in over the next ~16u.
-            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r));
-            hillH *= (0.06f + 0.94f * spawnFlat);
+            // POND-RIM HILL LEVELLING (ticket 86cadj4g7 #130 re-soak — the asymmetric-mound fix AND the elevated-
+            // collar/berm fix in ONE). Inside the pond footprint, LEVEL the per-vertex hill height toward a single
+            // uniform value = the LOCAL surrounding hill height (FootprintHillLevel), so:
+            //  (1) the footprint is a UNIFORM plateau on EVERY azimuth → the centre-grounded water sits below the
+            //      rim on all sides (no one-sided mound — the original #130 fix intent), AND
+            //  (2) that plateau sits at the LOCAL SURROUNDING ground level (not pulled down to the bare baseH=0.15
+            //      while the hilly surroundings stay ~0.40) → the fade band from footprint to surroundings is
+            //      nearly FLAT, with NO rising rim/lip encircling the pond. The earlier fix levelled toward ZERO
+            //      hill (a 0.15 plateau), so the surrounding hills (~0.40) rose ABOVE it across the fade collar —
+            //      a raised green rim casting an inner shadow (the #130 re-soak "green elevated with shadow").
+            // PondHillFlatten is the blend weight (0 = fully levelled to the local value inside the mouth; 1 = full
+            // per-vertex hills beyond the fade collar). Byte-IDENTICAL beyond the collar (weight 1 = no-op → seed-42
+            // lock). The fade band is the ONLY terrain delta vs the locked island outside the bowl.
+            float flatten = PondHillFlatten(wx, wz);                          // 1 = local hills, 0 = uniform level
+            float footprintLevel = FootprintHillLevel(ox, oz);               // the LOCAL surrounding hill level
+            hillH = Mathf.Lerp(footprintLevel, hillH, flatten);              // level toward the LOCAL ground (not 0)
 
             // Hills only ADD on the interior land (not on the beach strip / past the coast).
             if (r < coast - BeachWidth) h += hillH;
+
+            // FRESHWATER-POND BOWL (ticket 86cadj4g7): carve a local recessed bowl at the pond so the water sits
+            // in a visible low spot (the player wades in knee-deep). A downward delta (≤0) centred on the pond
+            // XZ, 0 outside PondBowlOuterRadius → the island elsewhere is UNCHANGED (seed-42 silhouette lock).
+            // Applied LAST so the dip rides on top of whatever land/hill height is here (the carve is relative).
+            h += PondDepressionDelta(wx, wz);
 
             return h;
         }
@@ -521,6 +848,15 @@ namespace FarHorizon.EditorTools
             float foamDist = Mathf.Abs(r - coast);
             float foamT = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((foamDist - 3.0f) / 5.5f));
             c = Color.Lerp(c, FoamEdge, foamT * 0.95f * (1f - cliffy * 0.55f));
+
+            // POND COLLAR (ticket 86cadj4g7 #130 ROUND 5): paint the FLAT darker-green ring into the terrain
+            // around the pond bowl (replaces the removed raised PondBank mesh — the PROVEN white-ring source).
+            // Applied AFTER the foam blend so the (inland) pond collar is never washed by the coastal foam (the
+            // pond sits at r≈7.6, far from any coast → foamT≈0 here anyway) and BEFORE the value jitter so the
+            // collar green still gets the per-facet liveliness step. Painted on the terrain vertex colour = NO
+            // raised geometry, NO shadow lip — the player walks on the green at ground level.
+            float collarW = PondCollarPaintWeight(wx, wz);
+            if (collarW > 0f) c = Color.Lerp(c, PondCollarGreen, collarW);
 
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
             float j = (Hash01(Mathf.RoundToInt(wx * 13f), Mathf.RoundToInt(wz * 13f), seed) - 0.5f) * 0.10f;
@@ -596,6 +932,12 @@ namespace FarHorizon.EditorTools
             // ---- ROCK OUTCROPS on the hills ----
             // Clustered boulders, biased toward the higher inland ground (the hill rock reads elevation).
             // Natural piles (2-4 each), spawn-clear, across the disc.
+            // GRASS-IN-STONE FIX (ticket 86cadj4g7, Sponsor #130 soak): record each placed rock's XZ + footprint
+            // radius so the grass loop below can REJECT any tuft that would land inside a boulder (the defect:
+            // independent RNG draws let grass sprout through a stone). FacetedRock has base radius ~0.55u; the
+            // rock's world footprint ≈ 0.55 × scale. Recording consumes NO extra rnd draws, so the seed-42
+            // tree/rock placement is byte-identical (only overlapping GRASS candidates are now skipped).
+            var rockFootprints = new List<Vector4>(64); // (x, z, radius, _) per placed rock
             int rockTarget = 60, rocksPlaced = 0, rockGuard = 0;
             while (rocksPlaced < rockTarget && rockGuard++ < rockTarget * 8)
             {
@@ -611,11 +953,17 @@ namespace FarHorizon.EditorTools
                     if (!OnLandmass(x, z)) continue;             // warped coast (reject sea / beach strip)
                     float scale = 0.55f + (float)rnd.NextDouble() * 1.0f;
                     BuildRock(parent, GroundPoint(groundCol, x, z), scale, rnd);
+                    rockFootprints.Add(new Vector4(x, z, RockFootprintRadius * scale, 0f));
                     rocksPlaced++;
                 }
             }
 
             // ---- GRASS TUFTS — dense ground cover across the interior, sparse at the coast. ----
+            // GRASS-IN-STONE FIX (ticket 86cadj4g7): reject any candidate that lands inside a placed boulder's
+            // footprint (+ GrassRockPad margin) BEFORE building it — so grass never sprouts through a stone. A
+            // linear scan over the ≤60 recorded rocks per candidate is cheap (≤ 60×360 ≈ 22k planar checks at
+            // bootstrap, editor-time only). The candidate is still DRAWN from rnd in the same order (the reject
+            // is a `continue` like the existing land/density rejects), so the seed-42 stream stays consistent.
             int clumpTarget = 360, clumpsPlaced = 0, clumpGuard = 0;
             while (clumpsPlaced < clumpTarget && clumpGuard++ < clumpTarget * 6)
             {
@@ -625,6 +973,7 @@ namespace FarHorizon.EditorTools
                 if (!OnLandmass(x, z)) continue;                 // warped coast (reject sea / beach strip)
                 float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
                 if (rnd.NextDouble() > Mathf.Clamp01(0.25f + inlandT * 0.7f)) continue;
+                if (OverlapsAnyRock(rockFootprints, x, z)) continue; // no grass sprouting through a stone (#130)
                 BuildGrassClump(parent, GroundPoint(groundCol, x, z),
                     0.5f + (float)rnd.NextDouble() * 0.5f, rnd);
                 clumpsPlaced++;
@@ -789,6 +1138,32 @@ namespace FarHorizon.EditorTools
                 MakeFlatColorMat(blade, "LPGrassMat"));
         }
 
+        // ---- GRASS-IN-STONE FIX (ticket 86cadj4g7, Sponsor #130 soak) ----
+        // FacetedRock(0.55) base radius — the boulder's world footprint ≈ this × the rock's scale. Public so the
+        // overlap-rejection test can size a rock + assert grass placed inside it is rejected.
+        public const float RockFootprintRadius = 0.55f;
+        // Extra margin past a boulder's footprint within which grass is rejected — so a tuft doesn't even brush
+        // the stone's edge (a tuft is ~0.5u wide). Tuned so grass keeps a visible gap to the rock.
+        public const float GrassRockPad = 0.35f;
+
+        /// <summary>
+        /// True if planar XZ point (<paramref name="x"/>,<paramref name="z"/>) falls inside ANY recorded rock's
+        /// footprint (+ GrassRockPad) — the reject test that keeps grass from sprouting through a boulder
+        /// (ticket 86cadj4g7). <paramref name="rockFootprints"/> entries are (x, z, radius, _). PUBLIC so the
+        /// overlap-rejection EditMode test drives it directly with a synthetic rock list.
+        /// </summary>
+        public static bool OverlapsAnyRock(List<Vector4> rockFootprints, float x, float z)
+        {
+            for (int i = 0; i < rockFootprints.Count; i++)
+            {
+                Vector4 f = rockFootprints[i];
+                float dx = x - f.x, dz = z - f.y;
+                float reach = f.z + GrassRockPad;
+                if (dx * dx + dz * dz < reach * reach) return true;
+            }
+            return false;
+        }
+
         static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat)
         {
             var go = new GameObject(name);
@@ -947,8 +1322,28 @@ namespace FarHorizon.EditorTools
             var cols = new List<Color>();
             var normals = new List<Vector3>();
             var tris = new List<int>();
+            // POND-FOOTPRINT CUTOUT (ticket 86cadj4g7 #130 ROUND 6 — the PROVEN white-ring source). The sea is a
+            // world-spanning plane at WaterY (-0.20); inland it is hidden UNDER the terrain — EXCEPT the freshwater
+            // pond bowl, carved DOWN to its floor (water surface -0.35, 0.15u BELOW WaterY since the #130 recess
+            // deepened to 0.75u). There the sea plane is EXPOSED inside the bowl and its teal+foam reads as a PALE
+            // WHITE RING around the pond from overhead — the white the Sponsor kept soaking. Toggle-isolation PROVED
+            // it (diag run: sea-plane-OFF dropped the overhead annulus-white 0.215 -> 0.000; bloom-off + collar-
+            // removed both LEFT it). FIX: HOLE the sea plane over the pond footprint — skip any sea triangle whose
+            // centroid falls within the pond bowl (PondBowlOuterRadius, where the terrain rises back above WaterY
+            // and re-hides the sea), so the sea can never show through the bowl. The hole is inland + fully ringed
+            // by terrain above WaterY, so it is invisible (no sea-gap) — it only removes the intruding-through-bowl
+            // tris. The salt sea elsewhere (the coast, all sides) is UNCHANGED.
             void EmitTri(int a, int b, int c2)
             {
+                // Cut the sea hole over the pond bowl: drop the triangle if it OVERLAPS the pond footprint (the
+                // sea must not render through the recessed bowl — the #130 white-ring source). ROUND 7: an
+                // OVERLAP test (closest point on the triangle to the pond centre within SeaHoleCutRadius), NOT
+                // the round-6 CENTROID test — the coarse ~8.75u sea cells are larger than the whole bowl, so a
+                // tri whose centroid sat just outside the cut radius still blanketed the bowl from one side
+                // (the crescent sliver, 0.182 pale). The XZ closest-point-on-triangle distance catches any tri
+                // whose vertex OR edge crosses the footprint, on every azimuth.
+                if (SeaTriOverlapsPondFootprint(gridPos[a], gridPos[b], gridPos[c2])) return;
+
                 Vector3 p0 = gridPos[a], p1 = gridPos[b], p2 = gridPos[c2];
                 Vector3 fn = Vector3.Cross(p1 - p0, p2 - p0);
                 if (fn.sqrMagnitude < 1e-12f) return;
@@ -990,7 +1385,67 @@ namespace FarHorizon.EditorTools
             mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
             Debug.Log($"[world-trace] BuildIslandWater built all-sides sea plane (half-extent {WaterHalfExtent:F0}u, " +
-                      $"radial foam ring at r={IslandShoreR:F0}u, {verts.Count} verts)");
+                      $"radial foam ring at r={IslandShoreR:F0}u, {verts.Count} verts, " +
+                      $"pond hole r={SeaHoleCutRadius:F2}u closest-point overlap)");
+        }
+
+        /// <summary>
+        /// True if the sea triangle (a,b,c) OVERLAPS the pond footprint — i.e. the XZ closest point on the
+        /// triangle to the pond centre is within <see cref="SeaHoleCutRadius"/>. Used to HOLE the sea plane over
+        /// the recessed pond bowl (ticket 86cadj4g7 #130 ROUND 7). Unlike a centroid test, this catches a coarse
+        /// sea tri whose vertices all sit OUTSIDE the cut radius but whose EDGE crosses the footprint (the
+        /// crescent-sliver class on lobe azimuths). Pure XZ math (the sea + pond are both axis-flat at their own
+        /// Y), deterministic — testable in EditMode against the shipped mesh.
+        /// </summary>
+        public static bool SeaTriOverlapsPondFootprint(Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector2 centre = new Vector2(PondCenterX, PondCenterZ);
+            Vector2 pa = new Vector2(a.x, a.z), pb = new Vector2(b.x, b.z), pc = new Vector2(c.x, c.z);
+            float d2 = ClosestPointOnTriangleSqDist(centre, pa, pb, pc);
+            float r = SeaHoleCutRadius;
+            return d2 <= r * r;
+        }
+
+        /// <summary>Squared distance from point <paramref name="p"/> to the closest point on triangle
+        /// (a,b,c), all in 2D (XZ). Standard Ericson "Real-Time Collision Detection" barycentric region
+        /// decomposition — returns 0 when p is inside the triangle. No allocations.</summary>
+        private static float ClosestPointOnTriangleSqDist(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        {
+            // Check voronoi region of vertex a.
+            Vector2 ab = b - a, ac = c - a, ap = p - a;
+            float d1 = Vector2.Dot(ab, ap), d2 = Vector2.Dot(ac, ap);
+            if (d1 <= 0f && d2 <= 0f) return ap.sqrMagnitude;
+            // Vertex b.
+            Vector2 bp = p - b;
+            float d3 = Vector2.Dot(ab, bp), d4 = Vector2.Dot(ac, bp);
+            if (d3 >= 0f && d4 <= d3) return bp.sqrMagnitude;
+            // Edge ab.
+            float vc = d1 * d4 - d3 * d2;
+            if (vc <= 0f && d1 >= 0f && d3 <= 0f)
+            {
+                float v = d1 / (d1 - d3);
+                return (p - (a + v * ab)).sqrMagnitude;
+            }
+            // Vertex c.
+            Vector2 cp = p - c;
+            float d5 = Vector2.Dot(ab, cp), d6 = Vector2.Dot(ac, cp);
+            if (d6 >= 0f && d5 <= d6) return cp.sqrMagnitude;
+            // Edge ac.
+            float vb = d5 * d2 - d1 * d6;
+            if (vb <= 0f && d2 >= 0f && d6 <= 0f)
+            {
+                float w = d2 / (d2 - d6);
+                return (p - (a + w * ac)).sqrMagnitude;
+            }
+            // Edge bc.
+            float va = d3 * d6 - d5 * d4;
+            if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
+            {
+                float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                return (p - (b + w * (c - b))).sqrMagnitude;
+            }
+            // Inside the triangle's face region → distance 0.
+            return 0f;
         }
 
         // ---- Materials ----
@@ -1235,13 +1690,21 @@ namespace FarHorizon.EditorTools
                 // sea's teal-vs-sky fog-floor is irrelevant — 0 lets normal fog apply + avoids a faint over-
                 // bright cast up close.
                 if (mat.HasProperty("_FogCap")) mat.SetFloat("_FogCap", 0f);          // 0.5 sea -> 0 (no sea<->sky seam at pond range)
-                // FOAM/EDGE delta (Uma §1c): keep the shared depth-fade foam ON (the pond meets its bank like
-                // the sea meets the beach) but TIGHT — a thin damp line hugging the bank, not a wide surf band.
-                // Same warm FoamEdge constant (reads as a damp bank as readily as surf; no new colour, per
-                // lowpoly-quality §1 don't-drift-FoamEdge). NO static surf RING is baked into the pond mesh
-                // (BuildPondWaterMesh omits it) — a pond has no wave-break.
+                // FOAM/EDGE delta — FOAM OFF (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond water should
+                // NOT foam like the sea; the freshwater pond must be STILL, no foam ring"). The SEA keeps its
+                // foam; only the POND loses it. ⚠ #130 RE-SOAK FIX: _FoamDistance == 0 is NOT sufficient. The
+                // mask is foam = saturate(1 - gap/max(_FoamDistance,0.001)); for any gap > 0.001u it is 0 (no
+                // open-water foam), BUT at the EXACT shoreline (water grazes the bank → gap → 0) it is still 1.0
+                // — a razor-thin WHITE intersection line surviving along the whole bank (the white foam ring the
+                // Sponsor STILL saw with the HUD showing FOAM:OFF). The real OFF switch is the master _FoamAmount
+                // gate (LowPolyWater.shader): _FoamAmount == 0 zeroes the WHOLE foam term — colour AND alpha —
+                // including those gap≈0 pixels, so OFF means ZERO foam anywhere on the pond. The SEA never sets
+                // _FoamAmount (defaults to 1) so it is untouched. _FoamDistance is set to PondFoamOff (0) too for
+                // consistency, but _FoamAmount is what actually removes the shoreline ring. The live PondNudge
+                // [foam] handle drives BOTH (off → amount 0; light/sea-like → amount 1 + distance 0.06/1.5).
                 if (mat.HasProperty("_FoamColor"))    mat.SetColor("_FoamColor", FoamEdge);
-                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", 0.6f); // 1.5 sea -> 0.6 (crisp pond edge)
+                if (mat.HasProperty("_FoamDistance")) mat.SetFloat("_FoamDistance", PondFoamOff); // 0 = no band width
+                if (mat.HasProperty("_FoamAmount"))   mat.SetFloat("_FoamAmount", PondFoamAmountOff); // 0 = master OFF (kills the shoreline ring too)
                 if (mat.HasProperty("_WaterAlpha"))   mat.SetFloat("_WaterAlpha", 1f);     // solid coloured sheet (no modelled bottom — OOS)
             }
             else
@@ -1256,16 +1719,58 @@ namespace FarHorizon.EditorTools
             return mat;
         }
 
+        // ===== ORGANIC POND OUTLINE (ticket 86cadj4g7, Sponsor 2026-06-24 "the pond should not be perfectly
+        // round"; memory pond-organic-not-round) =====================================================
+        // The pond outline must read ORGANIC — a natural blob / kidney / lily-pad lobe matching the organic
+        // island (memory world-is-big-round-island) — NOT a clean geometric circle. We perturb the per-vertex
+        // rim RADIUS by a smooth, low-frequency angular noise (a sum of a few sinusoids with irrational
+        // frequencies + fixed phases). Low frequency = soft LOBES (natural + slightly kidney-shaped), never
+        // jagged/spiky. The function is DETERMINISTIC (a pure function of the angle — no RNG) so the capture
+        // stays byte-stable (BuildPondWaterMesh_IsDeterministic guards this) and so the WATER disc and the
+        // grassy BANK ring share the SAME outline (both call this) — the bank keeps framing the water with no
+        // gap/poke-through. Amplitude is BOUNDED (±~18%): the pond sits on the FLAT spawn-plateau (r<16; the
+        // pond centre is at world (7,-3) ⇒ r≈7.6, max reach with bank ≈13.8 (disc 6.1u×1.18) ≪ 16), so the rim
+        // stays within the flat zone where the carved BOWL (WorldBootstrap.GroundPondInBowl + PondDepressionDelta)
+        // recesses the whole pond — the water disc fills the bowl to the steep-lip waterline (≈4.86u) around the
+        // whole irregular rim, its overshoot submerged in the lip + terrain-occluded (⚠ -verifyPond samples
+        // frame-CENTRE only, so this whole-rim recessing is enforced here by construction, not by the gate). The
+        // bounded amplitude keeps every rim vert at r > 0 (a positive radius) so the outline never self-crosses,
+        // AND keeps the disc MIN reach (6.1u×0.82 = 5.00u) clear of the waterline (≈4.86u) on every lobe so no
+        // azimuth leaves a dry crescent (the round-7/8 fill defect; Pond_WaterDisc_FillsTheCarvedBowl guards it).
+        //
+        // PER-VERTEX MULTIPLIER in [1-AMP*..., 1+AMP*...]; the three terms give 3 + 2 + 1 = soft compound lobes
+        // around the ring without any single dominant axis (reads as a found natural pool, not an ellipse).
+        const float PondRimNoiseAmp = 0.18f;   // ±18% radius wobble — clearly organic, never spiky at this low freq
+        /// <summary>
+        /// Deterministic organic-rim radius multiplier for the pond outline at angle <paramref name="ang"/>
+        /// (radians). Shared by the water disc + the bank ring so they stay concentric/lobed together. Pure
+        /// function of the angle (no RNG) — byte-stable capture. Returns a factor near 1.0 (±~PondRimNoiseAmp),
+        /// always > 0, smoothly varying (low-frequency sinusoids → soft lobes, not jagged teeth).
+        /// </summary>
+        public static float PondRimFactor(float ang)
+        {
+            // Irrational-ish frequencies + fixed phases → a non-repeating soft blob over [0,2π). Weighted so the
+            // 3-lobe term dominates (the kidney/lily-pad read), the 5-lobe adds a gentle secondary wobble, the
+            // 2-lobe gives a slight overall elongation. Sum is bounded by the weight total (1.0) ⇒ factor in
+            // [1-AMP, 1+AMP]. Low max frequency (5) keeps adjacent rim verts close in radius → smooth, not spiky.
+            float n = 0.60f * Mathf.Sin(ang * 3f + 0.7f)
+                    + 0.25f * Mathf.Sin(ang * 5f + 2.3f)
+                    + 0.15f * Mathf.Sin(ang * 2f + 4.1f);
+            return 1f + PondRimNoiseAmp * n;
+        }
+
         /// <summary>
         /// Build the FRESHWATER POND water-surface mesh (ticket 86caamkv7 / Uma §1a): a flat faceted disc of
-        /// radius <paramref name="radius"/> with a bank(shallow)->centre(deep) vertex-colour gradient
+        /// nominal radius <paramref name="radius"/> with an ORGANIC/IRREGULAR rim (PondRimFactor — Sponsor "not
+        /// perfectly round", ticket 86cadj4g7) and a bank(shallow)->centre(deep) vertex-colour gradient
         /// (PondShallow -> PondDeep), faces UP (+Y) so the orbit camera above sees it (the same winding/cull
         /// contract the sea grid honours — a fan disc wound CCW-from-above is front-facing under URP Cull Back).
         /// NO static surf ring (a pond has no wave-break — the dynamic depth-fade foam at the bank is the whole
-        /// foam story, Uma §1c). UNWELDED flat facets so the low-poly faceting reads. Public so the scene
-        /// author (MovementCameraScene.BuildFreshwaterPond) + tests build it.
+        /// foam story, Uma §1c). UNWELDED flat facets so the low-poly faceting reads. More <paramref name="sides"/>
+        /// than the old circle (the lobes need enough segments to read smoothly faceted, not coarse). Public so
+        /// the scene author (MovementCameraScene.BuildFreshwaterPond) + tests build it.
         /// </summary>
-        public static Mesh BuildPondWaterMesh(float radius, int sides = 14)
+        public static Mesh BuildPondWaterMesh(float radius, int sides = 22)
         {
             sides = Mathf.Max(8, sides);
             var verts = new List<Vector3>();
@@ -1273,17 +1778,21 @@ namespace FarHorizon.EditorTools
             var normals = new List<Vector3>();
             var tris = new List<int>();
 
-            // A radial fan: a centre vert (deep) + a ring of rim verts (shallow). Each triangle is its own
-            // UNWELDED facet so the faceting reads (sibling of the sea's per-face emit). The gradient runs
-            // bank->centre: rim = PondShallow (the bright fresh bank water), centre = PondDeep (the cool blue
-            // pool depth) — the SAME depthT idiom the sea uses, keyed off distance-to-centre instead of coast.
+            // A radial fan: a centre vert (deep) + a ring of ORGANIC rim verts (shallow). Each triangle is its
+            // own UNWELDED facet so the faceting reads (sibling of the sea's per-face emit). The rim radius is
+            // perturbed by PondRimFactor (deterministic smooth noise) so the outline reads as a natural lobed
+            // blob, not a circle. The gradient runs bank->centre: rim = PondShallow (the bright fresh bank
+            // water), centre = PondDeep (the cool blue pool depth) — the SAME depthT idiom the sea uses, keyed
+            // off distance-to-centre instead of coast.
             for (int i = 0; i < sides; i++)
             {
                 float a0 = i / (float)sides * Mathf.PI * 2f;
                 float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
+                float r0r = radius * PondRimFactor(a0);                                // organic rim radius @ a0
+                float r1r = radius * PondRimFactor(a1);                                // organic rim radius @ a1
                 Vector3 c = Vector3.zero;                                              // centre (deep)
-                Vector3 r0 = new Vector3(Mathf.Cos(a0) * radius, 0f, Mathf.Sin(a0) * radius); // rim (shallow)
-                Vector3 r1 = new Vector3(Mathf.Cos(a1) * radius, 0f, Mathf.Sin(a1) * radius);
+                Vector3 r0 = new Vector3(Mathf.Cos(a0) * r0r, 0f, Mathf.Sin(a0) * r0r); // rim (shallow)
+                Vector3 r1 = new Vector3(Mathf.Cos(a1) * r1r, 0f, Mathf.Sin(a1) * r1r);
                 int bi = verts.Count;
                 // Wind centre -> r1 -> r0 so the geometric front (CCW from above) faces +Y (Cull Back keeps it).
                 verts.Add(c); verts.Add(r1); verts.Add(r0);

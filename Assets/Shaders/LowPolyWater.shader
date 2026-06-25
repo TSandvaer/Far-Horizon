@@ -49,6 +49,14 @@ Shader "FarHorizon/LowPolyWater"
         // full (at the intersection) to clear (open water) — ~1.5u per Erik. Both in the cbuffer for SRP-Batcher.
         _FoamColor ("Foam Color", Color) = (0.91, 0.89, 0.82, 1)
         _FoamDistance ("Foam Distance (u)", Float) = 1.5
+        // FOAM MASTER GATE (ticket 86cadj4g7 #130 re-soak — the shoreline-foam-with-FOAM-OFF fix). A 0..1
+        // multiplier on the WHOLE foam term. _FoamDistance=0 alone does NOT remove foam: the mask is
+        // saturate(1 - gap/max(dist,0.001)), which at the EXACT shoreline (gap→0) is still 1.0 — a razor
+        // white intersection line surviving along the bank (the white ring the Sponsor still saw with
+        // FOAM:OFF). _FoamAmount=0 zeroes the foam EVERYWHERE including those gap≈0 pixels (and the alpha
+        // it would push). DEFAULTS TO 1 → the SEA (which never sets it) is unaffected; only the pond's
+        // OFF step sets it to 0, so OFF means ZERO foam (sea keeps its foam — Sponsor #130 "only the pond").
+        _FoamAmount ("Foam Amount (0=off)", Range(0,1)) = 1
         // Foam alpha bias: the open water's base alpha (1 = fully opaque sea where there's no intersection).
         // Kept at 1 so the sea reads as solid teal (the transparency exists ONLY to enable depth sampling +
         // a soft foam edge — this is NOT see-through water). The foam mask only LIGHTENS the colour; alpha
@@ -94,6 +102,7 @@ Shader "FarHorizon/LowPolyWater"
                 float _FogCap;
                 float4 _FoamColor;     // ticket 86caamnmb — depth-fade foam target colour (matches FoamEdge)
                 float _FoamDistance;   // eye-depth gap over which the foam fades to clear
+                float _FoamAmount;     // ticket 86cadj4g7 — master 0..1 foam gate (0 = no foam at all, even at gap≈0)
                 float _WaterAlpha;     // base sea alpha (1 = solid teal; transparency only enables foam edge)
             CBUFFER_END
 
@@ -178,6 +187,11 @@ Shader "FarHorizon/LowPolyWater"
                 float surfaceEye = IN.screenPos.w;                 // this fragment's own eye depth (clip W)
                 float depthGap = sceneEye - surfaceEye;            // distance to the opaque object behind
                 float foam = saturate(1.0 - depthGap / max(_FoamDistance, 0.001));
+                // MASTER FOAM GATE (ticket 86cadj4g7 #130): _FoamAmount scales the WHOLE foam term to zero when
+                // off — without it the gap≈0 shoreline pixels keep foam=1 (a razor white bank line) even at
+                // _FoamDistance=0. With _FoamAmount=0 the pond loses ALL foam incl. that shoreline ring; the sea
+                // (default _FoamAmount=1) is unchanged. Applied to BOTH the colour lerp and the alpha (below).
+                foam *= _FoamAmount;
                 finalCol = lerp(finalCol, _FoamColor.rgb, foam);
 
                 // FOG-CAP (ported VERBATIM from LowPolyVertexColor, ticket 86ca9yn57 — the load-bearing

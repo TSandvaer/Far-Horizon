@@ -51,10 +51,274 @@ namespace FarHorizon
         public int warmupFrames = 8;
         public int settleFrames = 14;
 
+        // SIDE-PROFILE capture (ticket 86cadj4g7 #130 — Sponsor demands a ground-level horizontal look across
+        // the pond that unambiguously shows recessed-NOT-mound + no foam, alongside the player-eye gameplay
+        // frame). A near-ground camera looking horizontally across the pond: a raised lens/mound reads as a
+        // BULGE above the horizon line; a true recess reads as the water dipping BELOW the surrounding grass.
+        // A LOW look ACROSS the pond — close + just above the surrounding grass, pitched gently down so the
+        // pool + its NEAR rim + the FAR rim + the grass behind all land in frame. The recess then reads
+        // unambiguously: the water surface sits BELOW the surrounding-grass line (a mound would bulge ABOVE
+        // it). Tuned off the d6bf755 side-frames (sideHeight 0.55 / pitch 4° framed grass+trees, pond occluded
+        // below frame): raise the eye + pitch down so the pond fills the lower-centre, grass horizon up top.
+        public float sidePitch = 13f;         // gentle downward pitch — pond fills lower-centre, grass line up top
+        public float sideDistance = 6.8f;     // close enough the ~5.5u-wide pool + both rims read big in frame
+        public float sideHeight = 1.35f;      // camera eye ~waist-high above the pond surface (a low cross-look)
+
+        // OVERHEAD (top-down) framing for the surface-white + self-calibrating shoreline-annulus gates (ticket
+        // 86cadj4g7 #130 ROUND 6 — re-calibrated after Tess QA found the round-5 height-6/fov-40 overfilled the
+        // frame so the annulus sat on open water; RE-RAISED ROUND 9 for the larger fill waterline). RAISED so the
+        // full pond disc + its green collar fit with corner margin and the waterline lands at a samplable mid-frame
+        // radius. Public so the calibration is TESTABLE (FreshwaterPondVerifyCaptureCalibrationTests asserts the
+        // waterline lands inside the gate's anchor window).
+        // ROUND 9: the fill waterline grew from ~4.0u (round-8 even-grade wall) to ≈4.86u (0.90 × the 5.4u mouth,
+        // two-segment wall). At the old height 18 that maps to rNorm ~0.58 — past the tight mid-frame [0.25,0.50]
+        // calibration window. RAISED 18 → 26 so 4.86u maps to ≈0.40 (worldHalfExtent = 26×tan25° ≈ 12.12u), keeping
+        // the waterline comfortably mid-frame; the collar fade-end (6.8u → ~0.56) + the disc max reach (7.2u → ~0.59)
+        // stay in frame, off the corners the scan skips at rMax 0.95.
+        public const float OverheadHeight = 26.0f;  // camera height above the water surface, looking straight down (#130 round 9)
+        public const float OverheadFov = 50.0f;     // vertical FOV — half-FOV 25°, tan ≈ 0.4663
+
+        /// <summary>
+        /// PURE calibration helper (ticket 86cadj4g7 #130 ROUND 6): map a world radius (u, from the pond centre on
+        /// the water plane) to its NORMALIZED frame radius (rNorm) in a straight-down overhead capture at a given
+        /// camera height + vertical FOV. rNorm is measured against the SHORT (vertical) screen axis — the same
+        /// `Mathf.Min(w,h)*0.5` basis the gate's pixel scan uses — so a 16:9 frame's wider horizontal axis does NOT
+        /// shrink the mapping. At rNorm 1.0 the world radius == height*tan(halfFov). Side-effect-free + Unity-free
+        /// math so EditMode can assert the framing puts the waterline in the gate's anchor window [0.15, 0.75].
+        /// </summary>
+        public static float WorldRadiusToFrameRNorm(float worldRadius, float cameraHeight, float verticalFovDeg)
+        {
+            float halfFovRad = verticalFovDeg * 0.5f * Mathf.Deg2Rad;
+            float worldHalfExtentAtPlane = cameraHeight * Mathf.Tan(halfFovRad); // world u at rNorm 1.0 (short axis)
+            if (worldHalfExtentAtPlane <= 0f) return float.PositiveInfinity;
+            return worldRadius / worldHalfExtentAtPlane;
+        }
+
         void Start()
         {
-            if (HasArg("-verifyPond"))
+            if (HasArg("-verifyPondDiag"))
+                StartCoroutine(RunWhiteRingDiagnostic());
+            else if (HasArg("-verifyPondSide"))
+                StartCoroutine(RunSideProfile());
+            else if (HasArg("-verifyPond"))
                 StartCoroutine(RunVerification());
+        }
+
+        // ============================================================================================
+        // WHITE-SHORELINE-RING DIAGNOSTIC (ticket 86cadj4g7 #130 ROUND 5 — diagnose-before-fix).
+        // The Sponsor still soaks a prominent WHITE SHORELINE RING with foam genuinely OFF (_FoamAmount=0,
+        // top-down surface-centre white=0.000). Per [[claim-removed-soak-shows-present-investigate-foundation]]:
+        // STOP patching, PROVE the source with controlled toggles before any fix. This pass parks the camera
+        // straight overhead (the angle the white ring shows from) + measures the near-white fraction in the
+        // SHORELINE ANNULUS (the waterline ring radius, NOT the clean centre the old gate sampled) under four
+        // conditions, so the build log states WHICH toggle kills the ring:
+        //   (a) baseline       — everything as shipped
+        //   (b) bloom OFF       — disable the Zone-D post Volume's Bloom override (rules in/out rim-color bloom)
+        //   (c) collar removed  — disable the PondBank ring mesh (rules in/out the lit bank/collar facets)
+        //   (d) sea plane OFF   — disable Water_Play (the _FoamAmount=1 sea); also logs whether the sea plane
+        //                         renders ANY pixel at the pond XZ (rules in/out "sea-plane-over-bowl")
+        // Captures pond_diag_{a,b,c,d}.png + logs [pond-diag] annulus-white fractions; quits 0 (it is a
+        // diagnostic, not a gate). Verdict = the toggle whose annulus-white drops to ~0 is the white source.
+        // ============================================================================================
+        private System.Collections.IEnumerator RunWhiteRingDiagnostic()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            var pond = Object.FindAnyObjectByType<FreshwaterPond>();
+            Debug.Log("[pond-diag] FreshwaterPond found: " + (pond != null));
+            if (pond == null) { Debug.LogError("[pond-diag] no FreshwaterPond — build-side regression"); yield return null; Application.Quit(1); yield break; }
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null) { Debug.LogError("[pond-diag] no Camera.main"); yield return null; Application.Quit(1); yield break; }
+
+            // Ground-truth material trace first (which foam term is actually live on the shipped material).
+            DumpPondMaterials(pond);
+
+            Vector3 topTarget = pond.transform.position;
+            var waterT = pond.transform.Find("PondWater");
+            if (waterT != null) topTarget = waterT.position;
+
+            // Resolve the toggle handles up front.
+            var volumes = Object.FindObjectsByType<UnityEngine.Rendering.Volume>(FindObjectsSortMode.None);
+            var bank = pond.transform.Find("PondBank");
+            var seaPlane = GameObject.Find("Water_Play");
+            Debug.Log($"[pond-diag] handles: volumes={volumes.Length} bank={(bank != null)} seaPlane={(seaPlane != null)}");
+
+            // SEA-PLANE-OVER-BOWL trace: where is the sea plane relative to the pond water surface? If the sea
+            // Y sits AT/ABOVE the pond water Y at the pond XZ, the _FoamAmount=1 sea could peek through the bowl.
+            if (seaPlane != null)
+            {
+                float seaY = seaPlane.transform.position.y;
+                float pondWaterY = waterT != null ? waterT.position.y : pond.transform.position.y;
+                Debug.Log($"[pond-diag] sea-plane-over-bowl: seaY={seaY:F3} pondWaterY={pondWaterY:F3} " +
+                          $"(sea {(seaY >= pondWaterY ? "AT/ABOVE" : "BELOW")} pond water — " +
+                          $"{(seaY >= pondWaterY ? "could peek through the bowl" : "is below, hidden by the bowl floor")})");
+            }
+
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            // Helper: park overhead, settle, capture, measure the shoreline-annulus near-white fraction.
+            System.Func<string, char, System.Collections.IEnumerator> shoot = (label, tag) =>
+                CaptureDiagFrame(cam, topTarget, dir, label, tag);
+
+            // (a) baseline
+            yield return shoot("baseline", 'a');
+            // (b) bloom OFF — drop every Volume's weight to 0 (kills the whole post stack incl. Bloom)
+            var savedWeights = new float[volumes.Length];
+            for (int i = 0; i < volumes.Length; i++) { savedWeights[i] = volumes[i].weight; volumes[i].weight = 0f; }
+            yield return shoot("bloomOFF (volume weight 0)", 'b');
+            for (int i = 0; i < volumes.Length; i++) volumes[i].weight = savedWeights[i]; // restore
+            // (c) collar/bank ring removed
+            if (bank != null) bank.gameObject.SetActive(false);
+            yield return shoot("collar/bank REMOVED", 'c');
+            if (bank != null) bank.gameObject.SetActive(true); // restore
+            // (d) sea plane OFF
+            if (seaPlane != null) seaPlane.SetActive(false);
+            yield return shoot("sea plane (Water_Play) OFF", 'd');
+            if (seaPlane != null) seaPlane.SetActive(true); // restore
+
+            yield return new WaitForSeconds(0.3f);
+            Debug.Log("[pond-diag] white-ring diagnostic complete — read the [pond-diag] annulus-white lines " +
+                      "above; the toggle whose annulus-white drops to ~0 is the PROVEN white source -> " + dir);
+            Application.Quit(0);
+        }
+
+        // Park straight overhead, settle, capture pond_diag_<tag>.png, and measure + log the near-white fraction
+        // in the SHORELINE ANNULUS (the waterline ring) — the region the Sponsor's white ring lives in, NOT the
+        // clean disc centre the old gate sampled. Reused by all four diagnostic toggles.
+        private System.Collections.IEnumerator CaptureDiagFrame(Camera cam, Vector3 topTarget, string dir, string label, char tag)
+        {
+            var camGo = cam.gameObject;
+            // Match the re-calibrated -verifyPond overhead framing (#130 ROUND 6) so the diag toggles measure the
+            // SAME shoreline-ring region the gate does (the disc + collar fit with the waterline at a samplable
+            // mid-frame radius — the round-5 height-6/fov-40 overfilled the frame, Tess QA).
+            float topHeight = OverheadHeight;
+            camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
+            camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            cam.fieldOfView = OverheadFov;
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            yield return new WaitForEndOfFrame();
+
+            float annWhite = MeasureAnnulusWhite(out float annLuma, out float centreWhite);
+            Debug.Log($"[pond-diag] [{tag}] {label}: annulus-white={annWhite:F3} (luma={annLuma:F3}) " +
+                      $"centre-white={centreWhite:F3}");
+            string file = Path.Combine(dir, $"pond_diag_{tag}.png");
+            ScreenCapture.CaptureScreenshot(file, 1);
+            Debug.Log("[pond-diag] wrote " + file);
+            yield return new WaitForEndOfFrame();
+            yield return null;
+        }
+
+        /// <summary>
+        /// Measure the near-white pixel fraction in the SHORELINE ANNULUS from the straight-overhead frame
+        /// (ticket 86cadj4g7 #130 ROUND 5; re-centred ROUND 6 for the raised overhead framing). The pond disc
+        /// sits centre; the waterline ring sits in a radius band around it. We sample a normalized-radius annulus
+        /// (0.23..0.48 of the half-min dimension from frame centre — brackets the waterline ~rNorm 0.33 + bowl
+        /// wall at the height-18/fov-50 framing) and count near-white (bright + near-neutral R≈G≈B) pixels. ALSO
+        /// returns the centre-box white fraction (the old clean-by-construction proxy) so the log shows the annulus
+        /// catches what the centre misses. (Diagnostic-only fixed bracket; the GATE self-calibrates to the measured
+        /// waterline.) yFrac/xFrac from the frame centre; ReadPixels origin bottom-left.
+        /// </summary>
+        private float MeasureAnnulusWhite(out float annulusLuma, out float centreWhite)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            float cx = w * 0.5f, cy = h * 0.5f;
+            float rad = Mathf.Min(w, h) * 0.5f;
+            // Shoreline ring band re-centred for the #130-ROUND-6 raised overhead framing (height 18 / fov 50): the
+            // waterline now lands ~rNorm 0.33, so a 0.23..0.48 band brackets it + the bowl wall (the gate itself
+            // SELF-CALIBRATES to the measured waterline; this diagnostic uses a fixed bracket for the toggle deltas).
+            const float annInner = 0.23f, annOuter = 0.48f;
+            int annWhite = 0, annTotal = 0; double annLumaSum = 0;
+            int cWhite = 0, cTotal = 0;
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float dx = (x - cx) / rad, dy = (y - cy) / rad;
+                float rNorm = Mathf.Sqrt(dx * dx + dy * dy);
+                Color c = tex.GetPixel(x, y);
+                float maxc = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                float minc = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                bool nearWhite = luma > 0.72f && (maxc - minc) < 0.10f;
+                if (rNorm >= annInner && rNorm <= annOuter) { annTotal++; annLumaSum += luma; if (nearWhite) annWhite++; }
+                else if (rNorm < 0.20f) { cTotal++; if (nearWhite) cWhite++; } // centre proxy (old gate region)
+            }
+            Object.Destroy(tex);
+            annulusLuma = annTotal > 0 ? (float)(annLumaSum / annTotal) : 0f;
+            centreWhite = cTotal > 0 ? (float)cWhite / cTotal : 0f;
+            return annTotal > 0 ? (float)annWhite / annTotal : 0f;
+        }
+
+        // Ground-level SIDE-PROFILE pass (ticket 86cadj4g7 #130). Parks Camera.main near the ground looking
+        // horizontally across the pond from three yaws so the Sponsor/Tess judges recessed-vs-mound + no-foam
+        // from a SHIPPED frame. Writes pond_side_a/b/c.png. Reuses the proven Camera.main + disable-OrbitCamera
+        // framing (the gameplay render path → the warm-graded look the Sponsor sees). No perceptual assert here
+        // (the profile is a human eyeball gate, per the dispatch); quits 0 after the captures.
+        private System.Collections.IEnumerator RunSideProfile()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            var pond = Object.FindAnyObjectByType<FreshwaterPond>();
+            Debug.Log("[FreshwaterPondVerifyCapture] (side) FreshwaterPond found: " + (pond != null));
+            if (pond == null)
+            {
+                Debug.LogError("[FreshwaterPondVerifyCapture] (side) no FreshwaterPond — build-side regression");
+                yield return null; Application.Quit(1); yield break;
+            }
+
+            Vector3 target = pond.transform.position;
+            var waterT = pond.transform.Find("PondWater");
+            if (waterT != null) target = waterT.position; // aim at the water surface so the dip is centred
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[FreshwaterPondVerifyCapture] (side) no Camera.main");
+                yield return null; Application.Quit(1); yield break;
+            }
+            cam.fieldOfView = 42f;
+            var camGo = cam.gameObject;
+
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            char tag = 'a';
+            foreach (float yaw in yaws)
+            {
+                // Position the camera near ground level, sideDistance back, almost horizontal. Look at a point
+                // at the water surface height so the surrounding-grass horizon line crosses the frame and a
+                // recess reads as the water sitting BELOW that line (a mound would bulge above it).
+                Quaternion yawRot = Quaternion.Euler(0f, yaw, 0f);
+                Vector3 back = yawRot * new Vector3(0f, 0f, -sideDistance);
+                Vector3 pos = target + back; pos.y = target.y + sideHeight;
+                camGo.transform.position = pos;
+                // Nearly-horizontal look across the pond with a small downward pitch so both the near rim + the
+                // far rim land in frame; the surrounding-grass horizon line then reveals recess (water below it)
+                // vs mound (water bulging above it).
+                camGo.transform.rotation = Quaternion.Euler(sidePitch, yaw, 0f);
+
+                for (int i = 0; i < settleFrames; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+                Debug.Log($"[FreshwaterPondVerifyCapture] side frame {tag}: yaw={yaw} pitch={sidePitch} " +
+                          $"pos={cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")}");
+                string file = Path.Combine(dir, $"pond_side_{tag}.png");
+                ScreenCapture.CaptureScreenshot(file, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + file);
+                yield return new WaitForEndOfFrame();
+                yield return null;
+                tag++;
+            }
+            yield return new WaitForSeconds(0.4f);
+            Debug.Log("[FreshwaterPondVerifyCapture] side-profile verification complete -> " + dir);
+            Application.Quit(0);
         }
 
         private IEnumerator RunVerification()
@@ -84,22 +348,42 @@ namespace FarHorizon
             Debug.Log("[FreshwaterPondVerifyCapture] framing pond at " + target.ToString("F2") +
                       " (effDrinkR=" + pond.EffectiveDrinkRadius.ToString("F1") + ")");
 
-            // A dedicated post-enabled camera framed on the pond, INDEPENDENT of the gameplay camera's
-            // player-follow. Renders the Zone-D post Volume so the capture sees the SAME warm-graded look the
-            // Sponsor's gameplay orbit applies (the false-green fix — post must stay ON; an editor/no-post
-            // cam lies, the castaway-recolor false-green precedent).
+            // REUSE the gameplay camera (Camera.main) and PARK it on the pond — the PROVEN sibling pattern
+            // (SeaVerifyCapture.RunCoastVantage: drive Camera.main, disable the OrbitCamera COMPONENT so it
+            // stops re-driving the transform each LateUpdate, then position by hand). The prior version built
+            // a NEW PondVerifyCamera and only disabled the orbit's Camera (not the OrbitCamera component) —
+            // the gameplay camera kept rendering the player-follow vista, so the pond disc landed off-centre
+            // (frac x≈0.20) and the fixed central sample box read terrain-green not water (the false
+            // B-G=-0.139; ticket 86cadj4g7 trace). Reusing Camera.main + disabling the component is the
+            // framing the gate's perceptual sample assumes (pond at frame centre). Camera.main already runs
+            // the gameplay render path (Zone-D post + skybox) so the warm-graded look matches the Sponsor's
+            // view — no separate post-enable needed (the castaway-recolor false-green lesson: ride the real
+            // gameplay camera, don't author a divergent capture rig).
             var orbit = Object.FindAnyObjectByType<OrbitCamera>();
-            var camGo = new GameObject("PondVerifyCamera");
-            var cam = camGo.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.Skybox; // the gradient sky behind the pond, as in gameplay
-            cam.fieldOfView = 40f;
-            var camData = camGo.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
-            camData.renderPostProcessing = true;
-            if (orbit != null)
+            if (orbit != null) orbit.enabled = false; // stop the rig re-driving the transform each LateUpdate
+            var cam = Camera.main;
+            if (cam == null)
             {
-                var ocam = orbit.GetComponent<Camera>();
-                if (ocam != null) ocam.enabled = false; // else both cameras draw
+                Debug.LogError("[FreshwaterPondVerifyCapture] no Camera.main — cannot frame the pond");
+                yield return null;
+                Application.Quit(1);
+                yield break;
             }
+            cam.fieldOfView = 40f;
+            var camGo = cam.gameObject;
+
+            // One-shot camera-roster trace (diagnose-via-trace): which cameras are enabled + their depth, so a
+            // future mis-render (wrong camera winning) is readable from the build log. One-shot at warmup —
+            // negligible cost on a verify-only launch.
+            foreach (var c in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                Debug.Log($"[pond-cam-roster] '{c.name}' enabled={c.enabled} depth={c.depth} " +
+                          $"isMain={(c == Camera.main)} tag={c.tag}");
+
+            // GROUND-TRUTH MATERIAL TRACE (ticket 86cadj4g7 #130 third re-soak — instrument the REAL render, do
+            // NOT trust a gate per [[verify-soak-builds-or-bake-and-judge]] + [[soak-fail-test-pass-instrument-runtime]]).
+            // Dump EVERY float/colour on the LIVE pond water + bank materials AS SHIPPED so the white-band root is
+            // read from ground truth, not the editor asset (which CI regenerates — the committed asset can be stale).
+            DumpPondMaterials(pond);
 
             for (int i = 0; i < warmupFrames; i++) yield return null;
 
@@ -111,21 +395,20 @@ namespace FarHorizon
                 Vector3 offset = rot * new Vector3(0f, 0f, -viewDistance);
                 camGo.transform.position = target + offset;
                 camGo.transform.LookAt(target);
-                Debug.Log($"[FreshwaterPondVerifyCapture] frame {tag}: yaw={yaw} pitch={viewPitch} " +
-                          $"dist={viewDistance} pos={camGo.transform.position.ToString("F1")}");
 
                 for (int i = 0; i < settleFrames; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                string file = Path.Combine(dir, $"pond_{tag}.png");
-                ScreenCapture.CaptureScreenshot(file, 1);
-                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + file);
-                yield return new WaitForEndOfFrame();
-                yield return null;
+                // ACTUAL camera pose at capture time (vs the intended pos) — a component re-driving the
+                // transform during settle would diverge here (ticket 86cadj4g7 framing guard).
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame {tag}: yaw={yaw} pitch={viewPitch} dist={viewDistance} " +
+                          $"ACTUAL pos={cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")} " +
+                          $"fov={cam.fieldOfView:F1} orbitEnabled={(orbit != null ? orbit.enabled.ToString() : "n/a")}");
 
-                // Perceptual read on the FRONT frame (yaw 0): sample the pond-water region (frame centre,
-                // where the camera looks at the disc) vs the surround, and assert fresh-blue (B > G). Guard
-                // the PERCEPT, not a geometry proxy: a wrong (teal/green) water that still 'renders fine'
+                // Perceptual read on the FRONT frame (yaw 0): sample the pond-water region (frame centre, where
+                // the camera looks at the disc) vs the surround, and assert fresh-blue (B > G). Read INSIDE the
+                // WaitForEndOfFrame block (the rendered frame is resolved) — ReadPixels needs a settled frame.
+                // Guard the PERCEPT, not a geometry proxy: a wrong (teal/green) water that still 'renders fine'
                 // would slip a frame-sanity gate but FAILS this.
                 if (tag == 'a')
                 {
@@ -143,13 +426,606 @@ namespace FarHorizon
                                        "— the pond does NOT read fresh-blue/visible at frame centre (wrong water shipped?)");
                     }
                 }
+
+                string file = Path.Combine(dir, $"pond_{tag}.png");
+                ScreenCapture.CaptureScreenshot(file, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + file);
+                yield return new WaitForEndOfFrame();
+                yield return null;
                 tag++;
             }
 
+            // === TOP-DOWN frame — THE SURFACE-FOAM BLIND-SPOT FIX (ticket 86cadj4g7 #130 THIRD re-soak) =========
+            // The 3 gameplay-pitch frames + the eye-level side profile are ALL near-horizontal/down-angle looks
+            // that are PHYSICALLY BLIND to foam/lightening on the WATER SURFACE: a broad white band lying flat on
+            // the water shows from ABOVE (the Sponsor's 3-4 orbit cam / a top-down look) but is invisible EDGE-ON.
+            // That blind spot is exactly why two prior foam removals "passed" the side-profile gate while the
+            // Sponsor still saw white from above. This frame parks the camera DIRECTLY OVERHEAD looking straight
+            // DOWN at the pond and SELF-ASSERTS no near-white on the water surface (CheckNoSurfaceWhite). Writes
+            // pond_top.png — the capture the human eyeball judges for "white GONE" (the dispatch verify gate).
+            bool topNoWhite = false;
+            {
+                Vector3 topTarget = pond.transform.position;
+                var topWaterT = pond.transform.Find("PondWater");
+                if (topWaterT != null) topTarget = topWaterT.position;
+                // Straight overhead, looking down -Y. RE-CALIBRATED (ticket 86cadj4g7 #130 ROUND 6, RE-RAISED ROUND
+                // 9 for the larger fill waterline — Tess QA earlier found the round-5 framing (height 6 / fov 40)
+                // made the pond disc OVERFILL the overhead frame so the annulus band sat on OPEN WATER and PASSED
+                // trivially). RAISE the camera so the FULL disc + its green collar (collar paint fades out by world
+                // r ~6.8u) fit with corner margin, and the fill waterline (≈4.86u = 0.90 × the 5.4u mouth) lands at
+                // a samplable mid-frame radius. At height 26 / fov 50 the vertical-half world extent at the water
+                // plane = 26*tan(25°) ≈ 12.12u (= rNorm 1.0 on the short axis), so the waterline (≈4.86u) → rNorm
+                // ~0.40, the bowl mouth (~5.4u) → ~0.45, the collar fade-end (~6.8u) → ~0.56 — all in frame with the
+                // corners clear of green. The center surface-white box stays on deep water (rNorm well inside the
+                // ~0.40 waterline). The annulus gate below SELF-CALIBRATES to
+                // the measured waterline rather than trusting a hard-coded band, so it tracks any future disc size.
+                float topHeight = OverheadHeight;
+                camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
+                camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // look straight down
+                cam.fieldOfView = OverheadFov;
+
+                for (int i = 0; i < settleFrames; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame top: height={topHeight} fov={OverheadFov} ACTUAL pos=" +
+                          $"{cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")}");
+
+                // TOP-DOWN no-surface-white assert (the blind-spot fix). The pond disc fills the frame centre;
+                // count near-white pixels (bright + near-neutral) over the central water region. A clean still
+                // pool reads fresh-blue with ~0 white; a surface foam/lightening band lights up a clear fraction.
+                topNoWhite = CheckNoSurfaceWhite(out float surfaceWhiteFrac, out float surfaceLuma);
+                if (topNoWhite)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] TOP-DOWN NO-SURFACE-WHITE PASS: pond surface white " +
+                              $"fraction={surfaceWhiteFrac:F3} (luma={surfaceLuma:F3}) — the water reads fresh-blue " +
+                              "from overhead, NO broad white band on the surface (the #130 third re-soak defect gone).");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] TOP-DOWN SURFACE-WHITE FAIL: pond surface white " +
+                                   $"fraction={surfaceWhiteFrac:F3} (luma={surfaceLuma:F3}) reads near-WHITE from " +
+                                   "overhead — a broad white band still renders on the water surface (the #130 third " +
+                                   "re-soak: the side-profile gate is BLIND to surface foam; this top-down gate catches it).");
+
+                string topFile = Path.Combine(dir, "pond_top.png");
+                ScreenCapture.CaptureScreenshot(topFile, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + topFile);
+                yield return new WaitForEndOfFrame();
+                yield return null;
+            }
+
+            // === TOP-DOWN SHORELINE-ANNULUS no-pale-ring HARD GATE (ticket 86cadj4g7 #130 ROUND 5; RE-CALIBRATED
+            // ROUND 6). The gate the Sponsor's white ring needed: CheckNoSurfaceWhite samples the DISC CENTRE only
+            // (clean by construction — deep fresh-blue, scores 0.000) while the white the Sponsor soaked was a PALE
+            // RING at the WATERLINE RADIUS (the raised PondBank collar mesh draping the bowl wall, reading washed
+            // under the warm key). This gate samples the SHORELINE RING from overhead and FAILS on a bright PALE
+            // ring there (high luma — catches near-white foam AND the pale-warm collar wash, regardless of hue).
+            //
+            // ROUND 6 RE-CALIBRATION (Tess QA, run 28155640831): the round-5 version used a HARD-CODED 0.30..0.52
+            // frame-radius band, which — once the disc overfilled the height-6 overhead frame — sat on OPEN WATER
+            // (r ~0.66–1.14u), NOT the shoreline (~2.8u), so it PASSED trivially and could never catch a ring. FIX:
+            // (a) the overhead frame is now raised (height 18 / fov 50) so the full disc + collar is in frame, and
+            // (b) this gate SELF-CALIBRATES — it first MEASURES the waterline radius (the rNorm where the blue water
+            // disc gives way to the green/pale collar, found by a radial blue-coverage scan), then samples the ring
+            // band STRADDLING that measured waterline. So the band lands ON the actual shoreline regardless of disc
+            // size/framing — it can never drift onto open water again. Fails if the band is bright/pale; passes on a
+            // clean blue→green shoreline. (Reuses the same overhead frame already captured above — no extra frame.)
+            bool topNoShorelineRing = CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma, out float waterlineRNorm);
+            if (topNoShorelineRing)
+                Debug.Log($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS PASS: waterline at rNorm={waterlineRNorm:F2}; " +
+                          $"ring pale fraction={ringPaleFrac:F3} (luma={ringLuma:F3}) — the shoreline reads blue→green, " +
+                          "NO pale/white ring (the #130 raised-collar white ring is GONE; the collar is flat terrain paint).");
+            else
+                Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS FAIL: waterline at rNorm={waterlineRNorm:F2}; " +
+                               $"ring pale fraction={ringPaleFrac:F3} (luma={ringLuma:F3}) reads as a bright PALE/WHITE RING " +
+                               "around the water (the #130 white shoreline ring — the centre-box gate is BLIND to it; this " +
+                               "self-calibrating annulus gate catches the raised-collar wash the Sponsor kept soaking).");
+
+            // === TOP-DOWN WATER-FILLS-THE-BOWL-TO-ITS-RIM HARD GATE (ticket 86cadj4g7 #130 ROUND 9) ==============
+            // THE round-8 defect: the round-8 even-grade wall left the waterline at only ~4.0u = ~0.68–0.74 of the
+            // 5.4u mouth → a LONG GENTLE DRY SLOPE the Sponsor walked DOWN into the water (FILL-TO-RIM measured 0.68,
+            // FAIL at 0.70). The ROUND-9 cause-fix is the TWO-SEGMENT wall (a gentle submerged lower bowl + a SHORT
+            // STEEP shore lip), with the waterline pushed out to PondWaterlineFillFraction (0.90) × the mouth ≈ 4.86u
+            // — so the water fills ≈0.90 of the bowl mouth and the dry band is just a THIN steep lip you step over.
+            // This gate REUSES the overhead frame's already-measured waterline rNorm (where blue water gives way to
+            // the collar), maps it BACK to a WORLD radius via the same calibration helper the framing uses, and
+            // asserts the water reaches at least RimFillFraction of the bowl mouth. FINALIZED 0.88 → 0.85 (#130
+            // FINALIZE): the Sponsor SOAKED round-9 (fc4eeab) and APPROVED the 0.88-fill look ("to the edge", thin
+            // shore lip) — the geometry fill fraction stays 0.90 (PondWaterlineFillFraction, UNCHANGED). The shipped
+            // pixel-measured waterline lands at 0.88-epsilon (capture noise sits just under the geometric 0.90), so a
+            // 0.88 gate bar false-FAILS the Sponsor-approved build. Drop the bar to 0.85: it PASSES the approved
+            // round-9 fill AND still guards against a REAL regression below 0.85 (a dry-margin return) — FAILS the
+            // round-8 build (~0.68 < 0.85). This is a GATE-THRESHOLD finalize, NOT a geometry change.
+            const float RimFillFraction = 0.85f;
+            // PondBowlOuterRadius (5.4u) is Editor-asmdef-only (LowPolyZoneGen, FarHorizon.EditorTools), so this
+            // Runtime capture mirrors it as a literal — the SAME intentional coupling FreshwaterPondVerifyCapture-
+            // CalibrationTests documents. If the bowl mouth re-tunes, update this literal + the calibration constants.
+            const float bowlMouthWorld = 5.4f;                            // == LowPolyZoneGen.PondBowlOuterRadius (the hole rim)
+            // Invert WorldRadiusToFrameRNorm: world u at rNorm 1.0 (short axis) = height*tan(halfFov); the waterline's
+            // world radius = waterlineRNorm * that extent. Uses the SAME overhead height/FOV the frame was shot at.
+            float worldHalfExtent = OverheadHeight * Mathf.Tan(OverheadFov * 0.5f * Mathf.Deg2Rad);
+            float waterlineWorld = waterlineRNorm > 0f ? waterlineRNorm * worldHalfExtent : -1f;
+            float rimFillRatio = waterlineWorld > 0f ? waterlineWorld / bowlMouthWorld : -1f;
+            bool waterFillsBowl = rimFillRatio >= RimFillFraction;
+            if (waterFillsBowl)
+                Debug.Log($"[FreshwaterPondVerifyCapture] FILL-TO-RIM PASS: waterline world r≈{waterlineWorld:F2}u " +
+                          $"(rNorm={waterlineRNorm:F2}) reaches {rimFillRatio:F2} of the bowl mouth ({bowlMouthWorld:F2}u) " +
+                          $"≥ {RimFillFraction:F2} — the WATER FILLS THE CARVED BOWL to its rim, NO dry carved margin " +
+                          "between the water edge and the hole rim (the #130 round-7 dry-slope defect is GONE).");
+            else
+                Debug.LogError($"[FreshwaterPondVerifyCapture] FILL-TO-RIM FAIL: waterline world r≈{waterlineWorld:F2}u " +
+                               $"(rNorm={waterlineRNorm:F2}) reaches only {rimFillRatio:F2} of the bowl mouth " +
+                               $"({bowlMouthWorld:F2}u) < {RimFillFraction:F2} — a DRY carved margin shows between the " +
+                               "water edge and the hole rim (the #130 round-7 defect: the bowl is bigger than the water, " +
+                               "the player walks down a dry slope into a smaller pool — the water must fill the bowl to its rim).");
+
+            // === 5th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
+            // The 3 frames above are gameplay-PITCH down-angle looks; up-vs-down is invisible from those (a mound
+            // and a hole both read "blue disc in green"). This 4th frame parks the camera at EYE LEVEL looking
+            // HORIZONTALLY across the pond so mound-vs-sunk is UNAMBIGUOUS — a mound bulges the water ABOVE the
+            // far-grass line, a true hole shows the water dipping BELOW it. Wired into -verifyPond (NOT a separate
+            // flag) so the CI pond gate produces + asserts it every run. Writes pond_side.png + SELF-ASSERTS the
+            // silhouette (water band sits below the surrounding-grass band) → Quit(1) on a mound.
+            bool sideSunk = false, collarFlush = false, noShorelineFoam = false;
+            {
+                // Eye-level horizontal look ACROSS the pond from the front yaw. Camera ~waist-high above the water
+                // surface, pitched gently down (~4°) so BOTH the near rim and the FAR grass bank land in frame and
+                // the surrounding-grass HORIZON line crosses the upper frame. A recess reads as the water sitting
+                // BELOW that grass line; a mound bulges the water above it.
+                float sideEyePitch = 4f;     // near-horizontal eye-level look (dispatch: pitch ~0-5°)
+                float sideEyeDist = 7.0f;    // close enough the pool + both rims read big
+                float sideEyeHeight = 1.25f; // ~waist-high above the water surface (a low cross-look)
+                Quaternion sideRot = Quaternion.Euler(0f, 0f, 0f);
+                Vector3 sideBack = sideRot * new Vector3(0f, 0f, -sideEyeDist);
+                Vector3 sidePos = target + sideBack; sidePos.y = target.y + sideEyeHeight;
+                camGo.transform.position = sidePos;
+                camGo.transform.rotation = Quaternion.Euler(sideEyePitch, 0f, 0f);
+
+                for (int i = 0; i < settleFrames; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame side: pitch={sideEyePitch} dist={sideEyeDist} " +
+                          $"eyeH={sideEyeHeight} ACTUAL pos={cam.transform.position.ToString("F2")} " +
+                          $"fwd={cam.transform.forward.ToString("F2")}");
+
+                // Geometric mound-vs-sunk assert: compare the screen-Y of the WATER band against the SURROUNDING-
+                // GRASS band. In a near-horizontal cross-look the far grass-bank line sits in the UPPER frame; the
+                // fresh-blue water must read in a band BELOW it (sunk). If the dominant water row is at/above the
+                // grass line, it's a mound — fail loud.
+                sideSunk = CheckWaterBelowGrassLine(out float waterCentroidFrac, out float waterTopFrac, out float greenAboveFrac);
+                if (sideSunk)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] SIDE-PROFILE SUNK PASS: water band centroid yFrac={waterCentroidFrac:F3} " +
+                              $"sits LOW + green bank rises above (greenAbove={greenAboveFrac:F2}, waterTop yFrac={waterTopFrac:F3}) " +
+                              "— you look DOWN into a hole, not up at a mound");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] SIDE-PROFILE MOUND FAIL: water band centroid yFrac={waterCentroidFrac:F3} " +
+                                   $"(need <0.62 = LOW) greenAbove={greenAboveFrac:F2} (need >0.45 = far bank above water) " +
+                                   "— the pond does NOT read as a sunk hole from eye level (the #130 mound defect)");
+
+                // === NEW GATE A (ticket 86cadj4g7 #130 re-soak) — COLLAR FLUSH, NOT A RAISED BERM ==============
+                // The prior gate only proved water-below-bank; it MISSED the raised green collar/fade-rim casting a
+                // shadow. In the eye-level cross-look a raised berm encircling the pond reads as the GREEN band
+                // immediately around the water CRESTING ABOVE the far-surrounding-ground line (a bump on the
+                // horizon); a FLUSH collar reads as the green being LEVEL with (or below) the far ground — the
+                // ground just dips into the water hole with no bump. Sample the green collar-rim band's TOP screen-Y
+                // vs the far surrounding-ground band's screen-Y: the collar must NOT crest above the far ground.
+                collarFlush = CheckCollarFlushNotBerm(out float collarTopFrac, out float farGroundFrac);
+                if (collarFlush)
+                    Debug.Log($"[FreshwaterPondVerifyCapture] COLLAR-FLUSH PASS: collar-rim top yFrac={collarTopFrac:F3} " +
+                              $"does NOT crest above the far surrounding ground yFrac={farGroundFrac:F3} — the green is " +
+                              "FLAT ground dipping into the hole, not a raised berm (the #130 re-soak shadow-lip).");
+                else
+                    Debug.LogError($"[FreshwaterPondVerifyCapture] COLLAR-BERM FAIL: collar-rim top yFrac={collarTopFrac:F3} " +
+                                   $"crests ABOVE the far surrounding ground yFrac={farGroundFrac:F3} (a raised green berm " +
+                                   "casting a shadow on its outer edge — the #130 re-soak elevated-collar defect).");
+
+                // === SIDE-PROFILE shoreline-foam read — ADVISORY ONLY (ticket 86cadj4g7 #130 THIRD re-soak) =======
+                // The eye-level water↔bank boundary band sample is FRAGILE: the brightly SUNLIT pale-green meadow
+                // bank at the waterline reads bright + near-neutral (R≈G, luma>0.72) and FALSE-POSITIVES as
+                // "foam" even when the water surface carries ZERO foam (proven: with _FoamAmount=0 / top-down
+                // white=0.000, this boundary sample still tripped on the lit bank grass at the deeper recess).
+                // The AUTHORITATIVE foam gate is now the TOP-DOWN no-surface-white check (topNoWhite above),
+                // which samples the actual WATER SURFACE — the side profile is physically blind to surface foam
+                // AND noisy at the boundary. So this stays as a LOGGED diagnostic for signal, but does NOT gate
+                // the verdict (the top-down gate is the real one, per the dispatch's blind-spot fix).
+                bool foamOff = PondFoamIsOff();
+                noShorelineFoam = !foamOff || CheckNoShorelineFoamRing(out float boundaryWhiteFrac, out float boundaryLuma);
+                if (!foamOff)
+                    Debug.Log("[FreshwaterPondVerifyCapture] shoreline-foam diag SKIPPED — pond foam is not OFF (a soak dialed it up)");
+                else if (noShorelineFoam)
+                    Debug.Log("[FreshwaterPondVerifyCapture] shoreline-foam diag (advisory): water-bank boundary band is not near-white.");
+                else
+                    Debug.LogWarning("[FreshwaterPondVerifyCapture] shoreline-foam diag (ADVISORY, non-gating): the water-bank " +
+                                     "boundary band reads near-white — LIKELY the sunlit pale bank grass at the waterline, NOT " +
+                                     "foam (the TOP-DOWN no-surface-white gate is authoritative; foam is _FoamAmount=0).");
+
+                string sideFile = Path.Combine(dir, "pond_side.png");
+                ScreenCapture.CaptureScreenshot(sideFile, 1);
+                Debug.Log("[FreshwaterPondVerifyCapture] wrote " + sideFile);
+                yield return new WaitForEndOfFrame();
+                yield return null;
+            }
+
             yield return new WaitForSeconds(0.5f);
-            Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue + ") -> " + dir);
-            // Fail loud in the shipped build if the pond did not read fresh-blue + visible — the build-side gate.
-            Application.Quit(anyFreshBlue ? 0 : 1);
+            Debug.Log("[FreshwaterPondVerifyCapture] verification complete (freshBlue=" + anyFreshBlue +
+                      " topNoWhite=" + topNoWhite + " topNoShorelineRing=" + topNoShorelineRing +
+                      " waterFillsBowl=" + waterFillsBowl +
+                      " sideSunk=" + sideSunk + " collarFlush=" + collarFlush +
+                      " noShorelineFoam_advisory=" + noShorelineFoam + ") -> " + dir);
+            // Fail loud in the shipped build on ANY of the FIVE GATING percepts: not fresh-blue/visible; a broad
+            // white band on the water SURFACE CENTRE from overhead (#130 THIRD re-soak); a bright PALE/WHITE
+            // SHORELINE RING in the waterline ANNULUS from overhead (#130 ROUND 5 — THE load-bearing addition this
+            // round: the centre-box gate is blind to the ring, which is where the Sponsor's white actually lived —
+            // the raised-collar wash; this gate FAILS on the old collar build e5207d1 + PASSES with the collar
+            // removed); reads as a mound; the collar is a raised berm; OR the water does NOT fill the carved bowl to
+            // its rim (#130 ROUND 8 — the dispatch new-gate: a dry carved margin between the water edge and the hole
+            // rim). The side-profile shoreline-foam read is ADVISORY (it false-positives on the sunlit pale bank
+            // grass at the waterline).
+            Application.Quit(anyFreshBlue && topNoWhite && topNoShorelineRing && waterFillsBowl && sideSunk && collarFlush ? 0 : 1);
+        }
+
+        /// <summary>
+        /// GROUND-TRUTH material trace (ticket 86cadj4g7 #130 third re-soak). Dumps every float + colour property
+        /// on the LIVE pond water material (and the bank) AS SHIPPED, so the white-band root is read from the
+        /// actual rendered material, not the committed editor asset (CI regenerates the asset at bootstrap — the
+        /// committed .mat can be stale). Names the foam terms explicitly so the log line says which term is hot.
+        /// </summary>
+        private void DumpPondMaterials(FreshwaterPond pond)
+        {
+            var waterT = pond.transform.Find("PondWater");
+            var wmr = waterT != null ? waterT.GetComponent<MeshRenderer>() : null;
+            var wmat = wmr != null ? wmr.material : null;
+            if (wmat != null)
+            {
+                string shaderName = wmat.shader != null ? wmat.shader.name : "<null>";
+                string foamDist = wmat.HasProperty("_FoamDistance") ? wmat.GetFloat("_FoamDistance").ToString("F3") : "n/a";
+                string foamAmt  = wmat.HasProperty("_FoamAmount")   ? wmat.GetFloat("_FoamAmount").ToString("F3")   : "n/a";
+                string foamCol  = wmat.HasProperty("_FoamColor")    ? wmat.GetColor("_FoamColor").ToString("F2")    : "n/a";
+                string waterAlpha = wmat.HasProperty("_WaterAlpha") ? wmat.GetFloat("_WaterAlpha").ToString("F3")   : "n/a";
+                string tint     = wmat.HasProperty("_Tint")         ? wmat.GetColor("_Tint").ToString("F2")         : "n/a";
+                string fogCap   = wmat.HasProperty("_FogCap")       ? wmat.GetFloat("_FogCap").ToString("F3")       : "n/a";
+                Debug.Log($"[pond-mat-trace] PondWater shader='{shaderName}' _FoamDistance={foamDist} " +
+                          $"_FoamAmount={foamAmt} _FoamColor={foamCol} _WaterAlpha={waterAlpha} _Tint={tint} _FogCap={fogCap}");
+            }
+            else
+            {
+                Debug.Log("[pond-mat-trace] PondWater material is null (no MeshRenderer/material resolved)");
+            }
+        }
+
+        /// <summary>
+        /// TOP-DOWN no-surface-white read (ticket 86cadj4g7 #130 THIRD re-soak — the blind-spot fix). From the
+        /// straight-overhead look, a broad white band lying FLAT on the water surface fills the central frame; a
+        /// clean still fresh-blue pool reads ~0 near-white. Sample a central box (the pond disc fills the frame
+        /// when overhead) and measure the fraction of near-white pixels (high luma AND near-neutral R≈G≈B — the
+        /// foam/lightening tell) + mean luma. Fresh-blue (B>G) and green bank (G>B) are NOT near-white, so a
+        /// clean surface scores ~0. Returns true when the surface is NOT a near-white band. THE eye-level side
+        /// profile is physically blind to this — only an overhead sample catches it (the dispatch verify gate).
+        /// </summary>
+        private bool CheckNoSurfaceWhite(out float surfaceWhiteFrac, out float surfaceLuma)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            // Central box — overhead the pond disc fills the frame centre, so this samples the WATER SURFACE
+            // (not the surrounding grass). A broad white surface band lives squarely here.
+            int cx0 = (int)(w * 0.34f), cx1 = (int)(w * 0.66f);
+            int cy0 = (int)(h * 0.34f), cy1 = (int)(h * 0.66f);
+            int white = 0, total = 0; double lumaSum = 0;
+            for (int y = cy0; y < cy1; y++)
+            for (int x = cx0; x < cx1; x++)
+            {
+                Color c = tex.GetPixel(x, y);
+                float maxc = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                float minc = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                lumaSum += luma;
+                if (luma > 0.72f && (maxc - minc) < 0.10f) white++; // bright + near-neutral = foam/white-band tell
+                total++;
+            }
+            Object.Destroy(tex);
+            surfaceWhiteFrac = total > 0 ? (float)white / total : 0f;
+            surfaceLuma = total > 0 ? (float)(lumaSum / total) : 0f;
+
+            // NO surface white iff few near-white pixels over the central water region. A surviving broad band
+            // lights up a clear fraction; a clean fresh-blue still pool reads ~0.
+            return surfaceWhiteFrac < 0.12f;
+        }
+
+        /// <summary>
+        /// TOP-DOWN SELF-CALIBRATING SHORELINE-RING no-pale read (ticket 86cadj4g7 #130 ROUND 5; RE-CALIBRATED
+        /// ROUND 6). From the raised straight-overhead frame the pond disc sits centre and the WATERLINE is a RING
+        /// at the water→collar boundary. The #130 white the Sponsor kept soaking was a PALE ring AT that waterline
+        /// (the raised collar wash) — NOT the disc centre (clean deep fresh-blue). The ROUND-5 version used a
+        /// HARD-CODED 0.30..0.52 frame-radius band; Tess QA (run 28155640831) found the disc overfilled the old
+        /// height-6 frame so that band sat on OPEN WATER and passed trivially. ROUND 6: this method now SELF-
+        /// CALIBRATES — step 1 MEASURES the waterline radius by scanning blue-water coverage outward in normalized-
+        /// radius rings (the waterline is the rNorm where blue coverage drops below half, i.e. the disc gives way
+        /// to the collar); step 2 samples the ring band STRADDLING that measured waterline (±a margin) and counts
+        /// BRIGHT PALE pixels (luma > 0.60 — catches near-white foam AND the pale-warm collar wash regardless of
+        /// hue; the old maxc−minc neutrality clause missed the warm-beige collar). Fresh-blue water (luma~0.27) and
+        /// darker-green collar paint (luma~0.30) are well below 0.60, so a clean blue→green shoreline scores ~0.
+        /// Because the band is anchored to the MEASURED waterline, it lands ON the shoreline at any disc size /
+        /// framing and can never drift onto open water again. Returns true (no ring) when the bright-pale fraction
+        /// is low; out waterlineRNorm reports where the waterline was found (for the log + a framing sanity-fail).
+        /// </summary>
+        private bool CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma, out float waterlineRNorm)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            float cx = w * 0.5f, cy = h * 0.5f;
+            float rad = Mathf.Min(w, h) * 0.5f;
+
+            // STEP 1 — MEASURE the waterline radius. Bin pixels into normalized-radius rings and track the fraction
+            // of fresh-BLUE (B>G) pixels per ring. The disc centre is ~all-blue; past the waterline the collar/grass
+            // is green (not blue). The waterline = the OUTERMOST ring (scanning out from centre) where blue coverage
+            // is still >= 50% (i.e. the last mostly-water ring). Robust to the organic perturbed outline (2.27–3.02u)
+            // because it's a coverage threshold, not an edge-detect. Bins span rNorm 0..0.95 (skip the corners).
+            const int bins = 40; const float rMax = 0.95f;
+            var blueCnt = new int[bins]; var binTot = new int[bins];
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float dx = (x - cx) / rad, dy = (y - cy) / rad;
+                float rNorm = Mathf.Sqrt(dx * dx + dy * dy);
+                if (rNorm >= rMax) continue;
+                int bi = Mathf.Clamp((int)(rNorm / rMax * bins), 0, bins - 1);
+                Color c = tex.GetPixel(x, y);
+                binTot[bi]++;
+                if (c.b - c.g > 0.04f) blueCnt[bi]++; // fresh-blue tell
+            }
+            // Walk outward; the waterline is the last bin still >=50% blue (after the disc has started, so we ignore
+            // a possible thin non-blue speck at dead-centre from HUD/glints by requiring the inner disc to be blue).
+            int waterlineBin = 0; bool sawDisc = false;
+            for (int bi = 0; bi < bins; bi++)
+            {
+                if (binTot[bi] == 0) continue;
+                float blueFrac = (float)blueCnt[bi] / binTot[bi];
+                if (blueFrac >= 0.5f) { waterlineBin = bi; sawDisc = true; }
+                else if (sawDisc) break; // dropped below half AFTER the disc → we've crossed the waterline
+            }
+            waterlineRNorm = sawDisc ? (waterlineBin + 0.5f) / bins * rMax : -1f;
+
+            // If the disc was NOT found in-frame (waterlineRNorm too small/large or no disc), the framing is wrong —
+            // fail loud rather than sample a meaningless band (the round-5 trivial-pass failure mode). The waterline
+            // must land in a plausible mid-frame band (the height-18/fov-50 framing puts it ~0.30–0.45).
+            if (!sawDisc || waterlineRNorm < 0.15f || waterlineRNorm > 0.75f)
+            {
+                Object.Destroy(tex);
+                ringPaleFrac = 1f; ringLuma = 1f;
+                Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS framing FAIL: waterline rNorm=" +
+                               $"{waterlineRNorm:F2} not in [0.15,0.75] — the disc is mis-framed overhead, the ring " +
+                               "band cannot be anchored to the shoreline (a wrong-framing trivial pass — round-5 bug).");
+                return false;
+            }
+
+            // STEP 2 — sample the ring band STRADDLING the measured waterline (±band) and count bright PALE pixels.
+            float band = 0.10f; // ±10% of frame radius around the waterline — covers the bowl-wall ring where the
+                                // raised-collar wash lived (world ~waterline..bowl-mouth) without reaching far grass.
+            float annInner = Mathf.Max(0.05f, waterlineRNorm - band);
+            float annOuter = Mathf.Min(rMax, waterlineRNorm + band);
+            int pale = 0, total = 0; double lumaSum = 0;
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float dx = (x - cx) / rad, dy = (y - cy) / rad;
+                float rNorm = Mathf.Sqrt(dx * dx + dy * dy);
+                if (rNorm < annInner || rNorm > annOuter) continue;
+                Color c = tex.GetPixel(x, y);
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                lumaSum += luma;
+                if (luma > 0.60f) pale++; // BRIGHT tell: near-white foam OR pale-warm collar wash, hue-agnostic
+                total++;
+            }
+            Object.Destroy(tex);
+            ringPaleFrac = total > 0 ? (float)pale / total : 0f;
+            ringLuma = total > 0 ? (float)(lumaSum / total) : 0f;
+            // NO ring iff few bright pixels in the shoreline band. A clean blue→green shoreline reads ~0; a pale
+            // collar/foam ring lights a clear fraction. Fail at >= 0.08 (a meaningful ring lights well past this).
+            return ringPaleFrac < 0.08f;
+        }
+
+        /// <summary>
+        /// SIDE-PROFILE mound-vs-sunk read (ticket 86cadj4g7 #130). From the eye-level horizontal cross-look, the
+        /// pond is a HOLE iff the fresh-blue WATER band sits in the LOWER part of the frame with the SURROUNDING
+        /// GREEN terrain rising directly ABOVE it (the far bank crests above the waterline — you look DOWN into a
+        /// dip). A MOUND would push the water UP so it crests at/above the surrounding green with sky (not green)
+        /// above it. So the robust silhouette test is: (1) find the LARGEST contiguous fresh-blue run in a centre
+        /// column (the water band — robust to stray blue HUD/sky pixels, which are small disjoint runs), (2) its
+        /// centroid must sit in the LOWER part of the frame, and (3) the band of pixels directly ABOVE the water
+        /// top must read GREEN (the far bank), not sky. yFrac is 0 at the BOTTOM, 1 at the TOP (ReadPixels origin
+        /// is bottom-left). Excludes the top HUD strip (debug overlays carry blue text). Guards the PERCEPT.
+        /// </summary>
+        private bool CheckWaterBelowGrassLine(out float waterRowFrac, out float grassRowFrac, out float bMinusG)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            // Central vertical strip: the camera looks straight across the pond, so the pool + the far bank stack
+            // in the middle columns. Per-row mean across the strip → a 1-D top-to-bottom profile.
+            int sx0 = (int)(w * 0.40f), sx1 = (int)(w * 0.60f);
+            int yLo = (int)(h * 0.10f);                 // skip the very bottom (near-rim foreground / HUD bar)
+            int yHi = (int)(h * 0.80f);                 // skip the top HUD debug strip (blue text pollutes blue-detect)
+            var rowIsWater = new bool[h];
+            var rowIsGreen = new bool[h];
+            for (int y = yLo; y < yHi; y++)
+            {
+                double g = 0, b = 0; int n = 0;
+                for (int x = sx0; x < sx1; x++) { Color c = tex.GetPixel(x, y); g += c.g; b += c.b; n++; }
+                if (n == 0) continue;
+                float gr = (float)(g / n), bl = (float)(b / n);
+                rowIsWater[y] = bl - gr > 0.04f;        // fresh-blue tell
+                rowIsGreen[y] = gr - bl > 0.04f;        // green
+            }
+            Object.Destroy(tex);
+
+            // Largest contiguous fresh-blue run = the water band (stray blue HUD/sky rows are short, disjoint runs).
+            int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+            for (int y = yLo; y < yHi; y++)
+            {
+                if (rowIsWater[y]) { if (curLen == 0) curStart = y; curLen++; if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } }
+                else curLen = 0;
+            }
+
+            if (bestLen <= 0) { waterRowFrac = -1f; grassRowFrac = -1f; bMinusG = 0f; return false; }
+            int waterTop = bestStart + bestLen - 1;     // largest-y row of the water band (its TOP on screen)
+            int waterCentroid = bestStart + bestLen / 2;
+            waterRowFrac = (float)waterCentroid / h;     // the water band centroid (lower = more sunk)
+
+            // Green band directly ABOVE the water top (the far bank cresting above the waterline = a hole).
+            int aboveLo = waterTop + 1, aboveHi = Mathf.Min(yHi, waterTop + 1 + (int)(h * 0.12f));
+            int greenAbove = 0, aboveRows = 0;
+            for (int y = aboveLo; y < aboveHi; y++) { aboveRows++; if (rowIsGreen[y]) greenAbove++; }
+            float greenAboveFrac = aboveRows > 0 ? (float)greenAbove / aboveRows : 0f;
+            grassRowFrac = (float)waterTop / h;          // report the water-top line (the far-bank crest sits above it)
+            bMinusG = greenAboveFrac;                    // reuse the out param to surface the green-above fraction
+
+            // SUNK iff (a) the water band centroid sits in the LOWER ~60% of the frame (not cresting high like a
+            // mound) AND (b) the terrain directly above the water reads GREEN (the far bank rises above the pool,
+            // not sky — a mound would crest into sky). Both must hold; a mound fails (a), a lifted-disc fails (b).
+            bool waterIsLow = waterRowFrac < 0.62f;
+            bool bankAbove = greenAboveFrac > 0.45f;
+            return waterIsLow && bankAbove;
+        }
+
+        /// <summary>
+        /// COLLAR-FLUSH read (ticket 86cadj4g7 #130 re-soak — the raised-berm gate). In the eye-level cross-look a
+        /// raised green berm encircling the pond reads as the GREEN immediately around the water CRESTING ABOVE the
+        /// far surrounding-ground line; a FLUSH collar reads as the near green being LEVEL with (or below) the far
+        /// ground. Robust silhouette: find the largest fresh-BLUE run (the water band), take the GREEN band just
+        /// above its top (the near collar rim) and measure its TOP screen-Y; compare to the FAR surrounding-ground
+        /// green line higher up the frame. The collar is FLUSH iff its rim top does NOT crest ABOVE the far ground
+        /// (within a tolerance) — a berm pushes the near-green rim up into a bump above the far line. yFrac: 0
+        /// bottom, 1 top. Returns true when flush (no berm).
+        /// </summary>
+        private bool CheckCollarFlushNotBerm(out float collarTopFrac, out float farGroundFrac)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            int sx0 = (int)(w * 0.40f), sx1 = (int)(w * 0.60f);
+            int yLo = (int)(h * 0.10f), yHi = (int)(h * 0.80f);
+            var rowIsWater = new bool[h];
+            var rowIsGreen = new bool[h];
+            for (int y = yLo; y < yHi; y++)
+            {
+                double g = 0, b = 0; int n = 0;
+                for (int x = sx0; x < sx1; x++) { Color c = tex.GetPixel(x, y); g += c.g; b += c.b; n++; }
+                if (n == 0) continue;
+                float gr = (float)(g / n), bl = (float)(b / n);
+                rowIsWater[y] = bl - gr > 0.04f;
+                rowIsGreen[y] = gr - bl > 0.04f;
+            }
+            Object.Destroy(tex);
+
+            // Largest fresh-blue run = the water band.
+            int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+            for (int y = yLo; y < yHi; y++)
+            {
+                if (rowIsWater[y]) { if (curLen == 0) curStart = y; curLen++; if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } }
+                else curLen = 0;
+            }
+            if (bestLen <= 0) { collarTopFrac = -1f; farGroundFrac = -1f; return false; }
+            int waterTop = bestStart + bestLen - 1;
+
+            // The NEAR collar rim = the contiguous GREEN run directly above the water top (the bank around the pool).
+            int collarTop = waterTop;
+            for (int y = waterTop + 1; y < yHi; y++) { if (rowIsGreen[y]) collarTop = y; else break; }
+            collarTopFrac = (float)collarTop / h;
+
+            // The FAR surrounding ground = the next GREEN run higher up (above any gap), the distant grass line.
+            int farLo = collarTop + 1;
+            // skip any non-green gap (e.g. a sky sliver between the near rim and the far ground)
+            while (farLo < yHi && !rowIsGreen[farLo]) farLo++;
+            int farGround = farLo < yHi ? farLo : collarTop;
+            // take the TOP of that far-ground green run
+            for (int y = farLo; y < yHi; y++) { if (rowIsGreen[y]) farGround = y; else break; }
+            farGroundFrac = (float)farGround / h;
+
+            // FLUSH iff the near collar rim does NOT crest ABOVE the far ground line by more than a tolerance.
+            // A raised berm pushes the near rim UP (higher yFrac) so it sits clearly above the far ground; a flush
+            // collar sits at or below it. Tolerance allows for the perspective foreshortening of the near rim.
+            const float bermTol = 0.06f; // the near rim may sit a touch higher from perspective; a real berm exceeds this
+            return collarTopFrac <= farGroundFrac + bermTol;
+        }
+
+        /// <summary>
+        /// NO-SHORELINE-FOAM read (ticket 86cadj4g7 #130 re-soak — the FOAM:OFF white-ring gate). With foam off the
+        /// thin band at the WATER↔BANK boundary (just at/below the waterline, where a depth-fade foam ring would
+        /// sit) must NOT read near-WHITE. Find the largest fresh-blue water run; sample the boundary band straddling
+        /// its TOP edge (the shoreline) and measure the fraction of near-white pixels + the mean luma. Returns true
+        /// when the boundary is NOT a near-white ring (foam genuinely off). A surviving razor foam line pushes the
+        /// boundary band bright + desaturated → fails.
+        /// </summary>
+        private bool CheckNoShorelineFoamRing(out float boundaryWhiteFrac, out float boundaryLuma)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            int sx0 = (int)(w * 0.34f), sx1 = (int)(w * 0.66f);
+            int yLo = (int)(h * 0.10f), yHi = (int)(h * 0.80f);
+            var rowIsWater = new bool[h];
+            for (int y = yLo; y < yHi; y++)
+            {
+                double g = 0, b = 0; int n = 0;
+                for (int x = sx0; x < sx1; x++) { Color c = tex.GetPixel(x, y); g += c.g; b += c.b; n++; }
+                if (n == 0) continue;
+                rowIsWater[y] = (float)(b / n) - (float)(g / n) > 0.04f;
+            }
+
+            int bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+            for (int y = yLo; y < yHi; y++)
+            {
+                if (rowIsWater[y]) { if (curLen == 0) curStart = y; curLen++; if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; } }
+                else curLen = 0;
+            }
+            if (bestLen <= 0) { Object.Destroy(tex); boundaryWhiteFrac = -1f; boundaryLuma = -1f; return false; }
+            int waterTop = bestStart + bestLen - 1;
+
+            // The boundary band straddles the shoreline (a few rows around the water-band top edge). Count near-white
+            // pixels: high luma AND low saturation (R≈G≈B, all bright) — the foam tell. Fresh-blue water (B>G) and
+            // green bank (G>B) are NOT near-white, so a clean shoreline scores ~0.
+            int bandHalf = Mathf.Max(2, (int)(h * 0.015f)); // ~3% of frame height across the shoreline
+            int y0 = Mathf.Max(yLo, waterTop - bandHalf), y1 = Mathf.Min(yHi, waterTop + bandHalf);
+            int white = 0, total = 0; double lumaSum = 0;
+            for (int y = y0; y < y1; y++)
+            for (int x = sx0; x < sx1; x++)
+            {
+                Color c = tex.GetPixel(x, y);
+                float maxc = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                float minc = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                lumaSum += luma;
+                if (luma > 0.72f && (maxc - minc) < 0.10f) white++; // bright + near-neutral = foam white
+                total++;
+            }
+            Object.Destroy(tex);
+            boundaryWhiteFrac = total > 0 ? (float)white / total : 0f;
+            boundaryLuma = total > 0 ? (float)(lumaSum / total) : 0f;
+
+            // NO foam ring iff few near-white pixels in the shoreline band. A surviving razor foam line lights up a
+            // clear fraction of the boundary; a clean off-foam shoreline reads blue-into-green with ~0 white.
+            return boundaryWhiteFrac < 0.12f;
+        }
+
+        /// <summary>Whether the pond ships foam OFF (the default the shoreline-foam gate asserts against). Reads the
+        /// pond water material's _FoamAmount master gate (== 0 → off) with a _FoamDistance fallback for safety. A
+        /// soak that dialed foam up (PondNudge Home/End) sets _FoamAmount=1 → the gate skips (foam is expected).</summary>
+        private bool PondFoamIsOff()
+        {
+            var pond = Object.FindAnyObjectByType<FreshwaterPond>();
+            var waterT = pond != null ? pond.transform.Find("PondWater") : null;
+            var mr = waterT != null ? waterT.GetComponent<MeshRenderer>() : null;
+            var mat = mr != null ? mr.material : null;
+            if (mat == null) return true; // no material → no foam to worry about (assert vacuously)
+            if (mat.HasProperty("_FoamAmount")) return mat.GetFloat("_FoamAmount") <= 0.0001f;
+            if (mat.HasProperty("_FoamDistance")) return mat.GetFloat("_FoamDistance") <= 0.0001f;
+            return true; // URP/Lit fallback pond has no foam path
         }
 
         /// <summary>
