@@ -64,6 +64,30 @@ namespace FarHorizon
         public float sideDistance = 6.8f;     // close enough the ~5.5u-wide pool + both rims read big in frame
         public float sideHeight = 1.35f;      // camera eye ~waist-high above the pond surface (a low cross-look)
 
+        // OVERHEAD (top-down) framing for the surface-white + self-calibrating shoreline-annulus gates (ticket
+        // 86cadj4g7 #130 ROUND 6 — re-calibrated after Tess QA found the round-5 height-6/fov-40 overfilled the
+        // frame so the annulus sat on open water). RAISED so the full pond disc + its green collar fit with corner
+        // margin and the waterline lands at a samplable mid-frame radius. Public so the calibration is TESTABLE
+        // (FreshwaterPondVerifyCaptureCalibrationTests asserts the waterline lands inside the gate's anchor window).
+        public const float OverheadHeight = 18.0f;  // camera height above the water surface, looking straight down
+        public const float OverheadFov = 50.0f;     // vertical FOV — half-FOV 25°, tan ≈ 0.4663
+
+        /// <summary>
+        /// PURE calibration helper (ticket 86cadj4g7 #130 ROUND 6): map a world radius (u, from the pond centre on
+        /// the water plane) to its NORMALIZED frame radius (rNorm) in a straight-down overhead capture at a given
+        /// camera height + vertical FOV. rNorm is measured against the SHORT (vertical) screen axis — the same
+        /// `Mathf.Min(w,h)*0.5` basis the gate's pixel scan uses — so a 16:9 frame's wider horizontal axis does NOT
+        /// shrink the mapping. At rNorm 1.0 the world radius == height*tan(halfFov). Side-effect-free + Unity-free
+        /// math so EditMode can assert the framing puts the waterline in the gate's anchor window [0.15, 0.75].
+        /// </summary>
+        public static float WorldRadiusToFrameRNorm(float worldRadius, float cameraHeight, float verticalFovDeg)
+        {
+            float halfFovRad = verticalFovDeg * 0.5f * Mathf.Deg2Rad;
+            float worldHalfExtentAtPlane = cameraHeight * Mathf.Tan(halfFovRad); // world u at rNorm 1.0 (short axis)
+            if (worldHalfExtentAtPlane <= 0f) return float.PositiveInfinity;
+            return worldRadius / worldHalfExtentAtPlane;
+        }
+
         void Start()
         {
             if (HasArg("-verifyPondDiag"))
@@ -162,10 +186,13 @@ namespace FarHorizon
         private System.Collections.IEnumerator CaptureDiagFrame(Camera cam, Vector3 topTarget, string dir, string label, char tag)
         {
             var camGo = cam.gameObject;
-            float topHeight = 6.0f;
+            // Match the re-calibrated -verifyPond overhead framing (#130 ROUND 6) so the diag toggles measure the
+            // SAME shoreline-ring region the gate does (the disc + collar fit with the waterline at a samplable
+            // mid-frame radius — the round-5 height-6/fov-40 overfilled the frame, Tess QA).
+            float topHeight = OverheadHeight;
             camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
             camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-            cam.fieldOfView = 40f;
+            cam.fieldOfView = OverheadFov;
             for (int i = 0; i < settleFrames; i++) yield return null;
             yield return new WaitForEndOfFrame();
 
@@ -196,7 +223,10 @@ namespace FarHorizon
             tex.Apply();
             float cx = w * 0.5f, cy = h * 0.5f;
             float rad = Mathf.Min(w, h) * 0.5f;
-            const float annInner = 0.30f, annOuter = 0.52f; // shoreline ring band (the waterline radius)
+            // Shoreline ring band re-centred for the #130-ROUND-6 raised overhead framing (height 18 / fov 50): the
+            // waterline now lands ~rNorm 0.33, so a 0.23..0.48 band brackets it + the bowl wall (the gate itself
+            // SELF-CALIBRATES to the measured waterline; this diagnostic uses a fixed bracket for the toggle deltas).
+            const float annInner = 0.23f, annOuter = 0.48f;
             int annWhite = 0, annTotal = 0; double annLumaSum = 0;
             int cWhite = 0, cTotal = 0;
             for (int y = 0; y < h; y++)
@@ -411,16 +441,26 @@ namespace FarHorizon
                 Vector3 topTarget = pond.transform.position;
                 var topWaterT = pond.transform.Find("PondWater");
                 if (topWaterT != null) topTarget = topWaterT.position;
-                // Straight overhead, looking down -Y. Close enough the pond disc fills the frame so the surface
-                // (not the surrounding grass) dominates the central sample — the broad white band lives there.
-                float topHeight = 6.0f;
+                // Straight overhead, looking down -Y. RE-CALIBRATED (ticket 86cadj4g7 #130 ROUND 6 — Tess QA found
+                // the round-5 framing (height 6 / fov 40) made the ~2.8u-radius pond disc OVERFILL the overhead
+                // frame: the waterline + bowl-wall (where the white ring lived, world r ~2.6–5.4u) fell off the
+                // frame EDGES/corners, so the fixed 0.30..0.52 annulus band sat on OPEN WATER (r ~0.66–1.14u) and
+                // PASSED trivially — it could never sample the shoreline ring. RAISE the camera + widen the FOV so
+                // the FULL disc + its green collar (collar paint fades out by world r ~6.8u) fit with corner margin,
+                // and the waterline→bowl-wall ring lands at a samplable mid-frame radius. At height 18 / fov 50 the
+                // vertical-half world extent at the water plane = 18*tan(25°) ≈ 8.39u (= rNorm 1.0 on the short
+                // axis), so the waterline (~2.8u) → rNorm ~0.33, the bowl mouth (~5.4u) → ~0.64, the collar fade-end
+                // (~6.8u) → ~0.81 — all in frame with the corners clear of green. The center surface-white box stays
+                // on deep water (rNorm well inside the ~0.33 waterline). The annulus gate below SELF-CALIBRATES to
+                // the measured waterline rather than trusting a hard-coded band, so it tracks any future disc size.
+                float topHeight = OverheadHeight;
                 camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
                 camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // look straight down
-                cam.fieldOfView = 40f;
+                cam.fieldOfView = OverheadFov;
 
                 for (int i = 0; i < settleFrames; i++) yield return null;
                 yield return new WaitForEndOfFrame();
-                Debug.Log($"[FreshwaterPondVerifyCapture] frame top: height={topHeight} ACTUAL pos=" +
+                Debug.Log($"[FreshwaterPondVerifyCapture] frame top: height={topHeight} fov={OverheadFov} ACTUAL pos=" +
                           $"{cam.transform.position.ToString("F2")} fwd={cam.transform.forward.ToString("F2")}");
 
                 // TOP-DOWN no-surface-white assert (the blind-spot fix). The pond disc fills the frame centre;
@@ -444,27 +484,32 @@ namespace FarHorizon
                 yield return null;
             }
 
-            // === TOP-DOWN SHORELINE-ANNULUS no-pale-ring HARD GATE (ticket 86cadj4g7 #130 ROUND 5 — the gate the
-            // Sponsor's white ring needed). The old CheckNoSurfaceWhite samples the DISC CENTRE (0.34..0.66 box) —
-            // clean by construction (deep fresh-blue), so it scored 0.000 through every round while the Sponsor
-            // still soaked a white SHORELINE RING. The white was the raised PondBank collar mesh draping the bowl
-            // wall, reading PALE/washed at the WATERLINE RADIUS (a RING around the disc, not the centre). This gate
-            // samples the SHORELINE ANNULUS (the waterline ring band) from overhead and FAILS on a bright PALE ring
-            // there — catching BOTH near-white foam AND the pale-warm collar wash (high luma in the ring, regardless
-            // of neutrality). PROMOTED to a HARD gating percept (it was demoted to advisory before). On the OLD
-            // collar build (e5207d1) the annulus reads a clear pale fraction → this FAILS; with the collar removed +
-            // the flat terrain-paint ring, the annulus reads blue→green with ~0 pale → this PASSES. (Reuses the
-            // same overhead frame already captured above — no extra frame.)
-            bool topNoShorelineRing = CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma);
+            // === TOP-DOWN SHORELINE-ANNULUS no-pale-ring HARD GATE (ticket 86cadj4g7 #130 ROUND 5; RE-CALIBRATED
+            // ROUND 6). The gate the Sponsor's white ring needed: CheckNoSurfaceWhite samples the DISC CENTRE only
+            // (clean by construction — deep fresh-blue, scores 0.000) while the white the Sponsor soaked was a PALE
+            // RING at the WATERLINE RADIUS (the raised PondBank collar mesh draping the bowl wall, reading washed
+            // under the warm key). This gate samples the SHORELINE RING from overhead and FAILS on a bright PALE
+            // ring there (high luma — catches near-white foam AND the pale-warm collar wash, regardless of hue).
+            //
+            // ROUND 6 RE-CALIBRATION (Tess QA, run 28155640831): the round-5 version used a HARD-CODED 0.30..0.52
+            // frame-radius band, which — once the disc overfilled the height-6 overhead frame — sat on OPEN WATER
+            // (r ~0.66–1.14u), NOT the shoreline (~2.8u), so it PASSED trivially and could never catch a ring. FIX:
+            // (a) the overhead frame is now raised (height 18 / fov 50) so the full disc + collar is in frame, and
+            // (b) this gate SELF-CALIBRATES — it first MEASURES the waterline radius (the rNorm where the blue water
+            // disc gives way to the green/pale collar, found by a radial blue-coverage scan), then samples the ring
+            // band STRADDLING that measured waterline. So the band lands ON the actual shoreline regardless of disc
+            // size/framing — it can never drift onto open water again. Fails if the band is bright/pale; passes on a
+            // clean blue→green shoreline. (Reuses the same overhead frame already captured above — no extra frame.)
+            bool topNoShorelineRing = CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma, out float waterlineRNorm);
             if (topNoShorelineRing)
-                Debug.Log($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS PASS: waterline-ring pale fraction=" +
-                          $"{ringPaleFrac:F3} (luma={ringLuma:F3}) — the shoreline reads blue→green, NO pale/white " +
-                          "ring (the #130 round-5 raised-collar white ring is GONE; the collar is flat terrain paint).");
+                Debug.Log($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS PASS: waterline at rNorm={waterlineRNorm:F2}; " +
+                          $"ring pale fraction={ringPaleFrac:F3} (luma={ringLuma:F3}) — the shoreline reads blue→green, " +
+                          "NO pale/white ring (the #130 raised-collar white ring is GONE; the collar is flat terrain paint).");
             else
-                Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS FAIL: waterline-ring pale fraction=" +
-                               $"{ringPaleFrac:F3} (luma={ringLuma:F3}) reads as a bright PALE/WHITE RING around the " +
-                               "water (the #130 white shoreline ring — the centre-box gate is BLIND to it; this " +
-                               "annulus gate catches the raised-collar wash the Sponsor kept soaking).");
+                Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS FAIL: waterline at rNorm={waterlineRNorm:F2}; " +
+                               $"ring pale fraction={ringPaleFrac:F3} (luma={ringLuma:F3}) reads as a bright PALE/WHITE RING " +
+                               "around the water (the #130 white shoreline ring — the centre-box gate is BLIND to it; this " +
+                               "self-calibrating annulus gate catches the raised-collar wash the Sponsor kept soaking).");
 
             // === 5th frame — TRUE SIDE-PROFILE (ticket 86cadj4g7 #130; standing rule lowpoly-quality.md §0) ====
             // The 3 frames above are gameplay-PITCH down-angle looks; up-vs-down is invisible from those (a mound
@@ -638,19 +683,23 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// TOP-DOWN SHORELINE-ANNULUS no-pale-ring read (ticket 86cadj4g7 #130 ROUND 5 — THE gate the Sponsor's
-        /// white ring needed). From the straight-overhead frame the pond disc fills the centre and the WATERLINE
-        /// sits in a RING band around it. The #130 white the Sponsor kept soaking was a PALE shoreline RING (the
-        /// raised PondBank collar mesh draping the bowl wall, reading washed under the warm key) — at the waterline
-        /// RADIUS, NOT the disc centre (which is clean deep fresh-blue, so CheckNoSurfaceWhite's centre box scored
-        /// 0.000 through every round). Sample the normalized-radius SHORELINE ANNULUS (0.30..0.52 of the half-min
-        /// dimension from frame centre — where the waterline ring renders) and count BRIGHT PALE pixels: high luma
-        /// (>0.70) — catches BOTH a near-white foam ring AND the pale-warm collar wash, regardless of neutrality
-        /// (the collar read warm-beige, NOT near-neutral, so the old white-detector's maxc−minc<0.10 clause MISSED
-        /// it). Fresh-blue water (luma~0.31) and darker-green collar paint (luma~0.30) are NOT bright, so a clean
-        /// blue→green shoreline scores ~0. Returns true (no ring) when the bright-pale fraction is low.
+        /// TOP-DOWN SELF-CALIBRATING SHORELINE-RING no-pale read (ticket 86cadj4g7 #130 ROUND 5; RE-CALIBRATED
+        /// ROUND 6). From the raised straight-overhead frame the pond disc sits centre and the WATERLINE is a RING
+        /// at the water→collar boundary. The #130 white the Sponsor kept soaking was a PALE ring AT that waterline
+        /// (the raised collar wash) — NOT the disc centre (clean deep fresh-blue). The ROUND-5 version used a
+        /// HARD-CODED 0.30..0.52 frame-radius band; Tess QA (run 28155640831) found the disc overfilled the old
+        /// height-6 frame so that band sat on OPEN WATER and passed trivially. ROUND 6: this method now SELF-
+        /// CALIBRATES — step 1 MEASURES the waterline radius by scanning blue-water coverage outward in normalized-
+        /// radius rings (the waterline is the rNorm where blue coverage drops below half, i.e. the disc gives way
+        /// to the collar); step 2 samples the ring band STRADDLING that measured waterline (±a margin) and counts
+        /// BRIGHT PALE pixels (luma > 0.60 — catches near-white foam AND the pale-warm collar wash regardless of
+        /// hue; the old maxc−minc neutrality clause missed the warm-beige collar). Fresh-blue water (luma~0.27) and
+        /// darker-green collar paint (luma~0.30) are well below 0.60, so a clean blue→green shoreline scores ~0.
+        /// Because the band is anchored to the MEASURED waterline, it lands ON the shoreline at any disc size /
+        /// framing and can never drift onto open water again. Returns true (no ring) when the bright-pale fraction
+        /// is low; out waterlineRNorm reports where the waterline was found (for the log + a framing sanity-fail).
         /// </summary>
-        private bool CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma)
+        private bool CheckNoShorelineAnnulusRing(out float ringPaleFrac, out float ringLuma, out float waterlineRNorm)
         {
             int w = Screen.width, h = Screen.height;
             var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
@@ -658,7 +707,55 @@ namespace FarHorizon
             tex.Apply();
             float cx = w * 0.5f, cy = h * 0.5f;
             float rad = Mathf.Min(w, h) * 0.5f;
-            const float annInner = 0.30f, annOuter = 0.52f; // the waterline ring band from overhead
+
+            // STEP 1 — MEASURE the waterline radius. Bin pixels into normalized-radius rings and track the fraction
+            // of fresh-BLUE (B>G) pixels per ring. The disc centre is ~all-blue; past the waterline the collar/grass
+            // is green (not blue). The waterline = the OUTERMOST ring (scanning out from centre) where blue coverage
+            // is still >= 50% (i.e. the last mostly-water ring). Robust to the organic perturbed outline (2.27–3.02u)
+            // because it's a coverage threshold, not an edge-detect. Bins span rNorm 0..0.95 (skip the corners).
+            const int bins = 40; const float rMax = 0.95f;
+            var blueCnt = new int[bins]; var binTot = new int[bins];
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float dx = (x - cx) / rad, dy = (y - cy) / rad;
+                float rNorm = Mathf.Sqrt(dx * dx + dy * dy);
+                if (rNorm >= rMax) continue;
+                int bi = Mathf.Clamp((int)(rNorm / rMax * bins), 0, bins - 1);
+                Color c = tex.GetPixel(x, y);
+                binTot[bi]++;
+                if (c.b - c.g > 0.04f) blueCnt[bi]++; // fresh-blue tell
+            }
+            // Walk outward; the waterline is the last bin still >=50% blue (after the disc has started, so we ignore
+            // a possible thin non-blue speck at dead-centre from HUD/glints by requiring the inner disc to be blue).
+            int waterlineBin = 0; bool sawDisc = false;
+            for (int bi = 0; bi < bins; bi++)
+            {
+                if (binTot[bi] == 0) continue;
+                float blueFrac = (float)blueCnt[bi] / binTot[bi];
+                if (blueFrac >= 0.5f) { waterlineBin = bi; sawDisc = true; }
+                else if (sawDisc) break; // dropped below half AFTER the disc → we've crossed the waterline
+            }
+            waterlineRNorm = sawDisc ? (waterlineBin + 0.5f) / bins * rMax : -1f;
+
+            // If the disc was NOT found in-frame (waterlineRNorm too small/large or no disc), the framing is wrong —
+            // fail loud rather than sample a meaningless band (the round-5 trivial-pass failure mode). The waterline
+            // must land in a plausible mid-frame band (the height-18/fov-50 framing puts it ~0.30–0.45).
+            if (!sawDisc || waterlineRNorm < 0.15f || waterlineRNorm > 0.75f)
+            {
+                Object.Destroy(tex);
+                ringPaleFrac = 1f; ringLuma = 1f;
+                Debug.LogError($"[FreshwaterPondVerifyCapture] SHORELINE-ANNULUS framing FAIL: waterline rNorm=" +
+                               $"{waterlineRNorm:F2} not in [0.15,0.75] — the disc is mis-framed overhead, the ring " +
+                               "band cannot be anchored to the shoreline (a wrong-framing trivial pass — round-5 bug).");
+                return false;
+            }
+
+            // STEP 2 — sample the ring band STRADDLING the measured waterline (±band) and count bright PALE pixels.
+            float band = 0.10f; // ±10% of frame radius around the waterline — covers the bowl-wall ring where the
+                                // raised-collar wash lived (world ~waterline..bowl-mouth) without reaching far grass.
+            float annInner = Mathf.Max(0.05f, waterlineRNorm - band);
+            float annOuter = Mathf.Min(rMax, waterlineRNorm + band);
             int pale = 0, total = 0; double lumaSum = 0;
             for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -669,22 +766,14 @@ namespace FarHorizon
                 Color c = tex.GetPixel(x, y);
                 float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
                 lumaSum += luma;
-                // BRIGHT tell — luma > 0.60. This threshold is CALIBRATED on the actual captures (offline-measured
-                // on the OLD collar build e5207d1's overhead annulus vs the collar-gone build): the raised-collar
-                // pale shoreline RING lit luma>0.60 in 0.191 of the annulus; the collar-gone clean blue→green
-                // shoreline reads 0.000. A 0.70 threshold MISSED the ring (it sat in the 0.55-0.65 band) — the
-                // #130-round-5 wrong-region-AND-wrong-threshold foundation error this gate exists to fix. No hue
-                // clause: it catches a bright ring whether warm-beige foam OR bright-cyan rim wash; the fresh-blue
-                // water (calm, luma~0.27) + the darker-green collar paint (luma~0.30) are well below 0.60.
-                if (luma > 0.60f) pale++;
+                if (luma > 0.60f) pale++; // BRIGHT tell: near-white foam OR pale-warm collar wash, hue-agnostic
                 total++;
             }
             Object.Destroy(tex);
             ringPaleFrac = total > 0 ? (float)pale / total : 0f;
             ringLuma = total > 0 ? (float)(lumaSum / total) : 0f;
-            // NO ring iff few bright pixels in the shoreline annulus. The OLD raised-collar ring lit 0.191; the
-            // collar-gone clean shoreline reads 0.000. Fail at >= 0.08 — comfortably between the two, so the gate
-            // FAILS on the collar build (0.191) and PASSES collar-gone (0.000) with margin on both sides.
+            // NO ring iff few bright pixels in the shoreline band. A clean blue→green shoreline reads ~0; a pale
+            // collar/foam ring lights a clear fraction. Fail at >= 0.08 (a meaningful ring lights well past this).
             return ringPaleFrac < 0.08f;
         }
 
