@@ -66,10 +66,156 @@ namespace FarHorizon
 
         void Start()
         {
-            if (HasArg("-verifyPondSide"))
+            if (HasArg("-verifyPondDiag"))
+                StartCoroutine(RunWhiteRingDiagnostic());
+            else if (HasArg("-verifyPondSide"))
                 StartCoroutine(RunSideProfile());
             else if (HasArg("-verifyPond"))
                 StartCoroutine(RunVerification());
+        }
+
+        // ============================================================================================
+        // WHITE-SHORELINE-RING DIAGNOSTIC (ticket 86cadj4g7 #130 ROUND 5 — diagnose-before-fix).
+        // The Sponsor still soaks a prominent WHITE SHORELINE RING with foam genuinely OFF (_FoamAmount=0,
+        // top-down surface-centre white=0.000). Per [[claim-removed-soak-shows-present-investigate-foundation]]:
+        // STOP patching, PROVE the source with controlled toggles before any fix. This pass parks the camera
+        // straight overhead (the angle the white ring shows from) + measures the near-white fraction in the
+        // SHORELINE ANNULUS (the waterline ring radius, NOT the clean centre the old gate sampled) under four
+        // conditions, so the build log states WHICH toggle kills the ring:
+        //   (a) baseline       — everything as shipped
+        //   (b) bloom OFF       — disable the Zone-D post Volume's Bloom override (rules in/out rim-color bloom)
+        //   (c) collar removed  — disable the PondBank ring mesh (rules in/out the lit bank/collar facets)
+        //   (d) sea plane OFF   — disable Water_Play (the _FoamAmount=1 sea); also logs whether the sea plane
+        //                         renders ANY pixel at the pond XZ (rules in/out "sea-plane-over-bowl")
+        // Captures pond_diag_{a,b,c,d}.png + logs [pond-diag] annulus-white fractions; quits 0 (it is a
+        // diagnostic, not a gate). Verdict = the toggle whose annulus-white drops to ~0 is the white source.
+        // ============================================================================================
+        private System.Collections.IEnumerator RunWhiteRingDiagnostic()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            var pond = Object.FindAnyObjectByType<FreshwaterPond>();
+            Debug.Log("[pond-diag] FreshwaterPond found: " + (pond != null));
+            if (pond == null) { Debug.LogError("[pond-diag] no FreshwaterPond — build-side regression"); yield return null; Application.Quit(1); yield break; }
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null) { Debug.LogError("[pond-diag] no Camera.main"); yield return null; Application.Quit(1); yield break; }
+
+            // Ground-truth material trace first (which foam term is actually live on the shipped material).
+            DumpPondMaterials(pond);
+
+            Vector3 topTarget = pond.transform.position;
+            var waterT = pond.transform.Find("PondWater");
+            if (waterT != null) topTarget = waterT.position;
+
+            // Resolve the toggle handles up front.
+            var volumes = Object.FindObjectsByType<UnityEngine.Rendering.Volume>(FindObjectsSortMode.None);
+            var bank = pond.transform.Find("PondBank");
+            var seaPlane = GameObject.Find("Water_Play");
+            Debug.Log($"[pond-diag] handles: volumes={volumes.Length} bank={(bank != null)} seaPlane={(seaPlane != null)}");
+
+            // SEA-PLANE-OVER-BOWL trace: where is the sea plane relative to the pond water surface? If the sea
+            // Y sits AT/ABOVE the pond water Y at the pond XZ, the _FoamAmount=1 sea could peek through the bowl.
+            if (seaPlane != null)
+            {
+                float seaY = seaPlane.transform.position.y;
+                float pondWaterY = waterT != null ? waterT.position.y : pond.transform.position.y;
+                Debug.Log($"[pond-diag] sea-plane-over-bowl: seaY={seaY:F3} pondWaterY={pondWaterY:F3} " +
+                          $"(sea {(seaY >= pondWaterY ? "AT/ABOVE" : "BELOW")} pond water — " +
+                          $"{(seaY >= pondWaterY ? "could peek through the bowl" : "is below, hidden by the bowl floor")})");
+            }
+
+            for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            // Helper: park overhead, settle, capture, measure the shoreline-annulus near-white fraction.
+            System.Func<string, char, System.Collections.IEnumerator> shoot = (label, tag) =>
+                CaptureDiagFrame(cam, topTarget, dir, label, tag);
+
+            // (a) baseline
+            yield return shoot("baseline", 'a');
+            // (b) bloom OFF — drop every Volume's weight to 0 (kills the whole post stack incl. Bloom)
+            var savedWeights = new float[volumes.Length];
+            for (int i = 0; i < volumes.Length; i++) { savedWeights[i] = volumes[i].weight; volumes[i].weight = 0f; }
+            yield return shoot("bloomOFF (volume weight 0)", 'b');
+            for (int i = 0; i < volumes.Length; i++) volumes[i].weight = savedWeights[i]; // restore
+            // (c) collar/bank ring removed
+            if (bank != null) bank.gameObject.SetActive(false);
+            yield return shoot("collar/bank REMOVED", 'c');
+            if (bank != null) bank.gameObject.SetActive(true); // restore
+            // (d) sea plane OFF
+            if (seaPlane != null) seaPlane.SetActive(false);
+            yield return shoot("sea plane (Water_Play) OFF", 'd');
+            if (seaPlane != null) seaPlane.SetActive(true); // restore
+
+            yield return new WaitForSeconds(0.3f);
+            Debug.Log("[pond-diag] white-ring diagnostic complete — read the [pond-diag] annulus-white lines " +
+                      "above; the toggle whose annulus-white drops to ~0 is the PROVEN white source -> " + dir);
+            Application.Quit(0);
+        }
+
+        // Park straight overhead, settle, capture pond_diag_<tag>.png, and measure + log the near-white fraction
+        // in the SHORELINE ANNULUS (the waterline ring) — the region the Sponsor's white ring lives in, NOT the
+        // clean disc centre the old gate sampled. Reused by all four diagnostic toggles.
+        private System.Collections.IEnumerator CaptureDiagFrame(Camera cam, Vector3 topTarget, string dir, string label, char tag)
+        {
+            var camGo = cam.gameObject;
+            float topHeight = 6.0f;
+            camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
+            camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            cam.fieldOfView = 40f;
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            yield return new WaitForEndOfFrame();
+
+            float annWhite = MeasureAnnulusWhite(out float annLuma, out float centreWhite);
+            Debug.Log($"[pond-diag] [{tag}] {label}: annulus-white={annWhite:F3} (luma={annLuma:F3}) " +
+                      $"centre-white={centreWhite:F3}");
+            string file = Path.Combine(dir, $"pond_diag_{tag}.png");
+            ScreenCapture.CaptureScreenshot(file, 1);
+            Debug.Log("[pond-diag] wrote " + file);
+            yield return new WaitForEndOfFrame();
+            yield return null;
+        }
+
+        /// <summary>
+        /// Measure the near-white pixel fraction in the SHORELINE ANNULUS from the straight-overhead frame
+        /// (ticket 86cadj4g7 #130 ROUND 5). The pond disc fills the frame centre; the waterline ring sits in a
+        /// RING radius band around centre. We sample a normalized-radius annulus (0.30..0.52 of the half-min
+        /// dimension from frame centre) — the shoreline where the white ring lives — and count near-white
+        /// (bright + near-neutral R≈G≈B) pixels. ALSO returns the centre-box white fraction (the old clean-by-
+        /// construction proxy) so the log shows the annulus catches what the centre misses. yFrac/xFrac from the
+        /// frame centre; ReadPixels origin bottom-left.
+        /// </summary>
+        private float MeasureAnnulusWhite(out float annulusLuma, out float centreWhite)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            float cx = w * 0.5f, cy = h * 0.5f;
+            float rad = Mathf.Min(w, h) * 0.5f;
+            const float annInner = 0.30f, annOuter = 0.52f; // shoreline ring band (the waterline radius)
+            int annWhite = 0, annTotal = 0; double annLumaSum = 0;
+            int cWhite = 0, cTotal = 0;
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float dx = (x - cx) / rad, dy = (y - cy) / rad;
+                float rNorm = Mathf.Sqrt(dx * dx + dy * dy);
+                Color c = tex.GetPixel(x, y);
+                float maxc = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                float minc = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                bool nearWhite = luma > 0.72f && (maxc - minc) < 0.10f;
+                if (rNorm >= annInner && rNorm <= annOuter) { annTotal++; annLumaSum += luma; if (nearWhite) annWhite++; }
+                else if (rNorm < 0.20f) { cTotal++; if (nearWhite) cWhite++; } // centre proxy (old gate region)
+            }
+            Object.Destroy(tex);
+            annulusLuma = annTotal > 0 ? (float)(annLumaSum / annTotal) : 0f;
+            centreWhite = cTotal > 0 ? (float)cWhite / cTotal : 0f;
+            return annTotal > 0 ? (float)annWhite / annTotal : 0f;
         }
 
         // Ground-level SIDE-PROFILE pass (ticket 86cadj4g7 #130). Parks Camera.main near the ground looking
