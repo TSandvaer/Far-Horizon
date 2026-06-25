@@ -79,10 +79,22 @@ namespace FarHorizon.Settings
         /// null-refs), so existing callers / bare test rigs are unaffected.
         /// </summary>
         public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst)
+            => Build(orbit, wasd, thirst, null, null);
+
+        /// <summary>
+        /// Build the standard registry AND the thirst tweakables AND the CHOP tweakables (ticket 86caa4c5c):
+        /// `tool-use speed` (flips the reserved <see cref="ToolSpeedId"/> row LIVE, bound to the chop swing
+        /// speed — V1) + `tree regrowth time` (a new RANGE row driving the stump regrow min/max — V2/V3). A
+        /// null driver/tree SKIPS the chop settings (the catalog never null-refs), leaving `tool-use speed` as
+        /// its greyed extension hook — so a chop-less rig / bare test is unaffected.
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.ChopPoseDriver chopDriver, FarHorizon.ChopTree chopTree)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
             PopulateThirst(reg, thirst);
+            PopulateChop(reg, chopDriver, chopTree);
             return reg;
         }
 
@@ -159,6 +171,53 @@ namespace FarHorizon.Settings
             reg.AddFloat(WaterScoopId, "Water scoop amount",
                 () => thirst.waterScoopAmount, v => thirst.waterScoopAmount = v,
                 WaterScoopMin, WaterScoopMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the CHOP tweakables (ticket 86caa4c5c AC1+AC3) into the registry:
+        /// <list type="bullet">
+        /// <item><b>Tool-use speed</b> (V1) — FLIPS the reserved <see cref="ToolSpeedId"/> row LIVE. `Populate`
+        /// registers that id GREYED (available:false, dummy getter); here we REMOVE that hook and re-add it
+        /// bound to the live <paramref name="chopDriver"/>.swingSpeed (the chop swing playback rate — NOT a
+        /// clip multiplier; there is no clip). Remove-then-add is the only safe path because
+        /// <see cref="SettingsRegistry.Register{T}"/> throws on a duplicate id (V1: "bind + flip live, do NOT
+        /// add a second row → duplicate-id collision"). The id stays `tool_use_speed` (one row).</item>
+        /// <item><b>Tree regrowth time</b> (V2/V3) — a NEW <see cref="TreeRegrowthId"/> RANGE row driving
+        /// <paramref name="chopTree"/>.regrowthMinSeconds / regrowthMaxSeconds (organic regrowth within
+        /// [min,max], AC3). Registered as its own row (not on main yet), via THIS method (not by appending to
+        /// `Populate` — the PopulateThirst de-collision precedent).</item>
+        /// </list>
+        /// A null driver leaves `tool-use speed` greyed; a null tree skips the regrowth row — so a chop-less
+        /// rig / bare EditMode test never null-refs. Idempotent w.r.t. the greyed hook (Remove no-ops if absent).
+        /// </summary>
+        public static void PopulateChop(SettingsRegistry reg, FarHorizon.ChopPoseDriver chopDriver,
+            FarHorizon.ChopTree chopTree)
+        {
+            if (reg == null) return;
+
+            // TOOL-USE SPEED (V1) — flip the reserved greyed row LIVE, bound to the chop swing speed. Remove the
+            // extension hook `Populate` registered (Remove no-ops if it was never added), then re-add it live so
+            // there is exactly ONE `tool_use_speed` row (no duplicate-id throw). Clamp band == ChopPoseDriver's.
+            if (chopDriver != null)
+            {
+                reg.Remove(ToolSpeedId);
+                reg.AddFloat(ToolSpeedId, "Tool-use speed",
+                    () => chopDriver.swingSpeed,
+                    v => chopDriver.swingSpeed = Mathf.Clamp(v,
+                        FarHorizon.ChopPoseDriver.SwingSpeedMin, FarHorizon.ChopPoseDriver.SwingSpeedMax),
+                    ToolSpeedMin, ToolSpeedMax, unit: "x");
+            }
+
+            // TREE REGROWTH TIME (V2/V3) — a RANGE row driving the stump regrow window [min,max] (organic, not
+            // uniform — AC3). Tightening it makes a felled stump regrow sooner; widening, more variance. The
+            // setter clamps min<=max is enforced inside ChopTree.ScheduleRegrow, so the slider can't invert it.
+            if (chopTree != null)
+            {
+                reg.AddRange(TreeRegrowthId, "Tree regrowth time",
+                    () => chopTree.regrowthMinSeconds, v => chopTree.regrowthMinSeconds = v,
+                    () => chopTree.regrowthMaxSeconds, v => chopTree.regrowthMaxSeconds = v,
+                    TreeRegrowthLower, TreeRegrowthUpper, unit: "s");
+            }
         }
     }
 }

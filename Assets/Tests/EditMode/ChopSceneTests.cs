@@ -39,6 +39,32 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(tree.visual,
                 "ChopTree's visual reference must be wired editor-time so the felling tween animates the " +
                 "serialized tree mesh (the thin-but-felt feedback)");
+            Assert.IsNotNull(tree.poseDriver,
+                "ChopTree's poseDriver reference must be wired editor-time (86caa4c5c AC1) so each landed " +
+                "chop swings the arm in the shipped build — an Awake-only FindObjectOfType fallback exists " +
+                "but is the non-ship path (editor-vs-runtime serialization trap, unity-conventions.md)");
+        }
+
+        [Test]
+        public void BootScene_CarriesChopPoseDriver_OnCastaway_WiredToArmPose()
+        {
+            // AC1 — the procedural swing driver must be SERIALIZED onto the castaway (with its armPose wired),
+            // not added at Awake (the editor-vs-runtime trap would ship it mangled/absent → the chop swing
+            // would be silently inert in the build). It must sit on the SAME object as the CastawayArmPose it
+            // drives, and at order 10 (< ArmPose's 50) so its offset is composed the same frame.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            ChopPoseDriver driver = FindInScene<ChopPoseDriver>(scene);
+            Assert.IsNotNull(driver,
+                "the Boot scene must carry the ChopPoseDriver (the procedural chop swing, AC1) — serialized " +
+                "editor-time onto the castaway, not Awake-built");
+            Assert.IsNotNull(driver.armPose,
+                "ChopPoseDriver.armPose must be wired editor-time so the swing offset reaches the arm without " +
+                "an Awake-time GetComponentInParent in the build");
+            Assert.IsNotNull(driver.GetComponent<CastawayArmPose>(),
+                "the driver must sit on the SAME object as the CastawayArmPose it feeds (so order 10 < 50 " +
+                "composes its offset onto the arm pose the same LateUpdate)");
         }
 
         [Test]

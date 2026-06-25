@@ -254,6 +254,13 @@ namespace FarHorizon.EditorTools
         // character). The 3-4 seed VARIANTS captured for the Sponsor pick the value baked here.
         public const int IslandSeed = 42;          // Sponsor's pick from the seed-variant captures (86ca9qwr3)
 
+        // The salt added to the island seed for the PROP-SCATTER RNG stream (`new System.Random(seed + 555)`
+        // in ScatterIslandProps). Named (was a magic 555) so the chop seed-42 byte-invariance guard
+        // (ChopScatterInvarianceTests, 86caa4c5c AC5) can assert the EXACT scatter stream is byte-identical
+        // without copying the literal — a future accidental change to the salt would re-roll every tree/rock/
+        // grass placement and that guard would catch it. (Read-only rename: same value 555, same stream.)
+        public const int ScatterSeedSalt = 555;
+
         // ============================================================================================
         // FRESHWATER-POND BOWL DEPRESSION (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is an ELEVATED
         // LIP, not a depression; carve a recessed BOWL"). REPLACES the old WorldBootstrap.RegroundFreshwaterPond
@@ -874,7 +881,7 @@ namespace FarHorizon.EditorTools
         // ============================================================================================
         static void ScatterIslandProps(GameObject parent, int seed, MeshCollider groundCol)
         {
-            var rnd = new System.Random(seed + 555);
+            var rnd = new System.Random(seed + ScatterSeedSalt);
             SeedOffset(seed, out float ox, out float oz); // SAME warp offset as the terrain (plant on the real land)
 
             // COAST-STATS TRACE (86ca9qwr3 instrument): dump the warped coast radius around 36 azimuths so the

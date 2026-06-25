@@ -158,7 +158,6 @@ namespace FarHorizon
             if (poseDriver == null) poseDriver = FindObjectOfType<ChopPoseDriver>();
             // Capture the standing pose at spawn so felling/regrow tweens have an anchor. The tree ships
             // standing, so transform-at-Awake == the standing pose.
-            if (visual == null) visual = transform;
             _standPos = visual.position;
             _standRot = visual.rotation;
             _rng = new System.Random(regrowSeed != 0 ? regrowSeed : Environment.TickCount);

@@ -74,6 +74,23 @@ namespace FarHorizon.Settings
             int min, int max, int step = 1, bool available = true, string unit = "")
             => Register(new IntSettingEntry(id, label, get, set, min, max, step, available, unit));
 
+        /// <summary>
+        /// Remove a registered entry by id (no-op + false if not present). Used to REPLACE a greyed
+        /// extension-hook row with its live binding once the owning feature lands — e.g. chop flips the
+        /// reserved `tool_use_speed` row live (ticket 86caa4c5c V1): `Populate` registers it greyed,
+        /// `PopulateChop` removes-then-re-adds it bound to the real swing-speed field. Because
+        /// <see cref="Register{T}"/> THROWS on a duplicate id, the only safe live-rebind path is
+        /// remove-then-add — this is that seam. Fires <see cref="Changed"/> on a real removal.
+        /// </summary>
+        public bool Remove(string id)
+        {
+            if (string.IsNullOrEmpty(id) || !_byId.TryGetValue(id, out var entry)) return false;
+            _byId.Remove(id);
+            _entries.Remove(entry);
+            Changed?.Invoke();
+            return true;
+        }
+
         /// <summary>Look up a registered entry by id (null if not registered).</summary>
         public SettingEntry Get(string id) => _byId.TryGetValue(id, out var e) ? e : null;
 
