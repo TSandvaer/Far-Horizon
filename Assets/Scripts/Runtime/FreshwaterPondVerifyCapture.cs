@@ -669,19 +669,23 @@ namespace FarHorizon
                 Color c = tex.GetPixel(x, y);
                 float luma = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
                 lumaSum += luma;
-                // BRIGHT-PALE tell: high luma. Catches near-white foam AND the pale-warm collar wash alike (the
-                // fresh-blue water + the darker-green collar paint both read dark, luma~0.30 — only a pale RING
-                // lights up). No neutrality clause (the collar wash was warm-beige, R>B — a near-neutral-only
-                // detector MISSED it, the #130 round-5 foundation error).
-                if (luma > 0.70f) pale++;
+                // BRIGHT tell — luma > 0.60. This threshold is CALIBRATED on the actual captures (offline-measured
+                // on the OLD collar build e5207d1's overhead annulus vs the collar-gone build): the raised-collar
+                // pale shoreline RING lit luma>0.60 in 0.191 of the annulus; the collar-gone clean blue→green
+                // shoreline reads 0.000. A 0.70 threshold MISSED the ring (it sat in the 0.55-0.65 band) — the
+                // #130-round-5 wrong-region-AND-wrong-threshold foundation error this gate exists to fix. No hue
+                // clause: it catches a bright ring whether warm-beige foam OR bright-cyan rim wash; the fresh-blue
+                // water (calm, luma~0.27) + the darker-green collar paint (luma~0.30) are well below 0.60.
+                if (luma > 0.60f) pale++;
                 total++;
             }
             Object.Destroy(tex);
             ringPaleFrac = total > 0 ? (float)pale / total : 0f;
             ringLuma = total > 0 ? (float)(lumaSum / total) : 0f;
-            // NO ring iff few bright-pale pixels in the shoreline annulus. A surviving pale collar/foam ring lights
-            // up a clear fraction; a clean blue→green shoreline reads ~0. 0.10 threshold (a real ring is a broad band).
-            return ringPaleFrac < 0.10f;
+            // NO ring iff few bright pixels in the shoreline annulus. The OLD raised-collar ring lit 0.191; the
+            // collar-gone clean shoreline reads 0.000. Fail at >= 0.08 — comfortably between the two, so the gate
+            // FAILS on the collar build (0.191) and PASSES collar-gone (0.000) with margin on both sides.
+            return ringPaleFrac < 0.08f;
         }
 
         /// <summary>
