@@ -359,19 +359,22 @@ namespace FarHorizon.EditTests
             float floorY = hit.point.y;
 
             // The water surface must sit ABOVE the carved floor by a clear margin — the disc renders over the
-            // floor (never occluded), and the gap IS the wade depth: deep enough to read knee-deep (the player's
-            // NavMesh-agent Y follows this floor), not a flush puddle. A floor band catches a re-sink; a ceiling
-            // keeps it from being a deep WELL (knee, not waist). The carve is PondBowlFloorDrop (RECESS 0.45 +
-            // WADE 0.45 = 0.90) with the water PondWadeDepth (0.45) up from the floor → expect ~0.45u here
-            // (bounded 0.2..0.9). The wade depth is unchanged by the #130 recess deepening (only the recess grew).
+            // floor (never occluded), and the gap IS the WADE depth: the dispatch's "knee-deep 0.75u at the
+            // centre" (the player's NavMesh-agent Y follows this floor), not a flush puddle. A floor band catches a
+            // re-sink; a ceiling keeps it from being a deep WELL. ROUND 9: the carve is PondBowlFloorDrop (RECESS
+            // 0.30 + WADE 0.75 = 1.05) with the water PondWadeDepth (0.75) up from the floor → expect ~0.75u here
+            // (bounded 0.2..0.9). The WADE rose 0.45→0.75 (the SUNK percept is now this DEPTH below the waterline,
+            // per the dispatch redefine), while the RECESS dropped 0.75→0.30 so the dry shore lip stays a thin
+            // traversable step-over (fill to ≈0.90 of the mouth, no walkable dry slope).
             float depth = waterWorldY - floorY;
             Assert.Greater(depth, 0.20f,
                 $"the pond WATER surface (worldY {waterWorldY:F3}) must sit clearly ABOVE the carved bowl floor " +
                 $"({floorY:F3}) — depth {depth:F3} reads knee-deep + un-occluded (the #130 defect was a flush/" +
                 "lifted disc; the bowl carve recesses it). LowPolyZoneGen.PondDepressionDelta + GroundPondInBowl.");
             Assert.Less(depth, 0.90f,
-                $"the pond water depth ({depth:F3}) must stay KNEE-deep, not a deep well — the player wades in, " +
-                "not swims (bounded by PondWaterDepthAboveFloor; a runaway depth means the bowl/grounding drifted).");
+                $"the pond water depth ({depth:F3}) must stay KNEE-deep (the dispatch's 0.75u target), not a deep " +
+                "well — the player wades in, not swims (bounded by PondWaterDepthAboveFloor; a runaway depth means " +
+                "the bowl/grounding drifted).");
         }
 
         // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 8) — the WATER FILLS THE CARVED BOWL TO ITS RIM ======
@@ -388,16 +391,24 @@ namespace FarHorizon.EditTests
         [Test]
         public void Pond_WaterDisc_FillsTheCarvedBowl_ToItsWaterline_NoDryMargin()
         {
-            // The waterline: where the bowl wall rises to the knee-deep water surface. Solved from the recess
-            // constants (PondDepressionDelta == −PondRecessKneeDeep). With recess 0.75 / floorDrop 1.20 / inner 3.0
-            // / outer 5.4 this lands ~4.0u — well inside the bowl mouth (5.4u), well outside the floor edge (3.0u).
+            // The waterline (ROUND 9 — the TWO-SEGMENT wall): now DEFINED as PondWaterlineFillFraction (0.90) × the
+            // bowl mouth (5.4u) ≈ 4.86u, and the wall is built so carve(waterline) == −PondRecessKneeDeep exactly
+            // (the gentle submerged lower bowl meets the steep dry lip there). Well inside the bowl mouth (5.4u),
+            // well outside the floor edge (3.0u) — a thin steep dry lip from here to the rim, no walkable dry slope.
             float waterline = LowPolyZoneGen.PondWaterlineRadius;
             Assert.That(waterline, Is.InRange(LowPolyZoneGen.PondBowlInnerRadius, LowPolyZoneGen.PondBowlOuterRadius),
                 $"the waterline ({waterline:F3}u) must sit between the floor edge ({LowPolyZoneGen.PondBowlInnerRadius}u) " +
                 $"and the bowl mouth ({LowPolyZoneGen.PondBowlOuterRadius}u) — it's where the wall meets the water surface");
-            Assert.That(waterline, Is.EqualTo(4.0f).Within(0.25f),
-                $"the waterline must solve to ~4.0u for the locked recess geometry (got {waterline:F3}u); a big drift " +
-                "means the recess/bowl re-tuned — re-check the disc radius + the calibration-test constants");
+            float expectedWaterline = LowPolyZoneGen.PondWaterlineFillFraction * LowPolyZoneGen.PondBowlOuterRadius;
+            Assert.That(waterline, Is.EqualTo(expectedWaterline).Within(1e-3f),
+                $"the waterline must equal PondWaterlineFillFraction × the bowl mouth ({expectedWaterline:F3}u, got " +
+                $"{waterline:F3}u) — the round-9 fill fraction (0.90) DEFINES the waterline; a drift means the fill " +
+                "fraction or the mouth re-tuned — re-check the disc radius + the calibration-test constants");
+            // The fill fraction itself must clear the dispatch ROUND-9 bar (≥0.88) so the -verifyPond FILL-TO-RIM
+            // gate (RimFillFraction 0.88) passes: a future shrink of the fill fraction below the gate reds HERE.
+            Assert.GreaterOrEqual(LowPolyZoneGen.PondWaterlineFillFraction, 0.88f,
+                $"the pond fill fraction ({LowPolyZoneGen.PondWaterlineFillFraction:F2}) must be ≥ 0.88 (the -verifyPond " +
+                "FILL-TO-RIM gate bar) — the water must fill the bowl to a thin steep lip, no walkable dry slope (#130 round 9)");
 
             // The disc's MINIMUM reach across all azimuths = the actual scene radius × the min organic rim factor.
             // It must CLEAR the waterline so NO azimuth leaves a dry crescent (the round-7 defect). Read the scene's
@@ -569,27 +580,59 @@ namespace FarHorizon.EditTests
                 "the hill flatten must be EXACTLY 1 far from the pond — the seed-42 island elsewhere is byte-identical");
         }
 
-        // === NEW (ticket 86cadj4g7 #130) — the bowl WALL is GENTLE so the NavMesh covers the floor =========
-        // The player must be able to NAVIGATE INTO the bowl (wade in knee-deep). The NavMesh bakes on the
-        // carved terrain collider with the default agent max-slope (45°). If the bowl wall were steeper than
-        // 45° the bake would drop the floor (a hole the player can't enter). Assert the steepest wall slope
-        // (PondBowlFloorDrop over the [inner,outer] run) is comfortably under 45° — so the floor stays walkable.
-        // (End-to-end NavMesh COVERAGE is also asserted by RoundIslandNavCoveragePlayModeTests; this is the
-        // cheap geometric guard that the wall can't regress steep.)
+        // === REWORKED (ticket 86cadj4g7 #130 ROUND 9) — the WHOLE wall stays NavMesh-TRAVERSABLE (wade-in
+        // intact) AND the DRY band is a SHORT thin lip (no LONG walkable dry slope) ===========================
+        // ROUND-9 TWO-SEGMENT wall (Sponsor round-8 soak "step over the shore straight INTO knee-deep water — NO
+        // walkable dry slope"). HARD CONSTRAINT (traced from the bake settings — MovementCameraScene
+        // ConfigureIslandNavSettings / WorldBootstrap bake at the DEFAULT agent maxSlope 45°): the player wades in
+        // via the NavMeshAgent (WasdMovement drives agent.velocity), so the WHOLE bowl wall — floor up to the rim —
+        // must stay ≤ the 45° agent max or the floor becomes an UNREACHABLE NavMesh island (can't wade in; the
+        // RoundIslandNavCoveragePlayModeTests pond coverage drops). So a STEEP un-bakeable lip is NOT an option.
+        // Instead the "no walkable dry slope" is achieved by making the dry band SHORT, not steep:
+        //   (1) SUBMERGED LOWER BOWL [inner, waterline] — carries the WADE drop (PondWadeDepth 0.75u) over the long
+        //       inner→waterline run → gentle (~31° peak); the player wades IN down this, NavMesh covers it.
+        //   (2) DRY SHORE LIP [waterline, outer] — carries the small recess (PondRecessKneeDeep 0.30u) over the
+        //       SHORT waterline→outer run (~0.54u) → ~40° peak (still under the 45° agent max → BAKES, the wall
+        //       stays connected) but THIN: you cross it in a step, you do NOT walk down a long slope into the pool.
+        // So this test asserts (a) BOTH segments are NavMesh-traversable (< the 45° agent max, with margin), and
+        // (b) the dry band is SHORT relative to the submerged run (a thin step-over lip, not a long dry slope).
         [Test]
-        public void PondBowl_WallSlope_WellUnderNavMeshAgentMaxSlope()
+        public void PondBowl_WallTraversableForWadeIn_DryLipIsShort_NotALongDrySlope()
         {
-            float run = LowPolyZoneGen.PondBowlOuterRadius - LowPolyZoneGen.PondBowlInnerRadius;
-            Assert.Greater(run, 0f, "the bowl wall must have a positive run (outer radius > inner radius)");
-            // The maximum wall slope (the average gradient across the wall; the smoothstep peaks ~1.5× the
-            // average at the midpoint, so guard against a margin below 45° to cover the steepest point too).
-            float avgSlopeDeg = Mathf.Atan2(LowPolyZoneGen.PondBowlFloorDrop, run) * Mathf.Rad2Deg;
-            // smoothstep's max gradient is 1.5× its average → the steepest local slope:
-            float maxSlopeDeg = Mathf.Atan2(1.5f * LowPolyZoneGen.PondBowlFloorDrop, run) * Mathf.Rad2Deg;
-            Assert.Less(maxSlopeDeg, 40f,
-                $"the bowl wall's steepest slope ({maxSlopeDeg:F1}°, avg {avgSlopeDeg:F1}°) must stay WELL under " +
-                "the 45° NavMesh agent max — else the bake drops the bowl floor and the player can't wade in " +
-                "(ticket 86cadj4g7: knee-deep wade-in requires NavMesh on the floor).");
+            float waterline = LowPolyZoneGen.PondWaterlineRadius;
+
+            // (a1) LOWER (submerged, walkable) wall: floor → water surface = the WADE drop over inner→waterline.
+            float lowerRun = waterline - LowPolyZoneGen.PondBowlInnerRadius;
+            Assert.Greater(lowerRun, 0f, "the lower bowl wall must have a positive run (waterline > inner radius)");
+            float lowerDrop = LowPolyZoneGen.PondWadeDepth; // floor → water surface
+            // smoothstep's max gradient is 1.5× its average → the steepest local slope on each segment:
+            float lowerMaxSlopeDeg = Mathf.Atan2(1.5f * lowerDrop, lowerRun) * Mathf.Rad2Deg;
+            Assert.Less(lowerMaxSlopeDeg, 42f,
+                $"the SUBMERGED LOWER bowl wall's steepest slope ({lowerMaxSlopeDeg:F1}°) must stay under the 45° " +
+                "NavMesh agent max — the player WADES IN down this, so the bake must cover it (ticket 86cadj4g7).");
+
+            // (a2) DRY SHORE LIP: water surface → plateau = the recess over the short waterline→outer run. Must
+            // ALSO be traversable (< 45° agent max) so it BAKES — a steeper lip would NOT bake and the floor would
+            // become an unreachable NavMesh island (the wade-in + coverage break). A small margin below 45°.
+            float lipRun = LowPolyZoneGen.PondBowlOuterRadius - waterline;
+            Assert.Greater(lipRun, 0f, "the dry shore lip must have a positive run (mouth > waterline)");
+            float lipDrop = LowPolyZoneGen.PondRecessKneeDeep;
+            float lipMaxSlopeDeg = Mathf.Atan2(1.5f * lipDrop, lipRun) * Mathf.Rad2Deg;
+            Assert.Less(lipMaxSlopeDeg, 44f,
+                $"the DRY shore lip's steepest slope ({lipMaxSlopeDeg:F1}°) must stay under the 45° NavMesh agent " +
+                "max so it BAKES (a steeper lip → the bowl floor becomes an unreachable NavMesh island; the wade-in " +
+                "+ RoundIslandNavCoveragePlayModeTests break). The 'no walkable dry slope' comes from the lip being " +
+                "SHORT, not steep.");
+
+            // (b) the dry band is a SHORT thin lip, NOT a long walkable dry slope: its run must be clearly less than
+            // the submerged run AND a small fraction of the bowl radius. A regression to a long dry slope (the
+            // round-8 defect: waterline at ~0.74 of the mouth left a ~1.4u dry band) reds here.
+            Assert.Less(lipRun, lowerRun * 0.5f,
+                $"the DRY shore lip run ({lipRun:F3}u) must be well under half the submerged lower-wall run " +
+                $"({lowerRun:F3}u) — a thin step-over lip, NOT a long walkable dry slope (the #130 round-8 defect).");
+            Assert.Less(lipRun, 0.75f,
+                $"the DRY shore lip run ({lipRun:F3}u) must be short in absolute terms (< 0.75u) — you STEP OVER it " +
+                "in one stride; a wide dry band is the round-8 walkable-dry-slope the Sponsor rejected.");
         }
 
         // === REWORKED (ticket 86cadj4g7 #130 ROUND 5) — the collar is FLAT terrain paint, walkable at ground ===
@@ -801,14 +844,25 @@ namespace FarHorizon.EditTests
                     "the committed pond material must also ship _FoamDistance = 0 (belt-and-suspenders foam-off).");
         }
 
-        // === REGRESSION GUARD (ticket 86cadj4g7 #130 THIRD re-soak) — the recess default is BAKED to DEEPER ======
-        // The Sponsor dialed the recess on build 1a3a427 and chose DEEPER (0.75u below ground). Pin the baked
-        // recess so a future re-tune that reverts toward the rejected shallower mound reds here.
+        // === REGRESSION GUARD (ticket 86cadj4g7 #130 ROUND 9) — the recess + wade are BAKED to the fill-the-bowl
+        // re-balance ===========================================================================================
+        // ROUND-9 re-balance (Sponsor round-8 soak "step over the shore straight INTO knee-deep water — NO walkable
+        // dry slope"): the RECESS (water surface below plateau) dropped 0.75 → 0.30 so the dry shore lip stays a
+        // SHORT traversable step-over (the bowl fills to ≈0.90 of the mouth, no walkable dry slope), and the
+        // knee-deep DEPTH moved into the WADE (0.45 → 0.75, the dispatch's "knee-deep 0.75u at the centre"). Pin
+        // both so a future re-tune that re-opens a long dry slope (recess back up) or loses the knee-deep depth
+        // reds here. The floor still sits FloorDrop = 1.05u below the plateau (a genuinely recessed bowl).
         [Test]
-        public void PondRecess_BakedToSponsorChosenDeeper()
+        public void PondRecessAndWade_BakedToFillTheBowlRebalance()
         {
-            Assert.AreEqual(0.75f, LowPolyZoneGen.PondRecessKneeDeep, 1e-4f,
-                "the baked pond recess must be 0.75u (the Sponsor's chosen DEEPER value, #130 third re-soak)");
+            Assert.AreEqual(0.30f, LowPolyZoneGen.PondRecessKneeDeep, 1e-4f,
+                "the baked pond RECESS (water surface below plateau) must be 0.30u — small enough that the dry shore " +
+                "lip is a SHORT traversable step-over (fill ≈0.90 of the mouth, no walkable dry slope; #130 round 9)");
+            Assert.AreEqual(0.75f, LowPolyZoneGen.PondWadeDepth, 1e-4f,
+                "the baked pond WADE depth (floor below water) must be 0.75u — the dispatch's 'knee-deep 0.75u at " +
+                "the centre' (the SUNK percept as DEPTH below the waterline; #130 round 9)");
+            Assert.AreEqual(1.05f, LowPolyZoneGen.PondBowlFloorDrop, 1e-4f,
+                "the bowl floor must sit RECESS + WADE = 1.05u below the plateau (a genuinely recessed bowl)");
             // The PondNudge default step must ALSO equal the baked recess so a no-key soak shows the shipped pond.
             Assert.AreEqual(LowPolyZoneGen.PondRecessKneeDeep,
                 PondNudge.RecessStepValue[PondNudge.RecessDefaultStep], 1e-4f,

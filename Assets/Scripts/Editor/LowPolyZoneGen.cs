@@ -276,61 +276,84 @@ namespace FarHorizon.EditorTools
         // ===== RECESS GEOMETRY (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is on a little hill;
         // recess it DOWN INTO the ground so the green collar sits at the SAME LEVEL as the surrounding
         // terrain — I should walk on the green, not inside it") ===========================================
-        // The PRIMARY tunable is now the RECESS — how far the WATER SURFACE sits BELOW the surrounding ground
-        // plateau. The earlier build recessed the water only ~0.10u below the plateau (FloorDrop 0.55 − wade
-        // 0.45), so the green-rimmed pool read as a RAISED LENS/MOUND, not a sunk pool. This decouples the
-        // RECESS (how deep the pool reads below ground) from the WADE depth (how deep the player stands in the
-        // water once on the floor): the bowl FLOOR is carved RECESS + WADE below the plateau, so the water
-        // surface (floor + wade) lands exactly RECESS below the plateau. The Sponsor soaked the recess dial
-        // (PondNudge PgUp/PgDn) on build 1a3a427 and CHOSE DEEPER (0.75u below ground) — BAKED here as the new
-        // default (#130 third re-soak). The live PondRecessNudge handle stays (PgUp/PgDn) for any future dial.
-        public const float PondRecessKneeDeep = 0.75f;   // DEFAULT recess: water surface 0.75u BELOW the plateau (Sponsor's chosen DEEPER, #130 re-soak)
-        // The WADE depth: how deep the player standing on the bowl FLOOR is submerged (water surface − floor).
-        // Castaway knee ≈ 0.45u. Mirrored in WorldBootstrap.PondWaterDepthAboveFloor + MovementCameraScene.
-        public const float PondWadeDepth = 0.45f;
-        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau = RECESS + WADE. With the DEEPER
-        // recess (0.75, the Sponsor's chosen #130 re-soak value) + wade (0.45) the floor is carved 1.20u down,
-        // the water surface lands 0.75u below the plateau (a clearly sunk pool), and the player on the floor
-        // stands knee-deep. (Was 0.90 at the knee-deep 0.45 recess; the Sponsor dialed DEEPER on 1a3a427.)
-        public const float PondBowlFloorDrop = PondRecessKneeDeep + PondWadeDepth; // 1.20
+        // The geometry decouples two depths:
+        //   RECESS (PondRecessKneeDeep) — how far the WATER SURFACE sits BELOW the surrounding ground plateau.
+        //   WADE  (PondWadeDepth)       — how deep the player standing on the bowl FLOOR is submerged (water − floor).
+        // The bowl FLOOR is carved RECESS + WADE below the plateau, so the water surface (floor + wade) lands
+        // exactly RECESS below the plateau.
+        //
+        // ROUND-9 RE-BALANCE (ticket 86cadj4g7 — Sponsor round-8 soak "step over the shore straight INTO knee-deep
+        // water — NO walkable dry slope"). The round-8 split (recess 0.75 + wade 0.45) put the water surface DEEP
+        // (0.75u) below the plateau, so the bowl wall had to climb 0.75u back up to the rim AFTER the waterline —
+        // a LONG GENTLE DRY SLOPE (the only NavMesh-traversable way up at the default 45° agent). THE TENSION
+        // (traced from the bake settings): the bowl wall must stay ≤ the 45° NavMesh agent max EVERYWHERE so the
+        // floor stays a CONNECTED walkable surface (the player wades in via the NavMeshAgent, MovementCameraScene
+        // ConfigureIslandNavSettings — a steeper lip would NOT bake → the floor becomes an unreachable island AND
+        // RoundIslandNavCoveragePlayModeTests loses pond coverage). A traversable wall + a DEEP recess can only fill
+        // ~0.74 of the mouth — the round-8 ceiling. To FILL the bowl to ≈0.90 of the mouth (the dispatch bar) WITH a
+        // traversable wall, the dry band (waterline→rim) must be SHORT, which means the RECESS must be small. The
+        // dispatch sanctioned this explicitly: "redefine SUNK as floor knee-deep BELOW the WATERLINE (the depth),
+        // not water surface low — the Sponsor wants the hole FILLED" + "Knee-deep depth 0.75u at the centre". So:
+        //   - WADE rises 0.45 → 0.75 (the dispatch's "knee-deep 0.75u at the centre" — the player stands 0.75u
+        //     submerged on the floor; the SUNK percept is now this DEPTH below the waterline, not a low surface).
+        //   - RECESS drops 0.75 → 0.30 (the water surface sits 0.30u below the plateau — still a sunk read, margin
+        //     0.30u > the rim guard's 0.05u on every azimuth — but shallow enough that the dry shore lip rising the
+        //     recess back to the rim is a SHORT THIN lip you STEP OVER (≈0.54u run, ≈40° — traversable, NavMesh
+        //     bakes it), NOT a long walkable dry slope).
+        // The floor still sits FloorDrop = 1.05u below the plateau — a genuinely recessed bowl. The PondNudge recess
+        // handle stays (PgUp/PgDn) for any future dial.
+        public const float PondRecessKneeDeep = 0.30f;   // RECESS: water surface 0.30u BELOW the plateau (#130 round 9 — short dry lip → high fill, traversable)
+        // The WADE / knee-deep DEPTH: how deep the player standing on the bowl FLOOR is submerged (water surface −
+        // floor) = the dispatch's "knee-deep 0.75u at the centre" (the SUNK percept as DEPTH below the waterline).
+        // Mirrored in WorldBootstrap.PondWaterDepthAboveFloor + MovementCameraScene.
+        public const float PondWadeDepth = 0.75f;
+        // How far the bowl FLOOR sits below the LOCAL (pre-carve) plateau = RECESS + WADE = 0.30 + 0.75 = 1.05u — a
+        // genuinely recessed bowl (the water surface 0.30u below the plateau, the floor a further 0.75u below the
+        // water = knee-deep). (Was 1.20 at the round-8 recess 0.75 + wade 0.45.)
+        public const float PondBowlFloorDrop = PondRecessKneeDeep + PondWadeDepth; // 1.05
         // The flat-ish bowl FLOOR extends to this radius from the pond centre — covers the whole organic water
         // disc (nominal 2.6u × up to +18% rim ≈ 3.07u) so the floor is below the water everywhere the disc
         // shows (the player stands knee-deep anywhere in the pool, not just dead centre). Just under the disc
         // rim so the wall begins right at the disc edge (no wide exposed flat floor outside the disc).
         public const float PondBowlInnerRadius = 3.0f;
-        // The bowl WALL slopes from the floor back up to UNDISTURBED plateau by this radius. Sized so the wall
-        // stays GENTLE: the deeper 1.20u FloorDrop over the (5.4-3.0)=2.4u run → steepest ~37° (smoothstep
-        // peaks 1.5× its average: atan(1.5·1.20/2.4)=36.9°), still WELL under the NavMesh agent's 45° max →
-        // the bake covers the bowl floor + walls so the player can wade in. WIDENED 4.8 → 5.4 to keep the
-        // steepest wall < 40° now that the bowl is DEEPER (0.75 recess; #130 re-soak) — keep outer−inner ≳
-        // 1.5×floorDrop/tan40° (=2.14) so the steepest point stays < 40° (the PondBowl_WallSlope test pins this).
+        // The bowl MOUTH (rim) radius — where the carved wall rises back to the UNDISTURBED plateau (carve 0).
+        // ROUND-9 TWO-SEGMENT wall (PondDepressionDelta): the wall is NO LONGER one even grade. It is split at the
+        // WATERLINE (PondWaterlineRadius ≈ 4.86u = 0.90 × this mouth) into a GENTLE submerged lower bowl
+        // (inner→waterline, carries the WADE drop 0.75u over ≈1.86u → ≈31° peak) + a SHORT DRY shore lip
+        // (waterline→mouth, the small recess drop 0.30u over ≈0.54u → ≈40° peak). BOTH segments stay under the 45°
+        // NavMesh agent max so the WHOLE wall BAKES and the bowl floor stays a CONNECTED walkable surface (the
+        // player wades in via the NavMeshAgent — a steeper un-bakeable lip would orphan the floor). The "no
+        // walkable dry slope" (Sponsor round-8) comes from the dry lip being SHORT (≈0.54u — a step-over), not
+        // steep. (PondBowl_WallTraversableForWadeIn_DryLipIsShort pins both.) Kept at 5.4u from round 8 (the mouth
+        // radius is the fill-fraction denominator).
         public const float PondBowlOuterRadius = 5.4f;
 
-        // ===== WATERLINE RADIUS (ticket 86cadj4g7 #130 ROUND 8 — Sponsor round-7 soak "fill the bowl to its rim") ==
-        // The world radius (from the pond centre) where the carved bowl WALL rises to meet the KNEE-DEEP water
-        // surface — i.e. where PondDepressionDelta(r) == −PondRecessKneeDeep. This is the VISIBLE shoreline: inward
-        // of it the wall floor is BELOW the water (covered by water → wet); outward of it the wall is ABOVE the
-        // water (dry bank rising to the rim). The water disc must reach AT LEAST this radius on every azimuth or a
-        // DRY carved margin shows between the water edge and the rim (the round-7 defect). Solved once (bisection
-        // on the monotonic smoothstep wall) from the recess constants so it tracks any future recess/bowl re-tune — NOT a magic
-        // number. With recess 0.75 / floorDrop 1.20 / inner 3.0 / outer 5.4 → ~4.0u. PUBLIC so the scene author feeds
-        // it to the drink-edge proximity (FreshwaterPond.pondSurfaceRadius) + the gate/tests anchor to it.
-        public static float PondWaterlineRadius => SolveWaterlineRadius();
-        private static float SolveWaterlineRadius()
-        {
-            // Bisect r in [inner, outer] for PondDepressionDelta(r) == −PondRecessKneeDeep. PondDepressionDelta is
-            // monotonic on the wall (smoothstep, 0 at outer → −floorDrop at inner), so bisection converges cleanly.
-            float lo = PondBowlInnerRadius, hi = PondBowlOuterRadius;
-            float targetCarve = -PondRecessKneeDeep; // water surface is recess below the plateau (carve==0 at outer)
-            for (int it = 0; it < 60; it++)
-            {
-                float mid = (lo + hi) * 0.5f;
-                // carve(mid) less negative (HIGHER) than the target → the wall there is ABOVE water → move inward.
-                if (PondDepressionDelta(PondCenterX + mid, PondCenterZ) > targetCarve) hi = mid;
-                else lo = mid;
-            }
-            return (lo + hi) * 0.5f;
-        }
+        // ===== WATERLINE RADIUS + FILL FRACTION (ticket 86cadj4g7 #130 ROUND 9 — Sponsor round-8 soak "STILL a
+        // walkable dry slope") ============================================================================
+        // ROUND-8 (single-grade wall) FILLED only ~0.68–0.74 of the bowl mouth: the wall ran the WHOLE 1.20u floor
+        // drop evenly across inner→outer (3.0→5.4u), so the waterline (carve == −recess) landed at ~4.0u = only
+        // ~0.74 of the 5.4u mouth — leaving a LONG GENTLE DRY SLOPE (4.0u→5.4u) the Sponsor walked DOWN into the
+        // water. THE ROUND-9 CAUSE-FIX is the WALL PROFILE (PondDepressionDelta below) + a RECESS/WADE re-balance:
+        // split into a SUBMERGED LOWER BOWL (gentle, floor→waterline) + a SHORT DRY SHORE LIP (waterline→rim), and
+        // drop the RECESS (water-below-plateau) 0.75 → 0.30 so the dry lip is SHORT (a step-over, not a slope) while
+        // BOTH segments stay under the 45° NavMesh agent max (the whole wall bakes → the floor stays a connected
+        // walkable surface the player wades into). The knee-deep DEPTH moves into the WADE (0.45 → 0.75).
+        //
+        // The waterline is now DEFINED as a fraction of the bowl mouth (no longer the byproduct of an even-grade
+        // wall): PondWaterlineFillFraction × PondBowlOuterRadius. The wall is then BUILT so carve(waterline) ==
+        // −PondRecessKneeDeep exactly (by construction — the lower-bowl segment ends at the waterline at the water
+        // surface level), so the visible shoreline lands at this radius. The disc must reach ≥ this on every
+        // azimuth (the round-7 fill guard still holds, now against the larger waterline). PUBLIC so the scene
+        // author feeds it to the drink-edge proximity (FreshwaterPond.pondSurfaceRadius) + the gate/tests anchor.
+        //
+        // 0.90 → waterline ≈ 4.86u (0.90 × 5.4u); the dry lip is just 5.4−4.86 = 0.54u — a thin traversable
+        // step-over. The -verifyPond FILL-TO-RIM gate now requires ≥ 0.88; 0.90 clears it with capture-noise margin.
+        public const float PondWaterlineFillFraction = 0.90f; // water reaches this fraction of the bowl mouth (#130 round 9)
+        // The VISIBLE shoreline radius — where the bowl wall rises to meet the knee-deep water surface. Derived
+        // from the fill fraction (NOT solved off an even-grade wall), and the wall is built so carve here ==
+        // −PondRecessKneeDeep exactly. Inward of it the floor/lower-wall is BELOW the water (wet); outward is the
+        // thin steep dry lip rising to the rim.
+        public static float PondWaterlineRadius => PondWaterlineFillFraction * PondBowlOuterRadius;
 
         // SEA-HOLE CUT RADIUS (ticket 86cadj4g7 #130 ROUND 7). The sea plane is HOLED over the pond footprint so
         // it can never render through the carved bowl (the PROVEN #130 white-ring source). ROUND 6 dropped only
@@ -373,10 +396,27 @@ namespace FarHorizon.EditorTools
         /// <summary>
         /// The pond-bowl depression DELTA (≤ 0, a downward carve) at world XZ — the local recess that turns the
         /// flat pond plateau into a recessed BOWL (ticket 86cadj4g7). 0 outside PondBowlOuterRadius (the island
-        /// elsewhere is UNCHANGED — the seed-42 silhouette lock), eases down across the wall (smoothstep, a
-        /// gentle slope the NavMesh covers), and reaches the full −PondBowlFloorDrop on the flat floor inside
-        /// PondBowlInnerRadius (below the water disc → knee-deep wade-in). Pure function of XZ (deterministic,
-        /// byte-stable capture). PUBLIC so the bowl-geometry + NavMesh-coverage tests sample it directly.
+        /// elsewhere is UNCHANGED — the seed-42 silhouette lock), reaches the full −PondBowlFloorDrop on the flat
+        /// floor inside PondBowlInnerRadius (below the water disc → knee-deep wade-in). Pure function of XZ
+        /// (deterministic, byte-stable capture). PUBLIC so the bowl-geometry + NavMesh-coverage tests sample it.
+        ///
+        /// ROUND-9 TWO-SEGMENT WALL (ticket 86cadj4g7 — Sponsor round-8 soak "step over the shore straight INTO
+        /// knee-deep water — NO walkable dry slope"). The wall is split at the WATERLINE (PondWaterlineRadius =
+        /// fill-fraction × mouth ≈ 4.86u) into:
+        ///   (1) a SUBMERGED LOWER BOWL [inner, waterline]: smoothstep from the floor (−PondBowlFloorDrop) up to
+        ///       the WATER-SURFACE level (−PondRecessKneeDeep). This whole segment is BELOW the water, so it is
+        ///       wet/covered — and it carries the WADE drop (PondWadeDepth = 0.75u, the knee-deep depth) over a
+        ///       LONG run (inner→waterline ≈ 1.86u) → a GENTLE slope (≈31° peak) the NavMesh covers (the player
+        ///       wades in down this submerged grade).
+        ///   (2) a SHORT DRY SHORE LIP [waterline, outer]: smoothstep from the water-surface level
+        ///       (−PondRecessKneeDeep) up to the undisturbed plateau (0) over the SHORT remaining run
+        ///       (waterline→outer ≈ 0.54u). It carries only the SMALL recess (0.30u) → ≈40° peak — UNDER the 45°
+        ///       NavMesh agent max so it STILL BAKES (the whole wall stays a connected walkable surface — a steeper
+        ///       un-bakeable lip would orphan the floor + break wade-in/coverage). The "no walkable dry slope"
+        ///       comes from this dry lip being SHORT (a step-over), NOT steep — it is the ONLY dry band and it is thin.
+        /// carve(waterline) == −PondRecessKneeDeep EXACTLY (the segments meet there), so the visible shoreline
+        /// lands at PondWaterlineRadius (= the chosen fill fraction of the mouth) by construction. Monotonic
+        /// (each segment rises with radius), so the derived waterline is exact (no bisection needed).
         /// </summary>
         public static float PondDepressionDelta(float wx, float wz)
         {
@@ -384,11 +424,19 @@ namespace FarHorizon.EditorTools
             float d = Mathf.Sqrt(dx * dx + dz * dz);
             if (d >= PondBowlOuterRadius) return 0f;            // undisturbed terrain past the bowl mouth
             if (d <= PondBowlInnerRadius) return -PondBowlFloorDrop; // the flat bowl floor (full depth)
-            // The wall: ease from the floor (full depth at the inner radius) up to 0 at the outer radius. A
-            // smoothstep gives a soft basin lip (no hard crease) that the welded terrain + RecalculateNormals
-            // read as a smooth dip, and that the NavMesh voxelizer resolves as one continuous walkable slope.
-            float t = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlInnerRadius, PondBowlOuterRadius, d));
-            return -PondBowlFloorDrop * (1f - t);
+
+            float waterline = PondWaterlineRadius;              // = fill-fraction × mouth (the segment split point)
+            if (d <= waterline)
+            {
+                // SUBMERGED LOWER BOWL: floor (−FloorDrop at inner) → water surface (−RecessKneeDeep at waterline).
+                // Gentle: it spans the WADE drop (FloorDrop − recess = PondWadeDepth) over the long inner→waterline run.
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlInnerRadius, waterline, d));
+                return Mathf.Lerp(-PondBowlFloorDrop, -PondRecessKneeDeep, t);
+            }
+            // SHORT DRY SHORE LIP: water surface (−RecessKneeDeep at waterline) → plateau (0 at outer). It spans
+            // only the small recess drop over the SHORT waterline→outer run → a thin traversable lip you step over.
+            float lt = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(waterline, PondBowlOuterRadius, d));
+            return Mathf.Lerp(-PondRecessKneeDeep, 0f, lt);
         }
 
         // ===== POND-RIM HILL FLATTEN (ticket 86cadj4g7 #130 re-soak — the ASYMMETRIC-MOUND root cause) =========
@@ -1681,13 +1729,14 @@ namespace FarHorizon.EditorTools
         // stays byte-stable (BuildPondWaterMesh_IsDeterministic guards this) and so the WATER disc and the
         // grassy BANK ring share the SAME outline (both call this) — the bank keeps framing the water with no
         // gap/poke-through. Amplitude is BOUNDED (±~18%): the pond sits on the FLAT spawn-plateau (r<16; the
-        // pond centre is at world (7,-3) ⇒ r≈7.6, max reach with bank ≈11.7 ≪ 16), so the rim stays within the
-        // flat zone where the carved BOWL (WorldBootstrap.GroundPondInBowl + PondDepressionDelta) recesses the
-        // whole pond uniformly — the water disc sits in the bowl, above its carved floor, around the whole
-        // irregular rim (⚠ -verifyPond samples frame-CENTRE only, so this whole-rim recessing is enforced here
-        // by construction, not by the gate). The bounded amplitude also keeps the rim well inside the bowl-floor
-        // band (PondBowlInnerRadius 3.2u > the max rim ~3.07u) AND every rim vert at r > 0 (a positive radius)
-        // so the disc sits over the flat floor everywhere and the outline never self-crosses.
+        // pond centre is at world (7,-3) ⇒ r≈7.6, max reach with bank ≈13.8 (disc 6.1u×1.18) ≪ 16), so the rim
+        // stays within the flat zone where the carved BOWL (WorldBootstrap.GroundPondInBowl + PondDepressionDelta)
+        // recesses the whole pond — the water disc fills the bowl to the steep-lip waterline (≈4.86u) around the
+        // whole irregular rim, its overshoot submerged in the lip + terrain-occluded (⚠ -verifyPond samples
+        // frame-CENTRE only, so this whole-rim recessing is enforced here by construction, not by the gate). The
+        // bounded amplitude keeps every rim vert at r > 0 (a positive radius) so the outline never self-crosses,
+        // AND keeps the disc MIN reach (6.1u×0.82 = 5.00u) clear of the waterline (≈4.86u) on every lobe so no
+        // azimuth leaves a dry crescent (the round-7/8 fill defect; Pond_WaterDisc_FillsTheCarvedBowl guards it).
         //
         // PER-VERTEX MULTIPLIER in [1-AMP*..., 1+AMP*...]; the three terms give 3 + 2 + 1 = soft compound lobes
         // around the ring without any single dominant axis (reads as a found natural pool, not an ellipse).

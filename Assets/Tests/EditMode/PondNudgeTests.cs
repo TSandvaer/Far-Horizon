@@ -10,7 +10,7 @@ namespace FarHorizon.EditTests
     /// <summary>
     /// EditMode guards for the POND RECESS live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak,
     /// "live nudge handle" path). Pins the STEP CONTRACT + the LAYOUT-AGNOSTIC keys + that the handle ships
-    /// SERIALIZED into the Boot scene at the SHIPPED DEFAULT (DEEPER recess) — the
+    /// SERIALIZED into the Boot scene at the SHIPPED DEFAULT (the #130-round-9 baked recess 0.30u) — the
     /// component-in-source-but-not-in-scene silent-killer (a handle that never reaches the build can't be
     /// soaked). Sibling of HeldAxeLengthPicker's Contract_ArraysAligned guard.
     ///
@@ -36,14 +36,15 @@ namespace FarHorizon.EditTests
         }
 
         // (2) The DEFAULT recess step matches the BAKED shipped value — so a soak that never presses a key sees
-        // exactly the shipped pond. After the #130 third re-soak the default is DEEPER (= the Sponsor's chosen
-        // 0.75u recess baked into LowPolyZoneGen.PondRecessKneeDeep). A divergence would mean the default step is
-        // not the shipped pond (pressing a key once would jump the recess unexpectedly).
+        // exactly the shipped pond. After the #130 round-9 fill-the-bowl re-balance the baked recess is 0.30u (the
+        // water surface 0.30u below the plateau, so the dry shore lip stays a short traversable step-over → fill
+        // ≈0.90 of the mouth; the knee-deep DEPTH moved into PondWadeDepth 0.75). A divergence would mean the
+        // default step is not the shipped pond (pressing a key once would jump the recess unexpectedly).
         [Test]
         public void Defaults_MatchBakedShippedValues()
         {
             Assert.AreEqual(LowPolyZoneGen.PondRecessKneeDeep, PondNudge.RecessStepValue[PondNudge.RecessDefaultStep], 1e-4f,
-                "the default recess step (DEEPER) must equal the baked LowPolyZoneGen.PondRecessKneeDeep (0.75, #130 re-soak)");
+                "the default recess step must equal the baked LowPolyZoneGen.PondRecessKneeDeep (0.30, #130 round 9)");
         }
 
         // (3) The nudge keys are LAYOUT-AGNOSTIC (PgUp/PgDn — Danish-keyboard-safe), NEVER US-position

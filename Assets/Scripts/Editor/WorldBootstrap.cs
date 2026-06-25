@@ -198,15 +198,16 @@ namespace FarHorizon.EditorTools
         }
 
         // The KNEE-DEEP wade depth: the water surface sits this far ABOVE the carved BOWL FLOOR, so the player
-        // standing on the floor (NavMesh agent Y follows it) is submerged to ~knee height (castaway knee ≈
-        // 0.45u). This is the water DEPTH at the floor. The bowl FLOOR is carved FloorDrop (0.90 = RECESS 0.45
-        // + WADE 0.45) below the plateau, so the water surface (floor + this wade) sits RECESS (0.45u) BELOW the
-        // original ground level → the pool reads clearly RECESSED/sunk, NOT a raised lens (the #130 mound defect
-        // was a 0.10u recess). Sourced from the SHARED LowPolyZoneGen.PondWadeDepth so a re-tune of the recess
-        // moves the floor + the grounding in lockstep. The default foam is OFF (#130 "still pool") so there is
-        // no _FoamDistance flood constraint anymore; if the Sponsor dials light foam (0.06) the 0.45u wade depth
-        // still keeps it ≪ the gap → bank-only, never a disc flood.
-        const float PondWaterDepthAboveFloor = LowPolyZoneGen.PondWadeDepth; // 0.45 — shared with the bowl carve
+        // standing on the floor (NavMesh agent Y follows it) is submerged knee-deep. ROUND 9 (Sponsor round-8
+        // soak "step over the shore straight INTO knee-deep water"): this is the dispatch's "knee-deep 0.75u at
+        // the centre" — the SUNK percept is now this DEPTH below the waterline. The bowl FLOOR is carved FloorDrop
+        // (1.05 = RECESS 0.30 + WADE 0.75) below the plateau, so the water surface (floor + this wade) sits RECESS
+        // (0.30u) BELOW the original ground level → still a clearly RECESSED/sunk pool, but shallow enough that the
+        // dry shore lip rising back to the rim is a SHORT traversable step-over (fill ≈0.90 of the mouth, no
+        // walkable dry slope). Sourced from the SHARED LowPolyZoneGen.PondWadeDepth so a re-tune moves the floor +
+        // the grounding in lockstep. Foam is baked OFF (#130 "still pool") so there is no _FoamDistance flood
+        // constraint anymore; the 0.75u wade depth dwarfs even a dialed-up light foam → bank-only, never a flood.
+        const float PondWaterDepthAboveFloor = LowPolyZoneGen.PondWadeDepth; // 0.75 — shared with the bowl carve
         // The PondWater child's local Y inside the FreshwaterPond root (MovementCameraScene.PondSurfaceY). The
         // root grounding targets: water world Y = floorY + depth  ⇒  rootY = floorY + depth − localY.
         const float PondWaterLocalY = -0.06f;

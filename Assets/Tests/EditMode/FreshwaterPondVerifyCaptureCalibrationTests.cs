@@ -22,15 +22,15 @@ namespace FarHorizon.EditTests
     /// </summary>
     public class FreshwaterPondVerifyCaptureCalibrationTests
     {
-        // The pond's world geometry the gate must frame. ROUND 8 (ticket 86cadj4g7 — "fill the bowl to its rim"):
-        // the water disc grew to fill the carved bowl, so the VISIBLE waterline is now the TERRAIN-CLIP circle where
-        // the bowl wall meets the water surface (LowPolyZoneGen.PondWaterlineRadius ≈ 4.0u), NOT the old disc's
-        // organic 2.6–3.0u rim (the disc overshoots to ~5.0–5.9u but is submerged in the wall + terrain-occluded).
-        // The waterline is a near-circle (the bowl wall is radially symmetric), so min≈max≈4.0u with only capture
-        // noise spread. PondBowlOuterRadius / PondWaterlineRadius are Editor-asmdef-only, so mirrored here as
-        // literals; if the recess/bowl re-tunes (which moves the waterline), revisit these (intentional coupling).
-        private const float WaterlineRadiusMin = 3.85f;  // PondWaterlineRadius (~4.0u) minus capture-noise margin
-        private const float WaterlineRadiusMax = 4.15f;  // PondWaterlineRadius (~4.0u) plus capture-noise margin
+        // The pond's world geometry the gate must frame. ROUND 9 (ticket 86cadj4g7 — "STILL a walkable dry slope"):
+        // the TWO-SEGMENT wall pushed the VISIBLE waterline OUT to PondWaterlineFillFraction (0.90) × the bowl mouth
+        // (5.4u) ≈ 4.86u (the terrain-clip circle where the steep shore lip meets the water surface), NOT the
+        // round-8 ~4.0u. The disc overshoots to ~5.0–7.2u but is submerged in the steep lip + terrain-occluded. The
+        // waterline is a near-circle (the bowl wall is radially symmetric), so min≈max≈4.86u with only capture-noise
+        // spread. PondBowlOuterRadius / PondWaterlineRadius are Editor-asmdef-only, so mirrored here as literals; if
+        // the recess/bowl/fill-fraction re-tunes (which moves the waterline), revisit these (intentional coupling).
+        private const float WaterlineRadiusMin = 4.70f;  // PondWaterlineRadius (≈4.86u) minus capture-noise margin
+        private const float WaterlineRadiusMax = 5.00f;  // PondWaterlineRadius (≈4.86u) plus capture-noise margin
         private const float BowlWallOuterRadius = 5.4f;  // LowPolyZoneGen.PondBowlOuterRadius (the hole rim / collar mouth)
         private const float CollarFadeOuterRadius = 6.8f; // collar paint fade-end (~PondBowlOuterRadius + 1.4)
 

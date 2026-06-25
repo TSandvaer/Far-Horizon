@@ -54,13 +54,17 @@ namespace FarHorizon
 
         // ---- RECESS STEPS (how far the WATER SURFACE sits BELOW the surrounding GROUND LEVEL) ----
         // PUBLIC + static so the EditMode guard reads the contract directly (mirrors HeldAxeLengthPicker).
-        public static readonly string[] RecessStepNames = { "FLUSH", "KNEE-DEEP", "DEEPER" };
-        // The recess (below-plateau drop of the water surface) for each step, in cycle order. The DEFAULT step
-        // (index 2, DEEPER) matches the baked LowPolyZoneGen.PondRecessKneeDeep (0.75 — the Sponsor's chosen
-        // DEEPER value on build 1a3a427, #130 third re-soak). FLUSH/KNEE-DEEP remain as A/B contrast steps the
-        // Sponsor can dial back to. So a soak with NO key-press sees exactly the shipped DEEPER pool.
-        public static readonly float[] RecessStepValue = { 0.12f, 0.45f, 0.75f };
-        public const int RecessDefaultStep = 2; // DEEPER — the shipped default (Sponsor's chosen recess, #130 re-soak)
+        public static readonly string[] RecessStepNames = { "FLUSH", "SHIPPED", "DEEPER" };
+        // The recess (below-plateau drop of the water surface) for each step, in cycle order. ROUND 9: the baked
+        // recess dropped 0.75 → 0.30 (LowPolyZoneGen.PondRecessKneeDeep — so the dry shore lip rising the recess
+        // back to the rim stays a SHORT traversable step-over → the bowl fills to ≈0.90 of the mouth with no
+        // walkable dry slope; the knee-deep DEPTH moved into PondWadeDepth 0.75 instead). The DEFAULT step (index
+        // 1, SHIPPED) matches the baked recess (0.30). FLUSH (shallower) + DEEPER remain A/B contrast steps the
+        // Sponsor can dial. So a soak with NO key-press sees exactly the shipped pool. NOTE: this handle nudges the
+        // WATER-DISC root Y relative to the baked terrain bowl (it does NOT re-carve the terrain), so DEEPER here
+        // only sinks the visible surface — a re-bake is needed to move the carved bowl itself.
+        public static readonly float[] RecessStepValue = { 0.12f, 0.30f, 0.55f };
+        public const int RecessDefaultStep = 1; // SHIPPED — the shipped default (baked recess, #130 round 9)
 
         private int _recessStep = RecessDefaultStep;
 

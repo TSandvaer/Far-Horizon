@@ -1510,22 +1510,24 @@ namespace FarHorizon.EditorTools
         // depression the water fills (Uma §1e nestle-don't-stamp) and the depth-fade foam has a waterline to
         // ride. Shallow (the pond is a found pool, not a deep well). The grassy lip rim sits AT ground level.
         private const float PondSurfaceY = -0.06f;
-        // WATER-FILLS-THE-BOWL-TO-ITS-RIM (ticket 86cadj4g7 #130 ROUND 8 — Sponsor round-7 soak): the carved bowl
-        // (PondDepressionDelta, floor radius 3.0u → wall up to the rim at PondBowlOuterRadius 5.4u) was LARGER than
-        // the water disc, so a DRY carved margin (the darker bowl wall) showed between the water edge (the old
-        // 2.6u×rim ≈ 2.13–3.07u, entirely on the floor/lower wall) and the hole rim — the Sponsor walked DOWN that
-        // dry slope into a smaller pool. He drew the water reaching the FULL hole rim. The natural WATERLINE (where
-        // the bowl wall top == the knee-deep water surface, recess 0.75u below the plateau) is at world r ≈ 4.0u
-        // (solved from PondDepressionDelta's smoothstep wall: carve(r) = −PondRecessKneeDeep). To fill the bowl to
-        // that waterline on EVERY azimuth with the ±18% organic rim (PondRimFactor 0.82–1.18) AND never leave a dry
-        // crescent on a min-radius lobe, the disc MIN reach must clear ~4.0u: 4.0/0.82 ≈ 4.88, so nominal 5.0u (min
-        // reach 4.10u — clears the waterline with margin; mean 5.0u; MAX reach 5.90u, PAST the 5.4u bowl mouth). The
-        // overshoot past ~4.0u is SUBMERGED in the rising bowl wall (wall top is ABOVE the −0.75u water surface there)
-        // and TERRAIN-OCCLUDED, so the VISIBLE waterline lands exactly on the wall intersection (~4.0u) — a clean
-        // organic shoreline by terrain-clipping, no dry slope, knee-deep right at the rim. The disc Y (−0.75 rel
-        // plateau) is everywhere ≤ terrain so the disc never pokes ABOVE ground. (Was 2.6u for the old flat-ground
-        // pool before the bowl carve; the carve moved the waterline out to the wall, so the disc had to follow.)
-        private const float PondSurfaceRadius = 5.0f; // fills the carved bowl to its rim waterline (~4.0u); overshoot terrain-occluded
+        // WATER-FILLS-THE-BOWL-TO-A-THIN-LIP (ticket 86cadj4g7 #130 ROUND 9 — Sponsor round-8 soak "STILL a walkable
+        // dry slope"). The round-8 even-grade wall left the waterline at only ~4.0u = ~0.74 of the 5.4u mouth → a
+        // LONG GENTLE DRY SLOPE (4.0→5.4u) the Sponsor walked DOWN into the water. The ROUND-9 cause-fix is the
+        // TWO-SEGMENT wall (LowPolyZoneGen.PondDepressionDelta): a submerged gentle lower bowl + a SHORT STEEP shore
+        // lip, with the waterline now DEFINED as PondWaterlineFillFraction (0.90) × the bowl mouth = ≈ 4.86u. So the
+        // dry band is just 5.4−4.86 = 0.54u — a thin steep lip you STEP OVER, not a slope you walk down.
+        //
+        // To fill the bowl to that ≈4.86u waterline on EVERY azimuth with the ±18% organic rim (PondRimFactor
+        // 0.82–1.18) AND never leave a dry crescent on a min-radius lobe, the disc MIN reach must clear 4.86u:
+        // 4.86/0.82 ≈ 5.93, so nominal 6.1u (MIN reach 6.1×0.82 = 5.00u — clears the waterline with margin; mean
+        // 6.1u; MAX reach 6.1×1.18 = 7.20u, PAST the 5.4u bowl mouth). The overshoot past ≈4.86u is SUBMERGED in the
+        // rising dry lip (lip terrain is ABOVE the −0.30u water surface there) and TERRAIN-OCCLUDED, so the VISIBLE
+        // waterline lands exactly on the lip intersection (≈4.86u) — a clean organic shoreline by terrain-clipping,
+        // a thin short lip, knee-deep right up to it. The disc Y (−0.30u rel plateau = the recess) is everywhere ≤
+        // the terrain so the disc never pokes ABOVE ground (the dry lip + the past-mouth plateau both sit at/above
+        // −0.30u). MAX reach 7.20u is well inside the sea-hole cut radius (≈11.6u) so no sea shows. (Was 5.0u for
+        // the round-8 even-grade waterline at ~4.0u; the round-9 wall pushed the waterline out, so the disc followed.)
+        private const float PondSurfaceRadius = 6.1f; // fills the carved bowl to the ≈4.86u lip waterline (0.90 of mouth); overshoot terrain-occluded
 
         // The grass-green the bank ACCENTS (tufts) read as (Uma §1e: the meadow-green language so the pool reads
         // FOUND, not stamped). The raised collar RING mesh was removed (#130 round 5 — it was the white-ring
@@ -1580,9 +1582,9 @@ namespace FarHorizon.EditorTools
             for (int i = 0; i < 5; i++)
             {
                 float a = i / 5f * Mathf.PI * 2f + 0.4f;
-                // Place the decorative tufts on the DRY bowl RIM — just inside PondBowlOuterRadius, OUTSIDE the
-                // waterline (~4.0u) — so they sit on grass ABOVE the water, not submerged on the wet wall
-                // (ticket 86cadj4g7 #130: the recessed bowl moved the waterline out; keep the accents dry).
+                // Place the decorative tufts on the DRY shore lip — just inside PondBowlOuterRadius (5.1u), OUTSIDE
+                // the waterline (≈4.86u, ROUND 9) — so they sit on the lip ABOVE the water, not submerged on the
+                // wet lower wall (ticket 86cadj4g7 #130: the fill moved the waterline out; keep the accents dry).
                 float rr = LowPolyZoneGen.PondBowlOuterRadius - 0.3f;
                 var tuft = new GameObject("BankTuft" + i);
                 tuft.transform.SetParent(pond.transform, false);
@@ -1658,21 +1660,27 @@ namespace FarHorizon.EditorTools
 
         /// <summary>
         /// The carved bowl-WALL local Y at planar radius <paramref name="rad"/> from the pond centre (ticket
-        /// 86cadj4g7). The accent tufts + rock DRAPE on the carved bowl WALL: at <paramref name="rad"/> the
-        /// terrain sits PondBowlFloorDrop·t above the bowl FLOOR (t = the smoothstep wall fraction across
-        /// [inner,outer], the SAME profile LowPolyZoneGen.PondDepressionDelta carves). In pond-root-local Y the
-        /// floor is (PondSurfaceY − PondKneeDeepDepth) below the surface, so the wall height = floorLocalY +
-        /// PondBowlFloorDrop·t. Keeps the accents sitting on the carved wall at terrain height (no float, no
-        /// submerge). (Was also the removed PondBank collar's outer-rim Y; the collar is now terrain-painted.)
+        /// 86cadj4g7). The accent tufts + rock DRAPE on the carved bowl WALL — so this MUST mirror the actual
+        /// carved terrain profile, LowPolyZoneGen.PondDepressionDelta. ROUND 9: that profile is now TWO-SEGMENT
+        /// (a gentle submerged lower bowl + a short dry lip), NOT a single smoothstep — so we derive the wall Y
+        /// DIRECTLY from PondDepressionDelta instead of re-deriving a (now-wrong) single-grade smoothstep here.
+        /// The carve is radially symmetric inside the footprint (PondHillFlatten levels it), so sampling along +X
+        /// from the pond centre gives the wall profile at any azimuth. Conversion to pond-root-local Y: the water
+        /// SURFACE is at PondSurfaceY (root-local) and sits PondRecessKneeDeep below the plateau, so terrain at
+        /// radius rad (delta below the plateau) maps to local Y = PondSurfaceY + (PondDepressionDelta + recess).
+        /// At the floor that is PondSurfaceY − PondKneeDeepDepth (the old floorLocalY); at the mouth it is
+        /// PondSurfaceY + recess (the plateau). Keeps the accents sitting on the carved wall at terrain height
+        /// (no float, no submerge) under the new two-segment profile.
         /// </summary>
         private static float CollarOuterLocalY(float rad)
         {
-            float floorLocalY = PondSurfaceY - PondKneeDeepDepth; // the carved bowl floor, in root-local Y
-            // The wall fraction at this radius (0 on the flat floor, 1 at the bowl mouth) — the SAME smoothstep
-            // LowPolyZoneGen.PondDepressionDelta uses, so the accent wall == the carved terrain wall.
-            float t = Mathf.SmoothStep(0f, 1f,
-                Mathf.InverseLerp(LowPolyZoneGen.PondBowlInnerRadius, LowPolyZoneGen.PondBowlOuterRadius, rad));
-            return floorLocalY + LowPolyZoneGen.PondBowlFloorDrop * t;
+            // Sample the ACTUAL carved profile (two-segment) at this radius along +X from the pond centre. The
+            // footprint is radially symmetric (PondHillFlatten levels it), so azimuth doesn't matter.
+            float deltaBelowPlateau = LowPolyZoneGen.PondDepressionDelta(
+                LowPolyZoneGen.PondCenterX + rad, LowPolyZoneGen.PondCenterZ); // ≤ 0 (a downward carve)
+            // Local Y: the water surface (PondSurfaceY) sits PondRecessKneeDeep below the plateau, so the plateau is
+            // at PondSurfaceY + recess; the terrain at this radius is `deltaBelowPlateau` below the plateau.
+            return PondSurfaceY + LowPolyZoneGen.PondRecessKneeDeep + deltaBelowPlateau;
         }
 
         // World position of the campfire fire-pit on the flat test ground (U2-4, 86ca8bdep). Distinct from

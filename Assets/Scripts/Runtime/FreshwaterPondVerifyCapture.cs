@@ -66,10 +66,16 @@ namespace FarHorizon
 
         // OVERHEAD (top-down) framing for the surface-white + self-calibrating shoreline-annulus gates (ticket
         // 86cadj4g7 #130 ROUND 6 — re-calibrated after Tess QA found the round-5 height-6/fov-40 overfilled the
-        // frame so the annulus sat on open water). RAISED so the full pond disc + its green collar fit with corner
-        // margin and the waterline lands at a samplable mid-frame radius. Public so the calibration is TESTABLE
-        // (FreshwaterPondVerifyCaptureCalibrationTests asserts the waterline lands inside the gate's anchor window).
-        public const float OverheadHeight = 18.0f;  // camera height above the water surface, looking straight down
+        // frame so the annulus sat on open water; RE-RAISED ROUND 9 for the larger fill waterline). RAISED so the
+        // full pond disc + its green collar fit with corner margin and the waterline lands at a samplable mid-frame
+        // radius. Public so the calibration is TESTABLE (FreshwaterPondVerifyCaptureCalibrationTests asserts the
+        // waterline lands inside the gate's anchor window).
+        // ROUND 9: the fill waterline grew from ~4.0u (round-8 even-grade wall) to ≈4.86u (0.90 × the 5.4u mouth,
+        // two-segment wall). At the old height 18 that maps to rNorm ~0.58 — past the tight mid-frame [0.25,0.50]
+        // calibration window. RAISED 18 → 26 so 4.86u maps to ≈0.40 (worldHalfExtent = 26×tan25° ≈ 12.12u), keeping
+        // the waterline comfortably mid-frame; the collar fade-end (6.8u → ~0.56) + the disc max reach (7.2u → ~0.59)
+        // stay in frame, off the corners the scan skips at rMax 0.95.
+        public const float OverheadHeight = 26.0f;  // camera height above the water surface, looking straight down (#130 round 9)
         public const float OverheadFov = 50.0f;     // vertical FOV — half-FOV 25°, tan ≈ 0.4663
 
         /// <summary>
@@ -442,17 +448,16 @@ namespace FarHorizon
                 Vector3 topTarget = pond.transform.position;
                 var topWaterT = pond.transform.Find("PondWater");
                 if (topWaterT != null) topTarget = topWaterT.position;
-                // Straight overhead, looking down -Y. RE-CALIBRATED (ticket 86cadj4g7 #130 ROUND 6 — Tess QA found
-                // the round-5 framing (height 6 / fov 40) made the ~2.8u-radius pond disc OVERFILL the overhead
-                // frame: the waterline + bowl-wall (where the white ring lived, world r ~2.6–5.4u) fell off the
-                // frame EDGES/corners, so the fixed 0.30..0.52 annulus band sat on OPEN WATER (r ~0.66–1.14u) and
-                // PASSED trivially — it could never sample the shoreline ring. RAISE the camera + widen the FOV so
-                // the FULL disc + its green collar (collar paint fades out by world r ~6.8u) fit with corner margin,
-                // and the waterline→bowl-wall ring lands at a samplable mid-frame radius. At height 18 / fov 50 the
-                // vertical-half world extent at the water plane = 18*tan(25°) ≈ 8.39u (= rNorm 1.0 on the short
-                // axis), so the waterline (~2.8u) → rNorm ~0.33, the bowl mouth (~5.4u) → ~0.64, the collar fade-end
-                // (~6.8u) → ~0.81 — all in frame with the corners clear of green. The center surface-white box stays
-                // on deep water (rNorm well inside the ~0.33 waterline). The annulus gate below SELF-CALIBRATES to
+                // Straight overhead, looking down -Y. RE-CALIBRATED (ticket 86cadj4g7 #130 ROUND 6, RE-RAISED ROUND
+                // 9 for the larger fill waterline — Tess QA earlier found the round-5 framing (height 6 / fov 40)
+                // made the pond disc OVERFILL the overhead frame so the annulus band sat on OPEN WATER and PASSED
+                // trivially). RAISE the camera so the FULL disc + its green collar (collar paint fades out by world
+                // r ~6.8u) fit with corner margin, and the fill waterline (≈4.86u = 0.90 × the 5.4u mouth) lands at
+                // a samplable mid-frame radius. At height 26 / fov 50 the vertical-half world extent at the water
+                // plane = 26*tan(25°) ≈ 12.12u (= rNorm 1.0 on the short axis), so the waterline (≈4.86u) → rNorm
+                // ~0.40, the bowl mouth (~5.4u) → ~0.45, the collar fade-end (~6.8u) → ~0.56 — all in frame with the
+                // corners clear of green. The center surface-white box stays on deep water (rNorm well inside the
+                // ~0.40 waterline). The annulus gate below SELF-CALIBRATES to
                 // the measured waterline rather than trusting a hard-coded band, so it tracks any future disc size.
                 float topHeight = OverheadHeight;
                 camGo.transform.position = new Vector3(topTarget.x, topTarget.y + topHeight, topTarget.z);
@@ -512,20 +517,18 @@ namespace FarHorizon
                                "around the water (the #130 white shoreline ring — the centre-box gate is BLIND to it; this " +
                                "self-calibrating annulus gate catches the raised-collar wash the Sponsor kept soaking).");
 
-            // === TOP-DOWN WATER-FILLS-THE-BOWL-TO-ITS-RIM HARD GATE (ticket 86cadj4g7 #130 ROUND 8) ==============
-            // THE round-8 defect + dispatch new-gate: the prior gates proved no-foam, no-pale-ring, recessed-not-mound
-            // — but NONE asserted the water REACHES the rim. The Sponsor's round-7 soak: the carved bowl (mouth at
-            // PondBowlOuterRadius ≈ 5.4u) was LARGER than the water disc (old waterline ~2.6–3.0u), so a DRY carved
-            // margin (the bowl wall, darker-green) showed between the water edge and the hole rim — he walked DOWN that
-            // dry slope into a smaller pool. The top-down gate MISSED it (it only checks surface-white + ring-pale);
-            // he caught it from the gameplay cam ([[verify-grounding-soaks-by-gameplay-cam-visual]]). This gate REUSES
-            // the overhead frame's already-measured waterline rNorm (where blue water gives way to the collar), maps
-            // it BACK to a WORLD radius via the same calibration helper the framing uses, and asserts the water
-            // reaches at least RimFillFraction of the bowl mouth — i.e. the dry wall band from the waterline to the
-            // rim is only the THIN natural upper bank, not a wide dry slope. FAILS on the round-7 build (waterline
-            // ~3.0u / 5.4u = 0.56 < 0.70) and PASSES once the disc fills the bowl (waterline ~4.0u / 5.4u = 0.74).
-            // 0.70 sits clear of both: the round-7 0.56 fails, the filled ~0.74 passes, with margin for capture noise.
-            const float RimFillFraction = 0.70f;
+            // === TOP-DOWN WATER-FILLS-THE-BOWL-TO-ITS-RIM HARD GATE (ticket 86cadj4g7 #130 ROUND 9) ==============
+            // THE round-8 defect: the round-8 even-grade wall left the waterline at only ~4.0u = ~0.68–0.74 of the
+            // 5.4u mouth → a LONG GENTLE DRY SLOPE the Sponsor walked DOWN into the water (FILL-TO-RIM measured 0.68,
+            // FAIL at 0.70). The ROUND-9 cause-fix is the TWO-SEGMENT wall (a gentle submerged lower bowl + a SHORT
+            // STEEP shore lip), with the waterline pushed out to PondWaterlineFillFraction (0.90) × the mouth ≈ 4.86u
+            // — so the water fills ≈0.90 of the bowl mouth and the dry band is just a THIN steep lip you step over.
+            // This gate REUSES the overhead frame's already-measured waterline rNorm (where blue water gives way to
+            // the collar), maps it BACK to a WORLD radius via the same calibration helper the framing uses, and
+            // asserts the water reaches at least RimFillFraction of the bowl mouth. RAISED 0.70 → 0.88 (the dispatch
+            // ROUND-9 bar): FAILS the round-8 build (~0.68 < 0.88) and PASSES the round-9 two-segment fill (≈0.90 ≥
+            // 0.88), with ~0.02 of capture-noise margin above the bar.
+            const float RimFillFraction = 0.88f;
             // PondBowlOuterRadius (5.4u) is Editor-asmdef-only (LowPolyZoneGen, FarHorizon.EditorTools), so this
             // Runtime capture mirrors it as a literal — the SAME intentional coupling FreshwaterPondVerifyCapture-
             // CalibrationTests documents. If the bowl mouth re-tunes, update this literal + the calibration constants.
