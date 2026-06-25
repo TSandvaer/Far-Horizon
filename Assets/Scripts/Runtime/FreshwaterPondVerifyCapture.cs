@@ -208,12 +208,13 @@ namespace FarHorizon
 
         /// <summary>
         /// Measure the near-white pixel fraction in the SHORELINE ANNULUS from the straight-overhead frame
-        /// (ticket 86cadj4g7 #130 ROUND 5). The pond disc fills the frame centre; the waterline ring sits in a
-        /// RING radius band around centre. We sample a normalized-radius annulus (0.30..0.52 of the half-min
-        /// dimension from frame centre) — the shoreline where the white ring lives — and count near-white
-        /// (bright + near-neutral R≈G≈B) pixels. ALSO returns the centre-box white fraction (the old clean-by-
-        /// construction proxy) so the log shows the annulus catches what the centre misses. yFrac/xFrac from the
-        /// frame centre; ReadPixels origin bottom-left.
+        /// (ticket 86cadj4g7 #130 ROUND 5; re-centred ROUND 6 for the raised overhead framing). The pond disc
+        /// sits centre; the waterline ring sits in a radius band around it. We sample a normalized-radius annulus
+        /// (0.23..0.48 of the half-min dimension from frame centre — brackets the waterline ~rNorm 0.33 + bowl
+        /// wall at the height-18/fov-50 framing) and count near-white (bright + near-neutral R≈G≈B) pixels. ALSO
+        /// returns the centre-box white fraction (the old clean-by-construction proxy) so the log shows the annulus
+        /// catches what the centre misses. (Diagnostic-only fixed bracket; the GATE self-calibrates to the measured
+        /// waterline.) yFrac/xFrac from the frame centre; ReadPixels origin bottom-left.
         /// </summary>
         private float MeasureAnnulusWhite(out float annulusLuma, out float centreWhite)
         {
