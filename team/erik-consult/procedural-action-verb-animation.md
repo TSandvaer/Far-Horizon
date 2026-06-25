@@ -7,8 +7,8 @@ How do Devon/Drew add a windup→strike→return player SWING animation for the 
 breaking the existing `CastawayArmPose` → `HeldAxeRig` execution chain or the Sponsor's locked
 idle/walk/run arm-pose?
 
-> **Correction on record:** chop ticket `86caa4c5c` AC1 states "reuse the existing chop
-> animation." That is **FALSE**. No chop animation clip exists in the project.
+> **Correction on record:** chop ticket `86caa4c5c` AC1 states "reuse/**extend** the existing
+> chop animation." That is **FALSE** in the "reuse" sense. No chop animation clip exists in the project.
 > `Assets/Art/Character/Castaway/` contains: `Idle.fbx`, `Walking.fbx`, `Running.fbx`,
 > `Jump.fbx`, `Jump_idle.fbx`, `Jump_running.fbx`, `Picking Up.fbx`, and several hit-react
 > clips — no chop, no strike, no swing. The **missing piece is the player swing animation**;
@@ -34,9 +34,11 @@ both wrong and the swing either applies against stale bone data or double-applie
 ## Evidence
 
 ### E1 — Unity Generic rig: no muscle retarget, transform-path binding
-**Source:** Unity Manual — "Humanoid vs Generic animation import" (Unity 6 docs,
-docs.unity3d.com/6000.0/Documentation/Manual/AnimationsImport.html). **Strength: Strong
-(official docs).**
+**Source:** Unity Manual — "FBX Importer — Rig tab" (Unity 6 docs,
+docs.unity3d.com/6000.0/Documentation/Manual/FBXImporter-Rig.html) — the transform-path
+binding behaviour for Generic rigs is documented here, not in the generic AnimationsImport
+overview page. **Strength: source-verified (official docs; citation corrected from
+AnimationsImport.html which does not cover this detail).**
 
 A Generic rig binds animation clips by transform path, not via Avatar muscle retarget. This
 means:
@@ -45,9 +47,14 @@ means:
   exactly what the clip authored.
 - Additive offsets via `bone.localRotation = clipPose * Quaternion.Euler(offset)` compose
   predictably in the bone's local frame, which is what `CastawayArmPose` exploits.
-- Animator Layers + AvatarMask require a Humanoid rig to function correctly in Unity 6; on a
-  Generic rig, additive layers operate on transforms by path and work ONLY when the mask is
-  carefully maintained as the skeleton evolves — a maintenance burden the project avoids.
+- AvatarMask works on a Generic rig via per-bone transform-path selection (not muscle groups) —
+  it does NOT require a Humanoid rig. However, the mask asset must enumerate exact Mixamo bone
+  names, so it breaks **silently** on any bone rename or character swap. It also carries higher
+  authoring overhead than the additive-offset idiom. Both reasons are why the project avoids it.
+  **Source (C6 re-verify):** Unity Manual — "Avatar Mask window"
+  (docs.unity3d.com/6000.0/Documentation/Manual/class-AvatarMask.html); Unity Manual —
+  "Animation Layers" (docs.unity3d.com/6000.0/Documentation/Manual/AnimationLayers.html).
+  **Strength: Strong (official docs).**
 
 ### E2 — LateUpdate execution order: the only safe window for post-Animator bone modification
 **Source:** Unity Manual — "Order of execution for event functions"
@@ -71,28 +78,37 @@ idiom for IK overlays, procedural aim, and post-animation corrections. It is NOT
 
 ### E3 — DefaultExecutionOrder controls the within-LateUpdate ordering
 **Source:** Unity Scripting API — `DefaultExecutionOrder` attribute
-(docs.unity3d.com/6000.0/Documentation/ScriptReference/DefaultExecutionOrder.html). **Strength:
-Strong (official docs).**
+(docs.unity3d.com/6000.0/Documentation/ScriptReference/DefaultExecutionOrder.html) for the
+attribute semantics. The specific order-50 / order-100 values are from the project codebase
+(`CastawayArmPose.cs` / `HeldAxeRig.cs` headers, verified 2026-06-25). **Strength:
+source-verified (attribute docs Strong; specific order values are a repo code quote, not
+official doc constants).**
 
 The project already uses this correctly:
 - `CastawayArmPose` → `[DefaultExecutionOrder(50)]` — runs after default-order scripts.
 - `HeldAxeRig` → `[DefaultExecutionOrder(100)]` — runs after `CastawayArmPose`.
 
 This guarantees: Animator writes pose → ArmPose applies offset → HeldAxeRig reads the FINAL
-hand transform → axe seats correctly. Any new action-verb script that drives `CastawayArmPose`
-(a `ChopPoseDriver` or equivalent) MUST be dispatched at an order less than 50 (e.g. order 0 or
-10) so it writes its curve value INTO `CastawayArmPose` BEFORE ArmPose's `LateUpdate` applies it.
+hand transform → axe seats correctly. Any new action-verb script that drives `CastawayArmPose` from **`LateUpdate`**
+(a `ChopPoseDriver` or equivalent) MUST use an order less than 50 (e.g. order 0 or 10) so it
+writes its curve value INTO `CastawayArmPose` BEFORE ArmPose's `LateUpdate` applies it. (A driver
+that writes only in `Update` would be consumed the same frame regardless of order, but
+`LateUpdate`-writing drivers carry a hard order-less-than-50 requirement.)
 
 ### E4 — AnimationCurve for timed one-shot offset curves
 **Source:** Unity Scripting API — `AnimationCurve`
-(docs.unity3d.com/6000.0/Documentation/ScriptReference/AnimationCurve.html). **Strength: Strong
-(official docs).**
+(docs.unity3d.com/6000.0/Documentation/ScriptReference/AnimationCurve.html). **Strength:
+Weak-Moderate (official API ref; GC claim is empirical convention, not doc-guaranteed).**
 
 `AnimationCurve.Evaluate(t)` is a C# runtime evaluation of a Bezier curve sampled at normalised
-time `t ∈ [0,1]`. It is GC-allocation-free when the curve is a serialised `[SerializeField]`
-field (it's a value type / struct wrapper — no heap alloc on `Evaluate`). Used here to author the
-windup→peak→return shape for each axis of bone rotation. Each keyframe's in/out tangent controls
-feel (hard strike vs soft pick-up). Inspector-editable so Devon/Drew can tune without recompile.
+time `t ∈ [0,1]`. `AnimationCurve` is a **class** (reference type), not a struct — the curve
+object itself allocates on the heap when constructed. However, `Evaluate()` on a pre-existing
+serialised `[SerializeField]` curve does not allocate per steady-state call (no boxing, no new
+object per frame). The safe pattern is: declare as a `[SerializeField]` field (allocated once at
+load), call `Evaluate(t)` each frame — zero per-frame GC. Do not construct `new AnimationCurve()`
+at runtime in a hot path. Used here to author the windup→peak→return shape for each axis of bone
+rotation. Each keyframe's in/out tangent controls feel (hard strike vs soft pick-up).
+Inspector-editable so Devon/Drew can tune without recompile.
 
 ### E5 — Mixamo "Picking Up.fbx" exists but is unwired
 **Source:** Direct file enumeration of
@@ -114,15 +130,15 @@ over a real `Time.time` window instead." **Strength: Strong (empirically observe
 doc).**
 
 An action-verb swing is timed by accumulated `Time.time` over a duration (e.g. 0.4s). In a
-headless PlayMode test each frame advances ~0 seconds of game time, so the swing completes in
-~0 real frames from the test's perspective. The correct assertion pattern is: trigger the swing,
-advance by yielding `yield return new WaitForSeconds(swingDuration + epsilon)`, then assert the
-pose returned to rest. But `WaitForSecondsRealtime` is required (not `WaitForSeconds`) in
-headless, or the coroutine never exits. **Alternative pattern used in this project:** drive the
-swing by `Time.time` directly (not `Time.deltaTime` accumulation), sample after a
-`Time.time`-anchored window, and expose `SwingNormT` (current 0→1→0 position in the swing) as
-a readable property so tests can assert `SwingNormT == 0` at rest and `SwingNormT > 0`
-mid-swing without caring about exact deltaTime values.
+headless PlayMode test each frame advances ~0 seconds of game time, so the swing does not
+progress from the test's perspective if the driver uses `deltaTime` accumulation. **Pattern used
+in this project:** drive the swing by `Time.time` directly (not `Time.deltaTime` accumulation),
+and expose `SwingNormT` (current 0→1→0 position in the swing) as a readable property so tests
+can assert `SwingNormT == 0` at rest and `SwingNormT > 0` mid-swing without caring about exact
+deltaTime values. The project's headless capture and locomotion test coroutines use plain
+`WaitForSeconds`/`Time.time` windows and exit green — both `WaitForSeconds` and
+`WaitForSecondsRealtime` are valid in PlayMode tests (see unity-conventions.md); the real
+headless trap is `WaitForEndOfFrame` (E7 below), not `WaitForSeconds`.
 
 ### E7 — WaitForEndOfFrame unreliable in headless PlayMode
 **Source:** Far Horizon unity-conventions.md §"Headless / CLI rituals" — "`WaitForEndOfFrame` is
@@ -274,22 +290,22 @@ public IEnumerator ChopSwing_PeakDisplacesRightArm_ReturnRestoresCarryPose()
     float swingDuration = driver.swingDuration;
     driver.TriggerSwing();
 
-    // 4. Yield frames until past the peak (not WaitForEndOfFrame — E7).
-    yield return new WaitForSecondsRealtime(swingDuration * 0.6f);
+    // 4. Yield frames until past the peak (NOT WaitForEndOfFrame — E7; WaitForSeconds also fine).
+    yield return new WaitForSeconds(swingDuration * 0.6f);
     // 5. Assert SwingNormT is between 0 and 1 (active mid-swing).
     Assert.Greater(driver.SwingNormT, 0f);
     Assert.Less(driver.SwingNormT, 1f);
 
     // 6. Wait for the full return.
-    yield return new WaitForSecondsRealtime(swingDuration * 0.5f + 0.05f);
+    yield return new WaitForSeconds(swingDuration * 0.5f + 0.05f);
     // 7. Assert swingOverrideEuler is approximately zero (carry pose restored).
     Assert.AreApproximatelyEqual(0f, armPose.swingOverrideEuler.magnitude, 0.1f);
 }
 ```
 
-Do NOT assert on `Time.deltaTime` values. Do NOT gate on `WaitForEndOfFrame`. Sample over
-`WaitForSecondsRealtime` windows (headless-safe). Expose `SwingNormT` as a public property on
-the driver for test access.
+Do NOT assert on `Time.deltaTime` values. Do NOT gate on `WaitForEndOfFrame` (E7 — never fires
+headless). Use `WaitForSeconds` or `WaitForSecondsRealtime` — both are headless-safe. Expose
+`SwingNormT` as a public property on the driver for test access.
 
 ---
 
@@ -303,7 +319,8 @@ the driver for test access.
 - **Axe follows automatically** via `HeldAxeRig` order 100 with `followDamp = 0`.
 - **`ChopTree.Chop()`** calls `chopPoseDriver.TriggerSwing()` — a clean seam; `ChopTree` already
   owns the "a chop just landed" event.
-- **AC1 correction:** no existing chop clip exists; this driver IS the implementation.
+- **AC1 correction:** no existing chop clip exists; the "reuse/extend" wording in AC1 is
+  misleading — this driver IS the implementation; the swing is authored from scratch.
 - **Test:** `ChopSwing_PeakDisplacesRightArm_ReturnRestoresCarryPose` (pattern above).
 
 #### PICK-UP (`Picking Up.fbx` exists, unwired)
@@ -345,10 +362,10 @@ the driver for test access.
 |---|---|---|
 | Bone-axis measurement is mandatory | LOCAL-X and LOCAL-Z on `mixamorig:RightArm` are NOT the obvious world axes. Guess wrong → swing goes the wrong direction. Measure via F9 nudge or `-armTrace` BEFORE coding. | E1 + CastawayArmPose.cs header |
 | Axe one-frame lag with followDamp > 0 and a fast swing | If followDamp > 0 the axe lags the hand's peak by ≤1 frame. Keep followDamp = 0 for the chop arc. | HeldAxeRig.cs; E3 |
-| WaitForEndOfFrame unreliable headless | Use WaitForSecondsRealtime in PlayMode tests; never WaitForEndOfFrame. | E7; unity-conventions.md |
+| WaitForEndOfFrame unreliable headless | Never use `WaitForEndOfFrame` in PlayMode tests — it does not fire in `-batchmode`. Use `WaitForSeconds` or `WaitForSecondsRealtime`; both work. | E7; unity-conventions.md |
 | Time.deltaTime ≈ 0 headless | Never accumulate deltaTime across frames in a test; use Time.time anchoring and expose SwingNormT. | E6; unity-conventions.md |
 | swingOverrideEuler must be zero at rest | If the driver does not reset swingOverrideEuler to Vector3.zero after the swing completes, the carry pose drifts. | Pattern Step 3 |
-| DefaultExecutionOrder < 50 is mandatory for the driver | A driver at default order 0 runs BEFORE ArmPose (50) — correct. A driver at order 100+ runs AFTER and its override is never read this frame. | E3 |
+| DefaultExecutionOrder < 50 is mandatory for a LateUpdate-writing driver | A `LateUpdate`-writing driver at order 0 runs BEFORE ArmPose (50) — correct. A driver writing in `LateUpdate` at order 100+ runs AFTER and its override is never read this frame. An `Update`-writing driver can be consumed at any order, but all current verb drivers use `LateUpdate` so the < 50 rule applies. | E3 |
 | AvatarMask breaks silently on Generic rig bone rename | Do not introduce AvatarMask assets that enumerate Mixamo bone paths; they are fragile to character swaps. | E8 |
 
 ---
@@ -384,9 +401,12 @@ follows — never move the axe directly from the verb driver.
   driver `SwingNormT >= 1`; compose as a right-multiply AFTER `_rightOffsetQ`).
 - [ ] **`followDamp = 0` during a fast chop-class swing** (otherwise axe lags the strike peak
   by one frame).
-- [ ] **PlayMode test: use `WaitForSecondsRealtime`, NOT `WaitForEndOfFrame` or
-  `WaitForSeconds`.** Assert `SwingNormT > 0` at mid-swing; assert `swingOverrideEuler ≈ 0`
-  at rest.
+- [ ] **PlayMode test: NEVER use `WaitForEndOfFrame` (does not fire in `-batchmode`).** Use
+  `WaitForSeconds` or `WaitForSecondsRealtime` — both are headless-safe. Assert `SwingNormT > 0`
+  at mid-swing; assert `swingOverrideEuler ≈ 0` at rest.
+- [ ] **Driver runs at `DefaultExecutionOrder` < 50 when writing from `LateUpdate`.** An
+  `Update`-writing driver can be consumed at any order, but all current verb drivers use
+  `LateUpdate` — keep order < 50.
 - [ ] **No Animator state changes, no AvatarMask.** The additive-offset pattern is the
   project idiom. Propose a layer only if full-body root motion is required AND scope it as its
   own migration ticket.
@@ -395,7 +415,7 @@ follows — never move the axe directly from the verb driver.
 
 | Verb | Clip exists? | Arm-anim shipped? | Recommended approach |
 |---|---|---|---|
-| Chop | NO (AC1 of `86caa4c5c` is wrong) | No | Additive driver, TriggerSwing() from ChopTree.Chop() |
+| Chop | NO (AC1 of `86caa4c5c` "reuse/extend" is misleading — no clip exists) | No | Additive driver, TriggerSwing() from ChopTree.Chop() |
 | Pick-up | Picking Up.fbx (unwired) | No | Additive driver (use clip as curve reference only) |
 | Drink | No clip | No | Additive driver, both arms raised toward face |
 | Throw | No clip | N/A (future) | Additive driver + detach event at SwingNormT threshold |
