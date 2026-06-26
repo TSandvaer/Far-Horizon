@@ -396,11 +396,13 @@ jobs:
   #     run reports the job result as a (neutral) non-failure to the workflow, so
   #     branch protection (which gates on `structure` + the `unity` merge-gate job)
   #     is unaffected. Do NOT add this job's check to required status checks.
-  #   * `timeout-minutes: 20` is a HARD cap: a FUTURE play-mode-ENTER env-deadlock
-  #     fails FAST + NAMED (this job goes red, clearly attributable to PlayMode)
-  #     instead of hanging to the 90-min job cap and crashing the runner. The cap
-  #     covers a cold warm-up (checkout/bootstrap) + the PlayMode run; tune up if a
-  #     legitimately green PlayMode run ever approaches it.
+  #   * `timeout-minutes: 5` (was 20 — 86cae8vn2) is a HARD cap: a FUTURE play-mode-ENTER
+  #     env-deadlock fails FAST + NAMED (this job goes red, clearly attributable to PlayMode)
+  #     instead of hanging to the 90-min job cap and crashing the runner. Tightened 20→5
+  #     because a hung play-mode-enter pins the SINGLE self-hosted runner for the full cap,
+  #     wedging the NEXT push's `unity` merge-gate (single-runner PackageCache cap); 5 min
+  #     still lets play-mode-enter START + confirm the deadlock, then frees the runner ~15 min
+  #     sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
   #   * `needs: unity` SERIALIZES this AFTER the merge-gate Unity build so the two
   #     Unity invocations never contend the single self-hosted runner's PackageCache
   #     (EPERM-on-rename — [[single-unity-build-slot-serializes-orchestration]] +
@@ -419,7 +421,11 @@ jobs:
     needs: unity
     if: always()
     continue-on-error: true   # ADVISORY — PlayMode can NEVER block a merge (86caapwmt)
-    timeout-minutes: 20       # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
+    # 20→5 (86cae8vn2): a hung play-mode-enter pins the SINGLE self-hosted runner for the
+    # full cap, wedging the NEXT push's `unity` merge-gate (single-runner PackageCache cap).
+    # 5 min still lets play-mode-enter START + confirm the deadlock fast, then frees the
+    # runner ~15 min sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
+    timeout-minutes: 5        # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
     env:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
