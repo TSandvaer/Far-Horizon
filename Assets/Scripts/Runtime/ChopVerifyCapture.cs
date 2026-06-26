@@ -1,11 +1,13 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace FarHorizon
 {
     /// <summary>
-    /// Verification-only shipped-build capture for the U2-3 chop interaction (ticket 86ca8bdd8).
+    /// Verification-only shipped-build capture for the chop interaction (tickets 86ca8bdd8 → 86caa4c5c).
     ///
     /// The testing bar's shipped-build gate (unity-conventions.md §editor-vs-runtime) requires proving
     /// the chop works in the BUILT exe, not just the editor. Sibling of CraftVerifyCapture: it drives
@@ -19,10 +21,23 @@ namespace FarHorizon
     /// this capture drives the chop via the programmatic <see cref="ChopTree.RequestChopClick"/> seam (the same
     /// input-independent seam the PlayMode tests use) — exercising the SAME chop path a real left-click takes.
     ///
+    /// CHANGE (a) GATE-HARDENING (86caa4c5c follow-up): the demo-tree chop alone only proves the pre-PR demo
+    /// behaviour — it does NOT prove that a REAL seed-42 SCATTER tree is choppable in the shipped scene (the
+    /// Sponsor rejected "only ONE tree chops" twice; this is the gate that should catch a regression here).
+    /// So this capture now ALSO:
+    ///   • asserts the running BUILT scene has more than one tracked choppable tree
+    ///     (<see cref="ChopTree.InstanceCount"/> &gt; 1) — i.e. the scatter trees were discovered, not just the
+    ///     demo tree;
+    ///   • DISCOVERS a real scatter <c>LP_Tree</c> position at runtime (from <see cref="ChopTree.scatterRoot"/>
+    ///     / the <c>LowPolyScatter</c> name-scan — NEVER a hardcoded guessed coordinate, because the seed-42
+    ///     placement could move) that is REACHABLE on the NavMesh and far from the demo tree, drives the player
+    ///     there, and asserts a SECOND, INDEPENDENT wood gain on top of the demo-tree wood.
+    /// Exits non-zero if EITHER the demo-tree chop OR the scatter-tree choppability fails to be proven.
+    ///
     /// Inert unless launched with -verifyChop (so the normal game / boot capture is unaffected).
     ///   FarHorizon.exe -screen-fullscreen 0 -verifyChop -captureDir &lt;dir&gt;
-    /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the tree, wood in readout),
-    /// then quits non-zero if NO wood was yielded (the build-side failure signal).
+    /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the demo tree, wood in readout)
+    /// + chop_scatter.png (at a real scatter tree, MORE wood), then quits non-zero if either proof failed.
     /// </summary>
     public class ChopVerifyCapture : MonoBehaviour
     {
@@ -78,11 +93,12 @@ namespace FarHorizon
             }
             Debug.Log("[ChopVerifyCapture] axe crafted: " + (inventory != null && inventory.HasAxe));
 
-            // 3. Now chop — drive to the tree, then (CHANGE 1) drive LEFT-CLICK chop requests once in range
-            // until wood is yielded. The chop is per-click now, so standing at the tree alone does nothing —
-            // RequestChopClick() is the input-independent analog of a real left-click (range + axe-selected +
-            // over-UI/RMB guards still apply, exactly like a real click). Request a chop EACH frame while at
-            // the tree (the click cooldown paces the actual chops); the chop is a no-op until truly in range.
+            // 3. Now chop the DEMO tree — drive to the tree, then (CHANGE 1) drive LEFT-CLICK chop requests once
+            // in range until wood is yielded. The chop is per-click now, so standing at the tree alone does
+            // nothing — RequestChopClick() is the input-independent analog of a real left-click (range +
+            // axe-selected + over-UI/RMB guards still apply, exactly like a real click). Request a chop EACH
+            // frame while at the tree (the click cooldown paces the actual chops); the chop is a no-op until
+            // truly in range.
             bool setTree = player != null && player.MoveTo(treeSpot);
             Debug.Log("[ChopVerifyCapture] MoveTo tree set: " + setTree + " target=" + treeSpot);
             start = Time.time;
@@ -94,21 +110,127 @@ namespace FarHorizon
                 if (chop != null) chop.RequestChopClick();
                 yield return null;
             }
-            bool gotWood = inventory != null && inventory.WoodCount > 0;
-            Debug.Log("[ChopVerifyCapture] wood yielded: " + gotWood + " (wood=" +
-                      (inventory != null ? inventory.WoodCount : -1) +
-                      ", true means click-move REACHED the tree AND the left-click-triggered, axe-gated chop fired)");
+            int woodAfterDemo = inventory != null ? inventory.WoodCount : -1;
+            bool gotDemoWood = woodAfterDemo > 0;
+            Debug.Log("[ChopVerifyCapture] demo-tree wood yielded: " + gotDemoWood + " (wood=" + woodAfterDemo +
+                      ", true means click-move REACHED the demo tree AND the left-click-triggered, axe-gated chop fired)");
 
             // Let the camera settle, then capture the 'after' shot with wood in the readout.
             for (int i = 0; i < 8; i++) yield return null;
             ShotTo(Path.Combine(dir, "chop_after.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+
+            // 4. CHANGE (a) GATE-HARDENING — prove a REAL seed-42 SCATTER tree is choppable in the BUILT scene
+            // (not just the demo tree the pre-PR gate already exercised). First: the resolver must have
+            // discovered MORE than one choppable tree (the demo tree + the scatter LP_Trees) — InstanceCount>1.
+            int instanceCount = chop != null ? chop.InstanceCount : 0;
+            bool scatterDiscovered = instanceCount > 1;
+            Debug.Log("[ChopVerifyCapture] choppable tree InstanceCount=" + instanceCount +
+                      " (scatterDiscovered=" + scatterDiscovered + "; >1 means the seed-42 scatter LP_Trees " +
+                      "were discovered alongside the demo tree, CHANGE (a))");
+
+            // Discover a REAL scatter LP_Tree position at runtime (NEVER a hardcoded guess — the seed-42
+            // placement could move). Pick one that is REACHABLE on the NavMesh and far from the demo tree, so
+            // the second wood gain is unambiguously a SCATTER tree, not the demo tree.
+            bool gotScatterWood = false;
+            int woodAfterScatter = woodAfterDemo;
+            Vector3 chosen = Vector3.zero;
+            bool haveScatterTarget = TryPickReachableScatterTree(out chosen);
+            Debug.Log("[ChopVerifyCapture] scatter target picked: " + haveScatterTarget + " at " + chosen);
+
+            if (haveScatterTarget)
+            {
+                bool setScatter = player != null && player.MoveTo(chosen);
+                Debug.Log("[ChopVerifyCapture] MoveTo scatter tree set: " + setScatter + " target=" + chosen);
+                start = Time.time;
+                while (Time.time - start < 16f)
+                {
+                    if (inventory != null && inventory.WoodCount > woodAfterDemo) break;
+                    if (chop != null) chop.RequestChopClick();
+                    yield return null;
+                }
+                woodAfterScatter = inventory != null ? inventory.WoodCount : woodAfterDemo;
+                gotScatterWood = woodAfterScatter > woodAfterDemo;
+                Debug.Log("[ChopVerifyCapture] scatter-tree wood yielded: " + gotScatterWood + " (wood " +
+                          woodAfterDemo + " -> " + woodAfterScatter + "; true means a REAL scatter LP_Tree was " +
+                          "reached AND chopped — CHANGE (a) proven in the shipped exe)");
+
+                for (int i = 0; i < 8; i++) yield return null;
+                ShotTo(Path.Combine(dir, "chop_scatter.png"));
+                yield return new WaitForEndOfFrame();
+                yield return null;
+            }
             yield return new WaitForSeconds(0.5f);
 
-            Debug.Log("[ChopVerifyCapture] verification complete -> " + dir + " gotWood=" + gotWood);
-            // Fail loud in the shipped build if no wood was ever yielded — the build-side gate signal.
-            Application.Quit(gotWood ? 0 : 1);
+            bool pass = gotDemoWood && scatterDiscovered && haveScatterTarget && gotScatterWood;
+            Debug.Log("[ChopVerifyCapture] verification complete -> " + dir +
+                      " demoWood=" + gotDemoWood + " scatterDiscovered=" + scatterDiscovered +
+                      " scatterTarget=" + haveScatterTarget + " scatterWood=" + gotScatterWood +
+                      " => PASS=" + pass);
+            // Fail loud in the shipped build if the demo-tree chop OR the scatter choppability wasn't proven.
+            Application.Quit(pass ? 0 : 1);
+        }
+
+        // Discover the world's scatter LP_Tree positions at runtime (from chop.scatterRoot, or a
+        // LowPolyScatter name-scan — the SAME discovery path ChopTree.Start uses; NEVER a hardcoded guess),
+        // and pick the one that is (a) reachable on the NavMesh within chopRadius (so the player can actually
+        // stand in chop range) and (b) far enough from the demo tree that a chop there is unambiguously a
+        // SCATTER tree. Returns the chosen LP_Tree world position. The capture then click-moves there.
+        private bool TryPickReachableScatterTree(out Vector3 chosen)
+        {
+            chosen = Vector3.zero;
+            Transform root = chop != null ? chop.scatterRoot : null;
+            if (root == null)
+            {
+                var found = GameObject.Find("LowPolyScatter");
+                if (found != null) root = found.transform;
+            }
+            if (root == null) return false;
+
+            var positions = new List<Vector3>();
+            CollectScatterTreePositions(root, positions);
+            if (positions.Count == 0) return false;
+
+            float radius = chop != null ? chop.chopRadius : 2.2f;
+            // Where the player can sample to (4u like ClickToMove.MoveTo); for the tree to be choppable, the
+            // reachable NavMesh point must be within chopRadius of the LP_Tree (planar). Far from the demo
+            // tree (> 6u) so the wood gain can't be mistaken for the demo tree's.
+            Vector3 demo = treeSpot;
+            float bestNavGap = float.PositiveInfinity;
+            bool any = false;
+            foreach (var p in positions)
+            {
+                if (PlanarDist(p, demo) < 6f) continue; // too close to the demo tree to be unambiguous
+                if (!NavMesh.SamplePosition(p, out NavMeshHit hit, 4f, NavMesh.AllAreas)) continue;
+                float navGap = PlanarDist(hit.position, p); // distance the player would stand from the trunk
+                if (navGap > radius) continue;              // can't get within chop range — skip
+                if (navGap < bestNavGap)
+                {
+                    bestNavGap = navGap;
+                    chosen = p;
+                    any = true;
+                }
+            }
+            return any;
+        }
+
+        private static void CollectScatterTreePositions(Transform root, List<Vector3> outPositions)
+        {
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform child = root.GetChild(i);
+                if (child.name == ChopTree.ScatterTreeName)
+                    outPositions.Add(child.position);
+                else if (child.childCount > 0)
+                    CollectScatterTreePositions(child, outPositions);
+            }
+        }
+
+        private static float PlanarDist(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         private void ShotTo(string file)

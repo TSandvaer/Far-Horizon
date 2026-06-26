@@ -1,6 +1,8 @@
 using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using FarHorizon;
 
@@ -401,6 +403,68 @@ namespace FarHorizon.PlayTests
             // And it's choppable anew — a click in range yields fresh wood.
             yield return ClickChopGen();
             Assert.Greater(_inv.WoodCount, woodAtFell, "the regrown scatter tree is choppable again");
+        }
+
+        // ============================================================================================
+        // CHANGE (a) GATE-HARDENING (86caa4c5c follow-up) — load the REAL committed Boot scene (NOT the
+        // synthetic BuildScatterWorld rig the tests above use) and assert the SHIPPED ChopTree is wired to
+        // the seed-42 scatter AND discovers MORE than one choppable tree at runtime. This pins two regression
+        // classes the synthetic-rig + EditMode + demo-tree-only verify gates were ALL blind to:
+        //   • a LowPolyScatter / LP_Tree RENAME drift (the scatter trees silently stop being discovered →
+        //     only the demo tree chops again — the Sponsor-rejected "only ONE tree chops");
+        //   • a scatterRoot-not-serialized regression (BuildChopTree / WireChopScatterRoot stops wiring the
+        //     ref → the runtime name-scan is the only thing that saves it; this asserts the SERIALIZED ref).
+        // It mirrors the RockScatter/BeachDebris/WorldLook PlayMode pattern (SceneManager.LoadScene("Boot") →
+        // step a frame → assert against the loaded runtime scene), and the InstanceCount assert is RUNTIME-only
+        // state (ChopTree._instances is populated in Start(), which never runs in an EditMode OpenScene), so
+        // this cannot live in EditMode's ChopSceneTests — it has to run in PlayMode against the loaded scene.
+        // ============================================================================================
+        [UnityTest]
+        public IEnumerator BootScene_ChopTree_WiredToScatter_AndDiscoversManyTrees_AtRuntime()
+        {
+            // Tear down the SetUp synthetic rig BEFORE loading the real scene so the FindObjectsByType below
+            // resolves the SHIPPED ChopTree, not a leftover test GO. LoadScene(Single) would destroy them too,
+            // but explicit teardown keeps the assert unambiguous.
+            if (_treeGo != null) Object.Destroy(_treeGo);
+            if (_invGo != null) Object.Destroy(_invGo);
+            if (_playerGo != null) Object.Destroy(_playerGo);
+            if (_driverGo != null) Object.Destroy(_driverGo);
+            yield return null;
+
+            SceneManager.LoadScene("Boot", LoadSceneMode.Single);
+            yield return null; // activate the loaded scene
+            yield return null; // step one real frame so ChopTree.Awake + Start run (scatter discovery is in Start)
+
+            var trees = Object.FindObjectsByType<ChopTree>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Assert.AreEqual(1, trees.Length,
+                "the loaded Boot scene must carry exactly ONE ChopTree resolver (the demo tree + the scatter " +
+                "trees are tracked by this single component, not one component per tree)");
+            ChopTree shipped = trees[0];
+
+            // The SERIALIZED scatterRoot ref must be wired editor-time (BuildChopTree + WireChopScatterRoot) —
+            // an unwired ref would fall back to the GameObject.Find name-scan, but the SHIPPED contract is the
+            // serialized ref (editor-vs-runtime trap, unity-conventions.md). It must point at LowPolyScatter.
+            Assert.IsNotNull(shipped.scatterRoot,
+                "the shipped ChopTree.scatterRoot must be WIRED editor-time to the seed-42 scatter root " +
+                "(CHANGE (a) — WireChopScatterRoot); a null ref means the scatter-root serialization regressed " +
+                "and only the runtime name-scan fallback would save scatter choppability");
+            Assert.AreEqual("LowPolyScatter", shipped.scatterRoot.name,
+                "ChopTree.scatterRoot must point at the LowPolyScatter root (a rename here silently strands " +
+                "the scatter trees as un-choppable)");
+
+            // RUNTIME assert: the resolver must have discovered MORE than one choppable tree (the demo tree +
+            // the seed-42 scatter LP_Trees). InstanceCount == 1 is the EXACT Sponsor-rejected regression
+            // ("only ONE tree chops") — a LP_Tree rename or a broken scatter discovery would land here.
+            Assert.Greater(shipped.InstanceCount, 1,
+                $"the shipped ChopTree must discover MANY choppable trees at runtime (found InstanceCount=" +
+                $"{shipped.InstanceCount}) — 1 means ONLY the demo tree is choppable (the twice-Sponsor-rejected " +
+                "regression: a renamed LP_Tree / broken scatter discovery strands every scatter tree)");
+
+            // Stronger: the demo tree is instance 0, so the scatter contributed InstanceCount-1 trees — assert
+            // the seed-42 scatter is genuinely dense (the world has ~320 LP_Trees), not a single stray match.
+            Assert.Greater(shipped.InstanceCount, 10,
+                $"the shipped scatter must contribute MANY choppable trees (InstanceCount={shipped.InstanceCount}) " +
+                "— a handful would signal the LP_Tree discovery is only partially finding the seed-42 scatter");
         }
     }
 }

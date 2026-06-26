@@ -54,7 +54,7 @@ namespace FarHorizon
     /// the swung hand automatically.
     ///
     /// === AC2 — wood yield ===
-    /// Each chop adds <see cref="WoodPerChop"/> (the NAMED yield constant — ticket AC2a) via
+    /// Each chop adds <see cref="DefaultChopYield"/> (the NAMED yield constant — ticket AC2a) via
     /// <see cref="Inventory.AddWood"/> → the canonical <c>ItemCatalog.WoodId</c> = "wood" path (ticket V3).
     /// After <see cref="chopsToFell"/> chops the resolved tree fells.
     ///
