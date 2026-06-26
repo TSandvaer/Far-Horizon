@@ -1409,6 +1409,38 @@ namespace FarHorizon.EditorTools
                       " (inventory wired: " + (chop.inventory != null) + ")");
         }
 
+        // CHANGE (a) 86caa4c5c — serialize the ChopTree.scatterRoot ref onto the LowPolyScatter root so EVERY
+        // world scatter tree is choppable in the shipped build (the chop resolves the nearest in-range tree —
+        // AC5). Called by BootstrapProject AFTER WorldBootstrap.BuildEnvironment authors the scatter root (it
+        // does NOT exist at BuildChopTree time — the player/craft/chop are authored before the environment).
+        // READ-only: this wires a reference to the existing scatter; it never re-authors / re-rolls the
+        // seed-42 placement (ScatterIslandProps is untouched → byte-identical world). The ChopTree.Start()
+        // GameObject.Find("LowPolyScatter") name-scan is the build-safety net if this wiring ever no-ops.
+        public static void WireChopScatterRoot()
+        {
+            var chop = Object.FindObjectOfType<ChopTree>();
+            if (chop == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireChopScatterRoot: no ChopTree in scene to wire " +
+                                 "scatterRoot to (the runtime name-scan fallback still finds LowPolyScatter)");
+                return;
+            }
+            var scatter = GameObject.Find("LowPolyScatter");
+            if (scatter == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireChopScatterRoot: no LowPolyScatter root found — " +
+                                 "scatter trees won't be choppable until the runtime fallback (none in a bare scene)");
+                return;
+            }
+            chop.scatterRoot = scatter.transform;
+            EditorUtility.SetDirty(chop);
+            int treeCount = 0;
+            foreach (var mf in scatter.GetComponentsInChildren<Transform>(true))
+                if (mf.name == ChopTree.ScatterTreeName) treeCount++;
+            Debug.Log("[MovementCameraScene] wired ChopTree.scatterRoot -> LowPolyScatter (" + treeCount +
+                      " scatter trees now choppable, CHANGE (a))");
+        }
+
         // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
         // as LowPolyZoneGen's scatter canopies (style-guide-v2 §6), so the choppable tree matches the
         // world's trees. Multi-value greens are baked into the mesh's vertex color by BlobCanopy.

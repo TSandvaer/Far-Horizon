@@ -1044,7 +1044,12 @@ namespace FarHorizon.EditorTools
         static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool carve,
             bool tall = false)
         {
-            var tree = new GameObject("LP_Tree");
+            // CHANGE (a) 86caa4c5c — name every scatter tree with the SHARED constant ChopTree.ScatterTreeName
+            // so the runtime chop resolver (ChopTree.Start) discovers them by the SAME key. Keeping the
+            // authoring name + the discovery key in lockstep removes the silent-drift bug class (a renamed
+            // scatter tree would otherwise leave only the demo tree choppable again). Naming the GO does NOT
+            // touch the seed-42 scatter RNG stream → placement stays byte-identical (AC5 / V4).
+            var tree = new GameObject(FarHorizon.ChopTree.ScatterTreeName); // "LP_Tree"
             tree.transform.SetParent(parent.transform, false);
             tree.transform.position = at;
 

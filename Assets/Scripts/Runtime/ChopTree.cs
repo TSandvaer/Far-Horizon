@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace FarHorizon
@@ -10,17 +11,35 @@ namespace FarHorizon
     /// (ChopPoseDriver) + yields <c>wood</c> into the inventory; after <see cref="chopsToFell"/> clicks the
     /// tree FELLS to a STUMP, and the stump REGROWS into a tree after a tweakable random delay.
     ///
-    /// === AC1 — THE TRIGGER IS AN ACTIVE LEFT-CLICK (Sponsor soak, 2026-06-25 — CHANGE 1) ===
+    /// === CHANGE (a) — EVERY scatter tree is choppable (Sponsor soak, 2026-06-25 — only ONE tree chopped) ===
+    /// This component is now a chop-target RESOLVER over MANY tree instances, NOT a single hardcoded tree.
+    /// AC5 ("the chop targets the nearest in-range tree") was only ever satisfied for the lone demo tree at
+    /// <c>MovementCameraScene.ChopTreePosition</c>; the ~320 world scatter trees (<c>LP_Tree</c> GameObjects
+    /// authored by <c>LowPolyZoneGen.BuildTree</c> under the <c>LowPolyScatter</c> root) were plain visual
+    /// meshes with no chop behaviour. The fix: on a left-click, RESOLVE THE NEAREST in-range tree across the
+    /// whole world and chop THAT instance. Per-tree state (chops landed / felled / regrow timer / fell+regrow
+    /// tween) lives in a <see cref="ChoppableTreeState"/> per instance, so each tree deplete→stump→regrows
+    /// INDEPENDENTLY.
+    ///   • Instance 0 is the editor-authored demo tree (this component's own <see cref="visual"/>) — it keeps
+    ///     every serialized ref + the ChopSceneTests scene-presence guard + the ChopVerifyCapture path; the demo
+    ///     tree stays choppable exactly as before.
+    ///   • The scatter trees are DISCOVERED at runtime (Start) by collecting the <c>LP_Tree</c> children under
+    ///     <see cref="scatterRoot"/> (wired editor-time; a name-scan fallback if unwired). This is a READ of the
+    ///     seed-42 scatter — it NEVER re-authors / re-rolls it (AC5 / V4: the scatter RNG stream is untouched, so
+    ///     the world placement stays byte-identical; ChopScatterInvarianceTests pins this). LowPolyZoneGen is NOT
+    ///     edited by this change.
+    /// The felling tween sinks+tips a tree's OWN transform, and regrow eases it back — so a felled scatter tree
+    /// reads as a stump in place while its neighbours stand, then rises again on its own random timer.
+    ///
+    /// === AC1 — THE TRIGGER IS AN ACTIVE LEFT-CLICK (Sponsor soak, 2026-06-25 — CHANGE 1, KEPT) ===
     /// The chop is INITIATED BY THE PLAYER, not auto-fired by proximity. With the axe SELECTED and a tree in
     /// range, a LEFT-CLICK (<c>Input.GetMouseButtonDown(0)</c>) triggers ONE chop strike (one swing + one
-    /// wood) — chopping reads like attacking. The proximity-auto trigger (the prior behaviour: stand at the
-    /// tree → it chops itself on a timer) is REPLACED. Three guards keep the world-click clean (the Sponsor's
-    /// "left-click must only chop in the game world"):
+    /// wood) on the NEAREST in-range tree — chopping reads like attacking. The proximity-auto trigger is
+    /// REPLACED. Three guards keep the world-click clean (the Sponsor's "left-click must only chop in the game
+    /// world"):
     ///   • a click while a modal panel is open (inventory pack / settings) is swallowed —
     ///     <see cref="UiInputGate.CaptureWorldInput"/>;
-    ///   • a click OVER the inventory/belt UI (the always-on belt strip, or the open pack) does NOT chop —
-    ///     <see cref="InventoryUI.IsPointerOverUI"/> (UI Toolkit does NOT block legacy Input.* world polling,
-    ///     research §E1, so the world consumer must ask the panel);
+    ///   • a click OVER the inventory/belt UI does NOT chop — <see cref="InventoryUI.IsPointerOverUI"/>;
     ///   • a click while the RIGHT mouse button is held (a camera ORBIT drag) does NOT chop —
     ///     <c>Input.GetMouseButton(1)</c> (the OrbitCamera owns RMB-drag).
     /// The decision is the pure static <see cref="ShouldChopOnClick"/> so the full guard truth-table is
@@ -30,45 +49,34 @@ namespace FarHorizon
     ///
     /// === AC1 — THE AXE-SELECTED GATE (load-bearing, UNCHANGED) ===
     /// The chop still requires the axe to be the SELECTED belt item (<see cref="Inventory.IsAxeSelectedInBelt"/>),
-    /// NOT merely owned (HasAxe), AND the player in range — only the TRIGGER changed (proximity-auto → click).
-    /// This MATCHES the held-axe visual gate (HeldAxe.ShouldShow) + the finger grip — you chop with the axe
-    /// you're HOLDING, the one shown in-hand. Axe owned but a different belt slot selected → a click does
-    /// nothing, no wood, the tree stays standing (success test: "chopping without the [selected] axe does
-    /// nothing"). This SUPERSEDES the old HasAxe gate (ticket AC1 correction, 2026-06-25): before the belt
-    /// existed owns==holds, so HasAxe was right; with the belt, SELECTION is the signal (item-model contract
-    /// §5). Each landed chop fires <see cref="ChopPoseDriver.TriggerSwing"/> so the arm swings; the held axe
-    /// (HeldAxeRig, order 100) follows the swung hand automatically.
+    /// NOT merely owned (HasAxe), AND the player in range of SOME tree. Each landed chop fires
+    /// <see cref="ChopPoseDriver.TriggerSwing"/> so the arm swings; the held axe (HeldAxeRig, order 100) follows
+    /// the swung hand automatically.
     ///
     /// === AC2 — wood yield ===
-    /// Each chop adds <see cref="WoodPerChop"/> (the NAMED yield constant — ticket AC2a: the chop OWNS the
-    /// per-chop amount; the `tree-chop wood yield` SETTING that drives it is owned by the sticks ticket
-    /// 86caa96rd, NOT here — this is the single named source that setting can drive, no dead literal). Wood
-    /// goes in via <see cref="Inventory.AddWood"/> → the canonical <c>ItemCatalog.WoodId</c> = "wood" path
-    /// (ticket V3 — never a "chopped_wood" id). After <see cref="chopsToFell"/> chops the tree fells.
+    /// Each chop adds <see cref="WoodPerChop"/> (the NAMED yield constant — ticket AC2a) via
+    /// <see cref="Inventory.AddWood"/> → the canonical <c>ItemCatalog.WoodId</c> = "wood" path (ticket V3).
+    /// After <see cref="chopsToFell"/> chops the resolved tree fells.
     ///
     /// === AC3 — regrowth (tweakable, RANDOM within [min,max]) ===
-    /// A felled tree becomes a STUMP (the visual sinks + tips). After a RANDOM delay in
-    /// [<see cref="regrowthMinSeconds"/>, <see cref="regrowthMaxSeconds"/>] (organic, not uniform — AC3) the
-    /// stump REGROWS into a standing, choppable tree (the visual returns to its standing pose, chop count
-    /// reset). The min/max are NAMED serialized fields (the live-tunable source — AC5a); the `tree regrowth
-    /// time` SETTING that drives them is registered by SettingsCatalog.PopulateChop (this ticket owns the
-    /// fields, the catalog owns the row). Mirrors BerryBush's regrow idiom (seeded System.Random roll).
+    /// A felled tree becomes a STUMP. After a RANDOM delay in [<see cref="regrowthMinSeconds"/>,
+    /// <see cref="regrowthMaxSeconds"/>] (organic, not uniform — AC3) the stump REGROWS into a standing,
+    /// choppable tree (chop count reset). The min/max are NAMED serialized fields (the live-tunable source —
+    /// AC5a); the `tree regrowth time` SETTING that drives them is registered by SettingsCatalog.PopulateChop.
     ///
     /// === AC4 — visual feedback (cute/warm low-poly) ===
-    /// On the felling chop the tree SINKS + tips (the existing thin-but-felt tween, kept); the STUMP (the
-    /// sunk/tipped visual) persists through the regrowth window; regrowth eases the visual back up to
-    /// standing. Each chop also swings the arm (AC1). Richer particles are OOS (Uma's feel pass).
+    /// On the felling chop the tree SINKS + tips; the STUMP persists through the regrowth window; regrowth eases
+    /// the visual back up to standing. Each chop also swings the arm (AC1). Richer particles are OOS.
     ///
     /// === AC5 — world integrity ===
-    /// This tree is the WIRED choppable tree authored editor-time (MovementCameraScene.BuildChopTree); it
-    /// READS the existing seed-42 scatter only (no scatter mutation — ticket V4, no byte change to the world
-    /// rnd). Chopping never breaks the island scatter or the NavMesh (the tree has no collider).
+    /// The demo tree (instance 0) is authored editor-time (MovementCameraScene.BuildChopTree); the scatter
+    /// trees are READ from the existing seed-42 scatter (no scatter mutation — ticket V4, no byte change to the
+    /// world rnd). Chopping never breaks the island scatter or the NavMesh.
     ///
     /// === Serialization (unity-conventions.md §editor-vs-runtime) ===
-    /// The tree GameObject + this component + its Inventory/player/visual/poseDriver references are authored
-    /// editor-time into Boot.unity (MovementCameraScene.BuildChopTree), NOT at Awake — an Awake-built
-    /// interaction/visual could ship MANGLED/absent (the legs-up class). ChopSceneTests guards the scene
-    /// presence + that the refs serialize.
+    /// The demo tree GameObject + this component + its Inventory/player/visual/poseDriver/scatterRoot references
+    /// are authored editor-time into Boot.unity, NOT at Awake — an Awake-built interaction/visual could ship
+    /// MANGLED/absent (the legs-up class). ChopSceneTests guards the scene presence + that the refs serialize.
     ///
     /// === Trace instrumentation (no-new-class-without-trace discipline) ===
     /// `[chop-trace]` lines on chop / fell / regrow, [Conditional("UNITY_EDITOR")] so they strip from the
@@ -84,6 +92,11 @@ namespace FarHorizon
         /// from this. NOT a magic literal scattered through the code (no "dead knob").</summary>
         public const int DefaultChopYield = 1;
 
+        /// <summary>The GameObject name LowPolyZoneGen.BuildTree gives every scatter tree. The runtime
+        /// resolver collects these under <see cref="scatterRoot"/> so every world tree is choppable
+        /// (CHANGE (a)). A READ-only key into the existing seed-42 scatter — never re-authored.</summary>
+        public const string ScatterTreeName = "LP_Tree";
+
         [Header("Wiring (serialized editor-time)")]
         [Tooltip("The ledger chopped wood is added to. Wired at bootstrap; scene-found fallback.")]
         public Inventory inventory;
@@ -92,9 +105,17 @@ namespace FarHorizon
                  "bootstrap; falls back to the ClickToMove root, then a scene search.")]
         public Transform player;
 
-        [Tooltip("The tree's visual root, tweened on felling (sink + tip) + on regrowth (rise back). Wired " +
-                 "at bootstrap; falls back to this transform so the chop is still felt even if unwired.")]
+        [Tooltip("The DEMO tree's visual root (instance 0), tweened on felling (sink + tip) + on regrowth " +
+                 "(rise back). Wired at bootstrap; falls back to this transform so the chop is still felt even " +
+                 "if unwired.")]
         public Transform visual;
+
+        [Tooltip("CHANGE (a) — the LowPolyScatter root whose LP_Tree children are the world's scatter trees. " +
+                 "Discovered at Start and made choppable alongside the demo tree, so the chop targets the " +
+                 "NEAREST in-range tree anywhere on the island. Wired editor-time; a name-scan fallback finds " +
+                 "the scatter root if unwired. READ-only — the seed-42 scatter is never re-authored. Null is " +
+                 "tolerated (only the demo tree is then choppable — a bare test rig).")]
+        public Transform scatterRoot;
 
         [Tooltip("The player SWING driver (ChopPoseDriver on the castaway). Each landed chop calls its " +
                  "TriggerSwing() so the arm swings (AC1). Wired at bootstrap; an Awake scene-search fallback. " +
@@ -108,28 +129,27 @@ namespace FarHorizon
         public InventoryUI inventoryUI;
 
         [Header("Interaction")]
-        [Tooltip("Planar (XZ) distance within which the castaway is 'at' the tree and (with the selected " +
-                 "axe) chops. Generous enough that arriving near the tree counts. Mirrors CraftSpot.craftRadius.")]
+        [Tooltip("Planar (XZ) distance within which the castaway is 'at' a tree and (with the selected " +
+                 "axe) chops it. Generous enough that arriving near a tree counts. Mirrors CraftSpot.craftRadius.")]
         public float chopRadius = 2.2f;
 
         [Tooltip("Wood units yielded per chop (seeds from DefaultChopYield). The `tree-chop wood yield` " +
                  "setting (86caa96rd) drives this live; this is the single named source it reaches.")]
         public int woodPerChop = DefaultChopYield;
 
-        [Tooltip("Chops needed to fell the tree. After this many, the tree falls to a STUMP, then regrows " +
-                 "(AC3). Small so the loop reads quickly.")]
+        [Tooltip("Chops needed to fell a tree. After this many, the tree falls to a STUMP, then regrows " +
+                 "(AC3). Small so the loop reads quickly. Shared across every choppable tree.")]
         public int chopsToFell = 3;
 
-        [Tooltip("Minimum seconds between landed chops (CHANGE 1 — left-click trigger). The chop is now per " +
+        [Tooltip("Minimum seconds between landed chops (CHANGE 1 — left-click trigger). The chop is per " +
                  "LEFT-CLICK (one strike per click, not auto-paced), so this is a small COOLDOWN: a second " +
                  "chop-click within this window is ignored, so a stray double-edge (or a frantic mash) can't " +
-                 "out-pace the swing read. A normal click cadence is always slower than this, so it never " +
-                 "throttles deliberate chopping. 0 = no cooldown (every click chops).")]
+                 "out-pace the swing read. A normal click cadence is always slower than this. 0 = no cooldown.")]
         public float chopInterval = 0.25f;
 
         [Header("Regrowth (AC3 — TWEAKABLE; the `tree regrowth time` setting drives min/max)")]
         [Tooltip("Minimum seconds before a felled STUMP regrows into a tree. The actual regrow time is " +
-                 "RANDOM in [min,max] (organic, not uniform — AC3). Default ~10 min (the ticket default). The " +
+                 "RANDOM in [min,max] (organic, not uniform — AC3). Default ~10 min. Shared across trees; the " +
                  "`tree regrowth time` setting (SettingsCatalog.PopulateChop) drives these live.")]
         public float regrowthMinSeconds = 480f;   // 8 min
 
@@ -137,50 +157,47 @@ namespace FarHorizon
                  "so the average regrow is ~10 min (the ticket's '~10 min default').")]
         public float regrowthMaxSeconds = 720f;   // 12 min
 
-        [Tooltip("Deterministic seed for the regrow-time roll (so headless tests are reproducible). 0 = use " +
-                 "a time-based seed at runtime. Mirrors BerryBush.regrowSeed.")]
+        [Tooltip("Deterministic seed for the regrow-time rolls (so headless tests are reproducible). 0 = use " +
+                 "a time-based seed at runtime. Each instance derives its own sub-seed so trees regrow on " +
+                 "distinct timers. Mirrors BerryBush.regrowSeed.")]
         public int regrowSeed = 0;
 
-        // Runtime state.
-        private int _chops;          // chops landed on the CURRENT tree (resets on regrow)
-        private bool _felled;        // true while the tree is a stump (felled, awaiting regrow)
-        private float _regrowAt;     // wall-clock time the stump regrows (only meaningful while felled)
-        private System.Random _rng;
+        // The per-tree choppable instances: index 0 is the demo tree (this component's own visual); the rest
+        // are the world scatter trees discovered at Start. The resolver picks the nearest in-range instance.
+        private readonly List<ChoppableTreeState> _instances = new List<ChoppableTreeState>();
 
         // CHANGE 1 — programmatic LEFT-CLICK latch (the input-independent seam, the analog of
         // WasdMovement.RequestJump). A headless PlayMode run / the shipped-build capture can't inject a real
-        // mouse button, so a chop-click can be REQUESTED via this latch (consumed once on the next Update,
-        // mirroring the mouse's rising edge — one chop per request). The range + axe-selected + over-UI/RMB
-        // guards still apply to a requested click (it goes through the SAME ShouldChopOnClick decision).
+        // mouse button, so a chop-click can be REQUESTED via this latch (consumed once on the next Update).
         private bool _chopClickRequested;
-        // CHANGE 1 — wall-clock time of the last landed chop, for the chopInterval click cooldown (a stray
-        // double-edge / frantic mash can't out-pace the swing read). float.NegativeInfinity = "never chopped".
+        // CHANGE 1 — wall-clock time of the last landed chop, for the chopInterval click cooldown.
         private float _lastChopAt = float.NegativeInfinity;
-
-        // Felling/regrow tween state (runtime-only transform animation on the serialized visual).
-        private bool _felling;       // playing the sink+tip tween
-        private bool _regrowing;     // playing the rise-back tween
-        private float _tweenT;
-        private Vector3 _standPos;
-        private Quaternion _standRot;
-        private const float FellDuration = 0.5f;
-        private const float RegrowRiseDuration = 0.6f;
-        // The felled (stump) pose offset from standing — the tween's end state, captured once we know the
-        // standing pose, so regrow can ease back from it.
-        private static readonly Vector3 StumpDrop = Vector3.down * 0.6f;
-        private const float StumpTipDeg = 70f;
 
         private bool _tracedFirstChop; // one-shot trace guard
 
-        /// <summary>Chops landed on the current tree (0..chopsToFell). Exposed for PlayMode tests + capture.</summary>
-        public int Chops => _chops;
+        /// <summary>Chops landed on the DEMO tree (instance 0), 0..chopsToFell. Exposed for PlayMode tests +
+        /// the verify capture (which exercises the demo tree). For an arbitrary instance use
+        /// <see cref="ChopsOn"/>.</summary>
+        public int Chops => _instances.Count > 0 ? _instances[0].Chops : 0;
 
-        /// <summary>True while the tree is FELLED (a stump, awaiting regrow). After regrow it is false
-        /// again (standing + choppable). Exposed for tests + the verify capture.</summary>
-        public bool IsFelled => _felled;
+        /// <summary>True while the DEMO tree (instance 0) is FELLED (a stump, awaiting regrow).</summary>
+        public bool IsFelled => _instances.Count > 0 && _instances[0].Felled;
 
-        /// <summary>Wall-clock time the stump regrows (only meaningful while <see cref="IsFelled"/>).</summary>
-        public float RegrowAt => _regrowAt;
+        /// <summary>Wall-clock time the DEMO tree (instance 0) regrows (meaningful only while felled).</summary>
+        public float RegrowAt => _instances.Count > 0 ? _instances[0].RegrowAt : 0f;
+
+        /// <summary>Number of choppable tree instances currently tracked (1 demo tree + N scatter trees).
+        /// Exposed for tests/capture so the generalization is auditable.</summary>
+        public int InstanceCount => _instances.Count;
+
+        /// <summary>Chops landed on a given tracked instance (0..chopsToFell). For the per-instance
+        /// independence tests.</summary>
+        public int ChopsOn(int index) =>
+            index >= 0 && index < _instances.Count ? _instances[index].Chops : 0;
+
+        /// <summary>True while a given tracked instance is FELLED (a stump). For the per-instance tests.</summary>
+        public bool IsFelledOn(int index) =>
+            index >= 0 && index < _instances.Count && _instances[index].Felled;
 
         void Awake()
         {
@@ -195,68 +212,145 @@ namespace FarHorizon
             // CHANGE 1 — the inventory/belt UI for the over-UI left-click guard (serialized editor-time; this
             // scene-search is the build-safety net). Null is tolerated — the over-UI guard is then skipped.
             if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
-            // Capture the standing pose at spawn so felling/regrow tweens have an anchor. The tree ships
-            // standing, so transform-at-Awake == the standing pose.
-            _standPos = visual.position;
-            _standRot = visual.rotation;
-            _rng = new System.Random(regrowSeed != 0 ? regrowSeed : Environment.TickCount);
+
+            // Instance 0 = the demo tree (this component's own visual). It captures its standing pose at spawn
+            // (the tree ships standing). Its derived sub-seed is the raw regrowSeed so the demo tree's regrow
+            // roll is byte-identical to the pre-CHANGE-(a) single-tree behaviour (existing tests unchanged).
+            _instances.Clear();
+            _instances.Add(new ChoppableTreeState(visual, DeriveSeed(0)));
+        }
+
+        void Start()
+        {
+            // CHANGE (a) — discover the world's scatter trees and make each choppable (READ-only — the seed-42
+            // scatter is never re-authored). Run in Start (not Awake) so the editor-time-authored scatter under
+            // LowPolyScatter is fully present. Each scatter tree is its own ChoppableTreeState keyed on its
+            // transform, so it deplete→stump→regrows independently of the demo tree and its neighbours.
+            Transform root = scatterRoot;
+            if (root == null)
+            {
+                var found = GameObject.Find("LowPolyScatter");
+                if (found != null) root = found.transform;
+            }
+            if (root == null) return; // no scatter (a bare test rig) — only the demo tree is choppable.
+
+            int idx = _instances.Count;
+            CollectScatterTrees(root, ref idx);
+            ChopTrace("resolver tracking " + _instances.Count + " choppable trees (1 demo + " +
+                      (_instances.Count - 1) + " scatter)");
+        }
+
+        // Recursively collect every LP_Tree under the scatter root and register a per-instance chop state.
+        // A READ of the existing scatter hierarchy — no GameObject is created/moved/destroyed here.
+        private void CollectScatterTrees(Transform root, ref int idx)
+        {
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform child = root.GetChild(i);
+                if (child.name == ScatterTreeName)
+                {
+                    _instances.Add(new ChoppableTreeState(child, DeriveSeed(idx)));
+                    idx++;
+                }
+                else if (child.childCount > 0)
+                {
+                    CollectScatterTrees(child, ref idx);
+                }
+            }
+        }
+
+        // A deterministic per-instance regrow sub-seed: index 0 (the demo tree) uses the raw regrowSeed so its
+        // regrow roll is unchanged from the single-tree era; later instances XOR in the index so trees regrow
+        // on distinct timers. 0 stays 0 (time-based seed at runtime) for index 0 to preserve the old behaviour.
+        private int DeriveSeed(int index)
+        {
+            if (index == 0) return regrowSeed;
+            int baseSeed = regrowSeed != 0 ? regrowSeed : 1;
+            // Mix the index in with a golden-ratio odd multiplier (wraps via unchecked) so each scatter tree
+            // gets a distinct, deterministic regrow sub-seed; OR 1 so the result is never 0 (which would mean
+            // "time-based" in ChoppableTreeState's ctor → non-reproducible in tests).
+            unchecked
+            {
+                int mixed = baseSeed ^ (index * (int)0x9E3779B1);
+                return mixed | 1;
+            }
         }
 
         void Update()
         {
-            // Drive the one-shot felling / regrow tweens independently of input.
-            if (_felling) { StepFelling(); return; }
-            if (_regrowing) { StepRegrow(); return; }
-
-            // While FELLED (a stump), wait for the regrow timer, then regrow into a standing tree (AC3).
-            if (_felled)
-            {
-                if (Time.time >= _regrowAt) BeginRegrow();
-                return;
-            }
+            // Tick EVERY instance's one-shot felling / regrow tweens + regrow timer independently of input.
+            for (int i = 0; i < _instances.Count; i++)
+                _instances[i].Tick();
 
             if (inventory == null || player == null) return;
 
             // CHANGE 1 — the chop is triggered by an ACTIVE LEFT-CLICK (like an attack), NOT proximity-auto.
             // Read the real mouse rising edge OR consume the programmatic latch (the headless / shipped-build
-            // seam). Consume the latch unconditionally each frame (one chop per RequestChopClick, matching the
-            // mouse's one-edge-per-press) so it can't stick across frames.
+            // seam). Consume the latch unconditionally each frame (one chop per RequestChopClick) so it can't
+            // stick across frames.
             bool clickEdge = _chopClickRequested || Input.GetMouseButtonDown(0);
             _chopClickRequested = false;
             if (!clickEdge) return;
 
-            // Planar distance only — ignore any Y offset between the tree origin and the player root ground
-            // point (height-robust, same as CraftSpot / BerryBush).
-            Vector2 tree = new Vector2(transform.position.x, transform.position.z);
-            Vector2 here = new Vector2(player.position.x, player.position.z);
-            bool inRange = Vector2.Distance(tree, here) <= chopRadius;
-
-            // The full chop-on-click decision (pure static so the guard truth-table is unit-testable): range +
-            // the axe-SELECTED gate (load-bearing, unchanged) + the three world-click guards (modal panel open;
-            // pointer over the inventory/belt UI; RMB camera-orbit drag). Only when ALL hold does ONE chop land.
+            // The full chop-on-click decision (pure static so the guard truth-table is unit-testable): the
+            // axe-SELECTED gate (load-bearing) + the three world-click guards (modal panel open; pointer over
+            // the inventory/belt UI; RMB camera-orbit drag). "inRange" is supplied by the NEAREST-tree resolve
+            // below: a click only chops when SOME standing tree is within chopRadius.
             bool overUI = inventoryUI != null && inventoryUI.IsPointerOverUI(Input.mousePosition);
             bool rmbHeld = Input.GetMouseButton(1);
-            if (ShouldChopOnClick(inRange, inventory.IsAxeSelectedInBelt,
-                                  UiInputGate.CaptureWorldInput, overUI, rmbHeld))
-            {
-                // Click cooldown: ignore a chop that lands within chopInterval of the last (a stray double-edge
-                // / mash can't out-pace the swing). A deliberate click cadence is always slower than this.
-                if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
-                _lastChopAt = Time.time;
-                Chop();
-            }
+
+            // CHANGE (a) — resolve the NEAREST in-range, still-standing tree (AC5). null = no choppable tree in
+            // reach → the click is a harmless world-click (exactly like clicking past every tree).
+            ChoppableTreeState target = ResolveNearestChoppable(player.position);
+            bool inRange = target != null;
+
+            if (!ShouldChopOnClick(inRange, inventory.IsAxeSelectedInBelt,
+                                   UiInputGate.CaptureWorldInput, overUI, rmbHeld))
+                return;
+
+            // Click cooldown: ignore a chop that lands within chopInterval of the last (a stray double-edge /
+            // mash can't out-pace the swing). A deliberate click cadence is always slower than this.
+            if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
+            _lastChopAt = Time.time;
+            ChopInstance(target);
         }
 
         /// <summary>
-        /// PURE chop-on-a-left-click decision (CHANGE 1 — the unit-testable guard truth-table). Given that a
-        /// left-click edge fired this frame, decide whether ONE chop should land:
-        ///   • <paramref name="inRange"/> — the player is within <see cref="chopRadius"/> of the tree;
+        /// Resolve the NEAREST still-standing tree within <see cref="chopRadius"/> of <paramref name="from"/>
+        /// (CHANGE (a) — AC5 "the chop targets the nearest in-range tree"). Felled/felling/regrowing instances
+        /// are skipped (a stump is not choppable). Returns null when no standing tree is in reach. Planar (XZ)
+        /// distance only (height-robust — same as CraftSpot / BerryBush).
+        /// </summary>
+        private ChoppableTreeState ResolveNearestChoppable(Vector3 from)
+        {
+            ChoppableTreeState best = null;
+            float bestSq = chopRadius * chopRadius;
+            Vector2 here = new Vector2(from.x, from.z);
+            for (int i = 0; i < _instances.Count; i++)
+            {
+                ChoppableTreeState s = _instances[i];
+                if (!s.IsChoppable) continue; // a stump / mid-tween tree can't be chopped
+                Vector3 p = s.Position;
+                float dSq = (here - new Vector2(p.x, p.z)).sqrMagnitude;
+                if (dSq <= bestSq)
+                {
+                    bestSq = dSq;
+                    best = s;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// PURE chop-on-a-left-click decision (CHANGE 1 — the unit-testable guard truth-table). Given a
+        /// left-click edge this frame, decide whether ONE chop should land:
+        ///   • <paramref name="inRange"/> — SOME standing tree is within <see cref="chopRadius"/> (the nearest);
         ///   • <paramref name="axeSelected"/> — the axe is the SELECTED belt item (the load-bearing gate);
-        ///   • NOT <paramref name="uiPanelOpen"/> — no modal panel (inventory pack / settings) owns the screen;
+        ///   • NOT <paramref name="uiPanelOpen"/> — no modal panel owns the screen;
         ///   • NOT <paramref name="pointerOverUI"/> — the click is NOT over the inventory/belt UI;
         ///   • NOT <paramref name="rmbHeld"/> — the right mouse button is NOT held (no camera-orbit drag).
-        /// All five must hold. Static + dependency-free so the EditMode guard asserts the whole table
-        /// (no-chop-without-each-precondition; chop only when all hold) with no scene/Input/UI rig.
+        /// All five must hold. Static + dependency-free so the EditMode guard asserts the whole table with no
+        /// scene/Input/UI rig.
         /// </summary>
         public static bool ShouldChopOnClick(bool inRange, bool axeSelected,
                                              bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
@@ -266,48 +360,137 @@ namespace FarHorizon
         /// Request ONE chop strike programmatically — the input-independent analog of a left-click (CHANGE 1).
         /// Latched + consumed on the next Update (mirrors the mouse's rising edge — one chop per call), so a
         /// headless PlayMode test + the shipped-build chop capture trigger a chop where a real mouse button
-        /// can't be injected. The range + axe-selected + over-UI/RMB guards still apply (it runs the SAME
-        /// ShouldChopOnClick decision) — a request out of range / without the selected axe is harmlessly
-        /// ignored, exactly like a real off-target click.
+        /// can't be injected. The nearest-in-range + axe-selected + over-UI/RMB guards still apply.
         /// </summary>
         public void RequestChopClick() => _chopClickRequested = true;
 
-        // Land one chop: SWING the arm (AC1), yield wood (AC2), advance the count, and fell the tree on the
-        // final chop. Public so PlayMode tests can drive it directly (isolating it from pathfinding).
+        /// <summary>
+        /// Land one chop on the DEMO tree (instance 0) directly, regardless of range. Public so the existing
+        /// PlayMode swing test can drive a chop in isolation (it asserts the swing fires + the demo tree's
+        /// chop count). Generalized callers go through the click resolver; this is the demo-tree convenience
+        /// seam the pre-CHANGE-(a) tests use.
+        /// </summary>
         public void Chop()
         {
-            if (_felled || _felling || _regrowing || inventory == null) return;
+            if (_instances.Count > 0) ChopInstance(_instances[0]);
+        }
+
+        // Land one chop on a resolved instance: SWING the arm (AC1), yield wood (AC2), advance the instance's
+        // count, and fell it on the final chop (AC3). The per-instance state owns the deplete/fell/regrow.
+        private void ChopInstance(ChoppableTreeState target)
+        {
+            if (target == null || !target.IsChoppable || inventory == null) return;
 
             // Swing the arm (AC1) — the held axe (HeldAxeRig) follows the swung hand automatically. Null is
             // graceful (the wood still yields; just no swing).
             if (poseDriver != null) poseDriver.TriggerSwing();
 
             inventory.AddWood(Mathf.Max(1, woodPerChop));
-            _chops++;
+            bool felled = target.LandChop(chopsToFell, regrowthMinSeconds, regrowthMaxSeconds);
 
             if (!_tracedFirstChop)
             {
                 _tracedFirstChop = true;
-                ChopTrace("chop " + _chops + "/" + chopsToFell + " -> wood=" + inventory.WoodCount +
+                ChopTrace("chop " + target.Chops + "/" + chopsToFell + " -> wood=" + inventory.WoodCount +
                           " (swing=" + (poseDriver != null) + ")");
             }
+            if (felled)
+                ChopTrace("tree FELLED after " + target.Chops + " chops (total wood=" + inventory.WoodCount +
+                          "); regrow in " + (target.RegrowAt - Time.time).ToString("F0") + "s");
+        }
 
+        // [chop-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call
+        // (AND its argument evaluation, incl. the string concatenation) from the shipped IL2CPP release exe
+        // (unity6-mastery §5 "no Debug.Log in hot paths" / §10 "strip all logging from shipping builds").
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        private static void ChopTrace(string msg) => Debug.Log("[chop-trace] " + msg);
+    }
+
+    /// <summary>
+    /// Per-tree CHOP STATE (CHANGE (a) — extracted from ChopTree so EVERY world tree is choppable, each with
+    /// its OWN chops-landed / felled / regrow-timer / fell+regrow tween). A plain class (no MonoBehaviour):
+    /// ChopTree owns a list of these — the demo tree + every scatter LP_Tree — and drives them. The deplete →
+    /// stump → regrow logic is identical to the pre-CHANGE-(a) single-tree code; only the OWNERSHIP changed
+    /// (one-per-tree instead of one-on-the-component), so a felled tree reads as a stump in place while its
+    /// neighbours stand, then rises again on its own random timer.
+    ///
+    /// Wall-clock paced via Time.unscaledDeltaTime + Time.time (headless deltas are ~0, so a headless run lands
+    /// at each tween's end state quickly without affecting the wood/felled/regrow assertions —
+    /// unity-conventions.md headless-time discipline). NO mutable statics (instance state only).
+    /// </summary>
+    public class ChoppableTreeState
+    {
+        private readonly Transform _visual;     // this tree's tweened root (the LP_Tree transform / demo visual)
+        private readonly System.Random _rng;    // this tree's own regrow-time roll (distinct per instance)
+
+        private int _chops;          // chops landed on THIS tree (resets on regrow)
+        private bool _felled;        // true while this tree is a stump (felled, awaiting regrow)
+        private float _regrowAt;     // wall-clock time this stump regrows (meaningful only while felled)
+
+        private bool _felling;       // playing the sink+tip tween
+        private bool _regrowing;     // playing the rise-back tween
+        private float _tweenT;
+        private Vector3 _standPos;
+        private Quaternion _standRot;
+
+        private const float FellDuration = 0.5f;
+        private const float RegrowRiseDuration = 0.6f;
+        // The felled (stump) pose offset from standing — the tween's end state.
+        private static readonly Vector3 StumpDrop = Vector3.down * 0.6f;
+        private const float StumpTipDeg = 70f;
+
+        public ChoppableTreeState(Transform visual, int seed)
+        {
+            _visual = visual;
+            // Capture the standing pose at construction (each tree ships standing).
+            if (_visual != null)
+            {
+                _standPos = _visual.position;
+                _standRot = _visual.rotation;
+            }
+            _rng = new System.Random(seed != 0 ? seed : Environment.TickCount);
+        }
+
+        public int Chops => _chops;
+        public bool Felled => _felled;
+        public float RegrowAt => _regrowAt;
+        /// <summary>This tree's world position (its visual root) — the resolver's nearest-in-range key.</summary>
+        public Vector3 Position => _visual != null ? _visual.position : Vector3.zero;
+        /// <summary>True only when this tree is STANDING (not felled, not mid-tween) → chop-eligible.</summary>
+        public bool IsChoppable => !_felled && !_felling && !_regrowing;
+
+        // Advance this tree's one-shot tweens + regrow timer one frame. Called every Update by ChopTree.
+        public void Tick()
+        {
+            if (_felling) { StepFelling(); return; }
+            if (_regrowing) { StepRegrow(); return; }
+            if (_felled && Time.time >= _regrowAt) BeginRegrow();
+        }
+
+        /// <summary>
+        /// Land one chop on this tree: advance the count, and on the <paramref name="chopsToFell"/>-th chop
+        /// fell it (begin the sink+tip tween + schedule a random regrow in [min,max]). Returns true on the
+        /// felling chop. A no-op if the tree isn't currently choppable (a stump / mid-tween). The CALLER yields
+        /// the wood + swings the arm (shared across instances).
+        /// </summary>
+        public bool LandChop(int chopsToFell, float regrowthMinSeconds, float regrowthMaxSeconds)
+        {
+            if (!IsChoppable) return false;
+            _chops++;
             if (_chops >= chopsToFell)
             {
                 _felled = true;
                 BeginFelling();
-                ScheduleRegrow();
-                ChopTrace("tree FELLED after " + _chops + " chops (total wood=" + inventory.WoodCount +
-                          "); regrow in " + (_regrowAt - Time.time).ToString("F0") + "s");
+                ScheduleRegrow(regrowthMinSeconds, regrowthMaxSeconds);
+                return true;
             }
+            return false;
         }
 
         // Schedule the regrow at a RANDOM time within [min,max] (AC3 — organic, not uniform). Min clamped
         // non-negative; max clamped >= min so a mis-authored max never schedules a regrow in the past.
-        // Mirrors BerryBush.ScheduleRegrow.
-        private void ScheduleRegrow()
+        private void ScheduleRegrow(float regrowthMinSeconds, float regrowthMaxSeconds)
         {
-            if (_rng == null) _rng = new System.Random(regrowSeed != 0 ? regrowSeed : Environment.TickCount);
             float min = Mathf.Max(0f, regrowthMinSeconds);
             float max = Mathf.Max(min, regrowthMaxSeconds);
             float delay = min + (float)_rng.NextDouble() * (max - min);
@@ -317,63 +500,50 @@ namespace FarHorizon
         // Start the thin-but-felt felling tween: capture the standing pose so StepFelling can sink+tip.
         private void BeginFelling()
         {
-            if (visual == null) visual = transform;
-            _standPos = visual.position;
-            _standRot = visual.rotation;
+            if (_visual == null) { _felling = false; return; }
+            _standPos = _visual.position;
+            _standRot = _visual.rotation;
             _felling = true;
             _tweenT = 0f;
         }
 
-        // One frame of the felling tween — the tree sinks into the ground and tips over (becoming the
-        // stump), then stops. Pure transform animation on the already-serialized visual (no Awake-built
-        // hierarchy to ship mangled). Wall-clock paced via unscaledDeltaTime (headless deltas are ~0, so a
-        // headless run lands at the end state quickly without affecting the wood/felled/regrow assertions).
+        // One frame of the felling tween — the tree sinks into the ground and tips over (the stump), then stops.
         private void StepFelling()
         {
-            if (visual == null) { _felling = false; return; }
+            if (_visual == null) { _felling = false; return; }
             _tweenT += Time.unscaledDeltaTime;
             float k = Mathf.Clamp01(_tweenT / FellDuration);
             float ease = k * k * (3f - 2f * k); // smoothstep
-            visual.position = _standPos + StumpDrop * ease;
-            visual.rotation = _standRot * Quaternion.Euler(StumpTipDeg * ease, 0f, 0f);
+            _visual.position = _standPos + StumpDrop * ease;
+            _visual.rotation = _standRot * Quaternion.Euler(StumpTipDeg * ease, 0f, 0f);
             if (k >= 1f) _felling = false; // now resting as the STUMP (sunk + tipped) until regrow
         }
 
-        // Begin the regrow rise: the stump eases back UP to the standing pose, then the tree is choppable
-        // again (chop count reset). The standing pose was captured at Awake / before felling.
+        // Begin the regrow rise: the stump eases back UP to the standing pose, then choppable again.
         private void BeginRegrow()
         {
-            if (visual == null) visual = transform;
             _regrowing = true;
             _tweenT = 0f;
-            ChopTrace("stump REGROWING -> standing tree (chop count reset)");
         }
 
         // One frame of the regrow rise — ease the visual from the stump pose back to standing. On completion
         // the tree is STANDING + choppable again, chops reset to 0 (AC3: stump regrows into a tree).
         private void StepRegrow()
         {
-            if (visual == null) { _regrowing = false; _felled = false; _chops = 0; return; }
+            if (_visual == null) { _regrowing = false; _felled = false; _chops = 0; return; }
             _tweenT += Time.unscaledDeltaTime;
             float k = Mathf.Clamp01(_tweenT / RegrowRiseDuration);
             float ease = k * k * (3f - 2f * k); // smoothstep
-            // Ease from the stump pose (full drop+tip) back to standing (no drop/tip).
-            visual.position = _standPos + StumpDrop * (1f - ease);
-            visual.rotation = _standRot * Quaternion.Euler(StumpTipDeg * (1f - ease), 0f, 0f);
+            _visual.position = _standPos + StumpDrop * (1f - ease);
+            _visual.rotation = _standRot * Quaternion.Euler(StumpTipDeg * (1f - ease), 0f, 0f);
             if (k >= 1f)
             {
                 _regrowing = false;
                 _felled = false;
-                _chops = 0;         // a fresh tree — chop it anew (the next left-click in range lands a chop)
-                visual.position = _standPos;
-                visual.rotation = _standRot;
+                _chops = 0;         // a fresh tree — chop it anew
+                _visual.position = _standPos;
+                _visual.rotation = _standRot;
             }
         }
-
-        // [chop-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call
-        // (AND its argument evaluation, incl. the string concatenation) from the shipped IL2CPP release exe
-        // (unity6-mastery §5 "no Debug.Log in hot paths" / §10 "strip all logging from shipping builds").
-        [System.Diagnostics.Conditional("UNITY_EDITOR")]
-        private static void ChopTrace(string msg) => Debug.Log("[chop-trace] " + msg);
     }
 }

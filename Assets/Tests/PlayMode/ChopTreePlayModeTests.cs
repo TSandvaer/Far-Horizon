@@ -262,5 +262,145 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(0, _tree.Chops, "out of range -> no chops");
             Assert.IsFalse(_tree.IsFelled, "out of range -> not felled");
         }
+
+        // ============================================================================================
+        // CHANGE (a) — EVERY scatter tree is choppable; the chop resolves the NEAREST in-range tree, and
+        // each tree deplete→stump→regrows INDEPENDENTLY (AC5; the Sponsor soak-reject: only ONE tree chopped).
+        // A "LowPolyScatter" root with named LP_Tree children stands in for the world scatter (ChopTree.Start
+        // discovers it the same way the shipped scene does — GameObject.Find then the LP_Tree name-scan).
+        // ============================================================================================
+
+        // Build a scatter root with N LP_Tree children at the given XZ positions, then re-init the ChopTree so
+        // its Start() discovers them (a fresh ChopTree on a NEW GO — Awake adds instance 0 = its own visual,
+        // Start collects the scatter trees). Returns the new tree component + the scatter tree GOs.
+        private ChopTree _genTree;
+        private GameObject _genTreeGo;
+        private GameObject _scatterRootGo;
+        private GameObject[] _scatterTrees;
+
+        private void BuildScatterWorld(params Vector3[] positions)
+        {
+            _scatterRootGo = new GameObject("LowPolyScatter");
+            _scatterTrees = new GameObject[positions.Length];
+            for (int i = 0; i < positions.Length; i++)
+            {
+                var t = new GameObject(ChopTree.ScatterTreeName); // "LP_Tree"
+                t.transform.SetParent(_scatterRootGo.transform, false);
+                t.transform.position = positions[i];
+                _scatterTrees[i] = t;
+            }
+
+            // A fresh ChopTree whose own (demo) visual is far away, so only the scatter trees are reachable.
+            _genTreeGo = new GameObject("DemoChopTree");
+            _genTreeGo.transform.position = new Vector3(100f, 0f, 100f);
+            _genTree = _genTreeGo.AddComponent<ChopTree>();
+            _genTree.inventory = _inv;
+            _genTree.player = _playerGo.transform;
+            _genTree.visual = _genTreeGo.transform;
+            _genTree.poseDriver = _driver;
+            _genTree.scatterRoot = _scatterRootGo.transform;
+            _genTree.chopRadius = 2.2f;
+            _genTree.woodPerChop = 1;
+            _genTree.chopsToFell = 3;
+            _genTree.chopInterval = 0f;
+            _genTree.inventoryUI = null;
+            _genTree.regrowthMinSeconds = 0.4f;
+            _genTree.regrowthMaxSeconds = 0.6f;
+            _genTree.regrowSeed = 999;
+        }
+
+        [TearDown]
+        public void TearDownGen()
+        {
+            if (_genTreeGo != null) Object.Destroy(_genTreeGo);
+            if (_scatterRootGo != null) Object.Destroy(_scatterRootGo);
+        }
+
+        private IEnumerator ClickChopGen()
+        {
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            _genTree.RequestChopClick();
+            yield return null;
+        }
+
+        // === CHANGE (a) — the resolver tracks the demo tree + every scatter tree ===
+        [UnityTest]
+        public IEnumerator Resolver_TracksDemoTreePlusEveryScatterTree()
+        {
+            BuildScatterWorld(new Vector3(0f, 0f, 0f), new Vector3(10f, 0f, 0f), new Vector3(-10f, 0f, 0f));
+            yield return null; // let Start() run + discover the scatter trees
+
+            Assert.AreEqual(4, _genTree.InstanceCount,
+                "the resolver must track 1 demo tree + 3 scatter LP_Tree instances (CHANGE (a))");
+        }
+
+        // === CHANGE (a) — a scatter tree is choppable: stand near tree A, click → A depletes, yields wood ===
+        [UnityTest]
+        public IEnumerator ClickNearAScatterTree_ChopsThatTree_YieldsWood()
+        {
+            BuildScatterWorld(new Vector3(0f, 0f, 0f), new Vector3(20f, 0f, 0f));
+            yield return null;
+            SelectAxe();
+            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f); // at scatter tree 0
+
+            Assert.AreEqual(0, _inv.WoodCount, "precondition: no wood");
+            yield return ClickChopGen();
+
+            Assert.AreEqual(1, _inv.WoodCount, "a click near a SCATTER tree yields wood (CHANGE (a) — not only the demo tree)");
+            // Instance 1 = the first scatter tree (instance 0 is the demo tree, far away).
+            Assert.AreEqual(1, _genTree.ChopsOn(1), "the near scatter tree took the chop");
+            Assert.AreEqual(0, _genTree.ChopsOn(2), "the FAR scatter tree was untouched");
+        }
+
+        // === AC5 — the chop targets the NEAREST in-range tree (two in range → the nearer one chops) ===
+        [UnityTest]
+        public IEnumerator TwoTreesInRange_ChopsTheNearer()
+        {
+            // Two scatter trees both within chopRadius (2.2) of the player, at different distances.
+            BuildScatterWorld(new Vector3(2.0f, 0f, 0f),   // instance 1 — 2.0u away (FAR-er of the two)
+                              new Vector3(0.5f, 0f, 0f));  // instance 2 — 0.5u away (NEARER)
+            yield return null;
+            SelectAxe();
+            _playerGo.transform.position = Vector3.zero;
+
+            yield return ClickChopGen();
+
+            Assert.AreEqual(0, _genTree.ChopsOn(1), "the farther in-range tree must NOT be chopped");
+            Assert.AreEqual(1, _genTree.ChopsOn(2), "the NEAREST in-range tree is the chop target (AC5)");
+        }
+
+        // === CHANGE (a) — each tree deplete→stump→regrows INDEPENDENTLY (fell A; B still standing & choppable) ===
+        [UnityTest]
+        public IEnumerator TreesDepleteAndRegrowIndependently()
+        {
+            BuildScatterWorld(new Vector3(0f, 0f, 0f),    // instance 1 — the one we fell
+                              new Vector3(30f, 0f, 0f));  // instance 2 — far away, never touched
+            yield return null;
+            SelectAxe();
+            _playerGo.transform.position = new Vector3(0.3f, 0f, 0.3f); // at instance 1
+
+            // Fell instance 1 (chopsToFell clicks).
+            for (int i = 0; i < _genTree.chopsToFell; i++) yield return ClickChopGen();
+            Assert.IsTrue(_genTree.IsFelledOn(1), "the chopped scatter tree felled to a stump");
+            Assert.IsFalse(_genTree.IsFelledOn(2), "the far scatter tree is UNAFFECTED — independent state");
+            Assert.AreEqual(_genTree.chopsToFell, _inv.WoodCount, "wood == chopsToFell from felling tree 1");
+
+            // The felled stump is no longer choppable — further clicks at it yield no wood.
+            int woodAtFell = _inv.WoodCount;
+            for (int i = 0; i < 3; i++) yield return ClickChopGen();
+            Assert.AreEqual(woodAtFell, _inv.WoodCount, "a felled stump yields no wood (it's not choppable)");
+            Assert.IsTrue(_genTree.IsFelledOn(1), "the stump persists through its own regrow window (AC4)");
+
+            // Wait past instance 1's regrow window — it regrows into a standing, choppable tree, independently.
+            float start = Time.time;
+            while (Time.time - start < _genTree.regrowthMaxSeconds + 1.5f && _genTree.IsFelledOn(1))
+                yield return null;
+            Assert.IsFalse(_genTree.IsFelledOn(1), "the stump regrew into a standing tree after its own timer (AC3)");
+            Assert.AreEqual(0, _genTree.ChopsOn(1), "the regrown tree reset its chop count");
+
+            // And it's choppable anew — a click in range yields fresh wood.
+            yield return ClickChopGen();
+            Assert.Greater(_inv.WoodCount, woodAtFell, "the regrown scatter tree is choppable again");
+        }
     }
 }
