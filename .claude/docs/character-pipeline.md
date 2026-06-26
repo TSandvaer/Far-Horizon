@@ -5,7 +5,7 @@
 This is the third asset-creation route for Far Horizon, alongside **procedural** (`LowPolyMeshes`/`FacetedRock`) and **Blender/Blender-MCP sourcing**. Reach for it when you want a generated, on-style chunky low-poly **character** (the procedural route fights organic humanoid shapes; see `[[unity-conventions]]` §Asset creation "source when procedural fights the style").
 
 ## Route at a glance
-openai-image concept → **Hyper3D Rodin** Image-to-3D (mesh) → **Mixamo** auto-rig (Hyper3D output is UN-rigged) → **Unity Humanoid**.
+openai-image concept → **Hyper3D Rodin** Image-to-3D (mesh) → **Mixamo** auto-rig (Hyper3D output is UN-rigged) → **Unity Generic rig** (NOT Humanoid — see Step 4).
 
 ## Step 1 — Concept reference (openai-image)
 - **Image-to-3D ≫ Text-to-3D** for a specific look. Generate a full-body character, plain solid background, even lighting, single centered subject (`mcp__openai-image__text-to-image`, portrait `1024x1536`, quality `high`). Iterate identity with `image-to-image` off a chosen base to keep the character consistent.
@@ -26,9 +26,9 @@ openai-image concept → **Hyper3D Rodin** Image-to-3D (mesh) → **Mixamo** aut
 
 ## Step 3 — Mixamo auto-rig (mixamo.com, free Adobe account)
 Hyper3D output ships **un-rigged**; Mixamo adds the skeleton + skin weights + retargetable clips.
-- **Upload Character** → the `.fbx` (use the `_basic_shaded` variant so the preview shows color). Auto-Rigger: drag markers onto **chin, both wrists, both elbows, both knees, groin**; **Use Symmetry** ON; **Skeleton LOD = Standard Skeleton (65)** (maps cleanly to Unity Humanoid; finger bones are harmless on mitten hands).
+- **Upload Character** → the `.fbx` (use the `_basic_shaded` variant so the preview shows color). Auto-Rigger: drag markers onto **chin, both wrists, both elbows, both knees, groin**; **Use Symmetry** ON; **Skeleton LOD = Standard Skeleton (65)** (a clean, standard bone hierarchy — binds cleanly by transform path under the Generic rig; finger bones are harmless on mitten hands).
 - Apply **Idle** + **Walking**; watch hips/knees/shoulders/elbows for pinch/collapse. **Mixamo previews ONE animation at a time** — applying a new clip replaces the on-screen one; it is NOT lost, each downloads separately.
-- **Download split for Unity Humanoid:** the character **With Skin** once (= mesh + rig + that clip) + each animation **Without Skin** (= skeleton+anim only, retargets via Humanoid). Format **FBX for Unity(.fbx)**, **30 fps**, Keyframe Reduction **None**. Sanity check: with-skin FBX is multi-MB (carries the mesh); without-skin is ~hundreds of KB.
+- **Download split for Unity (Generic rig):** the character **With Skin** once (= mesh + rig + that clip) + each animation **Without Skin** (= skeleton+anim only, binds by transform path under Generic). Format **FBX for Unity(.fbx)**, **30 fps**, Keyframe Reduction **None**. Sanity check: with-skin FBX is multi-MB (carries the mesh); without-skin is ~hundreds of KB.
 
 ## Step 4 — Unity
 - Import the FBX. **Rig = GENERIC, NOT Humanoid** (hard-won — adoption 2026-06-15, ticket `86ca8rdkp` / PR #47): the Mixamo **Humanoid** rig **EXPLODES the skinned mesh into a cone at runtime** when the character sits under a SCALED scene hierarchy (the muscle retarget fights the parent scale — body flung far off-spawn, hand bones at thousands of units). **Generic** (transform-path binding, no muscle retarget) renders clean at the player. With-skin FBX carries the mesh + skeleton; without-skin clips bind by transform path (no avatar-copy step needed for Generic). URP material with `texture_diffuse` as Base Map (de-lit albedo → flat/toon).
