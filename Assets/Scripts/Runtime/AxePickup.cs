@@ -82,7 +82,7 @@ namespace FarHorizon
 
             // Reached the axe — add it + auto-place in belt slot 1 (the tool seam).
             if (inventory.PickUpAxe())
-                Debug.Log("[AxePickup] picked up the axe -> belt slot 1");
+                PickupTrace("picked up the axe -> belt slot 1");
 
             // Latch + consume the world axe regardless (a pre-owned axe still consumes the world pickup so
             // we never leave a duplicate lying around).
@@ -103,5 +103,13 @@ namespace FarHorizon
             foreach (var r in root.GetComponentsInChildren<Renderer>(true))
                 if (r != null) r.enabled = false;
         }
+
+        // [AxePickup] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call
+        // (AND its argument evaluation, incl. the string concatenation) from the shipped IL2CPP release exe so
+        // the trace never costs the player a string alloc + log write (unity6-mastery §5 "no Debug.Log in hot
+        // paths" / §10 "strip all logging from shipping builds"). The _pickedUp latch keeps it one-shot.
+        // Matches the project dev-log gate convention (BerryBush/DrinkAction/EatBerryAction/FreshwaterPond).
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        private static void PickupTrace(string msg) => Debug.Log("[AxePickup] " + msg);
     }
 }
