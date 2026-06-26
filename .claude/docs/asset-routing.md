@@ -1,0 +1,60 @@
+# Asset-Class Routing Index — Which Pipeline for Which Asset
+
+**Read this FIRST when a task says "model / create / make a new X."** It tells you WHICH of Far Horizon's
+asset-creation routes applies to a given asset class, and points you at the one MANDATORY doc for that route.
+It does NOT duplicate per-route content — each route's full rules live in its own doc (linked below); this is
+the index above them.
+
+Far Horizon has **four** distinct asset-creation routes. Picking the wrong one wastes a whole pass (a
+procedural humanoid fights organic shapes; a Blender atlas-textured prop reads foreign beside faceted
+geometry; a per-prop Blender model where procedural scatter would do is over-work). Route first, then go
+read the route's MANDATORY doc before touching anything.
+
+---
+
+## The routing table
+
+| Asset class | Route | MANDATORY doc | Reach for this when… / Don't use when… |
+|---|---|---|---|
+| **World / terrain / rocks / water / trees / scattered props** | **Procedural** — `LowPolyMeshes` / `FacetedRock` mesh-gen + URP Shader Graph (`LowPolyVertexColor` / `LowPolyWater`) | [`lowpoly-quality.md`](lowpoly-quality.md) (+ [`unity-conventions.md`](unity-conventions.md) §Asset creation) | **When:** the shape is generatable from code + seed (faceted rock, blob canopy, water plane, terrain, mass-scattered ground props) and benefits from per-instance seeded variation. **Don't when:** the shape is an organic humanoid, or a hero/held object whose silhouette is hand-authored (→ Character or Blender route). |
+| **Weapons / tools / hero props** | **Blender / Blender-MCP** — faceted-chunky modeling, shared palette material (`weapon_palette.png` + one URP/Unlit mat), headless FBX export | [`blender-asset-pipeline.md`](blender-asset-pipeline.md) | **When:** a player-held or featured object whose silhouette is hand-authored (axe, knife, sword, spear, crafting table, campfire, chest) and must read crisp in-hand. **Don't when:** it's a mass-scattered background mesh (→ Procedural) or you're tempted to bake a per-asset texture atlas (BANNED — shared palette only). |
+| **Characters** | **Hyper3D Rodin → Mixamo → Unity** — Image-to-3D mesh, auto-rig, **Generic** rig in Unity | [`character-pipeline.md`](character-pipeline.md) | **When:** a rigged/animatable humanoid or creature (the castaway, future NPCs/enemies). **Don't when:** it's a static prop (→ Blender/Procedural), or you reach for the Mixamo **Humanoid** rig under a scaled scene hierarchy (it explodes the mesh — use **Generic**). |
+| **Action-verb animation** (animating an EXISTING rig, **not** creating geometry) | **Procedural additive-offset** — `CastawayArmPose` `LateUpdate` additive bone-rotation idiom; NO new Animator clip / state / layer / AvatarMask | [`procedural-animation-verbs.md`](procedural-animation-verbs.md) | **When:** authoring a verb (chop / pick-up / drink / throw) or any change to `CastawayArmPose` / `HeldAxeRig` / a held-prop seating driver. **Don't when:** you're creating new geometry or a new mesh (that's one of the three routes above) — this route only MOVES an existing rig. |
+
+Each route's doc is a **MANDATORY pre-work read** for that route's tasks (per CLAUDE.md §Detailed Documentation
++ the "sub-agents Read every `.claude/docs/*.md` before work" rule). Read the route doc fully before starting —
+this index is a routing slip, not a substitute for the route's rules.
+
+---
+
+## The decision rule when procedural fights the style
+
+Mirrors `unity-conventions.md` §Asset creation ("**SOURCE a purpose-built base when the existing mesh fights
+the target style**", `86ca8ca1m`):
+
+> If **2+ mesh-edit / procedural attempts** at a style change fail, **STOP editing and switch routes** — source
+> or author a base built in the target style rather than grinding more iterations against a route that fights
+> the shape. Procedural is first-choice for generatable faceted geometry, but it fights organic humanoid shapes
+> (→ Character route) and hand-authored hero silhouettes (→ Blender route). The whole point of having distinct
+> routes is to switch instead of forcing one route to do another route's job.
+
+(See `character-pipeline.md` for the same rule from the character side, and `blender-asset-pipeline.md` §3
+for "source a purpose-built base" on the hero-prop side.)
+
+---
+
+## Cross-cutting rules that apply across ALL routes
+
+These are NOT route-specific — they govern any asset regardless of how it was made (do not duplicate the
+detail here; the cited doc owns it):
+
+- **Shipped-build capture gate** — anything visually-visible needs evidence from the BUILT exe, not the editor
+  (`unity-conventions.md` §Editor-vs-runtime; CLAUDE.md Hard rules). Editor-vs-runtime divergence is a proven
+  failure class.
+- **Committed-asset staleness** — bootstrap-generated `.unity`/`.mat`/`.asset` files are committed; a build ships
+  the committed snapshot, so a fix in regen-code alone never reaches the build unless the asset is regenerated +
+  committed ([[unity-procedural-committed-assets-go-stale]]).
+- **Material-honest + pattern-via-geometry** — a surface reads as its material (stone→flint, metal→steel; no
+  arbitrary colors); surface pattern is modeled low-poly facets, NOT a detail-texture ([[weapon-asset-material-honest-pattern-via-geometry]]).
+- **Single Unity build slot** — any route that ends in a Unity build is serialized to one at a time; fan out the
+  non-build work (modeling, research, doc) in parallel ([[single-unity-build-slot-serializes-orchestration]]).
