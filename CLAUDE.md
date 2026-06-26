@@ -1,6 +1,6 @@
 # Far Horizon
 
-A 3D survival game built in **Unity 6 (6000.4.10f1) / URP**, desktop-first (Windows). A young, hopeful castaway washes ashore and survives his way toward the far horizon. Visual direction: **low-poly smooth-shaded** world (faceted meshes, soft gradient lighting, warm/lush palette) with a quality pass (bloom / grading / fog / gradient skybox) — the Sponsor-approved "Zone D" look from the 2026-06 engine-eval spike.
+A 3D survival game built in **Unity 6 (6000.4.11f1) / URP**, desktop-first (Windows). A young, hopeful castaway washes ashore and survives his way toward the far horizon. Visual direction: **low-poly smooth-shaded** world (faceted meshes, soft gradient lighting, warm/lush palette) with a quality pass (bloom / grading / fog / gradient skybox) — the Sponsor-approved "Zone D" look from the 2026-06 engine-eval spike.
 
 ## Context
 
@@ -14,7 +14,7 @@ A 3D survival game built in **Unity 6 (6000.4.10f1) / URP**, desktop-first (Wind
 
 ## Tech stack & project facts
 
-- **Unity 6** `6000.4.10f1` at `C:/Program Files/Unity/Hub/Editor/6000.4.10f1/Editor/Unity.exe`; URP.
+- **Unity 6** `6000.4.11f1` at `C:/Program Files/Unity/Hub/Editor/6000.4.11f1/Editor/Unity.exe`; URP.
 - **Namespaces / asmdefs:** `FarHorizon` (runtime), `FarHorizon.EditorTools` (editor); asmdefs `FarHorizon.Runtime` / `FarHorizon.Editor` / `FarHorizon.EditTests` / `FarHorizon.PlayTests`.
 - **Headless entry points:** scene/bootstrap `-executeMethod FarHorizon.EditorTools.BootstrapProject.Run`; build `-executeMethod FarHorizon.EditorTools.FarHorizonBuilder.BuildWindows` → `Build/Windows/FarHorizon.exe` (exits non-zero on failure). Tests: `-runTests -testPlatform EditMode|PlayMode`.
 - **Build-stamp ritual (carried from the spike — it earned its keep):** HUD shows `BUILD <tag> | <UTC> | <sha>`; every soak request verifies the stamp before judging.

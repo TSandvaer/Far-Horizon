@@ -100,7 +100,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 ## 7. Version Control — Scene and Prefab Safety
 
 - **Force Text serialization** (`Edit > Project Settings > Editor > Asset Serialization > Mode = Force Text`) and **Visible Meta Files** (`Version Control > Mode = Visible Meta Files`). Both already implied by the project's `.meta` discipline.
-- **UnityYAMLMerge:** wire into git for semantic scene/prefab merging when multiple personas edit the same file. Tool: `C:\Program Files\Unity\Hub\Editor\6000.4.10f1\Editor\Data\Tools\UnityYAMLMerge.exe`. Far Horizon headlessly regenerates `Boot.unity` (sidesteps the merge) — but hand-edited prefabs need this.
+- **UnityYAMLMerge:** wire into git for semantic scene/prefab merging when multiple personas edit the same file. Tool: `C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Data\Tools\UnityYAMLMerge.exe`. Far Horizon headlessly regenerates `Boot.unity` (sidesteps the merge) — but hand-edited prefabs need this.
 - **`Boot.unity` must be index 0** in Scenes-In-Build (the entry point for the built player).
 
 ---

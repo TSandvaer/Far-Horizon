@@ -1,6 +1,6 @@
 # Resume — Far Horizon
 
-**Engine / repo / milestone (the one-line identity):** Far Horizon is a **Unity 6 (6000.4.10f1) / URP** desktop survival game, repo `TSandvaer/Far-Horizon` (`https://github.com/TSandvaer/Far-Horizon.git`), tracked on ClickUp list **Far Horizon** (`901523878268`). Active milestone: **M-U1 "Fresh Unity foundation + deliberate ports."** It succeeds the archived Godot project Embergrave/RandomGame (engine migration decided 2026-06-12).
+**Engine / repo / milestone (the one-line identity):** Far Horizon is a **Unity 6 (6000.4.11f1) / URP** desktop survival game, repo `TSandvaer/Far-Horizon` (`https://github.com/TSandvaer/Far-Horizon.git`), tracked on ClickUp list **Far Horizon** (`901523878268`). Active milestone: **M-U1 "Fresh Unity foundation + deliberate ports."** It succeeds the archived Godot project Embergrave/RandomGame (engine migration decided 2026-06-12).
 
 **Current milestone:** M-U1 — 10 tickets (U1–U10) on list `901523878268`. The wave is **near-closed**:
 
