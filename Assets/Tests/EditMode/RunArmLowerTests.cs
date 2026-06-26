@@ -19,7 +19,7 @@ namespace FarHorizon.EditTests
     /// head again) AND must never trip at walk speed (else a walk would lower the arm + change the locked pose).
     /// The PlayMode tests prove the BEHAVIOUR on the real rig; this proves the gate contract.
     /// </summary>
-    public class HeldAxeClampTests
+    public class RunArmLowerTests
     {
         // =================================================================================================
         // RUN STATE ENGAGES ROBUSTLY — the gate the run-swing reduction depends on (ticket 86caa83wn).
