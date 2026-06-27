@@ -510,12 +510,21 @@ namespace FarHorizon.EditorTools
             return 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(PondBowlOuterRadius, fadeEnd, d)); // ease into grass
         }
 
+        // SPAWN-FLATTEN radii (named so guards anchor the production value, not a magic literal — ticket
+        // 86cadnepd). The hills are held FULLY damped (the floor 0.06 factor below) within SpawnFlattenHoldRadius
+        // of the WORLD ORIGIN, then ease back to full hills by SpawnFlattenFullRadius. Inside the hold radius the
+        // terrain is a flat spawn plateau (the spawn + survival-loop centre sits level + the pond footprint stays
+        // grounded). The pond footprint MUST stay inside SpawnFlattenHoldRadius (the whole-rim grounding invariant
+        // rests on it — Pond_Footprint_StaysInsideSpawnFlattenPlateau guards exactly that).
+        public const float SpawnFlattenHoldRadius = 16f; // r < this (from origin) = hills fully damped (flat plateau)
+        public const float SpawnFlattenFullRadius = 32f; // r > this = hills at full amplitude; [hold,full] eases in
+
         /// <summary>
         /// The damped multi-octave HILL height at world XZ (factored out of HeightAtRadial so the pond footprint
         /// levelling can sample the SAME hill field). Includes the landMask² interior-only fade and the spawn-
-        /// flatten near-origin damping (0.06 within ~16u, easing to full by ~32u). <paramref name="landMask"/> and
-        /// <paramref name="r"/> are passed in (the caller already computed them) so this is a pure arithmetic
-        /// helper, not a re-derivation. Deterministic → byte-stable capture.
+        /// flatten near-origin damping (0.06 within SpawnFlattenHoldRadius, easing to full by SpawnFlattenFullRadius).
+        /// <paramref name="landMask"/> and <paramref name="r"/> are passed in (the caller already computed them) so
+        /// this is a pure arithmetic helper, not a re-derivation. Deterministic → byte-stable capture.
         /// </summary>
         public static float HillHeightAt(float wx, float wz, float ox, float oz, float landMask, float r)
         {
@@ -524,8 +533,8 @@ namespace FarHorizon.EditorTools
                        + (Mathf.PerlinNoise(ox + wx * 0.075f, oz + wz * 0.075f) - 0.5f) * 2f * 0.10f;
             float hillH = (hill * 0.5f + 0.5f) * IslandHillAmp * landMask * landMask;
             // SPAWN-FLATTEN: keep the immediate spawn + loop centre gentle (loop objects sit level, click-move
-            // clean). Holds out to ~16u then eases the hills in over the next ~16u.
-            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(16f, 32f, r));
+            // clean). Holds out to SpawnFlattenHoldRadius then eases the hills in by SpawnFlattenFullRadius.
+            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SpawnFlattenHoldRadius, SpawnFlattenFullRadius, r));
             return hillH * (0.06f + 0.94f * spawnFlat);
         }
 
