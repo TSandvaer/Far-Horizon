@@ -186,6 +186,12 @@ namespace FarHorizon
         public const float ChopSpeedMin = 0.25f;
         public const float ChopSpeedMax = 3f;
 
+        // The CHOP swing clip NAME (mirrors CharacterAssetGen.MeleeClip — the renamed Mixamo "Standing Melee
+        // Attack Downward" take; the runtime asmdef can't reference the editor asmdef, so the name is duplicated +
+        // kept in sync). MeleeClipLength queries the live controller's clips by this name so the hold-chop cadence
+        // (86caf7a0p) ties to the ACTUAL authored clip length, not a magic number.
+        public const string MeleeClipName = "CastawayMelee";
+
         // One-shot CHOP trace flag (the input-independent, headless-readable seam — the Animator does NOT tick
         // headlessly, deltaTime≈0, so a PlayMode test can't observe the Attack state playing; instead it asserts
         // TriggerChop fired the trigger via this flag, mirroring JumpTraceActive's role for the jump). Set true on
@@ -349,6 +355,32 @@ namespace FarHorizon
             {
                 _animator.SetFloat(ChopSpeedParam, Mathf.Clamp(chopSpeed, ChopSpeedMin, ChopSpeedMax));
                 _animator.SetTrigger(ChopParam); // fire the one-shot Attack state (AnyState→Attack on the trigger)
+            }
+        }
+
+        /// <summary>
+        /// HOLD-TO-CHOP cadence source (86caf7a0p) — the AUTHORED length (seconds, at 1× speed) of the chop swing
+        /// clip (<see cref="MeleeClipName"/> = the Mixamo melee one-shot the Attack state plays). Read live from the
+        /// runtime controller's clip set so the hold-chop repeat cadence ties to the ACTUAL clip, not a hardcoded
+        /// number — when this is &gt; 0, ChopTree gates the next swing on (this ÷ chopSpeed) elapsing, so the swing
+        /// animation plays to COMPLETION before the next swing starts (the Sponsor's "the animation is not allowed
+        /// to finish" fix). Returns 0 when no Animator/controller/clip is available (a bare headless test rig) —
+        /// ChopTree then falls back to its serialized <c>swingClipLengthSeconds</c>. Not playback-rate-scaled here
+        /// (this is the authored length); the caller divides by chopSpeed.
+        /// </summary>
+        public float MeleeClipLength
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return 0f;
+                var clips = _animator.runtimeAnimatorController.animationClips;
+                if (clips == null) return 0f;
+                for (int i = 0; i < clips.Length; i++)
+                {
+                    var c = clips[i];
+                    if (c != null && c.name == MeleeClipName) return c.length;
+                }
+                return 0f;
             }
         }
 

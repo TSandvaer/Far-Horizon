@@ -84,6 +84,11 @@ namespace FarHorizon.PlayTests
             _tree.regrowthMaxSeconds = 0.6f;
             _tree.regrowSeed = 12345;         // deterministic regrow roll
             _tree.swingImpactDelaySeconds = 0.1f; // refinement 3: short impact delay so ClickChop can wait it out
+            // 86caf7a0p re-iter — the bare test rig has no Animator (no model FBX), so CastawayCharacter.MeleeClipLength
+            // returns 0 and ChopTree falls back to THIS serialized clip length for the hold-repeat cadence gate. Keep
+            // it short (but ≥ the impact delay) so the headless hold tests advance quickly in wall-clock time while
+            // still exercising the "next swing waits for the clip to finish" gate (cadence ≥ this, not the 0.1 impact).
+            _tree.swingClipLengthSeconds = 0.3f;
         }
 
         [TearDown]
@@ -395,6 +400,318 @@ namespace FarHorizon.PlayTests
             Assert.Greater(_inv.WoodCount, woodAtFell, "the regrown tree is choppable again — a click yields wood");
         }
 
+        // ============================================================================================
+        // HOLD-TO-CHOP (86caf7a0p) — holding LMB keeps swinging (repeat swings) on the locked target tree
+        // until it fells (AC2) or the button is released (AC1); each swing lands exactly one impact / one wood
+        // (AC3 invariant). The hold is driven via the SetChopHeld(true/false) programmatic seam (a headless run
+        // can't hold a real mouse button — the analog of RequestChopClick for the click case). The chain cadence
+        // is one swing per IMPACT, so we step frames past each impact window between swings.
+        // ============================================================================================
+
+        // Step ONE swing of a held chain: from a held state with no impact pending AND no clip in progress, one
+        // frame begins the swing (schedules the impact), then we wait out the impact window so the effect lands,
+        // THEN wait out the CLIP-COMPLETION cadence gate (86caf7a0p re-iter — the next swing can't begin until the
+        // current swing's clip finishes). Returns when the swing's effect has applied AND the cadence gate is open
+        // for the next swing (or after a bounded wait if no swing began — e.g. felled / out of range).
+        private IEnumerator StepHeldSwing()
+        {
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            // One frame to begin the swing (the held chain logic schedules the impact this frame if eligible).
+            yield return null;
+            // Wait out the impact window so the chop EFFECT lands before the caller asserts (bounded).
+            float start = Time.time;
+            while (_tree.ImpactPending && Time.time - start < 2f) yield return null;
+            yield return null; // one more frame for the impact-resolve Update to apply the effect
+            // Wait out the CLIP-COMPLETION cadence gate so the NEXT StepHeldSwing can actually begin a swing
+            // (the swing clip plays PAST the impact; the next swing is gated on it finishing). Bounded.
+            start = Time.time;
+            while (_tree.SwingInProgress && Time.time - start < 2f) yield return null;
+        }
+
+        // === AC1 — HOLDING LMB repeats swings: N swings land N chops (one wood each), no double-apply ===
+        [UnityTest]
+        public IEnumerator HoldingLmb_RepeatsSwings_UntilReleased()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.chopsToFell = 5;                 // enough headroom to observe several repeat swings before fell
+            _tree.swingImpactDelaySeconds = 0.1f;  // short impact window so the chain advances quickly headless
+            Assert.AreEqual(0, _inv.WoodCount, "precondition: no wood");
+
+            // BEGIN HOLD — the first frame is a fresh press → starts a chain on the nearest tree.
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            _tree.SetChopHeld(true);
+
+            // Three swings WITHOUT a single re-press — the hold alone repeats them.
+            for (int i = 0; i < 3; i++) yield return StepHeldSwing();
+
+            Assert.AreEqual(3, _tree.Chops, "holding LMB repeats swings — 3 chops landed with NO extra presses");
+            Assert.AreEqual(3 * _tree.woodPerChop, _inv.WoodCount, "each repeat swing yields exactly one wood (no double-apply)");
+            Assert.IsTrue(_tree.IsChopChainActive, "the chain is still active while LMB is held + the tree stands");
+            Assert.IsFalse(_tree.IsFelled, "not yet felled (chopsToFell=5, only 3 swings)");
+
+            // RELEASE — the chain stops; no further swings even across many frames.
+            _tree.SetChopHeld(false);
+            yield return null; // the release-frame drops the lock
+            Assert.IsFalse(_tree.IsChopChainActive, "releasing LMB stops the chain (no lock)");
+            int woodAtRelease = _inv.WoodCount;
+            for (int i = 0; i < 10; i++) yield return null;
+            Assert.AreEqual(3, _tree.Chops, "after release, NO further chops land (the repeat stopped)");
+            Assert.AreEqual(woodAtRelease, _inv.WoodCount, "no wood after release — the swing loop is over");
+        }
+
+        // === AC1 — a single click (press+release within one swing) still produces EXACTLY ONE swing ===
+        [UnityTest]
+        public IEnumerator SingleClick_StillProducesExactlyOneSwing_BackCompat()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.swingImpactDelaySeconds = 0.2f;
+
+            // The classic single-click seam (press+release inside one swing) — must NOT start a chain.
+            yield return ClickChop();
+            Assert.AreEqual(1, _tree.Chops, "a single click lands exactly ONE chop (back-compat — one click one swing)");
+            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "one click → one wood");
+            Assert.IsFalse(_tree.IsChopChainActive, "a single click never leaves a chain running");
+
+            // Many idle frames → no repeat.
+            for (int i = 0; i < 12; i++) yield return null;
+            Assert.AreEqual(1, _tree.Chops, "a single click does NOT repeat — exactly one swing");
+        }
+
+        // === AC2 — STOP-ON-FALL: holding LMB swings until the tree fells, then the chain STOPS (no empty swings) ===
+        [UnityTest]
+        public IEnumerator HoldingLmb_StopsOnFall_NoSwingingAtEmptyGround()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.chopsToFell = 3;
+            _tree.swingImpactDelaySeconds = 0.1f;
+            _tree.fadeOutDelaySeconds = 30f;       // keep it felled (not yet faded/regrown) through this assertion
+            _tree.regrowthMinSeconds = 60f;
+            _tree.regrowthMaxSeconds = 60f;
+
+            // Hold and let it chop to the fell point WITHOUT releasing.
+            _tree.SetChopHeld(true);
+            for (int i = 0; i < _tree.chopsToFell; i++) yield return StepHeldSwing();
+
+            Assert.IsTrue(_tree.IsFelled, "holding chopped the tree all the way to felled (no per-swing re-press)");
+            Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "exactly chopsToFell chops landed (one per swing)");
+            Assert.IsFalse(_tree.IsChopChainActive, "STOP-ON-FALL — the chain dropped when the locked tree felled");
+
+            // STILL HOLDING, but the tree is felled — no further swing at the empty/falling tree.
+            int woodAtFell = _inv.WoodCount;
+            for (int i = 0; i < 12; i++) yield return null;
+            Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "no chops at a felled tree even while still holding (AC2)");
+            Assert.AreEqual(woodAtFell, _inv.WoodCount, "no wood gained swinging at empty ground");
+            Assert.IsFalse(_tree.IsChopChainActive, "the chain stays stopped while held over the felled tree");
+        }
+
+        // === AC3 — the repeat cadence is driven by SWING COMPLETION (impact), NOT input-poll rate: while a swing's
+        //     impact is PENDING, no extra swing/impact can fire no matter how many frames tick (frame-rate-safe) ===
+        [UnityTest]
+        public IEnumerator HoldChain_OneImpactPerSwing_NotInputPollRate()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.chopsToFell = 10;
+            _tree.swingImpactDelaySeconds = 0.4f;  // a wide impact window so many frames tick during ONE swing
+
+            _tree.SetChopHeld(true);
+            yield return null; // begin the first swing (schedules impact)
+            Assert.IsTrue(_tree.ImpactPending, "the first held swing scheduled exactly one impact");
+
+            // Tick MANY frames while still holding + impact pending — NOT ONE extra swing/impact may begin (the
+            // single-flight guard makes the cadence one-swing-per-impact, independent of frame rate / poll count).
+            for (int i = 0; i < 20; i++) yield return null;
+            Assert.AreEqual(0, _tree.Chops, "no impact has landed yet (still within the one impact window)");
+
+            // Let the single impact resolve → exactly ONE chop (not 1-per-frame).
+            float start = Time.time;
+            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
+            yield return null;
+            Assert.AreEqual(1, _tree.Chops, "exactly ONE chop per swing — the 20 idle frames did NOT stack impacts");
+
+            _tree.SetChopHeld(false);
+            yield return null;
+        }
+
+        // ============================================================================================
+        // 86caf7a0p RE-ITER — the Sponsor soak-reject: "the animation is not allowed to finish and the tree goes
+        // down too fast because 1 hit is not = on finished animation." The next held swing must wait for the swing
+        // CLIP to FINISH (cadence ≥ clip length ÷ speed), so ONE completed swing = exactly ONE chop. These tests
+        // catch the BUG CLASS (mid-clip restart over-pacing the chops), not just one instance.
+        // ============================================================================================
+
+        // === RE-ITER 1 — the NEXT held swing is GATED on the swing CLIP completing (cadence ≥ clip length), NOT
+        //     the shorter impact delay. While the clip is still playing, no second swing/chop begins — the exact
+        //     "animation not allowed to finish" guard. ===
+        [UnityTest]
+        public IEnumerator HoldChain_NextSwingWaitsForClipToFinish_NotImpactDelay()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.chopsToFell = 10;
+            _tree.swingImpactDelaySeconds = 0.1f;  // impact lands EARLY (mid-clip)...
+            _tree.swingClipLengthSeconds = 0.5f;   // ...but the CLIP runs much longer — the cadence must track THIS
+
+            _tree.SetChopHeld(true);
+            yield return null;                     // begin the first swing
+            Assert.IsTrue(_tree.ImpactPending, "the first swing scheduled its impact");
+
+            // Let the FIRST swing's impact resolve (one chop), but the CLIP is still playing afterward.
+            float start = Time.time;
+            while (_tree.ImpactPending && Time.time - start < 2f) yield return null;
+            yield return null;
+            Assert.AreEqual(1, _tree.Chops, "the first completed swing landed exactly one chop at impact");
+            Assert.IsTrue(_tree.SwingInProgress,
+                "the swing CLIP is still playing AFTER its impact (cadence is gated on clip completion, not impact)");
+
+            // Tick MANY frames while the clip is still in progress — NO second swing/chop may begin (the animation
+            // must finish first). This is the regression guard for the over-pacing bug.
+            int chopsBefore = _tree.Chops;
+            start = Time.time;
+            while (_tree.SwingInProgress && Time.time - start < 2f)
+            {
+                Assert.IsFalse(_tree.ImpactPending,
+                    "NO new swing began while the current swing clip is still playing (animation must finish first)");
+                yield return null;
+            }
+            Assert.AreEqual(chopsBefore, _tree.Chops, "no extra chop landed during the clip-in-progress window");
+
+            // Once the clip finishes, the next swing begins — exactly ONE more chop.
+            yield return StepHeldSwing();
+            Assert.AreEqual(2, _tree.Chops, "after the clip FINISHED, exactly ONE more chop landed (the next swing)");
+
+            _tree.SetChopHeld(false);
+            yield return null;
+        }
+
+        // === RE-ITER 2 — ONE completed swing = exactly ONE chop = one wood across a hold: N completed swings yield
+        //     N chops / N wood, NO double-apply (the tree does not deplete faster than the completed swings). ===
+        [UnityTest]
+        public IEnumerator HoldChain_OneCompletedSwing_IsExactlyOneChopOneWood_NoDoubleApply()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.chopsToFell = 12;                // headroom for several completed swings before fell
+            _tree.swingImpactDelaySeconds = 0.1f;
+            _tree.swingClipLengthSeconds = 0.3f;
+
+            _tree.SetChopHeld(true);
+            const int swings = 5;
+            for (int i = 0; i < swings; i++) yield return StepHeldSwing();
+
+            Assert.AreEqual(swings, _tree.Chops, "exactly one chop per COMPLETED swing (no mid-clip extra chops)");
+            Assert.AreEqual(swings * _tree.woodPerChop, _inv.WoodCount,
+                "exactly one wood per completed swing — no double-apply / no over-paced depletion");
+            Assert.IsFalse(_tree.IsFelled, "not yet felled (chopsToFell=12, only 5 completed swings)");
+
+            _tree.SetChopHeld(false);
+            yield return null;
+        }
+
+        // === RE-ITER 3 — the tree FALLS only after exactly N COMPLETED swings (chopsToFell). It must NOT fell early
+        //     because swings cut each other off — the soak symptom "the tree goes down too fast." ===
+        [UnityTest]
+        public IEnumerator HoldChain_TreeFallsOnlyAfterNCompletedSwings()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.chopsToFell = 4;
+            _tree.swingImpactDelaySeconds = 0.1f;
+            _tree.swingClipLengthSeconds = 0.3f;
+            _tree.fadeOutDelaySeconds = 30f;       // stay felled through the assertion
+            _tree.regrowthMinSeconds = 60f;
+            _tree.regrowthMaxSeconds = 60f;
+
+            _tree.SetChopHeld(true);
+            // After each of the first N-1 completed swings the tree must STILL be standing.
+            for (int i = 1; i < _tree.chopsToFell; i++)
+            {
+                yield return StepHeldSwing();
+                Assert.AreEqual(i, _tree.Chops, $"completed swing #{i} landed exactly one chop");
+                Assert.IsFalse(_tree.IsFelled,
+                    $"the tree is NOT felled after only {i} completed swings (needs {_tree.chopsToFell}) — it must not fall too fast");
+            }
+            // The N-th completed swing fells it.
+            yield return StepHeldSwing();
+            Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "the felling swing is exactly the N-th completed swing");
+            Assert.IsTrue(_tree.IsFelled, "the tree fells on the N-th completed swing — not before");
+
+            _tree.SetChopHeld(false);
+            yield return null;
+        }
+
+        // === RE-ITER 4 — the cadence SCALES with tool-use speed: a faster chopSpeed → a shorter effective swing
+        //     duration (clip length ÷ speed). The cadence is derived from the clip, not a fixed interval. ===
+        [UnityTest]
+        public IEnumerator HoldChain_CadenceScalesWithToolUseSpeed()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.swingClipLengthSeconds = 1.0f;
+
+            // The bare rig has no Animator → MeleeClipLength is 0 → the serialized clip length is the source.
+            Assert.AreEqual(0f, _character.MeleeClipLength,
+                "precondition: the bare test rig has no Animator clip, so the serialized fallback drives cadence");
+
+            _character.chopSpeed = 1f;
+            float at1x = _tree.EffectiveSwingDurationSeconds;
+            Assert.AreEqual(1.0f, at1x, 0.0001f, "at 1x the effective swing duration equals the authored clip length");
+
+            _character.chopSpeed = 2f;
+            float at2x = _tree.EffectiveSwingDurationSeconds;
+            Assert.AreEqual(0.5f, at2x, 0.0001f, "at 2x speed the swing finishes in half the time (clip length ÷ speed)");
+
+            Assert.Greater(at1x, at2x, "a faster tool-use speed shortens the per-swing cadence (clip-derived, not fixed)");
+            yield return null;
+        }
+
+        // === AC2 (re-press for the next tree) — after a tree fells under a held button, the chain does NOT
+        //     auto-acquire a neighbour; a fresh PRESS starts a new chain on the next nearest tree ===
+        [UnityTest]
+        public IEnumerator AfterFall_HeldButton_DoesNotAutoAcquire_FreshPressStartsNewChain()
+        {
+            BuildScatterWorld(new Vector3(0f, 0f, 0f),    // instance 1 — felled first
+                              new Vector3(1.2f, 0f, 0f)); // instance 2 — a neighbour also IN RANGE
+            yield return null;
+            SelectAxe();
+            _playerGo.transform.position = new Vector3(0.3f, 0f, 0.3f); // in range of BOTH
+            _genTree.chopsToFell = 2;
+            _genTree.swingImpactDelaySeconds = 0.1f;
+            _genTree.fadeOutDelaySeconds = 30f;
+            _genTree.regrowthMinSeconds = 60f;
+            _genTree.regrowthMaxSeconds = 60f;
+
+            // HOLD — chain locks onto the nearest (instance 2 at 1.2 vs instance 1 at ~0.42 → nearest is inst 1).
+            _genTree.SetChopHeld(true);
+            // Fell the locked tree.
+            for (int i = 0; i < _genTree.chopsToFell; i++) yield return StepHeldSwingGen();
+            // Exactly one of the two trees should be felled (the locked one), the other untouched (no auto-acquire).
+            int felledCount = (_genTree.IsFelledOn(1) ? 1 : 0) + (_genTree.IsFelledOn(2) ? 1 : 0);
+            Assert.AreEqual(1, felledCount, "exactly ONE tree felled under the held button (no auto-acquire of the neighbour)");
+            Assert.IsFalse(_genTree.IsChopChainActive, "STOP-ON-FALL — the chain dropped on fell, even still held");
+
+            // STILL HOLDING — the standing neighbour must NOT be auto-chopped (AC2 default: re-press required).
+            int chopsOnStandingBefore = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
+            for (int i = 0; i < 12; i++) yield return null;
+            int chopsOnStandingAfter = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
+            Assert.AreEqual(chopsOnStandingBefore, chopsOnStandingAfter,
+                "the standing neighbour is NOT auto-chopped while the button stays held (re-press required, AC2)");
+
+            // RE-PRESS (release then hold) — a fresh press starts a NEW chain on the standing neighbour.
+            _genTree.SetChopHeld(false);
+            yield return null;
+            _genTree.SetChopHeld(true);
+            yield return StepHeldSwingGen();
+            int chopsOnStandingAfterRepress = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
+            Assert.Greater(chopsOnStandingAfterRepress, chopsOnStandingAfter,
+                "a FRESH press starts a new chain on the next nearest standing tree (re-acquisition on re-press)");
+            _genTree.SetChopHeld(false);
+            yield return null;
+        }
+
         // === Out of range with the axe selected — a click never chops (proximity is required too) ===
         [UnityTest]
         public IEnumerator ClickOutOfRangeWithSelectedAxe_DoesNotChop()
@@ -453,6 +770,7 @@ namespace FarHorizon.PlayTests
             _genTree.regrowthMaxSeconds = 0.6f;
             _genTree.regrowSeed = 999;
             _genTree.swingImpactDelaySeconds = 0.1f; // refinement 3: short impact delay for the scatter tests
+            _genTree.swingClipLengthSeconds = 0.3f;  // 86caf7a0p re-iter — short clip-completion cadence (no Animator)
         }
 
         [TearDown]
@@ -470,6 +788,21 @@ namespace FarHorizon.PlayTests
             float start = Time.time;
             while (_genTree.ImpactPending && Time.time - start < 1f) yield return null;
             yield return null;                 // apply the effect at impact
+        }
+
+        // HOLD-TO-CHOP (86caf7a0p) — step ONE swing of a HELD chain on the scatter rig (the SetChopHeld seam must
+        // already be true). Mirrors StepHeldSwing for the _genTree scatter component, incl. the 86caf7a0p re-iter
+        // clip-completion wait so the next StepHeldSwingGen can actually begin a swing.
+        private IEnumerator StepHeldSwingGen()
+        {
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            yield return null;                 // begin the swing (schedule impact this frame if eligible)
+            float start = Time.time;
+            while (_genTree.ImpactPending && Time.time - start < 2f) yield return null;
+            yield return null;                 // apply the effect at impact
+            // Wait out the clip-completion cadence gate (the next swing is gated on the clip finishing).
+            start = Time.time;
+            while (_genTree.SwingInProgress && Time.time - start < 2f) yield return null;
         }
 
         // === CHANGE (a) — the resolver tracks the demo tree + every scatter tree ===

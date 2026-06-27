@@ -127,6 +127,46 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(toIdleOnNotMoving, "Attack must transition to Idle on (!Moving) — a standing chop returns to idle");
         }
 
+        // 86caf7a0p RE-ITER — the CLIP-COMPLETION CADENCE contract (the Sponsor soak-reject fix). The hold-chop
+        // repeat gates the next swing on the swing CLIP finishing, so the authored melee clip must have a POSITIVE
+        // length that is LONGER than the down-stroke impact delay (the impact lands mid-clip; the clip finishes
+        // after). If the clip were zero-length or shorter than the impact delay, the cadence gate would collapse
+        // toward the impact delay and the over-pacing soak bug would return. This pins the asset-side assumption
+        // the runtime cadence (ChopTree.ComputeSwingDuration / CastawayCharacter.MeleeClipLength) relies on.
+        [Test]
+        public void MeleeClip_HasPositiveLength_LongerThanTheImpactDownStroke()
+        {
+            AnimationClip melee = null;
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.MeleeFbxPath))
+                if (obj is AnimationClip c && !c.name.StartsWith("__preview__") &&
+                    c.name.Contains(CharacterAssetGen.MeleeClip)) melee = c;
+            Assert.IsNotNull(melee, "the CastawayMelee clip must exist (the cadence source)");
+
+            Assert.Greater(melee.length, 0f,
+                "the melee clip must have a POSITIVE authored length — the hold-chop cadence gates the next swing " +
+                "on this clip finishing; a zero length would collapse the cadence to the impact delay (over-pacing)");
+
+            // The runtime impact down-stroke default (ChopTree.swingImpactDelaySeconds = 0.4s) lands MID-clip; the
+            // clip must be longer so 'wait for the clip to finish' is a STRICTER gate than 'wait for impact'.
+            const float DefaultImpactDelay = 0.4f;
+            Assert.Greater(melee.length, DefaultImpactDelay,
+                "the melee clip must be LONGER than the impact down-stroke (~0.4s) — the clip-completion cadence " +
+                "must be a stricter gate than the impact delay, else the swing animation would be cut off (the " +
+                "Sponsor soak-reject: 'the animation is not allowed to finish ... 1 hit is not = on finished animation')");
+        }
+
+        // 86caf7a0p RE-ITER — the runtime name constant CastawayCharacter.MeleeClipName (the live cadence source
+        // reads the controller's clip by this name) must MATCH the editor-side CharacterAssetGen.MeleeClip the FBX
+        // is renamed to on import — else MeleeClipLength silently returns 0 and the cadence falls back forever.
+        [Test]
+        public void RuntimeMeleeClipName_MatchesTheImportedClipName()
+        {
+            Assert.AreEqual(CharacterAssetGen.MeleeClip, CastawayCharacter.MeleeClipName,
+                "CastawayCharacter.MeleeClipName (the runtime cadence reads the live clip by this name) must equal " +
+                "CharacterAssetGen.MeleeClip (what the FBX clip is renamed to on import); a mismatch makes " +
+                "MeleeClipLength always 0 → the hold cadence silently uses the serialized fallback in the build");
+        }
+
         // AC5 REGRESSION (OOS protection) — the melee clip must NOT be folded into the Walk<->Run blend tree
         // (it is an OVERLAYING one-shot Attack state, like the jumps). The blend tree stays {Idle, Walk, Run}.
         [Test]
