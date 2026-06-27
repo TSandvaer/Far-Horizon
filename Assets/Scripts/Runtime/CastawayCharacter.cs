@@ -367,6 +367,28 @@ namespace FarHorizon
                 _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
         }
 
+        /// <summary>
+        /// Turn the player to FACE a world TARGET point (Sponsor soak refinement 1, 2026-06-27 — face the tree on
+        /// a chop-click). Y-yaw only: sets the facing direction toward the planar (XZ) target so the existing
+        /// LateUpdate turn-lerp snaps the body toward it promptly, and applies the model yaw THIS frame so a chop
+        /// swing reads as hitting THAT tree. Because facing is driven from <see cref="_lastFacing"/>, setting it
+        /// here makes the turn persist (it isn't overwritten while the player is stationary at the tree; if the
+        /// player is still moving, the next walk frame resumes travel-facing — fine, the swing is at the tree).
+        /// A near-zero direction (the player is exactly on the target) is ignored (no facing change).
+        /// </summary>
+        /// <param name="worldTarget">The world position to face (e.g. the resolved chop-target tree).</param>
+        public void FaceWorldTarget(Vector3 worldTarget)
+        {
+            Vector3 dir = worldTarget - transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 1e-4f) return; // on top of the target — no meaningful facing
+            dir.Normalize();
+            _lastFacing = dir;
+            _bodyYaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+            if (_model != null)
+                _model.localRotation = Quaternion.Euler(0f, _bodyYaw, 0f);
+        }
+
         /// <summary>Current body yaw (degrees) the model is rotated to — exposed so the verify capture can
         /// derive the camera position from the SAME facing it pinned (no axis assumption).</summary>
         public float BodyYaw => _bodyYaw;

@@ -241,6 +241,69 @@ namespace FarHorizon.PlayTests
                 "chop ChopSpeedMax == catalog ToolSpeedMax (no slider dead zone)");
         }
 
+        // === Refinement 1 (Sponsor soak 2026-06-27) — the chop TURNS THE PLAYER TO FACE the target tree ===
+        [UnityTest]
+        public IEnumerator Chop_TurnsPlayerToFaceTheTargetTree()
+        {
+            SelectAxe();
+            // Put the tree DUE EAST of the player (+X) and the player facing NORTH-ish to start, so a correct
+            // face-turn must yaw to ~+90° (atan2(dx=+1, dz=0) = 90°). The player stands in range of the tree.
+            _treeGo.transform.position = new Vector3(2f, 0f, 0f);
+            _playerGo.transform.position = Vector3.zero;
+            _character.FaceWorldYawInstant(0f); // start facing +Z (north) — clearly NOT toward the +X tree
+            Assert.AreEqual(0f, _character.BodyYaw, 1e-3f, "precondition: facing north, not the tree");
+
+            // One chop-click in range → the chop faces the resolved target tree before the swing.
+            yield return ClickChop();
+            Assert.AreEqual(1, _tree.Chops, "the chop landed (precondition for the face-turn)");
+
+            // The body yaw must now point at the tree (+X is yaw +90°). A snap or a fast lerp both land here on
+            // the chop frame (FaceWorldTarget applies the yaw immediately).
+            Assert.AreEqual(90f, Mathf.DeltaAngle(0f, _character.BodyYaw) + 0f, 5f,
+                "after a chop the player faces the target tree (+X → yaw ~90°), not its prior north facing");
+        }
+
+        // === Refinement 2 (Sponsor soak 2026-06-27) — a fully-chopped tree FADES OUT + is REMOVED after the delay,
+        //     then REGROWS at the same spot (AC3 still applies). REPLACES the persistent stump. ===
+        [UnityTest]
+        public IEnumerator ChoppedTree_FadesOutAndIsRemoved_AfterDelay_ThenRegrows()
+        {
+            SelectAxe();
+            StandAtTree();
+            // A short fade delay so the fade fires in headless wall-clock; regrow LATER so the fade is the next
+            // event (the real game is fade ~10s ≪ regrow ~10min — same ordering, scaled for the test).
+            _tree.fadeOutDelaySeconds = 0.3f;
+            _tree.regrowthMinSeconds = 1.6f;
+            _tree.regrowthMaxSeconds = 1.8f;
+            // The demo tree (instance 0) is this _treeGo; give it a renderer so the removal is observable.
+            if (_treeGo.GetComponent<MeshRenderer>() == null) _treeGo.AddComponent<MeshRenderer>();
+
+            // Fell it.
+            for (int i = 0; i < _tree.chopsToFell; i++) yield return ClickChop();
+            Assert.IsTrue(_tree.IsFelled, "tree felled (now fading)");
+            Assert.IsTrue(_tree.IsTreeVisible, "right after felling, the tree is still visible (mid-fell, pre-fade)");
+
+            // Wait past the fade delay + the fade-out tween — the tree must FADE OUT + its renderers disable
+            // (gone; the ground is empty), but it has NOT yet regrown.
+            float start = Time.time;
+            while (Time.time - start < 1.4f && _tree.IsTreeVisible) yield return null;
+            Assert.IsFalse(_tree.IsTreeVisible, "after the fade-out delay the tree disappears (renderers disabled)");
+            Assert.IsTrue(_tree.IsTreeRemoved, "the faded tree is REMOVED (ground empty) — the persistent stump is gone");
+            Assert.IsTrue(_tree.IsFelled, "still felled (awaiting regrow) — removal is not regrow");
+
+            // Wait past the regrow window — the tree regrows at the SAME spot, visible + choppable again (AC3).
+            start = Time.time;
+            while (Time.time - start < _tree.regrowthMaxSeconds + 1.5f && _tree.IsFelled) yield return null;
+            Assert.IsFalse(_tree.IsFelled, "the tree regrew after the timer (AC3 still applies post-fade)");
+            Assert.IsTrue(_tree.IsTreeVisible, "the regrown tree is visible again (renderers re-enabled)");
+            Assert.AreEqual(0, _tree.Chops, "a regrown tree resets its chop count — choppable anew");
+
+            // And it's choppable again — a click yields fresh wood.
+            int woodBefore = _inv.WoodCount;
+            yield return ClickChop();
+            Assert.Greater(_inv.WoodCount, woodBefore, "the regrown tree is choppable again — a click yields wood");
+        }
+
         // === AC3 — a felled stump REGROWS after the (tweakable) timer into a standing, choppable tree ===
         [UnityTest]
         public IEnumerator FelledStump_RegrowsAfterTimer_IntoAChoppableTree()
@@ -253,10 +316,11 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_tree.IsFelled, "tree felled (now a stump)");
             int woodAtFell = _inv.WoodCount;
 
-            // The stump persists — clicking it while felled yields NO wood (a stump is not choppable).
+            // A felled tree is not choppable — clicking it while felled yields NO wood (here regrow < fade, so it
+            // regrows directly; the fade-out path is covered by ChoppedTree_FadesOutAndIsRemoved_AfterDelay).
             for (int i = 0; i < 3; i++) yield return ClickChop();
-            Assert.IsTrue(_tree.IsFelled, "the stump persists through the regrow window (AC4)");
-            Assert.AreEqual(woodAtFell, _inv.WoodCount, "a felled stump yields no wood (clicking it does nothing)");
+            Assert.IsTrue(_tree.IsFelled, "a felled tree stays felled through its regrow window");
+            Assert.AreEqual(woodAtFell, _inv.WoodCount, "a felled tree yields no wood (clicking it does nothing)");
 
             // Wait past the max regrow time + the rise tween — the stump regrows into a standing tree.
             float start = Time.time;

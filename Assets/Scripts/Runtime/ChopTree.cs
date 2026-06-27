@@ -27,10 +27,14 @@ namespace FarHorizon
     ///   • The scatter trees are DISCOVERED at runtime (Start) by collecting the <c>LP_Tree</c> children under
     ///     <see cref="scatterRoot"/> (wired editor-time; a name-scan fallback if unwired). This is a READ of the
     ///     seed-42 scatter — it NEVER re-authors / re-rolls it (AC5 / V4: the scatter RNG stream is untouched, so
-    ///     the world placement stays byte-identical; ChopScatterInvarianceTests pins this). LowPolyZoneGen is NOT
-    ///     edited by this change.
-    /// The felling tween sinks+tips a tree's OWN transform, and regrow eases it back — so a felled scatter tree
-    /// reads as a stump in place while its neighbours stand, then rises again on its own random timer.
+    ///     the world placement stays byte-identical; ChopScatterInvarianceTests pins this). The chop does NOT touch
+    ///     LowPolyZoneGen.ScatterIslandProps's seeded placement stream. (LowPolyZoneGen IS edited on this branch in
+    ///     ONE unrelated way — the per-tree NavMesh-carve right-sizing, TrunkObstacleLocalRadius — which does not
+    ///     affect the scatter RNG/placement; see the PR body's disclosure.)
+    /// The felling tween sinks+tips a tree's OWN transform; then (refinement 2) the felled tree FADES OUT (scales
+    /// to nothing) and its renderers disable ~fadeOutDelaySeconds later — the ground is empty until regrow brings it
+    /// back at the same spot. A felled tree fades away in place while its neighbours stand, then regrows on its own
+    /// random timer.
     ///
     /// === AC1 — THE TRIGGER IS AN ACTIVE LEFT-CLICK (Sponsor soak, 2026-06-25 — CHANGE 1, KEPT) ===
     /// The chop is INITIATED BY THE PLAYER, not auto-fired by proximity. With the axe SELECTED and a tree in
@@ -60,14 +64,17 @@ namespace FarHorizon
     /// After <see cref="chopsToFell"/> chops the resolved tree fells.
     ///
     /// === AC3 — regrowth (tweakable, RANDOM within [min,max]) ===
-    /// A felled tree becomes a STUMP. After a RANDOM delay in [<see cref="regrowthMinSeconds"/>,
-    /// <see cref="regrowthMaxSeconds"/>] (organic, not uniform — AC3) the stump REGROWS into a standing,
-    /// choppable tree (chop count reset). The min/max are NAMED serialized fields (the live-tunable source —
-    /// AC5a); the `tree regrowth time` SETTING that drives them is registered by SettingsCatalog.PopulateChop.
+    /// A felled tree fades out (below), then after a RANDOM delay in [<see cref="regrowthMinSeconds"/>,
+    /// <see cref="regrowthMaxSeconds"/>] (organic, not uniform — AC3) REGROWS into a standing, choppable tree at
+    /// the SAME spot (chop count reset). The min/max are NAMED serialized fields (the live-tunable source — AC5a);
+    /// the `tree regrowth time` SETTING that drives them is registered by SettingsCatalog.PopulateChop.
     ///
-    /// === AC4 — visual feedback (cute/warm low-poly) ===
-    /// On the felling chop the tree SINKS + tips; the STUMP persists through the regrowth window; regrowth eases
-    /// the visual back up to standing. Each chop also swings the arm (AC1). Richer particles are OOS.
+    /// === AC4 — visual feedback (cute/warm low-poly) — FADE-OUT (Sponsor soak refinement 2, 2026-06-27) ===
+    /// On the felling chop the tree SINKS + tips, then ~<see cref="fadeOutDelaySeconds"/> (~10s, NAMED tweakable
+    /// field) later FADES OUT — it scales down to nothing + its renderers disable, so the tree DISAPPEARS and the
+    /// ground is empty (this REPLACES the old persistent-stump behaviour). The scale-down fade keeps the shared
+    /// OPAQUE LowPolyVertexColor material on the ~1-draw-call batch path (a transparent-alpha variant would cost
+    /// draw calls). Regrowth (AC3) then re-shows + scales the tree back up. Each chop also swings the arm (AC1).
     ///
     /// === AC5 — world integrity ===
     /// The demo tree (instance 0) is authored editor-time (MovementCameraScene.BuildChopTree); the scatter
@@ -159,6 +166,13 @@ namespace FarHorizon
                  "so the average regrow is ~10 min (the ticket's '~10 min default').")]
         public float regrowthMaxSeconds = 720f;   // 12 min
 
+        [Tooltip("Seconds after a tree is fully chopped (felled) before it FADES OUT and disappears (Sponsor " +
+                 "soak refinement 2, 2026-06-27). REPLACES the persistent stump: the felled tree rests this long, " +
+                 "then scales down to nothing + its renderers disable → the ground is empty until regrowth (AC3, " +
+                 "~10 min) brings it back at the same spot. Tweakable; default ~10 s per the Sponsor. A scale-down " +
+                 "fade (NOT material alpha) keeps the shared opaque material on the ~1-draw-call batch path.")]
+        public float fadeOutDelaySeconds = 10f;
+
         [Tooltip("Deterministic seed for the regrow-time rolls (so headless tests are reproducible). 0 = use " +
                  "a time-based seed at runtime. Each instance derives its own sub-seed so trees regrow on " +
                  "distinct timers. Mirrors BerryBush.regrowSeed.")]
@@ -187,6 +201,14 @@ namespace FarHorizon
 
         /// <summary>Wall-clock time the DEMO tree (instance 0) regrows (meaningful only while felled).</summary>
         public float RegrowAt => _instances.Count > 0 ? _instances[0].RegrowAt : 0f;
+
+        /// <summary>True while the DEMO tree (instance 0) has at least one enabled renderer (visible). False once
+        /// it has faded out (refinement 2). Exposed for the fade-out PlayMode test.</summary>
+        public bool IsTreeVisible => _instances.Count > 0 && _instances[0].IsVisible;
+
+        /// <summary>True once the DEMO tree (instance 0) has fully faded out + its renderers are disabled — the
+        /// ground is empty until regrow (refinement 2 — the persistent stump is gone). Exposed for the test.</summary>
+        public bool IsTreeRemoved => _instances.Count > 0 && _instances[0].Removed;
 
         /// <summary>Number of choppable tree instances currently tracked (1 demo tree + N scatter trees).
         /// Exposed for tests/capture so the generalization is auditable.</summary>
@@ -377,18 +399,25 @@ namespace FarHorizon
             if (_instances.Count > 0) ChopInstance(_instances[0]);
         }
 
-        // Land one chop on a resolved instance: SWING the arm (AC1), yield wood (AC2), advance the instance's
-        // count, and fell it on the final chop (AC3). The per-instance state owns the deplete/fell/regrow.
+        // Land one chop on a resolved instance: FACE the tree (refinement 1), SWING the arm (AC1), yield wood
+        // (AC2), advance the count, and fell it on the final chop (AC3 — fade-out then regrow). The per-instance
+        // state owns the deplete/fell/fade/regrow.
         private void ChopInstance(ChoppableTreeState target)
         {
             if (target == null || !target.IsChoppable || inventory == null) return;
+
+            // FACE THE TREE (Sponsor soak refinement 1, 2026-06-27) — turn the player to face the RESOLVED target
+            // tree (Y-yaw only) BEFORE the swing, so the downward strike reads as hitting THAT tree, not whatever
+            // direction the player happened to face. CastawayCharacter.FaceWorldTarget sets the facing target; the
+            // existing turn-lerp snaps the body toward it promptly. Null-safe (a bare test rig just skips it).
+            if (character != null) character.FaceWorldTarget(target.Position);
 
             // Swing the arm (AC1) — TriggerChop plays the Mixamo melee Attack state; the held axe (HeldAxeRig)
             // follows the swung hand automatically. Null is graceful (the wood still yields; just no swing).
             if (character != null) character.TriggerChop();
 
             inventory.AddWood(Mathf.Max(1, woodPerChop));
-            bool felled = target.LandChop(chopsToFell, regrowthMinSeconds, regrowthMaxSeconds);
+            bool felled = target.LandChop(chopsToFell, regrowthMinSeconds, regrowthMaxSeconds, fadeOutDelaySeconds);
 
             if (!_tracedFirstChop)
             {
@@ -410,45 +439,60 @@ namespace FarHorizon
 
     /// <summary>
     /// Per-tree CHOP STATE (CHANGE (a) — extracted from ChopTree so EVERY world tree is choppable, each with
-    /// its OWN chops-landed / felled / regrow-timer / fell+regrow tween). A plain class (no MonoBehaviour):
-    /// ChopTree owns a list of these — the demo tree + every scatter LP_Tree — and drives them. The deplete →
-    /// stump → regrow logic is identical to the pre-CHANGE-(a) single-tree code; only the OWNERSHIP changed
-    /// (one-per-tree instead of one-on-the-component), so a felled tree reads as a stump in place while its
-    /// neighbours stand, then rises again on its own random timer.
+    /// its OWN chops-landed / felled / fade / regrow lifecycle). A plain class (no MonoBehaviour): ChopTree owns
+    /// a list of these — the demo tree + every scatter LP_Tree — and drives them, so a felled tree fades away in
+    /// place while its neighbours stand, then regrows at the same spot on its own random timer.
+    ///
+    /// === FELL → FADE-OUT → REMOVED → REGROW lifecycle (Sponsor soak refinement 2, 2026-06-27) ===
+    /// REPLACES the old persistent-stump behaviour. On the felling chop the tree does a brief sink+tip fell tween,
+    /// rests for <paramref name="fadeOutDelaySeconds"/> (~10s, a NAMED tweakable field on ChopTree), then SCALES
+    /// DOWN to nothing (a batching-safe fade — scale, NOT material alpha, so the shared OPAQUE LowPolyVertexColor
+    /// material stays on the ~1-draw-call path; a transparent variant would cost draw calls) and DISABLES its
+    /// renderers → the ground is empty. The AC3 REGROWTH (~10 min, tweakable [min,max]) still fires: at _regrowAt
+    /// the renderers re-enable + the tree scales back up to standing at the SAME spot, choppable anew.
     ///
     /// Wall-clock paced via Time.unscaledDeltaTime + Time.time (headless deltas are ~0, so a headless run lands
-    /// at each tween's end state quickly without affecting the wood/felled/regrow assertions —
+    /// at each tween's end state quickly without affecting the wood/felled/fade/regrow assertions —
     /// unity-conventions.md headless-time discipline). NO mutable statics (instance state only).
     /// </summary>
     public class ChoppableTreeState
     {
         private readonly Transform _visual;     // this tree's tweened root (the LP_Tree transform / demo visual)
         private readonly System.Random _rng;    // this tree's own regrow-time roll (distinct per instance)
+        private readonly Renderer[] _renderers; // this tree's renderers (disabled when removed, re-enabled on regrow)
 
         private int _chops;          // chops landed on THIS tree (resets on regrow)
-        private bool _felled;        // true while this tree is a stump (felled, awaiting regrow)
-        private float _regrowAt;     // wall-clock time this stump regrows (meaningful only while felled)
+        private bool _felled;        // true from the felling chop until the tree fully regrows
+        private float _regrowAt;     // wall-clock time this tree regrows (meaningful only while felled)
+        private float _fadeAt;       // wall-clock time the felled tree begins its fade-out (fell + fadeOutDelay)
 
-        private bool _felling;       // playing the sink+tip tween
-        private bool _regrowing;     // playing the rise-back tween
+        private bool _felling;       // playing the sink+tip fell tween
+        private bool _fadingOut;     // playing the scale-down fade-out tween
+        private bool _removed;       // faded out + renderers disabled, awaiting regrow (ground empty)
+        private bool _regrowing;     // playing the scale-up regrow tween
         private float _tweenT;
         private Vector3 _standPos;
         private Quaternion _standRot;
+        private Vector3 _standScale = Vector3.one; // the standing localScale (the fade-out/regrow scale anchor)
 
         private const float FellDuration = 0.5f;
+        private const float FadeOutDuration = 0.8f;   // the scale-down-to-nothing tween length
         private const float RegrowRiseDuration = 0.6f;
-        // The felled (stump) pose offset from standing — the tween's end state.
+        // The felled pose offset from standing — the fell tween's end state (a brief sink+tip before the fade).
         private static readonly Vector3 StumpDrop = Vector3.down * 0.6f;
         private const float StumpTipDeg = 70f;
 
         public ChoppableTreeState(Transform visual, int seed)
         {
             _visual = visual;
-            // Capture the standing pose at construction (each tree ships standing).
+            // Capture the standing pose + scale at construction (each tree ships standing). The renderers are
+            // toggled off when the tree is removed (post-fade) and back on when it regrows.
             if (_visual != null)
             {
                 _standPos = _visual.position;
                 _standRot = _visual.rotation;
+                _standScale = _visual.localScale;
+                _renderers = _visual.GetComponentsInChildren<Renderer>(true);
             }
             _rng = new System.Random(seed != 0 ? seed : Environment.TickCount);
         }
@@ -456,26 +500,59 @@ namespace FarHorizon
         public int Chops => _chops;
         public bool Felled => _felled;
         public float RegrowAt => _regrowAt;
+        /// <summary>Wall-clock time this felled tree begins fading out (fell-time + fadeOutDelay). Exposed for
+        /// the fade-out PlayMode test.</summary>
+        public float FadeAt => _fadeAt;
+        /// <summary>True once the felled tree has fully faded out + its renderers are disabled (the ground is
+        /// empty until regrow). Exposed for the fade-removal test.</summary>
+        public bool Removed => _removed;
+        /// <summary>True if any of this tree's renderers is currently enabled (the visible/gone discriminator
+        /// the fade-out test asserts — false after the fade, true again after regrow).</summary>
+        public bool IsVisible
+        {
+            get
+            {
+                if (_renderers == null) return false;
+                for (int i = 0; i < _renderers.Length; i++)
+                    if (_renderers[i] != null && _renderers[i].enabled) return true;
+                return false;
+            }
+        }
         /// <summary>This tree's world position (its visual root) — the resolver's nearest-in-range key.</summary>
         public Vector3 Position => _visual != null ? _visual.position : Vector3.zero;
         /// <summary>True only when this tree is STANDING (not felled, not mid-tween) → chop-eligible.</summary>
-        public bool IsChoppable => !_felled && !_felling && !_regrowing;
+        public bool IsChoppable => !_felled && !_felling && !_fadingOut && !_removed && !_regrowing;
 
-        // Advance this tree's one-shot tweens + regrow timer one frame. Called every Update by ChopTree.
+        // Advance this tree's one-shot tweens + fade/regrow timers one frame. Called every Update by ChopTree.
         public void Tick()
         {
             if (_felling) { StepFelling(); return; }
+            if (_fadingOut) { StepFadeOut(); return; }
             if (_regrowing) { StepRegrow(); return; }
-            if (_felled && Time.time >= _regrowAt) BeginRegrow();
+            if (_removed)
+            {
+                // Ground is empty (faded out). Regrow at _regrowAt → re-enable renderers + scale back up.
+                if (Time.time >= _regrowAt) BeginRegrow();
+                return;
+            }
+            // Felled + resting (post-fell tween, pre-fade): begin the fade-out once the delay elapses. (A regrow
+            // scheduled SOONER than the fade — e.g. a fast-test regrow window — short-circuits straight to regrow
+            // so the tree never gets stuck mid-cycle; the normal ~10s fade ≪ ~10min regrow.)
+            if (_felled)
+            {
+                if (Time.time >= _regrowAt) { BeginRegrow(); return; }
+                if (Time.time >= _fadeAt) BeginFadeOut();
+            }
         }
 
         /// <summary>
-        /// Land one chop on this tree: advance the count, and on the <paramref name="chopsToFell"/>-th chop
-        /// fell it (begin the sink+tip tween + schedule a random regrow in [min,max]). Returns true on the
-        /// felling chop. A no-op if the tree isn't currently choppable (a stump / mid-tween). The CALLER yields
-        /// the wood + swings the arm (shared across instances).
+        /// Land one chop on this tree: advance the count, and on the <paramref name="chopsToFell"/>-th chop fell
+        /// it — begin the sink+tip fell tween, schedule the fade-out (fell + <paramref name="fadeOutDelaySeconds"/>)
+        /// and a random regrow in [min,max]. Returns true on the felling chop. A no-op if the tree isn't currently
+        /// choppable (mid-cycle / removed). The CALLER yields the wood + swings the arm (shared across instances).
         /// </summary>
-        public bool LandChop(int chopsToFell, float regrowthMinSeconds, float regrowthMaxSeconds)
+        public bool LandChop(int chopsToFell, float regrowthMinSeconds, float regrowthMaxSeconds,
+                             float fadeOutDelaySeconds)
         {
             if (!IsChoppable) return false;
             _chops++;
@@ -483,6 +560,7 @@ namespace FarHorizon
             {
                 _felled = true;
                 BeginFelling();
+                _fadeAt = Time.time + Mathf.Max(0f, fadeOutDelaySeconds);
                 ScheduleRegrow(regrowthMinSeconds, regrowthMaxSeconds);
                 return true;
             }
@@ -505,11 +583,12 @@ namespace FarHorizon
             if (_visual == null) { _felling = false; return; }
             _standPos = _visual.position;
             _standRot = _visual.rotation;
+            _standScale = _visual.localScale;
             _felling = true;
             _tweenT = 0f;
         }
 
-        // One frame of the felling tween — the tree sinks into the ground and tips over (the stump), then stops.
+        // One frame of the felling tween — the tree sinks + tips over (the fall), then rests until the fade-out.
         private void StepFelling()
         {
             if (_visual == null) { _felling = false; return; }
@@ -518,26 +597,60 @@ namespace FarHorizon
             float ease = k * k * (3f - 2f * k); // smoothstep
             _visual.position = _standPos + StumpDrop * ease;
             _visual.rotation = _standRot * Quaternion.Euler(StumpTipDeg * ease, 0f, 0f);
-            if (k >= 1f) _felling = false; // now resting as the STUMP (sunk + tipped) until regrow
+            if (k >= 1f) _felling = false; // now resting (fallen) until the fade-out delay elapses
         }
 
-        // Begin the regrow rise: the stump eases back UP to the standing pose, then choppable again.
-        private void BeginRegrow()
+        // Begin the fade-out: scale the fallen tree down to nothing (batching-safe — scale, not material alpha).
+        private void BeginFadeOut()
         {
-            _regrowing = true;
+            _fadingOut = true;
             _tweenT = 0f;
         }
 
-        // One frame of the regrow rise — ease the visual from the stump pose back to standing. On completion
-        // the tree is STANDING + choppable again, chops reset to 0 (AC3: stump regrows into a tree).
+        // One frame of the fade-out — ease the visual scale from standing toward ~0, then disable the renderers
+        // so the tree DISAPPEARS (the ground is empty until regrow). Scale-down (not a transparent material) keeps
+        // the shared opaque LowPolyVertexColor batching intact (~1 draw call).
+        private void StepFadeOut()
+        {
+            if (_visual == null) { _fadingOut = false; _removed = true; return; }
+            _tweenT += Time.unscaledDeltaTime;
+            float k = Mathf.Clamp01(_tweenT / FadeOutDuration);
+            float ease = k * k * (3f - 2f * k); // smoothstep
+            _visual.localScale = _standScale * (1f - ease);
+            if (k >= 1f)
+            {
+                _fadingOut = false;
+                _removed = true;
+                SetRenderersEnabled(false);     // gone — ground empty until regrow
+                _visual.localScale = _standScale; // restore the scale under the disabled renderers (regrow anchor)
+            }
+        }
+
+        // Begin the regrow rise: re-enable the renderers + scale up from ~0 back to standing at the same spot.
+        private void BeginRegrow()
+        {
+            _removed = false;
+            _regrowing = true;
+            _tweenT = 0f;
+            // Restore the standing pose (the fell tween left it sunk+tipped) and re-show, scaling up from ~0.
+            if (_visual != null)
+            {
+                _visual.position = _standPos;
+                _visual.rotation = _standRot;
+                _visual.localScale = _standScale * 0.001f;
+            }
+            SetRenderersEnabled(true);
+        }
+
+        // One frame of the regrow rise — ease the visual scale from ~0 back to standing. On completion the tree is
+        // STANDING + choppable again, chops reset (AC3: the tree regrows at the same spot after the timer).
         private void StepRegrow()
         {
             if (_visual == null) { _regrowing = false; _felled = false; _chops = 0; return; }
             _tweenT += Time.unscaledDeltaTime;
             float k = Mathf.Clamp01(_tweenT / RegrowRiseDuration);
             float ease = k * k * (3f - 2f * k); // smoothstep
-            _visual.position = _standPos + StumpDrop * (1f - ease);
-            _visual.rotation = _standRot * Quaternion.Euler(StumpTipDeg * (1f - ease), 0f, 0f);
+            _visual.localScale = _standScale * Mathf.Max(0.001f, ease);
             if (k >= 1f)
             {
                 _regrowing = false;
@@ -545,7 +658,15 @@ namespace FarHorizon
                 _chops = 0;         // a fresh tree — chop it anew
                 _visual.position = _standPos;
                 _visual.rotation = _standRot;
+                _visual.localScale = _standScale;
             }
+        }
+
+        private void SetRenderersEnabled(bool on)
+        {
+            if (_renderers == null) return;
+            for (int i = 0; i < _renderers.Length; i++)
+                if (_renderers[i] != null) _renderers[i].enabled = on;
         }
     }
 }
