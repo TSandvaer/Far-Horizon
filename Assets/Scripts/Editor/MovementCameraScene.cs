@@ -271,6 +271,15 @@ namespace FarHorizon.EditorTools
             // a deterministic foraging target. No collider — the player walks up to loot.
             BuildBerryBush(player, groundLayer);
 
+            // 86caa96rd (E-LOOT 86caf7a6q): a wired fallen STICK near the loop centre — the LOW-yield wood
+            // source (1 wood per pickup, far less than chopping a tree). The castaway walks up and presses E
+            // to LOOT it (the universal loot verb): 1 wood into the inventory, the stick consumed. A RELIABLE,
+            // fixed-position stick (vs the random scatter ones) so the PlayMode/shipped-build capture has a
+            // deterministic loot target. Authored editor-time so the stick mesh + StickProp's Inventory ref
+            // SERIALIZE into Boot.unity (editor-vs-runtime trap). No collider — the player walks up to loot.
+            // Built BEFORE the looter so the looter discovers it (it discovers IPickables at runtime anyway).
+            BuildWiredStick(player, groundLayer);
+
             // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
             // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
             // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
@@ -1587,6 +1596,48 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] authored BerryBush at " + BerryBushPosition +
                       " (inventory wired: " + (bb.inventory != null) + ", berries visual wired: " +
                       (bb.berriesVisual != null) + ")");
+        }
+
+        // World position of the wired fallen STICK (86caa96rd). Near the loop centre, clear of the craft
+        // spot (8,6), axe (3,2), chop tree (-9,-7), berry bush (-6,7), pond (7,-3) — a deterministic loot
+        // target the PlayMode/shipped-build capture walks up to. A DETERMINISTIC scene-author ADD on the flat
+        // player-loop ground — OUTSIDE the seeded LowPolyZoneGen generation stream, so it provably CANNOT
+        // perturb the seed-42 island silhouette / scatter / NavMesh (the seed lock is honoured by construction).
+        public static readonly Vector3 WiredStickPosition = new Vector3(-3f, 0f, -4f);
+
+        // Warm dry dead-wood brown (LowPolyZoneGen.StickCol) — the wired stick matches the scatter sticks.
+        private static readonly Color StickCol = new Color(0.46f, 0.34f, 0.22f);
+
+        // A wired fallen STICK (86caa96rd): a thin few-sided tapered cylinder laid HORIZONTAL on the ground +
+        // a StickProp component (IPickable — looted on E for 1 wood) wired to the scene Inventory. The
+        // castaway walks up and presses E to loot it: 1 wood into the inventory, the stick consumed (the
+        // low-yield wood source vs chopping a tree). A RELIABLE fixed-position stick (vs the random scatter
+        // ones) so the PlayMode/capture has a deterministic loot target. Authored editor-time so the mesh +
+        // the wired StickProp.inventory SERIALIZE into Boot.unity (editor-vs-runtime trap). NO collider — the
+        // player walks up to loot; built BEFORE the NavMesh bake (collider-free, never blocks the bake).
+        private static void BuildWiredStick(GameObject player, int groundLayer)
+        {
+            var stick = new GameObject("WiredStick");
+            stick.transform.position = WiredStickPosition;
+            // Lay the +Y-built shaft HORIZONTAL (90° about Z = points +X), with a small fixed yaw + lift so it
+            // rests ON the ground (deterministic — the capture sees the same stick every run).
+            stick.transform.rotation = Quaternion.Euler(0f, 35f, 0f) * Quaternion.Euler(0f, 0f, 90f);
+            stick.transform.position = WiredStickPosition + Vector3.up * 0.05f;
+
+            // The shaft: a thin tapered cylinder, flat-shaded warm dead-wood brown (the BuildTreePart inline
+            // URP/Lit helper — serializes into the scene, no .mat churn).
+            BuildTreePart(stick, "StickMesh", LowPolyMeshes.TaperedCylinder(0.05f, 0.03f, 1.2f, 5),
+                StickCol, Vector3.zero, "WiredStickMat");
+
+            var sp = stick.AddComponent<StickProp>();
+            sp.inventory = Object.FindObjectOfType<Inventory>();
+            if (sp.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire StickProp to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored WiredStick at " + WiredStickPosition +
+                      " (inventory wired: " + (sp.inventory != null) + ", yields " +
+                      StickProp.WoodPerStickDefault + " wood on E)");
         }
 
         // The E-LOOT interactor (86caf7a6q): the PLAYER side of the shared E-loot surface. Pressing E loots the

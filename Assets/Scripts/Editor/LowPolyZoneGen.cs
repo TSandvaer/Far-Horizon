@@ -95,6 +95,11 @@ namespace FarHorizon.EditorTools
         static readonly Color BushTop    = new Color(0.44f, 0.70f, 0.30f); // bright top-lit leaf
         static readonly Color BushShadow = new Color(0.15f, 0.35f, 0.15f); // deep shadow-side leaf
         static readonly Color BerryRed   = new Color(0.78f, 0.16f, 0.22f); // warm berry red (material-honest)
+        // STICK / BRANCH dead-wood (ticket 86caa96rd): a warm dry-bark brown, a touch lighter + greyer than
+        // the living TrunkCol so a fallen stick reads as weathered dead wood lying on the ground (material-
+        // honest — wood reads as wood). Flat-shaded faceted (the tapered-cylinder stick is welded but few-
+        // sided, so it catches the key light per facet).
+        static readonly Color StickCol  = new Color(0.46f, 0.34f, 0.22f); // warm dry dead-wood brown
 
         // ---- BEACH OCEAN water gradient (drew/beach-water-scene; Uma beach-water-direction §1).
         // Toy-bright teal that catches the sun — calm/inviting, NOT a realistic reflective shader-ocean.
@@ -1017,11 +1022,50 @@ namespace FarHorizon.EditorTools
                 if (berry) berryBushes++;
             }
 
+            // ---- STICKS / BRANCHES (ticket 86caa96rd, AC1/AC2/AC3) — small fallen sticks in VARIOUS SIZES
+            // scattered across the island, each an E-LOOT pickable that yields ONE wood (the low-yield wood
+            // source vs chopping a tree). ADDITIVE to the seed-42 world like the bush pass: this uses its OWN
+            // System.Random (seed + 888 — a SEPARATE sub-stream per AC1, the bush-pass precedent), so it does
+            // NOT perturb the island shape (IslandSeed/ShoreRadiusAt), the terrain mesh, or the existing
+            // tree(seed+555)/rock/grass/bush(seed+777) placement (each consumed its own stream in a fixed
+            // order, untouched), or the NavMesh (sticks are collider-free + carve NO obstacle — the player
+            // walks up to loot). The seed-42 lock is honoured by construction (a parallel sub-stream, not a
+            // re-roll). Sticks ground via GroundPoint (scale-immune, like the bushes/stones). They reuse the
+            // SAME rockFootprints list to REJECT any stick position inside a boulder (OverlapsAnyRock) so a
+            // stick never clips into a stone (the #130-percept rule the grass/bush passes follow). Each stick
+            // gets a StickProp component (IPickable — looted on E for 1 wood) wired to the scene Inventory.
+            //
+            // ⚠ SERIAL with stones (86caa4c96): both write ScatterIslandProps. This stick pass is SELF-
+            // CONTAINED (its own bushRnd-style sub-stream + its own loop block + its own BuildStick helper)
+            // so the stones pass can be ADDED as a sibling block here without conflicting — it just appends
+            // its own `stoneRnd = new System.Random(seed + <its salt>)` loop + a BuildStone helper, exactly
+            // as this block parallels the bush block. Neither perturbs the other (separate sub-streams).
+            var stickRnd = new System.Random(seed + 888);
+            int stickTarget = 70, sticksPlaced = 0, stickGuard = 0;
+            while (sticksPlaced < stickTarget && stickGuard++ < stickTarget * 8)
+            {
+                float ang = (float)stickRnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantOuterR * Mathf.Sqrt((float)stickRnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (rr < spawnClearR) continue;                 // keep the loop-centre clearing open
+                if (!OnLandmass(x, z)) continue;                // warped coast (reject sea / beach strip)
+                // Sticks are EARLY-GAME scavenge — found near the ground cover, not centre-clustered. A
+                // gentle inland bias (less steep than the bushes) so the player finds sticks while exploring.
+                float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
+                if (stickRnd.NextDouble() > Mathf.Clamp01(0.35f + inlandT * 0.45f)) continue;
+                if (OverlapsAnyRock(rockFootprints, x, z)) continue; // no stick clipping into a stone (#130 rule)
+                // VARIOUS SIZES (AC1): a wide scale range so the scatter reads as twigs through to branches.
+                float scale = 0.6f + (float)stickRnd.NextDouble() * 1.0f; // 0.6 .. 1.6
+                BuildStick(parent, GroundPoint(groundCol, x, z), scale, stickRnd);
+                sticksPlaced++;
+            }
+
             Debug.Log($"[world-trace] ScatterIslandProps placed {treesPlaced} trees (dense tall jungle), " +
                       $"{rocksPlaced} rocks, {clumpsPlaced} grass tufts, {bushesPlaced} bushes " +
-                      $"({berryBushes} berry-bearing) on the ORGANIC island " +
+                      $"({berryBushes} berry-bearing), {sticksPlaced} sticks on the ORGANIC island " +
                       $"(warped coast, outerR {plantOuterR:F0}u, fringe {coastalFringe:F0}u). " +
-                      "Bushes use sub-seed (seed+777) — additive, seed-42 island/scatter/NavMesh untouched.");
+                      "Bushes use sub-seed (seed+777), sticks (seed+888) — additive, seed-42 " +
+                      "island/scatter/NavMesh untouched.");
         }
 
         // Raycast straight down onto the terrain collider to find the surface Y at (x,z) so props
@@ -1266,6 +1310,46 @@ namespace FarHorizon.EditorTools
             // per-use FindObjectOfType in the build (bake-time Find only, matching the Inventory/player wiring).
             bb.hunger = Object.FindObjectOfType<FarHorizon.HungerNeed>();
             bb.regrowSeed = rnd.Next(1, int.MaxValue);
+        }
+
+        // A low-poly fallen STICK / BRANCH (ticket 86caa96rd): a thin, few-sided TAPERED CYLINDER laid
+        // HORIZONTAL on the ground (a fallen stick lies flat), flat-shaded warm dead-wood brown. Built
+        // editor-time + serialized (the mesh + the wired StickProp ship in Boot.unity — not Awake, the
+        // editor-vs-runtime trap). A StickProp component (IPickable — looted on E for 1 wood) wired to the
+        // scene Inventory so the castaway can scavenge ANY scatter stick. NO collider + carves NO NavMesh
+        // obstacle (the player walks up to loot it; the same collider-free idiom as the bushes). The visual
+        // length/girth varies with `scale` so the scatter reads as twigs through to branches (VARIOUS SIZES,
+        // AC1). `rnd` is the stick sub-stream (seed+888) — every draw here stays on that parallel stream, so
+        // the seed-42 island/scatter is untouched.
+        static void BuildStick(GameObject parent, Vector3 at, float scale, System.Random rnd)
+        {
+            var stick = new GameObject("LP_Stick");
+            stick.transform.SetParent(parent.transform, false);
+            stick.transform.position = at;
+            stick.transform.localScale = Vector3.one * scale;
+
+            // A thin tapered shaft. TaperedCylinder builds the stick ALONG +Y (base at y=0); we rotate it
+            // to lie HORIZONTAL (a fallen stick rests on the ground), with a seeded yaw so sticks don't all
+            // align + a tiny pitch wobble so they don't all lie dead-flat. The pivot is the stick base; the
+            // small +Y lift (half the girth) keeps the shaft resting ON the ground rather than half-buried.
+            float girth = 0.05f;                          // base radius (thin — a stick, not a log)
+            float length = 0.9f + (float)rnd.NextDouble() * 0.7f; // 0.9 .. 1.6 (pre-scale length variation)
+            float yaw = (float)rnd.NextDouble() * 360f;
+            float pitchWobble = (float)(rnd.NextDouble() - 0.5) * 12f; // ±6° off dead-flat
+            // Compose: lay along +X (Rotate 90° about Z so the +Y shaft points +X = horizontal), then yaw
+            // about Y, plus the small pitch wobble. The shaft then lies on the ground at a random heading.
+            stick.transform.rotation =
+                Quaternion.Euler(0f, yaw, 0f) * Quaternion.Euler(pitchWobble, 0f, 90f);
+            stick.transform.position = at + Vector3.up * (girth * scale);
+
+            MakeMeshObject(stick, "StickMesh",
+                LowPolyMeshes.TaperedCylinder(girth, girth * 0.55f, length, 5),
+                MakeFlatColorMat(StickCol, "LPStickMat"));
+
+            // Wire the StickProp (IPickable) to the scene Inventory so the castaway loots it on E for 1 wood.
+            // The looted wood adds via the canonical ItemCatalog.WoodId — never a parallel id (AC2/AC3).
+            var sp = stick.AddComponent<FarHorizon.StickProp>();
+            sp.inventory = Object.FindObjectOfType<FarHorizon.Inventory>();
         }
 
         // ---- The beach OCEAN (drew/beach-water-scene; Uma beach-water-direction §1-2) ----
