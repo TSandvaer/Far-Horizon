@@ -730,6 +730,58 @@ namespace FarHorizon.EditTests
             Assert.Greater(tuftsChecked, 0, "the pond must carry bank tufts to check (the BankTuft accents)");
         }
 
+        // === REGRESSION GUARD (ticket 86cadr95t — #130 NIT #2, post-round-5 successor) — the bank ACCENTS DRAPE
+        // FLUSH on the carved bowl wall, never floating proud / submerged ======================================
+        // CONTEXT: the original #130 flush-collar test (Pond_BankCollar_DrapesOnBowlWall_FlushNotRaisedLip, with
+        // its `if (v.y > -0.06f) continue;` cutoff Drew/Tess flagged as UNDER-checking the widest-lobe outer verts)
+        // was REMOVED in #130 round 5 when the raised PondBank collar MESH was deleted (BootScene_HasNoRaisedPond
+        // BankCollarMesh now pins its absence; the collar is FLAT terrain paint). So the cutoff to "tighten" no
+        // longer exists — the under-check is GONE by construction. What STILL drapes on the carved wall is the
+        // decorative bank ACCENTS (BankTuft0..4 + BankRock), placed via MovementCameraScene.CollarOuterLocalY,
+        // which derives the wall Y DIRECTLY from PondDepressionDelta (no v.y cutoff). This guard is the living
+        // successor to NIT #2's concern: it asserts every accent's BASE sits FLUSH on the carved Ground_Play
+        // terrain — not floating above the sloped wall (the pre-#130 `y=0` flat-lip bug) nor sunk under it — at
+        // EVERY accent (no vertex-subset cutoff that could skip an outer-lobe accent the way the old test did).
+        [Test]
+        public void Pond_BankAccents_DrapeFlushOnCarvedTerrain_NotFloatingNorSubmerged()
+        {
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            FreshwaterPond pond = FindAnyInScene<FreshwaterPond>();
+            Assert.IsNotNull(pond, "the pond must be present");
+
+            var ground = GameObject.Find("Ground_Play");
+            var col = ground != null ? ground.GetComponent<MeshCollider>() : null;
+            Assert.IsNotNull(col, "Ground_Play MeshCollider must exist (the carved wall the accents drape on)");
+
+            // Every BankTuft* + BankRock accent: raycast the carved terrain straight down through its world XZ and
+            // assert its world-Y base sits within a tight band of the carved surface there. Tolerance covers the
+            // CollarOuterLocalY vs MeshCollider voxel/raycast discretisation, but is far tighter than the pre-#130
+            // float defect (accents sat at y=0 ≈ +0.30..+1.05u proud of the carved wall) — so a regression that
+            // re-floats an accent (e.g. reverting CollarOuterLocalY to a flat lip) reds HERE. Checks ALL accents,
+            // including the widest-lobe ones the old `v.y > -0.06f` cutoff skipped (NIT #2).
+            const float flushTol = 0.20f;
+            int accentsChecked = 0;
+            foreach (var t in pond.GetComponentsInChildren<Transform>(true))
+            {
+                string n = t.gameObject.name;
+                if (!n.StartsWith("BankTuft") && !n.StartsWith("BankRock")) continue;
+                accentsChecked++;
+                Vector3 w = t.position; // world position of the accent root (its base sits at the carved wall Y)
+                var ray = new Ray(new Vector3(w.x, 200f, w.z), Vector3.down);
+                Assert.IsTrue(col.Raycast(ray, out RaycastHit hit, 400f),
+                    $"accent '{n}' at ({w.x:F2},{w.z:F2}) must sit over carved Ground_Play terrain (the wall it drapes on)");
+                float dy = w.y - hit.point.y;
+                Assert.That(dy, Is.InRange(-flushTol, flushTol),
+                    $"the bank accent '{n}' must drape FLUSH on the carved bowl wall — its base worldY {w.y:F3} vs " +
+                    $"carved terrain {hit.point.y:F3} (Δ {dy:F3}u) must stay within ±{flushTol}u. A large POSITIVE Δ " +
+                    "is the pre-#130 floating-lip defect (accent at y=0 above the sloped wall); a large NEGATIVE Δ is " +
+                    "an accent sunk under the wall. CollarOuterLocalY (← PondDepressionDelta) keeps it flush; this " +
+                    "checks ALL accents incl. the widest-lobe ones the removed `v.y>-0.06f` cutoff skipped (86cadr95t).");
+            }
+            Assert.Greater(accentsChecked, 0,
+                "the pond must carry bank accents (BankTuft*/BankRock) to check — the flush-drape successor to #130 NIT #2");
+        }
+
         // === REGRESSION GUARD (ticket 86cadj4g7) — the depth-fade foam must not FLOOD the flat disc ========
         // The shared depth-fade foam (foam = saturate(1 - gap/_FoamDistance)) fires UNIFORMLY across the disc
         // unless _FoamDistance is SMALLER than the water→floor gap — at the sea-scale _FoamDistance the pond
