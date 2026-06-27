@@ -205,6 +205,19 @@ namespace FarHorizon
                  "test, and the timer scales cleanly with chopSpeed — the brief's sanctioned fallback.)")]
         public float swingImpactDelaySeconds = 0.4f;
 
+        [Header("Swing CADENCE (86caf7a0p re-iter — the next HOLD swing waits for the clip to FINISH)")]
+        [Tooltip("FALLBACK authored length (seconds, at 1× speed) of the chop swing clip (the Mixamo melee " +
+                 "one-shot). HOLD-TO-CHOP gates the NEXT swing on the CURRENT swing's clip COMPLETING — the next " +
+                 "swing cannot begin until (clip length ÷ tool-use speed) has elapsed since this swing started, so " +
+                 "the swing animation plays to COMPLETION and ONE completed swing = exactly ONE chop (the Sponsor's " +
+                 "soak-reject fix: 'the animation is not allowed to finish and the tree goes down too fast'). The " +
+                 "LIVE cadence prefers CastawayCharacter.MeleeClipLength (read from the actual imported clip); this " +
+                 "serialized value is the fallback used only when no Animator/controller/clip is available (a bare " +
+                 "headless test rig). ~1.6 s ≈ the authored Mixamo 'Standing Melee Attack Downward' length; the " +
+                 "live read overrides it in the shipped build. Must be ≥ swingImpactDelaySeconds (impact lands " +
+                 "mid-clip; the clip finishes after).")]
+        public float swingClipLengthSeconds = 1.6f;
+
         [Tooltip("Deterministic seed for the regrow-time rolls (so headless tests are reproducible). 0 = use " +
                  "a time-based seed at runtime. Each instance derives its own sub-seed so trees regrow on " +
                  "distinct timers. Mirrors BerryBush.regrowSeed.")]
@@ -236,6 +249,15 @@ namespace FarHorizon
         private float _impactAt;
         private ChoppableTreeState _pendingTarget;
 
+        // HOLD-TO-CHOP cadence (86caf7a0p re-iter — the Sponsor soak-reject fix). The wall-clock time the CURRENT
+        // swing's CLIP finishes playing (swing-start + clip length ÷ tool-use speed). The NEXT swing of a held
+        // chain cannot begin until Time.time >= this, so the swing ANIMATION plays to COMPLETION before the next
+        // swing starts — ONE completed swing = exactly ONE chop (no mid-clip restart cutting the animation off,
+        // which was making the tree go down too fast). The impact still lands mid-clip (swingImpactDelaySeconds),
+        // but the REPEAT GATE is clip completion, not the impact. NegativeInfinity = no swing in flight (the gate
+        // is open). A single click does NOT consult this (it never chains); only the hold-repeat path gates on it.
+        private float _swingEndsAt = float.NegativeInfinity;
+
         // HOLD-TO-CHOP (86caf7a0p) — the LOCKED chain target. A swing chain locks onto the tree resolved at the
         // START of the hold (the first press's nearest-in-range tree) and keeps swinging THAT tree while the
         // button is held — it does NOT re-acquire a different tree mid-hold (AC2: default = stop on fall, require
@@ -262,6 +284,22 @@ namespace FarHorizon
         /// (refinement 3). Exposed so a PlayMode test can assert the click→swing→(delay)→effect ordering and the
         /// single-flight guard (a second click while this is true must not stack).</summary>
         public bool ImpactPending => _impactPending;
+
+        /// <summary>HOLD-TO-CHOP cadence (86caf7a0p re-iter) — true while the CURRENT swing's CLIP is still playing
+        /// (Time.time &lt; the swing-end time). A held chain cannot begin its NEXT swing while this is true — the
+        /// swing animation must finish first (the Sponsor soak-reject fix). Note this stays true PAST the impact
+        /// (the impact lands mid-clip; the clip keeps playing until completion), which is exactly why the cadence
+        /// is now ≥ clip length, not the shorter impact delay. Exposed so a PlayMode test can assert the next swing
+        /// is gated on clip completion (no mid-clip restart).</summary>
+        public bool SwingInProgress => Time.time < _swingEndsAt;
+
+        /// <summary>HOLD-TO-CHOP cadence (86caf7a0p re-iter) — the effective per-swing CLIP DURATION (seconds) the
+        /// repeat gate uses for the GIVEN tool-use speed: the live clip length (CastawayCharacter.MeleeClipLength)
+        /// when available else the serialized <see cref="swingClipLengthSeconds"/> fallback, divided by the clamped
+        /// chopSpeed. This is the minimum spacing between two completed swings of a hold chain. Exposed so a
+        /// PlayMode/EditMode test can assert the cadence ties to the clip length (≥ it at 1×) and scales with
+        /// speed — without reaching into private timing state.</summary>
+        public float EffectiveSwingDurationSeconds => ComputeSwingDuration();
 
         /// <summary>HOLD-TO-CHOP (86caf7a0p) — true while a swing CHAIN is active: the button is held and a tree is
         /// locked as the chain target (a swing is pending, or the next swing is about to begin on the held button).
@@ -435,6 +473,8 @@ namespace FarHorizon
             // resolved above) and bail. This is the RELEASE path (AC1): releasing stops the repeat; the swing that
             // was mid-flight has already committed its single impact via the impact-resolve block above. Releasing
             // also CLEARS the STOP-ON-FALL suppression so the NEXT press chains anew (re-press for the next tree).
+            // This runs BEFORE the clip-completion gate below so a RELEASE always drops the lock immediately — even
+            // if the swing animation is still playing out (the in-flight swing's committed impact already landed).
             if (!effectiveHeld) { _chainTarget = null; _suppressUntilRepress = false; return; }
 
             // STOP-ON-FALL suppression (AC2): the locked target felled while the button stayed held → do not start
@@ -445,6 +485,18 @@ namespace FarHorizon
                 if (_freshPress) _suppressUntilRepress = false; // the re-press — allow a new chain to start
                 else return;                                    // still the same hold — stay stopped
             }
+
+            // 86caf7a0p RE-ITER — CLIP-COMPLETION CADENCE GATE (the Sponsor soak-reject fix: "the animation is not
+            // allowed to finish and the tree goes down too fast because 1 hit is not = on finished animation").
+            // The impact lands MID-clip (~swingImpactDelaySeconds), but the swing CLIP keeps playing to completion;
+            // the NEXT swing must not begin until that clip has FINISHED — else TriggerChop re-fires the Attack
+            // state mid-clip (AnyState→Attack canTransitionToSelf), cutting the animation off and over-pacing the
+            // chops. So while the current swing's clip is still playing AND the button is still held, no new swing
+            // begins this frame (the chain stays LOCKED — _chainTarget is untouched — and simply waits). The repeat
+            // cadence is therefore one COMPLETED swing per chop (≥ clip length ÷ tool-use speed), not the shorter
+            // impact delay. Placed AFTER the release/suppress checks so a release still drops the lock immediately;
+            // a single click is unaffected (it arrives with the gate open — _swingEndsAt = -inf — and fires now).
+            if (SwingInProgress) return;
 
             // The full chop decision (pure static so the guard truth-table is unit-testable): the axe-SELECTED gate
             // (load-bearing) + the three world-click guards (modal panel open; pointer over the inventory/belt UI;
@@ -602,6 +654,30 @@ namespace FarHorizon
             _pendingTarget = target;
             _impactAt = Time.time + delay;
             _impactPending = true;
+
+            // 86caf7a0p RE-ITER — mark when this swing's CLIP FINISHES (the repeat-cadence gate). The next held
+            // swing cannot begin until Time.time >= this, so the swing animation plays to COMPLETION before the
+            // next one starts — ONE completed swing = ONE chop. ComputeSwingDuration already speed-scales the clip
+            // length (live MeleeClipLength preferred; serialized fallback), so this rides tool-use speed exactly
+            // like the impact delay. Clamped ≥ the impact delay so the clip never "finishes" before its own impact.
+            _swingEndsAt = Time.time + Mathf.Max(delay, ComputeSwingDuration());
+        }
+
+        /// <summary>
+        /// 86caf7a0p RE-ITER — the effective swing CLIP duration (seconds) at the current tool-use speed: the LIVE
+        /// authored clip length (<see cref="CastawayCharacter.MeleeClipLength"/>, read from the actual imported
+        /// Mixamo melee clip) when available, else the serialized <see cref="swingClipLengthSeconds"/> fallback (a
+        /// bare headless rig with no Animator), divided by the clamped chopSpeed. This is the minimum spacing
+        /// between two COMPLETED swings of a hold chain — the cadence ties to the ACTUAL clip, not a magic number.
+        /// </summary>
+        private float ComputeSwingDuration()
+        {
+            float speed = character != null
+                ? Mathf.Clamp(character.chopSpeed, CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax)
+                : 1f;
+            float liveLen = character != null ? character.MeleeClipLength : 0f;
+            float authored = liveLen > 0f ? liveLen : Mathf.Max(0f, swingClipLengthSeconds);
+            return authored / Mathf.Max(0.0001f, speed);
         }
 
         // Refinement 3 — APPLY the chop effect at IMPACT: yield wood (AC2), advance the count, and fell it on the
