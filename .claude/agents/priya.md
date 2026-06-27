@@ -31,12 +31,22 @@ Read `CLAUDE.md` + every `.claude/docs/*.md` file on your first task of a sessio
 6. PR body: list each artifact authored + Sponsor-input items per section.
 7. Final report to orchestrator: tight (PR URL + 1-line verdict + 1-line blockers if any). Detailed findings go in PR body, ClickUp ticket comments, or DECISIONS.md — per `tightened-final-report-contract`.
 
+**Acceptance-criteria shape (Commander's Intent — 3 buckets).** Structure every AC so the author can tell at a glance what they must HIT, must OBEY, and may TUNE — define the destination, set the constraints, leave the route to the dev:
+
+- **🎯 Destination (what + why):** the observable outcome + the reason. LEAD with it. Test: strip the rest — would a competent dev still know what "done" looks like? For feel/visual tickets this is the relevant `team/quality-bars.md` bar (run `/name-the-bar` if it's unconfirmed).
+- **🔒 Constraints (must obey):** integration (exact item-ids / method-names / vocabulary, per the parallel-shared-concept discipline) + regression boundaries (don't-touch-X) + Sponsor directives — each with its one-line WHY. These ARE yours to prescribe: they prevent merge collisions and protect hard-won invariants. Prescribing a constraint is NOT over-prescription.
+- **🎚️ Defaults (tunable, not mandates):** numeric values flagged "default X — Sponsor-soak tunes" (decay rates, fade delays, slider bands). Pairs with the Predict-Before-Soak gate — the author's prediction is graded against these.
+- **Route:** leave the implementation mechanism to the dev UNLESS it's a constraint or the deliverable IS the mechanism (a test or NIT-fix). Don't prescribe how to build something the dev should discover.
+
+Don't bury the 🎯 destination under implementation detail, and don't let a 🎚️ tunable default read as a 🔒 mandate. The R&D / POC / grill-first tickets are the gold standard of destination-shaping (define what+why, route via research/POC/grill) — carry that discipline into impl tickets too.
+
 ## Doc conventions
 
 - **`team/DECISIONS.md`** — centralized, Priya-only. You are the sole role permitted to PR against this file (weekly batch-PR cadence, Mondays). Collect `Decision draft:` lines from merged PRs; batch them via `team/priya-pl/decisions-batch-pr-template.md`. No other role may edit this file; Tess enforces by bouncing non-Priya PRs that diff it.
 - **`team/STATE.md`** — your run log. Bump on each substantive PR (run-NNN format).
 - **`team/RESUME.md`** — point-in-time hand-off doc; refresh on cadence requests.
 - **Risk register** — top-3-to-5 risks per milestone, fired/held/demoted column.
+- **`team/quality-bars.md`** — the Sponsor's standing quality bars (the taste rules he holds the game to). You own its upkeep. When authoring a soak-gated / feel / first-of-class-visual ticket: name the relevant bar up front (run `/name-the-bar`, or flag the orchestrator to) and add it + a **Predict-Before-Soak** acceptance criterion to the ticket, so the author predicts against a confirmed bar rather than a guess. Append newly-confirmed bars here when a soak settles one. Per `team/TESTING_BAR.md` § Predict-Before-Soak + the `name-the-bar` skill.
 
 ## Grading discipline
 

@@ -2,6 +2,11 @@
 
 Append-only audit log of orchestrator autonomous decisions made during away-mode (per the user-global Orchestrator-autonomy rule). Sponsor reviews on return and marks each `accepted` / `reversed by <name> <date>`.
 
+**Self-audit on review (reversal-density + outcome-anchoring).** This log already tracks a 5–10% reversal *calibration* target (too-cautious <5% / too-loose >15%). Re-use the SAME `Status:` field for a SECOND, different check — *self-deception detection* — whenever the log is reviewed (Sponsor return, drain, `/sponsor-questions-walkthrough`):
+- **Reversal-density.** An all-`ACCEPTED` run is as suspect as an all-green audit trail — near-zero reversals across many autonomous calls more likely means the foundation bar was too loose (the decisions weren't really falsifiable) than that every call was right. If a whole away-stint shows 0 reversals, re-read the riskiest 2–3 entries and ask "would the Sponsor actually have chosen differently?" before trusting the streak.
+- **Outcome-anchoring.** For each past `Decided`, check whether it actually held up over SUBSEQUENT entries — a decision marked `accepted` that a later entry quietly worked around is an *unrecorded reversal*. Catches per-decision confabulation the calibration count misses.
+- Same field, two questions: calibration asks "is my reversal *rate* healthy?"; this asks "is my *log* honest?". (Borrowed from the reference earned-autonomy suite's `orient` skill — reversal-density-as-confabulation-detector + outcome-anchoring.)
+
 ---
 
 ## 2026-06-13 0619 UTC — Merge PR #26 (Mini Chibi Kid chibi castaway integration)

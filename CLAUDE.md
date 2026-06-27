@@ -30,7 +30,7 @@ A 3D survival game built in **Unity 6 (6000.4.11f1) / URP**, desktop-first (Wind
 ## Hard rules (orchestrator + team)
 
 - **`main` is protected.** PR-flow + `gh pr merge --admin --squash --delete-branch` only. (Bootstrap exception: U1/U2 root scaffolding landed direct, recorded on their tickets.)
-- **Testing bar.** Paired EditMode/PlayMode tests + green checks + a SHIPPED-BUILD verification (built exe runs; capture evidence for anything visual) + Tess sign-off before "complete". Sponsor will not debug. See `team/TESTING_BAR.md`.
+- **Testing bar.** Paired EditMode/PlayMode tests + green checks + a SHIPPED-BUILD verification (built exe runs; capture evidence for anything visual) + Tess sign-off before "complete". Sponsor will not debug. Soak-gated/feel PRs additionally carry a **Predict-Before-Soak** line (a falsifiable pre-soak prediction graded against the soak) + a **bounded convergence claim** (name the bar tested + the bars NOT tested). See `team/TESTING_BAR.md`.
 - **Shipped-build capture gate** (successor to the HTML5 gate): anything UX/visually-visible needs evidence captured from the BUILT exe (not just the editor) before merge — editor-vs-runtime divergence is a proven failure class (spike iter6 "legs-up" incident).
 - **Self-Test Report gate.** UX-visible PRs need an author-posted Self-Test Report comment before Tess reviews.
 - **ClickUp status as hard gate.** Every dispatch / PR-open / merge pairs with a status move on list `901523878268` in the same tool round.
@@ -68,6 +68,6 @@ Auto-loaded at session start via `.claude/hooks/session-start-read-docs.sh`. **S
 
 ## Key references
 
-- **Team / process docs:** [`team/`](team/) — TESTING_BAR.md (Unity testing bar), GIT_PROTOCOL.md, ROLES.md, STATE.md (live coordination), DECISIONS.md (append-only log; see its header protocol), RESUME.md, per-role subdirs, `team/orchestrator/dispatch-template.md`.
+- **Team / process docs:** [`team/`](team/) — TESTING_BAR.md (Unity testing bar; incl. Predict-Before-Soak + bounded silence), GIT_PROTOCOL.md, ROLES.md, STATE.md (live coordination), DECISIONS.md (append-only log; see its header protocol), RESUME.md, quality-bars.md (Sponsor-confirmed standing quality bars; maintained via the `/name-the-bar` skill), per-role subdirs, `team/orchestrator/dispatch-template.md`.
 - **Godot-era archive:** `c:/Trunk/PRIVATE/RandomGame` (repo + ClickUp list "RandomGame") — full history, decisions, and the `.claude/docs` Godot doc set. Cite it for history; never resume development there.
 - **Eval spike (read-only):** `c:/Trunk/PRIVATE/EmbergraveUnitySlice` — working reference for the M-U1 ports (click-move, orbit camera, Zone-D look, castaway, FINDINGS.txt).
