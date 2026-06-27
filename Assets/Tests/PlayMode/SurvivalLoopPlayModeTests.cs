@@ -87,6 +87,7 @@ namespace FarHorizon.PlayTests
             _tree.chopsToFell = 3;
             _tree.chopInterval = 0f;       // CHANGE 1: chop is per LEFT-CLICK; no cooldown in the test
             _tree.inventoryUI = null;      // no UI rig → over-UI guard skipped (modal/RMB false in headless)
+            _tree.swingImpactDelaySeconds = 0.1f; // refinement 3: short impact delay so the Beat-2 loop can wait it out
 
             // Campfire + placement gate.
             _fireGo = new GameObject("Campfire");
@@ -154,11 +155,19 @@ namespace FarHorizon.PlayTests
             // chop here (same _inv). CHANGE 1 (86caa4c5c): the chop is now per LEFT-CLICK (not proximity-auto),
             // so drive chopsToFell click-requests via the programmatic seam (a headless run can't inject a real
             // mouse button) — one chop per click — until the tree fells.
+            // REFINEMENT 3 (86caa4c5c, 2026-06-27): the chop EFFECT is now DEFERRED to the swing IMPACT frame and
+            // a 2nd click while a swing's impact is PENDING is dropped (single-flight). So a 1-frame-per-click loop
+            // would drop clicks 2-3 AND never reach the impact → IsFelled stays false. Each iteration must now WAIT
+            // OUT the impact window (mirrors ChopTreePlayModeTests.ClickChop) so each chop's effect resolves before
+            // the next click is issued. (Test-only: no runtime change.)
             _playerGo.transform.position = TreePos;
             for (int i = 0; i < _tree.chopsToFell && !_tree.IsFelled; i++)
             {
                 _tree.RequestChopClick();
-                yield return null;
+                yield return null;                 // consume the click → schedule the impact
+                float impactStart = Time.time;
+                while (_tree.ImpactPending && Time.time - impactStart < 1f) yield return null; // wait out the impact
+                yield return null;                 // one more frame for the impact-resolve Update to apply the effect
             }
             Assert.IsTrue(_tree.IsFelled, "Beat 2: the axe-holding castaway fells the tree by clicking (CHANGE 1)");
             Assert.GreaterOrEqual(_inv.WoodCount, _place.woodCost,
