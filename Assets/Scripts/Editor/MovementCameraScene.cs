@@ -1070,17 +1070,10 @@ namespace FarHorizon.EditorTools
                       "', character='" + (pose.character != null ? pose.character.name : "<null>") +
                       "', runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
 
-            // CHOP SWING DRIVER (86caa4c5c AC1) — author the ChopPoseDriver onto the SAME castaway object,
-            // wired to this CastawayArmPose. It writes the one-shot swing offset into pose.swingOverrideEuler
-            // each frame DURING a swing (order 10, BEFORE ArmPose's order 50), then resets to zero at rest. It
-            // MUST be serialized into Boot.unity (the editor-vs-runtime trap, unity-conventions.md) — an
-            // Awake-only GetComponentInParent fallback exists but is the non-ship path. ChopTree's poseDriver
-            // ref is then wired in BuildChopTree (which runs after the castaway is authored).
-            var chopDriver = castaway.GetComponent<ChopPoseDriver>();
-            if (chopDriver == null) chopDriver = castaway.gameObject.AddComponent<ChopPoseDriver>();
-            chopDriver.armPose = pose;
-            Debug.Log("[MovementCameraScene] ChopPoseDriver authored on castaway (armPose wired: " +
-                      (chopDriver.armPose != null) + ")");
+            // CHOP SWING (86caa4c5c change-(b)) — the swing is now the Mixamo melee Animator Attack state
+            // (CastawayCharacter.TriggerChop), NOT a procedural bone offset. The rejected ChopPoseDriver and its
+            // authoring here were REMOVED. The Attack state + Chop trigger live in CastawayAnimator.controller
+            // (CharacterAssetGen.BuildAnimatorController); ChopTree.character is wired in BuildChopTree.
         }
 
         // The right-hand FINGER + THUMB bone tokens to curl (86ca8rdkp re-soak #4). Index/Middle/Ring proximal
@@ -1377,25 +1370,27 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire ChopTree to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
 
-            // Wire the SWING driver (AC1) — the ChopPoseDriver authored onto the castaway in AddArmPose (which
-            // runs inside BuildPlayer, BEFORE this). Each landed chop calls poseDriver.TriggerSwing() so the arm
-            // swings; the held axe (HeldAxeRig order 100) follows the swung hand automatically. Serialized here
-            // so the ref ships in Boot.unity (null is graceful at runtime — the chop still yields wood).
-            chop.poseDriver = Object.FindObjectOfType<ChopPoseDriver>();
-            if (chop.poseDriver == null)
-                Debug.LogWarning("[MovementCameraScene] no ChopPoseDriver in scene to wire ChopTree.poseDriver " +
-                                 "to — the chop will yield wood but the arm won't swing (AddArmPose must author " +
-                                 "the ChopPoseDriver before BuildChopTree)");
+            // Wire the SWING (AC1 / change-(b)) — the castaway (CastawayCharacter) whose TriggerChop() plays the
+            // Mixamo melee Attack state, authored in BuildPlayer BEFORE this. Each landed chop calls
+            // character.TriggerChop() so the arm swings; the held axe (HeldAxeRig order 100) follows the swung hand
+            // automatically. Serialized here so the ref ships in Boot.unity (null is graceful at runtime — the chop
+            // still yields wood). REPLACES the rejected procedural ChopPoseDriver.
+            chop.character = Object.FindObjectOfType<CastawayCharacter>();
+            if (chop.character == null)
+                Debug.LogWarning("[MovementCameraScene] no CastawayCharacter in scene to wire ChopTree.character " +
+                                 "to — the chop will yield wood but the arm won't swing (BuildPlayer must author " +
+                                 "the castaway before BuildChopTree)");
 
-            // Wire the SETTINGS PANEL's chop refs (86caa4c5c V1/V2) now that BOTH the driver and the tree exist
-            // (BuildSettingsPanel ran before this, so its serialized chopDriver/chopTree were not yet resolvable
-            // at panel-author time). `tool-use speed` flips live to the driver's swingSpeed; `tree regrowth
-            // time` binds to this tree's regrow min/max. A runtime Awake FindObjectOfType is the fallback; this
-            // serializes the refs so the rows are live in the shipped build without a scene search.
+            // Wire the SETTINGS PANEL's chop refs (86caa4c5c V1/V2 / change-(b)) now that BOTH the castaway and the
+            // tree exist (BuildSettingsPanel ran before this, so its serialized chopCharacter/chopTree were not yet
+            // resolvable at panel-author time). `tool-use speed` flips live to the castaway's chopSpeed (the melee
+            // Attack-state playback rate); `tree regrowth time` binds to this tree's regrow min/max. A runtime
+            // Awake FindObjectOfType is the fallback; this serializes the refs so the rows are live in the shipped
+            // build without a scene search.
             var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
             if (settingsPanel != null)
             {
-                settingsPanel.chopDriver = chop.poseDriver;
+                settingsPanel.chopCharacter = chop.character;
                 settingsPanel.chopTree = chop;
                 EditorUtility.SetDirty(settingsPanel);
             }

@@ -1,32 +1,38 @@
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using FarHorizon;
 using FarHorizon.Settings;
 
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// AC1+AC3 guard for the CHOP settings wiring (ticket 86caa4c5c, V1/V2). Proves SettingsCatalog.PopulateChop:
+    /// AC1+AC3 guard for the CHOP settings wiring (ticket 86caa4c5c, V1/V2 / change-(b)). Proves
+    /// SettingsCatalog.PopulateChop:
     ///   • FLIPS the reserved `tool_use_speed` row LIVE (V1) — `Populate` registers it greyed; with a chop
-    ///     driver it becomes Available and bound to ChopPoseDriver.swingSpeed (NOT a second row — no
-    ///     duplicate-id throw, which Register would raise; the remove-then-add seam is the only safe path);
+    ///     CASTAWAY it becomes Available and bound to CastawayCharacter.chopSpeed (the Mixamo melee Attack-state
+    ///     playback rate — change-(b), replacing ChopPoseDriver.swingSpeed) (NOT a second row — no duplicate-id
+    ///     throw, which Register would raise; the remove-then-add seam is the only safe path);
     ///   • registers `tree_regrowth_time` as a LIVE RANGE row (V2) driving ChopTree.regrowthMin/Max;
-    ///   • is a NO-OP with a null driver/tree (the row stays greyed / absent — chop-less rig / bare test
+    ///   • is a NO-OP with a null character/tree (the row stays greyed / absent — chop-less rig / bare test
     ///     unaffected, so SettingsCatalogTests' "tool-use speed is a greyed hook" assertion still holds).
     /// Drives the real components (plain public fields) so this proves the bindings hit the actual params.
     /// </summary>
     public class SettingsCatalogChopTests
     {
-        private GameObject _driverGo, _treeGo;
-        private ChopPoseDriver _driver;
+        private GameObject _charGo, _treeGo;
+        private CastawayCharacter _character;
         private ChopTree _tree;
 
         [SetUp]
         public void SetUp()
         {
-            _driverGo = new GameObject("Castaway");
-            _driver = _driverGo.AddComponent<ChopPoseDriver>();
-            _driver.swingSpeed = 1f;
+            // CastawayCharacter.Awake logs a "modelPrefab not wired" error in a bare EditMode rig (no scene). Expect
+            // it so the test isn't flagged for an unexpected log; we only exercise the chopSpeed field binding.
+            LogAssert.ignoreFailingMessages = true;
+            _charGo = new GameObject("Castaway");
+            _character = _charGo.AddComponent<CastawayCharacter>();
+            _character.chopSpeed = 1f;
 
             _treeGo = new GameObject("ChopTree");
             _tree = _treeGo.AddComponent<ChopTree>();
@@ -37,8 +43,9 @@ namespace FarHorizon.EditTests
         [TearDown]
         public void TearDown()
         {
-            Object.DestroyImmediate(_driverGo);
+            Object.DestroyImmediate(_charGo);
             Object.DestroyImmediate(_treeGo);
+            LogAssert.ignoreFailingMessages = false;
             // Clear any PlayerPrefs the SetValue path wrote, so runs don't leak across tests.
             PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ToolSpeedId);
             PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.TreeRegrowthId + ".min");
@@ -46,10 +53,10 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void PopulateChop_FlipsToolUseSpeed_Live_BoundToSwingSpeed_NoDuplicateRow()
+        public void PopulateChop_FlipsToolUseSpeed_Live_BoundToChopSpeed_NoDuplicateRow()
         {
             // Full Build path (orbit/wasd null is fine — those settings are simply skipped) with the chop refs.
-            var reg = SettingsCatalog.Build(null, null, null, _driver, _tree);
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree);
 
             Assert.IsTrue(reg.Has(SettingsCatalog.ToolSpeedId), "tool-use speed row present");
             var toolSpeed = reg.Get(SettingsCatalog.ToolSpeedId) as FloatSettingEntry;
@@ -62,18 +69,18 @@ namespace FarHorizon.EditTests
             foreach (var e in reg.Entries) if (e.Id == SettingsCatalog.ToolSpeedId) count++;
             Assert.AreEqual(1, count, "exactly one tool_use_speed row (no duplicate-id collision)");
 
-            // The row READS the live swing speed...
-            _driver.swingSpeed = 2.0f;
-            Assert.AreEqual(2.0f, toolSpeed.Value, 1e-4f, "tool-use speed reads ChopPoseDriver.swingSpeed");
+            // The row READS the live chop speed...
+            _character.chopSpeed = 2.0f;
+            Assert.AreEqual(2.0f, toolSpeed.Value, 1e-4f, "tool-use speed reads CastawayCharacter.chopSpeed");
             // ...and WRITES it (drives the game immediately — AC2 of the settings ticket).
             toolSpeed.SetValue(0.5f);
-            Assert.AreEqual(0.5f, _driver.swingSpeed, 1e-4f, "tool-use speed drives ChopPoseDriver.swingSpeed live");
+            Assert.AreEqual(0.5f, _character.chopSpeed, 1e-4f, "tool-use speed drives CastawayCharacter.chopSpeed live");
         }
 
         [Test]
         public void PopulateChop_RegistersTreeRegrowthRange_Live_BoundToRegrowMinMax()
         {
-            var reg = SettingsCatalog.Build(null, null, null, _driver, _tree);
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree);
 
             Assert.IsTrue(reg.Has(SettingsCatalog.TreeRegrowthId), "tree regrowth time row present (V2)");
             var regrow = reg.Get(SettingsCatalog.TreeRegrowthId) as RangeSettingEntry;
@@ -99,7 +106,7 @@ namespace FarHorizon.EditTests
 
             Assert.IsTrue(reg.Has(SettingsCatalog.ToolSpeedId), "tool-use speed row still present");
             Assert.IsFalse(reg.Get(SettingsCatalog.ToolSpeedId).Available,
-                "with no chop driver, tool-use speed STAYS the greyed extension hook");
+                "with no chop character, tool-use speed STAYS the greyed extension hook");
             Assert.IsFalse(reg.Has(SettingsCatalog.TreeRegrowthId),
                 "with no chop tree, the tree regrowth row is absent (no dead knob)");
         }
@@ -111,7 +118,7 @@ namespace FarHorizon.EditTests
             // throw on the remove-then-add (the duplicate-id guard would throw without the Remove seam).
             var reg = new SettingsRegistry();
             SettingsCatalog.Populate(reg, null, null);     // adds ToolSpeedId greyed
-            Assert.DoesNotThrow(() => SettingsCatalog.PopulateChop(reg, _driver, _tree),
+            Assert.DoesNotThrow(() => SettingsCatalog.PopulateChop(reg, _character, _tree),
                 "flipping the greyed tool_use_speed live must not throw (remove-then-add, not double-register)");
             Assert.IsTrue(reg.Get(SettingsCatalog.ToolSpeedId).Available, "it is now live after the flip");
         }

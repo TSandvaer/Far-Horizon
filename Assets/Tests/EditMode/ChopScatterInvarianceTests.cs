@@ -10,7 +10,7 @@ namespace FarHorizon.EditTests
     /// SEED-42 BYTE-INVARIANCE guard for the chop ticket (86caa4c5c AC5 / V4: "use the EXISTING seed-42
     /// world-gen tree scatter — do NOT break the island scatter / NavMesh"). Chop READS the tree scatter
     /// (it reuses the existing wired ChopTree + the world's blob-canopy language); it never SCATTERS — its
-    /// authoring lives entirely in MovementCameraScene (BuildChopTree + the ChopPoseDriver on the castaway),
+    /// authoring lives entirely in MovementCameraScene (BuildChopTree + the melee Attack state on the castaway),
     /// NOT in LowPolyZoneGen.ScatterIslandProps's seeded stream. So the seed-42 placement is byte-identical
     /// by construction. This guard PINS that:
     ///
@@ -85,14 +85,15 @@ namespace FarHorizon.EditTests
         [Test]
         public void ChopComponents_LiveInTheRuntimeAsmdef_NotTheEditorScatterStream()
         {
-            // Structural proof chop can't touch the seeded scatter: ChopTree + ChopPoseDriver are RUNTIME
+            // Structural proof chop can't touch the seeded scatter: ChopTree + CastawayCharacter are RUNTIME
             // components (FarHorizon namespace / FarHorizon.Runtime asmdef), while ScatterIslandProps lives in
             // LowPolyZoneGen (FarHorizon.EditorTools / FarHorizon.Editor asmdef). A runtime component cannot run
-            // inside the editor-time scatter bake.
+            // inside the editor-time scatter bake. (change-(b): the chop swing is CastawayCharacter.TriggerChop /
+            // the Mixamo melee Animator state now — the procedural ChopPoseDriver was removed.)
             Assert.AreEqual("FarHorizon", typeof(ChopTree).Namespace,
                 "ChopTree is a runtime component, not part of the editor scatter generator");
-            Assert.AreEqual("FarHorizon", typeof(ChopPoseDriver).Namespace,
-                "ChopPoseDriver is a runtime component, not part of the editor scatter generator");
+            Assert.AreEqual("FarHorizon", typeof(CastawayCharacter).Namespace,
+                "CastawayCharacter (TriggerChop — the chop swing) is a runtime component, not the scatter generator");
             Assert.AreEqual("FarHorizon.EditorTools", typeof(LowPolyZoneGen).Namespace,
                 "the scatter generator is editor-only (a separate asmdef from the chop runtime)");
         }

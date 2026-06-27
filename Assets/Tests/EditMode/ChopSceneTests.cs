@@ -39,10 +39,11 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(tree.visual,
                 "ChopTree's visual reference must be wired editor-time so the felling tween animates the " +
                 "serialized tree mesh (the thin-but-felt feedback)");
-            Assert.IsNotNull(tree.poseDriver,
-                "ChopTree's poseDriver reference must be wired editor-time (86caa4c5c AC1) so each landed " +
-                "chop swings the arm in the shipped build — an Awake-only FindObjectOfType fallback exists " +
-                "but is the non-ship path (editor-vs-runtime serialization trap, unity-conventions.md)");
+            Assert.IsNotNull(tree.character,
+                "ChopTree's character reference must be wired editor-time (86caa4c5c change-(b)) so each landed " +
+                "chop plays the Mixamo melee swing (CastawayCharacter.TriggerChop) in the shipped build — an " +
+                "Awake-only FindObjectOfType fallback exists but is the non-ship path (editor-vs-runtime " +
+                "serialization trap, unity-conventions.md)");
             Assert.IsNotNull(tree.inventoryUI,
                 "ChopTree's inventoryUI reference must be wired editor-time (86caa4c5c CHANGE 1) so a left-click " +
                 "OVER the belt/inventory UI does NOT chop the tree behind it in the shipped build — wired in " +
@@ -51,25 +52,23 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_CarriesChopPoseDriver_OnCastaway_WiredToArmPose()
+        public void BootScene_ChopTree_WiredToCastaway_ForTheMeleeSwing()
         {
-            // AC1 — the procedural swing driver must be SERIALIZED onto the castaway (with its armPose wired),
-            // not added at Awake (the editor-vs-runtime trap would ship it mangled/absent → the chop swing
-            // would be silently inert in the build). It must sit on the SAME object as the CastawayArmPose it
-            // drives, and at order 10 (< ArmPose's 50) so its offset is composed the same frame.
+            // change-(b) — the chop swing is now the Mixamo melee Animator Attack state (CastawayCharacter
+            // .TriggerChop), NOT a procedural ChopPoseDriver. The ChopTree must hold a SERIALIZED ref to the
+            // castaway so each chop plays the swing in the shipped build (no Awake scene-search on the ship path).
+            // The castaway that ref points at must itself carry the Animator controller that has the Attack state.
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
 
-            ChopPoseDriver driver = FindInScene<ChopPoseDriver>(scene);
-            Assert.IsNotNull(driver,
-                "the Boot scene must carry the ChopPoseDriver (the procedural chop swing, AC1) — serialized " +
-                "editor-time onto the castaway, not Awake-built");
-            Assert.IsNotNull(driver.armPose,
-                "ChopPoseDriver.armPose must be wired editor-time so the swing offset reaches the arm without " +
-                "an Awake-time GetComponentInParent in the build");
-            Assert.IsNotNull(driver.GetComponent<CastawayArmPose>(),
-                "the driver must sit on the SAME object as the CastawayArmPose it feeds (so order 10 < 50 " +
-                "composes its offset onto the arm pose the same LateUpdate)");
+            ChopTree tree = FindInScene<ChopTree>(scene);
+            Assert.IsNotNull(tree, "the Boot scene must carry the ChopTree");
+            Assert.IsNotNull(tree.character,
+                "ChopTree.character must be wired editor-time (change-(b)) so each chop plays the melee swing " +
+                "via CastawayCharacter.TriggerChop in the shipped build (editor-vs-runtime serialization trap)");
+            Assert.IsNotNull(tree.character.animatorController,
+                "the wired castaway must carry the Animator controller (with the chop Attack state) so the " +
+                "Chop trigger has a state to fire — a null controller would make TriggerChop a silent no-op");
         }
 
         [Test]

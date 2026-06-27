@@ -7,9 +7,10 @@ namespace FarHorizon
     /// <summary>
     /// The chop-a-tree mechanic + the player SWING animation (ticket 86caa4c5c). The gameplay-wave
     /// successor to the U2-3 thin chop (86ca8bdd8): a tree the castaway reaches, then — WITH THE AXE
-    /// SELECTED in the belt — chops by LEFT-CLICKING (like an attack); each click SWINGS the arm
-    /// (ChopPoseDriver) + yields <c>wood</c> into the inventory; after <see cref="chopsToFell"/> clicks the
-    /// tree FELLS to a STUMP, and the stump REGROWS into a tree after a tweakable random delay.
+    /// SELECTED in the belt — chops by LEFT-CLICKING (like an attack); each click SWINGS the arm via the
+    /// Mixamo melee Attack animation (CastawayCharacter.TriggerChop — change-(b), replacing the rejected
+    /// procedural ChopPoseDriver) + yields <c>wood</c> into the inventory; after <see cref="chopsToFell"/>
+    /// clicks the tree FELLS to a STUMP, and the stump REGROWS into a tree after a tweakable random delay.
     ///
     /// === CHANGE (a) — EVERY scatter tree is choppable (Sponsor soak, 2026-06-25 — only ONE tree chopped) ===
     /// This component is now a chop-target RESOLVER over MANY tree instances, NOT a single hardcoded tree.
@@ -50,8 +51,8 @@ namespace FarHorizon
     /// === AC1 — THE AXE-SELECTED GATE (load-bearing, UNCHANGED) ===
     /// The chop still requires the axe to be the SELECTED belt item (<see cref="Inventory.IsAxeSelectedInBelt"/>),
     /// NOT merely owned (HasAxe), AND the player in range of SOME tree. Each landed chop fires
-    /// <see cref="ChopPoseDriver.TriggerSwing"/> so the arm swings; the held axe (HeldAxeRig, order 100) follows
-    /// the swung hand automatically.
+    /// <see cref="CastawayCharacter.TriggerChop"/> (the Mixamo melee Attack state) so the arm swings; the held
+    /// axe (HeldAxeRig, order 100) follows the swung hand automatically.
     ///
     /// === AC2 — wood yield ===
     /// Each chop adds <see cref="DefaultChopYield"/> (the NAMED yield constant — ticket AC2a) via
@@ -74,7 +75,7 @@ namespace FarHorizon
     /// world rnd). Chopping never breaks the island scatter or the NavMesh.
     ///
     /// === Serialization (unity-conventions.md §editor-vs-runtime) ===
-    /// The demo tree GameObject + this component + its Inventory/player/visual/poseDriver/scatterRoot references
+    /// The demo tree GameObject + this component + its Inventory/player/visual/character/scatterRoot references
     /// are authored editor-time into Boot.unity, NOT at Awake — an Awake-built interaction/visual could ship
     /// MANGLED/absent (the legs-up class). ChopSceneTests guards the scene presence + that the refs serialize.
     ///
@@ -117,10 +118,11 @@ namespace FarHorizon
                  "tolerated (only the demo tree is then choppable — a bare test rig).")]
         public Transform scatterRoot;
 
-        [Tooltip("The player SWING driver (ChopPoseDriver on the castaway). Each landed chop calls its " +
-                 "TriggerSwing() so the arm swings (AC1). Wired at bootstrap; an Awake scene-search fallback. " +
-                 "Null is graceful — the chop still yields wood, just without the arm swing.")]
-        public ChopPoseDriver poseDriver;
+        [Tooltip("The castaway (CastawayCharacter) whose TriggerChop() plays the Mixamo melee SWING clip on each " +
+                 "landed chop (86caa4c5c change-(b) — the Animator Attack state replaces the rejected procedural " +
+                 "swing). Wired at bootstrap; an Awake scene-search fallback. Null is graceful — the chop still " +
+                 "yields wood, just without the arm swing.")]
+        public CastawayCharacter character;
 
         [Tooltip("The inventory/belt UI (CHANGE 1 — left-click chop). A left-click OVER this UI (the always-on " +
                  "belt strip, or the open pack) must NOT chop the tree behind it; the chop asks IsPointerOverUI. " +
@@ -208,7 +210,7 @@ namespace FarHorizon
                 if (ctm != null) player = ctm.transform;
             }
             if (visual == null) visual = transform;
-            if (poseDriver == null) poseDriver = FindObjectOfType<ChopPoseDriver>();
+            if (character == null) character = FindObjectOfType<CastawayCharacter>();
             // CHANGE 1 — the inventory/belt UI for the over-UI left-click guard (serialized editor-time; this
             // scene-search is the build-safety net). Null is tolerated — the over-UI guard is then skipped.
             if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
@@ -381,9 +383,9 @@ namespace FarHorizon
         {
             if (target == null || !target.IsChoppable || inventory == null) return;
 
-            // Swing the arm (AC1) — the held axe (HeldAxeRig) follows the swung hand automatically. Null is
-            // graceful (the wood still yields; just no swing).
-            if (poseDriver != null) poseDriver.TriggerSwing();
+            // Swing the arm (AC1) — TriggerChop plays the Mixamo melee Attack state; the held axe (HeldAxeRig)
+            // follows the swung hand automatically. Null is graceful (the wood still yields; just no swing).
+            if (character != null) character.TriggerChop();
 
             inventory.AddWood(Mathf.Max(1, woodPerChop));
             bool felled = target.LandChop(chopsToFell, regrowthMinSeconds, regrowthMaxSeconds);
@@ -392,7 +394,7 @@ namespace FarHorizon
             {
                 _tracedFirstChop = true;
                 ChopTrace("chop " + target.Chops + "/" + chopsToFell + " -> wood=" + inventory.WoodCount +
-                          " (swing=" + (poseDriver != null) + ")");
+                          " (swing=" + (character != null) + ")");
             }
             if (felled)
                 ChopTrace("tree FELLED after " + target.Chops + " chops (total wood=" + inventory.WoodCount +

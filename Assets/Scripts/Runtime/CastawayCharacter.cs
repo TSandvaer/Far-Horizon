@@ -165,6 +165,39 @@ namespace FarHorizon
         // Mirrors CharacterAssetGen.GroundedParam.
         public const string GroundedParam = "Grounded";
 
+        // The one-shot CHOP TRIGGER (86caa4c5c change-(b)) — pulsed by TriggerChop() on each landed chop so the
+        // Animator plays the Attack (Mixamo melee swing) state ONCE (AnyState→Attack) and returns to locomotion.
+        // REPLACES the rejected procedural ChopPoseDriver swing. Mirrors CharacterAssetGen.ChopParam.
+        public const string ChopParam = "Chop";
+        // The Attack-state SPEED MULTIPLIER float (86caa4c5c AC1 — tool-use speed). The Attack state's
+        // speedParameter reads it, so SetFloat scales the melee clip's PLAYBACK RATE (a fast/slow chop). The
+        // settings-panel `tool-use speed` row drives chopSpeed below, which TriggerChop pushes to this param.
+        // Mirrors CharacterAssetGen.ChopSpeedParam.
+        public const string ChopSpeedParam = "ChopSpeed";
+
+        [Header("Chop swing speed (86caa4c5c AC1 — tool-use speed; drives the Attack-state ChopSpeed param)")]
+        [Tooltip("TOOL-USE SPEED multiplier — scales the chop melee-clip PLAYBACK RATE. 1x = the authored swing " +
+                 "duration; 2x = twice as fast; 0.5x = half speed. The settings-panel `tool-use speed` row drives " +
+                 "this live (SettingsCatalog.PopulateChop); TriggerChop pushes it to the Animator's ChopSpeed param. " +
+                 "Clamped to a sane band so a dial can't stall (0) or blur (huge) the swing.")]
+        public float chopSpeed = 1f;
+
+        // Tool-use-speed clamp band — keep in sync with the ToolSpeedId slider band in SettingsCatalog.
+        public const float ChopSpeedMin = 0.25f;
+        public const float ChopSpeedMax = 3f;
+
+        // One-shot CHOP trace flag (the input-independent, headless-readable seam — the Animator does NOT tick
+        // headlessly, deltaTime≈0, so a PlayMode test can't observe the Attack state playing; instead it asserts
+        // TriggerChop fired the trigger via this flag, mirroring JumpTraceActive's role for the jump). Set true on
+        // each TriggerChop, exposed read-only; the chop count + wood + fell/regrow are the actual mechanic asserts.
+        private bool _chopTriggered;
+        /// <summary>True once <see cref="TriggerChop"/> has fired since the last <see cref="ConsumeChopTriggered"/>
+        /// (the headless-readable proof the chop swing was requested — the Animator can't be observed headlessly).
+        /// </summary>
+        public bool ChopTriggered => _chopTriggered;
+        /// <summary>Read-and-clear the chop-triggered latch (so a test can assert one chop fired one trigger).</summary>
+        public bool ConsumeChopTriggered() { bool v = _chopTriggered; _chopTriggered = false; return v; }
+
         private NavMeshAgent _agent;
         private Animator _animator;
         private Transform _model;       // the instantiated FBX root, yaw-rotated toward facing
@@ -298,6 +331,25 @@ namespace FarHorizon
             _jumpTracePostLandT = JumpTracePostLandSeconds;
             _jumpTraceActive = true;
             return true;
+        }
+
+        /// <summary>
+        /// Fire the CHOP swing (86caa4c5c change-(b)) — ChopTree calls this on each landed chop. Pushes the
+        /// current <see cref="chopSpeed"/> (clamped) to the Animator's ChopSpeed param (the Attack state's
+        /// speed multiplier — tool-use speed), then pulses the Chop trigger so the Animator plays the Mixamo
+        /// melee swing ONCE (AnyState→Attack) and returns to locomotion on the swing's exit. Replaces the
+        /// rejected procedural ChopPoseDriver. Null-Animator-safe (a bare test rig still ticks the mechanic);
+        /// always latches <see cref="ChopTriggered"/> so a headless test can prove the chop was requested
+        /// (the Animator can't be observed headlessly — deltaTime≈0).
+        /// </summary>
+        public void TriggerChop()
+        {
+            _chopTriggered = true;
+            if (_animator != null && _animator.runtimeAnimatorController != null)
+            {
+                _animator.SetFloat(ChopSpeedParam, Mathf.Clamp(chopSpeed, ChopSpeedMin, ChopSpeedMax));
+                _animator.SetTrigger(ChopParam); // fire the one-shot Attack state (AnyState→Attack on the trigger)
+            }
         }
 
         /// <summary>
