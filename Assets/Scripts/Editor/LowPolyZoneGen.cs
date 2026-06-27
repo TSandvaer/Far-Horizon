@@ -254,6 +254,13 @@ namespace FarHorizon.EditorTools
         // character). The 3-4 seed VARIANTS captured for the Sponsor pick the value baked here.
         public const int IslandSeed = 42;          // Sponsor's pick from the seed-variant captures (86ca9qwr3)
 
+        // The salt added to the island seed for the PROP-SCATTER RNG stream (`new System.Random(seed + 555)`
+        // in ScatterIslandProps). Named (was a magic 555) so the chop seed-42 byte-invariance guard
+        // (ChopScatterInvarianceTests, 86caa4c5c AC5) can assert the EXACT scatter stream is byte-identical
+        // without copying the literal — a future accidental change to the salt would re-roll every tree/rock/
+        // grass placement and that guard would catch it. (Read-only rename: same value 555, same stream.)
+        public const int ScatterSeedSalt = 555;
+
         // ============================================================================================
         // FRESHWATER-POND BOWL DEPRESSION (ticket 86cadj4g7 — Sponsor #130 re-soak: "the pond is an ELEVATED
         // LIP, not a depression; carve a recessed BOWL"). REPLACES the old WorldBootstrap.RegroundFreshwaterPond
@@ -874,7 +881,7 @@ namespace FarHorizon.EditorTools
         // ============================================================================================
         static void ScatterIslandProps(GameObject parent, int seed, MeshCollider groundCol)
         {
-            var rnd = new System.Random(seed + 555);
+            var rnd = new System.Random(seed + ScatterSeedSalt);
             SeedOffset(seed, out float ox, out float oz); // SAME warp offset as the terrain (plant on the real land)
 
             // COAST-STATS TRACE (86ca9qwr3 instrument): dump the warped coast radius around 36 azimuths so the
@@ -1037,7 +1044,12 @@ namespace FarHorizon.EditorTools
         static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool carve,
             bool tall = false)
         {
-            var tree = new GameObject("LP_Tree");
+            // CHANGE (a) 86caa4c5c — name every scatter tree with the SHARED constant ChopTree.ScatterTreeName
+            // so the runtime chop resolver (ChopTree.Start) discovers them by the SAME key. Keeping the
+            // authoring name + the discovery key in lockstep removes the silent-drift bug class (a renamed
+            // scatter tree would otherwise leave only the demo tree choppable again). Naming the GO does NOT
+            // touch the seed-42 scatter RNG stream → placement stays byte-identical (AC5 / V4).
+            var tree = new GameObject(FarHorizon.ChopTree.ScatterTreeName); // "LP_Tree"
             tree.transform.SetParent(parent.transform, false);
             tree.transform.position = at;
 
@@ -1090,10 +1102,43 @@ namespace FarHorizon.EditorTools
                 var obstacle = tree.AddComponent<UnityEngine.AI.NavMeshObstacle>();
                 obstacle.carving = true;
                 obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
-                obstacle.radius = tall ? 0.5f : 0.4f;
+                // TREE-BARRIER FIX (86caa4c5c CHANGE 2 — the Sponsor's "invisible barrier MUCH larger than the
+                // trunk; can't walk up close", worst on SOME (the tall) trees). ROOT CAUSE: NavMeshObstacle.radius
+                // is a LOCAL value, multiplied by the tree's localScale (here scale 1.0..2.4, with the TALL
+                // variant the largest). The OLD fixed `tall ? 0.5 : 0.4` therefore carved an effective WORLD
+                // radius of radius×scale — up to 0.5×2.4 = 1.2u for a tall tree whose trunk is only botR×scale =
+                // 0.22×2.4 ≈ 0.53u (a carve >2× the trunk silhouette). Plus the NavMesh bake erodes the walkable
+                // boundary by the agent radius (0.4u), so the player stopped ~1.6u from a trunk ~0.5u wide — the
+                // reported barrier. FIX: size the LOCAL radius so the WORLD footprint == the trunk's WORLD radius
+                // (botR×scale) + a small clearance, by DIVIDING OUT the scale (TrunkObstacleLocalRadius). The
+                // obstacle is then a snug collar on the visible stem at every scale, so the player can walk right
+                // up to the trunk; the agent still paths AROUND the trunk (it isn't a free-walkthrough).
+                obstacle.radius = TrunkObstacleLocalRadius(botR, scale);
                 obstacle.height = trunkH + 1.6f;
                 obstacle.center = new Vector3(0f, (trunkH + 1.6f) * 0.5f, 0f);
             }
+        }
+
+        // TREE-BARRIER FIX (86caa4c5c CHANGE 2). Clearance (WORLD units) added past the trunk's WORLD radius
+        // before dividing out the scale — so the carve hugs the visible stem with just enough room that the
+        // bake's agent-radius erosion still lets the player reach the trunk, without a free walk-through.
+        public const float TrunkObstacleClearance = 0.12f;
+
+        /// <summary>
+        /// PURE right-sized tree-obstacle LOCAL radius (86caa4c5c CHANGE 2 — the barrier fix). The
+        /// NavMeshObstacle.radius is a LOCAL value scaled by the tree's localScale, so to carve a WORLD
+        /// footprint == the trunk's WORLD radius (<paramref name="trunkBottomRadius"/> × <paramref name="scale"/>)
+        /// + <see cref="TrunkObstacleClearance"/>, the LOCAL radius must be (trunkWorldRadius + clearance) / scale
+        /// = trunkBottomRadius + clearance/scale. So the effective WORLD carve is the trunk silhouette + a fixed
+        /// small clearance at EVERY scale (the OLD fixed local radius grew the carve with scale → the tall-tree
+        /// barrier). Scale is clamped &gt; 0 so a degenerate 0 scale can't divide-by-zero. Static + dependency-free
+        /// so the EditMode guard asserts "effective world carve ≈ trunk + clearance, NOT growing unbounded with
+        /// scale" and "a tall tree's carve is no longer &gt;2× its trunk" with no scene rig.
+        /// </summary>
+        public static float TrunkObstacleLocalRadius(float trunkBottomRadius, float scale)
+        {
+            float s = Mathf.Max(0.0001f, scale);
+            return trunkBottomRadius + TrunkObstacleClearance / s;
         }
 
         static void BuildRock(GameObject parent, Vector3 at, float scale, System.Random rnd)

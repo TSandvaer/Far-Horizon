@@ -136,6 +136,11 @@ namespace FarHorizon
                  "weight rests at 0 until IsRunning, and returns to 0 on stop.")]
         public float runLowerBlendRate = 8f;
 
+        // (86caa4c5c change-(b)) The chop SWING is now the Mixamo melee Animator Attack state
+        // (CastawayCharacter.TriggerChop), NOT an additive bone offset — the rejected procedural ChopPoseDriver +
+        // its swingOverrideEuler channel were REMOVED. CastawayArmPose now only owns the idle-relax / held-axe
+        // carry / run-lower offsets; it no longer composes a per-frame action-verb swing.
+
         // Cached so the offset composes on the clip pose, not on the prior frame's offset (which would drift).
         private Quaternion _rightOffsetQ, _leftOffsetQ;
 
@@ -195,6 +200,8 @@ namespace FarHorizon
                 // full run the right arm — and the hand + gripped axe that follow it — is held lower, below the
                 // head. Scaled by _runWeight (0 at walk/idle → the run-lower vanishes → the locked pose is intact).
                 Quaternion runLowerQ = Quaternion.Euler(runLowerEuler * _runWeight);
+                // (86caa4c5c change-(b)) The chop swing is the Mixamo melee Animator state now — no additive
+                // swing offset is composed here (the rejected ChopPoseDriver swingOverrideEuler channel is gone).
                 rightUpperArm.localRotation = rightUpperArm.localRotation * _rightOffsetQ * runLowerQ;
             }
             if (leftUpperArm != null)

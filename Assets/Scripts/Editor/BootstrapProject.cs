@@ -103,6 +103,15 @@ namespace FarHorizon.EditorTools
             // authored inside BuildBootScene -> MovementCameraScene.Author). This combined boot scene
             // now carries the full first-slice: Zone-D environment + orbit camera + castaway player.
             WorldBootstrap.BuildEnvironment();
+
+            // CHANGE (a) 86caa4c5c — wire the ChopTree's scatterRoot ref now that WorldBootstrap.BuildEnvironment
+            // has authored the LowPolyScatter root (it did NOT exist at BuildChopTree time — the boot scene's
+            // player/craft/chop are authored at line 96, the environment scatter only lands here). With it
+            // serialized, EVERY scatter LP_Tree is choppable in the shipped build (the chop resolves the
+            // nearest in-range tree, AC5) without the runtime GameObject.Find fallback. A READ-only ref — the
+            // seed-42 scatter itself is untouched. The Start()-time name-scan remains the build-safety net.
+            MovementCameraScene.WireChopScatterRoot();
+
             EditorSceneManager.SaveScene(scene, BootScenePath);
             Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved (full slice: env + castaway player)");
 

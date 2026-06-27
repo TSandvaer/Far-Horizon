@@ -841,8 +841,22 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire InventoryUI to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
 
+            // CHANGE 1 (86caa4c5c) — wire the ChopTree's over-UI left-click guard ref now that the InventoryUI
+            // exists (BuildChopTree ran BEFORE this, so its serialized inventoryUI was unresolvable then). A
+            // left-click OVER the belt/inventory UI must NOT chop the tree behind it; ChopTree asks
+            // InventoryUI.IsPointerOverUI. Serialized here so the ref ships in Boot.unity (an Awake
+            // FindObjectOfType is the build-safety fallback). Null-graceful: a missing ref just skips the
+            // over-UI guard (the modal-panel + RMB guards still apply).
+            var chop = Object.FindObjectOfType<ChopTree>();
+            if (chop != null)
+            {
+                chop.inventoryUI = ui;
+                EditorUtility.SetDirty(chop);
+            }
+
             EditorUtility.SetDirty(go);
-            Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)");
+            Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)" +
+                      " (chop over-UI guard wired: " + (chop != null) + ")");
         }
 
         // Create-or-load the runtime PanelSettings for the inventory UIDocument (own asset; reconciled to
@@ -1055,6 +1069,11 @@ namespace FarHorizon.EditorTools
                       (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") +
                       "', character='" + (pose.character != null ? pose.character.name : "<null>") +
                       "', runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
+
+            // CHOP SWING (86caa4c5c change-(b)) — the swing is now the Mixamo melee Animator Attack state
+            // (CastawayCharacter.TriggerChop), NOT a procedural bone offset. The rejected ChopPoseDriver and its
+            // authoring here were REMOVED. The Attack state + Chop trigger live in CastawayAnimator.controller
+            // (CharacterAssetGen.BuildAnimatorController); ChopTree.character is wired in BuildChopTree.
         }
 
         // The right-hand FINGER + THUMB bone tokens to curl (86ca8rdkp re-soak #4). Index/Middle/Ring proximal
@@ -1351,6 +1370,31 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire ChopTree to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
 
+            // Wire the SWING (AC1 / change-(b)) — the castaway (CastawayCharacter) whose TriggerChop() plays the
+            // Mixamo melee Attack state, authored in BuildPlayer BEFORE this. Each landed chop calls
+            // character.TriggerChop() so the arm swings; the held axe (HeldAxeRig order 100) follows the swung hand
+            // automatically. Serialized here so the ref ships in Boot.unity (null is graceful at runtime — the chop
+            // still yields wood). REPLACES the rejected procedural ChopPoseDriver.
+            chop.character = Object.FindObjectOfType<CastawayCharacter>();
+            if (chop.character == null)
+                Debug.LogWarning("[MovementCameraScene] no CastawayCharacter in scene to wire ChopTree.character " +
+                                 "to — the chop will yield wood but the arm won't swing (BuildPlayer must author " +
+                                 "the castaway before BuildChopTree)");
+
+            // Wire the SETTINGS PANEL's chop refs (86caa4c5c V1/V2 / change-(b)) now that BOTH the castaway and the
+            // tree exist (BuildSettingsPanel ran before this, so its serialized chopCharacter/chopTree were not yet
+            // resolvable at panel-author time). `tool-use speed` flips live to the castaway's chopSpeed (the melee
+            // Attack-state playback rate); `tree regrowth time` binds to this tree's regrow min/max. A runtime
+            // Awake FindObjectOfType is the fallback; this serializes the refs so the rows are live in the shipped
+            // build without a scene search.
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.chopCharacter = chop.character;
+                settingsPanel.chopTree = chop;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
             // Wire the verification-only shipped-build CHOP capture (drives the player to craft the axe,
             // then to the tree, proves wood is yielded in the BUILT exe) onto the Boot object — sibling
             // of the craft/movement verify captures. Inert unless launched with -verifyChop.
@@ -1358,6 +1402,38 @@ namespace FarHorizon.EditorTools
 
             Debug.Log("[MovementCameraScene] authored ChopTree at " + ChopTreePosition +
                       " (inventory wired: " + (chop.inventory != null) + ")");
+        }
+
+        // CHANGE (a) 86caa4c5c — serialize the ChopTree.scatterRoot ref onto the LowPolyScatter root so EVERY
+        // world scatter tree is choppable in the shipped build (the chop resolves the nearest in-range tree —
+        // AC5). Called by BootstrapProject AFTER WorldBootstrap.BuildEnvironment authors the scatter root (it
+        // does NOT exist at BuildChopTree time — the player/craft/chop are authored before the environment).
+        // READ-only: this wires a reference to the existing scatter; it never re-authors / re-rolls the
+        // seed-42 placement (ScatterIslandProps is untouched → byte-identical world). The ChopTree.Start()
+        // GameObject.Find("LowPolyScatter") name-scan is the build-safety net if this wiring ever no-ops.
+        public static void WireChopScatterRoot()
+        {
+            var chop = Object.FindObjectOfType<ChopTree>();
+            if (chop == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireChopScatterRoot: no ChopTree in scene to wire " +
+                                 "scatterRoot to (the runtime name-scan fallback still finds LowPolyScatter)");
+                return;
+            }
+            var scatter = GameObject.Find("LowPolyScatter");
+            if (scatter == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireChopScatterRoot: no LowPolyScatter root found — " +
+                                 "scatter trees won't be choppable until the runtime fallback (none in a bare scene)");
+                return;
+            }
+            chop.scatterRoot = scatter.transform;
+            EditorUtility.SetDirty(chop);
+            int treeCount = 0;
+            foreach (var mf in scatter.GetComponentsInChildren<Transform>(true))
+                if (mf.name == ChopTree.ScatterTreeName) treeCount++;
+            Debug.Log("[MovementCameraScene] wired ChopTree.scatterRoot -> LowPolyScatter (" + treeCount +
+                      " scatter trees now choppable, CHANGE (a))");
         }
 
         // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
@@ -1437,6 +1513,11 @@ namespace FarHorizon.EditorTools
             if (cap == null) cap = bootGo.AddComponent<ChopVerifyCapture>();
             cap.player = player.GetComponent<ClickToMove>();
             cap.inventory = Object.FindObjectOfType<Inventory>();
+            // CHANGE 1 (86caa4c5c) — the verify capture drives the chop via the LEFT-CLICK seam (the chop is no
+            // longer proximity-auto), so it needs the ChopTree to RequestChopClick once at the tree. Wired here
+            // (BuildChopTree created the ChopTree just before this call) so it serializes; an Awake
+            // FindAnyObjectByType is the runtime fallback.
+            cap.chop = Object.FindObjectOfType<ChopTree>();
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
             EditorUtility.SetDirty(bootGo);

@@ -64,6 +64,11 @@ namespace FarHorizon.EditorTools
         // into Walk/Run. Both WITHOUT skin (bind by transform path onto Idle's mesh, same as Walk/Run).
         public const string JumpIdleFbxPath = CharDir + "/Jump_idle.fbx";       // WITHOUT skin (idle/standing jump)
         public const string JumpRunningFbxPath = CharDir + "/Jump_running.fbx"; // WITHOUT skin (walk/run jump)
+        // The CHOP swing clip (86caa4c5c change-(b) — the Sponsor's Mixamo "Standing Melee Attack Downward",
+        // WITH skin, same castaway rig as the other clips → binds by transform path; chop-swing-mixamo-clip-not-
+        // procedural). REPLACES the procedural ChopPoseDriver swing the Sponsor rejected. Imported NON-looping
+        // (a one-shot strike), Generic — identical idiom to the jump one-shots.
+        public const string MeleeFbxPath = CharDir + "/Melee_Attack.fbx";       // WITH skin (Melee one-shot clip)
         public const string DiffusePngPath = CharDir + "/texture_diffuse.png";
         public const string NormalPngPath = CharDir + "/texture_normal.png";
         public const string MaterialPath = CharDir + "/CastawayMat.mat";
@@ -86,6 +91,9 @@ namespace FarHorizon.EditorTools
         // TWO jump clips by movement state (86ca9yq3q rework) — renamed-on-import, distinct in the controller.
         public const string JumpIdleClip = "CastawayJumpIdle";       // idle/standing jump (Jump_idle.fbx)
         public const string JumpRunningClip = "CastawayJumpRunning"; // walk/run jump (Jump_running.fbx)
+        // The CHOP swing clip — renamed-on-import (the Mixamo take is "mixamo.com"; an exact "Melee" match loops
+        // ZERO clips, the T-pose-mid-swing failure class). Distinct in the controller as the Attack state's clip.
+        public const string MeleeClip = "CastawayMelee"; // chop swing (Melee_Attack.fbx, NON-looping one-shot)
 
         // The Animator TRIGGER param that fires the one-shot Jump state (86ca9yq3q). CastawayCharacter pulses
         // it on the rising edge of a jump (SetTrigger). The controller routes the trigger to JumpIdle (Moving
@@ -99,6 +107,18 @@ namespace FarHorizon.EditorTools
         // Walk/Run resumes on the same frame instead of stalling in the finished jump pose (which translated
         // while non-locomotion → the "floating" percept the Sponsor reported).
         public const string GroundedParam = "Grounded";
+
+        // The one-shot CHOP TRIGGER (86caa4c5c change-(b)). CastawayCharacter.TriggerChop() pulses it on each
+        // landed chop so the Animator plays the Attack (melee swing) state ONCE and returns to locomotion. Mirrors
+        // CastawayCharacter.ChopParam (kept in sync). The Attack state is an AnyState→Attack on this trigger so a
+        // chop can fire from Idle OR mid-locomotion; it returns to Locomotion (Moving) / Idle (!Moving) on exit so
+        // a held-movement chop resumes walking on the clip's end (the no-stall-locomotion lesson, jump rework).
+        public const string ChopParam = "Chop";
+        // The Attack-state SPEED MULTIPLIER float (86caa4c5c AC1 — tool-use speed). The Attack state's
+        // speedParameter reads this, so setting it scales the melee clip's PLAYBACK RATE (a fast/slow chop). The
+        // settings-panel `tool-use speed` row drives CastawayCharacter.chopSpeed, which sets this param live (V1).
+        // 1x = the authored clip duration. Default 1 so an unbound rig plays the clip at its authored speed.
+        public const string ChopSpeedParam = "ChopSpeed";
 
         // The 1D Walk<->Run blend-tree thresholds on the Speed param (86ca9yq34). Idle@0, Walk@WalkBlendSpeed,
         // Run@RunBlendSpeed — so the planar agent speed WasdMovement commands (moveSpeed walking, runSpeed
@@ -146,6 +166,9 @@ namespace FarHorizon.EditorTools
             // TWO jump clips by movement state (86ca9yq3q rework): idle/standing + walk/run, both NON-looping one-shots.
             ConfigureJumpFbx(JumpIdleFbxPath, JumpIdleClip);
             ConfigureJumpFbx(JumpRunningFbxPath, JumpRunningClip);
+            // CHOP swing clip (86caa4c5c change-(b)) — the Mixamo melee one-shot, Generic + NON-looping; binds by
+            // transform path onto Idle's mesh (same mixamorig rig). Replaces the procedural ChopPoseDriver swing.
+            ConfigureMeleeFbx();
             // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
             // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
             // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
@@ -484,6 +507,36 @@ namespace FarHorizon.EditorTools
             return edited.ToArray();
         }
 
+        // Melee_Attack.fbx is the CHOP swing clip (86caa4c5c change-(b) — the Sponsor's Mixamo "Standing Melee
+        // Attack Downward"). It ships WITH skin (mesh+rig+clip), but we use ONLY its CLIP: like the jump one-shots,
+        // it imports GENERIC + CreateFromThisModel (its own identical mixamorig skeleton) so the Generic Melee clip
+        // binds by TRANSFORM PATH onto Idle's mesh (same bone names) — NO Humanoid muscle retarget (the 86ca8rdkp
+        // runtime-explosion cause). materialImportMode=None so the with-skin FBX does NOT spill a stray material
+        // into the project (we never render its mesh — only the clip drives Idle's avatar). The clip is NON-LOOPING
+        // (RenameNonLooping — a chop is a ONE-SHOT strike, like the jump): it plays once and the Attack state
+        // transitions back on exit. The Mixamo take is "mixamo.com" → renamed to CastawayMelee (the clip-take
+        // finding the other imports honor — an exact "Melee" match loops ZERO clips, the T-pose-mid-swing class).
+        private static void ConfigureMeleeFbx()
+        {
+            var importer = AssetImporter.GetAtPath(MeleeFbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] Melee_Attack.fbx not found at " + MeleeFbxPath); return; }
+
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = true;
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None; // with-skin → suppress stray materials
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            importer.clipAnimations = RenameNonLooping(importer, MeleeClip, out int renamed);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] Melee_Attack.fbx reimported: rig=Generic CreateFromThisModel, " +
+                      $"renamed {renamed} NON-looping clip(s) -> {MeleeClip} (the chop swing)");
+        }
+
         private static Avatar LoadAvatar(string fbxPath)
         {
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbxPath))
@@ -537,11 +590,12 @@ namespace FarHorizon.EditorTools
             AnimationClip run = FindClip(RunFbxPath, RunClip);
             AnimationClip jumpIdle = FindClip(JumpIdleFbxPath, JumpIdleClip);
             AnimationClip jumpRunning = FindClip(JumpRunningFbxPath, JumpRunningClip);
-            if (idle == null || walk == null || run == null || jumpIdle == null || jumpRunning == null)
+            AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the chop swing (86caa4c5c change-(b))
+            if (idle == null || walk == null || run == null || jumpIdle == null || jumpRunning == null || melee == null)
             {
                 Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}, " +
-                               $"run={run != null}, jumpIdle={jumpIdle != null}, jumpRunning={jumpRunning != null}); " +
-                               "controller not built");
+                               $"run={run != null}, jumpIdle={jumpIdle != null}, jumpRunning={jumpRunning != null}, " +
+                               $"melee={melee != null}); controller not built");
                 return;
             }
 
@@ -551,6 +605,10 @@ namespace FarHorizon.EditorTools
             controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
             controller.AddParameter(JumpParam, AnimatorControllerParameterType.Trigger);  // 86ca9yq3q — one-shot Jump
             controller.AddParameter(GroundedParam, AnimatorControllerParameterType.Bool); // 86ca9yq3q rework — land→loco
+            controller.AddParameter(ChopParam, AnimatorControllerParameterType.Trigger);  // 86caa4c5c — one-shot chop swing
+            // ChopSpeed default 1 (the authored melee clip speed); the Attack state's speedParameter reads it so
+            // tool-use speed scales the swing playback rate live (CastawayCharacter.chopSpeed → SetFloat).
+            AddFloatParam(controller, ChopSpeedParam, 1f);
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
@@ -627,11 +685,31 @@ namespace FarHorizon.EditorTools
             WireJumpReturn(jumpIdleState, locoState, idleState);
             WireJumpReturn(jumpRunningState, locoState, idleState);
 
+            // CHOP swing (86caa4c5c change-(b)) — a ONE-SHOT Attack state playing the Mixamo melee clip, replacing
+            // the rejected procedural ChopPoseDriver swing. AnyState→Attack on the Chop trigger (so a chop fires
+            // from Idle OR mid-locomotion — like the jump). The state's speedParameter = ChopSpeed scales the clip
+            // playback rate live (tool-use speed). The clip is non-looping; Attack returns on its OWN exit-time
+            // (the swing's natural end — unlike the jump, whose landing is a physics edge) to Locomotion (Moving)
+            // or Idle (!Moving), so a chop while walking resumes locomotion on the swing's end (no-stall lesson).
+            var attackState = sm.AddState("Attack");
+            attackState.motion = melee;
+            attackState.speedParameterActive = true;
+            attackState.speedParameter = ChopSpeedParam;
+
+            var anyToAttack = sm.AddAnyStateTransition(attackState);
+            anyToAttack.AddCondition(AnimatorConditionMode.If, 0f, ChopParam);
+            anyToAttack.hasExitTime = false;
+            anyToAttack.duration = 0.06f;            // a quick crossfade into the windup
+            anyToAttack.canTransitionToSelf = true;  // a re-chop mid-swing restarts the strike (mash = repeated chops)
+
+            WireAttackReturn(attackState, locoState, idleState);
+
             EditorUtility.SetDirty(controller);
             Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Locomotion(Moving) + Walk<->Run 1D " +
                       $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) + " +
                       $"JumpIdle/JumpRunning one-shots (AnyState on '{JumpParam}'+Moving; return on '{GroundedParam}' " +
-                      "edge → Locomotion if Moving else Idle) -> " + ControllerPath);
+                      $"edge → Locomotion if Moving else Idle) + Attack chop swing (AnyState on '{ChopParam}'; speed " +
+                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) -> " + ControllerPath);
         }
 
         // (86ca9yq3q rework — THE floating-bug fix) Wire a jump state's return transitions on the GROUNDED edge:
@@ -655,6 +733,44 @@ namespace FarHorizon.EditorTools
             toIdle.hasExitTime = false;
             toIdle.duration = 0.12f;
             toIdle.hasFixedDuration = true;
+        }
+
+        // (86caa4c5c change-(b)) Wire the chop Attack state's return on the clip's OWN EXIT-TIME (the swing's
+        // natural end — a chop has no physics edge like the jump's landing). At exit it returns to:
+        //   Moving  → Locomotion (Walk/Run blend resumes the SAME instant the swing ends if W is still held)
+        //   !Moving → Idle
+        // Routing the held-movement chop back to Locomotion (not Idle-only) avoids the post-overlay locomotion
+        // stall the jump rework fixed (a finished one-shot pose translating in place reads as "floating"/gliding).
+        // exitTime near 1 so the full strike plays; a short fixed crossfade keeps the return smooth.
+        private static void WireAttackReturn(AnimatorState attackState, AnimatorState locoState, AnimatorState idleState)
+        {
+            var toLoco = attackState.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = true;
+            toLoco.exitTime = 0.9f;        // play ~90% of the swing before returning (the strike has landed)
+            toLoco.duration = 0.10f;
+            toLoco.hasFixedDuration = true;
+
+            var toIdle = attackState.AddTransition(idleState);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            toIdle.hasExitTime = true;
+            toIdle.exitTime = 0.9f;
+            toIdle.duration = 0.12f;
+            toIdle.hasFixedDuration = true;
+        }
+
+        // Add a float Animator parameter WITH a default value (AnimatorController.AddParameter alone leaves the
+        // default at 0). Used for ChopSpeed (default 1 = the authored melee clip speed) so an unbound rig plays the
+        // swing at authored speed rather than frozen (speed 0).
+        private static void AddFloatParam(AnimatorController controller, string name, float defaultValue)
+        {
+            var p = new AnimatorControllerParameter
+            {
+                name = name,
+                type = AnimatorControllerParameterType.Float,
+                defaultFloat = defaultValue
+            };
+            controller.AddParameter(p);
         }
 
         // Mirror MovementCameraScene.EnsureShaderAlwaysIncluded: GraphicsSettings.asset's
@@ -685,7 +801,7 @@ namespace FarHorizon.EditorTools
         {
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("[char-trace] ===== CHARACTER DIAGNOSE TRACE =====");
-            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath, RunFbxPath, JumpIdleFbxPath, JumpRunningFbxPath })
+            foreach (var fbx in new[] { IdleFbxPath, WalkFbxPath, RunFbxPath, JumpIdleFbxPath, JumpRunningFbxPath, MeleeFbxPath })
             {
                 sb.AppendLine("[char-trace] ===== " + fbx + " =====");
                 foreach (var o in AssetDatabase.LoadAllAssetsAtPath(fbx))

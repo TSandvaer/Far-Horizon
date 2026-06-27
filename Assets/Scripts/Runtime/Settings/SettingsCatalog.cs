@@ -38,6 +38,10 @@ namespace FarHorizon.Settings
         // "water scoop amount") — the gameplay-wave/hunger naming convention. LIVE-bound to the ThirstNeed.
         public const string ThirstDecayId  = "thirst_decay_rate";
         public const string WaterScoopId   = "water_scoop_amount";
+        // Chop tweakable (ticket 86caa4c5c AC3). The `tree regrowth time` row drives the ChopTree's
+        // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
+        // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
+        public const string TreeRegrowthId = "tree_regrowth_time";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -52,6 +56,15 @@ namespace FarHorizon.Settings
         public const float ThirstDecayMin = 0.05f, ThirstDecayMax = 1.5f;
         // Water-scoop slider band (around the waterScoopAmount 14 default) — a sip..a big gulp.
         public const float WaterScoopMin = 2f, WaterScoopMax = 40f;
+        // Tool-use-speed slider band (ticket V1 — flips the reserved ToolSpeedId row LIVE to the chop swing
+        // speed). Keep in sync with CastawayCharacter.ChopSpeedMin/Max (a slow..fast chop). (86caa4c5c change-(b):
+        // the chop swing is the Mixamo melee Animator state now; tool-use speed scales that clip's playback rate
+        // via CastawayCharacter.chopSpeed → the Attack-state ChopSpeed param, replacing ChopPoseDriver.swingSpeed.)
+        public const float ToolSpeedMin = 0.25f, ToolSpeedMax = 3f;
+        // Tree-regrowth range hard-limits in SECONDS — the band the `tree regrowth time` range can be dialed
+        // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR set a
+        // realistic ecology. Range row → drives ChopTree.regrowthMin/Max (organic regrowth within [min,max]).
+        public const float TreeRegrowthLower = 0f, TreeRegrowthUpper = 1800f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -68,10 +81,23 @@ namespace FarHorizon.Settings
         /// null-refs), so existing callers / bare test rigs are unaffected.
         /// </summary>
         public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst)
+            => Build(orbit, wasd, thirst, null, null);
+
+        /// <summary>
+        /// Build the standard registry AND the thirst tweakables AND the CHOP tweakables (ticket 86caa4c5c):
+        /// `tool-use speed` (flips the reserved <see cref="ToolSpeedId"/> row LIVE, bound to the chop swing
+        /// speed — V1) + `tree regrowth time` (a new RANGE row driving the stump regrow min/max — V2/V3). A
+        /// null character/tree SKIPS the chop settings (the catalog never null-refs), leaving `tool-use speed` as
+        /// its greyed extension hook — so a chop-less rig / bare test is unaffected. (86caa4c5c change-(b): the
+        /// chop swing is the Mixamo melee Animator state; tool-use speed binds to CastawayCharacter.chopSpeed.)
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
             PopulateThirst(reg, thirst);
+            PopulateChop(reg, chopCharacter, chopTree);
             return reg;
         }
 
@@ -148,6 +174,54 @@ namespace FarHorizon.Settings
             reg.AddFloat(WaterScoopId, "Water scoop amount",
                 () => thirst.waterScoopAmount, v => thirst.waterScoopAmount = v,
                 WaterScoopMin, WaterScoopMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the CHOP tweakables (ticket 86caa4c5c AC1+AC3) into the registry:
+        /// <list type="bullet">
+        /// <item><b>Tool-use speed</b> (V1) — FLIPS the reserved <see cref="ToolSpeedId"/> row LIVE. `Populate`
+        /// registers that id GREYED (available:false, dummy getter); here we REMOVE that hook and re-add it
+        /// bound to the live <paramref name="chopCharacter"/>.chopSpeed (the chop melee-clip playback rate —
+        /// change-(b): scales the Mixamo Attack-state ChopSpeed param). Remove-then-add is the only safe path because
+        /// <see cref="SettingsRegistry.Register{T}"/> throws on a duplicate id (V1: "bind + flip live, do NOT
+        /// add a second row → duplicate-id collision"). The id stays `tool_use_speed` (one row).</item>
+        /// <item><b>Tree regrowth time</b> (V2/V3) — a NEW <see cref="TreeRegrowthId"/> RANGE row driving
+        /// <paramref name="chopTree"/>.regrowthMinSeconds / regrowthMaxSeconds (organic regrowth within
+        /// [min,max], AC3). Registered as its own row (not on main yet), via THIS method (not by appending to
+        /// `Populate` — the PopulateThirst de-collision precedent).</item>
+        /// </list>
+        /// A null character leaves `tool-use speed` greyed; a null tree skips the regrowth row — so a chop-less
+        /// rig / bare EditMode test never null-refs. Idempotent w.r.t. the greyed hook (Remove no-ops if absent).
+        /// </summary>
+        public static void PopulateChop(SettingsRegistry reg, FarHorizon.CastawayCharacter chopCharacter,
+            FarHorizon.ChopTree chopTree)
+        {
+            if (reg == null) return;
+
+            // TOOL-USE SPEED (V1) — flip the reserved greyed row LIVE, bound to the chop swing speed. Remove the
+            // extension hook `Populate` registered (Remove no-ops if it was never added), then re-add it live so
+            // there is exactly ONE `tool_use_speed` row (no duplicate-id throw). Clamp band == CastawayCharacter's.
+            // change-(b): the chop swing is the Mixamo melee Attack state; chopSpeed scales its ChopSpeed param.
+            if (chopCharacter != null)
+            {
+                reg.Remove(ToolSpeedId);
+                reg.AddFloat(ToolSpeedId, "Tool-use speed",
+                    () => chopCharacter.chopSpeed,
+                    v => chopCharacter.chopSpeed = Mathf.Clamp(v,
+                        FarHorizon.CastawayCharacter.ChopSpeedMin, FarHorizon.CastawayCharacter.ChopSpeedMax),
+                    ToolSpeedMin, ToolSpeedMax, unit: "x");
+            }
+
+            // TREE REGROWTH TIME (V2/V3) — a RANGE row driving the stump regrow window [min,max] (organic, not
+            // uniform — AC3). Tightening it makes a felled stump regrow sooner; widening, more variance. The
+            // setter clamps min<=max is enforced inside ChopTree.ScheduleRegrow, so the slider can't invert it.
+            if (chopTree != null)
+            {
+                reg.AddRange(TreeRegrowthId, "Tree regrowth time",
+                    () => chopTree.regrowthMinSeconds, v => chopTree.regrowthMinSeconds = v,
+                    () => chopTree.regrowthMaxSeconds, v => chopTree.regrowthMaxSeconds = v,
+                    TreeRegrowthLower, TreeRegrowthUpper, unit: "s");
+            }
         }
     }
 }
