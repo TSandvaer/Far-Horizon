@@ -11,7 +11,7 @@ A ticket is "complete" only when ALL of:
 3. **Shipped-build verification** (successor to RandomGame's HTML5 gate). Editor evidence is never sufficient — the editor-vs-runtime divergence class (Awake-no-serialize, shader stripping, NavMesh-not-shipped; see `.claude/docs/unity-conventions.md`) is proven by spike incidents. Anything UX/visually-visible needs evidence captured from the BUILT exe (windowed launch, in-game capture, HUD build-stamp visible) attached to the PR/ticket.
 4. **Self-Test Report.** UX-visible PRs carry an author-posted Self-Test Report comment (what was run, on which build stamp, what was observed — concrete values only, never invented) before Tess reviews.
 5. **Tess sign-off.** QA review verdict (APPROVE / APPROVE_WITH_NITS / REQUEST_CHANGES) as a PR comment. Tess-authored PRs get a Drew/Devon peer reviewer instead (Tess can't self-QA).
-6. **Sponsor soak** only where the gate is subjective feel or first-of-class visuals — right-size the ask; always include the exe path + the expected HUD build stamp.
+6. **Sponsor soak** only where the gate is subjective feel or first-of-class visuals — right-size the ask; always include the exe path + the expected HUD build stamp. **State the bar (bounded silence).** The soak ask must NAME the quality bar this iteration tested + the surfaces in scope, and list the bars NOT tested — "this looks done" is not a convergence claim; "tested bar B on surfaces S; NOT tested: …" is. See § "Predict-Before-Soak + bounded silence" below.
 
 ---
 
@@ -22,6 +22,7 @@ Folded from Erik's developer-accuracy / performance note (`team/erik-consult/dev
 1. **Diagnose-Before-Fix.** A `fix(...)` PR MUST state the DIAGNOSED root cause + ONE cited isolation result in the PR body BEFORE the fix — not "tried X, seems better." This formalizes the isolation-probe method; it exists because guess-fixes cost 2–4 soak-overturns per defect (the float saga overturned its own root-cause framing ≥3×; the world-look fix-shape was wrong twice — only trace caught the real cause each time). A fix PR whose body asserts a fix without naming the diagnosed cause + evidence is bounced. **Full requirement + worked example: § "Diagnose-Before-Fix — the pre-fix PR convention" below.**
 2. **PlayMode locomotion-sampling tests.** Any feature whose correctness is PER-FRAME during motion (grounding, held-prop envelope, finger-curl, camera follow) ships a `[UnityTest]` that `yield return null`-samples the assertion EVERY frame across a real WALK — not just a standing/spawn snapshot. The "tests green but Sponsor sees during-walk elevation" gap is exactly the standing-only assertion missing the motion sample (the smoothing-lag float AND the sole-vs-root float both passed at-rest tests). Sample per-frame through real `Update` + a real `Time.time` window (never the headless `Time.deltaTime~=0` trap — see "Multi-step-loop coverage" below).
 3. **SRP-batcher Frame-Debugger audit before any new visual pass.** Before shipping a new shader / material / scatter surface, audit the Frame Debugger that the SRP batcher is actually batching (no per-instance break) — `CBUFFER_START(UnityPerMaterial)` completeness + no live `MaterialPropertyBlock` breaking the batch. Catches the silent perf regression where a new visual pass quietly drops the frame rate before it reaches the Sponsor.
+4. **Predict-Before-Soak (the forward sibling of Diagnose-Before-Fix).** Any soak-gated / feel / first-of-class-visual PR MUST carry a falsifiable PRE-soak prediction in its Self-Test Report — "I expect the soak to show Y; I expect Z to NOT appear" — written BEFORE the build is served, then graded against the soak outcome. Diagnose-Before-Fix names the CAUSE before a fix (backward-looking); this names the expected RESULT before serving (forward-looking). It exists because the most expensive recurring loop on this project is asserting "fixed/removed" with no pre-registered prediction a soak then refutes (`claim-removed-but-soak-shows-present`; the 8-soak jump-pullback saga; `soak-fail-test-pass`). Tess bounces a soak-gated PR whose Self-Test Report has no graded prediction + bounded convergence claim. **Full requirement + worked shape: § "Predict-Before-Soak + bounded silence" below.**
 
 ---
 
@@ -53,6 +54,29 @@ One isolation result is the floor, not a transcript of every probe — cite the 
 The diagnosis sentence names the real system (shadow-vs-feet, not root grounding); the single `-footTrace` line both confirms it AND rules out the obvious-but-wrong hypothesis (body-snap). That is the shape every `fix(...)` PR must hit. (The broader saga overturned its root-cause framing ~6× — NavMesh-slab → renderer-enabled-hit → blob-shadow → `SkinnedMeshRenderer.bounds` false-green → `BakeMesh` actual-lowest-vertex — each overturn forced by a probe; see the saga entry for the full chain.)
 
 **Out of scope — when the gate does NOT apply.** Plain logic bugs that just need a stack trace are NOT in scope (Erik §A: "Plain logic bugs ... are NOT in scope"). A `fix(...)` whose root cause is obvious from a thrown exception, a failing unit test's assertion message, or a null-ref stack trace does not need a manufactured isolation probe — the stack trace IS the diagnosis. The gate targets the **diagnose-via-trace / asset-is-fine-the-view-is-the-problem class**: defects where the visible symptom names the WRONG system (a colour tweak that can't fix a not-rendering mesh; a water-Y change for a composition problem) and an isolation probe is the only thing that surfaces the real cause. When in doubt, the one-sentence diagnosis is cheap — write it.
+
+---
+
+## Predict-Before-Soak + bounded silence (the forward half of Diagnose-Before-Fix; ticket-free, applies now)
+
+**Why this exists.** Diagnose-Before-Fix forces you to name the *cause* before a fix (backward-looking). It does nothing about the project's single most expensive loop: serving a build with a "fixed/removed/done" claim that the Sponsor's soak then refutes — `claim-removed-but-soak-shows-present`, the 8-soak jump-pullback saga, `soak-fail-test-pass`. The cure is a falsifiable prediction written BEFORE the build is served and GRADED against the soak, plus a convergence claim bounded to a NAMED bar.
+
+**The gate (soak-gated / feel / first-of-class-visual PRs).** The Self-Test Report MUST carry, before the build reaches the Sponsor:
+
+- **(a) Prediction (pre-soak, falsifiable):** one line in the shape *"I expect the soak to show **Y**. I expect **Z** to NOT appear."* — concrete, observable, specific enough to be wrong. Not "it should look better."
+- **(b) Convergence claim (bounded silence):** *"Tested bar **B** on surfaces **S**; bars NOT tested: **…**."* A "done"/"removed"/"fixed" claim is only honest against a NAMED bar; an unbounded "looks done" is the form most often overturned by the next soak testing a *different* bar. (You already run three independent evaluator families — peer APPROVE + Tess PASS + Sponsor soak; this is the missing named-bar discipline that turns "looks done" into an honest convergence claim.)
+- **(c) After the soak — Outcome vs prediction:** was the prediction borne out? A refuted prediction is a *finding*, not a failure — it means the claim's foundation was wrong. Per `claim-removed-but-soak-shows-present`: STOP and deep-investigate WHY the foundation was wrong before re-fixing; never re-assert "removed" until a capture of the actual symptom region proves it.
+
+**Enforcement.** Tess bounces (REQUEST_CHANGES, one-line note: "Predict-Before-Soak: soak-gated PR with no falsifiable pre-soak prediction / unbounded convergence claim") any soak-gated PR whose Self-Test Report lacks (a)+(b). Pairs with — does not replace — Diagnose-Before-Fix on `fix(...)` PRs.
+
+**Out of scope.** Mechanical `chore`/`docs`/`test` PRs, and non-soak-gated changes whose correctness is fully covered by a green paired test — there is nothing for a soak to refute.
+
+**Upstream pre-empt.** The *cheapest* place to win this is BEFORE the dispatch — name the Sponsor's real bar up front via the `/name-the-bar` skill (`team/quality-bars.md`), so the prediction in (a) is written against a *confirmed* bar instead of a guessed one.
+
+**Worked shape:**
+> **Prediction (pre-soak):** I expect the pond to read as an organic, irregular outline at gameplay-cam height; I expect NO perfect-circle silhouette and NO "pond-in-a-mound" raised rim.
+> **Convergence claim (bounded):** Tested the *organic-outline* bar on the gameplay-cam side profile; NOT tested: foam pulse, reflection, night lighting.
+> **Outcome vs prediction (post-soak):** …
 
 ---
 
@@ -91,3 +115,15 @@ When a feature is a CHAIN of beats that hand state to each other (the M-U2 survi
 **Lifecycle trap when constructing the rig:** a `WarmthNeed` (or any `MonoBehaviour` with `Start`-seeded state) added via `AddComponent` in `[SetUp]` runs `Start()` BEFORE the test body executes — set `startFull = true` in SetUp so `Start()` deterministically seeds the value, then re-seed per-test AFTER the first `yield return null` via the public hooks (`SatisfyFull`/`AddWarmth`); never rely on a SetUp-set inspector flag still being read at `Start` time.
 
 **Success-test discipline (the loop-break catch):** a multi-step-loop PR must DEMONSTRATE the end-to-end test catches a deliberate break of the closing seam (PR body documents: break locally → red, with the failing assertion + values; restore → green). For U2-7 the break was no-op'ing `Campfire.AddWarmth` — warmth then kept decaying at the fire (`0.88 < 0.99`), turning the Beat-4 `Assert.Greater` red exactly as designed.
+
+---
+
+## Gate-trust contrastive-pair test (when a CI gate smells false-green)
+
+A green gate is only worth trusting if it can go RED. When a verify-gate is SUSPECTED of false-green — it passes but the symptom it is supposed to catch is present in the soak (`unity-verify-gate-false-green` — a stale pre-gate verify-log poisoned the evidence; the false-green hid the #130 pond foam for 3 rounds via a warm `ci-out/` + `clean:false`) — do NOT just re-read the gate. PROVE it discriminates with a pre-registered pair:
+
+1. **Pre-register (in writing, BEFORE running):** state what the gate SHOULD do on a case it must PASS vs a case it must FAIL — e.g. "clean build WITH the fix → PASS; clean build with the fix REVERTED → FAIL." If you cannot state how a passing vs a failing run look different, the gate is unfalsifiable and its green means nothing.
+2. **Run BOTH** — the should-pass case and the should-fail case — from the SAME clean state (cold `ci-out/`, `clean:true`; a warm cache is exactly how the false-green slips in — see `unity-procedural-committed-assets-go-stale`).
+3. **Verdict:** the gate is trustworthy ONLY if the should-fail case actually goes RED. If both go green, the gate is not discriminating — fix the gate before trusting ANY of its greens. Trust the POST-gate artifact log + a UTF-16LE DLL string search over a managed assembly (ASCII grep/`strings` lies on wide literals), never a pre-gate `ci-out/` upload.
+
+Borrowed from the reference "earned-autonomy" suite's `probe` skill (contrastive-pair + pre-registration), applied to **gate-trust** rather than agent-reasoning. Use it the next time a soak contradicts a green gate, not as a standing per-PR gate.
