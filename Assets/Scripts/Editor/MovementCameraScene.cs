@@ -280,6 +280,16 @@ namespace FarHorizon.EditorTools
             // Built BEFORE the looter so the looter discovers it (it discovers IPickables at runtime anyway).
             BuildWiredStick(player, groundLayer);
 
+            // 86caa4c96 (E-LOOT 86caf7a6q): a wired small STONE near the loop centre — the small-stone gather
+            // (1 stone per pickup; bigger boulders are the FUTURE pickaxe-mining target, OOS). The castaway
+            // walks up and presses E to LOOT it: 1 stone into the inventory, then the spot RESPAWNS on the
+            // shared StoneRespawner window (AC3). A RELIABLE, fixed-position stone (vs the random scatter ones)
+            // so the PlayMode/shipped-build capture has a deterministic loot target. Authored editor-time so
+            // the stone mesh (a CHILD visual StoneProp toggles on loot/respawn) + StoneProp's Inventory/
+            // respawner refs SERIALIZE into Boot.unity (editor-vs-runtime trap). No collider — the player walks
+            // up to loot. Built BEFORE the looter so the looter discovers it (it discovers IPickables anyway).
+            BuildWiredStone(player, groundLayer);
+
             // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
             // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
             // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
@@ -1638,6 +1648,68 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] authored WiredStick at " + WiredStickPosition +
                       " (inventory wired: " + (sp.inventory != null) + ", yields " +
                       StickProp.WoodPerStickDefault + " wood on E)");
+        }
+
+        // World position of the wired small STONE (86caa4c96). Near the loop centre, clear of the craft spot
+        // (8,6), axe (3,2), chop tree (-9,-7), berry bush (-6,7), wired stick (-3,-4), pond (7,-3), fire
+        // (4,-8) — a deterministic loot target the PlayMode/shipped-build capture walks up to. A DETERMINISTIC
+        // scene-author ADD on the flat player-loop ground — OUTSIDE the seeded LowPolyZoneGen generation
+        // stream, so it provably CANNOT perturb the seed-42 island silhouette / scatter / NavMesh.
+        public static readonly Vector3 WiredStonePosition = new Vector3(0f, 0f, -5f);
+
+        // Warm stone-grey (LowPolyZoneGen.RockCol) — the wired stone matches the scatter stones.
+        private static readonly Color StoneCol = new Color(0.62f, 0.60f, 0.555f);
+
+        // A wired small STONE (86caa4c96): a small faceted chunk resting ON the ground + a StoneProp component
+        // (IPickable — looted on E for 1 stone, then RESPAWNS on the shared StoneRespawner window) wired to the
+        // scene Inventory + the shared respawner. The castaway walks up and presses E to loot it: 1 stone into
+        // the inventory, the spot empties + respawns (the small-stone gather; bigger boulders = future
+        // pickaxe-mining, OOS). A RELIABLE fixed-position stone (vs the random scatter ones) so the PlayMode/
+        // capture has a deterministic loot target. The stone MESH lives in a CHILD ("StoneMesh") so StoneProp
+        // toggles JUST the visual on loot while its respawn timer keeps running (deactivating the whole GO
+        // would freeze the timer — the BerryBush precedent). Authored editor-time so the mesh + the wired
+        // StoneProp refs SERIALIZE into Boot.unity (editor-vs-runtime trap). NO collider — the player walks up
+        // to loot; built BEFORE the NavMesh bake (collider-free, never blocks the bake).
+        private static void BuildWiredStone(GameObject player, int groundLayer)
+        {
+            var stone = new GameObject("WiredStone");
+            stone.transform.position = WiredStonePosition + Vector3.up * 0.04f;
+            stone.transform.rotation = Quaternion.Euler(6f, 40f, 4f); // deterministic yaw + gentle tilt
+            stone.transform.localScale = Vector3.one * 0.7f;          // a small stone (< the boulders)
+
+            // The visual in a CHILD so StoneProp.stoneVisual toggles it on loot/respawn without deactivating
+            // the parent (which would freeze the respawn timer). FacetedRock (small base radius — a pebble),
+            // flat-shaded warm stone-grey via the shared vertex-color shader tinted to StoneCol.
+            var visual = new GameObject("StoneMesh");
+            visual.transform.SetParent(stone.transform, false);
+            var vmf = visual.AddComponent<MeshFilter>();
+            vmf.sharedMesh = LowPolyMeshes.FacetedRock(0.22f, 0.34f, 86099);
+            var vmr = visual.AddComponent<MeshRenderer>();
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var m = new Material(vc) { name = "WiredStoneMat" };
+                if (m.HasProperty("_Tint")) m.SetColor("_Tint", StoneCol);
+                vmr.sharedMaterial = m;
+            }
+
+            // The shared respawn config — find the scatter-authored one if present, else author one here so the
+            // wired stone (and the settings panel) resolve a real respawn window even on a scatter-less rig.
+            var respawner = Object.FindObjectOfType<StoneRespawner>();
+            if (respawner == null) respawner = player.AddComponent<StoneRespawner>();
+
+            var sp = stone.AddComponent<StoneProp>();
+            sp.inventory = Object.FindObjectOfType<Inventory>();
+            sp.stoneVisual = visual.transform;
+            sp.respawner = respawner;
+            sp.respawnSeed = 86097; // deterministic respawn roll so headless/capture behavior is stable
+            if (sp.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire StoneProp to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored WiredStone at " + WiredStonePosition +
+                      " (inventory wired: " + (sp.inventory != null) + ", respawner wired: " +
+                      (sp.respawner != null) + ", yields " + StoneProp.StonePerPickupDefault + " stone on E)");
         }
 
         // The E-LOOT interactor (86caf7a6q): the PLAYER side of the shared E-loot surface. Pressing E loots the
