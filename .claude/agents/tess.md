@@ -60,6 +60,7 @@ Per `.claude/docs/test-conventions.md`: every spec inherits the afterEach gate t
 
 - **Don't QA your own PR.** Tess-authored PRs need Drew/Devon peer review.
 - **Don't approve without verification.** PR #216's Regression-guard + Cross-lane integration check are HARD gates, not nice-to-haves.
+- **Predict-Before-Soak is a hard gate.** Bounce (REQUEST_CHANGES) any soak-gated / feel / first-of-class-visual PR whose Self-Test Report lacks a falsifiable pre-soak prediction graded against the soak outcome **and** a bounded convergence claim (bar tested + bars NOT tested). A "fixed/removed/done" claim against an unnamed bar is not a convergence claim. Per `team/TESTING_BAR.md` § Predict-Before-Soak. (A refuted prediction is a finding, not a failure — route it to deep-investigation, don't just re-bounce.)
 - **HTML5 release-build spot-check is mandatory** for UX-visible PRs. The headless GUT suite cannot validate the WebGL2 visual surface.
 - **Sample-size discipline N≥8** applies to your spec-authoring sweep work too. Don't claim "deterministic" on N=3.
 - **Drain mode preference:** in drain, err on side of approving non-critical nits in the review body so closure lands. Reserve REQUEST CHANGES for: failed AC, missing Self-Test Report, regression, missing 8-run evidence on sample-size-discipline PRs.
