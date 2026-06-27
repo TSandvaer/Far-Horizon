@@ -44,6 +44,23 @@ namespace FarHorizon.EditTests
         //   Vector3 handLocalOffset = HeldAxeLocalOffsetFromHand;   // NO Inverse(hand.rotation) conversion
         // The bake-time hand rotation is passed in only to PROVE it does NOT affect the result (the fixed bug
         // multiplied by Inverse(handRotation)). The rig field IS the hand-local constant, regardless of facing.
+        //
+        // ⚠ COVERAGE GAP (86cab8u19 NIT(b), Drew PR #77): this helper REIMPLEMENTS the seat-bake line rather
+        // than DRIVING the real MovementCameraScene.AttachHeroAxeToHand bake, so a regression that re-introduced
+        // an Inverse(hand.rotation) WORLD-frame conversion INSIDE that method would NOT red here (this helper
+        // would keep returning the hand-local constant). Driving the real method from EditMode is NOT cleanly
+        // feasible: AttachHeroAxeToHand is `private static`, takes a fully-built player GameObject, and loads the
+        // hero-axe FBX via AssetDatabase + walks the rigged hand bone — heavy scene/asset deps, and exposing it
+        // (public/internal) is a runtime/editor API change that is OUT OF SCOPE for this tests-only NIT.
+        // The bug CLASS (the shipped hand-local field == the dialed/approved seat, facing-independent) IS
+        // covered elsewhere by tests that read the REAL constant + the REAL shipped rig:
+        //   (1) CastawayCharacterTests.ReSoak_HeldAxeAndArmPose_ShipTheSponsorDialedValues (:343-348) —
+        //       pins MovementCameraScene.HeldAxeLocalOffsetFromHand + HeldAxeRelEuler to the Sponsor-dialed seat;
+        //   (2) HeldAxeStaysSeatedAcrossFacingsPlayModeTests — drives the SHIPPED rig at runtime + asserts the
+        //       axe stays seated in the hand across facings (the behaviour the bake feeds);
+        //   (3) HeldAxe_ShippedDefault_IsTheApprovedSpawnSeat_HandLocal below — pins the same constant.
+        // This helper's value: it pins the dial→bake ROUND-TRIP math (no facing injection) as a fast, build-free
+        // contract; treat it as a smoke-test of the bake INTENT, not proof the real method is regression-free.
         private static Vector3 BakeHandLocalField(Quaternion bakeTimeHandRotation)
         {
             // The fix: the field is the hand-local constant directly — bakeTimeHandRotation is intentionally
