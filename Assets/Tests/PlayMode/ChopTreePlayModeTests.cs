@@ -83,6 +83,7 @@ namespace FarHorizon.PlayTests
             _tree.regrowthMinSeconds = 0.4f;  // short so the regrow window is testable in headless wall-clock
             _tree.regrowthMaxSeconds = 0.6f;
             _tree.regrowSeed = 12345;         // deterministic regrow roll
+            _tree.swingImpactDelaySeconds = 0.1f; // refinement 3: short impact delay so ClickChop can wait it out
         }
 
         [TearDown]
@@ -105,14 +106,21 @@ namespace FarHorizon.PlayTests
 
         private void StandAtTree() => _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
 
-        // CHANGE 1 — request ONE chop-click (the input-independent seam) then advance a frame so ChopTree.Update
-        // consumes the latch + lands (or rejects) the chop. UiInputGate is forced closed (no modal panel) so the
-        // gate decision in a headless test is range + axe-selected only.
+        // CHANGE 1 + refinement 3 — request ONE chop-click (the input-independent seam) then advance frames until
+        // the chop EFFECT has LANDED AT IMPACT (the click fires the swing now; the effect lands ~impactDelay
+        // later — refinement 3). One frame consumes the latch + schedules the impact; we then wait out the impact
+        // window so the effect (wood / deplete / fell) has applied before the caller asserts. A rejected click
+        // (out of range / no axe / over-UI) schedules nothing → ImpactPending stays false → the wait is one frame.
+        // UiInputGate is forced closed (no modal panel) so the headless gate decision is range + axe-selected only.
         private IEnumerator ClickChop()
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked); // ensure no modal-panel gate in the test
             _tree.RequestChopClick();
-            yield return null;
+            yield return null;                 // consume the latch → schedule the impact (or reject the click)
+            // Wait out the impact window so the effect has applied (bounded so a rejected click can't hang).
+            float start = Time.time;
+            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
+            yield return null;                 // one more frame for the impact-resolve Update to apply the effect
         }
         private bool _gateTracked;
 
@@ -263,6 +271,60 @@ namespace FarHorizon.PlayTests
                 "after a chop the player faces the target tree (+X → yaw ~90°), not its prior north facing");
         }
 
+        // === Refinement 3 (Sponsor soak 2026-06-27) — the chop EFFECT lands at the swing's IMPACT, NOT on the
+        //     click frame: the click fires the swing immediately but wood/deplete are deferred ~impactDelay. ===
+        [UnityTest]
+        public IEnumerator ChopEffect_LandsAtImpact_NotOnClickFrame()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.swingImpactDelaySeconds = 0.4f; // a clear window so we can observe the pre-impact gap
+            Assert.AreEqual(0, _inv.WoodCount, "precondition: no wood");
+
+            // Request the click + step ONE frame: the swing fires + the impact is scheduled, but the EFFECT has
+            // NOT landed yet (no wood, no chop count, the tree is unchanged) — the down-stroke hasn't arrived.
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            _tree.RequestChopClick();
+            yield return null; // consume the click → schedule impact
+            Assert.IsTrue(_tree.ImpactPending, "the swing fired + the impact is SCHEDULED (not yet applied)");
+            Assert.AreEqual(0, _tree.Chops, "the chop EFFECT has NOT landed on the click frame (no depletion yet)");
+            Assert.AreEqual(0, _inv.WoodCount, "no wood on the click frame — wood lands at IMPACT, not on click");
+            Assert.IsTrue(_character.ConsumeChopTriggered(), "the SWING fired immediately on the click");
+
+            // Wait out the impact window — now the effect lands (wood + one chop).
+            float start = Time.time;
+            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
+            yield return null;
+            Assert.AreEqual(1, _tree.Chops, "the chop EFFECT lands AT IMPACT (one chop after the down-stroke)");
+            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "wood yields AT IMPACT (synced to the visual hit)");
+        }
+
+        // === Refinement 3 (single-flight) — a 2nd click while a swing's impact is PENDING must NOT double-apply ===
+        [UnityTest]
+        public IEnumerator SecondClickMidSwing_DoesNotDoubleApply()
+        {
+            SelectAxe();
+            StandAtTree();
+            _tree.swingImpactDelaySeconds = 0.4f;
+
+            // First click → schedules an impact.
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            _tree.RequestChopClick();
+            yield return null;
+            Assert.IsTrue(_tree.ImpactPending, "first click scheduled an impact");
+
+            // A SECOND click while the impact is pending must be ignored (no stack) — request several.
+            for (int i = 0; i < 4; i++) { _tree.RequestChopClick(); yield return null; }
+            Assert.IsTrue(_tree.ImpactPending, "still exactly ONE impact pending (the extra clicks were ignored)");
+
+            // Let the single impact land — exactly ONE chop + woodPerChop wood (not 1 + 4).
+            float start = Time.time;
+            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
+            yield return null;
+            Assert.AreEqual(1, _tree.Chops, "one swing = one impact = ONE chop (the mid-swing clicks didn't stack)");
+            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "exactly woodPerChop wood — no double-apply");
+        }
+
         // === Refinement 2 (Sponsor soak 2026-06-27) — a fully-chopped tree FADES OUT + is REMOVED after the delay,
         //     then REGROWS at the same spot (AC3 still applies). REPLACES the persistent stump. ===
         [UnityTest]
@@ -390,6 +452,7 @@ namespace FarHorizon.PlayTests
             _genTree.regrowthMinSeconds = 0.4f;
             _genTree.regrowthMaxSeconds = 0.6f;
             _genTree.regrowSeed = 999;
+            _genTree.swingImpactDelaySeconds = 0.1f; // refinement 3: short impact delay for the scatter tests
         }
 
         [TearDown]
@@ -403,7 +466,10 @@ namespace FarHorizon.PlayTests
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
             _genTree.RequestChopClick();
-            yield return null;
+            yield return null;                 // schedule the impact (refinement 3)
+            float start = Time.time;
+            while (_genTree.ImpactPending && Time.time - start < 1f) yield return null;
+            yield return null;                 // apply the effect at impact
         }
 
         // === CHANGE (a) — the resolver tracks the demo tree + every scatter tree ===

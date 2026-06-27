@@ -173,6 +173,17 @@ namespace FarHorizon
                  "fade (NOT material alpha) keeps the shared opaque material on the ~1-draw-call batch path.")]
         public float fadeOutDelaySeconds = 10f;
 
+        [Header("Swing impact (Sponsor soak refinement 3, 2026-06-27 — sync the EFFECT to the swing's down-stroke)")]
+        [Tooltip("Seconds from the chop CLICK to the swing's IMPACT frame — the click fires the swing + face-turn " +
+                 "IMMEDIATELY, but the chop EFFECT (per-chop depletion + wood gain + the final bring-down/fall + " +
+                 "the fade-out scheduling) lands at IMPACT, so the tree doesn't drop before the axe has visually " +
+                 "connected. Default ~0.4 s = the Mixamo Attack clip's down-stroke. SCALES with tool-use speed: " +
+                 "the effective delay is this ÷ CastawayCharacter.chopSpeed, so a faster swing impacts sooner (the " +
+                 "Animator plays the clip faster too). A NAMED tweakable field per the project pattern. (We use a " +
+                 "timer, not an AnimationEvent: headless Time.deltaTime≈0 makes clip events non-deterministic to " +
+                 "test, and the timer scales cleanly with chopSpeed — the brief's sanctioned fallback.)")]
+        public float swingImpactDelaySeconds = 0.4f;
+
         [Tooltip("Deterministic seed for the regrow-time rolls (so headless tests are reproducible). 0 = use " +
                  "a time-based seed at runtime. Each instance derives its own sub-seed so trees regrow on " +
                  "distinct timers. Mirrors BerryBush.regrowSeed.")]
@@ -189,7 +200,20 @@ namespace FarHorizon
         // CHANGE 1 — wall-clock time of the last landed chop, for the chopInterval click cooldown.
         private float _lastChopAt = float.NegativeInfinity;
 
+        // Refinement 3 (impact timing) — a single in-flight PENDING IMPACT: the click fires the swing+face-turn,
+        // then the chop EFFECT lands when Time.time >= _impactAt. _pendingTarget is the tree the effect will hit.
+        // Single-flight by construction: a second click while _impactPending is true is IGNORED (no double-apply /
+        // no stacked effects — one swing = one impact = one chop effect). Cleared when the effect resolves.
+        private bool _impactPending;
+        private float _impactAt;
+        private ChoppableTreeState _pendingTarget;
+
         private bool _tracedFirstChop; // one-shot trace guard
+
+        /// <summary>True while a chop swing has been triggered but its EFFECT has not yet landed at impact
+        /// (refinement 3). Exposed so a PlayMode test can assert the click→swing→(delay)→effect ordering and the
+        /// single-flight guard (a second click while this is true must not stack).</summary>
+        public bool ImpactPending => _impactPending;
 
         /// <summary>Chops landed on the DEMO tree (instance 0), 0..chopsToFell. Exposed for PlayMode tests +
         /// the verify capture (which exercises the demo tree). For an arbitrary instance use
@@ -302,9 +326,20 @@ namespace FarHorizon
 
         void Update()
         {
-            // Tick EVERY instance's one-shot felling / regrow tweens + regrow timer independently of input.
+            // Tick EVERY instance's one-shot felling / fade / regrow tweens + timers independently of input.
             for (int i = 0; i < _instances.Count; i++)
                 _instances[i].Tick();
+
+            // Refinement 3 — resolve a PENDING IMPACT when its scheduled impact time arrives (the chop EFFECT
+            // lands at the swing's down-stroke, NOT on the click frame). Done BEFORE reading a new click so a
+            // click can't be processed in the same frame an impact resolves.
+            if (_impactPending && Time.time >= _impactAt)
+            {
+                _impactPending = false;
+                ChoppableTreeState t = _pendingTarget;
+                _pendingTarget = null;
+                ApplyChopEffect(t);
+            }
 
             if (inventory == null || player == null) return;
 
@@ -315,6 +350,10 @@ namespace FarHorizon
             bool clickEdge = _chopClickRequested || Input.GetMouseButtonDown(0);
             _chopClickRequested = false;
             if (!clickEdge) return;
+
+            // Refinement 3 — SINGLE-FLIGHT: a second click while a swing's impact is still pending is IGNORED, so
+            // a mid-swing click can't double-apply or stack effects (one swing = one impact = one chop effect).
+            if (_impactPending) return;
 
             // The full chop-on-click decision (pure static so the guard truth-table is unit-testable): the
             // axe-SELECTED gate (load-bearing) + the three world-click guards (modal panel open; pointer over
@@ -336,7 +375,10 @@ namespace FarHorizon
             // mash can't out-pace the swing). A deliberate click cadence is always slower than this.
             if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
             _lastChopAt = Time.time;
-            ChopInstance(target);
+
+            // Refinement 3 — fire the SWING + FACE-TURN NOW (on the click), but SCHEDULE the EFFECT for the
+            // swing's IMPACT frame. The tree drops / wood ticks at the down-stroke, not before the axe connects.
+            BeginChopSwing(target);
         }
 
         /// <summary>
@@ -385,36 +427,63 @@ namespace FarHorizon
         /// Latched + consumed on the next Update (mirrors the mouse's rising edge — one chop per call), so a
         /// headless PlayMode test + the shipped-build chop capture trigger a chop where a real mouse button
         /// can't be injected. The nearest-in-range + axe-selected + over-UI/RMB guards still apply.
+        /// Refinement 3: like a real click this fires the swing+face-turn NOW but lands the EFFECT (wood / fell /
+        /// fade) at the swing IMPACT (~swingImpactDelaySeconds later) — a caller polling for wood must advance
+        /// time past impact; a re-request while <see cref="ImpactPending"/> is a no-op (single-flight).
         /// </summary>
         public void RequestChopClick() => _chopClickRequested = true;
 
         /// <summary>
-        /// Land one chop on the DEMO tree (instance 0) directly, regardless of range. Public so the existing
-        /// PlayMode swing test can drive a chop in isolation (it asserts the swing fires + the demo tree's
-        /// chop count). Generalized callers go through the click resolver; this is the demo-tree convenience
-        /// seam the pre-CHANGE-(a) tests use.
+        /// Land one chop on the DEMO tree (instance 0) directly + IMMEDIATELY (swing + effect now, no impact
+        /// delay), regardless of range. Public so the existing PlayMode swing test can drive a chop in isolation
+        /// (it asserts the swing fires + the demo tree's chop count) without advancing time to impact. The live
+        /// click flow uses the impact-delayed path (BeginChopSwing); this is the demo-tree convenience seam.
         /// </summary>
         public void Chop()
         {
-            if (_instances.Count > 0) ChopInstance(_instances[0]);
+            if (_instances.Count == 0) return;
+            ChoppableTreeState target = _instances[0];
+            if (target == null || !target.IsChoppable) return;
+            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerChop(); }
+            ApplyChopEffect(target);
         }
 
-        // Land one chop on a resolved instance: FACE the tree (refinement 1), SWING the arm (AC1), yield wood
-        // (AC2), advance the count, and fell it on the final chop (AC3 — fade-out then regrow). The per-instance
-        // state owns the deplete/fell/fade/regrow.
-        private void ChopInstance(ChoppableTreeState target)
+        // Refinement 3 — BEGIN a chop swing on the click: FACE the tree (refinement 1) + SWING the arm (AC1) NOW,
+        // and SCHEDULE the chop EFFECT for the swing's IMPACT frame (so the tree doesn't drop before the axe has
+        // visually connected). The effective delay scales with tool-use speed (a faster swing — the Animator plays
+        // the clip faster — impacts sooner). Single-flight: callers gate on !_impactPending before invoking this.
+        private void BeginChopSwing(ChoppableTreeState target)
+        {
+            if (target == null || !target.IsChoppable) return;
+
+            // FACE THE TREE (refinement 1) — turn the player to face the RESOLVED target tree (Y-yaw only) so the
+            // downward strike reads as hitting THAT tree. SWING the arm (AC1) — TriggerChop plays the Mixamo melee
+            // Attack state; the held axe (HeldAxeRig) follows the swung hand. Both NOW, on the click. Null-safe.
+            if (character != null)
+            {
+                character.FaceWorldTarget(target.Position);
+                character.TriggerChop();
+            }
+
+            // SCHEDULE the effect for the swing's down-stroke. Scale the delay by tool-use speed (the same
+            // CastawayCharacter.chopSpeed that scales the Animator's ChopSpeed playback rate), so the timer tracks
+            // the clip's impact frame across speeds. A null character → unscaled delay (1×).
+            float speed = character != null
+                ? Mathf.Clamp(character.chopSpeed, CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax)
+                : 1f;
+            float delay = Mathf.Max(0f, swingImpactDelaySeconds) / Mathf.Max(0.0001f, speed);
+            _pendingTarget = target;
+            _impactAt = Time.time + delay;
+            _impactPending = true;
+        }
+
+        // Refinement 3 — APPLY the chop effect at IMPACT: yield wood (AC2), advance the count, and fell it on the
+        // final chop (AC3 — fade-out then regrow). Re-checks IsChoppable (the target could have changed state in
+        // the delay window — e.g. an external regrow tick) so a stale pending impact can't double-fell. This is the
+        // moment the tree's bring-down/fall + the fade-out scheduling happen — synced to the visual hit.
+        private void ApplyChopEffect(ChoppableTreeState target)
         {
             if (target == null || !target.IsChoppable || inventory == null) return;
-
-            // FACE THE TREE (Sponsor soak refinement 1, 2026-06-27) — turn the player to face the RESOLVED target
-            // tree (Y-yaw only) BEFORE the swing, so the downward strike reads as hitting THAT tree, not whatever
-            // direction the player happened to face. CastawayCharacter.FaceWorldTarget sets the facing target; the
-            // existing turn-lerp snaps the body toward it promptly. Null-safe (a bare test rig just skips it).
-            if (character != null) character.FaceWorldTarget(target.Position);
-
-            // Swing the arm (AC1) — TriggerChop plays the Mixamo melee Attack state; the held axe (HeldAxeRig)
-            // follows the swung hand automatically. Null is graceful (the wood still yields; just no swing).
-            if (character != null) character.TriggerChop();
 
             inventory.AddWood(Mathf.Max(1, woodPerChop));
             bool felled = target.LandChop(chopsToFell, regrowthMinSeconds, regrowthMaxSeconds, fadeOutDelaySeconds);
@@ -422,7 +491,7 @@ namespace FarHorizon
             if (!_tracedFirstChop)
             {
                 _tracedFirstChop = true;
-                ChopTrace("chop " + target.Chops + "/" + chopsToFell + " -> wood=" + inventory.WoodCount +
+                ChopTrace("impact " + target.Chops + "/" + chopsToFell + " -> wood=" + inventory.WoodCount +
                           " (swing=" + (character != null) + ")");
             }
             if (felled)
