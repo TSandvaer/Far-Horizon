@@ -23,6 +23,7 @@ namespace FarHorizon.EditTests
         private ItemDef Wood => _catalog.ById(ItemCatalog.WoodId);
         private ItemDef Stone => _catalog.ById(ItemCatalog.StoneId);
         private ItemDef Berry => _catalog.ById(ItemCatalog.BerryId);
+        private ItemDef Water => _catalog.ById(ItemCatalog.WaterId);
 
         [SetUp]
         public void SetUp()
@@ -54,23 +55,50 @@ namespace FarHorizon.EditTests
         [Test]
         public void Guards_Resource_NotBeltEligible_Stackable()
         {
-            foreach (var r in new[] { Wood, Stone, Berry })
+            // 86caf7g6f: ONLY pure Resources here now — wood + stone. Berries moved to Consumable. This is
+            // the load-bearing AC5 regression guard: relaxing belt-eligibility for consumables must NOT leak
+            // a pure Resource (wood/stone) onto the belt.
+            foreach (var r in new[] { Wood, Stone })
             {
-                Assert.IsFalse(ItemDef.IsBeltEligible(r), $"{r.Id} (Resource) is NOT belt-eligible (inventory-only)");
+                Assert.AreEqual(ItemKind.Resource, r.Kind, $"{r.Id} is a pure Resource");
+                Assert.IsFalse(ItemDef.IsBeltEligible(r),
+                    $"{r.Id} (Resource) is NOT belt-eligible (inventory-only) — the wood/stone regression AC5 guards");
                 Assert.IsTrue(ItemDef.IsStackable(r), $"{r.Id} (Resource) stacks");
                 Assert.AreEqual(ItemDef.DefaultResourceStack, r.MaxStack, $"{r.Id} stacks to the cap (20)");
             }
         }
 
         [Test]
-        public void CanonicalIds_AreExactlyAxeWoodStoneBerry()
+        public void Guards_Consumable_BeltEligible_Stackable()
+        {
+            // 86caf7g6f AC1/AC2: water + berry are belt-eligible Consumables — holdable on the belt (so
+            // 86caf7a30's left-click can drink/eat them) AND stacking (a stack of water units / berries).
+            foreach (var c in new[] { Water, Berry })
+            {
+                Assert.AreEqual(ItemKind.Consumable, c.Kind, $"{c.Id} is a Consumable");
+                Assert.IsTrue(ItemDef.IsBeltEligible(c),
+                    $"{c.Id} (Consumable) IS belt-eligible — holdable/selectable so left-click can consume it (AC2/AC3)");
+                Assert.IsTrue(ItemDef.IsStackable(c), $"{c.Id} (Consumable) stacks");
+                Assert.AreEqual(ItemDef.DefaultResourceStack, c.MaxStack,
+                    $"{c.Id} stacks to the cap (20) — the soak-tunable DEFAULT (graded at 86caf7a30)");
+            }
+        }
+
+        [Test]
+        public void CanonicalIds_AreExactlyAxeWoodStoneBerryWater()
         {
             Assert.AreEqual("axe", Axe.Id);
             Assert.AreEqual("wood", Wood.Id);
             Assert.AreEqual("stone", Stone.Id);
             Assert.AreEqual("berry", Berry.Id);
+            Assert.AreEqual("water", Water.Id, "water id is the pinned ItemCatalog.WaterId — never a parallel id");
+            Assert.AreEqual(ItemCatalog.WaterId, Water.Id);
             Assert.AreEqual(ItemKind.Tool, Axe.Kind);
             Assert.AreEqual(ItemKind.Resource, Wood.Kind);
+            Assert.AreEqual(ItemKind.Resource, Stone.Kind);
+            Assert.AreEqual(ItemKind.Consumable, Berry.Kind, "berries flipped Resource→Consumable (86caf7g6f)");
+            Assert.AreEqual(ItemKind.Consumable, Water.Kind);
+            Assert.AreEqual("Water", Water.DisplayName);
         }
 
         // === Empty start ===
@@ -196,6 +224,52 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(moved, "a TOOL (axe) IS allowed onto the belt");
             Assert.AreEqual("axe", m.BeltSlots[2].Def.Id, "the axe is now in belt slot 3");
             Assert.IsTrue(m.InventorySlots[0].IsEmpty, "the source pack slot is cleared (no duplicate)");
+        }
+
+        [Test]
+        public void TryMove_ConsumableToBelt_IsAllowed_AndSelectable()
+        {
+            // 86caf7g6f AC2/AC3: a Consumable (water / berry) CAN be placed on the belt + be the SELECTED
+            // belt item — the active-item state 86caf7a30's left-click reads (same seam as the axe→chop
+            // selected-item dispatch). This is the positive half of the relaxed belt gate.
+            foreach (var c in new[] { Water, Berry })
+            {
+                var m = NewModel();
+                m.AddItem(c, 3);                       // lands in the PACK (slot 0) — never auto-belts
+                Assert.AreEqual(c.Id, m.InventorySlots[0].Def.Id);
+
+                bool moved = m.TryMove(SlotRef.Inventory(0), SlotRef.Belt(1));
+                Assert.IsTrue(moved, $"a Consumable ({c.Id}) IS allowed onto the belt (holdable)");
+                Assert.AreEqual(c.Id, m.BeltSlots[1].Def.Id, $"the {c.Id} is now in belt slot 2");
+                Assert.AreEqual(3, m.BeltSlots[1].Count, "the whole stack moved (count conserved)");
+                Assert.IsTrue(m.InventorySlots[0].IsEmpty, "source pack slot cleared (no dupe)");
+
+                m.SelectBelt(1);
+                Assert.IsTrue(m.IsSelectedBeltItem(c.Id),
+                    $"the {c.Id} on the selected belt slot IS the selected item (what 86caf7a30 left-click reads)");
+            }
+        }
+
+        [Test]
+        public void TryMove_PureResourceToBelt_StillRejected_WoodAndStone()
+        {
+            // 86caf7g6f AC5 — the LOAD-BEARING regression: the consumable relaxation must NOT leak a pure
+            // Resource (wood OR stone) onto the belt. Pairs the negative for BOTH resources (the wood case
+            // is also in TryMove_ResourceToBelt_IsRejected_NoOp; stone is added here so the guard isn't
+            // wood-only).
+            foreach (var r in new[] { Wood, Stone })
+            {
+                var m = NewModel();
+                m.AddItem(r, 4); // pack slot 0
+                bool moved = m.TryMove(SlotRef.Inventory(0), SlotRef.Belt(2));
+
+                Assert.IsFalse(moved, $"a pure Resource ({r.Id}) can NEVER move onto the belt (AC5 regression)");
+                Assert.AreEqual(4, m.InventorySlots[0].Count, $"the {r.Id} stays in the pack (no debit)");
+                Assert.IsTrue(m.BeltSlots[2].IsEmpty, "the belt slot stays empty (rejected)");
+                foreach (var b in m.BeltSlots)
+                    Assert.IsTrue(b.IsEmpty || ItemDef.IsBeltEligible(b.Def),
+                        "no belt slot holds a non-belt-eligible item (no Resource leaked onto the belt)");
+            }
         }
 
         [Test]

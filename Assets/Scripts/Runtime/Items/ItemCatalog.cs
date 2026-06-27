@@ -10,7 +10,7 @@ namespace FarHorizon
     /// <c>AddItem(catalog.ById("wood"/"stone"/"berry"), amount)</c> (contract §9).
     ///
     /// The catalog is a ScriptableObject so it ships as `Assets/Data/Items/ItemCatalog.asset` (authored at
-    /// bootstrap with the four canonical defs). For pure-logic tests it can also be built in code via
+    /// bootstrap with the canonical defs — axe/wood/stone/berry/water). For pure-logic tests it can be built via
     /// <see cref="BuildDefaults"/> — no .asset round-trip needed to drive the model (AC8).
     /// </summary>
     [CreateAssetMenu(menuName = "Far Horizon/Item Catalog", fileName = "ItemCatalog")]
@@ -23,16 +23,15 @@ namespace FarHorizon
         public const string BerryId = "berry";
 
         /// <summary>
-        /// Canonical WATER id (86caf7a6q AC5 — pinned now for the consume-side ticket 86caf7a30 to target).
-        /// Sponsor's water-acquisition answer (2026-06-27): E at the pond loots ONE "water" unit into the belt
-        /// (NO container/canteen); the drink is left-click (86caf7a30). The id is pinned HERE so the loot side
-        /// (a future WaterSource IPickable) and the consume side (left-click drink) bind to the SAME id, never
-        /// a parallel one. The water ITEM def is NOT built into <see cref="BuildDefaults"/> yet: water "fills a
-        /// belt slot" but the model's belt-eligibility is DERIVED Tool-only (<see cref="ItemDef.IsBeltEligible"/>
-        /// / <see cref="ItemDef.MaxStack"/>) — a belt-eligible NON-tool needs a model decision (a new ItemKind
-        /// or relaxing the Tool-only belt rule), which the water-via-E follow-up owns. Defining the id alone is
-        /// cheap + stable; minting the def is deferred to that follow-up so this PR doesn't change the
-        /// load-bearing belt invariant (ticket REGRESSION constraint). See the PR body "Water-via-E (AC5)".
+        /// Canonical WATER id (pinned by 86caf7a6q AC5; the water def is MINTED here by 86caf7g6f). Sponsor's
+        /// water-acquisition answer (2026-06-27): E at the pond loots ONE "water" unit into the belt (NO
+        /// container/canteen); the drink is left-click (86caf7a30). The id is the SINGLE source so the loot side
+        /// (E-at-pond, 86caf7a6q) and the consume side (left-click drink, 86caf7a30) bind to the SAME id, never
+        /// a parallel one. The water ItemDef IS built into <see cref="BuildDefaults"/> as a belt-eligible
+        /// <see cref="ItemKind.Consumable"/> (86caf7g6f resolved the model decision: a new third kind, NOT a
+        /// per-asset bool — see <see cref="ItemDef.IsBeltEligible"/>). The model-decision that was deferred here
+        /// is now made; the loot (86caf7a6q AC5) and consume (86caf7a30) follow-ups land their EFFECTS onto this
+        /// existing def. Berries share the kind (also a belt-eligible Consumable).
         /// </summary>
         public const string WaterId = "water";
 
@@ -75,12 +74,14 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// Build the four canonical defs IN CODE and populate the catalog (bootstrap + EditMode tests).
-        /// axe = Tool; wood / stone / berry = stackable Resources. Idempotent: clears + rebuilds. Icons
-        /// are optional (the UI falls back to a letter-chip when null — direction §6.3).
+        /// Build the canonical defs IN CODE and populate the catalog (bootstrap + EditMode tests). axe = Tool;
+        /// wood / stone = stackable Resources (inventory-only); berry / water = stackable belt-eligible
+        /// CONSUMABLES (ticket 86caf7g6f — holdable so left-click can eat/drink them at 86caf7a30). Idempotent:
+        /// clears + rebuilds. Icons are optional (the UI falls back to a letter-chip when null).
         /// </summary>
         public void BuildDefaults(Sprite axeIcon = null, Sprite woodIcon = null,
-                                  Sprite stoneIcon = null, Sprite berryIcon = null)
+                                  Sprite stoneIcon = null, Sprite berryIcon = null,
+                                  Sprite waterIcon = null)
         {
             var axe = CreateInstance<ItemDef>(); axe.name = "axe";
             axe.Init(AxeId, "Axe", ItemKind.Tool, axeIcon);
@@ -98,10 +99,19 @@ namespace FarHorizon
             var stone = CreateInstance<ItemDef>(); stone.name = "stone";
             stone.Init(StoneId, "Stone", ItemKind.Resource, stoneIcon ?? ItemIconGen.StonePile());
 
+            // 86caf7g6f: berries flip Resource→Consumable so they're belt-eligible (holdable + selectable for
+            // a future left-click eat — 86caf7a30). The berry-cluster icon is unchanged.
             var berry = CreateInstance<ItemDef>(); berry.name = "berry";
-            berry.Init(BerryId, "Berries", ItemKind.Resource, berryIcon ?? ItemIconGen.BerryCluster());
+            berry.Init(BerryId, "Berries", ItemKind.Consumable, berryIcon ?? ItemIconGen.BerryCluster());
 
-            SetAll(new[] { axe, wood, stone, berry });
+            // 86caf7g6f: mint the WATER def (id pinned by #147) as a belt-eligible Consumable so E-at-pond loot
+            // (86caf7a6q AC5) has a belt item to land into + left-click can drink it (86caf7a30). A procedural
+            // blue water-drop icon gives a recognizable read (the BUG 3 #90 lesson: a bare letter-chip read
+            // poorly); a baked 3D-prop icon still wins when one lands (water-icon follow-up).
+            var water = CreateInstance<ItemDef>(); water.name = "water";
+            water.Init(WaterId, "Water", ItemKind.Consumable, waterIcon ?? ItemIconGen.WaterDrop());
+
+            SetAll(new[] { axe, wood, stone, berry, water });
         }
     }
 }

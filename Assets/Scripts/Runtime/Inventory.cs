@@ -44,7 +44,7 @@ namespace FarHorizon
 
         [SerializeField,
          Tooltip("Optional authored ItemCatalog asset. If unset, the catalog is built in code at Awake " +
-                 "with the four canonical defs (axe/wood/stone/berry) — no .asset wiring required.")]
+                 "with the canonical defs (axe/wood/stone/berry/water) — no .asset wiring required.")]
         private ItemCatalog _catalogAsset;
 
         private InventoryModel _model;

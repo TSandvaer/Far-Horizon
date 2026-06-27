@@ -16,10 +16,10 @@ namespace FarHorizon
     /// camera orbit, so binding eat to right-click would collide with the camera. The hotkey path is the
     /// collision-free choice. <see cref="eatKey"/> defaults to E — the standard "interact/use" key, free
     /// across the whole input surface (WASD/Shift/Space/Tab/1–5/LMB/RMB are all taken; the F-gated nudge tools
-    /// use T/G/Y/H/U/J + arrows but not E). Eating does NOT require the inventory pack to be open or a berry to
-    /// be "selected" — berries are a Resource and the model keeps Resources OFF the belt (ItemDef.IsBeltEligible
-    /// is Tool-only), so there is no "selected belt berry" to right-click; eating draws from the inventory
-    /// grid directly.
+    /// use T/G/Y/H/U/J + arrows but not E). This key path eats ANY berry the model holds (the consume seam
+    /// draws from any slot via RemoveItem), regardless of where it sits. (86caf7g6f flips berries to a
+    /// belt-eligible Consumable so they CAN be the selected belt item; the SELECTED-item left-click eat is
+    /// 86caf7a30 — this key-eat path is preserved + selection-agnostic.)
     ///
     /// === The seam (atomic, all-or-nothing — reuses the tested HungerNeed path) ===
     /// <see cref="TryEatOneBerry"/> runs the inventory consume delegate

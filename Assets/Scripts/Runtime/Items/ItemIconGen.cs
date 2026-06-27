@@ -28,6 +28,8 @@ namespace FarHorizon
         private static readonly Color StoneDark = new Color(0.46f, 0.47f, 0.51f);
         private static readonly Color Leaf = new Color(0.36f, 0.55f, 0.27f);
         private static readonly Color Berry = new Color(0.74f, 0.22f, 0.30f);
+        private static readonly Color Water = new Color(0.36f, 0.62f, 0.82f);      // freshwater drop
+        private static readonly Color WaterDark = new Color(0.24f, 0.46f, 0.66f);
         private static readonly Color Clear = new Color(0, 0, 0, 0);
 
         /// <summary>A small bundle of two stacked sawn logs (the chopped-wood icon — BUG 3 #90).</summary>
@@ -62,6 +64,29 @@ namespace FarHorizon
         }
 
         private static Color BerryDarker() => new Color(0.55f, 0.14f, 0.22f);
+
+        /// <summary>A single faceted blue water drop (the looted-water icon — ticket 86caf7g6f AC4; a
+        /// recognizable read beats the bare "W" letter-chip per the BUG 3 #90 lesson). A round body with a
+        /// narrowing point toward the top, lit lighter on the upper-left.</summary>
+        public static Sprite WaterDrop()
+        {
+            var px = NewCanvas();
+            // Round lower body.
+            DrawBlob(px, 32, 26, 16, Water, WaterDark);
+            // Narrowing point: a stack of shrinking rows climbing toward the top (y grows upward here is
+            // pixel-row order; the drawn shape reads as a teardrop point above the round body).
+            for (int y = 40; y <= 54; y++)
+            {
+                int halfW = Mathf.Max(0, 11 - (y - 40)); // 11 -> 0 as it rises to the tip
+                for (int x = 32 - halfW; x <= 32 + halfW; x++)
+                {
+                    if (!In(x, y)) continue;
+                    int dx = x - 32;
+                    px[y * Size + x] = dx < 0 ? Water : WaterDark;
+                }
+            }
+            return ToSprite(px, "icon_water");
+        }
 
         // ---- pixel helpers ----
 
