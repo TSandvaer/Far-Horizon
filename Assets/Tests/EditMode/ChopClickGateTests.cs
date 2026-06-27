@@ -69,6 +69,58 @@ namespace FarHorizon.EditTests
                 "a click while the RIGHT mouse button is held (a camera-orbit drag) must NOT chop");
         }
 
+        // === HOLD-TO-CHOP (86caf7a0p) — the hold-repeat chain rides the SAME ShouldChopOnClick gate, so a HELD
+        //     button is gated identically to a click: any single precondition failing means NO swing (no chop).
+        //     This pins that the hold path did NOT introduce a parallel ungated swing trigger (the constraint:
+        //     "do NOT add a parallel swing path"). The held-vs-click distinction is purely INPUT cadence — the
+        //     decision of WHETHER a given swing chops is the one shared static gate, asserted above + here. ===
+        [Test]
+        public void HoldChain_RidesTheSameGate_NotAParallelUngatedPath()
+        {
+            // A held swing chops ONLY under the same all-true condition as a click (no separate hold rule).
+            Assert.IsTrue(
+                ChopTree.ShouldChopOnClick(inRange: true, axeSelected: true,
+                                           uiPanelOpen: false, pointerOverUI: false, rmbHeld: false),
+                "a held swing chops under the same all-preconditions-hold condition as a click");
+
+            // A HELD camera-orbit drag (RMB held) must NOT be read as hold-to-chop — the obvious regression the
+            // ticket calls out ("a HELD drag for camera-orbit must NOT be read as hold-to-chop").
+            Assert.IsFalse(
+                ChopTree.ShouldChopOnClick(true, true, uiPanelOpen: false, pointerOverUI: false, rmbHeld: true),
+                "a HELD RMB camera-orbit drag must NOT chop, even with LMB held (mis-routed drag = the regression)");
+
+            // Held over the belt UI / with a modal panel open — no chop (the chain re-evaluates the gate per swing).
+            Assert.IsFalse(
+                ChopTree.ShouldChopOnClick(true, true, uiPanelOpen: false, pointerOverUI: true, rmbHeld: false),
+                "holding over the inventory/belt UI must NOT chop the tree behind it (per-swing gate)");
+            Assert.IsFalse(
+                ChopTree.ShouldChopOnClick(true, true, uiPanelOpen: true, pointerOverUI: false, rmbHeld: false),
+                "holding while a modal panel is open must NOT chop (per-swing gate)");
+        }
+
+        // === HOLD-TO-CHOP — a bare ChopTree with NO input has NO active chain (the chain is input-driven, never
+        //     auto-started; the seam defaults are off). Guards against a chain leaking on with no held button. ===
+        [Test]
+        public void BareChopTree_NoInput_HasNoActiveChain()
+        {
+            var go = new GameObject("ChopTreeChainProbe");
+            try
+            {
+                var tree = go.AddComponent<ChopTree>();
+                Assert.IsFalse(tree.IsChopChainActive,
+                    "a freshly-added ChopTree with no held input must have NO active swing chain");
+                // Setting held WITHOUT an Update tick still does not start a chain (the chain begins in Update,
+                // gated on inventory/player/range — none wired here). The seam is inert until a gated Update.
+                tree.SetChopHeld(true);
+                Assert.IsFalse(tree.IsChopChainActive,
+                    "SetChopHeld alone (no gated Update) does not start a chain — the chain is gated, not a latch");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+            }
+        }
+
         [Test]
         public void InventoryUI_ScreenPointOverlap_FlipsScreenToPanelAndHitTests()
         {

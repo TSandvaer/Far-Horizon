@@ -36,6 +36,27 @@ namespace FarHorizon
     /// back at the same spot. A felled tree fades away in place while its neighbours stand, then regrows on its own
     /// random timer.
     ///
+    /// === HOLD-TO-CHOP (86caf7a0p, Sponsor wish 2026-06-27 — on his #140 chop-soak approval) ===
+    /// Holding LEFT MOUSE keeps the castaway swinging the axe (repeat swings) on the LOCKED target tree until it
+    /// fells — instead of one click per swing. Built on #140's seam VERBATIM (TriggerChop / the Attack state / the
+    /// impact-timing / ResolveNearestChoppable / the per-instance state) — NO parallel swing path. The repeat is
+    /// driven by SWING COMPLETION (the impact resolving), NOT an input-poll rate, so the one-swing-one-impact-one-
+    /// wood invariant (#140 AC1) holds under the hold loop + the cadence rides the tool-use-speed clip (AC3).
+    ///   • AC1 HOLD-TO-REPEAT: while LMB is HELD (axe selected + a choppable tree in range) swings repeat — each a
+    ///     full Attack-clip cycle landing one chop EFFECT at its impact. On RELEASE the repeat stops; a swing
+    ///     already mid-flight completes its committed impact (no new swing starts). A single click (press+release
+    ///     within one swing) still produces EXACTLY ONE swing (back-compat — one-click-one-swing).
+    ///   • AC2 STOP-ON-FALL: when the locked target fells (depleted → fade-out), the chain STOPS even if the
+    ///     button is still held (no swinging at empty ground). Default (this v1): a re-press is required to start a
+    ///     NEW chain on the next tree — the chain does NOT auto-re-acquire a different tree mid-hold. A FRESH PRESS
+    ///     re-resolves the nearest target (so the next press chops the next tree).
+    ///   • AC3 INVARIANT: the single-flight guard (a swing can begin only when no impact is pending) makes the
+    ///     repeat cadence = one swing per impact, frame-rate-independent + tool-use-speed-scaled.
+    /// The chain locks onto the tree resolved at the START of the hold (<see cref="IsChopChainActive"/> exposes the
+    /// lock); <see cref="SetChopHeld"/> is the input-independent held seam (the analog of the held mouse button,
+    /// like <see cref="RequestChopClick"/> is the click seam) so headless PlayMode + the shipped capture exercise
+    /// the SAME hold path. The optional inter-swing gap is <see cref="chopInterval"/> (default 0 = back-to-back).
+    ///
     /// === AC1 — THE TRIGGER IS AN ACTIVE LEFT-CLICK (Sponsor soak, 2026-06-25 — CHANGE 1, KEPT) ===
     /// The chop is INITIATED BY THE PLAYER, not auto-fired by proximity. With the axe SELECTED and a tree in
     /// range, a LEFT-CLICK (<c>Input.GetMouseButtonDown(0)</c>) triggers ONE chop strike (one swing + one
@@ -200,6 +221,13 @@ namespace FarHorizon
         // CHANGE 1 — wall-clock time of the last landed chop, for the chopInterval click cooldown.
         private float _lastChopAt = float.NegativeInfinity;
 
+        // HOLD-TO-CHOP (86caf7a0p) — programmatic LMB-HELD state (the input-independent seam, the analog of the
+        // held-mouse-button for the swing chain). A headless PlayMode run / the shipped capture can't hold a real
+        // mouse button, so the held state is set via SetChopHeld(true/false); the live Update OR's it with the
+        // real Input.GetMouseButton(0). When held + chain-eligible, the swing REPEATS automatically (one full
+        // swing → its impact → the next swing) until the locked target fells (AC2) or the button is released (AC1).
+        private bool _chopHeldRequested;
+
         // Refinement 3 (impact timing) — a single in-flight PENDING IMPACT: the click fires the swing+face-turn,
         // then the chop EFFECT lands when Time.time >= _impactAt. _pendingTarget is the tree the effect will hit.
         // Single-flight by construction: a second click while _impactPending is true is IGNORED (no double-apply /
@@ -208,12 +236,39 @@ namespace FarHorizon
         private float _impactAt;
         private ChoppableTreeState _pendingTarget;
 
+        // HOLD-TO-CHOP (86caf7a0p) — the LOCKED chain target. A swing chain locks onto the tree resolved at the
+        // START of the hold (the first press's nearest-in-range tree) and keeps swinging THAT tree while the
+        // button is held — it does NOT re-acquire a different tree mid-hold (AC2: default = stop on fall, require
+        // a re-press for the next tree). Non-null only while a chain is active (a swing is pending OR the next
+        // swing is about to begin on the held button). Cleared on release, on fell (the locked target stops being
+        // choppable → STOP-ON-FALL), or when the resolved target no longer matches (the player walked away).
+        private ChoppableTreeState _chainTarget;
+        // True for one frame after a fresh press is observed (rising edge) — distinguishes "start a NEW chain on a
+        // new tree" from "continue the existing chain". A press always re-resolves the nearest target (AC: a fresh
+        // press on a new tree starts a new chain); a held continuation stays locked on _chainTarget.
+        private bool _freshPress;
+        // Remembers the previous frame's held state so the live Update can detect the rising edge (press) WITHOUT
+        // relying solely on Input.GetMouseButtonDown (the programmatic seam has no edge event — it's a level latch).
+        private bool _heldLastFrame;
+        // STOP-ON-FALL latch (AC2): set true when a chain ends because its locked target felled while the button
+        // is STILL held. It suppresses auto-acquiring a neighbour for the rest of THIS continuous hold — the
+        // player must RELEASE + re-press to start a new chain on the next tree (the v1 default: stop on fall,
+        // re-press for the next tree). Cleared on release (the no-held bail path) so the next press chains anew.
+        private bool _suppressUntilRepress;
+
         private bool _tracedFirstChop; // one-shot trace guard
 
         /// <summary>True while a chop swing has been triggered but its EFFECT has not yet landed at impact
         /// (refinement 3). Exposed so a PlayMode test can assert the click→swing→(delay)→effect ordering and the
         /// single-flight guard (a second click while this is true must not stack).</summary>
         public bool ImpactPending => _impactPending;
+
+        /// <summary>HOLD-TO-CHOP (86caf7a0p) — true while a swing CHAIN is active: the button is held and a tree is
+        /// locked as the chain target (a swing is pending, or the next swing is about to begin on the held button).
+        /// Goes false when the button is released, when the locked target fells (STOP-ON-FALL, AC2), or when the
+        /// player leaves the target's range. Exposed so a PlayMode test can assert the chain starts on hold,
+        /// repeats per swing, and stops on release / on fall.</summary>
+        public bool IsChopChainActive => _chainTarget != null;
 
         /// <summary>Chops landed on the DEMO tree (instance 0), 0..chopsToFell. Exposed for PlayMode tests +
         /// the verify capture (which exercises the demo tree). For an arbitrary instance use
@@ -331,54 +386,115 @@ namespace FarHorizon
                 _instances[i].Tick();
 
             // Refinement 3 — resolve a PENDING IMPACT when its scheduled impact time arrives (the chop EFFECT
-            // lands at the swing's down-stroke, NOT on the click frame). Done BEFORE reading a new click so a
-            // click can't be processed in the same frame an impact resolves.
+            // lands at the swing's down-stroke, NOT on the click frame). Done BEFORE reading new input so the
+            // input read below can immediately begin the NEXT swing of a held chain (HOLD-TO-CHOP) in the same
+            // frame the impact resolves — back-to-back swings (default inter-swing gap 0) with no dead frame.
             if (_impactPending && Time.time >= _impactAt)
             {
                 _impactPending = false;
                 ChoppableTreeState t = _pendingTarget;
                 _pendingTarget = null;
                 ApplyChopEffect(t);
+                // STOP-ON-FALL (AC2): if the locked chain target just felled (no longer choppable), drop the chain
+                // AND latch suppression so the held button does not auto-acquire a neighbour and swing at it — a
+                // RELEASE + re-press is required to start a new chain on the next tree (the v1 default).
+                if (_chainTarget != null && !_chainTarget.IsChoppable)
+                {
+                    _chainTarget = null;
+                    _suppressUntilRepress = true;
+                }
             }
 
-            if (inventory == null || player == null) return;
+            if (inventory == null || player == null)
+            {
+                _heldLastFrame = false; _chainTarget = null; _suppressUntilRepress = false; return;
+            }
 
-            // CHANGE 1 — the chop is triggered by an ACTIVE LEFT-CLICK (like an attack), NOT proximity-auto.
-            // Read the real mouse rising edge OR consume the programmatic latch (the headless / shipped-build
-            // seam). Consume the latch unconditionally each frame (one chop per RequestChopClick) so it can't
-            // stick across frames.
-            bool clickEdge = _chopClickRequested || Input.GetMouseButtonDown(0);
+            // HOLD-TO-CHOP (86caf7a0p) — read the LMB HELD level (real button OR the programmatic seam), and detect
+            // the rising edge (a fresh PRESS) off the previous frame's held state. The real GetMouseButtonDown(0)
+            // edge also counts as a press (covers the live mouse). A fresh press re-resolves the nearest target +
+            // starts a NEW chain; a held continuation stays locked on _chainTarget. The one-shot RequestChopClick
+            // latch is still honoured as a single press+release (back-compat — one click = exactly one swing).
+            bool held = _chopHeldRequested || Input.GetMouseButton(0);
+            bool clickLatch = _chopClickRequested; // a single programmatic strike (consumed below)
             _chopClickRequested = false;
-            if (!clickEdge) return;
+            bool pressEdge = (held && !_heldLastFrame) || Input.GetMouseButtonDown(0) || clickLatch;
+            _heldLastFrame = held;
+            _freshPress = pressEdge;
 
-            // Refinement 3 — SINGLE-FLIGHT: a second click while a swing's impact is still pending is IGNORED, so
-            // a mid-swing click can't double-apply or stack effects (one swing = one impact = one chop effect).
+            // A one-shot RequestChopClick (no sustained hold) behaves like a single press: it must produce exactly
+            // ONE swing, never a chain. Treat the latch as "held for this one swing only" so the chain logic below
+            // begins one swing then finds nothing held next frame and stops.
+            bool effectiveHeld = held || clickLatch;
+
+            // Refinement 3 — SINGLE-FLIGHT: while a swing's impact is still pending, no new swing begins (one swing
+            // = one impact = one chop effect). The held chain resumes on the frame AFTER the impact resolves above.
             if (_impactPending) return;
 
-            // The full chop-on-click decision (pure static so the guard truth-table is unit-testable): the
-            // axe-SELECTED gate (load-bearing) + the three world-click guards (modal panel open; pointer over
-            // the inventory/belt UI; RMB camera-orbit drag). "inRange" is supplied by the NEAREST-tree resolve
-            // below: a click only chops when SOME standing tree is within chopRadius.
+            // Nothing held + no fresh press → no chain. Drop any lingering lock (the in-flight swing already
+            // resolved above) and bail. This is the RELEASE path (AC1): releasing stops the repeat; the swing that
+            // was mid-flight has already committed its single impact via the impact-resolve block above. Releasing
+            // also CLEARS the STOP-ON-FALL suppression so the NEXT press chains anew (re-press for the next tree).
+            if (!effectiveHeld) { _chainTarget = null; _suppressUntilRepress = false; return; }
+
+            // STOP-ON-FALL suppression (AC2): the locked target felled while the button stayed held → do not start
+            // a NEW chain on a neighbour until the player releases + re-presses. A fresh press clears the latch
+            // (it IS the re-press); a held continuation stays suppressed (no auto-acquire / no empty swings).
+            if (_suppressUntilRepress)
+            {
+                if (_freshPress) _suppressUntilRepress = false; // the re-press — allow a new chain to start
+                else return;                                    // still the same hold — stay stopped
+            }
+
+            // The full chop decision (pure static so the guard truth-table is unit-testable): the axe-SELECTED gate
+            // (load-bearing) + the three world-click guards (modal panel open; pointer over the inventory/belt UI;
+            // RMB camera-orbit drag — a HELD RMB orbit drag must NOT be read as hold-to-chop). Re-evaluated every
+            // swing so opening a panel / dragging the camera mid-hold cleanly pauses the chain.
             bool overUI = inventoryUI != null && inventoryUI.IsPointerOverUI(Input.mousePosition);
             bool rmbHeld = Input.GetMouseButton(1);
 
-            // CHANGE (a) — resolve the NEAREST in-range, still-standing tree (AC5). null = no choppable tree in
-            // reach → the click is a harmless world-click (exactly like clicking past every tree).
-            ChoppableTreeState target = ResolveNearestChoppable(player.position);
+            // Resolve the chain TARGET. On a fresh press, re-resolve the NEAREST in-range standing tree (a new
+            // chain on a new tree — AC: "a fresh press on a new tree starts a new chain"). On a held continuation,
+            // STAY LOCKED on _chainTarget (AC2: do not re-acquire a different tree mid-hold) — but only if it is
+            // still choppable AND still in range (the player may have walked off); otherwise the chain is over.
+            ChoppableTreeState target;
+            if (_freshPress || _chainTarget == null)
+                target = ResolveNearestChoppable(player.position);
+            else
+                target = (_chainTarget.IsChoppable && IsInRange(player.position, _chainTarget))
+                         ? _chainTarget : null;
             bool inRange = target != null;
 
             if (!ShouldChopOnClick(inRange, inventory.IsAxeSelectedInBelt,
                                    UiInputGate.CaptureWorldInput, overUI, rmbHeld))
+            {
+                _chainTarget = null; // a failed gate (panel open / over UI / RMB / out of range) pauses the chain
                 return;
+            }
 
-            // Click cooldown: ignore a chop that lands within chopInterval of the last (a stray double-edge /
-            // mash can't out-pace the swing). A deliberate click cadence is always slower than this.
+            // Inter-swing cooldown: the next swing in a chain begins only after chopInterval since the last landed
+            // chop. With the default 0 (back-to-back swings) the cadence is driven purely by the swing/impact clip;
+            // a non-zero value inserts a small gap between swings (Sponsor-tunable per the DEFAULTS block). It also
+            // still guards a stray double-edge from out-pacing the swing read.
             if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
             _lastChopAt = Time.time;
 
-            // Refinement 3 — fire the SWING + FACE-TURN NOW (on the click), but SCHEDULE the EFFECT for the
-            // swing's IMPACT frame. The tree drops / wood ticks at the down-stroke, not before the axe connects.
+            // LOCK the target for the chain + fire the SWING + FACE-TURN NOW, scheduling the EFFECT for the swing's
+            // IMPACT frame (refinement 3). Next frame, with the button still held + the impact resolved, the chain
+            // continues — one swing per impact, never an input-poll-rate firehose (AC3 invariant preserved).
+            _chainTarget = target;
             BeginChopSwing(target);
+        }
+
+        /// <summary>Planar (XZ) range check between a position and a tracked tree — the same metric the resolver
+        /// uses, factored out so the HOLD-TO-CHOP chain can re-test the LOCKED target's range each swing (the
+        /// player may walk away mid-hold). Mirrors <see cref="ResolveNearestChoppable"/>'s distance test.</summary>
+        private bool IsInRange(Vector3 from, ChoppableTreeState t)
+        {
+            if (t == null) return false;
+            Vector3 p = t.Position;
+            float dSq = (new Vector2(from.x, from.z) - new Vector2(p.x, p.z)).sqrMagnitude;
+            return dSq <= chopRadius * chopRadius;
         }
 
         /// <summary>
@@ -432,6 +548,17 @@ namespace FarHorizon
         /// time past impact; a re-request while <see cref="ImpactPending"/> is a no-op (single-flight).
         /// </summary>
         public void RequestChopClick() => _chopClickRequested = true;
+
+        /// <summary>
+        /// HOLD-TO-CHOP (86caf7a0p) — set the LMB-HELD state programmatically (the input-independent analog of
+        /// holding/releasing the left mouse button). The live Update OR's this with Input.GetMouseButton(0), so a
+        /// headless PlayMode run + the shipped-build capture exercise the SAME hold-repeat chain a real held mouse
+        /// button drives. Call SetChopHeld(true) to begin holding (the first frame is a fresh press → starts a new
+        /// chain on the nearest in-range tree); keep it true to repeat swings (one swing per impact); call
+        /// SetChopHeld(false) to release (the chain stops; an in-flight swing still lands its committed impact).
+        /// The nearest-in-range + axe-selected + over-UI/RMB guards still apply every swing.
+        /// </summary>
+        public void SetChopHeld(bool held) => _chopHeldRequested = held;
 
         /// <summary>
         /// Land one chop on the DEMO tree (instance 0) directly + IMMEDIATELY (swing + effect now, no impact
