@@ -3,14 +3,25 @@ using UnityEngine;
 namespace FarHorizon
 {
     /// <summary>
-    /// The tool-vs-resource discriminator (ticket 86caa4bya / Drew's item-model contract §2). An ENUM,
-    /// not a bool, so a future third kind (consumable/food, equipment) slots in without a wire-format
-    /// break — see contract §6 (the berry "eat" extension reserves exactly this shape).
+    /// The item-kind discriminator (ticket 86caa4bya / Drew's item-model contract §2; extended by
+    /// 86caf7g6f). An ENUM, not a bool, so a third kind slots in without a wire-format break — the
+    /// contract §6 reserved EXACTLY this shape ("when a hunger need lands, add ItemKind.Consumable").
+    ///
+    /// === The three kinds (the single source of belt-eligibility + stackability) ===
+    /// - <see cref="Tool"/>     — belt-eligible, NON-stacking (axe). Held + left-clicked to act (chop).
+    /// - <see cref="Resource"/> — inventory-ONLY, stacking (wood / stone). Never sits on the belt.
+    /// - <see cref="Consumable"/> — belt-eligible, stacking (water / berry). Can be the SELECTED belt item
+    ///   so left-click can CONSUME it (drink / eat) — the consume EFFECT wiring is ticket 86caf7a30.
+    ///
+    /// Belt-eligibility is the SINGLE rule <see cref="IsBeltEligible"/> (Tool OR Consumable), NOT a per-asset
+    /// bool (contract §2 forbids a bool that can disagree with Kind). Adding the value BEFORE Resource would
+    /// shift the serialized int of existing assets — Consumable is appended LAST to keep wire compatibility.
     /// </summary>
     public enum ItemKind
     {
         Tool,
         Resource,
+        Consumable,
     }
 
     /// <summary>
@@ -68,22 +79,29 @@ namespace FarHorizon
 
         /// <summary>
         /// Per-slot stack cap, DERIVED from <see cref="Kind"/> (contract §1/§2 — NOT free-authored): a Tool
-        /// never stacks (cap 1); a Resource stacks to <see cref="DefaultResourceStack"/> (the tweakable
-        /// resource stack-size, default 20). Derived so it can NEVER disagree with Kind.
+        /// never stacks (cap 1); a Resource OR Consumable stacks to <see cref="DefaultResourceStack"/> (the
+        /// tweakable resource stack-size, default 20). Consumables stack like resources so a belt slot holds
+        /// a stack of water units / berries (ticket 86caf7g6f DEFAULT — Sponsor-soak-tunable at 86caf7a30).
+        /// Derived so it can NEVER disagree with Kind.
         /// </summary>
         public int MaxStack => _kind == ItemKind.Tool ? 1 : DefaultResourceStack;
 
         // === The two static guards — ONE definition, used everywhere (UI deny-glow AND data-model
-        // move-rejection). Tools -> belt-allowed + non-stacking; Resources -> inventory-only + stackable.
+        // move-rejection). Tools/Consumables -> belt-allowed; Resources/Consumables -> stackable.
         // Do NOT add a per-asset bool that could disagree with Kind (contract §2). ===
 
-        /// <summary>Belt-eligibility (contract §2 / AC6): TOOLS may sit on the belt; RESOURCES are
-        /// inventory-only. The single rule the UI deny-glow AND the model move-rejection both bind to.</summary>
-        public static bool IsBeltEligible(ItemDef def) => def != null && def.Kind == ItemKind.Tool;
+        /// <summary>Belt-eligibility (contract §2 / AC6; extended by 86caf7g6f): TOOLS and CONSUMABLES may sit
+        /// on the belt (a consumable must be holdable so left-click can drink/eat it — 86caf7a30); RESOURCES
+        /// (wood / stone) stay inventory-ONLY. The single rule the UI deny-glow AND the model move-rejection
+        /// both bind to. The load-bearing regression guard (86caf7g6f AC5): relaxing this must NOT leak a pure
+        /// Resource onto the belt — only Tool OR Consumable, never Resource.</summary>
+        public static bool IsBeltEligible(ItemDef def) =>
+            def != null && (def.Kind == ItemKind.Tool || def.Kind == ItemKind.Consumable);
 
-        /// <summary>Stackability (contract §2 / AC7): RESOURCES stack (to MaxStack); TOOLS do not. The single
-        /// source — derived from Kind, never a separate bool.</summary>
-        public static bool IsStackable(ItemDef def) => def != null && def.Kind == ItemKind.Resource;
+        /// <summary>Stackability (contract §2 / AC7): RESOURCES and CONSUMABLES stack (to MaxStack); TOOLS do
+        /// not. The single source — derived from Kind, never a separate bool.</summary>
+        public static bool IsStackable(ItemDef def) =>
+            def != null && (def.Kind == ItemKind.Resource || def.Kind == ItemKind.Consumable);
 
         /// <summary>
         /// Editor/test-time initializer — sets the immutable identity fields. Used by ItemCatalog asset

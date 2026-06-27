@@ -241,11 +241,14 @@ namespace FarHorizon.PlayTests
         [Test]
         public void Harvest_IntoNearlyFullInventory_AddsOnlyWhatFits_AndStillDepletes()
         {
-            // Fill the inventory so EXACTLY 1 berry of slot-room remains: 20 slots × 20/stack = 400 cap;
-            // pre-load 399 so a 3-berry harvest can only land 1 (2 spill as leftover).
+            // Fill the WHOLE model so EXACTLY 1 berry of slot-room remains, then a 3-berry harvest can only
+            // land 1 (2 spill as leftover). 86caf7g6f: berries are now a belt-eligible Consumable, so AddItem
+            // spills past the full pack onto the belt too — capacity is (inventory + belt) slots × MaxStack,
+            // NOT inventory-only. CountItem(berry) (the `Berries` helper) already sums both arrays.
             var berryDef = _inv.Catalog.ById(ItemCatalog.BerryId);
             Assert.IsNotNull(berryDef, "precondition: the catalog defines the berry item");
-            int cap = berryDef.MaxStack * _inv.Model.InventorySlots.Count; // 400
+            int cap = berryDef.MaxStack *
+                      (_inv.Model.InventorySlots.Count + _inv.Model.BeltSlots.Count); // 20×(20+5) = 500
             int leftoverFromFill = _inv.Model.AddItem(berryDef, cap - 1);  // pack now holds cap-1 (399)
             Assert.AreEqual(0, leftoverFromFill, "precondition: the fill itself fit (no spill)");
             Assert.AreEqual(cap - 1, Berries, "precondition: inventory loaded to cap-1");
@@ -266,8 +269,10 @@ namespace FarHorizon.PlayTests
         public void Harvest_IntoFullInventory_AddsNothing_NoOverCredit()
         {
             var berryDef = _inv.Catalog.ById(ItemCatalog.BerryId);
-            int cap = berryDef.MaxStack * _inv.Model.InventorySlots.Count; // 400
-            _inv.Model.AddItem(berryDef, cap); // pack completely full
+            // 86caf7g6f: berries are belt-eligible now → full capacity is (inventory + belt) slots × MaxStack.
+            int cap = berryDef.MaxStack *
+                      (_inv.Model.InventorySlots.Count + _inv.Model.BeltSlots.Count); // 20×(20+5) = 500
+            _inv.Model.AddItem(berryDef, cap); // model completely full (pack + belt)
             Assert.AreEqual(cap, Berries, "precondition: inventory full");
 
             _bush.berriesPerHarvest = 3;
