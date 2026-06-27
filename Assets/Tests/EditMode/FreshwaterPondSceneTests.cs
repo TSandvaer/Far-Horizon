@@ -924,6 +924,81 @@ namespace FarHorizon.EditTests
                 "the PondNudge default recess step must equal the baked recess (a no-key soak sees the shipped pond)");
         }
 
+        // === NEW (ticket 86cadnepd — footprint-EXTENT guard; Drew's PR #130 APPROVE_WITH_NITS) =================
+        // The whole-rim grounding invariant (every lobe of the pond rim + collar sits on the +reground clearance,
+        // never poking through terrain) rests on the pond footprint staying inside the FLAT SPAWN-PLATEAU — the
+        // zone within SpawnFlattenHoldRadius of the WORLD ORIGIN where the hills are fully damped (HillHeightAt:
+        // spawnFlat==0 for r < SpawnFlattenHoldRadius). Inside that zone the carve + centre-grounding put the
+        // whole pond below the surrounding terrain by construction; OUTSIDE it the hills rise azimuthally and a
+        // rim lobe could exceed the clearance and poke through — UNDETECTED, because BOTH the -verifyPond CI gate
+        // AND the center-only grounding tests sample frame-CENTRE only (neither samples the footprint EXTENT).
+        //
+        // The rim-RADIUS spread bound (BuildPondWaterMesh_OutlineIsOrganic_NotAPerfectCircle, maxR < nominal×1.30)
+        // is pinned; the pond's WORLD POSITION + the spawn-flatten SCALE are NOT. This guard pins them: assert the
+        // FARTHEST footprint point from the world origin stays inside the flat plateau, using the REAL production
+        // constants (PondPosition, the authored disc reach via BuildShippedPondWaterMeshForTest, the collar paint
+        // reach, SpawnFlattenHoldRadius) — NOT magic numbers that drift. RED if a future edit moves the pond
+        // outward, grows the disc/collar, or shrinks the spawn-flatten hold radius such that a lobe could leave
+        // the plateau (the precondition the whole-rim grounding rests on).
+        [Test]
+        public void Pond_Footprint_StaysInsideSpawnFlattenPlateau_WholeRimGroundingHolds()
+        {
+            // (1) The pond's WORLD-ORIGIN distance — read from the authored PondPosition (NOT a literal). The carve
+            // (LowPolyZoneGen.PondCenterX/Z) MUST match this; pin that too so a desync of the two is caught.
+            Vector3 pondPos = MovementCameraScene.PondPosition;
+            Assert.AreEqual(LowPolyZoneGen.PondCenterX, pondPos.x, 1e-4f,
+                "the carve centre PondCenterX must match the authored MovementCameraScene.PondPosition.x (a desync " +
+                "would carve the bowl off-centre from the water disc)");
+            Assert.AreEqual(LowPolyZoneGen.PondCenterZ, pondPos.z, 1e-4f,
+                "the carve centre PondCenterZ must match the authored MovementCameraScene.PondPosition.z");
+            float distFromOrigin = Mathf.Sqrt(pondPos.x * pondPos.x + pondPos.z * pondPos.z); // ≈7.616 at (7,0,-3)
+
+            // (2) The disc's MAX reach across all azimuths — the authored PondSurfaceRadius × max organic rim
+            // factor, read from the SHIPPED mesh (the same idiom Pond_WaterDisc_FillsTheCarvedBowl uses to track
+            // the actual authored radius, NOT a private literal). This is the farthest the WATER edge reaches from
+            // the pond centre.
+            var disc = MovementCameraScene.BuildShippedPondWaterMeshForTest();
+            float maxRimReach = 0f;
+            foreach (var v in disc.vertices)
+            {
+                float r = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+                if (r > maxRimReach) maxRimReach = r;
+            }
+            Assert.Greater(maxRimReach, 0f, "the shipped pond disc must have a positive rim reach");
+
+            // (3) The collar PAINT reach from the pond centre — the darker-green ring fades out by PondBowlOuterRadius
+            // + PondCollarPaintFade. The "footprint" is whichever pond ELEMENT reaches farthest from the centre
+            // (water disc rim OR the painted collar band), so the guard protects them both.
+            float collarReach = LowPolyZoneGen.PondBowlOuterRadius + LowPolyZoneGen.PondCollarPaintFade;
+            float footprintReachFromCentre = Mathf.Max(maxRimReach, collarReach);
+
+            // (4) The farthest footprint point from the WORLD ORIGIN = the pond's origin-distance + its farthest
+            // local reach. It MUST stay inside the flat spawn-plateau (SpawnFlattenHoldRadius) — the precondition
+            // the whole-rim grounding rests on. Assert the ACTUAL margin (AC3 — not a borderline pass).
+            float farthestFootprintFromOrigin = distFromOrigin + footprintReachFromCentre;
+            float plateau = LowPolyZoneGen.SpawnFlattenHoldRadius;
+            float margin = plateau - farthestFootprintFromOrigin;
+
+            Assert.Less(farthestFootprintFromOrigin, plateau,
+                $"the pond's FARTHEST footprint point from the world origin ({farthestFootprintFromOrigin:F3}u = " +
+                $"dist(PondPosition) {distFromOrigin:F3} + max(disc reach {maxRimReach:F3}, collar reach " +
+                $"{collarReach:F3})) MUST stay inside the flat spawn-plateau (SpawnFlattenHoldRadius {plateau:F1}u) " +
+                "where the hills are fully damped. Beyond it the hills rise azimuthally and a rim lobe could exceed " +
+                "the +reground clearance and poke through terrain UNDETECTED (the -verifyPond gate + the center-only " +
+                "grounding tests both sample frame-CENTRE, never the footprint EXTENT). Cause: the pond was moved " +
+                "outward, the disc/collar grew, or SpawnFlattenHoldRadius shrank (ticket 86cadnepd; #130 NIT).");
+
+            // Non-trivial margin: the current geometry must clear the plateau edge by a clear band, not a hair —
+            // a borderline pass would let normal capture/tuning noise tip a lobe out. (Current values: footprint
+            // ≈14.8u, plateau 16u → ≈1.1u margin. A future change that erodes this toward 0 reds here BEFORE a lobe
+            // actually leaves the plateau.)
+            Assert.Greater(margin, 0.5f,
+                $"the pond footprint must clear the spawn-plateau edge by a NON-TRIVIAL margin (>0.5u, got " +
+                $"{margin:F3}u: plateau {plateau:F1} − farthest footprint {farthestFootprintFromOrigin:F3}). A " +
+                "borderline margin means a small future pond-move / disc-grow / hold-radius-shrink would push a rim " +
+                "lobe off the flat plateau and re-open the whole-rim grounding blind spot (ticket 86cadnepd).");
+        }
+
         private static T FindAnyInScene<T>() where T : Component
         {
             foreach (var root in EditorSceneManager.GetActiveScene().GetRootGameObjects())
