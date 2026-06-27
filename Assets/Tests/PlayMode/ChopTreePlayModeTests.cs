@@ -445,7 +445,7 @@ namespace FarHorizon.PlayTests
             if (_treeGo != null) Object.Destroy(_treeGo);
             if (_invGo != null) Object.Destroy(_invGo);
             if (_playerGo != null) Object.Destroy(_playerGo);
-            if (_driverGo != null) Object.Destroy(_driverGo);
+            if (_charGo != null) Object.Destroy(_charGo);
             yield return null;
 
             SceneManager.LoadScene("Boot", LoadSceneMode.Single);
