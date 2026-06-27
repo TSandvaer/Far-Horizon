@@ -4,18 +4,21 @@ using UnityEngine;
 namespace FarHorizon
 {
     /// <summary>
-    /// A harvestable BERRY BUSH (ticket 86caa5zz3) — the world food source for the merged hunger loop.
-    /// The castaway walks up to a RIPE berry bush and HARVESTS its berries (proximity + interact, no tool
-    /// required — the stone-pickup idiom, NOT the axe-gated chop): the berries go to the inventory as a
+    /// A harvestable BERRY BUSH (ticket 86caa5zz3; E-LOOT migration 86caf7a6q) — the world food source for
+    /// the merged hunger loop. The castaway walks up to a RIPE berry bush and presses E to LOOT its berries
+    /// (the universal pick-up/loot verb — DECISIONS 2026-06-27): the berries go to the inventory as a
     /// stackable <c>berry</c> resource (<see cref="InventoryModel.AddItem"/> against the catalog's berry
     /// <see cref="ItemDef"/> — it never mints a parallel item type, per item-model contract §9). The BUSH
     /// PERSISTS; only the BERRIES deplete on harvest and REGROW after a tweakable delay (AC4).
     ///
-    /// === The interaction (AC3) — proximity, no tool, mirrors ChopTree's proven seam ===
-    /// Polling planar XZ distance to the player root each Update is the robust "the castaway reached the
-    /// bush" seam (same as ChopTree / CraftSpot — onArrived is fragile, see ChopTree's note). Reaching a
-    /// RIPE bush harvests once (edge-triggered: one harvest per arrival, re-arms when the player leaves).
-    /// Unlike ChopTree there is NO axe gate — berries are picked by hand.
+    /// === The interaction (E-LOOT — 86caf7a6q AC1/AC2/AC4) — IMPLEMENTS <see cref="IPickable"/> ===
+    /// The bush is an <see cref="IPickable"/> on the shared E-loot surface: the player-side
+    /// <see cref="PickableLooter"/> resolves the nearest in-range pickable and calls <see cref="TryLoot"/>
+    /// when E is pressed. <see cref="TryLoot"/> wraps the existing <see cref="Harvest"/> seam (add berries +
+    /// go bare + schedule regrow) into the one-loot loot-contract. This REPLACES the old proximity-auto
+    /// harvest: walking into range no longer harvests — the player must press E (AC4 "no proximity-auto").
+    /// Berries are looted by hand (no tool gate — unlike the axe-gated chop). The bush's own
+    /// <see cref="harvestRadius"/> (scaled by the bush size) is its <see cref="IPickable.LootRange"/>.
     ///
     /// === Regrowth (AC4) — bush persists, berries deplete + regrow, TWEAKABLE within [min,max] ===
     /// On harvest the bush goes BARE (berries hidden) and schedules a regrow at a RANDOM time within
@@ -25,7 +28,11 @@ namespace FarHorizon
     /// settings panel is a FOLLOW-UP — no settings/dev-tweak panel exists on main yet (gated on the panel
     /// foundation; memory `sponsor-wants-unified-dev-tweak-console`). NOT a mid-PR scope expansion.
     ///
-    /// === Eat (AC5 / AC5a / AC5b) — CONSUME side only ===
+    /// === Eat (AC5 / AC5a / AC5b — ticket 86caa5zz3) — CONSUME side only ===
+    /// NOTE: eating is the CONSUME side (left-click use the selected belt item — 86caf7a30), DISTINCT from
+    /// the E-LOOT side this migration owns. <see cref="EatBerry"/> stays as the tested consume seam; it is
+    /// NOT bound to E any more (E is now loot). The in-game eat INPUT binding moves to 86caf7a30.
+    ///
     /// <see cref="EatBerry"/> consumes exactly ONE berry from the inventory (all-or-nothing) and, IF a
     /// <see cref="HungerNeed"/> is present, restores hunger via its atomic seam
     /// <see cref="HungerNeed.TryEatBerry"/>; otherwise it just consumes (AC5b graceful no-HungerNeed — no
@@ -43,14 +50,14 @@ namespace FarHorizon
     /// One-shot `[bush-trace]` lines on harvest + regrow + eat so the bush's runtime state is readable
     /// from the build log (the diagnose-via-trace discipline; sibling of the [world-trace] scatter lines).
     /// </summary>
-    public class BerryBush : MonoBehaviour
+    public class BerryBush : MonoBehaviour, IPickable
     {
         [Header("Wiring (serialized editor-time)")]
         [Tooltip("The inventory harvested berries are added to. Wired at bootstrap; scene-found fallback.")]
         public Inventory inventory;
 
-        [Tooltip("The player transform whose proximity triggers a harvest. Wired at bootstrap; falls " +
-                 "back to the ClickToMove root, then a scene search.")]
+        [Tooltip("The player transform (E-loot is resolved by the PickableLooter, not the bush — this stays " +
+                 "wired for the legacy/test harness). Wired at bootstrap; falls back to the ClickToMove root.")]
         public Transform player;
 
         [Tooltip("The berries visual root — shown when RIPE, hidden when BARE (regrowing). Wired at " +
@@ -91,7 +98,6 @@ namespace FarHorizon
 
         // Runtime state.
         private bool _ripe = true;          // true = berries present + harvestable; false = bare, regrowing
-        private bool _atBush;               // was the player in range last frame (edge-trigger re-arm)
         private float _regrowAt;            // wall-clock time the berries regrow (when bare)
         private System.Random _rng;
         private bool _tracedFirstHarvest;   // one-shot trace guards (don't spam the log per frame)
@@ -102,6 +108,42 @@ namespace FarHorizon
 
         /// <summary>Wall-clock time the berries are scheduled to regrow (only meaningful while bare).</summary>
         public float RegrowAt => _regrowAt;
+
+        // ============================================================================================
+        // IPickable — the WORLD-ITEM side of the shared E-loot surface (86caf7a6q AC1/AC2). The
+        // PickableLooter resolves the nearest in-range CanLoot pickable and calls TryLoot on E.
+        // ============================================================================================
+
+        /// <summary>IPickable: the bush is loot-able when it is a berry bush AND currently RIPE — a bare/
+        /// regrowing or decorative bush is skipped by the looter's nearest-in-range resolve (so E never
+        /// "loots nothing" off a spent bush).</summary>
+        public bool CanLoot => hasBerries && _ripe && inventory != null;
+
+        /// <summary>IPickable: the bush's world position (the looter measures planar XZ distance to this).</summary>
+        public Vector3 LootPosition => transform.position;
+
+        /// <summary>IPickable: the bush's loot reach — its own <see cref="harvestRadius"/> SCALED by the bush
+        /// visual size (localScale.x: 0.55–1.5× across the scatter) so a small bush isn't loot-able from
+        /// metres away and a large one only from a step closer — the reach matches what the player sees
+        /// (preserves the size-scaled radius the old proximity harvest used).</summary>
+        public float LootRange => harvestRadius * transform.localScale.x;
+
+        /// <summary>
+        /// IPickable.TryLoot (86caf7a6q AC1) — loot ONE harvest of berries into <paramref name="inv"/>: the
+        /// whole transaction is the existing <see cref="Harvest"/> seam (add berries via the canonical
+        /// <see cref="ItemCatalog.BerryId"/> + go BARE + schedule regrow). Returns true iff at least one
+        /// berry actually landed (a full pack lands 0 → returns false, a clean no-op for the looter). Harvest
+        /// preserves its existing tested behaviour: the bush still goes bare on a wasted (full-pack) harvest
+        /// — TryLoot just reports it back via the false return. Uses the wired <see cref="inventory"/> (the
+        /// bush owns its inventory ref); <paramref name="inv"/> is accepted for the interface contract and
+        /// used when the bush's own ref is unset (test/edge safety).
+        /// </summary>
+        public bool TryLoot(Inventory inv)
+        {
+            if (inventory == null) inventory = inv;
+            if (inventory == null || !CanLoot) return false;
+            return Harvest() > 0;
+        }
 
         void Awake()
         {
@@ -121,36 +163,12 @@ namespace FarHorizon
 
         void Update()
         {
-            // Regrow the berries when the timer elapses (bush persists; only berries toggle — AC4).
+            // Update ONLY regrows the berries (bush persists; only berries toggle — AC4). The HARVEST is no
+            // longer proximity-auto (86caf7a6q AC4 "no proximity-auto"): the player presses E and the
+            // PickableLooter calls TryLoot. Walking into range does NOTHING here — there is no proximity
+            // distance read at all, which is the structural proof the bush can't auto-harvest.
             if (hasBerries && !_ripe && Time.time >= _regrowAt)
-            {
                 Regrow();
-            }
-
-            if (!hasBerries || inventory == null || player == null) return;
-
-            // Planar XZ distance only — height-robust, same as ChopTree / CraftSpot. Scalar squared-
-            // distance (no Vector2 construction / sqrt per frame — this Update polls on every scattered
-            // bush; unity6-mastery §5 GC/hot-path rule). EFFECTIVE radius SCALES with the bush's visual
-            // size (transform.localScale.x: 0.55–1.5× across the scatter) so a small bush isn't harvestable
-            // from metres away and a large one only from on top of it — the reach matches what the player sees.
-            Vector3 bp = transform.position, pp = player.position;
-            float dx = bp.x - pp.x, dz = bp.z - pp.z;
-            float effRadius = harvestRadius * transform.localScale.x;
-            bool inRange = dx * dx + dz * dz <= effRadius * effRadius;
-
-            if (!inRange)
-            {
-                _atBush = false;   // re-arm: a fresh arrival can harvest again (once berries are ripe)
-                return;
-            }
-
-            // Edge-triggered: harvest ONCE per arrival at a ripe bush (not every frame in range).
-            if (!_atBush)
-            {
-                _atBush = true;
-                if (_ripe) Harvest();
-            }
         }
 
         /// <summary>

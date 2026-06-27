@@ -262,13 +262,23 @@ namespace FarHorizon.EditorTools
             // it neither blocks the ground raycast nor the bake — the player walks up to it).
             BuildChopTree(player, groundLayer);
 
-            // 86caa5zz3: a wired BERRY BUSH near the loop centre — the food source for the merged hunger
-            // loop. The castaway walks up (no tool) and HARVESTS berries into the inventory; the berries
-            // regrow after a tweakable delay. Authored editor-time so the bush mesh + berries visual +
-            // BerryBush's Inventory/player refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A
-            // RELIABLE, fixed-position berry bush (vs the random scatter ones) so the PlayMode/shipped-build
-            // capture has a deterministic foraging target. No collider — the player walks up to harvest.
+            // 86caa5zz3 (E-LOOT 86caf7a6q): a wired BERRY BUSH near the loop centre — the food source for the
+            // merged hunger loop. The castaway walks up and presses E to LOOT berries into the inventory (the
+            // universal loot verb — DECISIONS 2026-06-27; NOT proximity-auto any more). The berries regrow
+            // after a tweakable delay. Authored editor-time so the bush mesh + berries visual + BerryBush's
+            // Inventory/player refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A RELIABLE,
+            // fixed-position berry bush (vs the random scatter ones) so the PlayMode/shipped-build capture has
+            // a deterministic foraging target. No collider — the player walks up to loot.
             BuildBerryBush(player, groundLayer);
+
+            // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
+            // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
+            // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
+            // spawn -> ... -> press E to forage. Authored editor-time onto the PLAYER (so it ships in
+            // Boot.unity — the component-in-source-but-not-in-scene trap); its Inventory + player refs are
+            // serialized. The looter discovers IPickables at runtime (Awake), so this can run before/after any
+            // pickable author. PickableLooterSceneTests guards the serialized presence + wiring.
+            BuildPickableLooter(player);
 
             // 86caamkv7: a wired FRESHWATER POND inland near the loop centre — the thirst source for the merged
             // survival loop. The castaway walks up (no tool) and DRINKS FROM HAND — a small per-scoop restore,
@@ -1577,6 +1587,27 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] authored BerryBush at " + BerryBushPosition +
                       " (inventory wired: " + (bb.inventory != null) + ", berries visual wired: " +
                       (bb.berriesVisual != null) + ")");
+        }
+
+        // The E-LOOT interactor (86caf7a6q): the PLAYER side of the shared E-loot surface. Pressing E loots the
+        // nearest in-range IPickable (the berry bush; sticks/stones build on the same surface) into the
+        // inventory. Authored editor-time onto the PLAYER so the component + its Inventory/player refs SERIALIZE
+        // into Boot.unity (the component-in-source-but-not-in-scene trap) — NOT added at Awake. One looter on
+        // the player; the bush/sticks/stones are the IPickables it discovers at runtime. PickableLooterSceneTests
+        // guards the serialized presence + wiring.
+        private static void BuildPickableLooter(GameObject player)
+        {
+            var looter = player.GetComponent<PickableLooter>();
+            if (looter == null) looter = player.AddComponent<PickableLooter>();
+            looter.player = player.transform;
+            looter.inventory = Object.FindObjectOfType<Inventory>();
+            looter.lootKey = KeyCode.E; // the universal loot key (DECISIONS 2026-06-27; letter key = Danish-safe)
+            if (looter.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire PickableLooter to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            EditorUtility.SetDirty(player);
+            Debug.Log("[MovementCameraScene] authored PickableLooter on the player (E = loot; inventory wired: " +
+                      (looter.inventory != null) + ")");
         }
 
         // World position of the wired FRESHWATER POND (86caamkv7). Inland east of spawn (0,6); clear of the

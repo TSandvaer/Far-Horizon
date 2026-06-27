@@ -32,6 +32,17 @@ When Priya decomposes a wave (or any multi-PR batch) into tickets, every ticket 
 
 **Parallel-fire discipline (mandatory):** Priya files ALL tickets for the wave in ONE response (parallel `mcp__clickup__create_task` calls), then surfaces the list. The orchestrator dispatches the workers **in the same orchestrator round** — multiple `Agent` spawns per response, not serial rounds. (Consistent with memory `parallel-dispatch-ticket-race`: Priya files first, workers dispatch with pre-filed IDs inline.)
 
+## Acceptance-criteria shape (Commander's Intent — Priya authors, orchestrator checks)
+
+Every ticket AC separates three kinds of clause so the dev knows what to HIT vs OBEY vs TUNE (full spec in `.claude/agents/priya.md` § Acceptance-criteria shape):
+
+- **🎯 Destination (what + why)** — observable outcome + reason; LEAD with it (the `team/quality-bars.md` bar for feel/visual tickets).
+- **🔒 Constraints (must obey)** — integration (item-ids / method-names / vocabulary) + regression boundaries + Sponsor directives, each with its WHY. Prescribing a constraint is legitimate, NOT over-prescription.
+- **🎚️ Defaults (tunable, not mandates)** — values flagged "default X — Sponsor-soak tunes"; graded by Predict-Before-Soak.
+- **Route** is left to the dev unless it's a constraint or the deliverable IS the mechanism (test / NIT-fix).
+
+Don't bury the destination under implementation detail; don't let a tunable default read as a mandate. (Audit basis: 2026-06-27 Commander's-Intent ticket audit — FH's route-prescription is overwhelmingly legitimate constraint/regression/Sponsor-directive; the gap was structural labeling, not over-prescription.)
+
 ## Scoped contract (mandatory in every dispatch)
 
 Pin the agent's allowed file scope + role boundary so they don't blind-resolve into another agent's lane on conflict. Block goes near the top of the brief, after the task-specific summary and before the worktree state.
@@ -50,10 +61,10 @@ Replace placeholders with the task-specific scope. Skip the block only for trivi
 
 ```markdown
 **Worktree state — IMPORTANT (W3-A7 option A):**
-- Operate ONLY in `C:/Trunk/PRIVATE/RandomGame-<your-role>-wt` (your role-persistent worktree). Do NOT touch other agents' worktrees. Do NOT operate in the main checkout `c:\Trunk\PRIVATE\RandomGame` — that's the orchestrator's surveys, contended.
+- Operate ONLY in `C:/Trunk/PRIVATE/Far-Horizon-<your-role>-wt` (your role-persistent worktree). Do NOT touch other agents' worktrees. Do NOT operate in the main checkout `c:\Trunk\PRIVATE\Far-Horizon` — that's the orchestrator's surveys, contended.
 - Run-start invocation:
   ```bash
-  cd C:/Trunk/PRIVATE/RandomGame-<your-role>-wt
+  cd C:/Trunk/PRIVATE/Far-Horizon-<your-role>-wt
   git fetch origin
   git checkout -B <your-role>/<task-name> origin/main
   ```
@@ -205,8 +216,15 @@ Comment template:
 ## Self-Test Report
 
 **Build artifact:** <run ID + zip name + sha>
-**Scene path:** <res://scenes/Main.tscn or test scene used for verification>
-**Verification method:** <browser+local server / godot --headless / GUT integration test waypoint>
+**Scene path:** <e.g. Assets/Scenes/Boot.unity or the scene used for verification>
+**Verification method:** <built-exe windowed soak / Unity -runTests EditMode|PlayMode / CaptureGate frames>
+
+### Prediction & convergence (soak-gated PRs — Predict-Before-Soak, `team/TESTING_BAR.md`)
+- **Prediction (pre-soak, falsifiable):** I expect the soak to show <Y>; I expect <Z> to NOT appear.
+- **Convergence claim (bounded):** Tested bar <B> on surfaces <S>; bars NOT tested: <…>.
+- **Outcome vs prediction (after soak):** <borne out / refuted — if refuted, STOP and deep-investigate the claim's foundation before re-fixing per `claim-removed-but-soak-shows-present`>.
+
+(Skip this block only for non-soak-gated PRs whose correctness is fully covered by a green paired test. Tess bounces a soak-gated PR missing the prediction + bounded convergence claim.)
 
 ### AC walkthrough
 - [x] AC1: <description> — observed: <what you saw/heard>
@@ -408,6 +426,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **Fresh `main` pull.** The role worktree's branch will be force-created from `origin/main` by Step 0 — confirm `git fetch origin` ran in this orchestrator tick (or include it in the brief's Step 0 as the existing template does).
 - [ ] **Ticket ID + body included verbatim** in the brief (sub-agents lack `mcp__clickup__*` tools per `sub-agent-mcp-tool-surface-scope`; they read the ticket body from the brief, not from the board).
 - [ ] **Ticket-body hard gates.** Ticket body carries an explicit OOS list + a named success-test. Missing either → bounce to Priya for flesh-out BEFORE dispatch (or the orchestrator fills them per the ticket-flesh-out auto-decide class when it has the context).
+- [ ] **AC shape (Commander's Intent).** The AC leads with the 🎯 destination (what + why) and separates 🔒 constraints from 🎚️ tunable defaults (see § Acceptance-criteria shape). If the destination is buried under implementation route, or a tunable value reads as a mandate, bounce to Priya.
 - [ ] **Work-type tag present** on the ticket (`impl`/`spec`/`investigation`/`test`/`chore`/`cleanup`) — drives which acceptance gates apply.
 - [ ] **Branch name** follows `<role>/<id>-<slug>` format.
 - [ ] **Scoped contract block present** — owned files, read-only references, OOS, conflict rule. OOS named explicitly; if the agent should not touch a tempting adjacent file, NAME IT.
@@ -421,6 +440,8 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **If this dispatch shapes a physical-world feature** (pond / fire / hill / dune / terrain carve-or-raise / water body / shaped prop whose up-vs-down read matters): the **Real-world anchor + silhouette gate** block is inlined — anchor sentence opens the PR body, side-profile capture eyeballed by the author in the Self-Test Report, fix-the-cause discipline, human-eye line. The pond lift→mound saga (PR #130) is the cautionary case.
 - [ ] **If parallel dispatch shares a NEW concept:** Vocabulary contract block present in BOTH briefs verbatim, OR Pattern A sequencing chosen (type-author first → consumer next). See Vocabulary contract above.
 - [ ] **If UX-visible:** Self-Test Report block present.
+- [ ] **If taste-sensitive (feel / visual / first-of-class):** the relevant `team/quality-bars.md` bar is pasted into the brief (run `/name-the-bar` first if the bar is unconfirmed), so the author predicts against a CONFIRMED bar, not a guess.
+- [ ] **If soak-gated:** the Self-Test Report block carries the **Predict-Before-Soak** lines (falsifiable pre-soak prediction + bounded convergence claim — bar tested + bars NOT tested). Tess bounces otherwise. See `team/TESTING_BAR.md` § Predict-Before-Soak.
 - [ ] **If tween / modulate / Polygon2D / CPUParticles2D / Area2D-state surface:** Visual-primitive test bar block present + HTML5-visual-gated merge-gate block present.
 - [ ] **`run_in_background: true`** on the Agent call per `agents-always-in-background`. Foreground dispatch blocks the orchestrator's turn until the slowest parallel agent returns; main thread floods with sub-agent tool calls and Sponsor can't reach the orchestrator.
 - [ ] **`name:` set** on the Agent call to a recognizable handle (e.g. `name: "drew-w3-t8"`) so `SendMessage` / `TaskOutput` can address the agent later if needed.

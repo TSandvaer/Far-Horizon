@@ -51,8 +51,8 @@ The Tess-only `ready for qa test → complete` gate (per `TESTING_BAR.md`) maps 
 - Devs open PRs and label them `ready for qa test` (`gh pr edit <PR#> --add-label "ready-for-qa"` if the label exists; otherwise the ClickUp status flip is the signal).
 - Devs do **NOT** merge their own feature PRs. They push, open the PR, and stop.
 - **Tess** reviews via `gh pr diff <PR#>` plus `gh pr checkout <PR#>` for local exploratory testing, runs the relevant manual cases from her current test plan (`team/tess-qa/`), then either:
-  - **Approves and merges**: `gh pr review <PR#> --approve --body "<sign-off note>"` then `gh pr merge <PR#> --squash --delete-branch --admin`. Then flips ClickUp to `complete`.
-  - **Bounces**: `gh pr review <PR#> --request-changes --body "<bug list with severity>"`. Files `bug(scope):` ClickUp tasks per `team/tess-qa/bug-template.md` and leaves the PR open until devs push fixes.
+  - **Approves and merges**: post the verdict as a PR comment — `gh pr comment <PR#> --body "## REVIEW VERDICT: APPROVE\n<sign-off note>"` — then `gh pr merge <PR#> --squash --delete-branch --admin`. Then flips ClickUp to `complete`. **The harness blocks `gh pr review --approve` on the shared git identity** (`shared-git-identity-blocks-formal-pr-approval`), so the verdict always rides a `gh pr comment`, NOT `gh pr review --approve`. See the three-verdict format in `team/orchestrator/dispatch-template.md`.
+  - **Bounces**: post `gh pr comment <PR#> --body "## REVIEW VERDICT: REQUEST_CHANGES\n<bug list with severity>"` (same shared-identity reason — not `gh pr review --request-changes`). Files `bug(scope):` ClickUp tasks per `team/tess-qa/bug-template.md` and leaves the PR open until devs push fixes.
 
 Pure docs / `chore(repo|ci|build)` / `design(spec)` PRs — Tess sign-off is **not** required, **but the merging identity must still be the orchestrator (or Priya for `chore(triage)` / `docs(team)`). Devs do NOT self-merge their own PRs in any category.** The exemption is from Tess sign-off, not a self-merge license. (Precipitating incident in the Godot-era archive: `c:/Trunk/PRIVATE/RandomGame/team/log/process-incidents.md` 2026-05-02 entry.)
 
@@ -133,6 +133,13 @@ Any PR that touches a **player-visible surface** (scene/prefab, UI, visual feedb
 **Build artifact:** <CI run ID + build sha + the HUD build-stamp it produced, e.g. `BUILD <tag> | <UTC> | <sha>`>
 **Scene path:** <e.g. Assets/Scenes/Boot.unity or the scene used for verification>
 **Verification method:** <windowed built-exe capture / EditMode test / PlayMode integration test waypoint>
+
+### Prediction & convergence (soak-gated PRs — Predict-Before-Soak, `team/TESTING_BAR.md`)
+- **Prediction (pre-soak, falsifiable):** I expect the soak to show <Y>; I expect <Z> to NOT appear.
+- **Convergence claim (bounded):** Tested bar <B> on surfaces <S>; bars NOT tested: <…>.
+- **Outcome vs prediction (after soak):** <borne out / refuted — if refuted, STOP and deep-investigate the claim's foundation before re-fixing per `claim-removed-but-soak-shows-present`>.
+
+(Skip only for non-soak-gated PRs whose correctness is fully covered by a green paired test. Tess bounces a soak-gated PR missing the prediction + bounded convergence claim.)
 
 ### AC walkthrough
 - [x] AC1: <description> — observed: <what you saw/heard>

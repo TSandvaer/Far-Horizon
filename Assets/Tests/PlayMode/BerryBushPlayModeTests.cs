@@ -30,6 +30,7 @@ namespace FarHorizon.PlayTests
         private GameObject _bushGo;
         private Inventory _inv;
         private BerryBush _bush;
+        private PickableLooter _looter;
 
         [SetUp]
         public void SetUp()
@@ -51,6 +52,13 @@ namespace FarHorizon.PlayTests
             _bush.regrowMinSeconds = 0.2f; // fast so the regrow lands within a test wall-clock window
             _bush.regrowMaxSeconds = 0.3f;
             _bush.regrowSeed = 12345;      // deterministic regrow roll
+
+            // 86caf7a6q: the E-LOOT interactor — the player side of the shared loot surface. It discovers the
+            // bush (an IPickable) at runtime and loots it on E (RequestLoot, the programmatic edge). Wired to
+            // the same inventory + player so a "press E" drives the real loot path the build uses.
+            _looter = _playerGo.AddComponent<PickableLooter>();
+            _looter.inventory = _inv;
+            _looter.player = _playerGo.transform;
         }
 
         [TearDown]
@@ -63,21 +71,45 @@ namespace FarHorizon.PlayTests
 
         private int Berries => _inv.Model.CountItem(ItemCatalog.BerryId);
 
-        // === AC3/AC6: reaching a ripe bush (no tool) harvests berries into the inventory ===
+        // === 86caf7a6q AC1: pressing E in range of a ripe bush LOOTS berries into the inventory ===
         [UnityTest]
-        public IEnumerator ReachRipeBush_HarvestsBerriesIntoInventory()
+        public IEnumerator PressE_InRangeOfRipeBush_LootsBerriesIntoInventory()
         {
             Assert.IsTrue(_bush.IsRipe, "precondition: bush ships ripe");
             Assert.AreEqual(0, Berries, "precondition: no berries held");
 
-            // Walk the player onto the bush; the harvest fires edge-triggered on arrival.
+            // Stand in range of the bush, then press E (the programmatic loot edge). The loot fires on the
+            // looter's next Update — it discovers the bush (IPickable), resolves it as nearest-in-range, loots.
             _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
-            float start = Time.time;
-            while (Time.time - start < 0.5f && _bush.IsRipe) yield return null;
+            _looter.RequestLoot();
+            yield return null; // looter Update consumes the latch + loots
 
-            Assert.IsFalse(_bush.IsRipe, "reaching the ripe bush harvests it -> it goes BARE");
+            Assert.IsFalse(_bush.IsRipe, "pressing E in range loots the ripe bush -> it goes BARE");
             Assert.AreEqual(_bush.berriesPerHarvest, Berries,
-                "harvesting yields berriesPerHarvest into the inventory (the item-model AddItem seam)");
+                "E-loot yields berriesPerHarvest into the inventory (the item-model AddItem seam, via TryLoot)");
+        }
+
+        // === 86caf7a6q AC4 (the load-bearing not-auto proof): standing in range WITHOUT pressing E loots
+        // NOTHING. The silent-killer this guards: a regressed proximity-auto path would harvest on arrival.
+        // We stand on the bush for many frames and assert it stays ripe + the pack stays empty until E. ===
+        [UnityTest]
+        public IEnumerator InRange_WithoutPressingE_LootsNothing_NotProximityAuto()
+        {
+            // Stand right on the bush (well within LootRange) and let many Updates run with NO loot request.
+            _playerGo.transform.position = new Vector3(0.2f, 0f, 0.2f);
+            for (int i = 0; i < 20; i++) yield return null;
+
+            Assert.IsTrue(_bush.IsRipe,
+                "standing in range with NO E press leaves the bush RIPE — it does NOT auto-harvest (AC4)");
+            Assert.AreEqual(0, Berries,
+                "proximity ALONE loots nothing — walking up is not enough, the player must press E (AC4)");
+
+            // And the SAME standing position DOES loot once E is pressed (proves it was the input, not the
+            // position, gating the loot).
+            _looter.RequestLoot();
+            yield return null;
+            Assert.IsFalse(_bush.IsRipe, "pressing E from the same spot now loots — input is the gate, not range");
+            Assert.AreEqual(_bush.berriesPerHarvest, Berries, "E from in range loots the berries");
         }
 
         // === AC6: harvested berries STACK (a second harvest tops up the same stack, not a new item) ===
@@ -182,13 +214,15 @@ namespace FarHorizon.PlayTests
             finally { Object.DestroyImmediate(hungerGo); }
         }
 
-        // === Out of range never harvests (proximity is required) ===
+        // === 86caf7a6q AC3: pressing E OUT of range loots nothing (the nearest-in-range resolve finds no
+        // pickable in reach, so E is a harmless no-op) ===
         [UnityTest]
-        public IEnumerator OutOfRange_DoesNotHarvest()
+        public IEnumerator PressE_OutOfRange_LootsNothing()
         {
-            for (int i = 0; i < 10; i++) yield return null; // player stays far away
-            Assert.IsTrue(_bush.IsRipe, "out of range -> the bush stays ripe (not harvested)");
-            Assert.AreEqual(0, Berries, "out of range -> no berries");
+            // Player is far from the bush (20,_,20 from SetUp). Press E repeatedly — nothing in reach.
+            for (int i = 0; i < 5; i++) { _looter.RequestLoot(); yield return null; }
+            Assert.IsTrue(_bush.IsRipe, "E out of range -> the bush stays ripe (nothing in reach to loot)");
+            Assert.AreEqual(0, Berries, "E out of range -> no berries (nearest-in-range resolve finds nothing)");
         }
 
         // === A plain (non-berry) bush never yields berries ===
