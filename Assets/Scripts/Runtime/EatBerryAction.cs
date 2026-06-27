@@ -47,9 +47,18 @@ namespace FarHorizon
         public HungerNeed hunger;
 
         [Header("Input")]
-        [Tooltip("The key that eats one berry. E by default (the interact/use key — free across the input " +
-                 "map; right-click is taken by the orbit camera, so a hotkey is the collision-free choice).")]
+        [Tooltip("The key that eats one berry — historically E. 86caf7a6q RECLAIMS E for LOOT (the unified " +
+                 "input model: E = loot world items). With inputEnabled=false this key is NOT read, so E no " +
+                 "longer eats — only loots. The eat INPUT moves to left-click-consume (86caf7a30). Kept as a " +
+                 "serialized field so 86caf7a30 can re-point it if it chooses a key path.")]
         public KeyCode eatKey = KeyCode.E;
+
+        [Tooltip("86caf7a6q: whether this action reads its key. FALSE by default now — E is reclaimed for the " +
+                 "E-LOOT interactor (PickableLooter), so EatBerryAction no longer key-eats (a live E binding " +
+                 "here would DOUBLE-FIRE against the looter — the 'dead second path' AC4 forbids). The tested " +
+                 "consume seam TryEatOneBerry() is PRESERVED (called directly by tests + the future left-click " +
+                 "consume 86caf7a30); only the key INPUT stands down until 86caf7a30 binds eat to left-click.")]
+        public bool inputEnabled = false;
 
         private bool _tracedFirstEat;
         private bool _tracedFirstEmpty;
@@ -64,6 +73,12 @@ namespace FarHorizon
 
         void Update()
         {
+            // 86caf7a6q: E is now the LOOT key (PickableLooter). With inputEnabled=false this action does NOT
+            // read its key — so E loots (never eats) and there is no double-fire. The eat INPUT lands in
+            // 86caf7a30 (left-click the selected belt item). The TryEatOneBerry seam below stays tested + live
+            // for that ticket + the existing PlayMode coverage.
+            if (!inputEnabled) return;
+
             // Legacy Input.* (the project is activeInputHandler=0 — unity-conventions.md §Input; same idiom
             // InventoryUI uses for Tab / number keys). Edge-triggered: eat once per key press.
             if (Input.GetKeyDown(eatKey)) TryEatOneBerry();

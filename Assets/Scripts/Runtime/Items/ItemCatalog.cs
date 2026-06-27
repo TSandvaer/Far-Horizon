@@ -22,6 +22,20 @@ namespace FarHorizon
         public const string StoneId = "stone";
         public const string BerryId = "berry";
 
+        /// <summary>
+        /// Canonical WATER id (86caf7a6q AC5 — pinned now for the consume-side ticket 86caf7a30 to target).
+        /// Sponsor's water-acquisition answer (2026-06-27): E at the pond loots ONE "water" unit into the belt
+        /// (NO container/canteen); the drink is left-click (86caf7a30). The id is pinned HERE so the loot side
+        /// (a future WaterSource IPickable) and the consume side (left-click drink) bind to the SAME id, never
+        /// a parallel one. The water ITEM def is NOT built into <see cref="BuildDefaults"/> yet: water "fills a
+        /// belt slot" but the model's belt-eligibility is DERIVED Tool-only (<see cref="ItemDef.IsBeltEligible"/>
+        /// / <see cref="ItemDef.MaxStack"/>) — a belt-eligible NON-tool needs a model decision (a new ItemKind
+        /// or relaxing the Tool-only belt rule), which the water-via-E follow-up owns. Defining the id alone is
+        /// cheap + stable; minting the def is deferred to that follow-up so this PR doesn't change the
+        /// load-bearing belt invariant (ticket REGRESSION constraint). See the PR body "Water-via-E (AC5)".
+        /// </summary>
+        public const string WaterId = "water";
+
         [SerializeField,
          Tooltip("The canonical item defs (axe / wood / stone / berry). Authored at bootstrap; the world-" +
                  "resource tickets look these up by id, never mint their own.")]
