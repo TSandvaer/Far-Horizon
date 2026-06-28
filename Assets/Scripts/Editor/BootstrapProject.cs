@@ -311,6 +311,14 @@ namespace FarHorizon.EditorTools
 
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<BootHud>();
+            // F1 MASTER on/off for the dev/debug instrument-overlay layer (86cafd6d6). Default HIDDEN — a
+            // normal launch / soak / CI capture shows a CLEAN screen (this un-buries the #158 loot prompt the
+            // always-on "DEBUG — held weapon" overlay was burying); F1 reveals/hides the whole dev layer
+            // (HeldWeaponCycleDebug / HeldAxeLengthPicker / PondNudge + the F7-F10 nudge panels, which each read
+            // DebugOverlays.Visible). Gates ONLY dev overlays — NEVER the build stamp (BootHud) or gameplay UI
+            // (SurvivalHud need bars / inventory / loot prompt). Serialized editor-time (NOT Awake) per the
+            // editor-vs-runtime trap; DebugOverlayToggleSceneTests guards its serialized presence.
+            hudGo.AddComponent<DebugOverlayToggle>();
             hudGo.AddComponent<BootScreenshot>();
             // Standard shipped-build capture component (testing-bar capture gate, 86ca86g7k).
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime

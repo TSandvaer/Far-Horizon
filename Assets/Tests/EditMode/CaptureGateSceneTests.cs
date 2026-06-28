@@ -152,6 +152,29 @@ namespace FarHorizon.EditTests
                 "smooth-vs-faceted A/B is inert if the scene never carries it — the component-not-serialized trap)");
         }
 
+        // The F1 dev-overlay MASTER TOGGLE (ticket 86cafd6d6) must be SERIALIZED onto the Boot object — same
+        // component-not-serialized-into-scene class: F1 can't toggle the dev-overlay layer if the scene never
+        // carries DebugOverlayToggle. Regression guard: delete the AddComponent<DebugOverlayToggle>() line in
+        // BootstrapProject.BuildBootScene and this goes red.
+        [Test]
+        public void BootScene_CarriesDebugOverlayToggle_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            DebugOverlayToggle toggle = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                toggle = root.GetComponentInChildren<DebugOverlayToggle>(true);
+                if (toggle != null) break;
+            }
+            Assert.IsNotNull(toggle,
+                "the Boot scene must carry DebugOverlayToggle serialized (F1 can't master-toggle the dev-overlay " +
+                "layer if the scene never carries it — the component-not-serialized trap; unity-conventions.md)");
+            Assert.AreEqual(KeyCode.F1, toggle.toggleKey,
+                "the master toggle must be F1 (the Sponsor directive) — layout-agnostic, Danish-keyboard-safe");
+        }
+
         // The FRESNEL/RIM A/B verify capture (ticket 86caamnnj — Fresnel/rim term) must be SERIALIZED into
         // the Boot scene — same component-not-serialized-into-scene class: the -verifyRim shipped-build
         // rim-OFF-vs-dialed A/B is inert if the scene never carries it.

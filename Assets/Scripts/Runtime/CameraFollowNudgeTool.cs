@@ -151,6 +151,7 @@ namespace FarHorizon
 
         void OnGUI()
         {
+            if (!DebugOverlays.Visible) return; // F1 master gate (86cafd6d6) — F7 is the sub-toggle below it
             if (!_active) return; // INERT in normal play — no overlay unless toggled on
 
             if (_style == null)
