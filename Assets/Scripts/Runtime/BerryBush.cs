@@ -75,9 +75,12 @@ namespace FarHorizon
         public bool hasBerries = true;
 
         [Header("Harvest (AC3)")]
-        [Tooltip("Planar (XZ) distance within which the castaway is 'at' the bush and harvests. Generous " +
-                 "(reward for arriving), mirrors ChopTree.chopRadius / CraftSpot.craftRadius.")]
-        public float harvestRadius = 2.0f;
+        [Tooltip("Planar (XZ) distance within which the castaway is 'at' the bush and can loot it on E. " +
+                 "ARM'S-REACH (86cafc6ud — the Sponsor's #155 'I can loot from too far' soak): you must be " +
+                 "genuinely close to the bush, not metres away. A bush is the BIGGEST pickable so it keeps the " +
+                 "longest reach of the family (slightly more than a stick/stone), but tightened from the old " +
+                 "2.0 to a believable step-away. SCALED by the bush size below (LootRange).")]
+        public float harvestRadius = 1.2f;
 
         [Tooltip("Berries yielded per harvest. Small so a single bush is a top-up, not a stockpile — the " +
                  "castaway forages across several bushes (vision: 'harvest some').")]
@@ -127,6 +130,10 @@ namespace FarHorizon
         /// metres away and a large one only from a step closer — the reach matches what the player sees
         /// (preserves the size-scaled radius the old proximity harvest used).</summary>
         public float LootRange => harvestRadius * transform.localScale.x;
+
+        /// <summary>IPickable: the generic prompt name (86cafc6ud) — a berry bush yields "berries". The prompt
+        /// shows "Press E to pick up berries"; the inventory resource is the canonical berry item.</summary>
+        public string DisplayName => "berries";
 
         /// <summary>
         /// IPickable.TryLoot (86caf7a6q AC1) — loot ONE harvest of berries into <paramref name="inv"/>: the

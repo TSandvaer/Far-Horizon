@@ -1810,9 +1810,19 @@ namespace FarHorizon.EditorTools
             if (looter.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire PickableLooter to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            // LOOT PROXIMITY PROMPT (86cafc6ud AC2/AC3): the "Press E to pick up {name}" tooltip, authored on
+            // the SAME player GO next to the looter, its looter ref SERIALIZED (NOT an Awake add) so the prompt
+            // ships in the scene. It reads the looter's NearestInRange (single source of truth) — the prompt and
+            // the actual loot agree. LootPromptSceneTests guards the serialized presence + wiring.
+            var prompt = player.GetComponent<LootPrompt>();
+            if (prompt == null) prompt = player.AddComponent<LootPrompt>();
+            prompt.looter = looter;          // serialized ref — the single source of truth the prompt reads
+            prompt.lootKey = looter.lootKey; // name the same key the looter actually loots on (E)
+
             EditorUtility.SetDirty(player);
-            Debug.Log("[MovementCameraScene] authored PickableLooter on the player (E = loot; inventory wired: " +
-                      (looter.inventory != null) + ")");
+            Debug.Log("[MovementCameraScene] authored PickableLooter + LootPrompt on the player (E = loot; " +
+                      "inventory wired: " + (looter.inventory != null) + ")");
         }
 
         // World position of the wired FRESHWATER POND (86caamkv7). Inland east of spawn (0,6); clear of the
