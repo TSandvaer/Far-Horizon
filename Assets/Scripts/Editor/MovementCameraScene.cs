@@ -1363,6 +1363,14 @@ namespace FarHorizon.EditorTools
             cap.player = player.GetComponent<ClickToMove>();
             cap.inventory = Object.FindObjectOfType<Inventory>();
             cap.craftSpot = CraftSpotPosition;
+            // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1 console-error gate) if a capture-gate dep
+            // dropped, rather than letting the Awake FindObjectByType fallback mask it into the 20-min gate.
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] CraftVerifyCapture.player wiring is null — the player has " +
+                               "no ClickToMove (BuildPlayer must run before WireCraftVerifyCapture)");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] CraftVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
         }
 
         // World position of the choppable tree on the flat test ground (U2-3, 86ca8bdd8). Distinct from
@@ -1630,6 +1638,17 @@ namespace FarHorizon.EditorTools
             cap.chop = Object.FindObjectOfType<ChopTree>();
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
+            // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1) on a dropped capture-gate dep rather than
+            // letting the Awake FindAnyObjectByType fallback mask it into the 20-min capture gate.
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] ChopVerifyCapture.player wiring is null — the player has " +
+                               "no ClickToMove (BuildPlayer must run before WireChopVerifyCapture)");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] ChopVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            if (cap.chop == null)
+                Debug.LogError("[MovementCameraScene] ChopVerifyCapture.chop wiring is null — BuildChopTree must " +
+                               "author the ChopTree before WireChopVerifyCapture (the left-click chop seam, 86caa4c5c)");
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -1683,6 +1702,11 @@ namespace FarHorizon.EditorTools
             if (bb.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire BerryBush to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            // 86cafdevx AC3 — the hunger ref is the eat-bridge (EatBerry decrements hunger). A null silently
+            // ships a bush whose berries don't feed; fail LOUD at bootstrap (CI step 1) instead.
+            if (bb.hunger == null)
+                Debug.LogError("[MovementCameraScene] no HungerNeed in scene to wire BerryBush.hunger to — " +
+                               "BootstrapProject must add the Survival HungerNeed before MovementCameraScene.Author");
 
             Debug.Log("[MovementCameraScene] authored BerryBush at " + BerryBushPosition +
                       " (inventory wired: " + (bb.inventory != null) + ", berries visual wired: " +
@@ -2300,6 +2324,20 @@ namespace FarHorizon.EditorTools
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
             cap.firePit = FirePitPosition;
+            // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1) on a dropped -verifyLoop dep rather than
+            // letting the Awake FindAnyObjectByType fallback mask it into the 20-min full-loop capture gate.
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.player wiring is null — the player " +
+                               "has no ClickToMove (BuildPlayer must run before WireCampfireVerifyCapture)");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            if (cap.warmth == null)
+                Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.warmth wiring is null — " +
+                               "BootstrapProject must add the Survival WarmthNeed before MovementCameraScene.Author");
+            if (cap.campfire == null)
+                Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.campfire wiring is null — the lit " +
+                               "campfire the -verifyLoop close-of-loop proof stands at was not authored");
             var place = Object.FindObjectOfType<CampfirePlacement>();
             if (place != null) cap.woodCost = place.woodCost; // the loop must carry enough wood to the pit
             EditorUtility.SetDirty(bootGo);
