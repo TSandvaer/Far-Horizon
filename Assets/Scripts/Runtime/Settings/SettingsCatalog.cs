@@ -42,6 +42,13 @@ namespace FarHorizon.Settings
         // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
         // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
         public const string TreeRegrowthId = "tree_regrowth_time";
+        // Tree-chop REWORK tweakables (ticket 86caf9u5t). Three NEW rows registered by PopulateChop:
+        //   • `tree-chop wood yield`  → LogPileSpawner.WoodYield  (int, logs per FALLEN tree; default 10, 1–50).
+        //   • `chops-to-fell`         → ChopTree.chopsToFell      (int, chops to fell;        default 3, 1–10).
+        //   • `log-pile despawn`      → LogPileSpawner.DespawnSeconds (float, pile lifetime;  default 180s).
+        public const string TreeWoodYieldId = "tree_chop_wood_yield";
+        public const string ChopsToFellId   = "chops_to_fell";
+        public const string LogPileDespawnId = "log_pile_despawn";
         // Stone tweakable (ticket 86caa4c96 AC3). The `stone respawn time` row drives the StoneRespawner's
         // RespawnMin/Max (a RANGE — a RANDOM respawn within [min,max]; every StoneProp reads this shared
         // window). Registered by PopulateStones (the PopulateThirst/PopulateChop de-collision precedent).
@@ -69,6 +76,10 @@ namespace FarHorizon.Settings
         // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR set a
         // realistic ecology. Range row → drives ChopTree.regrowthMin/Max (organic regrowth within [min,max]).
         public const float TreeRegrowthLower = 0f, TreeRegrowthUpper = 1800f;
+        // Log-pile despawn band in SECONDS (ticket 86caf9u5t AC5) — the band the `log-pile despawn` slider can be
+        // dialed within. Generous around the ~180s default (instant..10 min): the Sponsor can soak fast (a pile
+        // that vanishes quickly) OR keep the wood around. Float row → LogPileSpawner.DespawnSeconds.
+        public const float LogPileDespawnLower = 0f, LogPileDespawnUpper = 600f;
         // Stone-respawn range hard-limits in SECONDS — the band the `stone respawn time` range can be dialed
         // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR a
         // realistic scarcity. Range row → drives StoneRespawner.RespawnMin/Max (random respawn within [min,max]).
@@ -112,11 +123,23 @@ namespace FarHorizon.Settings
         public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
             FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
             FarHorizon.StoneRespawner stoneRespawner)
+            => Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, null);
+
+        /// <summary>
+        /// Build the standard registry AND thirst AND chop AND stone AND the tree-chop REWORK tweakables (ticket
+        /// 86caf9u5t): `tree-chop wood yield` + `log-pile despawn` (bound to the shared
+        /// <paramref name="logPileSpawner"/>) + `chops-to-fell` (bound to <paramref name="chopTree"/>). A null
+        /// spawner SKIPS the yield/despawn rows; a null tree skips chops-to-fell (the catalog never null-refs), so
+        /// a chop-less rig / bare test is unaffected.
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
             PopulateThirst(reg, thirst);
-            PopulateChop(reg, chopCharacter, chopTree);
+            PopulateChop(reg, chopCharacter, chopTree, logPileSpawner);
             PopulateStones(reg, stoneRespawner);
             return reg;
         }
@@ -214,7 +237,7 @@ namespace FarHorizon.Settings
         /// rig / bare EditMode test never null-refs. Idempotent w.r.t. the greyed hook (Remove no-ops if absent).
         /// </summary>
         public static void PopulateChop(SettingsRegistry reg, FarHorizon.CastawayCharacter chopCharacter,
-            FarHorizon.ChopTree chopTree)
+            FarHorizon.ChopTree chopTree, FarHorizon.LogPileSpawner logPileSpawner = null)
         {
             if (reg == null) return;
 
@@ -241,6 +264,32 @@ namespace FarHorizon.Settings
                     () => chopTree.regrowthMinSeconds, v => chopTree.regrowthMinSeconds = v,
                     () => chopTree.regrowthMaxSeconds, v => chopTree.regrowthMaxSeconds = v,
                     TreeRegrowthLower, TreeRegrowthUpper, unit: "s");
+
+                // CHOPS-TO-FELL (REWORK 86caf9u5t AC4) — an INT STEPPER driving ChopTree.chopsToFell (chops needed
+                // to fell a tree; default 3, range 1–10). LIVE: the next tree's fell count uses the dialed value.
+                // Bound to the tree (not the spawner) — it is shared across every tree, like the regrow window.
+                reg.AddInt(ChopsToFellId, "Chops to fell",
+                    () => chopTree.chopsToFell,
+                    v => chopTree.chopsToFell = Mathf.Clamp(v,
+                        FarHorizon.ChopTree.ChopsToFellMin, FarHorizon.ChopTree.ChopsToFellMax),
+                    FarHorizon.ChopTree.ChopsToFellMin, FarHorizon.ChopTree.ChopsToFellMax, unit: "");
+            }
+
+            // TREE-CHOP WOOD YIELD + LOG-PILE DESPAWN (REWORK 86caf9u5t AC3/AC5) — bound to the shared
+            // LogPileSpawner: `tree-chop wood yield` (int, logs per FALLEN tree; default 10, 1–50) + `log-pile
+            // despawn` (float seconds, the uncollected-pile lifetime; default 180s). A null spawner SKIPS both
+            // (no dead knob on a spawner-less rig). The setter clamps to the spawner's WoodYieldMin/Max band.
+            if (logPileSpawner != null)
+            {
+                reg.AddInt(TreeWoodYieldId, "Tree-chop wood yield",
+                    () => logPileSpawner.WoodYield,
+                    v => logPileSpawner.WoodYield = Mathf.Clamp(v,
+                        FarHorizon.LogPileSpawner.WoodYieldMin, FarHorizon.LogPileSpawner.WoodYieldMax),
+                    FarHorizon.LogPileSpawner.WoodYieldMin, FarHorizon.LogPileSpawner.WoodYieldMax, unit: "");
+
+                reg.AddFloat(LogPileDespawnId, "Log-pile despawn",
+                    () => logPileSpawner.DespawnSeconds, v => logPileSpawner.DespawnSeconds = v,
+                    LogPileDespawnLower, LogPileDespawnUpper, unit: "s");
             }
         }
 

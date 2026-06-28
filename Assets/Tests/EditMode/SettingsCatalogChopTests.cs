@@ -20,9 +20,10 @@ namespace FarHorizon.EditTests
     /// </summary>
     public class SettingsCatalogChopTests
     {
-        private GameObject _charGo, _treeGo;
+        private GameObject _charGo, _treeGo, _spawnerGo;
         private CastawayCharacter _character;
         private ChopTree _tree;
+        private LogPileSpawner _spawner;
 
         [SetUp]
         public void SetUp()
@@ -38,6 +39,13 @@ namespace FarHorizon.EditTests
             _tree = _treeGo.AddComponent<ChopTree>();
             _tree.regrowthMinSeconds = 480f;
             _tree.regrowthMaxSeconds = 720f;
+            _tree.chopsToFell = 3;
+
+            // REWORK 86caf9u5t — the shared log-pile spawner the wood-yield + despawn settings bind to.
+            _spawnerGo = new GameObject("LogPileSpawner");
+            _spawner = _spawnerGo.AddComponent<LogPileSpawner>();
+            _spawner.WoodYield = 10;
+            _spawner.DespawnSeconds = 180f;
         }
 
         [TearDown]
@@ -45,11 +53,15 @@ namespace FarHorizon.EditTests
         {
             Object.DestroyImmediate(_charGo);
             Object.DestroyImmediate(_treeGo);
+            Object.DestroyImmediate(_spawnerGo);
             LogAssert.ignoreFailingMessages = false;
             // Clear any PlayerPrefs the SetValue path wrote, so runs don't leak across tests.
             PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ToolSpeedId);
             PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.TreeRegrowthId + ".min");
             PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.TreeRegrowthId + ".max");
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.TreeWoodYieldId);
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ChopsToFellId);
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.LogPileDespawnId);
         }
 
         [Test]
@@ -121,6 +133,95 @@ namespace FarHorizon.EditTests
             Assert.DoesNotThrow(() => SettingsCatalog.PopulateChop(reg, _character, _tree),
                 "flipping the greyed tool_use_speed live must not throw (remove-then-add, not double-register)");
             Assert.IsTrue(reg.Get(SettingsCatalog.ToolSpeedId).Available, "it is now live after the flip");
+        }
+
+        // ============================================================================================
+        // REWORK 86caf9u5t — the 3 NEW chop settings: `tree-chop wood yield` + `chops-to-fell` (int steppers)
+        // + `log-pile despawn` (float slider). Each is a no-dead-knob guard (reads AND writes the live field).
+        // ============================================================================================
+
+        [Test]
+        public void PopulateChop_RegistersChopsToFell_Live_BoundToChopTree_NoDeadKnob()
+        {
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree, null, _spawner);
+
+            Assert.IsTrue(reg.Has(SettingsCatalog.ChopsToFellId), "chops-to-fell row present (AC4)");
+            var chops = reg.Get(SettingsCatalog.ChopsToFellId) as IntSettingEntry;
+            Assert.IsNotNull(chops, "chops-to-fell is an INT stepper row");
+            Assert.IsTrue(chops.Available, "chops-to-fell is LIVE");
+            Assert.AreEqual(ChopTree.ChopsToFellMin, chops.Min, "stepper floor == ChopTree.ChopsToFellMin (1)");
+            Assert.AreEqual(ChopTree.ChopsToFellMax, chops.Max, "stepper ceiling == ChopTree.ChopsToFellMax (10)");
+
+            // Reads the live value...
+            Assert.AreEqual(3, chops.Value, "chops-to-fell reads ChopTree.chopsToFell");
+            // ...and WRITES it (no dead knob): set to 6 → the tree's chopsToFell is 6.
+            chops.SetValue(6);
+            Assert.AreEqual(6, _tree.chopsToFell, "chops-to-fell drives ChopTree.chopsToFell live (no dead knob)");
+            // Clamp: a value above the band clamps to the ceiling.
+            chops.SetValue(99);
+            Assert.AreEqual(ChopTree.ChopsToFellMax, _tree.chopsToFell, "chops-to-fell clamps to the [1,10] band");
+        }
+
+        [Test]
+        public void PopulateChop_RegistersTreeWoodYield_Live_BoundToSpawner_NoDeadKnob()
+        {
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree, null, _spawner);
+
+            Assert.IsTrue(reg.Has(SettingsCatalog.TreeWoodYieldId), "tree-chop wood yield row present (AC3)");
+            var yield = reg.Get(SettingsCatalog.TreeWoodYieldId) as IntSettingEntry;
+            Assert.IsNotNull(yield, "tree-chop wood yield is an INT stepper row");
+            Assert.IsTrue(yield.Available, "tree-chop wood yield is LIVE");
+            Assert.AreEqual(LogPileSpawner.WoodYieldMin, yield.Min, "stepper floor == WoodYieldMin (1)");
+            Assert.AreEqual(LogPileSpawner.WoodYieldMax, yield.Max, "stepper ceiling == WoodYieldMax (50)");
+
+            // Reads the live value...
+            Assert.AreEqual(10, yield.Value, "tree-chop wood yield reads LogPileSpawner.WoodYield (default 10)");
+            // ...and WRITES it (no dead knob): the next felled tree's pile holds the dialed amount.
+            yield.SetValue(25);
+            Assert.AreEqual(25, _spawner.WoodYield, "tree-chop wood yield drives LogPileSpawner.WoodYield live (no dead knob)");
+            // Clamp: above the band clamps to the ceiling.
+            yield.SetValue(999);
+            Assert.AreEqual(LogPileSpawner.WoodYieldMax, _spawner.WoodYield, "wood yield clamps to the [1,50] band");
+        }
+
+        [Test]
+        public void PopulateChop_RegistersLogPileDespawn_Live_BoundToSpawner_NoDeadKnob()
+        {
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree, null, _spawner);
+
+            Assert.IsTrue(reg.Has(SettingsCatalog.LogPileDespawnId), "log-pile despawn row present (AC5)");
+            var despawn = reg.Get(SettingsCatalog.LogPileDespawnId) as FloatSettingEntry;
+            Assert.IsNotNull(despawn, "log-pile despawn is a FLOAT slider row");
+            Assert.IsTrue(despawn.Available, "log-pile despawn is LIVE");
+
+            // Reads the live value...
+            Assert.AreEqual(180f, despawn.Value, 1e-3f, "log-pile despawn reads LogPileSpawner.DespawnSeconds (default 180s)");
+            // ...and WRITES it (no dead knob).
+            despawn.SetValue(60f);
+            Assert.AreEqual(60f, _spawner.DespawnSeconds, 1e-3f, "log-pile despawn drives LogPileSpawner.DespawnSeconds live");
+        }
+
+        [Test]
+        public void PopulateChop_NullSpawner_SkipsYieldAndDespawn_ButKeepsChopsToFell()
+        {
+            // No spawner → the yield/despawn rows are absent (bound to the spawner) but chops-to-fell stays (bound
+            // to the tree). No dead knob on a spawner-less rig.
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree, null, null);
+
+            Assert.IsTrue(reg.Has(SettingsCatalog.ChopsToFellId), "chops-to-fell present (binds to the tree, not the spawner)");
+            Assert.IsFalse(reg.Has(SettingsCatalog.TreeWoodYieldId), "no spawner → no wood-yield row (no dead knob)");
+            Assert.IsFalse(reg.Has(SettingsCatalog.LogPileDespawnId), "no spawner → no despawn row (no dead knob)");
+        }
+
+        [Test]
+        public void PopulateChop_NullTree_SkipsChopsToFell()
+        {
+            // No tree → chops-to-fell absent (binds to the tree). The spawner-bound rows still register.
+            var reg = SettingsCatalog.Build(null, null, null, _character, null, null, _spawner);
+
+            Assert.IsFalse(reg.Has(SettingsCatalog.ChopsToFellId), "no tree → no chops-to-fell row (no dead knob)");
+            Assert.IsTrue(reg.Has(SettingsCatalog.TreeWoodYieldId), "spawner present → wood-yield row registers");
+            Assert.IsTrue(reg.Has(SettingsCatalog.LogPileDespawnId), "spawner present → despawn row registers");
         }
     }
 }

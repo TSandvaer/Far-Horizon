@@ -1431,17 +1431,36 @@ namespace FarHorizon.EditorTools
                                  "to — the chop will yield wood but the arm won't swing (BuildPlayer must author " +
                                  "the castaway before BuildChopTree)");
 
-            // Wire the SETTINGS PANEL's chop refs (86caa4c5c V1/V2 / change-(b)) now that BOTH the castaway and the
-            // tree exist (BuildSettingsPanel ran before this, so its serialized chopCharacter/chopTree were not yet
-            // resolvable at panel-author time). `tool-use speed` flips live to the castaway's chopSpeed (the melee
-            // Attack-state playback rate); `tree regrowth time` binds to this tree's regrow min/max. A runtime
-            // Awake FindObjectOfType is the fallback; this serializes the refs so the rows are live in the shipped
-            // build without a scene search.
+            // REWORK 86caf9u5t — author the shared LogPileSpawner (the factory that mints a lootable LogPile when a
+            // tree fells + the host the `tree-chop wood yield` / `log-pile despawn` settings bind to). Serialized
+            // editor-time so the settings bind to a stable instance + the chop wires to it without a scene search.
+            // Its logMaterial is the chop tree's TRUNK material (the shared opaque LowPolyVertexColor on the
+            // ~1-draw-call path), so every spawned pile reads as the same wood. (The scatter trees use the same
+            // material family; the felled tree's own trunk material is the per-spawn fallback in ApplyChopEffect.)
+            var spawnerGo = new GameObject("LogPileSpawner");
+            var logPileSpawner = spawnerGo.AddComponent<LogPileSpawner>();
+            var trunkMr = FindTrunkRenderer(visual.transform);
+            if (trunkMr != null) logPileSpawner.logMaterial = trunkMr.sharedMaterial;
+            // #165 FIX — the spawner's PickableLooter ref (so every spawned pile registers for E-loot) is wired
+            // LATER in BuildPickableLooter: the looter is added on the player AFTER BuildChopTree in Author (the
+            // player exists, the looter does not yet), so wiring it here would self-find null. BuildPickableLooter
+            // back-wires logPileSpawner.looter once both exist (mirrors the post-creation cross-wire pattern).
+            chop.logPileSpawner = logPileSpawner;
+            EditorUtility.SetDirty(chop);
+            EditorUtility.SetDirty(spawnerGo);
+
+            // Wire the SETTINGS PANEL's chop refs (86caa4c5c V1/V2 / change-(b) + REWORK 86caf9u5t) now that the
+            // castaway, the tree, AND the spawner exist (BuildSettingsPanel ran before this, so its serialized
+            // chop refs were not yet resolvable at panel-author time). `tool-use speed` flips live to chopSpeed;
+            // `tree regrowth time` + `chops-to-fell` bind to the tree; `tree-chop wood yield` + `log-pile despawn`
+            // bind to the spawner. A runtime Awake FindObjectOfType is the fallback; this serializes the refs so
+            // the rows are live in the shipped build without a scene search.
             var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
             if (settingsPanel != null)
             {
                 settingsPanel.chopCharacter = chop.character;
                 settingsPanel.chopTree = chop;
+                settingsPanel.logPileSpawner = logPileSpawner;
                 EditorUtility.SetDirty(settingsPanel);
             }
 
@@ -1599,6 +1618,21 @@ namespace FarHorizon.EditorTools
         // Build one part of the chop tree's visual (trunk or canopy): a child GameObject with the given
         // welded smooth-shaded mesh + an inline URP/Lit material (serializes into the scene, no .mat
         // churn). Matte smoothness so the low-poly reads by shape + shading, not gloss.
+        // REWORK 86caf9u5t — the chop tree's TRUNK MeshRenderer (the "Trunk" child built by BuildTreePart), so the
+        // LogPileSpawner's logMaterial reads as the same wood. Falls back to the first MeshRenderer under the
+        // visual (then null) so a tree whose trunk child is renamed still resolves a material.
+        private static MeshRenderer FindTrunkRenderer(Transform visual)
+        {
+            if (visual == null) return null;
+            var trunk = visual.Find("Trunk");
+            if (trunk != null)
+            {
+                var mr = trunk.GetComponent<MeshRenderer>();
+                if (mr != null) return mr;
+            }
+            return visual.GetComponentInChildren<MeshRenderer>(true);
+        }
+
         private static void BuildTreePart(GameObject parent, string name, Mesh mesh, Color color,
             Vector3 localPos, string matName)
         {
@@ -1636,6 +1670,10 @@ namespace FarHorizon.EditorTools
             // (BuildChopTree created the ChopTree just before this call) so it serializes; an Awake
             // FindAnyObjectByType is the runtime fallback.
             cap.chop = Object.FindObjectOfType<ChopTree>();
+            // REWORK 86caf9u5t — the verify capture now also LOOTS the dropped log pile (E), so it needs the
+            // player's PickableLooter (BuildPickableLooter added it earlier on the player). Serialized here; an
+            // Awake FindAnyObjectByType is the runtime fallback.
+            cap.looter = Object.FindObjectOfType<PickableLooter>();
             cap.craftSpot = CraftSpotPosition;
             cap.treeSpot = ChopTreePosition;
             // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1) on a dropped capture-gate dep rather than
@@ -1834,6 +1872,28 @@ namespace FarHorizon.EditorTools
             if (looter.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire PickableLooter to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            // #165 FIX — back-wire this looter onto the LogPileSpawner so every runtime-spawned LogPile REGISTERS
+            // itself for E-loot. The looter only auto-re-discovers on an EMPTY cache, and the live build always has
+            // ≥1 serialized pickable (bush/stick/stone) → a spawned pile is NEVER found unless registered. Done
+            // HERE (not in BuildChopTree, where the spawner is created) because BuildPickableLooter runs AFTER
+            // BuildChopTree in Author, so the spawner exists by now while the looter did not exist at BuildChopTree.
+            // A runtime FindObjectOfType is the spawner's own fallback; this serializes the ref so it ships in
+            // Boot.unity (asserted by the #164 capture-gate wiring-guard CaptureGateDepsSceneTests).
+            var logPileSpawner = Object.FindObjectOfType<LogPileSpawner>();
+            if (logPileSpawner != null)
+            {
+                logPileSpawner.looter = looter;
+                EditorUtility.SetDirty(logPileSpawner);
+            }
+            else
+            {
+                // Fail LOUD at bootstrap (CI step 1 console-error gate) on a dropped spawner — the #165 bug rode a
+                // missing registration all the way to the soak; a dropped wiring must surface RED in CI, not the gate.
+                Debug.LogError("[MovementCameraScene] no LogPileSpawner in scene to back-wire PickableLooter onto — " +
+                               "BuildChopTree must author the LogPileSpawner before BuildPickableLooter; a spawned " +
+                               "log pile would never be looted (#165)");
+            }
 
             // LOOT PROXIMITY PROMPT (86cafc6ud AC2/AC3): the "Press E to pick up {name}" tooltip, authored on
             // the SAME player GO next to the looter, its looter ref SERIALIZED (NOT an Awake add) so the prompt

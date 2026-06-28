@@ -140,6 +140,54 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Shake_OnAStandingTree_StartsTheRecoil_AndIsNoOpWhenFelledOrZeroDegrees()
+        {
+            // AC6 — a per-chop shake/recoil starts on a standing tree (degrees > 0), and is a clean no-op when
+            // the tree is not standing or degrees ≤ 0 (the fell tween owns the transform then; no shake-over-fall).
+            var v = NewVisual(Vector3.zero);
+            var s = new ChoppableTreeState(v, 12345);
+            Assert.IsFalse(s.Shaking, "a fresh tree is not shaking");
+
+            s.Shake(0f);
+            Assert.IsFalse(s.Shaking, "zero degrees is a no-op (shake disabled)");
+
+            s.Shake(6f);
+            Assert.IsTrue(s.Shaking, "a chop shake starts the recoil on a standing tree (AC6)");
+
+            // Fell it — a felled tree does not shake (the fall is the feedback); a Shake call is ignored.
+            var s2v = NewVisual(new Vector3(5f, 0f, 0f));
+            var s2 = new ChoppableTreeState(s2v, 222);
+            for (int i = 0; i < 3; i++) s2.LandChop(3, 600f, 720f, 10f);
+            Assert.IsTrue(s2.Felled, "precondition: felled");
+            s2.Shake(6f);
+            Assert.IsFalse(s2.Shaking, "Shake on a felled tree is a no-op (the fell tween owns the transform)");
+
+            Object.DestroyImmediate(v.gameObject);
+            Object.DestroyImmediate(s2v.gameObject);
+        }
+
+        [Test]
+        public void FirstSharedMaterial_ReturnsTrunkMaterial_OrNullWhenNoRenderer()
+        {
+            // The spawned LogPile reads the felled tree's trunk material so the logs match the wood. A tree with a
+            // renderer returns its material; a bare tree returns null (the spawner falls back to a built material).
+            var bare = NewVisual(Vector3.zero);
+            var sBare = new ChoppableTreeState(bare, 1);
+            Assert.IsNull(sBare.FirstSharedMaterial(), "a renderer-less tree returns null (spawner builds a fallback)");
+
+            var withMat = NewVisual(new Vector3(5f, 0f, 0f));
+            var mr = withMat.gameObject.AddComponent<MeshRenderer>();
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+            mr.sharedMaterial = mat;
+            var sMat = new ChoppableTreeState(withMat, 2);
+            Assert.AreSame(mat, sMat.FirstSharedMaterial(), "returns the trunk renderer's shared material");
+
+            Object.DestroyImmediate(bare.gameObject);
+            Object.DestroyImmediate(withMat.gameObject);
+            Object.DestroyImmediate(mat);
+        }
+
+        [Test]
         public void ScatterTreeName_MatchesLowPolyZoneGenBuildTreeName()
         {
             // The resolver discovers scatter trees by this exact GameObject name (LowPolyZoneGen.BuildTree
