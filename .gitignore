@@ -85,3 +85,4 @@ __pycache__/
 
 # Downloaded CI build artifacts (held-pose capture source — never commit)
 team/devon-dev/_ci_build*/
+/ci-local/

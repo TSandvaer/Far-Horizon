@@ -55,6 +55,10 @@ namespace FarHorizon
         [Tooltip("The shared stone respawn config (86caa4c96) — stone respawn time binds to its respawn " +
                  "min/max range. May be null; the stone-respawn row then simply doesn't appear.")]
         public StoneRespawner stoneRespawner;
+        [Tooltip("The shared log-pile spawner (REWORK 86caf9u5t) — `tree-chop wood yield` + `log-pile despawn` " +
+                 "bind to it; `chops-to-fell` binds to the chop tree above. May be null; the yield/despawn rows " +
+                 "then simply don't appear.")]
+        public LogPileSpawner logPileSpawner;
 
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the panel. Esc per Uma §8 (free — no clash with WASD/Shift/Ctrl/Space/Tab/1-5).")]
@@ -81,6 +85,7 @@ namespace FarHorizon
             if (chopCharacter == null) chopCharacter = FindObjectOfType<CastawayCharacter>();
             if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
+            if (logPileSpawner == null) logPileSpawner = FindObjectOfType<LogPileSpawner>();
         }
 
         void Start()
@@ -88,7 +93,7 @@ namespace FarHorizon
             // Build the registry from the live targets (AC3), load persisted soak tweaks (AC5), apply them.
             // The thirst overload (86caamkv7 AC5) adds the thirst decay rate + water scoop amount rows; the
             // chop overload (86caa4c5c) flips tool-use speed live + adds the tree regrowth time range row.
-            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner);
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner);
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 

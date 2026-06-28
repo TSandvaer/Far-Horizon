@@ -46,9 +46,13 @@ namespace FarHorizon.PlayTests
         private GameObject _playerGo;
         private GameObject _treeGo;
         private GameObject _charGo;
+        private GameObject _spawnerGo;
+        private GameObject _looterGo;
         private Inventory _inv;
         private ChopTree _tree;
         private CastawayCharacter _character;
+        private LogPileSpawner _spawner;
+        private PickableLooter _looter;
 
         [SetUp]
         public void SetUp()
@@ -68,6 +72,18 @@ namespace FarHorizon.PlayTests
             _charGo = new GameObject("CastawayAvatar");
             _character = _charGo.AddComponent<CastawayCharacter>();
 
+            // REWORK 86caf9u5t — the shared log-pile spawner (the felled tree drops a lootable pile holding its
+            // whole yield) + a looter (E loots the pile). Yield small so the loot/pile assertions are exact.
+            _spawnerGo = new GameObject("LogPileSpawner");
+            _spawner = _spawnerGo.AddComponent<LogPileSpawner>();
+            _spawner.WoodYield = 5;
+            _spawner.DespawnSeconds = 180f;
+
+            _looterGo = new GameObject("PickableLooter");
+            _looter = _looterGo.AddComponent<PickableLooter>();
+            _looter.inventory = _inv;
+            _looter.player = _playerGo.transform;
+
             _treeGo = new GameObject("ChopTree");
             _treeGo.transform.position = Vector3.zero;
             _tree = _treeGo.AddComponent<ChopTree>();
@@ -75,6 +91,7 @@ namespace FarHorizon.PlayTests
             _tree.player = _playerGo.transform;
             _tree.visual = _treeGo.transform;
             _tree.character = _character;
+            _tree.logPileSpawner = _spawner;
             _tree.chopRadius = 2.2f;
             _tree.woodPerChop = 1;
             _tree.chopsToFell = 3;
@@ -98,6 +115,11 @@ namespace FarHorizon.PlayTests
             Object.Destroy(_playerGo);
             Object.Destroy(_treeGo);
             Object.Destroy(_charGo);
+            if (_spawnerGo != null) Object.Destroy(_spawnerGo);
+            if (_looterGo != null) Object.Destroy(_looterGo);
+            // Clean up any log piles the fell tests spawned at runtime (they are not parented to the rig GOs).
+            foreach (var pile in Object.FindObjectsByType<LogPile>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                Object.Destroy(pile.gameObject);
             LogAssert.ignoreFailingMessages = false;
         }
 
@@ -147,8 +169,9 @@ namespace FarHorizon.PlayTests
         }
 
         // === CHANGE 1 — ONE click in range with the selected axe lands EXACTLY ONE chop (one strike/click) ===
+        // REWORK 86caf9u5t (AC1): a non-felling chop yields NO wood (the wood drops on FELL, not per swing).
         [UnityTest]
-        public IEnumerator OneClickInRange_LandsExactlyOneChop()
+        public IEnumerator OneClickInRange_LandsExactlyOneChop_ButYieldsNoWoodUntilFell()
         {
             SelectAxe();
             StandAtTree();
@@ -157,11 +180,14 @@ namespace FarHorizon.PlayTests
             yield return ClickChop();
 
             Assert.AreEqual(1, _tree.Chops, "ONE click -> exactly ONE chop (one strike per click)");
-            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "one chop -> woodPerChop wood");
+            Assert.AreEqual(0, _inv.WoodCount,
+                "AC1 — a non-felling chop yields NO wood; the wood is awarded on FELL as a lootable pile, not per swing");
+            Assert.IsFalse(_tree.IsFelled, "one chop of three does not fell the tree");
 
             // A second frame WITHOUT a new click does not chop again (the click does not repeat).
             yield return null;
             Assert.AreEqual(1, _tree.Chops, "no further chop without a NEW click (one chop per click)");
+            Assert.AreEqual(0, _inv.WoodCount, "still no wood — chopping never banks wood (REWORK AC1)");
         }
 
         // === AC1 negative — NO axe at all + a click at the tree does nothing (the success-test's classic case) ===
@@ -198,10 +224,10 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_tree.IsFelled, "axe not selected -> the tree is never felled");
         }
 
-        // === AC1 positive + AC2 — with the axe SELECTED, clicking in range yields wood and (after enough
-        //     clicks) fells the tree ===
+        // === AC1 positive + AC2 — with the axe SELECTED, clicking in range fells the tree and the wood is
+        //     awarded ON FELL as a lootable LOG PILE (REWORK 86caf9u5t — NOT per chop) ===
         [UnityTest]
-        public IEnumerator ClickAtTreeWithSelectedAxe_YieldsWood_AndFells()
+        public IEnumerator ClickAtTreeWithSelectedAxe_FellsTree_AndDropsLootablePile_NoWoodUntilLooted()
         {
             SelectAxe();
             Assert.AreEqual(0, _inv.WoodCount, "precondition: no wood yet");
@@ -212,8 +238,22 @@ namespace FarHorizon.PlayTests
 
             Assert.IsTrue(_tree.IsFelled, "with the selected axe, chopsToFell clicks in range fell the tree");
             Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "fells after exactly chopsToFell click-chops");
-            Assert.AreEqual(_tree.chopsToFell * _tree.woodPerChop, _inv.WoodCount,
-                "total wood == chopsToFell * woodPerChop (wood ticks up per click into the WoodId stack)");
+            Assert.AreEqual(0, _inv.WoodCount,
+                "AC1/AC2 — chopping never banks wood; the wood is in the dropped LOG PILE until the player loots it");
+
+            // AC2 — a lootable LOG PILE spawned at the tree, holding the WHOLE tree's yield (spawner.WoodYield).
+            var pile = Object.FindObjectOfType<LogPile>();
+            Assert.IsNotNull(pile, "a log pile spawned on fell (AC2)");
+            Assert.AreEqual(_spawner.WoodYield, pile.LogsRemaining,
+                "the pile holds the WHOLE tree's wood-yield (logs == the `tree-chop wood yield` setting), not a per-chop tally");
+
+            // E loots the WHOLE pile -> the wood lands in the inventory (the pickable path).
+            _looter.DiscoverPickables(); // pick up the runtime-spawned pile
+            _looter.RequestLoot();
+            yield return null;
+            Assert.AreEqual(_spawner.WoodYield, _inv.WoodCount,
+                "AC2 — one E grabs the WHOLE pile -> the tree's full yield lands in the inventory");
+            Assert.IsFalse(pile.IsAvailable, "the emptied pile is consumed (gone immediately when collected)");
         }
 
         // === AC1 (swing) — a landed chop FIRES the Mixamo melee swing (change-(b): CastawayCharacter.TriggerChop
@@ -301,7 +341,8 @@ namespace FarHorizon.PlayTests
             while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
             yield return null;
             Assert.AreEqual(1, _tree.Chops, "the chop EFFECT lands AT IMPACT (one chop after the down-stroke)");
-            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "wood yields AT IMPACT (synced to the visual hit)");
+            // REWORK 86caf9u5t — a non-felling chop banks NO wood (the chop count, landed at impact, is the signal).
+            Assert.AreEqual(0, _inv.WoodCount, "a non-felling chop banks no wood — the count is the impact signal (AC1)");
         }
 
         // === Refinement 3 (single-flight) — a 2nd click while a swing's impact is PENDING must NOT double-apply ===
@@ -322,12 +363,12 @@ namespace FarHorizon.PlayTests
             for (int i = 0; i < 4; i++) { _tree.RequestChopClick(); yield return null; }
             Assert.IsTrue(_tree.ImpactPending, "still exactly ONE impact pending (the extra clicks were ignored)");
 
-            // Let the single impact land — exactly ONE chop + woodPerChop wood (not 1 + 4).
+            // Let the single impact land — exactly ONE chop (not 1 + 4); the chop count is the single-flight signal.
             float start = Time.time;
             while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
             yield return null;
             Assert.AreEqual(1, _tree.Chops, "one swing = one impact = ONE chop (the mid-swing clicks didn't stack)");
-            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "exactly woodPerChop wood — no double-apply");
+            Assert.AreEqual(0, _inv.WoodCount, "a non-felling chop banks no wood — no double-apply (REWORK AC1)");
         }
 
         // === Refinement 2 (Sponsor soak 2026-06-27) — a fully-chopped tree FADES OUT + is REMOVED after the delay,
@@ -365,10 +406,11 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_tree.IsTreeVisible, "the regrown tree is visible again (renderers re-enabled)");
             Assert.AreEqual(0, _tree.Chops, "a regrown tree resets its chop count — choppable anew");
 
-            // And it's choppable again — a click yields fresh wood.
-            int woodBefore = _inv.WoodCount;
+            // And it's choppable again — a click LANDS A CHOP on the regrown tree (the chop count is the signal;
+            // REWORK 86caf9u5t — a single chop banks no wood, so the count, not WoodCount, proves choppability).
+            int chopsBefore = _tree.Chops;
             yield return ClickChop();
-            Assert.Greater(_inv.WoodCount, woodBefore, "the regrown tree is choppable again — a click yields wood");
+            Assert.Greater(_tree.Chops, chopsBefore, "the regrown tree is choppable again — a click lands a chop");
         }
 
         // === AC3 — a felled stump REGROWS after the (tweakable) timer into a standing, choppable tree ===
@@ -381,13 +423,13 @@ namespace FarHorizon.PlayTests
             // Fell it by clicking chopsToFell times.
             for (int i = 0; i < _tree.chopsToFell; i++) yield return ClickChop();
             Assert.IsTrue(_tree.IsFelled, "tree felled (now a stump)");
-            int woodAtFell = _inv.WoodCount;
+            int chopsAtFell = _tree.Chops;
 
-            // A felled tree is not choppable — clicking it while felled yields NO wood (here regrow < fade, so it
-            // regrows directly; the fade-out path is covered by ChoppedTree_FadesOutAndIsRemoved_AfterDelay).
+            // A felled tree is not choppable — clicking it while felled lands NO further chop (here regrow < fade,
+            // so it regrows directly; the fade-out path is covered by ChoppedTree_FadesOutAndIsRemoved_AfterDelay).
             for (int i = 0; i < 3; i++) yield return ClickChop();
             Assert.IsTrue(_tree.IsFelled, "a felled tree stays felled through its regrow window");
-            Assert.AreEqual(woodAtFell, _inv.WoodCount, "a felled tree yields no wood (clicking it does nothing)");
+            Assert.AreEqual(chopsAtFell, _tree.Chops, "a felled tree takes no further chops (clicking it does nothing)");
 
             // Wait past the max regrow time + the rise tween — the stump regrows into a standing tree.
             float start = Time.time;
@@ -395,9 +437,9 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_tree.IsFelled, "the stump regrew into a standing tree after the timer (AC3)");
             Assert.AreEqual(0, _tree.Chops, "a regrown tree resets its chop count — it can be chopped anew");
 
-            // And the regrown tree is choppable again — a click in range (axe selected) yields fresh wood.
+            // And the regrown tree is choppable again — a click in range (axe selected) lands a fresh chop.
             yield return ClickChop();
-            Assert.Greater(_inv.WoodCount, woodAtFell, "the regrown tree is choppable again — a click yields wood");
+            Assert.AreEqual(1, _tree.Chops, "the regrown tree is choppable again — a click lands a chop");
         }
 
         // ============================================================================================
@@ -428,7 +470,8 @@ namespace FarHorizon.PlayTests
             while (_tree.SwingInProgress && Time.time - start < 2f) yield return null;
         }
 
-        // === AC1 — HOLDING LMB repeats swings: N swings land N chops (one wood each), no double-apply ===
+        // === AC1 — HOLDING LMB repeats swings: N swings land N chops, no double-apply (REWORK: wood drops on fell,
+        //     so the CHOP COUNT — not WoodCount — is the per-swing signal for these non-felling swings) ===
         [UnityTest]
         public IEnumerator HoldingLmb_RepeatsSwings_UntilReleased()
         {
@@ -446,7 +489,7 @@ namespace FarHorizon.PlayTests
             for (int i = 0; i < 3; i++) yield return StepHeldSwing();
 
             Assert.AreEqual(3, _tree.Chops, "holding LMB repeats swings — 3 chops landed with NO extra presses");
-            Assert.AreEqual(3 * _tree.woodPerChop, _inv.WoodCount, "each repeat swing yields exactly one wood (no double-apply)");
+            Assert.AreEqual(0, _inv.WoodCount, "non-felling swings bank NO wood — the wood drops on fell (REWORK AC1)");
             Assert.IsTrue(_tree.IsChopChainActive, "the chain is still active while LMB is held + the tree stands");
             Assert.IsFalse(_tree.IsFelled, "not yet felled (chopsToFell=5, only 3 swings)");
 
@@ -454,10 +497,8 @@ namespace FarHorizon.PlayTests
             _tree.SetChopHeld(false);
             yield return null; // the release-frame drops the lock
             Assert.IsFalse(_tree.IsChopChainActive, "releasing LMB stops the chain (no lock)");
-            int woodAtRelease = _inv.WoodCount;
             for (int i = 0; i < 10; i++) yield return null;
             Assert.AreEqual(3, _tree.Chops, "after release, NO further chops land (the repeat stopped)");
-            Assert.AreEqual(woodAtRelease, _inv.WoodCount, "no wood after release — the swing loop is over");
         }
 
         // === AC1 — a single click (press+release within one swing) still produces EXACTLY ONE swing ===
@@ -471,7 +512,7 @@ namespace FarHorizon.PlayTests
             // The classic single-click seam (press+release inside one swing) — must NOT start a chain.
             yield return ClickChop();
             Assert.AreEqual(1, _tree.Chops, "a single click lands exactly ONE chop (back-compat — one click one swing)");
-            Assert.AreEqual(_tree.woodPerChop, _inv.WoodCount, "one click → one wood");
+            Assert.AreEqual(0, _inv.WoodCount, "one click → one chop, NO wood (wood drops on fell — REWORK AC1)");
             Assert.IsFalse(_tree.IsChopChainActive, "a single click never leaves a chain running");
 
             // Many idle frames → no repeat.
@@ -499,11 +540,10 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "exactly chopsToFell chops landed (one per swing)");
             Assert.IsFalse(_tree.IsChopChainActive, "STOP-ON-FALL — the chain dropped when the locked tree felled");
 
-            // STILL HOLDING, but the tree is felled — no further swing at the empty/falling tree.
-            int woodAtFell = _inv.WoodCount;
+            // STILL HOLDING, but the tree is felled — no further swing at the empty/falling tree (the chop count
+            // is the signal; wood drops on fell as the pile, not banked here — REWORK 86caf9u5t).
             for (int i = 0; i < 12; i++) yield return null;
             Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "no chops at a felled tree even while still holding (AC2)");
-            Assert.AreEqual(woodAtFell, _inv.WoodCount, "no wood gained swinging at empty ground");
             Assert.IsFalse(_tree.IsChopChainActive, "the chain stays stopped while held over the felled tree");
         }
 
@@ -587,10 +627,11 @@ namespace FarHorizon.PlayTests
             yield return null;
         }
 
-        // === RE-ITER 2 — ONE completed swing = exactly ONE chop = one wood across a hold: N completed swings yield
-        //     N chops / N wood, NO double-apply (the tree does not deplete faster than the completed swings). ===
+        // === RE-ITER 2 — ONE completed swing = exactly ONE chop across a hold: N completed swings yield N chops,
+        //     NO double-apply (the tree does not deplete faster than the completed swings). REWORK 86caf9u5t: the
+        //     CHOP COUNT is the per-swing signal (non-felling swings bank no wood; the wood drops on fell). ===
         [UnityTest]
-        public IEnumerator HoldChain_OneCompletedSwing_IsExactlyOneChopOneWood_NoDoubleApply()
+        public IEnumerator HoldChain_OneCompletedSwing_IsExactlyOneChop_NoDoubleApply()
         {
             SelectAxe();
             StandAtTree();
@@ -603,8 +644,8 @@ namespace FarHorizon.PlayTests
             for (int i = 0; i < swings; i++) yield return StepHeldSwing();
 
             Assert.AreEqual(swings, _tree.Chops, "exactly one chop per COMPLETED swing (no mid-clip extra chops)");
-            Assert.AreEqual(swings * _tree.woodPerChop, _inv.WoodCount,
-                "exactly one wood per completed swing — no double-apply / no over-paced depletion");
+            Assert.AreEqual(0, _inv.WoodCount,
+                "non-felling completed swings bank NO wood — no double-apply / no over-paced depletion (REWORK AC1)");
             Assert.IsFalse(_tree.IsFelled, "not yet felled (chopsToFell=12, only 5 completed swings)");
 
             _tree.SetChopHeld(false);
@@ -761,6 +802,7 @@ namespace FarHorizon.PlayTests
             _genTree.visual = _genTreeGo.transform;
             _genTree.character = _character;
             _genTree.scatterRoot = _scatterRootGo.transform;
+            _genTree.logPileSpawner = _spawner;   // REWORK 86caf9u5t — a felled scatter tree drops a lootable pile
             _genTree.chopRadius = 2.2f;
             _genTree.woodPerChop = 1;
             _genTree.chopsToFell = 3;
@@ -816,22 +858,22 @@ namespace FarHorizon.PlayTests
                 "the resolver must track 1 demo tree + 3 scatter LP_Tree instances (CHANGE (a))");
         }
 
-        // === CHANGE (a) — a scatter tree is choppable: stand near tree A, click → A depletes, yields wood ===
+        // === CHANGE (a) — a scatter tree is choppable: stand near tree A, click → A depletes (lands a chop) ===
+        // REWORK 86caf9u5t: a single chop banks no wood (wood drops on fell), so the CHOP COUNT is the signal.
         [UnityTest]
-        public IEnumerator ClickNearAScatterTree_ChopsThatTree_YieldsWood()
+        public IEnumerator ClickNearAScatterTree_ChopsThatTree()
         {
             BuildScatterWorld(new Vector3(0f, 0f, 0f), new Vector3(20f, 0f, 0f));
             yield return null;
             SelectAxe();
             _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f); // at scatter tree 0
 
-            Assert.AreEqual(0, _inv.WoodCount, "precondition: no wood");
             yield return ClickChopGen();
 
-            Assert.AreEqual(1, _inv.WoodCount, "a click near a SCATTER tree yields wood (CHANGE (a) — not only the demo tree)");
             // Instance 1 = the first scatter tree (instance 0 is the demo tree, far away).
-            Assert.AreEqual(1, _genTree.ChopsOn(1), "the near scatter tree took the chop");
+            Assert.AreEqual(1, _genTree.ChopsOn(1), "a click near a SCATTER tree lands a chop on it (CHANGE (a) — not only the demo tree)");
             Assert.AreEqual(0, _genTree.ChopsOn(2), "the FAR scatter tree was untouched");
+            Assert.AreEqual(0, _inv.WoodCount, "a non-felling chop banks no wood (the wood drops on fell — REWORK AC1)");
         }
 
         // === AC5 — the chop targets the NEAREST in-range tree (two in range → the nearer one chops) ===
@@ -865,12 +907,13 @@ namespace FarHorizon.PlayTests
             for (int i = 0; i < _genTree.chopsToFell; i++) yield return ClickChopGen();
             Assert.IsTrue(_genTree.IsFelledOn(1), "the chopped scatter tree felled to a stump");
             Assert.IsFalse(_genTree.IsFelledOn(2), "the far scatter tree is UNAFFECTED — independent state");
-            Assert.AreEqual(_genTree.chopsToFell, _inv.WoodCount, "wood == chopsToFell from felling tree 1");
+            // REWORK 86caf9u5t — felling tree 1 dropped a lootable pile (not banked wood); the inventory is still 0.
+            Assert.AreEqual(0, _inv.WoodCount, "felling banks no wood — the wood is in the dropped pile until looted");
+            Assert.IsNotNull(Object.FindObjectOfType<LogPile>(), "a log pile spawned at the felled scatter tree (AC2)");
 
-            // The felled stump is no longer choppable — further clicks at it yield no wood.
-            int woodAtFell = _inv.WoodCount;
+            // The felled stump is no longer choppable — further clicks at it land no chop.
             for (int i = 0; i < 3; i++) yield return ClickChopGen();
-            Assert.AreEqual(woodAtFell, _inv.WoodCount, "a felled stump yields no wood (it's not choppable)");
+            Assert.AreEqual(_genTree.chopsToFell, _genTree.ChopsOn(1), "a felled stump takes no further chops (not choppable)");
             Assert.IsTrue(_genTree.IsFelledOn(1), "the stump persists through its own regrow window (AC4)");
 
             // Wait past instance 1's regrow window — it regrows into a standing, choppable tree, independently.
@@ -880,9 +923,9 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_genTree.IsFelledOn(1), "the stump regrew into a standing tree after its own timer (AC3)");
             Assert.AreEqual(0, _genTree.ChopsOn(1), "the regrown tree reset its chop count");
 
-            // And it's choppable anew — a click in range yields fresh wood.
+            // And it's choppable anew — a click in range lands a fresh chop.
             yield return ClickChopGen();
-            Assert.Greater(_inv.WoodCount, woodAtFell, "the regrown scatter tree is choppable again");
+            Assert.AreEqual(1, _genTree.ChopsOn(1), "the regrown scatter tree is choppable again — a click lands a chop");
         }
 
         // ============================================================================================

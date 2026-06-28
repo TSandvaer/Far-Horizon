@@ -79,7 +79,15 @@ namespace FarHorizon
     /// <see cref="CastawayCharacter.TriggerChop"/> (the Mixamo melee Attack state) so the arm swings; the held
     /// axe (HeldAxeRig, order 100) follows the swung hand automatically.
     ///
-    /// === AC2 — wood yield ===
+    /// === AC2 — wood yield is awarded ON FELL as a LOOTABLE LOG PILE (REWORK 86caf9u5t — supersedes #157) ===
+    /// Chopping yields NO wood per swing (the per-chop Inventory.AddWood is REMOVED — AC1). Instead, on the
+    /// FELLING chop the tree spawns a lootable <see cref="LogPile"/> at its spot holding the WHOLE tree's wood
+    /// (the `tree-chop wood yield` setting via <see cref="logPileSpawner"/>, default 10). The player loots the
+    /// pile with E (the shared <see cref="PickableLooter"/> path), grabbing the whole pile or what fits — the
+    /// remainder persists (AC7). Sponsor's grilled redesign: "I should not get the wood before the tree has
+    /// fallen … the yield setting is how much a FALLEN tree yields, not each chop." After chopsToFell chops the
+    /// resolved tree fells + drops its pile.
+    /// (Legacy doc retained for context:)
     /// Each chop adds <see cref="DefaultChopYield"/> (the NAMED yield constant — ticket AC2a) via
     /// <see cref="Inventory.AddWood"/> → the canonical <c>ItemCatalog.WoodId</c> = "wood" path (ticket V3).
     /// After <see cref="chopsToFell"/> chops the resolved tree fells.
@@ -121,6 +129,17 @@ namespace FarHorizon
         /// from this. NOT a magic literal scattered through the code (no "dead knob").</summary>
         public const int DefaultChopYield = 1;
 
+        /// <summary>AC4 — the NAMED default chops-to-fell. The `chops-to-fell` setting (86caf9u5t) drives
+        /// <see cref="chopsToFell"/>; default 3, the setting clamps within [<see cref="ChopsToFellMin"/>,
+        /// <see cref="ChopsToFellMax"/>]. A named constant so the setting + tests reference one source.</summary>
+        public const int ChopsToFellDefault = 3;
+
+        /// <summary>AC4 range floor — the `chops-to-fell` setting clamps within [1, 10] (integer).</summary>
+        public const int ChopsToFellMin = 1;
+
+        /// <summary>AC4 range ceiling — the `chops-to-fell` setting clamps within [1, 10] (integer).</summary>
+        public const int ChopsToFellMax = 10;
+
         /// <summary>The GameObject name LowPolyZoneGen.BuildTree gives every scatter tree. The runtime
         /// resolver collects these under <see cref="scatterRoot"/> so every world tree is choppable
         /// (CHANGE (a)). A READ-only key into the existing seed-42 scatter — never re-authored.</summary>
@@ -158,18 +177,34 @@ namespace FarHorizon
                  "simply skipped (a bare test rig with no UI), but the modal-panel + RMB-orbit guards still apply.")]
         public InventoryUI inventoryUI;
 
+        [Tooltip("REWORK 86caf9u5t — the shared LogPileSpawner that mints a lootable LogPile when a tree fells " +
+                 "(holding the `tree-chop wood yield` logs, despawning per the `log-pile despawn` setting). Wired " +
+                 "at bootstrap; an Awake scene-search fallback. Null is tolerated — felling still completes (the " +
+                 "tree falls + fades) but NO pile drops (a bare test rig with no spawner can assert the fell path " +
+                 "without the pickable). The whole tree's wood is awarded ONCE, on fell, as this pile — never per " +
+                 "chop (AC1/AC2).")]
+        public LogPileSpawner logPileSpawner;
+
         [Header("Interaction")]
         [Tooltip("Planar (XZ) distance within which the castaway is 'at' a tree and (with the selected " +
                  "axe) chops it. Generous enough that arriving near a tree counts. Mirrors CraftSpot.craftRadius.")]
         public float chopRadius = 2.2f;
 
-        [Tooltip("Wood units yielded per chop (seeds from DefaultChopYield). The `tree-chop wood yield` " +
-                 "setting (86caa96rd) drives this live; this is the single named source it reaches.")]
+        [Tooltip("DEPRECATED (REWORK 86caf9u5t) — NO LONGER awards wood per chop. The wood is now awarded ONCE " +
+                 "on FELL as a lootable LogPile (logPileSpawner.WoodYield logs), NOT per swing (AC1). This field " +
+                 "is retained INERT only so legacy callers/tests compile; ApplyChopEffect no longer reads it for " +
+                 "an inventory add. Do not reintroduce a per-chop AddWood.")]
         public int woodPerChop = DefaultChopYield;
 
-        [Tooltip("Chops needed to fell a tree. After this many, the tree falls to a STUMP, then regrows " +
-                 "(AC3). Small so the loop reads quickly. Shared across every choppable tree.")]
-        public int chopsToFell = 3;
+        [Tooltip("Chops needed to fell a tree (AC4 — the `chops-to-fell` setting drives this live, default 3, " +
+                 "range 1–10). After this many, the tree falls + drops its log pile, then regrows (AC3). Shared " +
+                 "across every choppable tree (the resolver applies it to whichever tree the chop lands on).")]
+        public int chopsToFell = ChopsToFellDefault;
+
+        [Tooltip("AC6 — per-chop SHAKE/RECOIL amount (degrees of the brief tip-impulse each non-felling chop " +
+                 "gives the tree). A cheap transform nudge (no new art/audio): the tree recoils a few degrees on " +
+                 "the chop impact, then eases back. Soak-tune the amount. 0 disables the shake.")]
+        public float chopShakeDegrees = 6f;
 
         [Tooltip("Minimum seconds between landed chops (CHANGE 1 — left-click trigger). The chop is per " +
                  "LEFT-CLICK (one strike per click, not auto-paced), so this is a small COOLDOWN: a second " +
@@ -353,6 +388,9 @@ namespace FarHorizon
             // CHANGE 1 — the inventory/belt UI for the over-UI left-click guard (serialized editor-time; this
             // scene-search is the build-safety net). Null is tolerated — the over-UI guard is then skipped.
             if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
+            // REWORK 86caf9u5t — the shared log-pile spawner (serialized editor-time; this scene-search is the
+            // build-safety net). Null is tolerated — felling completes but no pile drops (a bare test rig).
+            if (logPileSpawner == null) logPileSpawner = FindObjectOfType<LogPileSpawner>();
 
             // Instance 0 = the demo tree (this component's own visual). It captures its standing pose at spawn
             // (the tree ships standing). Its derived sub-seed is the raw regrowSeed so the demo tree's regrow
@@ -680,26 +718,47 @@ namespace FarHorizon
             return authored / Mathf.Max(0.0001f, speed);
         }
 
-        // Refinement 3 — APPLY the chop effect at IMPACT: yield wood (AC2), advance the count, and fell it on the
-        // final chop (AC3 — fade-out then regrow). Re-checks IsChoppable (the target could have changed state in
-        // the delay window — e.g. an external regrow tick) so a stale pending impact can't double-fell. This is the
-        // moment the tree's bring-down/fall + the fade-out scheduling happen — synced to the visual hit.
+        // Refinement 3 — APPLY the chop effect at IMPACT: advance the count + shake the tree (AC6), and fell it on
+        // the final chop (AC3 — fade-out then regrow + AC2 — drop a lootable LOG PILE). Re-checks IsChoppable (the
+        // target could have changed state in the delay window — e.g. an external regrow tick) so a stale pending
+        // impact can't double-fell. This is the moment the tree's bring-down/fall + the fade-out scheduling happen
+        // — synced to the visual hit.
+        //
+        // REWORK 86caf9u5t — NO per-chop wood (AC1): the per-swing inventory.AddWood is GONE. The whole tree's
+        // wood is awarded ONCE, on the FELLING chop, as a lootable LogPile (AC2) holding logPileSpawner.WoodYield
+        // logs — the player loots it with E. A non-felling chop only advances the count + shakes the tree (AC6).
         private void ApplyChopEffect(ChoppableTreeState target)
         {
-            if (target == null || !target.IsChoppable || inventory == null) return;
+            if (target == null || !target.IsChoppable) return;
 
-            inventory.AddWood(Mathf.Max(1, woodPerChop));
             bool felled = target.LandChop(chopsToFell, regrowthMinSeconds, regrowthMaxSeconds, fadeOutDelaySeconds);
+
+            // AC6 — per-chop SHAKE/RECOIL: a non-felling chop gives the tree a brief tip-impulse (a cheap
+            // transform nudge, no new art/audio). The felling chop runs the full sink+tip fell tween instead, so
+            // it does NOT also shake (the fall IS the feedback).
+            if (!felled) target.Shake(chopShakeDegrees);
+
+            // AC2 — on FELL, drop a lootable LOG PILE at the tree's spot holding the WHOLE tree's wood (the
+            // `tree-chop wood yield` setting). The pile uses the felled tree's own trunk material (the ~1-draw-call
+            // shared opaque path) when the spawner has no override. Null spawner/inventory → felling still
+            // completes (the tree falls + fades), just without a pile (a bare test rig / unwired safety).
+            if (felled && logPileSpawner != null && inventory != null)
+            {
+                Material trunkMat = target.FirstSharedMaterial();
+                LogPile pile = logPileSpawner.SpawnAt(target.Position, inventory, trunkMat);
+                ChopTrace("FELL -> spawned log pile holding " + (pile != null ? pile.LogsRemaining : 0) +
+                          " logs at " + target.Position.ToString("F1"));
+            }
 
             if (!_tracedFirstChop)
             {
                 _tracedFirstChop = true;
-                ChopTrace("impact " + target.Chops + "/" + chopsToFell + " -> wood=" + inventory.WoodCount +
+                ChopTrace("impact " + target.Chops + "/" + chopsToFell + " (no per-chop wood — wood drops on fell)" +
                           " (swing=" + (character != null) + ")");
             }
             if (felled)
-                ChopTrace("tree FELLED after " + target.Chops + " chops (total wood=" + inventory.WoodCount +
-                          "); regrow in " + (target.RegrowAt - Time.time).ToString("F0") + "s");
+                ChopTrace("tree FELLED after " + target.Chops + " chops; regrow in " +
+                          (target.RegrowAt - Time.time).ToString("F0") + "s");
         }
 
         // [chop-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call
@@ -747,9 +806,17 @@ namespace FarHorizon
         private Quaternion _standRot;
         private Vector3 _standScale = Vector3.one; // the standing localScale (the fade-out/regrow scale anchor)
 
+        // AC6 — per-chop SHAKE/RECOIL: a brief tip-impulse on each non-felling chop, eased back to standing. A
+        // transient rotation overlay (does NOT touch _standRot, so the fell tween still tips from the true
+        // standing pose). _shaking is true while the impulse plays; _shakeT is its progress; _shakeDeg its peak.
+        private bool _shaking;
+        private float _shakeT;
+        private float _shakeDeg;
+
         private const float FellDuration = 0.5f;
         private const float FadeOutDuration = 0.8f;   // the scale-down-to-nothing tween length
         private const float RegrowRiseDuration = 0.6f;
+        private const float ShakeDuration = 0.22f;    // the per-chop recoil-and-settle length (quick + felt)
         // The felled pose offset from standing — the fell tween's end state (a brief sink+tip before the fade).
         private static readonly Vector3 StumpDrop = Vector3.down * 0.6f;
         private const float StumpTipDeg = 70f;
@@ -814,7 +881,11 @@ namespace FarHorizon
             {
                 if (Time.time >= _regrowAt) { BeginRegrow(); return; }
                 if (Time.time >= _fadeAt) BeginFadeOut();
+                return;
             }
+            // AC6 — a STANDING tree's per-chop shake/recoil (a brief tip-impulse that eases back). Only runs while
+            // standing (the fell/fade/regrow tweens own the transform when they're active).
+            if (_shaking) StepShake();
         }
 
         /// <summary>
@@ -831,12 +902,63 @@ namespace FarHorizon
             if (_chops >= chopsToFell)
             {
                 _felled = true;
+                _shaking = false; // the fell tween owns the transform now; cancel any in-flight shake
                 BeginFelling();
                 _fadeAt = Time.time + Mathf.Max(0f, fadeOutDelaySeconds);
                 ScheduleRegrow(regrowthMinSeconds, regrowthMaxSeconds);
                 return true;
             }
             return false;
+        }
+
+        /// <summary>True while a per-chop shake/recoil impulse (AC6) is playing on this STANDING tree. Exposed so
+        /// a PlayMode test can assert a non-felling chop triggers the shake (and the felling chop does not — the
+        /// fall is the feedback there).</summary>
+        public bool Shaking => _shaking;
+
+        /// <summary>
+        /// AC6 — kick off a brief SHAKE/RECOIL impulse (a cheap transform nudge, no new art/audio): the tree tips
+        /// <paramref name="degrees"/> on the chop impact, then eases back to standing over <see cref="ShakeDuration"/>.
+        /// A no-op when the tree isn't standing (a felling/fading tree owns its transform), when degrees ≤ 0, or
+        /// when there is no visual. Restarts the impulse if a chop lands mid-shake (the latest hit re-kicks it).
+        /// Called by ChopTree.ApplyChopEffect on each NON-felling chop (the felling chop runs the fell tween instead).
+        /// </summary>
+        public void Shake(float degrees)
+        {
+            if (!IsChoppable || _visual == null || degrees <= 0f) return;
+            _shakeDeg = degrees;
+            _shakeT = 0f;
+            _shaking = true;
+        }
+
+        // One frame of the per-chop recoil — a half-sine tip-and-settle: 0 → peak → 0 over ShakeDuration, applied
+        // as a transient X-tip OVERLAY on the standing rotation (so it never drifts the true standing pose). On
+        // completion the visual is restored exactly to standing.
+        private void StepShake()
+        {
+            if (_visual == null) { _shaking = false; return; }
+            _shakeT += Time.unscaledDeltaTime;
+            float k = Mathf.Clamp01(_shakeT / ShakeDuration);
+            // Half-sine: rises to the peak at k=0.5, back to 0 at k=1 — a clean recoil-and-settle.
+            float tip = Mathf.Sin(k * Mathf.PI) * _shakeDeg;
+            _visual.rotation = _standRot * Quaternion.Euler(tip, 0f, 0f);
+            if (k >= 1f)
+            {
+                _shaking = false;
+                _visual.rotation = _standRot; // settle exactly back to standing
+            }
+        }
+
+        /// <summary>The first shared material on this tree's visual (its trunk MeshRenderer) — handed to the
+        /// spawned LogPile so the logs read as the SAME wood on the SAME ~1-draw-call opaque batch path. Null if
+        /// the tree has no renderer (a bare test rig) → the spawner falls back to a built bark material.</summary>
+        public Material FirstSharedMaterial()
+        {
+            if (_renderers == null) return null;
+            for (int i = 0; i < _renderers.Length; i++)
+                if (_renderers[i] != null && _renderers[i].sharedMaterial != null)
+                    return _renderers[i].sharedMaterial;
+            return null;
         }
 
         // Schedule the regrow at a RANDOM time within [min,max] (AC3 — organic, not uniform). Min clamped

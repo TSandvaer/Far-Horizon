@@ -44,6 +44,7 @@ namespace FarHorizon
         public ClickToMove player;
         public Inventory inventory;
         public ChopTree chop;
+        public PickableLooter looter;   // REWORK 86caf9u5t — loots the LOG PILE a felled tree drops (E-loot)
         public Vector3 craftSpot = new Vector3(8f, 0f, 6f);
         public Vector3 treeSpot = new Vector3(-9f, 0f, -7f);
         public string subDir = "Captures";
@@ -55,6 +56,7 @@ namespace FarHorizon
                 if (player == null) player = Object.FindAnyObjectByType<ClickToMove>();
                 if (inventory == null) inventory = Object.FindAnyObjectByType<Inventory>();
                 if (chop == null) chop = Object.FindAnyObjectByType<ChopTree>();
+                if (looter == null) looter = Object.FindAnyObjectByType<PickableLooter>();
                 StartCoroutine(RunVerification());
             }
         }
@@ -102,18 +104,22 @@ namespace FarHorizon
             bool setTree = player != null && player.MoveTo(treeSpot);
             Debug.Log("[ChopVerifyCapture] MoveTo tree set: " + setTree + " target=" + treeSpot);
             start = Time.time;
-            while (Time.time - start < 14f)
+            while (Time.time - start < 18f)
             {
                 if (inventory != null && inventory.WoodCount > 0) break;
-                // Drive the left-click chop (CHANGE 1). Harmless until the player is actually in range with the
-                // selected axe — mirrors a real off-target click being ignored.
+                // REWORK 86caf9u5t — chopping no longer banks wood per swing; the wood drops on FELL as a lootable
+                // LOG PILE. So: drive the left-click chop to FELL the tree (a pile spawns), AND press E (loot the
+                // pile) every frame. Both are harmless until in range / a pile exists — the wood arrives only once
+                // the tree has felled AND the pile is looted, proving the whole fell → pile → E-loot path (AC8).
                 if (chop != null) chop.RequestChopClick();
+                if (looter != null) looter.RequestLoot();
                 yield return null;
             }
             int woodAfterDemo = inventory != null ? inventory.WoodCount : -1;
             bool gotDemoWood = woodAfterDemo > 0;
-            Debug.Log("[ChopVerifyCapture] demo-tree wood yielded: " + gotDemoWood + " (wood=" + woodAfterDemo +
-                      ", true means click-move REACHED the demo tree AND the left-click-triggered, axe-gated chop fired)");
+            Debug.Log("[ChopVerifyCapture] demo-tree wood (via fell -> pile -> E-loot) yielded: " + gotDemoWood +
+                      " (wood=" + woodAfterDemo + ", true means REACHED the demo tree, FELLED it, and LOOTED the " +
+                      "dropped log pile — the full REWORK 86caf9u5t path proven in the shipped exe)");
 
             // Let the camera settle, then capture the 'after' shot with wood in the readout.
             for (int i = 0; i < 8; i++) yield return null;
@@ -144,10 +150,12 @@ namespace FarHorizon
                 bool setScatter = player != null && player.MoveTo(chosen);
                 Debug.Log("[ChopVerifyCapture] MoveTo scatter tree set: " + setScatter + " target=" + chosen);
                 start = Time.time;
-                while (Time.time - start < 16f)
+                while (Time.time - start < 20f)
                 {
                     if (inventory != null && inventory.WoodCount > woodAfterDemo) break;
+                    // REWORK 86caf9u5t — fell the scatter tree (chop) AND loot its dropped pile (E) to gain MORE wood.
                     if (chop != null) chop.RequestChopClick();
+                    if (looter != null) looter.RequestLoot();
                     yield return null;
                 }
                 woodAfterScatter = inventory != null ? inventory.WoodCount : woodAfterDemo;
