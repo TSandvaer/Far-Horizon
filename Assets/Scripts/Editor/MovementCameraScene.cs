@@ -883,9 +883,22 @@ namespace FarHorizon.EditorTools
                 EditorUtility.SetDirty(chop);
             }
 
+            // 86caf7a30 — wire the LeftClickConsume's over-UI left-click guard the SAME way (the consume sibling
+            // of the chop guard above): a left-click OVER the belt/inventory UI must NOT consume the selected
+            // item behind it; LeftClickConsume asks InventoryUI.IsPointerOverUI. Serialized here so the ref ships
+            // in Boot.unity (BootstrapProject added LeftClickConsume BEFORE this, so its serialized inventoryUI
+            // was unresolvable then — like ChopTree's). Null-graceful: a missing ref skips the over-UI guard.
+            var consume = Object.FindObjectOfType<LeftClickConsume>();
+            if (consume != null)
+            {
+                consume.inventoryUI = ui;
+                EditorUtility.SetDirty(consume);
+            }
+
             EditorUtility.SetDirty(go);
             Debug.Log("[MovementCameraScene] authored InventoryUI (UI Toolkit; Tab pack + bottom belt, sortingOrder 90)" +
-                      " (chop over-UI guard wired: " + (chop != null) + ")");
+                      " (chop over-UI guard wired: " + (chop != null) + ", consume over-UI guard wired: " +
+                      (consume != null) + ")");
         }
 
         // Create-or-load the runtime PanelSettings for the inventory UIDocument (own asset; reconciled to
