@@ -50,6 +50,35 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_CarriesDeterministicWiredBerryBush_TheLootGateTarget()
+        {
+            // REGRESSION GUARD (PR #162 loot-gate flake): the LootPromptVerifyCapture -verifyLoot gate now targets
+            // the DETERMINISTIC wired bush — the GameObject named exactly "BerryBush" at the loop-centre clearing,
+            // over solid navmesh, ripe + inventory-wired at spawn — instead of an arbitrary scatter bush picked by
+            // (build-unstable) InstanceID order. If a future change renames/drops that wired bush, the gate would
+            // SILENTLY fall back to a flaky coast-edge scatter bush (the NavMeshAgent-re-snap false-fail this PR
+            // fixes). This test fails RED in CI the moment the deterministic target disappears, so the regression
+            // can't slip back in. (The wired scatter bushes are named "LP_BerryBush" — distinct on purpose.)
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            var wired = scene.GetRootGameObjects()
+                .SelectMany(r => r.GetComponentsInChildren<BerryBush>(true))
+                .FirstOrDefault(b => b.gameObject.name == "BerryBush");
+
+            Assert.IsNotNull(wired,
+                "the Boot scene must carry the deterministic wired BerryBush (GameObject named exactly " +
+                "\"BerryBush\") — the -verifyLoot gate's stable target. A scatter bush (\"LP_BerryBush\") is " +
+                "NOT a safe substitute (its InstanceID order is build-unstable + it can sit off-navmesh).");
+            Assert.IsTrue(wired.hasBerries && wired.IsRipe,
+                "the wired BerryBush must be a RIPE berry variant at spawn (the gate teleports the player into " +
+                "its range to show the prompt — a bare/decorative bush is not loot-able)");
+            Assert.IsNotNull(wired.inventory,
+                "the wired BerryBush's inventory must be wired editor-time so it reports CanLoot==true at spawn " +
+                "(the looter's nearest-in-range resolve skips a bush with no inventory)");
+        }
+
+        [Test]
         public void BootScene_LootPrompt_NamesTheLiteralEKey()
         {
             // The prompt's key must mirror the looter's E (a letter key — layout-agnostic on the Danish keyboard).

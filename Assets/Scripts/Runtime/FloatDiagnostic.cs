@@ -84,6 +84,7 @@ namespace FarHorizon
         public void ShowOverlay()
         {
             _active = true;
+            DebugOverlays.Show(); // also lift the F1 master gate so the verify-capture frame renders (86cafd6d6)
             Resolve();
             // EXTENSIVE-DEBUG round (86ca8rdkp): drive the castaway's per-frame [FloatTrace] while the overlay
             // is up, so the orchestrator reads the full per-frame discrepancy dump (bounds.min vs baked-actual
@@ -163,6 +164,7 @@ namespace FarHorizon
 
         void OnGUI()
         {
+            if (!DebugOverlays.Visible) return; // F1 master gate (86cafd6d6) — F8 is the sub-toggle below it
             if (!_active) return; // INERT in normal play — no overlay unless toggled on with F8
 
             if (_titleStyle == null)

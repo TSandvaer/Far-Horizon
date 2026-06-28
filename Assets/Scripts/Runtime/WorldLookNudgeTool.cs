@@ -354,6 +354,7 @@ namespace FarHorizon
 
         void OnGUI()
         {
+            if (!DebugOverlays.Visible) return; // F1 master gate (86cafd6d6) — F10 is the sub-toggle below it
             if (!_active) return;
             if (_style == null)
             {

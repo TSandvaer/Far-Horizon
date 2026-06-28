@@ -550,6 +550,11 @@ namespace FarHorizon
 
         private void OnGUI()
         {
+            // F1 master gate (86cafd6d6): the dev/debug overlay layer is HIDDEN by default — a normal launch /
+            // soak / CI capture shows a clean screen (this also un-buries the #158 loot prompt this bottom-center
+            // panel was burying). F1 (DebugOverlayToggle) reveals it.
+            if (!DebugOverlays.Visible) return;
+
             if (_labelStyle == null)
             {
                 _labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold };
