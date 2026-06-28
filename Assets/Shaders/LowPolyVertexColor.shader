@@ -25,6 +25,18 @@ Shader "FarHorizon/LowPolyVertexColor"
         _WaveAmp ("Wave Amplitude", Float) = 0
         _WaveLen ("Wave Wavelength", Float) = 14
         _WaveSpeed ("Wave Speed", Float) = 0.9
+        // CANOPY WIND-SWAY (tickets 86cabc73q trees — Erik lowpoly-trees-grass-sky-research §Trees). A LATERAL
+        // (XZ) sway of the canopy keyed off WORLD XZ + _Time.y, MASKED by vertex-color ALPHA so only the canopy
+        // moves while the trunk stays planted: alpha = 0 (trunk verts) → zero sway; alpha = 1 (canopy verts) →
+        // full sway. The wind is driven ENTIRELY by time + world-position uniforms (all instances read the same
+        // _SwayAmp/_SwayLen/_SwaySpeed) — NO MaterialPropertyBlock anywhere, so GPU Resident Drawer eligibility
+        // is preserved (unity6-mastery.md §2 disqualifier list; Erik §Trees "any per-instance MPB breaks the
+        // instanced path"). DEFAULTS TO 0 so every material that shares this shader (terrain/canopy/water/rock/
+        // grass) is UNAFFECTED until it opts in; ONLY the tree-canopy material raises _SwayAmp. Structurally
+        // identical to the water swell above (a crossed-sine pair), just on XZ not Y, and alpha-masked.
+        _SwayAmp ("Canopy Sway Amplitude (0 = off)", Float) = 0
+        _SwayLen ("Canopy Sway Wavelength", Float) = 4
+        _SwaySpeed ("Canopy Sway Speed", Float) = 1
         // FOG-CAP (ticket 86ca9yn57 — "water reads SAME as sky"). The global Exp^2 distance fog colour ==
         // WorldLookPalette.SkyHorizon (the mountain SEAM-KILL anchor). That same fog washes the FAR SEA all
         // the way to the sky colour -> the sea↔sky horizon disappears (diagnosed via -seaDiag/-verifyCoast:
@@ -123,6 +135,9 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float _WaveAmp;
                 float _WaveLen;
                 float _WaveSpeed;
+                float _SwayAmp;       // tickets 86cabc73q — canopy lateral sway amplitude (default 0 = no-op)
+                float _SwayLen;       // canopy sway wavelength
+                float _SwaySpeed;     // canopy sway speed
                 float _FogCap;
                 float _FlatShading;   // ticket 86caamnjb — in-cbuffer for SRP-Batcher (read via the keyword)
                 float4 _RimColor;     // ticket 86caamnnj — Fresnel/rim term (additive; default-0 intensity = no-op)
@@ -167,6 +182,27 @@ Shader "FarHorizon/LowPolyVertexColor"
                     float wave = sin(posWS0.x * k * 0.7 + t)
                                + sin(posWS0.z * k + t * 1.3) * 0.8;
                     posOS.y += wave * _WaveAmp * 0.5;
+                }
+
+                // CANOPY WIND-SWAY (tickets 86cabc73q — Erik §Trees). A LATERAL (XZ) displacement of the
+                // canopy keyed off WORLD XZ so the whole forest leans together with the wind (continuous
+                // across instances, independent of each tree's local origin — same world-keying as the swell),
+                // MASKED by vertex-color ALPHA: trunk verts (alpha 0) stay planted, canopy verts (alpha 1)
+                // sway full. A crossed-sine pair (different freqs/dirs) reads as an organic gust, not a
+                // mechanical wobble (Erik §Trees; the water-swell idiom in XZ). NO-OP when _SwayAmp = 0 (every
+                // non-canopy material) so terrain/water/rock/grass/trunk are byte-identical. All wind from the
+                // time + world-position uniforms — no MaterialPropertyBlock (GPU Resident Drawer stays eligible).
+                if (_SwayAmp > 0.0)
+                {
+                    float3 swWS = TransformObjectToWorld(posOS);
+                    float sk = 6.2831853 / max(_SwayLen, 0.001);
+                    float st = _Time.y * _SwaySpeed;
+                    float mask = IN.color.a;                       // 0 = trunk (planted), 1 = canopy (full sway)
+                    float swayX = sin(swWS.x * sk * 0.6 + st)
+                                + sin(swWS.z * sk * 0.8 + st * 1.2) * 0.7;
+                    float swayZ = cos(swWS.x * sk + st * 0.9);
+                    posOS.x += swayX * _SwayAmp * mask * 0.5;
+                    posOS.z += swayZ * _SwayAmp * mask * 0.3;
                 }
 
                 VertexPositionInputs pos = GetVertexPositionInputs(posOS);

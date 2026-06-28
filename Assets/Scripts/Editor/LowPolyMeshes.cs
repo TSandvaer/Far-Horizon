@@ -20,6 +20,15 @@ namespace FarHorizon.EditorTools
     {
         // A tapered cylinder (trunk) — `sides` segments, welded ring verts so the side wall shades
         // smoothly around the trunk. Capped top/bottom. Base sits at local y=0.
+        //
+        // SWAY-MASK BAKE (tickets 86cabc73q trees — Erik §Trees): every vert carries vertex-color ALPHA = 0,
+        // the "do NOT sway" mask the FarHorizon/LowPolyVertexColor canopy-sway term reads (alpha 0 = planted,
+        // alpha 1 = canopy). The trunk is a STATIC stem (and the same mesh is reused for sticks/branches/legs,
+        // all static), so alpha 0 is the correct mask for them all. RGB is 1 (white) so a vertex-color material
+        // renders the trunk's _Tint unmodified, and _AOStrength is 0 on every trunk/stick material (URP/Lit or
+        // flat) so the alpha-0 NEVER darkens anything — it is ONLY consumed as the sway mask when a material
+        // raises _SwayAmp (no trunk material does). This makes the alpha mask the single source of truth for
+        // "sways vs planted" regardless of which material renders the mesh.
         public static Mesh TaperedCylinder(float botR, float topR, float height, int sides)
         {
             sides = Mathf.Max(3, sides);
@@ -54,7 +63,11 @@ namespace FarHorizon.EditorTools
                 tris.Add(topStart + i); tris.Add(topC); tris.Add(topStart + ni);
             }
 
-            return Finish(verts, tris, "LP_Trunk");
+            // SWAY-MASK alpha = 0 on every trunk vert (planted; see the doc comment above). RGB white so a
+            // vertex-color material renders _Tint unmodified.
+            var cols = new List<Color>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) cols.Add(new Color(1f, 1f, 1f, 0f));
+            return Finish(verts, tris, cols, "LP_Trunk");
         }
 
         // A faceted sphere from a subdivided octahedron, with per-vertex radial JITTER so it reads
@@ -517,6 +530,11 @@ namespace FarHorizon.EditorTools
                 float heightK = Mathf.Clamp01((center.y + blobR) / (radius * 1.4f));
                 Color lo = Color.Lerp(shadowGreen, bodyGreen, Mathf.Clamp01(heightK * 1.6f));
                 Color blobCol = Color.Lerp(lo, topGreen, Mathf.Clamp01((heightK - 0.45f) * 1.8f));
+                // ALPHA = 1 (the last arg) is the SWAY MASK (tickets 86cabc73q — Erik §Trees): the canopy is
+                // the part that sways, so every canopy vert carries alpha 1 (vs the trunk's alpha 0). The
+                // FarHorizon/LowPolyVertexColor canopy-sway term multiplies the lateral displacement by this
+                // alpha, so the canopy moves full while the trunk stays planted. (alpha 1 is also the AO no-op,
+                // and _AOStrength is 0 on the canopy material, so it only ever acts as the sway mask here.)
                 float vj = (float)(rnd.NextDouble() - 0.5) * 0.06f;
                 blobCol = new Color(Mathf.Clamp01(blobCol.r + vj),
                                     Mathf.Clamp01(blobCol.g + vj),
@@ -1297,6 +1315,20 @@ namespace FarHorizon.EditorTools
             mesh.SetVertices(verts);
             mesh.SetTriangles(tris, 0);
             mesh.RecalculateNormals(); // welded verts -> averaged normals -> smooth shading
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // Like Finish, but also carries a per-vertex COLOR stream (used by TaperedCylinder to bake the
+        // sway-mask alpha — tickets 86cabc73q). Normals are still averaged (welded smooth shading); only the
+        // colour stream is added, so the trunk vertex count + normals are byte-identical to the no-colour path.
+        static Mesh Finish(List<Vector3> verts, List<int> tris, List<Color> cols, string name)
+        {
+            var mesh = new Mesh { name = name };
+            mesh.SetVertices(verts);
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
             mesh.RecalculateBounds();
             return mesh;
         }

@@ -1274,7 +1274,44 @@ namespace FarHorizon.EditorTools
             Color blade = Color.Lerp(GrassLo, GrassHi, 0.55f + (float)rnd.NextDouble() * 0.45f);
             MakeMeshObject(clump, "Blades",
                 LowPolyMeshes.GrassClump(0.55f, 7, rnd.Next()),
-                MakeFlatColorMat(blade, "LPGrassMat"));
+                GrassWaveMat(blade));
+        }
+
+        // GRASS WIND-WAVE material (tickets 86cabc737 grass — Erik §Grass). The grass clump previously rode a
+        // flat URP/Lit material (which IGNORES the shader wave). To make the tufts rustle in the wind we render
+        // them through FarHorizon/LowPolyVertexColor (already AlwaysIncluded by WorldBootstrap) with a SMALL
+        // _WaveAmp so the existing world-XZ + time vertical-swell term gently rocks the whole clump (Erik §Grass
+        // "the whole clump rocks gently, which reads as wind in a tuft"). The blade has NO baked vertex colour,
+        // so IN.color defaults to white and albedo = _Tint = the blade green (the prior look is preserved; only
+        // the wave is added). _WaveAmp ~0.04 / _WaveLen ~4 are the Erik starting values — the EXACT amount is a
+        // Sponsor SOAK call. Quantized + cached per tint so jittered greens collapse to a few shared mats (no
+        // .mat-asset churn — same idiom as MakeFlatColorMat). All wind from time + world-position uniforms (no
+        // MaterialPropertyBlock — GPU Resident Drawer stays eligible). The exact-amount is a Sponsor soak call.
+        static readonly Dictionary<string, Material> _grassCache = new Dictionary<string, Material>();
+        static Material GrassWaveMat(Color blade)
+        {
+            Color q = Quantize(blade);
+            string key = "LPGrassMat_" + ColorKey(q);
+            if (_grassCache.TryGetValue(key, out var cached) && cached != null) return cached;
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material mat;
+            if (vc != null)
+            {
+                mat = new Material(vc) { name = key };
+                if (mat.HasProperty("_Tint"))     mat.SetColor("_Tint", q);       // grass has no vertex col -> _Tint is the green
+                if (mat.HasProperty("_WaveAmp"))  mat.SetFloat("_WaveAmp", 0.04f); // gentle clump rock (Erik §Grass)
+                if (mat.HasProperty("_WaveLen"))  mat.SetFloat("_WaveLen", 4f);    // short-period rustle
+                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.9f);
+            }
+            else
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = key };
+                mat.SetColor("_BaseColor", q);
+                mat.SetFloat("_Smoothness", 0.06f);
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; grass falls back to flat green (no wave)");
+            }
+            _grassCache[key] = mat;
+            return mat;
         }
 
         // ---- GRASS-IN-STONE FIX (ticket 86cadj4g7, Sponsor #130 soak) ----
@@ -1706,6 +1743,15 @@ namespace FarHorizon.EditorTools
             {
                 _canopyMat = new Material(vc) { name = "LPBlobCanopyMat" };
                 if (_canopyMat.HasProperty("_Tint")) _canopyMat.SetColor("_Tint", Color.white);
+                // CANOPY WIND-SWAY (tickets 86cabc73q — Erik §Trees). Dial the sway term ON for the canopy
+                // material only: the shader masks the lateral XZ displacement by vertex-color alpha (canopy
+                // verts alpha 1 = sway, trunk verts alpha 0 = planted), all keyed off world XZ + time (no
+                // MaterialPropertyBlock — GPU Resident Drawer stays eligible). Starting values per Erik
+                // (§Trees recommended range _SwayAmp 0.08-0.15); the EXACT amount is a Sponsor SOAK call (the
+                // dev-tweak console can dial these live). The trunk material (URP/Lit flat) never reads these.
+                if (_canopyMat.HasProperty("_SwayAmp"))   _canopyMat.SetFloat("_SwayAmp", 0.10f);
+                if (_canopyMat.HasProperty("_SwayLen"))   _canopyMat.SetFloat("_SwayLen", 4f);
+                if (_canopyMat.HasProperty("_SwaySpeed")) _canopyMat.SetFloat("_SwaySpeed", 1f);
             }
             else
             {
@@ -1759,7 +1805,7 @@ namespace FarHorizon.EditorTools
 
         // Clear the per-bootstrap material cache so a re-run does not return materials owned by a
         // destroyed scene (the editor keeps the static cache across executeMethod invocations).
-        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; _rockCache.Clear(); }
+        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; _rockCache.Clear(); _grassCache.Clear(); }
 
         // Snap each channel to a coarse 12-step grid so jittered colors collapse into a small set.
         static Color Quantize(Color c)
