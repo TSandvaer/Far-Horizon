@@ -194,6 +194,51 @@ namespace FarHorizon.PlayTests
             Assert.Greater(band.b, band.r, "the refilled thirst band reads BLUE (blue > red — the cool note)");
         }
 
+        // === 86cafc6ty: a JUST-SATISFIED full need shows 10/10 AND HOLDS it through the first decay frame ==
+        // The exact bug-class guard: under the OLD pure-FLOOR rule a full need (Current01==1.0) dropped to
+        // ~0.996 on the very first Update decay tick -> FloorToInt(9.96)=9 -> the 10th segment was NEVER
+        // visible ("hunger never reaches 10/10, always caps at 9/10"). This guard seeds each need to max,
+        // advances ONE real decay tick via the SAME TickSeconds path Update drives (a frame's worth at the
+        // FAST test decay), and asserts the HUD STILL lights all 10 — so a regression back to pure FLOOR
+        // (or a threshold set too high) goes red here, not just in the Sponsor's soak. Runs for all THREE
+        // needs (one shared FilledSegments path), with the post-tick Current01 still inside [0.95, 1.0).
+        [UnityTest]
+        public IEnumerator Hud_FullNeed_StillReadsTenOfTen_AfterOneDecayFrame_AllThreeNeeds()
+        {
+            yield return null; // Start() seeds all three _current = max (startFull=true) + the tick clocks
+
+            // At full, all three light 10/10 (the top-segment near-full policy lights the 10th at >= 0.95).
+            foreach (var (need, name) in new (SurvivalNeed, string)[]
+                     { (_hunger, "hunger"), (_thirst, "thirst") })
+            {
+                Assert.AreEqual(SurvivalHud.SegmentCount, SurvivalHud.FilledSegments(need.Current01),
+                    $"a freshly-FULL {name} need must light all {SurvivalHud.SegmentCount} segments " +
+                    $"(Current01={need.Current01:0.000})");
+
+                // Advance ONE decay frame's worth via the exact path Update drives. At the test's fast 30/sec
+                // decay a ~1/60s frame drops Current01 by 30/100/60 ~= 0.005 -> ~0.995, still >= 0.95.
+                need.TickSeconds(1f / 60f);
+                Assert.GreaterOrEqual(need.Current01, SurvivalHud.TopSegmentThreshold,
+                    $"one decay frame must leave {name} >= the top threshold (Current01={need.Current01:0.000})");
+                Assert.AreEqual(SurvivalHud.SegmentCount, SurvivalHud.FilledSegments(need.Current01),
+                    $"{name} must HOLD 10/10 through the first decay frame — the 9/10-cap bug regression guard " +
+                    $"(Current01={need.Current01:0.000})");
+            }
+
+            // WarmthNeed is the Sponsor-locked standalone type (no SurvivalNeed base) — drive its own
+            // deterministic TickSeconds (same decay path Update calls) and assert the same hold. It seeds
+            // full (startFull=true) and exposes the same Current01 surface the shared FilledSegments reads.
+            Assert.AreEqual(SurvivalHud.SegmentCount, SurvivalHud.FilledSegments(_warmth.Current01),
+                $"a freshly-FULL warmth need must light all {SurvivalHud.SegmentCount} segments " +
+                $"(Current01={_warmth.Current01:0.000})");
+            _warmth.TickSeconds(1f / 60f); // one decay frame's worth at the fast test rate (~0.005 drop)
+            Assert.GreaterOrEqual(_warmth.Current01, SurvivalHud.TopSegmentThreshold,
+                $"one decay frame must leave warmth >= the top threshold (Current01={_warmth.Current01:0.000})");
+            Assert.AreEqual(SurvivalHud.SegmentCount, SurvivalHud.FilledSegments(_warmth.Current01),
+                "warmth must HOLD 10/10 through the first decay frame too (shared FilledSegments path; " +
+                $"Current01={_warmth.Current01:0.000})");
+        }
+
         // === 86caamkxv: all THREE bars coexist in ONE scene, each reads its own LIVE need (AC1 coexistence) ==
         // Catches the "thirst bar drawn but never bound" silent-null trap (QA-plan trap #3): all three refs
         // wired + each FilledSegments(hud.<need>.Current01) reads a sane lit count — proving the WIRING is
