@@ -268,10 +268,26 @@ namespace FarHorizon
         /// DARK plate (PlateAlpha 0.55 black over the scene) + CREAM bold text. We sample that band (in
         /// ReadPixels bottom-left coords, so the band is near the BOTTOM of the buffer) and a CONTROL band the
         /// same size just ABOVE it (clear of the plate). A painted prompt makes the band read measurably DIFFERENT
-        /// from the control (the dark plate drags luma down + the cream text adds bright neutral pixels → higher
-        /// variance + a dark-pixel fraction the control lacks). Returns true when the band reads as a rendered
-        /// prompt (distinct from the control AND carrying the dark-plate signature). Pure geometry of the OnGUI
-        /// rect — no scene knowledge — so it tracks the prompt's actual draw position.
+        /// from the control: the 0.55-alpha black plate drags the band's luma down vs the bare scene just above
+        /// it, and the cream text adds bright neutral pixels → higher variance. Returns true when the band reads
+        /// as a rendered prompt. Pure geometry of the OnGUI rect — no scene knowledge — so it tracks the prompt's
+        /// actual draw position.
+        ///
+        /// === PRIMARY SIGNAL = the band-vs-control LUMA DELTA — and it must NOT depend on the debug overlay ===
+        /// DECOUPLED FROM THE DEBUG OVERLAY (PR #162, run 28322167368). The OLD pass condition required
+        /// darkPlateFrac > 0.20 (fraction of band pixels that are dark AND near-neutral, luma &lt; 0.35). That
+        /// proxy only passed in #158 because TWO dark plates stacked in the band: the loot prompt's plate AND the
+        /// always-on DEBUG overlay's plate. #162 hides the debug overlay by default (its whole purpose) → the band
+        /// now carries ONLY the prompt's own 0.55-alpha plate over bright varied terrain (control luma ~0.70), so
+        /// many plate pixels land in 0.35–0.50 (darkened but not below the 0.35 dark cutoff) → darkPlateFrac fell
+        /// to ~0.08 and the gate false-failed even though the prompt rendered perfectly (|delta| = 0.331, a strong
+        /// paint signal — an EMPTY band reads |delta| ~ 0). The robust, overlay-independent signal is the LUMA
+        /// DELTA between the prompt band and the bare-scene control band: the plate ALWAYS darkens its band
+        /// relative to the scene directly above it, regardless of what other overlays are or aren't visible. So
+        /// the delta is now the PRIMARY proof; darkPlateFrac is a re-calibrated SECONDARY OR-path (the prompt's
+        /// own plate alone clears ~0.05 over bright scene) for the rare frame where the scene above happens to be
+        /// nearly as dark as the plate (small delta). An empty/blank band fails BOTH terms → still a REAL render
+        /// proof, not a rubber-stamp.
         /// </summary>
         private bool CheckPromptBandRendered(out float bandLuma, out float controlLuma, out float bandVariance,
                                              out float deltaLuma, out float darkPlateFrac)
@@ -323,12 +339,17 @@ namespace FarHorizon
             deltaLuma = Mathf.Abs(bandLuma - controlLuma);
             darkPlateFrac = bandN > 0 ? (float)dark / bandN : 0f;
 
-            // RENDERED iff the band carries the dark-plate signature (a clear fraction of dark near-neutral pixels
-            // the control lacks) AND it reads distinct from the control band (the plate+text changed the band).
-            // Either a strong dark-plate fraction OR a clear luma delta with band texture proves the IMGUI painted;
-            // require the dark-plate fraction as the load-bearing signal (the plate is the unmistakable tell — the
-            // scene behind it is varied terrain/sky that the 0.55 black plate visibly darkens).
-            return darkPlateFrac > 0.20f && deltaLuma > 0.02f;
+            // RENDERED iff the prompt's plate measurably DARKENED its band relative to the bare-scene control just
+            // above it. The PRIMARY, overlay-independent signal is the band-vs-control LUMA DELTA: the 0.55-alpha
+            // black plate ALWAYS pulls its band's luma down vs the scene directly above, no matter what other
+            // overlays are visible (decoupled from the debug overlay — see the doc comment + PR #162). A blank/
+            // unpainted band reads delta ~ 0, so this stays a REAL render proof. The dark-plate FRACTION is kept
+            // as a re-calibrated SECONDARY OR-path (the prompt's own plate alone clears ~0.05 dark-near-neutral
+            // pixels over bright varied terrain — a tenth of the OLD 0.20 that assumed the stacked debug-overlay
+            // plate) for the rare frame where the scene above is itself dark enough to shrink the delta. Either a
+            // clear luma delta (T=0.10; run 28322167368 measured 0.331) OR a re-calibrated dark-plate fraction
+            // (T2=0.05) proves the IMGUI painted; neither fires on an empty band.
+            return deltaLuma > 0.10f || darkPlateFrac > 0.05f;
         }
 
         private void ShotTo(string file)
