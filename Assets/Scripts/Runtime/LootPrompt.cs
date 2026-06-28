@@ -120,15 +120,20 @@ namespace FarHorizon
         /// so the EditMode test asserts the show/hide + the GENERIC naming with no scene/OnGUI rig:
         ///   • null target            -> "" (prompt hidden — nothing in range);
         ///   • target with no name    -> "" (defensive: never a half-built "Press E to pick up ");
-        ///   • target "berries"       -> "Press E to pick up berries" (the generic name flows straight through).
-        /// The key is rendered as the LITERAL letter (E) — layout-agnostic on the Danish keyboard.
+        ///   • target "berries"       -> "Press E to pick up berries" (the default verb flows straight through);
+        ///   • the pond ("water")     -> "Press E to collect water" (its GatherVerb override — 86cafc6vx).
+        /// The verb comes from the pickable's own <see cref="IPickable.GatherVerb"/> (default "pick up"; the pond
+        /// overrides to "collect") so the COPY fits the action with ZERO per-item branch here — the prompt stays
+        /// item-agnostic. The key is rendered as the LITERAL letter (E) — layout-agnostic on the Danish keyboard.
         /// </summary>
         public static string BuildLabel(IPickable target, KeyCode lootKey)
         {
             if (target == null) return "";
             string name = target.DisplayName;
             if (string.IsNullOrEmpty(name)) return "";
-            return "Press " + lootKey + " to pick up " + name;
+            string verb = target.GatherVerb;
+            if (string.IsNullOrEmpty(verb)) verb = "pick up"; // defensive: a null/blank verb falls back to the default
+            return "Press " + lootKey + " to " + verb + " " + name;
         }
     }
 }
