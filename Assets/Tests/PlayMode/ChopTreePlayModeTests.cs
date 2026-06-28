@@ -6,6 +6,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.AI;
 using FarHorizon;
+using FarHorizon.Settings;
 
 namespace FarHorizon.PlayTests
 {
@@ -99,6 +100,8 @@ namespace FarHorizon.PlayTests
             Object.Destroy(_treeGo);
             Object.Destroy(_charGo);
             LogAssert.ignoreFailingMessages = false;
+            // 86caf9u5t — the wood-yield setting's SetValue persists to PlayerPrefs; clear it so runs don't leak.
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.WoodYieldId);
         }
 
         // Place the axe in the belt AND make it the selected belt item (CraftAxe puts it in slot 0, which is
@@ -214,6 +217,79 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "fells after exactly chopsToFell click-chops");
             Assert.AreEqual(_tree.chopsToFell * _tree.woodPerChop, _inv.WoodCount,
                 "total wood == chopsToFell * woodPerChop (wood ticks up per click into the WoodId stack)");
+        }
+
+        // ============================================================================================
+        // 86caf9u5t (the 86caa96rd AC4a cross-lane integration test, owned HERE) — the `tree-chop wood yield`
+        // SETTING DRIVES a real tree chop's wood output LIVE (no restart), and there is NO DEAD KNOB: changing
+        // the setting through the registry entry (exactly as the panel slider does) makes the NEXT chop yield
+        // the NEW amount, while at the default the yield is unchanged. The setting binds the SAME ChopTree
+        // instance the chop reads (SettingsCatalog.Build(... _tree)), so this proves the end-to-end live drive
+        // a green "registers but doesn't drive" stub would PASS the EditMode binding test but FAIL here.
+        // ============================================================================================
+
+        // === AC3 — at the DEFAULT setting, one chop yields the chop's default amount (the baseline the live
+        //     change is measured against — a regression guard that the default isn't silently altered). ===
+        [UnityTest]
+        public IEnumerator WoodYieldSetting_AtDefault_ChopYieldsDefaultAmount()
+        {
+            // Seed the chop to its named-constant default, then build the registry against THIS live tree.
+            _tree.woodPerChop = ChopTree.DefaultChopYield;
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree);
+            var yieldEntry = (IntSettingEntry)reg.Get(SettingsCatalog.WoodYieldId);
+            Assert.AreEqual(ChopTree.DefaultChopYield, yieldEntry.Value, "registry reads the chop's default yield");
+
+            SelectAxe();
+            StandAtTree();
+            int before = _inv.WoodCount;
+
+            yield return ClickChop();
+
+            Assert.AreEqual(1, _tree.Chops, "one chop landed at the default setting");
+            Assert.AreEqual(before + ChopTree.DefaultChopYield, _inv.WoodCount,
+                "at the DEFAULT wood-yield setting, one chop yields the chop's default amount (no silent change)");
+        }
+
+        // === AC3 (the headline) — CHANGE the `tree-chop wood yield` setting → a tree chop yields the NEW amount,
+        //     LIVE (no restart). The genuine no-dead-knob guard: the change must reach the chop's OUTPUT. ===
+        [UnityTest]
+        public IEnumerator ChangingWoodYieldSetting_TreeChopYieldsNewAmount_Live_NoDeadKnob()
+        {
+            // Build the registry against the LIVE tree (the same binding the shipped panel uses).
+            var reg = SettingsCatalog.Build(null, null, null, _character, _tree);
+            var yieldEntry = (IntSettingEntry)reg.Get(SettingsCatalog.WoodYieldId);
+            Assert.IsTrue(yieldEntry.Available, "precondition: the wood-yield row is live");
+
+            const int NewYield = 5;
+            Assert.AreNotEqual(NewYield, ChopTree.DefaultChopYield,
+                "precondition: the new amount differs from the default (so a 'dead knob' that ignores the setting " +
+                "and yields the default would FAIL this test)");
+
+            SelectAxe();
+            StandAtTree();
+
+            // CHANGE the setting through the entry (exactly what the panel's stepper does) — NO restart, NO
+            // re-build of the chop. The chop reads ChopTree.woodPerChop every chop, so the next chop must use 5.
+            int applied = yieldEntry.SetValue(NewYield);
+            Assert.AreEqual(NewYield, applied, "the setting accepted the new value (within band)");
+            Assert.AreEqual(NewYield, _tree.woodPerChop, "the setting wrote ChopTree.woodPerChop live");
+
+            int before = _inv.WoodCount;
+            yield return ClickChop();
+
+            Assert.AreEqual(1, _tree.Chops, "one chop landed after the setting change");
+            Assert.AreEqual(before + NewYield, _inv.WoodCount,
+                "changing the wood-yield setting makes a tree chop yield the NEW amount LIVE (no restart) — the " +
+                "chop's OUTPUT tracks the setting (no dead knob: a stub that ignored the setting would yield the " +
+                "default " + ChopTree.DefaultChopYield + " here, not " + NewYield + ")");
+
+            // A SECOND change takes effect on the very next chop too (live, repeatedly — not a one-time read).
+            const int NewYield2 = 9;
+            yieldEntry.SetValue(NewYield2);
+            int before2 = _inv.WoodCount;
+            yield return ClickChop();
+            Assert.AreEqual(before2 + NewYield2, _inv.WoodCount,
+                "a further setting change applies on the next chop too (the chop re-reads woodPerChop every chop)");
         }
 
         // === AC1 (swing) — a landed chop FIRES the Mixamo melee swing (change-(b): CastawayCharacter.TriggerChop

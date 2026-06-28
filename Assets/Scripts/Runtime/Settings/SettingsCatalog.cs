@@ -42,6 +42,11 @@ namespace FarHorizon.Settings
         // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
         // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
         public const string TreeRegrowthId = "tree_regrowth_time";
+        // Tree-chop wood yield (ticket 86caf9u5t — the 86caa96rd AC4 follow-up). An int STEPPER row driving
+        // ChopTree.woodPerChop (the wood units a TREE CHOP yields). Registered by the SEPARATE
+        // PopulateWoodYield method (the PopulateThirst de-collision precedent), NOT appended to Populate.
+        // The stick's 1-wood low-yield contrast (StickProp.WoodPerStickDefault) is NOT routed through this.
+        public const string WoodYieldId = "tree_chop_wood_yield";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -65,6 +70,11 @@ namespace FarHorizon.Settings
         // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR set a
         // realistic ecology. Range row → drives ChopTree.regrowthMin/Max (organic regrowth within [min,max]).
         public const float TreeRegrowthLower = 0f, TreeRegrowthUpper = 1800f;
+        // Tree-chop wood-yield stepper band (ticket 86caf9u5t). The wood units a single tree chop yields.
+        // Min 1 (a chop must always yield SOME wood — ChopTree.ApplyChopEffect floors at Mathf.Max(1, ...)
+        // too, so a 0 here can't make a dead chop); Max 20 = a generous "fell-and-stockpile" tier for the
+        // Sponsor to soak-tune. Default = ChopTree.DefaultChopYield (the chop's current named-constant value).
+        public const int WoodYieldMin = 1, WoodYieldMax = 20;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -98,6 +108,7 @@ namespace FarHorizon.Settings
             Populate(reg, orbit, wasd);
             PopulateThirst(reg, thirst);
             PopulateChop(reg, chopCharacter, chopTree);
+            PopulateWoodYield(reg, chopTree);
             return reg;
         }
 
@@ -222,6 +233,40 @@ namespace FarHorizon.Settings
                     () => chopTree.regrowthMaxSeconds, v => chopTree.regrowthMaxSeconds = v,
                     TreeRegrowthLower, TreeRegrowthUpper, unit: "s");
             }
+        }
+
+        /// <summary>
+        /// Register the TREE-CHOP WOOD YIELD setting (ticket 86caf9u5t — the 86caa96rd AC4 follow-up, owning the
+        /// Sponsor prompt "add a new property to the settings panel where i can adjust how much wood is harvested
+        /// when chopping a tree"). A LIVE int STEPPER row bound to <paramref name="chopTree"/>.woodPerChop — the
+        /// SINGLE field <see cref="FarHorizon.ChopTree.ApplyChopEffect"/> reads per landed chop (no restart; the
+        /// chop reads woodPerChop every chop). Default = the chop's current named constant
+        /// (<see cref="FarHorizon.ChopTree.DefaultChopYield"/>, which seeds woodPerChop) — the IntSettingEntry
+        /// captures whatever woodPerChop is at registration as its reset-to-default.
+        ///
+        /// SEPARATE METHOD (not appended to <see cref="Populate"/>) per the <see cref="PopulateThirst"/> /
+        /// PopulateChop de-collision precedent (ticket AC1) — keeps it off the lines chop/stones register into.
+        /// A null tree registers NOTHING (a chop-less rig / bare test never null-refs, and no "dead knob" row
+        /// appears with nothing behind it). NOT a duplicate of PopulateChop's `tree regrowth time` — this is a
+        /// distinct stepper id (<see cref="WoodYieldId"/>); the two chop-tree settings are independent rows.
+        ///
+        /// NO DEAD KNOB (ticket AC3 — the silent killer): the setter writes the SAME chopTree.woodPerChop the chop
+        /// reads, and the binding is to the SAME ChopTree instance the panel serializes (MovementCameraScene
+        /// .BuildChopTree wires settingsPanel.chopTree = the one chop component) — so a setting change DEMONSTRABLY
+        /// drives the chop yield (SettingsCatalogChopTests' live change-setting→chop-output test is the guard).
+        /// The stick's 1-wood low-yield contrast (StickProp.WoodPerStickDefault) is a separate constant, NOT
+        /// routed through this setting in v1.
+        /// </summary>
+        public static void PopulateWoodYield(SettingsRegistry reg, FarHorizon.ChopTree chopTree)
+        {
+            if (reg == null || chopTree == null) return;
+
+            // TREE-CHOP WOOD YIELD (live) — an int stepper driving ChopTree.woodPerChop, the per-chop wood units.
+            // Clamp band [WoodYieldMin, WoodYieldMax]; the chop also floors at Mathf.Max(1, woodPerChop), so the
+            // knob can never make a dead chop. Bumping it = the next chop yields the new amount (live, no restart).
+            reg.AddInt(WoodYieldId, "Tree-chop wood yield",
+                () => chopTree.woodPerChop, v => chopTree.woodPerChop = v,
+                WoodYieldMin, WoodYieldMax, step: 1, unit: "");
         }
     }
 }

@@ -164,7 +164,9 @@ namespace FarHorizon
         public float chopRadius = 2.2f;
 
         [Tooltip("Wood units yielded per chop (seeds from DefaultChopYield). The `tree-chop wood yield` " +
-                 "setting (86caa96rd) drives this live; this is the single named source it reaches.")]
+                 "setting (86caf9u5t — SettingsCatalog.PopulateWoodYield) drives this LIVE (no restart); " +
+                 "ApplyChopEffect reads THIS field every chop, so it is the single named source the setting " +
+                 "reaches (no dead knob).")]
         public int woodPerChop = DefaultChopYield;
 
         [Tooltip("Chops needed to fell a tree. After this many, the tree falls to a STUMP, then regrows " +
