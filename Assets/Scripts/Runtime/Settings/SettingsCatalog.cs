@@ -49,6 +49,10 @@ namespace FarHorizon.Settings
         public const string TreeWoodYieldId = "tree_chop_wood_yield";
         public const string ChopsToFellId   = "chops_to_fell";
         public const string LogPileDespawnId = "log_pile_despawn";
+        // Fallen-tree fade-out (ticket 86caff4ad — the #165-soak NIT). A FLOAT row driving
+        // ChopTree.fadeOutDelaySeconds (seconds a felled tree rests before it fades out + disappears; default 2s,
+        // range 0–30s). Registered by PopulateChop, bound to the chop tree (like chops-to-fell).
+        public const string TreeFadeOutId = "tree_fade_out";
         // Stone tweakable (ticket 86caa4c96 AC3). The `stone respawn time` row drives the StoneRespawner's
         // RespawnMin/Max (a RANGE — a RANDOM respawn within [min,max]; every StoneProp reads this shared
         // window). Registered by PopulateStones (the PopulateThirst/PopulateChop de-collision precedent).
@@ -273,6 +277,17 @@ namespace FarHorizon.Settings
                     v => chopTree.chopsToFell = Mathf.Clamp(v,
                         FarHorizon.ChopTree.ChopsToFellMin, FarHorizon.ChopTree.ChopsToFellMax),
                     FarHorizon.ChopTree.ChopsToFellMin, FarHorizon.ChopTree.ChopsToFellMax, unit: "");
+
+                // FALLEN-TREE FADE-OUT (86caff4ad — the #165-soak NIT) — a FLOAT SLIDER driving
+                // ChopTree.fadeOutDelaySeconds (seconds a felled tree rests before it fades out + disappears;
+                // default 2s, range 0–30s). LIVE: the next tree that fells fades after the dialed delay (no
+                // restart). Bound to the tree (shared across every tree, like the regrow window + chops-to-fell).
+                // The setter clamps to the [Min,Max] band so a dial can't push a negative / runaway delay.
+                reg.AddFloat(TreeFadeOutId, "Fallen-tree fade-out",
+                    () => chopTree.fadeOutDelaySeconds,
+                    v => chopTree.fadeOutDelaySeconds = Mathf.Clamp(v,
+                        FarHorizon.ChopTree.FadeOutDelayMin, FarHorizon.ChopTree.FadeOutDelayMax),
+                    FarHorizon.ChopTree.FadeOutDelayMin, FarHorizon.ChopTree.FadeOutDelayMax, unit: "s");
             }
 
             // TREE-CHOP WOOD YIELD + LOG-PILE DESPAWN (REWORK 86caf9u5t AC3/AC5) — bound to the shared

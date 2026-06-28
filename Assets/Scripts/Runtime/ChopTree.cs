@@ -99,8 +99,9 @@ namespace FarHorizon
     /// the `tree regrowth time` SETTING that drives them is registered by SettingsCatalog.PopulateChop.
     ///
     /// === AC4 — visual feedback (cute/warm low-poly) — FADE-OUT (Sponsor soak refinement 2, 2026-06-27) ===
-    /// On the felling chop the tree SINKS + tips, then ~<see cref="fadeOutDelaySeconds"/> (~10s, NAMED tweakable
-    /// field) later FADES OUT — it scales down to nothing + its renderers disable, so the tree DISAPPEARS and the
+    /// On the felling chop the tree SINKS + tips, then ~<see cref="fadeOutDelaySeconds"/> (default 2s — the
+    /// #165-soak NIT 86caff4ad; LIVE-dialable via the `fallen-tree fade-out` setting) later FADES OUT — it
+    /// scales down to nothing + its renderers disable, so the tree DISAPPEARS and the
     /// ground is empty (this REPLACES the old persistent-stump behaviour). The scale-down fade keeps the shared
     /// OPAQUE LowPolyVertexColor material on the ~1-draw-call batch path (a transparent-alpha variant would cost
     /// draw calls). Regrowth (AC3) then re-shows + scales the tree back up. Each chop also swings the arm (AC1).
@@ -222,12 +223,25 @@ namespace FarHorizon
                  "so the average regrow is ~10 min (the ticket's '~10 min default').")]
         public float regrowthMaxSeconds = 720f;   // 12 min
 
+        /// <summary>AC1 (86caff4ad) — the NAMED default fallen-tree fade-out delay. The `fallen-tree fade-out`
+        /// SETTING (SettingsCatalog.PopulateChop) drives <see cref="fadeOutDelaySeconds"/>; default 2s (the
+        /// Sponsor's #165-soak NIT: 10s felt too long), clamped within [<see cref="FadeOutDelayMin"/>,
+        /// <see cref="FadeOutDelayMax"/>]. A named constant so the setting + tests reference one source.</summary>
+        public const float FadeOutDelayDefault = 2f;
+
+        /// <summary>AC2 range floor — the `fallen-tree fade-out` slider band, in seconds (0 = fade immediately).</summary>
+        public const float FadeOutDelayMin = 0f;
+
+        /// <summary>AC2 range ceiling — the `fallen-tree fade-out` slider band, in seconds (~0–30s).</summary>
+        public const float FadeOutDelayMax = 30f;
+
         [Tooltip("Seconds after a tree is fully chopped (felled) before it FADES OUT and disappears (Sponsor " +
-                 "soak refinement 2, 2026-06-27). REPLACES the persistent stump: the felled tree rests this long, " +
-                 "then scales down to nothing + its renderers disable → the ground is empty until regrowth (AC3, " +
-                 "~10 min) brings it back at the same spot. Tweakable; default ~10 s per the Sponsor. A scale-down " +
-                 "fade (NOT material alpha) keeps the shared opaque material on the ~1-draw-call batch path.")]
-        public float fadeOutDelaySeconds = 10f;
+                 "soak refinement 2, 2026-06-27; default tightened to 2 s per the #165-soak NIT 86caff4ad). " +
+                 "REPLACES the persistent stump: the felled tree rests this long, then scales down to nothing + " +
+                 "its renderers disable → the ground is empty until regrowth (AC3, ~10 min) brings it back at the " +
+                 "same spot. Tweakable LIVE via the `fallen-tree fade-out` settings-panel row (0–30 s). A " +
+                 "scale-down fade (NOT material alpha) keeps the shared opaque material on the ~1-draw-call path.")]
+        public float fadeOutDelaySeconds = FadeOutDelayDefault;
 
         [Header("Swing impact (Sponsor soak refinement 3, 2026-06-27 — sync the EFFECT to the swing's down-stroke)")]
         [Tooltip("Seconds from the chop CLICK to the swing's IMPACT frame — the click fires the swing + face-turn " +
@@ -776,7 +790,8 @@ namespace FarHorizon
     ///
     /// === FELL → FADE-OUT → REMOVED → REGROW lifecycle (Sponsor soak refinement 2, 2026-06-27) ===
     /// REPLACES the old persistent-stump behaviour. On the felling chop the tree does a brief sink+tip fell tween,
-    /// rests for <paramref name="fadeOutDelaySeconds"/> (~10s, a NAMED tweakable field on ChopTree), then SCALES
+    /// rests for <paramref name="fadeOutDelaySeconds"/> (default 2s, a NAMED tweakable field on ChopTree, LIVE-
+    /// dialable via the `fallen-tree fade-out` setting — 86caff4ad), then SCALES
     /// DOWN to nothing (a batching-safe fade — scale, NOT material alpha, so the shared OPAQUE LowPolyVertexColor
     /// material stays on the ~1-draw-call path; a transparent variant would cost draw calls) and DISABLES its
     /// renderers → the ground is empty. The AC3 REGROWTH (~10 min, tweakable [min,max]) still fires: at _regrowAt
