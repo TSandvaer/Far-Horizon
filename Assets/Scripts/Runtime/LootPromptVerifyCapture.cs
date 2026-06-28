@@ -1,6 +1,7 @@
 using System.Collections;
 using System.IO;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace FarHorizon
 {
@@ -86,13 +87,28 @@ namespace FarHorizon
             }
 
             // Find a RIPE, loot-able BerryBush — the IPickable the prompt will name "berries". CanLoot==true means
-            // a berry bush that is RIPE with a wired inventory (the spawn state of the wired bush). Found, not
-            // assumed (we don't hard-code the (-6,7) wired position — any ripe bush proves the show state).
+            // a berry bush that is RIPE with a wired inventory (the spawn state of the wired bush).
+            //
+            // DETERMINISM + NAVMESH-SAFETY (the #162-merge flake fix — see the NavMesh-Warp comment below):
+            // PREFER the deterministic WIRED bush (the GameObject literally named "BerryBush", authored by
+            // MovementCameraScene.BuildBerryBush at the loop-centre clearing (-6,0,7) over SOLID navmesh, always
+            // ripe at spawn) over an ARBITRARY scatter bush ("LP_BerryBush"). The old "first ripe by InstanceID"
+            // pick was non-deterministic across builds (InstanceID order is not stable) AND position-fragile: a
+            // merge that flipped the InstanceID order made the gate select a COAST-EDGE / elevated scatter bush
+            // where the player's NavMeshAgent re-snapped the teleported transform back onto valid navmesh — away
+            // from the bush — so NearestInRange() resolved null and the gate false-failed (PR #162, run
+            // 28321550306: scatter bush (45.36,5.54,-35.78) off-navmesh-edge → resolvedBush=False; whereas
+            // #158 happened to pick the inland (-20.85,5.04,21.88) → resolvedBush=True). Targeting the wired
+            // bush removes the build-to-build variance. Any ripe bush is the fallback (a scatter-only rig).
             BerryBush bush = null;
+            BerryBush firstRipe = null;
             foreach (var b in Object.FindObjectsByType<BerryBush>(FindObjectsSortMode.InstanceID))
             {
-                if (b != null && (b as IPickable).CanLoot) { bush = b; break; }
+                if (b == null || !(b as IPickable).CanLoot) continue;
+                if (firstRipe == null) firstRipe = b;
+                if (b.gameObject.name == "BerryBush") { bush = b; break; } // the deterministic wired bush
             }
+            if (bush == null) bush = firstRipe; // scatter-only rig fallback (no wired bush in scene)
             Debug.Log("[LootPromptVerifyCapture] ripe loot-able BerryBush found: " + (bush != null) +
                       (bush != null ? " at " + bush.transform.position.ToString("F2") +
                                       " (LootRange=" + ((IPickable)bush).LootRange.ToString("F2") + ")" : ""));
@@ -148,11 +164,26 @@ namespace FarHorizon
             Quaternion yawRot = Quaternion.Euler(0f, viewYaw, 0f);
             Vector3 approach = yawRot * Vector3.back; // unit dir from the bush toward the camera-near side
             Vector3 standPos = bushPos + approach * (range * standFraction);
-            standPos.y = player.position.y; // keep the player's grounded Y (don't lift off the terrain)
-            player.position = standPos;
+            // Stand at the BUSH's ground height, not the player's old spawn Y — a scatter bush can sit on an
+            // elevated hill ~5u above spawn, so keeping the old Y would place the player INSIDE the hill, which
+            // is exactly where the NavMeshAgent re-snap displaced the transform (the #162 flake). The looter's
+            // resolve is PLANAR (XZ) so Y doesn't affect range, but it must not bury the player in terrain.
+            standPos.y = bushPos.y;
+            // NAVMESH-SAFE TELEPORT (the load-bearing #162 fix): the player carries a NavMeshAgent (ClickToMove
+            // [RequireComponent(NavMeshAgent)]) which OWNS the transform — a raw `player.position = standPos`
+            // gets re-projected back onto valid navmesh on the agent's next internal update, dragging the player
+            // AWAY from a coast-edge/elevated bush before NearestInRange() reads → resolvedBush=False. Warp the
+            // AGENT so its internal position tracks the teleport and the transform stays put (the canonical
+            // ClickToMove teleport seam — ClickToMove.cs uses _agent.Warp too). Fall back to a raw set only when
+            // there is no agent (a degenerate rig). updatePosition is irrelevant once warped to a stable point.
+            TeleportPlayer(player, standPos);
+            // The agent's navmesh-snap may shift the actual landing a sub-unit from standPos; read the REAL
+            // post-teleport position so the log + the in-range verdict reflect where the player actually stands
+            // (NearestInRange measures from player.position, not from the requested standPos).
+            Vector3 actualPos = player.position;
             // Face the player toward the bush (cosmetic — the prompt is range-driven, not facing-driven — but it
             // reads right in the capture).
-            Vector3 toBush = bushPos - standPos; toBush.y = 0f;
+            Vector3 toBush = bushPos - actualPos; toBush.y = 0f;
             if (toBush.sqrMagnitude > 1e-4f) player.rotation = Quaternion.LookRotation(toBush);
 
             // Let the looter's Update + the prompt's Update (resolve → _label) + OnGUI (paint) all run on the new
@@ -166,8 +197,8 @@ namespace FarHorizon
             bool resolvedBush = ReferenceEquals(target, (IPickable)bush);
             string label = LootPrompt.BuildLabel(target, looter.lootKey);
             bool labelShown = !string.IsNullOrEmpty(label);
-            float planarDist = Vector2.Distance(new Vector2(standPos.x, standPos.z), new Vector2(bushPos.x, bushPos.z));
-            Debug.Log("[LootPromptVerifyCapture] SHOW: stood at " + standPos.ToString("F2") + " planarDist=" +
+            float planarDist = Vector2.Distance(new Vector2(actualPos.x, actualPos.z), new Vector2(bushPos.x, bushPos.z));
+            Debug.Log("[LootPromptVerifyCapture] SHOW: stood at " + actualPos.ToString("F2") + " planarDist=" +
                       planarDist.ToString("F2") + " (range=" + range.ToString("F2") + "); NearestInRange=" +
                       (target != null ? target.DisplayName : "null") + " resolvedBush=" + resolvedBush +
                       " label=\"" + label + "\" labelShown=" + labelShown);
@@ -198,6 +229,26 @@ namespace FarHorizon
             // Fail loud in the shipped build if the prompt SHOW state was not reached (logic) OR the IMGUI tooltip
             // did not actually paint into the frame (render) — the exe exit code IS the gate verdict.
             Application.Quit(pass ? 0 : 1);
+        }
+
+        // NavMesh-safe teleport: if the player carries a NavMeshAgent (it does — ClickToMove requires one), Warp
+        // the agent so its internal position tracks the teleport and the transform is not re-snapped back onto
+        // navmesh on the next agent update (the #162 flake: a raw transform set near a coast-edge bush got
+        // dragged away → NearestInRange resolved null). Sample the nearest navmesh point first so the warp lands
+        // on valid mesh (the agent only Warps to a navmesh-covered spot); fall back to a raw transform set only
+        // when there is no agent or no navmesh nearby (a degenerate rig). The looter resolves PLANAR distance, so
+        // a sub-unit navmesh snap from the exact standPos does not change the in-range verdict.
+        private static void TeleportPlayer(Transform player, Vector3 standPos)
+        {
+            var agent = player.GetComponent<NavMeshAgent>();
+            if (agent != null && agent.enabled)
+            {
+                Vector3 warpTo = standPos;
+                if (NavMesh.SamplePosition(standPos, out NavMeshHit hit, 4f, NavMesh.AllAreas))
+                    warpTo = hit.position;
+                if (agent.Warp(warpTo)) return; // agent now owns this position; the transform stays put
+            }
+            player.position = standPos; // no-agent fallback
         }
 
         // Park the camera over-shoulder on a world target at the gameplay orbit pitch/yaw/distance, looking at
