@@ -59,21 +59,69 @@ namespace FarHorizon.EditTests
             Assert.Greater(mf.sharedMesh.vertexCount, 0, "the stone mesh must have geometry");
         }
 
+        // === F3 (Devon REQUEST_CHANGES): exactly ONE shared StoneRespawner ships ===
+        // The dead-knob bug shipped TWO StoneRespawners — one on the player (BuildWiredStone, pre-scatter, bound
+        // NOTHING) + one on the scatter root (the 70 stones bound to it). The old assert (respawners.Length > 0)
+        // was GREEN with 2, which is exactly why the dead knob slipped. Tighten to EXACTLY ONE: WireStoneScatterRoot
+        // canonicalises + destroys the stray. Re-introduce the second add -> this goes RED.
         [Test]
-        public void BootScene_CarriesSharedStoneRespawner_WithDefaultWindow()
+        public void BootScene_CarriesExactlyOneSharedStoneRespawner_WithDefaultWindow()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var respawners = scene.GetRootGameObjects()
                 .SelectMany(r => r.GetComponentsInChildren<StoneRespawner>(true))
                 .ToArray();
 
-            Assert.Greater(respawners.Length, 0,
-                "the Boot scene must carry a shared StoneRespawner (the live source the `stone respawn time` " +
-                "setting binds to — AC3/AC3a). Drop the scatter respawner -> red.");
+            Assert.AreEqual(1, respawners.Length,
+                "the Boot scene must carry EXACTLY ONE shared StoneRespawner (F3) — the dead-knob bug shipped " +
+                "TWO (a stray player-side one binding nothing + the scatter-bound one), and the `stone respawn " +
+                "time` slider then tuned an arbitrary population. WireStoneScatterRoot must canonicalise to one. " +
+                "Re-add the second respawner -> red.");
             var resp = respawners[0];
             Assert.GreaterOrEqual(resp.RespawnMinSeconds, 0f, "the respawn min must be non-negative");
             Assert.GreaterOrEqual(resp.RespawnMaxSeconds, resp.RespawnMinSeconds,
                 "the respawn max must be >= min (a sane window — the ~10-min default, AC3)");
+        }
+
+        // === F3 BINDING-IDENTITY (Devon REQUEST_CHANGES): the SETTINGS slider + the wired stone + the scatter
+        // stones all bind the SAME StoneRespawner instance ===
+        // This is the assert that actually proves the `stone respawn time` knob is LIVE: SettingsPanel.stoneRespawner
+        // (what SettingsCatalog.PopulateStones drives) must be reference-equal to the respawner the 70 scatter
+        // stones read AND to the wired stone's respawner. With the old dual-respawner bug, SettingsPanel resolved
+        // an ARBITRARY one (could be the player-side dead one) -> the slider drove a population the scatter stones
+        // never read. WireStoneScatterRoot serializes SettingsPanel.stoneRespawner to the scatter-bound instance.
+        [Test]
+        public void BootScene_SettingsSlider_BindsSameRespawner_AsTheScatterStones()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+
+            var panel = scene.GetRootGameObjects()
+                .SelectMany(r => r.GetComponentsInChildren<SettingsPanel>(true))
+                .FirstOrDefault();
+            Assert.IsNotNull(panel, "the Boot scene must carry the SettingsPanel (the `stone respawn time` host)");
+            Assert.IsNotNull(panel.stoneRespawner,
+                "SettingsPanel.stoneRespawner must be SERIALIZED (not left null for an Awake FindObjectOfType to " +
+                "resolve arbitrarily — the F3 dead-knob path). WireStoneScatterRoot must wire it.");
+
+            var scatterStones = scene.GetRootGameObjects()
+                .SelectMany(r => r.GetComponentsInChildren<StoneProp>(true))
+                .Where(s => s.gameObject.name == "LP_Stone")
+                .ToArray();
+            Assert.Greater(scatterStones.Length, 0, "the scatter must include wired LP_Stone props to compare against");
+
+            // Binding-identity: the slider drives the SAME instance the scatter stones read (reference-equal).
+            foreach (var s in scatterStones.Take(10))
+                Assert.AreSame(panel.stoneRespawner, s.respawner,
+                    "the `stone respawn time` slider (SettingsPanel.stoneRespawner) must be the SAME StoneRespawner " +
+                    "instance the scatter stones read — else the slider tunes a population no stone reads (F3 dead " +
+                    "knob). WireStoneScatterRoot canonicalises both to one instance.");
+
+            // ...and the deterministic WIRED stone binds the same one too (it was left null pre-scatter, then
+            // wired by WireStoneScatterRoot).
+            var wired = FindWiredStone(scene);
+            Assert.IsNotNull(wired, "the Boot scene must carry the wired StoneProp");
+            Assert.AreSame(panel.stoneRespawner, wired.respawner,
+                "the wired stone must bind the SAME canonical StoneRespawner the slider drives (F3)");
         }
 
         // === AC1: SMALL stones scattered across the seed-42 island in VARIOUS (SMALL) SIZES ===

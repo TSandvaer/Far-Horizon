@@ -112,6 +112,16 @@ namespace FarHorizon.EditorTools
             // seed-42 scatter itself is untouched. The Start()-time name-scan remains the build-safety net.
             MovementCameraScene.WireChopScatterRoot();
 
+            // F3 FIX (86caa4c96 / Devon REQUEST_CHANGES) — UNIFY to ONE StoneRespawner now that BOTH respawner
+            // authoring sites have run: BuildWiredStone (pre-scatter, BuildBootScene) used to add a player-side
+            // respawner binding nothing, and ScatterIslandProps (here, inside BuildEnvironment) added the
+            // scatter-root one the 70 stones bind. Two respawners => SettingsPanel.FindObjectOfType picked one
+            // arbitrarily => the `stone respawn time` slider was a DEAD KNOB. WireStoneScatterRoot canonicalises
+            // to the scatter-bound respawner, destroys any stray, and points the SettingsPanel + the wired stone
+            // at it — exactly ONE survives + the slider drives the SAME instance the scatter stones read. Mirrors
+            // the WireChopScatterRoot post-scatter wiring above (same pre/post ordering, same READ-only contract).
+            MovementCameraScene.WireStoneScatterRoot();
+
             EditorSceneManager.SaveScene(scene, BootScenePath);
             Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved (full slice: env + castaway player)");
 
