@@ -132,7 +132,7 @@ Any PR that touches a **player-visible surface** (scene/prefab, UI, visual feedb
 
 **Build artifact:** <CI run ID + build sha + the HUD build-stamp it produced, e.g. `BUILD <tag> | <UTC> | <sha>`>
 **Scene path:** <e.g. Assets/Scenes/Boot.unity or the scene used for verification>
-**Verification method:** <windowed built-exe capture / EditMode test / PlayMode integration test waypoint>
+**Verification method:** <built-exe windowed soak / Unity -runTests EditMode|PlayMode / CaptureGate frames>
 
 ### Prediction & convergence (soak-gated PRs — Predict-Before-Soak, `team/TESTING_BAR.md`)
 - **Prediction (pre-soak, falsifiable):** I expect the soak to show <Y>; I expect <Z> to NOT appear.
@@ -225,7 +225,7 @@ CI runs on every PR (GitHub Actions, from U4 onward — structure gate on hosted
 ## What to commit, what not to commit
 
 - **Commit**: code (C# runtime/editor), Unity scenes/prefabs/ScriptableObjects + their `.meta` files (including the `.meta` files that keep empty `Assets/` dirs alive), design docs, test plans, asset source files, CI configs.
-- **Don't commit**: build outputs (`Build/`, `*.exe`), `*.log`, `test-results*.xml`, `Captures/` (all gitignored — CI must upload artifacts before cleanup), secrets, large binaries (>10 MB), `.claude/` (already gitignored).
+- **Don't commit**: build outputs (`Build/`, `*.exe`), `*.log`, `test-results*.xml`, `Captures/` (all gitignored — CI must upload artifacts before cleanup), secrets, large binaries (>10 MB).
 
 Add to `.gitignore` before staging if in doubt.
 
