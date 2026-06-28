@@ -21,17 +21,21 @@ namespace FarHorizon.EditTests
         private static readonly Color RipeAmber = new Color(0.85f, 0.62f, 0.30f);
         private static readonly Color BerryRed  = new Color(0.74f, 0.30f, 0.30f);
 
-        // === The hunger bar shares warmth's pinned FLOOR fill rule (one bar idiom) ===================
+        // === The hunger bar shares warmth's segment-fill rule: FLOOR lower band + top near-full policy ==
+        // One shared SurvivalHud.FilledSegments path (86cafc6ty), so the 9/10-cap fix applies to hunger too —
+        // the bug the Sponsor actually soaked was on HUNGER ("no matter how many berries I eat, never 10/10").
         [TestCase(0.00f, 0)]
         [TestCase(0.09f, 0)]
         [TestCase(0.10f, 1)]
         [TestCase(0.55f, 5)]
-        [TestCase(0.99f, 9)]
-        [TestCase(1.00f, 10)]
-        public void HungerBar_UsesTheSharedFloorFillRule(float current01, int expectedLit)
+        [TestCase(0.94f, 9)]   // 86cafc6ty AC4: just under the 0.95 top threshold -> 9 (lower-band FLOOR)
+        [TestCase(0.99f, 10)]  // 86cafc6ty: post-satisfy decay band now lights 10 (was 9 under pure FLOOR — the cap bug)
+        [TestCase(1.00f, 10)]  // full -> all 10 lit (eating to full now SHOWS 10/10 + holds, AC1)
+        public void HungerBar_UsesTheSharedFillRule_FloorLowerBand_TopAtNearFull(float current01, int expectedLit)
         {
             Assert.AreEqual(expectedLit, SurvivalHud.FilledSegments(current01),
-                $"the hunger bar shares the pinned FLOOR fill rule — FilledSegments({current01}) = {expectedLit}");
+                $"the hunger bar shares the one fill rule — FilledSegments({current01}) = {expectedLit} " +
+                "(FLOOR lower band + top segment at >= 0.95)");
         }
 
         // === Hunger band mapping: fed green >=0.60, ripe amber 0.30..0.60, hungry berry-red <0.30 ====

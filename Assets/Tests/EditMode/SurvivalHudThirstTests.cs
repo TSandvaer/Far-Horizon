@@ -27,17 +27,20 @@ namespace FarHorizon.EditTests
         private static readonly Color PaleTeal    = new Color(0.37f, 0.66f, 0.69f); // #5FA9B0 dry-ish
         private static readonly Color DryGreyBlue = new Color(0.43f, 0.54f, 0.61f); // #6E8A9C parched
 
-        // === The thirst bar shares warmth/hunger's pinned FLOOR fill rule (one bar idiom) ============
+        // === The thirst bar shares the one fill rule: FLOOR lower band + top near-full policy =========
+        // Shared SurvivalHud.FilledSegments path (86cafc6ty) — the 9/10-cap fix applies to thirst too.
         [TestCase(0.00f, 0)]
         [TestCase(0.09f, 0)]
         [TestCase(0.10f, 1)]
         [TestCase(0.50f, 5)]   // thirst ships at the 0.50 seed -> ~5 of 10 segments at spawn
-        [TestCase(0.99f, 9)]
-        [TestCase(1.00f, 10)]
-        public void ThirstBar_UsesTheSharedFloorFillRule(float current01, int expectedLit)
+        [TestCase(0.94f, 9)]   // 86cafc6ty AC4: just under the 0.95 top threshold -> 9 (lower-band FLOOR)
+        [TestCase(0.99f, 10)]  // 86cafc6ty: post-satisfy decay band now lights 10 (was 9 under pure FLOOR)
+        [TestCase(1.00f, 10)]  // full -> all 10 lit (drinking to full now SHOWS 10/10 + holds, AC1)
+        public void ThirstBar_UsesTheSharedFillRule_FloorLowerBand_TopAtNearFull(float current01, int expectedLit)
         {
             Assert.AreEqual(expectedLit, SurvivalHud.FilledSegments(current01),
-                $"the thirst bar shares the pinned FLOOR fill rule — FilledSegments({current01}) = {expectedLit}");
+                $"the thirst bar shares the one fill rule — FilledSegments({current01}) = {expectedLit} " +
+                "(FLOOR lower band + top segment at >= 0.95)");
         }
 
         // === Thirst band mapping: stream-blue >=0.60, pale teal 0.30..0.60, dry grey-blue <0.30 ======
