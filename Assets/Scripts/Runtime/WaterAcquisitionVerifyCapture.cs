@@ -36,7 +36,8 @@ namespace FarHorizon
     ///   2. PROMPT RENDERED: the centred-low prompt band reads DISTINCT from a control band above it (the IMGUI
     ///      plate+label actually painted into the swapchain frame, not just logic-green);
     ///   3. E-LOOT: PickableLooter.RequestLoot() → exactly one WaterId entered the inventory (the GET side, AC1);
-    ///   4. DRINK: select the water in the belt + LeftClickConsume.RequestUseClick() → thirst RISES (AC3).
+    ///   4. DRINK: MOVE the looted water onto the belt + SELECT it (E-loot lands water in the PACK, not the
+    ///      belt — the player drags it onto the belt) + LeftClickConsume.RequestUseClick() → thirst RISES (AC3).
     /// Quits non-zero on ANY failure (or a missing component — a build-side regression).
     ///
     /// Inert unless launched with -verifyWater (the normal game / boot capture is unaffected):
@@ -163,7 +164,8 @@ namespace FarHorizon
             Debug.Log("[WaterAcquisitionVerifyCapture] LOOT: water " + waterBefore + " -> " + waterAfter +
                       " (E loots ONE water -> gotOneWater=" + gotOneWater + ")");
 
-            // SELF-ASSERT 4 — the DRINK (AC3): select the water in the belt + RequestUseClick → thirst RISES.
+            // SELF-ASSERT 4 — the DRINK (AC3): move the looted water onto the belt + select it (the player's
+            // drag-to-belt + select; E-loot landed it in the PACK) + RequestUseClick → thirst RISES.
             bool selectedWater = SelectWaterInBelt(inventory);
             float thirstBefore01 = thirst.Current01;
             consume.RequestUseClick();
@@ -190,20 +192,53 @@ namespace FarHorizon
             Application.Quit(pass ? 0 : 1);
         }
 
-        // Move the looted water to a belt slot + select it so left-click consumes it. Water is a belt-eligible
-        // Consumable (#152) so AddItem already fills the belt; select the slot that holds water.
+        // Drive the belt-SELECT seam the SAME way a player does, then select the water so left-click consumes it.
+        // CRITICAL (the #171 capture-gate fix): E-loot adds water via InventoryModel.AddItem, which fills the
+        // PACK FIRST and only spills onto the belt when the pack is FULL (InventoryModel.FillFreeSlots) — so a
+        // single looted water lands in an INVENTORY slot, NOT a belt slot (the player has 20 empty pack slots).
+        // Water being a belt-eligible Consumable means it CAN sit on the belt, not that it auto-lands there.
+        // The shipped drink (LeftClickConsume) consumes the SELECTED BELT stack, so the player must move water
+        // onto the belt + select it — exactly the TryMove belt-select seam the EditMode/PlayMode tests exercise.
+        // This capture replicates that: if water is already on the belt, select it; otherwise move one water
+        // pack -> belt (TryMove, allowed because IsBeltEligible(water) is true), then select that belt slot.
         private static bool SelectWaterInBelt(Inventory inventory)
         {
-            var belt = inventory.Model.BeltSlots;
+            var model = inventory.Model;
+
+            // Already on the belt (e.g. the pack was full and water spilled onto the belt) -> just select it.
+            var belt = model.BeltSlots;
             for (int i = 0; i < belt.Count; i++)
             {
                 if (!belt[i].IsEmpty && belt[i].Def.Id == ItemCatalog.WaterId)
                 {
-                    inventory.Model.SelectBelt(i);
+                    model.SelectBelt(i);
                     return true;
                 }
             }
-            return false;
+
+            // The normal case: water is in the PACK. Find it + an empty belt slot, move it onto the belt (the
+            // SAME TryMove seam a drag-to-belt uses), then select that slot. This is what a player does to drink.
+            int packIndex = -1;
+            var pack = model.InventorySlots;
+            for (int i = 0; i < pack.Count; i++)
+            {
+                if (!pack[i].IsEmpty && pack[i].Def.Id == ItemCatalog.WaterId) { packIndex = i; break; }
+            }
+            if (packIndex < 0) return false; // no water anywhere — the loot step must have failed
+
+            int beltIndex = -1;
+            for (int i = 0; i < belt.Count; i++)
+            {
+                if (belt[i].IsEmpty) { beltIndex = i; break; }
+            }
+            if (beltIndex < 0) return false; // belt full of other items — degenerate; no slot to hold water
+
+            if (!model.TryMove(SlotRef.Inventory(packIndex), SlotRef.Belt(beltIndex)))
+                return false; // the move was rejected (would signal a belt-eligibility regression on water)
+
+            model.SelectBelt(beltIndex);
+            // Confirm the selected belt slot now holds water (the drink reads SelectedBeltStack).
+            return model.IsSelectedBeltItem(ItemCatalog.WaterId);
         }
 
         // NavMesh-safe teleport (the #162 fix — LootPromptVerifyCapture's pattern): the player carries a
