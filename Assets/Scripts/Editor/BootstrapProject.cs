@@ -484,6 +484,12 @@ namespace FarHorizon.EditorTools
             // SOURCE slot is dimmed/empty while only the #drag-ghost carries the item).
             survivalGo.AddComponent<InventoryDragSourceDimVerifyCapture>();
 
+            // VERIFY-ONLY: inert unless launched with -verifyInvDragGhostPos (86caffw9h drag-ghost MISPOSITION
+            // fix shipped-build capture — opens the pack, drives a KNOWN cursor through the production ghost
+            // positioning, and ASSERTS the ghost center lands on the cursor + quits non-zero if it diverges).
+            // ⚠ MUST be launched at a NON-1080p window (e.g. 2560x1440) — the bug is invisible at scale ~= 1.
+            survivalGo.AddComponent<InventoryDragGhostPosVerifyCapture>();
+
             // VERIFY-ONLY: inert unless launched with -verifyConsume (86caf7a30 left-click-consume shipped-build
             // capture — seeds a berry + water on the belt, SELECTs each + drives a left-click consume, and shoots
             // the frame proving the unit was consumed AND the hunger/thirst bar visibly rose). Refs wired here

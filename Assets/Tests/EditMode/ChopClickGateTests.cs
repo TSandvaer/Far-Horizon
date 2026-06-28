@@ -125,22 +125,56 @@ namespace FarHorizon.EditTests
         public void InventoryUI_ScreenPointOverlap_FlipsScreenToPanelAndHitTests()
         {
             // The pure core of InventoryUI.IsPointerOverUI: a SCREEN point (Y-up) is flipped to panel space
-            // (Y-down by screenHeight) before hit-testing the UI rects. A belt-strip rect near the BOTTOM of
-            // the screen sits near the BOTTOM in panel space (large panel-Y); the flip is what makes the hit
-            // land. This guards the screen→panel convention the over-UI guard relies on.
+            // (Y-down by screenHeight) before hit-testing the UI rects. At the reference resolution the panel
+            // scale is 1, so this asserts the flip in isolation. A belt-strip rect near the BOTTOM of the
+            // screen sits near the BOTTOM in panel space (large panel-Y); the flip is what makes the hit land.
             const float screenH = 720f;
+            const float scale1 = 1f;
             // A UI rect occupying the bottom strip in PANEL space (Y-down): panel-Y 660..710 ≈ screen-Y 10..60.
             var rects = new[] { new Rect(500f, 660f, 240f, 50f) };
 
             // A click at the bottom of the screen (screen-Y 30 -> panel-Y 690) lands inside the strip rect.
             Assert.IsTrue(
-                InventoryUI.ScreenPointOverlapsAnyRect(new Vector2(600f, 30f), screenH, rects),
+                InventoryUI.ScreenPointOverlapsAnyRect(new Vector2(600f, 30f), screenH, scale1, rects),
                 "a bottom-of-screen click over the belt-strip rect is over UI (screen->panel flip + hit)");
 
             // A click in the MIDDLE of the screen (screen-Y 360 -> panel-Y 360) is the open world, not the strip.
             Assert.IsFalse(
-                InventoryUI.ScreenPointOverlapsAnyRect(new Vector2(600f, 360f), screenH, rects),
+                InventoryUI.ScreenPointOverlapsAnyRect(new Vector2(600f, 360f), screenH, scale1, rects),
                 "a mid-screen world click is NOT over the bottom belt strip");
+        }
+
+        [Test]
+        public void InventoryUI_ScreenPointOverlap_AppliesPanelScale_NotRawScreenPx()
+        {
+            // THE RECURRING-BUG REGRESSION GUARD (86caffw9h): the screen->panel conversion must divide by the
+            // panel SCALE (PanelScaleMode.ScaleWithScreenSize), not just flip Y. At a non-1080p window the panel
+            // scale != 1; a point's PANEL coordinate is screenPx/scale, NOT raw screenPx. The OLD core flipped Y
+            // but never applied scale, so it hit-tested raw screen px against scaled panel rects -> the wrong
+            // result at any non-reference resolution. This test FAILS against the pre-fix (scale-less) core and
+            // is the gap that let the bug recur (the existing test above only exercised scale == 1, i.e. 1080p).
+            const float screenH = 1440f;            // 2560x1440 window
+            const float scale = 1440f / 1080f;      // ~1.333 — ScaleWithScreenSize at refRes-height 1080
+            // A slot well in PANEL space (1080-tall panel coords): a pack cell at panel (300,200) size 80x80.
+            var rects = new[] { new Rect(300f, 200f, 80f, 80f) };
+
+            // The cell's panel center (340,240) maps to SCREEN px: x = 340*scale = ~453.3;
+            // panelY 240 = (screenH - screenY)/scale  ->  screenY = screenH - 240*scale = 1440 - 320 = 1120.
+            var screenOverCell = new Vector2(340f * scale, 1120f);
+            Assert.IsTrue(
+                InventoryUI.ScreenPointOverlapsAnyRect(screenOverCell, screenH, scale, rects),
+                "a click whose PANEL-converted point is the cell center must hit (scale applied = screenPx/scale)");
+
+            // Feeding the SAME screen point but pretending scale == 1 (the OLD behavior) must MISS the cell —
+            // proof the conversion actually depends on the scale term (the missing-scale flaw the bug was).
+            Assert.IsFalse(
+                InventoryUI.ScreenPointOverlapsAnyRect(screenOverCell, screenH, 1f, rects),
+                "with scale forced to 1 (the pre-fix path) the same screen point lands OUTSIDE the panel cell");
+
+            // Symmetrically: the raw screen px treated as panel px (old bug) is far outside the small cell.
+            Assert.IsFalse(
+                InventoryUI.ScreenPointOverlapsAnyRect(new Vector2(340f, 240f), screenH, scale, rects),
+                "panel-space coords fed as screen px do NOT hit once the scale conversion is in place");
         }
     }
 }

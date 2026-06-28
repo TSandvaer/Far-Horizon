@@ -286,6 +286,42 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_ui.IsSourceDimmed(SlotRef.Belt(0)), "both mirrors restore on drag end");
         }
 
+        // 86caffw9h DRAG-GHOST MISPOSITION — the drag-ghost's CENTER must land on the cursor it was driven to,
+        // through the REAL production positioning path (PositionGhostAtScreenPoint: flip-then-ScreenToPanel).
+        // This rides the live laid-out panel (the layer the EditMode pure-math test can't), asserting the
+        // production seam puts the ghost on the cursor end-to-end. The non-1080p panel-SCALE divergence is
+        // pinned by the EditMode unit test + the shipped-build -verifyInvDragGhostPos capture (which forces a
+        // 2560x1440 window); here scale may resolve to 1 headlessly, but actual≈expected (both via the same
+        // ScreenToPanel) is the invariant that proves the ghost tracks the cursor.
+        [UnityTest]
+        public IEnumerator DraggingASlot_GhostCenterTracksTheCursor()
+        {
+            yield return WaitFrames(4);
+            _inv.AddWood(3);              // wood in inventory slot 0
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            _ui.BeginDrag(SlotRef.Inventory(0));
+            yield return WaitFrames(2);
+
+            // Drive a KNOWN cursor (screen px, Y-up) through the production positioning, then let layout settle.
+            var cursor = new Vector2(Screen.width * 0.35f, Screen.height * 0.55f);
+            _ui.PositionGhostAtScreenPoint(cursor);
+            yield return WaitFrames(2);
+
+            Vector2? actual = _ui.GhostCenterPanelPoint();
+            Vector2? expected = _ui.ExpectedGhostPanelCenter(cursor);
+            Assert.IsTrue(actual.HasValue && expected.HasValue,
+                "the ghost + panel must be laid out so the center read-back is valid");
+            float err = Vector2.Distance(actual.Value, expected.Value);
+            Assert.LessOrEqual(err, 2f,
+                "the drag-ghost CENTER must land on the cursor's panel point (flip-then-ScreenToPanel) — " +
+                "86caffw9h: a scale-less convert would diverge by the panel scale (the recurring misposition)");
+
+            _ui.EndDrag(new Vector2(10000, 10000));   // cancel — no move, just tear down the drag
+            yield return null;
+        }
+
         // ---- helpers ----
 
         private VisualElement Root() => _uiGo.GetComponent<UIDocument>().rootVisualElement;
