@@ -1069,12 +1069,53 @@ namespace FarHorizon.EditorTools
                 sticksPlaced++;
             }
 
+            // ---- SMALL STONES / PEBBLES (ticket 86caa4c96, AC1/AC2/AC3) — small loose stones in various sizes
+            // scattered across the island, each an E-LOOT pickable that yields ONE stone (only the SMALL ones
+            // are pickable; the bigger boulders above are the FUTURE pickaxe-MINING target, OOS here). ADDITIVE
+            // to the seed-42 world exactly like the bush(seed+777)/stick(seed+888) passes: this uses its OWN
+            // System.Random (seed + 999 — a SEPARATE sub-stream per AC1), so it does NOT perturb the island
+            // shape (IslandSeed/ShoreRadiusAt), the terrain mesh, or the existing tree(seed+555)/rock/grass/
+            // bush(seed+777)/stick(seed+888) placement (each consumed its own stream in a fixed order,
+            // untouched), or the NavMesh (stones are collider-free + carve NO obstacle — the player walks up to
+            // loot). The seed-42 lock is honoured by construction (a parallel sub-stream, not a re-roll). Stones
+            // ground via GroundPoint (scale-immune, like the sticks/bushes). They reuse the SAME rockFootprints
+            // list to REJECT any small-stone position inside a boulder (OverlapsAnyRock) so a pickable pebble is
+            // never buried inside a stone (the #130-percept rule the grass/stick passes follow — V2). Each
+            // small stone gets a StoneProp (IPickable — looted on E for 1 stone, then respawns) wired to the
+            // scene Inventory + the shared StoneRespawner (the `stone respawn time` setting's live source).
+            //
+            // The shared respawner is authored ONCE on the scatter root (NOT in the seeded RNG stream — a plain
+            // AddComponent), so every scatter StoneProp + the settings panel resolve the SAME respawn window.
+            var stoneRespawner = parent.GetComponentInChildren<FarHorizon.StoneRespawner>()
+                                 ?? parent.AddComponent<FarHorizon.StoneRespawner>();
+
+            var stoneRnd = new System.Random(seed + 999);
+            int stoneTarget = 70, stonesPlaced = 0, stoneGuard = 0;
+            while (stonesPlaced < stoneTarget && stoneGuard++ < stoneTarget * 8)
+            {
+                float ang = (float)stoneRnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantOuterR * Mathf.Sqrt((float)stoneRnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (rr < spawnClearR) continue;                 // keep the loop-centre clearing open
+                if (!OnLandmass(x, z)) continue;                // warped coast (reject sea / beach strip)
+                // Small stones are EARLY-GAME scavenge — found across the ground, gentle inland bias (less
+                // steep than the bushes) so the player finds stones while exploring.
+                float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
+                if (stoneRnd.NextDouble() > Mathf.Clamp01(0.35f + inlandT * 0.45f)) continue;
+                if (OverlapsAnyRock(rockFootprints, x, z)) continue; // no pebble buried inside a boulder (#130 rule)
+                // VARIOUS SIZES (AC1): a SMALL scale range — these are pebbles/small stones, distinctly smaller
+                // than the boulders (scale 0.55..1.55 above). Stays well under a pickaxe-class rock.
+                float scale = 0.35f + (float)stoneRnd.NextDouble() * 0.45f; // 0.35 .. 0.80 (small)
+                BuildStone(parent, GroundPoint(groundCol, x, z), scale, stoneRnd, stoneRespawner);
+                stonesPlaced++;
+            }
+
             Debug.Log($"[world-trace] ScatterIslandProps placed {treesPlaced} trees (dense tall jungle), " +
                       $"{rocksPlaced} rocks, {clumpsPlaced} grass tufts, {bushesPlaced} bushes " +
-                      $"({berryBushes} berry-bearing), {sticksPlaced} sticks on the ORGANIC island " +
-                      $"(warped coast, outerR {plantOuterR:F0}u, fringe {coastalFringe:F0}u). " +
-                      "Bushes use sub-seed (seed+777), sticks (seed+888) — additive, seed-42 " +
-                      "island/scatter/NavMesh untouched.");
+                      $"({berryBushes} berry-bearing), {sticksPlaced} sticks, {stonesPlaced} small stones on " +
+                      $"the ORGANIC island (warped coast, outerR {plantOuterR:F0}u, fringe {coastalFringe:F0}u). " +
+                      "Bushes use sub-seed (seed+777), sticks (seed+888), stones (seed+999) — additive, " +
+                      "seed-42 island/scatter/NavMesh untouched.");
         }
 
         // Raycast straight down onto the terrain collider to find the surface Y at (x,z) so props
@@ -1359,6 +1400,49 @@ namespace FarHorizon.EditorTools
             // The looted wood adds via the canonical ItemCatalog.WoodId — never a parallel id (AC2/AC3).
             var sp = stick.AddComponent<FarHorizon.StickProp>();
             sp.inventory = Object.FindObjectOfType<FarHorizon.Inventory>();
+        }
+
+        // A low-poly SMALL STONE / pebble (ticket 86caa4c96): a small faceted chunk (the SAME FacetedRock
+        // chunky-stone idiom as the boulders, but distinctly SMALL) resting ON the ground, flat-shaded warm
+        // stone-grey. Built editor-time + serialized (the mesh + the wired StoneProp ship in Boot.unity — not
+        // Awake, the editor-vs-runtime trap). A StoneProp component (IPickable — looted on E for 1 stone, then
+        // RESPAWNS on the shared StoneRespawner window) wired to the scene Inventory + the shared respawner so
+        // the castaway can scavenge ANY scatter stone. NO collider + carves NO NavMesh obstacle (the player
+        // walks up to loot; the same collider-free idiom as the sticks/bushes).
+        //
+        // The stone MESH lives in a CHILD ("StoneMesh") so StoneProp can HIDE just the visual on loot while the
+        // component (on the parent) keeps running its respawn timer — deactivating the whole GameObject would
+        // freeze the Update-driven respawn (the BerryBush berries-visual precedent). `rnd` is the stone
+        // sub-stream (seed+999) — every draw here stays on that parallel stream, so the seed-42 island/scatter
+        // is untouched.
+        static void BuildStone(GameObject parent, Vector3 at, float scale, System.Random rnd,
+            FarHorizon.StoneRespawner respawner)
+        {
+            var stone = new GameObject("LP_Stone");
+            stone.transform.SetParent(parent.transform, false);
+            stone.transform.position = at;
+            // Seeded yaw + a gentle tilt so pebbles don't all align (the same low-tilt idiom as the boulders;
+            // no Y-squash — that would flatten it toward a disc). A light uniform scale gives the size range.
+            stone.transform.rotation = Quaternion.Euler(
+                (float)rnd.NextDouble() * 12f, (float)rnd.NextDouble() * 360f, (float)rnd.NextDouble() * 12f);
+            stone.transform.localScale = Vector3.one * scale;
+
+            // The visual in a CHILD so StoneProp.stoneVisual can toggle it on loot/respawn without deactivating
+            // the parent (which would freeze the respawn timer). FacetedRock with a small base radius (0.22 —
+            // a pebble, vs the 0.55 boulder) keeps it angular + flat-shaded; the warm-grey RockCol with the
+            // per-facet value baked to vertex colour reads as a small stone, not a smooth mound.
+            var visual = MakeMeshObject(stone, "StoneMesh",
+                LowPolyMeshes.FacetedRock(0.22f, jitter: 0.34f, seed: rnd.Next()),
+                RockVertexColorMat(RockCol * (0.96f + (float)rnd.NextDouble() * 0.08f)));
+
+            // Wire the StoneProp (IPickable) to the scene Inventory + the shared StoneRespawner so the castaway
+            // loots it on E for 1 stone (canonical ItemCatalog.StoneId — never a parallel id) and the spot
+            // respawns on the shared window (AC2/AC3).
+            var sp = stone.AddComponent<FarHorizon.StoneProp>();
+            sp.inventory = Object.FindObjectOfType<FarHorizon.Inventory>();
+            sp.stoneVisual = visual.transform;
+            sp.respawner = respawner;
+            sp.respawnSeed = rnd.Next(1, int.MaxValue); // deterministic per-stone respawn roll (headless-stable)
         }
 
         // ---- The beach OCEAN (drew/beach-water-scene; Uma beach-water-direction §1-2) ----

@@ -42,6 +42,10 @@ namespace FarHorizon.Settings
         // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
         // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
         public const string TreeRegrowthId = "tree_regrowth_time";
+        // Stone tweakable (ticket 86caa4c96 AC3). The `stone respawn time` row drives the StoneRespawner's
+        // RespawnMin/Max (a RANGE — a RANDOM respawn within [min,max]; every StoneProp reads this shared
+        // window). Registered by PopulateStones (the PopulateThirst/PopulateChop de-collision precedent).
+        public const string StoneRespawnId = "stone_respawn_time";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -65,6 +69,10 @@ namespace FarHorizon.Settings
         // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR set a
         // realistic ecology. Range row → drives ChopTree.regrowthMin/Max (organic regrowth within [min,max]).
         public const float TreeRegrowthLower = 0f, TreeRegrowthUpper = 1800f;
+        // Stone-respawn range hard-limits in SECONDS — the band the `stone respawn time` range can be dialed
+        // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR a
+        // realistic scarcity. Range row → drives StoneRespawner.RespawnMin/Max (random respawn within [min,max]).
+        public const float StoneRespawnLower = 0f, StoneRespawnUpper = 1800f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -93,11 +101,23 @@ namespace FarHorizon.Settings
         /// </summary>
         public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
             FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree)
+            => Build(orbit, wasd, thirst, chopCharacter, chopTree, null);
+
+        /// <summary>
+        /// Build the standard registry AND thirst AND chop tweakables AND the STONE tweakable (ticket
+        /// 86caa4c96): `stone respawn time` (a RANGE row driving the shared <paramref name="stoneRespawner"/>'s
+        /// respawn min/max — AC3). A null respawner SKIPS the stone setting (the catalog never null-refs), so a
+        /// stone-less rig / bare test is unaffected.
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
             PopulateThirst(reg, thirst);
             PopulateChop(reg, chopCharacter, chopTree);
+            PopulateStones(reg, stoneRespawner);
             return reg;
         }
 
@@ -222,6 +242,29 @@ namespace FarHorizon.Settings
                     () => chopTree.regrowthMaxSeconds, v => chopTree.regrowthMaxSeconds = v,
                     TreeRegrowthLower, TreeRegrowthUpper, unit: "s");
             }
+        }
+
+        /// <summary>
+        /// Register the STONE tweakable (ticket 86caa4c96 AC3) into the registry: a `stone respawn time` RANGE
+        /// row driving the shared <paramref name="stoneRespawner"/>'s <see cref="StoneRespawner.RespawnMinSeconds"/>
+        /// / <see cref="StoneRespawner.RespawnMaxSeconds"/> (a RANDOM respawn within [min,max] — every StoneProp
+        /// reads this one shared window, so the slider retunes EVERY stone). Registered via THIS method (NOT by
+        /// appending to <see cref="Populate"/> — the PopulateThirst/PopulateChop de-collision precedent, AC3a/V3).
+        /// A null respawner registers NOTHING (the settings panel for a stone-less rig simply lacks the row), so
+        /// existing callers / bare test rigs never null-ref. The setter clamps min &lt;= max are enforced where
+        /// each StoneProp rolls the delay (ScheduleRespawn), so the slider can't invert the window.
+        /// </summary>
+        public static void PopulateStones(SettingsRegistry reg, FarHorizon.StoneRespawner stoneRespawner)
+        {
+            if (reg == null || stoneRespawner == null) return;
+
+            // STONE RESPAWN TIME (live) — a RANGE row driving the shared respawn window [min,max] (random, not
+            // uniform — AC3). Tightening it makes a looted stone respawn sooner; widening, more variance. The
+            // band is generous (instant..30 min) so the Sponsor can soak fast OR set a realistic scarcity.
+            reg.AddRange(StoneRespawnId, "Stone respawn time",
+                () => stoneRespawner.RespawnMinSeconds, v => stoneRespawner.RespawnMinSeconds = v,
+                () => stoneRespawner.RespawnMaxSeconds, v => stoneRespawner.RespawnMaxSeconds = v,
+                StoneRespawnLower, StoneRespawnUpper, unit: "s");
         }
     }
 }

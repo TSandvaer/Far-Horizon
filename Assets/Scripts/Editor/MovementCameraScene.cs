@@ -280,6 +280,16 @@ namespace FarHorizon.EditorTools
             // Built BEFORE the looter so the looter discovers it (it discovers IPickables at runtime anyway).
             BuildWiredStick(player, groundLayer);
 
+            // 86caa4c96 (E-LOOT 86caf7a6q): a wired small STONE near the loop centre — the small-stone gather
+            // (1 stone per pickup; bigger boulders are the FUTURE pickaxe-mining target, OOS). The castaway
+            // walks up and presses E to LOOT it: 1 stone into the inventory, then the spot RESPAWNS on the
+            // shared StoneRespawner window (AC3). A RELIABLE, fixed-position stone (vs the random scatter ones)
+            // so the PlayMode/shipped-build capture has a deterministic loot target. Authored editor-time so
+            // the stone mesh (a CHILD visual StoneProp toggles on loot/respawn) + StoneProp's Inventory/
+            // respawner refs SERIALIZE into Boot.unity (editor-vs-runtime trap). No collider — the player walks
+            // up to loot. Built BEFORE the looter so the looter discovers it (it discovers IPickables anyway).
+            BuildWiredStone(player, groundLayer);
+
             // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
             // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
             // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
@@ -1455,6 +1465,74 @@ namespace FarHorizon.EditorTools
                       " scatter trees now choppable, CHANGE (a))");
         }
 
+        // F3 FIX (86caa4c96 / Devon REQUEST_CHANGES) — UNIFY to ONE shared StoneRespawner AFTER the scatter
+        // exists. Mirrors WireChopScatterRoot's pre-scatter/post-scatter ordering solution: BuildWiredStone runs
+        // at BuildBootScene (BEFORE WorldBootstrap.BuildEnvironment authors the scatter root), so its
+        // FindObjectOfType<StoneRespawner> was null and it used to add a SECOND respawner on the player that
+        // bound NOTHING — while ScatterIslandProps then added the scatter-root respawner that the 70 scatter
+        // stones bind. Two respawners => SettingsPanel.FindObjectOfType picked one ARBITRARILY => the `stone
+        // respawn time` slider tuned an arbitrary population, a DEAD KNOB. This step runs AFTER the scatter and
+        // CANONICALISES: pick the scatter-bound respawner as the ONE truth (or, on a scatter-less rig, author a
+        // single one), DESTROY any stray others, then point the wired stone's StoneProp + the SettingsPanel at
+        // THAT instance. END STATE: exactly ONE StoneRespawner; the slider, the wired stone, and the 70 scatter
+        // stones all bind the SAME instance. READ/wire-only — the seed-42 scatter placement is untouched.
+        public static void WireStoneScatterRoot()
+        {
+            // Collect every StoneRespawner currently in the scene (the scatter-root one + the historical
+            // player-added stray, if a stale path produced it).
+            var respawners = Object.FindObjectsOfType<StoneRespawner>(true);
+
+            // The CANONICAL respawner = the one parented under the scatter root (LowPolyScatter), because the 70
+            // scatter stones already bind to it (LowPolyZoneGen.BuildStone). Prefer it; else fall back to the
+            // first found; else author one on the scatter root (or a new holder on a scatter-less rig).
+            StoneRespawner canonical = null;
+            var scatter = GameObject.Find("LowPolyScatter");
+            foreach (var r in respawners)
+            {
+                if (scatter != null && r.transform.IsChildOf(scatter.transform)) { canonical = r; break; }
+            }
+            if (canonical == null && respawners.Length > 0) canonical = respawners[0];
+            if (canonical == null)
+            {
+                // Scatter-less rig (no scatter stones to bind): author the single shared respawner so the
+                // wired stone + the settings slider still resolve a real window.
+                var host = scatter != null ? scatter : GameObject.Find("WiredStone");
+                if (host == null) host = new GameObject("StoneRespawnerHost");
+                canonical = host.AddComponent<StoneRespawner>();
+            }
+
+            // DESTROY every stray (non-canonical) StoneRespawner so EXACTLY ONE survives (the dead-knob root
+            // cause). Object.DestroyImmediate is the editor-time delete (this runs in the bootstrap editor pass).
+            int destroyed = 0;
+            foreach (var r in respawners)
+            {
+                if (r != null && r != canonical) { Object.DestroyImmediate(r); destroyed++; }
+            }
+
+            // Point the WIRED stone's StoneProp at the canonical respawner (BuildWiredStone left it null pre-
+            // scatter; the scatter stones already bind canonical by construction).
+            foreach (var sp in Object.FindObjectsOfType<StoneProp>(true))
+            {
+                if (sp.respawner != canonical) { sp.respawner = canonical; EditorUtility.SetDirty(sp); }
+            }
+
+            // Point the SETTINGS PANEL's stoneRespawner at the canonical instance — serialized so the `stone
+            // respawn time` slider drives the SAME respawner the 70 scatter stones read (BuildSettingsPanel did
+            // NOT set this; the Awake FindObjectOfType then resolved arbitrarily — the dead knob). The runtime
+            // Awake FindObjectOfType<StoneRespawner> stays as the bare-scene fallback, but now there is only ONE
+            // to find, so even that resolves the right one.
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.stoneRespawner = canonical;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
+            Debug.Log("[MovementCameraScene] WireStoneScatterRoot: unified to ONE StoneRespawner (destroyed " +
+                      destroyed + " stray, canonical on '" + canonical.gameObject.name + "', SettingsPanel + " +
+                      "wired stone + scatter stones now bind the SAME instance — F3 dead-knob fix)");
+        }
+
         // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
         // as LowPolyZoneGen's scatter canopies (style-guide-v2 §6), so the choppable tree matches the
         // world's trees. Multi-value greens are baked into the mesh's vertex color by BlobCanopy.
@@ -1638,6 +1716,69 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] authored WiredStick at " + WiredStickPosition +
                       " (inventory wired: " + (sp.inventory != null) + ", yields " +
                       StickProp.WoodPerStickDefault + " wood on E)");
+        }
+
+        // World position of the wired small STONE (86caa4c96). Near the loop centre, clear of the craft spot
+        // (8,6), axe (3,2), chop tree (-9,-7), berry bush (-6,7), wired stick (-3,-4), pond (7,-3), fire
+        // (4,-8) — a deterministic loot target the PlayMode/shipped-build capture walks up to. A DETERMINISTIC
+        // scene-author ADD on the flat player-loop ground — OUTSIDE the seeded LowPolyZoneGen generation
+        // stream, so it provably CANNOT perturb the seed-42 island silhouette / scatter / NavMesh.
+        public static readonly Vector3 WiredStonePosition = new Vector3(0f, 0f, -5f);
+
+        // Warm stone-grey (LowPolyZoneGen.RockCol) — the wired stone matches the scatter stones.
+        private static readonly Color StoneCol = new Color(0.62f, 0.60f, 0.555f);
+
+        // A wired small STONE (86caa4c96): a small faceted chunk resting ON the ground + a StoneProp component
+        // (IPickable — looted on E for 1 stone, then RESPAWNS on the shared StoneRespawner window) wired to the
+        // scene Inventory + the shared respawner. The castaway walks up and presses E to loot it: 1 stone into
+        // the inventory, the spot empties + respawns (the small-stone gather; bigger boulders = future
+        // pickaxe-mining, OOS). A RELIABLE fixed-position stone (vs the random scatter ones) so the PlayMode/
+        // capture has a deterministic loot target. The stone MESH lives in a CHILD ("StoneMesh") so StoneProp
+        // toggles JUST the visual on loot while its respawn timer keeps running (deactivating the whole GO
+        // would freeze the timer — the BerryBush precedent). Authored editor-time so the mesh + the wired
+        // StoneProp refs SERIALIZE into Boot.unity (editor-vs-runtime trap). NO collider — the player walks up
+        // to loot; built BEFORE the NavMesh bake (collider-free, never blocks the bake).
+        private static void BuildWiredStone(GameObject player, int groundLayer)
+        {
+            var stone = new GameObject("WiredStone");
+            stone.transform.position = WiredStonePosition + Vector3.up * 0.04f;
+            stone.transform.rotation = Quaternion.Euler(6f, 40f, 4f); // deterministic yaw + gentle tilt
+            stone.transform.localScale = Vector3.one * 0.7f;          // a small stone (< the boulders)
+
+            // The visual in a CHILD so StoneProp.stoneVisual toggles it on loot/respawn without deactivating
+            // the parent (which would freeze the respawn timer). FacetedRock (small base radius — a pebble),
+            // flat-shaded warm stone-grey via the shared vertex-color shader tinted to StoneCol.
+            var visual = new GameObject("StoneMesh");
+            visual.transform.SetParent(stone.transform, false);
+            var vmf = visual.AddComponent<MeshFilter>();
+            vmf.sharedMesh = LowPolyMeshes.FacetedRock(0.22f, 0.34f, 86099);
+            var vmr = visual.AddComponent<MeshRenderer>();
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var m = new Material(vc) { name = "WiredStoneMat" };
+                if (m.HasProperty("_Tint")) m.SetColor("_Tint", StoneCol);
+                vmr.sharedMaterial = m;
+            }
+
+            // F3 FIX (86caa4c96 / Devon REQUEST_CHANGES): do NOT author a StoneRespawner here. BuildWiredStone
+            // runs at BuildBootScene — BEFORE WorldBootstrap.BuildEnvironment authors the scatter root + its
+            // StoneRespawner — so a FindObjectOfType here is null and the prior code added a SECOND respawner on
+            // the player that bound nothing (the dead-knob root cause). The shared respawner is now resolved
+            // POST-scatter by WireStoneScatterRoot (BootstrapProject, after BuildEnvironment), which canonicalises
+            // to the ONE scatter-bound respawner and wires THIS StoneProp + the SettingsPanel to it. Leave
+            // sp.respawner null here; WireStoneScatterRoot sets it once the canonical instance exists.
+            var sp = stone.AddComponent<StoneProp>();
+            sp.inventory = Object.FindObjectOfType<Inventory>();
+            sp.stoneVisual = visual.transform;
+            sp.respawnSeed = 86097; // deterministic respawn roll so headless/capture behavior is stable
+            if (sp.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire StoneProp to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored WiredStone at " + WiredStonePosition +
+                      " (inventory wired: " + (sp.inventory != null) + ", respawner wired POST-scatter by " +
+                      "WireStoneScatterRoot, yields " + StoneProp.StonePerPickupDefault + " stone on E)");
         }
 
         // The E-LOOT interactor (86caf7a6q): the PLAYER side of the shared E-loot surface. Pressing E loots the
