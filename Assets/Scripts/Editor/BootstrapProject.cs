@@ -422,13 +422,28 @@ namespace FarHorizon.EditorTools
             eat.inventory = inventory; // serialized reference
             eat.hunger = hunger;       // serialized reference
 
-            // DRINK INPUT (86caamkv7): the in-game call-site for the drink seam. Pressing Q drinks one scoop
-            // at the FreshwaterPond IF the castaway is in range, restoring thirst through the atomic
-            // FreshwaterPond.DrinkScoop -> ThirstNeed.TryDrinkScoop path. SERIALIZED here editor-time (NOT
-            // Awake) per the editor-vs-runtime trap. The pond ref is wired by MovementCameraScene AFTER the
-            // pond is authored (the pond doesn't exist yet at this point) — like BerryBush wires hunger; an
-            // Awake FindObjectOfType is the build-safety net. DrinkActionSceneTests guards its presence.
+            // DRINK INPUT (86caamkv7): the proximity-drink-at-pond seam component. 86caf7a30 REMOVES its Q-key
+            // trigger (DrinkAction.inputEnabled defaults false — drinking moves to left-click the selected water
+            // belt item), but the component stays for its tested seam + the scene-presence guard. SERIALIZED here
+            // editor-time per the editor-vs-runtime trap. The pond ref is wired by MovementCameraScene AFTER the
+            // pond is authored; an Awake FindObjectOfType is the build-safety net. DrinkActionSceneTests guards it.
             survivalGo.AddComponent<DrinkAction>();
+
+            // LEFT-CLICK CONSUME (86caf7a30 — the unified input model): with a CONSUMABLE selected in the belt, a
+            // LEFT-CLICK consumes one unit + applies its type-specific restore (berry -> eat/AddFood, water ->
+            // drink/AddWater). The consumable sibling of ChopTree's axe->chop (disjoint branches on the selected-
+            // item kind — never a double-fire on the shared left-click). REUSES the SHIPPED restores: the eat seam
+            // is EatBerryAction.TryEatOneBerry (atomic consume+AddFood); the drink removes one WaterId + AddWater.
+            // SERIALIZED here editor-time (NOT Awake) per the editor-vs-runtime trap; the Inventory/HungerNeed/
+            // ThirstNeed/EatBerryAction/InventoryUI refs are wired so the shipped build never relies on a
+            // FindObjectOfType. LeftClickConsumeSceneTests guards the serialized presence + wiring.
+            var consume = survivalGo.AddComponent<LeftClickConsume>();
+            consume.inventory = inventory; // serialized reference
+            consume.hunger = hunger;       // serialized reference (berry -> AddFood)
+            consume.thirst = thirst;       // serialized reference (water -> AddWater)
+            consume.eatSeam = eat;         // reuse the SHIPPED atomic berry eat-seam (no re-implemented restore)
+            // consume.inventoryUI is wired below once the InventoryUI exists (it is added later in this method,
+            // like ChopTree's inventoryUI ref) — see the LeftClickConsume UI-wire after the InventoryUI add.
 
             // DIAGNOSTIC-ONLY: inert unless launched with -invDiag (86cabfa21 / the #90 soak trace).
             survivalGo.AddComponent<InventoryDiag>();
@@ -441,6 +456,16 @@ namespace FarHorizon.EditorTools
             // capture — opens the pack with berries+axe, BEGINS a drag, and shoots the frame proving the
             // SOURCE slot is dimmed/empty while only the #drag-ghost carries the item).
             survivalGo.AddComponent<InventoryDragSourceDimVerifyCapture>();
+
+            // VERIFY-ONLY: inert unless launched with -verifyConsume (86caf7a30 left-click-consume shipped-build
+            // capture — seeds a berry + water on the belt, SELECTs each + drives a left-click consume, and shoots
+            // the frame proving the unit was consumed AND the hunger/thirst bar visibly rose). Refs wired here
+            // (all the consume deps were added above); SERIALIZED per the editor-vs-runtime trap.
+            var consumeCap = survivalGo.AddComponent<LeftClickConsumeVerifyCapture>();
+            consumeCap.inventory = inventory;
+            consumeCap.hunger = hunger;
+            consumeCap.thirst = thirst;
+            consumeCap.consume = consume;
 
             // U3 port: author the player + orbit camera (upgrades camGo) + flat ground + saved
             // NavMesh into this scene, then save. MovementCameraScene owns the movement+camera lane.

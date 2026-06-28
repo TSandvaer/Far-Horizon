@@ -56,8 +56,9 @@ namespace FarHorizon
         [Tooltip("86caf7a6q: whether this action reads its key. FALSE by default now — E is reclaimed for the " +
                  "E-LOOT interactor (PickableLooter), so EatBerryAction no longer key-eats (a live E binding " +
                  "here would DOUBLE-FIRE against the looter — the 'dead second path' AC4 forbids). The tested " +
-                 "consume seam TryEatOneBerry() is PRESERVED (called directly by tests + the future left-click " +
-                 "consume 86caf7a30); only the key INPUT stands down until 86caf7a30 binds eat to left-click.")]
+                 "consume seam TryEatOneBerry() is PRESERVED + now REUSED by the eat trigger that landed in " +
+                 "86caf7a30: LEFT-CLICK on the selected berry belt item (LeftClickConsume calls TryEatOneBerry). " +
+                 "So the eat INPUT is left-click; this key INPUT stays standing down (E loots).")]
         public bool inputEnabled = false;
 
         private bool _tracedFirstEat;

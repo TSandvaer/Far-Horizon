@@ -110,7 +110,9 @@ namespace FarHorizon
         }
 
         // Fill empty slots: inventory first (everything goes in the pack), then the belt ONLY for
-        // belt-eligible tools — a resource never auto-lands on the belt (contract §2/§4).
+        // belt-eligible items — i.e. TOOLS or CONSUMABLES (ItemDef.IsBeltEligible; 86caf7g6f flipped
+        // berries/water to belt-eligible Consumables, so a consumable CAN spill onto the belt). A pure
+        // RESOURCE (wood/stone) never auto-lands on the belt (contract §2/§4).
         private int FillFreeSlots(ItemDef def, int remaining, int cap, ref bool changed)
         {
             remaining = FillArray(_inventory, def, remaining, cap, ref changed);
