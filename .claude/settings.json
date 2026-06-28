@@ -95,6 +95,14 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-sentinel-stop.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator-anti-idle-stop.sh\""
+          }
+        ]
       }
     ]
   }
