@@ -389,6 +389,44 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # 10. Loot-prompt shipped-build capture gate (ticket 86cafc6ud — Tess QA #158 block,
+      #     comment 4825495098). The loot-proximity prompt ("Press E to pick up berries") is
+      #     the deliverable of 86cafc6ud, but the generic -captureGate (step 7) only shoots the
+      #     DEFAULT SPAWN frame — where the player stands mid-field, OUTSIDE the tightened
+      #     ~1.0–1.2u loot range, so the prompt is correctly HIDDEN → the prompt's SHOW state
+      #     had ZERO built-frame evidence (Tess: editor-vs-runtime divergence is a proven failure
+      #     class — IMGUI green in EditMode ≠ legible in the IL2CPP frame). This launches the SAME
+      #     built exe windowed with -verifyLoot, driving LootPromptVerifyCapture to teleport the
+      #     player IN loot range of a ripe bush so LootPrompt renders the tooltip, then SELF-ASSERT
+      #     the LOGIC (NearestInRange resolves the bush + the label is set) AND the RENDER (the IMGUI
+      #     plate+label actually painted into the frame). The component Quit(1)s on either failure
+      #     (or missing wiring), so the exe's exit code IS the gate verdict; frame_check.py is a
+      #     swapchain-content backstop. Runs only when the build produced an exe; frames + log upload
+      #     AFTER (if: always()) so the prompt evidence survives a fail.
+      - name: Loot-prompt capture gate (prompt shows + renders in range)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_loot_gate.sh
+            .github/workflows/scripts/verify_loot_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/loot-caps ci-out/verify-loot.log
+          else
+            echo "[verify-loot] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload loot-prompt frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-loot-caps-${{ github.sha }}
+          path: |
+            ci-out/loot-caps/*.png
+            ci-out/verify-loot.log
+          if-no-files-found: warn
+          retention-days: 14
+
   # ---------------------------------------------------------------------------
   # PlayMode gate — ADVISORY, NON-REQUIRED, FAIL-FAST. Runs the PlayMode suite for
   # signal, but can NEVER block a merge:
