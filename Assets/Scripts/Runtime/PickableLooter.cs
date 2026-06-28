@@ -210,6 +210,24 @@ namespace FarHorizon
             => inRange && !uiPanelOpen;
 
         /// <summary>
+        /// Register ONE runtime-spawned <see cref="IPickable"/> into the cached set so the looter finds it on the
+        /// NEXT E press — the seam a RUNTIME drop (a felled tree's <see cref="LogPile"/>, 86caf9u5t) uses to enter
+        /// the loot set. The lazy <see cref="EnsureDiscovered"/> re-scan ONLY fires when the cache is EMPTY, so a
+        /// pile spawned while ≥1 serialized pickable already exists (the live build ALWAYS has the bush/stick/stone)
+        /// would otherwise NEVER be discovered → never looted (the #165 bug). This explicit registration is the
+        /// fix: <see cref="LogPileSpawner.SpawnAt"/> calls it on every spawned pile. Discovers the serialized set
+        /// first if Awake hasn't run yet (so the new pile JOINS the set, not REPLACES it), and dedups (a double
+        /// register is a no-op) so a re-registered or re-discovered pile is never double-counted. Null is ignored.
+        /// </summary>
+        public void RegisterPickable(IPickable pickable)
+        {
+            if (pickable == null) return;
+            EnsureDiscovered();                       // seed the serialized set first; never REPLACE it with one item
+            if (!_pickables.Contains(pickable))       // dedup — a double register (or a later re-discover) is a no-op
+                _pickables.Add(pickable);
+        }
+
+        /// <summary>
         /// Force a re-scan of the scene for <see cref="IPickable"/> components — the test/bootstrap seam for
         /// a pickable set that changes after Awake (a PlayMode test that adds a pickable post-construction).
         /// Replaces the cache. The live build relies on the Awake discovery + the lazy empty re-discover.

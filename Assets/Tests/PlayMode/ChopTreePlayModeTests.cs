@@ -247,12 +247,16 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(_spawner.WoodYield, pile.LogsRemaining,
                 "the pile holds the WHOLE tree's wood-yield (logs == the `tree-chop wood yield` setting), not a per-chop tally");
 
-            // E loots the WHOLE pile -> the wood lands in the inventory (the pickable path).
-            _looter.DiscoverPickables(); // pick up the runtime-spawned pile
+            // E loots the WHOLE pile -> the wood lands in the inventory (the pickable path). NO manual
+            // DiscoverPickables() here (#165 de-mask): SpawnAt now REGISTERS the pile with the looter, so the REAL
+            // discovery path must surface it. (The masking DiscoverPickables() call hid that SpawnAt never
+            // registered the pile — the looter's lazy re-discover only fires on an EMPTY cache, which the live
+            // build never has; the EditMode LogPileSpawnerLootTests guard exercises that exact breaking condition.)
             _looter.RequestLoot();
             yield return null;
             Assert.AreEqual(_spawner.WoodYield, _inv.WoodCount,
-                "AC2 — one E grabs the WHOLE pile -> the tree's full yield lands in the inventory");
+                "AC2 — one E grabs the WHOLE pile -> the tree's full yield lands in the inventory (via the pile's " +
+                "registration with the looter, NOT a manual rediscover)");
             Assert.IsFalse(pile.IsAvailable, "the emptied pile is consumed (gone immediately when collected)");
         }
 

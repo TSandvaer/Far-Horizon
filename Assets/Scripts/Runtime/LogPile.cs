@@ -16,8 +16,11 @@ namespace FarHorizon
     /// <see cref="StickProp"/> / <see cref="StoneProp"/> / <see cref="BerryBush"/>: the player-side
     /// <see cref="PickableLooter"/> discovers every IPickable, resolves the nearest in-range one, and calls
     /// <see cref="TryLoot"/> when E is pressed. The pile adds NO bespoke pickup input, NO second looter, NO
-    /// parallel pickable interface — it just IS an IPickable; the looter finds it (re-discovering its cache
-    /// lazily so a RUNTIME-spawned pile is picked up). Walking into range does NOTHING until E.
+    /// parallel pickable interface — it just IS an IPickable. UNLIKE the editor-time pickables (which the looter
+    /// auto-discovers from the serialized scene set at Awake), a RUNTIME-spawned pile is EXPLICITLY REGISTERED
+    /// with the looter by <see cref="LogPileSpawner.SpawnAt"/> (via <see cref="PickableLooter.RegisterPickable"/>)
+    /// — the looter's lazy re-discover only fires on an EMPTY cache, and the live build always has ≥1 serialized
+    /// pickable, so an unregistered pile would never be found (#165). Walking into range does NOTHING until E.
     ///
     /// === The loot CONTRACT (AC2/AC7 — WHOLE PILE or what FITS; remainder PERSISTS) ===
     /// <see cref="TryLoot"/> grabs the WHOLE pile in one E press — or as much as FITS the pack when it can't all

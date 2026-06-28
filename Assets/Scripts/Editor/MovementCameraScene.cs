@@ -1441,8 +1441,13 @@ namespace FarHorizon.EditorTools
             var logPileSpawner = spawnerGo.AddComponent<LogPileSpawner>();
             var trunkMr = FindTrunkRenderer(visual.transform);
             if (trunkMr != null) logPileSpawner.logMaterial = trunkMr.sharedMaterial;
+            // #165 FIX — the spawner's PickableLooter ref (so every spawned pile registers for E-loot) is wired
+            // LATER in BuildPickableLooter: the looter is added on the player AFTER BuildChopTree in Author (the
+            // player exists, the looter does not yet), so wiring it here would self-find null. BuildPickableLooter
+            // back-wires logPileSpawner.looter once both exist (mirrors the post-creation cross-wire pattern).
             chop.logPileSpawner = logPileSpawner;
             EditorUtility.SetDirty(chop);
+            EditorUtility.SetDirty(spawnerGo);
 
             // Wire the SETTINGS PANEL's chop refs (86caa4c5c V1/V2 / change-(b) + REWORK 86caf9u5t) now that the
             // castaway, the tree, AND the spawner exist (BuildSettingsPanel ran before this, so its serialized
@@ -1867,6 +1872,28 @@ namespace FarHorizon.EditorTools
             if (looter.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire PickableLooter to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            // #165 FIX — back-wire this looter onto the LogPileSpawner so every runtime-spawned LogPile REGISTERS
+            // itself for E-loot. The looter only auto-re-discovers on an EMPTY cache, and the live build always has
+            // ≥1 serialized pickable (bush/stick/stone) → a spawned pile is NEVER found unless registered. Done
+            // HERE (not in BuildChopTree, where the spawner is created) because BuildPickableLooter runs AFTER
+            // BuildChopTree in Author, so the spawner exists by now while the looter did not exist at BuildChopTree.
+            // A runtime FindObjectOfType is the spawner's own fallback; this serializes the ref so it ships in
+            // Boot.unity (asserted by the #164 capture-gate wiring-guard CaptureGateDepsSceneTests).
+            var logPileSpawner = Object.FindObjectOfType<LogPileSpawner>();
+            if (logPileSpawner != null)
+            {
+                logPileSpawner.looter = looter;
+                EditorUtility.SetDirty(logPileSpawner);
+            }
+            else
+            {
+                // Fail LOUD at bootstrap (CI step 1 console-error gate) on a dropped spawner — the #165 bug rode a
+                // missing registration all the way to the soak; a dropped wiring must surface RED in CI, not the gate.
+                Debug.LogError("[MovementCameraScene] no LogPileSpawner in scene to back-wire PickableLooter onto — " +
+                               "BuildChopTree must author the LogPileSpawner before BuildPickableLooter; a spawned " +
+                               "log pile would never be looted (#165)");
+            }
 
             // LOOT PROXIMITY PROMPT (86cafc6ud AC2/AC3): the "Press E to pick up {name}" tooltip, authored on
             // the SAME player GO next to the looter, its looter ref SERIALIZED (NOT an Awake add) so the prompt

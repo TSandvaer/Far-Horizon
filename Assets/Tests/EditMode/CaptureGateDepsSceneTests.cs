@@ -159,6 +159,35 @@ namespace FarHorizon.EditTests
                 "position NearestInRange measures from; the #162 teleport seam Warps exactly this agent");
         }
 
+        // === LogPileSpawner (#165): the looter ref every spawned LogPile registers itself with for E-loot ===
+        // The #165 bug was a runtime-spawned pile NEVER reaching the looter (SpawnAt didn't register it + the
+        // looter's lazy re-discover only fires on an EMPTY cache, which the live build never has). The fix wires
+        // a PickableLooter ref onto the spawner editor-time (MovementCameraScene.BuildPickableLooter back-wire) so
+        // SpawnAt can RegisterPickable. Assert the ref is non-null AND THE scene's looter (binding-identity) — a
+        // dropped/wrong ref means a felled tree's wood is never lootable in the live build (AC2/AC7/AC8). Drop the
+        // `logPileSpawner.looter = looter` back-wire and this goes RED in EditMode (CI step 2), not in a soak.
+        [Test]
+        public void BootScene_LogPileSpawner_HasWiredLooter_BoundToSceneInstance()
+        {
+            var scene = OpenBoot();
+            var spawner = FindInScene<LogPileSpawner>(scene);
+            Assert.IsNotNull(spawner,
+                "the Boot scene must carry the LogPileSpawner serialized (the factory that mints a lootable " +
+                "LogPile on fell; component-not-serialized trap)");
+
+            Assert.IsNotNull(spawner.looter,
+                "LogPileSpawner.looter must be wired editor-time — a runtime-spawned pile REGISTERS itself with " +
+                "this looter so the player can loot it on E (#165). The looter only auto-re-discovers on an EMPTY " +
+                "cache, and the live build always has ≥1 serialized pickable, so a dropped ref → the felled tree's " +
+                "wood is NEVER lootable. A runtime FindObjectOfType fallback exists but is the non-ship path; a " +
+                "dropped wiring must fail HERE (CI step 2), not silently in the soak");
+
+            var looter = FindInScene<PickableLooter>(scene);
+            Assert.AreSame(looter, spawner.looter,
+                "LogPileSpawner.looter must be THE scene's PickableLooter (binding-identity) — a stale/duplicate " +
+                "ref registers the pile into a looter the player isn't driving, so E never loots the pile (#165)");
+        }
+
         // === LootPrompt (rides the looter's single source of truth) ===
         [Test]
         public void BootScene_LootPrompt_WiredToTheSameLooter()
