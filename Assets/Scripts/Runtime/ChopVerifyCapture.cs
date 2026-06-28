@@ -84,9 +84,22 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
 
-            // 2. First get the axe — drive to the craft spot and wait for HasAxe (U2-2's seam).
-            bool setCraft = player != null && player.MoveTo(craftSpot);
-            Debug.Log("[ChopVerifyCapture] MoveTo craft spot set: " + setCraft + " target=" + craftSpot);
+            // 2. First get the axe — teleport to the craft spot and wait for HasAxe (U2-2's seam).
+            // WHY TELEPORT, NOT MoveTo (the WASD-pivot fix — 86cafecuj CI-gate triage): the live build drives
+            // locomotion via WasdMovement, which HARD-SETS NavMeshAgent.velocity = inputDir*speed EVERY frame
+            // (WasdMovement.cs:259). With no WASD input fed, that velocity is ZERO each frame — clobbering the
+            // path-following velocity ClickToMove.MoveTo→SetDestination would set up, so the agent never moves
+            // and the player freezes at spawn (MoveTo returns true but the agent stays put → axe never crafts →
+            // the whole chop loop cascade-fails). MoveTo is a DEAD seam under WASD locomotion. The deterministic,
+            // NavMesh-safe drive (the SAME pattern the passing LootPromptVerifyCapture gate uses) is to Warp the
+            // agent into range of each target; the chop/loot then fire via the input-independent RequestChopClick/
+            // RequestLoot seams below. We teleport ONTO each target (the craft spot / tree trunk): that is well
+            // within the proximity radii (craftRadius 2.0u / chopRadius 2.2u), so the craft still fires via its
+            // OWN Update proximity poll and the chop via RequestChopClick's own in-range check — we drive the
+            // player into range, we do NOT bypass the gameplay seam. (The crafted axe lands in belt slot 0, which
+            // is the default-selected slot, so IsAxeSelectedInBelt — the chop's select guard — is satisfied.)
+            bool setCraft = TeleportPlayer(craftSpot);
+            Debug.Log("[ChopVerifyCapture] teleport to craft spot set: " + setCraft + " target=" + craftSpot);
             float start = Time.time;
             while (Time.time - start < 12f)
             {
@@ -101,8 +114,8 @@ namespace FarHorizon
             // axe-selected + over-UI/RMB guards still apply, exactly like a real click). Request a chop EACH
             // frame while at the tree (the click cooldown paces the actual chops); the chop is a no-op until
             // truly in range.
-            bool setTree = player != null && player.MoveTo(treeSpot);
-            Debug.Log("[ChopVerifyCapture] MoveTo tree set: " + setTree + " target=" + treeSpot);
+            bool setTree = TeleportPlayer(treeSpot);
+            Debug.Log("[ChopVerifyCapture] teleport to tree set: " + setTree + " target=" + treeSpot);
             start = Time.time;
             while (Time.time - start < 18f)
             {
@@ -147,8 +160,8 @@ namespace FarHorizon
 
             if (haveScatterTarget)
             {
-                bool setScatter = player != null && player.MoveTo(chosen);
-                Debug.Log("[ChopVerifyCapture] MoveTo scatter tree set: " + setScatter + " target=" + chosen);
+                bool setScatter = TeleportPlayer(chosen);
+                Debug.Log("[ChopVerifyCapture] teleport to scatter tree set: " + setScatter + " target=" + chosen);
                 start = Time.time;
                 while (Time.time - start < 20f)
                 {
@@ -221,6 +234,30 @@ namespace FarHorizon
                 }
             }
             return any;
+        }
+
+        // NavMesh-safe teleport (the WASD-pivot drive seam — 86cafecuj). Under WASD locomotion MoveTo is a dead
+        // seam (WasdMovement hard-sets agent.velocity each frame, zeroing path-following with no input fed), so we
+        // Warp the agent into range of each target instead — the SAME proven pattern the passing
+        // LootPromptVerifyCapture gate uses (LootPromptVerifyCapture.TeleportPlayer): Warp the AGENT so its
+        // internal position tracks the teleport and the transform is not re-snapped back onto navmesh on the
+        // agent's next update. Sample the nearest navmesh point first so the warp lands on valid mesh; fall back
+        // to a raw transform set only when there is no agent / no navmesh nearby (a degenerate rig). The chop/loot
+        // seams resolve PLANAR distance from player.position, so a sub-unit navmesh snap from the exact target
+        // does not change the in-range verdict. Returns true if the player was placed (agent warp or raw set).
+        private bool TeleportPlayer(Vector3 standPos)
+        {
+            if (player == null) return false;
+            var agent = player.Agent;
+            if (agent != null && agent.enabled && agent.isOnNavMesh)
+            {
+                Vector3 warpTo = standPos;
+                if (NavMesh.SamplePosition(standPos, out NavMeshHit hit, 4f, NavMesh.AllAreas))
+                    warpTo = hit.position;
+                if (agent.Warp(warpTo)) return true; // agent now owns this position; the transform stays put
+            }
+            player.transform.position = standPos; // no-agent fallback
+            return true;
         }
 
         private static void CollectScatterTreePositions(Transform root, List<Vector3> outPositions)

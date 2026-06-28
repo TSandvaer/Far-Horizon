@@ -427,6 +427,51 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # 11. Chop → pile → E-loot shipped-build capture gate (ticket 86cafecuj — PR #165
+      #     review gap, Drew comment 4826621229). Tree-chop AC8 requires a SHIPPED-BUILD
+      #     capture proving fell → pile spawns → E loots it → wood in inventory, and that
+      #     proof IS implemented in -verifyChop (ChopVerifyCapture drives the REAL
+      #     PickableLooter discovery path at ChopVerifyCapture.cs:114-115). BUT -verifyChop
+      #     was NEVER a CI gate (grep -rn verifyChop .github/workflows/ → zero hits), so a
+      #     real break in the chop→pile→E-loot path slipped straight through GREEN CI: PR
+      #     #165's first push (bbac84f) had a LogPile the live looter never discovered (the
+      #     pile is never registered; PickableLooter.EnsureDiscovered only re-scans when
+      #     _pickables.Count==0, but a serialized pickable keeps it >0) — CI was green anyway
+      #     because the generic -captureGate (step 7) only shoots the spawn frame AND the
+      #     tests masked it (ChopTreePlayModeTests hand-called DiscoverPickables; LogPileTests
+      #     bypass the looter). Caught only by code review. This launches the SAME built exe
+      #     windowed with -verifyChop, driving ChopVerifyCapture to craft the axe, FELL the
+      #     demo tree + LOOT its dropped pile via the real PickableLooter.RequestLoot path,
+      #     then fell + loot a REAL seed-42 SCATTER tree for a 2nd INDEPENDENT wood gain, and
+      #     SELF-ASSERT demoWood && scatterDiscovered && scatterTarget && scatterWood. The
+      #     component Quit(1)s on any failure (or missing wiring), so the exe's exit code IS
+      #     the gate verdict; frame_check.py is a swapchain-content backstop. Runs only when
+      #     the build produced an exe; frames + log upload AFTER (if: always()) so the chop
+      #     evidence survives a fail.
+      - name: Chop capture gate (fell → pile → E-loot → wood in inventory)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_chop_gate.sh
+            .github/workflows/scripts/verify_chop_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/chop-caps ci-out/verify-chop.log
+          else
+            echo "[verify-chop] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload chop frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-chop-caps-${{ github.sha }}
+          path: |
+            ci-out/chop-caps/*.png
+            ci-out/verify-chop.log
+          if-no-files-found: warn
+          retention-days: 14
+
   # ---------------------------------------------------------------------------
   # PlayMode gate — ADVISORY, NON-REQUIRED, FAIL-FAST. Runs the PlayMode suite for
   # signal, but can NEVER block a merge:
