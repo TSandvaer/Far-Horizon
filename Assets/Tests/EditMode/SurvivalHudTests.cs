@@ -9,9 +9,11 @@ namespace FarHorizon.EditTests
     ///
     /// The HUD's only non-trivial logic is the 0..1 warmth -> filled-segment-count mapping and the
     /// gold->coal-red band selection — both are STATIC + deterministic so they're proven fast in
-    /// headless CI with no scene/OnGUI. The PINNED rounding rule is FLOOR (Tess PR #9 nit (a)):
-    /// a segment lights only when its full 1/10th share of warmth is earned. Boundary asserts are
-    /// placed at non-half points so the floor decision is exact and unambiguous. The COMPLEMENTARY
+    /// headless CI with no scene/OnGUI. The PINNED rounding rule is FLOOR for the LOWER segments
+    /// (Tess PR #9 nit (a)) — a segment lights only when its full 1/10th share is earned — with a
+    /// deliberate TOP-segment near-full policy (86cafc6ty): the 10th segment lights at Current01 >= 0.95
+    /// so a continuously-decaying full need shows + HOLDS 10/10 instead of capping at 9/10. Boundary
+    /// asserts are placed at non-half points so the floor decision is exact and unambiguous. The COMPLEMENTARY
     /// PlayMode test (SurvivalHudPlayModeTests) proves the HUD reflects LIVE warmth/inventory through
     /// a real scene. Together they catch the bug CLASS: a segment-fill that drifts off the pinned
     /// rule, or a HUD that paints the wrong band / stops tracking the model.
@@ -33,22 +35,54 @@ namespace FarHorizon.EditTests
                 "plate alpha is pinned to 0.55 — BootHud's build-stamp-plate family (amends spec's 0.45)");
         }
 
-        // === FLOOR rounding rule (pinned, Tess PR #9 nit (a)) — boundary asserts deterministic =====
-        // filled = Floor(Current01 * 10), clamped 0..10. A segment lights only when fully earned.
+        // === FLOOR rounding rule for the LOWER segments (pinned, Tess PR #9 nit (a)) ================
+        // filled = Floor(Current01 * 10), clamped 0..10, for every segment BELOW the top. A lower segment
+        // lights only when fully earned — a 3.4/10 need MUST read 3/10, never 4/10 (86cafc6ty AC2). The TOP
+        // segment is the deliberate exception, covered by the near-full-policy test below.
         [TestCase(0.00f, 0)]   // freezing -> all charcoal
         [TestCase(0.04f, 0)]   // below 1/10th -> still 0 lit (FLOOR, not round-up)
         [TestCase(0.09f, 0)]   // just under one segment -> 0 (the floor distinction vs round)
         [TestCase(0.10f, 1)]   // exactly 1/10th earned -> 1 lit
         [TestCase(0.15f, 1)]   // mid-segment -> FLOOR keeps it at 1 (round would give 2 — proves floor)
         [TestCase(0.19f, 1)]   // just under 2/10ths -> still 1
-        [TestCase(0.34f, 3)]   // 0.34*10 = 3.4 -> floor 3
+        [TestCase(0.34f, 3)]   // 0.34*10 = 3.4 -> floor 3 (the AC2 "must not read 4/10" case)
         [TestCase(0.55f, 5)]   // 0.55*10 = 5.5 -> floor 5 (round-half would ambiguate; floor is exact)
-        [TestCase(0.99f, 9)]   // just under full -> 9 lit, one cold segment remains
-        [TestCase(1.00f, 10)]  // full -> all 10 lit
-        public void FilledSegments_FollowsPinnedFloorRule(float current01, int expectedLit)
+        [TestCase(0.89f, 8)]   // 0.89*10 = 8.9 -> floor 8 (well below the top threshold — pure floor)
+        [TestCase(0.94f, 9)]   // 86cafc6ty AC4: just under the 0.95 top threshold -> 9 (NOT promoted)
+        public void FilledSegments_LowerSegments_FollowThePinnedFloorRule(float current01, int expectedLit)
         {
             Assert.AreEqual(expectedLit, SurvivalHud.FilledSegments(current01),
-                $"FilledSegments({current01}) must FLOOR to {expectedLit} lit segments (pinned rule)");
+                $"FilledSegments({current01}) must FLOOR to {expectedLit} lit segments (pinned lower-band rule)");
+        }
+
+        // === Top-segment near-full policy (86cafc6ty) — the 9/10-cap fix ============================
+        // ROOT CAUSE: every SurvivalNeed decays continuously, so a JUST-satisfied full need drops to ~0.996
+        // within a frame; a pure FLOOR(9.96)=9 meant the 10th segment was essentially NEVER visible (the
+        // Sponsor-soaked "hunger never reaches 10/10, always caps at 9/10"). FIX: light the top segment at
+        // Current01 >= 0.95 (TopSegmentThreshold). The threshold is strictly ABOVE 0.94 (so 0.94 -> 9, AC4)
+        // and well above the post-satisfy decay value (so a full need HOLDS 10/10 across the window, AC1 —
+        // at the shipped 0.0055/sec drop the need stays >= 0.95 for ~9s, not a one-frame flash).
+        [TestCase(0.949f, 9)]  // a hair under the threshold -> still 9 (lower-band FLOOR governs)
+        [TestCase(0.95f, 10)]  // AT the threshold -> the top segment lights: 10/10
+        [TestCase(0.96f, 10)]  // above the threshold -> 10
+        [TestCase(0.99f, 10)]  // the post-satisfy decay band (was 9 under pure FLOOR) -> now 10 (the fix)
+        [TestCase(0.996f, 10)] // the exact ~one-frame-after-satisfy value -> 10 (holds, no flash)
+        [TestCase(1.00f, 10)]  // full -> all 10 lit
+        public void FilledSegments_TopSegment_LightsAtNearFull(float current01, int expectedLit)
+        {
+            Assert.AreEqual(expectedLit, SurvivalHud.FilledSegments(current01),
+                $"FilledSegments({current01}) must light the top segment at/above 0.95 (near-full policy) = {expectedLit}");
+        }
+
+        [Test]
+        public void TopSegmentThreshold_IsAbovePointNineFour_SoPointNineFourStillReadsNine()
+        {
+            // The threshold MUST be strictly above 0.94 (AC4: a 0.94 need reads 9/10) AND at/below the
+            // post-satisfy decay value (AC1: a just-full need holds 10/10). 0.95 satisfies both.
+            Assert.Greater(SurvivalHud.TopSegmentThreshold, 0.94f,
+                "the top-segment threshold must be ABOVE 0.94 so a 0.94 need still reads 9/10 (86cafc6ty AC4)");
+            Assert.LessOrEqual(SurvivalHud.TopSegmentThreshold, 0.99f,
+                "the threshold must be at/below the post-satisfy decay band so a full need HOLDS 10/10 (AC1)");
         }
 
         [Test]

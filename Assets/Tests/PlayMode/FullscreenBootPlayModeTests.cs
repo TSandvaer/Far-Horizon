@@ -53,7 +53,7 @@ namespace FarHorizon.PlayTests
                 "-verifyMove", "-verifyCraft", "-verifyChop", "-verifyLoop",
                 "-verifyAxe", "-verifyAxeFacings", "-verifyCastaway", "-verifyHair", "-verifySea", "-verifyRock",
                 "-verifyIsland", "-verifyWorldLook", "-verifyWalkGround", "-verifyFloatDiag",
-                "-verifyPond",
+                "-verifyPond", "-verifyLoot",
                 "-screen-fullscreen",
             };
             foreach (string flag in inertFlags)

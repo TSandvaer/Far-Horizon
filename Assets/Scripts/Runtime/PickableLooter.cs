@@ -154,6 +154,21 @@ namespace FarHorizon
         public void RequestLoot() => _lootRequested = true;
 
         /// <summary>
+        /// The SINGLE source of truth the proximity prompt reads (ticket 86cafc6ud AC3): the nearest loot-able
+        /// <see cref="IPickable"/> in reach of the player RIGHT NOW, or null when nothing is in range. The prompt
+        /// (<see cref="LootPrompt"/>) calls THIS — the SAME <see cref="ResolveNearestPickable"/> the E press
+        /// uses against the SAME <see cref="player"/> position — so the prompt and the actual loot can never
+        /// disagree about what's reachable (if the prompt names "berries", pressing E loots THAT bush). Returns
+        /// null (prompt hides) when player/inventory is unwired or nothing loot-able is within its own LootRange.
+        /// One cheap cached-list pass (no allocation, no Find) — the prompt may call it once per frame.
+        /// </summary>
+        public IPickable NearestInRange()
+        {
+            if (player == null) return null;
+            return ResolveNearestPickable(player.position);
+        }
+
+        /// <summary>
         /// Resolve the NEAREST loot-able <see cref="IPickable"/> within ITS OWN <see cref="IPickable.LootRange"/>
         /// of <paramref name="from"/> (AC3 — nearest-in-range wins). Spent / not-loot-able pickables
         /// (<see cref="IPickable.CanLoot"/> == false) are skipped. Returns null when nothing loot-able is in

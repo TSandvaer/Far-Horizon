@@ -73,10 +73,11 @@ namespace FarHorizon
 
         [Header("Loot (AC2)")]
         [Tooltip("Planar (XZ) distance within which the castaway is 'at' the stone and can loot it on E. " +
-                 "Small (a pebble on the ground — you have to be close), mirrors the per-item LootRange idiom; " +
-                 "SCALED by the stone size so a bigger small-stone is loot-able from a touch farther. This is " +
-                 "the stone's own IPickable.LootRange.")]
-        public float lootRadius = 1.6f;
+                 "ARM'S-REACH (86cafc6ud — the Sponsor's #155 'I can loot from too far' soak): a pebble on the " +
+                 "ground requires getting genuinely close (you stoop to pick it up), tightened from the old 1.6. " +
+                 "Mirrors the per-item LootRange idiom; SCALED by the stone size so a bigger small-stone is " +
+                 "loot-able from a touch farther. This is the stone's own IPickable.LootRange.")]
+        public float lootRadius = 1.0f;
 
         [Tooltip("Stone yielded per pickup. ONE — a small stone is a single-stone gather (the early-game " +
                  "scavenge before the pickaxe). Kept a field (not a magic literal) so it can be promoted to a " +
@@ -138,6 +139,10 @@ namespace FarHorizon
         /// and a tiny pebble requires getting close (the reach matches what the player sees; mirrors StickProp.
         /// LootRange). The looter uses THIS per-item radius, not one global radius.</summary>
         public float LootRange => lootRadius * transform.localScale.x;
+
+        /// <summary>IPickable: the generic prompt name (86cafc6ud) — a stone yields "stones" (the canonical
+        /// StoneId resource). The prompt shows "Press E to pick up stones".</summary>
+        public string DisplayName => "stones";
 
         /// <summary>
         /// IPickable.TryLoot (86caf7a6q AC1 / 86caa4c96 AC2) — loot this stone into <paramref name="inv"/>: the

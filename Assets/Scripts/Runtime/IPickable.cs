@@ -19,6 +19,7 @@ namespace FarHorizon
     ///   • query      <see cref="CanLoot"/>              — is this item currently loot-able? (ripe / present)
     ///   • query      <see cref="LootPosition"/>         — world position for the nearest-in-range resolve.
     ///   • query      <see cref="LootRange"/>            — this item's own loot reach (per-item radius).
+    ///   • query      <see cref="DisplayName"/>          — the GENERIC item-name the loot prompt shows.
     ///
     /// === Why a per-item INTERFACE, not a manager instance-list (vs ChopTree's _instances) ===
     /// ChopTree is a SINGLE manager iterating a registered <c>_instances</c> list (one component owns every
@@ -52,6 +53,17 @@ namespace FarHorizon
         /// small stick can require getting close while a big bush is loot-able from a step away — the looter
         /// uses THIS, not one global radius, so per-item tuning lives with the item (AC3).</summary>
         float LootRange { get; }
+
+        /// <summary>
+        /// The GENERIC display name the proximity prompt shows — "Press E to pick up {DisplayName}" (ticket
+        /// 86cafc6ud AC2/AC3). Each pickable returns its OWN human-readable resource word: a berry bush returns
+        /// "berries", a stick "wood", a stone "stones" — and a future pond returns "water" / the tree-chop
+        /// log-pile "wood", slotting into the SAME prompt with ZERO rework (the load-bearing genericity: the
+        /// prompt reads the pickable's own name, never a per-item switch in the HUD). Lower-case, plural/mass
+        /// noun matching the inventory resource ("berries"/"wood"/"stones"/"water"). The prompt and the actual
+        /// loot agree because both come from the looter's ONE nearest-in-range resolve (single source of truth).
+        /// </summary>
+        string DisplayName { get; }
 
         /// <summary>
         /// LOOT exactly ONE from this item into <paramref name="inventory"/> — the whole transaction (AC1):

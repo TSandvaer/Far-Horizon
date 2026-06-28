@@ -196,5 +196,28 @@ namespace FarHorizon.EditTests
                 "the Boot scene must carry RimVerifyCapture serialized (the -verifyRim rim-OFF-vs-dialed " +
                 "A/B is inert if the scene never carries it — the component-not-serialized trap)");
         }
+
+        // The LOOT-PROMPT SHOW-CASE verify capture (ticket 86cafc6ud — Tess QA #158 block: the prompt's SHOW
+        // state had no built-frame evidence) must be SERIALIZED into the Boot scene — same component-not-
+        // serialized-into-scene class: the -verifyLoot show-case capture (teleport the player into loot range +
+        // assert the IMGUI prompt renders) is inert if the scene never carries it. Regression guard: delete the
+        // AddComponent<LootPromptVerifyCapture>() line in BootstrapProject.BuildBootScene and this goes red.
+        [Test]
+        public void BootScene_CarriesLootPromptVerifyCapture_Serialized()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            LootPromptVerifyCapture cap = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                cap = root.GetComponentInChildren<LootPromptVerifyCapture>(true);
+                if (cap != null) break;
+            }
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry LootPromptVerifyCapture serialized (the -verifyLoot prompt SHOW-case " +
+                "capture is inert if the scene never carries it — the component-not-serialized trap; the prompt's " +
+                "rendered-frame evidence is the whole reason the capture seam exists, Tess QA #158)");
+        }
     }
 }

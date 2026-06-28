@@ -31,8 +31,11 @@ namespace FarHorizon
     ///   - Vocabulary: binds the SurvivalNeed base surface (Current01 / IsCritical / Changed) for all
     ///     three needs + Inventory.HasAxe / .WoodCount for the ledger — the runtime is source of truth.
     ///   - Segment count: EXACTLY 10 (<see cref="SegmentCount"/>) — pins the spec's "~10 segments".
-    ///   - Rounding rule: FLOOR — filledSegments = Floor(Current01 * 10), clamped 0..10. A segment
-    ///     lights only when its full 1/10th of the need is earned; deterministic, asserted in the tests.
+    ///   - Rounding rule: FLOOR for the lower segments — filledSegments = Floor(Current01 * 10),
+    ///     clamped 0..10 (a segment lights only when its full 1/10th is earned; deterministic, asserted
+    ///     in the tests) — EXCEPT the TOP segment, which lights at Current01 >= 0.95 (86cafc6ty's
+    ///     near-full policy: a continuously-decaying full need drops to ~0.996 within a frame, so a pure
+    ///     FLOOR meant the 10th segment never lit — always caps at 9/10). The lower band is unchanged.
     ///   - Plate alpha: 0.55 — matches BootHud's build-stamp plate (BootHud uses the 0.5/0.55 family).
     /// </summary>
     public class SurvivalHud : MonoBehaviour
@@ -239,15 +242,38 @@ namespace FarHorizon
             GUI.Label(new Rect(x, y, w, h), ledger, _ledgerStyle);
         }
 
-        // === Pinned segment-fill math (FLOOR rounding) ===========================================
         /// <summary>
-        /// The PINNED 0..1 -> filled-segment-count rule: FLOOR. A segment lights only when its full
-        /// 1/<see cref="SegmentCount"/> share of the need is earned. Deterministic and clamped 0..N so
-        /// the paired EditMode/PlayMode boundary asserts are exact. (Tess PR #9 nit (a).)
+        /// The TOP (10th) segment lights once the need is at/above this fraction — a deliberate near-full
+        /// policy (86cafc6ty). Strictly ABOVE 0.94 so a 0.94 need still reads 9/10 (AC4), and at/below the
+        /// post-satisfy decay floor so a JUST-FILLED need HOLDS at 10/10 across the window rather than
+        /// flashing for one frame. At the shipped 0.55/sec decay (0.0055 of 1.0 per second) a need filled
+        /// to 1.0 stays >= 0.95 for ~9s — the "not a one-frame flash" AC1 window. (Lower segments keep the
+        /// pinned FLOOR rule untouched — this special case applies to the TOP segment ONLY.)
+        /// </summary>
+        public const float TopSegmentThreshold = 0.95f;
+
+        // === Pinned segment-fill math (FLOOR rounding + top-segment near-full policy) =================
+        /// <summary>
+        /// The 0..1 -> filled-segment-count rule. Lower segments keep the PINNED FLOOR rule (a segment
+        /// lights only when its full 1/<see cref="SegmentCount"/> share is earned — Tess PR #9 nit (a)):
+        /// FLOOR(current01 * 10), clamped 0..N — so a 3.4/10 need still reads 3/10, never 4/10 (86cafc6ty
+        /// AC2 — the lower band must NOT be misreported). The ONLY change vs the original pure-FLOOR rule
+        /// is the TOP segment: because every SurvivalNeed decays continuously, a just-satisfied need drops
+        /// to ~0.996 within a frame, so a pure FLOOR(9.96)=9 meant the 10th segment was essentially NEVER
+        /// visible (the Sponsor-soaked "hunger never reaches 10/10, always caps at 9/10" bug). So the top
+        /// segment lights at <see cref="TopSegmentThreshold"/> (0.95) instead of at exactly 1.0 — deliberate,
+        /// monotonic (never decreases as the need rises), and applied to warmth, hunger, AND thirst via this
+        /// one shared path. Deterministic + clamped so the paired EditMode/PlayMode boundary asserts are exact.
         /// </summary>
         public static int FilledSegments(float current01)
         {
-            return Mathf.Clamp(Mathf.FloorToInt(Mathf.Clamp01(current01) * SegmentCount), 0, SegmentCount);
+            float c = Mathf.Clamp01(current01);
+            int filled = Mathf.Clamp(Mathf.FloorToInt(c * SegmentCount), 0, SegmentCount);
+            // Top-segment near-full policy (86cafc6ty): light the final segment once the need is near-full,
+            // so a continuously-decaying full need shows + HOLDS 10/10 instead of flashing then capping at 9.
+            // FLOOR governs every lower segment unchanged (3.4 -> 3, 0.94 -> 9); this only promotes 9 -> 10.
+            if (filled == SegmentCount - 1 && c >= TopSegmentThreshold) filled = SegmentCount;
+            return filled;
         }
 
         /// <summary>

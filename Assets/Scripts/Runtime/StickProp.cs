@@ -51,10 +51,11 @@ namespace FarHorizon
 
         [Header("Loot (AC2/AC3)")]
         [Tooltip("Planar (XZ) distance within which the castaway is 'at' the stick and can loot it on E. " +
-                 "Small (a stick on the ground — you have to be close, unlike a big bush), mirrors the " +
-                 "per-item LootRange idiom; SCALED by the stick size so a longer branch is loot-able from a " +
-                 "touch farther. This is the stick's own IPickable.LootRange.")]
-        public float lootRadius = 1.6f;
+                 "ARM'S-REACH (86cafc6ud — the Sponsor's #155 'I can loot from too far' soak): a stick on the " +
+                 "ground requires getting genuinely close (tighter than a bush — you stoop to pick it up), " +
+                 "tightened from the old 1.6. Mirrors the per-item LootRange idiom; SCALED by the stick size " +
+                 "so a longer branch is loot-able from a touch farther. This is the stick's own IPickable.LootRange.")]
+        public float lootRadius = 1.0f;
 
         [Tooltip("Wood yielded per stick pickup. ONE — the named-constant low-yield contrast vs chopping a " +
                  "tree (AC3). Kept a field (not a magic literal) so it can be promoted to a setting later " +
@@ -94,6 +95,11 @@ namespace FarHorizon
         /// and a tiny twig requires getting close (the reach matches what the player sees; mirrors BerryBush.
         /// LootRange). The looter uses THIS per-item radius, not one global radius.</summary>
         public float LootRange => lootRadius * transform.localScale.x;
+
+        /// <summary>IPickable: the generic prompt name (86cafc6ud) — a stick yields "wood" (the canonical
+        /// WoodId resource). The prompt shows "Press E to pick up wood" — the SAME word the future tree-chop
+        /// log-pile (86caf9u5t) returns, so both read identically with no per-item HUD branch.</summary>
+        public string DisplayName => "wood";
 
         /// <summary>
         /// IPickable.TryLoot (86caf7a6q AC1 / AC2) — loot this stick into <paramref name="inv"/>: the whole

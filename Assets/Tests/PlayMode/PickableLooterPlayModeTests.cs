@@ -31,12 +31,14 @@ namespace FarHorizon.PlayTests
             public bool canLoot = true;
             public float range = 2f;
             public bool lootSucceeds = true;   // TryLoot returns this (e.g. false = full pack / spent)
+            public string displayName = "thing"; // the generic prompt name (86cafc6ud)
             public int LootCalls;              // how many times TryLoot was invoked
             public Inventory LastInventory;    // the inventory passed to the most recent TryLoot
 
             public bool CanLoot => canLoot;
             public Vector3 LootPosition => transform.position;
             public float LootRange => range;
+            public string DisplayName => displayName;
 
             public bool TryLoot(Inventory inv)
             {
@@ -178,6 +180,43 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(2, p.LootCalls, "TryLoot is attempted (once per loot request) — the target was in range");
             Assert.IsFalse(looted, "a declined TryLoot (full pack) is a clean false no-op for the looter (AC1)");
 
+            Object.Destroy(p.gameObject);
+        }
+
+        // === 86cafc6ud: NearestInRange (the prompt's single source of truth) AGREES with the loot resolve ===
+        [UnityTest]
+        public IEnumerator NearestInRange_AgreesWithLoot_SingleSourceOfTruth()
+        {
+            var near = SpawnPickable(new Vector3(0.5f, 0f, 0f));
+            near.displayName = "berries";
+            var far = SpawnPickable(new Vector3(1.8f, 0f, 0f)); // both within range 2
+            _looter.DiscoverPickables();
+            yield return null;
+
+            // The prompt reads NearestInRange — the SAME nearest the E press would loot.
+            var promptTarget = _looter.NearestInRange();
+            Assert.AreSame(near, promptTarget, "NearestInRange returns the NEAREST loot-able pickable (the one E loots)");
+
+            // Pressing E loots THAT same pickable — prompt and loot can't disagree.
+            _looter.RequestLoot();
+            yield return null;
+            Assert.AreEqual(1, near.LootCalls, "E loots the SAME pickable NearestInRange named (single source of truth)");
+            Assert.AreEqual(0, far.LootCalls, "the farther pickable is neither prompted nor looted");
+
+            Object.Destroy(near.gameObject);
+            Object.Destroy(far.gameObject);
+        }
+
+        // === 86cafc6ud: NearestInRange is null when nothing is in range (the prompt then HIDES) ===
+        [UnityTest]
+        public IEnumerator NearestInRange_OutOfRange_IsNull_PromptHides()
+        {
+            var p = SpawnPickable(new Vector3(50f, 0f, 50f)); // far beyond range
+            _looter.DiscoverPickables();
+            yield return null;
+
+            Assert.IsNull(_looter.NearestInRange(),
+                "with nothing in range NearestInRange is null -> the proximity prompt hides (AC2)");
             Object.Destroy(p.gameObject);
         }
 

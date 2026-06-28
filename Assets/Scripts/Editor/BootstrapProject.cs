@@ -345,6 +345,15 @@ namespace FarHorizon.EditorTools
             // is necessary-not-sufficient). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
             // INERT unless the exe is launched with -verifyRim. CaptureGateSceneTests guards its serialized presence.
             hudGo.AddComponent<FarHorizon.RimVerifyCapture>();
+            // LOOT-PROMPT SHOW-CASE verify capture (86cafc6ud — Tess QA #158 block: the generic -captureGate
+            // only shoots the default spawn frame, where the player is OUTSIDE the tightened ~1.0–1.2u loot
+            // range, so the "Press E to pick up berries" prompt is correctly HIDDEN → the prompt's SHOW state
+            // had ZERO built-frame evidence). This drives the SHOW state: it teleports the player IN loot range
+            // of a ripe bush so LootPrompt resolves it + OnGUI paints the tooltip, captures loot_prompt.png, and
+            // SELF-ASSERTS both the logic (NearestInRange resolves the bush + the label is set) AND the render
+            // (the IMGUI plate+label actually painted into the frame). Serialized editor-time (NOT Awake) per the
+            // editor-vs-runtime trap; INERT unless the exe is launched with -verifyLoot.
+            hudGo.AddComponent<FarHorizon.LootPromptVerifyCapture>();
             // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
             // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
