@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using FarHorizon;
@@ -15,6 +17,15 @@ namespace FarHorizon.EditTests
     ///   • BUG 2 — the docked-belt-row click must not select (asserted live in PlayMode; here we pin the
     ///     model invariant the fix preserves — a tap is the ONLY select path besides 1–N/scroll).
     ///   • BUG 3 — the wood ItemDef carries a non-null ICON (a null icon was the cause: only a "W" chip).
+    ///
+    /// HARDENING (ticket 86cabugc3 — the #102 drag-source-dim NITs follow-up): the original
+    /// DraggingSourceClass_MatchesTheUssSelector pins only the C# class-NAME string — it would stay green
+    /// even if the USS rule were deleted or changed to display:none. The two added cases here close that:
+    ///   • UssRule_HidesSlotContentViaVisibility_NotDisplay — parses the SHIPPED InventoryPanel.uss and
+    ///     asserts the .slot--dragging-source rule actually sets visibility:hidden (NOT display:none) on
+    ///     icon/chip/badge (NIT 1 + NIT 2 source-of-truth — the USS file IS the authoritative rule the
+    ///     PlayMode resolvedStyle assert exercises live; this is the cheap always-run companion).
+    ///   • DragLifecycleSeams_… now ALSO asserts EndDrag returns false with no active drag (NIT 5).
     /// </summary>
     public class InventoryUiBugFixTests
     {
@@ -91,10 +102,66 @@ namespace FarHorizon.EditTests
                 "BeginDrag on an unbuilt view must not throw (model null → no-op)");
             Assert.IsFalse(ui.IsSourceDimmed(SlotRef.Inventory(0)),
                 "no slot is dimmed when the view has no model/panel");
-            Assert.DoesNotThrow(() => ui.EndDrag(Vector2.zero),
+
+            // NIT 5 (86cabugc3): assert the RETURN value, not just no-throw. EndDrag with no active drag
+            // must report false ("nothing moved") — the contract OnSlotPointerUp + callers branch on. A
+            // future refactor that returned true on the no-drag path would silently break drop-detection.
+            bool moved = false;
+            Assert.DoesNotThrow(() => moved = ui.EndDrag(Vector2.zero),
                 "EndDrag with no active drag must not throw (returns false, no-op)");
+            Assert.IsFalse(moved,
+                "EndDrag with no active drag returns false (no move landed) — the _dragging-guard early-out");
 
             Object.DestroyImmediate(go);
+        }
+
+        // NIT 1 + NIT 2 (86cabugc3) — assert the USS RULE'S EFFECT, not just the C# class-name string. The
+        // sibling DraggingSourceClass_MatchesTheUssSelector pins only InventoryUI.DraggingSourceClass; it
+        // stays green even if the .slot--dragging-source USS rule were deleted, or switched from
+        // visibility:hidden to display:none. This parses the SHIPPED InventoryPanel.uss and asserts the rule
+        //   (a) targets .slot__icon / .slot__chip / .slot__badge under .slot--dragging-source, and
+        //   (b) hides them via VISIBILITY (which preserves the slot's layout box → worldBound stays valid for
+        //       the BUG 1 cursor-resolved drop) — NOT display:none (which would collapse the layout box and
+        //       break the position-resolved drop on the source slot).
+        // The live resolvedStyle.visibility == Hidden + worldBound-preservation asserts ride a laid-out panel
+        // in the PlayMode suite; this is the cheap, always-run source-of-truth companion (the USS FILE is the
+        // rule the PlayMode test exercises). Parsing the file directly (vs loading a StyleSheet) keeps this an
+        // EditMode test with no UIElements layout dependency.
+        [Test]
+        public void UssRule_HidesSlotContentViaVisibility_NotDisplay()
+        {
+            string ussPath = Path.Combine(Application.dataPath, "UI", "InventoryPanel.uss");
+            Assert.IsTrue(File.Exists(ussPath), "the shipped InventoryPanel.uss must exist at Assets/UI/");
+            string uss = File.ReadAllText(ussPath);
+
+            // Find the rule block whose selector list references the source-dim class on the content
+            // sub-elements. The shipped form groups the three selectors then one declaration block:
+            //   .slot--dragging-source .slot__icon, ... .slot__chip, ... .slot__badge { visibility: hidden; }
+            var rule = Regex.Match(
+                uss,
+                @"\.slot--dragging-source[^{}]*\{[^{}]*\}",
+                RegexOptions.Singleline);
+            Assert.IsTrue(rule.Success,
+                "InventoryPanel.uss must contain a .slot--dragging-source rule (the #90 dup-fix). Its " +
+                "absence means a dragged source slot is never dimmed — the item double-renders (source + ghost).");
+
+            string selectorAndBody = rule.Value;
+
+            // (a) it targets the three content sub-elements (icon/chip/badge) — dimming the WELL only would
+            //     hide the slot frame, not the item content.
+            Assert.IsTrue(selectorAndBody.Contains(".slot__icon"), "the dim rule must target the slot icon");
+            Assert.IsTrue(selectorAndBody.Contains(".slot__chip"), "the dim rule must target the letter-chip");
+            Assert.IsTrue(selectorAndBody.Contains(".slot__badge"), "the dim rule must target the stack badge");
+
+            // (b) it hides via VISIBILITY (layout preserved), NOT display:none (layout collapsed). The
+            //     declaration body is everything inside the braces.
+            string body = selectorAndBody.Substring(selectorAndBody.IndexOf('{') + 1).TrimEnd('}', ' ', '\n', '\r', '\t');
+            Assert.IsTrue(Regex.IsMatch(body, @"visibility\s*:\s*hidden", RegexOptions.IgnoreCase),
+                "the source-dim rule must set 'visibility: hidden' — that hides the item content while " +
+                "PRESERVING the slot's layout box, so worldBound stays valid for the BUG 1 cursor-resolved drop");
+            Assert.IsFalse(Regex.IsMatch(body, @"display\s*:\s*none", RegexOptions.IgnoreCase),
+                "the source-dim rule must NOT use 'display: none' — that collapses the slot's layout box, " +
+                "invalidating worldBound and breaking the position-resolved drop on the source slot (NIT 2)");
         }
 
         // BUG 2 — the model has exactly ONE programmatic select path; the UI fix routes the docked-row click

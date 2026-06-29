@@ -83,13 +83,29 @@ namespace FarHorizon
             Debug.Log("[inv-drag-dim] dragActive srcDimmed=" + srcDimmed + " slot0IconVisibility=" + iconVis +
                       " ghostVisible=" + ghostUp);
 
+            // ASSERT the dim, don't just log it (86cabugc3 NIT 6). The probe is the shipped-build GATE for
+            // this UX-visible USS-state fix — a frame that LOOKS dimmed but isn't (the rule regressed) must
+            // FAIL the gate, not pass on a green-looking log line. Three conditions define "the source is
+            // dimmed in the built player": the class is on the source, the icon RESOLVES to Hidden (the rule
+            // actually fired in the shipped USS), and the ghost is up (the item reads in ONE place, not two).
+            // We capture the frame first for evidence, THEN quit non-zero so the failure is auditable.
+            bool pass = srcDimmed && iconVis == "Hidden" && ghostUp;
             for (int i = 0; i < 4; i++) yield return null;
             ScreenCapture.CaptureScreenshot(Path.Combine(dir, "inv_drag_source_dim.png"), 1);
             Debug.Log("[inv-drag-dim] wrote inv_drag_source_dim.png -> " + dir);
-
             yield return new WaitForEndOfFrame();
             yield return new WaitForSeconds(0.5f);
-            Debug.Log("[inv-drag-dim] DONE");
+
+            if (!pass)
+            {
+                Debug.Log("[inv-drag-dim] FAIL: source-dim NOT confirmed in the built player (srcDimmed=" +
+                          srcDimmed + " slot0IconVisibility=" + iconVis + " ghostVisible=" + ghostUp +
+                          ") — the #90 dup-fix regressed (the source slot still renders the item).");
+                Application.Quit(6);
+                yield break;
+            }
+
+            Debug.Log("[inv-drag-dim] PASS: source dimmed (icon Hidden) + ghost up — DONE");
             Application.Quit(0);
         }
 
