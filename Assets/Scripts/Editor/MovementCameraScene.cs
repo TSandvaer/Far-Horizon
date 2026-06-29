@@ -1587,6 +1587,42 @@ namespace FarHorizon.EditorTools
                       "wired stone + scatter stones now bind the SAME instance — F3 dead-knob fix)");
         }
 
+        // 86cabn67w (Devon NIT #1) — wire the SettingsPanel.berryBushes array EDITOR-TIME (serialized into
+        // Boot.unity), NOT just via the runtime Awake FindObjectsByType fallback. POST-scatter, mirroring
+        // WireStoneScatterRoot's pre/post ordering: BuildSettingsPanel runs at BuildBootScene (BEFORE
+        // WorldBootstrap.BuildEnvironment authors the ~32 scatter LP_BerryBush instances), AND even the
+        // fixed-position BerryBush (BuildBerryBush) is authored AFTER BuildSettingsPanel — so at panel-build
+        // time NO bush exists to serialize. This step runs AFTER BuildEnvironment (from BootstrapProject,
+        // alongside WireStoneScatterRoot), when EVERY bush (wired + scatter) exists, and serializes the full
+        // set so the `Berry regrowth time` row's fan-out reaches all of them in the SHIPPED build without
+        // relying on a runtime Find. UNLIKE stones, berries have NO shared manager to canonicalise — each
+        // BerryBush holds its own regrow window — so this only COLLECTS + serializes the array; it never
+        // destroys/re-parents anything (READ/wire-only; the seed-42 scatter is untouched). The Awake
+        // FindObjectsByType<BerryBush> stays as the belt-and-suspenders bare-scene fallback. The
+        // editor-vs-runtime ship-path discipline (the stone-respawner runtime-Find that went DEAD is the
+        // cautionary precedent).
+        public static void WireBerryBushes()
+        {
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireBerryBushes: no SettingsPanel in scene to wire " +
+                                 "berryBushes onto (the runtime Awake FindObjectsByType fallback still resolves them)");
+                return;
+            }
+
+            // Collect EVERY BerryBush (the fixed-position wired bush + the ~32 scatter LP_BerryBush instances),
+            // including inactive, so the serialized set is complete and deterministic (InstanceID sort matches
+            // the Awake fallback's ordering, so the representative bush is identical either resolution path).
+            var bushes = Object.FindObjectsByType<BerryBush>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
+            settingsPanel.berryBushes = bushes;
+            EditorUtility.SetDirty(settingsPanel);
+
+            Debug.Log("[MovementCameraScene] WireBerryBushes: serialized " + bushes.Length + " BerryBush refs " +
+                      "onto SettingsPanel.berryBushes editor-time (the `Berry regrowth time` row fans out across " +
+                      "ALL of them in the shipped build — Devon NIT #1, editor-time ship-path not the Awake fallback)");
+        }
+
         // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
         // as LowPolyZoneGen's scatter canopies (style-guide-v2 §6), so the choppable tree matches the
         // world's trees. Multi-value greens are baked into the mesh's vertex color by BlobCanopy.
