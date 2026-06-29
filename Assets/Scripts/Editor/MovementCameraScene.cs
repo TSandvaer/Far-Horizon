@@ -1302,6 +1302,19 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        private static void WireHandsVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host HandsVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<HandsVerifyCapture>() == null)
+                bootGo.AddComponent<HandsVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0) onto the Boot object so it
         // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
         // otherwise). INERT in normal play; on -axeWalkTrace it drives a scripted walk + dumps every Y-reference
@@ -2567,6 +2580,12 @@ namespace FarHorizon.EditorTools
             // repeatable shipped-build path (the PR #21 lesson — a detail claim needs a committed shot,
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
+
+            // Wire the HANDS close-up capture (PR #186 FINGER re-open). The avatar-wide CastawayVerifyCapture
+            // frames the hands too small to judge a finger mangle; this frames EACH hand TIGHTLY (individual
+            // fingers resolvable) while the Breathing Idle plays, so the symptom region the Sponsor saw mangled
+            // is eyeball-judgeable from a SHIPPED frame. Inert unless launched with -verifyHands.
+            WireHandsVerifyCapture();
 
             // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC (86ca8rdkp — the instrument). Serializes onto Boot so
             // the F8 overlay (feet/ground/GAP live) + the ~1Hz [FloatTrace] log ship; inert until F8/-floatTrace.

@@ -1485,5 +1485,134 @@ namespace FarHorizon.EditorTools
             if (colon >= 0) n = n.Substring(colon + 1);
             return n;
         }
+
+        // ===== FINGER-POSE ROTATION TRACE (PR #186 FINGER re-open — "MANGLES under the arms-down idle pose").
+        // The stretch-RATIO trace above (FingerDeformTrace) measures owned-vert distance-from-bone; that ONLY
+        // catches a STRETCHED/torn finger (a weight defect) — it CANNOT see a BENT / ROTATED / COLLAPSED finger,
+        // which is exactly what a "mangle" looks like (the verts ride a bone that the clip rotates to a BAD ANGLE,
+        // so distance-from-bone stays ~1.0 = "CLEAN" while the finger visibly bends wrong). So the earlier
+        // "CLEAN SKINNING" verdict was correct-but-irrelevant to a POSE mangle.
+        //
+        // This trace measures the MISSING dimension: each finger bone's LOCAL ROTATION under the BREATHING-IDLE
+        // pose (sampled across the cycle) vs the FBX BIND/REST local rotation, for BOTH hands. A finger bone whose
+        // clip pose rotates it far from its rest angle (esp. a big angle on a non-curl axis, or an asymmetric L-vs-R
+        // delta) is the cause-(a) signature: the imported Breathing-Idle clip poses that finger to a broken angle on
+        // THIS rig. A finger bone that stays near its rest angle under the clip = the clip is NOT mangling it
+        // (look elsewhere — weights / bind orient). Run:
+        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.FingerPoseRotationTrace
+        public static void FingerPoseRotationTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[finger-pose] ===== FINGER-POSE ROTATION TRACE (PR #186 — mangle under arms-down idle, BOTH hands) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[finger-pose] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // BOTH hands' finger + thumb proximal..distal tokens.
+            string[] fingerTokens =
+            {
+                "righthandindex1","righthandindex2","righthandindex3",
+                "righthandmiddle1","righthandmiddle2","righthandmiddle3",
+                "righthandring1","righthandring2","righthandring3",
+                "righthandpinky1","righthandpinky2","righthandpinky3",
+                "righthandthumb1","righthandthumb2","righthandthumb3",
+                "lefthandindex1","lefthandindex2","lefthandindex3",
+                "lefthandmiddle1","lefthandmiddle2","lefthandmiddle3",
+                "lefthandring1","lefthandring2","lefthandring3",
+                "lefthandpinky1","lefthandpinky2","lefthandpinky3",
+                "lefthandthumb1","lefthandthumb2","lefthandthumb3",
+            };
+
+            var breathing = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            var walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[finger-pose] breathingIdle={(breathing != null ? breathing.name : "<null>")} " +
+                          $"walk={(walk != null ? walk.name : "<null>")}");
+
+            var model = Object.Instantiate(fbx);
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null) { sb.AppendLine("[finger-pose] no SkinnedMeshRenderer"); Object.DestroyImmediate(model);
+                Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // Resolve each finger bone from the SMR bone array (the real skeleton).
+            var fingerBones = new System.Collections.Generic.Dictionary<string, Transform>();
+            foreach (var bone in smr.bones)
+            {
+                if (bone == null) continue;
+                string tok = ExactTokenLocal(bone.name);
+                foreach (var ft in fingerTokens) if (tok == ft) fingerBones[ft] = bone;
+            }
+            sb.AppendLine($"[finger-pose] resolved {fingerBones.Count} finger/thumb bones (of {fingerTokens.Length} tokens)");
+
+            // BIND/REST local rotation: SampleAnimation at clip-time 0 of a clip is the clip's pose, NOT the
+            // bind — so capture the FBX REST pose first (the imported skeleton's default localRotation, before
+            // any clip is sampled). This is the bone's authored rest angle.
+            var restEuler = new System.Collections.Generic.Dictionary<string, Vector3>();
+            foreach (var kv in fingerBones) restEuler[kv.Key] = NormEuler(kv.Value.localRotation.eulerAngles);
+
+            // Per clip, per bone: max angular delta of the bone's LOCAL rotation from its REST rotation across
+            // the cycle (Quaternion.Angle is axis-agnostic — catches a bend on ANY axis), plus the worst-frame
+            // local-Euler so we can read WHICH axis bends.
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[finger-pose] {label}: <null clip>"); return; }
+                sb.AppendLine($"[finger-pose] --- {label} (rest-rel local-rotation delta across {clip.length:F2}s cycle) ---");
+                var worstAng = new System.Collections.Generic.Dictionary<string, float>();
+                var worstEuler = new System.Collections.Generic.Dictionary<string, Vector3>();
+                foreach (var k in fingerBones.Keys) worstAng[k] = 0f;
+                int N = 12;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    foreach (var kv in fingerBones)
+                    {
+                        Quaternion restQ = Quaternion.Euler(restEuler[kv.Key]);
+                        float ang = Quaternion.Angle(restQ, kv.Value.localRotation);
+                        if (ang > worstAng[kv.Key])
+                        {
+                            worstAng[kv.Key] = ang;
+                            worstEuler[kv.Key] = NormEuler(kv.Value.localRotation.eulerAngles);
+                        }
+                    }
+                }
+                // Print in a stable order so L-vs-R asymmetry is eyeball-readable.
+                foreach (var ft in fingerTokens)
+                {
+                    if (!fingerBones.ContainsKey(ft)) continue;
+                    float ang = worstAng[ft];
+                    string flag = ang > 35f ? "  <== LARGE clip-pose rotation (bad-angle SUSPECT)" : "";
+                    sb.AppendLine($"[finger-pose] {label} {ft,-18} restEuler={Fmt(restEuler[ft])} " +
+                                  $"worstDeltaAng={ang,6:F1}deg worstEuler={Fmt(worstEuler[ft])}{flag}");
+                }
+            }
+
+            SampleClip("BREATHING-IDLE", breathing);
+            SampleClip("WALK", walk);
+            Object.DestroyImmediate(model);
+            sb.AppendLine("[finger-pose] VERDICT GUIDE: a finger bone with a small (<35deg) rest-rel delta is NOT " +
+                          "posed wrong by the clip. A LARGE delta (esp. asymmetric L-vs-R, or on a non-curl axis) " +
+                          "= the imported clip poses that finger to a broken angle on THIS rig (cause (a)); the fix " +
+                          "is to MASK/ZERO the finger-bone curves on the idle/locomotion clips so the fingers hold " +
+                          "the rig's relaxed rest pose.");
+            sb.AppendLine("[finger-pose] ===== END FINGER-POSE ROTATION TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // Normalize Euler components to (-180,180] so a 359deg rest reads as -1, not a fake 359 delta.
+        private static Vector3 NormEuler(Vector3 e)
+        {
+            return new Vector3(NormDeg(e.x), NormDeg(e.y), NormDeg(e.z));
+        }
+        private static float NormDeg(float d)
+        {
+            d %= 360f;
+            if (d > 180f) d -= 360f;
+            if (d <= -180f) d += 360f;
+            return d;
+        }
+        private static string Fmt(Vector3 e) => $"({e.x,6:F1},{e.y,6:F1},{e.z,6:F1})";
     }
 }
