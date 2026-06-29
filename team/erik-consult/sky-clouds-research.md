@@ -196,3 +196,67 @@ colour stops himself before the devs bake it).
   Sponsor soaks the shipped exe.
 - `WorldLookConfig.cs` does NOT need new constants for the sun disc defaults — they live as
   Properties defaults in the shader itself (same pattern as `_ZenithColor`, `_MidColor`, etc.).
+
+---
+
+## Consolidated POC-brief addenda (folded from `lowpoly-stylized-sky-research.md`, 2026-06-29)
+
+A second Erik note (POC-brief framing) covered the same bottom line, the same three additive ranks,
+and the same exclusions as above. To avoid a duplicate file it was merged here; the sections below
+are the brief-specific content this recipe did not already carry.
+
+### Approach-selection trade-off table (why custom HLSL gradient skybox wins)
+
+| Approach | Fit for Zone-D chunky look | Fog seam risk | GPU cost | GC per frame | Notes |
+|---|---|---|---|---|---|
+| **Custom HLSL gradient skybox** (our approach) | Exact — we control all stops | None (horizon matched by palette constant) | One background draw call, ~10 ALU instructions | Zero — pure shader, no C# in hot path | Already shipping; extend in place |
+| Procedural Skybox (Unity built-in) | Partial — realistic Rayleigh scattering reads naturalistic, not cartoon | Low but tunable | Similar | Zero | No Shader Graph; `_WorldSpaceLightPos0` auto-available but less control |
+| Skybox material (6-sided / cubemap) | Wrong — baked texture loses runtime colour control the NudgeTool relies on | Seam fixed at bake time | One background draw | Zero | Ruled out: no runtime dial |
+| Sky-dome mesh (large inverted sphere) | Viable but redundant | Must manually disable fog on the dome mesh | Adds a MeshRenderer draw call; can break GPU Resident Drawer if using MaterialPropertyBlock | Zero if no MPB | No gain over shader route for our case |
+| Shader Graph skybox | Same as HLSL but loses gradient property exposability | Same | Same | Zero | Ruled out: property limitation |
+
+### Fog composition / horizon-seam dependency (NEW — not in the recipe above)
+
+**Source:** Unity Forum — "What's the best way to deal with fog and horizon in URP?"
+(https://discussions.unity.com/t/whats-the-best-way-to-deal-with-fog-and-horizon-in-urp/780400)
+**[Moderate — practitioner discussion]** + Unity Docs `RenderSettings.fogColor`
+(https://docs.unity3d.com/ScriptReference/RenderSettings-fogColor.html) **[Strong — official]**.
+
+- **URP built-in fog applies only to mesh surfaces, NOT to the scene background (skybox).** The skybox
+  horizon colour and the fog colour must be matched manually — the fog never "fades into" the skybox
+  automatically.
+- The codebase already handles this: `QualityPassGen.EnableGlobalFog()` sets
+  `RenderSettings.fogColor = WorldLookPalette.SkyHorizon`, the same constant as the skybox's
+  `_HorizonColor`. The `_FogCap` floor in `LowPolyVertexColor.shader` additionally prevents the teal
+  ocean showing through fog at the horizon.
+- **Do not change `_HorizonColor` without also updating `RenderSettings.fogColor`** — the seam
+  protection depends on the two being identical. Add this to the POC's regression check (alongside
+  the PR #48 wash guard).
+- `DynamicGI.UpdateEnvironment()` must be called after changing the skybox material's colours at
+  runtime to update the ambient probe — relevant only if a later milestone adds a day-tint feature.
+
+### GPU-Resident-Drawer note (NEW)
+
+Skyboxes render through Unity's dedicated background draw, NOT through MeshRenderer instancing — so
+GPU Resident Drawer simply does not apply to the skybox pass; it is irrelevant to approach selection.
+A **sky-dome mesh** WOULD go through MeshRenderer and WOULD be subject to GPU-Resident-Drawer
+disqualifiers (e.g. MaterialPropertyBlock) — an additional reason to prefer the shader-only route.
+
+### Day / time-tint scope decision (NEW)
+
+A day-tint would require (a) a C# script updating `_ZenithColor` / `_MidColor` / `_HorizonColor` +
+`RenderSettings.fogColor` + `DynamicGI.UpdateEnvironment()` per tick, and (b) matching light-colour
+changes. Technically straightforward via `RenderSettings.skybox.SetColor()`, but it belongs in a
+**later milestone** (weather/atmosphere system), not this POC. The POC keeps the directional light
+angle fixed; the `WorldLookNudgeTool` F9 dial already lets the Sponsor adjust sky stops manually,
+which is sufficient for the soak.
+
+### Files-in-scope (consolidated)
+
+| File | Change |
+|---|---|
+| `Assets/Shaders/GradientSkybox.shader` | Add sun disc + halo properties + frag logic (in-place) |
+| `Assets/Scripts/Runtime/SkyboxSunSync.cs` | NEW — pushes directional light dir to skybox material on `Start()` |
+| `Assets/Scripts/Runtime/WorldBootstrap.cs` | Change `CloudTop` to warm-cream tint |
+| `Assets/Scripts/Editor/WorldLookNudgeTool.cs` | Expose new sun-disc properties on the F9 dial |
+| Boot scene / `BootstrapProject.Run` | Add `SkyboxSunSync` MonoBehaviour + Lens Flare (SRP) component to the directional light |
