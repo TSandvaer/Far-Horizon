@@ -107,45 +107,123 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(-1f, _nudge.ForceRecessStep(-1), "negative recess step returns -1, no throw");
         }
 
-        // (3) DECONFLICT REGRESSION GUARD (ticket 86cafjrxk — Sponsor #176: "pond were manipulated because the
-        // pg up and down conflicts"). The bug class: the ALWAYS-LIVE pond handle consumed PgUp/PgDn at the SAME
-        // time as an F-key WEAPON-NUDGE panel, so dialing the weapon's Y silently also stepped the pond recess.
-        // The decision seam protecting the pond is PondNudge.AnyNudgePanelActive() — when ANY of the three F-key
-        // nudge tools is toggled ON it returns true, and Update() yields PgUp/PgDn instead of stepping. This
-        // tests the seam end-to-end with a REAL AxeNudgeTool: no panel → pond owns the key (false); panel ON →
-        // pond yields (true); panel OFF again → pond resumes (false). A regression that drops the gate (the pond
-        // listening through an open weapon panel) flips one of these asserts. Layout-agnostic / no Input synth.
+        // (3) DECONFLICT REGRESSION GUARD — ALL THREE NUDGE-PANEL LEGS (ticket 86cafz9jr broadening of the
+        // 86cafjrxk / #187 pond-only test; Sponsor #176: "pond were manipulated because the pg up and down
+        // conflicts"). The bug class: the ALWAYS-LIVE pond handle consumed PgUp/PgDn at the SAME time as an
+        // F-key NUDGE panel, so dialing that panel's PgUp/PgDn silently also stepped the pond recess. The
+        // decision seam protecting the pond is PondNudge.AnyNudgePanelActive() — after the 86cafz9jr refactor
+        // it discovers active panels THROUGH the INudgePanel interface (no hard-coded type list), so a 4th
+        // panel inherits the guard automatically. #187's test covered the AXE leg only; this closes the
+        // coverage to EVERY existing INudgePanel implementer (Axe / WorldLook / CameraFollow): for each, no
+        // panel → pond owns the key (false); THAT panel ON → pond yields (true); panel OFF → pond resumes
+        // (false). A regression that drops a panel out of the interface-discovered set flips one of these
+        // asserts. Layout-agnostic / no Input synth (mirrors the public Activate/IsActive contract).
         [UnityTest]
-        public IEnumerator PondYieldsPgUpPgDn_WhileAnyNudgePanelActive()
+        public IEnumerator PondYieldsPgUpPgDn_WhileAnyNudgePanelActive_AllThreeLegs()
         {
             BuildSyntheticPond();
-            var toolGo = new GameObject("AxeNudgeRig");
-            var axeTool = toolGo.AddComponent<AxeNudgeTool>();
+            var axeGo = new GameObject("AxeNudgeRig");
+            var axeTool = axeGo.AddComponent<AxeNudgeTool>();
+            var worldGo = new GameObject("WorldLookNudgeRig");
+            var worldTool = worldGo.AddComponent<WorldLookNudgeTool>();
+            var camGo = new GameObject("CameraFollowNudgeRig");
+            var camTool = camGo.AddComponent<CameraFollowNudgeTool>();
             yield return null; // let Awake run
 
             try
             {
-                // No F-key panel open → the always-live pond handle OWNS PgUp/PgDn (normal pond soak unchanged).
+                // Every panel implements the shared INudgePanel contract (the refactor's named interface) —
+                // this is what makes the gate type-list-free. If a panel ever stops implementing it, the
+                // interface-discovery scan would silently skip it (re-opening the #176 collision); pin it.
+                Assert.IsInstanceOf<INudgePanel>(axeTool, "AxeNudgeTool must implement INudgePanel");
+                Assert.IsInstanceOf<INudgePanel>(worldTool, "WorldLookNudgeTool must implement INudgePanel");
+                Assert.IsInstanceOf<INudgePanel>(camTool, "CameraFollowNudgeTool must implement INudgePanel");
+
+                // No panel open → the always-live pond handle OWNS PgUp/PgDn (normal pond soak unchanged).
+                Assert.IsFalse(axeTool.IsActive, "the axe tool starts inert");
+                Assert.IsFalse(worldTool.IsActive, "the world-look tool starts inert");
+                Assert.IsFalse(camTool.IsActive, "the camera-follow tool starts inert");
                 Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
                     "with no nudge panel open the pond handle must own PgUp/PgDn (normal soak)");
-                Assert.IsFalse(axeTool.IsActive, "the axe tool starts inert");
 
-                // Open the weapon-nudge panel (the F9 path) → it now OWNS PgUp/PgDn; the pond must yield.
+                // --- LEG 1: AXE panel. Open it → it OWNS PgUp/PgDn; the pond must yield. ---
                 axeTool.Activate();
                 Assert.IsTrue(axeTool.IsActive, "Activate() turns the axe panel on");
                 Assert.IsTrue(PondNudge.AnyNudgePanelActive(),
-                    "while a weapon-nudge panel is ON, PgUp/PgDn belongs to it — the pond handle must yield " +
-                    "(the #176 collision: dialing the weapon Y also stepped the pond recess)");
-
-                // Close the panel → the pond handle resumes owning PgUp/PgDn for a plain pond soak.
+                    "while the AXE nudge panel is ON the pond handle must yield PgUp/PgDn (#176 collision)");
                 axeTool.Deactivate();
-                Assert.IsFalse(axeTool.IsActive, "Deactivate() turns the axe panel off");
                 Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
-                    "with the panel closed the pond handle owns PgUp/PgDn again");
+                    "with the axe panel closed the pond handle owns PgUp/PgDn again");
+
+                // --- LEG 2: WORLD-LOOK panel. Open it → pond must yield. ---
+                worldTool.Activate();
+                Assert.IsTrue(worldTool.IsActive, "Activate() turns the world-look panel on");
+                Assert.IsTrue(PondNudge.AnyNudgePanelActive(),
+                    "while the WORLD-LOOK nudge panel is ON the pond handle must yield PgUp/PgDn");
+                worldTool.Deactivate();
+                Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
+                    "with the world-look panel closed the pond handle owns PgUp/PgDn again");
+
+                // --- LEG 3: CAMERA-FOLLOW panel. Open it → pond must yield. ---
+                camTool.Activate();
+                Assert.IsTrue(camTool.IsActive, "Activate() turns the camera-follow panel on");
+                Assert.IsTrue(PondNudge.AnyNudgePanelActive(),
+                    "while the CAMERA-FOLLOW nudge panel is ON the pond handle must yield PgUp/PgDn");
+                camTool.Deactivate();
+                Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
+                    "with the camera-follow panel closed the pond handle owns PgUp/PgDn again");
             }
             finally
             {
-                Object.Destroy(toolGo);
+                Object.Destroy(axeGo);
+                Object.Destroy(worldGo);
+                Object.Destroy(camGo);
+            }
+        }
+
+        // (4) MUTUAL-EXCLUSION PRESERVED ACROSS THE INTERFACE (ticket 86cafz9jr). The three panels enforce
+        // mutual exclusion among themselves (each Activate() deactivates the siblings), so at most ONE is ever
+        // active. The interface refactor must NOT regress this — AnyNudgePanelActive() still reports true while
+        // the single surviving panel is up. Open all three in sequence; each Activate silences the prior, and
+        // the gate stays true throughout (a panel is always the active owner of PgUp/PgDn).
+        [UnityTest]
+        public IEnumerator NudgePanels_MutualExclusion_Preserved_GateStaysTrue()
+        {
+            BuildSyntheticPond();
+            var axeGo = new GameObject("AxeNudgeRig");
+            var axeTool = axeGo.AddComponent<AxeNudgeTool>();
+            var worldGo = new GameObject("WorldLookNudgeRig");
+            var worldTool = worldGo.AddComponent<WorldLookNudgeTool>();
+            var camGo = new GameObject("CameraFollowNudgeRig");
+            var camTool = camGo.AddComponent<CameraFollowNudgeTool>();
+            yield return null;
+
+            try
+            {
+                axeTool.Activate();
+                worldTool.Activate(); // must silence the axe panel
+                Assert.IsFalse(axeTool.IsActive, "opening world-look must deactivate the axe panel (mutual exclusion)");
+                Assert.IsTrue(worldTool.IsActive, "the world-look panel is now the active one");
+                Assert.IsTrue(PondNudge.AnyNudgePanelActive(),
+                    "exactly one panel is active — the gate must still report a panel owns PgUp/PgDn");
+
+                camTool.Activate(); // must silence the world-look panel
+                Assert.IsFalse(worldTool.IsActive, "opening camera-follow must deactivate the world-look panel");
+                Assert.IsFalse(axeTool.IsActive, "the axe panel stays off");
+                Assert.IsTrue(camTool.IsActive, "the camera-follow panel is now the active one");
+                Assert.IsTrue(PondNudge.AnyNudgePanelActive(),
+                    "still exactly one active panel — the gate stays true");
+
+                // Close the lone survivor → no panel active → pond resumes ownership.
+                camTool.Deactivate();
+                Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
+                    "all panels closed — the pond handle owns PgUp/PgDn again");
+            }
+            finally
+            {
+                Object.Destroy(axeGo);
+                Object.Destroy(worldGo);
+                Object.Destroy(camGo);
             }
         }
     }
