@@ -106,5 +106,47 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(-1f, _nudge.ForceRecessStep(99), "out-of-range recess step returns -1, no throw");
             Assert.AreEqual(-1f, _nudge.ForceRecessStep(-1), "negative recess step returns -1, no throw");
         }
+
+        // (3) DECONFLICT REGRESSION GUARD (ticket 86cafjrxk — Sponsor #176: "pond were manipulated because the
+        // pg up and down conflicts"). The bug class: the ALWAYS-LIVE pond handle consumed PgUp/PgDn at the SAME
+        // time as an F-key WEAPON-NUDGE panel, so dialing the weapon's Y silently also stepped the pond recess.
+        // The decision seam protecting the pond is PondNudge.AnyNudgePanelActive() — when ANY of the three F-key
+        // nudge tools is toggled ON it returns true, and Update() yields PgUp/PgDn instead of stepping. This
+        // tests the seam end-to-end with a REAL AxeNudgeTool: no panel → pond owns the key (false); panel ON →
+        // pond yields (true); panel OFF again → pond resumes (false). A regression that drops the gate (the pond
+        // listening through an open weapon panel) flips one of these asserts. Layout-agnostic / no Input synth.
+        [UnityTest]
+        public IEnumerator PondYieldsPgUpPgDn_WhileAnyNudgePanelActive()
+        {
+            BuildSyntheticPond();
+            var toolGo = new GameObject("AxeNudgeRig");
+            var axeTool = toolGo.AddComponent<AxeNudgeTool>();
+            yield return null; // let Awake run
+
+            try
+            {
+                // No F-key panel open → the always-live pond handle OWNS PgUp/PgDn (normal pond soak unchanged).
+                Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
+                    "with no nudge panel open the pond handle must own PgUp/PgDn (normal soak)");
+                Assert.IsFalse(axeTool.IsActive, "the axe tool starts inert");
+
+                // Open the weapon-nudge panel (the F9 path) → it now OWNS PgUp/PgDn; the pond must yield.
+                axeTool.Activate();
+                Assert.IsTrue(axeTool.IsActive, "Activate() turns the axe panel on");
+                Assert.IsTrue(PondNudge.AnyNudgePanelActive(),
+                    "while a weapon-nudge panel is ON, PgUp/PgDn belongs to it — the pond handle must yield " +
+                    "(the #176 collision: dialing the weapon Y also stepped the pond recess)");
+
+                // Close the panel → the pond handle resumes owning PgUp/PgDn for a plain pond soak.
+                axeTool.Deactivate();
+                Assert.IsFalse(axeTool.IsActive, "Deactivate() turns the axe panel off");
+                Assert.IsFalse(PondNudge.AnyNudgePanelActive(),
+                    "with the panel closed the pond handle owns PgUp/PgDn again");
+            }
+            finally
+            {
+                Object.Destroy(toolGo);
+            }
+        }
     }
 }

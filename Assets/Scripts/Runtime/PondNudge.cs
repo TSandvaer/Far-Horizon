@@ -28,9 +28,12 @@ namespace FarHorizon
     /// top-down no-surface-white verify gate, not a dial.
     ///
     /// KEYS — LAYOUT-AGNOSTIC ONLY ([[sponsor-danish-keyboard-layout]]): PageUp/PageDown. NEVER US-position
-    /// punctuation ([ ] ; ' - =) — they shift on the Sponsor's Danish laptop. (PgUp/PgDn are free here: the
-    /// held-axe TGYHUJ rotation keys are F9-gated, the WorldLookNudgeTool is F10-gated, and neither is active
-    /// during a normal pond soak — this handle is always-live like the axe LENGTH picker.)
+    /// punctuation ([ ] ; ' - =) — they shift on the Sponsor's Danish laptop. This handle is ALWAYS-LIVE (like
+    /// the axe LENGTH picker), but the F-key NUDGE TOOLS (AxeNudgeTool F9 / WorldLookNudgeTool F10 /
+    /// CameraFollowNudgeTool F7) ALSO bind PgUp/PgDn. To stop a single press driving BOTH (ticket 86cafjrxk —
+    /// Sponsor #176: "pond were manipulated because the pg up and down conflicts" while dialing the weapon),
+    /// this handle YIELDS PgUp/PgDn whenever ANY of those nudge panels is toggled ON — the active panel owns the
+    /// key. A normal pond soak (no F-key tool open) is unchanged. See <see cref="AnyNudgePanelActive"/>.
     ///
     /// ALWAYS-LIVE (like HeldAxeLengthPicker, NOT toggle-gated like the F9/F10 nudge tools): the panel shows
     /// the current recess value the whole soak so the Sponsor reads it off-screen to report for baking. It
@@ -107,11 +110,46 @@ namespace FarHorizon
 
         private void Update()
         {
-            bool recessChanged = false;
-            if (Input.GetKeyDown(recessDeeperKey))    { Step(ref _recessStep, +1, RecessStepValue.Length); recessChanged = true; }
-            if (Input.GetKeyDown(recessShallowerKey)) { Step(ref _recessStep, -1, RecessStepValue.Length); recessChanged = true; }
+            bool deeper = Input.GetKeyDown(recessDeeperKey);
+            bool shallower = Input.GetKeyDown(recessShallowerKey);
+            if (!deeper && !shallower) return; // no PgUp/PgDn this frame — pay nothing (no Find allocs)
 
-            if (recessChanged) { if (!_resolved) Resolve(); ApplyRecess(); LogRecess(); }
+            // KEYBIND DECONFLICT (ticket 86cafjrxk — Sponsor #176 weapon soak: "pond were manipulated because
+            // the pg up and down conflicts"). The F-key NUDGE TOOLS (AxeNudgeTool F9 / WorldLookNudgeTool F10 /
+            // CameraFollowNudgeTool F7) ALSO bind PgUp/PgDn (the weapon-head Y dial etc.), but they are toggle-
+            // gated and only ONE is ever active (they enforce mutual exclusion among themselves). This pond
+            // handle is ALWAYS-LIVE, so while a nudge panel is open the SAME PgUp/PgDn press drove BOTH — the
+            // pond recess got accidentally set to DEEPER while the Sponsor was only dialing the weapon. Fix
+            // (the ticket's "only the ACTIVE/focused debug tool consumes PgUp/PgDn" option): when ANY F-key
+            // nudge panel is active it OWNS PgUp/PgDn, so this always-live pond handle yields. A normal pond
+            // soak (no F-key tool open) is unchanged — PgUp/PgDn still steps the recess. Gated behind the
+            // keypress above so the Find* scan only runs on a PgUp/PgDn frame, never per-frame.
+            if (AnyNudgePanelActive()) return;
+
+            int dir = deeper ? +1 : -1; // PgUp deepens, PgDn shallows (PgDn only reached if !deeper)
+            Step(ref _recessStep, dir, RecessStepValue.Length);
+            if (!_resolved) Resolve();
+            ApplyRecess();
+            LogRecess();
+        }
+
+        /// <summary>
+        /// True if ANY of the F-key NUDGE TOOL panels (AxeNudgeTool / WorldLookNudgeTool / CameraFollowNudgeTool)
+        /// is currently toggled ON. While one is, it OWNS PgUp/PgDn and this always-live pond handle must not
+        /// also consume the same press (ticket 86cafjrxk deconflict). Only called on a PgUp/PgDn frame, so the
+        /// Find* scan never runs per-frame. Includes inactive objects so a serialized-but-disabled tool counts.
+        /// PUBLIC so the deconflict contract is testable without synthesizing a legacy-Input PgUp key-down
+        /// (mirrors AxeNudgeTool.Activate/IsActive being public for the same reason).
+        /// </summary>
+        public static bool AnyNudgePanelActive()
+        {
+            foreach (var t in Object.FindObjectsByType<AxeNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (t.IsActive) return true;
+            foreach (var t in Object.FindObjectsByType<WorldLookNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (t.IsActive) return true;
+            foreach (var t in Object.FindObjectsByType<CameraFollowNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (t.IsActive) return true;
+            return false;
         }
 
         private static void Step(ref int idx, int dir, int count) => idx = ((idx + dir) % count + count) % count;
