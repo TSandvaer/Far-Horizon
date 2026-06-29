@@ -6,7 +6,6 @@ using FarHorizon;
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEditor.Animations;
-using FarHorizon.EditorTools;
 #endif
 
 namespace FarHorizon.PlayTests
@@ -30,6 +29,13 @@ namespace FarHorizon.PlayTests
     /// </summary>
     public class CastawayLocomotionHitReactPlayModeTests
     {
+        // Mirror CharacterAssetGen (the editor asmdef is intentionally NOT referenced by this all-platform
+        // PlayTests asmdef; a ParamNamesMatch EditMode test pins the param-name half of the mirror). The controller
+        // path is the stable committed-asset path; the blend speeds mirror WalkBlendSpeed/RunBlendSpeed.
+        private const string ControllerPath = "Assets/Art/Character/Castaway/CastawayAnimator.controller";
+        private const float WalkBlendSpeed = 5.5f;
+        private const float RunBlendSpeed = 9.5f;
+
         private GameObject _go;
         private Animator _animator;
 
@@ -48,8 +54,8 @@ namespace FarHorizon.PlayTests
         public void SetUp()
         {
 #if UNITY_EDITOR
-            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(CharacterAssetGen.ControllerPath);
-            Assert.IsNotNull(controller, "the production CastawayAnimator controller must exist at " + CharacterAssetGen.ControllerPath);
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath);
+            Assert.IsNotNull(controller, "the production CastawayAnimator controller must exist at " + ControllerPath);
 
             _go = new GameObject("AnimRig");
             _animator = _go.AddComponent<Animator>();
@@ -99,16 +105,16 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual("Idle", ActiveStateName(), "at rest (Moving=false, Speed=0) the active state must be Idle");
 
             _animator.SetBool(CastawayCharacter.MovingParam, true);
-            _animator.SetFloat(CastawayCharacter.SpeedParam, CharacterAssetGen.WalkBlendSpeed);
+            _animator.SetFloat(CastawayCharacter.SpeedParam, WalkBlendSpeed);
             Tick();
             Assert.AreEqual("Locomotion", ActiveStateName(),
                 "with Moving=true the active state must switch to the Locomotion blend (Idle→Locomotion on Moving)");
 
-            _animator.SetFloat(CastawayCharacter.SpeedParam, CharacterAssetGen.RunBlendSpeed);
+            _animator.SetFloat(CastawayCharacter.SpeedParam, RunBlendSpeed);
             Tick();
             Assert.AreEqual("Locomotion", ActiveStateName(),
                 "at run speed the active state stays Locomotion (the Walk→Run blend happens INSIDE the blend tree)");
-            Assert.AreEqual(CharacterAssetGen.RunBlendSpeed, _animator.GetFloat(CastawayCharacter.SpeedParam), 1e-3f,
+            Assert.AreEqual(RunBlendSpeed, _animator.GetFloat(CastawayCharacter.SpeedParam), 1e-3f,
                 "the Speed param the blend tree reads must equal the run speed we fed it");
 
             _animator.SetBool(CastawayCharacter.MovingParam, false);
