@@ -125,22 +125,27 @@ namespace FarHorizon
         // render was Sponsor-accepted); only the HELD scale was wrong. So these are BUMPED UP to read
         // proportionate to the axe's in-hand presence: a knife a solid knife, a sword sword-sized, a spear
         // long — all much closer to 1.0. The axe holds at 1.0 and looks right; match that apparent presence.
-        // These are the best FIRST-GUESS; the LIVE SCALE DIAL ([ ] / - =) lets the Sponsor dial each by eye +
-        // read the number to bake here, so we don't blind-iterate.
-        // PUBLIC so the EditMode guard pins the axe-locked-default contract (index 0 == identity).
+        // 86caffwuz BAKE (build 5caf1be): the Sponsor SOAKED + CONFIRMED these held scales — he dialed each
+        // weapon in-hand via the unified settings console and these are the values he settled on, so they ARE
+        // the approval (he left the scales at these and adjusted the OFFSETS — see WeaponMeshLocalOffset). The
+        // axe holds at 1.0 (Sponsor-LOCKED). knife 0.85 / sword 0.95 / spear 0.90 are the baked committed
+        // defaults; assert the committed value, not just regen ([[unity-procedural-committed-assets-go-stale]]).
+        // PUBLIC so the EditMode guard pins the axe-locked-default contract (index 0 == identity) + the dialed values.
         public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f };
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
-        // Re-seated DEEPER for the larger scale above: a bigger mesh's grip-base sits further from the palm, so
-        // the pull-back along the blade axis scales up too (≈ old-offset × new-scale/old-scale) — keeps the
-        // grip in the hand + the tip clear of the ground at the bumped size. The live dial only changes scale;
-        // if a weapon clips after dialing, re-tune these offsets in the same bake.
+        // 86caffwuz BAKE (build 5caf1be): these are the Sponsor's DIALED in-hand offsets — he soaked + nudged
+        // each weapon into place via the unified settings console's 7 held-weapon rows, and these committed
+        // numbers ARE the approval ([[verify-soak-builds-or-bake-and-judge]] — bake the dialed values, assert
+        // the committed on-disk constant). The earlier {-0.34/-0.80/-1.50} z-only pull-backs were FIRST-GUESS
+        // look-soak seats; the Sponsor re-seated each by eye (small Y drop into the palm + a slight X for the
+        // sword/spear). The axe stays zero (Sponsor-LOCKED seat, bar #6 — don't regress a praised grip).
         public static readonly Vector3[] WeaponMeshLocalOffset =
         {
-            Vector3.zero,                       // axe — LOCKED, no compensation
-            new Vector3(0f, 0f, -0.34f),        // knife
-            new Vector3(0f, 0f, -0.80f),        // sword
-            new Vector3(0f, 0f, -1.50f),        // spear (longest — pull the grip furthest back)
+            Vector3.zero,                            // axe — LOCKED, no compensation
+            new Vector3(0.000f, -0.100f, -0.020f),   // knife (Sponsor-dialed 5caf1be)
+            new Vector3(-0.020f, -0.120f, 0.000f),   // sword (Sponsor-dialed 5caf1be)
+            new Vector3(-0.020f, -0.120f, 0.000f),   // spear (Sponsor-dialed 5caf1be)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME

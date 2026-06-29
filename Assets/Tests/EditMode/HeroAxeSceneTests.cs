@@ -466,6 +466,7 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponLabels.Length, "WeaponLabels must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalEuler.Length, "WeaponMeshLocalEuler must align with WeaponNodeNames.");
             Assert.AreEqual("wpn_axe_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the axe must be cycle index 0 (the locked default).");
             Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
                 "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
@@ -500,6 +501,42 @@ namespace FarHorizon.EditTests
                     $"the held {HeldWeaponCycleDebug.WeaponLabels[i]} scale ({s:F2}) must not ship grossly larger " +
                     $"than the axe ({axe:F2}) — ≤2× (catches a fat-finger bake of the live-dial value).");
             }
+        }
+
+        [Test]
+        public void HeldWeaponCycleDebug_PerWeaponSeats_AreTheSponsorDialedBakedValues_86caffwuz()
+        {
+            // 86caffwuz BAKE regression guard (build 5caf1be). The Sponsor soaked the held weapons and DIALED
+            // each in-hand seat via the unified settings console's 7 held-weapon rows; those committed numbers
+            // ARE his approval ([[verify-soak-builds-or-bake-and-judge]] — bake the dialed values + assert the
+            // COMMITTED on-disk constant, not just regen-code [[unity-procedural-committed-assets-go-stale]]).
+            // Equality-pin EVERY per-weapon baked value to the dialed numbers so any future edit that drifts a
+            // seat reds here in CI — the bug class is "a later tweak silently moves a Sponsor-approved seat".
+            // The earlier guard only floored/ceilinged the scales + pinned index-0 identity; it did NOT pin the
+            // exact offset/euler the Sponsor dialed — this does.
+
+            // AXE (index 0) — Sponsor-LOCKED: zero offset/euler, unit scale (byte-unchanged seat, bar #6).
+            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0], "AXE offset must stay zero (LOCKED).");
+            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalEuler[0], "AXE euler must stay zero (LOCKED).");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0], 1e-4f, "AXE scale must stay 1.0 (LOCKED).");
+
+            // KNIFE (index 1) — Sponsor-dialed.
+            AssertSeat(1, new Vector3(0.000f, -0.100f, -0.020f), Vector3.zero, 0.85f);
+            // SWORD (index 2) — Sponsor-dialed.
+            AssertSeat(2, new Vector3(-0.020f, -0.120f, 0.000f), Vector3.zero, 0.95f);
+            // SPEAR (index 3) — Sponsor-dialed.
+            AssertSeat(3, new Vector3(-0.020f, -0.120f, 0.000f), Vector3.zero, 0.90f);
+        }
+
+        // Equality-assert one weapon's baked seat (offset + euler + scale) against the Sponsor-dialed value.
+        private static void AssertSeat(int i, Vector3 offset, Vector3 euler, float scale)
+        {
+            string w = HeldWeaponCycleDebug.WeaponLabels[i];
+            Assert.AreEqual(offset.x, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].x, 1e-4f, $"{w} baked offset.x drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(offset.y, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].y, 1e-4f, $"{w} baked offset.y drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(offset.z, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].z, 1e-4f, $"{w} baked offset.z drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(euler, HeldWeaponCycleDebug.WeaponMeshLocalEuler[i], $"{w} baked euler drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(scale, HeldWeaponCycleDebug.WeaponMeshScale[i], 1e-4f, $"{w} baked scale drifted from the Sponsor-dialed value (86caffwuz).");
         }
 
         [Test]
