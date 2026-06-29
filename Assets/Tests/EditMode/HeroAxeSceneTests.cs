@@ -466,6 +466,7 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponLabels.Length, "WeaponLabels must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
+            Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalEuler.Length, "WeaponMeshLocalEuler must align with WeaponNodeNames.");
             Assert.AreEqual("wpn_axe_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the axe must be cycle index 0 (the locked default).");
             Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
                 "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
@@ -500,6 +501,95 @@ namespace FarHorizon.EditTests
                     $"the held {HeldWeaponCycleDebug.WeaponLabels[i]} scale ({s:F2}) must not ship grossly larger " +
                     $"than the axe ({axe:F2}) — ≤2× (catches a fat-finger bake of the live-dial value).");
             }
+        }
+
+        [Test]
+        public void HeldWeaponCycleDebug_PerWeaponSeats_AreTheSponsorDialedBakedValues_86caffwuz()
+        {
+            // 86caffwuz BAKE regression guard (build 5caf1be). The Sponsor soaked the held weapons and DIALED
+            // each in-hand seat via the unified settings console's 7 held-weapon rows; those committed numbers
+            // ARE his approval ([[verify-soak-builds-or-bake-and-judge]] — bake the dialed values + assert the
+            // COMMITTED on-disk constant, not just regen-code [[unity-procedural-committed-assets-go-stale]]).
+            // Equality-pin EVERY per-weapon baked value to the dialed numbers so any future edit that drifts a
+            // seat reds here in CI — the bug class is "a later tweak silently moves a Sponsor-approved seat".
+            // The earlier guard only floored/ceilinged the scales + pinned index-0 identity; it did NOT pin the
+            // exact offset/euler the Sponsor dialed — this does.
+
+            // AXE (index 0) — Sponsor-LOCKED: zero offset/euler, unit scale (byte-unchanged seat, bar #6).
+            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0], "AXE offset must stay zero (LOCKED).");
+            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalEuler[0], "AXE euler must stay zero (LOCKED).");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0], 1e-4f, "AXE scale must stay 1.0 (LOCKED).");
+
+            // KNIFE (index 1) — Sponsor-dialed.
+            AssertSeat(1, new Vector3(0.000f, -0.100f, -0.020f), Vector3.zero, 0.85f);
+            // SWORD (index 2) — Sponsor-dialed.
+            AssertSeat(2, new Vector3(-0.020f, -0.120f, 0.000f), Vector3.zero, 0.95f);
+            // SPEAR (index 3) — Sponsor-dialed.
+            AssertSeat(3, new Vector3(-0.020f, -0.120f, 0.000f), Vector3.zero, 0.90f);
+        }
+
+        // Equality-assert one weapon's baked seat (offset + euler + scale) against the Sponsor-dialed value.
+        private static void AssertSeat(int i, Vector3 offset, Vector3 euler, float scale)
+        {
+            string w = HeldWeaponCycleDebug.WeaponLabels[i];
+            Assert.AreEqual(offset.x, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].x, 1e-4f, $"{w} baked offset.x drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(offset.y, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].y, 1e-4f, $"{w} baked offset.y drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(offset.z, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].z, 1e-4f, $"{w} baked offset.z drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(euler, HeldWeaponCycleDebug.WeaponMeshLocalEuler[i], $"{w} baked euler drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(scale, HeldWeaponCycleDebug.WeaponMeshScale[i], 1e-4f, $"{w} baked scale drifted from the Sponsor-dialed value (86caffwuz).");
+        }
+
+        [Test]
+        public void BootScene_CarriesHeldWeaponPlacement_WiredToTheRigAndCycle()
+        {
+            // 86caffwuz regression guard (the component-not-serialized class, applied to the unified-console
+            // PLACEMENT seam). The HeldWeaponPlacement binding seam (what the 7 held-weapon console rows drive)
+            // must be SERIALIZED onto the HeroAxe object with its axeRig + weaponCycle references wired editor-
+            // time — else the held-weapon rows fall back to a runtime FindObjectOfType (the editor-vs-runtime
+            // ship-path violation) or, worse, bind nothing. Drop the AddComponent/wiring in AttachHeroAxeToHand
+            // and this reds in CI rather than at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present (the placement seam rides it)");
+            var placement = axe.GetComponent<HeldWeaponPlacement>();
+            Assert.IsNotNull(placement,
+                "the HeroAxe must carry the HeldWeaponPlacement seam (86caffwuz) — the single surface the unified " +
+                "settings console's held-weapon rows drive, serialized into the scene (not Awake-added).");
+            Assert.IsNotNull(placement.axeRig,
+                "HeldWeaponPlacement.axeRig must be wired editor-time (serialized) — the held-weapon rows drive " +
+                "the SAME axe rig the equip path uses (no parallel attach mechanism — the ticket constraint).");
+            Assert.IsNotNull(placement.weaponCycle,
+                "HeldWeaponPlacement.weaponCycle must be wired editor-time — the non-axe weapons' per-weapon seat " +
+                "routes through it (and it owns the current-held index the rows follow).");
+            // The seam must ride the SAME object as the rig + cycle (it resolves them from this GameObject).
+            Assert.AreSame(axe.GetComponent<HeldAxeRig>(), placement.axeRig,
+                "HeldWeaponPlacement.axeRig must be the HeroAxe's own HeldAxeRig (one shared seat).");
+            Assert.AreSame(axe.GetComponent<HeldWeaponCycleDebug>(), placement.weaponCycle,
+                "HeldWeaponPlacement.weaponCycle must be the HeroAxe's own HeldWeaponCycleDebug.");
+        }
+
+        [Test]
+        public void BootScene_SettingsPanel_BindsTheHeldWeaponPlacementSeam_Serialized()
+        {
+            // 86caffwuz regression guard: the unified settings console (SettingsPanel) must carry the held-weapon
+            // PLACEMENT seam wired editor-time, so the 7 held-weapon rows bind it with NO runtime FindObjectOfType
+            // (the editor-vs-runtime ship-path discipline). This is the cross-wire BuildSettingsPanel can't do
+            // itself (it runs before the axe is attached) — AttachHeroAxeToHand back-wires it. Drop that back-wire
+            // and the held-weapon rows fall back to a runtime lookup (or vanish) → red here, not at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = Object.FindObjectOfType<SettingsPanel>();
+            // No-bootstrap precondition (86cacyg63): a bare local EditMode run skips BootstrapProject.Run, so the
+            // committed Boot.unity lacks the bootstrap-authored SettingsPanel. Inert once bootstrap has run.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "the Boot scene must carry the SettingsPanel (the unified console host)");
+            Assert.IsNotNull(panel.heldWeapon,
+                "SettingsPanel.heldWeapon must be wired editor-time (serialized) — the 7 held-weapon in-hand rows " +
+                "(pos X/Y/Z, rot pitch/yaw/roll, scale) bind to the current held weapon's seat through it (86caffwuz). " +
+                "An unwired ref forces a runtime FindObjectOfType, which the editor-vs-runtime discipline forbids.");
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            Assert.AreSame(axe.GetComponent<HeldWeaponPlacement>(), panel.heldWeapon,
+                "SettingsPanel.heldWeapon must be the HeroAxe's HeldWeaponPlacement (one seat, one seam).");
         }
 
         private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
