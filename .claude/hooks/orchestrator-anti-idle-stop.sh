@@ -65,8 +65,13 @@ fi
 
 # (3) Did THIS turn dispatch (Agent) OR scan the board (get_tasks)? If so, the
 # orchestrator is engaged — do not flag.
+# Hardened: match `"type":"tool_use"` and the target `"name":...` as two
+# INDEPENDENT field-matches on the same JSONL line (chained greps) rather than
+# pinning their exact field adjacency/order — a serializer that reorders the
+# type/id/name fields can no longer silently break dispatch/scan detection.
 if tail -n "+${last_user_line}" "$transcript_path" 2>/dev/null \
-    | grep -Eq '"type":"tool_use","id":"[^"]+","name":"(Agent|mcp__clickup__get_tasks)"'; then
+    | grep -E '"type":"tool_use"' \
+    | grep -Eq '"name":"(Agent|mcp__clickup__get_tasks)"'; then
   exit 0
 fi
 
