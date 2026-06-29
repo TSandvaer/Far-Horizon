@@ -27,9 +27,13 @@ Material:
     m_Floats:
     - _MidPoint: 0.18
     - _Softness: 0.85
+    - _SunHardness: 60
+    - _SunSize: 0.992
     m_Colors:
     - _HorizonColor: {r: 0.8, g: 0.89, b: 0.92, a: 1}
     - _MidColor: {r: 0.45, g: 0.7, b: 0.92, a: 1}
+    - _SunColor: {r: 1, g: 0.74, b: 0.34, a: 1}
+    - _SunDirection: {r: 0.3837976, g: 0.74314487, b: -0.54811966, a: 0}
     - _ZenithColor: {r: 0.3, g: 0.58, b: 0.88, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

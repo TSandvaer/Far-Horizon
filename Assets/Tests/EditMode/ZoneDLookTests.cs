@@ -140,6 +140,53 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Skybox_SunDisk_WarmGoldDefaultsSet()
+        {
+            // SUN-DISK POC (ticket 86cabc743 — Erik low-poly-sky research). The GradientSkybox material must
+            // carry the three sun-disk properties with the warm-gold soak defaults (QualityPassGen sets them).
+            // Guard the COMMITTED material the exe ships (RenderSettings.skybox is the serialized scene value),
+            // not a runtime tautology — a future change that drops the sun params fails here before shipping.
+            var sky = RenderSettings.skybox;
+            Assert.IsNotNull(sky, "a skybox material must be assigned");
+            // Only meaningful when the custom gradient shader resolved (the fallback Skybox/Procedural path
+            // has its own _SunSize and is NOT the sun-disk POC — assert against the gradient shader by name).
+            Assert.AreEqual("FarHorizon/GradientSkybox", sky.shader.name,
+                "the skybox must use the custom FarHorizon/GradientSkybox shader (the sun disk lives there); " +
+                "the Skybox/Procedural fallback would mean the custom shader failed to resolve at bootstrap");
+
+            Assert.IsTrue(sky.HasProperty("_SunColor"), "the sky material must expose _SunColor (the sun-disk POC)");
+            Assert.IsTrue(sky.HasProperty("_SunSize"), "the sky material must expose _SunSize");
+            Assert.IsTrue(sky.HasProperty("_SunHardness"), "the sky material must expose _SunHardness");
+
+            Color sun = sky.GetColor("_SunColor");
+            Assert.Greater(sun.r, sun.b,
+                "the sun disk must be WARM-GOLD (R > B) — a cold/white sun is a style mismatch with the " +
+                "warm Zone-D sky (ticket 86cabc743 warm-gold default)");
+            Assert.AreEqual(QualityPassGen_SunColor.r, sun.r, 0.01f, "sun R must match the QualityPassGen warm-gold default");
+            Assert.Greater(sky.GetFloat("_SunHardness"), 1f,
+                "_SunHardness must be a crisp-disk exponent (>1), not flattened to a sky-wide glow");
+            float size = sky.GetFloat("_SunSize");
+            Assert.Greater(size, 0.9f,
+                "_SunSize must keep the disk SMALL (>0.9 in dot space — a toy-like sun, not a sky-filling glare)");
+        }
+
+        // Forwarded constant so this test asset (PlayTests/EditTests asmdef) reads the same warm-gold default
+        // QualityPassGen ships, without depending on the editor-only QualityPassGen type directly.
+        private static readonly Color QualityPassGen_SunColor = new Color(1.0f, 0.74f, 0.34f, 1f);
+
+        [Test]
+        public void SkyVerifyCapture_WiredIntoBootScene()
+        {
+            // The SKY-FACING capture component (the SHIPPED-build sun-disk evidence) must be SERIALIZED into
+            // Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise, and
+            // the -verifySky CI gate would find nothing). Assert it rode the bootstrap into the saved scene.
+            var caps = Object.FindObjectsByType<SkyVerifyCapture>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Assert.AreEqual(1, caps.Length,
+                "exactly one SkyVerifyCapture must be wired into Boot.unity (the -verifySky shipped-build " +
+                "sun-disk capture gate drives it; a missing component ships an inert gate)");
+        }
+
+        [Test]
         public void PostProcessing_GlobalVolumeWithProfile()
         {
             var vol = GameObject.Find("ZoneD_PostVolume");
