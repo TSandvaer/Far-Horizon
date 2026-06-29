@@ -85,6 +85,65 @@ namespace FarHorizon
         private void OnModelChanged() => Changed?.Invoke();
 
         // ============================================================================================
+        // SLOT-COUNT authoring surface (ticket 86cabfa4e — the #90 AC1/AC2 settings-registration follow-up).
+        // The slot counts are CONSTRUCTION-TIME inputs to InventoryModel (its grid + belt arrays are readonly,
+        // sized once in the ctor) — NOT live fields. So a dev-console "set the count" must REBUILD the model for
+        // the change to take effect; a bare field write would be a dead knob. The dev-console (settings panel,
+        // 86caa4bqp) is the only caller; this is a dev-tool re-size, NOT a player-facing live resize that
+        // preserves contents. No gameplay-loop change: add/stack/move/select all stay byte-identical.
+        // ============================================================================================
+
+        /// <summary>The authoring inventory-grid slot count (the count the model is built from; default 20). The
+        /// dev-console `inventory slots` setting reads this.</summary>
+        public int InventorySlotCount => _inventorySlots;
+
+        /// <summary>The authoring belt-hotbar slot count (the count the model is built from; default 5). The
+        /// dev-console `belt slots` setting reads this.</summary>
+        public int BeltSlotCount => _beltSlots;
+
+        /// <summary>
+        /// Set the inventory-grid slot count and REBUILD the model so the change takes effect (the model's grid
+        /// array is readonly, sized at construction). Dev-console only (`inventory slots` setting, 86cabfa4e AC1):
+        /// a re-size that does NOT preserve contents — acceptable for a dev tool. A no-op (no rebuild, no Changed)
+        /// when the count is unchanged. Clamps to ≥1 (the model also clamps, but guard here so the authoring field
+        /// is honest).
+        /// </summary>
+        public void SetInventorySlotCount(int count)
+        {
+            count = Mathf.Max(1, count);
+            if (count == _inventorySlots) return;
+            _inventorySlots = count;
+            RebuildModel();
+        }
+
+        /// <summary>
+        /// Set the belt-hotbar slot count and REBUILD the model so the change takes effect (the belt array is
+        /// readonly, sized at construction). Dev-console only (`belt slots` setting, 86cabfa4e AC2). A no-op when
+        /// unchanged. Clamps to ≥1.
+        /// </summary>
+        public void SetBeltSlotCount(int count)
+        {
+            count = Mathf.Max(1, count);
+            if (count == _beltSlots) return;
+            _beltSlots = count;
+            RebuildModel();
+        }
+
+        /// <summary>
+        /// Re-construct the InventoryModel from the current authoring counts (after a dev-console slot-count
+        /// change). Detaches the old model's Changed handler, builds a fresh empty model on the SAME catalog, and
+        /// fires Changed so the UI/HUD rebinds to the new slot grid. Empties the inventory (a dev re-size, not a
+        /// content-preserving live resize — see the section note).
+        /// </summary>
+        private void RebuildModel()
+        {
+            if (_model != null) _model.Changed -= OnModelChanged;
+            _model = new InventoryModel(_inventorySlots, _beltSlots);
+            _model.Changed += OnModelChanged;
+            Changed?.Invoke();
+        }
+
+        // ============================================================================================
         // NEW slot-model surface (AC1-AC7).
         // ============================================================================================
 
