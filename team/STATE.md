@@ -4,9 +4,15 @@ This file is the orchestrator's source of truth between ticks. The first section
 
 ---
 
-## RESUME NEXT-ACTION — 2026-06-28 (▶ board-hygiene pass [Priya]; #166 MERGED; weapon tickets fleshed; next-wave set refreshed)
+## RESUME NEXT-ACTION — 2026-06-29 (▶ board-hygiene + AC-flesh pass [Priya]; next-wave set now FLESHED dispatch-ready)
 
-> ⚠ This header is written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries the full 2026-06-28 history (input-model wave / 5-iter chop / #164–#169 merges) that is NOT yet harvested to main (`[[orchestrator-worktree-hygiene]]`). Reconcile on the next harvest-to-main; the next-wave set below is current ground truth.
+> ⚠ This header is written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries the full 2026-06-28→29 history that is NOT yet harvested to main (`[[orchestrator-worktree-hygiene]]`). Reconcile on the next harvest-to-main; the next-wave set below is current ground truth.
+
+**This tick (2026-06-29, Priya — PR `priya/board-hygiene-2026-06-29b` off main `6969ceb`):**
+- **Status reconcile:** `86cabc73q`(#172)/`86caffw9h`(#174)/`86cafc6vx`(#171) confirmed `complete`; `86caffwuz`(#176)=`ready for qa test` left for orch. No corrections.
+- **Chop-NITs bundle → `in progress`** (Devon dispatched): `86caf9ngh` + `86caf7ne0` + `86caf6bjd`.
+- **AC-fleshed dispatch-ready:** `86cabd75y`+`86cabn67w` (settings — **stale "blocked-on-#83" gate CLEARED**; #83 merged, `SettingsCatalog.cs` on main; rewrote to mirror `PopulateThirst`/`AddRange` precedent, add a `Populate*` method + `Build` overload, never grow base `Populate`); `86cackb3j` (FBX integration — **dep CLEARED**, all 17 FBX + controller on main; `Melee_Attack.fbx` flagged NOT-in-scope); `86cabgvgw` (WarmthNeed→base — premise confirmed, reframed); `86cabugc3`+`86cabnjv8` (already good — dispatch-ready confirm comments + a same-files merge-collision note on `86cabnjv8`#4 ↔ `86cabn67w`).
+- **Follow-ups verified well-formed (no edits):** `86cafhehe` (auto-merge workflow-scope wall, sponsor-gate), `86cafhgun` (verifyInvDragGhostPos CI gate), `86cafhqrr` (anti-idle hook regex NIT), `86cafjrxk` (PgUp/PgDn deconflict).
 
 **Mode:** auto-status LOCAL. main `5d58e78` (#166 verifyChop CI gate merged). **Orch-owned PRs (Priya does NOT flip):** #171 `86cafc6vx` water (`ready for qa test`, `auto-merge` label) · #172 `86cabc73q`+`86cabc737` trees+grass (`ready for qa test`) · #170 `orch/harvest-to-main` (orch harvest). `86caffw9h` drag-NIT `in progress` (Devon investigating — leave). **Board reconciled — no Priya status writes needed** (only orch-owned merge flips remain).
 
