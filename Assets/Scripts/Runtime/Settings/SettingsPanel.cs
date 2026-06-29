@@ -45,6 +45,9 @@ namespace FarHorizon
         [Tooltip("The thirst need (86caamkv7) — thirst decay rate + water scoop amount bind here (AC5). " +
                  "May be null; the thirst rows then simply don't appear.")]
         public ThirstNeed thirst;
+        [Tooltip("The hunger need (86cabd75y) — hunger decay rate + berry restore amount bind here. " +
+                 "May be null; the hunger rows then simply don't appear.")]
+        public HungerNeed hunger;
         [Tooltip("The castaway (86caa4c5c change-(b)) — tool-use speed flips the reserved row live to its " +
                  "chopSpeed (the Mixamo melee Attack-state playback rate). May be null; the tool-use-speed row " +
                  "then stays greyed (extension hook).")]
@@ -86,6 +89,7 @@ namespace FarHorizon
             if (orbit == null) orbit = FindObjectOfType<OrbitCamera>();
             if (wasd == null) wasd = FindObjectOfType<WasdMovement>();
             if (thirst == null) thirst = FindObjectOfType<ThirstNeed>();
+            if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
             if (chopCharacter == null) chopCharacter = FindObjectOfType<CastawayCharacter>();
             if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
@@ -97,8 +101,9 @@ namespace FarHorizon
         {
             // Build the registry from the live targets (AC3), load persisted soak tweaks (AC5), apply them.
             // The thirst overload (86caamkv7 AC5) adds the thirst decay rate + water scoop amount rows; the
-            // chop overload (86caa4c5c) flips tool-use speed live + adds the tree regrowth time range row.
-            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon);
+            // chop overload (86caa4c5c) flips tool-use speed live + adds the tree regrowth time range row; the
+            // hunger overload (86cabd75y) adds the hunger decay rate + berry restore amount rows.
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger);
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 
