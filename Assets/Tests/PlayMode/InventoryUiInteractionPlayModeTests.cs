@@ -22,6 +22,16 @@ namespace FarHorizon.PlayTests
     ///   • BUG 2 — clicking the DOCKED belt row (inside the pack) must NOT change the active selection;
     ///     clicking the bottom STRIP (the hotbar) still selects.
     ///   • BUG 3 — obtained wood shows in the grid as a recognizable ICON (not a bare "W" letter-chip).
+    ///
+    /// HARDENING (ticket 86cabugc3 — the #102 drag-source-dim NITs follow-up) adds the live-panel half the
+    /// original suite left to a class-name string assert:
+    ///   • DraggingASlot_ResolvesSourceContentToHidden_NotJustTheClass (NIT 1) — resolvedStyle.visibility
+    ///     == Hidden on the dragged source icon/chip/badge (the USS rule's actual rendered effect).
+    ///   • DraggingASlot_PreservesSourceWorldBound_LayoutNotCollapsed (NIT 2) — the dimmed source keeps its
+    ///     worldBound (visibility:hidden, NOT display:none — the BUG 1 drop hit-tests that rect).
+    ///   • BeginDragOnEmptySlot_DoesNothing_HitsIsEmptyGuard (NIT 3) — the regression-critical IsEmpty seam.
+    ///   • RefreshAllMidDrag_PreservesTheSourceDimClass (NIT 4) — a mid-drag Inventory.Changed repaint must
+    ///     not clear slot--dragging-source.
     /// </summary>
     public class InventoryUiInteractionPlayModeTests
     {
@@ -284,6 +294,165 @@ namespace FarHorizon.PlayTests
             _ui.EndDrag(dockCells[0].worldBound.center);
             yield return null;
             Assert.IsFalse(_ui.IsSourceDimmed(SlotRef.Belt(0)), "both mirrors restore on drag end");
+        }
+
+        // NIT 1 (86cabugc3) — assert the USS EFFECT live, not just the class-name string. While a drag is
+        // active, the source slot's icon/chip/badge resolvedStyle.visibility must be Hidden (the
+        // .slot--dragging-source rule actually hides the content). The EditMode companion
+        // (UssRule_HidesSlotContentViaVisibility_NotDisplay) parses the USS file; this rides the live
+        // laid-out panel so the resolved style — the real rendered effect — is what's asserted.
+        [UnityTest]
+        public IEnumerator DraggingASlot_ResolvesSourceContentToHidden_NotJustTheClass()
+        {
+            yield return WaitFrames(4);
+            _inv.AddWood(3);              // wood in inventory slot 0
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            var src = SlotRef.Inventory(0);
+            var cell0 = First(Grid());
+            var icon = cell0.Q<VisualElement>("icon");
+            var chip = cell0.Q<Label>("chip");
+            var badge = cell0.Q<Label>("badge");
+            Assert.AreEqual(Visibility.Visible, icon.resolvedStyle.visibility,
+                "the source icon is visible BEFORE the drag begins");
+
+            _ui.BeginDrag(src);
+            yield return WaitFrames(4);   // let the USS class apply + styles re-resolve
+
+            Assert.IsTrue(_ui.IsSourceDimmed(src), "the class lands on the source (sanity)");
+            Assert.AreEqual(Visibility.Hidden, icon.resolvedStyle.visibility,
+                "while dragging, the .slot--dragging-source USS rule must RESOLVE the icon to " +
+                "visibility:Hidden — the actual rendered effect, not just the class string (NIT 1). A " +
+                "deleted/renamed rule would leave it Visible and the item would double-render (source + ghost).");
+            Assert.AreEqual(Visibility.Hidden, chip.resolvedStyle.visibility,
+                "the letter-chip is hidden too (the chip is the no-icon fallback render of the item)");
+            Assert.AreEqual(Visibility.Hidden, badge.resolvedStyle.visibility,
+                "the stack badge is hidden too (else a count badge floats over the empty-looking source)");
+
+            _ui.EndDrag(new Vector2(10000, 10000));   // cancel — restore the source
+            yield return WaitFrames(2);
+            Assert.AreEqual(Visibility.Visible, icon.resolvedStyle.visibility,
+                "the source icon resolves back to Visible once the drag ends (the dim is not permanent)");
+        }
+
+        // NIT 2 (86cabugc3) — the dim must PRESERVE the source slot's layout box. visibility:hidden keeps the
+        // cell laid out (worldBound stays valid); display:none would collapse it. The BUG 1 cursor-resolved
+        // drop hit-tests the source slot's worldBound, so a collapsed box would silently break drop resolution
+        // ON the source (e.g. a drag that ends back on the source, or a hover preview over it). Assert the
+        // dragged source's worldBound is unchanged across BeginDrag (same rect → layout preserved).
+        [UnityTest]
+        public IEnumerator DraggingASlot_PreservesSourceWorldBound_LayoutNotCollapsed()
+        {
+            yield return WaitFrames(4);
+            _inv.AddWood(3);              // wood in inventory slot 0
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);   // grid laid out → worldBound is real
+
+            var src = SlotRef.Inventory(0);
+            var cell0 = First(Grid());
+            Rect before = cell0.worldBound;
+            Assert.Greater(before.width, 0f, "the source slot is laid out (non-degenerate) before the drag");
+            Assert.Greater(before.height, 0f, "the source slot has a real height before the drag");
+
+            _ui.BeginDrag(src);
+            yield return WaitFrames(4);   // styles re-resolve; layout would collapse here if display:none
+
+            Rect during = cell0.worldBound;
+            Assert.IsTrue(_ui.IsSourceDimmed(src), "the source is dimmed (the rule is active — sanity)");
+            Assert.AreEqual(before.width, during.width, 0.5f,
+                "the dimmed source slot KEEPS its width — visibility:hidden preserves the layout box (NIT 2). " +
+                "display:none would collapse it to 0, invalidating the worldBound the BUG 1 cursor-resolved " +
+                "drop hit-tests against.");
+            Assert.AreEqual(before.height, during.height, 0.5f,
+                "the dimmed source slot KEEPS its height (layout preserved, not collapsed)");
+            Assert.AreEqual(before.position, during.position,
+                "the dimmed source slot stays in the SAME position (no reflow from a collapsed box)");
+
+            // The worldBound is still a valid drop target: a drop AT the source's own center resolves back to
+            // the source (and is a same-slot no-op move). If the box had collapsed, this point would resolve
+            // to a different slot or to nothing.
+            bool moved = _ui.EndDrag(during.center);
+            yield return null;
+            Assert.IsFalse(moved, "a drop back on the (still-laid-out) source is a same-slot no-op, not a move");
+            Assert.AreEqual("wood", _inv.Model.InventorySlots[0].Def.Id, "the item is still in the source");
+        }
+
+        // NIT 3 (86cabugc3) — BeginDrag on an EMPTY-but-existing slot must hit the IsEmpty guard: no drag
+        // arms, no source dims, no ghost. This is the regression-critical AC seam — without the guard, a drag
+        // from an empty slot would raise an empty ghost + dim a slot that has nothing to dim, and a drop would
+        // move "nothing" (or worse, smear state). Drives the real BeginDrag/EndDrag seams over the live panel.
+        [UnityTest]
+        public IEnumerator BeginDragOnEmptySlot_DoesNothing_HitsIsEmptyGuard()
+        {
+            yield return WaitFrames(4);
+            _inv.AddWood(3);              // wood ONLY in inventory slot 0
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            // Slot 1 exists (laid out) but holds nothing.
+            var empty = SlotRef.Inventory(1);
+            Assert.IsTrue(_inv.Model.InventorySlots[1].IsEmpty, "slot 1 is empty-but-existing (the guard's case)");
+            var cells = Children(Grid());
+            Assert.GreaterOrEqual(cells.Count, 6, "the grid is laid out with its slots");
+            Assert.Greater(cells[1].worldBound.width, 0f, "the empty slot is laid out (it EXISTS, just empty)");
+
+            _ui.BeginDrag(empty);
+            yield return WaitFrames(2);
+
+            Assert.IsFalse(_ui.IsSourceDimmed(empty),
+                "BeginDrag on an empty slot must NOT dim it — the IsEmpty guard early-returns before arming " +
+                "the drag (NIT 3 — dimming/ghosting an empty slot is the regression this seam guards)");
+
+            // The drag never armed, so an EndDrag onto the FILLED slot 0 is a no-drag no-op — it must NOT
+            // move slot 0's wood (no phantom move from a never-started drag).
+            bool moved = _ui.EndDrag(cells[0].worldBound.center);
+            yield return null;
+            Assert.IsFalse(moved, "EndDrag with no armed drag returns false — no phantom move");
+            Assert.AreEqual("wood", _inv.Model.InventorySlots[0].Def.Id, "the real item is untouched");
+            Assert.AreEqual(3, _inv.Model.InventorySlots[0].Count, "no count change from the empty-slot drag attempt");
+        }
+
+        // NIT 4 (86cabugc3) — a RefreshAll fired MID-DRAG (any Inventory.Changed: a pickup elsewhere, a belt
+        // re-select, a need-tick consuming a belt item) must PRESERVE the source-dim class. PaintSlot clears
+        // the transient drop-ok/drop-deny preview classes + re-toggles slot--selected, but must leave
+        // slot--dragging-source alone — else a Changed event mid-drag would un-dim the source and the item
+        // would flash back as the double-render. We drive a belt-slot drag, fire Changed via a DIFFERENT belt
+        // slot's select (doesn't touch the dragged slot), and assert the dim survives the repaint.
+        [UnityTest]
+        public IEnumerator RefreshAllMidDrag_PreservesTheSourceDimClass()
+        {
+            yield return WaitFrames(4);
+            _inv.PickUpAxe();            // axe in belt slot 0
+            _inv.Model.SelectBelt(0);
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            var src = SlotRef.Belt(0);
+            _ui.BeginDrag(src);
+            yield return WaitFrames(2);
+            Assert.IsTrue(_ui.IsSourceDimmed(src), "the dragged belt slot dims at drag start (sanity)");
+
+            // Fire Inventory.Changed -> RefreshAll mid-drag WITHOUT touching the dragged slot: select a
+            // DIFFERENT belt slot. (SelectBelt fires Changed; slot 0 stays the drag source.) This is the
+            // real path a mid-drag pickup/need-tick would take.
+            _inv.Model.SelectBelt(2);
+            yield return WaitFrames(2);   // let RefreshAll repaint every slot
+
+            Assert.IsTrue(_ui.IsSourceDimmed(src),
+                "a RefreshAll fired mid-drag (Inventory.Changed) must PRESERVE the source-dim class — " +
+                "PaintSlot re-toggles slot--selected + clears drop-preview classes, but must NOT clear " +
+                "slot--dragging-source (NIT 4). If it did, a Changed event mid-drag would un-dim the source " +
+                "and the item would flash back as the #90 double-render.");
+            // Both belt mirrors must still carry the class after the repaint.
+            Assert.IsTrue(Children(DockBelt())[0].ClassListContains(InventoryUI.DraggingSourceClass),
+                "the docked-row mirror keeps the dim across the mid-drag repaint");
+            Assert.IsTrue(Children(StripBelt())[0].ClassListContains(InventoryUI.DraggingSourceClass),
+                "the bottom-strip mirror keeps the dim across the mid-drag repaint");
+
+            _ui.EndDrag(new Vector2(10000, 10000));   // cancel — restore
+            yield return null;
+            Assert.IsFalse(_ui.IsSourceDimmed(src), "the dim clears once the drag ends");
         }
 
         // 86caffw9h DRAG-GHOST MISPOSITION — the drag-ghost's CENTER must land on the cursor it was driven to,
