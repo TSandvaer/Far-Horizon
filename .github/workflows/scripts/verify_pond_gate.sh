@@ -19,6 +19,10 @@
 #
 # Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 / unity-conventions.md).
 # A wall-clock timeout fails a hung launch instead of blocking CI forever (mirrors capture_gate.sh).
+# WEDGE HARDENING (capture-flake investigation wf_b92193a7-ba9; mirrors capture_gate.sh):
+# LAUNCH_TIMEOUT is 300s (was 120 — 120 had no margin), `timeout -k 15` SIGKILLs a SIGTERM-ignoring
+# hung player, and a single rc==124-only retry re-launches ONCE on a first-frame present-loop wedge
+# before declaring failure (a real non-zero gate failure is NEVER retried).
 #
 # Usage: verify_pond_gate.sh <FarHorizon.exe> [<captureDir>] [<logFile>]
 #   captureDir default: ci-out/pond-caps   logFile default: ci-out/verify-pond.log
@@ -43,25 +47,37 @@ mkdir -p "$CAP_DIR"
 ABS_CAP="$(cd "$CAP_DIR" && pwd)"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Clear any stale captures so frame_check only sees THIS run's pond frames.
-rm -f "$ABS_CAP"/pond_*.png
-rm -f "$LOG_FILE"
+# Wall-clock cap so a hung launch fails instead of blocking CI forever. 300 gives real margin over the
+# longest healthy launch. `-k 15` hard-KILLs (SIGKILL) a player that ignores the soft SIGTERM 15s later,
+# so a wedged D3D12 present-loop process can't linger and hold a swapchain into the retry / the next gate.
+LAUNCH_TIMEOUT=300
 
-echo "[verify_pond] launching shipped exe windowed (-verifyPond): $EXE"
-echo "[verify_pond]   captureDir=$ABS_CAP logFile=$LOG_FILE"
+# launch_once — clear stale artifacts, launch the windowed exe under timeout, set exe_rc. Re-clears EVERY
+# attempt so a partial first-attempt capture/log can't mask the retry.
+launch_once() {
+  rm -f "$ABS_CAP"/pond_*.png
+  rm -f "$LOG_FILE"
+  echo "[verify_pond] launching shipped exe windowed (-verifyPond): $EXE"
+  echo "[verify_pond]   captureDir=$ABS_CAP logFile=$LOG_FILE"
+  # Windowed + small so it never grabs the desktop; -verifyPond drives FreshwaterPondVerifyCapture;
+  # -logFile redirects the standalone player's Player.log so the FRESH-BLUE verdict line is grep-able.
+  set +e
+  timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
+    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -verifyPond -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
+  exe_rc=$?
+  set -e
+}
 
-# Windowed + small so it never grabs the desktop; -verifyPond drives FreshwaterPondVerifyCapture;
-# -logFile redirects the standalone player's Player.log so the FRESH-BLUE verdict line is grep-able
-# here. The component calls Application.Quit(0/1) when done; cap wall-clock so a hung launch fails.
-LAUNCH_TIMEOUT=120
-set +e
-timeout "${LAUNCH_TIMEOUT}" "$EXE" \
-  -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
-  -verifyPond -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
-exe_rc=$?
-set -e
+launch_once
+# ONE retry, ONLY on a timeout-hang (rc 124 = the first-frame present-loop wedge wf_b92193a7-ba9). A real
+# non-zero self-assert failure is NOT a wedge — never retry it (it would mask a genuine pond-render failure).
 if [ "$exe_rc" -eq 124 ]; then
-  echo "[verify_pond] FAILED — exe did not self-quit within ${LAUNCH_TIMEOUT}s (hung launch)" >&2
+  echo "[verify_pond] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s (timeout-hang; likely the present-loop wedge) — retrying ONCE" >&2
+  launch_once
+fi
+if [ "$exe_rc" -eq 124 ]; then
+  echo "[verify_pond] FAILED — exe did not self-quit within ${LAUNCH_TIMEOUT}s (hung launch, including the retry)" >&2
 fi
 
 # Echo the component's ground-truth verdict line(s) for the CI log.
