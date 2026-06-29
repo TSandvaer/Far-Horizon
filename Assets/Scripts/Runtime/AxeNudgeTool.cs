@@ -80,7 +80,7 @@ namespace FarHorizon
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
     /// </summary>
-    public class AxeNudgeTool : MonoBehaviour
+    public class AxeNudgeTool : MonoBehaviour, INudgePanel
     {
         // KEY-SPLIT (combined-#48 fix): the axe tool stays on F9; the WorldLookNudgeTool moved to F10, so the
         // Sponsor's two soak panels never collide and their shared Tab/PageUp/PageDown can never cross-fire

@@ -26,7 +26,7 @@ namespace FarHorizon
     /// instance, transforms) — they do NOT persist; the Sponsor bakes the reported values into
     /// WorldLookConfig / WorldBootstrap / QualityPassGen / GradientSkybox defaults.
     /// </summary>
-    public class WorldLookNudgeTool : MonoBehaviour
+    public class WorldLookNudgeTool : MonoBehaviour, INudgePanel
     {
         // KEY-SPLIT (combined-#48 fix): the world-look tool toggles on F10, the AxeNudgeTool on F9, so the
         // Sponsor's soak dials never collide (a single F9 used to bring up BOTH panels at once, and the
