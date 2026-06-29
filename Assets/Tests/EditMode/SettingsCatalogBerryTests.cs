@@ -107,6 +107,39 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void PopulateBerry_RangeRow_ClampsBeyondBand_IntoTheLimits()
+        {
+            // Band-clamp guard (mirrors the Chop range/stepper clamp tests): dialing either end BEYOND the hard
+            // band [BerryRegrowthLower, BerryRegrowthUpper] = [0, 1800] must clamp into the band, never escape it.
+            var reg = SettingsCatalog.Build(null, null, null, null, null, null, null, null, null,
+                new BerryBush[] { _bushA, _bushB, _bushC });
+            var regrow = reg.Get(SettingsCatalog.BerryRegrowthId) as RangeSettingEntry;
+            Assert.IsNotNull(regrow, "berry regrowth time is a RANGE row");
+
+            // ABOVE the ceiling: SetMax clamps to UpperLimit (= 1800); the max then carries SetMin's ceiling too.
+            float maxRet = regrow.SetMax(999999f);
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthUpper, maxRet, 1e-3f,
+                "SetMax beyond the ceiling clamps to BerryRegrowthUpper (1800)");
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthUpper, regrow.MaxValue, 1e-3f, "max reads the clamped ceiling");
+
+            // A min ABOVE the ceiling clamps to the current max (now 1800), never past it.
+            float minHi = regrow.SetMin(999999f);
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthUpper, minHi, 1e-3f,
+                "SetMin above the ceiling clamps to the current max (1800), never past it");
+
+            // BELOW the floor: SetMin clamps to LowerLimit (= 0); a negative can never escape under the floor.
+            float minLo = regrow.SetMin(-50f);
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthLower, minLo, 1e-3f,
+                "SetMin below the floor clamps to BerryRegrowthLower (0)");
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthLower, regrow.MinValue, 1e-3f, "min reads the clamped floor");
+
+            // The clamped band end fans out to EVERY bush (the fan-out + clamp compose — the slider can't push a
+            // single bush's regrow window outside the band).
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthLower, _bushA.regrowMinSeconds, 1e-3f, "bush A min clamped+fanned");
+            Assert.AreEqual(SettingsCatalog.BerryRegrowthUpper, _bushC.regrowMaxSeconds, 1e-3f, "bush C max clamped+fanned");
+        }
+
+        [Test]
         public void PopulateBerry_NullList_NoBerryRow()
         {
             // No berry list — the catalog must behave exactly as before berries (no dead knob, no null-ref).
