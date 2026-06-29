@@ -250,6 +250,64 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(typeof(bool), p.ParameterType, "each WASD-key parameter is a bool key-state (W/A/S/D only)");
         }
 
+        // =================================================================================================
+        // CROUCH speed precedence (ticket 86caa3kur — crouch-on-Ctrl-hold) — WasdMovement.ResolveSpeed.
+        //
+        // BUG CLASS these pin (NOT one instance): the Ctrl+Shift precedence (AC2 — CROUCH WINS) + the reduced
+        // SNEAK speed (AC1) + the defensive clamps. A regression where crouch+sprint runs at run speed (crouch
+        // didn't win), or where a mis-tuned sneakSpeed makes a crouched move FASTER than a stand-walk, fails
+        // here. Pure + scene-rig-free (no Animator/NavMesh/headless-time).
+        // =================================================================================================
+        private const float Walk = 5.5f, Run = 9.5f, Sneak = 3f; // production defaults
+
+        [Test]
+        public void ResolveSpeed_Walking_PlainWalkSpeed()
+        {
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, Run, Sneak, false, false), 1e-5f,
+                "no sprint, no crouch → the plain walk speed.");
+        }
+
+        [Test]
+        public void ResolveSpeed_Sprinting_RunSpeed()
+        {
+            Assert.AreEqual(Run, WasdMovement.ResolveSpeed(Walk, Run, Sneak, true, false), 1e-5f,
+                "sprint (Shift) + not crouching → the run speed (86ca9yq34).");
+        }
+
+        [Test]
+        public void ResolveSpeed_Crouching_SneakSpeed_SlowerThanWalk()
+        {
+            float s = WasdMovement.ResolveSpeed(Walk, Run, Sneak, false, true);
+            Assert.AreEqual(Sneak, s, 1e-5f, "crouch (Ctrl) → the reduced sneak speed (86caa3kur AC1).");
+            Assert.Less(s, Walk, "a crouched (sneak) move must be SLOWER than a stand-walk (it's a sneak).");
+        }
+
+        [Test]
+        public void ResolveSpeed_CrouchWinsOverSprint_AC2()
+        {
+            // THE AC2 precedence guard: Ctrl WHILE Shift is held drops to the SNEAK, not the run (crouch wins).
+            float s = WasdMovement.ResolveSpeed(Walk, Run, Sneak, /*isSprinting*/ true, /*isCrouching*/ true);
+            Assert.AreEqual(Sneak, s, 1e-5f,
+                "CROUCH WINS (AC2): holding Ctrl while running must drop to the SNEAK speed, NOT keep the run " +
+                "speed. A regression that lets sprint override crouch fails here.");
+            Assert.Less(s, Run, "crouch+sprint must not run.");
+        }
+
+        [Test]
+        public void ResolveSpeed_DefensiveClamps_RunNeverSlowerThanWalk_SneakNeverFasterThanWalk()
+        {
+            // Mis-tuned run (slower than walk) → clamped up to walk (run never slower than walk).
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, /*run*/ 2f, Sneak, true, false), 1e-5f,
+                "a run speed mis-set BELOW the walk speed must clamp to the walk (run never slower than walk).");
+            // Mis-tuned sneak (faster than walk) → clamped down to walk (a crouch can't be FASTER than a walk).
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, Run, /*sneak*/ 8f, false, true), 1e-5f,
+                "a sneak speed mis-set ABOVE the walk speed must clamp to the walk — a crouched move can never " +
+                "be FASTER than a stand-walk (the defensive clamp).");
+            // Zero/unset sneak falls back to walk (not a freeze).
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, Run, /*sneak*/ 0f, false, true), 1e-5f,
+                "an unset (0) sneak speed must fall back to the walk speed — a crouch must never freeze the player.");
+        }
+
         [Test]
         public void Airborne_VsOldSnap_QuantifiesTheFix_DiagnoseBeforeFix()
         {

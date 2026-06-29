@@ -305,6 +305,22 @@ namespace FarHorizon
         // Exposed for tests / later systems: current Idle/Walk state read off the agent.
         public bool IsWalking { get; private set; }
 
+        // CROUCH (86caa3kur) — the crouch-stance request set by WasdMovement off the Ctrl-hold. Drives the
+        // controller's Crouch bool each LateUpdate (Idle→CrouchIdle when !Moving, Locomotion→CrouchWalk when
+        // Moving — PR #186's wired crouch lane). NOT a serialized field (a per-frame input mirror); the
+        // StaticStateResetTests audit is unaffected (instance field, not a mutable static).
+        private bool _crouch;
+
+        /// <summary>Request the CROUCH stance (86caa3kur) — WasdMovement calls this each frame off the Ctrl-hold
+        /// (true = crouch, false = stand). Drives the Animator's Crouch bool in <see cref="LateUpdate"/>, which the
+        /// PR #186 crouch lane routes to CrouchIdle (still) / CrouchWalk (moving). Idempotent; the Moving bool
+        /// (driven off agent velocity) selects idle-vs-walk crouch for us. Safe with a null Animator (a bare rig).</summary>
+        public void SetCrouch(bool crouch) => _crouch = crouch;
+
+        /// <summary>Whether the crouch stance is requested this frame (86caa3kur). Exposed so the PlayMode AC7
+        /// regression asserts the Crouch bool flips with Ctrl, and for later systems (stealth detection — OOS here).</summary>
+        public bool IsCrouching => _crouch;
+
         /// <summary>The planar agent speed (u/s) fed to the Walk<->Run blend tree's Speed param LAST frame
         /// (86ca9yq34). Exposed so the PlayMode AC5 regression can assert the run drives a FASTER speed (→ the
         /// Run clip blends in) than walk, off the agent velocity — without depending on the Animator having
@@ -1279,6 +1295,12 @@ namespace FarHorizon
                 // instead of the character stalling in the finished jump pose while still translating (the Sponsor's
                 // "floating" report). Moving (set just above) is current, so a moving landing routes to Locomotion.
                 _animator.SetBool(GroundedParam, !_airborne);
+
+                // CROUCH (86caa3kur) — drive the controller's Crouch bool off the WasdMovement Ctrl-hold request
+                // (SetCrouch). The PR #186 crouch lane reads (Crouch && !Moving)→CrouchIdle, (Crouch && Moving)→
+                // CrouchWalk and releases on !Crouch back to Idle/Locomotion. Moving (set above) selects idle-vs-
+                // walk crouch for us, so this single bool drives the whole lane — no separate crouch-walk flag.
+                _animator.SetBool(CrouchParam, _crouch);
             }
 
             // Yaw the model smoothly toward the travel facing (frame-rate-independent lerp).

@@ -44,6 +44,13 @@ namespace FarHorizon
                  "Defaults ~1.8× the walk speed (a clear run). The Sponsor can re-tune from the build.")]
         public float runSpeed = 9.5f;
 
+        [Tooltip("SNEAK speed (u/s) while Crouch (Ctrl) is held AND moving (ticket 86caa3kur). SLOWER than " +
+                 "moveSpeed so a crouched move visibly sneaks (the Sneak Walk crouch-move clip). CastawayCharacter " +
+                 "reads the resulting agent.velocity MAGNITUDE — at this reduced speed it lands in the upright " +
+                 "blend tree's WALK band, but the Animator's CROUCH lane (driven by the Crouch bool) plays the " +
+                 "Sneak Walk clip instead. Defaults ~0.55× the walk speed (a clear sneak). Sponsor-tunable.")]
+        public float sneakSpeed = 3f;
+
         [Header("Camera-relative basis (AC1)")]
         [Tooltip("The orbit camera transform whose facing defines 'forward'. Auto-resolves to Camera.main " +
                  "if unset (the OrbitCamera rig is the main camera). Wired editor-time so it serializes.")]
@@ -100,6 +107,11 @@ namespace FarHorizon
         // keyboard (Input.GetKeyDown(Space)).
         private bool _jumpRequested;
 
+        // CROUCH (Ctrl) PROGRAMMATIC SEAM (86caa3kur — crouch-on-Ctrl-hold). A headless PlayMode run / the
+        // shipped-build verify capture can't inject a real Ctrl keystroke, so the crouch HOLD state can be
+        // overridden the same way sprint is. null = read the real keyboard (Input.GetKey(Left|RightControl)).
+        private bool? _crouchOverride;
+
         /// <summary>Drive WASD programmatically (the input-independent seam — the verify capture's analog of
         /// ClickToMove.MoveTo). Pass an (x=strafe, y=forward) vector; pass null / <see cref="ClearInputOverride"/>
         /// to return to the real keyboard. Used by WasdVerifyCapture to exercise WASD in the shipped exe.</summary>
@@ -116,6 +128,15 @@ namespace FarHorizon
 
         /// <summary>Stop overriding sprint — return to reading the real LeftShift/RightShift key.</summary>
         public void ClearSprintOverride() => _sprintOverride = null;
+
+        /// <summary>Drive the CROUCH (crouch-on-Ctrl-hold) state programmatically — the input-independent analog
+        /// of the Ctrl key (ticket 86caa3kur). Pass true to crouch, false to stand; <see cref="ClearCrouchOverride"/>
+        /// / null returns to the real keyboard. Used by the PlayMode AC7 test + the shipped-build crouch capture
+        /// (headless / built-exe runs can't inject a Ctrl keystroke).</summary>
+        public void SetCrouchOverride(bool crouch) => _crouchOverride = crouch;
+
+        /// <summary>Stop overriding crouch — return to reading the real LeftControl/RightControl key.</summary>
+        public void ClearCrouchOverride() => _crouchOverride = null;
 
         /// <summary>Request a JUMP programmatically — the input-independent analog of pressing Space (ticket
         /// 86ca9yq3q). Latched + consumed on the next Update (mirrors the keyboard's rising edge — one jump per
@@ -138,6 +159,13 @@ namespace FarHorizon
         /// rest, holding Shift does NOT run (no move → walk/run is moot). Exposed so the PlayMode AC5 regression
         /// can assert the run state flips with Shift, and for any later system (stamina, FOV kick).</summary>
         public bool IsSprinting { get; private set; }
+
+        /// <summary>Whether the player is CROUCHING this frame: Crouch (Ctrl) held (86caa3kur). UNLIKE sprint,
+        /// crouch does NOT gate on movement — holding Ctrl at a standstill IS a crouch (the Crouching Idle lowered
+        /// stance); moving while crouched is the Sneak Walk. Exposed so the PlayMode AC7 regression asserts the
+        /// crouch stance flips with Ctrl + drives the reduced sneak speed while moving, and so CastawayCharacter
+        /// drives the Animator Crouch bool off it. Suppressed while AIRBORNE (you don't crouch mid-jump).</summary>
+        public bool IsCrouching { get; private set; }
 
         /// <summary>The move speed (u/s) the WASD input drove the agent at LAST frame — runSpeed while sprinting
         /// + moving, moveSpeed while walking, 0 at rest. Exposed so a regression can assert run drives a FASTER
@@ -207,6 +235,21 @@ namespace FarHorizon
             else
                 sprint = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
+            // CROUCH on Ctrl-HOLD (86caa3kur): the real Left/RightControl key (legacy Input — layout-agnostic, the
+            // same reason WASD/run/jump chose legacy: it avoids the project-wide NEW-Input-System flip that would
+            // BREAK the OrbitCamera mouse-orbit/zoom + the F8/F9 tools; and Ctrl is a layout-stable KeyCode, NOT a
+            // US-position punctuation key that shifts on the Sponsor's Danish keyboard — [[sponsor-danish-keyboard-layout]])
+            // OR the programmatic override (the headless / shipped-build seam). Swallowed while a modal gameplay-UI
+            // panel is open (Ctrl is a common UI modifier) so the player doesn't crouch while the Sponsor works in
+            // the settings/inventory panel — the same gate the move read uses. A programmatic override still drives
+            // so the shipped-build crouch capture can exercise the path with the panel state irrelevant.
+            bool crouchHeld;
+            if (_crouchOverride.HasValue)
+                crouchHeld = _crouchOverride.Value;
+            else
+                crouchHeld = !UiInputGate.CaptureWorldInput &&
+                             (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
+
             // JUMP on Space (86ca9yq3q): the rising edge of the real Space key (legacy Input — the project is
             // activeInputHandler=0; legacy avoids the project-wide NEW-Input-System flip that would BREAK the
             // OrbitCamera mouse-orbit/zoom + the F8/F9 tools, the same reason WASD/run chose legacy) OR the
@@ -225,19 +268,35 @@ namespace FarHorizon
             HasInput = dir.sqrMagnitude > InputDeadzone * InputDeadzone;
             LastMoveDir = HasInput ? dir : Vector3.zero;
 
-            // RUN only while MOVING: holding Shift at a standstill is not "running" (there is no travel to
-            // speed up). So sprint gates on HasInput — release Shift OR stop moving → walk speed (AC1: release
-            // returns to walk).
-            IsSprinting = HasInput && sprint;
+            // CROUCH stance (86caa3kur). UNLIKE sprint, crouch does NOT gate on movement — Ctrl at a standstill
+            // IS a crouch (the lowered Crouching Idle stance). Suppress crouch while AIRBORNE (you don't crouch
+            // mid-jump — the jump arc owns the body); on landing it re-reads the held Ctrl immediately. The
+            // Ctrl+Shift RULE (AC2): CROUCH WINS — holding Ctrl while running drops to a sneak (sprint is
+            // suppressed below), the explicit precedence the Sponsor judges in the soak.
+            bool airborne = castaway != null && castaway.IsAirborne;
+            IsCrouching = crouchHeld && !airborne;
+
+            // RUN only while MOVING and NOT crouching (AC2 — crouch wins): holding Shift at a standstill is not
+            // "running" (no travel to speed up), and Ctrl+Shift drops to the sneak rather than the run. So sprint
+            // gates on HasInput AND !IsCrouching — release Shift OR stop moving OR crouch → no run.
+            IsSprinting = HasInput && sprint && !IsCrouching;
 
             // Drive the EXISTING agent's velocity (AC3): the agent simulation keeps the player on the
             // NavMesh (grounding + obstacle handling intact) and exposes this as agent.velocity — exactly
             // what CastawayCharacter reads for the Walk<->Run blend tree (AC1) + the Idle<->locomotion flip
             // (AC4) + facing yaw (AC2). Zero velocity when no input → the agent settles → Idle.
             float walk = moveSpeed > 0.001f ? moveSpeed : _agent.speed;
-            float run = runSpeed > walk ? runSpeed : walk; // defensive: run is never slower than walk
-            float speed = IsSprinting ? run : walk;
+            // Speed precedence (AC1/AC2): crouch → reduced SNEAK speed (crouch wins over sprint); else sprint →
+            // run; else walk. Defensive clamps (run never slower than walk; sneak never faster than walk) live in
+            // the pure ResolveSpeed so the EditMode guard pins the precedence + the clamps without a scene rig.
+            float speed = ResolveSpeed(walk, runSpeed, sneakSpeed, IsSprinting, IsCrouching);
             CurrentSpeed = HasInput ? speed : 0f;
+
+            // Drive the Animator's CROUCH lane (86caa3kur): the avatar's CastawayCharacter sets the controller's
+            // Crouch bool from this each frame (Idle→CrouchIdle when !Moving, Locomotion→CrouchWalk when Moving —
+            // PR #186's wired crouch lane). Null-tolerant (a bare movement test with no avatar). The Moving bool
+            // CastawayCharacter already drives off agent.velocity selects CrouchIdle vs CrouchWalk for us.
+            if (castaway != null) castaway.SetCrouch(IsCrouching);
 
             if (!_agent.isOnNavMesh) return;
 
@@ -248,7 +307,7 @@ namespace FarHorizon
             // existing horizontal velocity gently toward the input direction (airControlAccel u/s², capped), so
             // A/D is a SUBTLE lateral nudge that PRESERVES the forward momentum carried into the jump. The jump's
             // vertical arc is owned by CastawayCharacter (local-Y); this only governs the agent's horizontal XZ.
-            bool airborne = castaway != null && castaway.IsAirborne;
+            // (airborne resolved above for the crouch suppression.)
             if (airborne)
             {
                 _agent.velocity = AirborneVelocity(_agent.velocity, LastMoveDir, airControlAccel,
@@ -282,6 +341,25 @@ namespace FarHorizon
             float x = (d ? 1f : 0f) - (a ? 1f : 0f);   // strafe: D = +, A = −
             float y = (w ? 1f : 0f) - (s ? 1f : 0f);   // forward: W = +, S = −
             return new Vector2(x, y);
+        }
+
+        /// <summary>
+        /// PURE move-speed precedence (the unit-testable core of the crouch/run speed selection, tickets
+        /// 86ca9yq34 + 86caa3kur): pick the commanded move speed from the walk/run/sneak speeds + the sprint +
+        /// crouch states. The PRECEDENCE the Sponsor judges (AC2): CROUCH WINS over sprint — crouching commands
+        /// the reduced <paramref name="sneak"/> speed even when sprint is also requested; otherwise sprinting
+        /// commands <paramref name="run"/>; otherwise <paramref name="walk"/>. Defensive clamps: the run is never
+        /// slower than the walk, and the sneak is never faster than the walk (a mis-tuned sneakSpeed can't make
+        /// crouch FASTER than a stand-walk). Static + dependency-free so the EditMode guard asserts the precedence
+        /// + the clamps with no Animator/NavMesh/headless-time dependency.
+        /// </summary>
+        public static float ResolveSpeed(float walk, float run, float sneak, bool isSprinting, bool isCrouching)
+        {
+            float clampedRun = run > walk ? run : walk;                          // run never slower than walk
+            float clampedSneak = sneak > 0.001f && sneak < walk ? sneak : walk;  // sneak never faster than walk
+            if (isCrouching) return clampedSneak;                                // crouch wins over sprint (AC2)
+            if (isSprinting) return clampedRun;
+            return walk;
         }
 
         // Resolve the camera's planar forward/right basis (the orbit camera's facing projected onto the
