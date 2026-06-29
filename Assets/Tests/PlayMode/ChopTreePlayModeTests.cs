@@ -316,7 +316,7 @@ namespace FarHorizon.PlayTests
 
             // The body yaw must now point at the tree (+X is yaw +90°). A snap or a fast lerp both land here on
             // the chop frame (FaceWorldTarget applies the yaw immediately).
-            Assert.AreEqual(90f, Mathf.DeltaAngle(0f, _character.BodyYaw) + 0f, 5f,
+            Assert.AreEqual(90f, Mathf.DeltaAngle(0f, _character.BodyYaw), 5f,
                 "after a chop the player faces the target tree (+X → yaw ~90°), not its prior north facing");
         }
 
@@ -713,6 +713,40 @@ namespace FarHorizon.PlayTests
             yield return null;
         }
 
+        // === 86caf9ngh N2 — the serialized swingClipLengthSeconds fallback is FLOORED strictly > 0. A degenerate
+        //     0 (or negative) on a misconfigured Animator-less rig must NOT collapse the swing duration to 0 (which
+        //     would disable the clip-completion cadence gate → machine-gun swings). The live build is unaffected
+        //     (it reads the real MeleeClipLength); this guards only the bare-rig fallback. ===
+        [UnityTest]
+        public IEnumerator DegenerateZeroFallback_FloorsSwingDurationStrictlyPositive()
+        {
+            SelectAxe();
+            StandAtTree();
+            _character.chopSpeed = 1f;
+
+            // The bare rig has no Animator → MeleeClipLength is 0 → the serialized fallback is the source.
+            Assert.AreEqual(0f, _character.MeleeClipLength,
+                "precondition: the bare test rig has no Animator clip, so the serialized fallback drives cadence");
+
+            // A misconfigured fallback of 0 must NOT yield a 0-length swing duration (the gate would never engage).
+            _tree.swingClipLengthSeconds = 0f;
+            Assert.Greater(_tree.EffectiveSwingDurationSeconds, 0f,
+                "a 0 fallback is floored strictly > 0 (the SwingClipLengthFloor) so the cadence gate still engages");
+            Assert.AreEqual(ChopTree.SwingClipLengthFloor, _tree.EffectiveSwingDurationSeconds, 0.0001f,
+                "the 0 fallback floors to exactly SwingClipLengthFloor at 1x speed");
+
+            // A negative fallback is likewise floored (Mathf.Max with the floor).
+            _tree.swingClipLengthSeconds = -5f;
+            Assert.AreEqual(ChopTree.SwingClipLengthFloor, _tree.EffectiveSwingDurationSeconds, 0.0001f,
+                "a negative fallback also floors to SwingClipLengthFloor (never negative/zero duration)");
+
+            // A SANE fallback above the floor is untouched (the floor only catches the degenerate case).
+            _tree.swingClipLengthSeconds = 1.6f;
+            Assert.AreEqual(1.6f, _tree.EffectiveSwingDurationSeconds, 0.0001f,
+                "a sane fallback above the floor is unchanged — the floor only catches degenerate 0/negative values");
+            yield return null;
+        }
+
         // === AC2 (re-press for the next tree) — after a tree fells under a held button, the chain does NOT
         //     auto-acquire a neighbour; a fresh PRESS starts a new chain on the next nearest tree ===
         [UnityTest]
@@ -753,6 +787,61 @@ namespace FarHorizon.PlayTests
             int chopsOnStandingAfterRepress = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
             Assert.Greater(chopsOnStandingAfterRepress, chopsOnStandingAfter,
                 "a FRESH press starts a new chain on the next nearest standing tree (re-acquisition on re-press)");
+            _genTree.SetChopHeld(false);
+            yield return null;
+        }
+
+        // === 86caf9ngh N1 — a RE-PRESS on a NEW tree WITHIN the just-felled swing's clip window fires IMMEDIATELY
+        //     (AC1: "single click fires immediately"). The bug: _swingEndsAt was never reset on fell/release, so the
+        //     felling swing's SwingInProgress lock leaked into the next chain's first press and BLOCKED it for the
+        //     ~clip-length window. The pre-existing AfterFall test masks this because StepHeldSwingGen WAITS OUT
+        //     SwingInProgress before the re-press; here we re-press IMMEDIATELY (clip still in flight) to expose it.
+        //     This FAILS without the fell+release _swingEndsAt reset (the re-press's swing never schedules in window). ===
+        [UnityTest]
+        public IEnumerator RePressImmediatelyAfterFell_WithinClipWindow_FiresAFreshSwingImmediately()
+        {
+            BuildScatterWorld(new Vector3(0f, 0f, 0f),    // instance 1 — felled first
+                              new Vector3(1.2f, 0f, 0f)); // instance 2 — a neighbour also IN RANGE
+            yield return null;
+            SelectAxe();
+            _playerGo.transform.position = new Vector3(0.3f, 0f, 0.3f); // in range of BOTH
+            _genTree.chopsToFell = 1;                 // ONE swing fells instance 1 → straight to the re-press case
+            _genTree.swingImpactDelaySeconds = 0.1f;  // impact lands EARLY (mid-clip)
+            _genTree.swingClipLengthSeconds = 1.0f;   // ...but the CLIP runs LONG — a wide window for the bug to bite
+            _genTree.fadeOutDelaySeconds = 30f;
+            _genTree.regrowthMinSeconds = 60f;
+            _genTree.regrowthMaxSeconds = 60f;
+
+            // HOLD → the chain locks on the nearest (instance 1 at ~0.42 vs instance 2 at ~0.96). Fell it in one swing.
+            _genTree.SetChopHeld(true);
+            yield return null;                        // begin the felling swing (schedules impact)
+            float start = Time.time;
+            while (_genTree.ImpactPending && Time.time - start < 2f) yield return null;
+            yield return null;                        // apply the fell at impact
+            Assert.IsTrue(_genTree.IsFelledOn(1), "the locked tree felled on its single swing");
+            // The felling swing's CLIP is still playing — without the N1 reset, SwingInProgress would still be true
+            // and would block the re-press below. With the reset (fell OPENS the gate), it is already clear.
+            Assert.IsFalse(_genTree.SwingInProgress,
+                "fell RESET the clip-completion gate (N1) — the next press is not blocked by the felled swing's clip");
+
+            // RE-PRESS IMMEDIATELY (release + hold) on the standing neighbour, well WITHIN the 1.0s clip window. The
+            // fresh swing must schedule an impact on the very next frames — NOT wait out the prior swing's clip.
+            int chopsBefore = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
+            _genTree.SetChopHeld(false);
+            yield return null;
+            _genTree.SetChopHeld(true);
+            yield return null;                        // the fresh press — must begin a swing THIS frame (gate open)
+            Assert.IsTrue(_genTree.ImpactPending,
+                "a re-press within the clip window fires a FRESH swing immediately (AC1) — not blocked by the stale gate");
+
+            // ...and that swing lands its chop on the neighbour (proving the immediate fire actually connected).
+            start = Time.time;
+            while (_genTree.ImpactPending && Time.time - start < 2f) yield return null;
+            yield return null;
+            int chopsAfter = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
+            Assert.Greater(chopsAfter, chopsBefore,
+                "the immediate re-press swing chopped the standing neighbour within the felled swing's clip window");
+
             _genTree.SetChopHeld(false);
             yield return null;
         }

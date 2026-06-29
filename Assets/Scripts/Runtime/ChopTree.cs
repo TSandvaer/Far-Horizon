@@ -55,7 +55,8 @@ namespace FarHorizon
     /// The chain locks onto the tree resolved at the START of the hold (<see cref="IsChopChainActive"/> exposes the
     /// lock); <see cref="SetChopHeld"/> is the input-independent held seam (the analog of the held mouse button,
     /// like <see cref="RequestChopClick"/> is the click seam) so headless PlayMode + the shipped capture exercise
-    /// the SAME hold path. The optional inter-swing gap is <see cref="chopInterval"/> (default 0 = back-to-back).
+    /// the SAME hold path. The optional inter-swing cooldown is <see cref="chopInterval"/> (default 0.25s — a small
+    /// gap for rhythmic chopping, NOT machine-gun; 0 would be back-to-back).
     ///
     /// === AC1 — THE TRIGGER IS AN ACTIVE LEFT-CLICK (Sponsor soak, 2026-06-25 — CHANGE 1, KEPT) ===
     /// The chop is INITIATED BY THE PLAYER, not auto-fired by proximity. With the axe SELECTED and a tree in
@@ -266,6 +267,13 @@ namespace FarHorizon
                  "live read overrides it in the shipped build. Must be ≥ swingImpactDelaySeconds (impact lands " +
                  "mid-clip; the clip finishes after).")]
         public float swingClipLengthSeconds = 1.6f;
+
+        /// <summary>86caf9ngh N2 — strictly-positive floor for the <see cref="swingClipLengthSeconds"/> fallback used
+        /// in <see cref="ComputeSwingDuration"/>. A degenerate serialized value (0 or negative on a misconfigured
+        /// Animator-less bare rig) would collapse the swing duration to 0 and disable the hold-repeat cadence gate;
+        /// this floors the fallback so the gate always has a non-zero spacing. Small enough not to perturb a sane
+        /// config (the live build reads the real clip length and never touches this floor).</summary>
+        public const float SwingClipLengthFloor = 0.05f;
 
         [Tooltip("Deterministic seed for the regrow-time rolls (so headless tests are reproducible). 0 = use " +
                  "a time-based seed at runtime. Each instance derives its own sub-seed so trees regrow on " +
@@ -478,7 +486,7 @@ namespace FarHorizon
             // Refinement 3 — resolve a PENDING IMPACT when its scheduled impact time arrives (the chop EFFECT
             // lands at the swing's down-stroke, NOT on the click frame). Done BEFORE reading new input so the
             // input read below can immediately begin the NEXT swing of a held chain (HOLD-TO-CHOP) in the same
-            // frame the impact resolves — back-to-back swings (default inter-swing gap 0) with no dead frame.
+            // frame the impact resolves — no dead frame (the inter-swing cadence is the chopInterval cooldown, 0.25s).
             if (_impactPending && Time.time >= _impactAt)
             {
                 _impactPending = false;
@@ -492,6 +500,11 @@ namespace FarHorizon
                 {
                     _chainTarget = null;
                     _suppressUntilRepress = true;
+                    // 86caf9ngh N1 — OPEN the clip-completion gate on fell: clear _swingEndsAt so a re-press on a
+                    // NEW tree within the just-felled swing's ~1.6s clip window fires IMMEDIATELY (AC1), instead of
+                    // being blocked by the stale gate of the swing that brought THIS tree down. Without this, the
+                    // SwingInProgress gate (the hold-repeat cadence lock) leaks into the next chain's first click.
+                    _swingEndsAt = float.NegativeInfinity;
                 }
             }
 
@@ -527,7 +540,10 @@ namespace FarHorizon
             // also CLEARS the STOP-ON-FALL suppression so the NEXT press chains anew (re-press for the next tree).
             // This runs BEFORE the clip-completion gate below so a RELEASE always drops the lock immediately — even
             // if the swing animation is still playing out (the in-flight swing's committed impact already landed).
-            if (!effectiveHeld) { _chainTarget = null; _suppressUntilRepress = false; return; }
+            // 86caf9ngh N1 — also OPEN the clip-completion gate on RELEASE (clear _swingEndsAt), so a fresh press on
+            // a new tree within the released swing's clip window fires immediately (AC1) rather than waiting out the
+            // previous swing's SwingInProgress lock. (The in-flight swing already committed its impact above.)
+            if (!effectiveHeld) { _chainTarget = null; _suppressUntilRepress = false; _swingEndsAt = float.NegativeInfinity; return; }
 
             // STOP-ON-FALL suppression (AC2): the locked target felled while the button stayed held → do not start
             // a NEW chain on a neighbour until the player releases + re-presses. A fresh press clears the latch
@@ -577,9 +593,9 @@ namespace FarHorizon
             }
 
             // Inter-swing cooldown: the next swing in a chain begins only after chopInterval since the last landed
-            // chop. With the default 0 (back-to-back swings) the cadence is driven purely by the swing/impact clip;
-            // a non-zero value inserts a small gap between swings (Sponsor-tunable per the DEFAULTS block). It also
-            // still guards a stray double-edge from out-pacing the swing read.
+            // chop. The default 0.25s inserts a small rhythmic gap between swings (the "rhythmic chopping, NOT
+            // machine-gun" cadence bar); 0 would be back-to-back, driven purely by the swing/impact clip. It also
+            // still guards a stray double-edge from out-pacing the swing read. (Sponsor-tunable per the DEFAULTS block.)
             if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
             _lastChopAt = Time.time;
 
@@ -728,7 +744,12 @@ namespace FarHorizon
                 ? Mathf.Clamp(character.chopSpeed, CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax)
                 : 1f;
             float liveLen = character != null ? character.MeleeClipLength : 0f;
-            float authored = liveLen > 0f ? liveLen : Mathf.Max(0f, swingClipLengthSeconds);
+            // 86caf9ngh N2 — FLOOR the serialized fallback strictly > 0 (SwingClipLengthFloor), not just ≥ 0. A
+            // misconfigured Animator-less bare test rig with swingClipLengthSeconds = 0 (or negative) would
+            // otherwise yield a 0-length swing duration → the clip-completion cadence gate (SwingInProgress) would
+            // never engage on the hold path, machine-gunning swings. The live build is unaffected (it reads the
+            // real MeleeClipLength); this guards only the degenerate fallback.
+            float authored = liveLen > 0f ? liveLen : Mathf.Max(SwingClipLengthFloor, swingClipLengthSeconds);
             return authored / Mathf.Max(0.0001f, speed);
         }
 
