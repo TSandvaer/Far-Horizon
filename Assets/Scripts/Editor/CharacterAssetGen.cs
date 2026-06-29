@@ -69,6 +69,19 @@ namespace FarHorizon.EditorTools
         // procedural). REPLACES the procedural ChopPoseDriver swing the Sponsor rejected. Imported NON-looping
         // (a one-shot strike), Generic — identical idiom to the jump one-shots.
         public const string MeleeFbxPath = CharDir + "/Melee_Attack.fbx";       // WITH skin (Melee one-shot clip)
+        // ===== CROUCH + HIT-REACT clips (86cackb3j — locomotion/hit-react integration). All WITHOUT skin, GENERIC,
+        // bind by transform path onto Idle's mesh (same mixamorig rig — the proven Walk/Run/jump idiom). Looping
+        // for the sustained states (crouch idle/move, stunned hold), one-shot for the reactions/recovery/interaction.
+        public const string SneakWalkFbxPath = CharDir + "/Sneak Walk.fbx";       // crouch-move (LOOP)
+        public const string CrouchIdleFbxPath = CharDir + "/Crouching Idle.fbx";  // crouch stand (LOOP)
+        public const string GettingUpFbxPath = CharDir + "/Getting Up.fbx";       // stun recovery (one-shot)
+        public const string PickingUpFbxPath = CharDir + "/Picking Up.fbx";       // ground-pick interaction (one-shot)
+        public const string StunnedFbxPath = CharDir + "/Stunned.fbx";            // knocked-down hold (LOOP)
+        public const string HeadHitFbxPath = CharDir + "/Head Hit.fbx";           // hit-react (one-shot)
+        public const string BigStomachHitFbxPath = CharDir + "/Big Stomach Hit.fbx"; // hit-react (one-shot)
+        public const string StomachHitFbxPath = CharDir + "/Stomach Hit.fbx";     // hit-react (one-shot)
+        public const string RibHitFbxPath = CharDir + "/Rib Hit.fbx";             // hit-react (one-shot)
+        public const string HitToBodyFbxPath = CharDir + "/Hit To Body.fbx";      // hit-react (one-shot, default region)
         public const string DiffusePngPath = CharDir + "/texture_diffuse.png";
         public const string NormalPngPath = CharDir + "/texture_normal.png";
         public const string MaterialPath = CharDir + "/CastawayMat.mat";
@@ -94,6 +107,18 @@ namespace FarHorizon.EditorTools
         // The CHOP swing clip — renamed-on-import (the Mixamo take is "mixamo.com"; an exact "Melee" match loops
         // ZERO clips, the T-pose-mid-swing failure class). Distinct in the controller as the Attack state's clip.
         public const string MeleeClip = "CastawayMelee"; // chop swing (Melee_Attack.fbx, NON-looping one-shot)
+        // CROUCH + HIT-REACT clip names (86cackb3j) — renamed-on-import from the Mixamo "mixamo.com" take (an exact
+        // "Sneak Walk"/"Head Hit"/… match loops/binds ZERO clips, the T-pose class). Distinct per-FBX in the controller.
+        public const string CrouchWalkClip = "CastawayCrouchWalk"; // Sneak Walk.fbx (LOOP)
+        public const string CrouchIdleClip = "CastawayCrouchIdle"; // Crouching Idle.fbx (LOOP)
+        public const string GettingUpClip = "CastawayGettingUp";   // Getting Up.fbx (one-shot recovery)
+        public const string PickingUpClip = "CastawayPickingUp";   // Picking Up.fbx (one-shot interaction)
+        public const string StunnedClip = "CastawayStunned";       // Stunned.fbx (LOOP — knocked-down hold)
+        public const string HeadHitClip = "CastawayHeadHit";       // Head Hit.fbx (one-shot)
+        public const string BigStomachHitClip = "CastawayBigStomachHit"; // Big Stomach Hit.fbx (one-shot)
+        public const string StomachHitClip = "CastawayStomachHit"; // Stomach Hit.fbx (one-shot)
+        public const string RibHitClip = "CastawayRibHit";         // Rib Hit.fbx (one-shot)
+        public const string HitToBodyClip = "CastawayHitToBody";   // Hit To Body.fbx (one-shot, default region)
 
         // The Animator TRIGGER param that fires the one-shot Jump state (86ca9yq3q). CastawayCharacter pulses
         // it on the rising edge of a jump (SetTrigger). The controller routes the trigger to JumpIdle (Moving
@@ -119,6 +144,21 @@ namespace FarHorizon.EditorTools
         // settings-panel `tool-use speed` row drives CastawayCharacter.chopSpeed, which sets this param live (V1).
         // 1x = the authored clip duration. Default 1 so an unbound rig plays the clip at its authored speed.
         public const string ChopSpeedParam = "ChopSpeed";
+
+        // ===== CROUCH + HIT-REACT params (86cackb3j) — mirror CastawayCharacter.* (kept in sync; the runtime can't
+        // reference the editor asmdef, and a ControllerParamNamesMatch test pins the duplication). The GAMEPLAY
+        // systems that DRIVE these are SEPARATE tickets (this ticket's OOS); the controller only WIRES the clips to them.
+        public const string CrouchParam = "Crouch";       // bool — upright<->crouch lane select
+        public const string HitParam = "Hit";             // trigger — fire a body-region hit-react
+        public const string HitRegionParam = "HitRegion"; // int — which region clip (see HitRegion* below)
+        public const string StunnedParam = "Stunned";     // bool — knocked-down hold (loops) -> Getting Up on release
+        public const string PickUpParam = "PickUp";       // trigger — the one-shot ground-pick interaction
+        // HitRegion int values (mirror CastawayCharacter.HitRegion*). 0 = the default Hit To Body reaction.
+        public const int HitRegionBody = 0;
+        public const int HitRegionHead = 1;
+        public const int HitRegionBigStomach = 2;
+        public const int HitRegionStomach = 3;
+        public const int HitRegionRib = 4;
 
         // The 1D Walk<->Run blend-tree thresholds on the Speed param (86ca9yq34). Idle@0, Walk@WalkBlendSpeed,
         // Run@RunBlendSpeed — so the planar agent speed WasdMovement commands (moveSpeed walking, runSpeed
@@ -169,6 +209,20 @@ namespace FarHorizon.EditorTools
             // CHOP swing clip (86caa4c5c change-(b)) — the Mixamo melee one-shot, Generic + NON-looping; binds by
             // transform path onto Idle's mesh (same mixamorig rig). Replaces the procedural ChopPoseDriver swing.
             ConfigureMeleeFbx();
+            // CROUCH + HIT-REACT clips (86cackb3j) — all WITHOUT-skin Generic, bind by transform path onto Idle's
+            // mesh (the proven Walk/Run/jump idiom). LOOP the sustained states (crouch idle/move, stunned hold);
+            // ONE-SHOT the reactions/recovery/interaction. ConfigureGenericClipFbx is the parameterised import
+            // (same body as ConfigureWalkFbx/ConfigureJumpFbx, differing only in loop + rename target).
+            ConfigureGenericClipFbx(SneakWalkFbxPath, CrouchWalkClip, loop: true);
+            ConfigureGenericClipFbx(CrouchIdleFbxPath, CrouchIdleClip, loop: true);
+            ConfigureGenericClipFbx(StunnedFbxPath, StunnedClip, loop: true);   // knocked-down HOLD loops until recovery
+            ConfigureGenericClipFbx(GettingUpFbxPath, GettingUpClip, loop: false);
+            ConfigureGenericClipFbx(PickingUpFbxPath, PickingUpClip, loop: false);
+            ConfigureGenericClipFbx(HeadHitFbxPath, HeadHitClip, loop: false);
+            ConfigureGenericClipFbx(BigStomachHitFbxPath, BigStomachHitClip, loop: false);
+            ConfigureGenericClipFbx(StomachHitFbxPath, StomachHitClip, loop: false);
+            ConfigureGenericClipFbx(RibHitFbxPath, RibHitClip, loop: false);
+            ConfigureGenericClipFbx(HitToBodyFbxPath, HitToBodyClip, loop: false);
             // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
             // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
             // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
@@ -537,6 +591,40 @@ namespace FarHorizon.EditorTools
                       $"renamed {renamed} NON-looping clip(s) -> {MeleeClip} (the chop swing)");
         }
 
+        // CROUCH + HIT-REACT clip import (86cackb3j) — the parameterised WITHOUT-skin Generic import shared by the
+        // crouch (Sneak Walk / Crouching Idle), stun (Stunned / Getting Up), pick-up (Picking Up), and the five
+        // hit-react clips. IDENTICAL import config to ConfigureWalkFbx/ConfigureJumpFbx (GENERIC rig, avatar from its
+        // OWN identical mixamorig skeleton — binds by TRANSFORM PATH onto Idle's mesh, NO Humanoid muscle retarget =
+        // the 86ca8rdkp runtime-explosion cause), differing only in the LOOP flag + rename target:
+        //   loop=true  → LoopAndRename   (crouch idle/move + the stunned HOLD — sustained cyclic states)
+        //   loop=false → RenameNonLooping (hit reactions / Getting Up recovery / Picking Up — ONE-SHOTs)
+        // materialImportMode=None so a with-skin source (none here — all are without-skin) never spills a stray
+        // material; harmless for without-skin. The Mixamo take is "mixamo.com" → renamed to clipName on import (the
+        // clip-take finding the Idle/Walk/Run/Jump/Melee imports honor — an exact name match loops ZERO clips).
+        private static void ConfigureGenericClipFbx(string fbxPath, string clipName, bool loop)
+        {
+            var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] clip FBX not found at " + fbxPath); return; }
+
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = true;
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            int n;
+            importer.clipAnimations = loop
+                ? LoopAndRename(importer, clipName, out n)
+                : RenameNonLooping(importer, clipName, out n);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] {fbxPath} reimported: rig=Generic CreateFromThisModel, " +
+                      $"{(loop ? "looped" : "renamed NON-looping")} {n} clip(s) -> {clipName}");
+        }
+
         private static Avatar LoadAvatar(string fbxPath)
         {
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbxPath))
@@ -591,11 +679,32 @@ namespace FarHorizon.EditorTools
             AnimationClip jumpIdle = FindClip(JumpIdleFbxPath, JumpIdleClip);
             AnimationClip jumpRunning = FindClip(JumpRunningFbxPath, JumpRunningClip);
             AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the chop swing (86caa4c5c change-(b))
+            // CROUCH + HIT-REACT clips (86cackb3j).
+            AnimationClip crouchWalk = FindClip(SneakWalkFbxPath, CrouchWalkClip);
+            AnimationClip crouchIdle = FindClip(CrouchIdleFbxPath, CrouchIdleClip);
+            AnimationClip stunned = FindClip(StunnedFbxPath, StunnedClip);
+            AnimationClip gettingUp = FindClip(GettingUpFbxPath, GettingUpClip);
+            AnimationClip pickingUp = FindClip(PickingUpFbxPath, PickingUpClip);
+            AnimationClip headHit = FindClip(HeadHitFbxPath, HeadHitClip);
+            AnimationClip bigStomachHit = FindClip(BigStomachHitFbxPath, BigStomachHitClip);
+            AnimationClip stomachHit = FindClip(StomachHitFbxPath, StomachHitClip);
+            AnimationClip ribHit = FindClip(RibHitFbxPath, RibHitClip);
+            AnimationClip hitToBody = FindClip(HitToBodyFbxPath, HitToBodyClip);
             if (idle == null || walk == null || run == null || jumpIdle == null || jumpRunning == null || melee == null)
             {
                 Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}, " +
                                $"run={run != null}, jumpIdle={jumpIdle != null}, jumpRunning={jumpRunning != null}, " +
                                $"melee={melee != null}); controller not built");
+                return;
+            }
+            if (crouchWalk == null || crouchIdle == null || stunned == null || gettingUp == null || pickingUp == null ||
+                headHit == null || bigStomachHit == null || stomachHit == null || ribHit == null || hitToBody == null)
+            {
+                Debug.LogError($"[CharacterAssetGen] missing crouch/hit-react clips (86cackb3j) — crouchWalk=" +
+                               $"{crouchWalk != null}, crouchIdle={crouchIdle != null}, stunned={stunned != null}, " +
+                               $"gettingUp={gettingUp != null}, pickingUp={pickingUp != null}, headHit={headHit != null}, " +
+                               $"bigStomachHit={bigStomachHit != null}, stomachHit={stomachHit != null}, ribHit=" +
+                               $"{ribHit != null}, hitToBody={hitToBody != null}); controller not built");
                 return;
             }
 
@@ -609,6 +718,15 @@ namespace FarHorizon.EditorTools
             // ChopSpeed default 1 (the authored melee clip speed); the Attack state's speedParameter reads it so
             // tool-use speed scales the swing playback rate live (CastawayCharacter.chopSpeed → SetFloat).
             AddFloatParam(controller, ChopSpeedParam, 1f);
+            // CROUCH + HIT-REACT params (86cackb3j). Crouch (bool) selects the crouch lane; Hit (trigger) + HitRegion
+            // (int) fire a body-region reaction; Stunned (bool) holds the knocked-down loop -> Getting Up on release;
+            // PickUp (trigger) fires the one-shot ground-pick. The gameplay systems driving these are OOS (this ticket
+            // only WIRES the clips); the params exist so the clips are reachable + the contract is test-pinned.
+            controller.AddParameter(CrouchParam, AnimatorControllerParameterType.Bool);
+            controller.AddParameter(HitParam, AnimatorControllerParameterType.Trigger);
+            controller.AddParameter(HitRegionParam, AnimatorControllerParameterType.Int);
+            controller.AddParameter(StunnedParam, AnimatorControllerParameterType.Bool);
+            controller.AddParameter(PickUpParam, AnimatorControllerParameterType.Trigger);
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
@@ -704,12 +822,157 @@ namespace FarHorizon.EditorTools
 
             WireAttackReturn(attackState, locoState, idleState);
 
+            // ===== CROUCH LANE (86cackb3j) — a SECOND locomotion lane, NOT folded into the upright Walk<->Run
+            // blend tree (it stays exactly {Idle, Walk, Run} — the Attack/Jump OOS-protection idiom). Two states:
+            //   CrouchIdle = Crouching Idle.fbx (LOOP);  CrouchWalk = Sneak Walk.fbx (LOOP, the crouch-move).
+            // Reached from the upright graph on the Crouch bool, selected by Moving inside the crouch lane, and
+            // released back to the upright graph when Crouch flips false. AnyState→ on (Crouch [&& Moving]) so a
+            // crouch can engage from Idle OR mid-walk; the lane itself flips CrouchIdle<->CrouchWalk on Moving.
+            var crouchIdleState = sm.AddState("CrouchIdle");
+            crouchIdleState.motion = crouchIdle;
+            var crouchWalkState = sm.AddState("CrouchWalk");
+            crouchWalkState.motion = crouchWalk;
+
+            // AnyState → CrouchWalk (Crouch && Moving) ; AnyState → CrouchIdle (Crouch && !Moving). The moving lane
+            // is added first so a moving crouch-engage prefers CrouchWalk. canTransitionToSelf=false so re-evaluating
+            // the same lane doesn't restart the loop from 0.
+            var anyToCrouchWalk = sm.AddAnyStateTransition(crouchWalkState);
+            anyToCrouchWalk.AddCondition(AnimatorConditionMode.If, 0f, CrouchParam);
+            anyToCrouchWalk.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            anyToCrouchWalk.hasExitTime = false;
+            anyToCrouchWalk.duration = 0.18f;
+            anyToCrouchWalk.canTransitionToSelf = false;
+
+            var anyToCrouchIdle = sm.AddAnyStateTransition(crouchIdleState);
+            anyToCrouchIdle.AddCondition(AnimatorConditionMode.If, 0f, CrouchParam);
+            anyToCrouchIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            anyToCrouchIdle.hasExitTime = false;
+            anyToCrouchIdle.duration = 0.18f;
+            anyToCrouchIdle.canTransitionToSelf = false;
+
+            // Release the crouch lane back to the upright graph on (!Crouch): → Locomotion if Moving else Idle (the
+            // no-stall idiom — standing up while still moving resumes Walk/Run on the same frame).
+            WireCrouchRelease(crouchIdleState, locoState, idleState);
+            WireCrouchRelease(crouchWalkState, locoState, idleState);
+
+            // ===== HIT-REACT (86cackb3j) — five body-region reactions fired by the Hit trigger, the clip selected by
+            // the HitRegion int (0=Body default, 1=Head, 2=BigStomach, 3=Stomach, 4=Rib). Each is a ONE-SHOT overlay
+            // state (the Attack idiom): AnyState→<region> on (Hit && HitRegion==value), returning on exit-time to
+            // Locomotion (Moving) / Idle (!Moving) so a hit taken mid-walk resumes locomotion when the flinch ends.
+            // NOT folded into the blend tree. A hit can fire from any state (AnyState) — you can be hit while idle,
+            // walking, running, crouched, or recovering.
+            WireHitReact(sm, "HitToBody", hitToBody, HitRegionBody, locoState, idleState);
+            WireHitReact(sm, "HeadHit", headHit, HitRegionHead, locoState, idleState);
+            WireHitReact(sm, "BigStomachHit", bigStomachHit, HitRegionBigStomach, locoState, idleState);
+            WireHitReact(sm, "StomachHit", stomachHit, HitRegionStomach, locoState, idleState);
+            WireHitReact(sm, "RibHit", ribHit, HitRegionRib, locoState, idleState);
+
+            // ===== STUNNED + recovery (86cackb3j) — Stunned (bool) holds a LOOPING knocked-down state; when it flips
+            // false the character plays the one-shot Getting Up recovery, then returns to Locomotion/Idle. AnyState→
+            // Stunned on (Stunned) so a stun can land from any state. Stunned→GettingUp on (!Stunned). The recovery
+            // is a dedicated transition chain (NOT AnyState) so Getting Up only plays as the END of a stun, never
+            // spuriously. GettingUp returns on exit-time → Locomotion (Moving) / Idle.
+            var stunnedState = sm.AddState("Stunned");
+            stunnedState.motion = stunned;
+            var gettingUpState = sm.AddState("GettingUp");
+            gettingUpState.motion = gettingUp;
+
+            var anyToStunned = sm.AddAnyStateTransition(stunnedState);
+            anyToStunned.AddCondition(AnimatorConditionMode.If, 0f, StunnedParam);
+            anyToStunned.hasExitTime = false;
+            anyToStunned.duration = 0.08f;
+            anyToStunned.canTransitionToSelf = false; // re-asserting Stunned won't restart the knocked-down loop
+
+            // Stunned → GettingUp the moment Stunned releases (the recovery). No exit-time (the stun ends when the
+            // gameplay flag clears, not on a clip cycle).
+            var stunnedToRecover = stunnedState.AddTransition(gettingUpState);
+            stunnedToRecover.AddCondition(AnimatorConditionMode.IfNot, 0f, StunnedParam);
+            stunnedToRecover.hasExitTime = false;
+            stunnedToRecover.duration = 0.12f;
+            stunnedToRecover.hasFixedDuration = true;
+
+            // GettingUp plays once, then returns to Locomotion (Moving) / Idle on its exit-time (the recovery ends).
+            WireOneShotReturn(gettingUpState, locoState, idleState);
+
+            // ===== PICK-UP interaction (86cackb3j) — a ONE-SHOT ground-pick: AnyState→PickingUp on the PickUp trigger,
+            // returning on exit-time to Locomotion (Moving) / Idle (!Moving). The Attack/Getting-Up idiom.
+            var pickingUpState = sm.AddState("PickingUp");
+            pickingUpState.motion = pickingUp;
+            var anyToPickUp = sm.AddAnyStateTransition(pickingUpState);
+            anyToPickUp.AddCondition(AnimatorConditionMode.If, 0f, PickUpParam);
+            anyToPickUp.hasExitTime = false;
+            anyToPickUp.duration = 0.08f;
+            anyToPickUp.canTransitionToSelf = false;
+            WireOneShotReturn(pickingUpState, locoState, idleState);
+
             EditorUtility.SetDirty(controller);
             Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Locomotion(Moving) + Walk<->Run 1D " +
                       $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) + " +
                       $"JumpIdle/JumpRunning one-shots (AnyState on '{JumpParam}'+Moving; return on '{GroundedParam}' " +
                       $"edge → Locomotion if Moving else Idle) + Attack chop swing (AnyState on '{ChopParam}'; speed " +
-                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) -> " + ControllerPath);
+                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) + 86cackb3j: CrouchIdle/" +
+                      $"CrouchWalk lane (AnyState on '{CrouchParam}'[+Moving]; release on !Crouch) + 5 hit-reacts " +
+                      $"(AnyState on '{HitParam}'+'{HitRegionParam}'==0..4) + Stunned loop→GettingUp (on '{StunnedParam}') " +
+                      $"+ PickingUp one-shot (on '{PickUpParam}') -> " + ControllerPath);
+        }
+
+        // (86cackb3j) Release the crouch lane back to the upright graph on (!Crouch): → Locomotion if Moving else
+        // Idle. The no-stall idiom (standing up while moving resumes Walk/Run on the same frame). No exit-time — the
+        // crouch ends when the gameplay flag clears, not on a clip cycle. Moving transition added first.
+        private static void WireCrouchRelease(AnimatorState crouchState, AnimatorState locoState, AnimatorState idleState)
+        {
+            var toLoco = crouchState.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.IfNot, 0f, CrouchParam);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = false;
+            toLoco.duration = 0.18f;
+            toLoco.hasFixedDuration = true;
+
+            var toIdle = crouchState.AddTransition(idleState);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, CrouchParam);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            toIdle.hasExitTime = false;
+            toIdle.duration = 0.18f;
+            toIdle.hasFixedDuration = true;
+        }
+
+        // (86cackb3j) Wire one body-region hit-react: an AnyState→<state> one-shot fired by (Hit && HitRegion==region),
+        // returning on exit-time to Locomotion (Moving) / Idle (!Moving) — the Attack idiom so a mid-walk hit resumes
+        // locomotion when the flinch ends. canTransitionToSelf=true so a rapid repeated hit re-triggers the flinch.
+        private static void WireHitReact(AnimatorStateMachine sm, string stateName, AnimationClip clip, int region,
+                                         AnimatorState locoState, AnimatorState idleState)
+        {
+            var state = sm.AddState(stateName);
+            state.motion = clip;
+
+            var any = sm.AddAnyStateTransition(state);
+            any.AddCondition(AnimatorConditionMode.If, 0f, HitParam);
+            any.AddCondition(AnimatorConditionMode.Equals, region, HitRegionParam);
+            any.hasExitTime = false;
+            any.duration = 0.06f;            // a quick crossfade into the flinch
+            any.canTransitionToSelf = true;  // a rapid repeated hit re-triggers the flinch
+
+            WireOneShotReturn(state, locoState, idleState);
+        }
+
+        // (86cackb3j) Wire a one-shot overlay state's return on its OWN exit-time (the clip's natural end — a flinch /
+        // pick-up / recovery has no physics edge like the jump's landing): → Locomotion if Moving else Idle, so a
+        // held-movement one-shot resumes locomotion on the clip's end (the no-stall lesson, same as WireAttackReturn).
+        private static void WireOneShotReturn(AnimatorState state, AnimatorState locoState, AnimatorState idleState)
+        {
+            var toLoco = state.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = true;
+            toLoco.exitTime = 0.9f;        // play ~90% of the clip before returning
+            toLoco.duration = 0.12f;
+            toLoco.hasFixedDuration = true;
+
+            var toIdle = state.AddTransition(idleState);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            toIdle.hasExitTime = true;
+            toIdle.exitTime = 0.9f;
+            toIdle.duration = 0.12f;
+            toIdle.hasFixedDuration = true;
         }
 
         // (86ca9yq3q rework — THE floating-bug fix) Wire a jump state's return transitions on the GROUNDED edge:

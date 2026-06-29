@@ -192,6 +192,33 @@ namespace FarHorizon
         // (86caf7a0p) ties to the ACTUAL authored clip length, not a magic number.
         public const string MeleeClipName = "CastawayMelee";
 
+        // ===== CROUCH + HIT-REACT animator params (86cackb3j — locomotion/hit-react clip integration) =====
+        // These mirror the CharacterAssetGen.* param names the controller is built with, so the runtime/editor
+        // contract stays in sync (the project idiom: every controller param has a CastawayCharacter mirror; a
+        // ControllerParamNamesMatch test pins it). The GAMEPLAY systems that DRIVE these (combat damage events,
+        // crouch input, pick-up interaction) are SEPARATE tickets (this ticket's OOS) — these constants document
+        // the wiring contract + are referenced by the controller-wiring tests; no system sets them yet.
+        //
+        // CROUCH (bool): routes Idle→CrouchIdle (Crouch && !Moving) and Locomotion→CrouchWalk (Crouch && Moving)
+        // — the Crouching Idle + Sneak Walk crouch-move clips. A SECOND locomotion lane, NOT folded into the
+        // upright Walk<->Run blend tree (that stays exactly {Idle, Walk, Run} — the Attack/Jump OOS-protection idiom).
+        public const string CrouchParam = "Crouch";
+        // HIT (trigger) + HITREGION (int): AnyState→a body-region hit-react on the Hit trigger, the clip selected by
+        // HitRegion (0=Body, 1=Head, 2=BigStomach, 3=Stomach, 4=Rib). One-shot; returns to Locomotion(Moving)/Idle —
+        // the Attack idiom. The region values are mirrored as HitRegion* constants below for the (future) damage system.
+        public const string HitParam = "Hit";
+        public const string HitRegionParam = "HitRegion";
+        public const int HitRegionBody = 0;        // Hit To Body (the default / unspecified-region reaction)
+        public const int HitRegionHead = 1;        // Head Hit
+        public const int HitRegionBigStomach = 2;  // Big Stomach Hit (the heavy gut reaction)
+        public const int HitRegionStomach = 3;     // Stomach Hit
+        public const int HitRegionRib = 4;         // Rib Hit
+        // STUNNED (bool): AnyState→Stunned while true (a LOOPING knocked-down hold); Stunned→GettingUp when it flips
+        // false (the one-shot recovery), then GettingUp→Locomotion/Idle on exit. The recovery clip is Getting Up.
+        public const string StunnedParam = "Stunned";
+        // PICKUP (trigger): AnyState→PickingUp (the one-shot ground-pick interaction). Returns to Locomotion/Idle.
+        public const string PickUpParam = "PickUp";
+
         // One-shot CHOP trace flag (the input-independent, headless-readable seam — the Animator does NOT tick
         // headlessly, deltaTime≈0, so a PlayMode test can't observe the Attack state playing; instead it asserts
         // TriggerChop fired the trigger via this flag, mirroring JumpTraceActive's role for the jump). Set true on
