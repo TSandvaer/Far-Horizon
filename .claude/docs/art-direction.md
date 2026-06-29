@@ -77,3 +77,7 @@ mountains are the vista backdrop; water (river/lake) recurs in every wide shot.
 > are rendered in — chunkier, more saturated, more toy-like.
 > **Catalog freshness note:** the Sponsor adds references in bursts — before any visual work,
 > `ls inspiration/` and view anything not yet catalogued here, then add its entry.
+
+## Grass — Sponsor reference (2026-06-29)
+
+Low-poly grass should be **chunky 3D grass BLADES in dense clustered tufts** — individual pointed, faceted blade-meshes (NOT flat billboards / quad planes), grouped into tufts, with some blades splayed / crossed within a tuft; monochrome saturated green; reads as real grass geometry on the ground. **Stationary** — no sway / no wave (per the #172 soak NIT, 2026-06-29: only the trees up in the air move; bushes + grass stay still). Sponsor sent a reference image 2026-06-29, in the board as [`inspiration/low poly grass.png`](../../inspiration/low%20poly%20grass.png) — read it as ground truth (lush dense blade meadow + white/purple flower accents). This is the visual target for the **Grass POC** ticket `86cabc737` (chunky-blade tufts, stationary).
