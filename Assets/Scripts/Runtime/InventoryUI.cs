@@ -578,14 +578,67 @@ namespace FarHorizon
             if (_dragGhost != null) _dragGhost.style.display = DisplayStyle.None;
         }
 
+        /// <summary>Half the 56px ghost — the offset that centers the ghost on the cursor (panel units;
+        /// ScreenToPanel output is already in panel space, so the -28 is a panel-unit nudge, not screen px).</summary>
+        private const float GhostHalfSize = 28f;
+
         private void PositionGhostAtMouse()
         {
-            if (_dragGhost == null || _root == null) return;
-            // Convert screen-space mouse (origin bottom-left, Y up) to panel-space (origin top-left, Y down).
-            Vector2 m = Input.mousePosition;
-            float panelY = Screen.height - m.y;
-            _dragGhost.style.left = m.x - 28f;
-            _dragGhost.style.top = panelY - 28f;
+            PositionGhostAtScreenPoint(Input.mousePosition);
+        }
+
+        /// <summary>
+        /// Position the drag-ghost so its CENTER sits at <paramref name="screenPos"/> (screen space:
+        /// <c>Input.mousePosition</c> convention — origin bottom-left, Y up). FLIP-THEN-CONVERT, in THIS exact
+        /// order (the recurring-bug fix, 86caffw9h — the LAST time this should recur):
+        ///   (1) flip Y manually FIRST — <c>RuntimePanelUtils.ScreenToPanel</c> expects a TOP-LEFT-origin input
+        ///       (the official Unity 6000.0 docs example flips Y before the call), and
+        ///   (2) ScreenToPanel applies the panel SCALE (PanelScaleMode.ScaleWithScreenSize, refRes 1920x1080).
+        /// The OLD code did the flip but NEVER the scale, so at a non-1080p window (panel scale != 1) the ghost
+        /// rendered scale× off the cursor — the "ghost jumps out into the world / far right of screen" the
+        /// Sponsor reported. INVISIBLE at exactly 1920x1080 (scale ~= 1), which is why prior fixes that tested
+        /// only at 1080p missed it. Do NOT remove the manual flip, add a second flip, or divide by scale by
+        /// hand — any of those re-breaks it. Public so the shipped-build verify capture can drive a KNOWN cursor
+        /// (no real mouse in an automated launch) through the SAME production path it asserts.
+        /// </summary>
+        public void PositionGhostAtScreenPoint(Vector2 screenPos)
+        {
+            if (_dragGhost == null || _dragGhost.panel == null) return;
+            Vector2 sp = screenPos;
+            sp.y = Screen.height - sp.y;
+            Vector2 panelPos = RuntimePanelUtils.ScreenToPanel(_dragGhost.panel, sp);
+            _dragGhost.style.left = panelPos.x - GhostHalfSize;
+            _dragGhost.style.top = panelPos.y - GhostHalfSize;
+        }
+
+        /// <summary>
+        /// The drag-ghost's CENTER in PANEL space (origin top-left, Y down — the laid-out <c>worldBound</c>
+        /// convention), or <c>null</c> if the ghost/panel isn't laid out yet. The shipped-build verify capture
+        /// reads this back and asserts it ≈ the EXPECTED panel point for the cursor it drove in
+        /// (<see cref="ExpectedGhostPanelCenter"/>) — proving the ghost tracks the cursor at a non-1080p
+        /// resolution (86caffw9h). Both sides go through <c>RuntimePanelUtils.ScreenToPanel</c>, so the assert
+        /// validates the production conversion end-to-end (no PanelToScreen needed — that API doesn't exist).
+        /// </summary>
+        public Vector2? GhostCenterPanelPoint()
+        {
+            if (_dragGhost == null || _dragGhost.panel == null) return null;
+            Rect wb = _dragGhost.worldBound;                      // panel space (Y down), already laid out
+            return new Vector2(wb.x + wb.width * 0.5f, wb.y + wb.height * 0.5f);
+        }
+
+        /// <summary>
+        /// The EXPECTED panel-space center for a ghost positioned at <paramref name="screenPos"/> — the SAME
+        /// flip-then-ScreenToPanel the production <see cref="PositionGhostAtScreenPoint"/> uses, WITHOUT the
+        /// -28 nudge (so it returns the cursor's panel point, i.e. where the ghost CENTER should land). The
+        /// verify capture compares this to <see cref="GhostCenterPanelPoint"/> at a non-1080p resolution; the
+        /// pre-fix (scale-less) code would diverge here by the panel scale. <c>null</c> if no panel yet.
+        /// </summary>
+        public Vector2? ExpectedGhostPanelCenter(Vector2 screenPos)
+        {
+            if (_dragGhost == null || _dragGhost.panel == null) return null;
+            Vector2 sp = screenPos;
+            sp.y = Screen.height - sp.y;
+            return RuntimePanelUtils.ScreenToPanel(_dragGhost.panel, sp);
         }
 
         // ============================================================================================
@@ -607,9 +660,14 @@ namespace FarHorizon
         /// </summary>
         public bool IsPointerOverUI(Vector2 screenPos)
         {
-            if (_root == null) return false;
-            // Screen (Y-up) -> panel (Y-down) — the same flip PositionGhostAtMouse uses.
-            Vector2 panelPos = new Vector2(screenPos.x, Screen.height - screenPos.y);
+            if (_root == null || _root.panel == null) return false;
+            // Screen (Y-up) -> panel (Y-down, SCALE-applied) — the SAME flip-then-convert PositionGhostAtMouse
+            // uses (86caffw9h sibling fix). The slot worldBounds we hit-test below are in panel space (already
+            // scaled by UI Toolkit layout), so the cursor MUST also be scaled to panel space or the hit-test is
+            // off by the panel scale at any non-1080p window — wrongly chopping/consuming the world behind the
+            // panel near the belt/pack edge, or swallowing a legit world click. FLIP first, then ScreenToPanel.
+            Vector2 sp = new Vector2(screenPos.x, Screen.height - screenPos.y);
+            Vector2 panelPos = RuntimePanelUtils.ScreenToPanel(_root.panel, sp);
 
             // The always-on belt STRIP (interactive whether or not the pack is open).
             if (HitIndex(_beltStripSlots, panelPos) >= 0) return true;
@@ -627,14 +685,21 @@ namespace FarHorizon
 
         /// <summary>
         /// PURE screen-point-over-UI core (the unit-testable seam for <see cref="IsPointerOverUI"/>): given a
-        /// SCREEN-space point (Y-up), the screen HEIGHT, and the panel-space rects of the interactive UI
-        /// elements (Y-down), return true iff the flipped point lands in ANY rect. Static + layout-free so the
-        /// EditMode guard asserts the screen→panel flip + overlap with SYNTHETIC rects (no live UIDocument).
+        /// SCREEN-space point (Y-up), the screen HEIGHT, the PANEL SCALE, and the panel-space rects of the
+        /// interactive UI elements (Y-down), return true iff the converted point lands in ANY rect. This
+        /// replicates <c>RuntimePanelUtils.ScreenToPanel</c>'s math headlessly: flip Y first, THEN divide by the
+        /// panel scale (PanelScaleMode.ScaleWithScreenSize). Static + layout-free so the EditMode guard asserts
+        /// the screen→panel flip+SCALE with SYNTHETIC rects (no live UIDocument). The scale term is the
+        /// recurring-bug fix (86caffw9h): a scale=1 (1080p) test alone CANNOT catch the missing-scale flaw.
         /// </summary>
-        public static bool ScreenPointOverlapsAnyRect(Vector2 screenPos, float screenHeight,
+        /// <param name="panelScale">The panel's effective scale (screen px per panel unit). 1.0 at the
+        /// reference resolution (1920x1080); ~1.333 at 2560x1440. A value &lt;= 0 is treated as 1 (no scale)
+        /// so a degenerate call never divides by zero.</param>
+        public static bool ScreenPointOverlapsAnyRect(Vector2 screenPos, float screenHeight, float panelScale,
                                                       IReadOnlyList<Rect> uiRects)
         {
-            Vector2 panelPos = new Vector2(screenPos.x, screenHeight - screenPos.y);
+            float s = panelScale > 0f ? panelScale : 1f;
+            Vector2 panelPos = new Vector2(screenPos.x / s, (screenHeight - screenPos.y) / s);
             return HitIndex(uiRects, panelPos) >= 0;
         }
     }
