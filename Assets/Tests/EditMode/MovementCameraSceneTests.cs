@@ -230,6 +230,18 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HasHitReactVerifyCapture_OnBoot()
+        {
+            // 86cackb3j — the locomotion + hit-react shipped-build capture (-verifyHitReact) must be serialized onto
+            // Boot (the component-in-source-but-not-in-scene trap — it ships inert otherwise → no AC3 capture/cone
+            // guard in the build). It drives the live WasdMovement for walk→run then fires the Hit param.
+            var scene = OpenBoot();
+            var cap = FindInScene<LocomotionHitReactVerifyCapture>(scene);
+            Assert.IsNotNull(cap, "the Boot scene must carry LocomotionHitReactVerifyCapture (the -verifyHitReact gate)");
+            Assert.IsNotNull(cap.player, "LocomotionHitReactVerifyCapture must reference the WasdMovement it drives");
+        }
+
+        [Test]
         public void NavMesh_IsSavedAsAsset_NotBakeInMemory()
         {
             // The ship-or-die guard: the baked NavMeshData must exist as a project asset so it

@@ -2766,6 +2766,11 @@ namespace FarHorizon.EditorTools
             // Inert unless -verifyRun. Sibling of WasdVerifyCapture.
             WireRunVerifyCapture(player);
 
+            // Wire the LOCOMOTION + HIT-REACT shipped-build capture (86cackb3j) — walk→run then fires the Hit
+            // trigger on the live Animator + captures the flinch, with a cone-explosion guard (mesh stays at the
+            // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
+            WireHitReactVerifyCapture(player);
+
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
         }
@@ -2872,6 +2877,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<RunVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<RunVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the LOCOMOTION + HIT-REACT shipped-build verify capture (86cackb3j) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifyHitReact. Sibling of WireRunVerifyCapture.
+        private static void WireHitReactVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host LocomotionHitReactVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<LocomotionHitReactVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<LocomotionHitReactVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }
