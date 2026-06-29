@@ -84,9 +84,45 @@ namespace FarHorizon
 
             float worstMeshGap = 0f; // the worst (largest) mesh-center-to-player distance seen — the cone guard.
 
-            // 1. WALK (forward, no Shift).
-            if (player != null) { player.SetInputOverride(new Vector2(0f, 1f)); player.SetSprintOverride(false); }
+            // 1. HIT-REACT FIRST — fire it from a STILL spawn so the gameplay orbit cam stays framed on the
+            // character (a long walk/run before the flinch swings the cam off the character — the flinch frame
+            // must SHOW the reaction, not empty terrain). Fire the Hit trigger (HitRegion=Head) directly on the
+            // live Animator (the gameplay DAMAGE system that would drive it is OOS for this ticket — this exercises
+            // the SAME state route a real damage event will).
+            for (int i = 0; i < 5; i++) yield return null;
+            worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
+            ShotTo(Path.Combine(dir, "hitreact_idle.png")); // baseline: framed, standing, before the hit
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            bool firedHit = false;
+            if (animator != null && animator.runtimeAnimatorController != null)
+            {
+                animator.SetInteger(HitRegionParam, HitRegionHead);
+                animator.SetTrigger(HitParam);
+                firedHit = true;
+            }
+            Debug.Log("[HitReactVerifyCapture] fired Hit trigger (HitRegion=Head): " + firedHit +
+                      (firedHit ? "" : " — NO live Animator/controller found; the flinch can't be driven"));
+
             float start = Time.time;
+            bool shotFlinch = false;
+            while (Time.time - start < 1.2f)
+            {
+                worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
+                if (!shotFlinch && Time.time - start > 0.25f)
+                {
+                    ShotTo(Path.Combine(dir, "hitreact_flinch.png")); // the flinch, character framed at spawn
+                    shotFlinch = true;
+                }
+                yield return null;
+            }
+            if (!shotFlinch) ShotTo(Path.Combine(dir, "hitreact_flinch.png"));
+            for (int i = 0; i < 20; i++) yield return null; // let the one-shot finish + return to idle
+
+            // 2. WALK (forward, no Shift). The cam follows; the worstMeshGap guard rides the whole window.
+            if (player != null) { player.SetInputOverride(new Vector2(0f, 1f)); player.SetSprintOverride(false); }
+            start = Time.time;
             while (Time.time - start < walkSeconds)
             {
                 worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
@@ -98,7 +134,7 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
 
-            // 2. RUN (forward + Shift).
+            // 3. RUN (forward + Shift). Shoot midway once the cam has settled behind the running character.
             if (player != null) player.SetSprintOverride(true);
             start = Time.time;
             float lastShot = -1f;
@@ -116,39 +152,10 @@ namespace FarHorizon
             Debug.Log($"[HitReactVerifyCapture] RUN: IsRunning={(castaway != null && castaway.IsRunning)} " +
                       $"worstMeshGap={worstMeshGap:F2}u");
 
-            // 3. HIT-REACT — stop moving, then fire the Hit trigger (HitRegion=Head) directly on the live Animator
-            // (the OOS damage system's stand-in). Hold a window so the flinch plays + the cam frames it.
+            // 4. AFTER — release + settle back to idle (the cam re-frames on the now-stationary character).
             if (player != null) { player.ClearSprintOverride(); player.ClearInputOverride(); }
             if (agent != null && agent.isOnNavMesh) agent.velocity = Vector3.zero;
-            for (int i = 0; i < 8; i++) yield return null;
-
-            bool firedHit = false;
-            if (animator != null && animator.runtimeAnimatorController != null)
-            {
-                animator.SetInteger(HitRegionParam, HitRegionHead);
-                animator.SetTrigger(HitParam);
-                firedHit = true;
-            }
-            Debug.Log("[HitReactVerifyCapture] fired Hit trigger (HitRegion=Head): " + firedHit +
-                      (firedHit ? "" : " — NO live Animator/controller found; the flinch can't be driven"));
-
-            // Capture mid-flinch (the reaction is ~a one-shot ≤1s; shoot a few frames in) while watching the mesh gap.
-            start = Time.time;
-            bool shotFlinch = false;
-            while (Time.time - start < 1.2f)
-            {
-                worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
-                if (!shotFlinch && Time.time - start > 0.25f)
-                {
-                    ShotTo(Path.Combine(dir, "hitreact_flinch.png"));
-                    shotFlinch = true;
-                }
-                yield return null;
-            }
-            if (!shotFlinch) ShotTo(Path.Combine(dir, "hitreact_flinch.png"));
-
-            // 4. AFTER — settled back to idle.
-            for (int i = 0; i < 8; i++) yield return null;
+            for (int i = 0; i < 16; i++) yield return null;
             ShotTo(Path.Combine(dir, "hitreact_after.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
