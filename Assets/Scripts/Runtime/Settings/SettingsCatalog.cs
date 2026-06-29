@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace FarHorizon.Settings
@@ -44,6 +45,13 @@ namespace FarHorizon.Settings
         // refactor 86cabgvgw is NOT a hard-dep, so this binds HungerNeed directly per the ticket default).
         public const string HungerDecayId  = "hunger_decay_rate";
         public const string BerryRestoreId = "berry_restore_amount";
+        // Berry-regrowth tweakable (ticket 86cabn67w — the 86caa5zz3 AC4 settings-registration follow-up).
+        // The `Berry regrowth time` row drives EVERY BerryBush's regrowMinSeconds / regrowMaxSeconds (a RANGE
+        // — RANDOM regrowth within [min,max], like tree-regrowth / stone-respawn). DISTINCT id from #183's
+        // HungerNeed `berry_restore_amount` (BerryRestoreId above) — this is the per-bush REGROW TIMER, not the
+        // per-berry hunger satisfaction. Registered by PopulateBerry (the PopulateThirst/Stones de-collision
+        // precedent — each feature adds its OWN Populate method, never grows the base Populate signature).
+        public const string BerryRegrowthId = "berry_regrowth_time";
         // Chop tweakable (ticket 86caa4c5c AC3). The `tree regrowth time` row drives the ChopTree's
         // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
         // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
@@ -104,6 +112,12 @@ namespace FarHorizon.Settings
         // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR set a
         // realistic ecology. Range row → drives ChopTree.regrowthMin/Max (organic regrowth within [min,max]).
         public const float TreeRegrowthLower = 0f, TreeRegrowthUpper = 1800f;
+        // Berry-regrowth range hard-limits in SECONDS — the band the `Berry regrowth time` range can be dialed
+        // within. The shipped BerryBush defaults are 20s..40s; the band is generous (instant..30 min) so the
+        // Sponsor can soak fast (berries return almost immediately) OR set a slower, more deliberate forage
+        // cadence. Range row → drives EVERY BerryBush.regrowMin/MaxSeconds (random regrowth within [min,max]).
+        // Same band shape as tree-regrowth / stone-respawn (the two sibling regrow/respawn timers).
+        public const float BerryRegrowthLower = 0f, BerryRegrowthUpper = 1800f;
         // Log-pile despawn band in SECONDS (ticket 86caf9u5t AC5) — the band the `log-pile despawn` slider can be
         // dialed within. Generous around the ~180s default (instant..10 min): the Sponsor can soak fast (a pile
         // that vanishes quickly) OR keep the wood around. Float row → LogPileSpawner.DespawnSeconds.
@@ -195,6 +209,22 @@ namespace FarHorizon.Settings
             FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
             FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
             FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger)
+            => Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, held, hunger, null);
+
+        /// <summary>
+        /// Build the standard registry AND every prior need/feature AND the BERRY-REGROWTH tweakable (ticket
+        /// 86cabn67w — the 86caa5zz3 AC4 settings-registration follow-up): a `Berry regrowth time` RANGE row
+        /// driving <c>regrowMinSeconds</c> / <c>regrowMaxSeconds</c> across EVERY <paramref name="berryBushes"/>
+        /// (the wired bush AND the ~32 scatter bushes — unlike trees, each BerryBush holds its OWN regrow window,
+        /// so the row FANS OUT to all of them). A null/empty list SKIPS the berry row (the catalog never
+        /// null-refs), so existing callers / bare test rigs are unaffected. Mirrors the PopulateStones/PopulateChop
+        /// RANGE de-collision precedent (each feature adds its OWN Populate method).
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
+            FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger,
+            IReadOnlyList<FarHorizon.BerryBush> berryBushes)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
@@ -203,6 +233,7 @@ namespace FarHorizon.Settings
             PopulateStones(reg, stoneRespawner);
             PopulateHeldWeapon(reg, held);
             PopulateHunger(reg, hunger);
+            PopulateBerry(reg, berryBushes);
             return reg;
         }
 
@@ -309,6 +340,58 @@ namespace FarHorizon.Settings
             reg.AddFloat(BerryRestoreId, "Berry restore amount",
                 () => hunger.berryRestoreAmount, v => hunger.berryRestoreAmount = v,
                 BerryRestoreMin, BerryRestoreMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the BERRY-REGROWTH tweakable (ticket 86cabn67w — the 86caa5zz3 AC4 settings-registration
+        /// follow-up) into the registry: a `Berry regrowth time` RANGE row driving
+        /// <see cref="FarHorizon.BerryBush.regrowMinSeconds"/> / <see cref="FarHorizon.BerryBush.regrowMaxSeconds"/>
+        /// (RANDOM regrowth within [min,max], like tree-regrowth / stone-respawn). The label is the AC-mandated
+        /// name ("Berry regrowth time").
+        ///
+        /// FAN-OUT (the one constraint that distinguishes this from the tree precedent): trees share ONE
+        /// <see cref="FarHorizon.ChopTree"/> controller that passes its regrow window to each tree at chop time,
+        /// so the tree row binds to that single component. Berries are different — EACH <see cref="FarHorizon.BerryBush"/>
+        /// instance holds its OWN <c>regrowMin/MaxSeconds</c> and rolls its own regrow in
+        /// <c>ScheduleRegrow</c> reading its own fields (there is no shared berry manager). So this row must
+        /// FAN OUT: the getter READS the first non-null bush (the representative — all bushes share the same
+        /// dialed window once set); the setter WRITES the value to EVERY bush in <paramref name="berryBushes"/>
+        /// so the wired bush AND the ~32 scatter bushes retune together (a setting that tuned only one of ~32
+        /// bushes is a broken instrument). The setter runs only on a slider drag / ApplyAll / LoadAll — never
+        /// per-frame — so iterating the (small, scene-resolved-once) list is fine (unity6-mastery §6: no
+        /// per-FRAME Find; this is a per-tweak fan-out over a cached list, mirroring the held-weapon seam).
+        ///
+        /// A null/empty list registers NOTHING (the settings panel for a bush-less rig simply lacks the row), so
+        /// existing callers / bare test rigs never null-ref and never add a dead knob. The setter skips null
+        /// elements (a destroyed/regenerated bush is tolerated). The settings panel host (86caa4bqp / PR #83) is
+        /// MERGED, so this is a LIVE row, not a greyed extension hook.
+        /// </summary>
+        public static void PopulateBerry(SettingsRegistry reg, IReadOnlyList<FarHorizon.BerryBush> berryBushes)
+        {
+            if (reg == null || berryBushes == null) return;
+
+            // The representative bush: the first non-null in the list. Its regrowMin/Max are the getter source.
+            // (Once the slider is dialed, the setter writes EVERY bush to the same window, so any bush reads back
+            // the dialed value — the representative is just a stable read anchor.)
+            FarHorizon.BerryBush rep = null;
+            for (int i = 0; i < berryBushes.Count; i++)
+            {
+                if (berryBushes[i] != null) { rep = berryBushes[i]; break; }
+            }
+            if (rep == null) return; // a list of only-null entries → no live target → no dead knob.
+
+            // BERRY REGROWTH TIME (live) — a RANGE row over the regrow window [min,max] (random, not uniform).
+            // GETTER reads the representative bush. SETTER fans the value out to EVERY bush so one slider retunes
+            // the whole forage (the wired bush + all scatter bushes). Tightening it makes berries return sooner;
+            // widening, more variance. Band is generous (instant..30 min) — the Sponsor soaks fast OR a slower
+            // cadence. The min<=max ordering is enforced inside BerryBush.ScheduleRegrow, so the slider can't
+            // invert the window.
+            reg.AddRange(BerryRegrowthId, "Berry regrowth time",
+                () => rep.regrowMinSeconds,
+                v => { for (int i = 0; i < berryBushes.Count; i++) if (berryBushes[i] != null) berryBushes[i].regrowMinSeconds = v; },
+                () => rep.regrowMaxSeconds,
+                v => { for (int i = 0; i < berryBushes.Count; i++) if (berryBushes[i] != null) berryBushes[i].regrowMaxSeconds = v; },
+                BerryRegrowthLower, BerryRegrowthUpper, unit: "s");
         }
 
         /// <summary>

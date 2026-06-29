@@ -66,6 +66,11 @@ namespace FarHorizon
                  "rot pitch/yaw/roll, scale) bind to the CURRENTLY-held weapon's seat through it. May be null; " +
                  "the held-weapon rows then simply don't appear.")]
         public HeldWeaponPlacement heldWeapon;
+        [Tooltip("Every berry bush (86cabn67w) — the `Berry regrowth time` RANGE row fans out across ALL of " +
+                 "them (each BerryBush holds its OWN regrow window, unlike the shared ChopTree). Resolved in " +
+                 "Awake via FindObjectsByType (a startup Find, not per-frame). Null/empty → the berry row " +
+                 "simply doesn't appear.")]
+        public BerryBush[] berryBushes;
 
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the panel. Esc per Uma §8 (free — no clash with WASD/Shift/Ctrl/Space/Tab/1-5).")]
@@ -95,6 +100,11 @@ namespace FarHorizon
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
             if (logPileSpawner == null) logPileSpawner = FindObjectOfType<LogPileSpawner>();
             if (heldWeapon == null) heldWeapon = FindObjectOfType<HeldWeaponPlacement>();
+            // Berry-regrowth fans out across EVERY bush (each holds its own regrow window — no shared manager,
+            // unlike the ChopTree). Resolve the full set once at startup (a bake-time/startup Find, not per-frame
+            // — unity6-mastery §6). The serialized array (if wired editor-time) wins; this fills it only if empty.
+            if (berryBushes == null || berryBushes.Length == 0)
+                berryBushes = FindObjectsByType<BerryBush>(FindObjectsSortMode.InstanceID);
         }
 
         void Start()
@@ -102,8 +112,9 @@ namespace FarHorizon
             // Build the registry from the live targets (AC3), load persisted soak tweaks (AC5), apply them.
             // The thirst overload (86caamkv7 AC5) adds the thirst decay rate + water scoop amount rows; the
             // chop overload (86caa4c5c) flips tool-use speed live + adds the tree regrowth time range row; the
-            // hunger overload (86cabd75y) adds the hunger decay rate + berry restore amount rows.
-            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger);
+            // hunger overload (86cabd75y) adds the hunger decay rate + berry restore amount rows; the berry
+            // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush.
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes);
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 
