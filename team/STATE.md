@@ -4,6 +4,36 @@ This file is the orchestrator's source of truth between ticks. The first section
 
 ---
 
+## RESUME NEXT-ACTION — 2026-06-28 (▶ board-hygiene pass [Priya]; #166 MERGED; weapon tickets fleshed; next-wave set refreshed)
+
+> ⚠ This header is written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries the full 2026-06-28 history (input-model wave / 5-iter chop / #164–#169 merges) that is NOT yet harvested to main (`[[orchestrator-worktree-hygiene]]`). Reconcile on the next harvest-to-main; the next-wave set below is current ground truth.
+
+**Mode:** auto-status LOCAL. main `5d58e78` (#166 verifyChop CI gate merged). **Orch-owned PRs (Priya does NOT flip):** #171 `86cafc6vx` water (`ready for qa test`, `auto-merge` label) · #172 `86cabc73q`+`86cabc737` trees+grass (`ready for qa test`) · #170 `orch/harvest-to-main` (orch harvest). `86caffw9h` drag-NIT `in progress` (Devon investigating — leave). **Board reconciled — no Priya status writes needed** (only orch-owned merge flips remain).
+
+**Two new weapon tickets FLESHED to project AC shape (Priya 2026-06-28):**
+- `86caffwuz` "Nudge all weapons in-hand" — in-hand transform calibration, **bake+commit** (bars #5/#8); ends in Sponsor soak; owner Devon/Drew, S.
+- `86caffwv5` "Attack animation per weapon" — animator-driven Mixamo swing on left-click. **⚠ SPONSOR-GATE flagged for orch: apply `sponsor-gate` tag in UI** (Priya can't set tags via MCP) — gated on the Sponsor providing/importing each weapon's Mixamo attack clip (`[[chop-swing-mixamo-clip-not-procedural]]`; axe clip already in-repo). OOS: sourcing the clip.
+
+**▶ NEXT-WAVE DISPATCHABLE SET (non-gated; ready the moment the Unity build slot frees — see `team/priya-pl/backlog-triage-2026-06-28.md` §3 for full rationale):**
+
+_Unity-build lane (≤1 at a time — serialize on the single slot):_
+- `86caf9ngh` + `86caf7ne0` + `86caf6bjd` — chop NITs → **bundle into ONE PR** (overlap `ChopTree.cs`)
+- `86cabgvgw` — WarmthNeed → SurvivalNeed base refactor
+- `86cabugc3` — drag-source-dim PlayMode test hardening
+- `86cabnjv8` — bushes NITs follow-up
+- `86cabuhyw` — BerryBush distance-cull perf
+- `86cabd75y` + `86cabn67w` — standalone SettingsCatalog registrations (don't need console FOUNDATION)
+- `86cackb3j` — integrate preserved FBX locomotion clips (clips already in-repo)
+- `86caffwuz` — weapon in-hand nudge (axe now; ends in soak)
+
+_Non-build lane (fan out NOW in parallel — Erik/Uma/CI; must NOT idle while the build slot is occupied):_
+- **Erik research spikes (highest-leverage idle-fill):** `86cabc743` sky (trees/grass `86cabc73q`/`86cabc737` already in PR #172). Research half non-gated; integration soak-gated.
+- `86caammpq` — CI concurrency-group fix ⚠ ci.yml edit = classifier-guarded → dispatch brief MUST authorize the ci.yml change.
+
+_Sponsor-gated (do NOT auto-dispatch — surface for a priority/greenlight call):_ dev-tweak-console cluster (`86cabeqj9` foundation → 4 dependents); world POC (`86caa9zpp` next-island → `86caa9zju` boat); CI-infra sub-wave (`86cabe3e5`+`86cabfa21`+`86cab7u42` PlayMode-deadlock surface); 2nd-runner registration `86caffc23` (greenlit; Sponsor registers + RAM-trials); `86cafffe8` remove-mountains (new — vision/visual, surface); weapon attack-anim `86caffwv5` (needs clips); vision backlog (`86caaz4vn` Snake / `86caaz4un` Juice / `86cabcdpn` Combat-design).
+
+_(2026-06-19 header below retained as history.)_
+
 ## RESUME NEXT-ACTION — 2026-06-19 (feel pass LANDED; runner-license fixed → CI unblocked; gameplay wave OPEN — settings in CI-re-QA, inventory in flight; new POC/quality/HP tickets filed)
 
 **If this session died:** `main` @ `0596b30` (docs PRs all merged: #84 item-model vocabulary contract / #85 STATE refresh / #86 gameplay-wave acceptance plans). The entire locomotion + axe FEEL PASS is LANDED + Sponsor-approved (the 8-soak jump saga, axe seat, cursor-lock, run-carry, green-line, no-flicker — all on main; the 2026-06-18 22:02Z block below is now HISTORICAL). **The CI play-mode-enter ENV-HANG is RESOLVED — the runner-license issue was fixed; CI now runs interactively as the Sponsor (logged-in session), so the Unity job no longer freezes at play-mode-enter.** Merges are no longer env-blocked. The PlayMode-CI re-enable follow-up `86cab7u42` can now be picked up (re-fold PlayMode into the blocking gate).
