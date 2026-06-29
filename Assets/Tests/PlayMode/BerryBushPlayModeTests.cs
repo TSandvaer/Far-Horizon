@@ -129,6 +129,65 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(6, Berries, "second harvest STACKS onto the first (3 + 3 = 6, one item kind)");
         }
 
+        // === PERF (86cabnjv8 NIT 2): a RIPE bush has NO per-frame work — its Update must be DISABLED so the
+        // player loop skips it (across the ~32 scatter bushes that is ~32 fewer Update dispatches/frame in the
+        // common steady state). Regression guard for the self-disabling-tick optimization: a future change
+        // that leaves Update always-enabled (the original per-frame poll) re-introduces the NIT and reds this.
+        // The companion HarvestedBush_Regrows_BerriesAfterTimer proves the regrow STILL fires after enabling,
+        // so this perf gate cannot be "passed" by simply never running Update. ===
+        [UnityTest]
+        public IEnumerator RipeBush_DisablesUpdate_ReEnablesOnlyWhileRegrowPending()
+        {
+            // A bush ships RIPE -> Awake disables its Update (no regrow pending = no per-frame work).
+            yield return null; // let Awake run
+            Assert.IsTrue(_bush.IsRipe, "precondition: bush ships ripe");
+            Assert.IsFalse(_bush.enabled,
+                "a RIPE bush DISABLES its Update — the player loop skips it (NIT 2: no per-frame poll while ripe)");
+
+            // Harvest -> BARE -> a regrow is pending -> Update must be ENABLED so the timer can fire.
+            _bush.Harvest();
+            Assert.IsFalse(_bush.IsRipe, "harvest -> bare");
+            Assert.IsTrue(_bush.enabled,
+                "a BARE bush ENABLES its Update — the regrow timer needs the per-frame tick while pending");
+
+            // Let the regrow fire through the player loop (Update -> Regrow), then it must DISABLE itself again.
+            float start = Time.time;
+            while (Time.time - start < 1f && !_bush.IsRipe) yield return null;
+            Assert.IsTrue(_bush.IsRipe, "the berries regrew through the player-loop Update tick");
+            Assert.IsFalse(_bush.enabled,
+                "once ripe again the bush DISABLES its Update — back to zero per-frame cost (the tick self-disables)");
+        }
+
+        // === PERF (86cabnjv8 NIT 2): a PLAIN (non-berry) bush NEVER has regrow work — its Update stays
+        // disabled from Awake on. Guards that the disable rule keys off (hasBerries && !ripe), so a plain
+        // bush is skipped by the player loop too (and a no-op Harvest never enables the tick). ===
+        [UnityTest]
+        public IEnumerator PlainBush_KeepsUpdateDisabled()
+        {
+            // A fresh PLAIN bush: hasBerries must be set BEFORE the component's Awake runs so the Awake-time
+            // tick sync sees a plain bush. Build the GameObject, set the field via a disabled-on-add trick is
+            // not available, so build it inactive, add the component, configure, then activate (Awake fires on
+            // activation with hasBerries already false).
+            var plainGo = new GameObject("PlainBush");
+            plainGo.SetActive(false);
+            var plain = plainGo.AddComponent<BerryBush>();
+            plain.inventory = _inv;
+            plain.hasBerries = false;
+            plainGo.SetActive(true); // Awake runs now, with hasBerries == false
+            try
+            {
+                yield return null;
+                Assert.IsFalse(plain.enabled,
+                    "a plain bush has no berries to regrow — its Update stays DISABLED (no per-frame work, ever)");
+
+                // A plain bush's Harvest is a no-op (returns 0) and must NOT enable the tick.
+                Assert.AreEqual(0, plain.Harvest(), "plain bush Harvest is a no-op");
+                yield return null;
+                Assert.IsFalse(plain.enabled, "a no-op harvest on a plain bush never enables the Update tick");
+            }
+            finally { Object.Destroy(plainGo); }
+        }
+
         // === AC4/AC6: the bush PERSISTS; only the berries deplete + regrow after the (tweakable) timer ===
         [UnityTest]
         public IEnumerator HarvestedBush_Regrows_BerriesAfterTimer()
