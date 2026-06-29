@@ -354,6 +354,16 @@ namespace FarHorizon.EditorTools
             // (the IMGUI plate+label actually painted into the frame). Serialized editor-time (NOT Awake) per the
             // editor-vs-runtime trap; INERT unless the exe is launched with -verifyLoot.
             hudGo.AddComponent<FarHorizon.LootPromptVerifyCapture>();
+            // WATER ACQUISITION end-to-end verify capture (86cafc6vx AC6 — the GET side that closes the thirst
+            // loop). The generic -captureGate only shoots the default spawn frame (player OUTSIDE the pond's loot
+            // range → the "Press E to collect water" prompt is HIDDEN + no loot/drink beat fires), so the one
+            // surface this ticket delivers — collect water at the pond + drink it → thirst rises — had ZERO
+            // built-frame evidence. -verifyWater drives the WHOLE loop in the BUILT exe: teleport the player IN
+            // the pond's loot range (agent.Warp — NOT MoveTo, DEAD under WASD) so LootPrompt paints "Press E to
+            // collect water", then RequestLoot → one water in the inventory, then select + RequestUseClick →
+            // thirst RISES. Self-asserts all four beats + captures water_prompt.png + water_drink.png. Serialized
+            // editor-time (NOT Awake) per the editor-vs-runtime trap; INERT unless launched with -verifyWater.
+            hudGo.AddComponent<FarHorizon.WaterAcquisitionVerifyCapture>();
             // World-look NUDGE TOOL (86ca8t9pq soak rework) — F9-gated in-build dialing of sky gradient
             // stops / fog distance+colour (seam-kill preserved) / cloud scale+altitude / mountain
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling

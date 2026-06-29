@@ -43,6 +43,52 @@ namespace FarHorizon.EditTests
             Assert.Greater(pond.EffectiveDrinkRadius, 0f, "the pond must have a positive drink reach");
         }
 
+        // === NEW (ticket 86cafc6vx AC1/AC6) — the pond is an IPickable, serialized + discoverable by the looter =
+        // The GET side that closes the thirst loop: the pond is an IPickable whose E-loot yields ONE water into
+        // the inventory. The editor-vs-runtime serialization guard (wire at bootstrap, NOT Awake): the pond's
+        // INVENTORY ref must SERIALIZE into Boot.unity (so CanLoot is true in the shipped build) AND the pond
+        // must be a MonoBehaviour the player-side PickableLooter's Awake FindObjectsOfType scan discovers (NO
+        // RegisterPickable — the pond is editor-time, not a runtime spawn). A pond whose inventory didn't
+        // serialize ships not-loot-able (CanLoot false) → the thirst loop's GET side silently breaks → this reds
+        // in headless CI before a soak (the component-in-source-but-not-in-scene / unwired-ref silent-killer).
+        [Test]
+        public void BootScene_PondIsAnIPickable_InventoryWired_DiscoverableByTheLooter()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            FreshwaterPond pond = FindInScene<FreshwaterPond>(scene);
+            Assert.IsNotNull(pond, "the pond must be present in the shipped scene");
+
+            // The pond IS an IPickable (the shared E-loot surface — the SAME idiom as BerryBush/StickProp).
+            Assert.IsInstanceOf<IPickable>(pond,
+                "the FreshwaterPond must implement IPickable — the GET side of the thirst loop (E loots water, 86cafc6vx AC1)");
+
+            // The inventory ref must SERIALIZE (wired at bootstrap by MovementCameraScene, NOT Awake) — without it
+            // CanLoot is false in the build and the pond is never loot-able (the thirst loop's GET side breaks).
+            Assert.IsNotNull(pond.inventory,
+                "the pond's Inventory ref must serialize into Boot.unity (the E-looted water lands here; CanLoot " +
+                "gates on it — an unwired inventory ships a NOT-loot-able pond, breaking the thirst loop's GET side)");
+
+            // CanLoot is true (an infinite, repeatable source) + the prompt copy is right (AC5/AC7).
+            var pick = (IPickable)pond;
+            Assert.IsTrue(pick.CanLoot, "the wired pond is loot-able (an INFINITE water source — AC5)");
+            Assert.AreEqual("water", pick.DisplayName, "the pond's prompt name is 'water' (AC7)");
+            Assert.AreEqual("collect", pick.GatherVerb, "the pond's prompt verb is 'collect' -> 'Press E to collect water' (AC7)");
+            Assert.Greater(pick.LootRange, 0f, "the pond must have a positive E-loot reach (keyed to the waterline, AC5)");
+
+            // The player-side looter's Awake scan (FindObjectsOfType<MonoBehaviour> + IPickable filter) discovers
+            // the SERIALIZED pond automatically — NO RegisterPickable. Prove the pond is in the same scene as the
+            // looter and is a MonoBehaviour-typed IPickable the scan WILL pick up (the scan's exact predicate).
+            PickableLooter looter = FindInScene<PickableLooter>(scene);
+            Assert.IsNotNull(looter, "the player-side PickableLooter must be present (it auto-discovers the pond)");
+            bool discoverable = false;
+            foreach (var mb in Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (ReferenceEquals(mb, pond) && mb is IPickable) { discoverable = true; break; }
+            Assert.IsTrue(discoverable,
+                "the pond must be a scene MonoBehaviour that IS an IPickable — exactly what the looter's Awake " +
+                "FindObjectsOfType<MonoBehaviour>+IPickable-filter scan discovers (so NO RegisterPickable is " +
+                "needed; the pond is serialized into Boot.unity, not a runtime spawn — 86cafc6vx AC1).");
+        }
+
         [Test]
         public void BootScene_CarriesDrinkAction_WiredToThePond()
         {
@@ -326,6 +372,22 @@ namespace FarHorizon.EditTests
                 "the Boot scene must carry FreshwaterPondVerifyCapture serialized onto the Boot object — " +
                 "without it a -verifyPond re-run captures nothing (the component-in-source-but-not-in-scene " +
                 "silent-killer the capture gate exists to prevent)");
+        }
+
+        [Test]
+        public void BootScene_CarriesWaterAcquisitionVerifyCapture_Serialized()
+        {
+            // The shipped-build WATER ACQUISITION capture component (WaterAcquisitionVerifyCapture, 86cafc6vx AC6)
+            // must SERIALIZE into the Boot scene — the component-in-source-but-not-in-scene trap. Without it on the
+            // Boot object, a reviewer's -verifyWater re-run produces ZERO water-acquisition frames (the exact
+            // silent failure the shipped-build capture gate exists to catch), so "E collects water + left-click
+            // drink raises thirst in the shipped build" goes UNPROVEN. Inert at normal play (no -verifyWater flag).
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var cap = FindInScene<WaterAcquisitionVerifyCapture>(scene);
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry WaterAcquisitionVerifyCapture serialized onto the Boot object — " +
+                "without it a -verifyWater re-run captures nothing (the component-in-source-but-not-in-scene " +
+                "silent-killer the capture gate exists to prevent; AC6)");
         }
 
         // === REGRESSION GUARD (ticket 86cadj4g7 / #130 re-soak) — the water sits ABOVE the carved bowl FLOOR =

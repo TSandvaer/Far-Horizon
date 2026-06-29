@@ -55,15 +55,27 @@ namespace FarHorizon
         float LootRange { get; }
 
         /// <summary>
-        /// The GENERIC display name the proximity prompt shows — "Press E to pick up {DisplayName}" (ticket
+        /// The GENERIC display name the proximity prompt shows — "Press E to {GatherVerb} {DisplayName}" (ticket
         /// 86cafc6ud AC2/AC3). Each pickable returns its OWN human-readable resource word: a berry bush returns
-        /// "berries", a stick "wood", a stone "stones" — and a future pond returns "water" / the tree-chop
+        /// "berries", a stick "wood", a stone "stones" — and the pond returns "water" / the tree-chop
         /// log-pile "wood", slotting into the SAME prompt with ZERO rework (the load-bearing genericity: the
         /// prompt reads the pickable's own name, never a per-item switch in the HUD). Lower-case, plural/mass
         /// noun matching the inventory resource ("berries"/"wood"/"stones"/"water"). The prompt and the actual
         /// loot agree because both come from the looter's ONE nearest-in-range resolve (single source of truth).
         /// </summary>
         string DisplayName { get; }
+
+        /// <summary>
+        /// The GATHER VERB the proximity prompt uses for this pickable — "Press E to {GatherVerb} {DisplayName}"
+        /// (ticket 86cafc6vx, Uma water-acquisition-spec §2a). DEFAULTS to "pick up" (a default interface member,
+        /// so the existing object pickables — berry bush / stick / stone / log-pile — inherit it with NO change:
+        /// they keep "Press E to pick up berries/wood/stones"). The freshwater POND overrides it to "collect"
+        /// because you don't pick water UP, you GATHER it ("Press E to collect water" — the Sponsor's framing,
+        /// 2026-06-28). This is a tiny GENERIC extension on the shared interface (one optional string), NOT a
+        /// pond-special-case prompt branch — the single-source-of-truth <see cref="LootPrompt"/> path stays
+        /// item-agnostic; only the COPY fits the action. Lower-case (it sits mid-sentence after "Press E to ").
+        /// </summary>
+        string GatherVerb => "pick up";
 
         /// <summary>
         /// LOOT exactly ONE from this item into <paramref name="inventory"/> — the whole transaction (AC1):

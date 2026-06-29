@@ -425,6 +425,41 @@ jobs:
             ci-out/loot-caps/*.png
             ci-out/verify-loot.log
           if-no-files-found: warn
+
+      # WATER-ACQUISITION capture gate (ticket 86cafc6vx AC6 — the GET side that closes the thirst loop).
+      #     The generic -captureGate (step 7) only shoots the DEFAULT SPAWN frame — the player stands
+      #     mid-field, OUTSIDE the pond's loot range, so the "Press E to collect water" prompt is HIDDEN
+      #     and NO loot/drink beat fires → the one surface this ticket delivers (collect water at the pond
+      #     + drink it → thirst rises) had ZERO built-frame evidence (editor-vs-runtime divergence is a
+      #     proven failure class). This launches the SAME built exe windowed with -verifyWater, driving
+      #     WaterAcquisitionVerifyCapture: teleport the player IN the pond's loot range (agent.Warp — NOT
+      #     MoveTo, DEAD under WASD) so LootPrompt paints "Press E to collect water", then RequestLoot →
+      #     one water in the inventory, then select + RequestUseClick → thirst RISES; SELF-ASSERT all four
+      #     beats (prompt show + render, the E-loot, the drink). The component Quit(1)s on any failure (or
+      #     missing wiring), so the exe's exit code IS the gate verdict; frame_check.py is a swapchain
+      #     backstop. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
+      - name: Water-acquisition capture gate (collect water + drink raises thirst)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_water_gate.sh
+            .github/workflows/scripts/verify_water_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/water-caps ci-out/verify-water.log
+          else
+            echo "[verify-water] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload water-acquisition frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-water-caps-${{ github.sha }}
+          path: |
+            ci-out/water-caps/*.png
+            ci-out/verify-water.log
+          if-no-files-found: warn
           retention-days: 14
 
       # 11. Chop → pile → E-loot shipped-build capture gate (ticket 86cafecuj — PR #165

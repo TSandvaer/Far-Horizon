@@ -20,7 +20,9 @@ namespace FarHorizon.EditTests
     /// </summary>
     public class LootPromptTests
     {
-        // A minimal IPickable test double — only DisplayName matters for the prompt-text resolution.
+        // A minimal IPickable test double — only DisplayName matters for the prompt-text resolution. It does NOT
+        // override GatherVerb, so it inherits the interface DEFAULT "pick up" (the object pickables — bush/stick/
+        // stone/log-pile — behave identically: "Press E to pick up {name}").
         private class FakePickable : IPickable
         {
             private readonly string _name;
@@ -29,6 +31,20 @@ namespace FarHorizon.EditTests
             public Vector3 LootPosition => Vector3.zero;
             public float LootRange => 1f;
             public string DisplayName => _name;
+            public bool TryLoot(Inventory inv) => false;
+        }
+
+        // A pond-like pickable that OVERRIDES the gather verb to "collect" (the FreshwaterPond's behaviour —
+        // 86cafc6vx AC7). Proves the generic verb-extension flows through BuildLabel: "Press E to collect water".
+        private class CollectPickable : IPickable
+        {
+            private readonly string _name;
+            public CollectPickable(string name) { _name = name; }
+            public bool CanLoot => true;
+            public Vector3 LootPosition => Vector3.zero;
+            public float LootRange => 1f;
+            public string DisplayName => _name;
+            public string GatherVerb => "collect";
             public bool TryLoot(Inventory inv) => false;
         }
 
@@ -62,6 +78,21 @@ namespace FarHorizon.EditTests
                 "a future water source's DisplayName flows straight through — zero rework in the prompt (AC3)");
             Assert.AreEqual("Press E to pick up wood", LootPrompt.BuildLabel(new FakePickable("wood"), KeyCode.E),
                 "the log-pile/stick 'wood' DisplayName flows through identically");
+        }
+
+        [Test]
+        public void CollectVerb_FlowsThrough_PondReadsCollectWater_ZeroPerItemBranch()
+        {
+            // The pond OVERRIDES GatherVerb to "collect" (86cafc6vx AC7 / Uma §2a): the prompt reads
+            // "Press E to COLLECT water" while objects keep the default "pick up" — a generic verb extension,
+            // NOT a pond-special-case branch in the prompt. The verb flows through BuildLabel with no change here.
+            Assert.AreEqual("Press E to collect water", LootPrompt.BuildLabel(new CollectPickable("water"), KeyCode.E),
+                "the pond's GatherVerb override ('collect') flows through -> 'Press E to collect water' (you " +
+                "GATHER water from a well, you don't pick it up — the Sponsor's framing, 86cafc6vx AC7)");
+
+            // And an object pickable (default verb) still reads "pick up" — the override is per-pickable, not global.
+            Assert.AreEqual("Press E to pick up wood", LootPrompt.BuildLabel(new FakePickable("wood"), KeyCode.E),
+                "an object pickable (no verb override) keeps the default 'pick up' — the verb is per-item, not global");
         }
     }
 }

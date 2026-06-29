@@ -2027,12 +2027,23 @@ namespace FarHorizon.EditorTools
             var rmr = rock.AddComponent<MeshRenderer>();
             if (vc != null) { var m = new Material(vc) { name = "BankRockMat" }; if (m.HasProperty("_Tint")) m.SetColor("_Tint", new Color(0.55f, 0.55f, 0.55f)); rmr.sharedMaterial = m; }
 
-            // --- The drink seam (FreshwaterPond): proximity gate + DrinkScoop -> ThirstNeed.AddWater. The
-            //     ThirstNeed + player refs are wired editor-time (serialized) so the build never relies on a
-            //     per-use FindObjectOfType (BootstrapProject adds Survival/ThirstNeed before this runs). ---
+            // --- The FreshwaterPond: now an IPickable (E loots ONE water into the belt — 86cafc6vx AC1) PLUS the
+            //     COVERAGE-ONLY proximity drink seam (DrinkScoop, no longer bound to any input — AC4). The
+            //     ThirstNeed + player + INVENTORY refs are wired editor-time (serialized) so the build never
+            //     relies on a per-use FindObjectOfType (BootstrapProject adds Survival/ThirstNeed + the Inventory
+            //     before this runs). The player-side PickableLooter AUTO-DISCOVERS the pond at runtime (its Awake
+            //     FindObjectsOfType scan over the serialized scene) — NO RegisterPickable call (that seam is
+            //     RUNTIME-spawn-only, e.g. LogPile; the pond is serialized into Boot.unity — 86cafc6vx AC1). ---
             var fp = pond.AddComponent<FarHorizon.FreshwaterPond>();
             fp.player = player.transform;
             fp.thirst = Object.FindObjectOfType<ThirstNeed>();
+            // The inventory the E-looted water lands in (the GET side — 86cafc6vx AC1). Serialized so the build
+            // never relies on a per-use Find; CanLoot gates on this being wired (no inventory → not loot-able).
+            fp.inventory = Object.FindObjectOfType<Inventory>();
+            if (fp.inventory == null)
+                Debug.LogWarning("[MovementCameraScene] no Inventory in scene to wire FreshwaterPond's E-loot to — " +
+                                 "BootstrapProject must author the Inventory before MovementCameraScene.Author (the " +
+                                 "pond is not loot-able without it; the thirst loop's GET side breaks)");
             // Drink-from-the-EDGE reach is keyed to the VISIBLE waterline (~PondWaterlineRadius ≈ 4.0u, where the
             // bowl wall meets the water surface), NOT the disc NOMINAL radius (5.0u, whose overshoot is submerged in
             // the bowl wall + terrain-occluded — invisible). Feeding the nominal disc radius would over-extend the
@@ -2053,8 +2064,10 @@ namespace FarHorizon.EditorTools
                                   "BootstrapProject must add the Survival DrinkAction before MovementCameraScene.Author");
 
             Debug.Log("[MovementCameraScene] authored FreshwaterPond at " + PondPosition +
-                      " (thirst wired: " + (fp.thirst != null) + ", drinkAction wired: " + (drink != null) +
-                      ", effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
+                      " (IPickable E-loot water; thirst wired: " + (fp.thirst != null) +
+                      ", inventory wired: " + (fp.inventory != null) +
+                      ", drinkAction wired: " + (drink != null) +
+                      ", lootRange/effDrinkR: " + fp.EffectiveDrinkRadius.ToString("F1") + ")");
         }
 
         /// <summary>TEST SEAM (ticket 86cadj4g7 #130 ROUND 8): build the pond water mesh at the SHIPPED
