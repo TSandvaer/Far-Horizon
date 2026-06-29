@@ -206,6 +206,33 @@ STRAY_REPO="$TMP/stray_repo"; mkdir -p "$STRAY_REPO"; make_min_repo "$STRAY_REPO
 assert_rc_and_grep 1 "structure check FAILED" "structure: stray results.xml + VerifyCaptures flagged" \
   -- bash -c "cd '$STRAY_REPO' && bash '$STRUCT'"
 
+# THE 86cafk5vb regression guard — a root-level NUnit dump named WITHOUT the
+# `-results` suffix (PR #177's `editmode-bake176.xml`) must be caught BY CONTENT.
+# The old filename-suffix gate (`-results.xml` / `test-results*.xml`) MISSED it; the
+# new gate inspects the file head for the NUnit `<test-run` root element. We plant the
+# real header shape (matching the committed stray file's first two lines) and `git add -f`
+# (it's now also gitignored by `/editmode*.xml`, mirroring how `git add -A` slipped it in).
+NUNIT_REPO="$TMP/nunit_content_repo"; mkdir -p "$NUNIT_REPO"; make_min_repo "$NUNIT_REPO"
+( cd "$NUNIT_REPO" \
+  && printf '%s\n%s\n' '<?xml version="1.0" encoding="utf-8"?>' \
+       '<test-run id="2" testcasecount="20" result="Passed" total="20" passed="20" failed="0">' \
+       > editmode-bake176.xml \
+  && git add -f editmode-bake176.xml >/dev/null 2>&1 )
+assert_rc_and_grep 1 "structure check FAILED" "structure: root NUnit XML w/o -results suffix flagged by CONTENT (86cafk5vb / #177)" \
+  -- bash -c "cd '$NUNIT_REPO' && bash '$STRUCT'"
+
+# FALSE-POSITIVE guard — a genuine root-level project XML that is NOT an NUnit dump
+# (e.g. a mono-style `<mconfig>` config, or any non-test XML) must NOT trip the content
+# gate. The content gate keys ONLY on the `<test-run` marker, so a normal XML passes.
+# This pins the "zero false positives by design" contract while the gate is content-based.
+LEGIT_XML_REPO="$TMP/legit_xml_repo"; mkdir -p "$LEGIT_XML_REPO"; make_min_repo "$LEGIT_XML_REPO"
+( cd "$LEGIT_XML_REPO" \
+  && printf '%s\n%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<mconfig><configuration/></mconfig>' \
+       > project_config.xml \
+  && git add -f project_config.xml >/dev/null 2>&1 )
+assert_rc_and_grep 0 "structure check PASSED" "structure: non-NUnit root XML does NOT false-positive (86cafk5vb)" \
+  -- bash -c "cd '$LEGIT_XML_REPO' && bash '$STRUCT'"
+
 echo "=== verify_settings_gate.sh (settings-panel capture gate, 86caa4bqp) ==="
 
 # THE bug class this guards (Tess QA bounce, PR #83): the settings success-test is
