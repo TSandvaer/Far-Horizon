@@ -122,6 +122,17 @@ namespace FarHorizon.EditorTools
             // the WireChopScatterRoot post-scatter wiring above (same pre/post ordering, same READ-only contract).
             MovementCameraScene.WireStoneScatterRoot();
 
+            // 86cabn67w (Devon NIT #1) — wire the SettingsPanel.berryBushes array EDITOR-TIME now that BOTH
+            // bush-authoring sites have run: BuildBerryBush (the fixed-position wired bush, in BuildBootScene
+            // AFTER BuildSettingsPanel) and WorldBootstrap.BuildEnvironment (the ~32 scatter LP_BerryBush
+            // instances, just above). At BuildSettingsPanel time NO bush existed to serialize, so the panel
+            // shipped relying ONLY on the runtime Awake FindObjectsByType fallback (the same runtime-Find shape
+            // that went DEAD for the stone-respawner). This serializes the full bush set so the `Berry regrowth
+            // time` row's fan-out reaches ALL bushes in the shipped build via the editor-time ship-path. Mirrors
+            // the WireChopScatterRoot / WireStoneScatterRoot post-scatter wiring (same pre/post ordering); UNLIKE
+            // stones there is no canonicalisation — it only COLLECTS + serializes (READ/wire-only; seed-42 untouched).
+            MovementCameraScene.WireBerryBushes();
+
             EditorSceneManager.SaveScene(scene, BootScenePath);
             Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved (full slice: env + castaway player)");
 

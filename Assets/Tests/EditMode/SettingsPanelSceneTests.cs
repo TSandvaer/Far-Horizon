@@ -68,6 +68,31 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_SettingsPanel_BerryBushes_WiredEditorTime_Serialized()
+        {
+            // 86cabn67w (Devon NIT #1) — the `Berry regrowth time` row's bush set must be wired EDITOR-TIME
+            // (serialized by MovementCameraScene.WireBerryBushes POST-scatter) rather than left to the runtime
+            // Awake FindObjectsByType fallback — the same editor-vs-runtime ship-path discipline the orbit/wasd/
+            // thirst/hunger/stone targets follow (the stone-respawner runtime-Find that went DEAD is the
+            // cautionary precedent). Drop the WireBerryBushes call and this goes red.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            // No-bootstrap precondition (86cacyg63) — see BootScene_CarriesSettingsPanel_WithUIDocument.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            Assert.IsNotNull(panel.berryBushes,
+                "SettingsPanel.berryBushes must be wired editor-time (WireBerryBushes serializes the full bush " +
+                "set so the regrowth row fans out in the shipped build via the ship-path, not the Awake fallback)");
+            Assert.IsTrue(panel.berryBushes.Length > 0,
+                "the serialized berryBushes set must be non-empty (the fixed-position wired bush + the scatter " +
+                "LP_BerryBush instances) — an empty set would force the runtime Awake FindObjectsByType fallback");
+            foreach (var b in panel.berryBushes)
+                Assert.IsNotNull(b,
+                    "every serialized berryBushes entry must be a real BerryBush ref (no null holes from a stale wire)");
+        }
+
+        [Test]
         public void BootScene_SettingsPanel_HasUIAssetsSerialized()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
