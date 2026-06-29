@@ -90,8 +90,12 @@ namespace FarHorizon.EditTests
             var regrow = reg.Get(SettingsCatalog.BerryRegrowthId) as RangeSettingEntry;
             Assert.IsNotNull(regrow, "berry regrowth time is a RANGE row");
 
-            regrow.SetMin(120f);
+            // WIDEN max-first then min — the RangeSettingEntry invariant is LowerLimit <= min <= max, and SetMin
+            // clamps to [Lower, currentMax]. The bushes start at a 20..40 window; raising to 120..240 must widen
+            // the max BEFORE the min, or SetMin(120) would clamp against the still-40 max (the entry's own
+            // Apply/LoadFromPrefs use this same max-first order, RangeSettingEntry lines 94-96 / 102-104).
             regrow.SetMax(240f);
+            regrow.SetMin(120f);
 
             // EVERY bush — including the ones that started with DIFFERENT windows — now reads the dialed window.
             Assert.AreEqual(120f, _bushA.regrowMinSeconds, 1e-3f, "bush A regrowMin fanned out");
