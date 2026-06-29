@@ -48,16 +48,68 @@ namespace FarHorizon
                  "Idle<->locomotion blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
-        [Header("Locomotion transition smoothing (86caay44r)")]
-        [Tooltip("Damp time (s) for the Speed param fed to the locomotion blend tree. The Sponsor reported " +
-                 "idle<->walk<->run transitions as too ABRUPT — most noticeable stopping a walk (release W), " +
-                 "where the agent velocity drops to 0 in one frame and the blend SNAPS Walk->Idle. Feeding Speed " +
-                 "through Animator.SetFloat(param, value, dampTime, dt) instead of a raw set EASES the parameter " +
-                 "toward its target over ~this many seconds, so starts/stops/speed-changes glide rather than snap. " +
-                 "~0.18s reads smooth without feeling mushy (the Sponsor judges in soak; tunable from the build). " +
-                 "0 = the old raw, instant set. Keeps the Walk<->Run blend (#68) intact — it just eases the SAME " +
-                 "Speed param the blend tree already consumes (a smoother crossfade, never a different clip).")]
+        [Header("Locomotion transition smoothing (86caay44r + 86cackb3j re-soak Part 3 — ASYMMETRIC)")]
+        [Tooltip("Damp time (s) for the Speed param fed to the locomotion blend tree on the RAMP-DOWN (stopping — " +
+                 "release W). The Sponsor reported idle<->walk<->run transitions as too ABRUPT — most noticeable " +
+                 "STOPPING a walk, where the agent velocity drops to 0 in one frame and the blend SNAPS Walk->Idle. " +
+                 "Feeding Speed through Animator.SetFloat(param, value, dampTime, dt) EASES the parameter toward its " +
+                 "target so the STOP glides (the approved smooth-stop / transitions — do NOT regress). 0 = the old " +
+                 "raw instant set. Keeps the Walk<->Run blend (#68) intact — it eases the SAME Speed param. " +
+                 "RE-SOAK Part 3: the damp is now ASYMMETRIC — this is the ramp-DOWN; speedDampTimeUp is the " +
+                 "ramp-UP (kept short so the legs engage instantly on W — the 'body slides before feet engage' fix).")]
         public float speedDampTime = 0.18f;
+
+        [Tooltip("86cackb3j re-soak Part 3 — the RAMP-UP damp time (s) for the Speed param when STARTING/SPEEDING " +
+                 "UP (press W, walk->run). The old symmetric 0.18s ramp-up made the body SLIDE before the feet " +
+                 "engaged (the Speed param eased in slowly, so the blend tree sat near Idle while the agent was " +
+                 "already moving). A SHORT ramp-up (≈0.04s) snaps the legs into the walk/run cadence the instant W " +
+                 "is held = SNAPPY START, while speedDampTime (the longer ramp-DOWN) keeps the approved SMOOTH STOP. " +
+                 "0 = an instant raw set on ramp-up (maximally snappy). Asymmetric by design (start ≠ stop feel).")]
+        public float speedDampTimeUp = 0.04f;
+
+        [Header("Foot-sync — leg cadence tracks move-speed (86cackb3j re-soak Part 2)")]
+        [Tooltip("FOOT-SYNC enable. The Sponsor reported the WALK legs too slow vs move-speed (feet skate). When " +
+                 "ON, the Locomotion clip PLAYBACK rate is scaled to the actual agent speed (LocoSpeedMul param) so " +
+                 "the stride cadence matches translation. OFF = the authored clip cadence (the old skating walk).")]
+        public bool footSync = true;
+        [Tooltip("The WALK clip's natural GROUND speed (u/s) — the move-speed at which the authored Walk clip's " +
+                 "feet plant without sliding. The Sponsor reports the legs too slow at the 5.5 u/s walk speed, so " +
+                 "the authored clip strides for a SLOWER ground speed than 5.5 → the multiplier (walkSpeed/this) " +
+                 "speeds the legs up to plant. Tunable from the build; lower = faster legs at walk.")]
+        public float walkStrideRefSpeed = 3.6f;
+        [Tooltip("The RUN clip's natural GROUND speed (u/s) — the move-speed at which the authored Run clip's feet " +
+                 "plant. Run was APPROVED this soak, so default this to the run speed (9.5) → the foot-sync " +
+                 "multiplier is ≈1 at run (the approved run cadence is UNCHANGED). The foot-sync blends the " +
+                 "reference Walk-ref→Run-ref across the Speed band so walk speeds up while run stays as-approved.")]
+        public float runStrideRefSpeed = 9.5f;
+        [Tooltip("Clamp band for the foot-sync playback multiplier so a velocity spike/dip can't freeze (0) or " +
+                 "blur (huge) the legs. The legs never play below footSyncMulMin× or above footSyncMulMax×.")]
+        public float footSyncMulMin = 0.5f;
+        public float footSyncMulMax = 2.5f;
+
+        /// <summary>The foot-sync playback multiplier pushed to the Locomotion state's LocoSpeedMul param LAST
+        /// frame (86cackb3j Part 2). 1 = authored cadence; &gt;1 = legs sped up to track move-speed. Exposed so the
+        /// PlayMode/EditMode guard can assert a faster move-speed yields a faster (or equal) leg cadence (foot-sync
+        /// engaged) without depending on the Animator physically advancing the clip (headless deltaTime≈0).</summary>
+        public float CurrentLocoSpeedMul { get; private set; } = 1f;
+
+        /// <summary>PURE foot-sync math (the unit-testable core, 86cackb3j Part 2): the clip playback multiplier
+        /// that makes the leg cadence track the actual move-speed. The natural stride reference is blended from
+        /// the WALK ref (at/below walkBlend) to the RUN ref (at/above runBlend) by the current Speed, then the
+        /// multiplier = actualSpeed / blendedRef, clamped. At the run speed (with runRef = runSpeed) the result is
+        /// ≈1 (the approved run cadence is unchanged); at the walk speed (with walkRef &lt; walkSpeed) it is &gt;1
+        /// (the legs speed up to plant). Static + dependency-free so a test exercises the EXACT production math.</summary>
+        public static float ComputeFootSyncMul(float actualSpeed, float walkBlend, float runBlend,
+                                               float walkRef, float runRef, float mulMin, float mulMax)
+        {
+            // Blend the stride reference across the walk->run band by where actualSpeed sits (clamped 0..1).
+            float t = runBlend > walkBlend + 1e-4f
+                ? Mathf.Clamp01((actualSpeed - walkBlend) / (runBlend - walkBlend))
+                : 0f;
+            float strideRef = Mathf.Lerp(walkRef, runRef, t);
+            if (strideRef < 1e-3f) strideRef = 1e-3f;
+            return Mathf.Clamp(actualSpeed / strideRef, mulMin, mulMax);
+        }
 
         [Tooltip("Planar speed (u/s) at/above which the WALK<->RUN blend (86ca9yq34) reads as a full RUN. " +
                  "The blend tree is 1D on the Speed param: <= walk speed plays Walk, >= this plays Run, and " +
@@ -65,6 +117,12 @@ namespace FarHorizon
                  "(WasdMovement.runSpeed) so holding Shift reaches a full run; the WASD walk speed lands in the " +
                  "Walk band. Exposed so the run state (IsRunning) reads consistently with the blend.")]
         public float runSpeedThreshold = 9.5f;
+
+        [Tooltip("Planar speed (u/s) at which the WALK<->RUN blend tree reads as a full WALK (the Walk clip's " +
+                 "blend threshold = CharacterAssetGen.WalkBlendSpeed = the WASD walk speed). Used by FOOT-SYNC " +
+                 "(86cackb3j) to know where the Walk band sits when blending the stride reference Walk->Run. " +
+                 "Mirror of CharacterAssetGen.WalkBlendSpeed (kept in sync; the runtime can't read the editor const).")]
+        public float walkBlendSpeed = 5.5f;
 
         // 86caa83wn fix 2 — IsRunning engages at this FRACTION of runSpeedThreshold (not strictly at it), so a
         // NavMeshAgent simulated velocity that lags/dips just below the COMMANDED run speed still reads running
@@ -153,6 +211,12 @@ namespace FarHorizon
         // SAME agent.velocity magnitude WasdMovement commands (walkSpeed walking, runSpeed sprinting).
         public const string MovingParam = "Moving";
         public const string SpeedParam = "Speed";
+        // FOOT-SYNC (86cackb3j re-soak Part 2) — the Locomotion blend-tree state's speedParameter. Driving it
+        // = actualSpeed / strideRef scales the walk/run clip PLAYBACK RATE so the legs cadence tracks move-speed
+        // (the Sponsor's "walk legs too slow vs move-speed, feet skate" report). Mirrors
+        // CharacterAssetGen.LocoSpeedMulParam (kept in sync — the runtime can't reference the editor asmdef; a
+        // ControllerParamNamesMatch test pins it).
+        public const string LocoSpeedMulParam = "LocoSpeedMul";
         // The one-shot Jump trigger (86ca9yq3q) — pulsed on the rising edge of a jump so the Animator plays a
         // Jump clip once (the AnyState→JumpIdle/JumpRunning transitions the controller wires, selected by the
         // Moving bool) and returns. Mirrors CharacterAssetGen.JumpParam (kept in sync so the trigger fires the
@@ -1182,16 +1246,32 @@ namespace FarHorizon
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
                 _animator.SetBool(MovingParam, walking);
-                // 86caay44r — DAMP the Speed param so the blend tree EASES rather than snaps on start/stop/
-                // speed-change (the Sponsor's "transitions too abrupt, most on releasing W"). SetFloat's built-in
-                // damp smooths the value toward planarSpeed over ~speedDampTime, frame-rate-independent. A 0
-                // dampTime falls back to a raw instant set (the old behavior) — so the feel is fully tunable from
-                // the build. The Walk<->Run blend (#68) is UNTOUCHED: it still reads this same Speed param; the
-                // damp only makes its crossfade smoother, never selects a different clip.
-                if (speedDampTime > 0.0001f)
-                    _animator.SetFloat(SpeedParam, planarSpeed, speedDampTime, Time.deltaTime);
+                // 86caay44r + 86cackb3j re-soak Part 3 — ASYMMETRIC DAMP the Speed param so the blend tree EASES.
+                // The Sponsor's re-soak: the body SLID before the feet engaged on START (the old symmetric 0.18s
+                // ramp-up eased Speed in slowly → the blend sat near Idle while the agent was already moving). Fix:
+                // a SHORT ramp-UP (speedDampTimeUp ≈ 0.04s) snaps the legs in the instant W is held (SNAPPY START),
+                // while the longer ramp-DOWN (speedDampTime ≈ 0.18s) keeps the approved SMOOTH STOP (release W).
+                // Choose the damp by whether Speed is RISING toward target (start/speed-up) or FALLING (stop).
+                // The Walk<->Run blend (#68) is UNTOUCHED — same Speed param; this only tunes the ease rate.
+                float currentSpeedParam = _animator.GetFloat(SpeedParam);
+                bool rampingUp = planarSpeed >= currentSpeedParam - 1e-4f;
+                float damp = rampingUp ? speedDampTimeUp : speedDampTime;
+                if (damp > 0.0001f)
+                    _animator.SetFloat(SpeedParam, planarSpeed, damp, Time.deltaTime);
                 else
                     _animator.SetFloat(SpeedParam, planarSpeed);
+
+                // FOOT-SYNC (86cackb3j re-soak Part 2) — scale the Locomotion clip PLAYBACK rate to the actual
+                // move-speed so the leg cadence tracks translation (the Sponsor's "walk legs too slow, feet skate").
+                // Computed off the RAW planar agent speed (not the damped param) so the legs cadence answers the
+                // real ground speed immediately. At the run speed (runStrideRef = runSpeed) the multiplier is ≈1 —
+                // the approved run cadence is unchanged (do NOT regress run); at walk it is >1 (legs speed up).
+                float locoMul = footSync
+                    ? ComputeFootSyncMul(planarSpeed, walkBlendSpeed, runSpeedThreshold,
+                                         walkStrideRefSpeed, runStrideRefSpeed, footSyncMulMin, footSyncMulMax)
+                    : 1f;
+                CurrentLocoSpeedMul = locoMul;
+                _animator.SetFloat(LocoSpeedMulParam, locoMul);
                 // GROUNDED (86ca9yq3q rework — THE floating-bug fix). The airborne gate above already updated
                 // _airborne for THIS frame (AdvanceJump flips it false on the landing frame). Driving Grounded =
                 // !_airborne here lets the controller's jump→{Locomotion if Moving | Idle} transition fire on the

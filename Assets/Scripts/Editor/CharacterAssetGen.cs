@@ -56,6 +56,12 @@ namespace FarHorizon.EditorTools
         // PRODUCTION location (NOT _Spike). The two Mixamo FBX + the de-lit material + the controller.
         private const string CharDir = "Assets/Art/Character/Castaway";
         public const string IdleFbxPath = CharDir + "/Idle.fbx";   // WITH skin (mesh+rig+Idle clip)
+        // BREATHING IDLE (86cackb3j re-soak — "calm but clearly alive"). The Sponsor sourced a Mixamo Breathing
+        // Idle clip (WITHOUT skin — gentle chest/shoulder breathing + subtle weight shift) to REPLACE the static
+        // Idle.fbx clip as the at-rest pose. WITHOUT skin → binds by TRANSFORM PATH onto Idle's mesh (same
+        // mixamorig skeleton — the proven Walk/Run idiom). The Idle.fbx still ships the SKIN (mesh+rig+avatar);
+        // only the IDLE STATE's clip is swapped to this breathing take. LOOPING (a sustained at-rest cycle).
+        public const string BreathingIdleFbxPath = CharDir + "/Breathing Idle.fbx"; // WITHOUT skin (breathing idle, LOOP)
         public const string WalkFbxPath = CharDir + "/Walking.fbx"; // WITHOUT skin (Walk clip only)
         public const string RunFbxPath = CharDir + "/Running.fbx";  // WITHOUT skin (Run clip only — 86ca9yq34)
         // TWO jump clips by movement state (86ca9yq3q rework — Sponsor soak): an idle/standing jump and a
@@ -98,7 +104,8 @@ namespace FarHorizon.EditorTools
         // the SOURCE take by "mixamo.com" and RENAME it on import to a stable per-FBX name, so the two clips
         // are distinct in the controller.
         public const string SourceTake = "mixamo.com";
-        public const string IdleClip = "CastawayIdle"; // renamed-on-import (the controller binds this)
+        public const string IdleClip = "CastawayIdle"; // renamed-on-import (the with-skin Idle.fbx clip — UNUSED by the controller now; the Idle STATE plays BreathingIdleClip below)
+        public const string BreathingIdleClip = "CastawayBreathingIdle"; // renamed-on-import (86cackb3j — the at-rest IDLE state clip, LOOP)
         public const string WalkClip = "CastawayWalk"; // renamed-on-import
         public const string RunClip = "CastawayRun";   // renamed-on-import (86ca9yq34 — the Run clip)
         // TWO jump clips by movement state (86ca9yq3q rework) — renamed-on-import, distinct in the controller.
@@ -132,6 +139,14 @@ namespace FarHorizon.EditorTools
         // Walk/Run resumes on the same frame instead of stalling in the finished jump pose (which translated
         // while non-locomotion → the "floating" percept the Sponsor reported).
         public const string GroundedParam = "Grounded";
+
+        // The LOCOMOTION PLAYBACK-SPEED MULTIPLIER float (86cackb3j re-soak Part 2 — FOOT-SYNC). The Locomotion
+        // blend-tree state's speedParameter reads this, so setting it scales the WALK+RUN clip PLAYBACK RATE to
+        // match the actual agent move-speed (the legs cadence tracks translation → feet don't skate). The Sponsor
+        // reported the WALK legs too slow vs move-speed (feet skate). CastawayCharacter computes it per-frame =
+        // currentSpeed / blendedStrideRef (the clip's natural ground speed), clamped, so a faster body strides
+        // faster legs. Default 1 = the authored cadence (an unbound rig / at the reference speed plays unchanged).
+        public const string LocoSpeedMulParam = "LocoSpeedMul";
 
         // The one-shot CHOP TRIGGER (86caa4c5c change-(b)). CastawayCharacter.TriggerChop() pulses it on each
         // landed chop so the Animator plays the Attack (melee swing) state ONCE and returns to locomotion. Mirrors
@@ -200,7 +215,10 @@ namespace FarHorizon.EditorTools
 
         public static void PrepareCharacter()
         {
-            ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize
+            ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize (the WITH-skin mesh/rig)
+            // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle STATE plays. WITHOUT-skin Generic,
+            // binds by transform path onto Idle's mesh (the Walk/Run idiom). LOOP (a sustained breathing cycle).
+            ConfigureGenericClipFbx(BreathingIdleFbxPath, BreathingIdleClip, loop: true);
             ConfigureWalkFbx();   // Generic CreateFromThisModel + loop+rename Walk (binds by transform path)
             ConfigureRunFbx();    // Generic CreateFromThisModel + loop+rename Run (binds by transform path; 86ca9yq34)
             // TWO jump clips by movement state (86ca9yq3q rework): idle/standing + walk/run, both NON-looping one-shots.
@@ -674,6 +692,12 @@ namespace FarHorizon.EditorTools
         private static void BuildAnimatorController()
         {
             AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
+            // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle state + the blend-tree Idle floor play
+            // ("calm but clearly alive"). Falls back to the static Idle clip ONLY if the breathing FBX is missing
+            // (defensive — the controller never silently ships a T-pose; a missing breathing clip degrades to the
+            // prior static idle rather than a broken state).
+            AnimationClip breathingIdle = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            AnimationClip restIdle = breathingIdle != null ? breathingIdle : idle;
             AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
             AnimationClip run = FindClip(RunFbxPath, RunClip);
             AnimationClip jumpIdle = FindClip(JumpIdleFbxPath, JumpIdleClip);
@@ -697,6 +721,12 @@ namespace FarHorizon.EditorTools
                                $"melee={melee != null}); controller not built");
                 return;
             }
+            // BREATHING IDLE absence is a LOUD warning (not fatal — restIdle falls back to the static idle), so a
+            // dropped breathing FBX doesn't silently ship a frozen T-pose AND doesn't block the locomotion fix.
+            if (breathingIdle == null)
+                Debug.LogWarning("[CharacterAssetGen] Breathing Idle clip NOT found at " + BreathingIdleFbxPath +
+                                 " — the Idle state will FALL BACK to the static Idle clip (the 'too static' soak " +
+                                 "complaint returns). Verify the FBX is committed + imports a 'mixamo.com' take.");
             if (crouchWalk == null || crouchIdle == null || stunned == null || gettingUp == null || pickingUp == null ||
                 headHit == null || bigStomachHit == null || stomachHit == null || ribHit == null || hitToBody == null)
             {
@@ -718,6 +748,10 @@ namespace FarHorizon.EditorTools
             // ChopSpeed default 1 (the authored melee clip speed); the Attack state's speedParameter reads it so
             // tool-use speed scales the swing playback rate live (CastawayCharacter.chopSpeed → SetFloat).
             AddFloatParam(controller, ChopSpeedParam, 1f);
+            // LocoSpeedMul default 1 (86cackb3j re-soak Part 2 — FOOT-SYNC). The Locomotion state's speedParameter
+            // reads it; CastawayCharacter drives it = actualSpeed / strideRef each frame so the legs cadence tracks
+            // move-speed (no foot-skate). Default 1 so an unbound rig plays the authored cadence.
+            AddFloatParam(controller, LocoSpeedMulParam, 1f);
             // CROUCH + HIT-REACT params (86cackb3j). Crouch (bool) selects the crouch lane; Hit (trigger) + HitRegion
             // (int) fire a body-region reaction; Stunned (bool) holds the knocked-down loop -> Getting Up on release;
             // PickUp (trigger) fires the one-shot ground-pick. The gameplay systems driving these are OOS (this ticket
@@ -730,7 +764,9 @@ namespace FarHorizon.EditorTools
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
-            idleState.motion = idle;
+            // 86cackb3j re-soak — the at-rest Idle state plays the BREATHING idle clip ("calm but clearly alive"),
+            // replacing the static Idle clip. restIdle = breathingIdle (or the static idle as a defensive fallback).
+            idleState.motion = restIdle;
 
             // The Locomotion state = a 1D blend tree on Speed (Idle floor + Walk + Run). CreateBlendTreeInController
             // creates the tree as an asset child of the controller AND the hosting state in one call.
@@ -738,9 +774,17 @@ namespace FarHorizon.EditorTools
             tree.blendType = BlendTreeType.Simple1D;
             tree.blendParameter = "Speed";
             tree.useAutomaticThresholds = false;
+            // FOOT-SYNC (86cackb3j re-soak Part 2) — the Locomotion state's PLAYBACK speed reads LocoSpeedMul, so
+            // CastawayCharacter scales the walk/run clip cadence to the actual move-speed (no foot-skate). This is
+            // the SAME idiom the Attack state uses for ChopSpeed (speedParameterActive + speedParameter). The Speed
+            // BLEND param (which clip) is untouched; this only scales HOW FAST the chosen blend plays.
+            locoState.speedParameterActive = true;
+            locoState.speedParameter = LocoSpeedMulParam;
             // Idle floor @0 so a tiny residual speed reads as standing (no foot-slide); Walk @WalkBlendSpeed;
             // Run @RunBlendSpeed. The Speed param above WalkBlendSpeed blends Walk->Run; below it blends Walk->Idle.
-            tree.AddChild(idle, IdleBlendSpeed);
+            // 86cackb3j re-soak — the @0 floor uses the BREATHING idle (restIdle) too, so a tiny residual speed at
+            // the edge of motion still reads "alive" rather than the old static idle.
+            tree.AddChild(restIdle, IdleBlendSpeed);
             tree.AddChild(walk, WalkBlendSpeed);
             tree.AddChild(run, RunBlendSpeed);
 
@@ -1297,6 +1341,149 @@ namespace FarHorizon.EditorTools
             foreach (var v in verts) { float y = l2w.MultiplyPoint3x4(v).y; if (y < minY) minY = y; }
             Object.DestroyImmediate(baked);
             return minY;
+        }
+
+        // ===== FINGER-DEFORM TRACE (86cackb3j re-soak Part 4 — "clean in T-pose, mangles UNDER ANIMATION, empty
+        // hands no axe"). DIAGNOSE-VIA-TRACE (diagnostic-traces-before-hypothesized-fixes). The earlier -fingerTrace
+        // measured the BIND-POSE skinning (uniform 1.8 lossy, verts tight) and ruled out a static weight defect —
+        // but the new symptom is UNDER ANIMATION. CastawayFingerCurl early-returns when not gripping (line 111), so
+        // with empty hands it is NOT the cause; the candidates are: (1) a CLIP that poses the finger bones into a
+        // broken shape (POSE artifact — fix in CastawayFingerCurl angles/gating, code-only — though the empty-hand
+        // gate already rules the curl out, so a pose artifact here means the IMPORTED CLIP itself mangles), or
+        // (2) a genuine WEIGHT defect that only SHOWS when bones rotate (a finger vert dominantly weighted to the
+        // WRONG bone STRETCHES as that bone moves). This trace DISCRIMINATES them: it samples the BREATHING-IDLE +
+        // WALK clips across their cycle and, per right-hand finger bone, measures the dominant-weighted verts'
+        // distance-from-bone — a value that BALLOONS across the animation = a weight defect (verts torn off the
+        // bone); a value that stays ~bind-pose-tight while the bone rotates = clean skinning (the clip's bone POSE
+        // is what reads, not torn weights). Run:
+        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.FingerDeformTrace
+        public static void FingerDeformTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[finger-trace] ===== FINGER-DEFORM TRACE (86cackb3j — mangle-under-animation, empty hands) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[finger-trace] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // The right-hand finger bone tokens (mirror MovementCameraScene.RightFingerCurlTokens + thumb).
+            string[] fingerTokens =
+            {
+                "righthandindex1","righthandindex2","righthandindex3",
+                "righthandmiddle1","righthandmiddle2","righthandmiddle3",
+                "righthandring1","righthandring2","righthandring3",
+                "righthandthumb1","righthandthumb2","righthandthumb3",
+            };
+
+            var breathing = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            var walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[finger-trace] breathingIdle={(breathing != null ? breathing.name : "<null>")} " +
+                          $"walk={(walk != null ? walk.name : "<null>")}");
+
+            var model = Object.Instantiate(fbx);
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null || smr.sharedMesh == null)
+            {
+                sb.AppendLine("[finger-trace] no SkinnedMeshRenderer/sharedMesh"); Object.DestroyImmediate(model);
+                Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return;
+            }
+
+            var bones = smr.bones;
+            var mesh = smr.sharedMesh;
+            var boneWeights = mesh.boneWeights;
+            var bindPoses = mesh.bindposes;
+
+            // For each finger bone: the index in the bones[] array + its lossyScale (a degenerate bone tag).
+            var fingerBoneIdx = new System.Collections.Generic.Dictionary<int, string>();
+            for (int b = 0; b < bones.Length; b++)
+            {
+                if (bones[b] == null) continue;
+                string tok = ExactTokenLocal(bones[b].name);
+                foreach (var ft in fingerTokens)
+                    if (tok == ft) { fingerBoneIdx[b] = ft; sb.AppendLine(
+                        $"[finger-trace] bone[{b}]='{bones[b].name}' tok={ft} lossyScale={bones[b].lossyScale}"); }
+            }
+            if (fingerBoneIdx.Count == 0) sb.AppendLine("[finger-trace] WARNING: NO finger bones resolved from the SMR bone array");
+
+            // Per finger bone, collect the vertices whose DOMINANT weight is that bone (the verts the bone owns).
+            var ownedVerts = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<int>>();
+            foreach (var kv in fingerBoneIdx) ownedVerts[kv.Key] = new System.Collections.Generic.List<int>();
+            for (int v = 0; v < boneWeights.Length; v++)
+            {
+                var w = boneWeights[v];
+                int dom = w.boneIndex0; float dw = w.weight0;
+                if (w.weight1 > dw) { dom = w.boneIndex1; dw = w.weight1; }
+                if (w.weight2 > dw) { dom = w.boneIndex2; dw = w.weight2; }
+                if (w.weight3 > dw) { dom = w.boneIndex3; dw = w.weight3; }
+                if (ownedVerts.ContainsKey(dom)) ownedVerts[dom].Add(v);
+            }
+
+            var baked = new Mesh();
+            // Measure, per sampled clip-time, each finger bone's owned-vert MAX distance from the bone origin in
+            // BONE-LOCAL space. A clean skin keeps this ~constant across the animation (verts ride the bone); a
+            // weight defect makes it BALLOON when a different bone rotates (verts torn off the owning bone).
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[finger-trace] {label}: <null clip>"); return; }
+                // bind-pose reference distance per bone (the clean baseline).
+                var maxDistOverClip = new System.Collections.Generic.Dictionary<int, float>();
+                var minDistOverClip = new System.Collections.Generic.Dictionary<int, float>();
+                foreach (var k in ownedVerts.Keys) { maxDistOverClip[k] = 0f; minDistOverClip[k] = float.PositiveInfinity; }
+                int N = 10;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    smr.BakeMesh(baked, false);
+                    var verts = baked.vertices;
+                    foreach (var kv in ownedVerts)
+                    {
+                        int boneI = kv.Key; var bone = bones[boneI];
+                        if (bone == null || kv.Value.Count == 0) continue;
+                        // verts bake in SMR-local space; map to bone-local via the bone's world matrix.
+                        Matrix4x4 w2bone = bone.worldToLocalMatrix * smr.transform.localToWorldMatrix;
+                        float maxD = 0f;
+                        foreach (int vi in kv.Value)
+                        {
+                            float d = w2bone.MultiplyPoint3x4(verts[vi]).magnitude;
+                            if (d > maxD) maxD = d;
+                        }
+                        if (maxD > maxDistOverClip[boneI]) maxDistOverClip[boneI] = maxD;
+                        if (maxD < minDistOverClip[boneI]) minDistOverClip[boneI] = maxD;
+                    }
+                }
+                foreach (var kv in fingerBoneIdx)
+                {
+                    int boneI = kv.Key;
+                    if (!maxDistOverClip.ContainsKey(boneI)) continue;
+                    float mn = minDistOverClip[boneI], mx = maxDistOverClip[boneI];
+                    float ratio = mn > 1e-4f ? mx / mn : float.PositiveInfinity;
+                    string flag = ratio > 1.6f ? "  <== WEIGHT-DEFECT SUSPECT (verts stretch >1.6x under anim)" : "";
+                    sb.AppendLine($"[finger-trace] {label} {kv.Value} owned={ownedVerts[boneI].Count} " +
+                                  $"ownedVertMaxDist min={mn:F4} max={mx:F4} ratio={ratio:F2}{flag}");
+                }
+            }
+
+            SampleClip("BREATHING-IDLE", breathing);
+            SampleClip("WALK", walk);
+            Object.DestroyImmediate(baked);
+            Object.DestroyImmediate(model);
+            sb.AppendLine("[finger-trace] VERDICT GUIDE: every finger bone ratio ~1.0 (verts ride the bone) => CLEAN " +
+                          "skinning; the mangle is the CLIP's finger-bone POSE (fix: CastawayFingerCurl/gating or " +
+                          "import). A bone ratio >1.6 => genuine WEIGHT defect (repaint that finger's weights).");
+            sb.AppendLine("[finger-trace] ===== END FINGER-DEFORM TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        private static string ExactTokenLocal(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return "";
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1);
+            return n;
         }
     }
 }
