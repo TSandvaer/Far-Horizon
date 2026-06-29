@@ -57,6 +57,18 @@ namespace FarHorizon.Settings
         // RespawnMin/Max (a RANGE — a RANDOM respawn within [min,max]; every StoneProp reads this shared
         // window). Registered by PopulateStones (the PopulateThirst/PopulateChop de-collision precedent).
         public const string StoneRespawnId = "stone_respawn_time";
+        // Held-weapon in-hand placement tweakables (ticket 86caffwuz — "nudge all weapons in place"). SEVEN rows
+        // bound to the CURRENTLY-held weapon's seat via HeldWeaponPlacement (the single binding seam over the axe
+        // rig + the per-weapon arrays): position X/Y/Z, rotation pitch/yaw/roll, and a uniform scale. MOUSE-driven
+        // sliders → Danish-keyboard-safe + on the unified console ([[sponsor-wants-unified-dev-tweak-console]] +
+        // [[sponsor-danish-keyboard-layout]]). Registered by PopulateHeldWeapon.
+        public const string HeldPosXId  = "held_weapon_pos_x";
+        public const string HeldPosYId  = "held_weapon_pos_y";
+        public const string HeldPosZId  = "held_weapon_pos_z";
+        public const string HeldPitchId = "held_weapon_pitch";
+        public const string HeldYawId   = "held_weapon_yaw";
+        public const string HeldRollId  = "held_weapon_roll";
+        public const string HeldScaleId = "held_weapon_scale";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -88,6 +100,13 @@ namespace FarHorizon.Settings
         // within. Generous around the ~10-min default (instant..30 min) so the Sponsor can soak fast OR a
         // realistic scarcity. Range row → drives StoneRespawner.RespawnMin/Max (random respawn within [min,max]).
         public const float StoneRespawnLower = 0f, StoneRespawnUpper = 1800f;
+        // Held-weapon placement slider bands (ticket 86caffwuz). The position offset is hand-local cm-scale for
+        // the axe (± a generous 0.6u covers a full re-seat in the grip); rotation is a full 360° band per axis
+        // (the axe relEuler accumulates raw — e.g. (-186,-168,-84) — so the band must span the wrap, not clamp at
+        // ±180); scale is 0.2..3x (a knife small..a spear large, the axe at 1.0 locked baseline).
+        public const float HeldPosMin = -0.6f, HeldPosMax = 0.6f;
+        public const float HeldRotMin = -360f, HeldRotMax = 360f;
+        public const float HeldScaleMin = 0.2f, HeldScaleMax = 3f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -139,12 +158,25 @@ namespace FarHorizon.Settings
         public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
             FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
             FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner)
+            => Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, null);
+
+        /// <summary>
+        /// Build the standard registry AND thirst AND chop AND stone AND tree-chop rework AND the HELD-WEAPON
+        /// PLACEMENT tweakables (ticket 86caffwuz): seven rows (pos X/Y/Z, rot pitch/yaw/roll, scale) bound to the
+        /// CURRENTLY-held weapon via <paramref name="held"/>. A null seam SKIPS the held-weapon rows (the catalog
+        /// never null-refs), so existing callers / bare test rigs are unaffected.
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
+            FarHorizon.HeldWeaponPlacement held)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
             PopulateThirst(reg, thirst);
             PopulateChop(reg, chopCharacter, chopTree, logPileSpawner);
             PopulateStones(reg, stoneRespawner);
+            PopulateHeldWeapon(reg, held);
             return reg;
         }
 
@@ -329,6 +361,49 @@ namespace FarHorizon.Settings
                 () => stoneRespawner.RespawnMinSeconds, v => stoneRespawner.RespawnMinSeconds = v,
                 () => stoneRespawner.RespawnMaxSeconds, v => stoneRespawner.RespawnMaxSeconds = v,
                 StoneRespawnLower, StoneRespawnUpper, unit: "s");
+        }
+
+        /// <summary>
+        /// Register the HELD-WEAPON in-hand PLACEMENT tweakables (ticket 86caffwuz) into the registry, bound to
+        /// the <paramref name="held"/> binding seam (the single surface over the axe rig + the per-weapon arrays).
+        /// SEVEN slider rows for the CURRENTLY-held weapon's seat — position X/Y/Z, rotation pitch/yaw/roll, and a
+        /// uniform scale — so the Sponsor dials each weapon in-hand with the MOUSE (Danish-keyboard-safe), then we
+        /// re-bake the dialed numbers into the committed source constants (the [[verify-soak-builds-or-bake-and-judge]]
+        /// workflow). A null seam registers NOTHING (a held-weapon-less rig / bare test simply lacks these rows),
+        /// so existing callers never null-ref.
+        ///
+        /// The rows bind to "the weapon in the hand right now" — the Sponsor cycles the held weapon with [B]
+        /// (HeldWeaponCycleDebug) and the same seven rows then drive whichever weapon is shown (the readout label
+        /// names it). Because the getter reads the live seat, the rows always reflect the current weapon's values.
+        /// </summary>
+        public static void PopulateHeldWeapon(SettingsRegistry reg, FarHorizon.HeldWeaponPlacement held)
+        {
+            if (reg == null || held == null) return;
+
+            // POSITION offset (hand-local for the axe; mesh-holder-local for knife/sword/spear). cm-scale; the
+            // ±0.6u band covers a full re-seat in the grip. Each component is its own slider so the Sponsor dials
+            // one axis at a time with the mouse.
+            reg.AddFloat(HeldPosXId, "Held: pos X",
+                () => held.OffsetX, v => held.OffsetX = v, HeldPosMin, HeldPosMax, unit: "u");
+            reg.AddFloat(HeldPosYId, "Held: pos Y",
+                () => held.OffsetY, v => held.OffsetY = v, HeldPosMin, HeldPosMax, unit: "u");
+            reg.AddFloat(HeldPosZId, "Held: pos Z",
+                () => held.OffsetZ, v => held.OffsetZ = v, HeldPosMin, HeldPosMax, unit: "u");
+
+            // ROTATION euler (hand-relative for the axe; mesh-holder-local for the rest). Full ±360° band — the
+            // axe relEuler accumulates raw (e.g. (-186,-168,-84)), so the band must span the wrap, not clamp ±180.
+            reg.AddFloat(HeldPitchId, "Held: pitch",
+                () => held.Pitch, v => held.Pitch = v, HeldRotMin, HeldRotMax, unit: "°");
+            reg.AddFloat(HeldYawId, "Held: yaw",
+                () => held.Yaw, v => held.Yaw = v, HeldRotMin, HeldRotMax, unit: "°");
+            reg.AddFloat(HeldRollId, "Held: roll",
+                () => held.Roll, v => held.Roll = v, HeldRotMin, HeldRotMax, unit: "°");
+
+            // SCALE — uniform. For the axe this is a multiplier of the LOCKED mesh-holder baseline (1.0 = byte-
+            // identical locked seat, so leaving it untouched never regresses the praised grip — bar #6); for
+            // knife/sword/spear it is their per-weapon held scale.
+            reg.AddFloat(HeldScaleId, "Held: scale",
+                () => held.Scale, v => held.Scale = v, HeldScaleMin, HeldScaleMax, unit: "x");
         }
     }
 }

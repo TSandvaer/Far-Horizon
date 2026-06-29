@@ -502,6 +502,59 @@ namespace FarHorizon.EditTests
             }
         }
 
+        [Test]
+        public void BootScene_CarriesHeldWeaponPlacement_WiredToTheRigAndCycle()
+        {
+            // 86caffwuz regression guard (the component-not-serialized class, applied to the unified-console
+            // PLACEMENT seam). The HeldWeaponPlacement binding seam (what the 7 held-weapon console rows drive)
+            // must be SERIALIZED onto the HeroAxe object with its axeRig + weaponCycle references wired editor-
+            // time — else the held-weapon rows fall back to a runtime FindObjectOfType (the editor-vs-runtime
+            // ship-path violation) or, worse, bind nothing. Drop the AddComponent/wiring in AttachHeroAxeToHand
+            // and this reds in CI rather than at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present (the placement seam rides it)");
+            var placement = axe.GetComponent<HeldWeaponPlacement>();
+            Assert.IsNotNull(placement,
+                "the HeroAxe must carry the HeldWeaponPlacement seam (86caffwuz) — the single surface the unified " +
+                "settings console's held-weapon rows drive, serialized into the scene (not Awake-added).");
+            Assert.IsNotNull(placement.axeRig,
+                "HeldWeaponPlacement.axeRig must be wired editor-time (serialized) — the held-weapon rows drive " +
+                "the SAME axe rig the equip path uses (no parallel attach mechanism — the ticket constraint).");
+            Assert.IsNotNull(placement.weaponCycle,
+                "HeldWeaponPlacement.weaponCycle must be wired editor-time — the non-axe weapons' per-weapon seat " +
+                "routes through it (and it owns the current-held index the rows follow).");
+            // The seam must ride the SAME object as the rig + cycle (it resolves them from this GameObject).
+            Assert.AreSame(axe.GetComponent<HeldAxeRig>(), placement.axeRig,
+                "HeldWeaponPlacement.axeRig must be the HeroAxe's own HeldAxeRig (one shared seat).");
+            Assert.AreSame(axe.GetComponent<HeldWeaponCycleDebug>(), placement.weaponCycle,
+                "HeldWeaponPlacement.weaponCycle must be the HeroAxe's own HeldWeaponCycleDebug.");
+        }
+
+        [Test]
+        public void BootScene_SettingsPanel_BindsTheHeldWeaponPlacementSeam_Serialized()
+        {
+            // 86caffwuz regression guard: the unified settings console (SettingsPanel) must carry the held-weapon
+            // PLACEMENT seam wired editor-time, so the 7 held-weapon rows bind it with NO runtime FindObjectOfType
+            // (the editor-vs-runtime ship-path discipline). This is the cross-wire BuildSettingsPanel can't do
+            // itself (it runs before the axe is attached) — AttachHeroAxeToHand back-wires it. Drop that back-wire
+            // and the held-weapon rows fall back to a runtime lookup (or vanish) → red here, not at the soak.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = Object.FindObjectOfType<SettingsPanel>();
+            // No-bootstrap precondition (86cacyg63): a bare local EditMode run skips BootstrapProject.Run, so the
+            // committed Boot.unity lacks the bootstrap-authored SettingsPanel. Inert once bootstrap has run.
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "the Boot scene must carry the SettingsPanel (the unified console host)");
+            Assert.IsNotNull(panel.heldWeapon,
+                "SettingsPanel.heldWeapon must be wired editor-time (serialized) — the 7 held-weapon in-hand rows " +
+                "(pos X/Y/Z, rot pitch/yaw/roll, scale) bind to the current held weapon's seat through it (86caffwuz). " +
+                "An unwired ref forces a runtime FindObjectOfType, which the editor-vs-runtime discipline forbids.");
+            var axe = FindHeroAxe();
+            Assert.IsNotNull(axe, "hero axe must be present");
+            Assert.AreSame(axe.GetComponent<HeldWeaponPlacement>(), panel.heldWeapon,
+                "SettingsPanel.heldWeapon must be the HeroAxe's HeldWeaponPlacement (one seat, one seam).");
+        }
+
         private static GameObject FindHeroAxe() => FindByNameInScene(MovementCameraScene.HeroAxeObjectName);
 
         private static GameObject FindByNameInScene(string name)

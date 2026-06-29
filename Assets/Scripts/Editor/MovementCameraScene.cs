@@ -774,6 +774,20 @@ namespace FarHorizon.EditorTools
             // presses [L] sees the shipped axe. Authored after the cycle so its Awake finds the cycle component.
             if (axe.GetComponent<HeldAxeLengthPicker>() == null) axe.AddComponent<HeldAxeLengthPicker>();
 
+            // HELD-WEAPON PLACEMENT SEAM (86caffwuz) — the single binding surface the unified settings console's
+            // 7 held-weapon rows (pos X/Y/Z, rot pitch/yaw/roll, scale) drive. Lives on THIS seat object so it
+            // resolves the axe rig + the weapon-cycle from the same GameObject; serialized into Boot.unity so the
+            // console binds it with no runtime FindObjectOfType. Authored AFTER the rig + cycle so its references
+            // wire directly. It NEVER adds a new attach path — it reads/writes the existing seat fields.
+            var placement = axe.GetComponent<HeldWeaponPlacement>();
+            if (placement == null) placement = axe.AddComponent<HeldWeaponPlacement>();
+            placement.axeRig = axe.GetComponent<HeldAxeRig>();
+            placement.weaponCycle = axe.GetComponent<HeldWeaponCycleDebug>();
+            EditorUtility.SetDirty(placement);
+            // NOTE: the SettingsPanel.heldWeapon back-wire is NOT here — BuildPlayer (which calls this) runs
+            // BEFORE BuildSettingsPanel in Author, so the panel doesn't exist yet. BuildSettingsPanel does the
+            // cross-wire (it runs after the player/axe exist), the same ordering the orbit/wasd binds rely on.
+
             // URP/Unlit (the shared weapon palette material) must survive the stripped build.
             var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
             if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
@@ -2795,6 +2809,11 @@ namespace FarHorizon.EditorTools
             // Thirst tweakables (86caamkv7 AC5) bind to the ThirstNeed BootstrapProject added to the Survival
             // object BEFORE this runs — serialized so the panel never relies on a runtime FindObjectOfType.
             panel.thirst = Object.FindObjectOfType<ThirstNeed>();
+            // Held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows bind to it. BuildPlayer
+            // (which authors the HeroAxe + its HeldWeaponPlacement) runs BEFORE this in Author, so the seam
+            // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
+            // editor-vs-runtime ship-path discipline). May be null on a bare rig — the rows then simply don't appear.
+            panel.heldWeapon = Object.FindObjectOfType<HeldWeaponPlacement>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +
