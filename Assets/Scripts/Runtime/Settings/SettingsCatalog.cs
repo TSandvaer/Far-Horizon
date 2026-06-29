@@ -38,6 +38,12 @@ namespace FarHorizon.Settings
         // "water scoop amount") — the gameplay-wave/hunger naming convention. LIVE-bound to the ThirstNeed.
         public const string ThirstDecayId  = "thirst_decay_rate";
         public const string WaterScoopId   = "water_scoop_amount";
+        // Hunger tweakables (ticket 86cabd75y — the 86caamkp8 AC4 settings-registration follow-up). Labels are
+        // the AC-mandated names ("Hunger decay rate", "Berry restore amount") — the same gameplay-wave/needs
+        // naming convention as thirst. LIVE-bound to the HungerNeed (PopulateThirst mirror; the WarmthNeed→base
+        // refactor 86cabgvgw is NOT a hard-dep, so this binds HungerNeed directly per the ticket default).
+        public const string HungerDecayId  = "hunger_decay_rate";
+        public const string BerryRestoreId = "berry_restore_amount";
         // Chop tweakable (ticket 86caa4c5c AC3). The `tree regrowth time` row drives the ChopTree's
         // regrowthMin/Max (a RANGE — organic regrowth within [min,max]). The `tool-use speed` row above
         // (ToolSpeedId) is FLIPPED LIVE to the chop swing speed by PopulateChop (ticket V1).
@@ -83,6 +89,12 @@ namespace FarHorizon.Settings
         public const float ThirstDecayMin = 0.05f, ThirstDecayMax = 1.5f;
         // Water-scoop slider band (around the waterScoopAmount 14 default) — a sip..a big gulp.
         public const float WaterScoopMin = 2f, WaterScoopMax = 40f;
+        // Hunger-decay slider band (around the HungerMedDecayPerSecond 0.35 default) — gentle..punishing. The
+        // band brackets 0.35 sanely (0.1..1.0), mirroring the ThirstDecayMin/Max band shape (a touch tighter
+        // than thirst's 0.05..1.5 since hunger is the SLOWER background pressure — food is found, not lost).
+        public const float HungerDecayMin = 0.1f, HungerDecayMax = 1.0f;
+        // Berry-restore slider band (around the berryRestoreAmount 18 default) — a nibble..a hearty handful.
+        public const float BerryRestoreMin = 5f, BerryRestoreMax = 50f;
         // Tool-use-speed slider band (ticket V1 — flips the reserved ToolSpeedId row LIVE to the chop swing
         // speed). Keep in sync with CastawayCharacter.ChopSpeedMin/Max (a slow..fast chop). (86caa4c5c change-(b):
         // the chop swing is the Mixamo melee Animator state now; tool-use speed scales that clip's playback rate
@@ -170,6 +182,19 @@ namespace FarHorizon.Settings
             FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
             FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
             FarHorizon.HeldWeaponPlacement held)
+            => Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, held, null);
+
+        /// <summary>
+        /// Build the standard registry AND every prior need/feature AND the HUNGER tweakables (ticket 86cabd75y —
+        /// the 86caamkp8 AC4 settings-registration follow-up): `Hunger decay rate` (drives HungerNeed.decayPerSecond)
+        /// + `Berry restore amount` (drives HungerNeed.berryRestoreAmount), LIVE-bound via <paramref name="hunger"/>.
+        /// A null hunger SKIPS the hunger rows (the catalog never null-refs), so existing callers / bare test rigs are
+        /// unaffected. Mirrors the PopulateThirst de-collision precedent (each need adds its OWN Populate method).
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
+            FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
@@ -177,6 +202,7 @@ namespace FarHorizon.Settings
             PopulateChop(reg, chopCharacter, chopTree, logPileSpawner);
             PopulateStones(reg, stoneRespawner);
             PopulateHeldWeapon(reg, held);
+            PopulateHunger(reg, hunger);
             return reg;
         }
 
@@ -253,6 +279,36 @@ namespace FarHorizon.Settings
             reg.AddFloat(WaterScoopId, "Water scoop amount",
                 () => thirst.waterScoopAmount, v => thirst.waterScoopAmount = v,
                 WaterScoopMin, WaterScoopMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the HUNGER tweakables (ticket 86cabd75y — the 86caamkp8 AC4 settings-registration follow-up)
+        /// into the registry, LIVE-bound to the given <paramref name="hunger"/> need: `Hunger decay rate` (drives
+        /// HungerNeed.decayPerSecond, the single active-decay field on the SurvivalNeed base) + `Berry restore
+        /// amount` (drives HungerNeed.berryRestoreAmount, the per-berry satisfaction). Idempotent w.r.t. a null
+        /// target — a null hunger registers NOTHING (the settings panel for a hunger-less rig simply lacks these
+        /// rows). The settings panel host (86caa4bqp / PR #83) is MERGED, so these are LIVE rows, not greyed
+        /// extension hooks. The labels are the AC-mandated names ("Hunger decay rate" / "Berry restore amount") —
+        /// the same gameplay-wave/needs naming convention thirst uses. Binds HungerNeed DIRECTLY (the ticket
+        /// default; the WarmthNeed→base refactor 86cabgvgw is NOT a hard-dep of this ticket).
+        /// </summary>
+        public static void PopulateHunger(SettingsRegistry reg, FarHorizon.HungerNeed hunger)
+        {
+            if (reg == null || hunger == null) return;
+
+            // HUNGER DECAY RATE (live) — drives the ACTIVE HungerNeed.decayPerSecond (the single field the decay
+            // path reads, on the SurvivalNeed base). Tightening it makes hunger nag sooner; loosening it, gentler
+            // (the difficulty tiers also write this field, but the slider is a direct soak-tuning knob over the
+            // active rate). Hunger is the SLOWER background pressure (food is found, not constantly lost).
+            reg.AddFloat(HungerDecayId, "Hunger decay rate",
+                () => hunger.decayPerSecond, v => hunger.decayPerSecond = v,
+                HungerDecayMin, HungerDecayMax, unit: "/s");
+
+            // BERRY RESTORE AMOUNT (live) — drives HungerNeed.berryRestoreAmount, the per-berry restore. Bigger =
+            // a berry is a fuller meal; smaller = more nibbles (the vision's "small satisfaction to his hunger").
+            reg.AddFloat(BerryRestoreId, "Berry restore amount",
+                () => hunger.berryRestoreAmount, v => hunger.berryRestoreAmount = v,
+                BerryRestoreMin, BerryRestoreMax, unit: "");
         }
 
         /// <summary>
