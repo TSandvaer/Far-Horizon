@@ -2814,6 +2814,11 @@ namespace FarHorizon.EditorTools
             // Thirst tweakables (86caamkv7 AC5) bind to the ThirstNeed BootstrapProject added to the Survival
             // object BEFORE this runs — serialized so the panel never relies on a runtime FindObjectOfType.
             panel.thirst = Object.FindObjectOfType<ThirstNeed>();
+            // Hunger tweakables (86cabd75y) bind to the HungerNeed BootstrapProject added to the Survival object
+            // BEFORE this runs — serialized (same as thirst) so the `Hunger decay rate` + `Berry restore amount`
+            // rows are live in the shipped build without a runtime FindObjectOfType. The Awake fallback stays as
+            // the bare-scene safety net. May be null on a bare rig — the rows then simply don't appear.
+            panel.hunger = Object.FindObjectOfType<HungerNeed>();
             // Held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows bind to it. BuildPlayer
             // (which authors the HeroAxe + its HeldWeaponPlacement) runs BEFORE this in Author, so the seam
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
