@@ -7,25 +7,31 @@ using FarHorizon.EditorTools;
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// REGRESSION GUARD for the visual-polish wave wiring (tickets 86cabc73q trees + 86cabc737 grass —
-    /// Erik lowpoly-trees-grass-sky-research §Trees / §Grass).
+    /// REGRESSION GUARD for the visual-polish wind wiring (tickets 86cabc73q trees + 86cabc737 grass —
+    /// Erik lowpoly-trees-grass-sky-research §Trees / §Grass), UPDATED for the #172 SOAK-NIT (2026-06-29):
+    /// "moving grass/bushes looks weird; only the trees up in the air should move."
     ///
-    /// TREES: the canopy sways in the wind, the trunk stays PLANTED. The mechanism is (a) a new `_SwayAmp`
+    /// TREES (KEPT): the canopy sways in the wind, the trunk stays PLANTED. The mechanism is (a) a `_SwayAmp`
     /// canopy-sway term on FarHorizon/LowPolyVertexColor that displaces XZ keyed off world-position + time,
     /// MASKED by vertex-color ALPHA, and (b) the mesh bake — trunk verts carry alpha 0 (planted), canopy verts
-    /// carry alpha 1 (sway). GRASS: the meadow tufts ride the SAME shader with a small `_WaveAmp` so the clump
-    /// rocks gently (the wave term already existed; grass just switches off the inert URP/Lit material onto it).
+    /// carry alpha 1 (sway). This still works after the NIT — the trees are the ONLY thing that moves.
     ///
-    /// What an EditMode test CAN authoritatively assert (the RENDERED sway/wind look is judged from the SHIPPED
-    /// exe — editor-vs-runtime trap, unity-conventions.md §Editor-vs-runtime; the sway/wave motion is a Sponsor
-    /// SOAK call, captured in the PR Self-Test Report):
-    ///   (a) the shader compiles with the new term and declares `_SwayAmp/_SwayLen/_SwaySpeed` inside the
-    ///       cbuffer (SRP-Batcher) and they DEFAULT to 0 (no-op for every non-canopy material — no regression);
+    /// GRASS (now STATIONARY): the meadow tufts KEEP the move onto the vertex-color shader (the Sponsor approved
+    /// the GREEN + batching of that swap), but `_WaveAmp` is now 0 — the grass does NOT move.
+    /// BUSHES (now STATIONARY): bushes (body + berries) read the same greens as the canopy and previously SHARED
+    /// the canopy material (which carries _SwayAmp = 0.10) + bake alpha 1, so they inherited the canopy sway and
+    /// MOVED. They now ride a dedicated bush material (same shader + tint, _SwayAmp = 0) → stationary.
+    ///
+    /// What an EditMode test CAN authoritatively assert (the RENDERED motion is judged from the SHIPPED exe —
+    /// editor-vs-runtime trap, unity-conventions.md §Editor-vs-runtime; captured in the PR Self-Test Report):
+    ///   (a) the shader compiles + declares `_SwayAmp/_SwayLen/_SwaySpeed` inside the cbuffer (SRP-Batcher) and
+    ///       they DEFAULT to 0 (no-op for every non-canopy material — no regression);
     ///   (b) the MESH bake — TaperedCylinder bakes alpha 0 on EVERY trunk vert; BlobCanopy bakes alpha 1 on
     ///       every canopy vert — so the sway mask is the single source of truth (trunk planted, canopy sways);
-    ///   (c) the COMMITTED Boot scene ships a canopy material that dials `_SwayAmp > 0` AND grass clumps that
-    ///       ride FarHorizon/LowPolyVertexColor with `_WaveAmp > 0` (the unity-procedural-committed-assets-go-
-    ///       stale lesson — the bake/material must reach the BUILT exe, not just the regen code).
+    ///   (c) the COMMITTED Boot scene ships a canopy material that dials `_SwayAmp > 0` (trees move) AND grass
+    ///       clumps with `_WaveAmp == 0` (STATIONARY, still on the vertex-color shader = green/batch kept) AND
+    ///       bushes with `_SwayAmp == 0` (STATIONARY) — the unity-procedural-committed-assets-go-stale lesson
+    ///       (the bake/material must reach the BUILT exe, not just the regen code).
     /// </summary>
     public class CanopySwayGrassWaveShaderTests
     {
@@ -197,11 +203,12 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_GrassClumps_RideWaveShader_WithWaveDialed()
+        public void BootScene_GrassClumps_Stationary_OnShader_NoWave()
         {
-            // The exe-shipped meadow grass must ride FarHorizon/LowPolyVertexColor with _WaveAmp > 0 — the prior
-            // flat URP/Lit material IGNORED the wave (the inert-material trap). Assert the committed asset so the
-            // wind reaches the build (unity-procedural-committed-assets-go-stale).
+            // #172 SOAK-NIT: meadow grass must NOT move. It KEEPS the move onto FarHorizon/LowPolyVertexColor
+            // (the Sponsor approved the green + batching of that swap), so it must STILL ride the shader — but
+            // every grass material must have _WaveAmp == 0 (and never sway either: _SwayAmp == 0). Assert the
+            // COMMITTED asset so the stationary state reaches the build (unity-procedural-committed-assets-go-stale).
             EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var grass = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
                 .Where(mf => mf.gameObject.name == "Blades" && mf.sharedMesh != null
@@ -209,16 +216,54 @@ namespace FarHorizon.EditTests
                 .ToArray();
             Assert.Greater(grass.Length, 0, "the Boot scene must ship meadow grass clumps to check");
 
-            bool anyWaveDialed = false;
+            bool anyOnShader = false;
             foreach (var mf in grass.Take(8))
             {
                 var mat = mf.GetComponent<MeshRenderer>()?.sharedMaterial;
-                if (mat != null && mat.shader != null && mat.shader.name == ShaderName
-                    && mat.HasProperty("_WaveAmp") && mat.GetFloat("_WaveAmp") > 0f)
-                    anyWaveDialed = true;
+                Assert.IsNotNull(mat, "shipped grass clump must carry a material");
+                if (mat.shader != null && mat.shader.name == ShaderName)
+                {
+                    anyOnShader = true;
+                    // STATIONARY: zero vertex displacement from BOTH the wave and the sway terms.
+                    if (mat.HasProperty("_WaveAmp"))
+                        Assert.AreEqual(0f, mat.GetFloat("_WaveAmp"), 1e-6f,
+                            "shipped grass must be STATIONARY — _WaveAmp == 0 (#172 soak-NIT: grass must not move)");
+                    if (mat.HasProperty("_SwayAmp"))
+                        Assert.AreEqual(0f, mat.GetFloat("_SwayAmp"), 1e-6f,
+                            "shipped grass must be STATIONARY — _SwayAmp == 0 (grass never sways either)");
+                }
             }
-            Assert.IsTrue(anyWaveDialed,
-                "shipped meadow grass must ride the vertex-color shader with _WaveAmp > 0 (the wind reaches the build)");
+            Assert.IsTrue(anyOnShader,
+                "shipped meadow grass must still ride FarHorizon/LowPolyVertexColor (green + batching of the swap kept)");
+        }
+
+        [Test]
+        public void BootScene_Bushes_Stationary_NoSway_NoWave()
+        {
+            // #172 SOAK-NIT: bushes (body + berries) must NOT move. They previously SHARED the canopy material
+            // (_SwayAmp = 0.10) + bake alpha 1, so they inherited the canopy sway. They now ride a dedicated
+            // bush material with NO displacement. Assert EVERY shipped bush mesh's material has _SwayAmp == 0
+            // AND _WaveAmp == 0 — regardless of its alpha-1 verts the bush stays planted (the sway/wave branches
+            // are no-ops when the amplitudes are 0). Covers BushBody AND Berries (both ride the bush material).
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var bushMeshes = Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)
+                .Where(mf => mf.sharedMesh != null
+                             && (mf.sharedMesh.name.StartsWith("LP_BushBlob")
+                                 || mf.sharedMesh.name.StartsWith("LP_BerryCluster")))
+                .ToArray();
+            Assert.Greater(bushMeshes.Length, 0, "the Boot scene must ship bushes (body + berries) to check");
+
+            foreach (var mf in bushMeshes.Take(12))
+            {
+                var mat = mf.GetComponent<MeshRenderer>()?.sharedMaterial;
+                Assert.IsNotNull(mat, $"shipped bush mesh '{mf.sharedMesh.name}' must carry a material");
+                if (mat.HasProperty("_SwayAmp"))
+                    Assert.AreEqual(0f, mat.GetFloat("_SwayAmp"), 1e-6f,
+                        $"shipped bush '{mf.sharedMesh.name}' must be STATIONARY — _SwayAmp == 0 (#172 soak-NIT: bushes must not move)");
+                if (mat.HasProperty("_WaveAmp"))
+                    Assert.AreEqual(0f, mat.GetFloat("_WaveAmp"), 1e-6f,
+                        $"shipped bush '{mf.sharedMesh.name}' must be STATIONARY — _WaveAmp == 0");
+            }
         }
     }
 }

@@ -1277,16 +1277,18 @@ namespace FarHorizon.EditorTools
                 GrassWaveMat(blade));
         }
 
-        // GRASS WIND-WAVE material (tickets 86cabc737 grass — Erik §Grass). The grass clump previously rode a
-        // flat URP/Lit material (which IGNORES the shader wave). To make the tufts rustle in the wind we render
-        // them through FarHorizon/LowPolyVertexColor (already AlwaysIncluded by WorldBootstrap) with a SMALL
-        // _WaveAmp so the existing world-XZ + time vertical-swell term gently rocks the whole clump (Erik §Grass
-        // "the whole clump rocks gently, which reads as wind in a tuft"). The blade has NO baked vertex colour,
-        // so IN.color defaults to white and albedo = _Tint = the blade green (the prior look is preserved; only
-        // the wave is added). _WaveAmp ~0.04 / _WaveLen ~4 are the Erik starting values — the EXACT amount is a
-        // Sponsor SOAK call. Quantized + cached per tint so jittered greens collapse to a few shared mats (no
-        // .mat-asset churn — same idiom as MakeFlatColorMat). All wind from time + world-position uniforms (no
-        // MaterialPropertyBlock — GPU Resident Drawer stays eligible). The exact-amount is a Sponsor soak call.
+        // GRASS material (tickets 86cabc737 grass — Erik §Grass; #172 SOAK-NIT 2026-06-29). The grass clump
+        // previously rode a flat URP/Lit material (which IGNORES the shader wave). We KEEP the move to
+        // FarHorizon/LowPolyVertexColor (already AlwaysIncluded by WorldBootstrap) because the Sponsor APPROVED
+        // the green + batching of that swap — but the wind WAVE is now REMOVED: the #172 soak verdict was
+        // "moving grass/bushes looks weird; only the trees up in the air should move", so the meadow grass is
+        // STATIONARY (_WaveAmp = 0). The blade has NO baked vertex colour, so IN.color defaults to white and
+        // albedo = _Tint = the blade green — the GREEN + the shader/batching of the swap are PRESERVED; only the
+        // vertex displacement is zeroed (with _WaveAmp = 0 the shader's wave branch is a no-op, the vert stays
+        // put). _WaveLen/_WaveSpeed left at the shader defaults (irrelevant when amp = 0). Quantized + cached
+        // per tint so jittered greens collapse to a few shared mats (no .mat-asset churn — same idiom as
+        // MakeFlatColorMat). No MaterialPropertyBlock — GPU Resident Drawer stays eligible.
+        // (Method name kept as GrassWaveMat for call-site stability; the wave is intentionally zero.)
         static readonly Dictionary<string, Material> _grassCache = new Dictionary<string, Material>();
         static Material GrassWaveMat(Color blade)
         {
@@ -1299,16 +1301,14 @@ namespace FarHorizon.EditorTools
             {
                 mat = new Material(vc) { name = key };
                 if (mat.HasProperty("_Tint"))     mat.SetColor("_Tint", q);       // grass has no vertex col -> _Tint is the green
-                if (mat.HasProperty("_WaveAmp"))  mat.SetFloat("_WaveAmp", 0.04f); // gentle clump rock (Erik §Grass)
-                if (mat.HasProperty("_WaveLen"))  mat.SetFloat("_WaveLen", 4f);    // short-period rustle
-                if (mat.HasProperty("_WaveSpeed")) mat.SetFloat("_WaveSpeed", 0.9f);
+                if (mat.HasProperty("_WaveAmp"))  mat.SetFloat("_WaveAmp", 0f);    // STATIONARY (#172 soak-NIT: grass must not move)
             }
             else
             {
                 mat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = key };
                 mat.SetColor("_BaseColor", q);
                 mat.SetFloat("_Smoothness", 0.06f);
-                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; grass falls back to flat green (no wave)");
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; grass falls back to flat green");
             }
             _grassCache[key] = mat;
             return mat;
@@ -1366,24 +1366,27 @@ namespace FarHorizon.EditorTools
             bush.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
             bush.transform.localScale = Vector3.one * scale;
 
-            // The bush body: a squat blob dome in multi-value greens (vertex colour). Shared vertex-color
-            // material (CanopyVertexColorMat — the canopy/bush both bake greens into vertex colour, so they
-            // batch on one shader). 4-6 blobs reads like the board's leafy clumps.
+            // The bush body: a squat blob dome in multi-value greens (vertex colour). Dedicated STATIONARY
+            // bush material (BushVertexColorMat — same shader + same white _Tint as the canopy, so the greens
+            // render identical and it still batches on the one shader-variant, but _SwayAmp = 0 so the bush
+            // does NOT move; #172 soak-NIT "only the trees up in the air should move"). 4-6 blobs reads like
+            // the board's leafy clumps.
             float bushR = 0.85f;
             int blobs = 4 + rnd.Next(0, 3);
             MakeMeshObject(bush, "BushBody",
                 LowPolyMeshes.BushBlob(bushR, blobs, BushBody, BushTop, BushShadow, rnd.Next()),
-                CanopyVertexColorMat());
+                BushVertexColorMat());
 
             if (!berry) return;
 
             // BERRIES (the harvestable variant): a child mesh of MANY small dense red faceted spheres
             // studding the dome. A SEPARATE child so BerryBush can show/hide JUST the berries on
             // harvest/regrow (the bush body persists). The berry red is in vertex colour -> the SAME
-            // vertex-color material. MANY (20-30) small dots so it reads as berries, not flowers (#101 soak-fix).
+            // STATIONARY bush material (BushVertexColorMat — so the berries are stationary too; #172 soak-NIT).
+            // MANY (20-30) small dots so it reads as berries, not flowers (#101 soak-fix).
             var berries = MakeMeshObject(bush, "Berries",
                 LowPolyMeshes.BerryCluster(bushR, 20 + rnd.Next(0, 11), BerryRed, rnd.Next()),
-                CanopyVertexColorMat());
+                BushVertexColorMat());
 
             // Wire the harvest+regrow component to the scene Inventory + player so a wandering castaway can
             // forage any berry bush. A deterministic regrowSeed (per-bush) so headless behavior is stable.
@@ -1763,6 +1766,40 @@ namespace FarHorizon.EditorTools
             return _canopyMat;
         }
 
+        // BUSH vertex-color material (#172 SOAK-NIT 2026-06-29). Bushes (body + berries) read the SAME
+        // multi-value greens in vertex colour as the tree canopy, so they previously SHARED the canopy
+        // material (CanopyVertexColorMat) to batch on one shader. But the canopy material carries
+        // _SwayAmp = 0.10, and BushBlob/BerryCluster bake vertex-color ALPHA = 1 (the same sway-mask the
+        // canopy uses) — so bushes inherited the canopy's lateral sway and MOVED. The #172 soak verdict was
+        // "moving bushes look weird; only the trees up in the air should move." This dedicated bush material
+        // keeps the SAME shader (FarHorizon/LowPolyVertexColor — batches by shader-variant, GPU Resident
+        // Drawer stays eligible) and the SAME white _Tint (vertex-color greens + berry reds render IDENTICAL
+        // to before) but leaves _SwayAmp at the shader default 0, so the bush is STATIONARY regardless of its
+        // alpha-1 verts (the sway branch is a no-op when amp = 0). No need to touch the alpha bake — the mask
+        // is simply unused on bushes now. One extra material instance (one per scene, cached) is well within
+        // the shader-variant batch (same shader as canopy/grass/rock).
+        static Material _bushMat;
+        static Material BushVertexColorMat()
+        {
+            if (_bushMat != null) return _bushMat;
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                _bushMat = new Material(vc) { name = "LPBushMat" };
+                if (_bushMat.HasProperty("_Tint")) _bushMat.SetColor("_Tint", Color.white);
+                // STATIONARY: _SwayAmp left at the shader default 0 — bushes must NOT move (#172 soak-NIT).
+                if (_bushMat.HasProperty("_SwayAmp")) _bushMat.SetFloat("_SwayAmp", 0f);
+            }
+            else
+            {
+                _bushMat = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = "LPBushMat" };
+                _bushMat.SetColor("_BaseColor", BushBody);
+                _bushMat.SetFloat("_Smoothness", 0.06f);
+                Debug.LogWarning("[LowPolyZoneGen] vertex-color shader not found; bush falls back to flat green");
+            }
+            return _bushMat;
+        }
+
         // ROCK vertex-color material (86ca8m5zu SOAKFIX2). The FacetedRock mesh bakes a per-FACET VALUE
         // (0.62 dark sides .. 1.0 light tops) into vertex colour — the facet-to-facet contrast that reads as
         // carved stone. URP/Lit IGNORES vertex colour, so the rock needs the FarHorizon/LowPolyVertexColor
@@ -1805,7 +1842,7 @@ namespace FarHorizon.EditorTools
 
         // Clear the per-bootstrap material cache so a re-run does not return materials owned by a
         // destroyed scene (the editor keeps the static cache across executeMethod invocations).
-        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; _rockCache.Clear(); _grassCache.Clear(); }
+        public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; _bushMat = null; _rockCache.Clear(); _grassCache.Clear(); }
 
         // Snap each channel to a coarse 12-step grid so jittered colors collapse into a small set.
         static Color Quantize(Color c)
