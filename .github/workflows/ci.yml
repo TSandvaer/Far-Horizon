@@ -102,6 +102,14 @@ jobs:
           chmod +x tests/scripts/test_block_destructive_hook.sh
           tests/scripts/test_block_destructive_hook.sh
 
+      # The orchestrator anti-idle Stop hook (both fire branches: full-idle +
+      # stale-scan) + the SessionStart resume-nudge are regression-guarded here.
+      # Zero Unity dependency — JSONL transcript fixtures fed on a tmp tree.
+      - name: Anti-idle hook unit tests
+        run: |
+          chmod +x tests/scripts/test_anti_idle_hook.sh
+          tests/scripts/test_anti_idle_hook.sh
+
   # ---------------------------------------------------------------------------
   # Unity gate — self-hosted Windows runner. Skips cleanly (does not fail the
   # PR) until a runner with the `unity` + `windows` labels is registered and

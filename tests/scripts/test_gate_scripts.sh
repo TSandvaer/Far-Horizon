@@ -206,6 +206,33 @@ STRAY_REPO="$TMP/stray_repo"; mkdir -p "$STRAY_REPO"; make_min_repo "$STRAY_REPO
 assert_rc_and_grep 1 "structure check FAILED" "structure: stray results.xml + VerifyCaptures flagged" \
   -- bash -c "cd '$STRAY_REPO' && bash '$STRUCT'"
 
+# THE 86cafk5vb regression guard — a root-level NUnit dump named WITHOUT the
+# `-results` suffix (PR #177's `editmode-bake176.xml`) must be caught BY CONTENT.
+# The old filename-suffix gate (`-results.xml` / `test-results*.xml`) MISSED it; the
+# new gate inspects the file head for the NUnit `<test-run` root element. We plant the
+# real header shape (matching the committed stray file's first two lines) and `git add -f`
+# (it's now also gitignored by `/editmode*.xml`, mirroring how `git add -A` slipped it in).
+NUNIT_REPO="$TMP/nunit_content_repo"; mkdir -p "$NUNIT_REPO"; make_min_repo "$NUNIT_REPO"
+( cd "$NUNIT_REPO" \
+  && printf '%s\n%s\n' '<?xml version="1.0" encoding="utf-8"?>' \
+       '<test-run id="2" testcasecount="20" result="Passed" total="20" passed="20" failed="0">' \
+       > editmode-bake176.xml \
+  && git add -f editmode-bake176.xml >/dev/null 2>&1 )
+assert_rc_and_grep 1 "structure check FAILED" "structure: root NUnit XML w/o -results suffix flagged by CONTENT (86cafk5vb / #177)" \
+  -- bash -c "cd '$NUNIT_REPO' && bash '$STRUCT'"
+
+# FALSE-POSITIVE guard — a genuine root-level project XML that is NOT an NUnit dump
+# (e.g. a mono-style `<mconfig>` config, or any non-test XML) must NOT trip the content
+# gate. The content gate keys ONLY on the `<test-run` marker, so a normal XML passes.
+# This pins the "zero false positives by design" contract while the gate is content-based.
+LEGIT_XML_REPO="$TMP/legit_xml_repo"; mkdir -p "$LEGIT_XML_REPO"; make_min_repo "$LEGIT_XML_REPO"
+( cd "$LEGIT_XML_REPO" \
+  && printf '%s\n%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<mconfig><configuration/></mconfig>' \
+       > project_config.xml \
+  && git add -f project_config.xml >/dev/null 2>&1 )
+assert_rc_and_grep 0 "structure check PASSED" "structure: non-NUnit root XML does NOT false-positive (86cafk5vb)" \
+  -- bash -c "cd '$LEGIT_XML_REPO' && bash '$STRUCT'"
+
 echo "=== verify_settings_gate.sh (settings-panel capture gate, 86caa4bqp) ==="
 
 # THE bug class this guards (Tess QA bounce, PR #83): the settings success-test is
@@ -363,6 +390,114 @@ assert_rc_and_grep 1 "no '[BootstrapProject] complete' marker" "bootstrap-retry:
 assert_rc_and_grep 1 "not retrying (real error" "bootstrap-retry: real error → fail fast, no retry" \
   -- env FAKE_EXIT=1 FAKE_LOG_BODY='Assets/Foo.cs(3,5): error CS0103: name does not exist\nCompilation failed\n' \
      bash -c "cd '$RETRY_PROJ' && bash '$RETRY' '$FAKE_UNITY' '$RETRY_PROJ' '$RETRY_PROJ/boot.log'"
+
+echo "=== capture_gate.sh / verify_pond_gate.sh (present-loop WEDGE hardening, wf_b92193a7-ba9) ==="
+# The windowed capture launch intermittently HANGS at the first-frame present loop on the self-hosted
+# runner. The hardening: a single rc==124-ONLY retry (re-launch ONCE on a timeout-hang), `timeout -k 15`
+# (SIGKILL a SIGTERM-ignoring hung player), LAUNCH_TIMEOUT 300, and -logFile on capture_gate. These cases
+# pin the RETRY LOGIC with a fake exe (zero Unity dependency): a fake that EXITS 124 makes `timeout` return
+# 124 (timeout passes through a child's exit status when the child exits before the deadline), exercising
+# the rc==124 branch deterministically without a real 300s hang. The actual present-wedge only manifests on
+# the runner; what we CAN test here is "do we retry on 124, and ONLY on 124".
+CAPTURE_GATE="$SCRIPTS/capture_gate.sh"
+POND_GATE="$SCRIPTS/verify_pond_gate.sh"
+
+# Capture-frame PNG writer (good content so frame_check passes on the success path).
+CAP_PNG_HELPER="$TMP/_make_capture_pngs.py"
+cat > "$CAP_PNG_HELPER" <<'PY'
+import os, sys, struct, zlib
+d = sys.argv[1]; n = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+os.makedirs(d, exist_ok=True)
+def chunk(typ, data):
+    return struct.pack(">I", len(data)) + typ + data + struct.pack(">I", zlib.crc32(typ+data)&0xFFFFFFFF)
+def good(x, y):
+    base = (x*3)%200+20
+    if 20<=x<44 and 20<=y<44: return (240,230,120)
+    return (base, base//2+30, 200-base//2)
+def write_png(path, w=64, h=64):
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)
+        for x in range(w):
+            r,g,b = good(x,y); raw += bytes((r,g,b))
+    with open(path,"wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))
+                +chunk(b"IDAT",zlib.compress(bytes(raw)))+chunk(b"IEND",b""))
+for i in range(n):
+    write_png(os.path.join(d, "capture_%02d.png" % i))
+PY
+
+# Fake-exe factory for the WEDGE retry tests. Reads -captureDir/-logFile from its args.
+# $1 = output path  $2 = behaviour:
+#   "hang-then-pass" — attempt 1 exits 124 (no frames); attempt 2 writes good frames + exits 0  (retry RECOVERS)
+#   "hang-always"    — every attempt exits 124, no frames  (retry exhausted → frame_check fails on 0 frames)
+#   "fail-fast"      — attempt 1 exits 1 (a real non-zero gate failure), no frames  (must NOT retry)
+# A per-exe counter file tracks attempt N across invocations.
+make_wedge_exe() {
+  local exe="$1" behaviour="$2"
+  local counter="$exe.attempts"; rm -f "$counter"
+  cat > "$exe" <<FAKE
+#!/usr/bin/env bash
+capdir=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -captureDir) capdir="\$2"; shift 2;;
+    *) shift;;
+  esac
+done
+n=\$(( \$(cat "$counter" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$counter"
+case "$behaviour" in
+  hang-then-pass)
+    if [ "\$n" -eq 1 ]; then exit 124; fi
+    python3 "$CAP_PNG_HELPER" "\$capdir" 2; exit 0;;
+  hang-always) exit 124;;
+  fail-fast)   exit 1;;
+esac
+FAKE
+  chmod +x "$exe"
+}
+
+# assert_attempts <exe> <expected-count> <label> — read the per-exe counter file directly (the make_wedge_exe
+# fake writes its run count to "<exe>.attempts"); proves the retry fired (or didn't) the exact right number.
+assert_attempts() {
+  local exe="$1" exp="$2" label="$3"
+  local got; got="$(cat "$exe.attempts" 2>/dev/null || echo 0)"
+  if [ "$got" = "$exp" ]; then ok "$label (ran ${got}×)"; else bad "$label — expected ${exp}× got ${got}×"; fi
+}
+
+# 1. capture_gate: a single timeout-hang RECOVERS on the one retry → PASS, and the exe ran TWICE.
+make_wedge_exe "$TMP/cap_hang_then_pass.sh" "hang-then-pass"
+assert_rc_and_grep 0 "CAPTURE GATE PASSED" "capture_gate: hang-then-pass recovers on retry" \
+  -- bash "$CAPTURE_GATE" "$TMP/cap_hang_then_pass.sh" "$TMP/cap_htp_caps" 2 "$TMP/cap_htp.log"
+assert_attempts "$TMP/cap_hang_then_pass.sh" 2 "capture_gate: hang-then-pass ran exactly twice (retry fired once)"
+
+# 2. capture_gate: a persistent timeout-hang exhausts the ONE retry → FAIL (0 frames), exe ran exactly TWICE
+#    (NOT a loop — exactly one retry).
+make_wedge_exe "$TMP/cap_hang_always.sh" "hang-always"
+assert_rc_and_grep 1 "found 0 frame(s)" "capture_gate: persistent hang fails after one retry (0 frames)" \
+  -- bash "$CAPTURE_GATE" "$TMP/cap_hang_always.sh" "$TMP/cap_ha_caps" 2 "$TMP/cap_ha.log"
+assert_attempts "$TMP/cap_hang_always.sh" 2 "capture_gate: persistent hang ran exactly twice (one retry, no infinite loop)"
+
+# 3. THE load-bearing guard — capture_gate: a REAL non-zero gate failure (rc!=124) is NOT retried.
+#    The exe ran exactly ONCE; retrying a real failure would waste a runner cycle / mask a render fail.
+make_wedge_exe "$TMP/cap_fail_fast.sh" "fail-fast"
+assert_rc 1 "capture_gate: real non-124 failure → no frames → gate fails" \
+  -- bash "$CAPTURE_GATE" "$TMP/cap_fail_fast.sh" "$TMP/cap_ff_caps" 2 "$TMP/cap_ff.log"
+assert_attempts "$TMP/cap_fail_fast.sh" 1 "capture_gate: real non-124 failure ran exactly ONCE (no retry on a real failure)"
+
+# 4. verify_pond_gate: a real non-124 self-assert failure is NOT retried (ran exactly ONCE). The pond gate
+#    treats a non-zero exe_rc as the verdict; only rc==124 (the present-wedge) earns the one retry.
+make_wedge_exe "$TMP/pond_fail_fast.sh" "fail-fast"
+assert_rc_and_grep 1 "POND CAPTURE GATE FAILED" "verify_pond: real non-124 self-assert fails the gate" \
+  -- bash "$POND_GATE" "$TMP/pond_fail_fast.sh" "$TMP/pond_ff_caps" "$TMP/pond_ff.log"
+assert_attempts "$TMP/pond_fail_fast.sh" 1 "verify_pond: real non-124 self-assert ran exactly ONCE (no retry on a real failure)"
+
+# 5. verify_pond_gate: a single present-wedge (rc 124) retries ONCE (exe ran exactly twice). Both attempts
+#    hang here (hang-always) so the gate still fails — but the RETRY COUNT proves the rc==124 branch fired.
+make_wedge_exe "$TMP/pond_hang_always.sh" "hang-always"
+assert_rc 1 "verify_pond: persistent present-wedge fails after one retry" \
+  -- bash "$POND_GATE" "$TMP/pond_hang_always.sh" "$TMP/pond_ha_caps" "$TMP/pond_ha.log"
+assert_attempts "$TMP/pond_hang_always.sh" 2 "verify_pond: present-wedge (rc 124) ran exactly twice (one retry)"
 
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"

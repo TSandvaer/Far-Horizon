@@ -134,21 +134,27 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// True if ANY of the F-key NUDGE TOOL panels (AxeNudgeTool / WorldLookNudgeTool / CameraFollowNudgeTool)
-        /// is currently toggled ON. While one is, it OWNS PgUp/PgDn and this always-live pond handle must not
-        /// also consume the same press (ticket 86cafjrxk deconflict). Only called on a PgUp/PgDn frame, so the
-        /// Find* scan never runs per-frame. Includes inactive objects so a serialized-but-disabled tool counts.
+        /// True if ANY debug NUDGE-PANEL tool (<see cref="INudgePanel"/>) is currently toggled ON. While one
+        /// is, it OWNS PgUp/PgDn and this always-live pond handle must not also consume the same press (ticket
+        /// 86cafjrxk deconflict). REFACTORED (86cafz9jr, #187 follow-up): the gate used to name the three
+        /// concrete tool types (AxeNudgeTool / WorldLookNudgeTool / CameraFollowNudgeTool) one-by-one, which
+        /// meant a 4th panel had to be remembered into a hand-maintained list — a missed edit silently
+        /// re-introduced the collision class #187 fixed. Now it discovers active panels THROUGH the interface
+        /// (a MonoBehaviour scene scan filtered by `is INudgePanel`), so the deconflict stays correct
+        /// automatically as nudge panels are added/removed — any new INudgePanel is covered with no edit here.
+        ///
+        /// Only called on a PgUp/PgDn frame, so the Find* scan never runs per-frame. Includes inactive objects
+        /// (FindObjectsInactive.Include) so a serialized-but-disabled tool still counts — identical to the
+        /// behavior #187 shipped (an INudgePanel on a disabled GameObject is still discovered). Interfaces
+        /// can't be passed to FindObjectsByType<T> (T must be Component-derived), so the scan is over
+        /// MonoBehaviour + an `is INudgePanel` filter — the canonical Unity idiom for interface discovery.
         /// PUBLIC so the deconflict contract is testable without synthesizing a legacy-Input PgUp key-down
         /// (mirrors AxeNudgeTool.Activate/IsActive being public for the same reason).
         /// </summary>
         public static bool AnyNudgePanelActive()
         {
-            foreach (var t in Object.FindObjectsByType<AxeNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (t.IsActive) return true;
-            foreach (var t in Object.FindObjectsByType<WorldLookNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (t.IsActive) return true;
-            foreach (var t in Object.FindObjectsByType<CameraFollowNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (t.IsActive) return true;
+            foreach (var mb in Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (mb is INudgePanel panel && panel.IsActive) return true;
             return false;
         }
 

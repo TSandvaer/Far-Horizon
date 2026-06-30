@@ -166,8 +166,10 @@ namespace FarHorizon.EditTests
             }
         }
 
-        // AC5 REGRESSION (OOS protection) — the Walk<->Run blend tree must be UNCHANGED: still exactly
-        // {Idle, Walk, Run} on the Speed param, with NO jump clip folded in.
+        // AC5 REGRESSION (OOS protection) — the Walk<->Run blend tree must be UNCHANGED in STRUCTURE: still
+        // exactly {idle-floor, Walk, Run} on the Speed param, with NO jump clip folded in. 86cackb3j re-soak:
+        // the @0 idle FLOOR is now the BREATHING idle clip (calm-but-alive), not the old static idle — the
+        // STRUCTURE (3 children, Speed param, no jump) is what AC5 protects, not the specific idle clip identity.
         [Test]
         public void WalkRunBlendTree_IsUnchanged_JumpNotFoldedIn()
         {
@@ -186,7 +188,10 @@ namespace FarHorizon.EditTests
             {
                 if (child.motion is AnimationClip clip)
                 {
-                    if (clip.name.Contains(CharacterAssetGen.IdleClip)) hasIdle = true;
+                    // The @0 idle FLOOR is the breathing idle now (86cackb3j); accept either the breathing idle
+                    // or the static idle (the defensive fallback) as the idle floor — the structure is the contract.
+                    if (clip.name.Contains(CharacterAssetGen.BreathingIdleClip) ||
+                        clip.name.Contains(CharacterAssetGen.IdleClip)) hasIdle = true;
                     if (clip.name.Contains(CharacterAssetGen.WalkClip)) hasWalk = true;
                     if (clip.name.Contains(CharacterAssetGen.RunClip)) hasRun = true;
                     if (clip.name.Contains(CharacterAssetGen.JumpIdleClip) ||
@@ -194,7 +199,8 @@ namespace FarHorizon.EditTests
                 }
             }
             Assert.IsTrue(hasIdle && hasWalk && hasRun,
-                "the blend tree must still carry Idle+Walk+Run (the locomotion contract is unchanged by the jump)");
+                "the blend tree must still carry idle-floor+Walk+Run (the locomotion contract structure is " +
+                "unchanged by the jump; the idle floor is now the breathing idle clip — 86cackb3j)");
             Assert.IsFalse(hasJump, "no jump clip may be a blend-tree child — the jumps are OVERLAYING one-shot " +
                 "states, NOT folded into the Walk<->Run blend (AC5 OOS protection)");
             Assert.AreEqual(3, tree.children.Length,

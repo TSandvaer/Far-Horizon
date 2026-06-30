@@ -1310,6 +1310,19 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        private static void WireHandsVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host HandsVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<HandsVerifyCapture>() == null)
+                bootGo.AddComponent<HandsVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0) onto the Boot object so it
         // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
         // otherwise). INERT in normal play; on -axeWalkTrace it drives a scripted walk + dumps every Y-reference
@@ -2576,6 +2589,12 @@ namespace FarHorizon.EditorTools
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
 
+            // Wire the HANDS close-up capture (PR #186 FINGER re-open). The avatar-wide CastawayVerifyCapture
+            // frames the hands too small to judge a finger mangle; this frames EACH hand TIGHTLY (individual
+            // fingers resolvable) while the Breathing Idle plays, so the symptom region the Sponsor saw mangled
+            // is eyeball-judgeable from a SHIPPED frame. Inert unless launched with -verifyHands.
+            WireHandsVerifyCapture();
+
             // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC (86ca8rdkp — the instrument). Serializes onto Boot so
             // the F8 overlay (feet/ground/GAP live) + the ~1Hz [FloatTrace] log ship; inert until F8/-floatTrace.
             // The Sponsor walks the shoreline, SEES the GAP, dials GROUND-Y (F9) to GAP≈0, reports the value.
@@ -2810,6 +2829,11 @@ namespace FarHorizon.EditorTools
             // Inert unless -verifyRun. Sibling of WasdVerifyCapture.
             WireRunVerifyCapture(player);
 
+            // Wire the LOCOMOTION + HIT-REACT shipped-build capture (86cackb3j) — walk→run then fires the Hit
+            // trigger on the live Animator + captures the flinch, with a cone-explosion guard (mesh stays at the
+            // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
+            WireHitReactVerifyCapture(player);
+
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
         }
@@ -2863,6 +2887,13 @@ namespace FarHorizon.EditorTools
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
             // editor-vs-runtime ship-path discipline). May be null on a bare rig — the rows then simply don't appear.
             panel.heldWeapon = Object.FindObjectOfType<HeldWeaponPlacement>();
+            // Inventory façade (86cabfa4e) — `inventory slots` + `belt slots` + `inventory stack size` bind through
+            // it. BootstrapProject adds the Inventory to the Survival object BEFORE MovementCameraScene.Author runs
+            // (so CraftSpot can wire it), so it ALREADY exists here — wire it serialized so the rows ship live without
+            // a runtime FindObjectOfType (the editor-vs-runtime ship-path discipline the stone-respawner dead-knob
+            // taught). The Awake FindObjectOfType<Inventory> stays as the bare-scene safety net. May be null on a
+            // bare rig — the inventory rows then simply don't appear.
+            panel.inventory = Object.FindObjectOfType<Inventory>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +
@@ -2921,6 +2952,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<RunVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<RunVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the LOCOMOTION + HIT-REACT shipped-build verify capture (86cackb3j) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifyHitReact. Sibling of WireRunVerifyCapture.
+        private static void WireHitReactVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host LocomotionHitReactVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<LocomotionHitReactVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<LocomotionHitReactVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }
