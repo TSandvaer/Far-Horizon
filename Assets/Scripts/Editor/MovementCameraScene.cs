@@ -2961,6 +2961,10 @@ namespace FarHorizon.EditorTools
             var cap = bootGo.GetComponent<SneakVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<SneakVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
+            // Wire the avatar so the 86caa3kur re-soak ANIMATOR LOOP-HITCH trace reads the LIVE Animator state
+            // (it serializes into Boot.unity — the component-in-source-but-not-in-scene trap). Resolved off the
+            // player's child avatar (the CastawayCharacter lives on a child avatar root under the player).
+            cap.castaway = player.GetComponentInChildren<CastawayCharacter>(true);
             EditorUtility.SetDirty(bootGo);
         }
 

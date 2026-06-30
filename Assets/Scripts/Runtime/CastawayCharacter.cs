@@ -491,6 +491,87 @@ namespace FarHorizon
             }
         }
 
+        // ===== ANIMATOR-STATE TRACE (86caa3kur re-soak — the sneak-walk LOOP-HITCH instrument). The Sponsor's
+        // re-soak refined the symptom: the crouch sneak-walk "lags between each walk animation — two steps
+        // repeated, lags between each" → an ANIMATION-LOOP hitch (NOT the movement/position layer Devon's
+        // smooth-direct-drive fixed). EditMode/PlayMode can't observe it (headless deltaTime≈0 stalls the
+        // Animator — unity-conventions §Headless), so SneakVerifyCapture dumps the LIVE per-frame Animator
+        // ground truth from the BUILT exe. These accessors expose the playing state's hash/clip/normalizedTime/
+        // effective-speed of layer 0 so the trace can DISCRIMINATE the three candidate causes:
+        //   #1 clip loop-seam  — normalizedTime wraps cleanly (…0.98→0.0…) but a visible pop each cycle.
+        //   #2 foot-sync stall — the CrouchWalk effective playback speed drives near-zero (RULED OUT in source:
+        //                        CrouchWalk has NO speedParameter, so LocoSpeedMul never scales it — the trace
+        //                        CONFIRMS LocoSpeedMul ≠ the CrouchWalk speed empirically).
+        //   #3 state re-entry  — the state HASH changes / normalizedTime RESETS to ~0 each "two-step" cycle =
+        //                        the AnyState→CrouchWalk/CrouchIdle transition flapping on a Moving flicker.
+        // Read-only; NaN/0 when no Animator (a bare rig). No GC in the getters (no per-frame alloc).
+
+        /// <summary>The layer-0 Animator state's full-path-hash this frame (86caa3kur re-soak trace). 0 when no
+        /// Animator. A CHANGING hash across the sneak hold = the crouch lane re-entering (candidate #3). Read off
+        /// GetCurrentAnimatorStateInfo so it reflects what is ACTUALLY playing, not the requested bool.</summary>
+        public int CurrentStateHash
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return 0;
+                return _animator.GetCurrentAnimatorStateInfo(0).fullPathHash;
+            }
+        }
+
+        /// <summary>The layer-0 state's normalizedTime this frame (86caa3kur re-soak trace) — the looped clip
+        /// PHASE (integer part = completed loops, fractional = current cycle position). A clean LOOP advances the
+        /// fractional part monotonically and wraps 0.99→0.0 (candidate #1 = a seam pop at the wrap); a RESET to
+        /// ~0 with the loop count NOT advancing = the state re-entered (candidate #3). NaN when no Animator.</summary>
+        public float CurrentStateNormalizedTime
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            }
+        }
+
+        /// <summary>The layer-0 state's EFFECTIVE playback speed this frame (86caa3kur re-soak trace) =
+        /// state.speed × state.speedMultiplier. For CrouchWalk this is 1 (no speedParameter wired); for the
+        /// upright Locomotion it is the LocoSpeedMul foot-sync multiplier. A near-zero value during the sneak =
+        /// candidate #2 (the clip stalled). NaN when no Animator.</summary>
+        public float CurrentStateEffectiveSpeed
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                var si = _animator.GetCurrentAnimatorStateInfo(0);
+                return si.speed * si.speedMultiplier;
+            }
+        }
+
+        /// <summary>The name of the FIRST clip currently playing on layer 0 (86caa3kur re-soak trace) — e.g.
+        /// "CastawayCrouchWalk" during the sneak, proving the Sneak Walk clip is the one playing (not a wrong
+        /// state / a T-pose-class empty). null when no Animator / no clip info. Reads GetCurrentAnimatorClipInfo
+        /// — does a small alloc on the FIRST call per state but the trace samples ~1Hz (not per-frame), so the
+        /// GC cost is bounded (and this is a VERIFICATION-only build path — not a shipping hot loop).</summary>
+        public string CurrentClipName
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return null;
+                var infos = _animator.GetCurrentAnimatorClipInfo(0);
+                return (infos != null && infos.Length > 0 && infos[0].clip != null) ? infos[0].clip.name : null;
+            }
+        }
+
+        /// <summary>Whether layer 0 is mid-TRANSITION this frame (86caa3kur re-soak trace). A transition ACTIVE
+        /// every "two-step" cycle during a steady sneak hold = the crouch lane crossfade re-firing (candidate #3);
+        /// a steady CrouchWalk hold should show NO transition once settled. False when no Animator.</summary>
+        public bool IsInTransition
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                return _animator.IsInTransition(0);
+            }
+        }
+
         /// <summary>
         /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook). The verify
         /// capture cannot rely on the rest-state facing being a fixed axis, so it pins the facing to a known
@@ -567,6 +648,16 @@ namespace FarHorizon
             // re-bind to it rather than re-instantiate. Otherwise build at runtime (defensive fallback).
             if (transform.childCount > 0 && _model == null) RebindFromHierarchy();
             if (!_built) BuildModel();
+
+            // SNEAK-WALK LOOP-HITCH FALLBACK TOGGLE (86caa3kur re-soak — candidate #2 disconfirming control).
+            // -sneakNoFootSync forces footSync OFF at boot so the Sponsor (fallback soak) or the -verifySneak
+            // gate can A/B the sneak WITH vs WITHOUT foot-sync. Foot-sync's LocoSpeedMul does NOT reach the
+            // CrouchWalk state (it has no speedParameter — source-confirmed; the trace re-confirms empirically),
+            // so this toggle is EXPECTED to leave the sneak hitch UNCHANGED = candidate #2 ruled out by control.
+            // A no-op for the upright Walk/Run (their cadence rides LocoSpeedMul) only matters if the Sponsor
+            // happens to walk upright in the fallback build — the trace + sneak are the judged surface.
+            foreach (string a in System.Environment.GetCommandLineArgs())
+                if (a == "-sneakNoFootSync") { footSync = false; break; }
         }
 
         /// <summary>
