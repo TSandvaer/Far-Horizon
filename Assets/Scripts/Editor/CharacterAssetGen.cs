@@ -513,6 +513,18 @@ namespace FarHorizon.EditorTools
                     cc.name = newName;
                     cc.loopTime = true;
                     cc.loop = true;
+                    // LOOP-POSE blend (86caa3kur — #197 crouch-jerk fix). The C# property `loopPose` serializes
+                    // to the .meta field `loopBlend` (Unity API↔YAML naming differs). With loopBlend=0 the pose
+                    // SNAPS at the frame-N→frame-0 wrap once per clip cycle — for Sneak Walk that's once per
+                    // ~28-frame gait cycle = the Sponsor's "left, right, JERK" (LIVE-CONFIRMED via the v4 F2/F3
+                    // isolation build; foot-sync + speed both exonerated). loopPose=true blends the cycle ends so
+                    // the pose wraps seamlessly. INVISIBLE to a normalizedTime trace: a clean TIME-wrap is not a
+                    // clean POSE-wrap. The orientation/XZ/Y loop-blend fields (loopBlendOrientation:1,
+                    // loopBlendPositionXZ:1, loopBlendPositionY:0) are ALREADY at the desired values via the
+                    // lockRoot*/keepOriginal* lines below — left UNCHANGED (do not touch the spike's pinned
+                    // float-fix values). Net improvement / low risk across ALL looped clips (Idle/Walk/Run/
+                    // CrouchIdle/CrouchWalk/BreathingIdle/Stunned), all of which share loopBlend:0 today.
+                    cc.loopPose = true;
                     // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
                     // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
                     // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
