@@ -79,9 +79,14 @@ if ! printf '%s' "$tick_text" | grep -Eq 'orchestration tick|[Oo]rchestration pu
   exit 0
 fi
 
-# The tick signature, used both above (most-recent user message) and below (to
-# find ALL tick line numbers so the PRIOR tick can anchor the staleness window).
-TICK_SIG='orchestration tick|[Oo]rchestration pulse|scan the board first|team must never idle|never idle'
+# The tick signature for the COUNTING grep below — used to find ALL tick line
+# numbers so the PRIOR tick can anchor the staleness window. The bare `never
+# idle` alternative is intentionally OMITTED here (it IS kept in the gate-entry
+# grep above): a real Sponsor message that merely *contains* the phrase
+# `never idle` must not be miscounted as a cron tick and mis-anchor `prior_tick`,
+# which would fire a (self-correcting, but noisy) false STALE-SCAN block. The
+# fuller, cron-prompt-specific anchors stay so genuine ticks still count.
+TICK_SIG='orchestration tick|[Oo]rchestration pulse|scan the board first|team must never idle'
 
 # ---------------------------------------------------------------------------
 # BRANCH B — STALE-SCAN GATE. Fire when the WHOLE board has not been scanned
