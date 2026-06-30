@@ -17,10 +17,13 @@ namespace FarHorizon
     ///   (b) sky_clouds.png — aimed up into the cloud band: the cloud-vs-sky contrast shot (Erik's 2nd open Q).
     ///   (c) sky_gameplay.png — a GAMEPLAY-FRAMED camera (ticket 86cag25az sun-lower): an orbit-style pose at
     ///                        a LOW pitch toward the horizon, facing the sun's azimuth, at the real orbit
-    ///                        distance. With the sun LOWERED to elev ~25° (was 48°) the disk now sits in the
-    ///                        UPPER-sky band the pitch-[8,70] orbit actually frames — so this is the eyes-on
-    ///                        proof the Sponsor can SEE the sun in normal play (the (a) shot only proves it
-    ///                        renders when aimed dead at it; this proves it's framed at a playable angle).
+    ///                        distance. With the sun LOWERED to the Sponsor-accepted elev 18° (was 48°/25°) the
+    ///                        disk sits low in the warm band the pitch-[8,70] orbit frames toward the horizon —
+    ///                        so this is the eyes-on proof the Sponsor can SEE the sun in normal play (the (a)
+    ///                        shot only proves it renders when aimed dead at it; this proves it's framed at a
+    ///                        playable angle). Over the OCEAN azimuth (where the Sponsor judged it) there is no
+    ///                        treeline; this inland-leaning capture may show canopy occlusion — eyeball it +
+    ///                        defer to the soak ([[verify-grounding-soaks-by-gameplay-cam-visual]]).
     ///
     /// SUN DIRECTION: the disk is driven by the sky material's baked _SunDirection (NOT the URP
     /// _MainLightPosition global, which is UNBOUND in the Background/skybox pass — verified empirically on
@@ -114,14 +117,14 @@ namespace FarHorizon
 
             // --- Shot 3: GAMEPLAY-FRAMED (ticket 86cag25az sun-lower) — the over-shoulder orbit pose at the
             // most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°), FACING the sun's azimuth, at the real
-            // orbit distance (14u). This is the eyes-on proof that the LOWERED sun (elev ~25°) is FRAMED in
-            // normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a playable tilt").
+            // orbit distance (14u). This is the eyes-on proof that the LOWERED sun (Sponsor-accepted elev 18°) is
+            // FRAMED in normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a tilt").
             // A WIDE FOV (75°) is used DELIBERATELY: at the orbit's lowest pitch the camera still looks slightly
-            // DOWN (Euler-X is look-down), so a generous FOV is needed for the elev-25° sun to clear the tall
-            // blob-canopy treeline and sit in the open upper-sky band (the canopy reaches high from a ground
-            // vantage — confirmed by the (a) sky_sun shot). Yaw faces the sun's horizontal azimuth so the disk
-            // lands in frame. NOTE: whether the sun is framed in NORMAL play also depends where the player looks
-            // + on tree occlusion — the Sponsor soak is the real judge ([[verify-grounding-soaks-by-gameplay-cam-visual]]);
+            // DOWN (Euler-X is look-down), so a generous FOV is needed for the low elev-18° sun to clear scenery
+            // and sit in the lower-sky band. Yaw faces the sun's horizontal azimuth so the disk lands in frame.
+            // NOTE: whether the sun is framed in NORMAL play also depends where the player looks + on tree
+            // occlusion — over the OCEAN azimuth (where the Sponsor judged 18°) there is no treeline; this
+            // capture leans inland so it may show canopy. The Sponsor soak is the real judge ([[verify-grounding-soaks-by-gameplay-cam-visual]]);
             // this shot proves it CAN be framed at a playable angle, and the gameplay self-assert below is
             // ADVISORY (logged, NOT gating) so tree-position variance can't false-fail the gate.
             float sunAzimuthDeg = Mathf.Atan2(toSun.x, toSun.z) * Mathf.Rad2Deg; // horizontal heading toward the sun

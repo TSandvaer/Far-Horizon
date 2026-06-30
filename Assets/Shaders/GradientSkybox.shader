@@ -40,22 +40,24 @@ Shader "FarHorizon/GradientSkybox"
 
         // ---- SUN DISK (ticket 86cabc743 — Erik low-poly-sky research, POC item 1) ----
         // A small additive warm sun disk where the view ray faces the directional Sun. Additive (col +=)
-        // so the post-stack Bloom lifts a soft warm corona for free. Defaults are the warm-gold starting
-        // values for the Sponsor soak (QualityPassGen sets these explicitly at bootstrap, kept in sync).
-        _SunColor    ("Sun Color",    Color)            = (1.0, 0.74, 0.34, 1)
-        // Disk edge position in dot-product space: higher = SMALLER disk (1.0 = a point). 0.992 ~= a chunky
-        // toy-like sun (~7deg), not a sub-pixel pinpoint (0.9985 rendered as a dot in the first capture) and
-        // not a sky-filling glare.
-        _SunSize     ("Sun Size",     Range(0.95, 0.9999)) = 0.992
+        // so the post-stack Bloom lifts a soft warm corona for free. Defaults are the SPONSOR-ACCEPTED soft
+        // warm-white values (soak 55bde02, ticket 86cag25az; QualityPassGen sets these explicitly at
+        // bootstrap, kept in sync).
+        _SunColor    ("Sun Color",    Color)            = (0.98, 0.86, 0.86, 1)
+        // Disk edge position in dot-product space: higher = SMALLER disk (1.0 = a point). 0.95 = the LARGEST
+        // disk the range allows — the Sponsor-accepted chunky board-scale sun (was 0.992 ~7°; the original
+        // 0.9985 rendered a sub-pixel pinpoint dot in the first capture).
+        _SunSize     ("Sun Size",     Range(0.95, 0.9999)) = 0.95
         // pow exponent on the disk falloff — higher = crisper edge. ~60 reads as a clean low-poly disk with
         // a touch of edge softness for the bloom corona.
         _SunHardness ("Sun Hardness", Range(8.0, 400.0))   = 60.0
         // World-space direction TOWARD the Sun (the sun disk centre). Set by QualityPassGen from the actual
         // Sun light transform at bootstrap — NOT read from the URP _MainLightPosition global, which is NOT
         // bound in the Background/skybox pass (verified empirically — see the CBUFFER note below). Raw default
-        // matches the LOWERED elev-25 Sun (ticket 86cag25az; was the elev-48 (0.38,0.74,-0.55)); the bootstrap
-        // bakes the real value over this, so this only matters if the asset is opened raw.
-        _SunDirection ("Sun Direction (world, to-sun)", Vector) = (0.520, 0.423, -0.742, 0)
+        // matches the Sponsor-accepted LOWERED elev-18 Sun (ticket 86cag25az; was elev-25 (0.520,0.423,-0.742),
+        // earlier elev-48 (0.38,0.74,-0.55)); the bootstrap bakes the real value over this, so this only
+        // matters if the asset is opened raw.
+        _SunDirection ("Sun Direction (world, to-sun)", Vector) = (0.546, 0.309, -0.779, 0)
     }
     SubShader
     {
