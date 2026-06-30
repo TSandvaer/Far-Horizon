@@ -6,18 +6,24 @@ using FarHorizon.Settings;
 namespace FarHorizon
 {
     /// <summary>
-    /// The in-game tweakable SETTINGS PANEL (ticket 86caa4bqp) — a UI Toolkit workbench drawer the Sponsor
-    /// pulls open mid-soak (Esc) to dial live gameplay params, then we BAKE the chosen values as new
-    /// defaults (the give-him-the-knob soak-tuning instrument; cf. the F9 axe-nudge tool).
+    /// The in-game DEV TWEAK CONSOLE (tickets 86caa4bqp + 86cabeqj9 foundation) — a UI Toolkit workbench
+    /// drawer the Sponsor keeps OPEN and tweaks WHILE he plays, to dial live gameplay params, then we BAKE
+    /// the chosen values as new defaults (the give-him-the-knob soak-tuning instrument; cf. the F9 axe-nudge
+    /// tool). It is a DEV tool, NOT player-facing ([[sponsor-wants-unified-dev-tweak-console]]).
     ///
     /// THE THIN VIEW. The extensible contract lives in <see cref="SettingsRegistry"/> + the typed
     /// <see cref="SettingEntry"/>s (pure C#, unit-tested in EditMode). This MonoBehaviour:
     ///   • builds the registry via <see cref="SettingsCatalog"/> from the serialized live targets (AC3);
     ///   • loads persisted values (AC5) + applies them on Start;
-    ///   • builds one UI Toolkit row per entry GENERICALLY off its archetype (AC1/AC2) — a new setting
-    ///     needs NO change here; it just appears as a row;
-    ///   • toggles the panel on Esc (AC1, non-clashing per Uma §8) and gates locomotion/belt input while
-    ///     open (research §E1 — Input.* polling bleeds through an open panel).
+    ///   • builds one UI Toolkit row per entry GENERICALLY off its archetype (AC2) — a new setting needs NO
+    ///     change here; it just appears as a row, with a typed field (AC5), nudge selection (AC6), a baked-
+    ///     default readout (AC8) and a differs-from-default badge (AC9) for free;
+    ///   • OPENS/CLOSES on F1 by JOINING the dev-overlay master layer (DebugOverlays.Visible, ticket
+    ///     86cafd6d6) rather than polling its own F1 — one F1 reveals the whole dev-instrument layer (AC1);
+    ///   • is NON-MODAL (AC2): being open does NOT pause/gate gameplay (no Time.timeScale touch); world input
+    ///     is swallowed ONLY while a typed-field holds keyboard focus (AC3 — so a typed number isn't also read
+    ///     as movement), via the ref-counted UiInputGate the console OPTS INTO per-field (genuinely-modal
+    ///     future panels like inventory Tab still opt into the open-gate).
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): the UIDocument + UXML/USS + the live-target
     /// references are wired editor-time (MovementCameraScene) + serialized into Boot.unity. The Awake
@@ -77,8 +83,13 @@ namespace FarHorizon
         public Inventory inventory;
 
         [Header("Toggle")]
-        [Tooltip("Key that opens/closes the panel. Esc per Uma §8 (free — no clash with WASD/Shift/Ctrl/Space/Tab/1-5).")]
-        public KeyCode toggleKey = KeyCode.Escape;
+        [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). F1 is the dev-overlay MASTER switch " +
+                 "(DebugOverlayToggle → DebugOverlays.Visible, ticket 86cafd6d6): the console JOINS that layer, " +
+                 "so the same F1 the Sponsor already uses for the dev instruments opens/closes the console too — " +
+                 "no second F1 poll, no double-toggle. Layout-agnostic + verified non-clashing with WASD/Shift/" +
+                 "Space/Tab/F7-F10 ([[sponsor-danish-keyboard-layout]]). This field documents the binding (read " +
+                 "by the verify-capture path); the live toggle is driven off DebugOverlays.Visible in Update.")]
+        public KeyCode toggleKey = KeyCode.F1;
 
         /// <summary>The registry this panel renders + drives. Built on Start from the catalog (public for tests).</summary>
         public SettingsRegistry Registry { get; private set; }
@@ -87,10 +98,14 @@ namespace FarHorizon
         public bool IsOpen { get; private set; }
 
         private VisualElement _scrim;          // the full-screen scrim (the show/hide target — display:None)
-        private VisualElement _panel;          // the centered column (the transition target)
+        private VisualElement _panel;          // the corner-parked column (the transition target)
         private ScrollView _rows;
         private bool _built;
-        private bool _gateTracked;             // whether THIS panel currently holds the UiInputGate open
+        private bool _gateTracked;             // whether THIS panel currently holds the UiInputGate open (FOCUS-gate, AC3)
+        private int _focusedFields;            // how many typed-fields currently hold keyboard focus (AC3 ref-count)
+        private ConsoleCorner _corner;         // the persisted panel corner (AC4)
+        private SettingEntry _active;          // the focused/selected entry the nudge keys drive (AC6, one at a time)
+        private readonly List<RowHandle> _handles = new List<RowHandle>(); // per-row repaint + active-highlight (AC8/AC9/AC10)
 
         void Awake()
         {
@@ -125,33 +140,58 @@ namespace FarHorizon
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 
             BuildView();
-            SetOpen(false); // start hidden — Esc opens it
+            SetOpen(false); // start hidden — F1 (the dev-overlay master switch) opens it (AC1)
         }
 
         void Update()
         {
-            // Esc toggles (legacy Input — the project is activeInputHandler=0; unity-conventions.md §Input).
-            if (Input.GetKeyDown(toggleKey)) SetOpen(!IsOpen);
+            // AC1 — the console JOINS the F1 dev-overlay master layer (DebugOverlays.Visible, ticket 86cafd6d6),
+            // rather than polling its own F1 (which would double-toggle against DebugOverlayToggle). The single
+            // F1 the Sponsor already presses for the dev instruments now also opens/closes the console. Sync the
+            // panel's open state to the master flag each frame (cheap bool compare; only acts on a transition).
+            if (DebugOverlays.Visible != IsOpen) SetOpen(DebugOverlays.Visible);
+
+            // AC6 — NUDGE the focused/selected entry. Only while the console is open AND no typed-field holds
+            // keyboard focus (so the nudge keys don't fight a value being typed). PageUp/PageDown are the carried
+            // nudge-tool idiom — Danish-keyboard-safe + NOT a locomotion key (WASD/arrows/Shift/Space), so they
+            // act without stealing focus. Shift = 5x / Ctrl = 0.2x step (the exact WorldLookNudgeTool convention).
+            if (IsOpen && _focusedFields == 0 && _active != null)
+            {
+                int dir = 0;
+                if (Input.GetKeyDown(KeyCode.PageUp)) dir = 1;
+                else if (Input.GetKeyDown(KeyCode.PageDown)) dir = -1;
+                if (dir != 0) NudgeActive(dir);
+            }
         }
 
-        // Safety net: if the panel is disabled/destroyed while open, release the input gate so world input
-        // can never be left permanently swallowed (mirrors OrbitCamera's OnDisable cursor-restore guard).
+        // Safety net: if the panel is disabled/destroyed while a field still held focus, release the input gate
+        // so world input can never be left permanently swallowed (mirrors OrbitCamera's OnDisable guard). The
+        // gate is the FOCUS gate now (AC3) — the open panel itself no longer gates (AC2), only a focused field.
         void OnDisable()
         {
+            _focusedFields = 0;
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
         }
 
-        /// <summary>Open/close the panel. Hide via display:None (zero render cost — unity6-mastery §9), then
-        /// play the open transition on the now-laid-out panel.</summary>
+        /// <summary>Open/close the console (AC1/AC2). NON-MODAL: opening NO LONGER swallows world/locomotion
+        /// input (#83 was modal) and NEVER touches Time.timeScale — WASD/run/jump/orbit stay live so the
+        /// Sponsor tweaks WHILE he plays and sees the effect in real time. Hide via display:None (zero render
+        /// cost — unity6-mastery §9), then play the open transition on the now-laid-out panel.</summary>
         public void SetOpen(bool open)
         {
             IsOpen = open;
-            // Swallow world/locomotion input while open (research §E1 — Input.* bleeds through a UI panel).
-            UiInputGate.SetPanelOpen(open, ref _gateTracked);
+            // AC3 — when CLOSING, drop any focus-gate this panel held (a field can't keep gating once hidden).
+            if (!open && _focusedFields > 0)
+            {
+                _focusedFields = 0;
+                UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            }
             if (_scrim == null) return;
             _scrim.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
             if (open)
             {
+                // Park the panel in the persisted corner BEFORE the open transition (AC4 — off the player).
+                ConsolePosition.Apply(_scrim, _corner);
                 // Snappy slide-up + fade-in (the USS transition is on .settings-panel). Set the start state
                 // then the end state next layout so the transition plays.
                 if (_panel != null)
@@ -167,6 +207,61 @@ namespace FarHorizon
                 RefreshReadouts();
             }
         }
+
+        // AC6 — apply one nudge step to the active entry, scaled by Shift(5x)/Ctrl(0.2x). Drives the entry's
+        // single-write authority (so it applies live + persists + the badge updates), then repaints that row.
+        private void NudgeActive(int dir)
+        {
+            if (_active == null || !_active.Available) return;
+            float mul = NudgeStepMul();
+            switch (_active.Kind)
+            {
+                case SettingEntry.Archetype.Slider:
+                {
+                    var e = (FloatSettingEntry)_active;
+                    e.SetValue(e.Value + dir * SliderStep(e) * mul);
+                    break;
+                }
+                case SettingEntry.Archetype.Range:
+                {
+                    // Nudge MOVES THE WHOLE WINDOW (both ends by the step) — the most useful single-knob nudge
+                    // for a range; fine-tuning a single end stays the slider-drag affordance.
+                    var e = (RangeSettingEntry)_active;
+                    float step = RangeStep(e) * mul * dir;
+                    e.SetMin(e.MinValue + step);
+                    e.SetMax(e.MaxValue + step);
+                    break;
+                }
+                case SettingEntry.Archetype.Stepper:
+                {
+                    var e = (IntSettingEntry)_active;
+                    // Step modifiers scale the int step (Shift=5x, Ctrl=0.2x → at least 1).
+                    int s = Mathf.Max(1, Mathf.RoundToInt(e.Step * mul));
+                    e.SetValue(e.Value + dir * s);
+                    break;
+                }
+                case SettingEntry.Archetype.Toggle:
+                {
+                    // A bool nudges as 0/1: up → on, down → off (the generic numeric bridge).
+                    var e = (BoolSettingEntry)_active;
+                    e.SetFromNumeric(dir > 0 ? 1f : 0f);
+                    break;
+                }
+            }
+            RefreshRow(_active);
+        }
+
+        private static float NudgeStepMul()
+        {
+            if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) return 5f;
+            if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) return 0.2f;
+            return 1f;
+        }
+
+        // Per-archetype base nudge step: 1% of the dialable band (so a nudge is a sensible fine increment on
+        // any range, e.g. 0.11 u/s on the 1–12 walk band; Shift/Ctrl scale it). Range uses the wider span.
+        private static float SliderStep(FloatSettingEntry e) => Mathf.Max(0.01f, (e.Max - e.Min) * 0.01f);
+        private static float RangeStep(RangeSettingEntry e) => Mathf.Max(0.01f, (e.UpperLimit - e.LowerLimit) * 0.01f);
 
         // ---- View construction (built once; rows come from the registry, generically) -------------------
 
@@ -194,19 +289,54 @@ namespace FarHorizon
             _panel = root.Q<VisualElement>("settings-panel");
             _rows = root.Q<ScrollView>("settings-rows");
             var reset = root.Q<Button>("settings-reset");
+            // AC10 — reset-to-defaults END-TO-END: revert every live param, then FULLY repaint (readouts +
+            // typed fields + sliders re-render to the defaults AND the differs badge clears — RefreshReadouts
+            // now repaints all of those, not just the readout text).
             if (reset != null) reset.clicked += () => { Registry.ResetAll(); RefreshReadouts(); };
+
+            // AC4 — the corner POSITION PICKER, parked in the header (mouse-driven, Danish-safe). Cycles
+            // TL→TR→BL→BR; persists the chosen corner; re-parks the panel live.
+            _corner = ConsolePosition.Load();
+            BuildCornerPicker(root);
 
             BuildRows();
             _built = true;
         }
 
+        // AC4 — a small "⊞ TL" button in the header that cycles the panel corner, persists it, and re-parks
+        // the panel immediately. Added to the existing header so no UXML edit is needed (the extensible spirit).
+        private Button _cornerBtn;
+        private void BuildCornerPicker(VisualElement root)
+        {
+            var header = root.Q<VisualElement>("settings-header");
+            if (header == null) return;
+            _cornerBtn = new Button { name = "settings-corner" };
+            _cornerBtn.AddToClassList("settings-corner");
+            _cornerBtn.text = "⊞ " + ConsolePosition.ShortLabel(_corner);
+            _cornerBtn.clicked += CycleCorner;   // single source of truth (the verify-capture drives the same path)
+            header.Add(_cornerBtn);
+        }
+
+        /// <summary>AC4 — advance the console to the next corner (TL→TR→BL→BR), persist it, repaint the picker
+        /// label, and re-park the panel live. PUBLIC so the shipped-build capture exercises the SAME path the
+        /// header button uses (rather than synthesizing a UI Toolkit click). Idempotent w.r.t. a missing scrim.</summary>
+        public void CycleCorner()
+        {
+            _corner = ConsolePosition.Next(_corner);
+            ConsolePosition.Save(_corner);                       // persists across runs (AC4)
+            if (_cornerBtn != null) _cornerBtn.text = "⊞ " + ConsolePosition.ShortLabel(_corner);
+            ConsolePosition.Apply(_scrim, _corner);              // re-park live
+        }
+
         /// <summary>Build ONE row per registered entry, generically off its archetype (AC2). A new setting
-        /// in the registry shows up here with NO code change.</summary>
+        /// in the registry shows up here with NO code change — and (86cabeqj9) it gets the typed field (AC5),
+        /// nudge selection (AC6), baked-default readout (AC8) and differs badge (AC9) for free.</summary>
         private void BuildRows()
         {
             if (_rows == null || Registry == null) return;
             _rows.Clear();
-            _readouts.Clear();
+            _handles.Clear();
+            _active = null;
             foreach (var entry in Registry.Entries)
             {
                 VisualElement row = BuildRow(entry);
@@ -214,8 +344,15 @@ namespace FarHorizon
             }
         }
 
-        // Tracks the readout-refresh closures so a Reset / open can repaint every row's value text.
-        private readonly List<System.Action> _readouts = new List<System.Action>();
+        // Per-row repaint + active-highlight closures (86cabeqj9). Replaces #83's readout-only list so a Reset
+        // / tweak / open repaints the readout AND the typed field AND the differs badge AND the active outline.
+        private struct RowHandle
+        {
+            public SettingEntry Entry;
+            public VisualElement Row;
+            public System.Action Repaint;       // re-read live value → readout + typed field + badge
+            public System.Action ApplyActive;   // add/remove the active-selection outline class
+        }
 
         private VisualElement BuildRow(SettingEntry entry)
         {
@@ -227,18 +364,36 @@ namespace FarHorizon
             label.AddToClassList("setting-row__label");
             row.Add(label);
 
+            // The archetype control + the generic typed field; each returns its repaint closure.
+            System.Action repaintValue;
             switch (entry.Kind)
             {
                 case SettingEntry.Archetype.Slider:
-                    BuildSliderRow(row, (FloatSettingEntry)entry);
+                    repaintValue = BuildSliderRow(row, (FloatSettingEntry)entry);
                     break;
                 case SettingEntry.Archetype.Range:
-                    BuildRangeRow(row, (RangeSettingEntry)entry);
+                    repaintValue = BuildRangeRow(row, (RangeSettingEntry)entry);
                     break;
                 case SettingEntry.Archetype.Stepper:
-                    BuildStepperRow(row, (IntSettingEntry)entry);
+                    repaintValue = BuildStepperRow(row, (IntSettingEntry)entry);
+                    break;
+                case SettingEntry.Archetype.Toggle:
+                    repaintValue = BuildToggleRow(row, (BoolSettingEntry)entry);
+                    break;
+                default:
+                    repaintValue = () => { };
                     break;
             }
+
+            // AC8 — the baked DEFAULT, shown dim next to the current value ("def 5.5") so the Sponsor sees what
+            // he's diverged from at a glance. AC9 — a differs-from-default BADGE on any dialed-off-default row.
+            var def = new Label(DefaultText(entry));
+            def.AddToClassList("setting-row__default");
+            row.Add(def);
+            var badge = new Label("●");
+            badge.AddToClassList("setting-row__badge");
+            badge.tooltip = "differs from baked default";
+            row.Add(badge);
 
             if (!entry.Available)
             {
@@ -246,58 +401,104 @@ namespace FarHorizon
                 soon.AddToClassList("setting-row__soon");
                 row.Add(soon);
             }
+
+            // The combined repaint: value control + the differs badge visibility (AC9/AC10).
+            System.Action repaint = () =>
+            {
+                repaintValue();
+                badge.style.display = entry.DiffersFromDefault ? DisplayStyle.Flex : DisplayStyle.None;
+            };
+            repaint();
+
+            // AC6 — clicking a row selects it as the active entry the nudge keys drive (one at a time).
+            System.Action applyActive = () =>
+            {
+                if (ReferenceEquals(_active, entry)) row.AddToClassList("setting-row--active");
+                else row.RemoveFromClassList("setting-row--active");
+            };
+            applyActive();
+            if (entry.Available)
+                row.RegisterCallback<ClickEvent>(_ => SetActive(entry));
+
+            _handles.Add(new RowHandle { Entry = entry, Row = row, Repaint = repaint, ApplyActive = applyActive });
             return row;
         }
 
-        private void BuildSliderRow(VisualElement row, FloatSettingEntry e)
+        // AC6 — mark one entry as the nudge target; repaint the active outline across all rows.
+        private void SetActive(SettingEntry entry)
+        {
+            _active = entry;
+            for (int i = 0; i < _handles.Count; i++) _handles[i].ApplyActive?.Invoke();
+        }
+
+        // Each Build*Row returns a closure that re-reads the entry's LIVE value into its control + typed field
+        // (so RefreshReadouts after a nudge / Reset / entry-setter tweak repaints the row — AC10).
+
+        private System.Action BuildSliderRow(VisualElement row, FloatSettingEntry e)
         {
             row.AddToClassList("setting-row--slider");
             var slider = new Slider(e.Min, e.Max) { value = e.Value };
             slider.AddToClassList("setting-row__control");
             slider.SetEnabled(e.Available);
-            var readout = new Label();
-            readout.AddToClassList("setting-row__readout");
-            row.Add(slider);
-            row.Add(readout);
+            var field = MakeNumericField(e.Available);          // AC5 typed entry
+            var readout = new Label(); readout.AddToClassList("setting-row__readout");
+            row.Add(slider); row.Add(field); row.Add(readout);
 
-            System.Action refresh = () => readout.text = Fmt(e.Value, e.Unit);
-            refresh();
-            _readouts.Add(refresh);
+            System.Action refresh = () =>
+            {
+                slider.SetValueWithoutNotify(e.Value);
+                field.SetValueWithoutNotify(e.Value);
+                readout.text = Fmt(e.Value, e.Unit);
+            };
             slider.RegisterValueChangedCallback(evt =>
             {
-                float applied = e.SetValue(evt.newValue);  // drives the game immediately (AC2) + persists (AC5)
+                float applied = e.SetValue(evt.newValue);       // drives the game immediately (AC2) + persists (AC5)
+                if (e.Available) SetActive(e);
+                RefreshRow(e);
                 if (!Mathf.Approximately(applied, evt.newValue)) slider.SetValueWithoutNotify(applied);
-                readout.text = Fmt(applied, e.Unit);
             });
+            // AC5 — type a number + commit (Enter/blur): applies live + clamps to [Min,Max].
+            field.RegisterValueChangedCallback(evt => { e.SetValue(evt.newValue); RefreshRow(e); });
+            WireFieldFocus(field, e);
+            return refresh;
         }
 
-        private void BuildRangeRow(VisualElement row, RangeSettingEntry e)
+        private System.Action BuildRangeRow(VisualElement row, RangeSettingEntry e)
         {
             row.AddToClassList("setting-row--range");
             var range = new MinMaxSlider(e.MinValue, e.MaxValue, e.LowerLimit, e.UpperLimit);
             range.AddToClassList("setting-row__control");
             range.SetEnabled(e.Available);
+            // AC5 — TWO typed fields for a range (min + max); each commits its own end live + clamped.
+            var fieldMin = MakeNumericField(e.Available);
+            var fieldMax = MakeNumericField(e.Available);
             var readout = new Label();
             readout.AddToClassList("setting-row__readout");
             readout.AddToClassList("setting-row__readout--minmax");
-            row.Add(range);
-            row.Add(readout);
+            row.Add(range); row.Add(fieldMin); row.Add(fieldMax); row.Add(readout);
 
-            System.Action refresh = () => readout.text = Fmt(e.MinValue, e.Unit) + " – " + Fmt(e.MaxValue, e.Unit);
-            refresh();
-            _readouts.Add(refresh);
+            System.Action refresh = () =>
+            {
+                range.SetValueWithoutNotify(new Vector2(e.MinValue, e.MaxValue));
+                fieldMin.SetValueWithoutNotify(e.MinValue);
+                fieldMax.SetValueWithoutNotify(e.MaxValue);
+                readout.text = Fmt(e.MinValue, e.Unit) + " – " + Fmt(e.MaxValue, e.Unit);
+            };
             range.RegisterValueChangedCallback(evt =>
             {
-                // Apply both ends through the entry (AC4 clamp: min ≤ max, within hard limits). The entry's
-                // clamp may move an end; re-read for the readout + snap the control to the clamped value.
-                float min = e.SetMin(evt.newValue.x);
-                float max = e.SetMax(evt.newValue.y);
-                range.SetValueWithoutNotify(new Vector2(min, max));
-                readout.text = Fmt(min, e.Unit) + " – " + Fmt(max, e.Unit);
+                e.SetMin(evt.newValue.x);                       // AC4 clamp: min ≤ max within hard limits
+                e.SetMax(evt.newValue.y);
+                if (e.Available) SetActive(e);
+                RefreshRow(e);
             });
+            fieldMin.RegisterValueChangedCallback(evt => { e.SetMin(evt.newValue); RefreshRow(e); });
+            fieldMax.RegisterValueChangedCallback(evt => { e.SetMax(evt.newValue); RefreshRow(e); });
+            WireFieldFocus(fieldMin, e);
+            WireFieldFocus(fieldMax, e);
+            return refresh;
         }
 
-        private void BuildStepperRow(VisualElement row, IntSettingEntry e)
+        private System.Action BuildStepperRow(VisualElement row, IntSettingEntry e)
         {
             row.AddToClassList("setting-row--stepper");
             var control = new VisualElement { name = "stepper" };
@@ -312,24 +513,117 @@ namespace FarHorizon
             control.SetEnabled(e.Available);
             row.Add(control);
 
+            var field = MakeIntField(e.Available);              // AC5 typed entry (int)
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
-            row.Add(readout);
+            row.Add(field); row.Add(readout);
 
-            System.Action refresh = () => { value.text = e.Value.ToString(); readout.text = Fmt(e.Value, e.Unit); };
-            refresh();
-            _readouts.Add(refresh);
-            dec.clicked += () => { e.Decrement(); refresh(); };
-            inc.clicked += () => { e.Increment(); refresh(); };
+            System.Action refresh = () =>
+            {
+                value.text = e.Value.ToString();
+                field.SetValueWithoutNotify(e.Value);
+                readout.text = Fmt(e.Value, e.Unit);
+            };
+            dec.clicked += () => { e.Decrement(); if (e.Available) SetActive(e); RefreshRow(e); };
+            inc.clicked += () => { e.Increment(); if (e.Available) SetActive(e); RefreshRow(e); };
+            field.RegisterValueChangedCallback(evt => { e.SetValue(evt.newValue); RefreshRow(e); });
+            WireFieldFocus(field, e);
+            return refresh;
         }
 
-        /// <summary>Repaint every row's value text from its entry's CURRENT live value. Called on open + after
-        /// a Reset so the readouts always match the live params. PUBLIC so a harness that drives a tweak through
-        /// the entry setter directly (bypassing the slider callback, e.g. SettingsVerifyCapture) can force the
-        /// view to repaint the changed value before a capture — a real slider drag repaints via the slider's
-        /// RegisterValueChangedCallback; an entry-setter tweak must call this to get the same visible refresh.</summary>
+        // AC7 — the BOOL/Toggle archetype: an on/off switch. The typed field + nudge come from the generic
+        // numeric bridge (0/1) so it gets type/nudge for free like every other archetype.
+        private System.Action BuildToggleRow(VisualElement row, BoolSettingEntry e)
+        {
+            row.AddToClassList("setting-row--toggle");
+            var toggle = new Toggle { value = e.Value };
+            toggle.AddToClassList("setting-row__control");
+            toggle.SetEnabled(e.Available);
+            var readout = new Label(); readout.AddToClassList("setting-row__readout");
+            row.Add(toggle); row.Add(readout);
+
+            System.Action refresh = () =>
+            {
+                toggle.SetValueWithoutNotify(e.Value);
+                readout.text = e.Value ? "On" : "Off";
+            };
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                e.SetValue(evt.newValue);                       // drives the flag live (AC2) + persists (AC5)
+                if (e.Available) SetActive(e);
+                RefreshRow(e);
+            });
+            return refresh;
+        }
+
+        // AC5 — a numeric typed field bound to a float value. Narrow, sits right of the control; commits on
+        // Enter/blur (FloatField's default). The value-changed callback (wired by the caller) applies + clamps.
+        private FloatField MakeNumericField(bool enabled)
+        {
+            var f = new FloatField { isDelayed = true };        // isDelayed → commit on Enter/blur, not per keystroke
+            f.AddToClassList("setting-row__field");
+            f.SetEnabled(enabled);
+            return f;
+        }
+
+        private IntegerField MakeIntField(bool enabled)
+        {
+            var f = new IntegerField { isDelayed = true };
+            f.AddToClassList("setting-row__field");
+            f.SetEnabled(enabled);
+            return f;
+        }
+
+        // AC3 — INPUT-FOCUS gate: swallow world/locomotion input ONLY while a typed-field holds keyboard focus
+        // (so a number typed in isn't ALSO read as movement). Ref-counted so multiple fields (e.g. a range's
+        // min+max) compose; the gate releases when the last field blurs. The console itself does NOT gate while
+        // merely open (AC2) — only a focused field does.
+        private void WireFieldFocus(VisualElement field, SettingEntry entry)
+        {
+            field.RegisterCallback<FocusInEvent>(_ =>
+            {
+                if (entry.Available) SetActive(entry);          // typing into a field also makes it the nudge target
+                _focusedFields++;
+                if (_focusedFields == 1) UiInputGate.SetPanelOpen(true, ref _gateTracked);
+            });
+            field.RegisterCallback<FocusOutEvent>(_ =>
+            {
+                _focusedFields = Mathf.Max(0, _focusedFields - 1);
+                if (_focusedFields == 0) UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            });
+        }
+
+        /// <summary>Repaint EVERY row from its entry's CURRENT live value — readouts, sliders, typed fields,
+        /// AND the differs-from-default badge (AC9/AC10). Called on open + after a Reset (so the UI fully
+        /// reverts) + after a nudge/typed tweak. PUBLIC so a harness driving a tweak through the entry setter
+        /// directly (e.g. SettingsVerifyCapture) forces the same visible refresh a real drag gets.</summary>
         public void RefreshReadouts()
         {
-            for (int i = 0; i < _readouts.Count; i++) _readouts[i]?.Invoke();
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                _handles[i].Repaint?.Invoke();
+                _handles[i].ApplyActive?.Invoke();
+            }
+        }
+
+        // Repaint a single row (after a nudge / typed commit / slider drag on that entry) — cheaper than the
+        // whole-panel RefreshReadouts and keeps the badge in sync with the value just applied.
+        private void RefreshRow(SettingEntry entry)
+        {
+            for (int i = 0; i < _handles.Count; i++)
+                if (ReferenceEquals(_handles[i].Entry, entry)) { _handles[i].Repaint?.Invoke(); _handles[i].ApplyActive?.Invoke(); return; }
+        }
+
+        // AC8 — the baked-default text shown dim on each row ("def 5.5", "def 6 – 26", "def On").
+        private static string DefaultText(SettingEntry entry)
+        {
+            switch (entry)
+            {
+                case FloatSettingEntry f: return "def " + Fmt(f.Default, f.Unit);
+                case IntSettingEntry i:   return "def " + Fmt(i.Default, i.Unit);
+                case RangeSettingEntry r: return "def " + Fmt(r.DefaultMin, r.Unit) + " – " + Fmt(r.DefaultMax, r.Unit);
+                case BoolSettingEntry b:  return "def " + (b.Default ? "On" : "Off");
+                default: return "";
+            }
         }
 
         private static string Fmt(float v, string unit)

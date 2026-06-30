@@ -48,7 +48,22 @@
     color: var(--ink-cream);
     font-size: 20px;
     -unity-font-style: bold;
+    flex-grow: 1;                /* pushes the corner picker to the header's right edge */
 }
+
+/* AC4 — corner POSITION picker: a chunky little walnut chip in the header ("⊞ TL"), mouse-driven */
+.settings-corner {
+    color: var(--ink-cream);
+    background-color: var(--slot-empty);
+    border-width: 1px;
+    border-color: var(--panel-edge);
+    border-radius: 6px;
+    font-size: 12px;
+    -unity-font-style: bold;
+    padding: 3px 8px;
+    flex-shrink: 0;
+}
+.settings-corner:hover { background-color: var(--slot-hover); }
 
 /* scrollable single column of rows */
 .settings-panel__rows {
@@ -145,3 +160,60 @@
 
 /* clamp-hit flash (AC4): a range thumb briefly flashes coal-red when it hits a hard limit / its partner */
 .setting-row__thumb--clamp .unity-base-slider__dragger { background-color: var(--accent-deny); }
+
+/* ===== 86cabeqj9 dev-console foundation: typed field (AC5), baked default (AC8), differs badge (AC9),
+        active-selection outline (AC6), bool toggle (AC7) ===== */
+
+/* AC5 — typed-value field beside the control. Narrow, recessed well, cream ink. A range row has two. */
+.setting-row__field {
+    width: 56px;
+    flex-shrink: 0;
+    margin-left: 6px;
+}
+.setting-row__field .unity-base-text-field__input {
+    background-color: var(--slot-empty);
+    border-color: var(--panel-edge);
+    border-width: 1px;
+    border-radius: 4px;
+    color: var(--ink-cream);
+    font-size: 12px;
+    -unity-text-align: middle-right;
+}
+
+/* AC8 — the baked default, shown dim next to the live value so the Sponsor sees what he diverged from */
+.setting-row__default {
+    color: var(--ink-dim);
+    font-size: 11px;
+    -unity-text-align: middle-right;
+    width: 96px;
+    flex-shrink: 0;
+    margin-left: 6px;
+}
+
+/* AC9 — differs-from-baked-default badge: a small leaf-green dot. Hidden (display:None) when unchanged. */
+.setting-row__badge {
+    color: var(--accent-leaf);
+    font-size: 14px;
+    -unity-font-style: bold;
+    width: 16px;
+    flex-shrink: 0;
+    -unity-text-align: middle-center;
+    display: none;
+}
+
+/* AC6 — the focused/selected entry the nudge keys drive: an ember-gold left border so one row stands out */
+.setting-row--active {
+    border-left-width: 3px;
+    border-left-color: var(--slot-selected);
+    background-color: var(--slot-hover);
+}
+
+/* AC7 — bool/toggle row: the on/off switch reuses the slot palette (cream checkmark on a recessed well) */
+.setting-row--toggle .unity-toggle__checkmark {
+    background-color: var(--slot-empty);
+    border-color: var(--panel-edge);
+    border-width: 1px;
+    border-radius: 4px;
+    width: 20px; height: 20px;
+}
+.setting-row--toggle .unity-toggle:checked .unity-toggle__checkmark { background-color: var(--accent-leaf); }

@@ -15,14 +15,18 @@ namespace FarHorizon
     /// this drives the panel + registry programmatically (the SAME SetOpen / SettingEntry.SetValue paths a
     /// real interaction drives) and proves, from GROUND TRUTH, that the live param actually changed.
     ///
-    /// CAPTURES three frames, then quits:
+    /// CAPTURES four frames, then quits:
     ///   settings_closed.png — the gameplay frame BEFORE opening (the world, panel hidden).
-    ///   settings_open.png   — the panel OPEN over the dimmed world (AC1 — it renders, on-tone).
-    ///   settings_tweaked.png— the panel open AFTER driving the walk-speed slider to its max (AC2 — the row
-    ///                         readout reflects the new value; the live WasdMovement.moveSpeed changed).
+    ///   settings_open.png   — the console OPEN, parked in a CORNER off the player (86cabeqj9 AC1/AC4).
+    ///   settings_tweaked.png— the console open AFTER driving the walk-speed slider to its max — the row
+    ///                         readout reflects the new value, the live WasdMovement.moveSpeed changed
+    ///                         (AC2), AND the differs-from-default badge shows on the dialed row (AC9).
+    ///   settings_reset.png  — the console open AFTER reset-to-defaults: the live params reverted, the
+    ///                         readouts/fields re-rendered to the defaults, the differs badge cleared (AC10).
     /// and LOGS the live-effect proof: the walk-speed param BEFORE vs AFTER the tweak (must differ), the
-    /// zoom-range MIN/MAX clamping OrbitCamera.minDistance/maxDistance (AC4), and the registered entry count
-    /// + archetypes (the extensible registry materialized in the shipped build).
+    /// zoom-range MIN/MAX clamping OrbitCamera.minDistance/maxDistance, the differs-from-default flag flipping
+    /// on tweak + clearing on reset (AC9/AC10), and the registered entry count + archetypes (the extensible
+    /// registry materialized in the shipped build).
     ///
     /// Inert unless launched with -verifySettings (so the normal game / boot capture is unaffected).
     ///   FarHorizon.exe -screen-fullscreen 0 -verifySettings -captureDir &lt;dir&gt;
@@ -62,13 +66,21 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
 
-            // 2. OPEN — the panel renders over the dimmed world (AC1).
+            // 2. OPEN — the console renders over the dimmed world (AC1), parked in a CORNER off the player.
+            //    AC4: cycle the corner once via the picker so the captured open frame proves the panel is NOT
+            //    screen-centered (the #83 default that covered the player) — it sits in a corner now.
             panel.SetOpen(true);
             for (int i = 0; i < 8; i++) yield return null; // let the open transition play
+            CycleCornerOnce(panel);                        // AC4 — reposition off the player
+            for (int i = 0; i < 5; i++) yield return null; // let the re-park lay out
             var reg = panel.Registry;
             int count = reg != null ? reg.Count : 0;
-            Debug.Log($"[SettingsVerifyCapture] panel OPEN — registry has {count} settings; " +
-                      $"worldInputGated={UiInputGate.CaptureWorldInput} (locomotion/orbit swallowed while open).");
+            // AC2/AC3: the OPEN console alone must NOT gate world input (it is non-modal); only a focused typed
+            // field gates. No field is focused here, so the gate must read FALSE — the live-tweak-while-playing
+            // contract. (A #83-modal panel would log True here.)
+            Debug.Log($"[SettingsVerifyCapture] console OPEN (non-modal) — registry has {count} settings; " +
+                      $"worldInputGated={UiInputGate.CaptureWorldInput} (AC2/AC3: must be False — open alone " +
+                      $"does NOT swallow locomotion/orbit; only a focused field does).");
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
@@ -112,6 +124,12 @@ namespace FarHorizon
                     Debug.Log($"[SettingsVerifyCapture] ZOOM range: setMax={Fmt(setMax)} -> orbit.maxDistance=" +
                               $"{Fmt(orbit.maxDistance)} (live system clamps to the range, AC4)");
                 }
+
+                // AC9 — the dialed-off-default rows now report DiffersFromDefault=true (the badge shows). Log
+                // ground truth so the gate proves the badge state, not just the live value.
+                if (walk != null)
+                    Debug.Log($"[SettingsVerifyCapture] DIFFERS-FROM-DEFAULT after tweak: walk={walk.DiffersFromDefault}" +
+                              (zoom != null ? $" zoom={zoom.DiffersFromDefault}" : "") + " (AC9 — must be True; the badge shows)");
             }
             finally
             {
@@ -138,8 +156,52 @@ namespace FarHorizon
             yield return null;
             yield return new WaitForSeconds(0.5f);
 
+            // 4. RESET-TO-DEFAULTS END-TO-END (86cabeqj9 AC10). The footer button calls Registry.ResetAll()
+            //    then RefreshReadouts(); do exactly that here and prove FROM GROUND TRUTH that the live param
+            //    reverted, the readouts/fields re-rendered to the defaults, AND the differs badge cleared.
+            //    ResetAll writes the default VALUES back through the entry setters → re-dirties the SAME
+            //    PlayerPrefs keys the finally above restored, so re-restore the snapshot after (no soak pollution).
+            try
+            {
+                if (reg != null) reg.ResetAll();   // reverts every live param to its registration-time default
+                float walkAfterReset = wasd != null ? wasd.moveSpeed : float.NaN;
+                Debug.Log($"[SettingsVerifyCapture] RESET-TO-DEFAULTS: walk liveAfterReset={Fmt(walkAfterReset)} " +
+                          (walk != null ? $"revertedToDefault={Mathf.Approximately(walkAfterReset, walk.Default)} " : "") +
+                          (walk != null ? $"walkDiffers={walk.DiffersFromDefault}" : "") +
+                          (zoom != null ? $" zoomDiffers={zoom.DiffersFromDefault}" : "") +
+                          " (AC10 — live reverted + differs flags must be False)");
+            }
+            finally
+            {
+                RestorePrefs(prefsSnapshot); // ResetAll re-wrote the keys → leave them as this run found them
+            }
+
+            panel.RefreshReadouts();           // re-render readouts/fields to the defaults + clear the badges (AC10)
+            for (int i = 0; i < 5; i++) yield return null;
+            ShotTo(Path.Combine(dir, "settings_reset.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+            yield return new WaitForSeconds(0.5f);
+
             Debug.Log("[SettingsVerifyCapture] verification complete (PlayerPrefs restored) -> " + dir);
             Application.Quit();
+        }
+
+        // AC4 — cycle the console corner once via the SAME public path the picker button uses (cycle + persist
+        // + re-park), so the captured open frame proves the panel sits in a corner OFF the player, not screen-
+        // center. The persisted-corner key is restored to its prior state afterward so a soak isn't left in a
+        // surprise corner (PlayerPrefs-hygiene, like the value-snapshot/restore above).
+        private void CycleCornerOnce(SettingsPanel panel)
+        {
+            if (panel == null) return;
+            bool hadCorner = PlayerPrefs.HasKey(ConsolePosition.PrefsKey);
+            int priorCorner = hadCorner ? PlayerPrefs.GetInt(ConsolePosition.PrefsKey) : 0;
+
+            panel.CycleCorner();   // the real AC4 path: next corner, persist, re-park live
+
+            if (hadCorner) PlayerPrefs.SetInt(ConsolePosition.PrefsKey, priorCorner);
+            else PlayerPrefs.DeleteKey(ConsolePosition.PrefsKey);
+            PlayerPrefs.Save();
         }
 
         private static string Fmt(float v) => float.IsNaN(v) ? "N/A" : v.ToString("F2");

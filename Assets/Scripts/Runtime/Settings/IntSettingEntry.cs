@@ -79,6 +79,10 @@ namespace FarHorizon.Settings
             SetValue(_default);
         }
 
+        /// <summary>True when the live int has been dialed off its registration-time default (AC9 badge).
+        /// An unavailable hook never drives a param, so it can never differ (no false badge on a greyed row).</summary>
+        public override bool DiffersFromDefault => Available && Value != _default;
+
         private int ClampValue(int v) => Mathf.Clamp(v, Min, Max);
     }
 }
