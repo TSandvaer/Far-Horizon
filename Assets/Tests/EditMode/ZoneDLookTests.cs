@@ -182,10 +182,11 @@ namespace FarHorizon.EditTests
         [Test]
         public void Skybox_SunDisk_WarmGoldDefaultsSet()
         {
-            // SUN-DISK POC (ticket 86cabc743 — Erik low-poly-sky research). The GradientSkybox material must
-            // carry the three sun-disk properties with the warm-gold soak defaults (QualityPassGen sets them).
+            // SUN-DISK POC (ticket 86cabc743 — Erik low-poly-sky research) + the SPONSOR-ACCEPTED bake (soak
+            // 55bde02, ticket 86cag25az): the GradientSkybox material must carry the three sun-disk properties
+            // with the Sponsor-accepted soft-warm-white hue + biggest-in-range size (QualityPassGen sets them).
             // Guard the COMMITTED material the exe ships (RenderSettings.skybox is the serialized scene value),
-            // not a runtime tautology — a future change that drops the sun params fails here before shipping.
+            // not a runtime tautology — a future change that drops/alters the sun params fails here before shipping.
             var sky = RenderSettings.skybox;
             Assert.IsNotNull(sky, "a skybox material must be assigned");
             // Only meaningful when the custom gradient shader resolved (the fallback Skybox/Procedural path
@@ -199,20 +200,28 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(sky.HasProperty("_SunHardness"), "the sky material must expose _SunHardness");
 
             Color sun = sky.GetColor("_SunColor");
-            Assert.Greater(sun.r, sun.b,
-                "the sun disk must be WARM-GOLD (R > B) — a cold/white sun is a style mismatch with the " +
-                "warm Zone-D sky (ticket 86cabc743 warm-gold default)");
-            Assert.AreEqual(QualityPassGen_SunColor.r, sun.r, 0.01f, "sun R must match the QualityPassGen warm-gold default");
+            Assert.GreaterOrEqual(sun.r, sun.b,
+                "the sun disk must be WARM (R >= B) — a cold/blue sun is a style mismatch with the warm Zone-D " +
+                "sky. The Sponsor-accepted hue is a soft warm WHITE (0.98,0.86,0.86): R is the top channel (>= B, " +
+                "both above G) — warm, just not the prior saturated amber-gold (ticket 86cag25az)");
+            Assert.AreEqual(QualityPassGen_SunColor.r, sun.r, 0.01f, "sun R must match the QualityPassGen Sponsor-accepted default");
+            Assert.AreEqual(QualityPassGen_SunColor.g, sun.g, 0.01f, "sun G must match the QualityPassGen Sponsor-accepted default");
+            Assert.AreEqual(QualityPassGen_SunColor.b, sun.b, 0.01f, "sun B must match the QualityPassGen Sponsor-accepted default");
             Assert.Greater(sky.GetFloat("_SunHardness"), 1f,
                 "_SunHardness must be a crisp-disk exponent (>1), not flattened to a sky-wide glow");
             float size = sky.GetFloat("_SunSize");
-            Assert.Greater(size, 0.9f,
-                "_SunSize must keep the disk SMALL (>0.9 in dot space — a toy-like sun, not a sky-filling glare)");
+            // The shader's _SunSize range is [0.95, 0.9999] (LOWER = BIGGER disk). The Sponsor accepted 0.95 —
+            // the biggest disk in-range. Guard the exact accepted value (the disk must not shrink toward a
+            // pinpoint near 1.0, nor drift out of the shader's lower bound).
+            Assert.AreEqual(QualityPassGen_SunSize, size, 0.001f,
+                "_SunSize must match the Sponsor-accepted 0.95 (the biggest disk in the shader's [0.95,0.9999] range)");
         }
 
-        // Forwarded constant so this test asset (PlayTests/EditTests asmdef) reads the same warm-gold default
-        // QualityPassGen ships, without depending on the editor-only QualityPassGen type directly.
-        private static readonly Color QualityPassGen_SunColor = new Color(1.0f, 0.74f, 0.34f, 1f);
+        // Forwarded constants so this test asset (PlayTests/EditTests asmdef) reads the same Sponsor-accepted
+        // defaults QualityPassGen ships, without depending on the editor-only QualityPassGen type directly.
+        // (soak 55bde02, ticket 86cag25az — soft warm white hue + biggest-in-range size.)
+        private static readonly Color QualityPassGen_SunColor = new Color(0.98f, 0.86f, 0.86f, 1f);
+        private const float QualityPassGen_SunSize = 0.95f;
 
         [Test]
         public void SkyVerifyCapture_WiredIntoBootScene()
