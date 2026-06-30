@@ -155,11 +155,23 @@ namespace FarHorizon
                 }
             }
             if (lastShot < 0f) ShotTo(Path.Combine(dir, "sneak_mid.png")); // defensive: ensure the sneak frame exists
+            // SMOOTHNESS verdict RELATIVE to the walk baseline measured in the SAME run (86caa3kur re-soak attempt 2).
+            // The absolute IsSmooth threshold (CoV<0.35) is too loose — it logged SMOOTH=YES on the pre-fix sneak
+            // (CoV=0.086) the Sponsor still FELT, while the walk baseline was CoV=0.004. The honest bar is the WALK:
+            // a smooth sneak's step CoV should be within a small multiple of the walk's CoV (both are constant-speed
+            // grounded moves on the same agent/path; only the speed differs). Report the ratio so the agent.Move fix
+            // is judged against the run's own butter-smooth baseline, not a fixed loose number.
+            float walkCov = walkStats.Cov;
+            float sneakCov = sneakStats.Cov;
+            float covRatio = walkCov > 1e-6f ? sneakCov / walkCov : float.NaN;
+            bool smoothVsWalk = covRatio <= 4f || sneakCov < 0.02f; // within 4x the walk baseline (or already tiny)
             Debug.Log($"[SneakVerifyCapture] SNEAK {sneakStats.Describe("sneak")} " +
                       $"IsCrouching={Crouching()} avatarCrouch={(castaway != null && castaway.IsCrouching)} " +
                       $"commandedSpeed={Fmt(player != null ? player.CurrentSpeed : float.NaN)}u/s " +
                       $"footSync={(castaway != null ? castaway.footSync.ToString() : "N/A")} noFootSyncArg={noFootSync} " +
-                      $"SMOOTH={(sneakStats.IsSmooth ? "YES (low step variance)" : "NO — STUTTER (high step variance)")}");
+                      $"walkCoV={walkCov:F3} sneakCoV={sneakCov:F3} sneakVsWalkCoVx={Fmt(covRatio)} " +
+                      $"SMOOTH-ABS={(sneakStats.IsSmooth ? "YES" : "NO")} " +
+                      $"SMOOTH-vs-WALK={(smoothVsWalk ? "YES (sneak step variance near the walk baseline)" : "NO — STUTTER (sneak step variance far above the walk baseline)")}");
             // THE LOOP-HITCH VERDICT — name which candidate the live Animator trace points at (the discriminator).
             Debug.Log("[SneakVerifyCapture] ANIM-LOOP " + animTrace.Describe());
 
@@ -297,18 +309,31 @@ namespace FarHorizon
             }
 
             // The named verdict — which candidate the trace points at (the discriminator the dispatch asked for).
+            // 86caa3kur re-soak attempt 2 — FALSE-POSITIVE FIX: the FIRST capture's verdict mis-fired CANDIDATE #3
+            // because the sneak hold ALWAYS opens with exactly ONE legitimate startup transition (the standing
+            // Idle/Breathing state -> CrouchWalk when Ctrl is first pressed), which registers as distinctHashChanges=1
+            // + normTimeResets=1. That single ENTRY is NOT a per-cycle re-entry. A genuine #3 flap shows REPEATED
+            // re-entry: >1 hash change or >1 normTime reset across the steady hold (the clip restarting each "two-step"
+            // cycle). So the re-entry test now requires MORE THAN ONE (the startup transition is expected + excluded).
+            // The raw trace (run 28432489421) confirmed: distinctStateChanges=1, normTimeResets=1, effSpeed const 1.0,
+            // monotonic normTime with clean wraps => NONE of the three ANIMATION candidates; the real hitch was the
+            // NavMeshAgent-owned ROOT-XZ TRANSLATION at slow speed (see WasdMovement grounded agent.Move fix + the
+            // SNEAK-vs-WALK step CoV in the SNEAK line above — the motion metric, not this anim discriminator, is the
+            // ground truth for a "lags between steps" report once the clip trace is clean).
             public string Verdict()
             {
                 if (_n < 4) return "INCONCLUSIVE (too few samples)";
-                bool reentry = _distinctHashChanges > 0 || _normTimeResets > 0 || _inTransitionFrames > _n / 4;
+                // Exclude the ONE expected startup Idle->CrouchWalk entry: a real per-cycle re-entry flaps REPEATEDLY.
+                bool reentry = _distinctHashChanges > 1 || _normTimeResets > 1 || _inTransitionFrames > _n / 4;
                 bool footSyncStall = _minEffSpeed != float.MaxValue && _minEffSpeed < 0.2f;
                 if (footSyncStall)
                     return "CANDIDATE #2 (FOOT-SYNC STALL) — effSpeed drove near-zero during the sneak";
                 if (reentry)
-                    return "CANDIDATE #3 (STATE RE-ENTRY) — the crouch state re-entered/transitioned each cycle " +
-                           "(hash-changes/normTime-resets/in-transition) → the AnyState→CrouchWalk flap restarts the clip";
-                return "CANDIDATE #1 (CLIP LOOP-SEAM) — state steady, normTime advanced + wrapped cleanly, effSpeed≈1 " +
-                       "→ no re-entry/stall; any per-cycle pop is the Sneak Walk.fbx loop SEAM (confirm vs frames)";
+                    return "CANDIDATE #3 (STATE RE-ENTRY) — the crouch state re-entered/transitioned REPEATEDLY " +
+                           "(>1 hash-change/normTime-reset, or sustained in-transition) → AnyState->CrouchWalk flap restarts the clip";
+                return "ANIMATION CLEAN (state steady after the single startup entry, normTime advanced + wrapped " +
+                       "cleanly, effSpeed≈1) — no clip-seam/foot-sync/re-entry. A 'lags between steps' report with a " +
+                       "clean clip is a MOTION (root-XZ translation) hitch — judge the SNEAK-vs-WALK step CoV, not this line.";
             }
 
             public string Describe(string label = "sneak") =>

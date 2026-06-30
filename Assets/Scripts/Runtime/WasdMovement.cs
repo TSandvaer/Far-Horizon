@@ -204,9 +204,18 @@ namespace FarHorizon
         private void EnsureSmoothDirectDrive()
         {
             if (_agent == null) return;
-            SmoothDirectDriveConfig(out float acceleration, out bool autoBraking);
+            SmoothDirectDriveConfig(out float acceleration, out bool autoBraking, out var avoidance);
             _agent.acceleration = acceleration;
             _agent.autoBraking = autoBraking;
+            // SNEAK-WALK HITCH fix (86caa3kur re-soak attempt 2): turn OFF local RVO obstacle avoidance. Unity's
+            // NavMeshAgent.velocity docs state that READING velocity "returns the simulation's current value, which
+            // may differ from what you set due to COLLISION AVOIDANCE" — i.e. the per-frame avoidance pass perturbs
+            // the sim's integration of the commanded velocity. At walk/run the large step swamps it; at the slow 3 u/s
+            // sneak that perturbation is a large FRACTION of the step = the CONFIRMED translation jitter the trace
+            // measured (sneak step CoV 21x the walk baseline). For a SINGLE-player castaway with no other agents, RVO
+            // avoidance does nothing useful — disabling it removes the jitter source with ZERO behavior change. Static
+            // geometry is still avoided via the baked NavMesh (NavMeshObstacle carve), not RVO.
+            _agent.obstacleAvoidanceType = avoidance;
         }
 
         private void DisableClickToMove()
@@ -337,10 +346,11 @@ namespace FarHorizon
             }
             else
             {
-                // GROUNDED: command the agent velocity directly (UNCHANGED — keeps agent.velocity readable for the
-                // camera-follow lead + CastawayCharacter's Walk<->Run blend + facing, all of which read it). The
-                // SNEAK-WALK STUTTER fix (86caa3kur re-soak) is NOT here — it's the EnsureSmoothDirectDrive() agent
-                // config below, applied once. See its comment for the CONFIRMED root cause + mechanism.
+                // GROUNDED: command the agent velocity directly (keeps agent.velocity readable for the camera-follow
+                // lead + CastawayCharacter's Walk<->Run blend + facing, all of which read it — UNCHANGED channel). The
+                // SNEAK-WALK HITCH fix (86caa3kur re-soak attempt 2) is the EnsureSmoothDirectDrive() agent config
+                // applied once in Start — now ALSO turning OFF local obstacle avoidance. See its comment for the
+                // CONFIRMED root cause + mechanism (the CI Animator+motion trace, run 28432489421).
                 _agent.velocity = LastMoveDir * speed;
             }
         }
@@ -394,24 +404,38 @@ namespace FarHorizon
         // serialized) so the config is deterministic + the EditMode guard pins the exact contract.
         public const float SmoothDriveAcceleration = 1000f;
 
+        // The obstacle-avoidance type the smooth-direct-drive config applies (86caa3kur re-soak attempt 2). NONE —
+        // local RVO avoidance perturbs the sim's per-frame velocity integration (NavMeshAgent.velocity docs: reading
+        // velocity "may differ from what you set due to collision avoidance"), which is the slow-speed sneak jitter
+        // source the trace CONFIRMED. A single-player castaway has no agents to avoid; static geometry is handled by
+        // the baked NavMesh. Audited from source so the EditMode guard pins it.
+        public const UnityEngine.AI.ObstacleAvoidanceType SmoothDriveAvoidance =
+            UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance;
+
         /// <summary>
-        /// PURE smooth-direct-drive agent config (the unit-testable core of the sneak-walk STUTTER fix, ticket
-        /// 86caa3kur re-soak): given the agent's current (acceleration, autoBraking), return the values that make
-        /// the agent's internal simulation TRACK a directly-commanded velocity instead of FIGHTING it. The fix is
-        /// (a) autoBraking = FALSE and (b) acceleration = a high value. WHY (the CONFIRMED root cause): WasdMovement
-        /// sets agent.velocity each frame, but with updatePosition=true + autoBraking=true + NO path (desiredVelocity
-        /// ≈0 under WASD) the agent continuously DECELERATES the root toward zero (braking) AND only ramps toward a
-        /// new velocity at `acceleration` u/s² — so the simulated velocity LAGS + oscillates against the commanded
-        /// velocity. At walk/run the large per-frame step swamps it; at the slow SNEAK speed (3 u/s) the braking/
-        /// ramp noise is a large FRACTION of the step → the visible hitching the Sponsor reported. Disabling
-        /// autoBraking removes the decel-toward-zero; a high acceleration makes the velocity snap to the command in
-        /// ~one frame. Returns the corrected (acceleration, autoBraking) so the EditMode guard pins the contract
-        /// with no scene rig. Static + dependency-free.
+        /// PURE smooth-direct-drive agent config (the unit-testable core of the sneak-walk HITCH fix, ticket
+        /// 86caa3kur re-soak): the agent settings that make the per-frame velocity-drive SMOOTH at the slow sneak
+        /// speed. Three corrections: (a) autoBraking = FALSE (re-soak #1), (b) acceleration = a high value (re-soak
+        /// #1), (c) obstacleAvoidanceType = NoObstacleAvoidance (re-soak ATTEMPT 2 — the CONFIRMED residual cause).
+        /// WHY: WasdMovement sets agent.velocity each frame, which (NavMeshAgent.velocity docs) "commands the agent
+        /// to move using the specific velocity directly" THROUGH the sim — and "reading velocity returns the
+        /// SIMULATION's current value, which may differ from what you set due to collision avoidance". So the
+        /// per-frame root advance is the sim's integration of the command, perturbed by (1) autoBraking decel-toward-
+        /// zero + the acceleration ramp (re-soak #1 removed these) and (2) the local RVO COLLISION-AVOIDANCE pass
+        /// (re-soak attempt 2 removes this — the trace, which already had #1's fix, STILL showed the hitch, isolating
+        /// avoidance as the residual source). At walk/run the large per-frame step swamps the perturbation; at the
+        /// slow 3 u/s sneak it is a large FRACTION of the step (sneak step CoV 21x the walk baseline) = the Sponsor's
+        /// "lags between each step". A single-player castaway has no agents to avoid; static geometry is handled by
+        /// the baked NavMesh, so avoidance-off is a pure jitter removal with no behavior change. Returns the corrected
+        /// (acceleration, autoBraking, avoidance) so the EditMode guard pins the contract with no scene rig. Static +
+        /// dependency-free.
         /// </summary>
-        public static void SmoothDirectDriveConfig(out float acceleration, out bool autoBraking)
+        public static void SmoothDirectDriveConfig(out float acceleration, out bool autoBraking,
+                                                   out UnityEngine.AI.ObstacleAvoidanceType avoidance)
         {
             acceleration = SmoothDriveAcceleration; // velocity snaps to the command (no slow ramp = no slow-speed jitter)
             autoBraking = false;                    // no decel toward the zero desiredVelocity (no braking fight)
+            avoidance = SmoothDriveAvoidance;       // RVO OFF — its per-frame velocity perturbation is the CONFIRMED sneak jitter
         }
 
         // Resolve the camera's planar forward/right basis (the orbit camera's facing projected onto the

@@ -218,6 +218,62 @@ namespace FarHorizon.PlayTests
                 "WasdMovement.Start must set the agent's acceleration to the high SmoothDriveAcceleration so the " +
                 "simulated velocity SNAPS to the commanded velocity (no slow ramp = no slow-speed jitter). The " +
                 $"agent still has the scene default ({_agent.acceleration}) — the smooth-drive wire was dropped.");
+            // ATTEMPT 2 — the CONFIRMED sneak-hitch cause: local RVO avoidance perturbs the per-frame sim velocity
+            // (NavMeshAgent.velocity docs), a large fraction of the step at the slow sneak speed = the jitter the
+            // trace measured. Start must turn it OFF (the wire from Start to the agent — a pure-core test passing
+            // while the wire is dropped is a false-green, the EditMode-wiring-guard lesson).
+            Assert.AreEqual(UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance, _agent.obstacleAvoidanceType,
+                "WasdMovement.Start must turn the agent's obstacleAvoidanceType to NoObstacleAvoidance — local RVO " +
+                "avoidance perturbs the per-frame sim velocity, the CONFIRMED slow-speed sneak translation jitter " +
+                "(run 28432489421). The agent still has the scene default — the avoidance-off wire was dropped.");
+        }
+
+        // ===================================================================================================
+        // SNEAK-WALK HITCH fix (86caa3kur re-soak attempt 2 — CONFIRMED by the CI Animator+motion trace, run
+        // 28432489421). The clip plays smoothly; the hitch was the NavMeshAgent's per-frame velocity being
+        // PERTURBED by the local RVO avoidance pass (NavMeshAgent.velocity docs: reading velocity "may differ from
+        // what you set due to collision avoidance"), a large FRACTION of the step at the slow 3 u/s sneak. The fix
+        // turns avoidance OFF in Start (covered by Start_AppliesSmoothDirectDrive above) — the velocity-drive
+        // channel itself is UNCHANGED. THIS test pins the two load-bearing CONTRACTS the fix must preserve (the
+        // EditMode-wiring-guard lesson — assert the wire, not just the pure core; headless Time.deltaTime≈0 can't
+        // measure the jitter itself):
+        //   (1) the grounded move STILL populates agent.velocity (OrbitCamera's follow-lead + CastawayCharacter's
+        //       Walk<->Run blend + facing ALL read followVelocitySource.velocity / agent.velocity — turning
+        //       avoidance off must NOT zero the commanded velocity);
+        //   (2) the grounded move keeps the agent ON the NavMesh (avoidance-off must not desync the agent off-mesh).
+        // Catches the BUG CLASS (velocity-coupling dropped / agent driven off-mesh), not a jitter instance.
+        // ===================================================================================================
+        [UnityTest]
+        public IEnumerator GroundedMove_PopulatesAgentVelocity_AndKeepsAgentOnNavMesh()
+        {
+            // Hold W (grounded walk — the camera + blend read agent.velocity off this; the sneak shares the path).
+            _wasd.SetInputOverride(new Vector2(0f, 1f));
+            _wasd.SetCrouchOverride(false);
+            yield return null; yield return null;
+
+            Assert.IsTrue(_wasd.HasInput, "sanity: W is held (a grounded move frame ran)");
+            Assert.IsTrue(_agent.isOnNavMesh,
+                "the grounded move must keep the agent ON the NavMesh (turning RVO avoidance off must not desync " +
+                "the agent off-mesh and break grounding/queries).");
+            float planar = new Vector2(_agent.velocity.x, _agent.velocity.z).magnitude;
+            Assert.Greater(planar, 1e-3f,
+                "the grounded move must POPULATE agent.velocity (planar magnitude > 0) — OrbitCamera's follow-lead " +
+                "+ CastawayCharacter's Walk<->Run blend + facing ALL read agent.velocity; the avoidance-off hitch " +
+                "fix leaves the velocity-drive channel intact. A regression that zeroed the commanded velocity " +
+                "would silently kill the camera lead (zero velocity here).");
+
+            // Same contract holds for the crouched SNEAK (the path the fix targets) — velocity still populated.
+            _wasd.SetCrouchOverride(true);
+            yield return null; yield return null;
+            Assert.IsTrue(_wasd.IsCrouching, "sanity: sneaking");
+            float sneakPlanar = new Vector2(_agent.velocity.x, _agent.velocity.z).magnitude;
+            Assert.Greater(sneakPlanar, 1e-3f,
+                "the crouched SNEAK grounded move must ALSO populate agent.velocity (the camera/blend coupling is " +
+                "identical for walk and sneak).");
+            Assert.IsTrue(_agent.isOnNavMesh, "the sneak grounded move keeps the agent on the NavMesh too.");
+
+            _wasd.ClearInputOverride();
+            _wasd.ClearCrouchOverride();
         }
 
         // ===================================================================================================

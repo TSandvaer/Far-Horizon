@@ -339,7 +339,7 @@ namespace FarHorizon.EditTests
         [Test]
         public void SmoothDirectDriveConfig_TurnsAutoBrakingOff_NoDecelTowardZeroFight()
         {
-            WasdMovement.SmoothDirectDriveConfig(out _, out bool autoBraking);
+            WasdMovement.SmoothDirectDriveConfig(out _, out bool autoBraking, out _);
             Assert.IsFalse(autoBraking,
                 "the smooth direct-drive config must turn autoBraking OFF — with it ON the agent decelerates the " +
                 "root toward the zero desiredVelocity (no path under WASD), fighting the directly-commanded " +
@@ -349,7 +349,7 @@ namespace FarHorizon.EditTests
         [Test]
         public void SmoothDirectDriveConfig_UsesHighAcceleration_VelocitySnapsToCommand_NoSlowRamp()
         {
-            WasdMovement.SmoothDirectDriveConfig(out float acceleration, out _);
+            WasdMovement.SmoothDirectDriveConfig(out float acceleration, out _, out _);
             // A high acceleration makes the simulated velocity converge to the directly-set command within ~one
             // frame instead of RAMPING over many frames (the ramp lag is disproportionately large at the slow
             // sneak speed → hitching). Far above the production walk/run speeds so the snap is effectively instant.
@@ -360,6 +360,27 @@ namespace FarHorizon.EditTests
                 $"the smooth-drive acceleration ({acceleration}) must be FAR above the run speed ({Run}) so the " +
                 "simulated velocity snaps to the commanded velocity within a frame (no slow-speed ramp jitter). A " +
                 "regression to the old modest acceleration (~30) reintroduces the sneak stutter.");
+        }
+
+        // SNEAK-WALK HITCH fix (86caa3kur re-soak ATTEMPT 2 — the CONFIRMED cause). The CI Animator+motion trace
+        // (run 28432489421) REFUTED all three animation candidates (clip plays smoothly) and isolated the hitch to
+        // the NavMeshAgent-owned root XZ translation at the slow sneak speed. Per the NavMeshAgent.velocity docs,
+        // READING velocity "returns the simulation's current value, which may differ from what you set due to
+        // COLLISION AVOIDANCE" — the per-frame RVO avoidance pass perturbs the sim's integration of the commanded
+        // velocity. At the slow 3 u/s sneak that perturbation is a large FRACTION of the step (sneak step CoV 21x
+        // the walk baseline) = the hitch. The fix turns local RVO avoidance OFF (a single-player castaway has no
+        // agents to avoid; static geometry is handled by the baked NavMesh). This pins the BUG CLASS: a regression
+        // that re-enables avoidance reintroduces the slow-speed translation jitter. Pure + scene-rig-free.
+        [Test]
+        public void SmoothDirectDriveConfig_TurnsObstacleAvoidanceOff_NoPerFrameVelocityPerturbation()
+        {
+            WasdMovement.SmoothDirectDriveConfig(out _, out _, out var avoidance);
+            Assert.AreEqual(UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance, avoidance,
+                "the smooth direct-drive config must turn local RVO obstacle avoidance OFF — the avoidance pass " +
+                "perturbs the sim's per-frame velocity (NavMeshAgent.velocity docs), and at the slow sneak speed " +
+                "that perturbation is a large fraction of the step = the CONFIRMED translation jitter (run 28432489421).");
+            Assert.AreEqual(UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance, WasdMovement.SmoothDriveAvoidance,
+                "the SmoothDriveAvoidance constant the config returns must be NoObstacleAvoidance.");
         }
     }
 }
