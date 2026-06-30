@@ -36,6 +36,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - **Disable shadow casting** per-MeshRenderer on small props and distant foliage that do not need it.
 - **APV (Adaptive Probe Volumes):** volume-based GI; no hand-placed probe grids. Good fit for the big open island with warm gradient lighting. Measure cost before committing to APV in a live scene.
 - **Fog** (URP Volume + camera far-clip-plane): hides the draw-distance edge and contributes to the "world feels BIG" feel. Set the far-clip-plane aggressively; open only as needed.
+- **Skybox / Background-pass shaders do NOT receive the main light.** `GetMainLight()` / `_MainLightPosition` is UNBOUND in the URP skybox (Background) pass — empirically confirmed in the shipped IL2CPP exe (2026-06-29): a sun-disk term reading `GetMainLight()` rendered nothing. To use the sun direction in a skybox shader (sun disk, horizon tint), **bake it into a material/global property** (e.g. `_SunDirection`) from the real directional light at bootstrap (update it if the sun rotates). Also: in a skybox shader compute the view ray in WORLD space (object-space is wrong there), and LERP toward the sun core rather than pure-additive (additive clips the disk to white). (Far Horizon's sky sun-disk, PR #194: `GradientSkybox.shader` + `QualityPassGen.ResolveSunDirection`.)
 
 ---
 
@@ -102,6 +103,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - **Force Text serialization** (`Edit > Project Settings > Editor > Asset Serialization > Mode = Force Text`) and **Visible Meta Files** (`Version Control > Mode = Visible Meta Files`). Both already implied by the project's `.meta` discipline.
 - **UnityYAMLMerge:** wire into git for semantic scene/prefab merging when multiple personas edit the same file. Tool: `C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Data\Tools\UnityYAMLMerge.exe`. Far Horizon headlessly regenerates `Boot.unity` (sidesteps the merge) — but hand-edited prefabs need this.
 - **`Boot.unity` must be index 0** in Scenes-In-Build (the entry point for the built player).
+- **A local EditMode failure on tests that read `AssetImporter`/`AssetDatabase` import state can be a STALE `Library/` artifact, NOT a real regression.** After a branch switch Unity may serve a stale import (FBX/`.meta` not reimported), so import-state assertions fail locally while the PR's CLEAN CI re-imports → green. If a local run shows EditMode fails on import-reading tests (e.g. `ChopAnimatorControllerTests` reading `Melee_Attack.fbx` import state), do NOT conclude a `main` regression — clear `Library/` (or reimport the asset) and trust the PR's CI EditMode count over the local run. (2026-06-29: a local 743/746 was a stale-Library artifact; #195's clean CI = 746/746, all `ChopAnimatorControllerTests` green.)
 
 ---
 
