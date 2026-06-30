@@ -48,3 +48,11 @@ Any action-verb driver MUST run at `DefaultExecutionOrder` < 50 when it writes f
 | Throw | No clip | N/A (future) | **Arm-offset driver** (wind-back → forward arc) + a `HeldAxeRig.enabled = false` detach/projectile-spawn event at a `SwingNormT` release threshold. |
 
 **Wired base-layer states (the `86cackb3j` set, source: `CastawayAnimator.controller` + the `*Param` constants in `CastawayCharacter.cs`):** `PickingUp`, `CrouchIdle`, `CrouchWalk`, `HitToBody`, `HeadHit`, `BigStomachHit`, `StomachHit`, `RibHit`, `Stunned`, `GettingUp` — 10 clip-driven overlay states, plus the pre-existing `Attack`/`JumpIdle`/`JumpRunning`. Driven by the `Crouch` (bool), `Hit` (trigger) + `HitRegion` (int), `Stunned` (bool), `PickUp` (trigger) parameters. The actual TRIGGERING from gameplay/damage systems is not yet wired (the params exist + are controller-test-covered; no system sets them yet) — but the Animator states themselves are SHIPPED, NOT reference-only.
+
+---
+
+## Mixamo looped clips MUST set loop-pose blend, or the pose snaps at the seam (86caa3kur / #197)
+
+Any Mixamo in-place looped clip (locomotion + idle + crouch-walk + the Stunned hold) needs **loop-pose blending ON** or the pose discontinuously SNAPS at the frame-N→frame-0 wrap once per clip cycle. For `Sneak Walk` (28-frame cycle = one L+R gait cycle) that snap WAS the Sponsor's "left, right, JERK" every 2 steps. The fix is in `CharacterAssetGen.LoopAndRename`: set **`cc.loopPose = true`** on the `ModelImporterClipAnimation` — the C# property `loopPose` serializes to the `.meta` field **`loopBlend: 1`** (Unity API↔YAML names differ; do not look for `loopBlend` on the importer — it is `loopPose`). Then regen + COMMIT the `.fbx.meta` (the build ships the committed snapshot).
+
+**Why it hid from 3 prior instruments:** a `normalizedTime` trace stays monotonic with clean TIME-wraps and velocity stays smooth — but the POSE seam still snaps. **A clean TIME-wrap ≠ a clean POSE-wrap.** A loop-seam jerk is invisible to a clock trace; verify the actual pose-blend flag (`loopBlend` in the `.meta`), not the clip's normalizedTime.
