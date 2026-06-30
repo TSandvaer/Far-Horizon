@@ -4,7 +4,33 @@ This file is the orchestrator's source of truth between ticks. The first section
 
 ---
 
-## RESUME NEXT-ACTION — 2026-06-29c (▶ ClickUp MCP fixed + board caught up [Priya]; fresh full-board scan = dispatchable set below)
+## RESUME NEXT-ACTION — 2026-06-30 (4 PRs on the SPONSOR's plate; board drained otherwise; 0 agents in flight)
+
+> Detailed running log = `.claude/away-queue.md` (read the LAST several ↻ entries for blow-by-blow). This header is the tight resume-point. ⚠ Written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries un-harvested history (`[[orchestrator-worktree-hygiene]]`).
+
+**RESUME NEXT-ACTION (if this session dies):** the Sponsor is working a **4-item merge/re-soak menu** — drain it via `/sponsor-questions-walkthrough`. Nothing else is dispatchable (board drained; every other slot is hard-dep-gated on one of these 4 merging). 0 agents in flight.
+
+**THE 4 SPONSOR-PENDING ITEMS (pace any order):**
+1. **Browser-merge #194 sun** (`86cag25az`, `ready for qa test`) — green-lit. Drew APPROVE + CI green (run 28474859843); sun baked elev 18° / hue (0.98,0.86,0.86) / size 0.95 (Sponsor live-dialed + accepted). `.github verify_sky_gate.sh` → **browser-merge** (`gh pr merge 194 --admin --squash --delete-branch`), label can't. On merge: flip `86cag25az` + parent `86cabc743` → complete.
+2. **Browser-merge #203 CI-split** (`86cafz9tg`, `ready for qa test`) — validated end-to-end on runner-1 with the `capture` label (run 28433229234: structure+build+capture green). Two browser steps: (a) UI-merge #203 squash+delete; (b) flip branch-protection required-checks `structure`+`unity` → `structure`+`build`+`capture`. **KEYSTONE** — see cascade below.
+3. **Re-soak #197 crouch** (`86caa3kur`, `ready for qa test`) — Drew APPROVE; clean build `Build/soak-197-v6/FarHorizon.exe` stamp `01f5a42` (played-verified by -verifySneak: avatarCrouch=True). Smooth → label-merge (no `.github`). The v5 "no crouch" was a CORRUPT warm-runner build, NOT a regression (canary = the dismissed -verifySneak red).
+4. **Re-soak #208 dev-console** (`86cabeqj9`, `ready for qa test`) — Devon APPROVE; build `Build/soak-208-v2/FarHorizon.exe` stamp `37247d8`. Test F1=console-only, F2=legacy-overlays, UI-scale slider, WASD-while-open. Good → label-merge (no `.github`).
+
+**POST-#203 CASCADE (~12 tickets unblock on the KEYSTONE merge):** after #203 lands + protection flips, the orchestrator must (a) `git merge origin/main` onto #194/#197/#208 (persona, no force-push, `[[merge-from-main-avoids-force-push-rebase]]`) to satisfy the new `build`+`capture` checks; (b) dispatch verifySneak-advisory `86cagqhez`; (c) the 6-ticket ci.yml cluster (`86cag1xn0`/`86cafzaeb`/`86cafhgun`/`86cabfa21`/`86caammpq`/`86cabe3e5`) + RT-readback `86cag93zb` UNBLOCK → dispatchable. Other hard-dep-on-merge follow-ups: `86cagmwg9`+`86caambxh` ← #197; `86caber95`+`86cabeqwf`+`86cagpk72` ← #208; `86cagfn8h` open-horizon ← #194.
+
+**RECENTLY MERGED (2026-06-30):** #206 (unity6 harvest) · #207 (anti-idle NIT) · #209 (open-horizon Option-A spec) → main `36034db`. #200 (anti-idle hardening) + #201 (Erik-notes harvest) merged earlier this morning.
+
+**TWO STANDING LESSONS that emerged today (carry forward):**
+- **`[[served-unverified-soaks-need-played-verification]]`** — no feel/visibility soak reaches the Sponsor until a persona PLAYS the built exe at REAL gameplay framing (or a real-FOV capture) + confirms it. Today's 3 served soaks all failed/NIT'd because they were staged on green MACHINE gates (CI+EditMode+APPROVE) with no played-verification — the Sponsor was the first to play them. Flaky/skipped validating capture = NOT ready. The retro: under anti-idle "fill the queue" pressure, soaks-STAGED was optimized over soaks-VERIFIED.
+- **Warm-runner corrupt-build canary** (`86cagr0zu`) — the warm `clean:false` runner intermittently ships a corrupt build (stale Library → missing scripts / serialization mismatch → runtime-inert). Artifact-exists ≠ build-good; the gate that RUNS the exe is the canary. EditMode + peer-review run in the EDITOR, so they pass on a corrupt build. Do NOT dismiss a capture-gate red as "just a flake" without a clean re-run.
+
+**Mode:** auto-status away (cron `0a1d8d68`, 15-min). keep-screens-alive ON. main `36034db`. **0 agents in flight.** All 5 personas free — board is sponsor-gated on the 4 items above + the post-#203 cascade.
+
+**This Priya tick (2026-06-30, PR `priya/state-refresh-2026-06-30`):** status reconcile — flipped #197 `86caa3kur` `in review`→`ready for qa test` (Drew APPROVE + clean soak built, drift caught); fleshed the 4 title-only follow-ups (`86cagmwg9`/`86cagpk72`/`86cagqhez`/`86cagr0zu`) with hard-dep + scope descriptions (all `to do`; the gate on each is a merge-dependency, NOT sponsor — no `sponsor-gate` tag needed); refreshed this header.
+
+_(2026-06-29c + 2026-06-19 headers below retained as history.)_
+
+## RESUME NEXT-ACTION — 2026-06-29c (▶ ClickUp MCP fixed + board caught up [Priya]; fresh full-board scan = dispatchable set below) — HISTORICAL
 
 > ⚠ Written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries 2026-06-28→29 history not yet harvested to main (`[[orchestrator-worktree-hygiene]]`). The dispatchable set below is fresh-board ground truth (live `get_tasks` 2026-06-29c) — trust it over any older next-wave list.
 
