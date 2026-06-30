@@ -323,5 +323,43 @@ namespace FarHorizon.EditTests
                 $"the new single-frame lateral ({newFrameLateral:F4}) must be <1/10 the old snap ({oldFrameLateral:F4}) " +
                 "— the subtle-nudge fix (86caac81y).");
         }
+
+        // =================================================================================================
+        // SMOOTH DIRECT-DRIVE agent config (ticket 86caa3kur RE-SOAK — the SNEAK-WALK STUTTER fix) —
+        // WasdMovement.SmoothDirectDriveConfig. WasdMovement commands agent.velocity directly each frame; with the
+        // agent's default autoBraking=true + a modest acceleration + NO path (desiredVelocity≈0 under WASD), the
+        // agent's internal simulation DECELERATES the root toward zero AND only RAMPS toward the new velocity at
+        // `acceleration` u/s² — so the simulated velocity LAGS + oscillates against the command. At walk/run the
+        // large per-frame step swamps it; at the slow SNEAK speed the braking/ramp noise is a large FRACTION of
+        // the step → the visible hitching. These pin the BUG CLASS: the fix turns autoBraking OFF (no decel-to-zero
+        // fight) and sets a HIGH acceleration (velocity snaps to the command, no slow ramp). A regression that
+        // re-enables autoBraking or drops the acceleration back reintroduces the slow-speed stutter — caught here.
+        // Pure + scene-rig-free (no Animator/NavMesh/headless-time).
+        // =================================================================================================
+        [Test]
+        public void SmoothDirectDriveConfig_TurnsAutoBrakingOff_NoDecelTowardZeroFight()
+        {
+            WasdMovement.SmoothDirectDriveConfig(out _, out bool autoBraking);
+            Assert.IsFalse(autoBraking,
+                "the smooth direct-drive config must turn autoBraking OFF — with it ON the agent decelerates the " +
+                "root toward the zero desiredVelocity (no path under WASD), fighting the directly-commanded " +
+                "velocity each frame. That braking fight is the slow-speed sneak STUTTER the re-soak fixes.");
+        }
+
+        [Test]
+        public void SmoothDirectDriveConfig_UsesHighAcceleration_VelocitySnapsToCommand_NoSlowRamp()
+        {
+            WasdMovement.SmoothDirectDriveConfig(out float acceleration, out _);
+            // A high acceleration makes the simulated velocity converge to the directly-set command within ~one
+            // frame instead of RAMPING over many frames (the ramp lag is disproportionately large at the slow
+            // sneak speed → hitching). Far above the production walk/run speeds so the snap is effectively instant.
+            Assert.AreEqual(WasdMovement.SmoothDriveAcceleration, acceleration, 1e-3f,
+                "the config must apply the high SmoothDriveAcceleration (the velocity snaps to the command, no " +
+                "slow ramp).");
+            Assert.Greater(acceleration, Run * 10f,
+                $"the smooth-drive acceleration ({acceleration}) must be FAR above the run speed ({Run}) so the " +
+                "simulated velocity snaps to the commanded velocity within a frame (no slow-speed ramp jitter). A " +
+                "regression to the old modest acceleration (~30) reintroduces the sneak stutter.");
+        }
     }
 }

@@ -188,6 +188,25 @@ namespace FarHorizon
             // leftover destination can't fight the manual velocity. The component stays (MoveTo seam used by
             // the verify captures + harness); only its gameplay click-locomotion is turned off.
             DisableClickToMove();
+
+            // SNEAK-WALK STUTTER fix (86caa3kur re-soak): configure the agent so its internal simulation TRACKS
+            // the directly-commanded velocity instead of FIGHTING it (the slow-speed hitching). See
+            // SmoothDirectDriveConfig for the CONFIRMED root cause + mechanism. Applied once here (the agent is
+            // resolved in Awake). Null-tolerant (a bare test rig with no agent).
+            EnsureSmoothDirectDrive();
+        }
+
+        /// <summary>Configure the NavMeshAgent for SMOOTH direct velocity-drive (86caa3kur re-soak — the sneak-walk
+        /// stutter fix). WasdMovement commands agent.velocity directly each frame; this turns OFF the agent's own
+        /// braking/acceleration dynamics so the simulated velocity tracks the command (no slow-speed sim-vs-command
+        /// oscillation). The values come from the pure <see cref="SmoothDirectDriveConfig"/> so an EditMode guard
+        /// pins them. Idempotent + null-tolerant.</summary>
+        private void EnsureSmoothDirectDrive()
+        {
+            if (_agent == null) return;
+            SmoothDirectDriveConfig(out float acceleration, out bool autoBraking);
+            _agent.acceleration = acceleration;
+            _agent.autoBraking = autoBraking;
         }
 
         private void DisableClickToMove()
@@ -310,11 +329,18 @@ namespace FarHorizon
             // (airborne resolved above for the crouch suppression.)
             if (airborne)
             {
+                // AIRBORNE: set the agent velocity directly — the jump arc + air-control are a physics nudge that
+                // genuinely wants the velocity channel (coast/steer), and the brief airborne phase is fast enough
+                // that the agent-sim braking fight isn't visible. UNCHANGED (the air-control fix #69 lives here).
                 _agent.velocity = AirborneVelocity(_agent.velocity, LastMoveDir, airControlAccel,
                                                    airControlMaxSpeed, Time.deltaTime);
             }
             else
             {
+                // GROUNDED: command the agent velocity directly (UNCHANGED — keeps agent.velocity readable for the
+                // camera-follow lead + CastawayCharacter's Walk<->Run blend + facing, all of which read it). The
+                // SNEAK-WALK STUTTER fix (86caa3kur re-soak) is NOT here — it's the EnsureSmoothDirectDrive() agent
+                // config below, applied once. See its comment for the CONFIRMED root cause + mechanism.
                 _agent.velocity = LastMoveDir * speed;
             }
         }
@@ -360,6 +386,32 @@ namespace FarHorizon
             if (isCrouching) return clampedSneak;                                // crouch wins over sprint (AC2)
             if (isSprinting) return clampedRun;
             return walk;
+        }
+
+        // The agent acceleration (u/s²) the smooth-direct-drive config applies (86caa3kur re-soak). HIGH so the
+        // agent's simulated velocity tracks the directly-commanded velocity within ~one frame instead of ramping —
+        // the ramp is the slow-speed stutter source (see EnsureSmoothDirectDrive). Audited from source (not
+        // serialized) so the config is deterministic + the EditMode guard pins the exact contract.
+        public const float SmoothDriveAcceleration = 1000f;
+
+        /// <summary>
+        /// PURE smooth-direct-drive agent config (the unit-testable core of the sneak-walk STUTTER fix, ticket
+        /// 86caa3kur re-soak): given the agent's current (acceleration, autoBraking), return the values that make
+        /// the agent's internal simulation TRACK a directly-commanded velocity instead of FIGHTING it. The fix is
+        /// (a) autoBraking = FALSE and (b) acceleration = a high value. WHY (the CONFIRMED root cause): WasdMovement
+        /// sets agent.velocity each frame, but with updatePosition=true + autoBraking=true + NO path (desiredVelocity
+        /// ≈0 under WASD) the agent continuously DECELERATES the root toward zero (braking) AND only ramps toward a
+        /// new velocity at `acceleration` u/s² — so the simulated velocity LAGS + oscillates against the commanded
+        /// velocity. At walk/run the large per-frame step swamps it; at the slow SNEAK speed (3 u/s) the braking/
+        /// ramp noise is a large FRACTION of the step → the visible hitching the Sponsor reported. Disabling
+        /// autoBraking removes the decel-toward-zero; a high acceleration makes the velocity snap to the command in
+        /// ~one frame. Returns the corrected (acceleration, autoBraking) so the EditMode guard pins the contract
+        /// with no scene rig. Static + dependency-free.
+        /// </summary>
+        public static void SmoothDirectDriveConfig(out float acceleration, out bool autoBraking)
+        {
+            acceleration = SmoothDriveAcceleration; // velocity snaps to the command (no slow ramp = no slow-speed jitter)
+            autoBraking = false;                    // no decel toward the zero desiredVelocity (no braking fight)
         }
 
         // Resolve the camera's planar forward/right basis (the orbit camera's facing projected onto the

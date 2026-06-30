@@ -197,6 +197,30 @@ namespace FarHorizon.PlayTests
         }
 
         // ===================================================================================================
+        // SNEAK-WALK STUTTER fix (86caa3kur re-soak) — WasdMovement.Start must APPLY the smooth-direct-drive
+        // config to the REAL agent (autoBraking OFF + high acceleration), so the agent's internal simulation
+        // TRACKS the directly-commanded velocity instead of FIGHTING it (the slow-speed hitching). The pure
+        // SmoothDirectDriveConfig is EditMode-tested; THIS pins the WIRE from Start to the agent (the
+        // EditMode-wiring-guard lesson — a pure-core test passing while the wire is dropped is a false-green).
+        // ===================================================================================================
+        [UnityTest]
+        public IEnumerator Start_AppliesSmoothDirectDrive_ToTheAgent_AutoBrakingOff_HighAccel()
+        {
+            // SetUp already ran WasdMovement.Start (two yields after AddComponent). The agent was authored with
+            // the scene defaults (acceleration 24, autoBraking true) here; Start must have OVERRIDDEN them.
+            yield return null;
+
+            Assert.IsFalse(_agent.autoBraking,
+                "WasdMovement.Start must turn the agent's autoBraking OFF — with it ON the agent decelerates the " +
+                "root toward the zero desiredVelocity (no path under WASD), fighting the directly-commanded " +
+                "velocity each frame = the slow-speed sneak STUTTER (86caa3kur re-soak).");
+            Assert.AreEqual(WasdMovement.SmoothDriveAcceleration, _agent.acceleration, 1e-3f,
+                "WasdMovement.Start must set the agent's acceleration to the high SmoothDriveAcceleration so the " +
+                "simulated velocity SNAPS to the commanded velocity (no slow ramp = no slow-speed jitter). The " +
+                $"agent still has the scene default ({_agent.acceleration}) — the smooth-drive wire was dropped.");
+        }
+
+        // ===================================================================================================
         // AC2 — CROUCH WINS over sprint: Ctrl+Shift while moving drops to the SNEAK speed, never the run.
         // ===================================================================================================
         [UnityTest]

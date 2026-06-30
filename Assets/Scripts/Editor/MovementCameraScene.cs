@@ -2821,6 +2821,12 @@ namespace FarHorizon.EditorTools
             // Inert unless -verifyRun. Sibling of WasdVerifyCapture.
             WireRunVerifyCapture(player);
 
+            // Wire the SNEAK-WALK SMOOTHNESS shipped-build capture (86caa3kur re-soak) — holds forward + the
+            // crouch override and MEASURES the per-frame root step (the stutter ground truth: low step-variance =
+            // smooth) + captures the sneak cycle from the gameplay cam. Inert unless -verifySneak. Sibling of
+            // WireRunVerifyCapture.
+            WireSneakVerifyCapture(player);
+
             // Wire the LOCOMOTION + HIT-REACT shipped-build capture (86cackb3j) — walk→run then fires the Hit
             // trigger on the live Animator + captures the flinch, with a cone-explosion guard (mesh stays at the
             // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
@@ -2937,6 +2943,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<RunVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<RunVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the SNEAK-WALK SMOOTHNESS shipped-build verify capture (86caa3kur re-soak) onto the Boot object so
+        // it SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). Inert unless launched with -verifySneak. Sibling of WireRunVerifyCapture.
+        private static void WireSneakVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SneakVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SneakVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }
