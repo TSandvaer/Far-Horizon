@@ -1,32 +1,76 @@
 name: CI
 
-# Far Horizon CI. Two complementary jobs:
+# Far Horizon CI. Four complementary jobs:
 #
 #   structure  — GitHub-hosted ubuntu, NO Unity license. Repo-hygiene + asmdef +
 #                entry-point-method gate. Runs on EVERY push/PR and is the
 #                required status check that protects `main` today (zero Unity
 #                licensing dependency).
 #
-#   unity      — SELF-HOSTED Windows runner with the exact installed editor
-#                (6000.4.11f1, already licensed on this machine — no UNITY_LICENSE
-#                secret, no billed private-repo minutes). The RELIABLE MERGE GATE.
-#                Chains BootstrapProject.Run -> EditMode -> BuildWindows ->
-#                shipped-build capture gate, parses the NUnit XML result line (exit
-#                codes lie — see unity-conventions.md), and uploads test XMLs +
-#                logs + build BEFORE the workspace is cleaned (.gitignore eats them).
-#                PlayMode is intentionally NOT in this job (see `playmode` below).
+#   build      — SELF-HOSTED Windows runner (ANY: [self-hosted, windows, unity]).
+#                The HEADLESS, 2nd-runner-SAFE half of the old `unity` job: chains
+#                BootstrapProject.Run -> EditMode -> BuildWindows(IL2CPP) -> the
+#                console-error / EditMode-result / build-result gates. Parses the
+#                NUnit XML result line (exit codes lie — see unity-conventions.md)
+#                and uploads test XMLs + logs + build BEFORE the workspace is cleaned
+#                (.gitignore eats them). Uploads FarHorizon-Windows-${{ github.sha }}
+#                so the `capture` job can pull the exe on a DIFFERENT runner. A 2nd
+#                runner CAN pick this job up because it is fully headless (no windowed
+#                swapchain) and relies on each runner's OWN isolated cache (see
+#                cache-isolation note below). PlayMode is NOT here (see `playmode`).
+#
+#   capture    — SELF-HOSTED Windows runner PINNED to runner-1 via the EXTRA `capture`
+#                label ([self-hosted, windows, unity, capture]). The WINDOWED-CAPTURE
+#                half of the old `unity` job: downloads the build artifact, then runs
+#                the shipped-build capture gates (generic spawn + settings + pond +
+#                loot + water + chop). `needs: build`. WHY PINNED + SERIAL: the
+#                windowed captures BREAK when a 2nd Unity build runs concurrently on
+#                this machine (A/B-CONFIRMED 2026-06-29: 4/4 clean single-runner vs
+#                3/3 flaked with runner-2 online — the D3D12 first-frame present loop
+#                wedges under contention). `concurrency: group: unity-capture` (no ref)
+#                guarantees at most ONE capture job EVER across the whole repo — the
+#                A/B-proven safety pin. Build+EditMode (the `build` job) can parallelize
+#                across both runners; captures stay strictly serial here. (86cafz9tg)
 #
 #   playmode   — SELF-HOSTED, ADVISORY + non-required + fail-fast. Runs the PlayMode
 #                suite for SIGNAL but can NEVER block a merge: `continue-on-error:
 #                true` at the JOB level + a hard `timeout-minutes` cap so a future
 #                play-mode-ENTER env-deadlock fails FAST + NAMED instead of hanging
-#                to the 90-min cap and crashing the runner. `needs: unity` serializes
-#                it AFTER the merge-gate Unity build so the two never contend the
-#                single self-hosted runner's PackageCache (EPERM —
+#                to the 90-min cap and crashing the runner. `needs: build` (was
+#                `needs: unity` pre-86cafz9tg) serializes it AFTER the build so the two
+#                Unity invocations never contend the SAME runner's PackageCache (EPERM —
 #                [[single-unity-build-slot-serializes-orchestration]]). The
 #                play-mode-enter deadlock is environmental + fixture-presence-
 #                triggered; re-fold PlayMode into the blocking gate once the root
 #                cause is fixed. See unity-conventions.md §CI architecture. (86caapwmt)
+#
+# REQUIRED-CHECK / BRANCH-PROTECTION NOTE (86cafz9tg — SPONSOR ACTION REQUIRED):
+#   The old single `unity` job is split into `build` + `capture`. Branch-protection
+#   required status checks must change `structure` + `unity` → `structure` + `build`
+#   + `capture` so the shipped-build capture gate stays REQUIRED (a hard rule). This
+#   is a repo-settings change the Sponsor makes in the GitHub UI; it cannot be done
+#   from this YAML. Until updated, `unity` no longer exists as a check name.
+#
+# RUNNER `capture` LABEL NOTE (86cafz9tg — SPONSOR ACTION REQUIRED):
+#   This YAML targets the EXTRA `capture` label on runner-1 to pin all windowed
+#   captures to that single runner. Add the label to runner-1 (e.g. re-run
+#   `config.cmd --labels self-hosted,windows,unity,capture --replace`, or via the
+#   runner's GitHub Settings → Runners → Labels). Runner-2 must NOT get the `capture`
+#   label so capture jobs never land on it. Until runner-1 has the label, the
+#   `capture` job will queue with no eligible runner (it does not silently skip).
+#
+# CACHE-ISOLATION ASSUMPTION (86cafz9tg / 86cabkhjg / second-runner-setup-steps.md):
+#   The `build` job relies on EACH RUNNER's OWN isolated package cache. Runner-2 is
+#   already isolated per second-runner-setup-steps.md: separate `--work` checkout root
+#   (so Library/PackageCache is physically distinct) PLUS `.env`-pinned
+#   UPM_CACHE_ROOT=C:\upm-cache-2 + BEE_CACHE_DIRECTORY=C:\bee-cache-2 (so the global
+#   UPM + Bee IL2CPP caches don't race). This is what makes two concurrent headless
+#   builds safe WITHOUT re-introducing the PackageCache EPERM the single-slot rule was
+#   protecting against. This split does NOT add per-workspace cache env vars to the
+#   build job (the runner-level `.env` + `--work` isolation already covers it); the
+#   optional workspace-relative pinning in second-runner-setup-steps.md §2 stays a
+#   follow-up. The capture job runs no Unity build, so it has no cache contention of
+#   its own — its only safety requirement is the serial `unity-capture` pin above.
 #
 # Route rationale (see PR body): the game-ci docker route is blocked twice over
 # on this repo — (1) no unityci/editor image exists yet for the 6000.4.x stream
@@ -43,10 +87,12 @@ on:
     # trigger when it races another build (unity-conventions.md §Process notes,
     # ticket 86caahtbe). The structure job is fast/hosted but has nothing to check on
     # a pure-docs change. NOTE: a paths-ignore filter makes the run not trigger at all
-    # — it does NOT report a skipped *required* check as success. `unity` is NOT a
-    # required branch-protection check today (the hosted `structure` job is the one
-    # protecting main — see job comments). If `unity` is ever promoted to required,
-    # replace this filter with a path-FILTER job that emits a green no-op (see PR body).
+    # — it does NOT report a skipped *required* check as success. Once the Sponsor
+    # promotes `build` + `capture` to required branch-protection checks (86cafz9tg),
+    # this paths-ignore must be replaced with a path-FILTER job that emits a green
+    # no-op for those checks on a docs-only change, or docs-only PRs will hang on a
+    # never-reported required check (see PR body). Today the hosted `structure` job is
+    # the one protecting main — see job comments.
     paths-ignore:
       - '**/*.md'
       - 'team/**'
@@ -103,14 +149,26 @@ jobs:
           tests/scripts/test_block_destructive_hook.sh
 
   # ---------------------------------------------------------------------------
-  # Unity gate — self-hosted Windows runner. Skips cleanly (does not fail the
-  # PR) until a runner with the `unity` + `windows` labels is registered and
-  # online; once it is, this becomes a required check too (see PR body for the
-  # branch-protection coordination with U2).
+  # Build gate — self-hosted Windows runner, HEADLESS half (2nd-runner-SAFE).
+  # ANY [self-hosted, windows, unity] runner can pick this up. Bootstrap ->
+  # EditMode -> BuildWindows(IL2CPP) -> console-error / EditMode-result /
+  # build-result gates. Uploads FarHorizon-Windows-${{ github.sha }} so the
+  # capture job can pull the exe on a DIFFERENT runner. Split from the old
+  # monolithic `unity` job in 86cafz9tg so the build/EditMode lane parallelizes
+  # across two runners while captures stay pinned + serial (see `capture` below).
+  #
+  # concurrency: a per-ref group (`unity-build-${{ github.ref }}`,
+  # cancel-in-progress) so a new push to the SAME ref supersedes its prior build
+  # — matches the top-level `ci-${{ github.ref }}` cancel and does NOT fight the
+  # repo-wide concurrency-group fix tracked in 86caammpq (that fix targets the
+  # top-level group; this job-level group is ref-scoped and consistent with it).
   # ---------------------------------------------------------------------------
-  unity:
-    name: unity (self-hosted, EditMode + build + capture)
+  build:
+    name: build (self-hosted, EditMode + build)
     runs-on: [self-hosted, windows, unity]
+    concurrency:
+      group: unity-build-${{ github.ref }}
+      cancel-in-progress: true
     # A COLD / post-cache-clear build does a full package re-resolve + asset reimport
     # (no warm Library) and was observed at 20–25+ min — the old 40-min cap auto-
     # CANCELLED a churning cold build (run 27692339123, ticket 86caahtbe). A 55-min
@@ -200,8 +258,9 @@ jobs:
         continue-on-error: true
 
       # 3. PlayMode tests run in a SEPARATE, advisory, fail-fast `playmode` job
-      #    (see below) — NOT here. The merge-gate `unity` job is EditMode + build +
-      #    capture ONLY (the three reliable gates). Rationale: this self-hosted
+      #    (see below) — NOT here. This `build` job is bootstrap + EditMode + build
+      #    ONLY; the windowed captures live in the `capture` job (split in 86cafz9tg).
+      #    Together they are the reliable merge gates. Rationale: this self-hosted
       #    runner has a CONFIRMED play-mode-ENTER env-deadlock (Unity freezes
       #    "Entering Playmode" and never self-quits; the hung headless Unity IGNORES
       #    the GH step-cancel, so it pins the runner until it LOSES COMMUNICATION
@@ -245,6 +304,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # The capture job (different runner) DOWNLOADS this artifact to drive the
+      # windowed gates against the SAME exe the build produced — the cross-runner
+      # hand-off that makes the split work. retention-days: 1 because its primary
+      # consumer is the same-run capture job (not a 14-day soak artifact); the
+      # soak-build artifact for the Sponsor is still the per-PR merge-ref build.
       - name: Upload Windows build
         if: always()
         uses: actions/upload-artifact@v4
@@ -252,7 +316,7 @@ jobs:
           name: FarHorizon-Windows-${{ github.sha }}
           path: Build/Windows/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 1
 
       # 6. Authoritative gates — run AFTER upload so evidence is preserved even
       #    when a gate fails. The XML parser and the log scanner (with the URP
@@ -286,6 +350,75 @@ jobs:
             grep -E '\[FarHorizonBuilder\]' ci-out/build.log || true
             exit 1
           fi
+
+  # ---------------------------------------------------------------------------
+  # Capture gate — self-hosted Windows runner PINNED to runner-1 via the EXTRA
+  # `capture` label. The WINDOWED-CAPTURE half of the old `unity` job (split in
+  # 86cafz9tg). DOWNLOADS the build artifact (a different runner produced it) and
+  # drives the shipped-build capture gates against the SAME exe: generic spawn,
+  # settings panel, freshwater pond, loot prompt, water acquisition, chop→pile→loot.
+  #
+  # PINNED + SERIAL — the two safety pins that keep captures clean:
+  #   * runs-on includes the EXTRA `capture` label → only runner-1 (which carries
+  #     it) is eligible; runner-2 (no `capture` label) can NEVER pick this up. So a
+  #     windowed capture never lands on a runner that might be mid-build.
+  #   * concurrency: group: unity-capture (ABSOLUTE — NO ref suffix) → at most ONE
+  #     capture job runs at a time across the WHOLE repo, even across different PRs.
+  #     This is the A/B-proven safety pin (2026-06-29: 4/4 clean single-runner vs
+  #     3/3 flaked with runner-2 online — the D3D12 first-frame present loop wedges
+  #     under concurrent-build contention). cancel-in-progress: false so a queued
+  #     capture is never DROPPED (its required-gate verdict must always be produced).
+  #
+  # needs: build → only runs after the build is green + the artifact exists.
+  # if: always() so a capture still runs (and can FAIL the merge) even if a later
+  # build-job gate step went red — the capture verdict is REQUIRED, not optional.
+  # No bootstrap / no Unity build here: this job launches the prebuilt exe only, so
+  # it has no PackageCache contention of its own.
+  # ---------------------------------------------------------------------------
+  capture:
+    name: capture (self-hosted runner-1, windowed gates)
+    runs-on: [self-hosted, windows, unity, capture]
+    needs: build
+    if: always()
+    timeout-minutes: 45
+    concurrency:
+      group: unity-capture
+      cancel-in-progress: false
+    env:
+      RESULTS: ${{ github.workspace }}\ci-out
+    steps:
+      # The capture scripts (capture_gate.sh, verify_*_gate.sh, frame_check.py) live
+      # in the repo, so the capture runner needs its own checkout. clean:false keeps
+      # parity with the build/playmode jobs (harmless here — no Library is used).
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Prepare output dir
+        shell: bash
+        run: mkdir -p ci-out
+
+      # Stale-evidence hygiene (same rationale as the build job's step 0a — with
+      # clean:false the gitignored ci-out/ persists between runs on the warm runner,
+      # so a PRIOR run's gate logs/captures could be read as THIS run's output).
+      # Delete last run's capture logs + frame dirs at job START so every uploaded
+      # artifact reflects ONLY this run.
+      - name: Clean stale gate outputs (prevent stale-log false-green)
+        shell: bash
+        run: |
+          rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
+                ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log
+          rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
+                 ci-out/loot-caps ci-out/water-caps ci-out/chop-caps
+
+      # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
+      # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
+      # restores it to that path under the workspace.
+      - name: Download Windows build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FarHorizon-Windows-${{ github.sha }}
+          path: Build/Windows
 
       # 7. Shipped-build capture gate (ticket 86ca86g7k) — the editor-vs-runtime
       #    backstop. Launches the BUILT exe WINDOWED (NOT -batchmode: ScreenCapture
@@ -512,35 +645,35 @@ jobs:
   # signal, but can NEVER block a merge:
   #   * `continue-on-error: true` at the JOB level → a failed/timed-out PlayMode
   #     run reports the job result as a (neutral) non-failure to the workflow, so
-  #     branch protection (which gates on `structure` + the `unity` merge-gate job)
+  #     branch protection (which gates on `structure` + `build` + `capture`)
   #     is unaffected. Do NOT add this job's check to required status checks.
   #   * `timeout-minutes: 5` (was 20 — 86cae8vn2) is a HARD cap: a FUTURE play-mode-ENTER
   #     env-deadlock fails FAST + NAMED (this job goes red, clearly attributable to PlayMode)
   #     instead of hanging to the 90-min job cap and crashing the runner. Tightened 20→5
-  #     because a hung play-mode-enter pins the SINGLE self-hosted runner for the full cap,
-  #     wedging the NEXT push's `unity` merge-gate (single-runner PackageCache cap); 5 min
+  #     because a hung play-mode-enter pins a self-hosted runner for the full cap,
+  #     wedging the NEXT push's `build` merge-gate (per-runner PackageCache cap); 5 min
   #     still lets play-mode-enter START + confirm the deadlock, then frees the runner ~15 min
   #     sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
-  #   * `needs: unity` SERIALIZES this AFTER the merge-gate Unity build so the two
-  #     Unity invocations never contend the single self-hosted runner's PackageCache
+  #   * `needs: build` (was `needs: unity` pre-86cafz9tg) SERIALIZES this AFTER the build
+  #     so the two Unity invocations never contend the SAME runner's PackageCache
   #     (EPERM-on-rename — [[single-unity-build-slot-serializes-orchestration]] +
   #     unity-conventions.md §Process notes). `if: always()` lets PlayMode run for
-  #     signal even when the merge-gate job failed.
+  #     signal even when the build job failed.
   #
   # The play-mode-ENTER deadlock is ENVIRONMENTAL + fixture-presence-triggered (it
   # fires before any single fixture runs; EditMode is unaffected; the same PlayMode
   # pattern passed on green main run 27685445841). When the root cause is fixed,
-  # re-fold PlayMode into the blocking `unity` gate + drop this job.
+  # re-fold PlayMode into the blocking `build` gate + drop this job.
   # Re-enable-blocking follow-up: ticket 86cab7u42 (this PR: 86caapwmt).
   # ---------------------------------------------------------------------------
   playmode:
     name: playmode (self-hosted, advisory — non-blocking)
     runs-on: [self-hosted, windows, unity]
-    needs: unity
+    needs: build
     if: always()
     continue-on-error: true   # ADVISORY — PlayMode can NEVER block a merge (86caapwmt)
-    # 20→5 (86cae8vn2): a hung play-mode-enter pins the SINGLE self-hosted runner for the
-    # full cap, wedging the NEXT push's `unity` merge-gate (single-runner PackageCache cap).
+    # 20→5 (86cae8vn2): a hung play-mode-enter pins a self-hosted runner for the
+    # full cap, wedging the NEXT push's `build` merge-gate (per-runner PackageCache cap).
     # 5 min still lets play-mode-enter START + confirm the deadlock fast, then frees the
     # runner ~15 min sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
     timeout-minutes: 5        # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
