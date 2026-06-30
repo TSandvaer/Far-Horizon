@@ -112,6 +112,14 @@ namespace FarHorizon
         // overridden the same way sprint is. null = read the real keyboard (Input.GetKey(Left|RightControl)).
         private bool? _crouchOverride;
 
+        // SNEAK-SPEED-SNAP ISOLATION SEAM (86caa3kur re-soak attempt-3 /unstick instrument). When ON, a crouched
+        // (sneak) move commands the NORMAL WALK speed instead of the reduced sneakSpeed — so the Sponsor can A/B
+        // whether the per-gait-cycle jerk is SPECIFIC to the slow sneak speed (gone at walk speed = a slow-speed
+        // root-translation / blend artifact) or persists regardless (an animation-clip-loop artifact). DEBUG-only:
+        // default OFF so shipped crouch behavior (reduced sneak speed) is byte-unchanged; the SneakIsolationTool
+        // flips it live behind the dev-overlay gate. NOT a serialized field (a runtime debug mirror).
+        private bool _sneakSpeedSnapToWalk;
+
         /// <summary>Drive WASD programmatically (the input-independent seam — the verify capture's analog of
         /// ClickToMove.MoveTo). Pass an (x=strafe, y=forward) vector; pass null / <see cref="ClearInputOverride"/>
         /// to return to the real keyboard. Used by WasdVerifyCapture to exercise WASD in the shipped exe.</summary>
@@ -137,6 +145,18 @@ namespace FarHorizon
 
         /// <summary>Stop overriding crouch — return to reading the real LeftControl/RightControl key.</summary>
         public void ClearCrouchOverride() => _crouchOverride = null;
+
+        /// <summary>ISOLATION TOGGLE (86caa3kur re-soak attempt-3 /unstick instrument): when <paramref name="snap"/>
+        /// is true, a crouched (sneak) move commands the NORMAL WALK speed instead of the reduced sneakSpeed — the
+        /// disconfirming control for "is the per-gait-cycle jerk SPECIFIC to the slow sneak speed?". DEBUG-only;
+        /// default OFF (shipped reduced-sneak behavior unchanged). The SneakIsolationTool flips it live behind the
+        /// dev-overlay gate. Idempotent.</summary>
+        public void SetSneakSpeedSnapToWalk(bool snap) => _sneakSpeedSnapToWalk = snap;
+
+        /// <summary>Whether the sneak-speed-snap-to-walk isolation toggle is ON this frame (86caa3kur attempt-3
+        /// instrument). Exposed so the SneakIsolationTool readout shows the current A/B state + an EditMode guard
+        /// asserts the default is OFF (shipped crouch speed unchanged).</summary>
+        public bool SneakSpeedSnappedToWalk => _sneakSpeedSnapToWalk;
 
         /// <summary>Request a JUMP programmatically — the input-independent analog of pressing Space (ticket
         /// 86ca9yq3q). Latched + consumed on the next Update (mirrors the keyboard's rising edge — one jump per
@@ -317,7 +337,12 @@ namespace FarHorizon
             // Speed precedence (AC1/AC2): crouch → reduced SNEAK speed (crouch wins over sprint); else sprint →
             // run; else walk. Defensive clamps (run never slower than walk; sneak never faster than walk) live in
             // the pure ResolveSpeed so the EditMode guard pins the precedence + the clamps without a scene rig.
-            float speed = ResolveSpeed(walk, runSpeed, sneakSpeed, IsSprinting, IsCrouching);
+            // ISOLATION (86caa3kur attempt-3 /unstick): when the sneak-speed-snap toggle is ON, command the sneak
+            // at the WALK speed (the disconfirming control — does the per-gait-cycle jerk survive a normal-speed
+            // crouch?). DEBUG-only, default OFF → effectiveSneak == sneakSpeed (shipped behavior byte-unchanged).
+            // Pure static so the EditMode guard pins "default OFF = sneakSpeed; ON = walk speed" without a rig.
+            float effectiveSneak = EffectiveSneakSpeed(sneakSpeed, walk, _sneakSpeedSnapToWalk);
+            float speed = ResolveSpeed(walk, runSpeed, effectiveSneak, IsSprinting, IsCrouching);
             CurrentSpeed = HasInput ? speed : 0f;
 
             // Drive the Animator's CROUCH lane (86caa3kur): the avatar's CastawayCharacter sets the controller's
@@ -397,6 +422,17 @@ namespace FarHorizon
             if (isSprinting) return clampedRun;
             return walk;
         }
+
+        /// <summary>
+        /// PURE sneak-speed-snap isolation (86caa3kur re-soak attempt-3 /unstick instrument): the sneak speed to
+        /// command given the snap-to-walk toggle. <paramref name="snapToWalk"/> false (the SHIPPED default) →
+        /// returns <paramref name="sneak"/> UNCHANGED (the reduced sneak speed). True (the DEBUG isolation
+        /// control) → returns <paramref name="walk"/> so a crouched move runs at the normal walk speed. Static +
+        /// dependency-free so the EditMode guard pins "default = reduced sneak (shipped behavior unchanged); ON =
+        /// walk speed" without a scene rig — proving the instrument is inert at its default.
+        /// </summary>
+        public static float EffectiveSneakSpeed(float sneak, float walk, bool snapToWalk)
+            => snapToWalk ? walk : sneak;
 
         // The agent acceleration (u/s²) the smooth-direct-drive config applies (86caa3kur re-soak). HIGH so the
         // agent's simulated velocity tracks the directly-commanded velocity within ~one frame instead of ramping —

@@ -1362,6 +1362,24 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument) onto
+        // Boot so it SERIALIZES into Boot.unity (the editor-vs-runtime serialization trap — it would ship inert
+        // otherwise). F2 toggles #186 foot-sync; F3 snaps sneak→walk speed; the live readout shows which number
+        // oscillates per gait cycle. Behind the F1 dev-overlay master gate; default state = shipped crouch (foot-
+        // sync ON, reduced sneak). Sibling of WireFloatDiagnostic.
+        private static void WireSneakIsolationTool()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakIsolationTool");
+                return;
+            }
+            if (bootGo.GetComponent<SneakIsolationTool>() == null)
+                bootGo.AddComponent<SneakIsolationTool>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
         // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
         private static void WireWalkGroundingVerifyCapture()
@@ -2594,6 +2612,12 @@ namespace FarHorizon.EditorTools
             // And its committed shipped-build capture path (proves the overlay renders the live GAP in the exe —
             // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
             WireFloatDiagnosticVerifyCapture();
+
+            // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument).
+            // Serializes onto Boot so the F2 (foot-sync) + F3 (sneak-speed snap) toggles + the live readout ship;
+            // behind the F1 dev-overlay master gate, default = shipped crouch behavior. The Sponsor sneaks, flips
+            // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
+            WireSneakIsolationTool();
 
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the

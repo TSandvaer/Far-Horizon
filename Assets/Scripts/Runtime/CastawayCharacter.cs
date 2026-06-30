@@ -572,6 +572,35 @@ namespace FarHorizon
             }
         }
 
+        /// <summary>The Animator's CURRENT Speed param value this frame (86caa3kur re-soak attempt-3 isolation
+        /// instrument) — the DAMPED blend-tree Speed the LateUpdate SetFloat fed (NOT the raw planar speed
+        /// <see cref="CurrentSpeed"/>). Read off GetFloat so the readout shows what the Walk<->Run blend tree
+        /// actually consumes (it eases toward the raw speed via speedDampTime). NaN when no Animator. Exposed so
+        /// the SneakIsolationTool readout can show whether the Speed param oscillates per gait cycle (the
+        /// foot-sync / blend-tree suspect) vs holds steady.</summary>
+        public float CurrentAnimatorSpeedParam
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.GetFloat(SpeedParam);
+            }
+        }
+
+        /// <summary>The Animator's GLOBAL playback-speed multiplier (<c>animator.speed</c>) this frame
+        /// (86caa3kur re-soak attempt-3 isolation instrument). Normally 1; surfaced so the readout proves the
+        /// global Animator clock is steady (a global speed wobble would jerk EVERY clip, not just the sneak).
+        /// NaN when no Animator. Distinct from the per-state effective speed (<see cref="CurrentStateEffectiveSpeed"/>),
+        /// which is the LocoSpeedMul foot-sync multiplier on the upright Locomotion state.</summary>
+        public float CurrentAnimatorGlobalSpeed
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.speed;
+            }
+        }
+
         /// <summary>
         /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook). The verify
         /// capture cannot rely on the rest-state facing being a fixed axis, so it pins the facing to a known

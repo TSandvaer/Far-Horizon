@@ -308,6 +308,64 @@ namespace FarHorizon.EditTests
                 "an unset (0) sneak speed must fall back to the walk speed — a crouch must never freeze the player.");
         }
 
+        // =================================================================================================
+        // SNEAK-SPEED-SNAP ISOLATION instrument (86caa3kur re-soak attempt-3 /unstick) — WasdMovement.EffectiveSneakSpeed.
+        //
+        // BUG CLASS these pin: the DEBUG isolation toggle must be INERT at its shipped default (a debug handle
+        // that changes shipped behavior when OFF is the silent-regression class). Default (snapToWalk=false) →
+        // the reduced sneak speed is UNCHANGED; ON (true) → the crouch commands the walk speed (the disconfirming
+        // control). Pure + scene-rig-free.
+        // =================================================================================================
+        [Test]
+        public void EffectiveSneakSpeed_DefaultOff_ReturnsReducedSneak_ShippedBehaviorUnchanged()
+        {
+            Assert.AreEqual(Sneak, WasdMovement.EffectiveSneakSpeed(Sneak, Walk, /*snapToWalk*/ false), 1e-5f,
+                "DEFAULT (snap OFF) must leave the SHIPPED reduced sneak speed untouched — the instrument is " +
+                "inert at its default (no silent regression of crouch behavior).");
+        }
+
+        [Test]
+        public void EffectiveSneakSpeed_SnapOn_ReturnsWalkSpeed_TheIsolationControl()
+        {
+            Assert.AreEqual(Walk, WasdMovement.EffectiveSneakSpeed(Sneak, Walk, /*snapToWalk*/ true), 1e-5f,
+                "snap ON must command the NORMAL walk speed for a crouched move — the disconfirming control that " +
+                "rules out the slow-sneak-speed-specific jerk path (86caa3kur attempt-3).");
+        }
+
+        [Test]
+        public void EffectiveSneakSpeed_ComposesWithResolveSpeed_CrouchAtWalkSpeed_WhenSnapped()
+        {
+            // The full path the Update runs: snap ON feeds the walk speed into ResolveSpeed for a crouched move,
+            // so a crouched (Ctrl) move commands the WALK speed (not the reduced sneak) — what the Sponsor A/Bs.
+            float effSneak = WasdMovement.EffectiveSneakSpeed(Sneak, Walk, /*snapToWalk*/ true);
+            float speed = WasdMovement.ResolveSpeed(Walk, Run, effSneak, /*sprint*/ false, /*crouch*/ true);
+            Assert.AreEqual(Walk, speed, 1e-5f,
+                "with snap ON, a crouched move must resolve to the WALK speed end-to-end (EffectiveSneakSpeed → " +
+                "ResolveSpeed). Default OFF still resolves to the reduced sneak (the inert-default guard above).");
+        }
+
+        // SNEAK-ISOLATION runtime toggle DEFAULT — the WasdMovement component's snap flag starts OFF (shipped).
+        // This is the component-state half of the inert-default guard (the pure-math half is above): a freshly
+        // built WasdMovement must report the snap OFF so a normal soak/CI build runs the reduced sneak speed.
+        [Test]
+        public void SneakSpeedSnap_RuntimeDefault_IsOff()
+        {
+            var go = new GameObject("wasd-snap-default");
+            try
+            {
+                go.AddComponent<UnityEngine.AI.NavMeshAgent>(); // WasdMovement [RequireComponent]
+                var w = go.AddComponent<WasdMovement>();
+                Assert.IsFalse(w.SneakSpeedSnappedToWalk,
+                    "the sneak-speed-snap isolation toggle must DEFAULT OFF on a fresh component — a normal " +
+                    "soak/CI build must run the shipped reduced sneak speed, not the walk-speed isolation control.");
+                w.SetSneakSpeedSnapToWalk(true);
+                Assert.IsTrue(w.SneakSpeedSnappedToWalk, "SetSneakSpeedSnapToWalk(true) must flip the flag ON.");
+                w.SetSneakSpeedSnapToWalk(false);
+                Assert.IsFalse(w.SneakSpeedSnappedToWalk, "SetSneakSpeedSnapToWalk(false) must flip it back OFF.");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
         [Test]
         public void Airborne_VsOldSnap_QuantifiesTheFix_DiagnoseBeforeFix()
         {
