@@ -40,6 +40,22 @@ namespace FarHorizon.EditorTools
         // LowPolyZoneGen.IslandSeed). 13001 kept as the legacy Zone-D parity seed for the non-island scatter.
         const int ZoneSeed = 13001; // the spike's Zone-D seed, for look parity with the approved pass
 
+        // ---- SUN ORIENTATION (ticket 86cag25az — sun-lower, folded into #194) ----
+        // The warm directional "Sun" key's rotation. Euler X = the sun's ELEVATION above the horizon (the
+        // -35 yaw/azimuth does NOT change elevation). LOWERED 48->18 so the warm-gold disk sits in the
+        // upper-sky band the gameplay over-shoulder orbit frames when looking toward the horizon (the disk
+        // was previously baked at 48° — too high for the pitch-[8,70]-clamped orbit to ever frame in normal
+        // play). QualityPassGen.ResolveSunDirection reads -light.forward off this same Sun, so the baked
+        // sky-material _SunDirection (the visual disk) and the shading light stay consistent. The Sponsor
+        // dials these live on the F10 WorldLookNudgeTool SUN target + reports the value to re-bake HERE.
+        // 25° (not the first-try 18°): the shipped-build gameplay capture showed an 18° disk sitting RIGHT AT
+        // the tall blob-canopy treeline (occluded from a ground-level over-shoulder tilt) — the trees subtend
+        // ~15-20° from the player's eye. 25° lifts the disk clearly ABOVE the canopy so it reads in the open
+        // sky at the gameplay pitch, while still being a LOW warm sun (well under the old 48° overhead-only
+        // bake). Dial-from default; the Sponsor fine-tunes live on the F10 SUN nudge target.
+        public const float SunElevationDeg = 25f; // dial-from default (was 48; first-try 18 sat at the canopy); deg above horizon
+        public const float SunAzimuthDeg   = -35f; // azimuth/yaw — unchanged (does not affect elevation)
+
         // ---- WORLD-LOOK POLISH palettes (ticket 86ca8t9pq — Uma world-look brief §1/§2) ----
         // CLOUD 3-value cyan (Uma §1 anchor swatches — warm-leaning cyan, NOT cold steel blue; all
         // sub-0.95 HDR-clamp-safe so the reduced-but-present bloom doesn't bloom-clip the bright caps).
@@ -287,7 +303,21 @@ namespace FarHorizon.EditorTools
             light.type = LightType.Directional;
             light.intensity = 1.25f;
             light.color = new Color(1f, 0.93f, 0.80f);  // warm amber key
-            sunGo.transform.rotation = Quaternion.Euler(48f, -35f, 0f);
+            // SUN-LOWER (ticket 86cag25az — folded into the #194 sky PR). The disk was baked at elevation 48°
+            // (Euler X); the gameplay over-shoulder orbit (default pitch 55 looking DOWN, clamped to [8,70])
+            // physically can't tilt up far enough to frame a sun that high — so the Sponsor's first #194 soak
+            // saw the warm-gold disk only in the dedicated -verifySky shot, never in normal play ("baked too
+            // high to see"). LOWER the elevation to 25° (Euler X 48->25; yaw/azimuth -35 unchanged) so the disk
+            // sits in the upper-sky band the orbit frames when the player looks toward the HORIZON — the
+            // far-horizon north-star framing. The Euler X IS the sun's elevation above the horizon (the -35 yaw
+            // doesn't change elevation — verified). This is the CAUSE-level fix (the disk was where the LIGHT
+            // pointed, just too high): lowering the actual Sun light lowers BOTH the shading direction AND the
+            // baked _SunDirection (QualityPassGen.ResolveSunDirection reads -light.forward off THIS light), so
+            // the visual disk and the light stay consistent — a low warm sun reads as a coherent late-afternoon
+            // key (longer warm shadows), suiting the warm Zone-D palette. 18° is the dial-from default; the
+            // Sponsor fine-tunes elevation/hue/size live on the F10 WorldLookNudgeTool SUN target and reports
+            // the value to re-bake here.
+            sunGo.transform.rotation = Quaternion.Euler(SunElevationDeg, SunAzimuthDeg, 0f);
             light.shadows = LightShadows.Soft;
 
             RenderSettings.ambientMode = AmbientMode.Trilight;

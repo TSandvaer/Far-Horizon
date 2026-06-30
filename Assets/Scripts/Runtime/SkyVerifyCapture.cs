@@ -9,23 +9,32 @@ namespace FarHorizon
     /// Verification-only shipped-build SKY-FACING capture for the SUN-DISK POC (ticket 86cabc743 — Erik
     /// low-poly-sky research, POC items 1+3). Sibling of WorldLookVerifyCapture / FreshwaterPondVerifyCapture.
     ///
-    /// WHY A DEDICATED CAMERA (not the gameplay orbit cam): the OrbitCamera clamps pitch to [8,70] and frames
-    /// the player from ABOVE looking DOWN — it physically cannot tilt up to put the Sun (elevation ~48deg) in
-    /// frame. So this parks a dedicated capture camera with the SAME render path as gameplay (Skybox clear +
-    /// Zone-D post Volume + SMAA) and AIMS it: (a) straight at the live Sun direction for the sun-disk shot,
-    /// (b) up into the cloud band for the cloud-vs-sky contrast shot. Skybox clear is LOAD-BEARING here (a
-    /// SolidColor clear like the axe close-up would erase the gradient sky we are verifying).
+    /// THREE SHOTS, each with the SAME render path as gameplay (Skybox clear + Zone-D post Volume + SMAA);
+    /// Skybox clear is LOAD-BEARING (a SolidColor clear like the axe close-up would erase the gradient sky we
+    /// are verifying):
+    ///   (a) sky_sun.png    — a dedicated camera aimed STRAIGHT at the live Sun direction (the disk centred):
+    ///                        proves the disk RENDERS warm-gold in the shipped exe (Erik's open Q).
+    ///   (b) sky_clouds.png — aimed up into the cloud band: the cloud-vs-sky contrast shot (Erik's 2nd open Q).
+    ///   (c) sky_gameplay.png — a GAMEPLAY-FRAMED camera (ticket 86cag25az sun-lower): an orbit-style pose at
+    ///                        a LOW pitch toward the horizon, facing the sun's azimuth, at the real orbit
+    ///                        distance. With the sun LOWERED to elev ~25° (was 48°) the disk now sits in the
+    ///                        UPPER-sky band the pitch-[8,70] orbit actually frames — so this is the eyes-on
+    ///                        proof the Sponsor can SEE the sun in normal play (the (a) shot only proves it
+    ///                        renders when aimed dead at it; this proves it's framed at a playable angle).
     ///
-    /// The sun-disk render is the OPEN QUESTION Erik flagged (does the Sun bind in the skybox pass?). The
-    /// shader uses the URP GLOBAL _MainLightPosition (always bound in the Background/skybox pass) rather than
-    /// GetMainLight() — this component is the eyes-on + self-assert proof it renders in the SHIPPED IL2CPP exe.
+    /// SUN DIRECTION: the disk is driven by the sky material's baked _SunDirection (NOT the URP
+    /// _MainLightPosition global, which is UNBOUND in the Background/skybox pass — verified empirically on
+    /// PR #194). This component is the eyes-on + self-assert proof it renders in the SHIPPED IL2CPP exe.
     ///
     /// SELF-ASSERT (the gate verdict via Application.Quit code):
     ///   1. SUN VISIBLE — sample the centre pixels of sky_sun.png; a warm-gold disk reads BRIGHTER than the
     ///      blue sky surround AND warm (R >= B). The additive _SunColor lifts the centre well above the sky.
     ///   2. CLOUD-VS-SKY CONTRAST HOLDS (Erik 2nd open Q) — sky_clouds.png contains pixels NOTABLY brighter
     ///      than the sky band (the bright near-white cyan clouds), i.e. the S2 contrast fix survives the build.
-    /// Quit(1) on either failure (or a missing Sun) so the exe exit code IS the gate; frame_check.py backstops.
+    ///   3. SUN FRAMED AT GAMEPLAY ANGLE (86cag25az) — in sky_gameplay.png the warm-gold disk appears in the
+    ///      UPPER half of the frame (brighter + warmer than the sky around it), proving the lowered sun is
+    ///      actually visible at a playable over-shoulder pitch (not just when aimed dead at it).
+    /// Quit(1) on any failure (or a missing Sun) so the exe exit code IS the gate; frame_check.py backstops.
     ///
     /// Inert unless launched with -verifySky (normal game / boot capture unaffected):
     ///   FarHorizon.exe -screen-fullscreen 0 -verifySky [-captureDir &lt;dir&gt;]
@@ -103,6 +112,36 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             Texture2D cloudTex = GrabFull(out float skyMedianLuma, out float brightFraction);
 
+            // --- Shot 3: GAMEPLAY-FRAMED (ticket 86cag25az sun-lower) — the over-shoulder orbit pose at the
+            // most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°), FACING the sun's azimuth, at the real
+            // orbit distance (14u). This is the eyes-on proof that the LOWERED sun (elev ~25°) is FRAMED in
+            // normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a playable tilt").
+            // A WIDE FOV (75°) is used DELIBERATELY: at the orbit's lowest pitch the camera still looks slightly
+            // DOWN (Euler-X is look-down), so a generous FOV is needed for the elev-25° sun to clear the tall
+            // blob-canopy treeline and sit in the open upper-sky band (the canopy reaches high from a ground
+            // vantage — confirmed by the (a) sky_sun shot). Yaw faces the sun's horizontal azimuth so the disk
+            // lands in frame. NOTE: whether the sun is framed in NORMAL play also depends where the player looks
+            // + on tree occlusion — the Sponsor soak is the real judge ([[verify-grounding-soaks-by-gameplay-cam-visual]]);
+            // this shot proves it CAN be framed at a playable angle, and the gameplay self-assert below is
+            // ADVISORY (logged, NOT gating) so tree-position variance can't false-fail the gate.
+            float sunAzimuthDeg = Mathf.Atan2(toSun.x, toSun.z) * Mathf.Rad2Deg; // horizontal heading toward the sun
+            const float gameplayPitch = 8f;    // OrbitCamera.minPitch — the horizon-most playable tilt
+            const float gameplayDist  = 14f;   // OrbitCamera.distance default
+            Vector3 lookAt = new Vector3(0f, 1.0f, 0f); // ≈ player root + OrbitCamera.targetOffset
+            Quaternion gpRot = Quaternion.Euler(gameplayPitch, sunAzimuthDeg, 0f);
+            Vector3 gpForward = gpRot * Vector3.forward;
+            camGo.transform.position = lookAt - gpForward * gameplayDist; // sit back along the view ray
+            camGo.transform.rotation = gpRot;
+            cam.fieldOfView = 75f; // WIDE so the elev-25 sun clears the tall canopy + sits in the open sky band
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            yield return new WaitForEndOfFrame();
+            string gameplayFile = Path.Combine(dir, "sky_gameplay.png");
+            ScreenCapture.CaptureScreenshot(gameplayFile, 1);
+            Debug.Log($"[SkyVerifyCapture] wrote {gameplayFile} (gameplay-framed: pitch {gameplayPitch}, FOV 75, yaw->sun azimuth {sunAzimuthDeg:F1})");
+            yield return new WaitForEndOfFrame();
+            yield return new WaitForEndOfFrame();
+            Texture2D gpTex = GrabWarmestUpper(out Color gpSun, out Color gpSky);
+
             yield return new WaitForSeconds(0.3f);
 
             // ---- SELF-ASSERT 1: sun disk visible (brighter + RELATIVELY warmer than the surround). ----
@@ -128,10 +167,29 @@ namespace FarHorizon
             Debug.Log($"[SkyVerifyCapture] CLOUD-CONTRAST self-assert: skyMedianLuma={skyMedianLuma:F3} " +
                       $"brightFraction={brightFraction:F4} (pixels > skyMedian+0.12) -> {(contrastOk ? "PASS" : "FAIL")}");
 
+            // ---- ADVISORY 3: SUN FRAMED AT GAMEPLAY ANGLE (ticket 86cag25az) — LOGGED, NOT GATING. ----
+            // The WARMEST patch in the gameplay frame's upper band (warmth-strict so it locks onto the gold
+            // sun, never a bright-cyan CLOUD — the luma+warmth picker was fooled by a cloud on the first run)
+            // should read WARMER + BRIGHTER than the cool sky beside it when the lowered sun is framed. This is
+            // ADVISORY only (not folded into `pass`): whether the sun lands in an OPEN sky gap vs behind a blob
+            // canopy is tree-position-dependent, so a hard gate here would flake; the eyes-on sky_gameplay.png +
+            // the Sponsor soak are the real "framed in play" judges ([[verify-grounding-soaks-by-gameplay-cam-visual]]).
+            float gpSunLuma = Luma(gpSun), gpSkyLuma = Luma(gpSky);
+            bool gpBrighter = gpSunLuma > gpSkyLuma + 0.04f;
+            bool gpWarmer = (gpSun.r - gpSun.b) > (gpSky.r - gpSky.b) + 0.06f;
+            bool gameplaySunSeen = gpBrighter && gpWarmer;
+            Debug.Log($"[SkyVerifyCapture] GAMEPLAY-SUN (advisory): warmest-upper=({gpSun.r:F3},{gpSun.g:F3},{gpSun.b:F3}) " +
+                      $"luma={gpSunLuma:F3} vs sky luma={gpSkyLuma:F3} | brighter={gpBrighter} " +
+                      $"warmth(sun R-B)={(gpSun.r - gpSun.b):F3} sky={(gpSky.r - gpSky.b):F3} warmer={gpWarmer} " +
+                      $"-> sun {(gameplaySunSeen ? "FRAMED" : "not auto-detected (eyeball sky_gameplay.png + soak)")}");
+
             if (sunTex != null) Object.Destroy(sunTex);
             if (cloudTex != null) Object.Destroy(cloudTex);
+            if (gpTex != null) Object.Destroy(gpTex);
             Object.Destroy(camGo);
 
+            // GATE = the two PROVEN asserts (sun renders warm-gold + cloud contrast holds). The gameplay shot
+            // is eyes-on evidence (advisory above) — not a hard gate, so tree occlusion can't false-fail it.
             bool pass = sunOk && contrastOk;
             Debug.Log("[SkyVerifyCapture] verification " + (pass ? "PASSED" : "FAILED") + " -> " + dir);
             yield return new WaitForSeconds(0.2f);
@@ -189,6 +247,46 @@ namespace FarHorizon
             int bright = 0;
             foreach (var l in lumas) if (l > thr) bright++;
             brightFraction = (float)bright / lumas.Count;
+            return tex;
+        }
+
+        // Capture the gameplay-framed frame; in its UPPER band (where a low sun sits) find the WARMEST patch
+        // (highest R-B = the warm-gold sun core) + a sky reference beside it. WARMTH-STRICT on purpose: the
+        // sky has bright near-white CYAN clouds (B>R) whose high luma fooled an earlier luma+warmth picker into
+        // locking onto a cloud; scoring purely on warmth (with a brightness floor to skip dark canopy gaps)
+        // makes the gold disk win. Used for the ADVISORY gameplay-sun readout only (not a hard gate).
+        private Texture2D GrabWarmestUpper(out Color sun, out Color sky)
+        {
+            int w = Screen.width, h = Screen.height;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+
+            int patch = Mathf.Max(3, Mathf.Min(w, h) / 90);
+            // Scan the upper band: y in [0.55h .. 0.97h] (top of the screen is HIGH y in bottom-left origin),
+            // x across the middle 84%. Score = WARMTH (R-B) but only for patches above a luma floor (so dark
+            // tree-canopy gaps with incidental warmth don't win).
+            int yLo = (int)(0.55f * h), yHi = (int)(0.97f * h);
+            int xLo = (int)(0.08f * w), xHi = (int)(0.92f * w);
+            const int gx = 48, gy = 20;
+            float bestWarm = float.NegativeInfinity; int bsx = (xLo + xHi) / 2, bsy = (yLo + yHi) / 2;
+            for (int j = 0; j < gy; j++)
+                for (int i = 0; i < gx; i++)
+                {
+                    int px = xLo + (int)((i + 0.5f) / gx * (xHi - xLo));
+                    int py = yLo + (int)((j + 0.5f) / gy * (yHi - yLo));
+                    Color c = AvgPatch(tex, px, py, patch);
+                    if (Luma(c) < 0.35f) continue;       // skip dark canopy / gaps — the sun core is bright
+                    float warm = c.r - c.b;              // warmth only — the gold disk beats any cyan cloud
+                    if (warm > bestWarm) { bestWarm = warm; bsx = px; bsy = py; }
+                }
+            sun = AvgPatch(tex, bsx, bsy, patch);
+            // Sky reference: sample well to the LEFT and RIGHT of the found patch at the same height (off the
+            // disk), averaged. Clamped inside the frame by AvgPatch.
+            int off = Mathf.Max(60, w / 5);
+            Color sLeft = AvgPatch(tex, bsx - off, bsy, patch);
+            Color sRight = AvgPatch(tex, bsx + off, bsy, patch);
+            sky = new Color((sLeft.r + sRight.r) * 0.5f, (sLeft.g + sRight.g) * 0.5f, (sLeft.b + sRight.b) * 0.5f);
             return tex;
         }
 

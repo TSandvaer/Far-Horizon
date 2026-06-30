@@ -76,7 +76,8 @@ namespace FarHorizon.EditorTools
                 // SUN DISK (ticket 86cabc743 — Erik low-poly-sky research, POC item 2). Warm-gold starting
                 // values for the Sponsor soak; additive in the shader so the post Bloom lifts a soft corona.
                 // The sun appears where the view ray faces the Sun's direction (the warm directional key at
-                // Quaternion.Euler(48,-35,0)); these are the dial-from defaults, NOT a final-tuned value.
+                // Quaternion.Euler(WorldBootstrap.SunElevationDeg=25, SunAzimuthDeg=-35, 0) — LOWERED from 48
+                // so the disk frames at gameplay angles, ticket 86cag25az); these are the dial-from defaults.
                 sky.SetColor("_SunColor", SunColor);
                 sky.SetFloat("_SunSize", SunSize);
                 sky.SetFloat("_SunHardness", SunHardness);
@@ -120,9 +121,11 @@ namespace FarHorizon.EditorTools
                     Debug.Log($"[QualityPassGen] sun-disk direction baked from the 'Sun' key: {d}");
                     return d.normalized;
                 }
-            Vector3 fallback = -(Quaternion.Euler(48f, -35f, 0f) * Vector3.forward);
+            // Fallback Euler kept in lockstep with WorldBootstrap.SunElevationDeg/SunAzimuthDeg (the actual
+            // Sun key) so an absent-Sun bake still matches the lowered disk (ticket 86cag25az sun-lower).
+            Vector3 fallback = -(Quaternion.Euler(WorldBootstrap.SunElevationDeg, WorldBootstrap.SunAzimuthDeg, 0f) * Vector3.forward);
             Debug.LogWarning($"[QualityPassGen] no 'Sun' key found — baking sun-disk direction from the " +
-                             $"known bootstrap Euler (48,-35,0): {fallback}");
+                             $"known bootstrap Euler ({WorldBootstrap.SunElevationDeg},{WorldBootstrap.SunAzimuthDeg},0): {fallback}");
             return fallback.normalized;
         }
 

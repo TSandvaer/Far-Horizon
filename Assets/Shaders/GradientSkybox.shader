@@ -52,8 +52,10 @@ Shader "FarHorizon/GradientSkybox"
         _SunHardness ("Sun Hardness", Range(8.0, 400.0))   = 60.0
         // World-space direction TOWARD the Sun (the sun disk centre). Set by QualityPassGen from the actual
         // Sun light transform at bootstrap — NOT read from the URP _MainLightPosition global, which is NOT
-        // bound in the Background/skybox pass (verified empirically — see the CBUFFER note below).
-        _SunDirection ("Sun Direction (world, to-sun)", Vector) = (0.38, 0.74, -0.55, 0)
+        // bound in the Background/skybox pass (verified empirically — see the CBUFFER note below). Raw default
+        // matches the LOWERED elev-25 Sun (ticket 86cag25az; was the elev-48 (0.38,0.74,-0.55)); the bootstrap
+        // bakes the real value over this, so this only matters if the asset is opened raw.
+        _SunDirection ("Sun Direction (world, to-sun)", Vector) = (0.520, 0.423, -0.742, 0)
     }
     SubShader
     {

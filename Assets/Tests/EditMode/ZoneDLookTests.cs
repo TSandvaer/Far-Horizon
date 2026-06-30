@@ -116,6 +116,46 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Sun_LoweredTowardHorizon_ForGameplayFraming()
+        {
+            // SUN-LOWER (ticket 86cag25az — folded into the #194 sky PR). The warm-gold disk was baked at
+            // elevation 48° (Euler X) — too high for the pitch-[8,70]-clamped over-shoulder orbit to ever
+            // frame in normal play, so the Sponsor's first #194 soak couldn't SEE the sun. The fix LOWERS the
+            // "Sun" key toward the horizon so the disk sits in the upper-sky band the orbit frames when looking
+            // toward the horizon. Guard the COMMITTED Sun rotation (the bytes the exe ships): elevation must be
+            // clearly LOWERED (well under the old 48°) but still a SKY sun (above the horizon). A future change
+            // that reverts the elevation back up reds here before it ships an invisible sun again.
+            var sun = Object.FindObjectsByType<Light>(FindObjectsSortMode.None)
+                .FirstOrDefault(l => l.type == LightType.Directional && l.gameObject.name == "Sun");
+            Assert.IsNotNull(sun, "the warm 'Sun' directional key must exist");
+
+            // The sun's ELEVATION above the horizon = the to-sun vector's Y angle (-light.forward; the same
+            // direction QualityPassGen bakes into _SunDirection). Compute it the way the bake does.
+            Vector3 toSun = -sun.transform.forward;
+            float elevationDeg = Mathf.Asin(Mathf.Clamp(toSun.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            Assert.Less(elevationDeg, 30f,
+                $"the Sun must be LOWERED toward the horizon (elevation < 30°, was 48° — too high to frame at " +
+                $"the gameplay orbit pitch); measured {elevationDeg:F1}° (ticket 86cag25az)");
+            Assert.Greater(elevationDeg, 2f,
+                $"the Sun must stay ABOVE the horizon (a sky sun, not on/below the waterline); measured {elevationDeg:F1}°");
+
+            // The baked sky-material _SunDirection (the VISUAL disk) must MATCH the lowered light direction —
+            // a mismatch would render the disk somewhere other than where the light comes from. Allow a small
+            // tolerance (normalisation / float).
+            var sky = RenderSettings.skybox;
+            if (sky != null && sky.HasProperty("_SunDirection"))
+            {
+                Vector4 sd = sky.GetVector("_SunDirection");
+                Vector3 diskDir = new Vector3(sd.x, sd.y, sd.z).normalized;
+                float align = Vector3.Dot(diskDir, toSun.normalized);
+                Assert.Greater(align, 0.99f,
+                    "the sky material's baked _SunDirection (the visual disk) must align with the lowered Sun " +
+                    "light direction (QualityPassGen.ResolveSunDirection bakes -light.forward) — the disk and " +
+                    $"the shading light must agree; dot={align:F3}");
+            }
+        }
+
+        [Test]
         public void Atmosphere_DistanceFogEnabled_ColourMatchesHorizonStop()
         {
             // WORLD-LOOK RE-TUNE (ticket 86ca8t9pq — Uma world-look brief §3 + Erik far-vista 86ca8t9rh):
