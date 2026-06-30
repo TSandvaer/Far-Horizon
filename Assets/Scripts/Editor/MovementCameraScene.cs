@@ -2879,6 +2879,13 @@ namespace FarHorizon.EditorTools
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
             // editor-vs-runtime ship-path discipline). May be null on a bare rig — the rows then simply don't appear.
             panel.heldWeapon = Object.FindObjectOfType<HeldWeaponPlacement>();
+            // Inventory façade (86cabfa4e) — `inventory slots` + `belt slots` + `inventory stack size` bind through
+            // it. BootstrapProject adds the Inventory to the Survival object BEFORE MovementCameraScene.Author runs
+            // (so CraftSpot can wire it), so it ALREADY exists here — wire it serialized so the rows ship live without
+            // a runtime FindObjectOfType (the editor-vs-runtime ship-path discipline the stone-respawner dead-knob
+            // taught). The Awake FindObjectOfType<Inventory> stays as the bare-scene safety net. May be null on a
+            // bare rig — the inventory rows then simply don't appear.
+            panel.inventory = Object.FindObjectOfType<Inventory>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +
