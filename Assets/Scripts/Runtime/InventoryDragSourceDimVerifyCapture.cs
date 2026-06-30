@@ -70,13 +70,16 @@ namespace FarHorizon
             var grid = root?.Q<VisualElement>("inv-grid");
             var ghost = root?.Q<VisualElement>("drag-ghost");
             bool srcDimmed = ui.IsSourceDimmed(src);
-            string iconVis = "n/a";
+            // Compare the Visibility enum value DIRECTLY (#184 NIT) — not the stringified form. A future enum
+            // rename/boxing quirk could silently flip a string compare to pass-through; the enum compare can't.
+            // Default to Visible (the un-dimmed, gate-FAILING state) so a missing/empty grid does not pass.
+            Visibility iconVis = Visibility.Visible;
             if (grid != null)
             {
                 foreach (var cell in grid.Children())
                 {
                     var icon = cell.Q<VisualElement>("icon");
-                    if (icon != null) { iconVis = icon.resolvedStyle.visibility.ToString(); break; }
+                    if (icon != null) { iconVis = icon.resolvedStyle.visibility; break; }
                 }
             }
             bool ghostUp = ghost != null && ghost.resolvedStyle.display == DisplayStyle.Flex;
@@ -89,7 +92,7 @@ namespace FarHorizon
             // dimmed in the built player": the class is on the source, the icon RESOLVES to Hidden (the rule
             // actually fired in the shipped USS), and the ghost is up (the item reads in ONE place, not two).
             // We capture the frame first for evidence, THEN quit non-zero so the failure is auditable.
-            bool pass = srcDimmed && iconVis == "Hidden" && ghostUp;
+            bool pass = srcDimmed && iconVis == Visibility.Hidden && ghostUp;
             for (int i = 0; i < 4; i++) yield return null;
             ScreenCapture.CaptureScreenshot(Path.Combine(dir, "inv_drag_source_dim.png"), 1);
             Debug.Log("[inv-drag-dim] wrote inv_drag_source_dim.png -> " + dir);
