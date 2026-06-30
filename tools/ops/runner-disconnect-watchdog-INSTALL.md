@@ -52,11 +52,17 @@ authenticated (it cannot prove offline, so it stays hands-off).
 ## Step 1 — Sanity-check the script once, by hand
 
 Open PowerShell **as your normal interactive user** (not Administrator) and run
-a single pass:
+a single pass. Prefer **PowerShell 7** (`pwsh.exe`, your default shell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\Trunk\PRIVATE\Far-Horizon\tools\ops\runner-disconnect-watchdog.ps1 -Once
+pwsh -ExecutionPolicy Bypass -File C:\Trunk\PRIVATE\Far-Horizon\tools\ops\runner-disconnect-watchdog.ps1 -Once
 ```
+
+> The script is saved as **UTF-8 with a BOM** and is pure ASCII, so **Windows
+> PowerShell 5.1** (`powershell.exe`) parses it cleanly too — either shell is
+> fine. (Earlier the no-BOM + em-dash characters made 5.1 misread the file as
+> ANSI and throw cascade `Missing closing ')'` / `missing string terminator`
+> parse errors; the BOM + ASCII-only fix removes that.)
 
 Expected when the runner is healthy:
 
@@ -75,13 +81,18 @@ Logs are written to `C:\actions-runner-farhorizon\_watchdog\runner-disconnect-wa
 
 Run this **once** in your normal-user PowerShell. It registers a task that runs
 the watchdog as **you** (interactive logon), at logon, repeating every 5 minutes
-indefinitely. Edit the two paths in the first two lines if your clone differs.
+indefinitely, via **`pwsh.exe`** (PowerShell 7). Edit the two paths in the first
+two lines if your clone differs.
+
+> The action uses `pwsh.exe`. The script's BOM + ASCII-only encoding also lets
+> `powershell.exe` (Windows PowerShell 5.1) parse it, so swap to `'powershell.exe'`
+> if you'd rather not depend on PowerShell 7 — either works.
 
 ```powershell
 $Script   = 'C:\Trunk\PRIVATE\Far-Horizon\tools\ops\runner-disconnect-watchdog.ps1'
 $TaskName = 'FarHorizon-RunnerDisconnectWatchdog'
 
-$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+$action  = New-ScheduledTaskAction -Execute 'pwsh.exe' `
              -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Once"
 
 # Trigger: at logon, then repeat every 5 minutes for ever.
