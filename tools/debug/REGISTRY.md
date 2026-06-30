@@ -2,6 +2,8 @@
 
 One-line index of durable debug/build instruments. Reuse before rebuilding.
 
+> Operator/infra reliability tooling (CI runner watchdog, machine ops) lives in `tools/ops/` — see `tools/ops/REGISTRY.md`.
+
 | Tool | Purpose |
 |---|---|
 | `blender_mcp_send.py` | Send a command to the running BlenderMCP (ahujasid) addon over its TCP socket (localhost:9876). Modes: `code <file>` (execute_code), `scene` (get_scene_info), `shot <out.png>` (viewport screenshot). The transport for all Far Horizon Blender-MCP modeling when the `mcp__blender__*` tools aren't wired into the agent session. |
