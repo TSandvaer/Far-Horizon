@@ -152,10 +152,10 @@ namespace FarHorizon.EditTests
                 "smooth-vs-faceted A/B is inert if the scene never carries it — the component-not-serialized trap)");
         }
 
-        // The F1 dev-overlay MASTER TOGGLE (ticket 86cafd6d6) must be SERIALIZED onto the Boot object — same
-        // component-not-serialized-into-scene class: F1 can't toggle the dev-overlay layer if the scene never
-        // carries DebugOverlayToggle. Regression guard: delete the AddComponent<DebugOverlayToggle>() line in
-        // BootstrapProject.BuildBootScene and this goes red.
+        // The LEGACY dev-overlay MASTER TOGGLE (ticket 86cafd6d6; key moved F1→F2 by 86cabeqj9 soak NIT) must
+        // be SERIALIZED onto the Boot object — same component-not-serialized-into-scene class: F2 can't toggle
+        // the legacy overlay layer if the scene never carries DebugOverlayToggle. Regression guard: delete the
+        // AddComponent<DebugOverlayToggle>() line in BootstrapProject.BuildBootScene and this goes red.
         [Test]
         public void BootScene_CarriesDebugOverlayToggle_Serialized()
         {
@@ -169,10 +169,16 @@ namespace FarHorizon.EditTests
                 if (toggle != null) break;
             }
             Assert.IsNotNull(toggle,
-                "the Boot scene must carry DebugOverlayToggle serialized (F1 can't master-toggle the dev-overlay " +
-                "layer if the scene never carries it — the component-not-serialized trap; unity-conventions.md)");
-            Assert.AreEqual(KeyCode.F1, toggle.toggleKey,
-                "the master toggle must be F1 (the Sponsor directive) — layout-agnostic, Danish-keyboard-safe");
+                "the Boot scene must carry DebugOverlayToggle serialized (F2 can't master-toggle the legacy " +
+                "overlay layer if the scene never carries it — the component-not-serialized trap; unity-conventions.md)");
+            // 86cabeqj9 soak NIT — the legacy-overlay master toggle moved F1→F2 so F1 opens ONLY the dev console
+            // (SettingsPanel polls F1 directly now). F2 is layout-agnostic / Danish-keyboard-safe. The F1↔console
+            // / F2↔legacy split is the de-conflict; this guards the legacy side stays off F1.
+            Assert.AreEqual(KeyCode.F2, toggle.toggleKey,
+                "the legacy-overlay master toggle must be F2 (moved from F1 by the 86cabeqj9 soak NIT so F1 opens " +
+                "ONLY the dev console) — layout-agnostic, Danish-keyboard-safe");
+            Assert.AreNotEqual(KeyCode.F1, toggle.toggleKey,
+                "the legacy-overlay master must NOT share F1 with the dev console (the 86cabeqj9 de-conflict)");
         }
 
         // The FRESNEL/RIM A/B verify capture (ticket 86caamnnj — Fresnel/rim term) must be SERIALIZED into

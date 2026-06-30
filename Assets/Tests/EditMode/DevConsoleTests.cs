@@ -31,6 +31,7 @@ namespace FarHorizon.EditTests
             PlayerPrefs.DeleteKey("fh.settings.con_zoom.max");
             PlayerPrefs.DeleteKey("fh.settings.con_int");
             PlayerPrefs.DeleteKey("fh.settings.con_bool");
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ConsoleUiScaleId);
         }
 
         // ===== AC5 — typed value applies + clamps (the panel's FloatField commit drives entry.SetValue) =====
@@ -246,6 +247,75 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(ea.DiffersFromDefault, "ResetAll cleared the float badge (AC10)");
             Assert.IsFalse(eb.DiffersFromDefault, "ResetAll cleared the int badge (AC10)");
             Assert.IsFalse(ec.DiffersFromDefault, "ResetAll cleared the bool badge (AC10)");
+        }
+
+        // ===== 86cabeqj9 soak NIT — CONSOLE UI SCALE (the panel/text read very large at the Sponsor's res) =====
+        //
+        // The scale row is a FloatSettingEntry the PANEL registers, bound to its own _uiScale field + an apply.
+        // It flows through the SAME registry machinery as every other entry, so the bug CLASS (the knob drives a
+        // value, clamps to [0.5,1.5], persists, badge clears on reset) is pinned here with a stand-in field — the
+        // exact bind shape SettingsPanel.Start uses. (The visible transform.scale application is a UI Toolkit
+        // render concern, covered by the shipped-build capture + Sponsor played-verification.)
+
+        [Test]
+        public void ConsoleUiScale_DrivesValue_AndClampsToBand()
+        {
+            float uiScale = 1f; // stand-in for SettingsPanel._uiScale (default 1.0x = untouched shipped panel)
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale, v => uiScale = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+
+            Assert.AreEqual(SettingEntry.Archetype.Slider, e.Kind, "the UI-scale row is a slider archetype");
+            Assert.AreEqual(0.5f, e.Min, 1e-4f, "the scale floor is 0.5x");
+            Assert.AreEqual(1.5f, e.Max, 1e-4f, "the scale ceiling is 1.5x");
+
+            float applied = e.SetValue(0.75f);
+            Assert.AreEqual(0.75f, applied, 1e-4f, "a dialed scale applies live");
+            Assert.AreEqual(0.75f, uiScale, 1e-4f, "the BOUND scale field actually changed (not a no-op)");
+
+            Assert.AreEqual(1.5f, e.SetValue(9f), 1e-4f, "a scale above the band clamps to 1.5x");
+            Assert.AreEqual(0.5f, e.SetValue(0.01f), 1e-4f, "a scale below the band clamps to 0.5x");
+        }
+
+        [Test]
+        public void ConsoleUiScale_DefaultsToOne_DiffersFlipsAndClearsOnReset()
+        {
+            float uiScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale, v => uiScale = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+
+            Assert.AreEqual(1f, e.Default, 1e-4f, "the captured default is 1.0x (untouched = byte-identical panel)");
+            Assert.IsFalse(e.DiffersFromDefault, "an untouched scale does not differ (badge off — 1.0x is shipped)");
+            e.SetValue(0.6f);
+            Assert.IsTrue(e.DiffersFromDefault, "a dialed scale differs (badge shows)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the differs flag");
+            Assert.AreEqual(1f, uiScale, 1e-4f, "reset restored the 1.0x default scale");
+        }
+
+        [Test]
+        public void ConsoleUiScale_PersistsAndReloads_FromPlayerPrefs()
+        {
+            float uiScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale, v => uiScale = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+            e.SetValue(0.8f); // writes PlayerPrefs (the single persist authority) — survives a relaunch
+
+            // A fresh registry+entry on relaunch loads the persisted scale + drives the field (the
+            // SettingsPanel.Start LoadAll path, so the Sponsor's dialed scale survives a soak relaunch).
+            float uiScale2 = 1f;
+            var reg2 = new SettingsRegistry();
+            var e2 = reg2.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale2, v => uiScale2 = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+            e2.LoadFromPrefs();
+
+            Assert.AreEqual(0.8f, uiScale2, 1e-4f, "the persisted UI scale survives a relaunch (86cabeqj9 NIT)");
         }
 
         // ===== AC3 — the OPEN console alone does NOT gate world input (only a focused field does) =====

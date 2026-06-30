@@ -15,14 +15,21 @@ namespace FarHorizon
     /// this drives the panel + registry programmatically (the SAME SetOpen / SettingEntry.SetValue paths a
     /// real interaction drives) and proves, from GROUND TRUTH, that the live param actually changed.
     ///
-    /// CAPTURES four frames, then quits:
+    /// CAPTURES five frames, then quits:
     ///   settings_closed.png — the gameplay frame BEFORE opening (the world, panel hidden).
-    ///   settings_open.png   — the console OPEN, parked in a CORNER off the player (86cabeqj9 AC1/AC4).
-    ///   settings_tweaked.png— the console open AFTER driving the walk-speed slider to its max — the row
-    ///                         readout reflects the new value, the live WasdMovement.moveSpeed changed
+    ///   settings_open.png   — the console OPEN at the shipped 1.0x scale, parked in a CORNER off the player
+    ///                         (86cabeqj9 AC1/AC4).
+    ///   settings_scaled.png — the console open AFTER dialing the `Console UI scale` row to its 0.5x min
+    ///                         (86cabeqj9 soak NIT 1): the whole console (plate + text) reads visibly SMALLER
+    ///                         vs settings_open.png — the live panel transform.scale changed.
+    ///   settings_tweaked.png— the console open (back at 1.0x) AFTER driving the walk-speed slider to its max —
+    ///                         the row readout reflects the new value, the live WasdMovement.moveSpeed changed
     ///                         (AC2), AND the differs-from-default badge shows on the dialed row (AC9).
     ///   settings_reset.png  — the console open AFTER reset-to-defaults: the live params reverted, the
     ///                         readouts/fields re-rendered to the defaults, the differs badge cleared (AC10).
+    /// and LOGS the 86cabeqj9 NIT proofs: NIT 1 — the `Console UI scale` row drives the panel scale live; NIT 2 —
+    /// the F1/F2 de-conflict (console toggle key=F1, legacy-overlay master=F2, distinct; opening the console does
+    /// NOT flip the legacy DebugOverlays.Visible flag → the two layers no longer share state).
     /// and LOGS the live-effect proof: the walk-speed param BEFORE vs AFTER the tweak (must differ), the
     /// zoom-range MIN/MAX clamping OrbitCamera.minDistance/maxDistance, the differs-from-default flag flipping
     /// on tweak + clearing on reset (AC9/AC10), and the registered entry count + archetypes (the extensible
@@ -81,9 +88,63 @@ namespace FarHorizon
             Debug.Log($"[SettingsVerifyCapture] console OPEN (non-modal) — registry has {count} settings; " +
                       $"worldInputGated={UiInputGate.CaptureWorldInput} (AC2/AC3: must be False — open alone " +
                       $"does NOT swallow locomotion/orbit; only a focused field does).");
+
+            // 86cabeqj9 NIT 2 — F1/F2 DE-CONFLICT (ground truth in the shipped build). The verify-capture
+            // can't synthesize a legacy key-down, but the DECOUPLE is machine-checkable: the console's toggle
+            // key is F1 + the legacy-overlay master is F2 (distinct), AND opening the console (SetOpen above)
+            // did NOT flip the legacy DebugOverlays.Visible flag — proving F1↔console and F2↔legacy no longer
+            // share state. Before the fix, opening rode DebugOverlays.Visible (so they were the SAME flag).
+            var legacyToggle = Object.FindAnyObjectByType<DebugOverlayToggle>();
+            KeyCode consoleKey = panel.toggleKey;
+            KeyCode legacyKey = legacyToggle != null ? legacyToggle.toggleKey : KeyCode.None;
+            Debug.Log($"[SettingsVerifyCapture] F1/F2 DE-CONFLICT (NIT 2): consoleToggleKey={consoleKey} " +
+                      $"legacyOverlayKey={legacyKey} keysDistinct={(consoleKey != legacyKey)} " +
+                      $"consoleOpen={panel.IsOpen} legacyOverlaysVisible={DebugOverlays.Visible} " +
+                      $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: consoleKey=F1, " +
+                      $"legacyKey=F2, distinct=True, decoupled=True — opening the console does NOT reveal the " +
+                      $"legacy overlays).");
+
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+
+            // 86cabeqj9 NIT 1 — CONSOLE UI SCALE. Dial the scale row DOWN (to its 0.5x min) and prove the
+            // bound _uiScale changed from ground truth, then capture settings_scaled.png so the side-by-side vs
+            // settings_open.png shows the whole console (plate + text) visibly SMALLER. Snapshot+restore the
+            // scale PlayerPrefs key (soak hygiene — the next launch must boot at the shipped 1.0x default).
+            var scaleEntry = reg?.Get(SettingsCatalog.ConsoleUiScaleId) as FloatSettingEntry;
+            var scaleSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
+            if (scaleEntry != null) SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey);
+            try
+            {
+                if (scaleEntry != null)
+                {
+                    float scaleBefore = scaleEntry.Value;
+                    float scaleApplied = scaleEntry.SetValue(SettingsCatalog.ConsoleUiScaleMin); // 0.5x — visibly smaller
+                    panel.RefreshReadouts();   // the entry-setter path bypasses the slider callback (same as walk/zoom)
+                    Debug.Log($"[SettingsVerifyCapture] CONSOLE UI SCALE tweak (NIT 1): before={Fmt(scaleBefore)} " +
+                              $"setTo={Fmt(scaleApplied)} liveScale={Fmt(scaleEntry.Value)} " +
+                              $"changedLive={(!Mathf.Approximately(scaleBefore, scaleEntry.Value))} differs=" +
+                              $"{scaleEntry.DiffersFromDefault} (must change the panel transform.scale live).");
+                }
+                else
+                {
+                    Debug.LogError("[SettingsVerifyCapture] CONSOLE UI SCALE row MISSING from the registry — the " +
+                                   "86cabeqj9 NIT 1 scale setting did not ship (the panel never registered it).");
+                }
+            }
+            finally
+            {
+                RestorePrefs(scaleSnapshot); // leave the scale key as this run found it (no soak pollution)
+            }
+            for (int i = 0; i < 6; i++) yield return null; // let UI Toolkit re-layout at the new scale
+            ShotTo(Path.Combine(dir, "settings_scaled.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // Restore the panel to 1.0x for the remaining frames (tweak/reset) so they read at the shipped scale.
+            if (scaleEntry != null) { scaleEntry.SetValue(1f); RestorePrefs(scaleSnapshot); panel.RefreshReadouts(); }
+            for (int i = 0; i < 4; i++) yield return null;
 
             // 3. TWEAK walk speed to its slider max and prove the LIVE param changed (AC2).
             //

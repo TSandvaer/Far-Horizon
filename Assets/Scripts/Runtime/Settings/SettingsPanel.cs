@@ -18,8 +18,10 @@ namespace FarHorizon
     ///   • builds one UI Toolkit row per entry GENERICALLY off its archetype (AC2) — a new setting needs NO
     ///     change here; it just appears as a row, with a typed field (AC5), nudge selection (AC6), a baked-
     ///     default readout (AC8) and a differs-from-default badge (AC9) for free;
-    ///   • OPENS/CLOSES on F1 by JOINING the dev-overlay master layer (DebugOverlays.Visible, ticket
-    ///     86cafd6d6) rather than polling its own F1 — one F1 reveals the whole dev-instrument layer (AC1);
+    ///   • OPENS/CLOSES on F1, polled DIRECTLY (86cabeqj9 soak NIT — F1/F2 de-conflict). F1 toggles ONLY the
+    ///     console now; the LEGACY IMGUI overlays moved to F2 (DebugOverlayToggle). It previously rode the
+    ///     shared DebugOverlays.Visible flag, so one F1 popped the console AND the legacy overlays together —
+    ///     decoupled here so each key reveals exactly one layer (AC1);
     ///   • is NON-MODAL (AC2): being open does NOT pause/gate gameplay (no Time.timeScale touch); world input
     ///     is swallowed ONLY while a typed-field holds keyboard focus (AC3 — so a typed number isn't also read
     ///     as movement), via the ref-counted UiInputGate the console OPTS INTO per-field (genuinely-modal
@@ -83,12 +85,12 @@ namespace FarHorizon
         public Inventory inventory;
 
         [Header("Toggle")]
-        [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). F1 is the dev-overlay MASTER switch " +
-                 "(DebugOverlayToggle → DebugOverlays.Visible, ticket 86cafd6d6): the console JOINS that layer, " +
-                 "so the same F1 the Sponsor already uses for the dev instruments opens/closes the console too — " +
-                 "no second F1 poll, no double-toggle. Layout-agnostic + verified non-clashing with WASD/Shift/" +
-                 "Space/Tab/F7-F10 ([[sponsor-danish-keyboard-layout]]). This field documents the binding (read " +
-                 "by the verify-capture path); the live toggle is driven off DebugOverlays.Visible in Update.")]
+        [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). The console KEEPS F1 but polls it " +
+                 "DIRECTLY (the 86cabeqj9 soak NIT F1/F2 de-conflict): F1 toggles ONLY the console; the LEGACY " +
+                 "IMGUI overlays moved to F2 (DebugOverlayToggle). It previously rode the shared " +
+                 "DebugOverlays.Visible flag, so one F1 popped the console AND the legacy overlays together. " +
+                 "Layout-agnostic + verified non-clashing with WASD/Shift/Space/Tab/F7-F10 " +
+                 "([[sponsor-danish-keyboard-layout]]). The Update poll reads this field directly.")]
         public KeyCode toggleKey = KeyCode.F1;
 
         /// <summary>The registry this panel renders + drives. Built on Start from the catalog (public for tests).</summary>
@@ -104,6 +106,7 @@ namespace FarHorizon
         private bool _gateTracked;             // whether THIS panel currently holds the UiInputGate open (FOCUS-gate, AC3)
         private int _focusedFields;            // how many typed-fields currently hold keyboard focus (AC3 ref-count)
         private ConsoleCorner _corner;         // the persisted panel corner (AC4)
+        private float _uiScale = 1f;           // the persisted console UI scale multiplier (86cabeqj9 soak NIT)
         private SettingEntry _active;          // the focused/selected entry the nudge keys drive (AC6, one at a time)
         private readonly List<RowHandle> _handles = new List<RowHandle>(); // per-row repaint + active-highlight (AC8/AC9/AC10)
 
@@ -136,20 +139,37 @@ namespace FarHorizon
             // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush; the
             // inventory overload (86cabfa4e) adds `inventory slots` + `belt slots` + `inventory stack size`.
             Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory);
+
+            // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
+            // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target
+            // for). It flows through the SAME registry → row → persist → reset machinery as every other entry,
+            // so it gets a slider, typed field, baked-default readout, differs badge and reset-to-defaults for
+            // free. SetValue drives the field + applies the panel scale LIVE (null-safe before BuildView; the
+            // open path re-applies once _panel exists). Default captured at registration = 1.0x (untouched =
+            // byte-identical shipped panel, badge off).
+            Registry.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => _uiScale,
+                v => { _uiScale = v; ApplyConsoleScale(); },
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 
             BuildView();
-            SetOpen(false); // start hidden — F1 (the dev-overlay master switch) opens it (AC1)
+            ApplyConsoleScale();  // apply the loaded UI scale now that _panel exists (86cabeqj9 soak NIT)
+            SetOpen(false); // start hidden — F1 opens it (86cabeqj9 — console-only F1, polled directly)
         }
 
         void Update()
         {
-            // AC1 — the console JOINS the F1 dev-overlay master layer (DebugOverlays.Visible, ticket 86cafd6d6),
-            // rather than polling its own F1 (which would double-toggle against DebugOverlayToggle). The single
-            // F1 the Sponsor already presses for the dev instruments now also opens/closes the console. Sync the
-            // panel's open state to the master flag each frame (cheap bool compare; only acts on a transition).
-            if (DebugOverlays.Visible != IsOpen) SetOpen(DebugOverlays.Visible);
+            // AC1 + 86cabeqj9 F1/F2 DE-CONFLICT (soak NIT). The console KEEPS F1, but now polls F1 DIRECTLY
+            // rather than riding the shared DebugOverlays.Visible flag. Before this, the console synced to
+            // DebugOverlays.Visible (which DebugOverlayToggle flipped on F1) — so one F1 popped the console AND
+            // the legacy IMGUI overlays (axe-shaft length, pond recess/foam) together (the Sponsor's complaint).
+            // Decoupled: F1 toggles ONLY the console here; the legacy overlays moved to F2 (DebugOverlayToggle).
+            // Layout-agnostic + Danish-safe (an F-key) and verified non-clashing with WASD/Shift/Space/Tab/F7-F10
+            // ([[sponsor-danish-keyboard-layout]]). Legacy Input (activeInputHandler=0), like every debug toggle.
+            if (Input.GetKeyDown(toggleKey)) SetOpen(!IsOpen);
 
             // AC6 — NUDGE the focused/selected entry. Only while the console is open AND no typed-field holds
             // keyboard focus (so the nudge keys don't fight a value being typed). PageUp/PageDown are the carried
@@ -190,7 +210,9 @@ namespace FarHorizon
             _scrim.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
             if (open)
             {
-                // Park the panel in the persisted corner BEFORE the open transition (AC4 — off the player).
+                // Apply the persisted UI scale (86cabeqj9 soak NIT) + park the panel in the persisted corner
+                // (AC4 — off the player) BEFORE the open transition.
+                ApplyConsoleScale();
                 ConsolePosition.Apply(_scrim, _corner);
                 // Snappy slide-up + fade-in (the USS transition is on .settings-panel). Set the start state
                 // then the end state next layout so the transition plays.
@@ -206,6 +228,17 @@ namespace FarHorizon
                 }
                 RefreshReadouts();
             }
+        }
+
+        /// <summary>86cabeqj9 soak NIT — apply the console UI scale to the panel element's transform.scale, so
+        /// the whole console (the walnut plate + every row + all text) resizes together. Scales <see cref="_panel"/>
+        /// (NOT the full-screen scrim) so the corner-parking math (which sets the scrim's flex justify/align) is
+        /// untouched. Per unity6-mastery §9 we animate transform SCALE, never width/height. Null-safe — a no-op
+        /// before BuildView (the open path + Start re-apply once _panel exists). Idempotent.</summary>
+        private void ApplyConsoleScale()
+        {
+            if (_panel == null) return;
+            _panel.style.scale = new Scale(new Vector2(_uiScale, _uiScale));
         }
 
         // AC6 — apply one nudge step to the active entry, scaled by Shift(5x)/Ctrl(0.2x). Drives the entry's
