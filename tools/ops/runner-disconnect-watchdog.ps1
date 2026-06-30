@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Far Horizon self-hosted CI runner reliability watchdog — recovers the
+    Far Horizon self-hosted CI runner reliability watchdog -- recovers the
     "alive-but-disconnected" failure mode on this S0 Modern-Standby laptop.
 
 .DESCRIPTION
@@ -19,12 +19,12 @@
         * THIS watchdog                -> recovers a runner whose PROCESS is alive
                                           but whose GitHub CONNECTION is dead.
 
-    Recovery action (only when BOTH conditions hold — offline AND process alive):
+    Recovery action (only when BOTH conditions hold -- offline AND process alive):
         1. Log the detection (state + PID + GitHub status).
         2. Kill the stale `Runner.Listener` (scoped to THIS runner's directory so
            it never touches a second runner's listener).
         3. Relaunch `run.cmd` in the INTERACTIVE user session via the Task
-           Scheduler shell context — NOT as a Windows service. Running as a
+           Scheduler shell context -- NOT as a Windows service. Running as a
            service loses the Unity Hub license (Unity exits 198); the runner MUST
            run as the logged-in interactive user.
            (memory: runner-unity-license-needs-interactive-user)
@@ -41,7 +41,7 @@
     The runner's registered name as shown by `gh api .../actions/runners`.
     Default: far-horizon-local (runner-1). This is matched EXACTLY so the
     watchdog never acts on a different runner (e.g. far-horizon-local-2, which
-    Far Horizon keeps intentionally OFFLINE — see
+    Far Horizon keeps intentionally OFFLINE -- see
     single-unity-build-slot-serializes-orchestration).
 
 .PARAMETER RunnerDir
@@ -67,7 +67,7 @@
 .NOTES
     AUTH DEPENDENCY (explicit): this script shells out to `gh api` and therefore
     requires the GitHub CLI to be installed and AUTHENTICATED as a user/token
-    with `repo`/`actions:read` access to TSandvaer/Far-Horizon — i.e. the
+    with `repo`/`actions:read` access to TSandvaer/Far-Horizon -- i.e. the
     Sponsor's own `gh` login. The watchdog does NOT manage credentials; if
     `gh auth status` is not logged in, every poll logs an AUTH-ERROR and takes
     no action (it will NOT kill/relaunch on an auth failure, because an auth
@@ -113,7 +113,7 @@ function Write-Log {
 # --- GitHub side: is the runner reporting offline? ---------------------------
 # Returns one of: 'online' | 'offline' | 'missing' | 'auth-error' | 'query-error'
 function Get-RunnerGitHubStatus {
-    # Verify gh auth first — an auth failure must NOT be read as "offline".
+    # Verify gh auth first -- an auth failure must NOT be read as "offline".
     $null = & gh auth status 2>&1
     if ($LASTEXITCODE -ne 0) { return 'auth-error' }
 
@@ -192,7 +192,7 @@ function Invoke-RunnerRelaunch {
 
     $runCmd = Join-Path $RunnerDir 'run.cmd'
     if (-not (Test-Path $runCmd)) {
-        Write-Log 'ERROR' "run.cmd not found at '$runCmd' — cannot relaunch. Check RunnerDir."
+        Write-Log 'ERROR' "run.cmd not found at '$runCmd' -- cannot relaunch. Check RunnerDir."
         return
     }
 
@@ -248,7 +248,7 @@ function Invoke-WatchdogPass {
                 # (process exited), NOT the connection-dead case this watchdog
                 # owns. Do not act; log so the operator knows to use the
                 # process-dead recovery path.
-                Write-Log 'INFO' "Runner '$RunnerName' is OFFLINE and its Runner.Listener process is NOT running — this is the process-DEAD case (use /runner-autostart). This watchdog only recovers ALIVE-but-disconnected. No action."
+                Write-Log 'INFO' "Runner '$RunnerName' is OFFLINE and its Runner.Listener process is NOT running -- this is the process-DEAD case (use /runner-autostart). This watchdog only recovers ALIVE-but-disconnected. No action."
                 return
             }
 
