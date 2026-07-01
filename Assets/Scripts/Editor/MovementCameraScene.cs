@@ -2846,7 +2846,9 @@ namespace FarHorizon.EditorTools
             // accel default; the airborne horizontal-speed cap defaults to the WALK speed so a nudge never builds
             // past a walk (a run-jump's carried-in momentum is still preserved — the cap only clamps speed the
             // nudge would PUSH past it). Serialized editor-time (component-in-source-but-not-in-scene trap).
-            wasd.airControlAccel = 8f;
+            // 86caambxh: lowered 8 → 5 u/s² after the Sponsor soaked #71's 8 u/s² as "still slightly too speedy"
+            // (a MODEST downtick — the locomotion was soak-APPROVED overall, just dial the A/D nudge subtler).
+            wasd.airControlAccel = 5f;
             wasd.airControlMaxSpeed = wasd.moveSpeed > 0.001f ? wasd.moveSpeed : 5.5f;
             if (wasd.cameraTransform == null)
                 Debug.LogWarning("[MovementCameraScene] WasdMovement camera not wired — WASD will fall back to " +

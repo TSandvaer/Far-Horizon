@@ -30,7 +30,7 @@ namespace FarHorizon.EditTests
         private const float HorizLerp = 18f;
         private const float VertLerp = 60f;
         private const float MaxLead = 0.25f;
-        private const float AirControlAccel = 8f;
+        private const float AirControlAccel = 5f;        // 86caambxh: production default lowered 8→5 (Sponsor "still slightly too speedy")
         private const float AirControlMaxSpeed = 5.5f;   // = WALK speed; the airborne horizontal cap
         private const float WalkSpeed = 5.5f;
         private const float RunSpeed = 9.5f;

@@ -33,6 +33,12 @@ namespace FarHorizon.Settings
         public const string PitchRangeId   = "view_angle_range";
         public const string WalkSpeedId    = "walk_speed";
         public const string RunSpeedId     = "run_speed";
+        // Air-control accel (ticket 86caambxh). The `Air-control accel` row drives WasdMovement.airControlAccel —
+        // how strongly A/D steers the player WHILE AIRBORNE (u/s²). The Sponsor soak-APPROVED the locomotion but
+        // asked to dial the mid-air A/D nudge subtler; the shipped default is lowered 8→5 AND this live slider lets
+        // him fine-tune it in the soak ([[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] +
+        // [[sponsor-wants-unified-dev-tweak-console]]). GROUNDED movement is unaffected (it commands full speed).
+        public const string AirControlAccelId = "air_control_accel";
         public const string JumpHeightId   = "jump_height";
         public const string ToolSpeedId    = "tool_use_speed";
         // Thirst tweakables (ticket 86caamkv7 AC5). Labels are the AC-mandated names ("thirst decay rate",
@@ -105,6 +111,10 @@ namespace FarHorizon.Settings
         public const float WalkMin = 1f, WalkMax = 12f;
         // Run-speed slider band (around the runSpeed 9.5 default) — used when the hook is wired live.
         public const float RunMin = 2f, RunMax = 18f;
+        // Air-control-accel slider band (ticket 86caambxh; around the lowered 5 u/s² default). From 0 (NO mid-air
+        // steer — pure ballistic coast) up to 12 (the pre-#71-fix territory), so the Sponsor can soak the A/D
+        // nudge from "none" through the shipped-subtle 5 to "as speedy as before" and pick the feel.
+        public const float AirControlAccelMin = 0f, AirControlAccelMax = 12f;
         // Thirst-decay slider band (around the ThirstMedDecayPerSecond 0.45 default) — gentle..punishing.
         public const float ThirstDecayMin = 0.05f, ThirstDecayMax = 1.5f;
         // Water-scoop slider band (around the waterScoopAmount 14 default) — a sip..a big gulp.
@@ -308,6 +318,15 @@ namespace FarHorizon.Settings
                 reg.AddFloat(RunSpeedId, "Run speed",
                     () => wasd.runSpeed, v => wasd.runSpeed = v,
                     RunMin, RunMax, unit: "u/s");
+
+                // --- AIR-CONTROL ACCEL (live, 86caambxh) — WasdMovement.airControlAccel is how strongly A/D
+                //     steers the player WHILE AIRBORNE (u/s², the capped-accel airborne branch). The Sponsor
+                //     soaked #71's 8 u/s² as "still slightly too speedy"; the shipped default is lowered to 5,
+                //     and this LIVE slider lets him fine-tune the mid-air A/D nudge in the soak (a direct-tweak
+                //     handle for a fiddly feel dial). GROUNDED movement is untouched (it commands full speed). ---
+                reg.AddFloat(AirControlAccelId, "Air-control accel",
+                    () => wasd.airControlAccel, v => wasd.airControlAccel = v,
+                    AirControlAccelMin, AirControlAccelMax, unit: "u/s²");
             }
 
             // --- JUMP HEIGHT — EXTENSION HOOK (AC3, Available=false). Jump-on-Space (86ca9yq3q) is queued;
