@@ -146,6 +146,46 @@ namespace FarHorizon
             if (scaleEntry != null) { scaleEntry.SetValue(1f); RestorePrefs(scaleSnapshot); panel.RefreshReadouts(); }
             for (int i = 0; i < 4; i++) yield return null;
 
+            // 86cabeqj9 NIT 3 — UI TEXT SCALE. DISTINCT from Console UI scale (chrome transform): dial the
+            // `UI text scale` row UP (to its 2.0x max) and prove the bound _textScale changed from ground truth,
+            // then capture settings_textscaled.png so the side-by-side vs settings_open.png shows the panel TEXT
+            // visibly LARGER (the font resized, independent of the chrome). Snapshot+restore its PlayerPrefs key.
+            var textEntry = reg?.Get(SettingsCatalog.ConsoleTextScaleId) as FloatSettingEntry;
+            var textSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
+            if (textEntry != null) SnapshotFloat(textSnapshot, textEntry.PrefsKey);
+            try
+            {
+                if (textEntry != null)
+                {
+                    float textBefore = textEntry.Value;
+                    float textApplied = textEntry.SetValue(SettingsCatalog.ConsoleTextScaleMax); // 2.0x — visibly bigger text
+                    panel.RefreshReadouts();
+                    Debug.Log($"[SettingsVerifyCapture] UI TEXT SCALE tweak (NIT 3): before={Fmt(textBefore)} " +
+                              $"setTo={Fmt(textApplied)} liveScale={Fmt(textEntry.Value)} " +
+                              $"changedLive={(!Mathf.Approximately(textBefore, textEntry.Value))} differs=" +
+                              $"{textEntry.DiffersFromDefault} distinctFromUiScaleId=" +
+                              $"{(SettingsCatalog.ConsoleTextScaleId != SettingsCatalog.ConsoleUiScaleId)} " +
+                              $"(must resize the panel FONT live, SEPARATE from Console UI scale).");
+                }
+                else
+                {
+                    Debug.LogError("[SettingsVerifyCapture] UI TEXT SCALE row MISSING from the registry — the " +
+                                   "86cabeqj9 NIT 3 text-scale setting did not ship (the panel never registered it).");
+                }
+            }
+            finally
+            {
+                RestorePrefs(textSnapshot);
+            }
+            for (int i = 0; i < 6; i++) yield return null; // let UI Toolkit re-layout at the new font size
+            ShotTo(Path.Combine(dir, "settings_textscaled.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // Restore text scale to 1.0x for the remaining frames (no soak pollution).
+            if (textEntry != null) { textEntry.SetValue(1f); RestorePrefs(textSnapshot); panel.RefreshReadouts(); }
+            for (int i = 0; i < 4; i++) yield return null;
+
             // 3. TWEAK walk speed to its slider max and prove the LIVE param changed (AC2).
             //
             // PLAYERPREFS HYGIENE (codereview #83): the SetValue/SetMax calls below write-through to PlayerPrefs

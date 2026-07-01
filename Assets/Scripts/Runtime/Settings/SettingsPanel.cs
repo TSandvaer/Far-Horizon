@@ -107,6 +107,12 @@ namespace FarHorizon
         private int _focusedFields;            // how many typed-fields currently hold keyboard focus (AC3 ref-count)
         private ConsoleCorner _corner;         // the persisted panel corner (AC4)
         private float _uiScale = 1f;           // the persisted console UI scale multiplier (86cabeqj9 soak NIT)
+        private float _textScale = 1f;         // the persisted UI TEXT scale multiplier (86cabeqj9 soak NIT — DISTINCT from _uiScale chrome)
+        // Every panel text element paired with its BASE font px (the USS-authored size). ApplyTextScale sets
+        // each element's inline fontSize = base * _textScale, so the "UI text scale" slider resizes ALL panel
+        // text LIVE, independently of the chrome-scaling _uiScale. An inline fontSize wins over the USS selector.
+        private readonly System.Collections.Generic.List<TextEl> _textEls = new System.Collections.Generic.List<TextEl>();
+        private struct TextEl { public VisualElement El; public float BasePx; }
         private SettingEntry _active;          // the focused/selected entry the nudge keys drive (AC6, one at a time)
         private readonly List<RowHandle> _handles = new List<RowHandle>(); // per-row repaint + active-highlight (AC8/AC9/AC10)
 
@@ -152,11 +158,21 @@ namespace FarHorizon
                 v => { _uiScale = v; ApplyConsoleScale(); },
                 SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
 
+            // 86cabeqj9 soak NIT — UI TEXT SCALE. DISTINCT from Console UI scale above: this scales only the
+            // panel FONT size (every label / readout / field / badge / title), NOT the chrome transform. Flows
+            // through the SAME registry → row → persist → reset machinery, so it gets a slider, typed field,
+            // baked-default readout, differs badge and reset-to-defaults for free. Default 1.0x = shipped fonts.
+            Registry.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => _textScale,
+                v => { _textScale = v; ApplyTextScale(); },
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 
             BuildView();
             ApplyConsoleScale();  // apply the loaded UI scale now that _panel exists (86cabeqj9 soak NIT)
+            ApplyTextScale();     // apply the loaded TEXT scale now that the rows exist (86cabeqj9 soak NIT)
             SetOpen(false); // start hidden — F1 opens it (86cabeqj9 — console-only F1, polled directly)
         }
 
@@ -213,6 +229,7 @@ namespace FarHorizon
                 // Apply the persisted UI scale (86cabeqj9 soak NIT) + park the panel in the persisted corner
                 // (AC4 — off the player) BEFORE the open transition.
                 ApplyConsoleScale();
+                ApplyTextScale();
                 ConsolePosition.Apply(_scrim, _corner);
                 // Snappy slide-up + fade-in (the USS transition is on .settings-panel). Set the start state
                 // then the end state next layout so the transition plays.
@@ -239,6 +256,25 @@ namespace FarHorizon
         {
             if (_panel == null) return;
             _panel.style.scale = new Scale(new Vector2(_uiScale, _uiScale));
+        }
+
+        /// <summary>Register a panel text element + its BASE font px so <see cref="ApplyTextScale"/> can resize
+        /// it live (86cabeqj9 soak NIT). Called as each text element is built.</summary>
+        private void RegisterText(VisualElement el, float basePx)
+        {
+            if (el == null) return;
+            _textEls.Add(new TextEl { El = el, BasePx = basePx });
+            el.style.fontSize = basePx * _textScale;   // apply the current scale immediately
+        }
+
+        /// <summary>86cabeqj9 soak NIT — apply the UI TEXT scale to every registered panel text element
+        /// (fontSize = base * _textScale). DISTINCT from ApplyConsoleScale (chrome transform): this resizes
+        /// the FONT only, so the Sponsor makes text bigger/smaller independently. Inline fontSize wins over
+        /// the USS selector. Idempotent + null-safe (a no-op before the rows/chrome are built).</summary>
+        private void ApplyTextScale()
+        {
+            for (int i = 0; i < _textEls.Count; i++)
+                if (_textEls[i].El != null) _textEls[i].El.style.fontSize = _textEls[i].BasePx * _textScale;
         }
 
         // AC6 — apply one nudge step to the active entry, scaled by Shift(5x)/Ctrl(0.2x). Drives the entry's
@@ -321,6 +357,22 @@ namespace FarHorizon
             _scrim = root.Q<VisualElement>("settings-scrim");
             _panel = root.Q<VisualElement>("settings-panel");
             _rows = root.Q<ScrollView>("settings-rows");
+            if (_rows != null)
+            {
+                // 86cabeqj9 soak NIT — kill the horizontal scrollbar: vertical-only ScrollView, h-scroller
+                // never shown. Combined with the flexible (wrapping) row layout in USS, no h-scroll ever
+                // appears at the default console scale; vertical scroll stays.
+                _rows.mode = ScrollViewMode.Vertical;
+                _rows.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            }
+            if (_panel != null)
+            {
+                // 86cabeqj9 soak NIT — SCROLL passthrough: mark the pointer as OVER the console while it hovers
+                // the panel rect, so OrbitCamera swallows ONLY the wheel-zoom (WASD/orbit stay live — the
+                // intentional non-modal passthrough). UI Toolkit can't stop legacy Input.* polling, hence the flag.
+                _panel.RegisterCallback<PointerEnterEvent>(_ => UiInputGate.SetPointerOverConsole(true));
+                _panel.RegisterCallback<PointerLeaveEvent>(_ => UiInputGate.SetPointerOverConsole(false));
+            }
             var reset = root.Q<Button>("settings-reset");
             // AC10 — reset-to-defaults END-TO-END: revert every live param, then FULLY repaint (readouts +
             // typed fields + sliders re-render to the defaults AND the differs badge clears — RefreshReadouts
@@ -345,6 +397,7 @@ namespace FarHorizon
             if (header == null) return;
             _cornerBtn = new Button { name = "settings-corner" };
             _cornerBtn.AddToClassList("settings-corner");
+            RegisterText(_cornerBtn, 12f);
             _cornerBtn.text = "⊞ " + ConsolePosition.ShortLabel(_corner);
             _cornerBtn.clicked += CycleCorner;   // single source of truth (the verify-capture drives the same path)
             header.Add(_cornerBtn);
@@ -395,6 +448,7 @@ namespace FarHorizon
 
             var label = new Label(entry.Label);
             label.AddToClassList("setting-row__label");
+            RegisterText(label, 14f);   // base 14px (setting-row__label) — scales with UI text scale
             row.Add(label);
 
             // The archetype control + the generic typed field; each returns its repaint closure.
@@ -422,9 +476,11 @@ namespace FarHorizon
             // he's diverged from at a glance. AC9 — a differs-from-default BADGE on any dialed-off-default row.
             var def = new Label(DefaultText(entry));
             def.AddToClassList("setting-row__default");
+            RegisterText(def, 11f);
             row.Add(def);
             var badge = new Label("●");
             badge.AddToClassList("setting-row__badge");
+            RegisterText(badge, 14f);
             badge.tooltip = "differs from baked default";
             row.Add(badge);
 
@@ -432,6 +488,7 @@ namespace FarHorizon
             {
                 var soon = new Label("(soon)");
                 soon.AddToClassList("setting-row__soon");
+                RegisterText(soon, 11f);
                 row.Add(soon);
             }
 
@@ -475,6 +532,7 @@ namespace FarHorizon
             slider.SetEnabled(e.Available);
             var field = MakeNumericField(e.Available);          // AC5 typed entry
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
+            RegisterText(readout, 13f);
             row.Add(slider); row.Add(field); row.Add(readout);
 
             System.Action refresh = () =>
@@ -508,6 +566,7 @@ namespace FarHorizon
             var readout = new Label();
             readout.AddToClassList("setting-row__readout");
             readout.AddToClassList("setting-row__readout--minmax");
+            RegisterText(readout, 13f);
             row.Add(range); row.Add(fieldMin); row.Add(fieldMax); row.Add(readout);
 
             System.Action refresh = () =>
@@ -541,6 +600,7 @@ namespace FarHorizon
 
             var dec = new Button { text = "−" }; dec.AddToClassList("stepper__btn");
             var value = new Label(); value.AddToClassList("stepper__value");
+            RegisterText(value, 14f);
             var inc = new Button { text = "+" }; inc.AddToClassList("stepper__btn");
             control.Add(dec); control.Add(value); control.Add(inc);
             control.SetEnabled(e.Available);
@@ -548,6 +608,7 @@ namespace FarHorizon
 
             var field = MakeIntField(e.Available);              // AC5 typed entry (int)
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
+            RegisterText(readout, 13f);
             row.Add(field); row.Add(readout);
 
             System.Action refresh = () =>
@@ -572,6 +633,7 @@ namespace FarHorizon
             toggle.AddToClassList("setting-row__control");
             toggle.SetEnabled(e.Available);
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
+            RegisterText(readout, 13f);
             row.Add(toggle); row.Add(readout);
 
             System.Action refresh = () =>
@@ -594,6 +656,7 @@ namespace FarHorizon
         {
             var f = new FloatField { isDelayed = true };        // isDelayed → commit on Enter/blur, not per keystroke
             f.AddToClassList("setting-row__field");
+            RegisterText(f, 12f);
             f.SetEnabled(enabled);
             return f;
         }
@@ -602,6 +665,7 @@ namespace FarHorizon
         {
             var f = new IntegerField { isDelayed = true };
             f.AddToClassList("setting-row__field");
+            RegisterText(f, 12f);
             f.SetEnabled(enabled);
             return f;
         }
@@ -674,6 +738,7 @@ namespace FarHorizon
             var panel = new VisualElement { name = "settings-panel" }; panel.AddToClassList("settings-panel");
             var header = new VisualElement { name = "settings-header" }; header.AddToClassList("settings-panel__header");
             var title = new Label("Settings"); title.AddToClassList("settings-panel__title");
+            RegisterText(title, 20f);
             header.Add(title);
             var rows = new ScrollView { name = "settings-rows" }; rows.AddToClassList("settings-panel__rows");
             var footer = new VisualElement { name = "settings-footer" }; footer.AddToClassList("settings-panel__footer");

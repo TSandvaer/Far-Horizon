@@ -32,6 +32,7 @@ namespace FarHorizon.EditTests
             PlayerPrefs.DeleteKey("fh.settings.con_int");
             PlayerPrefs.DeleteKey("fh.settings.con_bool");
             PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ConsoleUiScaleId);
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ConsoleTextScaleId);
         }
 
         // ===== AC5 — typed value applies + clamps (the panel's FloatField commit drives entry.SetValue) =====
@@ -334,6 +335,110 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(UiInputGate.CaptureWorldInput, "a focused field swallows world input (AC3)");
             UiInputGate.SetPanelOpen(false, ref tracked);  // field blur
             Assert.IsFalse(UiInputGate.CaptureWorldInput, "world input passes again once the field blurs (AC3)");
+        }
+
+        // ===== 86cabeqj9 soak NIT — SCROLL-over-panel gate (fix 1): the wheel is swallowed while the pointer
+        //       hovers the NON-MODAL console, but ONLY scroll (WASD/orbit stay live). Pinned at the gate level;
+        //       the OrbitCamera reads (CaptureWorldInput || PointerOverConsole) to decide whether to zoom. The
+        //       full PointerEnter/Leave event path is a UI Toolkit interaction covered by the shipped-build
+        //       capture + Sponsor soak (UIDocument pointer events are unreliable in EditMode). =====
+
+        [Test]
+        public void PointerOverConsole_GatesScrollOnly_AndIsSeparateFromCaptureWorldInput()
+        {
+            UiInputGate.SetPointerOverConsole(false);
+            UiInputGate.PopPanel(); UiInputGate.PopPanel(); // drain any residue (clamped at 0)
+
+            Assert.IsFalse(UiInputGate.PointerOverConsole, "fresh: pointer not over the console");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "fresh: no field-focus gate");
+
+            // Pointer enters the panel rect → scroll must be swallowed, but the WASD/orbit gate stays OFF
+            // (the console is non-modal — the whole point of the passthrough the Sponsor confirmed works).
+            UiInputGate.SetPointerOverConsole(true);
+            Assert.IsTrue(UiInputGate.PointerOverConsole, "pointer-over swallows the wheel (scroll no longer zooms)");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                "pointer-over does NOT gate WASD/orbit — only the scroll gate flips (the non-modal passthrough)");
+
+            // The OrbitCamera scroll decision is (CaptureWorldInput || PointerOverConsole): true here → zoom off.
+            bool scrollGated = UiInputGate.CaptureWorldInput || UiInputGate.PointerOverConsole;
+            Assert.IsTrue(scrollGated, "the camera swallows the wheel while the pointer is over the console");
+
+            UiInputGate.SetPointerOverConsole(false);
+            Assert.IsFalse(UiInputGate.PointerOverConsole, "pointer leaves → the wheel zooms the camera again");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput || UiInputGate.PointerOverConsole,
+                "pointer-off + no field-focus → the camera zoom is live again");
+        }
+
+        // ===== 86cabeqj9 soak NIT — UI TEXT SCALE (fix 3): a DISTINCT font-scale setting, separate from the
+        //       chrome-scaling Console UI scale. It flows through the SAME registry machinery, so the bug CLASS
+        //       (drives a value, clamps to [0.6,2.0], persists, badge clears on reset, DISTINCT id) is pinned
+        //       here with a stand-in field — the exact bind shape SettingsPanel.Start uses. The visible
+        //       fontSize application is a UI Toolkit render concern, covered by the shipped-build capture. =====
+
+        [Test]
+        public void UiTextScale_DrivesValue_AndClampsToBand()
+        {
+            float textScale = 1f; // stand-in for SettingsPanel._textScale
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale, v => textScale = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+
+            Assert.AreEqual(SettingEntry.Archetype.Slider, e.Kind, "the text-scale row is a slider archetype");
+            Assert.AreEqual(0.6f, e.Min, 1e-4f, "the text-scale floor is 0.6x");
+            Assert.AreEqual(2.0f, e.Max, 1e-4f, "the text-scale ceiling is 2.0x");
+
+            float applied = e.SetValue(1.5f);
+            Assert.AreEqual(1.5f, applied, 1e-4f, "a dialed text scale applies live");
+            Assert.AreEqual(1.5f, textScale, 1e-4f, "the BOUND text-scale field actually changed (not a no-op)");
+
+            Assert.AreEqual(2.0f, e.SetValue(9f), 1e-4f, "a text scale above the band clamps to 2.0x");
+            Assert.AreEqual(0.6f, e.SetValue(0.01f), 1e-4f, "a text scale below the band clamps to 0.6x");
+        }
+
+        [Test]
+        public void UiTextScale_IsDistinctFrom_ConsoleUiScale()
+        {
+            Assert.AreNotEqual(SettingsCatalog.ConsoleUiScaleId, SettingsCatalog.ConsoleTextScaleId,
+                "the text scale is a SEPARATE setting from the chrome UI scale (distinct ids → distinct rows + prefs)");
+        }
+
+        [Test]
+        public void UiTextScale_DefaultsToOne_DiffersFlipsAndClearsOnReset()
+        {
+            float textScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale, v => textScale = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+
+            Assert.AreEqual(1f, e.Default, 1e-4f, "the captured default is 1.0x (untouched = shipped fonts)");
+            Assert.IsFalse(e.DiffersFromDefault, "an untouched text scale does not differ (badge off)");
+            e.SetValue(1.4f);
+            Assert.IsTrue(e.DiffersFromDefault, "a dialed text scale differs (badge shows)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the differs flag");
+            Assert.AreEqual(1f, textScale, 1e-4f, "reset restored the 1.0x default text scale");
+        }
+
+        [Test]
+        public void UiTextScale_PersistsAndReloads_FromPlayerPrefs()
+        {
+            float textScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale, v => textScale = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+            e.SetValue(1.7f); // writes PlayerPrefs (survives a relaunch)
+
+            float textScale2 = 1f;
+            var reg2 = new SettingsRegistry();
+            var e2 = reg2.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale2, v => textScale2 = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+            e2.LoadFromPrefs();
+
+            Assert.AreEqual(1.7f, textScale2, 1e-4f, "the persisted UI text scale survives a relaunch (86cabeqj9 NIT)");
         }
     }
 }

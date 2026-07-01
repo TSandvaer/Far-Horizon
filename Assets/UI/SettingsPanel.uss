@@ -21,7 +21,7 @@
 
 /* centered vertical workbench column, ~420px, max 70% height. Animates translate + opacity on open. */
 .settings-panel {
-    width: 420px;
+    width: 470px;               /* widened (86cabeqj9 soak NIT) so labels fit + no h-scroll */
     max-height: 70%;
     background-color: var(--panel-walnut);
     border-width: 2px;
@@ -94,8 +94,9 @@
 .setting-row {
     flex-direction: row;
     align-items: center;
-    height: 44px;                /* generous so a soaking Sponsor hits the right thumb without fishing */
-    padding: 0 12px;
+    flex-wrap: wrap;             /* overflow WRAPS to a 2nd line — never a horizontal scrollbar (86cabeqj9) */
+    min-height: 44px;            /* min (not fixed) so a wrapped label/row grows taller (86cabeqj9) */
+    padding: 6px 12px;
     border-bottom-width: 1px;
     border-bottom-color: rgba(90, 70, 50, 0.4); /* --panel-edge @ α0.4 hairline */
 }
@@ -104,8 +105,9 @@
     color: var(--ink-cream);
     -unity-font-style: bold;
     font-size: 14px;
-    width: 130px;
+    width: 168px;               /* wide enough for "Berry restore amount" / "inventory stack size" (86cabeqj9) */
     flex-shrink: 0;
+    white-space: normal;        /* WRAP a long label to a 2nd line instead of truncating with "…" (86cabeqj9) */
 }
 
 /* the control sits center; the readout sits right (fixed-width so it doesn't jitter as the value changes) */
@@ -185,7 +187,7 @@
     color: var(--ink-dim);
     font-size: 11px;
     -unity-text-align: middle-right;
-    width: 96px;
+    width: 84px;                /* trimmed (86cabeqj9) so the row fits the panel width without h-scroll */
     flex-shrink: 0;
     margin-left: 6px;
 }

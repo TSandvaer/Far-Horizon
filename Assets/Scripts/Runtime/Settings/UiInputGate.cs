@@ -18,9 +18,25 @@ namespace FarHorizon
     public static class UiInputGate
     {
         private static int _openPanels;
+        private static bool _pointerOverConsole;
 
         /// <summary>True when a modal gameplay-UI panel is open and world/locomotion input must be swallowed.</summary>
         public static bool CaptureWorldInput => _openPanels > 0;
+
+        /// <summary>
+        /// True while the mouse pointer is INSIDE the (non-modal) dev-console panel rect (ticket 86cabeqj9 soak
+        /// NIT — SCROLL passthrough). The dev console is NON-MODAL (it does NOT push <see cref="CaptureWorldInput"/>
+        /// merely by being open — WASD/orbit stay live on purpose), so the camera zoom's <c>Input.GetAxisRaw
+        /// ("Mouse ScrollWheel")</c> would ALSO fire while the Sponsor scrolls the wheel over the panel — the
+        /// camera zooms under his cursor. A UI Toolkit <c>WheelEvent.StopPropagation</c> can NOT stop the legacy
+        /// <c>Input.*</c> polling the OrbitCamera reads (the exact reason <see cref="CaptureWorldInput"/> exists —
+        /// research §E1). So the panel sets this on pointer-enter / clears it on pointer-leave, and the OrbitCamera
+        /// gates ONLY its scroll-zoom on it — WASD/orbit are untouched (the intentional non-modal passthrough).
+        /// </summary>
+        public static bool PointerOverConsole => _pointerOverConsole;
+
+        /// <summary>The SettingsPanel sets this on pointer-enter/leave of its panel rect (86cabeqj9 scroll NIT).</summary>
+        public static void SetPointerOverConsole(bool over) => _pointerOverConsole = over;
 
         /// <summary>A panel opened — increment the open count (so two panels don't un-gate each other).</summary>
         public static void PushPanel() => _openPanels++;
@@ -39,6 +55,7 @@ namespace FarHorizon
         private static void ResetStaticState()
         {
             _openPanels = 0;
+            _pointerOverConsole = false;
         }
     }
 }
