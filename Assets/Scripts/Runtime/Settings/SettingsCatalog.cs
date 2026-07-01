@@ -95,6 +95,18 @@ namespace FarHorizon.Settings
         public const string InventorySlotsId = "inventory_slots";
         public const string BeltSlotsId      = "belt_slots";
         public const string StackSizeId      = "inventory_stack_size";
+        // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
+        // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
+        // text) live. NOT a gameplay param — bound to a SettingsPanel-owned scale field (registered by the panel
+        // itself in Start, NOT here in the catalog, since it is a pure-UI concern the catalog has no target for).
+        // The id is exposed here only so the panel + tests share the stable PlayerPrefs-key/lookup string.
+        public const string ConsoleUiScaleId = "console_ui_scale";
+
+        // The UI TEXT scale id (86cabeqj9 soak NIT). DISTINCT from ConsoleUiScaleId: this scales the panel
+        // FONT size only (the Sponsor makes the text bigger/smaller), independent of the chrome-scaling
+        // Console UI scale above. Panel-owned (registered by SettingsPanel.Start), exposed here only so the
+        // panel + tests share the stable PlayerPrefs-key/lookup string.
+        public const string ConsoleTextScaleId = "console_text_scale";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -152,6 +164,12 @@ namespace FarHorizon.Settings
         public const int InventorySlotsMin = 1,  InventorySlotsMax = 60;
         public const int BeltSlotsMin = 1,       BeltSlotsMax = 12;
         public const int StackSizeMin = 1,       StackSizeMax = 99;
+        // Console UI scale band (86cabeqj9 soak NIT). 0.5x (half-size, for a Sponsor who finds the panel huge) ..
+        // 1.5x (larger). Default 1.0x = the shipped panel, byte-identical untouched (the differs-badge stays off).
+        public const float ConsoleUiScaleMin = 0.5f, ConsoleUiScaleMax = 1.5f;
+        // Console TEXT scale band (86cabeqj9 soak NIT). 0.6x (denser) .. 2.0x (big-text accessibility). Default
+        // 1.0x = the shipped font sizes, untouched (the differs-badge stays off).
+        public const float ConsoleTextScaleMin = 0.6f, ConsoleTextScaleMax = 2.0f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
