@@ -115,6 +115,25 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_SettingsPanel_WarmthNeed_WiredEditorTime_Serialized()
+        {
+            // 86cabeqwf — the WARMTH need must be wired EDITOR-TIME (serialized by MovementCameraScene.
+            // BuildSettingsPanel) so the per-need on/off toggle + the `Warmth decay rate` slider bind to the
+            // SHIPPED WarmthNeed via the ship-path, not the runtime Awake FindObjectOfType fallback — the same
+            // editor-vs-runtime discipline hunger/thirst/berry follow (the stone-respawner runtime-Find that
+            // went DEAD is the cautionary precedent). Drop the `panel.warmth = ...` wire and this goes red.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            Assert.IsNotNull(panel.warmth,
+                "SettingsPanel.warmth must be wired editor-time (the per-need on/off toggle + the Warmth decay " +
+                "rate slider bind to WarmthNeed — 86cabeqwf); an unwired ref would force a runtime FindObjectOfType " +
+                "the ship-path discipline forbids (the dead-knob class).");
+        }
+
+        [Test]
         public void BootScene_CarriesWorldLookTunablesSeam_Serialized()
         {
             // 86caber95 AC2 — the WorldLookTunables seam (the F10 migration's binding surface) must ship in

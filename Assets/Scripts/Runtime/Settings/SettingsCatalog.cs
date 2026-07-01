@@ -35,7 +35,7 @@ namespace FarHorizon.Settings
         public const string RunSpeedId     = "run_speed";
         // Air-control accel (ticket 86caambxh). The `Air-control accel` row drives WasdMovement.airControlAccel —
         // how strongly A/D steers the player WHILE AIRBORNE (u/s²). The Sponsor soak-APPROVED the locomotion but
-        // asked to dial the mid-air A/D nudge subtler; the shipped default is lowered 8→5 AND this live slider lets
+        // soak-tuned the mid-air A/D nudge (8→5→9 across #71/#215); the shipped default is 9 AND this live slider lets
         // him fine-tune it in the soak ([[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] +
         // [[sponsor-wants-unified-dev-tweak-console]]). GROUNDED movement is unaffected (it commands full speed).
         public const string AirControlAccelId = "air_control_accel";
@@ -51,6 +51,19 @@ namespace FarHorizon.Settings
         // refactor 86cabgvgw is NOT a hard-dep, so this binds HungerNeed directly per the ticket default).
         public const string HungerDecayId  = "hunger_decay_rate";
         public const string BerryRestoreId = "berry_restore_amount";
+        // Per-need ON/OFF toggles + the WARMTH decay-rate slider (ticket 86cabeqwf — the dev-tweak-console
+        // per-need entries). ALL THREE need components (WarmthNeed / HungerNeed / ThirstNeed) exist on main,
+        // so all three toggles are LIVE (no extension hooks — the AC2/AC3 hedges assumed hunger gated / thirst
+        // unbuilt; both are built). The on/off drives SurvivalNeed.decayEnabled (halt/resume decay live). The
+        // hunger/thirst DECAY-RATE sliders already exist (HungerDecayId / ThirstDecayId, via PopulateHunger /
+        // PopulateThirst); warmth had NO catalog row at all, so this adds the warmth decay-rate slider here.
+        // These per-need decay rates are the DIFFICULTY-TIER authoring surface (AC4): the values the Sponsor
+        // dials become the easy/med/hard preset rates (memory difficulty-settings-easy-medium-hard) — baked
+        // per-tier separately (a load/save-preset affordance is OOS).
+        public const string WarmthEnabledId = "warmth_enabled";
+        public const string HungerEnabledId = "hunger_enabled";
+        public const string ThirstEnabledId = "thirst_enabled";
+        public const string WarmthDecayId   = "warmth_decay_rate";
         // Berry-regrowth tweakable (ticket 86cabn67w — the 86caa5zz3 AC4 settings-registration follow-up).
         // The `Berry regrowth time` row drives EVERY BerryBush's regrowMinSeconds / regrowMaxSeconds (a RANGE
         // — RANDOM regrowth within [min,max], like tree-regrowth / stone-respawn). DISTINCT id from #183's
@@ -183,6 +196,10 @@ namespace FarHorizon.Settings
         public const float HungerDecayMin = 0.1f, HungerDecayMax = 1.0f;
         // Berry-restore slider band (around the berryRestoreAmount 18 default) — a nibble..a hearty handful.
         public const float BerryRestoreMin = 5f, BerryRestoreMax = 50f;
+        // Warmth-decay slider band (ticket 86cabeqwf; around the WarmthNeed default medDecayPerSecond 0.55 —
+        // warmth is the FASTEST need). Mirrors the thirst band shape (0.05..1.5) since both sit at/above the
+        // hunger 0.1..1.0 band and warmth is the most pressing — gentle for kids..punishing for adults.
+        public const float WarmthDecayMin = 0.05f, WarmthDecayMax = 1.5f;
         // Tool-use-speed slider band (ticket V1 — flips the reserved ToolSpeedId row LIVE to the chop swing
         // speed). Keep in sync with CastawayCharacter.ChopSpeedMin/Max (a slow..fast chop). (86caa4c5c change-(b):
         // the chop swing is the Mixamo melee Animator state now; tool-use speed scales that clip's playback rate
@@ -374,6 +391,35 @@ namespace FarHorizon.Settings
             return reg;
         }
 
+        /// <summary>
+        /// Build the standard registry AND every prior need/feature AND the PER-NEED entries (ticket 86cabeqwf):
+        /// a per-need ON/OFF toggle for warmth + hunger + thirst (drives <see cref="SurvivalNeed.decayEnabled"/> —
+        /// halt/resume that need's decay live) PLUS the WARMTH decay-rate slider (hunger/thirst decay-rate sliders
+        /// already exist via <see cref="PopulateHunger"/> / <see cref="PopulateThirst"/>; warmth had no catalog row).
+        /// ALL THREE need components exist on main, so all three toggles are LIVE — NOT extension hooks (the ticket's
+        /// AC2/AC3 hedge assumed hunger gated / thirst unbuilt; both are built). A null need SKIPS only its own rows
+        /// (the catalog never null-refs), so existing callers / bare test rigs are unaffected. Mirrors the
+        /// PopulateThirst / PopulateHunger de-collision precedent (this ticket adds its OWN Populate method,
+        /// PopulateNeeds, rather than growing an existing signature). DEV-CONSOLE only — not player-facing.
+        ///
+        /// AC4 (difficulty-preset bake): the per-need decay-rate values the Sponsor dials here are the values that
+        /// bake into the easy/med/hard difficulty presets (memory difficulty-settings-easy-medium-hard). This
+        /// console is the difficulty-tier AUTHORING surface; the dialed rates are reported for baking per-tier
+        /// separately (a load/save-preset affordance is OOS this ticket).
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
+            FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger,
+            IReadOnlyList<FarHorizon.BerryBush> berryBushes, FarHorizon.Inventory inventory,
+            FarHorizon.WarmthNeed warmth)
+        {
+            var reg = Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner,
+                held, hunger, berryBushes, inventory);
+            PopulateNeeds(reg, warmth, hunger, thirst);
+            return reg;
+        }
+
         /// <summary>Populate an existing registry (so callers can add their own settings before/after).</summary>
         public static void Populate(SettingsRegistry reg, OrbitCamera orbit, WasdMovement wasd)
         {
@@ -412,7 +458,7 @@ namespace FarHorizon.Settings
 
                 // --- AIR-CONTROL ACCEL (live, 86caambxh) — WasdMovement.airControlAccel is how strongly A/D
                 //     steers the player WHILE AIRBORNE (u/s², the capped-accel airborne branch). The Sponsor
-                //     soaked #71's 8 u/s² as "still slightly too speedy"; the shipped default is lowered to 5,
+                //     soak-tuned it (8→5→9 across #71/#215); the shipped default is 9 (#215),
                 //     and this LIVE slider lets him fine-tune the mid-air A/D nudge in the soak (a direct-tweak
                 //     handle for a fiddly feel dial). GROUNDED movement is untouched (it commands full speed). ---
                 reg.AddFloat(AirControlAccelId, "Air-control accel",
@@ -486,6 +532,58 @@ namespace FarHorizon.Settings
             reg.AddFloat(BerryRestoreId, "Berry restore amount",
                 () => hunger.berryRestoreAmount, v => hunger.berryRestoreAmount = v,
                 BerryRestoreMin, BerryRestoreMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the PER-NEED entries (ticket 86cabeqwf) into the registry: a per-need ON/OFF Toggle (Bool
+        /// archetype from the 86cabeqj9 foundation) for warmth + hunger + thirst driving
+        /// <see cref="FarHorizon.SurvivalNeed.decayEnabled"/> (halt/resume that need's decay LIVE — no restart,
+        /// the component stays enabled so the HUD keeps painting), PLUS the WARMTH decay-rate slider (drives
+        /// WarmthNeed.decayPerSecond). The hunger/thirst decay-rate sliders are NOT re-added here — they already
+        /// exist via <see cref="PopulateHunger"/> / <see cref="PopulateThirst"/> (adding them again would throw a
+        /// duplicate-id); warmth had NO catalog row before this ticket, so its decay-rate slider lands here.
+        ///
+        /// ALL THREE need components exist on main, so all three toggles are LIVE (available:true), NOT greyed
+        /// extension hooks — the ticket's AC2/AC3 hedge assumed hunger gated / thirst unbuilt, but both are built.
+        /// A null need SKIPS only ITS OWN rows (the catalog never null-refs): a bare rig passing only warmth gets
+        /// only the warmth rows. Idempotent w.r.t. a null registry.
+        ///
+        /// AC4 (difficulty-preset bake): the warmth decay-rate here (+ the existing hunger/thirst decay rows) are
+        /// the values the Sponsor dials to author the easy/med/hard difficulty presets (memory
+        /// difficulty-settings-easy-medium-hard); each tier is largely a different set of need-decay rates. This
+        /// console is the AUTHORING surface — the dialed rates get baked per-tier separately (a load/save-preset
+        /// affordance is OOS this ticket).
+        /// </summary>
+        public static void PopulateNeeds(SettingsRegistry reg, FarHorizon.WarmthNeed warmth,
+            FarHorizon.HungerNeed hunger, FarHorizon.ThirstNeed thirst)
+        {
+            if (reg == null) return;
+
+            // WARMTH — on/off toggle + decay-rate slider (warmth had no catalog row at all before this ticket).
+            if (warmth != null)
+            {
+                reg.AddBool(WarmthEnabledId, "Warmth decay on",
+                    () => warmth.decayEnabled, v => warmth.decayEnabled = v);
+                // WARMTH DECAY RATE (live) — drives WarmthNeed.decayPerSecond (the single active-decay field on the
+                // SurvivalNeed base). Warmth is the FASTEST need; the difficulty tiers also write this field, but the
+                // slider is a direct soak-tuning knob over the active rate (the AC4 difficulty-tier authoring surface).
+                reg.AddFloat(WarmthDecayId, "Warmth decay rate",
+                    () => warmth.decayPerSecond, v => warmth.decayPerSecond = v,
+                    WarmthDecayMin, WarmthDecayMax, unit: "/s");
+            }
+
+            // HUNGER — on/off toggle only (the decay-rate slider already exists via PopulateHunger; re-adding it
+            // would throw a duplicate-id). LIVE-bound to HungerNeed.decayEnabled.
+            if (hunger != null)
+                reg.AddBool(HungerEnabledId, "Hunger decay on",
+                    () => hunger.decayEnabled, v => hunger.decayEnabled = v);
+
+            // THIRST — on/off toggle only (the decay-rate slider already exists via PopulateThirst). LIVE-bound to
+            // ThirstNeed.decayEnabled. (The ticket's AC3 pre-registered thirst as an extension hook expecting the
+            // component unbuilt; it IS built on main, so this is a LIVE toggle.)
+            if (thirst != null)
+                reg.AddBool(ThirstEnabledId, "Thirst decay on",
+                    () => thirst.decayEnabled, v => thirst.decayEnabled = v);
         }
 
         /// <summary>

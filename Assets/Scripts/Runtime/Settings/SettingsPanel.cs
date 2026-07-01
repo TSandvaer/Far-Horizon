@@ -56,6 +56,10 @@ namespace FarHorizon
         [Tooltip("The hunger need (86cabd75y) — hunger decay rate + berry restore amount bind here. " +
                  "May be null; the hunger rows then simply don't appear.")]
         public HungerNeed hunger;
+        [Tooltip("The warmth need (86cabeqwf) — the per-need on/off toggle + the warmth decay-rate slider bind " +
+                 "here. May be null; the warmth rows then simply don't appear. (Hunger/thirst on/off toggles bind " +
+                 "to their own components above; their decay-rate sliders already exist via PopulateHunger/Thirst.)")]
+        public WarmthNeed warmth;
         [Tooltip("The castaway (86caa4c5c change-(b)) — tool-use speed flips the reserved row live to its " +
                  "chopSpeed (the Mixamo melee Attack-state playback rate). May be null; the tool-use-speed row " +
                  "then stays greyed (extension hook).")]
@@ -145,6 +149,7 @@ namespace FarHorizon
             if (wasd == null) wasd = FindObjectOfType<WasdMovement>();
             if (thirst == null) thirst = FindObjectOfType<ThirstNeed>();
             if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
+            if (warmth == null) warmth = FindObjectOfType<WarmthNeed>();
             if (chopCharacter == null) chopCharacter = FindObjectOfType<CastawayCharacter>();
             if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
@@ -169,8 +174,10 @@ namespace FarHorizon
             // chop overload (86caa4c5c) flips tool-use speed live + adds the tree regrowth time range row; the
             // hunger overload (86cabd75y) adds the hunger decay rate + berry restore amount rows; the berry
             // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush; the
-            // inventory overload (86cabfa4e) adds `inventory slots` + `belt slots` + `inventory stack size`.
-            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory);
+            // inventory overload (86cabfa4e) adds `inventory slots` + `belt slots` + `inventory stack size`; the
+            // per-need overload (86cabeqwf, the 12th arg `warmth`) adds the warmth/hunger/thirst on/off toggles +
+            // the warmth decay-rate slider (PopulateNeeds — all three need components exist on main, so LIVE).
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory, warmth);
 
             // F-KEY MIGRATION (86caber95) — fold the standalone F7/F9/F10 live-tune dials into the console as
             // rows (AC1/AC2/AC3), each Tab-cycled target its own row; vectors decomposed per-axis (AC4). These
