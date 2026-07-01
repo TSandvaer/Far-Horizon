@@ -108,7 +108,17 @@ on:
       - '.claude/**'
       - 'docs/**'
 
-# Cancel superseded runs on the same ref to save self-hosted runner time.
+# TOP-LEVEL group is the SAME-REF SUPERSEDE mechanism — LEAVE ref-scoped.
+# `ci-${{ github.ref }}` + cancel-in-progress: true cancels a PR's OWN prior WHOLE
+# run (build + capture + playmode) on a re-push to the SAME ref, saving self-hosted
+# runner time and preventing N stale same-ref builds stacking in the repo-wide
+# `unity-build` queue below. Do NOT make this repo-wide: this level holds NO runner
+# (only the self-hosted JOBS do), so making it a fixed group cannot fix the
+# orphan-hold (86caammpq) — that is fixed at the runner-contending JOB level
+# (`unity-build` / `unity-capture` repo-wide queues) — and a fixed top-level group
+# with cancel-in-progress would DROP a concurrent PR's whole run (rejected per
+# 86cah17eq: contending runs must QUEUE, not cancel). The CROSS-REF orphan-hold is
+# a JOB-level concern; same-ref supersede is this TOP-level concern. (86caammpq)
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -165,18 +175,41 @@ jobs:
   # monolithic `unity` job in 86cafz9tg so the build/EditMode lane parallelizes
   # across two runners while captures stay pinned + serial (see `capture` below).
   #
-  # concurrency: a per-ref group (`unity-build-${{ github.ref }}`,
-  # cancel-in-progress) so a new push to the SAME ref supersedes its prior build
-  # — matches the top-level `ci-${{ github.ref }}` cancel and does NOT fight the
-  # repo-wide concurrency-group fix tracked in 86caammpq (that fix targets the
-  # top-level group; this job-level group is ref-scoped and consistent with it).
+  # concurrency: a REPO-WIDE QUEUE (`unity-build`, NO ref suffix,
+  # cancel-in-progress: false) — the 86caammpq orphan-hold fix. WHY not ref-scoped:
+  # a ref-scoped `unity-build-${{ github.ref }}` group could not stop a MERGED /
+  # SUPERSEDED branch's build from orphan-HOLDING the single self-hosted runner
+  # while a HEAD (main-merge or newer-PR) build waited — the merge-to-main run is
+  # on `refs/heads/main` (a DIFFERENT ref → different group), so it never
+  # serialized behind, and the orphan held the runner until its 90-min timeout or
+  # a manual `gh run cancel` (the exact operational band-aid this ticket removes;
+  # verified 2026-07-01: crouch #197 + devconsole #208 capture jobs were BOTH
+  # `gh run cancel`-cancelled at 08:55:31 — neither had acquired a runner — because
+  # the orphan-hold forced a manual cancel). An ABSOLUTE `unity-build` group +
+  # cancel-in-progress: false makes ALL build jobs across ALL refs serialize into
+  # ONE bounded queue on the single runner (build is ~7-9 min warm; the 90-min
+  # ORPHAN-HOLD-to-timeout class is gone), and NO build verdict is ever DROPPED
+  # (queue, not cancel — matches the `unity-capture` group's queue semantics, so a
+  # HEAD build waits at most ~one build cycle behind a superseded/merged-branch
+  # build instead of colliding or being orphan-held). SAME-REF SUPERSEDE is
+  # UNCHANGED and still handled by the TOP-LEVEL `ci-${{ github.ref }}` +
+  # cancel-in-progress: true group (a re-push to the SAME PR cancels that PR's
+  # WHOLE prior run — build + capture + playmode — regardless of this job-level
+  # group), so this repo-wide queue does NOT stack N stale same-ref builds: only
+  # DISTINCT-ref builds ever coexist in the queue. This groups the build lane into
+  # the same repo-wide serialization domain the `unity-capture` group already gives
+  # {capture, playmode} — the whole single-runner-contending set is now queue-mode,
+  # never cross-ref cancel (which would DROP a concurrent PR's verdict — rejected
+  # per 86cah17eq's destination: contending captures/builds must QUEUE, both
+  # produce a verdict). FOLD: this fix subsumes 86cah17eq's build-side contention;
+  # the capture-side was already correct (`unity-capture` queue). (86caammpq)
   # ---------------------------------------------------------------------------
   build:
     name: build (self-hosted, EditMode + build)
     runs-on: [self-hosted, windows, unity]
     concurrency:
-      group: unity-build-${{ github.ref }}
-      cancel-in-progress: true
+      group: unity-build
+      cancel-in-progress: false
     # A COLD / post-cache-clear build does a full package re-resolve + asset reimport
     # (no warm Library) and was observed at 20–25+ min — the old 40-min cap auto-
     # CANCELLED a churning cold build (run 27692339123, ticket 86caahtbe). A 55-min

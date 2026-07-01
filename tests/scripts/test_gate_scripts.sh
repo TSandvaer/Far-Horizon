@@ -178,6 +178,27 @@ make_min_repo() {
     && git init -q && git config user.email t@t && git config user.name t \
     && mkdir -p Assets/Scripts/Runtime Assets/Scripts/Editor \
                Assets/Tests/EditMode Assets/Tests/PlayMode Packages ProjectSettings \
+               .github/workflows \
+    && printf '%s\n' \
+        'name: CI' \
+        'concurrency:' \
+        '  group: ci-${{ github.ref }}' \
+        '  cancel-in-progress: true' \
+        'jobs:' \
+        '  structure: { runs-on: ubuntu-latest, steps: [] }' \
+        '  build:' \
+        '    runs-on: [self-hosted, windows, unity]' \
+        '    concurrency: { group: unity-build, cancel-in-progress: false }' \
+        '    steps: []' \
+        '  capture:' \
+        '    runs-on: [self-hosted, windows, unity, capture]' \
+        '    concurrency: { group: unity-capture, cancel-in-progress: false }' \
+        '    steps: []' \
+        '  playmode:' \
+        '    runs-on: [self-hosted, windows, unity]' \
+        '    concurrency: { group: unity-capture, cancel-in-progress: false }' \
+        '    steps: []' \
+        > .github/workflows/ci.yml \
     && printf '{"name":"FarHorizon.Runtime"}\n'   > Assets/Scripts/Runtime/FarHorizon.Runtime.asmdef \
     && printf '{"name":"FarHorizon.Editor"}\n'    > Assets/Scripts/Editor/FarHorizon.Editor.asmdef \
     && printf '{"name":"FarHorizon.EditTests"}\n' > Assets/Tests/EditMode/FarHorizon.EditTests.asmdef \
@@ -232,6 +253,38 @@ LEGIT_XML_REPO="$TMP/legit_xml_repo"; mkdir -p "$LEGIT_XML_REPO"; make_min_repo 
   && git add -f project_config.xml >/dev/null 2>&1 )
 assert_rc_and_grep 0 "structure check PASSED" "structure: non-NUnit root XML does NOT false-positive (86cafk5vb)" \
   -- bash -c "cd '$LEGIT_XML_REPO' && bash '$STRUCT'"
+
+# ---------------------------------------------------------------------------
+# CI concurrency-invariant guard (ticket 86caammpq — the merged-branch orphan-hold
+# fix). structure_check.sh check #6 pins the concurrency shape so a future edit can't
+# silently revert the runner-contending jobs back to ref-scoped (which re-introduces
+# the orphan-hold that forced manual `gh run cancel`). These cases prove the guard
+# FIRES on each regression direction — the regression test for the fix itself.
+# ---------------------------------------------------------------------------
+
+# NEGATIVE A — build job reverted to ref-scoped + cancel:true (orphan-hold returns).
+CONC_BUILD_REPO="$TMP/conc_build_repo"; mkdir -p "$CONC_BUILD_REPO"; make_min_repo "$CONC_BUILD_REPO"
+( cd "$CONC_BUILD_REPO" \
+  && sed -i 's/{ group: unity-build, cancel-in-progress: false }/{ group: unity-build-${{ github.ref }}, cancel-in-progress: true }/' .github/workflows/ci.yml \
+  && git add -A >/dev/null 2>&1 )
+assert_rc_and_grep 1 "concurrency invariants BROKEN" "structure: ref-scoped build job flagged (86caammpq orphan-hold guard)" \
+  -- bash -c "cd '$CONC_BUILD_REPO' && bash '$STRUCT'"
+
+# NEGATIVE B — top-level group made repo-wide (breaks same-ref supersede — wrong direction).
+CONC_TOP_REPO="$TMP/conc_top_repo"; mkdir -p "$CONC_TOP_REPO"; make_min_repo "$CONC_TOP_REPO"
+( cd "$CONC_TOP_REPO" \
+  && sed -i 's/  group: ci-${{ github.ref }}/  group: ci-fixed/; s/^  cancel-in-progress: true$/  cancel-in-progress: false/' .github/workflows/ci.yml \
+  && git add -A >/dev/null 2>&1 )
+assert_rc_and_grep 1 "concurrency invariants BROKEN" "structure: repo-wide top-level (lost same-ref supersede) flagged (86caammpq)" \
+  -- bash -c "cd '$CONC_TOP_REPO' && bash '$STRUCT'"
+
+# NEGATIVE C — capture job made cross-ref cancel (would DROP a contending verdict — 86cah17eq).
+CONC_CAP_REPO="$TMP/conc_cap_repo"; mkdir -p "$CONC_CAP_REPO"; make_min_repo "$CONC_CAP_REPO"
+( cd "$CONC_CAP_REPO" \
+  && sed -i 's/{ group: unity-capture, cancel-in-progress: false }/{ group: unity-capture, cancel-in-progress: true }/' .github/workflows/ci.yml \
+  && git add -A >/dev/null 2>&1 )
+assert_rc_and_grep 1 "concurrency invariants BROKEN" "structure: capture cancel-in-progress:true flagged (86cah17eq drop-verdict guard)" \
+  -- bash -c "cd '$CONC_CAP_REPO' && bash '$STRUCT'"
 
 echo "=== verify_settings_gate.sh (settings-panel capture gate, 86caa4bqp) ==="
 

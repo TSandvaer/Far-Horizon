@@ -145,6 +145,72 @@ else
   bad "ProjectVersion.txt does not pin ${EXPECTED_UNITY} (self-hosted runner image must match)"
 fi
 
+# ---------------------------------------------------------------------------
+# 6. CI concurrency invariants (ticket 86caammpq — the merged-branch orphan-hold
+#    fix). The single self-hosted runner is orphan-HELD by a merged/superseded
+#    branch's run if the runner-contending jobs are ref-scoped: a merge-to-main run
+#    is a DIFFERENT ref/group, so it never supersedes/serializes behind the stale
+#    PR-branch run, which holds the runner to timeout / forces a manual gh run
+#    cancel. The fix: the runner-contending JOBS (build/capture/playmode) use
+#    REPO-WIDE QUEUE groups (absolute name, NO `${{ github.ref }}` suffix,
+#    cancel-in-progress: false) so all runs across all refs serialize into one
+#    bounded queue, no verdict dropped. The TOP-LEVEL group stays REF-SCOPED — it
+#    is the same-ref supersede mechanism and holds no runner. Pin the shape here so
+#    a future edit can't silently revert it (the "fix it back to ref-scoped" trap
+#    the ci.yml comments warn against). Uses Python's YAML if available, else a
+#    literal-grep fallback (both license-free on hosted ubuntu).
+# ---------------------------------------------------------------------------
+CI_YML=".github/workflows/ci.yml"
+if [ ! -f "$CI_YML" ]; then
+  bad "ci.yml not found at $CI_YML (concurrency-invariant check cannot run)"
+elif python3 -c "import yaml" 2>/dev/null; then
+  conc_check=$(python3 - "$CI_YML" <<'PYEOF'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+# NB: PyYAML maps the YAML key `on:` to the Python bool True; `concurrency` is fine.
+top = d.get("concurrency", {})
+jobs = d.get("jobs", {})
+errs = []
+# Top level: MUST stay ref-scoped + cancel-in-progress (same-ref supersede).
+if "${{ github.ref }}" not in str(top.get("group", "")):
+    errs.append("top-level concurrency.group must be ref-scoped (same-ref supersede); got %r" % top.get("group"))
+if top.get("cancel-in-progress") is not True:
+    errs.append("top-level cancel-in-progress must be true (same-ref supersede); got %r" % top.get("cancel-in-progress"))
+# Runner-contending jobs: MUST be repo-wide queue (no ref suffix, cancel:false).
+for jn in ("build", "capture", "playmode"):
+    jc = jobs.get(jn, {}).get("concurrency")
+    if not jc:
+        errs.append("job %r missing a concurrency group (must be a repo-wide queue — 86caammpq)" % jn)
+        continue
+    g = str(jc.get("group", ""))
+    if "${{ github.ref }}" in g or "github.ref" in g:
+        errs.append("job %r concurrency.group must be REPO-WIDE (no github.ref suffix — orphan-hold, 86caammpq); got %r" % (jn, g))
+    if jc.get("cancel-in-progress") is not False:
+        errs.append("job %r cancel-in-progress must be false (queue, never drop a verdict — 86cah17eq); got %r" % (jn, jc.get("cancel-in-progress")))
+if errs:
+    print("\n".join(errs)); sys.exit(1)
+sys.exit(0)
+PYEOF
+) && ci_rc=0 || ci_rc=1
+  if [ "$ci_rc" -eq 0 ]; then
+    ok "ci.yml concurrency invariants hold (top-level ref-scoped supersede; build/capture/playmode repo-wide queue — 86caammpq)"
+  else
+    bad "ci.yml concurrency invariants BROKEN (86caammpq orphan-hold guard):"
+    printf '%s\n' "$conc_check" | grep -v '^$' | sed 's/^/       /'
+  fi
+else
+  # Fallback: literal grep for the required group tokens (PyYAML unavailable).
+  ci_fail=0
+  grep -qE 'group:[[:space:]]*ci-\$\{\{[[:space:]]*github\.ref' "$CI_YML" || { note "top-level ci-\${{ github.ref }} group not found"; ci_fail=1; }
+  grep -qE '^[[:space:]]+group:[[:space:]]*unity-build[[:space:]]*$' "$CI_YML" || { note "build job repo-wide 'unity-build' group not found (still ref-scoped?)"; ci_fail=1; }
+  grep -qE '^[[:space:]]+group:[[:space:]]*unity-capture[[:space:]]*$' "$CI_YML" || { note "capture/playmode 'unity-capture' group not found"; ci_fail=1; }
+  if [ "$ci_fail" -eq 0 ]; then
+    ok "ci.yml concurrency invariants hold (grep fallback — 86caammpq)"
+  else
+    bad "ci.yml concurrency invariants BROKEN (86caammpq orphan-hold guard, grep fallback)"
+  fi
+fi
+
 echo "==================================="
 if [ "$fail" -ne 0 ]; then
   echo "structure check FAILED"
