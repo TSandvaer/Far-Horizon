@@ -71,6 +71,10 @@ namespace FarHorizon
                  "Awake via FindObjectsByType (a startup Find, not per-frame). Null/empty → the berry row " +
                  "simply doesn't appear.")]
         public BerryBush[] berryBushes;
+        [Tooltip("The inventory façade (86cabfa4e) — `inventory slots` + `belt slots` + `inventory stack size` " +
+                 "bind through it (the #90 AC1/AC2/AC7 settings-registration follow-up). Slot-count changes " +
+                 "rebuild the model (dev re-size). May be null; the inventory rows then simply don't appear.")]
+        public Inventory inventory;
 
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the panel. Esc per Uma §8 (free — no clash with WASD/Shift/Ctrl/Space/Tab/1-5).")]
@@ -105,6 +109,7 @@ namespace FarHorizon
             // — unity6-mastery §6). The serialized array (if wired editor-time) wins; this fills it only if empty.
             if (berryBushes == null || berryBushes.Length == 0)
                 berryBushes = FindObjectsByType<BerryBush>(FindObjectsSortMode.InstanceID);
+            if (inventory == null) inventory = FindObjectOfType<Inventory>();
         }
 
         void Start()
@@ -113,8 +118,9 @@ namespace FarHorizon
             // The thirst overload (86caamkv7 AC5) adds the thirst decay rate + water scoop amount rows; the
             // chop overload (86caa4c5c) flips tool-use speed live + adds the tree regrowth time range row; the
             // hunger overload (86cabd75y) adds the hunger decay rate + berry restore amount rows; the berry
-            // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush.
-            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes);
+            // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush; the
+            // inventory overload (86cabfa4e) adds `inventory slots` + `belt slots` + `inventory stack size`.
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory);
             Registry.LoadAll();   // survives a relaunch
             Registry.ApplyAll();  // drive the live params with the loaded values on startup
 

@@ -26,6 +26,13 @@ test-results.xml
 test-results-*.xml
 # NUnit result XMLs written by local -runTests runs (e.g. editmode-results.xml).
 *-results.xml
+# Local -runTests dumps named WITHOUT the `-results` suffix slipped through the
+# pattern above (PR #177's `editmode-bake176.xml`; ticket 86cafk5vb). Root-anchored
+# platform-prefixed XMLs are always throwaway local test output — never committed.
+# (structure_check.sh ALSO rejects any root XML carrying the NUnit `<test-run`
+# marker by CONTENT, so this is belt-and-suspenders for the filename it CAN name.)
+/editmode*.xml
+/playmode*.xml
 
 # Visual Studio / Rider / VS Code generated project files
 /.vs/

@@ -369,6 +369,14 @@ namespace FarHorizon.EditorTools
             // with -verifyPond. Sibling of WireRockVerifyCapture / WireSeaVerifyCapture.
             WireFreshwaterPondVerifyCapture();
 
+            // Wire the verification-only shipped-build SKY-FACING capture (86cabc743 — the SUN-DISK POC,
+            // Erik low-poly-sky research). The gameplay OrbitCamera clamps pitch to <=70 and frames the
+            // player from above; it cannot tilt up to the Sun (elevation ~48deg), so this parks a dedicated
+            // sky camera (Skybox clear + Zone-D post) aimed at the live Sun direction (sun_disk) + up into
+            // the cloud band (cloud-vs-sky contrast). Inert unless launched with -verifySky. Sibling of
+            // WireFreshwaterPondVerifyCapture / WireWorldLookVerifyCapture.
+            WireSkyVerifyCapture();
+
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
 
@@ -2917,6 +2925,13 @@ namespace FarHorizon.EditorTools
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
             // editor-vs-runtime ship-path discipline). May be null on a bare rig — the rows then simply don't appear.
             panel.heldWeapon = Object.FindObjectOfType<HeldWeaponPlacement>();
+            // Inventory façade (86cabfa4e) — `inventory slots` + `belt slots` + `inventory stack size` bind through
+            // it. BootstrapProject adds the Inventory to the Survival object BEFORE MovementCameraScene.Author runs
+            // (so CraftSpot can wire it), so it ALREADY exists here — wire it serialized so the rows ship live without
+            // a runtime FindObjectOfType (the editor-vs-runtime ship-path discipline the stone-respawner dead-knob
+            // taught). The Awake FindObjectOfType<Inventory> stays as the bare-scene safety net. May be null on a
+            // bare rig — the inventory rows then simply don't appear.
+            panel.inventory = Object.FindObjectOfType<Inventory>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +
@@ -3195,6 +3210,25 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<FreshwaterPondVerifyCapture>() == null)
                 bootGo.AddComponent<FreshwaterPondVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the verification-only SKY-FACING capture (86cabc743 — the SUN-DISK POC) onto the Boot object
+        // so it SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship
+        // inert otherwise). Inert unless launched with -verifySky; never affects a normal play/boot/soak.
+        // Parks a dedicated sky camera (the orbit cam can't tilt up to the Sun) aimed at the live Sun
+        // direction + the cloud band, and self-asserts sun-visible + cloud-vs-sky contrast from the shipped
+        // frame — the sky capture the generic -captureGate never produces.
+        private static void WireSkyVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — sky-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<SkyVerifyCapture>() == null)
+                bootGo.AddComponent<SkyVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 

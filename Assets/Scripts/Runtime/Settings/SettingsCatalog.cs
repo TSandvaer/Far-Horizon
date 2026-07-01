@@ -83,6 +83,18 @@ namespace FarHorizon.Settings
         public const string HeldYawId   = "held_weapon_yaw";
         public const string HeldRollId  = "held_weapon_roll";
         public const string HeldScaleId = "held_weapon_scale";
+        // Inventory tweakables (ticket 86cabfa4e — the #90 / 86caa4bya AC1/AC2/AC7 settings-registration follow-up,
+        // deferred until the SettingsRegistry foundation #83 landed). THREE INT-STEPPER rows bound to the live
+        // Inventory façade: `inventory slots` (AC1) / `belt slots` (AC2) drive Inventory.InventorySlotCount /
+        // BeltSlotCount (the authoring counts the model is built from; a dev-console change REBUILDS the model so
+        // it takes effect live — a dev tool, not a player-facing live-resize of a populated grid) + `inventory
+        // stack size` (AC7) drives ItemDef.ResourceStackSize (the shared resource/consumable per-slot cap, default
+        // seeded from ItemDef.DefaultResourceStack=20). Registered by PopulateInventory (the PopulateThirst /
+        // PopulateStones / PopulateHeldWeapon de-collision precedent — each feature adds its OWN Populate method,
+        // never grows the base Populate signature). DEV-CONSOLE only ([[sponsor-wants-unified-dev-tweak-console]]).
+        public const string InventorySlotsId = "inventory_slots";
+        public const string BeltSlotsId      = "belt_slots";
+        public const string StackSizeId      = "inventory_stack_size";
 
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
@@ -133,6 +145,13 @@ namespace FarHorizon.Settings
         public const float HeldPosMin = -0.6f, HeldPosMax = 0.6f;
         public const float HeldRotMin = -360f, HeldRotMax = 360f;
         public const float HeldScaleMin = 0.2f, HeldScaleMax = 3f;
+        // Inventory slot/stack INT bands (ticket 86cabfa4e). Generous around the AC defaults (inventory 20, belt 5,
+        // stack 20) so the Sponsor can soak a cramped pack OR a roomy one. Belt is capped at 12 (the bottom-of-
+        // screen hotbar has finite horizontal room + number-key selection 1–9; AC2's default is 5). Stack cap is
+        // generous (1..99) — a single-item-per-slot survival OR a deep-stack convenience.
+        public const int InventorySlotsMin = 1,  InventorySlotsMax = 60;
+        public const int BeltSlotsMin = 1,       BeltSlotsMax = 12;
+        public const int StackSizeMin = 1,       StackSizeMax = 99;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -225,6 +244,22 @@ namespace FarHorizon.Settings
             FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
             FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger,
             IReadOnlyList<FarHorizon.BerryBush> berryBushes)
+            => Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, held, hunger,
+                berryBushes, null);
+
+        /// <summary>
+        /// Build the standard registry AND every prior need/feature AND the INVENTORY tweakables (ticket 86cabfa4e —
+        /// the #90 / 86caa4bya AC1/AC2/AC7 settings-registration follow-up): `inventory slots` (AC1) + `belt slots`
+        /// (AC2) + `inventory stack size` (AC7), bound through the live <paramref name="inventory"/> façade. A null
+        /// inventory SKIPS the inventory rows (the catalog never null-refs), so existing callers / bare test rigs are
+        /// unaffected. Mirrors the PopulateStones/PopulateHeldWeapon de-collision precedent (each feature adds its OWN
+        /// Populate method). DEV-CONSOLE only — not player-facing.
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
+            FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger,
+            IReadOnlyList<FarHorizon.BerryBush> berryBushes, FarHorizon.Inventory inventory)
         {
             var reg = new SettingsRegistry();
             Populate(reg, orbit, wasd);
@@ -234,6 +269,7 @@ namespace FarHorizon.Settings
             PopulateHeldWeapon(reg, held);
             PopulateHunger(reg, hunger);
             PopulateBerry(reg, berryBushes);
+            PopulateInventory(reg, inventory);
             return reg;
         }
 
@@ -543,6 +579,59 @@ namespace FarHorizon.Settings
             // knife/sword/spear it is their per-weapon held scale.
             reg.AddFloat(HeldScaleId, "Held: scale",
                 () => held.Scale, v => held.Scale = v, HeldScaleMin, HeldScaleMax, unit: "x");
+        }
+
+        /// <summary>
+        /// Register the INVENTORY tweakables (ticket 86cabfa4e — the #90 / 86caa4bya AC1/AC2/AC7 settings-
+        /// registration follow-up) into the registry, bound through the live <paramref name="inventory"/> façade:
+        /// <list type="bullet">
+        /// <item><b>Inventory slots</b> (AC1) — an INT stepper driving <see cref="FarHorizon.Inventory.InventorySlotCount"/>.</item>
+        /// <item><b>Belt slots</b> (AC2) — an INT stepper driving <see cref="FarHorizon.Inventory.BeltSlotCount"/>.</item>
+        /// <item><b>Inventory stack size</b> (AC7) — an INT stepper driving <see cref="FarHorizon.ItemDef.ResourceStackSize"/>
+        /// (the shared resource/consumable per-slot cap; the axe-Tool cap stays 1 — derived from Kind).</item>
+        /// </list>
+        ///
+        /// CONSTRUCTION-TIME, NOT a live field (the one trait distinguishing these from thirst/chop): the slot
+        /// counts are the AUTHORING counts the <see cref="FarHorizon.InventoryModel"/> is built from in its ctor
+        /// (the grid + belt arrays are <c>readonly</c>, sized once), and stack size feeds <c>ItemDef.MaxStack</c>
+        /// (read per add/merge). A bare "set the count" with no rebuild would be a DEAD knob (the model already
+        /// read it). So the slot-count SETTERS rebuild the model via <see cref="FarHorizon.Inventory.SetInventorySlotCount"/>
+        /// / <see cref="FarHorizon.Inventory.SetBeltSlotCount"/> (which re-construct an empty model — a DEV-console
+        /// re-size, NOT a player-facing live resize that preserves contents). Stack size needs no rebuild — the
+        /// NEXT add/merge reads the new <c>ItemDef.ResourceStackSize</c>. NO gameplay-loop behavior changes: the
+        /// add/stack/move/select rules are byte-identical; only the construction inputs become console-tunable.
+        ///
+        /// A null inventory registers NOTHING (the settings panel for an inventory-less rig simply lacks the rows),
+        /// so existing callers / bare test rigs never null-ref and never add a dead knob. The setters clamp to the
+        /// [Min,Max] band so a dial can't push a zero/runaway count. The settings panel host (86caa4bqp / PR #83)
+        /// is MERGED, so these are LIVE rows, not greyed extension hooks.
+        /// </summary>
+        public static void PopulateInventory(SettingsRegistry reg, FarHorizon.Inventory inventory)
+        {
+            if (reg == null || inventory == null) return;
+
+            // INVENTORY SLOTS (AC1) — INT stepper over the grid count. The SETTER rebuilds the model (dev-console
+            // re-size). Getter reads the current authoring count. Clamp to the band so the grid can't go to 0.
+            reg.AddInt(InventorySlotsId, "Inventory slots",
+                () => inventory.InventorySlotCount,
+                v => inventory.SetInventorySlotCount(Mathf.Clamp(v, InventorySlotsMin, InventorySlotsMax)),
+                InventorySlotsMin, InventorySlotsMax, unit: "");
+
+            // BELT SLOTS (AC2) — INT stepper over the hotbar count. The SETTER rebuilds the model (dev-console
+            // re-size). Number-key selection 1–N follows the count (InventoryModel.SelectBelt clamps to length).
+            reg.AddInt(BeltSlotsId, "Belt slots",
+                () => inventory.BeltSlotCount,
+                v => inventory.SetBeltSlotCount(Mathf.Clamp(v, BeltSlotsMin, BeltSlotsMax)),
+                BeltSlotsMin, BeltSlotsMax, unit: "");
+
+            // INVENTORY STACK SIZE (AC7) — INT stepper over the shared resource/consumable per-slot cap
+            // (ItemDef.ResourceStackSize). NO rebuild needed: the next AddItem/TryMove merge reads the new cap.
+            // Tools (axe) still cap at 1 (ItemDef.MaxStack derives that from Kind, untouched). The static default
+            // is seeded from ItemDef.DefaultResourceStack (=20), so an untouched build is byte-identical.
+            reg.AddInt(StackSizeId, "Inventory stack size",
+                () => FarHorizon.ItemDef.ResourceStackSize,
+                v => FarHorizon.ItemDef.ResourceStackSize = Mathf.Clamp(v, StackSizeMin, StackSizeMax),
+                StackSizeMin, StackSizeMax, unit: "");
         }
     }
 }

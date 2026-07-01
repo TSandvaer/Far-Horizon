@@ -36,7 +36,7 @@ namespace FarHorizon.EditTests
             _hungerGo = new GameObject("Hunger");
             _hunger = _hungerGo.AddComponent<HungerNeed>();
             _hunger.decayPerSecond = HungerNeed.HungerMedDecayPerSecond; // 0.35 default tier
-            _hunger.berryRestoreAmount = 18f;
+            _hunger.berryRestoreAmount = HungerNeed.BerryRestoreDefault; // 18f default (#183 NIT — named const)
         }
 
         [TearDown]

@@ -4,39 +4,67 @@ This file is the orchestrator's source of truth between ticks. The first section
 
 ---
 
-## RESUME NEXT-ACTION — 2026-06-29 (▶ board-hygiene + AC-flesh pass [Priya]; next-wave set now FLESHED dispatch-ready)
+## RESUME NEXT-ACTION — 2026-06-30 (4 PRs on the SPONSOR's plate; board drained otherwise; 0 agents in flight)
 
-> ⚠ This header is written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries the full 2026-06-28→29 history that is NOT yet harvested to main (`[[orchestrator-worktree-hygiene]]`). Reconcile on the next harvest-to-main; the next-wave set below is current ground truth.
+> Detailed running log = `.claude/away-queue.md` (read the LAST several ↻ entries for blow-by-blow). This header is the tight resume-point. ⚠ Written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries un-harvested history (`[[orchestrator-worktree-hygiene]]`).
 
-**This tick (2026-06-29, Priya — PR `priya/board-hygiene-2026-06-29b` off main `6969ceb`):**
-- **Status reconcile:** `86cabc73q`(#172)/`86caffw9h`(#174)/`86cafc6vx`(#171) confirmed `complete`; `86caffwuz`(#176)=`ready for qa test` left for orch. No corrections.
-- **Chop-NITs bundle → `in progress`** (Devon dispatched): `86caf9ngh` + `86caf7ne0` + `86caf6bjd`.
-- **AC-fleshed dispatch-ready:** `86cabd75y`+`86cabn67w` (settings — **stale "blocked-on-#83" gate CLEARED**; #83 merged, `SettingsCatalog.cs` on main; rewrote to mirror `PopulateThirst`/`AddRange` precedent, add a `Populate*` method + `Build` overload, never grow base `Populate`); `86cackb3j` (FBX integration — **dep CLEARED**, all 17 FBX + controller on main; `Melee_Attack.fbx` flagged NOT-in-scope); `86cabgvgw` (WarmthNeed→base — premise confirmed, reframed); `86cabugc3`+`86cabnjv8` (already good — dispatch-ready confirm comments + a same-files merge-collision note on `86cabnjv8`#4 ↔ `86cabn67w`).
-- **Follow-ups verified well-formed (no edits):** `86cafhehe` (auto-merge workflow-scope wall, sponsor-gate), `86cafhgun` (verifyInvDragGhostPos CI gate), `86cafhqrr` (anti-idle hook regex NIT), `86cafjrxk` (PgUp/PgDn deconflict).
+**RESUME NEXT-ACTION (if this session dies):** the Sponsor is working a **4-item merge/re-soak menu** — drain it via `/sponsor-questions-walkthrough`. Nothing else is dispatchable (board drained; every other slot is hard-dep-gated on one of these 4 merging). 0 agents in flight.
 
-**Mode:** auto-status LOCAL. main `5d58e78` (#166 verifyChop CI gate merged). **Orch-owned PRs (Priya does NOT flip):** #171 `86cafc6vx` water (`ready for qa test`, `auto-merge` label) · #172 `86cabc73q`+`86cabc737` trees+grass (`ready for qa test`) · #170 `orch/harvest-to-main` (orch harvest). `86caffw9h` drag-NIT `in progress` (Devon investigating — leave). **Board reconciled — no Priya status writes needed** (only orch-owned merge flips remain).
+**THE 4 SPONSOR-PENDING ITEMS (pace any order):**
+1. **Browser-merge #194 sun** (`86cag25az`, `ready for qa test`) — green-lit. Drew APPROVE + CI green (run 28474859843); sun baked elev 18° / hue (0.98,0.86,0.86) / size 0.95 (Sponsor live-dialed + accepted). `.github verify_sky_gate.sh` → **browser-merge** (`gh pr merge 194 --admin --squash --delete-branch`), label can't. On merge: flip `86cag25az` + parent `86cabc743` → complete.
+2. **Browser-merge #203 CI-split** (`86cafz9tg`, `ready for qa test`) — validated end-to-end on runner-1 with the `capture` label (run 28433229234: structure+build+capture green). Two browser steps: (a) UI-merge #203 squash+delete; (b) flip branch-protection required-checks `structure`+`unity` → `structure`+`build`+`capture`. **KEYSTONE** — see cascade below.
+3. **Re-soak #197 crouch** (`86caa3kur`, `ready for qa test`) — Drew APPROVE; clean build `Build/soak-197-v6/FarHorizon.exe` stamp `01f5a42` (played-verified by -verifySneak: avatarCrouch=True). Smooth → label-merge (no `.github`). The v5 "no crouch" was a CORRUPT warm-runner build, NOT a regression (canary = the dismissed -verifySneak red).
+4. **Re-soak #208 dev-console** (`86cabeqj9`, `ready for qa test`) — Devon APPROVE; build `Build/soak-208-v2/FarHorizon.exe` stamp `37247d8`. Test F1=console-only, F2=legacy-overlays, UI-scale slider, WASD-while-open. Good → label-merge (no `.github`).
 
-**Two new weapon tickets FLESHED to project AC shape (Priya 2026-06-28):**
-- `86caffwuz` "Nudge all weapons in-hand" — in-hand transform calibration, **bake+commit** (bars #5/#8); ends in Sponsor soak; owner Devon/Drew, S.
-- `86caffwv5` "Attack animation per weapon" — animator-driven Mixamo swing on left-click. **⚠ SPONSOR-GATE flagged for orch: apply `sponsor-gate` tag in UI** (Priya can't set tags via MCP) — gated on the Sponsor providing/importing each weapon's Mixamo attack clip (`[[chop-swing-mixamo-clip-not-procedural]]`; axe clip already in-repo). OOS: sourcing the clip.
+**POST-#203 CASCADE (~12 tickets unblock on the KEYSTONE merge):** after #203 lands + protection flips, the orchestrator must (a) `git merge origin/main` onto #194/#197/#208 (persona, no force-push, `[[merge-from-main-avoids-force-push-rebase]]`) to satisfy the new `build`+`capture` checks; (b) dispatch verifySneak-advisory `86cagqhez`; (c) the 6-ticket ci.yml cluster (`86cag1xn0`/`86cafzaeb`/`86cafhgun`/`86cabfa21`/`86caammpq`/`86cabe3e5`) + RT-readback `86cag93zb` UNBLOCK → dispatchable. Other hard-dep-on-merge follow-ups: `86cagmwg9`+`86caambxh` ← #197; `86caber95`+`86cabeqwf`+`86cagpk72` ← #208; `86cagfn8h` open-horizon ← #194.
 
-**▶ NEXT-WAVE DISPATCHABLE SET (non-gated; ready the moment the Unity build slot frees — see `team/priya-pl/backlog-triage-2026-06-28.md` §3 for full rationale):**
+**RECENTLY MERGED (2026-06-30):** #206 (unity6 harvest) · #207 (anti-idle NIT) · #209 (open-horizon Option-A spec) → main `36034db`. #200 (anti-idle hardening) + #201 (Erik-notes harvest) merged earlier this morning.
 
-_Unity-build lane (≤1 at a time — serialize on the single slot):_
-- `86caf9ngh` + `86caf7ne0` + `86caf6bjd` — chop NITs → **bundle into ONE PR** (overlap `ChopTree.cs`)
-- `86cabgvgw` — WarmthNeed → SurvivalNeed base refactor
-- `86cabugc3` — drag-source-dim PlayMode test hardening
-- `86cabnjv8` — bushes NITs follow-up
-- `86cabuhyw` — BerryBush distance-cull perf
-- `86cabd75y` + `86cabn67w` — standalone SettingsCatalog registrations (don't need console FOUNDATION)
-- `86cackb3j` — integrate preserved FBX locomotion clips (clips already in-repo)
-- `86caffwuz` — weapon in-hand nudge (axe now; ends in soak)
+**TWO STANDING LESSONS that emerged today (carry forward):**
+- **`[[served-unverified-soaks-need-played-verification]]`** — no feel/visibility soak reaches the Sponsor until a persona PLAYS the built exe at REAL gameplay framing (or a real-FOV capture) + confirms it. Today's 3 served soaks all failed/NIT'd because they were staged on green MACHINE gates (CI+EditMode+APPROVE) with no played-verification — the Sponsor was the first to play them. Flaky/skipped validating capture = NOT ready. The retro: under anti-idle "fill the queue" pressure, soaks-STAGED was optimized over soaks-VERIFIED.
+- **Warm-runner corrupt-build canary** (`86cagr0zu`) — the warm `clean:false` runner intermittently ships a corrupt build (stale Library → missing scripts / serialization mismatch → runtime-inert). Artifact-exists ≠ build-good; the gate that RUNS the exe is the canary. EditMode + peer-review run in the EDITOR, so they pass on a corrupt build. Do NOT dismiss a capture-gate red as "just a flake" without a clean re-run.
 
-_Non-build lane (fan out NOW in parallel — Erik/Uma/CI; must NOT idle while the build slot is occupied):_
-- **Erik research spikes (highest-leverage idle-fill):** `86cabc743` sky (trees/grass `86cabc73q`/`86cabc737` already in PR #172). Research half non-gated; integration soak-gated.
-- `86caammpq` — CI concurrency-group fix ⚠ ci.yml edit = classifier-guarded → dispatch brief MUST authorize the ci.yml change.
+**Mode:** auto-status away (cron `0a1d8d68`, 15-min). keep-screens-alive ON. main `36034db`. **0 agents in flight.** All 5 personas free — board is sponsor-gated on the 4 items above + the post-#203 cascade.
 
-_Sponsor-gated (do NOT auto-dispatch — surface for a priority/greenlight call):_ dev-tweak-console cluster (`86cabeqj9` foundation → 4 dependents); world POC (`86caa9zpp` next-island → `86caa9zju` boat); CI-infra sub-wave (`86cabe3e5`+`86cabfa21`+`86cab7u42` PlayMode-deadlock surface); 2nd-runner registration `86caffc23` (greenlit; Sponsor registers + RAM-trials); `86cafffe8` remove-mountains (new — vision/visual, surface); weapon attack-anim `86caffwv5` (needs clips); vision backlog (`86caaz4vn` Snake / `86caaz4un` Juice / `86cabcdpn` Combat-design).
+**This Priya tick (2026-06-30, PR `priya/state-refresh-2026-06-30`):** status reconcile — flipped #197 `86caa3kur` `in review`→`ready for qa test` (Drew APPROVE + clean soak built, drift caught); fleshed the 4 title-only follow-ups (`86cagmwg9`/`86cagpk72`/`86cagqhez`/`86cagr0zu`) with hard-dep + scope descriptions (all `to do`; the gate on each is a merge-dependency, NOT sponsor — no `sponsor-gate` tag needed); refreshed this header.
+
+_(2026-06-29c + 2026-06-19 headers below retained as history.)_
+
+## RESUME NEXT-ACTION — 2026-06-29c (▶ ClickUp MCP fixed + board caught up [Priya]; fresh full-board scan = dispatchable set below) — HISTORICAL
+
+> ⚠ Written off `origin/main`; the orchestrator's live STATE on `orch/coordination` carries 2026-06-28→29 history not yet harvested to main (`[[orchestrator-worktree-hygiene]]`). The dispatchable set below is fresh-board ground truth (live `get_tasks` 2026-06-29c) — trust it over any older next-wave list.
+
+**ENV FIX (this tick):** ClickUp MCP was DOWN most of last session (nvm node-version: clickup-mcp-server lives under Node **v25.6.1**, not the v16 that was active; `[[clickup-mcp-breaks-on-nvm-node-switch]]`) — now FIXED (~/.claude.json clickup config re-pinned to v25.6.1). Deferred status flips + follow-ups caught up below. **auto-status LOCAL re-armed.**
+
+**This tick (2026-06-29c, Priya — PR `priya/board-catchup-2026-06-29c` off main `844e8d5`):**
+- **Flipped → `complete`** (PRs merged last session, verified on main): `86cabn67w` (#185 berry-regrowth settings, 421debe) · `86cafjrxk` (#187 PgUp/PgDn deconflict, 48f2a46).
+- **NOT flipped (orch-owned merge flips):** `86cafk5vb` (#188) + `86cackb3j` (#186) — Sponsor merging/soaking now.
+- **Filed 4 follow-ups:** `86cafz9jr` (INudgePanel{IsActive} refactor — #187 follow-up, broaden PondNudgePlayModeTests to all 3 legs) · `86cafz9tg` (CI-split: headless-build+EditMode 2nd-runner-safe ↔ windowed-captures 1-runner-pinned — THE unblock for cap>1) · `86cafza2a` (capture-flake A/B finding reference) · `86cafzaeb` (#189-hardening adopted across sibling gates verify_loot/settings/water/chop).
+
+**LIVE BOARD STATE (verified 2026-06-29c):** `86cabd75y` (#183 HUNGER settings, f88a8c3) + `86caffwuz` (#176 in-hand) + the chop-NITs bundle (#177) + `86cabgvgw` (#180) + `86cabugc3` (#184) + `86cabuhyw` ALL merged-and-`complete` (the old next-wave list was stale — these shipped). #186 in Sponsor soak (build **be35459**). #188 + #189 Sponsor-merging now. **bushes-NIT `86cabnjv8` dispatched to Devon** (devon-wt). Single Unity-build slot occupied = serialize the build lane.
+
+**▶ FRESH FULL-BOARD DISPATCHABLE SET (31 open; non-gated ready work — live scan 2026-06-29c):**
+
+| ID | Name (1-line scope) | Lane | File-overlap note |
+|---|---|---|---|
+| `86cabnjv8` | bushes PR#101 perf/hygiene NITs | Unity-build | ⚠ IN FLIGHT (Devon, devon-wt) — slot occupied |
+| `86cafu81n` | #184 Visibility-enum compare NIT (mechanical) | Unity-build | InventoryDragSourceDimVerifyCapture.cs — solo |
+| `86caft905` | #183 HungerNeed berry-restore const NIT (mechanical) | Unity-build | HungerNeed.cs + test — solo |
+| `86cacer85` | point LowPolyWaterMat.mat at LowPolyWater shader (cleanup) | Unity-build | water mat — solo |
+| `86cacewju` | modeled chamfer-highlight bevel on hero props (Blender) | Blender/asset | weapon/prop palette — solo |
+| `86cafz9jr` | INudgePanel{IsActive} refactor (#187 follow-up) | Unity-build | PondNudge + nudge panels — overlaps #187 surface (merged) |
+| `86cafz9tg` | CI-split build/EditMode ↔ captures (cap>1 unblock) | CI (ci.yml) | ⚠ ci.yml edit — brief MUST authorize; coord w/ `86caammpq` |
+| `86cafzaeb` | adopt #189 hardening across sibling capture gates | CI/gate-scripts | verify_* scripts — coord w/ `86cafz9tg` (orthogonal) |
+| `86caammpq` | repo-wide CI concurrency-group (orphan-hold fix) | CI (ci.yml) | ⚠ ci.yml edit — brief MUST authorize; coord w/ `86cafz9tg` |
+| `86cafhgun` | promote -verifyInvDragGhostPos to required CI gate @2560×1440 | CI | ci.yml/gate — coord w/ CI-split |
+| `86cafhehe` | auto-merge Action can't merge workflow-file PRs (token perm) | CI/infra | ⚠ sponsor-gate (workflows-scoped PAT) — see below |
+| `86cabe3e5` | #83 settings: fix synthetic tweaked-frame capture sub-gate | Unity-build | settings capture gate — solo |
+| `86cabc743` | Unity low-poly stylized sky (Erik research half non-gated) | Non-build (Erik) | research; integration soak-gated |
+| `86cabfa4e` | #90 follow-up: belt/inventory/stack-size settings into console | Unity-build | gated on dev-console foundation `86cabeqj9` (sponsor-gate) |
+
+_Non-build lane (fan out NOW in parallel — must NOT idle while the build slot is occupied):_ `86cabc743` Erik sky research · the CI cluster (`86cafz9tg` / `86cafzaeb` / `86caammpq` / `86cafhgun` — sequence the ci.yml-touching ones so the concurrency edits don't collide) · the two mechanical NITs (`86cafu81n` / `86caft905`) ride the Unity-build lane behind the in-flight `86cabnjv8`.
+
+_Sponsor-gated (do NOT auto-dispatch — surface for a priority/greenlight call):_ dev-tweak-console cluster (`86cabeqj9` FOUNDATION → dependents `86cabeqwf` / `86caber95` / `86cabfa4e`); world POC (`86caa9zpp` next-island → `86caa9zju` boat, tags feat/poc/world); CI-infra sub-wave (`86cabfa21` PlayMode-job-slot · `86cab7u42` re-enable blocking PlayMode — both tagged/noted sponsor-gate · `86cabkhjg` cache-isolation spike · `86cabkhqn` hold-time spike — both `sponsor-gate`); 2nd-runner registration `86caffc23` (greenlit; Sponsor registers + RAM-trials — `86cafz9tg` makes it USABLE); `86cafffe8` remove-mountains (vision/visual); weapon attack-anim `86caffwv5` (needs Mixamo clips); auto-merge workflow-PAT `86cafhehe` (sponsor-gate); vision backlog (`86caaz4vn` Snake / `86caaz4un` Juice / `86cabcdpn` Combat-HP-design — all need a grill first); `86caambxh` airborne A/D nudge (feel/locomotion — soak) · `86caa3kur` crouch (deferred per gameplay-wave).
 
 _(2026-06-19 header below retained as history.)_
 

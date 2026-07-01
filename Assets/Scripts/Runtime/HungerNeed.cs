@@ -28,11 +28,16 @@ namespace FarHorizon
     /// </summary>
     public class HungerNeed : SurvivalNeed
     {
+        // The per-berry hunger-restore default — named (like the decay consts below) so the field
+        // initializer + the EditMode test SetUp read ONE source instead of duplicating the 18f literal
+        // (#183 NIT). Small vs max (18 of 100) so a berry is a top-up, not a full meal.
+        public const float BerryRestoreDefault = 18f;
+
         [Header("Food (eat-a-berry restore)")]
         [Tooltip(
             "Hunger restored per berry eaten (vision: 'small satisfaction to his hunger'). Small vs max " +
             "(default 18 of 100) so a berry is a top-up, not a full meal. Tweakable via the settings panel.")]
-        public float berryRestoreAmount = 18f;
+        public float berryRestoreAmount = BerryRestoreDefault;
 
         // Hunger's SLOWER-than-warmth decay defaults (food is found, not constantly lost): the per-tier
         // rates sit below WarmthNeed's 0.55. These are the values Reset() / the bootstrap author into the
