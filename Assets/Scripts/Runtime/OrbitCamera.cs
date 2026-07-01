@@ -209,7 +209,11 @@ namespace FarHorizon
                 _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
             }
 
-            float scroll = UiInputGate.CaptureWorldInput ? 0f : Input.GetAxisRaw("Mouse ScrollWheel");
+            // SCROLL-ZOOM gate (86cabeqj9 soak NIT): swallow the wheel while a modal panel is open (CaptureWorldInput)
+            // OR while the mouse hovers the NON-MODAL dev console (PointerOverConsole) — else the camera zooms under
+            // the cursor as the Sponsor scrolls the panel. UI Toolkit can't stop legacy Input.* polling, hence the
+            // flag (research §E1). ONLY scroll is gated here; orbit/WASD stay live (the intentional passthrough).
+            float scroll = (UiInputGate.CaptureWorldInput || UiInputGate.PointerOverConsole) ? 0f : Input.GetAxisRaw("Mouse ScrollWheel");
             if (Mathf.Abs(scroll) > 0.0001f)
             {
                 distance -= scroll * zoomSpeed;

@@ -51,8 +51,18 @@ Any action-verb driver MUST run at `DefaultExecutionOrder` < 50 when it writes f
 
 ---
 
-## Mixamo looped clips MUST set loop-pose blend, or the pose snaps at the seam (86caa3kur / #197)
+## Looped-clip `loopPose`≠`loopBlend` importer API (86caa3kur / #197)
 
-Any Mixamo in-place looped clip (locomotion + idle + crouch-walk + the Stunned hold) needs **loop-pose blending ON** or the pose discontinuously SNAPS at the frame-N→frame-0 wrap once per clip cycle. For `Sneak Walk` (28-frame cycle = one L+R gait cycle) that snap WAS the Sponsor's "left, right, JERK" every 2 steps. The fix is in `CharacterAssetGen.LoopAndRename`: set **`cc.loopPose = true`** on the `ModelImporterClipAnimation` — the C# property `loopPose` serializes to the `.meta` field **`loopBlend: 1`** (Unity API↔YAML names differ; do not look for `loopBlend` on the importer — it is `loopPose`). Then regen + COMMIT the `.fbx.meta` (the build ships the committed snapshot).
+Set loop-pose blending on any Mixamo in-place looped clip (locomotion + idle + crouch-walk + the Stunned hold) in `CharacterAssetGen.LoopAndRename` via **`cc.loopPose = true`** on the `ModelImporterClipAnimation`. ⚠ The C# property is **`loopPose`**; it SERIALIZES to the `.meta` field **`loopBlend: 1`** (Unity API↔YAML names differ; there is NO `cc.loopBlend` importer property — writing it does not compile). Then regen + COMMIT the `.fbx.meta` (the build ships the committed snapshot; see [[unity-procedural-committed-assets-go-stale]]).
 
-**Why it hid from 3 prior instruments:** a `normalizedTime` trace stays monotonic with clean TIME-wraps and velocity stays smooth — but the POSE seam still snaps. **A clean TIME-wrap ≠ a clean POSE-wrap.** A loop-seam jerk is invisible to a clock trace; verify the actual pose-blend flag (`loopBlend` in the `.meta`), not the clip's normalizedTime.
+> ⚠ **`loopBlend` did NOT cause/fix the #197 sneak jerk — do not reach for it on a per-gait pose jerk.** The prior framing of this section (loop-seam = the "left, right, JERK" cause; `loopBlend:1` = the fix) is **REFUTED**: the shipped `loopBlend:1` soak `770bffd` was "FAILED, NO CHANGE" and the live-Animator probe measured loopBlend's runtime effect at **0.000°**. The real cause + the diagnostic that found it are below. The `loopPose`≠`loopBlend` API note above is still valid — keep loop-pose blending on looped clips as hygiene — it just was NOT this jerk's cause.
+
+## When a per-gait pose jerk survives multiple fixes, measure the LIVE skeleton (86caa3kur / #197)
+
+**The failure class.** A per-gait-cycle pose jerk ("left, right, JERK, repeat" — once per stride) that SURVIVES multiple fixes because every INDIRECT instrument is BLIND to it: a `normalizedTime` trace is a CLOCK (blind to pose — stays monotonic with clean wraps while the pose still snaps); an `agent.transform`/root-position CoV reads the ROOT (blind to the skeleton); Unity `SampleAnimation` A/B reads RAW curves (blind to `loopBlend`'s RUNTIME blend — which measured 0.000° live). A clean clock, a smooth root, and clean raw curves can ALL be true while the rendered pose jerks.
+
+**The right instrument.** A PlayMode **Animator-tick probe**: `Animator.Update(dt)` on the REAL rig, then sample the LIVE model-bone `localRotation`s frame-by-frame across the gait cycle. That is the ONLY layer that sees the RENDERED skeleton pose — what the player actually sees. Reusable probe: `Assets/Tests/PlayMode/SneakGaitRuntimePoseProbe.cs` (on main via #197).
+
+**The #197 cause + fix pattern.** The jerk was a MID-CYCLE clip keyframe DISCONTINUITY — `lefttoebase` snapped **80.5° in ONE frame at normalizedTime ≈ 0.907** (whole-body 106.9°) — NOT the loop wrap, NOT `loopBlend`. Fixed by `Assets/Scripts/Editor/SneakGaitCurveFix.cs` (slerp-resample ONLY the corrupted bone-curve run → committed smoothed `.anim`), guarded by `Assets/Tests/EditMode/SneakGaitCurveSmoothTests.cs`.
+
+**THE RULE.** When a pose jerk survives ≥2 fixes, measure the LIVE rendered skeleton (tick the real Animator + sample model-bone localRotations) BEFORE guessing again. Cost of measuring the wrong layer here: **8 soaks + 3 blind instruments** before the live-skeleton probe pinned it in one pass. Relates to [[soak-fail-test-pass-instrument-runtime]] (the indirect instrument IS the blind spot).

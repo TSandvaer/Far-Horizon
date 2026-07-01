@@ -1670,6 +1670,37 @@ namespace FarHorizon.EditorTools
                       "ALL of them in the shipped build — Devon NIT #1, editor-time ship-path not the Awake fallback)");
         }
 
+        // 86caber95 AC2 — back-wire SettingsPanel.worldLook to the WorldLookTunables seam EDITOR-TIME (serialized
+        // into Boot.unity), NOT just via the runtime Awake FindObjectOfType fallback. POST-environment, mirroring
+        // WireStoneScatterRoot/WireBerryBushes: BuildSettingsPanel runs at BuildBootScene (BEFORE
+        // WorldBootstrap.BuildEnvironment adds the WorldLookTunables seam onto hudGo), so at panel-build time the
+        // seam does not exist to serialize. This step runs AFTER BuildEnvironment (from BootstrapProject), when the
+        // seam exists, and serializes the ref so the F10-migrated fog/sky/cloud/mountain/sun rows ship LIVE without
+        // a runtime Find (the editor-vs-runtime ship-path discipline the stone-respawner dead-knob taught). The
+        // Awake FindObjectOfType<WorldLookTunables> stays the bare-scene safety net. READ/wire-only — the seam
+        // resolves its own live handles lazily at runtime, so nothing here depends on the world being built yet.
+        public static void WireWorldLookConsole()
+        {
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireWorldLookConsole: no SettingsPanel in scene to wire " +
+                                 "worldLook onto (the runtime Awake FindObjectOfType fallback still resolves it)");
+                return;
+            }
+            var seam = Object.FindObjectOfType<WorldLookTunables>();
+            if (seam == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireWorldLookConsole: no WorldLookTunables seam in scene — " +
+                                 "the F10-migrated world-look rows will not appear (check BootstrapProject added it to hudGo)");
+                return;
+            }
+            settingsPanel.worldLook = seam;
+            EditorUtility.SetDirty(settingsPanel);
+            Debug.Log("[MovementCameraScene] WireWorldLookConsole: serialized WorldLookTunables onto " +
+                      "SettingsPanel.worldLook editor-time (the F10 fog/sky/cloud/mountain/sun rows ship live)");
+        }
+
         // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
         // as LowPolyZoneGen's scatter canopies (style-guide-v2 §6), so the choppable tree matches the
         // world's trees. Multi-value greens are baked into the mesh's vertex color by BlobCanopy.
@@ -2934,6 +2965,13 @@ namespace FarHorizon.EditorTools
             // taught). The Awake FindObjectOfType<Inventory> stays as the bare-scene safety net. May be null on a
             // bare rig — the inventory rows then simply don't appear.
             panel.inventory = Object.FindObjectOfType<Inventory>();
+            // F-KEY MIGRATION (86caber95) — the F9 arm-pose rows bind to the castaway's CastawayArmPose. BuildPlayer
+            // (which wires CastawayArmPose onto the castaway) runs BEFORE this in Author, so it already exists —
+            // wire it serialized so the arm-pose + run-lower rows ship live without a runtime FindObjectOfType (the
+            // editor-vs-runtime ship-path discipline). The Awake fallback stays the bare-scene safety net. (The F7
+            // camera-follow rows bind to panel.orbit; ground-Y to panel.chopCharacter — both already wired above/via
+            // Awake. The F10 world-look seam is back-wired post-environment by WireWorldLookConsole.)
+            panel.armPose = Object.FindObjectOfType<CastawayArmPose>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +

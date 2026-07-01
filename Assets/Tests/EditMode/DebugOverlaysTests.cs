@@ -7,13 +7,15 @@ using FarHorizon;
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// EditMode coverage for the shared dev/debug overlay visibility flag (ticket 86cafd6d6 — "assign a F1
-    /// key for debug overlays"). The flag is the ONE thing every dev overlay reads to decide whether to draw;
-    /// these guards pin its load-bearing contracts:
+    /// EditMode coverage for the shared LEGACY dev/debug overlay visibility flag (ticket 86cafd6d6 — "assign
+    /// a debug-overlay key"; the master key moved F1→F2 by the 86cabeqj9 soak NIT so F1 opens ONLY the dev
+    /// console). The flag is the ONE thing every LEGACY dev overlay reads to decide whether to draw; these
+    /// guards pin its load-bearing contracts (the flag's Show/Hide/Toggle semantics are key-agnostic — only
+    /// the master KEY moved, in DebugOverlayToggle):
     ///
     ///   1. DEFAULT = HIDDEN (AC2): a clean screen for normal play / soak / CI captures (also un-buries the
     ///      #158 loot prompt). A regression that flips the default to visible reds here.
-    ///   2. Show / Hide / Toggle semantics: the F1 handler + the verify-capture path drive these.
+    ///   2. Show / Hide / Toggle semantics: the F2 handler + the verify-capture path drive these.
     ///   3. The mandatory SubsystemRegistration reset re-seeds the HIDDEN default each play-entry (domain-
     ///      reload-disabled discipline — a stale "overlays on" must not survive a re-Play). This is also
     ///      enforced asmdef-wide by StaticStateResetTests; this asserts the concrete behaviour.
@@ -44,15 +46,15 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(DebugOverlays.Visible, "Hide() must conceal the dev-overlay layer");
         }
 
-        // Toggle flips the layer — this is exactly what the F1 handler (DebugOverlayToggle) does each press.
+        // Toggle flips the layer — this is exactly what the F2 handler (DebugOverlayToggle) does each press.
         [Test]
         public void Toggle_FlipsVisibility()
         {
             Assert.IsFalse(DebugOverlays.Visible, "precondition: hidden");
             DebugOverlays.Toggle();
-            Assert.IsTrue(DebugOverlays.Visible, "first F1 press reveals the layer");
+            Assert.IsTrue(DebugOverlays.Visible, "first F2 press reveals the legacy layer");
             DebugOverlays.Toggle();
-            Assert.IsFalse(DebugOverlays.Visible, "second F1 press hides the layer again");
+            Assert.IsFalse(DebugOverlays.Visible, "second F2 press hides the legacy layer again");
         }
 
         // The mandatory per-play-entry reset must re-seed the HIDDEN default — a previous session's "overlays
