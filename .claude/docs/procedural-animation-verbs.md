@@ -2,7 +2,7 @@
 
 **MANDATORY pre-work read for ALL action-verb animation work** (chop, pick-up, drink, throw — or ANY change to `CastawayArmPose` / `HeldAxeRig` / a held-prop seating or arm-pose driver).
 Full evidence, per-verb mapping, and source citations: `team/erik-consult/procedural-action-verb-animation.md` (ticket `86cae5tb3`).
-Cross-refs: `unity-conventions.md` §Editor-vs-runtime (held-prop world-space posing, the walk-float saga) + §Headless / CLI rituals (the `WaitForEndOfFrame` / `Time.deltaTime≈0` traps).
+Cross-refs: `unity-conventions.md` §Editor-vs-runtime (held-prop world-space posing, the walk-float saga) + §Headless / CLI rituals (the `WaitForEndOfFrame` / `Time.deltaTime≈0` traps) + §FBX / rigs / characters (body is Y-yaw-only, no tilt/lean exists — a lean/tilt ask is new work, NOT an extension of this arm-pose idiom).
 
 The codebase has exactly ONE arm-modification idiom: a `LateUpdate` ADDITIVE bone-rotation offset right-multiplied onto the Animator's clip pose (`CastawayArmPose`). Author every action verb as an additive offset curve on that idiom — NOT a new Animator clip, state, layer, or AvatarMask.
 
