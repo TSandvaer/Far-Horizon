@@ -180,13 +180,13 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void Skybox_SunDisk_WarmGoldDefaultsSet()
+        public void Skybox_SunDisk_SponsorBakedDefaultsSet()
         {
             // SUN-DISK POC (ticket 86cabc743 — Erik low-poly-sky research) + the SPONSOR-ACCEPTED bake (soak
-            // 55bde02, ticket 86cag25az): the GradientSkybox material must carry the three sun-disk properties
-            // with the Sponsor-accepted soft-warm-white hue + biggest-in-range size (QualityPassGen sets them).
-            // Guard the COMMITTED material the exe ships (RenderSettings.skybox is the serialized scene value),
-            // not a runtime tautology — a future change that drops/alters the sun params fails here before shipping.
+            // 2026-07-01, ticket 86cah90cp): the GradientSkybox material must carry the three sun-disk properties
+            // with the Sponsor-dialed hue + biggest-in-range size (QualityPassGen sets them). Guard the COMMITTED
+            // material the exe ships (RenderSettings.skybox is the serialized scene value), not a runtime
+            // tautology — a future change that drops/alters the sun params fails here before shipping.
             var sky = RenderSettings.skybox;
             Assert.IsNotNull(sky, "a skybox material must be assigned");
             // Only meaningful when the custom gradient shader resolved (the fallback Skybox/Procedural path
@@ -200,10 +200,11 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(sky.HasProperty("_SunHardness"), "the sky material must expose _SunHardness");
 
             Color sun = sky.GetColor("_SunColor");
-            Assert.GreaterOrEqual(sun.r, sun.b,
-                "the sun disk must be WARM (R >= B) — a cold/blue sun is a style mismatch with the warm Zone-D " +
-                "sky. The Sponsor-accepted hue is a soft warm WHITE (0.98,0.86,0.86): R is the top channel (>= B, " +
-                "both above G) — warm, just not the prior saturated amber-gold (ticket 86cag25az)");
+            // The Sponsor-dialed hue (0.74,0.84,0.26) is a warm YELLOW-GREEN toy sun (G highest, B near-zero) —
+            // a distinct dial from the prior soft warm white (0.98,0.86,0.86). Warm-not-cold still holds (R >> B).
+            Assert.Greater(sun.r, sun.b,
+                "the sun disk must be WARM (R > B) — a cold/blue sun is a style mismatch with the warm Zone-D " +
+                "sky. The Sponsor-dialed hue is a warm yellow-green (0.74,0.84,0.26): B near-zero (ticket 86cah90cp)");
             Assert.AreEqual(QualityPassGen_SunColor.r, sun.r, 0.01f, "sun R must match the QualityPassGen Sponsor-accepted default");
             Assert.AreEqual(QualityPassGen_SunColor.g, sun.g, 0.01f, "sun G must match the QualityPassGen Sponsor-accepted default");
             Assert.AreEqual(QualityPassGen_SunColor.b, sun.b, 0.01f, "sun B must match the QualityPassGen Sponsor-accepted default");
@@ -219,8 +220,8 @@ namespace FarHorizon.EditTests
 
         // Forwarded constants so this test asset (PlayTests/EditTests asmdef) reads the same Sponsor-accepted
         // defaults QualityPassGen ships, without depending on the editor-only QualityPassGen type directly.
-        // (soak 55bde02, ticket 86cag25az — soft warm white hue + biggest-in-range size.)
-        private static readonly Color QualityPassGen_SunColor = new Color(0.98f, 0.86f, 0.86f, 1f);
+        // (soak 2026-07-01, ticket 86cah90cp — warm yellow-green hue + biggest-in-range size.)
+        private static readonly Color QualityPassGen_SunColor = new Color(0.74f, 0.84f, 0.26f, 1f);
         private const float QualityPassGen_SunSize = 0.95f;
 
         [Test]

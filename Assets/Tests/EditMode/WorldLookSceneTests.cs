@@ -353,6 +353,60 @@ namespace FarHorizon.EditTests
                 "serialized into the scene — not Awake-added");
         }
 
+        // ---- SUN DEFAULT BAKE (ticket 86cah90cp — Sponsor-dialed 2026-07-01) ----
+
+        [Test]
+        public void SunDefault_IsSponsorBaked_Elevation12_HueYellowGreen_Size095()
+        {
+            // Ticket 86cah90cp: the Sponsor live-dialed the sun on the F10 WorldLookNudgeTool SUN target in the
+            // shipped build and accepted elevation 12° / hue (0.74,0.84,0.26) / size 0.95. Bake into the SOURCE
+            // OF TRUTH — WorldBootstrap.SunElevationDeg (elevation) + QualityPassGen.SunColor/SunSize (hue/size)
+            // — so the shipped build shows it AND any branch cut from main inherits it ([[unity-procedural-
+            // committed-assets-go-stale]]). This guards the CONSTANTS directly (never a silent-pass on a headless
+            // material miss); a regression to the prior 18° / warm-white (0.98,0.86,0.86) fails HERE.
+            Assert.AreEqual(12f, WorldBootstrap.SunElevationDeg, 0.001f,
+                "the sun ELEVATION default must be the Sponsor-baked 12° (WorldBootstrap.SunElevationDeg) — was " +
+                "18° pre-86cah90cp; the F10 nudge tool's elevation dial writes here");
+            Color sun = QualityPassGen.SunColor;
+            Assert.AreEqual(0.74f, sun.r, 0.001f, "sun HUE R must be the Sponsor-baked 0.74 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.84f, sun.g, 0.001f, "sun HUE G must be the Sponsor-baked 0.84 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.26f, sun.b, 0.001f, "sun HUE B must be the Sponsor-baked 0.26 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.95f, QualityPassGen.SunSize, 0.001f,
+                "sun SIZE must be the Sponsor-baked 0.95 (QualityPassGen.SunSize) — the biggest disk in-range");
+        }
+
+        [Test]
+        public void SunDefault_BakedIntoTheScene_SkyMaterialAndSunLightMatchTheConstants()
+        {
+            // The GENERATOR (WorldBootstrap/QualityPassGen) must actually HAVE BAKED the constants into the
+            // serialized Boot scene — the source-of-truth guard above is necessary but not sufficient: a stale
+            // committed Boot.unity would ship the OLD values even with the constants updated (the generated-asset
+            // gotcha). Assert the serialized scene's baked sun matches: the sky material's _SunColor/_SunSize and
+            // the "Sun" light's elevation (Euler X) equal the constants. (CI bootstraps before EditMode so the
+            // freshly-baked scene carries the new values; a bare LOCAL run against a stale Boot.unity may red here
+            // until regenerated — unity-conventions.md §"Run BootstrapProject.Run BEFORE any LOCAL EditMode run".)
+            var sky = RenderSettings.skybox;
+            Assert.IsNotNull(sky, "a gradient skybox must be assigned");
+            if (sky.shader != null && sky.shader.name == "FarHorizon/GradientSkybox")
+            {
+                // NOTE (unlike the if(resolved) silent-pass pattern this test flags elsewhere): the source-of-
+                // truth constants test above ALWAYS runs, so the bake here is a supplementary end-to-end check.
+                Color baked = sky.GetColor("_SunColor");
+                Assert.AreEqual(0.74f, baked.r, 0.02f, "baked sky _SunColor R must == QualityPassGen.SunColor (0.74)");
+                Assert.AreEqual(0.84f, baked.g, 0.02f, "baked sky _SunColor G must == QualityPassGen.SunColor (0.84)");
+                Assert.AreEqual(0.26f, baked.b, 0.02f, "baked sky _SunColor B must == QualityPassGen.SunColor (0.26)");
+                Assert.AreEqual(0.95f, sky.GetFloat("_SunSize"), 0.02f, "baked sky _SunSize must == 0.95");
+            }
+            // The Sun directional light's elevation (Euler X) — the baked shading + disk direction source.
+            var sun = GameObject.Find("Sun");
+            Assert.IsNotNull(sun, "the Boot scene must carry the 'Sun' directional light");
+            float elev = sun.transform.rotation.eulerAngles.x;
+            if (elev > 180f) elev -= 360f;
+            Assert.AreEqual(12f, elev, 0.5f,
+                "the baked 'Sun' light elevation (Euler X) must == WorldBootstrap.SunElevationDeg (12°) — a stale " +
+                "committed Boot.unity would ship the old 18° even with the constant updated (regenerate + commit)");
+        }
+
         // ---- SKY-TINT (Uma §3) ----
 
         [Test]

@@ -1388,9 +1388,12 @@ namespace FarHorizon.EditorTools
                 tool = bootGo.AddComponent<SneakIsolationTool>();
             // EXPLICITLY re-assert the toggle keys every bootstrap — a bare AddComponent leaves stale SERIALIZED
             // KeyCode values in the committed binary Boot.unity when the component already exists, so a code-only
-            // default change (F2/F3 → F5/F6) would NEVER reach the shipped exe (editor-vs-runtime serialization
-            // trap + [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
+            // default change would NEVER reach the shipped exe (editor-vs-runtime serialization trap +
+            // [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
             // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated (#208 → F2).
+            // F10 = the show/hide master (86cah90cp — Sponsor-grouped debug-overlay key; flips DebugOverlays.
+            // Visible so F10 reveals this panel + the WorldLookNudgeTool panel together; F1 stays the console).
+            tool.overlayToggleKey = KeyCode.F10;
             tool.footSyncToggleKey = KeyCode.F5;
             tool.sneakSpeedSnapToggleKey = KeyCode.F6;
             EditorUtility.SetDirty(bootGo);

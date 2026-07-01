@@ -48,6 +48,20 @@ namespace FarHorizon
     /// </summary>
     public class SneakIsolationTool : MonoBehaviour
     {
+        // SHOW/HIDE key for this overlay's panel (ticket 86cah90cp — Sponsor 2026-07-01 F10 soak). The panel
+        // reveals with the rest of the legacy debug-overlay layer via the shared DebugOverlays.Visible flag.
+        // Historically that master lived on F1, then moved F1→F2 (#208 F1/F2 de-conflict — F1 is now the dev
+        // console). The Sponsor asked for the debug overlays GROUPED on F10 with the WorldLookNudgeTool (also
+        // F10) — "so F10 toggles the debug overlays together" — and F1 kept FREE for the console. So this tool
+        // now ALSO flips DebugOverlays.Visible on F10 (an ADDITIONAL master key alongside DebugOverlayToggle's
+        // F2 — both reveal the same shared flag; F2 stays for backward-compat, F10 is the Sponsor-grouped key).
+        // Pressing F10 reveals BOTH this panel and the world-look nudge panel together. F1 is NOT consumed here.
+        [Tooltip("Show/hide the debug-overlay layer (this panel + the WorldLookNudgeTool panel together). F10 — " +
+                 "the Sponsor-grouped debug-overlay key (86cah90cp), Danish-keyboard-safe. Flips the shared " +
+                 "DebugOverlays.Visible master (alongside DebugOverlayToggle's F2). F1 is the dev console — " +
+                 "NOT consumed by this overlay.")]
+        public KeyCode overlayToggleKey = KeyCode.F10;
+
         [Tooltip("Toggle the #186 FOOT-SYNC coupling on/off. F5 — Danish-keyboard-safe F-key, verified unbound " +
                  "(dev keys are F1/F7-F10; F2/F3 vacated — F2 now hosts #208 legacy overlays). DEBUG-only; " +
                  "default restores foot-sync ON each play-entry.")]
@@ -85,9 +99,18 @@ namespace FarHorizon
 
         void Update()
         {
-            // The ONLY normal-play cost: two key polls. Everything else is gated behind DebugOverlays.Visible (F1).
-            // The toggles fire regardless of the F1 master (so the Sponsor can A/B without the panel up), but the
-            // readout only RENDERS behind F1. Resolve lazily on first use.
+            // The ONLY normal-play cost: three key polls. Everything else is gated behind DebugOverlays.Visible.
+            // F10 flips the shared legacy debug-overlay master (86cah90cp — Sponsor-grouped: F10 reveals THIS
+            // panel + the WorldLookNudgeTool panel together). The F5/F6 toggles fire regardless of the master (so
+            // the Sponsor can A/B without the panel up), but the readout only RENDERS behind the master. Resolve
+            // lazily on first use.
+            if (Input.GetKeyDown(overlayToggleKey))
+            {
+                DebugOverlays.Toggle();
+                Debug.Log("[SneakIsolation] debug overlays " +
+                          (DebugOverlays.Visible ? "ON (F10 to hide) — sneak-isolation + world-look panels"
+                                                 : "off (clean screen)"));
+            }
             if (Input.GetKeyDown(footSyncToggleKey))
             {
                 Resolve();
@@ -150,7 +173,7 @@ namespace FarHorizon
 
             float lx = panel.x + 12f, lw = panel.width - 24f, y = panel.y;
 
-            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "SNEAK ISOLATION  (debug — F1 to hide)", _titleStyle);
+            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "SNEAK ISOLATION  (debug — F10 to hide)", _titleStyle);
 
             if (_castaway == null && _player == null)
             {

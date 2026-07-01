@@ -36,19 +36,19 @@ namespace FarHorizon.EditorTools
 
         // ---- SUN-DISK defaults (ticket 86cabc743 — Erik low-poly-sky research, POC item 2) ----
         // Warm toy-like sun disk in the GradientSkybox. Additive in the shader → the post Bloom lifts a soft
-        // warm corona. SPONSOR-ACCEPTED hue + size (soak of 55bde02, ticket 86cag25az, 2026-06-30): the
-        // Sponsor live-dialed _SunColor + _SunSize on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED
-        // BUILD and accepted (0.98,0.86,0.86) — a soft WARM WHITE (R==top, a touch of warmth, G the dip), not
-        // the prior saturated amber-gold (1.0,0.74,0.34) — paired with the LOWERED 18° sun (see
-        // WorldBootstrap.SunElevationDeg). The disk reads as a bright low warm sun over the ocean rather than a
-        // hard amber dot. The lerp-core-then-glow composite in GradientSkybox.shader preserves this warm-white
-        // hue through the bloom+tonemap (it does not clip to pure white at the core).
-        public static readonly Color SunColor   = new Color(0.98f, 0.86f, 0.86f, 1f); // Sponsor-accepted soft warm white
+        // corona. SPONSOR-ACCEPTED hue + size (soak 2026-07-01, F10 world-look nudge session, ticket 86cah90cp):
+        // the Sponsor live-dialed _SunColor on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD and
+        // accepted (0.74,0.84,0.26) — a warm YELLOW-GREEN toy sun (G highest, B near-zero), a distinct dial from
+        // the prior soft warm white (0.98,0.86,0.86, soak 55bde02) — paired with the further-LOWERED 12° sun (see
+        // WorldBootstrap.SunElevationDeg). The lerp-core-then-glow composite in GradientSkybox.shader preserves
+        // this dialed hue through the bloom+tonemap (it does not clip to pure white at the core).
+        public static readonly Color SunColor   = new Color(0.74f, 0.84f, 0.26f, 1f); // Sponsor-accepted (soak 2026-07-01, 86cah90cp): warm yellow-green toy sun
         // SIZE: the Sponsor dialed _SunSize to 0.95 (the shader property's lower clamp = the BIGGEST disk) — a
         // chunky board-scale sun, the largest the shader range allows. (_SunSize is the disk-edge dot threshold:
         // LOWER = BIGGER; the original 0.9985 was a sub-pixel pinpoint, 0.992 a ~7° disk, 0.95 the full board
         // sun.) Hardness 60 stays — a crisp low-poly edge with a touch of softness for the bloom corona.
-        public const float SunSize     = 0.95f;  // Sponsor-accepted (soak 55bde02): the biggest disk in-range [0.95,0.9999]
+        // Re-confirmed 0.95 on the 2026-07-01 86cah90cp soak (unchanged from soak 55bde02).
+        public const float SunSize     = 0.95f;  // Sponsor-accepted (soak 55bde02, re-confirmed 86cah90cp): the biggest disk in-range [0.95,0.9999]
         public const float SunHardness = 60f;     // crisp-but-not-pinpoint low-poly disk edge
 
         // Build the 3-STOP GRADIENT SKYBOX (Uma world-look brief §3). RE-TUNES the Zone-D 2-color

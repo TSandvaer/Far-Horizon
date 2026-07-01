@@ -93,14 +93,22 @@ namespace FarHorizon
         private float _sunAzimuthDeg = SunAzimuthFallbackDeg; // azimuth/yaw (held constant while dialing elevation)
         private bool _sunResolved; // have we derived elev/azimuth from the baked _SunDirection yet?
 
-        // The panel is RIGHT-anchored + vertically centred, off SurvivalHud's bottom-left hotbar (same as
-        // AxeNudgeTool's SOAKFIX6 placement). Pure + static so the on-screen contract is testable w/o a render.
+        // The panel is RIGHT-anchored + anchored to the UPPER portion of the screen (ticket 86cah90cp — the
+        // Sponsor's 2026-07-01 F10 soak: this box overlapped / sat behind the lower-right SneakIsolation panel,
+        // which is right-anchored in the LOWER half (y = screenH*0.55)). MOVED UP so its bottom edge clears the
+        // SneakIsolation panel's top edge with margin at every shipped resolution — both can be up together
+        // behind the F10 master without overlapping. Pure + static so the non-overlap contract is regression-
+        // guardable w/o a render (WorldLookNudgeToolPlayModeTests.PanelDoesNotOverlapSneakIsolationPanel).
         public const float PanelWidth = 540f;
         public const float PanelHeight = 268f;
         public static Rect PanelRect(float screenW, float screenH)
         {
             float x = Mathf.Max(12f, screenW - PanelWidth - 12f);
-            float y = Mathf.Max(46f, (screenH - PanelHeight) * 0.5f);
+            // UPPER portion: anchor near the top (below BootHud's top plates). At 1080p this puts yMax at ~314,
+            // clearing the SneakIsolation panel's top edge (~594) by a wide margin. Clamp on-screen for narrow
+            // windows (never run the box off the bottom edge).
+            float y = 46f;
+            if (y + PanelHeight > screenH - 8f) y = Mathf.Max(0f, screenH - 8f - PanelHeight);
             return new Rect(x, y, PanelWidth, PanelHeight);
         }
         // SurvivalHud bottom-left hotbar footprint the panel must clear (mirrors AxeNudgeTool.HotbarZone).
