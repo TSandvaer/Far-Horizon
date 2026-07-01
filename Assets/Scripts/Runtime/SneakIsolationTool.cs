@@ -19,11 +19,11 @@ namespace FarHorizon
     ///
     /// THE HANDLES (live, behind the F1 dev-overlay master gate — DEBUG-only, default OFF so shipped crouch is
     /// byte-unchanged):
-    ///   F2 — toggle the #186 FOOT-SYNC coupling on/off (CastawayCharacter.footSync). With it OFF, animation
+    ///   F5 — toggle the #186 FOOT-SYNC coupling on/off (CastawayCharacter.footSync). With it OFF, animation
     ///        playback returns to a constant rate. If the per-second-step jerk VANISHES with foot-sync off →
     ///        foot-sync is the cause. (Foot-sync's LocoSpeedMul does NOT reach CrouchWalk in source — this
     ///        instrument lets the Sponsor CONFIRM that empirically by eye, the disconfirming control.)
-    ///   F3 — toggle SNEAK-SPEED-SNAP → normal WALK speed (WasdMovement.SetSneakSpeedSnapToWalk). Rules out the
+    ///   F6 — toggle SNEAK-SPEED-SNAP → normal WALK speed (WasdMovement.SetSneakSpeedSnapToWalk). Rules out the
     ///        reduced-sneak-speed-SPECIFIC path: if the jerk is gone at walk speed → it's a slow-speed
     ///        root-translation/blend artifact; if it persists → an animation-clip artifact independent of speed.
     ///
@@ -34,26 +34,28 @@ namespace FarHorizon
     ///   - active clip name + normalizedTime        (CrouchWalk + its loop phase — the clip-layer ground truth)
     ///   - the two toggle states (foot-sync ON/OFF, sneak-speed snap ON/OFF)
     ///
-    /// DANISH-KEYBOARD-SAFE keys (the project rule — [[sponsor-danish-keyboard-layout]]): F2 / F3 are F-keys
+    /// DANISH-KEYBOARD-SAFE keys (the project rule — [[sponsor-danish-keyboard-layout]]): F5 / F6 are F-keys
     /// (same physical position on Danish vs US; NEVER US-position punctuation `; ' [ ] = -` which shift on the
-    /// Sponsor's Danish layout). F2/F3 are verified UNBOUND elsewhere (existing dev keys are F1/F7/F8/F9/F10).
+    /// Sponsor's Danish layout). F5/F6 are verified UNBOUND elsewhere (existing dev keys are F1/F7/F8/F9/F10;
+    /// F2/F3 were VACATED here — F2 now hosts #208's legacy overlays, so this tool moved off F2/F3 to F5/F6).
     ///
     /// ARCHITECTURE (the project's dev-overlay idiom — FloatDiagnostic/AxeNudgeTool siblings): pure legacy-Input
     /// + IMGUI (no New-Input-System / shader dependency, build-safe), gated behind the F1 master
     /// (DebugOverlays.Visible) + serialized onto Boot editor-time (the editor-vs-runtime serialization trap) so it
     /// ships but stays asleep behind F1. DEFAULT = inert: the toggles start in the SHIPPED state (foot-sync ON,
     /// sneak-speed reduced), so a normal soak / CI capture sees byte-unchanged crouch behavior until the Sponsor
-    /// presses F1 then F2/F3 to A/B.
+    /// presses F1 then F5/F6 to A/B.
     /// </summary>
     public class SneakIsolationTool : MonoBehaviour
     {
-        [Tooltip("Toggle the #186 FOOT-SYNC coupling on/off. F2 — Danish-keyboard-safe F-key, verified unbound " +
-                 "(dev keys are F1/F7-F10). DEBUG-only; default restores foot-sync ON each play-entry.")]
-        public KeyCode footSyncToggleKey = KeyCode.F2;
+        [Tooltip("Toggle the #186 FOOT-SYNC coupling on/off. F5 — Danish-keyboard-safe F-key, verified unbound " +
+                 "(dev keys are F1/F7-F10; F2/F3 vacated — F2 now hosts #208 legacy overlays). DEBUG-only; " +
+                 "default restores foot-sync ON each play-entry.")]
+        public KeyCode footSyncToggleKey = KeyCode.F5;
 
-        [Tooltip("Toggle SNEAK speed → NORMAL WALK speed (rules out the slow-sneak-speed-specific path). F3 — " +
+        [Tooltip("Toggle SNEAK speed → NORMAL WALK speed (rules out the slow-sneak-speed-specific path). F6 — " +
                  "Danish-keyboard-safe F-key, verified unbound. DEBUG-only; default OFF (reduced sneak speed).")]
-        public KeyCode sneakSpeedSnapToggleKey = KeyCode.F3;
+        public KeyCode sneakSpeedSnapToggleKey = KeyCode.F6;
 
         // Resolved lazily (the avatar + player live under the player root, built editor-time).
         private CastawayCharacter _castaway;
@@ -159,12 +161,12 @@ namespace FarHorizon
             // The two ISOLATION TOGGLES (the handles — the Sponsor flips these to A/B the cause).
             bool footSync = _castaway != null && _castaway.footSync;
             GUI.Label(new Rect(lx, y + 34f, lw, 20f),
-                "F2  foot-sync (#186):  " + (footSync ? "ON  (speed-scaled)" : "OFF (constant cadence)"),
+                "F5  foot-sync (#186):  " + (footSync ? "ON  (speed-scaled)" : "OFF (constant cadence)"),
                 footSync ? _toggleOffStyle : _toggleOnStyle);   // OFF is the isolation control → highlight green
 
             bool snap = _player != null && _player.SneakSpeedSnappedToWalk;
             GUI.Label(new Rect(lx, y + 56f, lw, 20f),
-                "F3  sneak-speed snap→walk:  " + (snap ? "ON  (walk speed)" : "off (reduced sneak)"),
+                "F6  sneak-speed snap→walk:  " + (snap ? "ON  (walk speed)" : "off (reduced sneak)"),
                 snap ? _toggleOnStyle : _toggleOffStyle);       // ON is the isolation control → highlight green
 
             // The LIVE per-frame readout — which NUMBER oscillates per gait cycle is the discriminator.
@@ -187,7 +189,7 @@ namespace FarHorizon
                 Fmt(_castaway != null ? _castaway.CurrentStateEffectiveSpeed : float.NaN), _valueStyle);
 
             GUI.Label(new Rect(lx, y + 200f, lw, 28f),
-                "Sneak (Ctrl+W). Flip F2 off — does the 2-step jerk vanish?", _labelStyle);
+                "Sneak (Ctrl+W). Flip F5 off — does the 2-step jerk vanish?", _labelStyle);
         }
 
         private static string Fmt(float v) => float.IsNaN(v) ? "N/A" : v.ToString("F4");

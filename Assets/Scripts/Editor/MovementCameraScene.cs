@@ -1375,8 +1375,16 @@ namespace FarHorizon.EditorTools
                 Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakIsolationTool");
                 return;
             }
-            if (bootGo.GetComponent<SneakIsolationTool>() == null)
-                bootGo.AddComponent<SneakIsolationTool>();
+            var tool = bootGo.GetComponent<SneakIsolationTool>();
+            if (tool == null)
+                tool = bootGo.AddComponent<SneakIsolationTool>();
+            // EXPLICITLY re-assert the toggle keys every bootstrap — a bare AddComponent leaves stale SERIALIZED
+            // KeyCode values in the committed binary Boot.unity when the component already exists, so a code-only
+            // default change (F2/F3 → F5/F6) would NEVER reach the shipped exe (editor-vs-runtime serialization
+            // trap + [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
+            // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated (#208 → F2).
+            tool.footSyncToggleKey = KeyCode.F5;
+            tool.sneakSpeedSnapToggleKey = KeyCode.F6;
             EditorUtility.SetDirty(bootGo);
         }
 

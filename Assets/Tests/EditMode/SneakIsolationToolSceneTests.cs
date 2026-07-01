@@ -10,7 +10,7 @@ namespace FarHorizon.EditTests
     /// <summary>
     /// EditMode coverage for the BUILD-GATED SNEAK-WALK ISOLATION tool (ticket 86caa3kur re-soak attempt-3 —
     /// the /unstick instrument). The tool lets the Sponsor isolate the residual per-gait-cycle sneak jerk by
-    /// eye: F2 toggles #186 foot-sync, F3 snaps sneak→walk speed, with a live readout.
+    /// eye: F5 toggles #186 foot-sync, F6 snaps sneak→walk speed, with a live readout.
     ///
     /// These pin the load-bearing contracts WITHOUT a play loop (headless Time.deltaTime≈0 stalls the Animator —
     /// the documented trap; the toggle STATE/plumbing + placement are the testable surface, NOT the visual):
@@ -19,8 +19,8 @@ namespace FarHorizon.EditTests
     ///      authoritative reader. (CI bootstraps before EditMode, so the freshly-baked scene carries it; a bare
     ///      LOCAL run against a stale committed Boot.unity may red here until the scene is regenerated — see
     ///      unity-conventions.md §"Run BootstrapProject.Run BEFORE any LOCAL EditMode run".)
-    ///   2. DANISH-SAFE KEYS, NO COLLISION — F2/F3 (F-keys, layout-agnostic) distinct from every other dev key
-    ///      (F1 master / F7 camera / F8 float / F9 axe / F10 world).
+    ///   2. DANISH-SAFE KEYS, NO COLLISION — F5/F6 (F-keys, layout-agnostic) distinct from every other dev key
+    ///      (F1 master / F7 camera / F8 float / F9 axe / F10 world; F2/F3 vacated — F2 now hosts #208 overlays).
     ///   3. PANEL placement — RIGHT-anchored so it never overlaps the LEFT-anchored F8 FloatDiagnostic panel
     ///      (both can be up at once behind the F1 master).
     /// </summary>
@@ -52,7 +52,7 @@ namespace FarHorizon.EditTests
             var tool = FindInScene<SneakIsolationTool>(scene);
             Assert.IsNotNull(tool,
                 "the Boot scene must carry the SneakIsolationTool (the 86caa3kur attempt-3 /unstick handle) — a " +
-                "missing component ships the F2/F3 isolation toggles inert (the component-in-source-but-not-in-" +
+                "missing component ships the F5/F6 isolation toggles inert (the component-in-source-but-not-in-" +
                 "scene trap; this scene-presence assert is the authoritative reader for the binary scene).");
         }
 
@@ -62,19 +62,21 @@ namespace FarHorizon.EditTests
             var scene = OpenBoot();
             var tool = FindInScene<SneakIsolationTool>(scene);
             Assert.IsNotNull(tool);
-            Assert.AreEqual(KeyCode.F2, tool.footSyncToggleKey,
-                "foot-sync must toggle on F2 — a Danish-keyboard-safe F-key ([[sponsor-danish-keyboard-layout]]).");
-            Assert.AreEqual(KeyCode.F3, tool.sneakSpeedSnapToggleKey,
-                "sneak-speed snap must toggle on F3 — a Danish-keyboard-safe F-key.");
-            // No collision with the established dev keys (F1 master / F7 camera / F8 float / F9 axe / F10 world).
+            Assert.AreEqual(KeyCode.F5, tool.footSyncToggleKey,
+                "foot-sync must toggle on F5 — a Danish-keyboard-safe F-key ([[sponsor-danish-keyboard-layout]]). " +
+                "Moved off F2 (Sponsor-directed) — F2 now hosts #208's legacy overlays.");
+            Assert.AreEqual(KeyCode.F6, tool.sneakSpeedSnapToggleKey,
+                "sneak-speed snap must toggle on F6 — a Danish-keyboard-safe F-key. Moved off F3.");
+            // No collision with the established dev keys (F1 master / F2 #208 overlays / F7 camera / F8 float /
+            // F9 axe / F10 world). F2/F3 are explicitly checked as taken now (F2 = #208 legacy overlays).
             Assert.AreNotEqual(tool.footSyncToggleKey, tool.sneakSpeedSnapToggleKey,
                 "the two isolation toggles must be DISTINCT keys.");
-            foreach (var taken in new[] { KeyCode.F1, KeyCode.F7, KeyCode.F8, KeyCode.F9, KeyCode.F10 })
+            foreach (var taken in new[] { KeyCode.F1, KeyCode.F2, KeyCode.F3, KeyCode.F7, KeyCode.F8, KeyCode.F9, KeyCode.F10 })
             {
                 Assert.AreNotEqual(taken, tool.footSyncToggleKey,
-                    "F2 must not collide with the existing dev key " + taken);
+                    "the foot-sync key must not collide with the existing dev key " + taken);
                 Assert.AreNotEqual(taken, tool.sneakSpeedSnapToggleKey,
-                    "F3 must not collide with the existing dev key " + taken);
+                    "the sneak-speed key must not collide with the existing dev key " + taken);
             }
         }
 
