@@ -169,9 +169,9 @@ namespace FarHorizon.Settings
         public const float WalkMin = 1f, WalkMax = 12f;
         // Run-speed slider band (around the runSpeed 9.5 default) — used when the hook is wired live.
         public const float RunMin = 2f, RunMax = 18f;
-        // Air-control-accel slider band (ticket 86caambxh; around the lowered 5 u/s² default). From 0 (NO mid-air
-        // steer — pure ballistic coast) up to 12 (the pre-#71-fix territory), so the Sponsor can soak the A/D
-        // nudge from "none" through the shipped-subtle 5 to "as speedy as before" and pick the feel.
+        // Air-control-accel slider band (ticket 86caambxh; around the shipped 9 u/s² default — Sponsor soak
+        // 2026-07-01 raised it 5→9). From 0 (NO mid-air steer — pure ballistic coast) up to 12, so the Sponsor
+        // keeps the LIVE handle to soak the A/D nudge from "none" through the shipped 9 to the top of the band.
         public const float AirControlAccelMin = 0f, AirControlAccelMax = 12f;
         // Thirst-decay slider band (around the ThirstMedDecayPerSecond 0.45 default) — gentle..punishing.
         public const float ThirstDecayMin = 0.05f, ThirstDecayMax = 1.5f;

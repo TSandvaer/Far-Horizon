@@ -84,13 +84,14 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void ShippedAirControlAccelDefault_IsTheLowered5_NotThe8()
+        public void ShippedAirControlAccelDefault_IsThe9()
         {
-            // 86caambxh: the SHIPPED default was lowered 8 → 5 u/s² (Sponsor soaked #71's 8 as "still slightly too
-            // speedy"). A fresh WasdMovement (the component initializer) must report 5 so a normal soak/CI build
-            // runs the subtler nudge. Guards against a silent regress of the default back to 8.
-            Assert.AreEqual(5f, _wasd.airControlAccel, 1e-4f,
-                "a fresh WasdMovement must default airControlAccel to the lowered 5 u/s² (86caambxh), not the old 8.");
+            // 86caambxh: the SHIPPED default is 9 u/s² (Sponsor soak 2026-07-01 raised it 5 → 9 for a snappier
+            // mid-air sideways air-steer). A fresh WasdMovement (the component initializer) must report 9 so a
+            // normal soak/CI build runs the intended nudge. BUG CLASS this pins: a silent regress of the default
+            // back to a lower value (5/8) would quietly weaken the mid-air air-steer the Sponsor soak-locked at 9.
+            Assert.AreEqual(9f, _wasd.airControlAccel, 1e-4f,
+                "a fresh WasdMovement must default airControlAccel to 9 u/s² (86caambxh, Sponsor soak 2026-07-01).");
         }
 
         [Test]

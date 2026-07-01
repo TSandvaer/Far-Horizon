@@ -74,10 +74,11 @@ namespace FarHorizon
                  "unchanged (it still commands full moveSpeed/runSpeed directly). The Sponsor reported the OLD " +
                  "behavior (full-speed snap each frame) as 'thrown violently to the sides'; this gentle accel " +
                  "PRESERVES the forward momentum carried into the jump and nudges it slightly sideways. Default " +
-                 "5 u/s² (86caambxh — lowered from 8 after the Sponsor soaked the #71 8 u/s² as 'still slightly " +
-                 "too speedy') ≈ an even softer drift over the ~0.6s arc, not a whip. Sponsor-tunable LIVE from " +
-                 "the dev-tweak console ('Air-control accel' row).")]
-        public float airControlAccel = 5f;
+                 "9 u/s² (86caambxh — Sponsor soak 2026-07-01 raised it 5→9 for a snappier mid-air sideways " +
+                 "air-steer; the upright sideways slide IS the intended feel — there is no body-tilt/lean and " +
+                 "the Sponsor confirmed he does NOT want one). Sponsor-tunable LIVE from the dev-tweak console " +
+                 "('Air-control accel' row, 0–12 band).")]
+        public float airControlAccel = 9f;
         [Tooltip("Cap (u/s) on the airborne HORIZONTAL speed the air-control nudge can build to. Prevents the " +
                  "subtle nudge from accumulating into a fast sideways slide over a long arc. Defaults to the " +
                  "WALK speed so airborne horizontal speed never exceeds a walk — momentum carried in from a RUN " +
