@@ -34,9 +34,32 @@ artifacts=$(git ls-files \
 # `<platform>-results.xml` shape (e.g. editmode-results.xml / playmode-results.xml).
 # Both are throwaway verification output, never committed.
 logs=$(git ls-files | grep -E '(\.log$|(^|/)test-results.*\.xml$|(^|/)[A-Za-z0-9_-]*-results\.xml$)' || true)
-if [ -n "$artifacts$logs" ]; then
+
+# NUnit result XML by CONTENT, not just by filename (ticket 86cafk5vb).
+# The filename-suffix gate above (`-results.xml` / `test-results*.xml`) MISSED a
+# stray dump named `editmode-bake176.xml` in PR #177 — it lacked the `-results`
+# suffix, so neither this gate nor .gitignore caught it; only human review did.
+# Close the class: any ROOT-LEVEL `*.xml` whose head contains the NUnit `<test-run`
+# root element is a local `-runTests` dump (its defining marker — see the real
+# editmode-results.xml header), throwaway, never committed, REGARDLESS of filename.
+# Root-scoped on purpose: ci-out/ + Captures/ are already gitignored + caught by the
+# artifacts dir check above, and a genuine project XML (e.g. mono's <mconfig> config.xml)
+# lives under a subdir and does not carry the <test-run marker — so this stays
+# false-positive-free (the script's design contract).
+nunit_xml=""
+while IFS= read -r xml; do
+  [ -z "$xml" ] && continue
+  case "$xml" in */*) continue ;; esac          # root level only (no slash in path)
+  [ -f "$xml" ] || continue                       # only inspect files present in the worktree
+  if head -c 4096 "$xml" 2>/dev/null | grep -q '<test-run'; then
+    nunit_xml="${nunit_xml}${xml}
+"
+  fi
+done < <(git ls-files '*.xml')
+
+if [ -n "$artifacts$logs$nunit_xml" ]; then
   bad "Unity-generated artifacts are committed:"
-  printf '%s\n' "$artifacts" "$logs" | grep -v '^$' | sed 's/^/       /'
+  printf '%s\n' "$artifacts" "$logs" "$nunit_xml" | grep -v '^$' | sed 's/^/       /'
 else
   ok "no Unity-generated artifacts in the index"
 fi

@@ -102,6 +102,14 @@ jobs:
           chmod +x tests/scripts/test_block_destructive_hook.sh
           tests/scripts/test_block_destructive_hook.sh
 
+      # The orchestrator anti-idle Stop hook (both fire branches: full-idle +
+      # stale-scan) + the SessionStart resume-nudge are regression-guarded here.
+      # Zero Unity dependency — JSONL transcript fixtures fed on a tmp tree.
+      - name: Anti-idle hook unit tests
+        run: |
+          chmod +x tests/scripts/test_anti_idle_hook.sh
+          tests/scripts/test_anti_idle_hook.sh
+
   # ---------------------------------------------------------------------------
   # Unity gate — self-hosted Windows runner. Skips cleanly (does not fail the
   # PR) until a runner with the `unity` + `windows` labels is registered and
@@ -504,42 +512,6 @@ jobs:
           path: |
             ci-out/chop-caps/*.png
             ci-out/verify-chop.log
-          if-no-files-found: warn
-          retention-days: 14
-
-      # 12. Sneak-walk LOOP-HITCH instrument run (ticket 86caa3kur RE-SOAK, attempt 2). DIAGNOSTIC, not a
-      #     pass/fail gate: the position/velocity layer was already fixed (Devon's smooth-direct-drive, PR #197
-      #     first push) but the Sponsor's re-soak STILL hitched at the ANIMATION layer ("the crouch sneak-walk
-      #     lags between each walk animation — two steps repeated, lags between each"). EditMode/PlayMode can't
-      #     observe an Animator loop hitch (headless Time.deltaTime≈0 stalls the Animator), so this launches the
-      #     SAME built exe windowed with -verifySneak, driving SneakVerifyCapture to hold W → W+Ctrl (the sneak)
-      #     and DUMP the live per-frame layer-0 Animator ground truth (state hash + clip + normalizedTime +
-      #     EFFECTIVE playback speed + in-transition + LocoSpeedMul) as ~10Hz [SneakTrace] lines + an ANIM-LOOP
-      #     verdict that NAMES the candidate cause (clip loop-seam / foot-sync stall / state re-entry). The gate
-      #     PASSES as long as the exe ran clean + the trace landed (the trace artifact is the deliverable — a
-      #     human reads the verdict, then the cause is fixed); a hung/crashed launch with no trace fails.
-      #     Frames + log upload AFTER (if: always()).
-      - name: Sneak-walk loop-hitch instrument (Animator trace → named candidate)
-        if: always()
-        shell: bash
-        run: |
-          if [ -f Build/Windows/FarHorizon.exe ]; then
-            chmod +x .github/workflows/scripts/verify_sneak_gate.sh
-            .github/workflows/scripts/verify_sneak_gate.sh \
-              Build/Windows/FarHorizon.exe ci-out/sneak-caps ci-out/verify-sneak.log
-          else
-            echo "[verify-sneak] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
-            exit 1
-          fi
-
-      - name: Upload sneak loop-hitch trace + frames
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: FarHorizon-sneak-caps-${{ github.sha }}
-          path: |
-            ci-out/sneak-caps/*.png
-            ci-out/verify-sneak.log
           if-no-files-found: warn
           retention-days: 14
 

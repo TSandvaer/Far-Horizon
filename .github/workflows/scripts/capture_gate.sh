@@ -14,17 +14,33 @@
 #       .github/workflows/scripts/capture_gate.sh Build/Windows/FarHorizon.exe
 #   * CI (self-hosted Windows runner step in ci.yml), after the build step.
 #
-# Usage: capture_gate.sh <FarHorizon.exe> [<captureDir>] [<frames>]
-#   captureDir default: ci-out/caps   frames default: 4
+# WEDGE HARDENING (capture-flake investigation wf_b92193a7-ba9): the windowed launch
+# intermittently HANGS at the first-frame present loop (D3D12 init → 1 frame runs →
+# present wedges) on the self-hosted runner — non-deterministic, a different gate each
+# run, and every gate also PASSES on >=1 attempt. So:
+#   * LAUNCH_TIMEOUT is 300s (was 120 — a passing tail already reached ~44s and a
+#     settings launch rendered 3 valid frames yet still blew 120 on self-quit; 120
+#     had no margin).
+#   * `timeout -k 15` SIGKILLs a SIGTERM-ignoring hung player 15s after the soft TERM,
+#     so a wedged process can't linger into the retry / the next gate.
+#   * ONE rc==124-only retry per gate (mirror of bootstrap_with_retry.sh's transient
+#     retry): a single timeout-hang re-launches ONCE before declaring failure; a real
+#     non-zero gate failure (NOT 124) is NEVER retried.
+#   * -logFile ci-out/capture.log redirects the player log so a future wedge is
+#     diagnosable (verify_pond/verify_loot already redirect; this one did not until now).
+#
+# Usage: capture_gate.sh <FarHorizon.exe> [<captureDir>] [<frames>] [<logFile>]
+#   captureDir default: ci-out/caps   frames default: 4   logFile default: ci-out/capture.log
 set -uo pipefail
 
 EXE="${1:-}"
 CAP_DIR="${2:-ci-out/caps}"
 FRAMES="${3:-4}"
+LOG_FILE="${4:-ci-out/capture.log}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$EXE" ]; then
-  echo "usage: capture_gate.sh <FarHorizon.exe> [captureDir] [frames]" >&2
+  echo "usage: capture_gate.sh <FarHorizon.exe> [captureDir] [frames] [logFile]" >&2
   exit 2
 fi
 if [ ! -f "$EXE" ]; then
@@ -35,26 +51,43 @@ fi
 
 mkdir -p "$CAP_DIR"
 ABS_CAP="$(cd "$CAP_DIR" && pwd)"
+mkdir -p "$(dirname "$LOG_FILE")"
 
-# Clear any stale captures so frame_check only sees THIS run's frames (a leftover
-# good frame must never mask a now-black one).
-rm -f "$ABS_CAP"/capture_*.png
+# Wall-clock cap so a hung launch (the exe never renders / never quits) fails instead
+# of blocking CI forever. 300 gives real margin over the longest healthy launch.
+# `-k 15` hard-KILLs (SIGKILL) a player that ignores the soft SIGTERM 15s later, so a
+# wedged D3D12 present-loop process can't linger and hold a swapchain into the retry.
+LAUNCH_TIMEOUT=300
 
-echo "[capture_gate] launching shipped exe windowed: $EXE"
-echo "[capture_gate]   frames=$FRAMES captureDir=$ABS_CAP"
+# launch_once — clear stale artifacts, launch the windowed exe under timeout, return
+# its rc. Re-clears EVERY attempt so a partial first-attempt capture/log can't mask
+# the retry (a leftover good frame must never satisfy frame_check on a re-hang).
+launch_once() {
+  # Clear any stale captures so frame_check only sees THIS attempt's frames.
+  rm -f "$ABS_CAP"/capture_*.png
+  rm -f "$LOG_FILE"
+  echo "[capture_gate] launching shipped exe windowed: $EXE"
+  echo "[capture_gate]   frames=$FRAMES captureDir=$ABS_CAP logFile=$LOG_FILE"
+  # Windowed + small so it never grabs the desktop; -captureGate drives CaptureGate;
+  # the component calls Application.Quit() when done. -logFile redirects the player log.
+  set +e
+  timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
+    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -captureGate -captureFrames "$FRAMES" -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
+  rc=$?
+  set -e
+}
 
-# Windowed + small so it never grabs the desktop; -captureGate drives CaptureGate;
-# the component calls Application.Quit() when done. Cap wall-clock so a hung launch
-# (the exe never renders / never quits) fails instead of blocking CI forever.
-LAUNCH_TIMEOUT=120
-set +e
-timeout "${LAUNCH_TIMEOUT}" "$EXE" \
-  -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
-  -captureGate -captureFrames "$FRAMES" -captureDir "$ABS_CAP"
-rc=$?
-set -e
+launch_once
+# ONE retry, ONLY on a timeout-hang (rc 124 = the present-loop wedge). A real non-zero
+# gate failure is NOT a wedge — do not retry it (that would just waste a runner cycle
+# and could mask a genuine render failure).
 if [ "$rc" -eq 124 ]; then
-  echo "[capture_gate] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s; inspecting whatever it captured" >&2
+  echo "[capture_gate] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s (timeout-hang; likely the first-frame present-loop wedge wf_b92193a7-ba9) — retrying ONCE" >&2
+  launch_once
+  if [ "$rc" -eq 124 ]; then
+    echo "[capture_gate] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s on the retry either; inspecting whatever it captured" >&2
+  fi
 fi
 
 # Authoritative pass/fail: the OUT-OF-ENGINE frame inspection. Require at least 1
