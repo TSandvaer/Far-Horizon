@@ -200,9 +200,11 @@ namespace FarHorizon.EditorTools
                                   $"{boneWorstBefore:F2}deg -> {boneWorstAfter:F2}deg");
                 if (boneWorstAfter > worstAfter) worstAfter = boneWorstAfter;
 
-                // write the (possibly modified) quaternion components back, with SMOOTH tangents so the interpolation
-                // through the corrected keys is clean (Auto tangents = C1-continuous, no re-introduced kink).
-                WriteQuatCurves(dst, bx, by, bz, bw, times, quats);
+                // write the (possibly modified) quaternion components back. Auto-tangent ONLY the resampled keys +
+                // their bracketing anchors (whose tangents point into a changed span); every other key keeps its
+                // ORIGINAL FBX tangent verbatim (#197 NIT — SmoothTangents on ALL keys re-derived the non-spiking
+                // keys' tangents sub-degree off-verbatim; scoping to the changed range keeps them byte-verbatim).
+                WriteQuatCurves(dst, bx, by, bz, bw, cx, cy, cz, cw, times, quats, resample);
             }
 
             // 3) write the asset (overwrite if present — idempotent bootstrap re-run).
@@ -222,24 +224,37 @@ namespace FarHorizon.EditorTools
             return true;
         }
 
-        // Write x/y/z/w curves from the (times, quats) arrays with Auto (smooth) tangents.
+        // Write x/y/z/w curves from the (times, quats) arrays. Keys that were NOT resampled keep their ORIGINAL FBX
+        // tangents (verbatim copy from the source curves — no re-derivation). Auto (smooth) tangents are applied ONLY
+        // to the resampled keys and their bracketing anchors, so the interpolation through the CORRECTED span is clean
+        // (C1-continuous, no re-introduced kink) while every non-spiking key stays byte-verbatim (#197 SmoothTangents
+        // scope NIT — running SmoothTangents on ALL keys re-derived even the untouched keys' tangents sub-degree off).
         private static void WriteQuatCurves(AnimationClip dst,
             EditorCurveBinding bx, EditorCurveBinding by, EditorCurveBinding bz, EditorCurveBinding bw,
-            float[] times, Quaternion[] quats)
+            AnimationCurve srcX, AnimationCurve srcY, AnimationCurve srcZ, AnimationCurve srcW,
+            float[] times, Quaternion[] quats, bool[] resample)
         {
             int n = times.Length;
+            // start every key from its ORIGINAL FBX keyframe (preserves time + tangents + weights verbatim); overwrite
+            // only the VALUE, which is unchanged for non-resampled keys (verbatim) and the slerp result for resampled.
             var kx = new Keyframe[n]; var ky = new Keyframe[n]; var kz = new Keyframe[n]; var kw = new Keyframe[n];
             for (int i = 0; i < n; i++)
             {
-                kx[i] = new Keyframe(times[i], quats[i].x);
-                ky[i] = new Keyframe(times[i], quats[i].y);
-                kz[i] = new Keyframe(times[i], quats[i].z);
-                kw[i] = new Keyframe(times[i], quats[i].w);
+                kx[i] = srcX.keys[i]; kx[i].value = quats[i].x;
+                ky[i] = srcY.keys[i]; ky[i].value = quats[i].y;
+                kz[i] = srcZ.keys[i]; kz[i].value = quats[i].z;
+                kw[i] = srcW.keys[i]; kw[i].value = quats[i].w;
             }
             var ax = new AnimationCurve(kx); var ay = new AnimationCurve(ky);
             var az = new AnimationCurve(kz); var aw = new AnimationCurve(kw);
+            // A key needs a re-derived Auto tangent if it was itself resampled OR it is a clean anchor immediately
+            // bracketing a resampled run (its tangent points into the changed span). Every other key keeps verbatim.
             for (int i = 0; i < n; i++)
             {
+                bool touched = resample[i]
+                               || (i > 0 && resample[i - 1])
+                               || (i < n - 1 && resample[i + 1]);
+                if (!touched) continue;
                 ax.SmoothTangents(i, 0f); ay.SmoothTangents(i, 0f);
                 az.SmoothTangents(i, 0f); aw.SmoothTangents(i, 0f);
             }
