@@ -84,13 +84,27 @@ namespace FarHorizon
                  "rebuild the model (dev re-size). May be null; the inventory rows then simply don't appear.")]
         public Inventory inventory;
 
+        [Header("F-key migration targets (86caber95 — legacy F7/F9/F10 dials → console rows)")]
+        [Tooltip("The castaway arm-pose driver (86caber95 AC1 — F9) — the per-axis arm-pose + run-lower euler rows " +
+                 "bind to its rightArmEuler / leftArmEuler / runLowerEuler. May be null; those rows then don't appear.")]
+        public CastawayArmPose armPose;
+        [Tooltip("The world-look seam (86caber95 AC2 — F10) — the fog/sky/cloud/mountain/sun rows bind through it " +
+                 "(it resolves the same RenderSettings/skybox-material/vista handles the F10 tool dials). May be " +
+                 "null; the world-look rows then simply don't appear. (OrbitCamera follow gains bind to `orbit`; " +
+                 "ground-Y binds to `chopCharacter`.)")]
+        public WorldLookTunables worldLook;
+
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). The console KEEPS F1 but polls it " +
                  "DIRECTLY (the 86cabeqj9 soak NIT F1/F2 de-conflict): F1 toggles ONLY the console; the LEGACY " +
                  "IMGUI overlays moved to F2 (DebugOverlayToggle). It previously rode the shared " +
                  "DebugOverlays.Visible flag, so one F1 popped the console AND the legacy overlays together. " +
                  "Layout-agnostic + verified non-clashing with WASD/Shift/Space/Tab/F7-F10 " +
-                 "([[sponsor-danish-keyboard-layout]]). The Update poll reads this field directly.")]
+                 "([[sponsor-danish-keyboard-layout]]). Update polls this field directly (SetOpen(!IsOpen)). " +
+                 "NOTE (86cagpk72 NIT): the SHIPPED-BUILD verify-capture drives SetOpen/DebugOverlays " +
+                 "PROGRAMMATICALLY (it can't synthesize an F1 key-down in a windowed capture) — it does NOT " +
+                 "read this field; the only toggleKey==F1 assertion in the scene tests is on DebugOverlayToggle, " +
+                 "not this component.")]
         public KeyCode toggleKey = KeyCode.F1;
 
         /// <summary>The registry this panel renders + drives. Built on Start from the catalog (public for tests).</summary>
@@ -113,6 +127,14 @@ namespace FarHorizon
         // text LIVE, independently of the chrome-scaling _uiScale. An inline fontSize wins over the USS selector.
         private readonly System.Collections.Generic.List<TextEl> _textEls = new System.Collections.Generic.List<TextEl>();
         private struct TextEl { public VisualElement El; public float BasePx; }
+        // 86cagvvhv (#208 cosmetic NIT) — the fixed-width value columns (the dim "def …" hint + the current-value
+        // readout) carry USS px widths that DON'T scale with the font, so at the 2.0x UI-text-scale cap the doubled
+        // glyphs overflow their column and the default-hint runs into the readout (unreadable). We track each such
+        // column with its BASE width px and scale that width in lockstep with _textScale in ApplyTextScale, so the
+        // hint + readout stay non-overlapping across the whole 1.0x→2.0x band. Only the INNER column widths change;
+        // the panel's corner-parking/position (AC4) is unaffected (that's the scrim's justify/align, not these).
+        private readonly System.Collections.Generic.List<WidthEl> _widthEls = new System.Collections.Generic.List<WidthEl>();
+        private struct WidthEl { public VisualElement El; public float BasePx; }
         private SettingEntry _active;          // the focused/selected entry the nudge keys drive (AC6, one at a time)
         private readonly List<RowHandle> _handles = new List<RowHandle>(); // per-row repaint + active-highlight (AC8/AC9/AC10)
 
@@ -134,6 +156,10 @@ namespace FarHorizon
             if (berryBushes == null || berryBushes.Length == 0)
                 berryBushes = FindObjectsByType<BerryBush>(FindObjectsSortMode.InstanceID);
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
+            // F-key migration seams (86caber95) — Awake build-safety fallbacks (the ship path wires them
+            // editor-time). armPose drives the F9 arm rows; worldLook the F10 rows.
+            if (armPose == null) armPose = FindObjectOfType<CastawayArmPose>();
+            if (worldLook == null) worldLook = FindObjectOfType<WorldLookTunables>();
         }
 
         void Start()
@@ -145,6 +171,14 @@ namespace FarHorizon
             // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush; the
             // inventory overload (86cabfa4e) adds `inventory slots` + `belt slots` + `inventory stack size`.
             Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory);
+
+            // F-KEY MIGRATION (86caber95) — fold the standalone F7/F9/F10 live-tune dials into the console as
+            // rows (AC1/AC2/AC3), each Tab-cycled target its own row; vectors decomposed per-axis (AC4). These
+            // register AFTER Build (the per-feature Populate de-collision precedent) so they append below the
+            // existing rows. The legacy F-key panels stay LIVE in parallel until soak-confirmed (AC5).
+            SettingsCatalog.PopulateCameraFollow(Registry, orbit);            // F7 → OrbitCamera follow gains (AC3)
+            SettingsCatalog.PopulateArmAndGround(Registry, chopCharacter, armPose); // F9 → ground-Y + arm pose (AC1)
+            SettingsCatalog.PopulateWorldLook(Registry, worldLook);          // F10 → sky/fog/cloud/mountain/sun (AC2)
 
             // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
             // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target
@@ -222,6 +256,14 @@ namespace FarHorizon
                 _focusedFields = 0;
                 UiInputGate.SetPanelOpen(false, ref _gateTracked);
             }
+            // 86cagz15v (#208 NIT) — CLOSING must ALSO clear the scroll-zoom pointer gate. UI Toolkit does not
+            // reliably dispatch PointerLeaveEvent on a display:None ancestor, so an F1-close WHILE the cursor is
+            // over the panel rect would otherwise strand PointerOverConsole==true → OrbitCamera keeps swallowing
+            // the scroll-zoom until the cursor next enters+leaves a reopened panel ("scroll-zoom randomly stopped
+            // working"). A hidden panel can never legitimately hold the pointer, so force it false here (cheap,
+            // idempotent, belt-and-suspenders). Does NOT touch the scroll-gate semantics — only the enter/leave
+            // wiring's close-path gap.
+            if (!open) UiInputGate.SetPointerOverConsole(false);
             if (_scrim == null) return;
             _scrim.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
             if (open)
@@ -267,14 +309,30 @@ namespace FarHorizon
             el.style.fontSize = basePx * _textScale;   // apply the current scale immediately
         }
 
+        /// <summary>86cagvvhv (#208 cosmetic NIT) — register a fixed-width VALUE COLUMN (the dim "def …" hint or
+        /// the current-value readout) + its BASE width px, so <see cref="ApplyTextScale"/> can grow the column in
+        /// lockstep with the font (else the doubled 2.0x glyphs overflow the fixed px column and the hint overlaps
+        /// the readout). Called as each such column is built. Sets the current-scaled width immediately.</summary>
+        private void RegisterScaledWidth(VisualElement el, float baseWidthPx)
+        {
+            if (el == null) return;
+            _widthEls.Add(new WidthEl { El = el, BasePx = baseWidthPx });
+            el.style.width = baseWidthPx * _textScale;   // apply the current scale immediately
+        }
+
         /// <summary>86cabeqj9 soak NIT — apply the UI TEXT scale to every registered panel text element
         /// (fontSize = base * _textScale). DISTINCT from ApplyConsoleScale (chrome transform): this resizes
         /// the FONT only, so the Sponsor makes text bigger/smaller independently. Inline fontSize wins over
-        /// the USS selector. Idempotent + null-safe (a no-op before the rows/chrome are built).</summary>
+        /// the USS selector. Idempotent + null-safe (a no-op before the rows/chrome are built). 86cagvvhv —
+        /// ALSO grows the fixed-width value columns (default hint + readouts) so they never overlap at 2.0x.</summary>
         private void ApplyTextScale()
         {
             for (int i = 0; i < _textEls.Count; i++)
                 if (_textEls[i].El != null) _textEls[i].El.style.fontSize = _textEls[i].BasePx * _textScale;
+            // 86cagvvhv — scale the value-column WIDTHS with the font so the "def …" hint + readout stay
+            // non-overlapping across the whole 1.0x→2.0x band (not just at 1.0x).
+            for (int i = 0; i < _widthEls.Count; i++)
+                if (_widthEls[i].El != null) _widthEls[i].El.style.width = _widthEls[i].BasePx * _textScale;
         }
 
         // AC6 — apply one nudge step to the active entry, scaled by Shift(5x)/Ctrl(0.2x). Drives the entry's
@@ -288,7 +346,7 @@ namespace FarHorizon
                 case SettingEntry.Archetype.Slider:
                 {
                     var e = (FloatSettingEntry)_active;
-                    e.SetValue(e.Value + dir * SliderStep(e) * mul);
+                    e.SetValue(e.Value + dir * NudgeStep.ForSlider(e) * mul);
                     break;
                 }
                 case SettingEntry.Archetype.Range:
@@ -296,7 +354,7 @@ namespace FarHorizon
                     // Nudge MOVES THE WHOLE WINDOW (both ends by the step) — the most useful single-knob nudge
                     // for a range; fine-tuning a single end stays the slider-drag affordance.
                     var e = (RangeSettingEntry)_active;
-                    float step = RangeStep(e) * mul * dir;
+                    float step = NudgeStep.ForRange(e) * mul * dir;
                     e.SetMin(e.MinValue + step);
                     e.SetMax(e.MaxValue + step);
                     break;
@@ -304,9 +362,8 @@ namespace FarHorizon
                 case SettingEntry.Archetype.Stepper:
                 {
                     var e = (IntSettingEntry)_active;
-                    // Step modifiers scale the int step (Shift=5x, Ctrl=0.2x → at least 1).
-                    int s = Mathf.Max(1, Mathf.RoundToInt(e.Step * mul));
-                    e.SetValue(e.Value + dir * s);
+                    // Step modifiers scale the int step (Shift=5x, Ctrl=0.2x → at least 1) — shared formula.
+                    e.SetValue(e.Value + dir * NudgeStep.ForStepper(e, mul));
                     break;
                 }
                 case SettingEntry.Archetype.Toggle:
@@ -320,17 +377,15 @@ namespace FarHorizon
             RefreshRow(_active);
         }
 
+        // The MODIFIER multiply (Shift=5x / Ctrl=0.2x) reads live Input — stays here (not headless-testable).
+        // The base STEP SIZE per archetype is the shared NudgeStep formula (86cagpk72 NIT — single source; the
+        // test asserts the SAME formula the panel uses).
         private static float NudgeStepMul()
         {
             if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) return 5f;
             if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) return 0.2f;
             return 1f;
         }
-
-        // Per-archetype base nudge step: 1% of the dialable band (so a nudge is a sensible fine increment on
-        // any range, e.g. 0.11 u/s on the 1–12 walk band; Shift/Ctrl scale it). Range uses the wider span.
-        private static float SliderStep(FloatSettingEntry e) => Mathf.Max(0.01f, (e.Max - e.Min) * 0.01f);
-        private static float RangeStep(RangeSettingEntry e) => Mathf.Max(0.01f, (e.UpperLimit - e.LowerLimit) * 0.01f);
 
         // ---- View construction (built once; rows come from the registry, generically) -------------------
 
@@ -477,6 +532,7 @@ namespace FarHorizon
             var def = new Label(DefaultText(entry));
             def.AddToClassList("setting-row__default");
             RegisterText(def, 11f);
+            RegisterScaledWidth(def, 84f);   // 86cagvvhv — grow the "def …" column with the font (USS base 84px)
             row.Add(def);
             var badge = new Label("●");
             badge.AddToClassList("setting-row__badge");
@@ -533,6 +589,7 @@ namespace FarHorizon
             var field = MakeNumericField(e.Available);          // AC5 typed entry
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
             RegisterText(readout, 13f);
+            RegisterScaledWidth(readout, 92f);                  // 86cagvvhv — grow the readout column with the font
             row.Add(slider); row.Add(field); row.Add(readout);
 
             System.Action refresh = () =>
@@ -567,6 +624,7 @@ namespace FarHorizon
             readout.AddToClassList("setting-row__readout");
             readout.AddToClassList("setting-row__readout--minmax");
             RegisterText(readout, 13f);
+            RegisterScaledWidth(readout, 120f);                 // 86cagvvhv — minmax readout is 120px; grow with font
             row.Add(range); row.Add(fieldMin); row.Add(fieldMax); row.Add(readout);
 
             System.Action refresh = () =>
@@ -609,6 +667,7 @@ namespace FarHorizon
             var field = MakeIntField(e.Available);              // AC5 typed entry (int)
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
             RegisterText(readout, 13f);
+            RegisterScaledWidth(readout, 92f);                  // 86cagvvhv — grow the readout column with the font
             row.Add(field); row.Add(readout);
 
             System.Action refresh = () =>
@@ -634,6 +693,7 @@ namespace FarHorizon
             toggle.SetEnabled(e.Available);
             var readout = new Label(); readout.AddToClassList("setting-row__readout");
             RegisterText(readout, 13f);
+            RegisterScaledWidth(readout, 92f);                  // 86cagvvhv — grow the readout column with the font
             row.Add(toggle); row.Add(readout);
 
             System.Action refresh = () =>

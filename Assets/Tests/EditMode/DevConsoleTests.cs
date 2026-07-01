@@ -56,9 +56,11 @@ namespace FarHorizon.EditTests
         // ===== AC6 — nudge with Shift(5x) / Ctrl(0.2x) applies the scaled step =====
         //
         // The nudge step is SettingsPanel's formula: base = 1% of the dialable band, scaled by the modifier.
-        // Replicate it here so a regression in the entry math OR the step constant trips a red.
-
-        private static float SliderStep(FloatSettingEntry e) => Mathf.Max(0.01f, (e.Max - e.Min) * 0.01f);
+        // 86cagpk72 NIT — the base-step formula is now the SHARED FarHorizon.Settings.NudgeStep helper the panel
+        // itself calls (was a private duplicate here, so a drift in the 0.01f constant wouldn't red a test). We
+        // call NudgeStep.ForSlider directly so the asserted step IS the shipped step; the modifier multiply
+        // (5f/0.2f) is passed explicitly — those constants live in SettingsPanel.NudgeStepMul (reads live Input,
+        // not headless-testable) and are asserted directly here.
 
         [Test]
         public void Nudge_BaseStep_MovesByOnePercentOfBand()
@@ -67,7 +69,7 @@ namespace FarHorizon.EditTests
             var reg = new SettingsRegistry();
             var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f); // band 11 → step 0.11
 
-            float step = SliderStep(e);                 // 0.11
+            float step = NudgeStep.ForSlider(e);         // 0.11 (SHARED formula, not a local copy)
             e.SetValue(e.Value + 1 * step * 1f);         // one nudge up, no modifier
             Assert.AreEqual(5.11f, param, 1e-4f, "an unmodified nudge moves by 1% of the band (AC6)");
         }
@@ -78,7 +80,7 @@ namespace FarHorizon.EditTests
             float param = 5f;
             var reg = new SettingsRegistry();
             var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f); // step 0.11
-            float step = SliderStep(e);
+            float step = NudgeStep.ForSlider(e);
 
             e.SetValue(e.Value + 1 * step * 5f);         // Shift = 5x → +0.55
             Assert.AreEqual(5.55f, param, 1e-4f, "Shift applies a 5x nudge step (AC6)");
@@ -94,10 +96,31 @@ namespace FarHorizon.EditTests
             float param = 11.95f;
             var reg = new SettingsRegistry();
             var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f);
-            float step = SliderStep(e); // 0.11
+            float step = NudgeStep.ForSlider(e); // 0.11
 
             e.SetValue(e.Value + 1 * step * 1f);         // 11.95 + 0.11 = 12.06 → clamps to 12
             Assert.AreEqual(12f, param, 1e-4f, "a nudge past the ceiling clamps to Max (AC6 + the entry clamp)");
+        }
+
+        // 86cagpk72 NIT — pin the SHARED step formulas directly (so a change to the 0.01f base constant OR the
+        // per-axis band reds here, not just as an indirect side-effect). This is the coverage gap the NIT named.
+        [Test]
+        public void NudgeStep_SharedFormula_MatchesOnePercentOfBand()
+        {
+            var reg = new SettingsRegistry();
+            float f = 5f;
+            var slider = reg.AddFloat("con_walk", "Walk", () => f, v => f = v, 1f, 12f); // band 11
+            Assert.AreEqual(0.11f, NudgeStep.ForSlider(slider), 1e-5f, "slider base step = 1% of the (Max-Min) band");
+
+            float lo = 6f, hi = 26f;
+            var range = reg.AddRange("con_zoom", "Zoom", () => lo, v => lo = v, () => hi, v => hi = v, 2f, 40f); // span 38
+            Assert.AreEqual(0.38f, NudgeStep.ForRange(range), 1e-5f, "range base step = 1% of the (Upper-Lower) span");
+
+            int n = 5;
+            var stepper = reg.AddInt("con_int", "Slots", () => n, v => n = v, 1, 60, step: 1);
+            Assert.AreEqual(1, NudgeStep.ForStepper(stepper, 1f), "int base step = the entry step");
+            Assert.AreEqual(5, NudgeStep.ForStepper(stepper, 5f), "Shift scales the int step to 5x");
+            Assert.AreEqual(1, NudgeStep.ForStepper(stepper, 0.2f), "Ctrl floors the int step at 1 (never 0)");
         }
 
         // ===== AC7 — a Bool entry binds + drives its flag (the new archetype) =====

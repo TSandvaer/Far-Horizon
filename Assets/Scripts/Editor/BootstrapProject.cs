@@ -133,6 +133,13 @@ namespace FarHorizon.EditorTools
             // stones there is no canonicalisation — it only COLLECTS + serializes (READ/wire-only; seed-42 untouched).
             MovementCameraScene.WireBerryBushes();
 
+            // 86caber95 AC2 — back-wire SettingsPanel.worldLook to the WorldLookTunables seam now that BOTH
+            // exist: the panel was authored in BuildBootScene (line ~96, BEFORE the environment), the seam was
+            // added onto hudGo above (during BuildEnvironment). Serializes the ref so the F10-migrated fog/sky/
+            // cloud/mountain/sun rows ship LIVE without a runtime FindObjectOfType (the editor-vs-runtime ship-
+            // path discipline; the Awake fallback stays the bare-scene safety net). Mirrors WireStoneScatterRoot.
+            MovementCameraScene.WireWorldLookConsole();
+
             EditorSceneManager.SaveScene(scene, BootScenePath);
             Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved (full slice: env + castaway player)");
 
@@ -382,6 +389,14 @@ namespace FarHorizon.EditorTools
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
             // of AxeNudgeTool). Serialized editor-time per the editor-vs-runtime trap; INERT unless F9.
             hudGo.AddComponent<FarHorizon.WorldLookNudgeTool>();
+            // WORLD-LOOK CONSOLE SEAM (86caber95 AC2 — F10 → dev-console rows). The single binding surface the
+            // SettingsPanel's fog/sky/cloud/mountain/sun rows read/write through; it resolves the SAME
+            // RenderSettings/skybox-material/cloud/vista handles the F10 WorldLookNudgeTool dials (lazily, at
+            // runtime — the world exists by then). Serialized editor-time onto hudGo so it ships in Boot.unity;
+            // MovementCameraScene.WireWorldLookConsole back-wires SettingsPanel.worldLook to it (the panel was
+            // built earlier in BuildBootScene, so this post-environment wiring mirrors WireStoneScatterRoot).
+            if (hudGo.GetComponent<FarHorizon.WorldLookTunables>() == null)
+                hudGo.AddComponent<FarHorizon.WorldLookTunables>();
             // POND RECESS + FOAM live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak: he dials the
             // final pond recess depth + foam amount IN THE SHIPPED BUILD + reports the values to bake).
             // ALWAYS-LIVE (like HeldAxeLengthPicker, NOT F-key-toggle-gated) — the on-screen panel shows the

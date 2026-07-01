@@ -95,6 +95,52 @@ namespace FarHorizon.Settings
         public const string InventorySlotsId = "inventory_slots";
         public const string BeltSlotsId      = "belt_slots";
         public const string StackSizeId      = "inventory_stack_size";
+        // F-KEY MIGRATION (ticket 86caber95 — consolidate the standalone F7/F9/F10 live-tune panels into the
+        // console as entries). Each Tab-cycled dial target becomes its OWN row (AC1/AC2); vectors are DECOMPOSED
+        // into per-axis float rows (AC4 — reuses the slider/nudge path, no new archetype). The legacy F-key
+        // panels stay LIVE in parallel until the console version is soak-confirmed (AC5). Ids are stable
+        // (PlayerPrefs keys + test lookups derive from them). Registered by PopulateCameraFollow /
+        // PopulateArmAndGround / PopulateWorldLook (the per-feature Populate de-collision precedent).
+
+        // F7 CameraFollowNudgeTool → OrbitCamera follow gains (AC3; PR #77 is MERGED so F7 IS in scope).
+        public const string CamFollowLerpId    = "cam_follow_lerp";
+        public const string CamVertFollowLerpId = "cam_vertical_follow_lerp";
+        public const string CamFollowLeadTimeId = "cam_follow_lead_time";
+        public const string CamAirborneLerpId   = "cam_airborne_follow_lerp";
+
+        // F9 AxeNudgeTool → ground-Y + arm-pose (AC1). Held-axe offset is ALREADY migrated (PopulateHeldWeapon,
+        // 86caffwuz); stump-axe is a named scene transform kept on the legacy F9 tool for now (OOS-scoped here).
+        // Ground-Y (the single-float VALIDATION entry, per AC1 "start with the single-float ground-Y").
+        public const string GroundYOffsetId = "ground_y_offset";
+        // Arm-pose per-axis eulers (AC4 decompose): RIGHT arm pitch/yaw/roll, LEFT arm pitch/yaw/roll.
+        public const string ArmRightPitchId = "arm_right_pitch";
+        public const string ArmRightYawId   = "arm_right_yaw";
+        public const string ArmRightRollId  = "arm_right_roll";
+        public const string ArmLeftPitchId  = "arm_left_pitch";
+        public const string ArmLeftYawId    = "arm_left_yaw";
+        public const string ArmLeftRollId   = "arm_left_roll";
+        // Run arm-lower per-axis eulers (the F9 RUN target — the calmer run carry).
+        public const string RunLowerPitchId = "run_lower_pitch";
+        public const string RunLowerYawId   = "run_lower_yaw";
+        public const string RunLowerRollId  = "run_lower_roll";
+
+        // F10 WorldLookNudgeTool → world-look dials (AC2). Colour STOPS decomposed per-channel (AC4).
+        public const string FogDensityId    = "fog_density";
+        public const string FogColorRId     = "fog_color_r";
+        public const string FogColorGId     = "fog_color_g";
+        public const string FogColorBId     = "fog_color_b";
+        public const string SkyHorizonRId   = "sky_horizon_r";
+        public const string SkyHorizonGId   = "sky_horizon_g";
+        public const string SkyHorizonBId   = "sky_horizon_b";
+        public const string CloudScaleId    = "cloud_scale";
+        public const string CloudAltitudeId = "cloud_altitude";
+        public const string MtnDistanceId   = "mountain_distance";
+        public const string MtnPeakScaleId  = "mountain_peak_scale";
+        public const string MtnWarmthId     = "mountain_warmth";
+        public const string MtnBrightnessId = "mountain_brightness";
+        public const string SunElevationId  = "sun_elevation";
+        public const string SunSizeId       = "sun_size";
+
         // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
         // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
         // text) live. NOT a gameplay param — bound to a SettingsPanel-owned scale field (registered by the panel
@@ -170,6 +216,33 @@ namespace FarHorizon.Settings
         // Console TEXT scale band (86cabeqj9 soak NIT). 0.6x (denser) .. 2.0x (big-text accessibility). Default
         // 1.0x = the shipped font sizes, untouched (the differs-badge stays off).
         public const float ConsoleTextScaleMin = 0.6f, ConsoleTextScaleMax = 2.0f;
+
+        // --- F-KEY MIGRATION bands (86caber95) — generous around the shipped defaults so the Sponsor has real
+        //     soak room, bounded so a dial can't break the camera/world. ---
+        // Camera follow gains (F7). followLerp/vertical/airborne are 1/s rates; lead-time is seconds.
+        public const float CamFollowLerpMin = 0f,  CamFollowLerpMax = 60f;   // horiz follow-lerp (default 18)
+        public const float CamVertFollowMin = 0f,  CamVertFollowMax = 120f;  // vertical follow-lerp (default 60)
+        public const float CamAirborneMin   = 0f,  CamAirborneMax   = 120f;  // airborne follow-lerp (default 60)
+        public const float CamLeadTimeMin   = 0f,  CamLeadTimeMax   = 0.25f; // lead-time seconds (0 = AUTO; == OrbitCamera.maxLeadTime)
+        // Ground-Y offset (F9) — a small world-Y nudge on the feet (default 0). ±0.5u covers a full re-plant.
+        public const float GroundYMin = -0.5f, GroundYMax = 0.5f;
+        // Arm-pose + run-lower eulers (F9) — full ±180° per axis (the euler accumulates raw; a broad band).
+        public const float ArmEulerMin = -180f, ArmEulerMax = 180f;
+        // Fog (F10). Density is a small Exp² coefficient; colour channels are 0..1.
+        public const float FogDensityMin = 0f, FogDensityMax = 0.02f;
+        public const float ColorChannelMin = 0f, ColorChannelMax = 1f;
+        // Clouds (F10). Scale is a multiplier; altitude is an additive +y offset in world units.
+        public const float CloudScaleMin = 0.1f, CloudScaleMax = 4f;
+        public const float CloudAltMin = -60f,  CloudAltMax = 60f;
+        // Mountains (F10). Distance/peak are multipliers; warmth is an additive tint offset; brightness a multiply.
+        public const float MtnDistanceMin = 0.1f, MtnDistanceMax = 3f;
+        public const float MtnPeakScaleMin = 0.1f, MtnPeakScaleMax = 3f;
+        public const float MtnWarmthMin = -0.5f, MtnWarmthMax = 0.5f;
+        public const float MtnBrightnessMin = 0.2f, MtnBrightnessMax = 2f;
+        // Sun (F10). Elevation degrees above the horizon (2..80, matching the F10 clamp); size is the shader's
+        // disk-edge dot threshold (0.95..0.9999; HIGHER = smaller disk).
+        public const float SunElevationMin = 2f, SunElevationMax = 80f;
+        public const float SunSizeMin = 0.95f, SunSizeMax = 0.9999f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -650,6 +723,166 @@ namespace FarHorizon.Settings
                 () => FarHorizon.ItemDef.ResourceStackSize,
                 v => FarHorizon.ItemDef.ResourceStackSize = Mathf.Clamp(v, StackSizeMin, StackSizeMax),
                 StackSizeMin, StackSizeMax, unit: "");
+        }
+
+        /// <summary>
+        /// F-KEY MIGRATION — register the F7 CAMERA-FOLLOW gains (ticket 86caber95 AC3) as four float rows bound
+        /// LIVE to the <paramref name="orbit"/> camera: horizontal <c>followLerp</c>, <c>verticalFollowLerp</c>,
+        /// <c>airborneFollowLerp</c> (1/s rates) + <c>followLeadTime</c> (seconds; 0 = AUTO). These are the exact
+        /// fields the standalone F7 <see cref="FarHorizon.CameraFollowNudgeTool"/> dials — the console is a second
+        /// front-end onto the same live fields (AC5: legacy F7 stays live in parallel until soak-confirmed). A null
+        /// orbit registers NOTHING (the catalog never null-refs), so a camera-less rig / bare test is unaffected.
+        /// Lead-time clamps to [0, maxLeadTime] to match the F7 tool + OrbitCamera's own clamp.
+        /// </summary>
+        public static void PopulateCameraFollow(SettingsRegistry reg, OrbitCamera orbit)
+        {
+            if (reg == null || orbit == null) return;
+
+            reg.AddFloat(CamFollowLerpId, "Cam follow lerp",
+                () => orbit.followLerp, v => orbit.followLerp = Mathf.Max(0f, v),
+                CamFollowLerpMin, CamFollowLerpMax, unit: "/s");
+            reg.AddFloat(CamVertFollowLerpId, "Cam vertical follow",
+                () => orbit.verticalFollowLerp, v => orbit.verticalFollowLerp = Mathf.Max(0f, v),
+                CamVertFollowMin, CamVertFollowMax, unit: "/s");
+            reg.AddFloat(CamAirborneLerpId, "Cam airborne follow",
+                () => orbit.airborneFollowLerp, v => orbit.airborneFollowLerp = Mathf.Max(0f, v),
+                CamAirborneMin, CamAirborneMax, unit: "/s");
+            // Lead-time: clamp to the camera's own maxLeadTime (0 = AUTO = 1/followLerp). The band ceiling equals
+            // the shipped maxLeadTime default; the setter re-clamps to the LIVE maxLeadTime so a future default
+            // change stays honoured.
+            reg.AddFloat(CamFollowLeadTimeId, "Cam lead time",
+                () => orbit.followLeadTime,
+                v => orbit.followLeadTime = Mathf.Clamp(v, 0f, orbit.maxLeadTime),
+                CamLeadTimeMin, CamLeadTimeMax, unit: "s");
+        }
+
+        /// <summary>
+        /// F-KEY MIGRATION — register the F9 GROUND-Y + ARM-POSE dials (ticket 86caber95 AC1) LIVE-bound to the
+        /// <paramref name="castaway"/> (ground-Y) + <paramref name="armPose"/> (arm eulers). The VALIDATION entry
+        /// is the single-float GROUND-Y (per AC1 "start with the single-float ground-Y"); the arm-pose + run-lower
+        /// VECTORS are DECOMPOSED into per-axis float rows (AC4 — no new archetype). Each row drives the SAME live
+        /// field the standalone F9 <see cref="FarHorizon.AxeNudgeTool"/> dials (AC5: legacy F9 stays live in
+        /// parallel). The arm setters mirror the F9 tool's dial contract: set <c>seedEulersFromDegFields=false</c>
+        /// (so a RebuildCached can't clobber the live dial) + call <see cref="FarHorizon.CastawayArmPose.RebuildCached"/>
+        /// so the new pose composes immediately. Held-axe offset is ALREADY on the console (PopulateHeldWeapon,
+        /// 86caffwuz); the stump-axe (a named scene transform) stays on the legacy F9 tool for now. A null target
+        /// SKIPS only its own rows (the catalog never null-refs).
+        /// </summary>
+        public static void PopulateArmAndGround(SettingsRegistry reg, FarHorizon.CastawayCharacter castaway,
+            FarHorizon.CastawayArmPose armPose)
+        {
+            if (reg == null) return;
+
+            // GROUND-Y OFFSET (the AC1 validation single-float) — a constant world-Y added to the snapped feet +
+            // shadow (rest AND walk). Same field the F9 GROUND-Y target dials.
+            if (castaway != null)
+            {
+                reg.AddFloat(GroundYOffsetId, "Ground-Y offset",
+                    () => castaway.groundYOffset, v => castaway.groundYOffset = v,
+                    GroundYMin, GroundYMax, unit: "u");
+            }
+
+            // ARM POSE (per-axis, AC4) — the RIGHT + LEFT arm local-euler offsets (pitch=spread, yaw≈twist,
+            // roll=raise) + the RUN arm-lower. Every setter goes through ArmWrite so the dial contract (freeze
+            // the deg-field seed + rebuild the cached quats) is applied on EVERY axis write, matching the F9 tool.
+            if (armPose != null)
+            {
+                reg.AddFloat(ArmRightPitchId, "Arm R pitch",
+                    () => armPose.rightArmEuler.x, v => ArmWrite(armPose, ref armPose.rightArmEuler, 0, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(ArmRightYawId, "Arm R yaw",
+                    () => armPose.rightArmEuler.y, v => ArmWrite(armPose, ref armPose.rightArmEuler, 1, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(ArmRightRollId, "Arm R roll",
+                    () => armPose.rightArmEuler.z, v => ArmWrite(armPose, ref armPose.rightArmEuler, 2, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(ArmLeftPitchId, "Arm L pitch",
+                    () => armPose.leftArmEuler.x, v => ArmWrite(armPose, ref armPose.leftArmEuler, 0, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(ArmLeftYawId, "Arm L yaw",
+                    () => armPose.leftArmEuler.y, v => ArmWrite(armPose, ref armPose.leftArmEuler, 1, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(ArmLeftRollId, "Arm L roll",
+                    () => armPose.leftArmEuler.z, v => ArmWrite(armPose, ref armPose.leftArmEuler, 2, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+
+                // RUN arm-lower (the F9 RUN target) — INERT at walk/idle (run weight 0), so it's judged while
+                // RUNNING. Same runLowerEuler field the F9 RUN target dials.
+                reg.AddFloat(RunLowerPitchId, "Run-lower pitch",
+                    () => armPose.runLowerEuler.x, v => ArmWrite(armPose, ref armPose.runLowerEuler, 0, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(RunLowerYawId, "Run-lower yaw",
+                    () => armPose.runLowerEuler.y, v => ArmWrite(armPose, ref armPose.runLowerEuler, 1, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+                reg.AddFloat(RunLowerRollId, "Run-lower roll",
+                    () => armPose.runLowerEuler.z, v => ArmWrite(armPose, ref armPose.runLowerEuler, 2, v),
+                    ArmEulerMin, ArmEulerMax, unit: "°");
+            }
+        }
+
+        /// <summary>Write one axis (0=x,1=y,2=z) of a CastawayArmPose euler field + apply the F9 dial contract
+        /// (freeze the deg-field seed so RebuildCached can't clobber the live dial; rebuild the cached quats so
+        /// the new pose composes THIS frame). Mirrors AxeNudgeTool's arm-target write.</summary>
+        private static void ArmWrite(FarHorizon.CastawayArmPose armPose, ref Vector3 euler, int axis, float v)
+        {
+            if (axis == 0) euler.x = v; else if (axis == 1) euler.y = v; else euler.z = v;
+            armPose.seedEulersFromDegFields = false;
+            armPose.RebuildCached();
+        }
+
+        /// <summary>
+        /// F-KEY MIGRATION — register the F10 WORLD-LOOK dials (ticket 86caber95 AC2) LIVE-bound through the
+        /// <paramref name="world"/> seam (<see cref="FarHorizon.WorldLookTunables"/>, which resolves + mutates the
+        /// SAME RenderSettings/skybox-material/cloud/vista handles the standalone F10
+        /// <see cref="FarHorizon.WorldLookNudgeTool"/> does — AC5: legacy F10 stays live in parallel). Each dial is
+        /// a SCALAR float row; the fog + sky-horizon COLOURS are DECOMPOSED per-channel (R/G/B) per AC4 (no new
+        /// archetype). Setting a fog or sky-horizon channel keeps the seam-kill (fog colour == horizon stop) via the
+        /// seam. A null seam registers NOTHING (the catalog never null-refs), so a world-less rig / bare test is
+        /// unaffected.
+        /// </summary>
+        public static void PopulateWorldLook(SettingsRegistry reg, FarHorizon.WorldLookTunables world)
+        {
+            if (reg == null || world == null) return;
+
+            // FOG — density + per-channel colour (seam-kill applied in the seam).
+            reg.AddFloat(FogDensityId, "Fog density",
+                () => world.FogDensity, v => world.FogDensity = v, FogDensityMin, FogDensityMax, unit: "");
+            reg.AddFloat(FogColorRId, "Fog colour R",
+                () => world.FogColorR, v => world.FogColorR = v, ColorChannelMin, ColorChannelMax, unit: "");
+            reg.AddFloat(FogColorGId, "Fog colour G",
+                () => world.FogColorG, v => world.FogColorG = v, ColorChannelMin, ColorChannelMax, unit: "");
+            reg.AddFloat(FogColorBId, "Fog colour B",
+                () => world.FogColorB, v => world.FogColorB = v, ColorChannelMin, ColorChannelMax, unit: "");
+
+            // SKY HORIZON stop — per-channel colour (the seam-driving stop; locks the fog colour to it).
+            reg.AddFloat(SkyHorizonRId, "Sky horizon R",
+                () => world.SkyHorizonR, v => world.SkyHorizonR = v, ColorChannelMin, ColorChannelMax, unit: "");
+            reg.AddFloat(SkyHorizonGId, "Sky horizon G",
+                () => world.SkyHorizonG, v => world.SkyHorizonG = v, ColorChannelMin, ColorChannelMax, unit: "");
+            reg.AddFloat(SkyHorizonBId, "Sky horizon B",
+                () => world.SkyHorizonB, v => world.SkyHorizonB = v, ColorChannelMin, ColorChannelMax, unit: "");
+
+            // CLOUDS — scale + additive altitude offset.
+            reg.AddFloat(CloudScaleId, "Cloud scale",
+                () => world.CloudScale, v => world.CloudScale = v, CloudScaleMin, CloudScaleMax, unit: "x");
+            reg.AddFloat(CloudAltitudeId, "Cloud altitude",
+                () => world.CloudAltitude, v => world.CloudAltitude = v, CloudAltMin, CloudAltMax, unit: "u");
+
+            // MOUNTAINS — distance + peak scale + warmth + brightness.
+            reg.AddFloat(MtnDistanceId, "Mountain distance",
+                () => world.MountainDistanceScale, v => world.MountainDistanceScale = v, MtnDistanceMin, MtnDistanceMax, unit: "x");
+            reg.AddFloat(MtnPeakScaleId, "Mountain peak scale",
+                () => world.MountainPeakScale, v => world.MountainPeakScale = v, MtnPeakScaleMin, MtnPeakScaleMax, unit: "x");
+            reg.AddFloat(MtnWarmthId, "Mountain warmth",
+                () => world.MountainWarmth, v => world.MountainWarmth = v, MtnWarmthMin, MtnWarmthMax, unit: "");
+            reg.AddFloat(MtnBrightnessId, "Mountain brightness",
+                () => world.MountainBrightness, v => world.MountainBrightness = v, MtnBrightnessMin, MtnBrightnessMax, unit: "x");
+
+            // SUN — elevation + size.
+            reg.AddFloat(SunElevationId, "Sun elevation",
+                () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°");
+            reg.AddFloat(SunSizeId, "Sun size",
+                () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "");
         }
     }
 }
