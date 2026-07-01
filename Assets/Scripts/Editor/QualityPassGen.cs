@@ -34,6 +34,23 @@ namespace FarHorizon.EditorTools
         public static readonly Color SkyMid      = FarHorizon.WorldLookPalette.SkyMid;     // #AAD0E2
         public static readonly Color SkyHorizon  = FarHorizon.WorldLookPalette.SkyHorizon; // #DCE8E4 (seam-kill anchor)
 
+        // ---- SUN-DISK defaults (ticket 86cabc743 — Erik low-poly-sky research, POC item 2) ----
+        // Warm toy-like sun disk in the GradientSkybox. Additive in the shader → the post Bloom lifts a soft
+        // warm corona. SPONSOR-ACCEPTED hue + size (soak of 55bde02, ticket 86cag25az, 2026-06-30): the
+        // Sponsor live-dialed _SunColor + _SunSize on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED
+        // BUILD and accepted (0.98,0.86,0.86) — a soft WARM WHITE (R==top, a touch of warmth, G the dip), not
+        // the prior saturated amber-gold (1.0,0.74,0.34) — paired with the LOWERED 18° sun (see
+        // WorldBootstrap.SunElevationDeg). The disk reads as a bright low warm sun over the ocean rather than a
+        // hard amber dot. The lerp-core-then-glow composite in GradientSkybox.shader preserves this warm-white
+        // hue through the bloom+tonemap (it does not clip to pure white at the core).
+        public static readonly Color SunColor   = new Color(0.98f, 0.86f, 0.86f, 1f); // Sponsor-accepted soft warm white
+        // SIZE: the Sponsor dialed _SunSize to 0.95 (the shader property's lower clamp = the BIGGEST disk) — a
+        // chunky board-scale sun, the largest the shader range allows. (_SunSize is the disk-edge dot threshold:
+        // LOWER = BIGGER; the original 0.9985 was a sub-pixel pinpoint, 0.992 a ~7° disk, 0.95 the full board
+        // sun.) Hardness 60 stays — a crisp low-poly edge with a touch of softness for the bloom corona.
+        public const float SunSize     = 0.95f;  // Sponsor-accepted (soak 55bde02): the biggest disk in-range [0.95,0.9999]
+        public const float SunHardness = 60f;     // crisp-but-not-pinpoint low-poly disk edge
+
         // Build the 3-STOP GRADIENT SKYBOX (Uma world-look brief §3). RE-TUNES the Zone-D 2-color
         // Skybox/Procedural toward Uma's clean warm-bright 3-stop vertical gradient via a dedicated
         // FarHorizon/GradientSkybox shader (zenith -> mid -> warm horizon). The custom shader is
@@ -58,6 +75,23 @@ namespace FarHorizon.EditorTools
                 // smooth (no banding seam) so the cheerful blue eases into the warm horizon haze.
                 sky.SetFloat("_MidPoint", 0.18f);
                 sky.SetFloat("_Softness", 0.85f);
+                // SUN DISK (ticket 86cabc743 — Erik low-poly-sky research, POC item 2). Sponsor-ACCEPTED soft
+                // warm-white hue + biggest-in-range size (soak 55bde02, ticket 86cag25az); additive in the
+                // shader so the post Bloom lifts a soft corona. The sun appears where the view ray faces the
+                // Sun's direction (the warm directional key at Quaternion.Euler(WorldBootstrap.SunElevationDeg
+                // =18, SunAzimuthDeg=-35, 0) — LOWERED from 48 to the accepted 18° so the disk frames low over
+                // the ocean at gameplay angles, ticket 86cag25az).
+                sky.SetColor("_SunColor", SunColor);
+                sky.SetFloat("_SunSize", SunSize);
+                sky.SetFloat("_SunHardness", SunHardness);
+                // BAKE the world-space direction TOWARD the Sun into the material. The URP _MainLightPosition
+                // global is NOT bound in the Background/skybox pass (verified empirically in the shipped exe
+                // via -verifySky — the first attempt rendered NO disk because the dot used an unbound global),
+                // so the disk direction must come from a material property. BuildLighting runs BEFORE this, so
+                // the "Sun" key exists; to-sun = -light.forward. Fall back to the known bootstrap Euler if the
+                // Sun is somehow absent so the asset still reads sanely if opened raw.
+                Vector3 toSun = ResolveSunDirection();
+                sky.SetVector("_SunDirection", new Vector4(toSun.x, toSun.y, toSun.z, 0f));
             }
             else
             {
@@ -75,6 +109,28 @@ namespace FarHorizon.EditorTools
             RenderSettings.ambientMode = AmbientMode.Skybox; // sky drives ambient (warm-bright fill)
             DynamicGI.UpdateEnvironment();
             Debug.Log("[QualityPassGen] 3-stop gradient skybox assigned (warm-bright, Uma §3)");
+        }
+
+        // World-space direction TOWARD the Sun disk (= -light.forward of the warm "Sun" directional key
+        // WorldBootstrap.BuildLighting added before this runs). Baked into the sky material's _SunDirection
+        // because the URP _MainLightPosition global is unbound in the Background/skybox pass (the empirical
+        // -verifySky finding). Falls back to the known bootstrap Sun Euler (SunElevationDeg=18, -35, 0) if no
+        // Sun is found (read dynamically from WorldBootstrap so it tracks the Sponsor-accepted elevation).
+        static Vector3 ResolveSunDirection()
+        {
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+                if (l.type == LightType.Directional && l.gameObject.name == "Sun")
+                {
+                    var d = -l.transform.forward;
+                    Debug.Log($"[QualityPassGen] sun-disk direction baked from the 'Sun' key: {d}");
+                    return d.normalized;
+                }
+            // Fallback Euler kept in lockstep with WorldBootstrap.SunElevationDeg/SunAzimuthDeg (the actual
+            // Sun key) so an absent-Sun bake still matches the lowered disk (ticket 86cag25az sun-lower).
+            Vector3 fallback = -(Quaternion.Euler(WorldBootstrap.SunElevationDeg, WorldBootstrap.SunAzimuthDeg, 0f) * Vector3.forward);
+            Debug.LogWarning($"[QualityPassGen] no 'Sun' key found — baking sun-disk direction from the " +
+                             $"known bootstrap Euler ({WorldBootstrap.SunElevationDeg},{WorldBootstrap.SunAzimuthDeg},0): {fallback}");
+            return fallback.normalized;
         }
 
         // Enable the warm-haze global fog. In production (single play space) the Zone-D fog is the

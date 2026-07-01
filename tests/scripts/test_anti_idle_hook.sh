@@ -147,6 +147,28 @@ f="$TMP/b5_single_tick.jsonl"
 } > "$f"
 assert_noblock "$f" "B5: single tick (no prior) + dispatched this turn → no fire"
 
+# B6. SPONSOR MESSAGE CONTAINING THE BARE `never idle` PHRASE → no false STALE
+#     fire (#200 NIT, comment 4841343275). Layout: a real cron tick, a fresh scan
+#     since it, then a Sponsor sentence that merely *contains* `never idle`, then
+#     the current cron tick with no scan this turn. The COUNTING grep must NOT
+#     miscount the Sponsor line as a tick — if it did (the pre-fix bug), it would
+#     mis-anchor prior_tick PAST the fresh scan and fire a false STALE-SCAN block.
+#     With `never idle` dropped from the counting signature, prior_tick anchors on
+#     the real cron tick (before which the scan is fresh) → branch B stays silent.
+#     Branch A is also silent (a get_tasks ran since the prior tick → board fresh,
+#     and an agent is in flight). So the whole hook is silent.
+f="$TMP/b6_sponsor_phrase.jsonl"
+{
+  tick_line                                   # 1: real cron tick (prior)
+  scan_line                                   # 2: fresh scan since the prior tick
+  dispatch_line                               # 3: dispatched build work
+  agent_inflight                              # 4: agent in flight
+  plain_user "the build queue should never idle if a slot frees"  # 5: Sponsor msg with the BARE phrase only (no 'team must' prefix) — must NOT be counted as a tick
+  tick_line                                   # 6: current cron tick
+  asst_text "watching the build, all quiet"   # 7: no scan this turn
+} > "$f"
+assert_noblock "$f" "B6: Sponsor message containing 'never idle' → not counted as a tick → no false STALE fire (#200 NIT)"
+
 # ---------------------------------------------------------------------------
 # BRANCH A — FULL-IDLE GATE (existing behaviour — must still fire)
 # ---------------------------------------------------------------------------

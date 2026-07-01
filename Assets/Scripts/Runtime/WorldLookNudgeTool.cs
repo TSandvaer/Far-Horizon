@@ -43,9 +43,10 @@ namespace FarHorizon
                  "Acts ONLY while this panel is active.")]
         public KeyCode cycleKey = KeyCode.K;
 
-        public enum Target { Sky, Fog, Clouds, Mountains }
+        public enum Target { Sky, Fog, Clouds, Mountains, Sun }
         private static readonly string[] TargetNames = { "SKY (gradient stops)", "FOG (distance + colour)",
-                                                          "CLOUDS (scale + altitude)", "MOUNTAINS (distance + scale)" };
+                                                          "CLOUDS (scale + altitude)", "MOUNTAINS (distance + scale)",
+                                                          "SUN (elevation + hue + size)" };
 
         private bool _active;
         private Target _target = Target.Sky;
@@ -74,6 +75,23 @@ namespace FarHorizon
 
         // Sky stop indices for the SHIFT-selectable stop being edited.
         private int _skyStop; // 0 zenith, 1 mid, 2 horizon (horizon also drives the fog seam-kill)
+
+        // ---- SUN dial state (ticket 86cag25az — sun-lower handle folded into #194) ----
+        // The sun DISK is driven by the sky material's _SunDirection (world-space to-sun vector, baked from
+        // the actual Sun light). To dial ELEVATION live we hold the elevation+azimuth here (derived once from
+        // the baked _SunDirection on Resolve), nudge elevation, and rebuild the vector — the disk moves up/down
+        // in the sky immediately. Hue (_SunColor) + size (_SunSize) are direct material-property nudges. These
+        // are LIVE/runtime-only; the Sponsor reads the values off the panel/log and bakes the elevation into
+        // WorldBootstrap.SunElevationDeg + hue/size into QualityPassGen.SunColor/SunSize.
+        // Fallback elev/azimuth if the sky material is missing _SunDirection (mirrors the bake defaults in
+        // WorldBootstrap.SunElevationDeg/SunAzimuthDeg — editor-only, can't be referenced from this runtime
+        // asmdef, so the literals are kept in sync by hand). The live value is RE-DERIVED from the baked
+        // _SunDirection on Resolve, so a default drift here only affects the no-material edge case.
+        private const float SunElevFallbackDeg = 25f;
+        private const float SunAzimuthFallbackDeg = -35f;
+        private float _sunElevDeg = SunElevFallbackDeg;     // degrees above the horizon (re-derived on Resolve)
+        private float _sunAzimuthDeg = SunAzimuthFallbackDeg; // azimuth/yaw (held constant while dialing elevation)
+        private bool _sunResolved; // have we derived elev/azimuth from the baked _SunDirection yet?
 
         // The panel is RIGHT-anchored + vertically centred, off SurvivalHud's bottom-left hotbar (same as
         // AxeNudgeTool's SOAKFIX6 placement). Pure + static so the on-screen contract is testable w/o a render.
@@ -131,7 +149,7 @@ namespace FarHorizon
 
             if (Input.GetKeyDown(cycleKey))
             {
-                _target = (Target)(((int)_target + 1) % 4);
+                _target = (Target)(((int)_target + 1) % 5);
                 Debug.Log("[WorldLookNudgeTool] target = " + TargetNames[(int)_target]);
                 LogCurrent();
             }
@@ -143,6 +161,7 @@ namespace FarHorizon
                 case Target.Fog:      changed = NudgeFog();       break;
                 case Target.Clouds:   changed = NudgeClouds();    break;
                 case Target.Mountains:changed = NudgeMountains(); break;
+                case Target.Sun:      changed = NudgeSun();       break;
             }
             if (changed) LogCurrent();
         }
@@ -278,6 +297,91 @@ namespace FarHorizon
             return changed;
         }
 
+        // ---- SUN (ticket 86cag25az — lower the warm-gold disk so it frames at gameplay angles + dial it) ----
+        //   ↑/↓        = ELEVATION (the primary control — raise / lower the sun toward the horizon)
+        //   ←/→        = HUE warmth (→ warmer/amber: R up, B down; ← cooler)
+        //   Home/End   = sun brightness (uniform multiply on _SunColor)
+        //   PgUp/PgDn  = sun SIZE (bigger / smaller disk — _SunSize is INVERSE: lower value = bigger disk)
+        // Danish-safe keys only (arrows / Home / End / PgUp / PgDn) per [[sponsor-danish-keyboard-layout]].
+        // The disk is driven by the sky material's _SunDirection (world to-sun vector). Elevation rebuilds
+        // that vector from the held elev+azimuth; hue/size are direct material nudges. The Sponsor reads the
+        // values off the panel/log + bakes elevation -> WorldBootstrap.SunElevationDeg, hue/size ->
+        // QualityPassGen.SunColor / SunSize.
+        private bool NudgeSun()
+        {
+            if (_skyMat == null) return false;
+            EnsureSunDerived();
+            bool changed = false;
+
+            // ELEVATION (↑/↓) — rebuild _SunDirection from the dialed elev (azimuth held). Clamp to a sane
+            // sky band: above ~2° so it never sinks below the horizon line, below ~80° so it stays a sky sun.
+            float es = 1.0f * StepMul(); // 1° per click (Shift = 5°, Ctrl = 0.2°)
+            if (Input.GetKeyDown(KeyCode.UpArrow))   { _sunElevDeg = Mathf.Clamp(_sunElevDeg + es, 2f, 80f); ApplySunDirection(); changed = true; }
+            if (Input.GetKeyDown(KeyCode.DownArrow)) { _sunElevDeg = Mathf.Clamp(_sunElevDeg - es, 2f, 80f); ApplySunDirection(); changed = true; }
+
+            // HUE warmth (←/→) — → pushes R up + B down (warmer amber), ← the reverse (cooler).
+            if (_skyMat.HasProperty("_SunColor"))
+            {
+                float ws = ColorStep();
+                Vector3 d = Vector3.zero;
+                if (Input.GetKeyDown(KeyCode.RightArrow)) { d.x += ws; d.z -= ws; }
+                if (Input.GetKeyDown(KeyCode.LeftArrow))  { d.x -= ws; d.z += ws; }
+                // Brightness (Home/End) — uniform multiply on the sun colour.
+                float bMul = 1f;
+                if (Input.GetKeyDown(KeyCode.Home)) bMul = 1f + 0.05f * StepMul();
+                if (Input.GetKeyDown(KeyCode.End))  bMul = 1f - 0.05f * StepMul();
+                if (d != Vector3.zero || bMul != 1f)
+                {
+                    Color c = _skyMat.GetColor("_SunColor");
+                    c = new Color(Mathf.Clamp01((c.r + d.x) * bMul),
+                                  Mathf.Clamp01((c.g + d.y) * bMul),
+                                  Mathf.Clamp01((c.b + d.z) * bMul), 1f);
+                    _skyMat.SetColor("_SunColor", c);
+                    changed = true;
+                }
+            }
+
+            // SIZE (PgUp/PgDn) — _SunSize is the disk-edge dot threshold: HIGHER = SMALLER. Map PgUp->bigger
+            // (lower _SunSize) so the key reads naturally. Clamp to the shader's [0.95, 0.9999] property range.
+            if (_skyMat.HasProperty("_SunSize"))
+            {
+                float ss = 0.001f * StepMul();
+                if (Input.GetKeyDown(KeyCode.PageUp))   { _skyMat.SetFloat("_SunSize", Mathf.Clamp(_skyMat.GetFloat("_SunSize") - ss, 0.95f, 0.9999f)); changed = true; }
+                if (Input.GetKeyDown(KeyCode.PageDown)) { _skyMat.SetFloat("_SunSize", Mathf.Clamp(_skyMat.GetFloat("_SunSize") + ss, 0.95f, 0.9999f)); changed = true; }
+            }
+
+            return changed;
+        }
+
+        // Derive the live elevation+azimuth from the baked _SunDirection ONCE (so the first elevation nudge
+        // starts from the shipped sun, not the fallback default). _SunDirection is the world to-sun vector; the
+        // Sun light's rotation is Quaternion.LookRotation(-toSun) (light.forward = -toSun), whose eulerAngles
+        // give (elevation, azimuth) directly — the exact inverse of the bake (toSun = -(Euler(X,Y,0)*forward)).
+        private void EnsureSunDerived()
+        {
+            if (_sunResolved) return;
+            _sunResolved = true;
+            if (_skyMat == null || !_skyMat.HasProperty("_SunDirection")) return;
+            Vector4 sd = _skyMat.GetVector("_SunDirection");
+            Vector3 toSun = new Vector3(sd.x, sd.y, sd.z);
+            if (toSun.sqrMagnitude < 1e-6f) return; // keep the fallback default
+            Vector3 e = Quaternion.LookRotation(-toSun.normalized, Vector3.up).eulerAngles;
+            // eulerAngles.x wraps to [0,360); map the pitch back to a signed elevation.
+            float pitch = e.x > 180f ? e.x - 360f : e.x;
+            _sunElevDeg = pitch;
+            _sunAzimuthDeg = e.y;
+        }
+
+        // Rebuild _SunDirection from the dialed elevation+azimuth (the EXACT bake formula: the to-sun vector is
+        // the negated forward of Euler(elev, azimuth, 0)). The disk in the sky moves immediately.
+        private void ApplySunDirection()
+        {
+            if (_skyMat == null || !_skyMat.HasProperty("_SunDirection")) return;
+            Vector3 toSun = -(Quaternion.Euler(_sunElevDeg, _sunAzimuthDeg, 0f) * Vector3.forward);
+            toSun.Normalize();
+            _skyMat.SetVector("_SunDirection", new Vector4(toSun.x, toSun.y, toSun.z, 0f));
+        }
+
         private float StepMul()
         {
             if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) return 5f;
@@ -343,6 +447,14 @@ namespace FarHorizon
                               $"(distScale->WorldLookConfig.MtnDistanceScale; warmth/bright->MtnBody in WorldBootstrap; " +
                               $"{_mtnClusters.Count} clusters, {_mtnMats.Count} mats)");
                     break;
+                case Target.Sun:
+                    EnsureSunDerived();
+                    Color sc = (_skyMat != null && _skyMat.HasProperty("_SunColor")) ? _skyMat.GetColor("_SunColor") : Color.black;
+                    float sz = (_skyMat != null && _skyMat.HasProperty("_SunSize")) ? _skyMat.GetFloat("_SunSize") : 0f;
+                    Debug.Log($"[WorldLookNudgeTool] SUN elevation={_sunElevDeg:F1}deg (azimuth {_sunAzimuthDeg:F0}) " +
+                              $"colour=({sc.r:F3},{sc.g:F3},{sc.b:F3}) size={sz:F4}  " +
+                              $"(elevation->WorldBootstrap.SunElevationDeg; colour->QualityPassGen.SunColor; size->QualityPassGen.SunSize)");
+                    break;
             }
         }
         private string Fmt(string prop)
@@ -372,9 +484,9 @@ namespace FarHorizon
             GUI.color = Color.white;
 
             float lx = x + 12f, lw = w - 24f;
-            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "WORLD-LOOK NUDGE TOOL  (debug — F9 to close)", _titleStyle);
+            GUI.Label(new Rect(lx, y + 8f, lw, 22f), "WORLD-LOOK NUDGE TOOL  (debug — F10 to close)", _titleStyle);
             GUI.Label(new Rect(lx, y + 30f, lw, 20f),
-                "Dial sky/fog/clouds/mountains in-game, then read the values to bake.", _hintStyle);
+                "Dial sky/fog/clouds/mountains/sun in-game, then read the values to bake.", _hintStyle);
             GUI.Label(new Rect(lx, y + 56f, lw, 22f), "Editing: " + TargetNames[(int)_target], _style);
 
             string l1, l2;
@@ -389,12 +501,21 @@ namespace FarHorizon
                 case Target.Clouds:
                     l1 = $"scale={_cloudScale:F2}   altOffset={_cloudAlt:F1}u";
                     l2 = "↑/↓ = scale   PgUp/Dn = altitude"; break;
-                default:
+                case Target.Mountains:
                     l1 = $"distScale={_mtnDistScale:F2}  peakScale={_mtnScale:F2}  warmth={_mtnTint.x:+0.00;-0.00}  bright={_mtnBright:F2}";
                     l2 = "↑/↓ = distance   PgUp/Dn = peak scale   ←/→ = warmth   Home/End = brightness  (faceting=bake-time mesh 'sides')"; break;
+                default: // SUN
+                {
+                    EnsureSunDerived();
+                    Color sc = (_skyMat != null && _skyMat.HasProperty("_SunColor")) ? _skyMat.GetColor("_SunColor") : Color.black;
+                    float sz = (_skyMat != null && _skyMat.HasProperty("_SunSize")) ? _skyMat.GetFloat("_SunSize") : 0f;
+                    l1 = $"elevation={_sunElevDeg:F0}deg   hue=({sc.r:F2},{sc.g:F2},{sc.b:F2})   size={sz:F4}";
+                    l2 = "↑/↓ = elevation (raise/lower)   ←/→ = hue warmth   Home/End = brightness   PgUp/Dn = size";
+                    break;
+                }
             }
             GUI.Label(new Rect(lx, y + 80f, lw, 22f), l1, _style);
-            GUI.Label(new Rect(lx, y + 110f, lw, 20f), "[K] cycle target (sky / fog / clouds / mountains)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 110f, lw, 20f), "[K] cycle target (sky / fog / clouds / mountains / sun)", _hintStyle);
             GUI.Label(new Rect(lx, y + 132f, lw, 20f), l2, _hintStyle);
             GUI.Label(new Rect(lx, y + 158f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
             GUI.Label(new Rect(lx, y + 182f, lw, 20f),

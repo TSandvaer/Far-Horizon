@@ -116,6 +116,46 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void Sun_LoweredTowardHorizon_ForGameplayFraming()
+        {
+            // SUN-LOWER (ticket 86cag25az — folded into the #194 sky PR). The warm-gold disk was baked at
+            // elevation 48° (Euler X) — too high for the pitch-[8,70]-clamped over-shoulder orbit to ever
+            // frame in normal play, so the Sponsor's first #194 soak couldn't SEE the sun. The fix LOWERS the
+            // "Sun" key toward the horizon so the disk sits in the upper-sky band the orbit frames when looking
+            // toward the horizon. Guard the COMMITTED Sun rotation (the bytes the exe ships): elevation must be
+            // clearly LOWERED (well under the old 48°) but still a SKY sun (above the horizon). A future change
+            // that reverts the elevation back up reds here before it ships an invisible sun again.
+            var sun = Object.FindObjectsByType<Light>(FindObjectsSortMode.None)
+                .FirstOrDefault(l => l.type == LightType.Directional && l.gameObject.name == "Sun");
+            Assert.IsNotNull(sun, "the warm 'Sun' directional key must exist");
+
+            // The sun's ELEVATION above the horizon = the to-sun vector's Y angle (-light.forward; the same
+            // direction QualityPassGen bakes into _SunDirection). Compute it the way the bake does.
+            Vector3 toSun = -sun.transform.forward;
+            float elevationDeg = Mathf.Asin(Mathf.Clamp(toSun.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            Assert.Less(elevationDeg, 30f,
+                $"the Sun must be LOWERED toward the horizon (elevation < 30°, was 48° — too high to frame at " +
+                $"the gameplay orbit pitch); measured {elevationDeg:F1}° (ticket 86cag25az)");
+            Assert.Greater(elevationDeg, 2f,
+                $"the Sun must stay ABOVE the horizon (a sky sun, not on/below the waterline); measured {elevationDeg:F1}°");
+
+            // The baked sky-material _SunDirection (the VISUAL disk) must MATCH the lowered light direction —
+            // a mismatch would render the disk somewhere other than where the light comes from. Allow a small
+            // tolerance (normalisation / float).
+            var sky = RenderSettings.skybox;
+            if (sky != null && sky.HasProperty("_SunDirection"))
+            {
+                Vector4 sd = sky.GetVector("_SunDirection");
+                Vector3 diskDir = new Vector3(sd.x, sd.y, sd.z).normalized;
+                float align = Vector3.Dot(diskDir, toSun.normalized);
+                Assert.Greater(align, 0.99f,
+                    "the sky material's baked _SunDirection (the visual disk) must align with the lowered Sun " +
+                    "light direction (QualityPassGen.ResolveSunDirection bakes -light.forward) — the disk and " +
+                    $"the shading light must agree; dot={align:F3}");
+            }
+        }
+
+        [Test]
         public void Atmosphere_DistanceFogEnabled_ColourMatchesHorizonStop()
         {
             // WORLD-LOOK RE-TUNE (ticket 86ca8t9pq — Uma world-look brief §3 + Erik far-vista 86ca8t9rh):
@@ -137,6 +177,62 @@ namespace FarHorizon.EditTests
         {
             Assert.IsNotNull(RenderSettings.skybox,
                 "a gradient skybox must be assigned (warm horizon -> cool sky), not a flat clear color");
+        }
+
+        [Test]
+        public void Skybox_SunDisk_WarmGoldDefaultsSet()
+        {
+            // SUN-DISK POC (ticket 86cabc743 — Erik low-poly-sky research) + the SPONSOR-ACCEPTED bake (soak
+            // 55bde02, ticket 86cag25az): the GradientSkybox material must carry the three sun-disk properties
+            // with the Sponsor-accepted soft-warm-white hue + biggest-in-range size (QualityPassGen sets them).
+            // Guard the COMMITTED material the exe ships (RenderSettings.skybox is the serialized scene value),
+            // not a runtime tautology — a future change that drops/alters the sun params fails here before shipping.
+            var sky = RenderSettings.skybox;
+            Assert.IsNotNull(sky, "a skybox material must be assigned");
+            // Only meaningful when the custom gradient shader resolved (the fallback Skybox/Procedural path
+            // has its own _SunSize and is NOT the sun-disk POC — assert against the gradient shader by name).
+            Assert.AreEqual("FarHorizon/GradientSkybox", sky.shader.name,
+                "the skybox must use the custom FarHorizon/GradientSkybox shader (the sun disk lives there); " +
+                "the Skybox/Procedural fallback would mean the custom shader failed to resolve at bootstrap");
+
+            Assert.IsTrue(sky.HasProperty("_SunColor"), "the sky material must expose _SunColor (the sun-disk POC)");
+            Assert.IsTrue(sky.HasProperty("_SunSize"), "the sky material must expose _SunSize");
+            Assert.IsTrue(sky.HasProperty("_SunHardness"), "the sky material must expose _SunHardness");
+
+            Color sun = sky.GetColor("_SunColor");
+            Assert.GreaterOrEqual(sun.r, sun.b,
+                "the sun disk must be WARM (R >= B) — a cold/blue sun is a style mismatch with the warm Zone-D " +
+                "sky. The Sponsor-accepted hue is a soft warm WHITE (0.98,0.86,0.86): R is the top channel (>= B, " +
+                "both above G) — warm, just not the prior saturated amber-gold (ticket 86cag25az)");
+            Assert.AreEqual(QualityPassGen_SunColor.r, sun.r, 0.01f, "sun R must match the QualityPassGen Sponsor-accepted default");
+            Assert.AreEqual(QualityPassGen_SunColor.g, sun.g, 0.01f, "sun G must match the QualityPassGen Sponsor-accepted default");
+            Assert.AreEqual(QualityPassGen_SunColor.b, sun.b, 0.01f, "sun B must match the QualityPassGen Sponsor-accepted default");
+            Assert.Greater(sky.GetFloat("_SunHardness"), 1f,
+                "_SunHardness must be a crisp-disk exponent (>1), not flattened to a sky-wide glow");
+            float size = sky.GetFloat("_SunSize");
+            // The shader's _SunSize range is [0.95, 0.9999] (LOWER = BIGGER disk). The Sponsor accepted 0.95 —
+            // the biggest disk in-range. Guard the exact accepted value (the disk must not shrink toward a
+            // pinpoint near 1.0, nor drift out of the shader's lower bound).
+            Assert.AreEqual(QualityPassGen_SunSize, size, 0.001f,
+                "_SunSize must match the Sponsor-accepted 0.95 (the biggest disk in the shader's [0.95,0.9999] range)");
+        }
+
+        // Forwarded constants so this test asset (PlayTests/EditTests asmdef) reads the same Sponsor-accepted
+        // defaults QualityPassGen ships, without depending on the editor-only QualityPassGen type directly.
+        // (soak 55bde02, ticket 86cag25az — soft warm white hue + biggest-in-range size.)
+        private static readonly Color QualityPassGen_SunColor = new Color(0.98f, 0.86f, 0.86f, 1f);
+        private const float QualityPassGen_SunSize = 0.95f;
+
+        [Test]
+        public void SkyVerifyCapture_WiredIntoBootScene()
+        {
+            // The SKY-FACING capture component (the SHIPPED-build sun-disk evidence) must be SERIALIZED into
+            // Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise, and
+            // the -verifySky CI gate would find nothing). Assert it rode the bootstrap into the saved scene.
+            var caps = Object.FindObjectsByType<SkyVerifyCapture>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Assert.AreEqual(1, caps.Length,
+                "exactly one SkyVerifyCapture must be wired into Boot.unity (the -verifySky shipped-build " +
+                "sun-disk capture gate drives it; a missing component ships an inert gate)");
         }
 
         [Test]
