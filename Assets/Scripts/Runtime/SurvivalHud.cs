@@ -67,6 +67,13 @@ namespace FarHorizon
                  "the Awake fallback is a build-safety net only.")]
         public Inventory inventory;
 
+        [Tooltip("The player HP readout (Combat POC 86cah7xxp, AC9 — a quick-and-legible HP bar reusing the " +
+                 "DrawNeedBar widget). Health exposes the SAME duck-typed read surface as the needs " +
+                 "(Current01 + a Changed event); the HUD binds Changed (never polls) and renders it as a " +
+                 "fourth bar in the column. Wired editor-time by BootstrapProject (serialized); the Awake " +
+                 "fallback is a build-safety net only. May be null — the HP bar is simply not drawn.")]
+        public FarHorizon.Combat.Health health;
+
         // --- WARMTH palette (Uma spec §1 — all sub-1.0 per channel, HDR-clamp-safe, drawn from the world) ---
         // Filled-segment band colors. Band transition is a color shift of the whole filled run: the bar
         // warms toward gold / cools toward coal-red as the need moves. No flash.
@@ -94,13 +101,21 @@ namespace FarHorizon
         private static readonly Color PaleTeal   = new Color(0.37f, 0.66f, 0.69f); // #5FA9B0  dry-ish (30-60%)
         private static readonly Color DryGreyBlue= new Color(0.43f, 0.54f, 0.61f); // #6E8A9C  parched (<30%) — dry-throat ache, NEVER alarm red
 
+        // --- HP palette (Combat POC 86cah7xxp, AC9 — the VITAL bar; a warm heart-red that darkens as HP drops.
+        // All sub-1.0 per channel (HDR-clamp-safe). Distinct from the needs (gold/green/blue) — HP is the one
+        // RED note (health = the heart), so it never blurs into a need. Polish is a later ticket; this is
+        // quick-and-legible per AC9. Uses the SAME band cutoffs (0.60 / 0.30) as the needs for consistency.
+        private static readonly Color VitalRed   = new Color(0.80f, 0.28f, 0.30f); // #CC474D  healthy (>=60%) — a warm heart-red
+        private static readonly Color WoundOrange = new Color(0.78f, 0.42f, 0.32f);// #C76B52  hurt    (30-60%)
+        private static readonly Color DarkBlood   = new Color(0.55f, 0.20f, 0.22f);// #8C3338  critical(<30%) — a dark low-HP blood-red
+
         // The shared critical-glyph pulse cadence (Uma spec §4): ~1.0s ease-in-out alpha breathe between
         // ~0.55 and 1.0, on the GLYPH ONLY (not the bar, not the row), one shared phase clock across all
         // three needs so a multi-need-critical corner pulses as one calm body.
         private const float CriticalPulsePeriod = 1.0f;
         private const float CriticalPulseMinAlpha = 0.55f;
 
-        private GUIStyle _flameStyle, _ledgerStyle, _berryStyle, _dropStyle;
+        private GUIStyle _flameStyle, _ledgerStyle, _berryStyle, _dropStyle, _heartStyle;
 
         void Awake()
         {
@@ -111,7 +126,16 @@ namespace FarHorizon
             if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
             if (thirst == null) thirst = FindObjectOfType<ThirstNeed>();
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
+            if (health == null) health = FindObjectOfType<FarHorizon.Combat.Health>();
+            // Bind Health.Changed AFTER the fallback resolves it (never poll — AC9). IMGUI repaints every
+            // frame regardless, so the handler is a no-op body; the bind is the never-poll contract marker.
+            if (health != null) health.Changed += OnHealthChanged;
         }
+
+        /// <summary>The HP-bar CRITICAL threshold (AC9) — the HP glyph slow-breathes at/below this fraction,
+        /// like a critical need. Health has no IsCritical of its own (it is not a need), so the HUD derives
+        /// it from Current01. Matches the needs' criticalThreshold01 default (0.25) for a consistent read.</summary>
+        public const float HpCriticalThreshold01 = 0.25f;
 
         void OnGUI()
         {
@@ -131,7 +155,22 @@ namespace FarHorizon
             if (thirst != null) DrawNeedBar(thirst.Current01, thirst.IsCritical, ThirstBandColor, _dropStyle,  "◆", Screen.height - 116f, emberFlicker: false); // ◆ droplet
             if (hunger != null) DrawNeedBar(hunger.Current01, hunger.IsCritical, HungerBandColor, _berryStyle, "●", Screen.height - 80f,  emberFlicker: false); // ● berry
             if (warmth != null) DrawNeedBar(warmth.Current01, warmth.IsCritical, BandColor,       _flameStyle, "▲", Screen.height - 44f,  emberFlicker: true);  // ▲ flame
+
+            // HP readout (Combat POC 86cah7xxp, AC9) — the VITAL bar sits at the TOP of the column (-152),
+            // above the three needs, reusing the SAME DrawNeedBar widget (one code path, no new renderer).
+            // Health has no IsCritical of its own (it is not a need) so we derive it from Current01. The HUD
+            // binds Health.Changed in OnEnable (never polls) — the paint here reads the live Current01.
+            if (health != null)
+                DrawNeedBar(health.Current01, health.Current01 <= HpCriticalThreshold01, HpBandColor,
+                            _heartStyle, "♥", Screen.height - 152f, emberFlicker: false); // ♥ heart
         }
+
+        // The HUD binds Health.Changed (in Awake, after the fallback resolves it) so it repaints on damage/heal
+        // without polling (AC9). OnGUI reads the live Current01 each frame regardless, so the subscription is a
+        // correctness marker (the "never poll" contract); the handler is a no-op body (IMGUI repaints every
+        // frame anyway). Unsubscribe on destroy to avoid a dangling handler.
+        private void OnDestroy() { if (health != null) health.Changed -= OnHealthChanged; }
+        private void OnHealthChanged(float _) { /* IMGUI repaints each frame; the bind is the never-poll contract */ }
 
         private void EnsureStyles()
         {
@@ -143,6 +182,7 @@ namespace FarHorizon
             // glance (spec §2.2 / §3.1: ▲ flame / ● berry / ◆ droplet).
             _berryStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold };
             _dropStyle  = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold };
+            _heartStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold }; // ♥ HP (AC9)
         }
 
         // === The ONE generalized need-bar widget (86caamkxv, AC4 — replaces DrawWarmthBar/DrawHungerBar) ===
@@ -230,11 +270,11 @@ namespace FarHorizon
             if (hasAxe) ledger += "axe 1";
             if (wood > 0) ledger += (ledger.Length > 0 ? "    " : "") + "wood " + wood;
 
-            // Ledger row: above the three need bars. The bottom-left now stacks FOUR rows (warmth -44,
-            // hunger -80, thirst -116 added in 86caamkxv), so the ledger moves UP to -152 to sit clear above
-            // the thirst row (was -116 when warmth+hunger were the only bars). x = 16, height ~28 (spec §2.3).
+            // Ledger row: above the bars. The bottom-left now stacks FIVE rows (warmth -44, hunger -80,
+            // thirst -116, HP -152 added by the Combat POC 86cah7xxp), so the ledger moves UP to -188 to sit
+            // clear above the HP row (was -152 before HP). x = 16, height ~28 (spec §2.3).
             const float x = 16f, w = 260f, h = 28f;
-            float y = Screen.height - 152f;
+            float y = Screen.height - 188f;
 
             DrawPlate(x - 6f, y - 3f, w + 12f, h + 6f);
 
@@ -317,6 +357,20 @@ namespace FarHorizon
             if (c >= WarmBand) return StreamBlue;
             if (c >= CoolBand) return PaleTeal;
             return DryGreyBlue;
+        }
+
+        /// <summary>
+        /// The HP filled-run band color (Combat POC 86cah7xxp, AC9): warm heart-red &gt;=0.60, wound-orange
+        /// 0.30..0.60, dark blood-red &lt;0.30 — the VITAL analogue of the need band colors, using the SAME
+        /// band cutoffs (consistency) with a distinct RED palette (health = the heart; the one red note in
+        /// the cluster, never blurs into a need). Exposed so the paired tests assert the HP band mapping.
+        /// </summary>
+        public static Color HpBandColor(float current01)
+        {
+            float c = Mathf.Clamp01(current01);
+            if (c >= WarmBand) return VitalRed;
+            if (c >= CoolBand) return WoundOrange;
+            return DarkBlood;
         }
 
         /// <summary>

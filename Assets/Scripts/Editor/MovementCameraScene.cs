@@ -327,6 +327,16 @@ namespace FarHorizon.EditorTools
             BuildInventoryUI(player);
             BuildAxePickup(player, groundLayer);
 
+            // Combat POC (86cah7xxp): the FIRST combat build — player HP (Health) + needs-gated regen
+            // (HealthRegen, AC3) + tiered death (DeathHandler, AC2) on the player root, the left-click melee
+            // ATTACK (MeleeAttack, AC5) that swings the selected weapon (axe/spear) at the nearest in-reach
+            // enemy, and ONE damageable snake (SnakeEnemy, AC7 — the shared Health surface + a pierce-weak
+            // profile). Authored editor-time so the Health/regen/death/attack + snake SERIALIZE into Boot.unity
+            // (editor-vs-runtime trap). Wires the SurvivalHud's HP bar (AC9) + the SettingsPanel's per-tier
+            // combat rows (AC8b). Built AFTER the inventory (the attack reads the selected belt weapon) and
+            // BEFORE the bake (the snake is a collider-free marker — no NavMesh/raycast impact).
+            BuildCombat(player, groundLayer);
+
             // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
             // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
             // spawn, narrating "the castaway crawled out of that sea" (Sponsor: NARRATE; Uma §3 beat 4).
@@ -1829,6 +1839,191 @@ namespace FarHorizon.EditorTools
         private static readonly Color BushTop    = new Color(0.44f, 0.70f, 0.30f);
         private static readonly Color BushShadow = new Color(0.15f, 0.35f, 0.15f);
         private static readonly Color BerryRed   = new Color(0.78f, 0.16f, 0.22f);
+
+        // World position of the wired SNAKE enemy (Combat POC 86cah7xxp). Near the loop centre, clear of the
+        // craft spot (8,6), axe (3,2), chop tree (-9,-7), berry bush (-6,7), pond (7,-3), stick (-3,-4) — a
+        // deterministic combat target the PlayMode/shipped-build capture walks up to. A DETERMINISTIC scene-
+        // author ADD on the flat player-loop ground — OUTSIDE the seeded LowPolyZoneGen stream, so it provably
+        // cannot perturb the seed-42 island/scatter/NavMesh (the seed lock is honoured by construction).
+        public static readonly Vector3 SnakePosition = new Vector3(5f, 0f, 4f);
+
+        // Snake body greens (a muted low-poly serpent — a placeholder for the full snake POC 86caaz4vn art).
+        private static readonly Color SnakeBody = new Color(0.36f, 0.48f, 0.24f);
+        private static readonly Color SnakeTop  = new Color(0.46f, 0.58f, 0.30f);
+        private static readonly Color SnakeShadow = new Color(0.20f, 0.30f, 0.14f);
+
+        // The FIRST combat build (Combat POC 86cah7xxp): player HP + needs-gated regen + tiered death + the
+        // left-click melee attack on the player root, and ONE damageable snake. Wires the HUD HP bar (AC9) +
+        // the SettingsPanel per-tier combat rows (AC8b). Authored editor-time so it all SERIALIZES into
+        // Boot.unity (editor-vs-runtime trap). The snake is a collider-free marker (no NavMesh/raycast impact).
+        private static void BuildCombat(GameObject player, int groundLayer)
+        {
+            // --- PLAYER HP (AC1) on the player ROOT (the transform carrying the NavMeshAgent — DeathHandler
+            //     warps it on respawn). Per-tier maxes/damage default to Medium; the difficulty preset drives
+            //     the active tier via ApplyDifficulty / the settings rows. ---
+            var health = player.GetComponent<FarHorizon.Combat.Health>();
+            if (health == null) health = player.AddComponent<FarHorizon.Combat.Health>();
+            health.max = 100f;
+            health.startFull = true;
+            health.resistance = FarHorizon.Combat.ResistanceProfile.Neutral; // the player has no type weakness
+
+            // The player's own status controller (AC6 — an enemy bite's bleed applies here; bleed works both ways).
+            var playerStatus = player.GetComponent<FarHorizon.Combat.StatusEffectController>();
+            if (playerStatus == null) playerStatus = player.AddComponent<FarHorizon.Combat.StatusEffectController>();
+            playerStatus.health = health;
+
+            // --- NEEDS-GATED REGEN (AC3) — reads warmth/hunger/thirst (never writes), heals HP while satisfied. ---
+            var regen = player.GetComponent<FarHorizon.Combat.HealthRegen>();
+            if (regen == null) regen = player.AddComponent<FarHorizon.Combat.HealthRegen>();
+            regen.health = health;
+            regen.warmth = Object.FindObjectOfType<WarmthNeed>();
+            regen.hunger = Object.FindObjectOfType<HungerNeed>();
+            regen.thirst = Object.FindObjectOfType<ThirstNeed>();
+            if (regen.warmth == null || regen.hunger == null || regen.thirst == null)
+                Debug.LogWarning("[MovementCameraScene] BuildCombat: a need is unwired on HealthRegen (warmth=" +
+                    (regen.warmth != null) + " hunger=" + (regen.hunger != null) + " thirst=" + (regen.thirst != null) +
+                    ") — BootstrapProject must add the Survival needs before MovementCameraScene.Author");
+
+            // --- TIERED DEATH (AC2) — reuse the campfire as respawn + the Inventory for the hard-tier drop. ---
+            var death = player.GetComponent<FarHorizon.Combat.DeathHandler>();
+            if (death == null) death = player.AddComponent<FarHorizon.Combat.DeathHandler>();
+            death.health = health;
+            death.playerRoot = player.transform;
+            death.campfire = Object.FindObjectOfType<Campfire>();   // reuse the campfire as respawn (no checkpoint)
+            death.inventory = Object.FindObjectOfType<Inventory>(); // reuse the inventory for the drop
+            death.tier = SurvivalNeed.DifficultyTier.Medium;        // default tier; the preset/settings drive it
+
+            // --- LEFT-CLICK MELEE ATTACK (AC5) — swings the SELECTED belt weapon (axe/spear) at the nearest
+            //     in-reach enemy. The swing is the PLACEHOLDER (existing chop Attack state) pending the AC5
+            //     procedural-vs-Mixamo Sponsor decision. ---
+            var attack = player.GetComponent<FarHorizon.Combat.MeleeAttack>();
+            if (attack == null) attack = player.AddComponent<FarHorizon.Combat.MeleeAttack>();
+            attack.player = player.transform;
+            attack.inventory = Object.FindObjectOfType<Inventory>();
+            attack.character = Object.FindObjectOfType<CastawayCharacter>();
+            attack.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+
+            // --- THE SNAKE (AC7) — a damageable enemy proving the shared Health surface + a pierce-weak profile. ---
+            BuildSnake(player);
+
+            // --- THE SPEAR PICKUP (AC4) — the second contrasting craftable weapon's acquisition. The player
+            //     walks up to acquire the spear onto the belt, then cycles-selects it to feel the long-reach
+            //     pierce contrast vs the axe's medium-reach slash. ---
+            BuildSpearPickup(player);
+
+            // --- Wire the HP bar (AC9) onto the SurvivalHud + the per-tier combat rows (AC8b) onto the panel. ---
+            var hud = Object.FindObjectOfType<SurvivalHud>();
+            if (hud != null) hud.health = health;
+            else Debug.LogWarning("[MovementCameraScene] BuildCombat: no SurvivalHud to wire the HP bar (AC9)");
+
+            var panel = Object.FindObjectOfType<SettingsPanel>();
+            if (panel != null)
+            {
+                panel.combatHealth = health;
+                panel.combatRegen = regen;
+                panel.combatDeath = death;
+            }
+
+            Debug.Log("[MovementCameraScene] authored Combat POC (player HP + regen + tiered death + melee " +
+                      "attack + 1 snake; HUD HP wired=" + (hud != null) + ", panel wired=" + (panel != null) + ")");
+        }
+
+        // A wired damageable SNAKE (AC7): a low-poly coiled body proxy (a placeholder for the snake POC
+        // 86caaz4vn art) + Health + a pierce-weak ResistanceProfile + a StatusEffectController (so a weapon's
+        // bleed applies to it). Collider-free — the player walks up + left-clicks to attack; never blocks the
+        // ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
+        private static void BuildSnake(GameObject player)
+        {
+            var snake = new GameObject("Snake");
+            snake.transform.position = SnakePosition;
+
+            // Body proxy: a squat faceted blob (reusing the bush-blob idiom) so the snake reads as a small
+            // low-poly creature. The full serpent silhouette is the snake POC's art (OOS here — prove HP).
+            BuildBlobCanopyPart(snake, "SnakeBody",
+                LowPolyMeshes.BushBlob(0.45f, 5, SnakeBody, SnakeTop, SnakeShadow, 61403), Vector3.zero);
+            // A small raised head so it reads as facing the player (a coil + head placeholder).
+            BuildBlobCanopyPart(snake, "SnakeHead",
+                LowPolyMeshes.FacetedSphere(0.22f, 1, 0.15f, 61404), new Vector3(0.35f, 0.3f, 0f));
+
+            var health = snake.AddComponent<FarHorizon.Combat.Health>();
+            health.max = FarHorizon.Combat.SnakeEnemy.SnakeMaxHp;
+            health.startFull = true;
+            // The pierce-WEAK profile (AC8a) — a spear beats the soft-bodied snake; neutral to slash/blunt.
+            health.resistance = new FarHorizon.Combat.ResistanceProfile
+            {
+                slashMul = 1f,
+                pierceMul = FarHorizon.Combat.SnakeEnemy.SnakePierceWeakness,
+                bluntMul = 1f,
+            };
+
+            var status = snake.AddComponent<FarHorizon.Combat.StatusEffectController>();
+            status.health = health;
+
+            var enemy = snake.AddComponent<FarHorizon.Combat.SnakeEnemy>();
+            enemy.biteBleed = FarHorizon.Combat.StatusEffectSpec.MakeBleed(1.5f, 3f); // a light enemy→player bleed
+
+            Debug.Log("[MovementCameraScene] authored Snake enemy at " + SnakePosition +
+                      " (pierce-weak, HP=" + health.max + ")");
+        }
+
+        // World position of the wired SPEAR pickup (Combat POC 86cah7xxp AC4). Clear of the snake (5,4) +
+        // the other loop spots. A DETERMINISTIC scene-author ADD OUTSIDE the seeded LowPolyZoneGen stream.
+        public static readonly Vector3 SpearPickupPosition = new Vector3(2f, 0f, 6f);
+
+        // A wired SPEAR pickup (AC4): a long thin faceted shaft + tip proxy (a placeholder for the in-house
+        // Blender spear — the polished weapon is the roster ticket, OOS here) + a SpearPickup component wired
+        // to the scene Inventory. The player walks up to acquire the spear onto the belt. Collider-free — never
+        // blocks the ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
+        private static void BuildSpearPickup(GameObject player)
+        {
+            var spear = new GameObject("SpearPickup");
+            spear.transform.position = SpearPickupPosition;
+
+            // Shaft: a long thin tapered cylinder, laid at a slight lean so it reads as a spear on the ground.
+            var shaft = new GameObject("Shaft");
+            shaft.transform.SetParent(spear.transform, false);
+            shaft.transform.localPosition = new Vector3(0f, 0.15f, 0f);
+            shaft.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean
+            var shaftMf = shaft.AddComponent<MeshFilter>();
+            shaftMf.sharedMesh = LowPolyMeshes.TaperedCylinder(0.05f, 0.04f, 1.6f, 5);
+            var shaftMr = shaft.AddComponent<MeshRenderer>();
+            ApplyLitColor(shaftMr, new Color(0.60f, 0.44f, 0.26f), "SpearShaftMat"); // warm tan shaft
+
+            // Tip: a small cone/faceted point at the head end (grey stone/metal — material-honest).
+            var tip = new GameObject("Tip");
+            tip.transform.SetParent(spear.transform, false);
+            tip.transform.localPosition = new Vector3(0f, 1.05f, 0f);
+            tip.transform.localRotation = Quaternion.Euler(0f, 0f, 78f);
+            var tipMf = tip.AddComponent<MeshFilter>();
+            tipMf.sharedMesh = LowPolyMeshes.Cone(0.09f, 0.28f, 5);
+            var tipMr = tip.AddComponent<MeshRenderer>();
+            ApplyLitColor(tipMr, new Color(0.58f, 0.60f, 0.62f), "SpearTipMat"); // stone/metal grey
+
+            var pickup = spear.AddComponent<FarHorizon.Combat.SpearPickup>();
+            pickup.inventory = Object.FindObjectOfType<Inventory>();
+            pickup.player = player.transform;
+            pickup.visual = spear.transform;
+            if (pickup.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory to wire SpearPickup to — BootstrapProject " +
+                               "must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored SpearPickup at " + SpearPickupPosition +
+                      " (inventory wired: " + (pickup.inventory != null) + ")");
+        }
+
+        // Apply an inline URP/Lit matte material of a given color to a renderer (a small helper for the combat
+        // props — the spear shaft/tip; matte so the low-poly reads by shape/shading, not gloss). Serializes
+        // into the scene (no .mat churn). Falls back gracefully if the URP shader is missing.
+        private static void ApplyLitColor(MeshRenderer mr, Color color, string matName)
+        {
+            var lit = Shader.Find("Universal Render Pipeline/Lit");
+            if (lit == null) return;
+            var mat = new Material(lit) { name = matName };
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.08f);
+            mr.sharedMaterial = mat;
+            EnsureShaderAlwaysIncluded(lit);
+        }
 
         // A wired BERRY BUSH (86caa5zz3): a squat leafy blob dome (BushBlob) with a child "Berries" mesh
         // (small red faceted spheres) + a BerryBush component (harvest+regrow+eat-bridge) wired to the
