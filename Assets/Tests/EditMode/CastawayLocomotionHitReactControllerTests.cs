@@ -380,6 +380,66 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // 86caa3kur RE-SOAK loop-hitch GUARD (candidate #2 — foot-sync stall — ruled out IN SOURCE, pinned here).
+        // The sneak-walk loop hitch was suspected to be foot-sync (#186 LocoSpeedMul) STALLING the Sneak Walk clip
+        // at the slow sneak speed. The trace + this guard CONFIRM it cannot: the CrouchWalk state must NOT read a
+        // speedParameter, so LocoSpeedMul (which CastawayCharacter drives every frame) NEVER scales the crouch-walk
+        // clip's playback rate — CrouchWalk always plays at its authored cadence. ONLY the upright Locomotion blend
+        // tree reads LocoSpeedMul (that's where foot-sync belongs). A future edit that wires foot-sync onto CrouchWalk
+        // would re-introduce the candidate-#2 risk (a velocity dip → near-zero clip speed → a stall) → this goes red.
+        [Test]
+        public void CrouchWalk_DoesNotReadFootSyncSpeedParameter_OnlyLocomotionDoes()
+        {
+            var controller = LoadController();
+            AnimatorState crouchWalk = null, locoState = null;
+            foreach (var cs in controller.layers[0].stateMachine.states)
+            {
+                if (cs.state.name == "CrouchWalk") crouchWalk = cs.state;
+                if (cs.state.motion is BlendTree) locoState = cs.state;
+            }
+            Assert.IsNotNull(crouchWalk, "the CrouchWalk state must exist");
+            Assert.IsNotNull(locoState, "the Locomotion blend-tree state must exist");
+
+            Assert.IsFalse(crouchWalk.speedParameterActive,
+                "CrouchWalk must NOT use a speedParameter — foot-sync's LocoSpeedMul must NOT scale the Sneak Walk " +
+                "clip's playback rate (a velocity dip would stall it = the candidate-#2 loop hitch). The crouch-walk " +
+                "clip plays at its authored cadence; only the upright Locomotion blend tree rides LocoSpeedMul.");
+
+            // And the upright Locomotion DOES read LocoSpeedMul (regression: don't accidentally strip foot-sync from
+            // the upright walk/run while fixing the sneak — that's the approved #186 behavior).
+            Assert.IsTrue(locoState.speedParameterActive,
+                "the upright Locomotion blend tree must STILL read its foot-sync speedParameter (don't regress #186)");
+            Assert.AreEqual(CharacterAssetGen.LocoSpeedMulParam, locoState.speedParameter,
+                "the Locomotion blend tree's speedParameter must be LocoSpeedMul (the #186 foot-sync param)");
+        }
+
+        // 86caa3kur RE-SOAK loop-hitch GUARD (candidate #3 — state re-entry). The "two steps repeated, lags between
+        // each" symptom would be produced by the AnyState→CrouchWalk transition RE-FIRING each cycle (restarting the
+        // looping clip from normalizedTime 0). canTransitionToSelf=false is the structural guard that a steady crouch
+        // hold does NOT restart the clip via a self-re-entry — pinned so a future edit can't silently flip it on.
+        [Test]
+        public void CrouchLane_AnyStateTransitions_DoNotTransitionToSelf()
+        {
+            var controller = LoadController();
+            var sm = controller.layers[0].stateMachine;
+            AnimatorState crouchIdle = null, crouchWalk = null;
+            foreach (var cs in sm.states)
+            {
+                if (cs.state.name == "CrouchIdle") crouchIdle = cs.state;
+                if (cs.state.name == "CrouchWalk") crouchWalk = cs.state;
+            }
+            Assert.IsNotNull(crouchIdle); Assert.IsNotNull(crouchWalk);
+
+            foreach (var t in sm.anyStateTransitions)
+            {
+                if (t.destinationState == crouchWalk || t.destinationState == crouchIdle)
+                    Assert.IsFalse(t.canTransitionToSelf,
+                        "the AnyState→" + t.destinationState.name + " crouch transition must have " +
+                        "canTransitionToSelf=false — else a steady crouch hold re-fires the transition each cycle, " +
+                        "restarting the looping clip from 0 = the 'two steps repeated, lags between each' loop hitch (candidate #3)");
+            }
+        }
+
         // The editor-side clip names must MATCH the runtime-side param names (the project idiom: every controller
         // param has a CastawayCharacter mirror). A drift makes a future system SetBool/SetTrigger the wrong name.
         [Test]

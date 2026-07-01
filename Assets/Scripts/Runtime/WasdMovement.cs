@@ -44,6 +44,13 @@ namespace FarHorizon
                  "Defaults ~1.8× the walk speed (a clear run). The Sponsor can re-tune from the build.")]
         public float runSpeed = 9.5f;
 
+        [Tooltip("SNEAK speed (u/s) while Crouch (Ctrl) is held AND moving (ticket 86caa3kur). SLOWER than " +
+                 "moveSpeed so a crouched move visibly sneaks (the Sneak Walk crouch-move clip). CastawayCharacter " +
+                 "reads the resulting agent.velocity MAGNITUDE — at this reduced speed it lands in the upright " +
+                 "blend tree's WALK band, but the Animator's CROUCH lane (driven by the Crouch bool) plays the " +
+                 "Sneak Walk clip instead. Defaults ~0.55× the walk speed (a clear sneak). Sponsor-tunable.")]
+        public float sneakSpeed = 3f;
+
         [Header("Camera-relative basis (AC1)")]
         [Tooltip("The orbit camera transform whose facing defines 'forward'. Auto-resolves to Camera.main " +
                  "if unset (the OrbitCamera rig is the main camera). Wired editor-time so it serializes.")]
@@ -100,6 +107,19 @@ namespace FarHorizon
         // keyboard (Input.GetKeyDown(Space)).
         private bool _jumpRequested;
 
+        // CROUCH (Ctrl) PROGRAMMATIC SEAM (86caa3kur — crouch-on-Ctrl-hold). A headless PlayMode run / the
+        // shipped-build verify capture can't inject a real Ctrl keystroke, so the crouch HOLD state can be
+        // overridden the same way sprint is. null = read the real keyboard (Input.GetKey(Left|RightControl)).
+        private bool? _crouchOverride;
+
+        // SNEAK-SPEED-SNAP ISOLATION SEAM (86caa3kur re-soak attempt-3 /unstick instrument). When ON, a crouched
+        // (sneak) move commands the NORMAL WALK speed instead of the reduced sneakSpeed — so the Sponsor can A/B
+        // whether the per-gait-cycle jerk is SPECIFIC to the slow sneak speed (gone at walk speed = a slow-speed
+        // root-translation / blend artifact) or persists regardless (an animation-clip-loop artifact). DEBUG-only:
+        // default OFF so shipped crouch behavior (reduced sneak speed) is byte-unchanged; the SneakIsolationTool
+        // flips it live behind the dev-overlay gate. NOT a serialized field (a runtime debug mirror).
+        private bool _sneakSpeedSnapToWalk;
+
         /// <summary>Drive WASD programmatically (the input-independent seam — the verify capture's analog of
         /// ClickToMove.MoveTo). Pass an (x=strafe, y=forward) vector; pass null / <see cref="ClearInputOverride"/>
         /// to return to the real keyboard. Used by WasdVerifyCapture to exercise WASD in the shipped exe.</summary>
@@ -116,6 +136,27 @@ namespace FarHorizon
 
         /// <summary>Stop overriding sprint — return to reading the real LeftShift/RightShift key.</summary>
         public void ClearSprintOverride() => _sprintOverride = null;
+
+        /// <summary>Drive the CROUCH (crouch-on-Ctrl-hold) state programmatically — the input-independent analog
+        /// of the Ctrl key (ticket 86caa3kur). Pass true to crouch, false to stand; <see cref="ClearCrouchOverride"/>
+        /// / null returns to the real keyboard. Used by the PlayMode AC7 test + the shipped-build crouch capture
+        /// (headless / built-exe runs can't inject a Ctrl keystroke).</summary>
+        public void SetCrouchOverride(bool crouch) => _crouchOverride = crouch;
+
+        /// <summary>Stop overriding crouch — return to reading the real LeftControl/RightControl key.</summary>
+        public void ClearCrouchOverride() => _crouchOverride = null;
+
+        /// <summary>ISOLATION TOGGLE (86caa3kur re-soak attempt-3 /unstick instrument): when <paramref name="snap"/>
+        /// is true, a crouched (sneak) move commands the NORMAL WALK speed instead of the reduced sneakSpeed — the
+        /// disconfirming control for "is the per-gait-cycle jerk SPECIFIC to the slow sneak speed?". DEBUG-only;
+        /// default OFF (shipped reduced-sneak behavior unchanged). The SneakIsolationTool flips it live behind the
+        /// dev-overlay gate. Idempotent.</summary>
+        public void SetSneakSpeedSnapToWalk(bool snap) => _sneakSpeedSnapToWalk = snap;
+
+        /// <summary>Whether the sneak-speed-snap-to-walk isolation toggle is ON this frame (86caa3kur attempt-3
+        /// instrument). Exposed so the SneakIsolationTool readout shows the current A/B state + an EditMode guard
+        /// asserts the default is OFF (shipped crouch speed unchanged).</summary>
+        public bool SneakSpeedSnappedToWalk => _sneakSpeedSnapToWalk;
 
         /// <summary>Request a JUMP programmatically — the input-independent analog of pressing Space (ticket
         /// 86ca9yq3q). Latched + consumed on the next Update (mirrors the keyboard's rising edge — one jump per
@@ -139,6 +180,13 @@ namespace FarHorizon
         /// can assert the run state flips with Shift, and for any later system (stamina, FOV kick).</summary>
         public bool IsSprinting { get; private set; }
 
+        /// <summary>Whether the player is CROUCHING this frame: Crouch (Ctrl) held (86caa3kur). UNLIKE sprint,
+        /// crouch does NOT gate on movement — holding Ctrl at a standstill IS a crouch (the Crouching Idle lowered
+        /// stance); moving while crouched is the Sneak Walk. Exposed so the PlayMode AC7 regression asserts the
+        /// crouch stance flips with Ctrl + drives the reduced sneak speed while moving, and so CastawayCharacter
+        /// drives the Animator Crouch bool off it. Suppressed while AIRBORNE (you don't crouch mid-jump).</summary>
+        public bool IsCrouching { get; private set; }
+
         /// <summary>The move speed (u/s) the WASD input drove the agent at LAST frame — runSpeed while sprinting
         /// + moving, moveSpeed while walking, 0 at rest. Exposed so a regression can assert run drives a FASTER
         /// speed than walk WITHOUT depending on the agent having physically traversed (headless Time.deltaTime≈0,
@@ -160,6 +208,34 @@ namespace FarHorizon
             // leftover destination can't fight the manual velocity. The component stays (MoveTo seam used by
             // the verify captures + harness); only its gameplay click-locomotion is turned off.
             DisableClickToMove();
+
+            // SNEAK-WALK STUTTER fix (86caa3kur re-soak): configure the agent so its internal simulation TRACKS
+            // the directly-commanded velocity instead of FIGHTING it (the slow-speed hitching). See
+            // SmoothDirectDriveConfig for the CONFIRMED root cause + mechanism. Applied once here (the agent is
+            // resolved in Awake). Null-tolerant (a bare test rig with no agent).
+            EnsureSmoothDirectDrive();
+        }
+
+        /// <summary>Configure the NavMeshAgent for SMOOTH direct velocity-drive (86caa3kur re-soak — the sneak-walk
+        /// stutter fix). WasdMovement commands agent.velocity directly each frame; this turns OFF the agent's own
+        /// braking/acceleration dynamics so the simulated velocity tracks the command (no slow-speed sim-vs-command
+        /// oscillation). The values come from the pure <see cref="SmoothDirectDriveConfig"/> so an EditMode guard
+        /// pins them. Idempotent + null-tolerant.</summary>
+        private void EnsureSmoothDirectDrive()
+        {
+            if (_agent == null) return;
+            SmoothDirectDriveConfig(out float acceleration, out bool autoBraking, out var avoidance);
+            _agent.acceleration = acceleration;
+            _agent.autoBraking = autoBraking;
+            // SNEAK-WALK HITCH fix (86caa3kur re-soak attempt 2): turn OFF local RVO obstacle avoidance. Unity's
+            // NavMeshAgent.velocity docs state that READING velocity "returns the simulation's current value, which
+            // may differ from what you set due to COLLISION AVOIDANCE" — i.e. the per-frame avoidance pass perturbs
+            // the sim's integration of the commanded velocity. At walk/run the large step swamps it; at the slow 3 u/s
+            // sneak that perturbation is a large FRACTION of the step = the CONFIRMED translation jitter the trace
+            // measured (sneak step CoV 21x the walk baseline). For a SINGLE-player castaway with no other agents, RVO
+            // avoidance does nothing useful — disabling it removes the jitter source with ZERO behavior change. Static
+            // geometry is still avoided via the baked NavMesh (NavMeshObstacle carve), not RVO.
+            _agent.obstacleAvoidanceType = avoidance;
         }
 
         private void DisableClickToMove()
@@ -207,6 +283,21 @@ namespace FarHorizon
             else
                 sprint = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
+            // CROUCH on Ctrl-HOLD (86caa3kur): the real Left/RightControl key (legacy Input — layout-agnostic, the
+            // same reason WASD/run/jump chose legacy: it avoids the project-wide NEW-Input-System flip that would
+            // BREAK the OrbitCamera mouse-orbit/zoom + the F8/F9 tools; and Ctrl is a layout-stable KeyCode, NOT a
+            // US-position punctuation key that shifts on the Sponsor's Danish keyboard — [[sponsor-danish-keyboard-layout]])
+            // OR the programmatic override (the headless / shipped-build seam). Swallowed while a modal gameplay-UI
+            // panel is open (Ctrl is a common UI modifier) so the player doesn't crouch while the Sponsor works in
+            // the settings/inventory panel — the same gate the move read uses. A programmatic override still drives
+            // so the shipped-build crouch capture can exercise the path with the panel state irrelevant.
+            bool crouchHeld;
+            if (_crouchOverride.HasValue)
+                crouchHeld = _crouchOverride.Value;
+            else
+                crouchHeld = !UiInputGate.CaptureWorldInput &&
+                             (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
+
             // JUMP on Space (86ca9yq3q): the rising edge of the real Space key (legacy Input — the project is
             // activeInputHandler=0; legacy avoids the project-wide NEW-Input-System flip that would BREAK the
             // OrbitCamera mouse-orbit/zoom + the F8/F9 tools, the same reason WASD/run chose legacy) OR the
@@ -225,19 +316,40 @@ namespace FarHorizon
             HasInput = dir.sqrMagnitude > InputDeadzone * InputDeadzone;
             LastMoveDir = HasInput ? dir : Vector3.zero;
 
-            // RUN only while MOVING: holding Shift at a standstill is not "running" (there is no travel to
-            // speed up). So sprint gates on HasInput — release Shift OR stop moving → walk speed (AC1: release
-            // returns to walk).
-            IsSprinting = HasInput && sprint;
+            // CROUCH stance (86caa3kur). UNLIKE sprint, crouch does NOT gate on movement — Ctrl at a standstill
+            // IS a crouch (the lowered Crouching Idle stance). Suppress crouch while AIRBORNE (you don't crouch
+            // mid-jump — the jump arc owns the body); on landing it re-reads the held Ctrl immediately. The
+            // Ctrl+Shift RULE (AC2): CROUCH WINS — holding Ctrl while running drops to a sneak (sprint is
+            // suppressed below), the explicit precedence the Sponsor judges in the soak.
+            bool airborne = castaway != null && castaway.IsAirborne;
+            IsCrouching = crouchHeld && !airborne;
+
+            // RUN only while MOVING and NOT crouching (AC2 — crouch wins): holding Shift at a standstill is not
+            // "running" (no travel to speed up), and Ctrl+Shift drops to the sneak rather than the run. So sprint
+            // gates on HasInput AND !IsCrouching — release Shift OR stop moving OR crouch → no run.
+            IsSprinting = HasInput && sprint && !IsCrouching;
 
             // Drive the EXISTING agent's velocity (AC3): the agent simulation keeps the player on the
             // NavMesh (grounding + obstacle handling intact) and exposes this as agent.velocity — exactly
             // what CastawayCharacter reads for the Walk<->Run blend tree (AC1) + the Idle<->locomotion flip
             // (AC4) + facing yaw (AC2). Zero velocity when no input → the agent settles → Idle.
             float walk = moveSpeed > 0.001f ? moveSpeed : _agent.speed;
-            float run = runSpeed > walk ? runSpeed : walk; // defensive: run is never slower than walk
-            float speed = IsSprinting ? run : walk;
+            // Speed precedence (AC1/AC2): crouch → reduced SNEAK speed (crouch wins over sprint); else sprint →
+            // run; else walk. Defensive clamps (run never slower than walk; sneak never faster than walk) live in
+            // the pure ResolveSpeed so the EditMode guard pins the precedence + the clamps without a scene rig.
+            // ISOLATION (86caa3kur attempt-3 /unstick): when the sneak-speed-snap toggle is ON, command the sneak
+            // at the WALK speed (the disconfirming control — does the per-gait-cycle jerk survive a normal-speed
+            // crouch?). DEBUG-only, default OFF → effectiveSneak == sneakSpeed (shipped behavior byte-unchanged).
+            // Pure static so the EditMode guard pins "default OFF = sneakSpeed; ON = walk speed" without a rig.
+            float effectiveSneak = EffectiveSneakSpeed(sneakSpeed, walk, _sneakSpeedSnapToWalk);
+            float speed = ResolveSpeed(walk, runSpeed, effectiveSneak, IsSprinting, IsCrouching);
             CurrentSpeed = HasInput ? speed : 0f;
+
+            // Drive the Animator's CROUCH lane (86caa3kur): the avatar's CastawayCharacter sets the controller's
+            // Crouch bool from this each frame (Idle→CrouchIdle when !Moving, Locomotion→CrouchWalk when Moving —
+            // PR #186's wired crouch lane). Null-tolerant (a bare movement test with no avatar). The Moving bool
+            // CastawayCharacter already drives off agent.velocity selects CrouchIdle vs CrouchWalk for us.
+            if (castaway != null) castaway.SetCrouch(IsCrouching);
 
             if (!_agent.isOnNavMesh) return;
 
@@ -248,14 +360,22 @@ namespace FarHorizon
             // existing horizontal velocity gently toward the input direction (airControlAccel u/s², capped), so
             // A/D is a SUBTLE lateral nudge that PRESERVES the forward momentum carried into the jump. The jump's
             // vertical arc is owned by CastawayCharacter (local-Y); this only governs the agent's horizontal XZ.
-            bool airborne = castaway != null && castaway.IsAirborne;
+            // (airborne resolved above for the crouch suppression.)
             if (airborne)
             {
+                // AIRBORNE: set the agent velocity directly — the jump arc + air-control are a physics nudge that
+                // genuinely wants the velocity channel (coast/steer), and the brief airborne phase is fast enough
+                // that the agent-sim braking fight isn't visible. UNCHANGED (the air-control fix #69 lives here).
                 _agent.velocity = AirborneVelocity(_agent.velocity, LastMoveDir, airControlAccel,
                                                    airControlMaxSpeed, Time.deltaTime);
             }
             else
             {
+                // GROUNDED: command the agent velocity directly (keeps agent.velocity readable for the camera-follow
+                // lead + CastawayCharacter's Walk<->Run blend + facing, all of which read it — UNCHANGED channel). The
+                // SNEAK-WALK HITCH fix (86caa3kur re-soak attempt 2) is the EnsureSmoothDirectDrive() agent config
+                // applied once in Start — now ALSO turning OFF local obstacle avoidance. See its comment for the
+                // CONFIRMED root cause + mechanism (the CI Animator+motion trace, run 28432489421).
                 _agent.velocity = LastMoveDir * speed;
             }
         }
@@ -282,6 +402,76 @@ namespace FarHorizon
             float x = (d ? 1f : 0f) - (a ? 1f : 0f);   // strafe: D = +, A = −
             float y = (w ? 1f : 0f) - (s ? 1f : 0f);   // forward: W = +, S = −
             return new Vector2(x, y);
+        }
+
+        /// <summary>
+        /// PURE move-speed precedence (the unit-testable core of the crouch/run speed selection, tickets
+        /// 86ca9yq34 + 86caa3kur): pick the commanded move speed from the walk/run/sneak speeds + the sprint +
+        /// crouch states. The PRECEDENCE the Sponsor judges (AC2): CROUCH WINS over sprint — crouching commands
+        /// the reduced <paramref name="sneak"/> speed even when sprint is also requested; otherwise sprinting
+        /// commands <paramref name="run"/>; otherwise <paramref name="walk"/>. Defensive clamps: the run is never
+        /// slower than the walk, and the sneak is never faster than the walk (a mis-tuned sneakSpeed can't make
+        /// crouch FASTER than a stand-walk). Static + dependency-free so the EditMode guard asserts the precedence
+        /// + the clamps with no Animator/NavMesh/headless-time dependency.
+        /// </summary>
+        public static float ResolveSpeed(float walk, float run, float sneak, bool isSprinting, bool isCrouching)
+        {
+            float clampedRun = run > walk ? run : walk;                          // run never slower than walk
+            float clampedSneak = sneak > 0.001f && sneak < walk ? sneak : walk;  // sneak never faster than walk
+            if (isCrouching) return clampedSneak;                                // crouch wins over sprint (AC2)
+            if (isSprinting) return clampedRun;
+            return walk;
+        }
+
+        /// <summary>
+        /// PURE sneak-speed-snap isolation (86caa3kur re-soak attempt-3 /unstick instrument): the sneak speed to
+        /// command given the snap-to-walk toggle. <paramref name="snapToWalk"/> false (the SHIPPED default) →
+        /// returns <paramref name="sneak"/> UNCHANGED (the reduced sneak speed). True (the DEBUG isolation
+        /// control) → returns <paramref name="walk"/> so a crouched move runs at the normal walk speed. Static +
+        /// dependency-free so the EditMode guard pins "default = reduced sneak (shipped behavior unchanged); ON =
+        /// walk speed" without a scene rig — proving the instrument is inert at its default.
+        /// </summary>
+        public static float EffectiveSneakSpeed(float sneak, float walk, bool snapToWalk)
+            => snapToWalk ? walk : sneak;
+
+        // The agent acceleration (u/s²) the smooth-direct-drive config applies (86caa3kur re-soak). HIGH so the
+        // agent's simulated velocity tracks the directly-commanded velocity within ~one frame instead of ramping —
+        // the ramp is the slow-speed stutter source (see EnsureSmoothDirectDrive). Audited from source (not
+        // serialized) so the config is deterministic + the EditMode guard pins the exact contract.
+        public const float SmoothDriveAcceleration = 1000f;
+
+        // The obstacle-avoidance type the smooth-direct-drive config applies (86caa3kur re-soak attempt 2). NONE —
+        // local RVO avoidance perturbs the sim's per-frame velocity integration (NavMeshAgent.velocity docs: reading
+        // velocity "may differ from what you set due to collision avoidance"), which is the slow-speed sneak jitter
+        // source the trace CONFIRMED. A single-player castaway has no agents to avoid; static geometry is handled by
+        // the baked NavMesh. Audited from source so the EditMode guard pins it.
+        public const UnityEngine.AI.ObstacleAvoidanceType SmoothDriveAvoidance =
+            UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance;
+
+        /// <summary>
+        /// PURE smooth-direct-drive agent config (the unit-testable core of the sneak-walk HITCH fix, ticket
+        /// 86caa3kur re-soak): the agent settings that make the per-frame velocity-drive SMOOTH at the slow sneak
+        /// speed. Three corrections: (a) autoBraking = FALSE (re-soak #1), (b) acceleration = a high value (re-soak
+        /// #1), (c) obstacleAvoidanceType = NoObstacleAvoidance (re-soak ATTEMPT 2 — the CONFIRMED residual cause).
+        /// WHY: WasdMovement sets agent.velocity each frame, which (NavMeshAgent.velocity docs) "commands the agent
+        /// to move using the specific velocity directly" THROUGH the sim — and "reading velocity returns the
+        /// SIMULATION's current value, which may differ from what you set due to collision avoidance". So the
+        /// per-frame root advance is the sim's integration of the command, perturbed by (1) autoBraking decel-toward-
+        /// zero + the acceleration ramp (re-soak #1 removed these) and (2) the local RVO COLLISION-AVOIDANCE pass
+        /// (re-soak attempt 2 removes this — the trace, which already had #1's fix, STILL showed the hitch, isolating
+        /// avoidance as the residual source). At walk/run the large per-frame step swamps the perturbation; at the
+        /// slow 3 u/s sneak it is a large FRACTION of the step (sneak step CoV 21x the walk baseline) = the Sponsor's
+        /// "lags between each step". A single-player castaway has no agents to avoid; static geometry is handled by
+        /// the baked NavMesh, so avoidance-off is a pure jitter removal with no behavior change. Returns the corrected
+        /// (acceleration, autoBraking, avoidance) so the EditMode guard pins the contract with no scene rig. Static +
+        /// dependency-free.
+        /// </summary>
+        public static void SmoothDirectDriveConfig(out float acceleration, out bool autoBraking,
+                                                   out UnityEngine.AI.ObstacleAvoidanceType avoidance)
+        {
+            acceleration = SmoothDriveAcceleration; // velocity snaps to the command (no slow ramp = no slow-speed jitter)
+            autoBraking = false;                    // no decel toward the zero desiredVelocity (no braking fight)
+            avoidance = SmoothDriveAvoidance;       // RVO OFF — its per-frame velocity perturbation is the CONFIRMED sneak jitter
         }
 
         // Resolve the camera's planar forward/right basis (the orbit camera's facing projected onto the

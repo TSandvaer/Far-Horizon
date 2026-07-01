@@ -250,6 +250,122 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(typeof(bool), p.ParameterType, "each WASD-key parameter is a bool key-state (W/A/S/D only)");
         }
 
+        // =================================================================================================
+        // CROUCH speed precedence (ticket 86caa3kur — crouch-on-Ctrl-hold) — WasdMovement.ResolveSpeed.
+        //
+        // BUG CLASS these pin (NOT one instance): the Ctrl+Shift precedence (AC2 — CROUCH WINS) + the reduced
+        // SNEAK speed (AC1) + the defensive clamps. A regression where crouch+sprint runs at run speed (crouch
+        // didn't win), or where a mis-tuned sneakSpeed makes a crouched move FASTER than a stand-walk, fails
+        // here. Pure + scene-rig-free (no Animator/NavMesh/headless-time).
+        // =================================================================================================
+        private const float Walk = 5.5f, Run = 9.5f, Sneak = 3f; // production defaults
+
+        [Test]
+        public void ResolveSpeed_Walking_PlainWalkSpeed()
+        {
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, Run, Sneak, false, false), 1e-5f,
+                "no sprint, no crouch → the plain walk speed.");
+        }
+
+        [Test]
+        public void ResolveSpeed_Sprinting_RunSpeed()
+        {
+            Assert.AreEqual(Run, WasdMovement.ResolveSpeed(Walk, Run, Sneak, true, false), 1e-5f,
+                "sprint (Shift) + not crouching → the run speed (86ca9yq34).");
+        }
+
+        [Test]
+        public void ResolveSpeed_Crouching_SneakSpeed_SlowerThanWalk()
+        {
+            float s = WasdMovement.ResolveSpeed(Walk, Run, Sneak, false, true);
+            Assert.AreEqual(Sneak, s, 1e-5f, "crouch (Ctrl) → the reduced sneak speed (86caa3kur AC1).");
+            Assert.Less(s, Walk, "a crouched (sneak) move must be SLOWER than a stand-walk (it's a sneak).");
+        }
+
+        [Test]
+        public void ResolveSpeed_CrouchWinsOverSprint_AC2()
+        {
+            // THE AC2 precedence guard: Ctrl WHILE Shift is held drops to the SNEAK, not the run (crouch wins).
+            float s = WasdMovement.ResolveSpeed(Walk, Run, Sneak, /*isSprinting*/ true, /*isCrouching*/ true);
+            Assert.AreEqual(Sneak, s, 1e-5f,
+                "CROUCH WINS (AC2): holding Ctrl while running must drop to the SNEAK speed, NOT keep the run " +
+                "speed. A regression that lets sprint override crouch fails here.");
+            Assert.Less(s, Run, "crouch+sprint must not run.");
+        }
+
+        [Test]
+        public void ResolveSpeed_DefensiveClamps_RunNeverSlowerThanWalk_SneakNeverFasterThanWalk()
+        {
+            // Mis-tuned run (slower than walk) → clamped up to walk (run never slower than walk).
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, /*run*/ 2f, Sneak, true, false), 1e-5f,
+                "a run speed mis-set BELOW the walk speed must clamp to the walk (run never slower than walk).");
+            // Mis-tuned sneak (faster than walk) → clamped down to walk (a crouch can't be FASTER than a walk).
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, Run, /*sneak*/ 8f, false, true), 1e-5f,
+                "a sneak speed mis-set ABOVE the walk speed must clamp to the walk — a crouched move can never " +
+                "be FASTER than a stand-walk (the defensive clamp).");
+            // Zero/unset sneak falls back to walk (not a freeze).
+            Assert.AreEqual(Walk, WasdMovement.ResolveSpeed(Walk, Run, /*sneak*/ 0f, false, true), 1e-5f,
+                "an unset (0) sneak speed must fall back to the walk speed — a crouch must never freeze the player.");
+        }
+
+        // =================================================================================================
+        // SNEAK-SPEED-SNAP ISOLATION instrument (86caa3kur re-soak attempt-3 /unstick) — WasdMovement.EffectiveSneakSpeed.
+        //
+        // BUG CLASS these pin: the DEBUG isolation toggle must be INERT at its shipped default (a debug handle
+        // that changes shipped behavior when OFF is the silent-regression class). Default (snapToWalk=false) →
+        // the reduced sneak speed is UNCHANGED; ON (true) → the crouch commands the walk speed (the disconfirming
+        // control). Pure + scene-rig-free.
+        // =================================================================================================
+        [Test]
+        public void EffectiveSneakSpeed_DefaultOff_ReturnsReducedSneak_ShippedBehaviorUnchanged()
+        {
+            Assert.AreEqual(Sneak, WasdMovement.EffectiveSneakSpeed(Sneak, Walk, /*snapToWalk*/ false), 1e-5f,
+                "DEFAULT (snap OFF) must leave the SHIPPED reduced sneak speed untouched — the instrument is " +
+                "inert at its default (no silent regression of crouch behavior).");
+        }
+
+        [Test]
+        public void EffectiveSneakSpeed_SnapOn_ReturnsWalkSpeed_TheIsolationControl()
+        {
+            Assert.AreEqual(Walk, WasdMovement.EffectiveSneakSpeed(Sneak, Walk, /*snapToWalk*/ true), 1e-5f,
+                "snap ON must command the NORMAL walk speed for a crouched move — the disconfirming control that " +
+                "rules out the slow-sneak-speed-specific jerk path (86caa3kur attempt-3).");
+        }
+
+        [Test]
+        public void EffectiveSneakSpeed_ComposesWithResolveSpeed_CrouchAtWalkSpeed_WhenSnapped()
+        {
+            // The full path the Update runs: snap ON feeds the walk speed into ResolveSpeed for a crouched move,
+            // so a crouched (Ctrl) move commands the WALK speed (not the reduced sneak) — what the Sponsor A/Bs.
+            float effSneak = WasdMovement.EffectiveSneakSpeed(Sneak, Walk, /*snapToWalk*/ true);
+            float speed = WasdMovement.ResolveSpeed(Walk, Run, effSneak, /*sprint*/ false, /*crouch*/ true);
+            Assert.AreEqual(Walk, speed, 1e-5f,
+                "with snap ON, a crouched move must resolve to the WALK speed end-to-end (EffectiveSneakSpeed → " +
+                "ResolveSpeed). Default OFF still resolves to the reduced sneak (the inert-default guard above).");
+        }
+
+        // SNEAK-ISOLATION runtime toggle DEFAULT — the WasdMovement component's snap flag starts OFF (shipped).
+        // This is the component-state half of the inert-default guard (the pure-math half is above): a freshly
+        // built WasdMovement must report the snap OFF so a normal soak/CI build runs the reduced sneak speed.
+        [Test]
+        public void SneakSpeedSnap_RuntimeDefault_IsOff()
+        {
+            var go = new GameObject("wasd-snap-default");
+            try
+            {
+                go.AddComponent<UnityEngine.AI.NavMeshAgent>(); // WasdMovement [RequireComponent]
+                var w = go.AddComponent<WasdMovement>();
+                Assert.IsFalse(w.SneakSpeedSnappedToWalk,
+                    "the sneak-speed-snap isolation toggle must DEFAULT OFF on a fresh component — a normal " +
+                    "soak/CI build must run the shipped reduced sneak speed, not the walk-speed isolation control.");
+                w.SetSneakSpeedSnapToWalk(true);
+                Assert.IsTrue(w.SneakSpeedSnappedToWalk, "SetSneakSpeedSnapToWalk(true) must flip the flag ON.");
+                w.SetSneakSpeedSnapToWalk(false);
+                Assert.IsFalse(w.SneakSpeedSnappedToWalk, "SetSneakSpeedSnapToWalk(false) must flip it back OFF.");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
         [Test]
         public void Airborne_VsOldSnap_QuantifiesTheFix_DiagnoseBeforeFix()
         {
@@ -264,6 +380,65 @@ namespace FarHorizon.EditTests
             Assert.Less(newFrameLateral, oldFrameLateral / 10f,
                 $"the new single-frame lateral ({newFrameLateral:F4}) must be <1/10 the old snap ({oldFrameLateral:F4}) " +
                 "— the subtle-nudge fix (86caac81y).");
+        }
+
+        // =================================================================================================
+        // SMOOTH DIRECT-DRIVE agent config (ticket 86caa3kur RE-SOAK — the SNEAK-WALK STUTTER fix) —
+        // WasdMovement.SmoothDirectDriveConfig. WasdMovement commands agent.velocity directly each frame; with the
+        // agent's default autoBraking=true + a modest acceleration + NO path (desiredVelocity≈0 under WASD), the
+        // agent's internal simulation DECELERATES the root toward zero AND only RAMPS toward the new velocity at
+        // `acceleration` u/s² — so the simulated velocity LAGS + oscillates against the command. At walk/run the
+        // large per-frame step swamps it; at the slow SNEAK speed the braking/ramp noise is a large FRACTION of
+        // the step → the visible hitching. These pin the BUG CLASS: the fix turns autoBraking OFF (no decel-to-zero
+        // fight) and sets a HIGH acceleration (velocity snaps to the command, no slow ramp). A regression that
+        // re-enables autoBraking or drops the acceleration back reintroduces the slow-speed stutter — caught here.
+        // Pure + scene-rig-free (no Animator/NavMesh/headless-time).
+        // =================================================================================================
+        [Test]
+        public void SmoothDirectDriveConfig_TurnsAutoBrakingOff_NoDecelTowardZeroFight()
+        {
+            WasdMovement.SmoothDirectDriveConfig(out _, out bool autoBraking, out _);
+            Assert.IsFalse(autoBraking,
+                "the smooth direct-drive config must turn autoBraking OFF — with it ON the agent decelerates the " +
+                "root toward the zero desiredVelocity (no path under WASD), fighting the directly-commanded " +
+                "velocity each frame. That braking fight is the slow-speed sneak STUTTER the re-soak fixes.");
+        }
+
+        [Test]
+        public void SmoothDirectDriveConfig_UsesHighAcceleration_VelocitySnapsToCommand_NoSlowRamp()
+        {
+            WasdMovement.SmoothDirectDriveConfig(out float acceleration, out _, out _);
+            // A high acceleration makes the simulated velocity converge to the directly-set command within ~one
+            // frame instead of RAMPING over many frames (the ramp lag is disproportionately large at the slow
+            // sneak speed → hitching). Far above the production walk/run speeds so the snap is effectively instant.
+            Assert.AreEqual(WasdMovement.SmoothDriveAcceleration, acceleration, 1e-3f,
+                "the config must apply the high SmoothDriveAcceleration (the velocity snaps to the command, no " +
+                "slow ramp).");
+            Assert.Greater(acceleration, Run * 10f,
+                $"the smooth-drive acceleration ({acceleration}) must be FAR above the run speed ({Run}) so the " +
+                "simulated velocity snaps to the commanded velocity within a frame (no slow-speed ramp jitter). A " +
+                "regression to the old modest acceleration (~30) reintroduces the sneak stutter.");
+        }
+
+        // SNEAK-WALK HITCH fix (86caa3kur re-soak ATTEMPT 2 — the CONFIRMED cause). The CI Animator+motion trace
+        // (run 28432489421) REFUTED all three animation candidates (clip plays smoothly) and isolated the hitch to
+        // the NavMeshAgent-owned root XZ translation at the slow sneak speed. Per the NavMeshAgent.velocity docs,
+        // READING velocity "returns the simulation's current value, which may differ from what you set due to
+        // COLLISION AVOIDANCE" — the per-frame RVO avoidance pass perturbs the sim's integration of the commanded
+        // velocity. At the slow 3 u/s sneak that perturbation is a large FRACTION of the step (sneak step CoV 21x
+        // the walk baseline) = the hitch. The fix turns local RVO avoidance OFF (a single-player castaway has no
+        // agents to avoid; static geometry is handled by the baked NavMesh). This pins the BUG CLASS: a regression
+        // that re-enables avoidance reintroduces the slow-speed translation jitter. Pure + scene-rig-free.
+        [Test]
+        public void SmoothDirectDriveConfig_TurnsObstacleAvoidanceOff_NoPerFrameVelocityPerturbation()
+        {
+            WasdMovement.SmoothDirectDriveConfig(out _, out _, out var avoidance);
+            Assert.AreEqual(UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance, avoidance,
+                "the smooth direct-drive config must turn local RVO obstacle avoidance OFF — the avoidance pass " +
+                "perturbs the sim's per-frame velocity (NavMeshAgent.velocity docs), and at the slow sneak speed " +
+                "that perturbation is a large fraction of the step = the CONFIRMED translation jitter (run 28432489421).");
+            Assert.AreEqual(UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance, WasdMovement.SmoothDriveAvoidance,
+                "the SmoothDriveAvoidance constant the config returns must be NoObstacleAvoidance.");
         }
     }
 }

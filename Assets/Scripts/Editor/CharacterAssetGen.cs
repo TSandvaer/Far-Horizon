@@ -233,6 +233,16 @@ namespace FarHorizon.EditorTools
             // (same body as ConfigureWalkFbx/ConfigureJumpFbx, differing only in loop + rename target).
             ConfigureGenericClipFbx(SneakWalkFbxPath, CrouchWalkClip, loop: true);
             ConfigureGenericClipFbx(CrouchIdleFbxPath, CrouchIdleClip, loop: true);
+            // GAIT-CURVE SMOOTHING (86caa3kur / #197 — the toe-pop fix). Generate an editable smoothed .anim from
+            // the raw Sneak Walk clip with ONLY the mid-cycle foot/toe quaternion spike (LeftToeBase ~80deg/frame @
+            // normT~=0.907, live-probe confirmed) surgically slerp-smoothed; every other curve copied verbatim.
+            // BuildAnimatorController points CrouchWalk at this .anim. Runs AFTER the FBX import (it reads the imported
+            // raw clip) and BEFORE BuildAnimatorController (which binds the smoothed clip). Committed .anim ships it.
+            {
+                var gaitSb = new System.Text.StringBuilder();
+                SneakGaitCurveFix.Generate(gaitSb);
+                Debug.Log(gaitSb.ToString());
+            }
             ConfigureGenericClipFbx(StunnedFbxPath, StunnedClip, loop: true);   // knocked-down HOLD loops until recovery
             ConfigureGenericClipFbx(GettingUpFbxPath, GettingUpClip, loop: false);
             ConfigureGenericClipFbx(PickingUpFbxPath, PickingUpClip, loop: false);
@@ -513,6 +523,18 @@ namespace FarHorizon.EditorTools
                     cc.name = newName;
                     cc.loopTime = true;
                     cc.loop = true;
+                    // LOOP-POSE blend (86caa3kur — #197 crouch-jerk fix). The C# property `loopPose` serializes
+                    // to the .meta field `loopBlend` (Unity API↔YAML naming differs). With loopBlend=0 the pose
+                    // SNAPS at the frame-N→frame-0 wrap once per clip cycle — for Sneak Walk that's once per
+                    // ~28-frame gait cycle = the Sponsor's "left, right, JERK" (LIVE-CONFIRMED via the v4 F2/F3
+                    // isolation build; foot-sync + speed both exonerated). loopPose=true blends the cycle ends so
+                    // the pose wraps seamlessly. INVISIBLE to a normalizedTime trace: a clean TIME-wrap is not a
+                    // clean POSE-wrap. The orientation/XZ/Y loop-blend fields (loopBlendOrientation:1,
+                    // loopBlendPositionXZ:1, loopBlendPositionY:0) are ALREADY at the desired values via the
+                    // lockRoot*/keepOriginal* lines below — left UNCHANGED (do not touch the spike's pinned
+                    // float-fix values). Net improvement / low risk across ALL looped clips (Idle/Walk/Run/
+                    // CrouchIdle/CrouchWalk/BreathingIdle/Stunned), all of which share loopBlend:0 today.
+                    cc.loopPose = true;
                     // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
                     // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
                     // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
@@ -704,7 +726,15 @@ namespace FarHorizon.EditorTools
             AnimationClip jumpRunning = FindClip(JumpRunningFbxPath, JumpRunningClip);
             AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the chop swing (86caa4c5c change-(b))
             // CROUCH + HIT-REACT clips (86cackb3j).
-            AnimationClip crouchWalk = FindClip(SneakWalkFbxPath, CrouchWalkClip);
+            // CrouchWalk binds the SMOOTHED .anim (86caa3kur / #197 — the toe-pop fix), falling back to the raw FBX
+            // clip only if the smoothed asset is missing (defensive — never silently ship a T-pose; a missing
+            // smoothed clip degrades to the raw clip's known-visible-pop rather than a broken state).
+            AnimationClip crouchWalkSmoothed = AssetDatabase.LoadAssetAtPath<AnimationClip>(SneakGaitCurveFix.SmoothedClipPath);
+            AnimationClip crouchWalk = crouchWalkSmoothed != null ? crouchWalkSmoothed : FindClip(SneakWalkFbxPath, CrouchWalkClip);
+            if (crouchWalkSmoothed == null)
+                Debug.LogWarning("[CharacterAssetGen] smoothed CrouchWalk .anim NOT found at " +
+                                 SneakGaitCurveFix.SmoothedClipPath + " — falling back to the RAW Sneak Walk clip " +
+                                 "(the #197 toe-pop will be VISIBLE). Re-run PrepareCharacter to regenerate it.");
             AnimationClip crouchIdle = FindClip(CrouchIdleFbxPath, CrouchIdleClip);
             AnimationClip stunned = FindClip(StunnedFbxPath, StunnedClip);
             AnimationClip gettingUp = FindClip(GettingUpFbxPath, GettingUpClip);
