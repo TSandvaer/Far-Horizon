@@ -305,6 +305,22 @@ namespace FarHorizon
         // Exposed for tests / later systems: current Idle/Walk state read off the agent.
         public bool IsWalking { get; private set; }
 
+        // CROUCH (86caa3kur) — the crouch-stance request set by WasdMovement off the Ctrl-hold. Drives the
+        // controller's Crouch bool each LateUpdate (Idle→CrouchIdle when !Moving, Locomotion→CrouchWalk when
+        // Moving — PR #186's wired crouch lane). NOT a serialized field (a per-frame input mirror); the
+        // StaticStateResetTests audit is unaffected (instance field, not a mutable static).
+        private bool _crouch;
+
+        /// <summary>Request the CROUCH stance (86caa3kur) — WasdMovement calls this each frame off the Ctrl-hold
+        /// (true = crouch, false = stand). Drives the Animator's Crouch bool in <see cref="LateUpdate"/>, which the
+        /// PR #186 crouch lane routes to CrouchIdle (still) / CrouchWalk (moving). Idempotent; the Moving bool
+        /// (driven off agent velocity) selects idle-vs-walk crouch for us. Safe with a null Animator (a bare rig).</summary>
+        public void SetCrouch(bool crouch) => _crouch = crouch;
+
+        /// <summary>Whether the crouch stance is requested this frame (86caa3kur). Exposed so the PlayMode AC7
+        /// regression asserts the Crouch bool flips with Ctrl, and for later systems (stealth detection — OOS here).</summary>
+        public bool IsCrouching => _crouch;
+
         /// <summary>The planar agent speed (u/s) fed to the Walk<->Run blend tree's Speed param LAST frame
         /// (86ca9yq34). Exposed so the PlayMode AC5 regression can assert the run drives a FASTER speed (→ the
         /// Run clip blends in) than walk, off the agent velocity — without depending on the Animator having
@@ -475,6 +491,116 @@ namespace FarHorizon
             }
         }
 
+        // ===== ANIMATOR-STATE TRACE (86caa3kur re-soak — the sneak-walk LOOP-HITCH instrument). The Sponsor's
+        // re-soak refined the symptom: the crouch sneak-walk "lags between each walk animation — two steps
+        // repeated, lags between each" → an ANIMATION-LOOP hitch (NOT the movement/position layer Devon's
+        // smooth-direct-drive fixed). EditMode/PlayMode can't observe it (headless deltaTime≈0 stalls the
+        // Animator — unity-conventions §Headless), so SneakVerifyCapture dumps the LIVE per-frame Animator
+        // ground truth from the BUILT exe. These accessors expose the playing state's hash/clip/normalizedTime/
+        // effective-speed of layer 0 so the trace can DISCRIMINATE the three candidate causes:
+        //   #1 clip loop-seam  — normalizedTime wraps cleanly (…0.98→0.0…) but a visible pop each cycle.
+        //   #2 foot-sync stall — the CrouchWalk effective playback speed drives near-zero (RULED OUT in source:
+        //                        CrouchWalk has NO speedParameter, so LocoSpeedMul never scales it — the trace
+        //                        CONFIRMS LocoSpeedMul ≠ the CrouchWalk speed empirically).
+        //   #3 state re-entry  — the state HASH changes / normalizedTime RESETS to ~0 each "two-step" cycle =
+        //                        the AnyState→CrouchWalk/CrouchIdle transition flapping on a Moving flicker.
+        // Read-only; NaN/0 when no Animator (a bare rig). No GC in the getters (no per-frame alloc).
+
+        /// <summary>The layer-0 Animator state's full-path-hash this frame (86caa3kur re-soak trace). 0 when no
+        /// Animator. A CHANGING hash across the sneak hold = the crouch lane re-entering (candidate #3). Read off
+        /// GetCurrentAnimatorStateInfo so it reflects what is ACTUALLY playing, not the requested bool.</summary>
+        public int CurrentStateHash
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return 0;
+                return _animator.GetCurrentAnimatorStateInfo(0).fullPathHash;
+            }
+        }
+
+        /// <summary>The layer-0 state's normalizedTime this frame (86caa3kur re-soak trace) — the looped clip
+        /// PHASE (integer part = completed loops, fractional = current cycle position). A clean LOOP advances the
+        /// fractional part monotonically and wraps 0.99→0.0 (candidate #1 = a seam pop at the wrap); a RESET to
+        /// ~0 with the loop count NOT advancing = the state re-entered (candidate #3). NaN when no Animator.</summary>
+        public float CurrentStateNormalizedTime
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            }
+        }
+
+        /// <summary>The layer-0 state's EFFECTIVE playback speed this frame (86caa3kur re-soak trace) =
+        /// state.speed × state.speedMultiplier. For CrouchWalk this is 1 (no speedParameter wired); for the
+        /// upright Locomotion it is the LocoSpeedMul foot-sync multiplier. A near-zero value during the sneak =
+        /// candidate #2 (the clip stalled). NaN when no Animator.</summary>
+        public float CurrentStateEffectiveSpeed
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                var si = _animator.GetCurrentAnimatorStateInfo(0);
+                return si.speed * si.speedMultiplier;
+            }
+        }
+
+        /// <summary>The name of the FIRST clip currently playing on layer 0 (86caa3kur re-soak trace) — e.g.
+        /// "CastawayCrouchWalk" during the sneak, proving the Sneak Walk clip is the one playing (not a wrong
+        /// state / a T-pose-class empty). null when no Animator / no clip info. Reads GetCurrentAnimatorClipInfo
+        /// — does a small alloc on the FIRST call per state but the trace samples ~1Hz (not per-frame), so the
+        /// GC cost is bounded (and this is a VERIFICATION-only build path — not a shipping hot loop).</summary>
+        public string CurrentClipName
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return null;
+                var infos = _animator.GetCurrentAnimatorClipInfo(0);
+                return (infos != null && infos.Length > 0 && infos[0].clip != null) ? infos[0].clip.name : null;
+            }
+        }
+
+        /// <summary>Whether layer 0 is mid-TRANSITION this frame (86caa3kur re-soak trace). A transition ACTIVE
+        /// every "two-step" cycle during a steady sneak hold = the crouch lane crossfade re-firing (candidate #3);
+        /// a steady CrouchWalk hold should show NO transition once settled. False when no Animator.</summary>
+        public bool IsInTransition
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                return _animator.IsInTransition(0);
+            }
+        }
+
+        /// <summary>The Animator's CURRENT Speed param value this frame (86caa3kur re-soak attempt-3 isolation
+        /// instrument) — the DAMPED blend-tree Speed the LateUpdate SetFloat fed (NOT the raw planar speed
+        /// <see cref="CurrentSpeed"/>). Read off GetFloat so the readout shows what the Walk<->Run blend tree
+        /// actually consumes (it eases toward the raw speed via speedDampTime). NaN when no Animator. Exposed so
+        /// the SneakIsolationTool readout can show whether the Speed param oscillates per gait cycle (the
+        /// foot-sync / blend-tree suspect) vs holds steady.</summary>
+        public float CurrentAnimatorSpeedParam
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.GetFloat(SpeedParam);
+            }
+        }
+
+        /// <summary>The Animator's GLOBAL playback-speed multiplier (<c>animator.speed</c>) this frame
+        /// (86caa3kur re-soak attempt-3 isolation instrument). Normally 1; surfaced so the readout proves the
+        /// global Animator clock is steady (a global speed wobble would jerk EVERY clip, not just the sneak).
+        /// NaN when no Animator. Distinct from the per-state effective speed (<see cref="CurrentStateEffectiveSpeed"/>),
+        /// which is the LocoSpeedMul foot-sync multiplier on the upright Locomotion state.</summary>
+        public float CurrentAnimatorGlobalSpeed
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.speed;
+            }
+        }
+
         /// <summary>
         /// Force the model to a KNOWN body yaw immediately (verification-only determinism hook). The verify
         /// capture cannot rely on the rest-state facing being a fixed axis, so it pins the facing to a known
@@ -551,6 +677,16 @@ namespace FarHorizon
             // re-bind to it rather than re-instantiate. Otherwise build at runtime (defensive fallback).
             if (transform.childCount > 0 && _model == null) RebindFromHierarchy();
             if (!_built) BuildModel();
+
+            // SNEAK-WALK LOOP-HITCH FALLBACK TOGGLE (86caa3kur re-soak — candidate #2 disconfirming control).
+            // -sneakNoFootSync forces footSync OFF at boot so the Sponsor (fallback soak) or the -verifySneak
+            // gate can A/B the sneak WITH vs WITHOUT foot-sync. Foot-sync's LocoSpeedMul does NOT reach the
+            // CrouchWalk state (it has no speedParameter — source-confirmed; the trace re-confirms empirically),
+            // so this toggle is EXPECTED to leave the sneak hitch UNCHANGED = candidate #2 ruled out by control.
+            // A no-op for the upright Walk/Run (their cadence rides LocoSpeedMul) only matters if the Sponsor
+            // happens to walk upright in the fallback build — the trace + sneak are the judged surface.
+            foreach (string a in System.Environment.GetCommandLineArgs())
+                if (a == "-sneakNoFootSync") { footSync = false; break; }
         }
 
         /// <summary>
@@ -1279,6 +1415,12 @@ namespace FarHorizon
                 // instead of the character stalling in the finished jump pose while still translating (the Sponsor's
                 // "floating" report). Moving (set just above) is current, so a moving landing routes to Locomotion.
                 _animator.SetBool(GroundedParam, !_airborne);
+
+                // CROUCH (86caa3kur) — drive the controller's Crouch bool off the WasdMovement Ctrl-hold request
+                // (SetCrouch). The PR #186 crouch lane reads (Crouch && !Moving)→CrouchIdle, (Crouch && Moving)→
+                // CrouchWalk and releases on !Crouch back to Idle/Locomotion. Moving (set above) selects idle-vs-
+                // walk crouch for us, so this single bool drives the whole lane — no separate crouch-walk flag.
+                _animator.SetBool(CrouchParam, _crouch);
             }
 
             // Yaw the model smoothly toward the travel facing (frame-rate-independent lerp).

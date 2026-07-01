@@ -1370,6 +1370,32 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument) onto
+        // Boot so it SERIALIZES into Boot.unity (the editor-vs-runtime serialization trap — it would ship inert
+        // otherwise). F2 toggles #186 foot-sync; F3 snaps sneak→walk speed; the live readout shows which number
+        // oscillates per gait cycle. Behind the F1 dev-overlay master gate; default state = shipped crouch (foot-
+        // sync ON, reduced sneak). Sibling of WireFloatDiagnostic.
+        private static void WireSneakIsolationTool()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakIsolationTool");
+                return;
+            }
+            var tool = bootGo.GetComponent<SneakIsolationTool>();
+            if (tool == null)
+                tool = bootGo.AddComponent<SneakIsolationTool>();
+            // EXPLICITLY re-assert the toggle keys every bootstrap — a bare AddComponent leaves stale SERIALIZED
+            // KeyCode values in the committed binary Boot.unity when the component already exists, so a code-only
+            // default change (F2/F3 → F5/F6) would NEVER reach the shipped exe (editor-vs-runtime serialization
+            // trap + [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
+            // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated (#208 → F2).
+            tool.footSyncToggleKey = KeyCode.F5;
+            tool.sneakSpeedSnapToggleKey = KeyCode.F6;
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
         // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
         private static void WireWalkGroundingVerifyCapture()
@@ -2603,6 +2629,12 @@ namespace FarHorizon.EditorTools
             // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
             WireFloatDiagnosticVerifyCapture();
 
+            // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument).
+            // Serializes onto Boot so the F2 (foot-sync) + F3 (sneak-speed snap) toggles + the live readout ship;
+            // behind the F1 dev-overlay master gate, default = shipped crouch behavior. The Sponsor sneaks, flips
+            // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
+            WireSneakIsolationTool();
+
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
             // OrbitCamera follow gains (horizontal/vertical lerp + lead time) live while jumping W/A/S/D, then
@@ -2829,6 +2861,12 @@ namespace FarHorizon.EditorTools
             // Inert unless -verifyRun. Sibling of WasdVerifyCapture.
             WireRunVerifyCapture(player);
 
+            // Wire the SNEAK-WALK SMOOTHNESS shipped-build capture (86caa3kur re-soak) — holds forward + the
+            // crouch override and MEASURES the per-frame root step (the stutter ground truth: low step-variance =
+            // smooth) + captures the sneak cycle from the gameplay cam. Inert unless -verifySneak. Sibling of
+            // WireRunVerifyCapture.
+            WireSneakVerifyCapture(player);
+
             // Wire the LOCOMOTION + HIT-REACT shipped-build capture (86cackb3j) — walk→run then fires the Hit
             // trigger on the live Animator + captures the flinch, with a cone-explosion guard (mesh stays at the
             // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
@@ -2953,6 +2991,27 @@ namespace FarHorizon.EditorTools
             var cap = bootGo.GetComponent<RunVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<RunVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the SNEAK-WALK SMOOTHNESS shipped-build verify capture (86caa3kur re-soak) onto the Boot object so
+        // it SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). Inert unless launched with -verifySneak. Sibling of WireRunVerifyCapture.
+        private static void WireSneakVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SneakVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SneakVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            // Wire the avatar so the 86caa3kur re-soak ANIMATOR LOOP-HITCH trace reads the LIVE Animator state
+            // (it serializes into Boot.unity — the component-in-source-but-not-in-scene trap). Resolved off the
+            // player's child avatar (the CastawayCharacter lives on a child avatar root under the player).
+            cap.castaway = player.GetComponentInChildren<CastawayCharacter>(true);
             EditorUtility.SetDirty(bootGo);
         }
 

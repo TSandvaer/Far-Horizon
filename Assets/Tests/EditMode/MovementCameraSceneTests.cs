@@ -242,6 +242,18 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_HasSneakVerifyCapture_OnBoot()
+        {
+            // 86caa3kur re-soak — the SNEAK-WALK SMOOTHNESS capture (-verifySneak) must be serialized onto Boot
+            // (the component-in-source-but-not-in-scene trap — it ships inert otherwise → no smoothness ground
+            // truth in the build). It drives the live WasdMovement for walk→sneak + measures the per-frame step.
+            var scene = OpenBoot();
+            var cap = FindInScene<SneakVerifyCapture>(scene);
+            Assert.IsNotNull(cap, "the Boot scene must carry SneakVerifyCapture (the -verifySneak shipped-build gate)");
+            Assert.IsNotNull(cap.player, "SneakVerifyCapture must reference the WasdMovement it drives");
+        }
+
+        [Test]
         public void NavMesh_IsSavedAsAsset_NotBakeInMemory()
         {
             // The ship-or-die guard: the baked NavMeshData must exist as a project asset so it
