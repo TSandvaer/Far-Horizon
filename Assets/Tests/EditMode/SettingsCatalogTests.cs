@@ -67,6 +67,34 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void AirControlAccel_DrivesWasdAirControlAccel_Live()
+        {
+            // 86caambxh regression guard: the `Air-control accel` dev-console row must be registered AND drive
+            // WasdMovement.airControlAccel LIVE, so the Sponsor can fine-tune the mid-air A/D nudge in the soak
+            // (the direct-tweak handle the ticket asks to keep/verify). BUG CLASS this pins: an unregistered or
+            // wrongly-bound row (a knob that doesn't move the airborne steer) leaves the Sponsor guessing again.
+            var reg = SettingsCatalog.Build(_orbit, _wasd);
+            Assert.IsTrue(reg.Has(SettingsCatalog.AirControlAccelId), "air-control accel row registered (86caambxh)");
+            var air = (FloatSettingEntry)reg.Get(SettingsCatalog.AirControlAccelId);
+            Assert.IsTrue(air.Available, "air-control accel is a LIVE setting (not a greyed hook)");
+
+            air.SetValue(3f);
+            Assert.AreEqual(3f, _wasd.airControlAccel, 1e-4f,
+                "the air-control-accel slider must drive WasdMovement.airControlAccel live (86caambxh dial handle)");
+        }
+
+        [Test]
+        public void ShippedAirControlAccelDefault_IsThe9()
+        {
+            // 86caambxh: the SHIPPED default is 9 u/s² (Sponsor soak 2026-07-01 raised it 5 → 9 for a snappier
+            // mid-air sideways air-steer). A fresh WasdMovement (the component initializer) must report 9 so a
+            // normal soak/CI build runs the intended nudge. BUG CLASS this pins: a silent regress of the default
+            // back to a lower value (5/8) would quietly weaken the mid-air air-steer the Sponsor soak-locked at 9.
+            Assert.AreEqual(9f, _wasd.airControlAccel, 1e-4f,
+                "a fresh WasdMovement must default airControlAccel to 9 u/s² (86caambxh, Sponsor soak 2026-07-01).");
+        }
+
+        [Test]
         public void ZoomRange_ClampsLiveCameraDistance_AC4()
         {
             _orbit.minDistance = 6f;

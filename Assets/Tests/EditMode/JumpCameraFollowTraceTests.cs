@@ -13,7 +13,7 @@ namespace FarHorizon.EditTests
     /// IDEALISED constant-velocity simulation (OrbitCameraFollowTests.HorizontalFollow_PerDirectionTrace) that
     /// fed a STEADY vel into DesiredFollowXZ + FollowStep. But that simulation does NOT model the REAL airborne
     /// pipeline: while airborne, WasdMovement does NOT command full move speed — it runs AirborneVelocity, which
-    /// STEERS the existing horizontal velocity by a gentle accel (airControlAccel 8 u/s²) toward the input dir,
+    /// STEERS the existing horizontal velocity by a gentle accel (airControlAccel 9 u/s²) toward the input dir,
     /// CAPPED at airControlMaxSpeed (5.5, the WALK speed). So the agent.velocity the camera LEADS by during a
     /// jump is a CHANGING, INPUT-DEPENDENT, CAPPED value — not the steady walk/run speed the idealised trace used.
     ///
@@ -30,7 +30,7 @@ namespace FarHorizon.EditTests
         private const float HorizLerp = 18f;
         private const float VertLerp = 60f;
         private const float MaxLead = 0.25f;
-        private const float AirControlAccel = 8f;
+        private const float AirControlAccel = 9f;        // 86caambxh: production default raised 5→9 (Sponsor soak 2026-07-01, snappier mid-air sideways air-steer)
         private const float AirControlMaxSpeed = 5.5f;   // = WALK speed; the airborne horizontal cap
         private const float WalkSpeed = 5.5f;
         private const float RunSpeed = 9.5f;

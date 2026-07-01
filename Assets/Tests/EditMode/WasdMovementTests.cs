@@ -114,7 +114,7 @@ namespace FarHorizon.EditTests
         // no-input coasts. They are scene-rig-free (no Animator/NavMesh/headless-time).
         // =================================================================================================
 
-        private const float Accel = 8f;       // production default airControlAccel (u/s²)
+        private const float Accel = 9f;       // production default airControlAccel (u/s²) — 86caambxh: Sponsor soak 2026-07-01 raised 5→9 (snappier mid-air sideways air-steer)
         private const float Cap = 5.5f;       // production default airControlMaxSpeed (u/s) — the walk speed
         private const float MoveSpeed = 5.5f; // grounded walk speed (the OLD airborne snap magnitude)
         private const float RunSpeed = 9.5f;  // grounded run speed
@@ -371,8 +371,10 @@ namespace FarHorizon.EditTests
         {
             // DIAGNOSE-BEFORE-FIX, quantified in a guard: the OLD airborne path was velocity = LastMoveDir*speed,
             // so ONE frame of D from a standing-still-in-air state produced 5.5 u/s lateral INSTANTLY. The NEW
-            // path produces ≤ accel·dt (~0.133 u/s) that frame — a ~41× reduction in the single-frame lateral
-            // impulse. This pins the magnitude of the fix so a regression that re-snaps is caught loudly.
+            // path produces ≤ accel·dt (at the shipped 9 u/s² accel ≈ 0.15 u/s) that frame — a ~37× reduction in
+            // the single-frame lateral impulse (86caambxh: Sponsor soak 2026-07-01 raised the accel 5→9 for a
+            // snappier mid-air sideways air-steer; still nowhere near the old full-speed snap).
+            // This pins the magnitude of the fix so a regression that re-snaps is caught loudly.
             Vector3 dPress = new Vector3(1f, 0f, 0f);
             float oldFrameLateral = (dPress * MoveSpeed).x;                              // the old full-speed snap
             float newFrameLateral = WasdMovement.AirborneVelocity(Vector3.zero, dPress, Accel, Cap, Dt).x;

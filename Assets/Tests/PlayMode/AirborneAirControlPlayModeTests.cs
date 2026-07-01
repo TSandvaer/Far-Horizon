@@ -49,7 +49,7 @@ namespace FarHorizon.PlayTests
         private const float RunSpeed = 9.5f;
         private const float JumpVelocity = 5.5f;
         private const float JumpGravity = 18f;
-        private const float AirAccel = 8f;     // production default airControlAccel
+        private const float AirAccel = 9f;     // production default airControlAccel (86caambxh: Sponsor soak 2026-07-01 raised 5→9, snappier mid-air sideways air-steer)
         private const float AirCap = 5.5f;     // production default airControlMaxSpeed
 
         [UnitySetUp]

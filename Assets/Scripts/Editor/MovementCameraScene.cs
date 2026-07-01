@@ -2877,7 +2877,11 @@ namespace FarHorizon.EditorTools
             // accel default; the airborne horizontal-speed cap defaults to the WALK speed so a nudge never builds
             // past a walk (a run-jump's carried-in momentum is still preserved — the cap only clamps speed the
             // nudge would PUSH past it). Serialized editor-time (component-in-source-but-not-in-scene trap).
-            wasd.airControlAccel = 8f;
+            // 86caambxh: Sponsor soak 2026-07-01 RAISED airControlAccel 5 → 9 u/s² for a snappier mid-air sideways
+            // air-steer. The upright sideways slide IS the intended feel (no body-tilt/lean; the Sponsor confirmed
+            // he does NOT want one). This is the value that actually SHIPS (the serialized scene-build site, per
+            // [[unity-procedural-committed-assets-go-stale]] — the field default alone never reaches the build).
+            wasd.airControlAccel = 9f;
             wasd.airControlMaxSpeed = wasd.moveSpeed > 0.001f ? wasd.moveSpeed : 5.5f;
             if (wasd.cameraTransform == null)
                 Debug.LogWarning("[MovementCameraScene] WasdMovement camera not wired — WASD will fall back to " +
