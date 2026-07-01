@@ -93,6 +93,47 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_SettingsPanel_FKeyMigrationSeams_WiredEditorTime_Serialized()
+        {
+            // 86caber95 — the F9 arm-pose rows + the F10 world-look rows must be wired EDITOR-TIME (serialized by
+            // MovementCameraScene.BuildSettingsPanel (armPose) + WireWorldLookConsole (worldLook, post-environment))
+            // rather than left to the runtime Awake FindObjectOfType fallback — the same editor-vs-runtime ship-path
+            // discipline the orbit/wasd/berry targets follow (the stone-respawner runtime-Find that went DEAD is the
+            // cautionary precedent). Drop either wire and this goes red. (The F7 camera-follow rows bind to
+            // panel.orbit — already asserted above; ground-Y binds to panel.chopCharacter — wired by WireChopTree.)
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            Assert.IsNotNull(panel.armPose,
+                "SettingsPanel.armPose must be wired editor-time (the F9 arm-pose + run-lower rows bind to " +
+                "CastawayArmPose — 86caber95 AC1); an unwired ref would force a runtime FindObjectOfType");
+            Assert.IsNotNull(panel.worldLook,
+                "SettingsPanel.worldLook must be wired editor-time (the F10 fog/sky/cloud/mountain/sun rows bind " +
+                "to the WorldLookTunables seam — 86caber95 AC2; WireWorldLookConsole serializes it post-environment)");
+        }
+
+        [Test]
+        public void BootScene_CarriesWorldLookTunablesSeam_Serialized()
+        {
+            // 86caber95 AC2 — the WorldLookTunables seam (the F10 migration's binding surface) must ship in
+            // Boot.unity (the component-in-source-but-not-in-scene trap). BootstrapProject adds it to hudGo during
+            // BuildEnvironment. Drop that AddComponent and the F10 world-look rows go dead in the build → red here.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            WorldLookTunables seam = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                seam = root.GetComponentInChildren<WorldLookTunables>(true);
+                if (seam != null) break;
+            }
+            BootstrapPrecondition.Require(seam, "WorldLookTunables seam in Boot.unity");
+            Assert.IsNotNull(seam,
+                "the Boot scene must carry a WorldLookTunables seam serialized (else the F10-migrated world-look " +
+                "console rows have no binding target in the shipped build — 86caber95 AC2)");
+        }
+
+        [Test]
         public void BootScene_SettingsPanel_HasUIAssetsSerialized()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
