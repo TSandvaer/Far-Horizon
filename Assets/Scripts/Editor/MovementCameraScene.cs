@@ -1966,9 +1966,21 @@ namespace FarHorizon.EditorTools
                       " (pierce-weak, HP=" + health.max + ")");
         }
 
-        // World position of the wired SPEAR pickup (Combat POC 86cah7xxp AC4). Clear of the snake (5,4) +
-        // the other loop spots. A DETERMINISTIC scene-author ADD OUTSIDE the seeded LowPolyZoneGen stream.
-        public static readonly Vector3 SpearPickupPosition = new Vector3(2f, 0f, 6f);
+        // World position of the wired SPEAR pickup (Combat POC 86cah7xxp AC4). A DETERMINISTIC scene-author ADD
+        // OUTSIDE the seeded LowPolyZoneGen stream.
+        //
+        // REGRESSION FIX (PR #224 review — the chop-capture-gate red on run 28539711263): the ORIGINAL (2,0,6)
+        // sat EXACTLY pickupRadius (2.0u planar) from the player spawn (0,0,6) — Vector2.Distance = 2.0, and
+        // SpearPickup.Update's guard is `> pickupRadius` (2.0 > 2.0 = false), so the PROXIMITY-AUTO pickup fired
+        // on frame 1 at spawn. That landed the spear in belt slot 0 (AddToolToBelt → first free slot) — which is
+        // the DEFAULT-SELECTED slot (_selectedBelt=0). The later axe craft then landed in slot 1, so the SELECTED
+        // slot held the SPEAR → Inventory.IsAxeSelectedInBelt was FALSE → the chop gate (ShouldChopOnClick needs
+        // axeSelected) never passed → no chop → no fell → no wood → the chop-capture gate failed. Chopping code
+        // is byte-identical to main; ONLY the scene author changed. Fix: place the spear CLEAR of the spawn (≥5u,
+        // mirroring AxePickup at (3,0,2) = 5.0u from spawn) so slot 0 is free when the axe crafts → the axe lands
+        // in slot 0 = the selected slot → IsAxeSelectedInBelt holds → chop works. (4,0,9): 5.0u from spawn (0,6)
+        // AND from craft (8,6), 5.1u from the snake (5,4), ≥7u from every other loop spot — within GroundHalf=30.
+        public static readonly Vector3 SpearPickupPosition = new Vector3(4f, 0f, 9f);
 
         // A wired SPEAR pickup (AC4): a long thin faceted shaft + tip proxy (a placeholder for the in-house
         // Blender spear — the polished weapon is the roster ticket, OOS here) + a SpearPickup component wired
