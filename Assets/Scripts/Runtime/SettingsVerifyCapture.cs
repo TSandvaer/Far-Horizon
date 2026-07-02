@@ -114,7 +114,10 @@ namespace FarHorizon
             // scale PlayerPrefs key (soak hygiene — the next launch must boot at the shipped 1.0x default).
             var scaleEntry = reg?.Get(SettingsCatalog.ConsoleUiScaleId) as FloatSettingEntry;
             var scaleSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (scaleEntry != null) SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey);
+            // Snapshot the value key AND its .def stale-default stamp (86cah90cp): SetValue writes both; a
+            // restore that puts back only the value would leave the run's stamp behind and could re-validate
+            // a stale override the invalidation should discard.
+            if (scaleEntry != null) { SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey); SnapshotFloat(scaleSnapshot, scaleEntry.DefaultStampKey); }
             try
             {
                 if (scaleEntry != null)
@@ -152,7 +155,7 @@ namespace FarHorizon
             // visibly LARGER (the font resized, independent of the chrome). Snapshot+restore its PlayerPrefs key.
             var textEntry = reg?.Get(SettingsCatalog.ConsoleTextScaleId) as FloatSettingEntry;
             var textSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (textEntry != null) SnapshotFloat(textSnapshot, textEntry.PrefsKey);
+            if (textEntry != null) { SnapshotFloat(textSnapshot, textEntry.PrefsKey); SnapshotFloat(textSnapshot, textEntry.DefaultStampKey); }
             try
             {
                 if (textEntry != null)
@@ -197,7 +200,7 @@ namespace FarHorizon
             var walk = reg?.Get(SettingsCatalog.WalkSpeedId) as FloatSettingEntry;
             var zoom = reg?.Get(SettingsCatalog.ZoomRangeId) as RangeSettingEntry;
             var prefsSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (walk != null) SnapshotFloat(prefsSnapshot, walk.PrefsKey);
+            if (walk != null) { SnapshotFloat(prefsSnapshot, walk.PrefsKey); SnapshotFloat(prefsSnapshot, walk.DefaultStampKey); }
             if (zoom != null) { SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".min"); SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".max"); }
 
             float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;
