@@ -290,7 +290,9 @@ namespace FarHorizon.EditorTools
             var player = GameObject.Find("Player");
             if (player == null) { Debug.LogWarning("[poc-trace] no Player to reseat"); return; }
             var col = ground.GetComponent<MeshCollider>();
-            Vector3 p = new Vector3(0f, 0f, 12f); // in the flat spawn clearing, a little inland
+            // The flat spawn clearing OPPOSITE the mountain (NextIslandPocGen.Spawn*) — NOT the origin (the mountain
+            // foot blankets the origin → an 83u-up-the-flank spawn; run-2 fix). The player walks ACROSS toward the peak.
+            Vector3 p = new Vector3(NextIslandPocGen.SpawnX, 0f, NextIslandPocGen.SpawnZ);
             if (col != null)
             {
                 var ray = new Ray(new Vector3(p.x, 300f, p.z), Vector3.down);

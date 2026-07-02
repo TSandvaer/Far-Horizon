@@ -200,6 +200,35 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // ---- SPAWN — the player spawns on FLAT sea-level ground, OFF the mountain flank (run-2 regression) ----
+
+        [Test]
+        public void Spawn_IsFlatSeaLevelGround_NotUpTheMountainFlank()
+        {
+            // REGRESSION GUARD (run-2 bug): the mountain foot (300u) centred at (90,-60) blankets the world ORIGIN,
+            // so a spawn at the origin sat ~83u UP the flank — the player started elevated, not on gentle ground.
+            // The spawn moved to (SpawnX,SpawnZ), which MUST be OUTSIDE the mountain foot (near-zero mountain
+            // contribution) and on flat land near sea level. If a future re-tune drifts the spawn back under the
+            // foot, this reds.
+            Off(out float ox, out float oz);
+            float spawnMtn = NextIslandPocGen.MountainHeightAt(NextIslandPocGen.SpawnX, NextIslandPocGen.SpawnZ);
+            Assert.Less(spawnMtn, 1.0f,
+                $"the SPAWN must be OUTSIDE the mountain foot — mountain contribution at spawn ({spawnMtn:F1}u) must " +
+                "be ~0 (a spawn on the flank starts the player 80u up a hill, not on gentle ground).");
+            float spawnY = NextIslandPocGen.HeightAtRadial(NextIslandPocGen.SpawnX, NextIslandPocGen.SpawnZ, ox, oz);
+            Assert.Less(spawnY, 3.0f,
+                $"the SPAWN terrain Y ({spawnY:F1}u) must be near sea level (flat clearing) — not up the flank.");
+            Assert.Greater(spawnY, NextIslandPocGen.WaterY,
+                $"the SPAWN ({spawnY:F1}u) must be on LAND (above the sea).");
+            // And the spawn must be far enough from the mountain that walking to the peak is a real traverse.
+            float distToMtn = Mathf.Sqrt(
+                (NextIslandPocGen.SpawnX - NextIslandPocGen.MtnCenterX) * (NextIslandPocGen.SpawnX - NextIslandPocGen.MtnCenterX) +
+                (NextIslandPocGen.SpawnZ - NextIslandPocGen.MtnCenterZ) * (NextIslandPocGen.SpawnZ - NextIslandPocGen.MtnCenterZ));
+            Assert.Greater(distToMtn, NextIslandPocGen.MtnFootRadius,
+                $"the spawn ({distToMtn:F0}u from the mountain centre) must be OUTSIDE the foot ({NextIslandPocGen.MtnFootRadius:F0}u) " +
+                "— the player walks ACROSS toward the peak.");
+        }
+
         // ---- AC5 — the START ISLAND is UNTOUCHED (the POC uses its OWN constants) ----
 
         [Test]

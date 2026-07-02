@@ -55,10 +55,11 @@ namespace FarHorizon
             var orbit = Object.FindAnyObjectByType<OrbitCamera>();
             if (orbit != null)
             {
-                // Face roughly toward the mountain (it is at +X,-Z from origin) so the hero peak is in the
-                // player's forward view — the "feels big + a real mountain ahead" read.
-                orbit.SetYaw(-35f);
-                orbit.SetPitch(52f);
+                // Face toward the mountain from the player's ACTUAL spawn (computed, not hardcoded — the spawn
+                // moved off-origin to clear the mountain foot, so a fixed yaw would no longer point at the peak).
+                // The "feels big + a real mountain across the island" read: the player looks toward the far peak.
+                orbit.SetYaw(YawToMountain());
+                orbit.SetPitch(48f);
                 orbit.SetDistance(16f);
             }
             for (int i = 0; i < settleFrames; i++) yield return null;
@@ -102,8 +103,13 @@ namespace FarHorizon
             //      holds while moving through the world (AC4). ----
             yield return ClimbTheMountainAndCapture(dir);
 
+            // Final flush before the process exits so the LAST async CaptureScreenshot fully writes (a fast quit
+            // dropped the tail captures in run-1). Then quit cleanly (don't rely on the script's timeout -k kill).
+            yield return new WaitForEndOfFrame();
+            yield return new WaitForSeconds(0.7f);
             Debug.Log("[poc-trace] PocIslandVerifyCapture done -> " + dir +
-                      " (poc_gameplay + poc_mountain_side + poc_overhead + poc_on_mountain)");
+                      " (poc_gameplay + poc_mountain_side + poc_mountain_side2 + poc_overhead + poc_on_mountain)");
+            Application.Quit();
         }
 
         // Measure avg/1%-low FPS over a ~2.5s real-time window at the current framing. Reports avg + the worst
@@ -207,9 +213,41 @@ namespace FarHorizon
                 Debug.Log("[poc-trace] climb: no reachable mountain point found on the NavMesh — the peak may be a WALL (AC3 unmet)");
                 yield break;
             }
+            // DISABLE WasdMovement for the scripted climb: WasdMovement drives the SAME NavMeshAgent by writing
+            // agent.velocity every Update (line ~382), and with no WASD input in the verify run it forces
+            // velocity=0 EVERY frame — which clobbers ClickToMove.MoveTo's SetDestination path velocity, so the
+            // agent never moves (run-1: MoveTo set=True but gainedY=0.0). Turning WasdMovement off hands the agent
+            // to the SetDestination path for the climb, then we restore it. (The mountain's climbability is ALSO
+            // proven independently by the 100% NavMesh coverage highest-reachable-Y + the PlayMode foot→summit
+            // path test; this drive is the on-mountain VISUAL + a genuine traversal-perf reading.)
+            var wasd = player.GetComponent<WasdMovement>();
+            bool wasdWas = wasd != null && wasd.enabled;
+            if (wasd != null) wasd.enabled = false;
+
+            var agent = player.Agent;
+            // Warp the agent to the mountain FOOT on the spawn-facing side first, so the 12s window is spent
+            // CLIMBING (gaining Y up the flank), not crossing the ~340u flat approach from the far spawn — the
+            // point of this frame is to PROVE the peak is climbable (gainedY>0) + read traversal FPS while moving.
+            // (The full spawn→peak walk is the Sponsor's soak; this is the shipped-build climb proof.)
+            if (agent != null && agent.isOnNavMesh)
+            {
+                Vector3 toFoot = (player.transform.position - mountainCenter);
+                toFoot.y = 0f; toFoot = toFoot.sqrMagnitude > 0.01f ? toFoot.normalized : Vector3.forward;
+                Vector3 footApproach = mountainCenter + toFoot * (mountainFootRadius * 0.92f);
+                if (NavMesh.SamplePosition(footApproach, out NavMeshHit fh, 12f, NavMesh.AllAreas))
+                {
+                    agent.Warp(fh.position);
+                    Debug.Log($"[poc-trace] climb: warped to mountain foot @ {fh.position.ToString("F1")} (climb starts here)");
+                }
+                agent.speed = 12f;              // a brisk scripted climb speed (WasdMovement bypasses agent.speed;
+                agent.angularSpeed = 720f;      // SetDestination uses it — set a real value for the path-follow)
+                agent.acceleration = 40f;
+                agent.autoBraking = true;
+            }
+
             Debug.Log($"[poc-trace] climb: driving player to highest reachable mountain point @ {best.ToString("F1")} (y={bestY:F1})");
             bool set = player.MoveTo(best);
-            Debug.Log($"[poc-trace] climb: MoveTo set={set}");
+            Debug.Log($"[poc-trace] climb: MoveTo set={set} (WasdMovement disabled for the scripted drive: wasEnabled={wasdWas})");
 
             // Walk a real wall-clock window (headless deltaTime~0 trap — this runs in the WINDOWED exe). Read a
             // moving-window FPS while the agent climbs (traversal perf). The big distance may not fully complete
@@ -231,7 +269,7 @@ namespace FarHorizon
             float climbMinFps = worstDt > 0f ? 1f / worstDt : 0f;
             float gainedY = player.transform.position.y - startY;
 
-            if (orbit != null) { orbit.SetYaw(-35f); orbit.SetPitch(52f); orbit.SetDistance(16f); }
+            if (orbit != null) { orbit.SetYaw(YawToMountain()); orbit.SetPitch(40f); orbit.SetDistance(18f); }
             for (int i = 0; i < settleFrames; i++) yield return null;
             float finalPlanar = Vector2.Distance(
                 new Vector2(player.transform.position.x, player.transform.position.z),
@@ -242,6 +280,9 @@ namespace FarHorizon
             Shot(Path.Combine(dir, "poc_on_mountain.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+
+            // Restore WasdMovement (the shipped locomotion) — the scripted-climb override is over.
+            if (wasd != null) wasd.enabled = wasdWas;
         }
 
         // NavMesh coverage across the big land disc — the shipped-build ground-truth that the WHOLE island is
@@ -276,6 +317,18 @@ namespace FarHorizon
                       "The agent must reach the WHOLE island + up the hero mountain (>=85% + a high reachable Y).");
         }
 
+        // The OrbitCamera yaw that points the camera FORWARD from the player toward the mountain centre. OrbitCamera
+        // forward = Euler(pitch,yaw,0)*forward, whose ground-plane component ∝ (sin yaw, cos yaw) — so the yaw that
+        // faces a world direction (dx,dz) is atan2(dx,dz). Computed from the player's LIVE position so the framing
+        // follows the spawn wherever it is (the spawn moved off-origin; a hardcoded yaw would miss the peak).
+        private float YawToMountain()
+        {
+            Vector3 from = player != null ? player.transform.position : Vector3.zero;
+            float dx = mountainCenter.x - from.x;
+            float dz = mountainCenter.z - from.z;
+            return Mathf.Atan2(dx, dz) * Mathf.Rad2Deg;
+        }
+
         private void TraceCamera(string tag)
         {
             var cam = Camera.main;
@@ -292,9 +345,13 @@ namespace FarHorizon
                       $"scene has Ground_Poc={ground} Water_Poc={water} trees(in scene)={trees}");
         }
 
+        // Capture the current frame to an ABSOLUTE path. Supersize 1 (matches the working CaptureGate) — the
+        // capture is ASYNC (flushes at end-of-frame), so every caller yields WaitForEndOfFrame + a settle frame
+        // AFTER Shot, and RunVerification ends with a final WaitForSeconds flush before the process exits, so the
+        // last PNG is fully written (a fast quit dropped the last captures in run-1).
         private void Shot(string path)
         {
-            ScreenCapture.CaptureScreenshot(path);
+            ScreenCapture.CaptureScreenshot(path, 1);
             Debug.Log("[poc-trace] captured -> " + path);
         }
 
@@ -302,12 +359,18 @@ namespace FarHorizon
 
         private string ResolveDir()
         {
+            // MUST be ABSOLUTE. ScreenCapture.CaptureScreenshot with a RELATIVE path in a BUILT player writes
+            // relative to Application.persistentDataPath (NOT the CLI cwd / the -captureDir we intend), so a
+            // relative -captureDir silently loses every PNG (run-1 salvage bug: the shipped exe logged
+            // "captured -> ci-out/poc/poc-island\poc_gameplay.png" but no file ever landed). Path.GetFullPath
+            // pins it to the working dir — the SAME fix CaptureGate.ResolveDir already uses (the working gate).
             string cli = ArgString("-captureDir", null);
-            if (!string.IsNullOrEmpty(cli)) return cli;
-            return Path.Combine(
+            if (!string.IsNullOrEmpty(cli)) return Path.GetFullPath(cli);
+            string baseDir = Path.Combine(
                 Application.isEditor ? Path.Combine(Application.dataPath, "..") :
                     Path.GetDirectoryName(Application.dataPath) ?? ".",
                 "ci-out", "poc-island");
+            return Path.GetFullPath(baseDir);
         }
 
         private static bool HasArg(string name)

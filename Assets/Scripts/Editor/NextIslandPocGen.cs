@@ -80,9 +80,17 @@ namespace FarHorizon.EditorTools
         // Above SnowlineFrac × MtnPeakHeight (measured from the plateau) the vertex colour is the white snow cap.
         public const float SnowlineFrac = 0.72f;   // faces above this height fraction of the peak read snow
 
-        // Spawn is at the world origin (like the start island) — a flat clearing to spawn into, away from the
-        // mountain foot so the player starts on gentle ground and walks toward the peak.
-        public const float SpawnFlattenHoldR = 22f;   // hills fully damped within this radius of origin (flat spawn)
+        // Spawn clearing — a flat clearing OPPOSITE the hero mountain so the player starts on gentle sea-level
+        // ground and walks ACROSS the island toward the peak (the "small character, far horizon" read). It CANNOT
+        // be the world origin: the mountain foot (300u) centred at (90,-60) blankets the origin, so a spawn there
+        // sits ~83u UP the flank (run-2 finding). At (-180,150) — 342u from the mountain centre, OUTSIDE the foot —
+        // the spawn terrain is the flat plateau (~0.2u) and the walk toward the peak is a ~340u traverse (a good
+        // chunk of the feels-big crossing). Foot 300 on a 400-r island CANNOT both clear the origin AND fit fully
+        // on land at a climbable slope (the whole-dome-on-land window is empty for foot>=260), so we move the SPAWN,
+        // not the mountain (which keeps the 37° climbable-slope tuning + the mountain tests untouched).
+        public const float SpawnX = -180f;
+        public const float SpawnZ = 150f;
+        public const float SpawnFlattenHoldR = 22f;   // hills fully damped within this radius of the SPAWN (flat clearing)
         public const float SpawnFlattenFullR = 55f;   // hills back to full by here
 
         // ---- Palette (reuse the start-island warm/lush anchors so the POC reads as the SAME world) ----
@@ -211,7 +219,10 @@ namespace FarHorizon.EditorTools
             float hill = (Mathf.PerlinNoise(ox + wx * 0.005f, oz + wz * 0.005f) - 0.5f) * 2f * 0.68f
                        + (Mathf.PerlinNoise(ox + wx * 0.012f, oz + wz * 0.012f) - 0.5f) * 2f * 0.32f;
             float hillH = (hill * 0.5f + 0.5f) * HillAmp * landMask * landMask;
-            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SpawnFlattenHoldR, SpawnFlattenFullR, r));
+            // Flatten the hills into a clearing around the SPAWN point (NOT the origin — the spawn moved off-origin
+            // to clear the mountain foot). Distance is measured to (SpawnX,SpawnZ) so the player spawns on flat ground.
+            float dSpawn = Mathf.Sqrt((wx - SpawnX) * (wx - SpawnX) + (wz - SpawnZ) * (wz - SpawnZ));
+            float spawnFlat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SpawnFlattenHoldR, SpawnFlattenFullR, dSpawn));
             return hillH * (0.06f + 0.94f * spawnFlat);
         }
 

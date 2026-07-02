@@ -45,9 +45,14 @@ namespace FarHorizon.EditorTools
 
             float plantOuterR = NextIslandPocGen.MeanShoreR + NextIslandPocGen.CoastIrregAmp;
             float coastalFringe = NextIslandPocGen.BeachWidth + 8f;   // keep trees this far inland of the coast
-            float spawnClearR = 30f;                                  // open clearing at the spawn/loop centre
+            float spawnClearR = 30f;                                  // open clearing at the SPAWN point (not origin)
             bool OnLandmass(float x, float z) =>
                 Mathf.Sqrt(x * x + z * z) <= NextIslandPocGen.ShoreRadiusAt(x, z, ox, oz) - coastalFringe;
+            // Keep an open clearing around the SPAWN (which moved off-origin to clear the mountain foot, run-2 fix)
+            // so the player spawns into open ground, not inside a tree.
+            bool InSpawnClearing(float x, float z, float extra) =>
+                Mathf.Sqrt((x - NextIslandPocGen.SpawnX) * (x - NextIslandPocGen.SpawnX) +
+                           (z - NextIslandPocGen.SpawnZ) * (z - NextIslandPocGen.SpawnZ)) < spawnClearR + extra;
 
             // Reject trees on the hero mountain's STEEP UPPER flank + snow cap (a forest must not grow up the
             // snow peak). Below ~45% of the peak height the flank is gentle grass/lower-rock → trees are fine;
@@ -65,7 +70,7 @@ namespace FarHorizon.EditorTools
                 float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
                 float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble()); // uniform-area over the disc
                 float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
-                if (rr < spawnClearR) continue;
+                if (InSpawnClearing(x, z, 0f)) continue;
                 if (!OnLandmass(x, z)) continue;
                 if (OnBareMountain(x, z)) continue;                    // no forest on the snow-cap flank
                 float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
@@ -84,7 +89,7 @@ namespace FarHorizon.EditorTools
                 float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
                 float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
                 float cxp = Mathf.Cos(ang) * rr, czp = Mathf.Sin(ang) * rr;
-                if (rr < spawnClearR + 8f) continue;
+                if (InSpawnClearing(cxp, czp, 8f)) continue;
                 int n = 2 + rnd.Next(0, 3);
                 for (int i = 0; i < n && rocksPlaced < rockTarget; i++)
                 {
