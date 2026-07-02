@@ -166,6 +166,29 @@ namespace FarHorizon
         /// merely owned). HeldAxe gates its renderer on this; CastawayFingerCurl gates its grip on it.</summary>
         public bool IsAxeSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.AxeId);
 
+        /// <summary>
+        /// Combat POC 86cah7xxp AC4 — acquire the SPEAR (the second contrasting craftable weapon). Adds the
+        /// spear TOOL to the first free belt slot (mirrors <see cref="PickUpAxe"/>). Returns true on the
+        /// transition (the spear was actually placed), false if a spear is already held (idempotent). The
+        /// spear pickup/craft calls this; the melee attack then resolves the spear WeaponDef when it is the
+        /// SELECTED belt item.
+        /// </summary>
+        public bool PickUpSpear()
+        {
+            EnsureModel();
+            if (_model.OwnsItem(ItemCatalog.SpearId)) return false; // already holds a spear — one-shot
+            var spear = _catalog.ById(ItemCatalog.SpearId);
+            if (spear == null) return false;
+            return _model.AddToolToBelt(spear).HasValue;
+        }
+
+        /// <summary>Combat POC 86cah7xxp AC4 — true when the SPEAR is the SELECTED belt item (the melee attack
+        /// reads this to resolve the spear as the active weapon, the axe-sibling query).</summary>
+        public bool IsSpearSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SpearId);
+
+        /// <summary>Combat POC 86cah7xxp — true once the castaway OWNS a spear (in any slot).</summary>
+        public bool HasSpear => Model.OwnsItem(ItemCatalog.SpearId);
+
         // ============================================================================================
         // LEGACY ledger surface — preserved VERBATIM (contract §7). Every caller stays green.
         // ============================================================================================

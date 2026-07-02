@@ -22,6 +22,12 @@ namespace FarHorizon
         public const string StoneId = "stone";
         public const string BerryId = "berry";
 
+        /// <summary>Canonical SPEAR id (Combat POC 86cah7xxp, AC4 — the second contrasting craftable weapon).
+        /// A belt-eligible <see cref="ItemKind.Tool"/> (holdable + selectable, like the axe) so the melee
+        /// attack (MeleeAttack) resolves the spear WeaponDef when it is the selected belt item. Matches the
+        /// spear <see cref="FarHorizon.Combat.WeaponCatalog.SpearId"/> so the item + weapon lanes share one id.</summary>
+        public const string SpearId = "spear";
+
         /// <summary>
         /// Canonical WATER id (pinned by 86caf7a6q AC5; the water def is MINTED here by 86caf7g6f). Sponsor's
         /// water-acquisition answer (2026-06-27): E at the pond loots ONE "water" unit into the belt (NO
@@ -111,7 +117,14 @@ namespace FarHorizon
             var water = CreateInstance<ItemDef>(); water.name = "water";
             water.Init(WaterId, "Water", ItemKind.Consumable, waterIcon ?? ItemIconGen.WaterDrop());
 
-            SetAll(new[] { axe, wood, stone, berry, water });
+            // Combat POC 86cah7xxp AC4 — the SPEAR: the second contrasting craftable weapon. A belt-eligible
+            // Tool (holdable + selectable, cap 1) like the axe, so MeleeAttack resolves the spear WeaponDef
+            // when it is the selected belt item. Reuses the axe's letter-chip icon fallback (a baked spear
+            // icon is a later polish, like the axe's).
+            var spear = CreateInstance<ItemDef>(); spear.name = "spear";
+            spear.Init(SpearId, "Spear", ItemKind.Tool, null);
+
+            SetAll(new[] { axe, wood, stone, berry, water, spear });
         }
     }
 }

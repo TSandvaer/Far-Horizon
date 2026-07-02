@@ -147,6 +147,17 @@ namespace FarHorizon.Settings
         public const string SunElevationId  = "sun_elevation";
         public const string SunSizeId       = "sun_size";
 
+        // Combat POC per-tier difficulty tweakables (ticket 86cah7xxp AC8b). Registered by PopulateCombat, bound to
+        // the player Health + HealthRegen + DeathHandler — the SAME pattern + naming as the per-need decay rows
+        // (each feature adds its OWN Populate method; never grows the base Populate signature). These dial the
+        // ACTIVE HP-max / damage-taken / regen-rate; the death-behavior is TIER-selected (an int stepper over the
+        // 3 tiers). The dialed values bake into the difficulty presets (the [[verify-soak-builds-or-bake-and-judge]]
+        // workflow). Ids are stable (PlayerPrefs keys + test lookups derive from them).
+        public const string HpMaxId          = "hp_max";
+        public const string DamageTakenMulId = "damage_taken_mul";
+        public const string HpRegenRateId    = "hp_regen_rate";
+        public const string DeathBehaviorId  = "death_behavior_tier";
+
         // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
         // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
         // text) live. NOT a gameplay param — bound to a SettingsPanel-owned scale field (registered by the panel
@@ -220,6 +231,13 @@ namespace FarHorizon.Settings
         public const int InventorySlotsMin = 1,  InventorySlotsMax = 60;
         public const int BeltSlotsMin = 1,       BeltSlotsMax = 12;
         public const int StackSizeMin = 1,       StackSizeMax = 99;
+        // Combat POC per-tier difficulty bands (ticket 86cah7xxp AC8b). Generous around the tier defaults so the
+        // Sponsor can soak a forgiving OR a punishing combat feel, bounded so a dial can't zero HP or runaway damage.
+        public const float HpMaxMin = 20f, HpMaxMax = 300f;          // player HP-max band (around 80/100/120 tiers)
+        public const float DamageTakenMulMin = 0.1f, DamageTakenMulMax = 3f; // incoming-damage multiplier band
+        public const float HpRegenRateMin = 0f, HpRegenRateMax = 20f;        // HP/sec regen band (0 = no regen)
+        public const int DeathBehaviorMin = 0, DeathBehaviorMax = 2;         // tier stepper: 0=Easy 1=Medium 2=Hard
+
         // Console UI scale band (86cabeqj9 soak NIT). 0.5x (half-size, for a Sponsor who finds the panel huge) ..
         // 1.5x (larger). Default 1.0x = the shipped panel, byte-identical untouched (the differs-badge stays off).
         public const float ConsoleUiScaleMin = 0.5f, ConsoleUiScaleMax = 1.5f;
@@ -742,6 +760,66 @@ namespace FarHorizon.Settings
                 () => FarHorizon.ItemDef.ResourceStackSize,
                 v => FarHorizon.ItemDef.ResourceStackSize = Mathf.Clamp(v, StackSizeMin, StackSizeMax),
                 StackSizeMin, StackSizeMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the COMBAT POC per-tier difficulty tweakables (ticket 86cah7xxp AC8b) into the registry, LIVE-
+        /// bound to the player <paramref name="health"/> + <paramref name="regen"/> + <paramref name="death"/>:
+        /// <list type="bullet">
+        /// <item><b>HP max</b> — a FLOAT slider driving <see cref="FarHorizon.Combat.Health.max"/> (the ACTIVE HP
+        /// max the read surface + damage path use). Refills proportionally-safely inside Health.</item>
+        /// <item><b>Damage-taken multiplier</b> — a FLOAT slider driving <see cref="FarHorizon.Combat.Health.damageTakenMul"/>
+        /// (applied on top of the per-type resistance in ApplyDamage).</item>
+        /// <item><b>HP regen rate</b> — a FLOAT slider driving <see cref="FarHorizon.Combat.HealthRegen.regenPerSecond"/>
+        /// (HP/sec while needs are satisfied — AC3).</item>
+        /// <item><b>Death behavior</b> — an INT STEPPER over the 3 tiers (0=Easy faint-in-place / 1=Medium campfire+keep
+        /// / 2=Hard camp+drop) driving <see cref="FarHorizon.Combat.DeathHandler.tier"/> (AC2 — the death behavior
+        /// IS the difficulty tier). The dialed values bake into the difficulty presets.</item>
+        /// </list>
+        /// The SAME pattern + naming as the per-need decay rows (each feature adds its OWN Populate method — the
+        /// PopulateThirst/PopulateHunger de-collision precedent). A null target SKIPS only its own rows (the catalog
+        /// never null-refs), so a combat-less rig / bare test is unaffected. Setters clamp to the [Min,Max] band.
+        /// </summary>
+        public static void PopulateCombat(SettingsRegistry reg, FarHorizon.Combat.Health health,
+            FarHorizon.Combat.HealthRegen regen, FarHorizon.Combat.DeathHandler death)
+        {
+            if (reg == null) return;
+
+            // HP MAX (live) — drives the ACTIVE Health.max. Tightening it makes the castaway frailer; loosening,
+            // hardier. The per-tier easy/med/hard maxes also write this field (ApplyDifficulty), but the slider is
+            // a direct soak-tuning knob over the active max, exactly like the thirst/hunger decay-rate sliders.
+            if (health != null)
+            {
+                reg.AddFloat(HpMaxId, "HP max",
+                    () => health.max, v => health.max = Mathf.Clamp(v, HpMaxMin, HpMaxMax),
+                    HpMaxMin, HpMaxMax, unit: "");
+
+                // DAMAGE-TAKEN MULTIPLIER (live) — drives the ACTIVE Health.damageTakenMul (applied on top of the
+                // per-type resistance matchup in ApplyDamage). < 1 softens hits (kid-friendly); > 1 punishes.
+                reg.AddFloat(DamageTakenMulId, "Damage taken",
+                    () => health.damageTakenMul, v => health.damageTakenMul = Mathf.Clamp(v, DamageTakenMulMin, DamageTakenMulMax),
+                    DamageTakenMulMin, DamageTakenMulMax, unit: "x");
+            }
+
+            // HP REGEN RATE (live) — drives HealthRegen.regenPerSecond (HP/sec while needs satisfied — AC3). 0 = no
+            // regen (a hardcore tier). Bigger = faster recovery.
+            if (regen != null)
+            {
+                reg.AddFloat(HpRegenRateId, "HP regen rate",
+                    () => regen.regenPerSecond, v => regen.regenPerSecond = Mathf.Clamp(v, HpRegenRateMin, HpRegenRateMax),
+                    HpRegenRateMin, HpRegenRateMax, unit: "/s");
+            }
+
+            // DEATH BEHAVIOR (live) — an INT STEPPER over the 3 tiers (0=Easy 1=Medium 2=Hard) driving the active
+            // DeathHandler.tier (AC2 — the 3 death behaviors ARE the 3 tiers). Getter reads the current tier as an
+            // int; setter maps the stepped int back to the tier. Clamped to [0,2] so the stepper can't leave the band.
+            if (death != null)
+            {
+                reg.AddInt(DeathBehaviorId, "Death behavior",
+                    () => (int)death.tier,
+                    v => death.tier = (FarHorizon.SurvivalNeed.DifficultyTier)Mathf.Clamp(v, DeathBehaviorMin, DeathBehaviorMax),
+                    DeathBehaviorMin, DeathBehaviorMax, unit: "");
+            }
         }
 
         /// <summary>
