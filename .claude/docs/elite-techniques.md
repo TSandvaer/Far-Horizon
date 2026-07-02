@@ -39,6 +39,7 @@ filing the technique here makes it discoverable, it does not replace the source.
   for the big-island redesign and the M-U5+ expansion (`github.com/SebLague/Procedural-Landmass-Generation`).
   Reach for it when the world stops fitting in one hand-built scene — chunked terrain with
   distance-based LOD is how the "BIG and ENDLESS" north-star scales without tanking frame time.
+- **Empirical scaling checkpoint (Devon, ticket `86caa9zpp`, PR #226, merged 2026-07-02): a single scaled mesh + the existing low-poly gen + STATIC batching held 60fps @ ~800u in the shipped exe** — static 60.0/59.9 fps, traversal 59.8 fps, NavMesh pathing 192/192, `gainedY=53u` (snow-cap hero mountain climbable end-to-end). **Chunked/streamed terrain (the Lague architecture above) is NOT yet needed at this size.** Bounds: vSync-capped (not an uncapped-GPU number), GPU Resident Drawer NOT tested on this build, and scoped to ~800u — re-measure before the next size tier. Read this as "Lague chunk-LOD not yet justified at ~800u," not "scaling solved." **Reconciliation flag:** the POC used Static Batching, which `unity6-mastery.md` §2's guidance calls INCOMPATIBLE with GPU Resident Drawer — before scaling this into production world-gen, either A/B it against GRD per §2 or re-affirm Static Batching and update §2 accordingly; don't silently carry the combination forward.
 
 ## URP stylized shaders (closes two recurring bug classes)
 
