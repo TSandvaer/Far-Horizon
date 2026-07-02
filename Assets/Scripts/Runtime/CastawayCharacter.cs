@@ -391,6 +391,7 @@ namespace FarHorizon
         private int _jumpTraceFrame;            // frame counter within the current trace window
         private float _jumpTracePostLandT;      // seconds remaining to keep tracing after landing (0 = window closed)
         private bool _jumpTraceActive;          // a trace window is open this jump
+        private bool _jumpTraceEnabled;         // -jumpTrace launch flag (86cahhfp4 C1) — without it no window ever opens
         private Vector3 _jumpTraceLaunchRootXZ; // player-root world XZ captured at lift-off (the pull-back baseline)
         private const float JumpTracePostLandSeconds = 0.5f; // keep tracing 0.5s past touch-down (catch the snap)
 
@@ -412,11 +413,27 @@ namespace FarHorizon
 
         /// <summary>Whether the RUNTIME jump-trace window is OPEN this frame (86caaqhj5 — the "pulled back on
         /// landing" instrument). True from a jump's lift-off until ~0.5s past touch-down, while the per-frame
-        /// [JumpTrace] line auto-logs to Player.log; false otherwise (silent). Exposed READ-ONLY so the EditMode
-        /// guard can assert TryJump OPENS the window (the silent-instrument bug class — a trace that never fires
-        /// is the CaptureGate/FloatTrace silent-killer family, unity-conventions.md §Component-not-serialized).
+        /// [JumpTrace] line logs to Player.log; false otherwise (silent). Since 86cahhfp4 (C1) the window only
+        /// opens when <see cref="JumpTraceEnabled"/> is set (the -jumpTrace launch flag) — the shipped default
+        /// jump is trace-silent. Exposed READ-ONLY so the EditMode guard can assert TryJump OPENS the window
+        /// when enabled (the silent-instrument bug class — a trace that never fires is the CaptureGate/FloatTrace
+        /// silent-killer family, unity-conventions.md §Component-not-serialized) AND stays closed when not.
         /// No PlayMode fixture needed: TryJump (grounded-only) opens the window synchronously.</summary>
         public bool JumpTraceActive => _jumpTraceActive;
+
+        /// <summary>Whether the runtime jump-trace INSTRUMENT is enabled (86cahhfp4 C1 — the -jumpTrace launch
+        /// flag, parsed in Awake via the established HasArg idiom). The instrument is PRESERVED, not deleted:
+        /// launching the build with -jumpTrace restores the exact per-jump [JumpTrace] diagnostics soak debugging
+        /// depends on. Without the flag the trace window never opens, so the shipped default build pays neither
+        /// the ~700-char interpolated Debug.Log string build nor the managed stack capture Debug.Log incurs —
+        /// a per-frame hitch + GC source exactly where frame consistency is felt (poly-style plan §5 item 7).
+        /// SETTABLE so the EditMode guards can exercise both sides without a real command line (Awake does not
+        /// run in EditMode; the property is the test seam, mirroring the groundSnap/footSync access pattern).</summary>
+        public bool JumpTraceEnabled
+        {
+            get => _jumpTraceEnabled;
+            set => _jumpTraceEnabled = value;
+        }
 
         /// <summary>
         /// Begin a jump (ticket 86ca9yq3q) — Space's rising edge calls this (WasdMovement). Imparts the upward
@@ -436,13 +453,18 @@ namespace FarHorizon
             if (_animator != null && _animator.runtimeAnimatorController != null)
                 _animator.SetTrigger(JumpParam);  // fire the one-shot Jump state (AnyState→Jump on the trigger)
 
-            // RUNTIME JUMP-TRACE (86caaqhj5): open the per-jump trace window at lift-off. Capture the player-root
-            // world XZ NOW — the launch→land delta of this baseline is the "pulled back" discriminator.
-            Transform jr = transform.parent != null ? transform.parent : transform;
-            _jumpTraceLaunchRootXZ = new Vector3(jr.position.x, 0f, jr.position.z);
-            _jumpTraceFrame = 0;
-            _jumpTracePostLandT = JumpTracePostLandSeconds;
-            _jumpTraceActive = true;
+            // RUNTIME JUMP-TRACE (86caaqhj5): open the per-jump trace window at lift-off — ONLY under the
+            // -jumpTrace launch flag (86cahhfp4 C1; the shipped default jump is trace-silent, so the per-frame
+            // ~700-char log + stack capture never fires unless the diagnosis is asked for). Capture the
+            // player-root world XZ NOW — the launch→land delta of this baseline is the "pulled back" discriminator.
+            if (_jumpTraceEnabled)
+            {
+                Transform jr = transform.parent != null ? transform.parent : transform;
+                _jumpTraceLaunchRootXZ = new Vector3(jr.position.x, 0f, jr.position.z);
+                _jumpTraceFrame = 0;
+                _jumpTracePostLandT = JumpTracePostLandSeconds;
+                _jumpTraceActive = true;
+            }
             return true;
         }
 
@@ -685,8 +707,13 @@ namespace FarHorizon
             // so this toggle is EXPECTED to leave the sneak hitch UNCHANGED = candidate #2 ruled out by control.
             // A no-op for the upright Walk/Run (their cadence rides LocoSpeedMul) only matters if the Sponsor
             // happens to walk upright in the fallback build — the trace + sneak are the judged surface.
+            // -jumpTrace (86cahhfp4 C1): opt IN to the per-jump [JumpTrace] runtime diagnostics. Same
+            // GetCommandLineArgs idiom; both flags are independent, so no early break.
             foreach (string a in System.Environment.GetCommandLineArgs())
-                if (a == "-sneakNoFootSync") { footSync = false; break; }
+            {
+                if (a == "-sneakNoFootSync") footSync = false;
+                else if (a == "-jumpTrace") _jumpTraceEnabled = true;
+            }
         }
 
         /// <summary>
@@ -1439,14 +1466,17 @@ namespace FarHorizon
             CancelJumpForwardLunge();
 
             // RUNTIME JUMP-TRACE (86caaqhj5) — emit AFTER this frame's arc/snap + anim update so the trace
-            // reflects the final per-frame positions the player sees. Auto-fires on every jump, silent otherwise.
+            // reflects the final per-frame positions the player sees. Fires only when the -jumpTrace launch
+            // flag opened the window (86cahhfp4 C1); the shipped default jump is trace-silent.
             if (_jumpTraceActive) EmitJumpTrace();
         }
 
         // The per-frame RUNTIME jump-trace line (86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS). Fires
         // every frame from lift-off (TryJump opened the window) until JumpTracePostLandSeconds past touch-down.
-        // ONE greppable [JumpTrace] Debug.Log per frame inside the window — no toggle, no launch-arg: the Sponsor
-        // just plays + jumps W/A/S/D and the orchestrator reads Player.log. Silent in every non-jump frame.
+        // ONE greppable [JumpTrace] Debug.Log per frame inside the window. Since 86cahhfp4 (C1) the window only
+        // opens under the -jumpTrace launch flag: relaunch the SAME build with -jumpTrace and the Sponsor just
+        // plays + jumps W/A/S/D while the orchestrator reads Player.log — the diagnosis path is preserved, the
+        // shipped default jump no longer pays the per-frame ~700-char log + stack capture. Silent otherwise.
         //
         // The LANDING frame is marked explicitly (LANDED=YES on the touch-down frame). The load-bearing fields:
         //   rootΔXZ      — player-root world XZ moved since lift-off; a NEGATIVE component along travel = the

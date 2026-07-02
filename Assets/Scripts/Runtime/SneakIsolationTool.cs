@@ -83,6 +83,12 @@ namespace FarHorizon
             return new Rect(x, y, w, PanelHeight);
         }
 
+        void Awake()
+        {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
+        }
+
         void Update()
         {
             // The ONLY normal-play cost: two key polls. Everything else is gated behind DebugOverlays.Visible (F1).
