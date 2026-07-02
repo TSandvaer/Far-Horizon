@@ -268,7 +268,8 @@ namespace FarHorizon.EditTests
         public void FacetedLandmass_IsHardFaceted_UnweldedPerFace()
         {
             // The island shelf the peaks stand on must be the SAME hard-faceted language (flat per-face).
-            var mesh = LowPolyMeshes.FacetedLandmass(90f, 12f, 10, new Color(0.6f, 0.65f, 0.68f), seed: 3);
+            var mesh = LowPolyMeshes.FacetedLandmass(90f, 12f, 10, new Color(0.6f, 0.65f, 0.68f),
+                new Color(0.30f, 0.42f, 0.24f), seed: 3);
             int tris = mesh.triangles.Length / 3;
             Assert.AreEqual(tris * 3, mesh.vertexCount,
                 "FacetedLandmass must be flat-shaded (verts == tris*3 — hard facets matching the peaks/rocks)");
@@ -284,7 +285,7 @@ namespace FarHorizon.EditTests
             for (int s = 1; s <= 6; s++)
             {
                 var mesh = LowPolyMeshes.FacetedLandmass(80f, 14f, 9 + s % 3,
-                    new Color(0.6f, 0.65f, 0.68f), seed: s * 23);
+                    new Color(0.6f, 0.65f, 0.68f), new Color(0.30f, 0.42f, 0.24f), seed: s * 23);
                 var v = mesh.vertices;
                 var n = mesh.normals;
                 int tris = mesh.triangles.Length / 3;
@@ -304,7 +305,8 @@ namespace FarHorizon.EditTests
             // The grounding fix: the shelf must extend from a SUNK bottom (the mesh local Y=0, which the
             // caller places below the sea) up to the shelf top (~depth) — a broad, low island, wider than it
             // is tall, so the peaks foot on visible LAND, not float over fogged sea.
-            var mesh = LowPolyMeshes.FacetedLandmass(90f, 12f, 10, new Color(0.6f, 0.65f, 0.68f), seed: 7);
+            var mesh = LowPolyMeshes.FacetedLandmass(90f, 12f, 10, new Color(0.6f, 0.65f, 0.68f),
+                new Color(0.30f, 0.42f, 0.24f), seed: 7);
             var b = mesh.bounds;
             Assert.Greater(b.size.y, 8f, "the landmass must have real vertical extent (sunk bottom -> shelf top)");
             Assert.Greater(Mathf.Max(b.size.x, b.size.z), b.size.y * 3f,

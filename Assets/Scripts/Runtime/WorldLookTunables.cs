@@ -44,6 +44,10 @@ namespace FarHorizon
         private readonly List<Vector3> _mtnBaseLocal = new List<Vector3>();
         private readonly List<Material> _mtnMats = new List<Material>();
         private readonly List<Color> _mtnBaseTint = new List<Color>();
+        // GRD-2 / RCK-1 (ticket 86cahhfkc): the live terrain material (meadow-patch amp) + the rock
+        // materials (rim intensity). Resolved lazily like the rest — the world is built after Awake.
+        private readonly List<Material> _terrainMats = new List<Material>();
+        private readonly List<Material> _rockMats = new List<Material>();
         private bool _resolved;
 
         // Live-dialed multipliers/offsets (mirror WorldLookNudgeTool's semantics exactly). Start at the baked
@@ -70,7 +74,10 @@ namespace FarHorizon
             _clouds.Clear(); _cloudBasePos.Clear();
             _mtnClusters.Clear(); _mtnBaseLocal.Clear();
             _mtnMats.Clear(); _mtnBaseTint.Clear();
+            _terrainMats.Clear(); _rockMats.Clear();
             var seenMats = new HashSet<Material>();
+            var seenTerrain = new HashSet<Material>();
+            var seenRock = new HashSet<Material>();
             foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (t.name == "LP_Cloud") { _clouds.Add(t); _cloudBasePos.Add(t.position); }
@@ -84,6 +91,18 @@ namespace FarHorizon
                         _mtnMats.Add(mat);
                         _mtnBaseTint.Add(mat.GetColor("_Tint"));
                     }
+                }
+                // GRD-2 / RCK-1: collect the live terrain material (carries _MeadowPatchAmp) + rock materials
+                // (carry _RimIntensity), matched by the bootstrap material NAMES. sharedMaterial so we mutate
+                // the one instance every renderer of that class shares (one console dial moves them all).
+                var rend = t.GetComponent<MeshRenderer>();
+                if (rend != null && rend.sharedMaterial != null)
+                {
+                    var m = rend.sharedMaterial;
+                    if (m.HasProperty("_MeadowPatchAmp") && m.name.StartsWith("LowPolyTerrainMat") && seenTerrain.Add(m))
+                        _terrainMats.Add(m);
+                    if (m.HasProperty("_RimIntensity") && m.name.StartsWith("LPRockMat") && seenRock.Add(m))
+                        _rockMats.Add(m);
                 }
             }
         }
@@ -231,6 +250,37 @@ namespace FarHorizon
             Vector3 toSun = -(Quaternion.Euler(_sunElevDeg, _sunAzimuthDeg, 0f) * Vector3.forward);
             toSun.Normalize();
             _skyMat.SetVector("_SunDirection", new Vector4(toSun.x, toSun.y, toSun.z, 0f));
+        }
+
+        // ===== MEADOW PATCH AMP (GRD-2, ticket 86cahhfkc) — live extra meadow-patch contrast on the terrain =====
+        // Reads/writes _MeadowPatchAmp on the terrain material(s). 0 = the shipped baked GRD-1 patches only;
+        // higher = push the same baked regions further toward the sunlit/shadow tones (the soak A/B knob).
+        public float MeadowPatchAmp
+        {
+            get { EnsureResolved(); return _terrainMats.Count > 0 && _terrainMats[0] != null
+                    ? _terrainMats[0].GetFloat("_MeadowPatchAmp") : 0f; }
+            set
+            {
+                EnsureResolved();
+                float v = Mathf.Clamp(value, 0f, 1.5f);
+                for (int i = 0; i < _terrainMats.Count; i++)
+                    if (_terrainMats[i] != null) _terrainMats[i].SetFloat("_MeadowPatchAmp", v);
+            }
+        }
+
+        // ===== ROCK RIM INTENSITY (RCK-1, ticket 86cahhfkc) — live caught-sun rim on the boulders =====
+        // Reads/writes _RimIntensity on the rock material(s). 0 = today (no rim); ~0.12 = the shipped whisper.
+        public float RockRimIntensity
+        {
+            get { EnsureResolved(); return _rockMats.Count > 0 && _rockMats[0] != null
+                    ? _rockMats[0].GetFloat("_RimIntensity") : 0f; }
+            set
+            {
+                EnsureResolved();
+                float v = Mathf.Clamp(value, 0f, 0.5f);
+                for (int i = 0; i < _rockMats.Count; i++)
+                    if (_rockMats[i] != null) _rockMats[i].SetFloat("_RimIntensity", v);
+            }
         }
     }
 }

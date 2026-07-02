@@ -58,6 +58,17 @@ Shader "FarHorizon/GradientSkybox"
         // earlier elev-48 (0.38,0.74,-0.55)); the bootstrap bakes the real value over this, so this only
         // matters if the asset is opened raw.
         _SunDirection ("Sun Direction (world, to-sun)", Vector) = (0.546, 0.309, -0.779, 0)
+
+        // ---- SUN-AZIMUTH HORIZON WARMTH (SKY-1, ticket 86cahhfkc — plan §5 Tier-1 item 7) ----
+        // A SUBTLE warm glow biased into the horizon band AROUND the sun's azimuth: the accepted low sun
+        // (elev-18) should tie into the sky with a touch of warmth where it meets the horizon, not sit on a
+        // uniform cool horizon. This is a FRAG-ONLY lerp of the RENDERED sky colour toward _SunColor near
+        // the horizon + sun azimuth — it does NOT touch the _HorizonColor PROPERTY, so the fog==_HorizonColor
+        // single-constant SEAM-KILL is preserved (fog colour still equals the horizon stop; only the sky's
+        // own low-band pixels warm slightly toward the sun). Bounded to _SunHorizonWarmth (≤~0.06) so even at
+        // the sun azimuth the sky-vs-fog difference at the seam stays below the eye's threshold — the vista/
+        // fog dissolve is not reopened. Default 0.06 = the spec ceiling; 0 = today's uniform horizon.
+        _SunHorizonWarmth ("Sun Horizon Warmth (0 = off, <=0.06)", Range(0, 0.06)) = 0.06
     }
     SubShader
     {
@@ -84,6 +95,7 @@ Shader "FarHorizon/GradientSkybox"
                 float  _SunSize;
                 float  _SunHardness;
                 float4 _SunDirection;
+                float  _SunHorizonWarmth;   // SKY-1 — bounded sun-azimuth horizon warmth (frag-only; seam-safe)
             CBUFFER_END
 
             // SUN DIRECTION — the OPEN QUESTION Erik flagged (research §"Recommended dev POC", evidence-
@@ -148,6 +160,23 @@ Shader "FarHorizon/GradientSkybox"
                     float k = smoothstep(_MidPoint, min(_MidPoint + halfW, 1.0), t);
                     col = lerp(_MidColor.rgb, _ZenithColor.rgb, k);
                 }
+
+                // ---- SUN-AZIMUTH HORIZON WARMTH (SKY-1, ticket 86cahhfkc) ----
+                // Bias the horizon band toward the warm sun colour AROUND the sun's azimuth, so the low sun
+                // ties into the sky with a touch of warmth at the horizon (not a uniformly cool horizon).
+                // AZIMUTH alignment: dot the view ray and the sun direction on the HORIZONTAL plane (drop Y)
+                // so the warmth follows the sun's compass bearing, widest at the horizon and narrowing as the
+                // eye pans away in azimuth. HORIZON weight: strongest at t≈0 (the horizon line), fading out
+                // by t≈0.30 so only the low band warms (the zenith is untouched). The product × the bounded
+                // _SunHorizonWarmth is a TINY lerp of the RENDERED colour toward _SunColor — it never touches
+                // the _HorizonColor PROPERTY, so fog==_HorizonColor stays exact (seam-kill preserved). Both
+                // weights are computed off the same viewWS the disk uses (world ray), normalized on the plane.
+                float3 sunDirH = normalize(float3(_SunDirection.x, 0.0, _SunDirection.z));
+                float3 viewH   = normalize(float3(IN.dirWS.x, 0.0, IN.dirWS.z));
+                float  azimuthAlign = saturate(dot(viewH, sunDirH));          // 1 toward the sun bearing, 0 away
+                azimuthAlign = azimuthAlign * azimuthAlign;                    // tighten the warm arc around the sun
+                float  horizonBand  = 1.0 - smoothstep(0.0, 0.30, saturate(dir.y)); // 1 at horizon -> 0 by ~17deg up
+                col = lerp(col, _SunColor.rgb, _SunHorizonWarmth * azimuthAlign * horizonBand);
 
                 // ---- SUN DISK (ticket 86cabc743, Erik POC item 1) ----
                 // _SunDirection.xyz is the WORLD-space direction TOWARD the Sun (baked from the Sun light at
