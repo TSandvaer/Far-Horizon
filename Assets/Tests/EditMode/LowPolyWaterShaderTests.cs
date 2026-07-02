@@ -133,22 +133,26 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void ActiveUrpAsset_HasDepthAndOpaqueTextureEnabled()
+        public void ActiveUrpAsset_HasDepthOn_AndOpaqueOff()
         {
-            // AC1: the depth-fade samples _CameraDepthTexture (+ the project enables the opaque texture for
-            // any future water refraction); URP only generates these when the URP Asset requests them. If a
-            // regression flips them OFF, the build ships foam-less water (SampleSceneDepth reads garbage) — a
-            // silent shipped failure this guards in headless CI before it reaches the Sponsor.
-            // NOTE (86caamnmb fix): these flags are set in BootstrapProject.ConfigureUrp (NOT only on the
+            // AC1: the depth-fade foam samples _CameraDepthTexture; URP only generates the depth texture when
+            // the URP Asset requests it. If a regression flips DEPTH off, the build ships foam-less water
+            // (SampleSceneDepth reads garbage) — a silent shipped failure this guards in headless CI.
+            // R1 (86cahhff6): the OPAQUE texture copy is now OFF — no shader samples _CameraOpaqueTexture
+            // (LowPolyWater reads only scene depth), so the per-frame full-screen opaque copy was dead cost.
+            // This test pins the pair (depth ON / opaque OFF); a future re-enable of the dead opaque copy — or
+            // a regression turning depth off — fails RED here.
+            // NOTE (86caamnmb / 86cahhff6): both flags are set in BootstrapProject.ConfigureUrp (NOT only on the
             // committed asset) because bootstrap RE-CREATES FarHorizonURP.asset from Create() each run, which
-            // defaults them OFF — a committed-asset-only edit was silently reverted (the original CI failure).
+            // defaults depth OFF (and, pre-R1, opaque had to be forced ON) — a committed-asset-only edit reverts.
             var urp = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             Assert.IsNotNull(urp, "the active render pipeline must be a UniversalRenderPipelineAsset");
             Assert.IsTrue(urp.supportsCameraDepthTexture,
                 "AC1: the active URP Asset must enable Depth Texture (m_RequireDepthTexture) — the depth-fade " +
                 "foam samples _CameraDepthTexture; without it the foam is absent in the shipped build");
-            Assert.IsTrue(urp.supportsCameraOpaqueTexture,
-                "AC1: the active URP Asset must enable Opaque Texture (m_RequireOpaqueTexture)");
+            Assert.IsFalse(urp.supportsCameraOpaqueTexture,
+                "R1: the active URP Asset must DISABLE Opaque Texture (m_RequireOpaqueTexture) — no shader " +
+                "samples _CameraOpaqueTexture, so the full-screen opaque copy is dead per-frame cost (86cahhff6)");
         }
 
         [Test]

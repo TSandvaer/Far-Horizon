@@ -1272,9 +1272,11 @@ namespace FarHorizon.EditorTools
             clump.transform.localScale = Vector3.one * scale;
             // Bias toward GrassHi (sunlit) so the tuft pops off the ground ramp instead of blending in.
             Color blade = Color.Lerp(GrassLo, GrassHi, 0.55f + (float)rnd.NextDouble() * 0.45f);
+            // R2a: grass tufts cast NO shadow — a 0.5u blade tuft shadows nothing at gameplay orbit framing;
+            // ~360 clumps were rendering into every cascade of the 4096 shadow map for zero visible effect.
             MakeMeshObject(clump, "Blades",
                 LowPolyMeshes.GrassClump(0.55f, 7, rnd.Next()),
-                GrassWaveMat(blade));
+                GrassWaveMat(blade), castShadows: false);
         }
 
         // GRASS material (tickets 86cabc737 grass — Erik §Grass; #172 SOAK-NIT 2026-06-29). The grass clump
@@ -1340,7 +1342,17 @@ namespace FarHorizon.EditorTools
             return false;
         }
 
-        static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat)
+        // G6-1 (ticket 86cahhff6, plan §5 Tier-1 item 4): the scatter chokepoint now carries a per-instance
+        // SHADOW-CASTING policy (+ a STATIC-flags hook for the later R3-1/PR-J static-batching pass — plumbed
+        // now so batching flips a flag from birth, not a re-touch of every builder). `castShadows` defaults ON
+        // = the pre-R2a Unity default (trunk/canopy/rock/bush-body keep casting, byte-unchanged). R2a sets it
+        // OFF for the ~530 invisible casters (grass/sticks/small-stones/berries): a 0.5u tuft or 5cm stick
+        // shadows nothing at gameplay orbit framing, yet each was rendered into every cascade of the 4096 map.
+        // `staticFlags` stays null (no-op) in this PR — R3-1 (PR-J) will pass BatchingStatic through here.
+        // NOTE: NO draws added/removed on any System.Random stream — this only sets renderer flags on the
+        // SAME GameObjects, so the seed-42 island/scatter placement stays byte-identical.
+        static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat,
+            bool castShadows = true, UnityEditor.StaticEditorFlags? staticFlags = null)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, false);
@@ -1348,6 +1360,10 @@ namespace FarHorizon.EditorTools
             mf.sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
             mr.sharedMaterial = mat;
+            if (!castShadows)
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            if (staticFlags.HasValue)
+                UnityEditor.GameObjectUtility.SetStaticEditorFlags(go, staticFlags.Value);
             return go;
         }
 
@@ -1384,9 +1400,11 @@ namespace FarHorizon.EditorTools
             // harvest/regrow (the bush body persists). The berry red is in vertex colour -> the SAME
             // STATIONARY bush material (BushVertexColorMat — so the berries are stationary too; #172 soak-NIT).
             // MANY (20-30) small dots so it reads as berries, not flowers (#101 soak-fix).
+            // R2a: the berry-cluster children cast NO shadow — tiny (~sub-0.1u) dots studding the dome that
+            // shadow nothing at gameplay framing (the bush BODY above KEEPS casting — it's a real silhouette).
             var berries = MakeMeshObject(bush, "Berries",
                 LowPolyMeshes.BerryCluster(bushR, 20 + rnd.Next(0, 11), BerryRed, rnd.Next()),
-                BushVertexColorMat());
+                BushVertexColorMat(), castShadows: false);
 
             // Wire the harvest+regrow component to the scene Inventory + player so a wandering castaway can
             // forage any berry bush. A deterministic regrowSeed (per-bush) so headless behavior is stable.
@@ -1432,9 +1450,11 @@ namespace FarHorizon.EditorTools
                 Quaternion.Euler(0f, yaw, 0f) * Quaternion.Euler(pitchWobble, 0f, 90f);
             stick.transform.position = at + Vector3.up * (girth * scale);
 
+            // R2a: fallen sticks cast NO shadow — a ~5cm-girth twig lying flat shadows nothing at gameplay
+            // framing; ~70 sticks were casting into every cascade for no visible effect.
             MakeMeshObject(stick, "StickMesh",
                 LowPolyMeshes.TaperedCylinder(girth, girth * 0.55f, length, 5),
-                MakeFlatColorMat(StickCol, "LPStickMat"));
+                MakeFlatColorMat(StickCol, "LPStickMat"), castShadows: false);
 
             // Wire the StickProp (IPickable) to the scene Inventory so the castaway loots it on E for 1 wood.
             // The looted wood adds via the canonical ItemCatalog.WoodId — never a parallel id (AC2/AC3).
@@ -1471,9 +1491,11 @@ namespace FarHorizon.EditorTools
             // the parent (which would freeze the respawn timer). FacetedRock with a small base radius (0.22 —
             // a pebble, vs the 0.55 boulder) keeps it angular + flat-shaded; the warm-grey RockCol with the
             // per-facet value baked to vertex colour reads as a small stone, not a smooth mound.
+            // R2a: small stones / pebbles cast NO shadow — a 0.22u pebble shadows nothing at gameplay framing;
+            // ~70 stones were casting into every cascade (the BOULDERS above KEEP casting — real silhouettes).
             var visual = MakeMeshObject(stone, "StoneMesh",
                 LowPolyMeshes.FacetedRock(0.22f, jitter: 0.34f, seed: rnd.Next()),
-                RockVertexColorMat(RockCol * (0.96f + (float)rnd.NextDouble() * 0.08f)));
+                RockVertexColorMat(RockCol * (0.96f + (float)rnd.NextDouble() * 0.08f)), castShadows: false);
 
             // Wire the StoneProp (IPickable) to the scene Inventory + the shared StoneRespawner so the castaway
             // loots it on E for 1 stone (canonical ItemCatalog.StoneId — never a parallel id) and the spot
