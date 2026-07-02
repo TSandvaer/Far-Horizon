@@ -57,6 +57,8 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 
 **STP Upscaling** (`URP Asset > Quality > Upscaling Filter > STP`): GPU-headroom lever if ever GPU-bound at native resolution. Test against the low-poly look (upscalers can soften hard polygon edges).
 
+**World-scale data point:** a big-island POC (~800u, PR #226, merged 2026-07-02) held 60fps with a single scaled mesh + STATIC batching — see `elite-techniques.md` § "Procedural terrain at scale" for the full figures and a reconciliation flag against §2's Static-Batching/GPU-Resident-Drawer incompatibility before this is carried into production world-gen.
+
 ---
 
 ## 5. Scripting — Rules That Apply to Every PR
