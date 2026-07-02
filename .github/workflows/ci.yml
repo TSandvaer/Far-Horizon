@@ -460,10 +460,10 @@ jobs:
         run: |
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
-                ci-out/verify-heldbelt.log ci-out/verify-sky.log
+                ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
-                 ci-out/heldbelt-caps ci-out/sky-caps
+                 ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -769,6 +769,43 @@ jobs:
           path: |
             ci-out/sky-caps/*.png
             ci-out/verify-sky.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 14. Inventory drag-ghost-position shipped-build capture gate at 2560x1440 (ticket
+      #     86cafhgun — promotes the 86caffw9h -verifyInvDragGhostPos probe to a REQUIRED gate).
+      #     The bug class ("the dragged bag item suddenly displays in a different position"): the
+      #     ghost positioning must apply the ScaleWithScreenSize panel SCALE; a scale-less
+      #     regression is INVISIBLE at exactly 1920x1080 (panel scale ~= 1) — so this gate runs the
+      #     exe at an EXPLICIT NON-1080p size (2560x1440, load-bearing) and the probe SELF-GUARDS
+      #     it (Quit(3) if the panel scale reads ~1, so a silently-clamped window FAILS rather than
+      #     false-greens). Drives InventoryDragGhostPosVerifyCapture: open the pack with berries,
+      #     BEGIN a real drag, let the production cursor-driven path position the ghost, then
+      #     SELF-ASSERT ghost-center == expected panel point for the live cursor (tol 2 panel px;
+      #     Quit(5) on divergence — the real regression). The exe's exit code IS the gate verdict;
+      #     frame_check.py is a swapchain backstop on inv_drag_ghost_pos.png. Runs only when the
+      #     build produced an exe; frame + log upload AFTER (if: always()).
+      - name: Inv drag-ghost-position capture gate (2560x1440, ghost rides the cursor)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_invdragghostpos_gate.sh
+            .github/workflows/scripts/verify_invdragghostpos_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/invdragghost-caps ci-out/verify-invdragghostpos.log
+          else
+            echo "[verify-invdragghostpos] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload inv drag-ghost frame + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-invdragghost-caps-${{ github.sha }}
+          path: |
+            ci-out/invdragghost-caps/*.png
+            ci-out/verify-invdragghostpos.log
           if-no-files-found: warn
           retention-days: 3
 
