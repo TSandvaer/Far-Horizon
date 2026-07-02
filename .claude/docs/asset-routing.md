@@ -54,6 +54,12 @@ detail here; the cited doc owns it):
 - **Committed-asset staleness** — bootstrap-generated `.unity`/`.mat`/`.asset` files are committed; a build ships
   the committed snapshot, so a fix in regen-code alone never reaches the build unless the asset is regenerated +
   committed ([[unity-procedural-committed-assets-go-stale]]).
+- **Inverse of committed-asset staleness: a regen can run correctly and still ship corrupted committed data** if a
+  local EditMode test mutates live global engine state (e.g. `RenderSettings.skybox`) without restoring it between
+  the bake and the commit — CI self-heals (it always re-bakes before build/tests) so every mechanical gate stays
+  green against generator-correct data while the COMMITTED snapshot is wrong; only a reviewer diffing committed
+  values against the generator's source constants catches it. Full mechanism + fix: `unity-conventions.md`
+  §Headless/CLI rituals (PR #231, ticket `86cahvntg`).
 - **Material-honest + pattern-via-geometry** — a surface reads as its material (stone→flint, metal→steel; no
   arbitrary colors); surface pattern is modeled low-poly facets, NOT a detail-texture ([[weapon-asset-material-honest-pattern-via-geometry]]).
 - **Single Unity build slot** — any route that ends in a Unity build is serialized to one at a time; fan out the
