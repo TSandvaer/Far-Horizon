@@ -8,10 +8,23 @@ namespace FarHorizon
     ///   axe -> knife -> sword -> spear -> (wrap)
     /// at runtime. The castaway visibly wields each weapon as it is cycled.
     ///
-    /// THIS IS NOT THE REAL EQUIP GAMEPLAY. The belt -> wield flow (selecting a weapon from the hotbar to
-    /// actually equip it) is a LATER ticket. This handle ONLY swaps the displayed mesh on the existing held
-    /// seat so the Sponsor can confirm the look of each weapon in the hand — it does not touch the
-    /// inventory, the belt, the chop gate, or any gameplay state.
+    /// 86cahngdg — BELT SELECTION NOW OWNS THE HELD VISUAL (the soak-224 crossed-visual fix). The old
+    /// framing ("belt -> wield is a LATER ticket") is OBSOLETE for the axe + spear: this component now
+    /// SUBSCRIBES to <see cref="Inventory.Changed"/> and SYNCS the displayed mesh to the SELECTED belt
+    /// weapon (axe -> index 0, spear -> index <see cref="SpearFamilyIndex"/>) via the SAME proven
+    /// ResolveMeshes/ApplyCurrent swap the [B] key uses. The soak-224 defect was exactly this missing
+    /// coupling: the seat's VISIBILITY gate (HeldAxe) fired on IsAxeSelectedInBelt while the DISPLAYED
+    /// mesh stayed whatever [B] last cycled — so with the spear mesh displayed, selecting the axe slot
+    /// rendered the SPEAR in hand, and selecting the spear slot rendered EMPTY hands (no spear predicate,
+    /// no mesh sync). Selection is now AUTHORITATIVE:
+    ///   - a held-visual weapon (axe/spear) selected  -> the mesh syncs to it; the [B] cycle REFUSES
+    ///     (logs why) so the debug handle can never re-create the crossed state in a soak;
+    ///   - no held-visual weapon selected -> [B] still cycles for the knife/sword look-soak aid, and
+    ///     <see cref="DebugViewActive"/> lets the HeldAxe gate show that debug view empty-handed; ANY
+    ///     inventory change clears the debug view and re-asserts the selection (self-healing).
+    ///
+    /// The knife/sword remain [B]-only (no belt items exist for them); their real equip is a later ticket.
+    /// This handle still never touches the inventory, the belt, the chop gate, or any gameplay state.
     ///
     /// HOW IT WORKS — swap the MESH on the SHARED HeldTool seat:
     ///   - The component is serialized onto the HeroAxe object (the held seat) editor-time (MovementCamera
@@ -116,6 +129,23 @@ namespace FarHorizon
         public static readonly string[] WeaponLabels = { "AXE", "KNIFE", "SWORD", "SPEAR" };
         public const string LineupResourcePath = "WeaponSetLineup"; // Assets/Resources/WeaponSetLineup.prefab
 
+        /// <summary>The axe's family index (0 — the Sponsor-LOCKED default seat).</summary>
+        public const int AxeFamilyIndex = 0;
+        /// <summary>The spear's index in <see cref="WeaponNodeNames"/> (86cahngdg — the belt-selection sync
+        /// maps IsSpearSelectedInBelt to THIS index; pinned by an EditMode contract test so a family
+        /// reorder cannot silently cross the held visual again).</summary>
+        public const int SpearFamilyIndex = 3;
+
+        /// <summary>
+        /// 86cahngdg — the PURE selection -> family-index mapping the belt sync applies (extracted so the
+        /// EditMode guard pins it without component lifecycle): the SELECTED belt weapon owns the held
+        /// visual. Axe selected -> 0; spear selected -> <see cref="SpearFamilyIndex"/>; neither (empty /
+        /// berry / water / axe-in-pack...) -> -1 = selection does not drive a held-weapon mesh (the
+        /// HeldAxe gate hides the seat; the displayed mesh is left alone).
+        /// </summary>
+        public static int SelectionIndexFor(bool axeSelected, bool spearSelected)
+            => axeSelected ? AxeFamilyIndex : spearSelected ? SpearFamilyIndex : -1;
+
         // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
         // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
         // seat is Sponsor-LOCKED and is restored to its captured original.
@@ -171,6 +201,21 @@ namespace FarHorizon
         private int _index;                // 0 = axe (default), 1 = knife, 2 = sword, 3 = spear
         private bool _resolved;
         private GUIStyle _labelStyle, _keyStyle;
+
+        // 86cahngdg — the belt-selection sync state. _inventory is resolved lazily (the serialized wiring
+        // lives on the sibling HeldTool gate; no NEW serialized field, so the committed Boot.unity needs no
+        // regen — [[unity-procedural-committed-assets-go-stale]]). _debugView marks an empty-handed [B]
+        // look-soak view (knife/sword/...) the HeldAxe gate shows; cleared on any inventory change.
+        private Inventory _inventory;
+        private bool _inventoryResolved;
+        private bool _debugView;
+        private HeldTool _gateTool;         // the sibling visibility gate on this seat (cached; may be null)
+        private bool _gateResolved;
+
+        /// <summary>True while the [B] debug cycle is showing a weapon WITHOUT a held-visual weapon being
+        /// selected on the belt (the empty-handed knife/sword look-soak aid). The <see cref="HeldAxe"/>
+        /// visibility gate ORs this in; any inventory change clears it (selection re-asserts).</summary>
+        public bool DebugViewActive => _debugView;
 
         // LIVE per-weapon scale — seeded from the baked WeaponMeshScale defaults, then mutated by the live dial
         // ([ ] / - =) so the Sponsor can dial the CURRENT weapon's in-hand size by eye. Index 0 (axe) is never
@@ -361,6 +406,116 @@ namespace FarHorizon
             _holderOrigScale = ht.localScale;
         }
 
+        // 86cahngdg — resolve the Inventory WITHOUT a new serialized field (the committed Boot.unity carries
+        // this component already; adding a field would deserialize null there and invite a scene regen). The
+        // sibling HeldTool gate on this seat object carries the editor-time-wired inventory; fall back to the
+        // scene singleton (the project idiom every held/pickup component uses).
+        private Inventory ResolveInventory()
+        {
+            if (!_inventoryResolved)
+            {
+                _inventoryResolved = true;
+                var gate = ResolveGate();
+                _inventory = (gate != null && gate.inventory != null)
+                    ? gate.inventory
+                    : FindObjectOfType<Inventory>();
+            }
+            return _inventory;
+        }
+
+        private HeldTool ResolveGate()
+        {
+            if (!_gateResolved)
+            {
+                _gateResolved = true;
+                _gateTool = GetComponent<HeldTool>();
+            }
+            return _gateTool;
+        }
+
+        private void OnEnable()
+        {
+            var inv = ResolveInventory();
+            if (inv != null) inv.Changed += SyncHeldVisualToSelection;
+            SyncHeldVisualToSelection(); // correct at spawn/enable (no polling)
+        }
+
+        private void OnDisable()
+        {
+            if (_inventory != null) _inventory.Changed -= SyncHeldVisualToSelection;
+        }
+
+        /// <summary>
+        /// 86cahngdg — the belt-selection -> held-visual SYNC (the soak-224 crossed-visual fix). Fired on
+        /// every <see cref="Inventory.Changed"/> (pickup / select / move / consume): maps the SELECTED belt
+        /// weapon to its family index (<see cref="SelectionIndexFor"/>) and, when a held-visual weapon is
+        /// selected, swaps the displayed mesh to it via the SAME ResolveMeshes/ApplyCurrent path [B] uses —
+        /// so the mesh in the hand ALWAYS matches the selected weapon. Any selection change also CLEARS the
+        /// empty-handed [B] debug view. Ends by re-poking the sibling HeldTool gate: both this handler and
+        /// the gate's own Apply subscribe to Inventory.Changed with UNDEFINED relative order, so the gate
+        /// could otherwise apply visibility against the PRE-sync state (a stale DebugViewActive) — the
+        /// RefreshRenderers re-apply makes the end-of-change state deterministic regardless of handler order.
+        /// Public so the shipped-build -verifyHeldBelt gate and the PlayMode regression drive the REAL path.
+        /// </summary>
+        public void SyncHeldVisualToSelection()
+        {
+            var inv = ResolveInventory();
+            if (inv == null || _meshHolder == null) return;
+
+            int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt);
+            if (desired >= 0)
+            {
+                _debugView = false; // selection owns the held visual
+                if (desired != _index)
+                {
+                    if (!_resolved) ResolveMeshes();
+                    _index = desired;
+                    ApplyCurrent();
+                    Debug.Log("[HeldWeaponCycleDebug] belt selection -> held visual " + WeaponLabels[_index] +
+                              " (" + WeaponNodeNames[_index] + ")");
+                }
+            }
+            else if (_debugView)
+            {
+                // No held-visual weapon selected any more — an inventory change clears the [B] debug view
+                // (the gate hides the seat; the mesh is left for the next [B]/selection to drive).
+                _debugView = false;
+            }
+
+            // Deterministic end state regardless of Changed-handler order (see summary).
+            var gateTool = ResolveGate();
+            if (gateTool != null) gateTool.RefreshRenderers();
+        }
+
+        /// <summary>
+        /// 86cahngdg — the [B] debug cycle, extracted so tests + the -verifyHeldBelt gate can drive the REAL
+        /// key path. REFUSED (returns false, logs why) while a held-visual weapon (axe/spear) is the selected
+        /// belt item — selection owns the visual, so the debug handle can never re-create the soak-224
+        /// crossed state (spear mesh shown while the axe is selected). With NO held-visual weapon selected it
+        /// cycles as before and marks <see cref="DebugViewActive"/> so the gate shows the look-soak view.
+        /// </summary>
+        public bool CycleHeldWeaponDebug()
+        {
+            if (_meshHolder == null) return false; // Awake found no MeshFilter — nothing to cycle
+            var inv = ResolveInventory();
+            if (inv != null && SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt) >= 0)
+            {
+                Debug.Log("[HeldWeaponCycleDebug] [" + cycleKey + "] cycle REFUSED — the selected belt weapon " +
+                          "owns the held visual (86cahngdg). Select an empty/non-weapon belt slot to use the " +
+                          "debug look-soak cycle.");
+                return false;
+            }
+            if (!_resolved) ResolveMeshes();
+            _index = (_index + 1) % WeaponNodeNames.Length;
+            _debugView = true;
+            ApplyCurrent();
+            var gateTool = ResolveGate();
+            if (gateTool != null) gateTool.RefreshRenderers(); // show the debug view through the gate
+            Debug.Log("[HeldWeaponCycleDebug] held weapon -> " + WeaponLabels[_index] +
+                      " (" + WeaponNodeNames[_index] + ")  [DEBUG cycle, key=" + cycleKey + "]");
+            return true;
+        }
+
         // Resolve the family meshes from the lineup prefab lazily (the first cycle), so a soak that never
         // presses the key pays nothing and the axe never depends on the lineup prefab being present.
         private void ResolveMeshes()
@@ -394,14 +549,11 @@ namespace FarHorizon
         {
             if (_meshHolder == null) return;
 
-            // [B] — cycle the held weapon.
+            // [B] — cycle the held weapon (86cahngdg: refused while a held-visual weapon is selected — the
+            // belt selection owns the visual; see CycleHeldWeaponDebug).
             if (Input.GetKeyDown(cycleKey))
             {
-                if (!_resolved) ResolveMeshes();
-                _index = (_index + 1) % WeaponNodeNames.Length;
-                ApplyCurrent();
-                Debug.Log("[HeldWeaponCycleDebug] held weapon -> " + WeaponLabels[_index] +
-                          " (" + WeaponNodeNames[_index] + ")  [DEBUG cycle, key=" + cycleKey + "]");
+                CycleHeldWeaponDebug();
                 return;
             }
 
@@ -587,7 +739,7 @@ namespace FarHorizon
                 "DEBUG — held weapon: " + WeaponLabels[_index] + "   " + readOut, _labelStyle);
             // Line 2: the cycle key. Line 3: scale dial (non-axe). Line 4: HEAD-size dial (axe).
             GUI.Label(new Rect(x + 10f, y + 24f, w - 20f, 18f),
-                "[" + cycleKey + "] cycle  axe -> knife -> sword -> spear   (soak view, not equip)", _keyStyle);
+                "[" + cycleKey + "] debug cycle (refused while a belt weapon is selected — selection owns the visual)", _keyStyle);
             GUI.Label(new Rect(x + 10f, y + 42f, w - 20f, 18f),
                 "[ ] / [=] bigger   [[] / [-] smaller   whole weapon (±5%; knife/sword/spear)", _keyStyle);
             GUI.Label(new Rect(x + 10f, y + 60f, w - 20f, 18f),

@@ -707,6 +707,11 @@ namespace FarHorizon.EditorTools
         //   blobs       — how many spheroids cluster (3-6 reads like the board sheet; min 3)
         //   bodyCyan / topCyan / shadowCyan — the 3-value cyan palette (Uma §1 anchor swatches)
         //   seed        — deterministic cluster layout + per-blob jitter (reproducible baked scene)
+        // CLD-1 flat-base floor as a fraction of the cloud radius (the base plane sits at -0.25×radius in
+        // cloud-local space — just below the y=0 blob-centre band, so only the undersides flatten and the
+        // puffy tops read unchanged). Dispatch spec: max(y, -0.25×radius).
+        const float CloudBaseFloorFraction = 0.25f;
+
         public static Mesh CloudBlob(float radius, int blobs, Color bodyCyan, Color topCyan,
             Color shadowCyan, int seed)
         {
@@ -742,9 +747,18 @@ namespace FarHorizon.EditorTools
             var verts = new List<Vector3>();
             var normals = new List<Vector3>();
             var cols = new List<Color>();
+            // FLAT CLOUD BASE (CLD-1, ticket 86cahhfkc — plan §5 Tier-1 item 5). The board clouds
+            // (21h10_44 / 21h16_13) are flat-bottomed CUMULUS toys, not spheroid potatoes: a rounded puffy
+            // top sitting on a near-flat base. Clamp every blob vertex's cloud-local Y up to a single floor
+            // plane at floorY so all blobs share ONE flat bottom (a per-blob floor would step the base). The
+            // floor is a fraction of the cloud radius (below the y=0 blob-centre band, so the puffy tops are
+            // untouched and only the undersides flatten). Same vert budget, clouds stay non-casters (perf
+            // guardrail). Applied AFTER the yScale flatten, INSIDE the flat-shade so the clamped base faces
+            // get their own recomputed near-horizontal face normals for free.
+            float floorY = -CloudBaseFloorFraction * radius;
             for (int b = 0; b < centres.Count; b++)
                 AppendFlatBlob(verts, normals, cols, centres[b], radii[b], subdiv: 1,
-                               jitter: 0.20f, color: blobCols[b], yScale: 0.78f, seed: rnd.Next());
+                               jitter: 0.20f, color: blobCols[b], yScale: 0.78f, floorY: floorY, seed: rnd.Next());
 
             var tris = new List<int>(verts.Count);
             for (int i = 0; i < verts.Count; i++) tris.Add(i); // flat-shaded: every face owns its verts
@@ -768,7 +782,7 @@ namespace FarHorizon.EditorTools
         // wider than tall). Used by CloudBlob; kept distinct from AppendBlob (smooth canopy) so the two
         // idioms don't entangle.
         static void AppendFlatBlob(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
-            Vector3 center, float radius, int subdiv, float jitter, Color color, float yScale, int seed)
+            Vector3 center, float radius, int subdiv, float jitter, Color color, float yScale, float floorY, int seed)
         {
             var baseVerts = new List<Vector3>
             {
@@ -797,13 +811,18 @@ namespace FarHorizon.EditorTools
             }
 
             var rnd = new System.Random(seed);
-            // Displace each base vert radially (lumpy) + flatten in Y, in blob-local space.
+            // Displace each base vert radially (lumpy) + flatten in Y, in blob-local space. Then CLAMP the
+            // final blob-local Y up to floorY (CLD-1) so the cloud's underside reads as a flat cumulus base
+            // instead of a spheroid potato bottom — every blob shares the one cloud floor plane. Verts above
+            // the floor are untouched (the puffy top is unchanged); only the undersides snap up onto the base.
             var displaced = new Vector3[baseVerts.Count];
             for (int i = 0; i < baseVerts.Count; i++)
             {
                 Vector3 n = baseVerts[i].normalized;
                 float r = radius * (1f - jitter * 0.5f + (float)rnd.NextDouble() * jitter);
-                displaced[i] = center + new Vector3(n.x * r, n.y * r * yScale, n.z * r);
+                Vector3 p = center + new Vector3(n.x * r, n.y * r * yScale, n.z * r);
+                p.y = Mathf.Max(p.y, floorY);
+                displaced[i] = p;
             }
 
             // Flat-shade: emit each face with its own 3 verts + outward face normal (winding flipped to
@@ -1027,7 +1046,7 @@ namespace FarHorizon.EditorTools
         // FLAT-shaded per-face (explicit hard normals) with OUTWARD winding enforced (same EmitFace idiom
         // as FacetedMountain) so the island is never backface-culled — the −Z-grid / cull-back class guard.
         public static Mesh FacetedLandmass(float radius, float depth, int sides,
-            Color bodyGrey, int seed)
+            Color bodyGrey, Color capGreen, int seed)
         {
             sides = Mathf.Max(7, sides);
             var rnd = new System.Random(seed);
@@ -1075,10 +1094,16 @@ namespace FarHorizon.EditorTools
                 EmitFace(botRing[i], topRing[ni], topRing[i], bodyGrey);
             }
             // TOP dome: top ring -> apex (so the shelf is gently domed, peaks foot believably).
+            // VIS-1 (ticket 86cahhfkc — plan §5 Tier-1 item 6): tint the top-dome faces a muted canopy GREEN
+            // (a forested shelf cap) instead of bare grey, so the distant isles read as green-topped land,
+            // not a bare "asteroid" rock. Only the SHELF TOP greens — the faceted FLANKS stay grey rock
+            // (bodyGrey above). The caller passes a green already lerped toward the cluster tint, and the
+            // per-cluster atmospheric _Tint multiplies on top, so the cap recedes in LOCKSTEP with its
+            // flanks + peaks (no seam drift — same fade path as the rest of the mass).
             for (int i = 0; i < sides; i++)
             {
                 int ni = (i + 1) % sides;
-                EmitFace(topRing[i], topRing[ni], apexTop, bodyGrey);
+                EmitFace(topRing[i], topRing[ni], apexTop, capGreen);
             }
 
             var tris = new List<int>(verts.Count);

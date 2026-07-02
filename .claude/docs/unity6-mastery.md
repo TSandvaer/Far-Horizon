@@ -3,6 +3,8 @@
 **MANDATORY pre-work read for all Far Horizon Unity work.**
 This is the concise decision-forcing checklist. Full citations and depth at `team/erik-consult/unity6-mastery-research.md`.
 
+> **maintain-docs append-target:** proactive daily-use Unity 6/URP guardrails — rendering path, batching, lighting, perf/profiling + world-scale, scripting/GC, architecture, version control, texture/mesh import, UI Toolkit, build, input, frame-rate. The numbered sections §1–§12 are cross-referenced BY NUMBER from other docs (game-juice, lowpoly-quality, unity-conventions) — APPEND within an existing numbered section; do NOT renumber, reorder, or delete a section. New empirically-discovered INCIDENT gotchas belong in `unity-conventions.md`, not here.
+
 ---
 
 ## 1. Rendering Path — Set This First, Everything Else Depends on It

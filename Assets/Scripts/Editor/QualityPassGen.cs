@@ -50,6 +50,10 @@ namespace FarHorizon.EditorTools
         // sun.) Hardness 60 stays — a crisp low-poly edge with a touch of softness for the bloom corona.
         public const float SunSize     = 0.95f;  // Sponsor-accepted (soak 55bde02): the biggest disk in-range [0.95,0.9999]
         public const float SunHardness = 60f;     // crisp-but-not-pinpoint low-poly disk edge
+        // SKY-1 (ticket 86cahhfkc): a bounded (≤0.06) warm bias into the horizon band around the sun azimuth,
+        // ties the low sun into the sky at the horizon. Frag-only lerp toward _SunColor — does NOT touch
+        // _HorizonColor (the fog==horizon seam-kill constant), so the vista/fog dissolve stays intact.
+        public const float SunHorizonWarmth = 0.06f;
 
         // Build the 3-STOP GRADIENT SKYBOX (Uma world-look brief §3). RE-TUNES the Zone-D 2-color
         // Skybox/Procedural toward Uma's clean warm-bright 3-stop vertical gradient via a dedicated
@@ -84,6 +88,9 @@ namespace FarHorizon.EditorTools
                 sky.SetColor("_SunColor", SunColor);
                 sky.SetFloat("_SunSize", SunSize);
                 sky.SetFloat("_SunHardness", SunHardness);
+                // SKY-1 (ticket 86cahhfkc): bake the bounded sun-azimuth horizon warmth. Frag-only; the
+                // shader never mutates _HorizonColor, so fog==_HorizonColor (seam-kill) is untouched.
+                if (sky.HasProperty("_SunHorizonWarmth")) sky.SetFloat("_SunHorizonWarmth", SunHorizonWarmth);
                 // BAKE the world-space direction TOWARD the Sun into the material. The URP _MainLightPosition
                 // global is NOT bound in the Background/skybox pass (verified empirically in the shipped exe
                 // via -verifySky — the first attempt rendered NO disk because the dot used an unbound global),
