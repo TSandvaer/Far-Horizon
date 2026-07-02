@@ -54,32 +54,50 @@ mkdir -p "$CAP_DIR"
 ABS_CAP="$(cd "$CAP_DIR" && pwd)"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Clear any stale captures so frame_check only sees THIS run's panel frames.
-rm -f "$ABS_CAP"/settings_*.png
-rm -f "$LOG_FILE"
+# Wall-clock cap so a hung launch fails instead of blocking CI forever. WEDGE HARDENING
+# (86cafzaeb; adopts #189's capture_gate/pond pattern): 300 (was 120 — no margin), `-k 15`
+# hard-KILLs (SIGKILL) a player that ignores the soft SIGTERM 15s later so a wedged D3D12
+# present-loop process can't linger into the retry / the next gate.
+LAUNCH_TIMEOUT=300
 
-echo "[verify_settings] launching shipped exe windowed (-verifySettings): $EXE"
-echo "[verify_settings]   captureDir=$ABS_CAP logFile=$LOG_FILE"
+# launch_once — clear stale artifacts, launch the windowed exe under timeout, set rc. Re-clears
+# EVERY attempt so a partial first-attempt capture/log can't mask the retry.
+launch_once() {
+  rm -f "$ABS_CAP"/settings_*.png
+  rm -f "$LOG_FILE"
+  echo "[verify_settings] launching shipped exe windowed (-verifySettings): $EXE"
+  echo "[verify_settings]   captureDir=$ABS_CAP logFile=$LOG_FILE"
+  # Windowed + small so it never grabs the desktop; -verifySettings drives
+  # SettingsVerifyCapture; -logFile redirects the standalone player's Player.log so the
+  # `changedLive=True` line is grep-able here. The component calls Application.Quit() when done.
+  set +e
+  timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
+    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -verifySettings -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
+  rc=$?
+  set -e
+}
 
-# Windowed + small so it never grabs the desktop; -verifySettings drives
-# SettingsVerifyCapture; -logFile redirects the standalone player's Player.log so the
-# `changedLive=True` line is grep-able here. The component calls Application.Quit() when
-# done; cap wall-clock so a hung launch fails instead of blocking CI forever.
-LAUNCH_TIMEOUT=120
-set +e
-timeout "${LAUNCH_TIMEOUT}" "$EXE" \
-  -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
-  -verifySettings -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
-rc=$?
-set -e
+launch_once
+# ONE retry, ONLY on a timeout-hang (rc 124 = the first-frame present-loop wedge). A real
+# non-zero exit is NOT a wedge — never retry it. NOTE: this gate's PASS criteria are checks
+# 1+2 below (frames + changedLive), NOT the exe exit code — unchanged by the hardening.
 if [ "$rc" -eq 124 ]; then
-  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s; inspecting whatever it captured" >&2
+  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s (timeout-hang; likely the present-loop wedge) — retrying ONCE" >&2
+  launch_once
+fi
+if [ "$rc" -eq 124 ]; then
+  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s on the retry either; inspecting whatever it captured" >&2
 fi
 
 # Check 1 — the panel frames rendered (open + tweaked must be real content). Three frames
 # expected (closed/open/tweaked); require >= 2 so a missing closed frame alone doesn't pass.
+# set +e guard (86cafzaeb): errexit is active after launch_once — unguarded, a frame fail
+# would abort HERE and skip the aggregate verdict line below (same rationale as Check 3's).
+set +e
 python3 "$HERE/frame_check.py" "$ABS_CAP" --min-frames 2
 frame_rc=$?
+set -e
 
 # Check 2 — the live-effect ground-truth proof. The success-test is "a tweak takes effect
 # LIVE", so a rendered panel is necessary but not sufficient; the log must prove the param
