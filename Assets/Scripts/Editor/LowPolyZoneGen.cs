@@ -50,6 +50,24 @@ namespace FarHorizon.EditorTools
         static readonly Color GrassLo = new Color(0.30f, 0.48f, 0.20f); // mid leaf green (more saturated)
         static readonly Color GrassHi = new Color(0.48f, 0.64f, 0.28f); // sunlit grass
         static readonly Color GrassRise = new Color(0.38f, 0.56f, 0.24f); // meadow rise
+        // MACRO MEADOW PATCHES (GRD-1, ticket 86cahhfkc — plan §5 Tier-1 item 1). The board grounds
+        // (21h16_13 / 21h13_31) are NOT a monochrome radial carpet — they are a multi-metre tonal
+        // PATCHWORK: sunlit lime sweeps flowing into deeper shadowed meadow greens across 8-15u patches.
+        // These two extra tones blend into the base grass by a LOW-FREQUENCY world-position noise
+        // (MeadowPatchMask, ~0.045 scale) BEFORE the fine per-vertex value jitter, so the meadow reads
+        // as broad tonal regions, not one flat green. PURE FUNCTION of world position (Perlin of wx/wz +
+        // the SAME seed-warp offset the terrain uses) → ZERO draws on any System.Random stream → seed-42
+        // island/scatter/waterline byte-INTACT (AC: no RNG-stream impact). Both tones stay in the warm
+        // sub-1.0 grass family (never neon, never a channel over 1.0 under the Zone-D key). The signed MASK
+        // is ALSO baked into the terrain vertex-colour ALPHA (see IslandColorAt's `c.a`), so GRD-2's live
+        // console amp pushes the EXACT baked regions in-shader (no Perlin-in-HLSL drift) — see MeadowPatchMask.
+        static readonly Color MeadowLime = new Color(0.52f, 0.66f, 0.28f); // sunlit lime patch (brighter, warmer-green)
+        static readonly Color MeadowDeep = new Color(0.22f, 0.40f, 0.17f); // deep shadowed meadow patch (darker, cooler)
+        // How strongly the baked meadow patches pull the grass toward the two extra tones at mask=±1. 0.55
+        // reads as a confident tonal patchwork while keeping every result in the warm sub-1.0 grass family
+        // (MeadowLime at full pull is still well under 1.0). This is the SHIPPED look; GRD-2's console amp is
+        // ADDITIVE contrast on top (default 0 = the baked look), so the Sponsor A/Bs "more/less patchy" live.
+        const float MeadowPatchBakeStrength = 0.55f;
         // POND COLLAR RING (ticket 86cadj4g7 #130 ROUND 5 — Sponsor: "REMOVE the raised collar; paint a FLAT
         // darker-green ring on the terrain instead — I should walk on the green at ground level"). A darker
         // meadow green PAINTED into the terrain vertex colour around the pond bowl — NO raised geometry, NO
@@ -72,6 +90,10 @@ namespace FarHorizon.EditorTools
         // (RockVertexColorMat -> QuantizeFine) that preserves the R>=G>=B warm-grey order. With this base on
         // the fine grid, TINTDIAG shows all tints stay warm-grey (no R>G=B pink), 4 distinct mats (low churn).
         static readonly Color RockCol = new Color(0.62f, 0.60f, 0.555f); // warm stone-grey (fine-quantized; no pink split)
+        // RCK-1 rim-light intensity baked onto every rock material (0.12 = the 0.10-0.15 spec band; 0 = today).
+        // Live-dialable in the soak via the RockRimIntensity console row (WorldLookTunables). Kept modest so
+        // the caught-sun edge is a whisper on the silhouette, never a neon outline.
+        const float RockRimIntensity = 0.12f;
         static readonly Color TrunkCol = new Color(0.42f, 0.30f, 0.19f); // warm bark
         static readonly Color LeafLo = new Color(0.26f, 0.42f, 0.20f);   // canopy shadow (legacy)
         static readonly Color LeafHi = new Color(0.44f, 0.58f, 0.28f);   // canopy lit (legacy)
@@ -85,6 +107,28 @@ namespace FarHorizon.EditorTools
         static readonly Color CanopyBody   = new Color(0.30f, 0.58f, 0.24f); // vivid mid-green body
         static readonly Color CanopyTop    = new Color(0.48f, 0.74f, 0.34f); // bright top-lit green
         static readonly Color CanopyShadow = new Color(0.18f, 0.40f, 0.17f); // deep shadow-side green
+
+        // PER-INSTANCE LEAF-HUE SHIFT (TRE-1 + BSH-1, ticket 86cahhfkc). Lean a canopy/bush green warmer
+        // (toward sunlit yellow-lime: +R, −B) or cooler (toward deep blue-green: −R, +B) by a per-instance
+        // amount in [-1..1], with a small paired value nudge (warm=brighter, cool=darker) so the shift reads
+        // as a distinct TREE HUE, not just a tint. The board (21h11_03) spans exactly this yellow-green↔
+        // blue-green range across its four trees. Amounts are small (±0.06 R/B, ±0.03 value) so every result
+        // stays a believable leaf green in the warm Zone-D key and well under 1.0 (HDR-clamp-safe — CanopyTop,
+        // the brightest anchor at G=0.74, gains at most +0.03 → 0.77 < 1.0). Clamped defensively regardless.
+        static Color ShiftLeafHue(Color c, float lean)
+        {
+            float warm = Mathf.Clamp(lean, -1f, 1f);
+            float v = warm * 0.03f;             // warm leans brighter, cool leans darker
+            return new Color(
+                Mathf.Clamp01(c.r + warm * 0.06f + v),
+                Mathf.Clamp01(c.g + v),
+                Mathf.Clamp01(c.b - warm * 0.06f + v),
+                c.a);
+        }
+
+        // Test hook (ticket 86cahhfkc): expose ShiftLeafHue so the EditMode regression guards can pin the
+        // warm/cool lean + sub-1.0 + still-green contract without reflection. Pure function, no side effects.
+        public static Color ShiftLeafHueForTest(Color c, float lean) => ShiftLeafHue(c, lean);
 
         // ---- BUSH greens + BERRY red (ticket 86caa5zz3). The bush rides the SAME 3-value blob-green
         // language as the canopy (one idiom), pulled a touch more saturated/leafy so a low ground bush
@@ -837,6 +881,14 @@ namespace FarHorizon.EditorTools
             // GRASS over the interior land.
             Color grass = Color.Lerp(GrassLo, GrassHi, Mathf.Clamp01(Mathf.InverseLerp(coast, 0f, r)));
             grass = Color.Lerp(grass, GrassRise, Mathf.Clamp01((height - 2.5f) * 0.18f)); // sunlit hill rise
+            // MACRO MEADOW PATCHES (GRD-1): blend the grass toward the sunlit-lime / deep-meadow tones by the
+            // low-freq patch mask so the ground reads as a multi-metre tonal patchwork (board 21h16_13), not a
+            // monochrome radial ramp. Applied to the GRASS only (rock/sand/foam/collar override below), and
+            // BEFORE the fine per-vertex jitter (so the jitter still breaks up facets within a patch). Bake
+            // strength MeadowPatchBakeStrength; the GRD-2 console amp adds live contrast on top in the shader.
+            float patch = MeadowPatchMask(wx, wz, ox, oz);
+            if (patch > 0f) grass = Color.Lerp(grass, MeadowLime, patch * MeadowPatchBakeStrength);
+            else            grass = Color.Lerp(grass, MeadowDeep, -patch * MeadowPatchBakeStrength);
 
             // ROCK on the high hilltops inland (elevation).
             Color rock = RockCol;
@@ -882,7 +934,11 @@ namespace FarHorizon.EditorTools
             // per-vertex value jitter so adjacent facets differ slightly (alive, not flat)
             float j = (Hash01(Mathf.RoundToInt(wx * 13f), Mathf.RoundToInt(wz * 13f), seed) - 0.5f) * 0.10f;
             c.r = Mathf.Clamp01(c.r + j); c.g = Mathf.Clamp01(c.g + j); c.b = Mathf.Clamp01(c.b + j);
-            c.a = 1f;
+            // GRD-2: bake the SIGNED meadow patch mask into ALPHA (remapped [-1..1] -> [0..1]) so the terrain
+            // shader's live _MeadowPatchAmp A/B pushes the EXACT baked patch regions (no Perlin-in-HLSL drift).
+            // Terrain alpha was an unused constant 1 (terrain has _SwayAmp=0 + _AOStrength=0, so this is a
+            // no-op for those terms); the GRD-2 amp defaults 0 so this alpha only matters when the Sponsor dials.
+            c.a = Mathf.Clamp01(patch * 0.5f + 0.5f);
             return c;
         }
 
@@ -1163,6 +1219,14 @@ namespace FarHorizon.EditorTools
             float heightVar = 0.80f + (float)leanRnd.NextDouble() * 0.40f;   // ±20% trunk-height scale (0.80..1.20)
             float leanDeg = 3f + (float)leanRnd.NextDouble() * 5f;           // 3..8° apex lean off vertical
             float leanDir = (float)leanRnd.NextDouble() * 360f;              // which way it leans
+            // PER-TREE HUE VARIATION (TRE-1, ticket 86cahhfkc — plan §5 Tier-1 item 2 + §4 T-A). The board
+            // (21h11_03: four trees, four hues) reads as a forest of DISTINCT green tones, not one cloned
+            // green. Derive a ±hue shift from the SAME position-keyed leanRnd sub-stream (this is an extra
+            // draw on leanRnd, NOT the shared scatter `rnd` — so tree/rock/grass PLACEMENT stays byte-
+            // identical; only the per-tree canopy TINT changes) and bake shifted copies of the 3 canopy
+            // greens into the mesh vertex colours (VERTEX-COLOUR ONLY → zero new materials, zero draw-call
+            // cost; the one shared CanopyVertexColorMat still renders every tree — §4 T-A).
+            float treeHue = ((float)leanRnd.NextDouble() - 0.5f) * 2f; // -1..1 hue lean for this tree
             // Compose: yaw about Y, then a small tilt about the lean axis (a horizontal axis at leanDir).
             Quaternion tilt = Quaternion.AngleAxis(leanDeg,
                 new Vector3(Mathf.Cos(leanDir * Mathf.Deg2Rad), 0f, Mathf.Sin(leanDir * Mathf.Deg2Rad)));
@@ -1187,7 +1251,9 @@ namespace FarHorizon.EditorTools
             int blobCount = tall ? (5 + rnd.Next(0, 3)) : (4 + rnd.Next(0, 3));
             float canopyR = tall ? 1.55f : 1.15f;
             var canopy = MakeMeshObject(tree, "Canopy",
-                LowPolyMeshes.BlobCanopy(canopyR, blobCount, CanopyBody, CanopyTop, CanopyShadow, rnd.Next()),
+                LowPolyMeshes.BlobCanopy(canopyR, blobCount,
+                    ShiftLeafHue(CanopyBody, treeHue), ShiftLeafHue(CanopyTop, treeHue), ShiftLeafHue(CanopyShadow, treeHue),
+                    rnd.Next()),
                 CanopyVertexColorMat());
             canopy.transform.localPosition = new Vector3(0f, trunkH + (tall ? 0.9f : 0.55f), 0f);
 
@@ -1389,8 +1455,18 @@ namespace FarHorizon.EditorTools
             // the board's leafy clumps.
             float bushR = 0.85f;
             int blobs = 4 + rnd.Next(0, 3);
+            // PER-BUSH HUE VARIATION (BSH-1, ticket 86cahhfkc — plan §5 Tier-1 item 2 + §4 T-A). Same idiom
+            // as the tree canopy: a ±hue shift from a POSITION-KEYED sub-stream (NOT the shared bush scatter
+            // `rnd` — so bush PLACEMENT stays byte-identical; the derived stream only tints THIS bush), baked
+            // into the bush vertex greens. Vertex-colour only → zero new materials (the one BushVertexColorMat
+            // still renders every bush). Keyed off the plant position exactly like BuildTree's leanRnd.
+            var hueRnd = new System.Random(
+                Mathf.RoundToInt(at.x * 29.3f) * 40503461 ^ Mathf.RoundToInt(at.z * 29.3f) * 22695477);
+            float bushHue = ((float)hueRnd.NextDouble() - 0.5f) * 2f; // -1..1 hue lean for this bush
             MakeMeshObject(bush, "BushBody",
-                LowPolyMeshes.BushBlob(bushR, blobs, BushBody, BushTop, BushShadow, rnd.Next()),
+                LowPolyMeshes.BushBlob(bushR, blobs,
+                    ShiftLeafHue(BushBody, bushHue), ShiftLeafHue(BushTop, bushHue), ShiftLeafHue(BushShadow, bushHue),
+                    rnd.Next()),
                 BushVertexColorMat());
 
             if (!berry) return;
@@ -1850,6 +1926,16 @@ namespace FarHorizon.EditorTools
                 // ~0.5 = a believable contact darkening without crushing the crevices (the mesh AO floor is
                 // 0.55). Guarded — a no-op on the URP/Lit fallback (which lacks the property).
                 if (mat.HasProperty("_AOStrength")) mat.SetFloat("_AOStrength", 0.5f);
+                // RIM LIGHT (RCK-1, ticket 86cahhfkc — plan §5 Tier-1 item 5 / lowpoly-quality.md §2 Rec 4).
+                // A whisper of caught sun on the boulder silhouettes (board 21h10_44 rocks read as warm stone
+                // with a bright grazing edge). The rim TERM already exists in the shader (ticket 86caamnnj)
+                // defaulting OFF (_RimIntensity 0) on every material — RCK-1 is the ROCK material OPTING IN.
+                // Modest 0.12 (in the 0.10-0.15 spec band) with _RimPower 3 (the shader default) → a soft
+                // silhouette highlight, not a neon outline; the warm-white _RimColor default reads as key-side
+                // bounce. Live-dialable to 0 (= today) via the RockRimIntensity console row. Guarded — a no-op
+                // on the URP/Lit fallback (which lacks the property).
+                if (mat.HasProperty("_RimIntensity")) mat.SetFloat("_RimIntensity", RockRimIntensity);
+                if (mat.HasProperty("_RimPower")) mat.SetFloat("_RimPower", 3f);
             }
             else
             {
@@ -1865,6 +1951,13 @@ namespace FarHorizon.EditorTools
         // Clear the per-bootstrap material cache so a re-run does not return materials owned by a
         // destroyed scene (the editor keeps the static cache across executeMethod invocations).
         public static void ResetMaterialCache() { _flatCache.Clear(); _canopyMat = null; _bushMat = null; _rockCache.Clear(); _grassCache.Clear(); }
+
+        // Test hooks (ticket 86cahhfkc): expose the shipped RCK-1 rim value + a rock-material builder so the
+        // EditMode guard can assert the ROCK material OPTS IN to the rim (the real RCK-1 contract — the
+        // shader-default no-op is already covered by RimLightShaderTests). Building a rock material has no
+        // scene side effects (it only caches + returns a Material).
+        public static float RockRimIntensityForTest => RockRimIntensity;
+        public static Material RockVertexColorMatForTest(Color baseTint) => RockVertexColorMat(baseTint);
 
         // Snap each channel to a coarse 12-step grid so jittered colors collapse into a small set.
         static Color Quantize(Color c)
@@ -1904,6 +1997,13 @@ namespace FarHorizon.EditorTools
             if (vc != null)
             {
                 mat = new Material(vc);
+                // GRD-2 (ticket 86cahhfkc): pin the shader's live meadow tones to the SAME C# constants the
+                // bake used, so the console A/B pushes toward the exact baked tones (defends against future
+                // drift between the shader Property defaults and the C# constants). _MeadowPatchAmp stays at
+                // its shader default 0 → the terrain ships byte-identical (baked GRD-1 patches only; the live
+                // amp is off until the Sponsor dials it in the soak).
+                if (mat.HasProperty("_MeadowLime")) mat.SetColor("_MeadowLime", MeadowLime);
+                if (mat.HasProperty("_MeadowDeep")) mat.SetColor("_MeadowDeep", MeadowDeep);
             }
             else
             {
@@ -2145,6 +2245,22 @@ namespace FarHorizon.EditorTools
             var rnd = new System.Random(seed);
             ox = (float)rnd.NextDouble() * 100f;
             oz = (float)rnd.NextDouble() * 100f;
+        }
+
+        // MACRO MEADOW PATCH MASK (GRD-1/GRD-2, ticket 86cahhfkc). A low-frequency signed field over world
+        // XZ that decides which broad meadow tone a point leans toward: >0 pulls toward MeadowLime (sunlit),
+        // <0 pulls toward MeadowDeep (shadowed), ~0 keeps the base grass. Two Perlin octaves at ~0.045 +
+        // ~0.11 world-scale → soft 8-15u patches with a little internal break-up (not a single smooth blob).
+        // Offset by the SAME seed-warp (ox/oz) the terrain/coast use so the patchwork sits on the real land
+        // and moves with the seed. Returns roughly [-1..1]. PURE FUNCTION of position → no RNG stream. This
+        // is MIRRORED bit-for-bit in LowPolyVertexColor.shader so GRD-2's live console amp re-derives the
+        // identical regions (any drift between the two would make the live A/B lie about the shipped bake).
+        public static float MeadowPatchMask(float wx, float wz, float ox, float oz)
+        {
+            // Perlin returns [0..1]; centre to [-0.5..0.5], sum two octaves, scale to ~[-1..1].
+            float a = Mathf.PerlinNoise(ox + wx * 0.045f + 11.3f, oz + wz * 0.045f + 7.7f) - 0.5f;
+            float b = Mathf.PerlinNoise(ox * 1.6f + wx * 0.110f + 30.1f, oz * 1.6f + wz * 0.110f + 41.9f) - 0.5f;
+            return Mathf.Clamp((a * 0.80f + b * 0.35f) * 2.2f, -1f, 1f);
         }
 
         static float Hash01(int x, int y, int seed)

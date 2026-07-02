@@ -146,6 +146,11 @@ namespace FarHorizon.Settings
         public const string MtnBrightnessId = "mountain_brightness";
         public const string SunElevationId  = "sun_elevation";
         public const string SunSizeId       = "sun_size";
+        // Ticket 86cahhfkc Wave1-B: live A/B dials for the colour wave — GRD-2 meadow-patch amp (extra
+        // terrain patch contrast) + RCK-1 rock rim intensity (caught-sun edge on boulders). Both mutate
+        // live materials through the WorldLookTunables seam; both default to their shipped baked value.
+        public const string MeadowPatchAmpId = "meadow_patch_amp";
+        public const string RockRimId        = "rock_rim_intensity";
 
         // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
         // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
@@ -253,6 +258,9 @@ namespace FarHorizon.Settings
         // disk-edge dot threshold (0.95..0.9999; HIGHER = smaller disk).
         public const float SunElevationMin = 2f, SunElevationMax = 80f;
         public const float SunSizeMin = 0.95f, SunSizeMax = 0.9999f;
+        // Wave1-B colour dials (86cahhfkc). Meadow amp 0..1.5 (0 = baked patches only); rim 0..0.5 (0 = today).
+        public const float MeadowPatchAmpMin = 0f, MeadowPatchAmpMax = 1.5f;
+        public const float RockRimMin = 0f, RockRimMax = 0.5f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -902,6 +910,13 @@ namespace FarHorizon.Settings
                 () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°");
             reg.AddFloat(SunSizeId, "Sun size",
                 () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "");
+
+            // WAVE1-B COLOUR DIALS (ticket 86cahhfkc) — GRD-2 meadow-patch amp + RCK-1 rock rim, for the
+            // ONE-soak A/B. Both mutate live materials through the seam; both start at the shipped baked value.
+            reg.AddFloat(MeadowPatchAmpId, "Meadow patch amp",
+                () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "");
+            reg.AddFloat(RockRimId, "Rock rim intensity",
+                () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "");
         }
     }
 }
