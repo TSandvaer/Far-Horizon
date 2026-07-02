@@ -7,6 +7,12 @@ guaranteed-read surface. **Pointers, not tutorials** — each entry says when to
 technique + where the authoritative source lives. Read the linked source before implementing;
 filing the technique here makes it discoverable, it does not replace the source.
 
+> **maintain-docs append-target:** this doc holds ONLY external references + not-yet-adopted-technique
+> pointers (imported-rig grounding, chunk-LOD terrain, URP flat-shading). Hard-won incident findings land in
+> `unity-conventions.md`; daily-use guardrails in `unity6-mastery.md`; adoptable mesh/shader patterns in
+> `lowpoly-quality.md` — NOT here. When a pointer here graduates into an adopted, incident-proven rule, MOVE it
+> to its canonical home and leave a pointer, don't duplicate.
+
 > **Scope note:** this OPERATIONALIZES the knowledge (so every dispatch picks it up). The
 > ADOPTION of each technique is its own backlog ticket (`86ca9a340` Diagnose-Before-Fix ·
 > `86ca9a36g` PlayMode locomotion-sampling · `86ca9a39q` Configurable Enter Play Mode ·
@@ -22,9 +28,10 @@ filing the technique here makes it discoverable, it does not replace the source.
   sole-chasing DIVERGES under that scale (a transient wrong-scale sole at walk-onset over-corrects
   the snap → the character sinks to `avatarRootY ≈ −68`); a stable terrain-raycast + a fixed
   offset does not.
-- **For any world-space sole measurement, use a unit-scale matrix**
-  (`Matrix4x4.TRS(pos, rot, Vector3.one)`) — measuring through the FBX's own
-  `localToWorldMatrix` re-applies the 100× scale and gives garbage sole-Y.
+- **World-space sole/measurement on a scaled skinned mesh → use a unit-scale
+  `Matrix4x4.TRS(pos, rot, Vector3.one)`, never `localToWorldMatrix`** (it re-applies the 100× scale → garbage
+  sole-Y). *De-duped — the full mechanism (the 100× cm→m double-apply + the walk-float saga's 8 false-greens)
+  is owned by `unity-conventions.md` §FBX / rigs / characters (Bug B). Reach there; don't re-explain it here.*
 - **The elite path for real foot-planting on uneven terrain is Animation Rigging Two-Bone IK**
   (`com.unity.animation.rigging`; Unity Learn "Working with Animation Rigging"). This is the
   durable upgrade beyond the fixed-offset snap — adopt it when terrain stops being near-flat.
@@ -43,11 +50,11 @@ filing the technique here makes it discoverable, it does not replace the source.
 
 ## URP stylized shaders (closes two recurring bug classes)
 
-- **`ddx`/`ddy` fragment-normal flat-shading (Hextant Studios) kills the winding-inversion class
-  by construction.** Computing the face normal in the fragment shader from screen-space
-  derivatives means you never depend on per-vertex normals or triangle winding — the
-  coincident-opposite-winding "black shards" class (unity-conventions §Low-poly mesh patterns)
-  and the stale-material sky-drift class can't recur. Reach for it on any new flat-shaded surface.
+- **`ddx`/`ddy` fragment-normal flat-shading (Hextant Studios) kills the winding-inversion class by
+  construction** — computing the face normal from screen-space derivatives removes the per-vertex-normal /
+  triangle-winding dependency, so the coincident-opposite-winding "black shards" class can't recur. Reach for
+  it on any new flat-shaded surface. *De-duped — the shippable `_FlatShading` toggle spec (ticket `86caamnjb`)
+  is owned by `lowpoly-quality.md` §2 Rec 2. Reach there for the implementation.*
 - **keijiro `UnitySkyboxShaders`** — gradient skybox reference (the Zone-D look's sky).
 - **Cyanilux** — depth / shoreline / water shader references (the shoreline-foam + waterline
   tuning the world-look pass repeatedly chased).
