@@ -92,6 +92,23 @@ Shader "FarHorizon/LowPolyVertexColor"
         // distinct contact-occlusion read in alpha). Lives INSIDE the cbuffer below for SRP-Batcher
         // compliance (unity-conventions.md §SRP-Batcher — any new float must be in CBUFFER_START).
         _AOStrength ("AO Strength (0 = off; reads vertex-color alpha)", Range(0,1)) = 0
+        // MACRO MEADOW PATCHES — GRD-2 live A/B amp (ticket 86cahhfkc — plan §5 Tier-1 items 1-2). GRD-1
+        // BAKES the meadow patches into the terrain vertex colour (the shipped look) AND bakes the SIGNED
+        // patch MASK into the terrain vertex-colour ALPHA remapped to [0..1] (mask*0.5+0.5): a>0.5 = sunlit
+        // region, a<0.5 = shadow region, a==0.5 = neutral. (Terrain alpha was previously an unused constant
+        // 1 — terrain has _SwayAmp=0 and _AOStrength=0, so repurposing it is a no-op for those terms.) This
+        // amp lets the Sponsor dial ADDITIONAL patch contrast LIVE in the soak to A/B "more/less patchy": the
+        // frag reads the baked mask from alpha (so it lands on the EXACT baked regions — no Perlin-in-HLSL
+        // drift) and pushes the albedo further toward _MeadowLime (sunlit) / _MeadowDeep (shadow) by
+        // _MeadowPatchAmp × |mask|. When _MeadowPatchAmp = 0 (the DEFAULT on EVERY material) the term is a
+        // pure no-op → BYTE-IDENTICAL to before this existed on terrain/canopy/water/rock/prop (the baked
+        // patches still show; only the LIVE extra contrast is gated off). ⚠ Non-terrain materials bake alpha
+        // = 1 (mask read as +1 = "full sunlit"), but they keep _MeadowPatchAmp = 0 so the term never fires on
+        // them — only the TERRAIN material raises the amp via the console. Uniforms live in the cbuffer for
+        // SRP-Batcher compliance.
+        _MeadowPatchAmp ("Meadow Patch Amp (0 = off; live A/B)", Range(0, 1.5)) = 0
+        _MeadowLime ("Meadow Lime (sunlit patch)", Color) = (0.52, 0.66, 0.28, 1)
+        _MeadowDeep ("Meadow Deep (shadow patch)", Color) = (0.22, 0.40, 0.17, 1)
     }
     SubShader
     {
@@ -144,6 +161,9 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float _RimPower;
                 float _RimIntensity;
                 float _AOStrength;    // ticket 86caamnra — vertex-color-alpha AO (default-0 = no-op; props raise it)
+                float _MeadowPatchAmp;    // ticket 86cahhfkc GRD-2 — live meadow-patch contrast amp (default-0 = no-op)
+                float4 _MeadowLime;       // GRD-2 sunlit patch tone (mirrors LowPolyZoneGen.MeadowLime)
+                float4 _MeadowDeep;       // GRD-2 shadow patch tone (mirrors LowPolyZoneGen.MeadowDeep)
             CBUFFER_END
 
             struct Attributes
@@ -218,6 +238,19 @@ Shader "FarHorizon/LowPolyVertexColor"
             half4 frag (Varyings IN) : SV_Target
             {
                 float3 albedo = IN.color.rgb * _Tint.rgb;
+
+                // GRD-2 LIVE MEADOW-PATCH AMP (ticket 86cahhfkc). Push the albedo further toward the sunlit /
+                // shadow meadow tones by the SIGNED patch mask baked into vertex-colour ALPHA (a in [0..1],
+                // remapped to signed [-1..1]) scaled by _MeadowPatchAmp. amp=0 (DEFAULT everywhere) → no-op,
+                // byte-identical. Only the terrain material raises amp (live console A/B); the baked GRD-1
+                // patches are already in albedo, so this ADDS extra contrast on the SAME regions. Applied to
+                // albedo BEFORE lighting so the extra tone lights like the rest of the ground.
+                if (_MeadowPatchAmp > 0.0)
+                {
+                    float mask = IN.color.a * 2.0 - 1.0;                 // [0..1] alpha -> signed [-1..1] patch mask
+                    float3 patchTone = mask >= 0.0 ? _MeadowLime.rgb : _MeadowDeep.rgb;
+                    albedo = lerp(albedo, patchTone, saturate(abs(mask) * _MeadowPatchAmp));
+                }
 
                 // NORMAL: per-face (flat-shaded) when the keyword is ON, else the interpolated vertex normal.
                 // FLAT (ticket 86caamnjb): the true geometric face normal is the cross of the screen-space

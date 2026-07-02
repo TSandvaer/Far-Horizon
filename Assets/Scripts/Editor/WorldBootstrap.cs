@@ -207,8 +207,37 @@ namespace FarHorizon.EditorTools
             // mesh + collider exist to raycast (and the NavMesh has already baked the walkable bowl floor).
             GroundPondInBowl();
 
+            // G6-2 (ticket 86cahhff6, plan §5 Tier-1 item 4): one-line scene-stats trace so a caster/vert/
+            // material regression shows up in the CI bootstrap log (grep `[world-stats]`) instead of only in a
+            // soak. Counts the whole environment (terrain + scatter + clouds + vista + water — all under
+            // envRoot). Casters = renderers whose shadowCastingMode != Off; after R2a the caster count drops
+            // ~530 (grass/sticks/small-stones/berries flipped Off) while total renderers stay the same.
+            LogSceneStats(envRoot);
+
             Debug.Log("[WorldBootstrap] BuildEnvironment complete -> " + zone.ground.name);
             return envRoot;
+        }
+
+        // G6-2 scene-stats trace (ticket 86cahhff6). READ-only walk of the built environment — dumps renderer
+        // count, total mesh vertices, shadow-caster count, and distinct-material count to the bootstrap log so
+        // a perf regression (a new prop class silently casting, a vert-count blowup, a material-count creep) is
+        // visible in CI without a soak. `true` includes inactive renderers (a loot-hidden pickup still ships a
+        // renderer). No scene mutation — purely diagnostic.
+        static void LogSceneStats(GameObject envRoot)
+        {
+            var renderers = envRoot.GetComponentsInChildren<MeshRenderer>(true);
+            long totalVerts = 0;
+            int casters = 0;
+            var mats = new System.Collections.Generic.HashSet<Material>();
+            foreach (var mr in renderers)
+            {
+                if (mr.shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.Off) casters++;
+                foreach (var m in mr.sharedMaterials) if (m != null) mats.Add(m);
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null) totalVerts += mf.sharedMesh.vertexCount;
+            }
+            Debug.Log($"[world-stats] renderers={renderers.Length} verts={totalVerts} " +
+                      $"casters={casters} materials={mats.Count}");
         }
 
         // The KNEE-DEEP wade depth: the water surface sits this far ABOVE the carved BOWL FLOOR, so the player
@@ -592,8 +621,14 @@ namespace FarHorizon.EditorTools
             // believable foot, faceted sides down to a sunk rim.
             float top = c.raise;
             float seaSink = -8f; // well below WaterY (-0.20) so the coast is the waterline, no floating gap
+            // VIS-1 (ticket 86cahhfkc): the shelf TOP reads as a forested cap — a muted canopy green LERPED
+            // toward this cluster's grey body (0.45) so the green already carries the cluster's atmospheric
+            // recede before the per-cluster _Tint multiplies on top → the cap fades in LOCKSTEP with the
+            // flanks/peaks (no seam drift). Muted (not the vivid foreground canopy green) because it's a
+            // DISTANT vista cap seen through fog. The faceted FLANKS stay grey rock (c.body).
+            Color capGreen = Color.Lerp(new Color(0.30f, 0.42f, 0.24f), c.body, 0.45f);
             var mesh = LowPolyMeshes.FacetedLandmass(radius, top - seaSink, 9 + rnd.Next(0, 3),
-                c.body, rnd.Next());
+                c.body, capGreen, rnd.Next());
 
             var island = new GameObject("LP_Landmass");
             island.transform.SetParent(clusterRoot.transform, false);

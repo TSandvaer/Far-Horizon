@@ -3,11 +3,15 @@
 **MANDATORY pre-work read for all Far Horizon Unity work.**
 This is the concise decision-forcing checklist. Full citations and depth at `team/erik-consult/unity6-mastery-research.md`.
 
+> **maintain-docs append-target:** proactive daily-use Unity 6/URP guardrails — rendering path, batching, lighting, perf/profiling + world-scale, scripting/GC, architecture, version control, texture/mesh import, UI Toolkit, build, input, frame-rate. The numbered sections §1–§12 are cross-referenced BY NUMBER from other docs (game-juice, lowpoly-quality, unity-conventions) — APPEND within an existing numbered section; do NOT renumber, reorder, or delete a section. New empirically-discovered INCIDENT gotchas belong in `unity-conventions.md`, not here.
+
 ---
 
 ## 1. Rendering Path — Set This First, Everything Else Depends on It
 
 - **Universal Renderer → Rendering Path = Forward+.** Required for GPU Resident Drawer and GPU Occlusion Culling. Removes per-object light cap (campfires/torches have no artificial limit). Loss of Reflection Probe Blending is acceptable for the stylized low-poly look.
+  - **Deliberate deviation (do NOT "fix"):** the shipped config runs plain **Forward + GPU Resident Drawer OFF** — at 1 shadowed directional + 1 unshadowed point light Forward+ buys nothing today, and GRD can't instance the world's unique per-instance meshes. Flip both at the **night / torches / many-campfires milestone** (the trigger where clustered lights + GPU-occlusion actually pay). See `team/analysis/2026-07-01-poly-style/consolidated.md` §4 T-H / §5 Tier-3 R6.
+- **Colour space = Gamma is a deliberate LOOK-LOCK (do NOT "fix" to Linear).** Technically wrong for the HDR + bloom + tonemap stack, but every palette constant was soaked against gamma output; a casual flip re-opens the whole colour bar. Revisit ONLY in an explicit look-overhaul milestone (zero desktop perf impact either way). See `team/analysis/2026-07-01-poly-style/consolidated.md` §1 item 5 / §4 T-H.
 - **Render Graph Compatibility Mode = OFF** in `Project Settings > Graphics > URP > Render Graph`. Compatibility Mode is a migration crutch, not a shipping state. GPU Occlusion Culling requires it OFF.
 - Any custom Renderer Feature (Zone-D fog/bloom pass, stylized water) MUST use the **Render Graph two-stage authoring model** (record → execute; system owns resource lifetime). Do NOT allocate/dispose RTs manually inside custom passes.
 
@@ -54,6 +58,8 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 **GPU Occlusion Culling:** A/B test on the built exe (dense jungle/mountain scenes are a strong candidate; low-poly low-vertex geometry is the weaker case). Never assume a win — measure.
 
 **STP Upscaling** (`URP Asset > Quality > Upscaling Filter > STP`): GPU-headroom lever if ever GPU-bound at native resolution. Test against the low-poly look (upscalers can soften hard polygon edges).
+
+**World-scale data point:** a big-island POC (~800u, PR #226, merged 2026-07-02) held 60fps with a single scaled mesh + STATIC batching — see `elite-techniques.md` § "Procedural terrain at scale" for the full figures and a reconciliation flag against §2's Static-Batching/GPU-Resident-Drawer incompatibility before this is carried into production world-gen.
 
 ---
 
@@ -157,6 +163,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 ## 10. Build — Windows Desktop Only
 
 - **Scripting backend = IL2CPP** for the Windows player.
+  - **Deliberate deviation (do NOT "fix"):** the shipped config is **Mono, not IL2CPP** — runtime scripts are light so the CPU win is small, while IL2CPP ~doubles build time on the single (scarce) CI runner. Adopt trigger = **a second CI lane / nightly lane** exists to absorb the build-time cost. See `team/analysis/2026-07-01-poly-style/consolidated.md` §4 T-H / §5 Tier-3 S2b.
 - **Enable IL2CPP C# source line numbers** in Player Settings — required for meaningful crash call stacks from the shipped `FarHorizon.exe`.
 - All `Debug.Log` calls stripped from release builds (`[Conditional("DEVELOPMENT_BUILD")]` or disable logger in build pipeline).
 - `Build/`, `Captures/`, `*.log`, `test-results*.xml` are gitignored — **CI must upload these artifacts before cleanup.**

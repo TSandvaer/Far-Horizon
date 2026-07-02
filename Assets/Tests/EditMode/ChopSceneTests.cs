@@ -118,6 +118,40 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(inv.HasAxe, "no axe seeded — the axe is crafted (U2-2), then gates the chop");
         }
 
+        // REGRESSION GUARD (PR #224 chop-capture-gate red, run 28539711263): the Combat POC's SpearPickup is a
+        // PROXIMITY-AUTO pickup (fires when the player is within pickupRadius). Originally placed at (2,0,6) —
+        // EXACTLY pickupRadius (2.0u planar) from the player spawn (0,0,6) — so it auto-grabbed the spear into
+        // belt slot 0 (the default-selected slot) on frame 1. The later-crafted axe then landed in slot 1, so
+        // Inventory.IsAxeSelectedInBelt was FALSE → the chop gate never passed → no wood → the shipped chop
+        // capture gate failed. Chopping code was byte-identical to main; ONLY the scene author changed. This
+        // guard pins the SCENE GEOMETRY: the spear pickup must sit CLEAR of the spawn by MORE than its own
+        // pickupRadius, so it can NEVER auto-grab slot 0 at spawn. A future move back onto (or inside) the
+        // spawn radius turns this RED in fast headless CI instead of red 15 minutes later in the capture gate.
+        // (The model-level sibling guard — the axe-select ordering invariant — lives in InventoryFacadeTests.)
+        [Test]
+        public void BootScene_SpearPickup_ClearOfPlayerSpawn_CannotAutoGrabSlot0()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
+
+            var pickup = FindInScene<FarHorizon.Combat.SpearPickup>(scene);
+            Assert.IsNotNull(pickup,
+                "the Boot scene must carry the SpearPickup (Combat POC AC4) — serialized editor-time");
+            Assert.IsNotNull(pickup.player,
+                "SpearPickup.player must be wired editor-time so the proximity check has the spawn target");
+
+            Vector3 spearPos = pickup.transform.position;
+            Vector3 spawnPos = pickup.player.position; // the Player root ships AT its spawn (0,0,6)
+            float planarDist = Vector2.Distance(
+                new Vector2(spearPos.x, spearPos.z), new Vector2(spawnPos.x, spawnPos.z));
+
+            Assert.Greater(planarDist, pickup.pickupRadius,
+                $"the SpearPickup ({spearPos}) must sit CLEAR of the player spawn ({spawnPos}) by MORE than its " +
+                $"pickupRadius ({pickup.pickupRadius}u) — else the proximity-auto pickup grabs the spear into " +
+                $"belt slot 0 at spawn, de-selecting the later-crafted axe and silently breaking the chop " +
+                $"(planarDist={planarDist:F2}u). This IS the PR #224 chop-capture-gate regression.");
+        }
+
         private static T FindInScene<T>(Scene scene) where T : Component
         {
             foreach (var root in scene.GetRootGameObjects())

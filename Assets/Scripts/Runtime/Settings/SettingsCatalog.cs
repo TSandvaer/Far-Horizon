@@ -146,6 +146,22 @@ namespace FarHorizon.Settings
         public const string MtnBrightnessId = "mountain_brightness";
         public const string SunElevationId  = "sun_elevation";
         public const string SunSizeId       = "sun_size";
+        // Ticket 86cahhfkc Wave1-B: live A/B dials for the colour wave — GRD-2 meadow-patch amp (extra
+        // terrain patch contrast) + RCK-1 rock rim intensity (caught-sun edge on boulders). Both mutate
+        // live materials through the WorldLookTunables seam; both default to their shipped baked value.
+        public const string MeadowPatchAmpId = "meadow_patch_amp";
+        public const string RockRimId        = "rock_rim_intensity";
+
+        // Combat POC per-tier difficulty tweakables (ticket 86cah7xxp AC8b). Registered by PopulateCombat, bound to
+        // the player Health + HealthRegen + DeathHandler — the SAME pattern + naming as the per-need decay rows
+        // (each feature adds its OWN Populate method; never grows the base Populate signature). These dial the
+        // ACTIVE HP-max / damage-taken / regen-rate; the death-behavior is TIER-selected (an int stepper over the
+        // 3 tiers). The dialed values bake into the difficulty presets (the [[verify-soak-builds-or-bake-and-judge]]
+        // workflow). Ids are stable (PlayerPrefs keys + test lookups derive from them).
+        public const string HpMaxId          = "hp_max";
+        public const string DamageTakenMulId = "damage_taken_mul";
+        public const string HpRegenRateId    = "hp_regen_rate";
+        public const string DeathBehaviorId  = "death_behavior_tier";
 
         // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
         // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
@@ -220,6 +236,13 @@ namespace FarHorizon.Settings
         public const int InventorySlotsMin = 1,  InventorySlotsMax = 60;
         public const int BeltSlotsMin = 1,       BeltSlotsMax = 12;
         public const int StackSizeMin = 1,       StackSizeMax = 99;
+        // Combat POC per-tier difficulty bands (ticket 86cah7xxp AC8b). Generous around the tier defaults so the
+        // Sponsor can soak a forgiving OR a punishing combat feel, bounded so a dial can't zero HP or runaway damage.
+        public const float HpMaxMin = 20f, HpMaxMax = 300f;          // player HP-max band (around 80/100/120 tiers)
+        public const float DamageTakenMulMin = 0.1f, DamageTakenMulMax = 3f; // incoming-damage multiplier band
+        public const float HpRegenRateMin = 0f, HpRegenRateMax = 20f;        // HP/sec regen band (0 = no regen)
+        public const int DeathBehaviorMin = 0, DeathBehaviorMax = 2;         // tier stepper: 0=Easy 1=Medium 2=Hard
+
         // Console UI scale band (86cabeqj9 soak NIT). 0.5x (half-size, for a Sponsor who finds the panel huge) ..
         // 1.5x (larger). Default 1.0x = the shipped panel, byte-identical untouched (the differs-badge stays off).
         public const float ConsoleUiScaleMin = 0.5f, ConsoleUiScaleMax = 1.5f;
@@ -253,6 +276,9 @@ namespace FarHorizon.Settings
         // disk-edge dot threshold (0.95..0.9999; HIGHER = smaller disk).
         public const float SunElevationMin = 2f, SunElevationMax = 80f;
         public const float SunSizeMin = 0.95f, SunSizeMax = 0.9999f;
+        // Wave1-B colour dials (86cahhfkc). Meadow amp 0..1.5 (0 = baked patches only); rim 0..0.5 (0 = today).
+        public const float MeadowPatchAmpMin = 0f, MeadowPatchAmpMax = 1.5f;
+        public const float RockRimMin = 0f, RockRimMax = 0.5f;
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -745,6 +771,66 @@ namespace FarHorizon.Settings
         }
 
         /// <summary>
+        /// Register the COMBAT POC per-tier difficulty tweakables (ticket 86cah7xxp AC8b) into the registry, LIVE-
+        /// bound to the player <paramref name="health"/> + <paramref name="regen"/> + <paramref name="death"/>:
+        /// <list type="bullet">
+        /// <item><b>HP max</b> — a FLOAT slider driving <see cref="FarHorizon.Combat.Health.max"/> (the ACTIVE HP
+        /// max the read surface + damage path use). Refills proportionally-safely inside Health.</item>
+        /// <item><b>Damage-taken multiplier</b> — a FLOAT slider driving <see cref="FarHorizon.Combat.Health.damageTakenMul"/>
+        /// (applied on top of the per-type resistance in ApplyDamage).</item>
+        /// <item><b>HP regen rate</b> — a FLOAT slider driving <see cref="FarHorizon.Combat.HealthRegen.regenPerSecond"/>
+        /// (HP/sec while needs are satisfied — AC3).</item>
+        /// <item><b>Death behavior</b> — an INT STEPPER over the 3 tiers (0=Easy faint-in-place / 1=Medium campfire+keep
+        /// / 2=Hard camp+drop) driving <see cref="FarHorizon.Combat.DeathHandler.tier"/> (AC2 — the death behavior
+        /// IS the difficulty tier). The dialed values bake into the difficulty presets.</item>
+        /// </list>
+        /// The SAME pattern + naming as the per-need decay rows (each feature adds its OWN Populate method — the
+        /// PopulateThirst/PopulateHunger de-collision precedent). A null target SKIPS only its own rows (the catalog
+        /// never null-refs), so a combat-less rig / bare test is unaffected. Setters clamp to the [Min,Max] band.
+        /// </summary>
+        public static void PopulateCombat(SettingsRegistry reg, FarHorizon.Combat.Health health,
+            FarHorizon.Combat.HealthRegen regen, FarHorizon.Combat.DeathHandler death)
+        {
+            if (reg == null) return;
+
+            // HP MAX (live) — drives the ACTIVE Health.max. Tightening it makes the castaway frailer; loosening,
+            // hardier. The per-tier easy/med/hard maxes also write this field (ApplyDifficulty), but the slider is
+            // a direct soak-tuning knob over the active max, exactly like the thirst/hunger decay-rate sliders.
+            if (health != null)
+            {
+                reg.AddFloat(HpMaxId, "HP max",
+                    () => health.max, v => health.max = Mathf.Clamp(v, HpMaxMin, HpMaxMax),
+                    HpMaxMin, HpMaxMax, unit: "");
+
+                // DAMAGE-TAKEN MULTIPLIER (live) — drives the ACTIVE Health.damageTakenMul (applied on top of the
+                // per-type resistance matchup in ApplyDamage). < 1 softens hits (kid-friendly); > 1 punishes.
+                reg.AddFloat(DamageTakenMulId, "Damage taken",
+                    () => health.damageTakenMul, v => health.damageTakenMul = Mathf.Clamp(v, DamageTakenMulMin, DamageTakenMulMax),
+                    DamageTakenMulMin, DamageTakenMulMax, unit: "x");
+            }
+
+            // HP REGEN RATE (live) — drives HealthRegen.regenPerSecond (HP/sec while needs satisfied — AC3). 0 = no
+            // regen (a hardcore tier). Bigger = faster recovery.
+            if (regen != null)
+            {
+                reg.AddFloat(HpRegenRateId, "HP regen rate",
+                    () => regen.regenPerSecond, v => regen.regenPerSecond = Mathf.Clamp(v, HpRegenRateMin, HpRegenRateMax),
+                    HpRegenRateMin, HpRegenRateMax, unit: "/s");
+            }
+
+            // DEATH BEHAVIOR (live) — an INT STEPPER over the 3 tiers (0=Easy 1=Medium 2=Hard) driving the active
+            // DeathHandler.tier (AC2 — the 3 death behaviors ARE the 3 tiers). Getter reads the current tier as an
+            // int; setter maps the stepped int back to the tier. Clamped to [0,2] so the stepper can't leave the band.
+            if (death != null)
+            {
+                reg.AddInt(DeathBehaviorId, "Death behavior",
+                    () => (int)death.tier,
+                    v => death.tier = (FarHorizon.SurvivalNeed.DifficultyTier)Mathf.Clamp(v, DeathBehaviorMin, DeathBehaviorMax),
+                    DeathBehaviorMin, DeathBehaviorMax, unit: "");
+            }
+        }
+
+        /// <summary>
         /// F-KEY MIGRATION — register the F7 CAMERA-FOLLOW gains (ticket 86caber95 AC3) as four float rows bound
         /// LIVE to the <paramref name="orbit"/> camera: horizontal <c>followLerp</c>, <c>verticalFollowLerp</c>,
         /// <c>airborneFollowLerp</c> (1/s rates) + <c>followLeadTime</c> (seconds; 0 = AUTO). These are the exact
@@ -902,6 +988,13 @@ namespace FarHorizon.Settings
                 () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°");
             reg.AddFloat(SunSizeId, "Sun size",
                 () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "");
+
+            // WAVE1-B COLOUR DIALS (ticket 86cahhfkc) — GRD-2 meadow-patch amp + RCK-1 rock rim, for the
+            // ONE-soak A/B. Both mutate live materials through the seam; both start at the shipped baked value.
+            reg.AddFloat(MeadowPatchAmpId, "Meadow patch amp",
+                () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "");
+            reg.AddFloat(RockRimId, "Rock rim intensity",
+                () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "");
         }
     }
 }

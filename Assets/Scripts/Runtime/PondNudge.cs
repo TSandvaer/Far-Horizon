@@ -88,6 +88,9 @@ namespace FarHorizon
 
         private void Awake()
         {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
+
             // Resolve in Awake is NOT safe — the pond root is grounded by WorldBootstrap.GroundPondInBowl at
             // bootstrap (editor-time) but the runtime scene-find must run after the pond's own Awake. Resolve
             // lazily on first use instead (a soak that never presses a key pays nothing + never re-bases off a

@@ -146,6 +146,12 @@ namespace FarHorizon
             LogCurrent();
         }
 
+        void Awake()
+        {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
+        }
+
         void Update()
         {
             if (Input.GetKeyDown(toggleKey))

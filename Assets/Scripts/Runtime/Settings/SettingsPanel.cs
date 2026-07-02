@@ -94,6 +94,13 @@ namespace FarHorizon
                  "ground-Y binds to `chopCharacter`.)")]
         public WorldLookTunables worldLook;
 
+        [Tooltip("Combat POC 86cah7xxp AC8b — the player Health / HealthRegen / DeathHandler the per-tier " +
+                 "difficulty rows (HP max / Damage taken / HP regen rate / Death behavior) bind to. Wired " +
+                 "editor-time; any null skips only its own rows (PopulateCombat null-refs safely).")]
+        public FarHorizon.Combat.Health combatHealth;
+        public FarHorizon.Combat.HealthRegen combatRegen;
+        public FarHorizon.Combat.DeathHandler combatDeath;
+
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). The console KEEPS F1 but polls it " +
                  "DIRECTLY (the 86cabeqj9 soak NIT F1/F2 de-conflict): F1 toggles ONLY the console; the LEGACY " +
@@ -160,6 +167,11 @@ namespace FarHorizon
             // editor-time). armPose drives the F9 arm rows; worldLook the F10 rows.
             if (armPose == null) armPose = FindObjectOfType<CastawayArmPose>();
             if (worldLook == null) worldLook = FindObjectOfType<WorldLookTunables>();
+            // Combat POC 86cah7xxp AC8b — the per-tier difficulty rows' targets. Serialized editor-time; these
+            // Awake fallbacks are the build-safety net (any null simply skips its own combat rows).
+            if (combatHealth == null) combatHealth = FindObjectOfType<FarHorizon.Combat.Health>();
+            if (combatRegen == null) combatRegen = FindObjectOfType<FarHorizon.Combat.HealthRegen>();
+            if (combatDeath == null) combatDeath = FindObjectOfType<FarHorizon.Combat.DeathHandler>();
         }
 
         void Start()
@@ -179,6 +191,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateCameraFollow(Registry, orbit);            // F7 → OrbitCamera follow gains (AC3)
             SettingsCatalog.PopulateArmAndGround(Registry, chopCharacter, armPose); // F9 → ground-Y + arm pose (AC1)
             SettingsCatalog.PopulateWorldLook(Registry, worldLook);          // F10 → sky/fog/cloud/mountain/sun (AC2)
+            SettingsCatalog.PopulateCombat(Registry, combatHealth, combatRegen, combatDeath); // Combat POC → per-tier HP/damage/regen/death (AC8b)
 
             // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
             // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target

@@ -28,6 +28,7 @@ Material:
     - _MidPoint: 0.18
     - _Softness: 0.85
     - _SunHardness: 60
+    - _SunHorizonWarmth: 0.06
     - _SunSize: 0.95
     m_Colors:
     - _HorizonColor: {r: 0.42, g: 0.89, b: 0.92, a: 1}
