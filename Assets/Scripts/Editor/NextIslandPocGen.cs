@@ -95,10 +95,15 @@ namespace FarHorizon.EditorTools
         // A face/vert is in the snow zone when its mountain-height fraction >= SnowFacetFrac. Set a touch
         // BELOW SnowlineFrac so the faceting covers the whole visible white band with a small blend margin.
         public const float SnowFacetFrac = 0.66f;   // faces above this mountain-height fraction get faceted
-        public const float SnowFacetAmp = 2.2f;      // ±u of angular displacement on snow verts (climb-bounded)
-        public const float SnowFacetCell = 22f;      // world-u cell of the angular snow-facet noise (coarse = broad
-                                                     // chunky planes; wide enough that adjacent grid verts (~3.9u)
-                                                     // share a plane → inter-vert slope stays climbable)
+        // Displacement must be LARGE ENOUGH to VISIBLY break the silhouette + tilt the flat facets (a ±2u
+        // perturbation on a 135u peak is invisible — the first pass read as a smooth white dome). With a wide
+        // cell the planes are BROAD, so a big amplitude still keeps the inter-vert slope climbable (the added
+        // slope is amp·gradient/cell — a wide cell divides it down). ±8u @ 40u cell → the summit reads as
+        // distinct angular planes while the added inter-vert slope stays well under the 45° NavMesh max on the
+        // near-flat summit (verified by the shipped NavMesh trace + the bounded-slope EditMode guard).
+        public const float SnowFacetAmp = 8f;        // ±u of angular displacement on snow verts (climb-bounded by the wide cell)
+        public const float SnowFacetCell = 40f;      // world-u cell of the angular snow-facet noise (WIDE = broad chunky
+                                                     // planes; a big amp over a wide cell keeps the inter-vert slope climbable)
 
         // Spawn clearing — a flat clearing OPPOSITE the hero mountain so the player starts on gentle sea-level
         // ground and walks ACROSS the island toward the peak (the "small character, far horizon" read). It CANNOT
@@ -399,9 +404,19 @@ namespace FarHorizon.EditorTools
                 if (fn.sqrMagnitude < 1e-10f) continue;
                 fn.Normalize();
                 if (fn.y < 0f) { fn = -fn; var tmp = v1; v1 = v2; v2 = tmp; } // keep the up-facing front side
+                // PER-FACE VALUE CONTRAST (the FacetedRock signal, LowPolyMeshes:444) — reinforce the flat-shading
+                // so adjacent snow planes read as DISTINCT facets even under the near-white albedo + bloom (the
+                // in-shader ndotl alone washes out on white). Up-facing facets stay bright; tilted facets a touch
+                // dimmer. Kept in a HIGH band (>=0.80) so it still reads as SNOW (never grey) — the summit stays
+                // white for the snow-cap guard. The snow albedo is near-white, so this modest step is what makes
+                // the crystalline plane-to-plane break visible from the side profile.
+                float faceUp = Mathf.Clamp01(fn.y);                 // 1 flat-up .. 0 vertical
+                float faceVal = Mathf.Lerp(0.80f, 1.0f, faceUp);    // dimmer tilted facets .. bright tops (never grey)
+                Color c0 = cols[a] * faceVal, c1 = cols[b] * faceVal, c2 = cols[c] * faceVal;
+                c0.a = cols[a].a; c1.a = cols[b].a; c2.a = cols[c].a; // preserve alpha (AO channel)
                 int bi = outVerts.Count;
                 outVerts.Add(v0); outVerts.Add(v1); outVerts.Add(v2);
-                outCols.Add(cols[a]); outCols.Add(cols[b]); outCols.Add(cols[c]);
+                outCols.Add(c0); outCols.Add(c1); outCols.Add(c2);
                 outNormals.Add(fn); outNormals.Add(fn); outNormals.Add(fn);
                 outTris.Add(bi); outTris.Add(bi + 1); outTris.Add(bi + 2);
                 snowFaceCount++;
