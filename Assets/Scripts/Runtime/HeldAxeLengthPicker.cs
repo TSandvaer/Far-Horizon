@@ -95,6 +95,8 @@ namespace FarHorizon
 
         private void Awake()
         {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
             _cycle = GetComponent<HeldWeaponCycleDebug>();
             if (_cycle == null)
                 Debug.LogWarning("[HeldAxeLengthPicker] no HeldWeaponCycleDebug on the held seat — the length " +

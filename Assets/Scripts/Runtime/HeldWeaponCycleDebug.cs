@@ -331,6 +331,10 @@ namespace FarHorizon
 
         private void Awake()
         {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            // FIRST line: the mesh-resolve below can early-return, and the layout opt-out must always apply.
+            useGUILayout = false;
+
             // Seed the LIVE scale/offset/euler from the baked defaults (copy — never mutate the static arrays).
             // The dials edit these per-weapon; index 0 (axe) stays at the locked defaults.
             _liveScale = (float[])WeaponMeshScale.Clone();
