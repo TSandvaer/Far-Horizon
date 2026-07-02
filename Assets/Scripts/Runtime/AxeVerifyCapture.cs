@@ -60,8 +60,192 @@ namespace FarHorizon
             // #100 dial passed tests but no-opped at runtime — this is the eyes-on + numeric proof it swaps).
             else if (HasArg("-verifyAxeLengths"))
                 StartCoroutine(RunLengthsVerification());
+            // 86cahngdg (soak-224 crossed-visual fix): drive the REAL belt-selection seam end to end in the
+            // SHIPPED build — acquire axe + spear via the SAME Inventory seams the world pickups call, select
+            // each belt slot, and SELF-ASSERT the held visual follows the selection (axe selected -> the AXE
+            // mesh shown; spear selected -> the SPEAR mesh shown; empty selected -> hidden; back to axe -> the
+            // mesh RETURNS). NO force-show — the HeldAxe gate + the selection sync under test own visibility.
+            // Lives in this file (the held-weapon verify family) rather than a new file+component because a
+            // new component would require a Boot.unity regen ([[unity-procedural-committed-assets-go-stale]]);
+            // the flag is its OWN (-verifyHeldBelt) per the isolation rule.
+            else if (HasArg("-verifyHeldBelt"))
+                StartCoroutine(RunHeldBeltVerification());
             else if (HasArg("-verifyAxe"))
                 StartCoroutine(RunVerification());
+        }
+
+        // Gameplay-representative over-shoulder framing for the held-belt verification (the orbit pitch the
+        // player sees — memory verify-grounding-soaks-by-gameplay-cam-visual; mirrors WaterAcquisitionVerify
+        // Capture). The castaway is FACED toward the camera so the right-hand weapon is in view.
+        public float heldBeltViewYaw = 25f;
+        public float heldBeltViewPitch = 22f;
+        public float heldBeltViewDistance = 6.5f;
+        public float heldBeltCloseDistance = 2.8f;
+
+        // 86cahngdg — the shipped-build gate for "the held visual follows the SELECTED belt weapon".
+        private IEnumerator RunHeldBeltVerification()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            GameObject axe = FindHeroAxe();
+            if (axe == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: HeroAxe not in scene — the held seat is missing");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
+            var gate = axe.GetComponent<HeldAxe>();
+            if (cycle == null || gate == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: HeroAxe lacks HeldWeaponCycleDebug/HeldAxe " +
+                               "(cycle=" + (cycle != null) + " gate=" + (gate != null) + ") — build-side regression");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var inventory = gate.inventory != null ? gate.inventory : Object.FindAnyObjectByType<Inventory>();
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            if (inventory == null || castaway == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: missing Inventory (" + (inventory != null) +
+                               ") or CastawayCharacter (" + (castaway != null) + ")");
+                yield return null; Application.Quit(1); yield break;
+            }
+
+            // Park the orbit rig; drive Camera.main by hand (the gameplay render path — post + skybox).
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: no Camera.main");
+                yield return null; Application.Quit(1); yield break;
+            }
+            cam.fieldOfView = 40f;
+
+            for (int i = 0; i < 8; i++) yield return null; // let Awake/OnEnable wiring settle
+
+            // Acquire BOTH weapons via the REAL seams (the same calls AxePickup / SpearPickup make). The
+            // axe pickup fires first here (the shipped play order) — the PlayMode regression covers the
+            // spear-first order; this gate proves the shipped end-to-end read.
+            bool gotAxe = inventory.PickUpAxe();
+            bool gotSpear = inventory.PickUpSpear();
+            yield return null;
+            var model = inventory.Model;
+            int axeSlot = FindBeltSlotById(model, ItemCatalog.AxeId);
+            int spearSlot = FindBeltSlotById(model, ItemCatalog.SpearId);
+            int emptySlot = FindEmptyBeltSlot(model);
+            Debug.Log("[AxeVerifyCapture] HELD-BELT: acquired axe=" + gotAxe + " spear=" + gotSpear +
+                      " -> beltSlots axe=" + axeSlot + " spear=" + spearSlot + " empty=" + emptySlot);
+            if (axeSlot < 0 || spearSlot < 0 || emptySlot < 0)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: belt does not hold axe+spear+an empty slot — " +
+                               "cannot drive the selection table");
+                Application.Quit(1); yield break;
+            }
+
+            // Face the castaway toward the camera so the right-hand weapon reads in frame.
+            castaway.FaceWorldYawInstant(heldBeltViewYaw + 165f);
+
+            // --- STATE 1: AXE selected -> the AXE mesh in hand. ---
+            model.SelectBelt(axeSlot);
+            for (int i = 0; i < 10; i++) yield return null;
+            bool axeShown = AnyRendererEnabled(axe);
+            bool axeMeshRight = cycle.IsAxeHeld && cycle.MeshHolder != null &&
+                                cycle.MeshHolder.sharedMesh == cycle.AxeOriginalMesh;
+            int axeVerts = cycle.MeshHolder != null && cycle.MeshHolder.sharedMesh != null
+                ? cycle.MeshHolder.sharedMesh.vertexCount : -1;
+            Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-1 (axe selected): shown=" + axeShown +
+                      " index=" + cycle.CurrentIndex + " meshIsAxe=" + axeMeshRight + " verts=" + axeVerts);
+            yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                          Path.Combine(dir, "held_axe_gameplay.png"));
+            yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltCloseDistance,
+                                          Path.Combine(dir, "held_axe_close.png"));
+
+            // --- STATE 2: SPEAR selected -> the SPEAR mesh in hand (the soak-224 EMPTY-hands defect). ---
+            model.SelectBelt(spearSlot);
+            for (int i = 0; i < 10; i++) yield return null;
+            bool spearShown = AnyRendererEnabled(axe);
+            bool spearMeshRight = cycle.CurrentIndex == HeldWeaponCycleDebug.SpearFamilyIndex &&
+                                  cycle.MeshHolder != null && cycle.MeshHolder.sharedMesh != null &&
+                                  cycle.MeshHolder.sharedMesh != cycle.AxeOriginalMesh;
+            int spearVerts = cycle.MeshHolder != null && cycle.MeshHolder.sharedMesh != null
+                ? cycle.MeshHolder.sharedMesh.vertexCount : -1;
+            Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-2 (spear selected): shown=" + spearShown +
+                      " index=" + cycle.CurrentIndex + " meshIsSpear=" + spearMeshRight +
+                      " verts=" + spearVerts + " (axe verts=" + axeVerts + " — the numeric swap proof)");
+            yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                          Path.Combine(dir, "held_spear_gameplay.png"));
+            yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltCloseDistance,
+                                          Path.Combine(dir, "held_spear_close.png"));
+
+            // --- STATE 3: EMPTY slot selected -> hidden (empty hands). ---
+            model.SelectBelt(emptySlot);
+            for (int i = 0; i < 10; i++) yield return null;
+            bool emptyHidden = !AnyRendererEnabled(axe);
+            Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-3 (empty selected): hidden=" + emptyHidden);
+            yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                          Path.Combine(dir, "held_empty_gameplay.png"));
+
+            // --- STATE 4: back to the AXE -> the mesh RETURNS (the crossed-state regression: selecting the
+            //     axe after the spear was displayed must show the AXE, never the stale spear mesh). ---
+            model.SelectBelt(axeSlot);
+            for (int i = 0; i < 10; i++) yield return null;
+            bool axeAgainShown = AnyRendererEnabled(axe);
+            bool axeAgainRight = cycle.IsAxeHeld && cycle.MeshHolder != null &&
+                                 cycle.MeshHolder.sharedMesh == cycle.AxeOriginalMesh;
+            Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-4 (axe re-selected): shown=" + axeAgainShown +
+                      " index=" + cycle.CurrentIndex + " meshIsAxe=" + axeAgainRight);
+
+            bool meshesDiffer = axeVerts > 0 && spearVerts > 0 && axeVerts != spearVerts;
+            bool pass = gotAxe && gotSpear
+                        && axeShown && axeMeshRight
+                        && spearShown && spearMeshRight && meshesDiffer
+                        && emptyHidden
+                        && axeAgainShown && axeAgainRight;
+            Debug.Log("[AxeVerifyCapture] HELD-BELT verification complete (axeShown=" + axeShown +
+                      " axeMesh=" + axeMeshRight + " spearShown=" + spearShown + " spearMesh=" + spearMeshRight +
+                      " meshesDiffer=" + meshesDiffer + " emptyHidden=" + emptyHidden +
+                      " axeReturns=" + (axeAgainShown && axeAgainRight) + ") => " +
+                      (pass ? "GATE-PASS" : "GATE-FAIL") + " -> " + dir);
+            yield return new WaitForSeconds(0.3f);
+            Application.Quit(pass ? 0 : 1);
+        }
+
+        private static int FindBeltSlotById(InventoryModel model, string id)
+        {
+            var belt = model.BeltSlots;
+            for (int i = 0; i < belt.Count; i++)
+                if (!belt[i].IsEmpty && belt[i].Def.Id == id) return i;
+            return -1;
+        }
+
+        private static int FindEmptyBeltSlot(InventoryModel model)
+        {
+            var belt = model.BeltSlots;
+            for (int i = 0; i < belt.Count; i++)
+                if (belt[i].IsEmpty) return i;
+            return -1;
+        }
+
+        private static bool AnyRendererEnabled(GameObject root)
+        {
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                if (r != null && r.enabled) return true;
+            return false;
+        }
+
+        // Park the gameplay camera over-shoulder on the castaway at the given distance and screenshot.
+        private IEnumerator CaptureHeldFrame(GameObject camGo, Vector3 target, float distance, string file)
+        {
+            Vector3 look = target + new Vector3(0f, 1.0f, 0f);
+            Quaternion rot = Quaternion.Euler(heldBeltViewPitch, heldBeltViewYaw, 0f);
+            camGo.transform.position = look + rot * new Vector3(0f, 0f, -distance);
+            camGo.transform.LookAt(look);
+            for (int i = 0; i < 6; i++) yield return null;
+            yield return new WaitForEndOfFrame();
+            ScreenCapture.CaptureScreenshot(file, 1);
+            Debug.Log("[AxeVerifyCapture] HELD-BELT wrote " + file);
+            yield return new WaitForEndOfFrame();
         }
 
         // 86cabh907: capture the held axe at EACH of the 4 shaft-length variants, proving the [L] picker's
