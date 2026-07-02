@@ -117,8 +117,19 @@ namespace FarHorizon
 
         private GUIStyle _flameStyle, _ledgerStyle, _berryStyle, _dropStyle, _heartStyle;
 
+        // The cached one-line ledger text ("axe 1    wood 3"; "" = draw nothing). Rebuilt ONLY on the
+        // existing Inventory.Changed event (86cahhfp4 C2a) — the previous DrawInventoryLedger built the
+        // string fresh on EVERY OnGUI invocation (multiple IMGUI events per frame), the largest steady
+        // per-frame GC source in the shipped build (poly-style plan §5 item 8). The HUD already subscribes,
+        // never polls (the Tess PR #9/#11 contract); this makes the ledger STRING follow the same contract.
+        private string _ledgerText = "";
+
         void Awake()
         {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass entirely
+            // (one fewer OnGUI invocation per frame + no layout bookkeeping; 86cahhfp4 C2a).
+            useGUILayout = false;
+
             // Serialized refs are the source of truth (BootstrapProject wires them editor-time).
             // FindObjectOfType is only a net for a hand-placed HUD missing its wiring — never the
             // path the shipped build relies on.
@@ -130,6 +141,9 @@ namespace FarHorizon
             // Bind Health.Changed AFTER the fallback resolves it (never poll — AC9). IMGUI repaints every
             // frame regardless, so the handler is a no-op body; the bind is the never-poll contract marker.
             if (health != null) health.Changed += OnHealthChanged;
+            // Bind Inventory.Changed AFTER the fallback resolves it — the ledger string rebuilds on the
+            // event (C2a), so the per-frame draw only reads the cached text.
+            BindInventory();
         }
 
         /// <summary>The HP-bar CRITICAL threshold (AC9) — the HP glyph slow-breathes at/below this fraction,
@@ -140,6 +154,9 @@ namespace FarHorizon
         void OnGUI()
         {
             EnsureStyles();
+            // Detect a post-Awake inventory re-wire (reference compare only — no alloc, no poll of contents):
+            // keeps the event-driven ledger correct if the field is swapped after Awake bound the original.
+            if (!ReferenceEquals(inventory, _boundInventory)) BindInventory();
             DrawInventoryLedger(); // ledger row sits ABOVE the need column (spec §2.3, moved to -152)
 
             // The three-bar column (spec §3.1): warmth bottom (-44), hunger middle (-80), thirst top (-116).
@@ -168,9 +185,50 @@ namespace FarHorizon
         // The HUD binds Health.Changed (in Awake, after the fallback resolves it) so it repaints on damage/heal
         // without polling (AC9). OnGUI reads the live Current01 each frame regardless, so the subscription is a
         // correctness marker (the "never poll" contract); the handler is a no-op body (IMGUI repaints every
-        // frame anyway). Unsubscribe on destroy to avoid a dangling handler.
-        private void OnDestroy() { if (health != null) health.Changed -= OnHealthChanged; }
+        // frame anyway). Inventory.Changed rebuilds the cached ledger STRING (C2a — the one handler with a real
+        // body: string building moved off the per-frame path). Unsubscribe both on destroy (dangling handlers).
+        private void OnDestroy()
+        {
+            if (health != null) health.Changed -= OnHealthChanged;
+            if (_boundInventory != null) _boundInventory.Changed -= OnInventoryChanged;
+        }
         private void OnHealthChanged(float _) { /* IMGUI repaints each frame; the bind is the never-poll contract */ }
+        private void OnInventoryChanged() => RebuildLedgerText();
+
+        // The Inventory instance the ledger is actually SUBSCRIBED to. Tracked separately from the public
+        // field so a post-Awake re-wire (a test assigning hud.inventory directly, or a future re-bind) is
+        // detected by a per-OnGUI reference compare (free, no alloc) and re-bound — without it the cached
+        // ledger would silently track the OLD instance (the stale-subscription cousin of the never-poll rule).
+        private Inventory _boundInventory;
+
+        // (Re)bind the ledger's Changed subscription to the CURRENT inventory field + rebuild the cached text.
+        private void BindInventory()
+        {
+            if (ReferenceEquals(_boundInventory, inventory)) { RebuildLedgerText(); return; }
+            if (_boundInventory != null) _boundInventory.Changed -= OnInventoryChanged;
+            _boundInventory = inventory;
+            if (_boundInventory != null) _boundInventory.Changed += OnInventoryChanged;
+            RebuildLedgerText();
+        }
+
+        // Rebuild the cached ledger line from the inventory's current state (event-driven, C2a).
+        private void RebuildLedgerText() =>
+            _ledgerText = inventory != null ? ComposeLedger(inventory.HasAxe, inventory.WoodCount) : "";
+
+        /// <summary>
+        /// The one-line inventory-ledger text (spec §2.3): "axe 1", "wood N", or "axe 1    wood N" in acquired
+        /// order — and "" when nothing is held (absent-when-empty: the quiet case is silence, the caller draws
+        /// nothing). Pure + static so the EditMode tests assert the composition exactly (86cahhfp4 C2a moved
+        /// the build off the per-frame OnGUI path onto Inventory.Changed; the string itself is unchanged).
+        /// </summary>
+        public static string ComposeLedger(bool hasAxe, int wood)
+        {
+            if (!hasAxe && wood <= 0) return "";
+            string ledger = "";
+            if (hasAxe) ledger += "axe 1";
+            if (wood > 0) ledger += (ledger.Length > 0 ? "    " : "") + "wood " + wood;
+            return ledger;
+        }
 
         private void EnsureStyles()
         {
@@ -255,20 +313,12 @@ namespace FarHorizon
         // One quiet warm-cream line: "axe 1   wood 3" (text-label fallback — sprites are later polish).
         // Absent-when-zero / absent-when-axe-not-owned (no clutter; the quiet case is silence). Same
         // low-alpha dark plate as the need bars. Moved UP to -152 to clear the new thirst row at -116.
+        // C2a: draws the CACHED _ledgerText (rebuilt only on Inventory.Changed) — no per-frame string build.
         private void DrawInventoryLedger()
         {
-            if (inventory == null) return;
-
-            bool hasAxe = inventory.HasAxe;
-            int wood = inventory.WoodCount;
-
             // Absent-when-empty (spec §2.3): nothing held -> draw nothing (the quiet case is silence).
-            if (!hasAxe && wood <= 0) return;
-
-            // Build the one-line ledger in acquired order: axe, then wood.
-            string ledger = "";
-            if (hasAxe) ledger += "axe 1";
-            if (wood > 0) ledger += (ledger.Length > 0 ? "    " : "") + "wood " + wood;
+            string ledger = _ledgerText;
+            if (string.IsNullOrEmpty(ledger)) return;
 
             // Ledger row: above the bars. The bottom-left now stacks FIVE rows (warmth -44, hunger -80,
             // thirst -116, HP -152 added by the Combat POC 86cah7xxp), so the ledger moves UP to -188 to sit
