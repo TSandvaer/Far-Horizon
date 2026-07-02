@@ -460,10 +460,10 @@ jobs:
         run: |
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
-                ci-out/verify-heldbelt.log
+                ci-out/verify-heldbelt.log ci-out/verify-sky.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
-                 ci-out/heldbelt-caps
+                 ci-out/heldbelt-caps ci-out/sky-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -732,6 +732,43 @@ jobs:
           path: |
             ci-out/heldbelt-caps/*.png
             ci-out/verify-heldbelt.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 13. Sky-facing (sun-disk + cloud-contrast) shipped-build capture gate (ticket 86cag1xn0 —
+      #     the #194 follow-up that makes the existing verify_sky_gate.sh an actual CI gate; the
+      #     script + SkyVerifyCapture landed with the sun-disk POC but were never invoked here, so
+      #     the sun-disk/cloud-contrast read had NO recurring built-frame gate). The generic
+      #     -captureGate (step 7) frames the spawn looking DOWN over the shoulder — it never tilts
+      #     up to the sky. This launches the SAME built exe windowed with -verifySky, driving
+      #     SkyVerifyCapture: park a dedicated sky camera, aim at the LIVE Sun (sky_sun.png) + up
+      #     into the cloud band (sky_clouds.png) + a gameplay-framed shot, and SELF-ASSERT (1) SUN
+      #     VISIBLE (centre brighter + warmer than the blue surround) and (2) CLOUD-VS-SKY CONTRAST
+      #     (a non-trivial pixel fraction well above the sky median luma). The component Quit(1)s
+      #     on either failure (or a missing Sun), so the exe's exit code IS the gate verdict;
+      #     frame_check.py is a swapchain-content backstop. Runs only when the build produced an
+      #     exe; frames + log upload AFTER (if: always()) so the sky evidence survives a fail.
+      - name: Sky capture gate (sun disk visible + cloud contrast)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_sky_gate.sh
+            .github/workflows/scripts/verify_sky_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/sky-caps ci-out/verify-sky.log
+          else
+            echo "[verify-sky] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload sky frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-sky-caps-${{ github.sha }}
+          path: |
+            ci-out/sky-caps/*.png
+            ci-out/verify-sky.log
           if-no-files-found: warn
           retention-days: 3
 
