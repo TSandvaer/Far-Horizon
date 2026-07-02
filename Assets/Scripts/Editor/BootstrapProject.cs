@@ -192,7 +192,20 @@ namespace FarHorizon.EditorTools
             // from Create() every run, wiping any committed m_RequireDepthTexture edit — the same
             // "bake reproducibly in bootstrap, not a hand-edit that reverts" pattern as the shadow params below.
             urp.supportsCameraDepthTexture = true;
-            urp.supportsCameraOpaqueTexture = true;
+            // R1 DEAD-COST REMOVAL (ticket 86cahhff6, plan §5 Tier-1 item 3). The full-screen OPAQUE-texture
+            // copy (_CameraOpaqueTexture) is generated + downsampled every shipped frame, but NOTHING samples it:
+            // a repo-wide grep of Assets/ for `_CameraOpaqueTexture` finds only this setter (+ its comment) and
+            // the LowPolyWaterShaderTests pin — LowPolyWater.shader reads only scene DEPTH, no opaque colour /
+            // refraction. So the copy is pure per-frame bandwidth waste. Turn it OFF. Depth Texture stays ON
+            // (foam samples _CameraDepthTexture — the Sponsor-praised depth-fade foam). Set HERE (not on the
+            // committed asset) because bootstrap RE-CREATES FarHorizonURP.asset from Create() each run.
+            urp.supportsCameraOpaqueTexture = false;
+            // S3 (ticket 86cahhff6, plan §5 Tier-1 item 12 hygiene rider). Clear m_UseAdaptivePerformance: the
+            // Adaptive Performance provider is a mobile/thermal-throttling subsystem (URP defaults the flag ON),
+            // a no-op on the Windows desktop target and never wired here — clearing it is intent clarity, not a
+            // behaviour change. Public settable property (UniversalRenderPipelineAsset.useAdaptivePerformance);
+            // set HERE so it bakes into FarHorizonURP.asset reproducibly (a committed-asset edit would revert).
+            urp.useAdaptivePerformance = false;
             // AC0 "LINE THROUGH THE ISLAND" FIX (ticket 86ca9qwr3 — trace-diagnosed). The dead-straight
             // world-fixed dark streak the Sponsor flagged is the URP MAIN-LIGHT REAL-TIME SHADOW-DISTANCE
             // BOUNDARY: directional shadows render only within shadowDistance of the camera, and the hard
