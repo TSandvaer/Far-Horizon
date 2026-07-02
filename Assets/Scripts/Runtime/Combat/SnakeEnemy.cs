@@ -36,13 +36,34 @@ namespace FarHorizon.Combat
         public const float SnakePierceWeakness = 1.6f;
 
         /// <summary>The snake's BITE base damage to the player (through the shared seam). The player's
-        /// resistance (neutral) + difficulty tier still modulate it in Health.ApplyDamage.</summary>
+        /// resistance (neutral) + difficulty tier still modulate it in Health.ApplyDamage.
+        /// KEPT for surface stability (86cah7xxp tests author it directly); the REAL snake (86caaz4vn)
+        /// supersedes it at runtime via the per-tier maps below + <see cref="ApplyDifficulty"/>.</summary>
         public const float SnakeBiteDamage = 8f;
+
+        // === Per-tier bite damage (86caaz4vn AC4 — MODERATE, difficulty-scaled; gentle on easy,
+        // threatening on hard). The EXACT idiom Health/SurvivalNeed use for per-tier values:
+        // easy/med/hard fields + ApplyDifficulty copies the active tier's value into the live field.
+        /// <summary>Bite damage on EASY (gentle for kids — ~6% of the default 100 player HP).</summary>
+        public const float SnakeEasyBiteDamage = 6f;
+        /// <summary>Bite damage on MEDIUM (the default — a real chunk, ~12% of default player HP).</summary>
+        public const float SnakeMedBiteDamage = 12f;
+        /// <summary>Bite damage on HARD (threatening for adults — ~18% of default player HP).</summary>
+        public const float SnakeHardBiteDamage = 18f;
 
         [Header("Bite (AC7 — deals damage to the player through the shared Health.ApplyDamage seam)")]
         [Tooltip("Base bite damage dealt to the player's Health (before the player's resistance + tier " +
-                 "modulate it in ApplyDamage). A snake bite is Pierce-typed (fangs).")]
+                 "modulate it in ApplyDamage). A snake bite is Pierce-typed (fangs). The active difficulty " +
+                 "tier writes this via ApplyDifficulty (86caaz4vn AC4) — the per-tier fields below are the map.")]
         public float biteDamage = SnakeBiteDamage;
+
+        [Header("Per-tier bite damage (86caaz4vn AC4). ApplyDifficulty copies into biteDamage.")]
+        [Tooltip("Bite damage on EASY (gentle for kids). ApplyDifficulty(Easy) copies this into biteDamage.")]
+        public float easyBiteDamage = SnakeEasyBiteDamage;
+        [Tooltip("Bite damage on MEDIUM (the default tier). ApplyDifficulty(Medium) copies this into biteDamage.")]
+        public float medBiteDamage = SnakeMedBiteDamage;
+        [Tooltip("Bite damage on HARD (threatening for adults). ApplyDifficulty(Hard) copies this into biteDamage.")]
+        public float hardBiteDamage = SnakeHardBiteDamage;
 
         [Tooltip("Optional bleed the bite applies to the player (AC6/AC7 — bleed works BOTH ways). " +
                  "StatusEffectSpec.None = the bite applies no bleed. The POC ships a light bleed so the " +
@@ -61,6 +82,23 @@ namespace FarHorizon.Combat
 
         /// <summary>The snake's own HP (AC7). Dies at 0 (mirror of the player model). The shared surface.</summary>
         public Health Health => ResolveHealth();
+
+        /// <summary>
+        /// Set the ACTIVE bite damage from the difficulty tier (86caaz4vn AC4 — "read the active difficulty
+        /// setting"; gentle on easy, threatening on hard). Mirrors <see cref="Health.ApplyDifficulty"/> /
+        /// SurvivalNeed.ApplyDifficulty: the per-tier map fields are copied into the single live
+        /// <see cref="biteDamage"/> the bite path reads, so a live tier change takes effect on the NEXT bite.
+        /// Pure field copy (no scene deps) — EditMode asserts the easy &lt; med &lt; hard ordering directly.
+        /// </summary>
+        public void ApplyDifficulty(FarHorizon.SurvivalNeed.DifficultyTier tier)
+        {
+            switch (tier)
+            {
+                case FarHorizon.SurvivalNeed.DifficultyTier.Easy: biteDamage = easyBiteDamage; break;
+                case FarHorizon.SurvivalNeed.DifficultyTier.Hard: biteDamage = hardBiteDamage; break;
+                default:                                          biteDamage = medBiteDamage;  break;
+            }
+        }
 
         private void Awake()
         {
