@@ -86,10 +86,14 @@ namespace FarHorizon
             yield return null;
 
             // --- 2. SIDE-PROFILE (lowpoly-quality §0 silhouette gate): a LOW side-on frame of the snake —
-            //     the author + reviewer eyeball this against "a long LOW animal ON the ground". Temporary
-            //     camera pose; restored right after the shot. ---
+            //     the author + reviewer eyeball this against "a long LOW animal ON the ground". The
+            //     OrbitCamera COMPONENT must be disabled while we drive Camera.main or its LateUpdate
+            //     re-poses the transform the same frame (the pond/sea captures' proven pattern); restored
+            //     right after the shot so every later frame is REAL gameplay framing. ---
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
             Vector3 camPos = cam.transform.position;
             Quaternion camRot = cam.transform.rotation;
+            if (orbit != null) orbit.enabled = false; // stop the rig re-driving the transform each LateUpdate
             Vector3 snakeP = ai.transform.position;
             Vector3 side = Vector3.Cross(Vector3.up, ai.transform.forward).normalized;
             cam.transform.position = snakeP + side * 3.2f + Vector3.up * 0.55f;
@@ -100,6 +104,7 @@ namespace FarHorizon
             yield return null;
             cam.transform.position = camPos;
             cam.transform.rotation = camRot;
+            if (orbit != null) orbit.enabled = true; // gameplay framing back on for every remaining shot
             yield return null;
 
             // --- 3. APPROACH (AC2/AC6): WALK the real player at the snake — the SAME path the Sponsor
