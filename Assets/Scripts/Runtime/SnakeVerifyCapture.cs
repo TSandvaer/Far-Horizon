@@ -77,7 +77,15 @@ namespace FarHorizon
             // Settle: agents on mesh, camera framed.
             for (int i = 0; i < 30; i++) yield return null;
 
-            // --- 1. FINDABLE (AC1/AC6): frame the wandering snake from the gameplay cam at spawn range. ---
+            // --- 1. FINDABLE (AC1/AC6): frame the wandering snake from the gameplay cam at spawn range.
+            //     The player freely mouse-orbits in real play, so LOOKING toward the snake is legitimate
+            //     gameplay framing — yaw the REAL orbit rig at it (pitch / distance / FOV stay the true
+            //     gameplay values; only the look direction is chosen, as a player would). ---
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            Vector3 toSnake = ai.transform.position - player.transform.position;
+            if (orbit != null && toSnake.sqrMagnitude > 1e-4f)
+                orbit.SetYaw(Mathf.Atan2(toSnake.x, toSnake.z) * Mathf.Rad2Deg);
+            for (int i = 0; i < 5; i++) yield return null; // let the yawed framing settle
             bool visibleAtStart = SnakeInFrame(cam, ai.transform, out float heightFrac);
             Debug.Log($"[SnakeVerifyCapture] findable: inFrame={visibleAtStart} apparentHeightFrac={heightFrac:F4} " +
                       $"state={ai.State}");
@@ -90,7 +98,6 @@ namespace FarHorizon
             //     OrbitCamera COMPONENT must be disabled while we drive Camera.main or its LateUpdate
             //     re-poses the transform the same frame (the pond/sea captures' proven pattern); restored
             //     right after the shot so every later frame is REAL gameplay framing. ---
-            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
             Vector3 camPos = cam.transform.position;
             Quaternion camRot = cam.transform.rotation;
             if (orbit != null) orbit.enabled = false; // stop the rig re-driving the transform each LateUpdate
