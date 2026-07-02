@@ -36,10 +36,13 @@ namespace FarHorizon
         public WasdMovement player;
         public string subDir = "Captures";
 
-        // The snake must occupy at least this fraction of the frame HEIGHT in the findable shot — a
-        // sliver below this can't be "findable at gameplay framing". ~1.9m body at orbit distance 14
-        // projects well above this floor; a buried/culled/shrunken snake fails it.
-        private const float MinApparentHeightFrac = 0.02f;
+        // The snake's projected NOSE-TO-TAIL span must cover at least this fraction of the viewport in
+        // the findable shot. The eye finds a snake by its warm LENGTH (a long low animal), so the metric
+        // measures exactly that — the first cut measured a 0.30m HEIGHT probe and framing-failed a
+        // plainly-findable snake (observed run: heightFrac 0.0154 red while the capture showed a clearly
+        // visible banded serpent; the ~1.9m body spans ~0.05-0.09 of the frame at real gameplay framing).
+        // A buried / culled / shrunken snake still fails this floor.
+        private const float MinApparentSpanFrac = 0.035f;
 
         void Start()
         {
@@ -93,8 +96,9 @@ namespace FarHorizon
             if (orbit != null && toSnake.sqrMagnitude > 1e-4f)
                 orbit.SetYaw(Mathf.Atan2(toSnake.x, toSnake.z) * Mathf.Rad2Deg);
             for (int i = 0; i < 5; i++) yield return null; // let the yawed framing settle
-            bool visibleAtStart = SnakeInFrame(cam, ai.transform, out float heightFrac);
-            Debug.Log($"[SnakeVerifyCapture] findable: inFrame={visibleAtStart} apparentHeightFrac={heightFrac:F4} " +
+            var chain = ai.GetComponent<SnakeBodyChain>();
+            bool visibleAtStart = SnakeInFrame(cam, ai.transform, chain, out float spanFrac);
+            Debug.Log($"[SnakeVerifyCapture] findable: inFrame={visibleAtStart} apparentSpanFrac={spanFrac:F4} " +
                       $"state={ai.State}");
             ShotTo(Path.Combine(dir, "snake_findable.png"));
             yield return new WaitForEndOfFrame();
@@ -211,29 +215,38 @@ namespace FarHorizon
             yield return null;
             yield return new WaitForSeconds(0.4f); // let the last screenshot flush to disk
 
-            bool findable = visibleAtStart && heightFrac >= MinApparentHeightFrac;
+            bool findable = visibleAtStart && spanFrac >= MinApparentSpanFrac;
             bool pass = findable && aggroSeen && telegraphSeen && lungeSeen && biteLanded && biteAmountOk &&
                         died && despawned;
             Debug.Log($"[SnakeVerifyCapture] GATE {(pass ? "PASS" : "FAIL")}: findable={findable} " +
-                      $"(inFrame={visibleAtStart} heightFrac={heightFrac:F4}>={MinApparentHeightFrac}) " +
+                      $"(inFrame={visibleAtStart} spanFrac={spanFrac:F4}>={MinApparentSpanFrac}) " +
                       $"aggro={aggroSeen} telegraph={telegraphSeen} lunge={lungeSeen} bite={biteLanded} " +
                       $"biteAmountOk={biteAmountOk} died={died} despawned={despawned} -> {dir}");
             Application.Quit(pass ? 0 : 1);
         }
 
-        // Is the snake inside the camera frustum, and how tall does its body read on screen? Projects the
-        // root ± half the body height to the viewport — presence + a minimum apparent size, so a culled /
-        // terrain-buried / microscopic snake fails the findable gate (the metric half; the PNG is the
-        // subjective half the author + Sponsor eyeball).
-        private static bool SnakeInFrame(Camera cam, Transform snake, out float heightFrac)
+        // Is the snake inside the camera frustum, and how LONG does it read on screen? Projects the head
+        // and the tail segment to the viewport and measures the 2D nose-to-tail span — the dimension the
+        // eye actually finds a long low animal by (a 0.3m height probe framing-failed a plainly-findable
+        // snake). A culled / terrain-buried / microscopic snake fails the span floor; the PNG stays the
+        // subjective half the author + Sponsor eyeball.
+        private static bool SnakeInFrame(Camera cam, Transform snake, SnakeBodyChain chain, out float spanFrac)
         {
-            heightFrac = 0f;
+            spanFrac = 0f;
             if (cam == null || snake == null) return false;
-            Vector3 pLow = cam.WorldToViewportPoint(snake.position);
-            Vector3 pHigh = cam.WorldToViewportPoint(snake.position + Vector3.up * 0.30f); // rear-up headroom
-            if (pLow.z <= 0f || pHigh.z <= 0f) return false;
-            heightFrac = Mathf.Abs(pHigh.y - pLow.y);
-            return pLow.x > 0f && pLow.x < 1f && pLow.y > 0f && pLow.y < 1f;
+            Vector3 pRoot = cam.WorldToViewportPoint(snake.position);
+            if (pRoot.z <= 0f) return false;
+            bool inFrame = pRoot.x > 0f && pRoot.x < 1f && pRoot.y > 0f && pRoot.y < 1f;
+
+            Transform head = chain != null && chain.segments != null && chain.segments.Length > 0
+                ? chain.segments[0] : snake;
+            Transform tail = chain != null && chain.segments != null && chain.segments.Length > 1
+                ? chain.segments[chain.segments.Length - 1] : snake;
+            Vector3 pHead = cam.WorldToViewportPoint(head.position);
+            Vector3 pTail = cam.WorldToViewportPoint(tail.position);
+            if (pHead.z > 0f && pTail.z > 0f)
+                spanFrac = Vector2.Distance(new Vector2(pHead.x, pHead.y), new Vector2(pTail.x, pTail.y));
+            return inFrame;
         }
 
         // World direction → the camera-relative Vector2 WasdMovement expects (its input is WASD in the
