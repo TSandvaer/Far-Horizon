@@ -1850,10 +1850,22 @@ namespace FarHorizon.EditorTools
         // cannot perturb the seed-42 island/scatter/NavMesh (the seed lock is honoured by construction).
         public static readonly Vector3 SnakePosition = new Vector3(5f, 0f, 4f);
 
-        // Snake body greens (a muted low-poly serpent — a placeholder for the full snake POC 86caaz4vn art).
-        private static readonly Color SnakeBody = new Color(0.36f, 0.48f, 0.24f);
-        private static readonly Color SnakeTop  = new Color(0.46f, 0.58f, 0.30f);
-        private static readonly Color SnakeShadow = new Color(0.20f, 0.30f, 0.14f);
+        // THE REAL SNAKE's warm banded palette (86caaz4vn AC1 — the findable serpent; the #224 green
+        // bush-blob placeholder is retired). CONTRASTING warm rust + dark bands vs the green bushes/grass,
+        // material-honest (a banded warm-brown serpent, not an arbitrary tint); saturated (chroma > 0.1 —
+        // clear of the near-neutral pink-cast quantizer class, and these are direct colours anyway).
+        private static readonly Color SnakeRust = new Color(0.78f, 0.38f, 0.16f); // warm rust-orange band
+        private static readonly Color SnakeDark = new Color(0.34f, 0.18f, 0.10f); // dark brown band
+        private static readonly Color SnakeHeadCol = new Color(0.85f, 0.45f, 0.18f); // head: a touch brighter
+        private static readonly Color SnakeEye = new Color(0.06f, 0.05f, 0.04f);  // near-black eye facets
+
+        // The serpent's build dimensions (AC1: ~1.5–2m nose-to-tail, distinct head + segmented body).
+        private const int SnakeBodyLinks = 12;          // body links behind the head
+        private const float SnakeLinkLength = 0.16f;    // baked link length (overlaps spacing → continuous)
+        private const float SnakeLinkSpacing = 0.14f;   // chain arc spacing (SnakeBodyChain.segmentSpacing)
+        private const float SnakeNeckRadius = 0.115f;   // first link half-extent (head neck matches)
+        private const float SnakeTailRadius = 0.045f;   // last link half-extent (the taper target)
+        private const float SnakeHeadLength = 0.26f;    // nose-to-neck
 
         // The FIRST combat build (Combat POC 86cah7xxp): player HP + needs-gated regen + tiered death + the
         // left-click melee attack on the player root, and ONE damageable snake. Wires the HUD HP bar (AC9) +
@@ -1906,8 +1918,9 @@ namespace FarHorizon.EditorTools
             attack.character = Object.FindObjectOfType<CastawayCharacter>();
             attack.inventoryUI = Object.FindObjectOfType<InventoryUI>();
 
-            // --- THE SNAKE (AC7) — a damageable enemy proving the shared Health surface + a pierce-weak profile. ---
-            BuildSnake(player);
+            // --- THE SNAKE — the REAL serpent (86caaz4vn): findable banded body + wander/aggro AI +
+            //     telegraphed lunge bite, on the 86cah7xxp shared Health surface. ---
+            BuildSnake(player, groundLayer);
 
             // --- THE SPEAR PICKUP (AC4) — the second contrasting craftable weapon's acquisition. The player
             //     walks up to acquire the spear onto the belt, then cycles-selects it to feel the long-reach
@@ -1935,19 +1948,40 @@ namespace FarHorizon.EditorTools
         // 86caaz4vn art) + Health + a pierce-weak ResistanceProfile + a StatusEffectController (so a weapon's
         // bleed applies to it). Collider-free — the player walks up + left-clicks to attack; never blocks the
         // ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
-        private static void BuildSnake(GameObject player)
+        private static void BuildSnake(GameObject player, int groundLayer)
         {
             var snake = new GameObject("Snake");
             snake.transform.position = SnakePosition;
+            // Face AWAY from the player spawn (0,0,6) initially so the authored layout reads as an animal
+            // mid-patrol, not a sentry staring at spawn. The chain re-lays the body at runtime.
+            snake.transform.rotation = Quaternion.LookRotation(new Vector3(0.6f, 0f, -0.8f), Vector3.up);
 
-            // Body proxy: a squat faceted blob (reusing the bush-blob idiom) so the snake reads as a small
-            // low-poly creature. The full serpent silhouette is the snake POC's art (OOS here — prove HP).
-            BuildBlobCanopyPart(snake, "SnakeBody",
-                LowPolyMeshes.BushBlob(0.45f, 5, SnakeBody, SnakeTop, SnakeShadow, 61403), Vector3.zero);
-            // A small raised head so it reads as facing the player (a coil + head placeholder).
-            BuildBlobCanopyPart(snake, "SnakeHead",
-                LowPolyMeshes.FacetedSphere(0.22f, 1, 0.15f, 61404), new Vector3(0.35f, 0.3f, 0f));
+            // === THE SERPENT BODY (86caaz4vn AC1 — head + tapered banded links, ~1.9m nose-to-tail). ===
+            // Segments are CHILDREN with editor-baked meshes (they serialize into Boot.unity — the
+            // Awake-built-hierarchies-don't-serialize trap); SnakeBodyChain only MOVES them at runtime.
+            // Laid out along local -Z behind the head so the SAVED scene already reads as a full snake.
+            var segs = new System.Collections.Generic.List<Transform>();
 
+            var headGo = BuildSnakePart(snake, "SnakeHead",
+                LowPolyMeshes.SnakeHead(SnakeNeckRadius, SnakeHeadLength, SnakeHeadCol, SnakeEye, 61404),
+                Vector3.zero);
+            segs.Add(headGo.transform);
+
+            for (int i = 0; i < SnakeBodyLinks; i++)
+            {
+                float t0 = i / (float)SnakeBodyLinks;
+                float t1 = (i + 1) / (float)SnakeBodyLinks;
+                float rBack = Mathf.Lerp(SnakeNeckRadius, SnakeTailRadius, t1); // toward the tail
+                float rFront = Mathf.Lerp(SnakeNeckRadius, SnakeTailRadius, t0);
+                // ALTERNATING warm bands — the banded contrast read (rust / dark / rust / ...).
+                Color band = (i % 2 == 0) ? SnakeRust : SnakeDark;
+                var link = BuildSnakePart(snake, "SnakeLink" + i.ToString("00"),
+                    LowPolyMeshes.SnakeLink(rBack, rFront, SnakeLinkLength, band, 61410 + i),
+                    new Vector3(0f, 0f, -SnakeLinkSpacing * (i + 1)));
+                segs.Add(link.transform);
+            }
+
+            // === The 86cah7xxp shared combat surface (UNCHANGED — this ticket builds ON it, AC4/AC5). ===
             var health = snake.AddComponent<FarHorizon.Combat.Health>();
             health.max = FarHorizon.Combat.SnakeEnemy.SnakeMaxHp;
             health.startFull = true;
@@ -1964,9 +1998,73 @@ namespace FarHorizon.EditorTools
 
             var enemy = snake.AddComponent<FarHorizon.Combat.SnakeEnemy>();
             enemy.biteBleed = FarHorizon.Combat.StatusEffectSpec.MakeBleed(1.5f, 3f); // a light enemy→player bleed
+            enemy.easyBiteDamage = FarHorizon.Combat.SnakeEnemy.SnakeEasyBiteDamage;   // AC4 per-tier map
+            enemy.medBiteDamage = FarHorizon.Combat.SnakeEnemy.SnakeMedBiteDamage;
+            enemy.hardBiteDamage = FarHorizon.Combat.SnakeEnemy.SnakeHardBiteDamage;
 
-            Debug.Log("[MovementCameraScene] authored Snake enemy at " + SnakePosition +
-                      " (pierce-weak, HP=" + health.max + ")");
+            // === NavMesh movement (AC2 — the island NavMesh; WorldBootstrap.BakeNavMesh covers it). ===
+            var agent = snake.AddComponent<UnityEngine.AI.NavMeshAgent>();
+            agent.radius = 0.25f;
+            agent.height = 0.4f;
+            agent.speed = 0.9f;               // SnakeAI drives per-state speed
+            agent.acceleration = 8f;
+            agent.angularSpeed = 720f;
+            agent.stoppingDistance = 0.15f;
+            agent.autoBraking = true;
+            agent.baseOffset = 0f;            // the VISUAL grounds via the chain's terrain snap, not the agent Y
+
+            // === The AI + the body chain (AC2/AC3) — the snake's OWN drivers; the player's Animator →
+            //     CastawayArmPose → HeldAxeRig chain is untouched by construction. ===
+            var ai = snake.AddComponent<FarHorizon.Combat.SnakeAI>();
+            ai.player = player.transform;
+            ai.playerHealth = player.GetComponent<FarHorizon.Combat.Health>();
+            ai.deathHandler = player.GetComponent<FarHorizon.Combat.DeathHandler>(); // the live tier surface (AC4)
+
+            var chain = snake.AddComponent<FarHorizon.Combat.SnakeBodyChain>();
+            chain.ai = ai;
+            chain.segments = segs.ToArray();
+            chain.segmentSpacing = SnakeLinkSpacing;
+            chain.groundMask = 1 << groundLayer; // the SAME Ground layer the player's own snap raycasts
+
+            Debug.Log("[MovementCameraScene] authored REAL Snake (86caaz4vn) at " + SnakePosition +
+                      ": head+" + SnakeBodyLinks + " banded links (~" +
+                      (SnakeHeadLength + SnakeLinkSpacing * SnakeBodyLinks).ToString("0.00") +
+                      "m), wander/aggro AI + telegraphed lunge, pierce-weak HP=" + health.max);
+        }
+
+        // One snake segment child: baked mesh + MeshRenderer with the inline vertex-colour material
+        // (serializes into the scene — the BuildBlobCanopyPart idiom, snake-named so the material trace
+        // reads correctly in the Frame Debugger). Collider-free: MeleeAttack targets by Health distance,
+        // the chain raycasts only the Ground mask, and the NavMesh bake never sees the snake.
+        private static GameObject BuildSnakePart(GameObject parent, string name, Mesh mesh, Vector3 localPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var mat = new Material(vc) { name = "SnakeMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+                mr.sharedMaterial = mat; // inline -> serializes into the scene (no .mat churn)
+                EnsureShaderAlwaysIncluded(vc);
+            }
+            else
+            {
+                var litShader = Shader.Find("Universal Render Pipeline/Lit");
+                var mat = new Material(litShader) { name = "SnakeMat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", SnakeRust);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+                Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; snake flat-rust fallback");
+            }
+            return go;
         }
 
         // World position of the wired SPEAR pickup (Combat POC 86cah7xxp AC4). A DETERMINISTIC scene-author ADD
@@ -3117,6 +3215,11 @@ namespace FarHorizon.EditorTools
             // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
             WireHitReactVerifyCapture(player);
 
+            // Wire the REAL-SNAKE shipped-build capture (86caaz4vn AC6/AC7) — walks the player at the snake
+            // through the movement seam, proves aggro→telegraph→lunge→bite live + kills it with the real axe
+            // WeaponDef, shooting gameplay-cam + side-profile frames. Inert unless -verifySnake.
+            WireSnakeVerifyCapture(player);
+
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
         }
@@ -3280,6 +3383,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<LocomotionHitReactVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<LocomotionHitReactVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the REAL-SNAKE shipped-build verify capture (86caaz4vn) onto the Boot object so it SERIALIZES
+        // into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifySnake. Sibling of WireHitReactVerifyCapture.
+        private static void WireSnakeVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SnakeVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SnakeVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SnakeVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }
