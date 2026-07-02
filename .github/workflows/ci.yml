@@ -459,9 +459,11 @@ jobs:
         shell: bash
         run: |
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
-                ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log
+                ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
+                ci-out/verify-heldbelt.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
-                 ci-out/loot-caps ci-out/water-caps ci-out/chop-caps
+                 ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
+                 ci-out/heldbelt-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -692,6 +694,44 @@ jobs:
           path: |
             ci-out/chop-caps/*.png
             ci-out/verify-chop.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 12. Held-belt-selection shipped-build capture gate (ticket 86cahx2p5 — the CI wiring
+      #     follow-up to PR #232 / 86cahngdg, the soak-224 crossed-visual fix). The belt-selection
+      #     table ("the held visual follows the SELECTED belt weapon": axe -> AXE mesh, spear ->
+      #     SPEAR mesh, empty -> hidden, back-to-axe -> the mesh RETURNS, never the stale spear)
+      #     was proven by PlayMode tests + a manual soak only — the generic -captureGate (step 7)
+      #     shoots the default spawn frame with NO weapons acquired, so a re-break of the selection
+      #     sync would slip through GREEN CI exactly like the #165 chop class. This launches the
+      #     SAME built exe windowed with -verifyHeldBelt, driving AxeVerifyCapture's held-belt path:
+      #     acquire axe + spear via the REAL Inventory pickup seams, drive all four selection states,
+      #     SELF-ASSERT renderer visibility + held-mesh identity per state (vertex-count swap proof).
+      #     The component Quit(1)s on any failed state (or missing wiring), so the exe's exit code IS
+      #     the gate verdict; frame_check.py is a swapchain-content backstop. STATE-4 writes no PNG
+      #     yet (needs a runtime change — remaining scope on 86cahx2p5); its assert rides the exit
+      #     code. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
+      - name: Held-belt capture gate (held visual follows belt selection)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_heldbelt_gate.sh
+            .github/workflows/scripts/verify_heldbelt_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/heldbelt-caps ci-out/verify-heldbelt.log
+          else
+            echo "[verify-heldbelt] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload held-belt frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-heldbelt-caps-${{ github.sha }}
+          path: |
+            ci-out/heldbelt-caps/*.png
+            ci-out/verify-heldbelt.log
           if-no-files-found: warn
           retention-days: 3
 
