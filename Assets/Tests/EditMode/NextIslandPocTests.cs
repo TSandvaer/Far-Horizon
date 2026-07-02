@@ -336,6 +336,127 @@ namespace FarHorizon.EditTests
             finally { Object.DestroyImmediate(parent); }
         }
 
+        // ---- SNOW-CAP FACETING (ticket 86cahmxh6) — the snow ZONE reads chunky/faceted, not a smooth dome ----
+
+        [Test]
+        public void SnowZone_IsFaceted_LowerZonesStaySmooth()
+        {
+            // REGRESSION GUARD (ticket 86cahmxh6): the SNOW-facet zone of the built terrain must carry FLAT
+            // per-face normals (adjacent snow faces differ sharply → an angular chunky cap), while the
+            // grass/rock lower zones stay WELDED-SMOOTH (adjacent faces share near-equal normals → the Zone-D
+            // dune look, unchanged). Catches the BUG CLASS — if a future edit reverts the snow to smooth-welded
+            // (e.g. drops the flat-normal pass or RecalculateNormals-es the whole mesh), this reds.
+            var parent = new GameObject("PocFacetParent");
+            try
+            {
+                var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                GameObject ground = NextIslandPocGen.BuildPocIsland(parent, NextIslandPocScene.PocSeed, vcMat, waterMat);
+                var mesh = ground.GetComponent<MeshFilter>().sharedMesh;
+                var verts = mesh.vertices;
+                var normals = mesh.normals;
+                var tris = mesh.triangles;
+                Assert.AreEqual(verts.Length, normals.Length, "the mesh must carry explicit per-vertex normals.");
+
+                // Classify each triangle by its centroid (snow-facet zone vs not) and, per class, measure the
+                // spread of face-vs-vertex-normal agreement. A FLAT face has all 3 vertex normals == the face
+                // normal (dot ~1); a SMOOTH welded region has vertex normals that are AVERAGES (dot < 1 on
+                // slopes, and adjacent faces' normals diverge from the per-triangle face normal).
+                int snowFlat = 0, snowTotal = 0, smoothWelded = 0, smoothTotal = 0;
+                for (int t = 0; t < tris.Length; t += 3)
+                {
+                    int a = tris[t], b = tris[t + 1], c = tris[t + 2];
+                    Vector3 v0 = verts[a], v1 = verts[b], v2 = verts[c];
+                    float cxw = (v0.x + v1.x + v2.x) / 3f;
+                    float czw = (v0.z + v1.z + v2.z) / 3f;
+                    Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+                    if (fn.sqrMagnitude < 1e-10f) continue;
+                    fn.Normalize();
+                    // A FLAT-shaded face: all three vertex normals equal the face normal (within eps).
+                    bool flat = Vector3.Dot(normals[a], fn) > 0.999f
+                             && Vector3.Dot(normals[b], fn) > 0.999f
+                             && Vector3.Dot(normals[c], fn) > 0.999f;
+                    if (NextIslandPocGen.IsSnowFacetZone(cxw, czw))
+                    {
+                        snowTotal++; if (flat) snowFlat++;
+                    }
+                    else
+                    {
+                        smoothTotal++;
+                        // "welded-smooth": at least one vertex normal is an AVERAGE (dot < 0.999 with THIS
+                        // face's normal) — i.e. the vertex is shared by faces of differing orientation.
+                        if (Vector3.Dot(normals[a], fn) < 0.999f
+                         || Vector3.Dot(normals[b], fn) < 0.999f
+                         || Vector3.Dot(normals[c], fn) < 0.999f) smoothWelded++;
+                    }
+                }
+
+                Assert.Greater(snowTotal, 0, "there must be a snow-facet zone on the hero peak.");
+                // The snow zone must be OVERWHELMINGLY flat-shaded (the chunky cap). Allow a tiny slack for
+                // degenerate/boundary faces.
+                Assert.Greater(snowFlat / (float)snowTotal, 0.9f,
+                    $"the SNOW zone must be FLAT-shaded (chunky/faceted) — {snowFlat}/{snowTotal} snow faces carry " +
+                    "per-face normals; a smooth-welded cap would score ~0 (ticket 86cahmxh6).");
+                // The lower (grass/rock) zones must stay welded-smooth on their SLOPES — a meaningful fraction of
+                // non-snow faces share averaged (non-face) vertex normals (the dune look, unchanged). Flat plateau
+                // faces legitimately read as flat, so this is a presence check, not a majority.
+                Assert.Greater(smoothWelded, 0,
+                    "the grass/rock lower zones must stay WELDED-SMOOTH (averaged normals) — the Zone-D dune look " +
+                    "must NOT be wholesale flat-shaded (lowpoly-quality §3).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void SnowFacetDisplacement_IsBounded_AndClimbable()
+        {
+            // The snow-facet displacement must be CLIMB-BOUNDED: (1) it is 0 outside the snow zone (grass/rock
+            // heights untouched — climbability of the flank as-approved); (2) inside the snow zone its magnitude
+            // never exceeds SnowFacetAmp; (3) the ADDED local slope from the displacement between adjacent grid
+            // verts stays comfortably under the 45° NavMesh agent max, so the faceted cap does not orphan the
+            // summit from the walkable surface (the shipped -verifyPocIsland NavMesh trace is the ground truth;
+            // this is the deterministic guard). The Sponsor APPROVED the climb — this pins it.
+            int seed = NextIslandPocScene.PocSeed;
+
+            // (1) zero outside the snow zone — sample the mid-flank (below SnowFacetFrac) + the flat interior.
+            float midR = 0f;
+            for (float rr = 4f; rr < NextIslandPocGen.MtnFootRadius; rr += 2f)
+                if (NextIslandPocGen.MountainHeightFracAt(NextIslandPocGen.MtnCenterX + rr, NextIslandPocGen.MtnCenterZ) <= 0.55f)
+                { midR = rr; break; }
+            Assert.AreEqual(0f,
+                NextIslandPocGen.SnowFacetDisplace(NextIslandPocGen.MtnCenterX + midR, NextIslandPocGen.MtnCenterZ, seed), 1e-4f,
+                "the snow-facet displacement must be 0 on the mid-flank (below the snow zone — grass/rock untouched).");
+            Assert.AreEqual(0f, NextIslandPocGen.SnowFacetDisplace(0f, 0f, seed), 1e-4f,
+                "the snow-facet displacement must be 0 far from the mountain (flat interior untouched).");
+
+            // (2)+(3) inside the snow zone: bounded magnitude + climbable added slope between adjacent grid verts.
+            float cell = NextIslandPocGen.GridHalf * 2f / NextIslandPocGen.Seg; // ~3.85u grid step
+            float maxAbs = 0f, maxAddedSlopeDeg = 0f;
+            int samples = 0;
+            // Walk a fine XZ raster over the snow-cap footprint and measure the displacement gradient.
+            for (float x = NextIslandPocGen.MtnCenterX - 80f; x <= NextIslandPocGen.MtnCenterX + 80f; x += cell)
+            for (float z = NextIslandPocGen.MtnCenterZ - 80f; z <= NextIslandPocGen.MtnCenterZ + 80f; z += cell)
+            {
+                if (!NextIslandPocGen.IsSnowFacetZone(x, z)) continue;
+                samples++;
+                float d = NextIslandPocGen.SnowFacetDisplace(x, z, seed);
+                if (Mathf.Abs(d) > maxAbs) maxAbs = Mathf.Abs(d);
+                // added-slope contribution from the displacement gradient in +X and +Z (adjacent grid verts).
+                float dx = NextIslandPocGen.SnowFacetDisplace(x + cell, z, seed) - d;
+                float dz = NextIslandPocGen.SnowFacetDisplace(x, z + cell, seed) - d;
+                float addedSlopeDeg = Mathf.Atan2(Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dz)), cell) * Mathf.Rad2Deg;
+                if (addedSlopeDeg > maxAddedSlopeDeg) maxAddedSlopeDeg = addedSlopeDeg;
+            }
+            Assert.Greater(samples, 0, "the snow-cap footprint must be sampled (there must be a snow zone).");
+            Assert.LessOrEqual(maxAbs, NextIslandPocGen.SnowFacetAmp + 1e-3f,
+                $"the snow-facet displacement magnitude ({maxAbs:F2}u) must not exceed SnowFacetAmp ({NextIslandPocGen.SnowFacetAmp:F2}u).");
+            // The near-flat summit + the smooth rock flank already sit well under 45°; the added displacement
+            // slope must leave real headroom (a comfortable margin, not right at the limit).
+            Assert.Less(maxAddedSlopeDeg, 30f,
+                $"the snow-facet ADDED slope between adjacent grid verts ({maxAddedSlopeDeg:F1}°) must leave real " +
+                "headroom under the 45° NavMesh agent max so the faceted cap stays CLIMBABLE (Sponsor APPROVED the climb).");
+        }
+
         private static Transform FindChild(Transform root, string name)
         {
             foreach (var t in root.GetComponentsInChildren<Transform>(true))

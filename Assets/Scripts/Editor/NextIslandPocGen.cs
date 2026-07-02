@@ -80,6 +80,26 @@ namespace FarHorizon.EditorTools
         // Above SnowlineFrac × MtnPeakHeight (measured from the plateau) the vertex colour is the white snow cap.
         public const float SnowlineFrac = 0.72f;   // faces above this height fraction of the peak read snow
 
+        // ============================================================================================
+        // SNOW-CAP FACETING (ticket 86cahmxh6 — Sponsor: the snow cap "less smooth and round, a bit more
+        // chunky/faceted"). The board's snow (inspiration/2026-06-12_21h12_49.png + 21h16_13.png) reads as
+        // ANGULAR broken white PLANES, not a smooth rounded dome. The snow ZONE of the terrain mesh gets
+        // FLAT per-face normals + a small angular height displacement so it reads chunky/faceted; the
+        // grass/rock/beach zones stay welded-smooth (the Zone-D dune look — never wholesale flat-shaded per
+        // lowpoly-quality §3). The snow stays a HEIGHT-THRESHOLD white VERTEX COLOUR (carried constraint —
+        // NO snow texture); ColorAt is UNCHANGED (keyed on the smooth MountainHeightAt), so the banding +
+        // the snow-cap regression guard stay green. Climbability is protected by BOUNDS: the displacement is
+        // small at a coarse cell (worst added slope ~atan2(2*amp, cell) ≈ 20°) stacked on the near-FLAT
+        // summit of the raised-cosine dome → stays well under the 45° NavMesh agent max (verified by the
+        // shipped -verifyPocIsland NAVMESH-COVERAGE + highest-reachable-Y trace).
+        // A face/vert is in the snow zone when its mountain-height fraction >= SnowFacetFrac. Set a touch
+        // BELOW SnowlineFrac so the faceting covers the whole visible white band with a small blend margin.
+        public const float SnowFacetFrac = 0.66f;   // faces above this mountain-height fraction get faceted
+        public const float SnowFacetAmp = 2.2f;      // ±u of angular displacement on snow verts (climb-bounded)
+        public const float SnowFacetCell = 22f;      // world-u cell of the angular snow-facet noise (coarse = broad
+                                                     // chunky planes; wide enough that adjacent grid verts (~3.9u)
+                                                     // share a plane → inter-vert slope stays climbable)
+
         // Spawn clearing — a flat clearing OPPOSITE the hero mountain so the player starts on gentle sea-level
         // ground and walks ACROSS the island toward the peak (the "small character, far horizon" read). It CANNOT
         // be the world origin: the mountain foot (300u) centred at (90,-60) blankets the origin, so a spawn there
@@ -167,6 +187,53 @@ namespace FarHorizon.EditorTools
         }
 
         /// <summary>
+        /// The mountain-height FRACTION at world XZ (0 at/below the foot .. 1 at the summit), relative to the
+        /// peak height. The snow band + the snow-facet zone key off this so only the hero peak snows/facets.
+        /// PUBLIC so the faceting tests sample it. (Same value ColorAt uses for the banding.)
+        /// </summary>
+        public static float MountainHeightFracAt(float wx, float wz) =>
+            Mathf.Clamp01(MountainHeightAt(wx, wz) / MtnPeakHeight);
+
+        /// <summary>True if this XZ is in the SNOW-FACET zone (mountain-height fraction >= SnowFacetFrac) —
+        /// its terrain face gets flat per-face normals + the angular snow displacement (the chunky cap).</summary>
+        public static bool IsSnowFacetZone(float wx, float wz) =>
+            MountainHeightFracAt(wx, wz) >= SnowFacetFrac;
+
+        /// <summary>
+        /// The angular chunky-facet displacement added to a snow-zone vertex's HEIGHT (ticket 86cahmxh6). A
+        /// small coarse-cell angular perturbation so the snow surface reads as broken planes, not a smooth
+        /// dome. Fades in from 0 at SnowFacetFrac (a SmoothStep) so there is no cliff between the smooth rock
+        /// flank and the faceted cap. BOUNDED (SnowFacetAmp small, SnowFacetCell coarse) so the added slope
+        /// stays climbable on the near-flat summit. Returns 0 outside the snow zone. PUBLIC so tests sample it.
+        /// </summary>
+        public static float SnowFacetDisplace(float wx, float wz, int seed)
+        {
+            float frac = MountainHeightFracAt(wx, wz);
+            if (frac < SnowFacetFrac) return 0f;
+            // Fade the displacement in over the first slice of the snow zone so the rock→snow seam is smooth.
+            float ramp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SnowFacetFrac, SnowFacetFrac + 0.10f, frac));
+            // Coarse-cell CONTINUOUS angular noise (NO hard quantization — the FLAT per-face normals in the mesh
+            // build are what make each grid quad read as a distinct angular PLANE; the displacement only needs to
+            // give those planes VARIED heights so the cap is broken/chunky, not a smooth dome). A continuous
+            // (smoothly-varying) height keeps the inter-vert gradient bounded → the cap stays CLIMBABLE, while
+            // the per-face flat shading delivers the hard-edged faceted read the Sponsor asked for.
+            float n = AngularFacetNoise(wx, wz, seed);            // 0..1, smooth
+            return (n - 0.5f) * 2f * SnowFacetAmp * ramp;         // ±SnowFacetAmp, faded by the ramp
+        }
+
+        // Coarse-cell angular noise for the snow facets: two offset Perlin octaves at the snow-facet cell. The
+        // dominant octave is broad (whole-plane height variation); the second is a touch finer for asymmetry.
+        // Continuous (no quantization) — bounded gradient keeps the faceted cap climbable.
+        static float AngularFacetNoise(float wx, float wz, int seed)
+        {
+            SeedOffset(seed, out float ox, out float oz);
+            float f = 1f / SnowFacetCell;
+            float a = Mathf.PerlinNoise(ox + wx * f + 13.1f, oz + wz * f + 7.7f);
+            float b = Mathf.PerlinNoise(ox * 1.3f + wx * f * 1.7f + 41.3f, oz * 1.3f + wz * f * 1.7f + 29.9f);
+            return Mathf.Clamp01(a * 0.7f + b * 0.3f);
+        }
+
+        /// <summary>
         /// The organic island HEIGHT FIELD at world XZ (the single source of truth — the visible mesh, its
         /// collider, and the NavMesh all flow from it). Big-island version of LowPolyZoneGen.HeightAtRadial:
         /// interior land at plateau + rolling hills + the HERO MOUNTAIN bump; a flat sand beach strip easing
@@ -244,6 +311,9 @@ namespace FarHorizon.EditorTools
 
             SeedOffset(seed, out float ox, out float oz);
 
+            // ---- Grid verts + colours. The snow-facet zone (ticket 86cahmxh6) gets an angular height
+            //      DISPLACEMENT so the cap reads chunky; grass/rock/beach heights are unchanged. Colour keys
+            //      off the SMOOTH MountainHeightAt (via ColorAt) so the banding + snow-cap guard are unchanged. ----
             int vCount = (Seg + 1) * (Seg + 1);
             var verts = new Vector3[vCount];
             var cols = new Color[vCount];
@@ -256,6 +326,7 @@ namespace FarHorizon.EditorTools
                 float wx = (fx - 0.5f) * size;
                 float wz = (fz - 0.5f) * size;
                 float h = HeightAtRadial(wx, wz, ox, oz);
+                h += SnowFacetDisplace(wx, wz, seed);   // angular chunk on the snow cap only (0 elsewhere)
                 verts[i] = new Vector3(wx, h, wz);
                 cols[i] = ColorAt(wx, wz, h, ox, oz, seed);
             }
@@ -263,33 +334,96 @@ namespace FarHorizon.EditorTools
             // CLIP the terrain to the irregular landmass (+ a sea-shelf skirt): a cell is emitted only if at
             // least one corner is within (warped coast + a margin). Deep-sea cells dropped → no square grid
             // edge reads from overhead; the big water plane fills the rest to the fog horizon.
+            //
+            // NORMALS (ticket 86cahmxh6): the mesh carries EXPLICIT normals — NOT RecalculateNormals. Non-snow
+            // triangles stay WELDED with SMOOTH averaged normals (the Zone-D dune look, unchanged); snow-zone
+            // triangles are emitted UNWELDED with FLAT per-face normals (the chunky faceted cap — the
+            // LowPolyMeshes.FacetedRock idiom). One mesh, one collider (the NavMesh bakes the real surface).
             const float clipMargin = 40f;
-            var tris = new List<int>(Seg * Seg * 6);
+            var outVerts = new List<Vector3>(vCount + 4096);
+            var outCols = new List<Color>(vCount + 4096);
+            var outNormals = new List<Vector3>(vCount + 4096);
+            var outTris = new List<int>(Seg * Seg * 6);
+
+            // Welded verts keep their original grid slot in outVerts (0..vCount-1); we accumulate smooth normals
+            // for them from the NON-SNOW faces only, then append the snow faces' own unwelded verts afterwards.
+            for (int i = 0; i < vCount; i++)
+            {
+                outVerts.Add(verts[i]);
+                outCols.Add(cols[i]);
+                outNormals.Add(Vector3.zero);   // accumulator → normalized after the non-snow pass
+            }
+
+            var snowFaces = new List<int>(); // flat indices (a,b,c) of snow-zone triangles, resolved in pass 2
+            void ConsiderTri(int a, int b, int c)
+            {
+                // A triangle is a SNOW face if its centroid is in the snow-facet zone (keyed on the SMOOTH
+                // dome so the classification is stable + matches the colour band, independent of the display).
+                float cxw = (verts[a].x + verts[b].x + verts[c].x) / 3f;
+                float czw = (verts[a].z + verts[b].z + verts[c].z) / 3f;
+                if (IsSnowFacetZone(cxw, czw))
+                {
+                    snowFaces.Add(a); snowFaces.Add(b); snowFaces.Add(c); // flat-shade in pass 2
+                    return;
+                }
+                // Non-snow: welded, smooth. Accumulate the face normal onto its 3 shared verts.
+                Vector3 fn = Vector3.Cross(verts[b] - verts[a], verts[c] - verts[a]);
+                if (fn.y < 0f) fn = -fn;                // island faces up; keep the up-orientation
+                outNormals[a] += fn; outNormals[b] += fn; outNormals[c] += fn;
+                outTris.Add(a); outTris.Add(b); outTris.Add(c);
+            }
+
             for (int z = 0; z < Seg; z++)
             for (int x = 0; x < Seg; x++)
             {
                 int i = z * (Seg + 1) + x;
                 if (!CellNearLandmass(verts, i, Seg, ox, oz, clipMargin)) continue;
-                tris.Add(i); tris.Add(i + Seg + 1); tris.Add(i + 1);
-                tris.Add(i + 1); tris.Add(i + Seg + 1); tris.Add(i + Seg + 2);
+                ConsiderTri(i, i + Seg + 1, i + 1);
+                ConsiderTri(i + 1, i + Seg + 1, i + Seg + 2);
+            }
+
+            // Normalize the accumulated smooth normals for the welded (non-snow) verts. A vert touched only by
+            // snow faces (never accumulated) stays zero here but is not referenced by any welded triangle, so
+            // its normal is inert; give it up as a safe default.
+            for (int i = 0; i < vCount; i++)
+                outNormals[i] = outNormals[i].sqrMagnitude > 1e-10f ? outNormals[i].normalized : Vector3.up;
+
+            // Pass 2 — emit the SNOW faces UNWELDED with FLAT per-face normals (own 3 verts each). This is what
+            // makes the cap read as angular planes (each facet lit by its own N·L) rather than a smooth dome.
+            int snowFaceCount = 0;
+            for (int t = 0; t < snowFaces.Count; t += 3)
+            {
+                int a = snowFaces[t], b = snowFaces[t + 1], c = snowFaces[t + 2];
+                Vector3 v0 = verts[a], v1 = verts[b], v2 = verts[c];
+                Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+                if (fn.sqrMagnitude < 1e-10f) continue;
+                fn.Normalize();
+                if (fn.y < 0f) { fn = -fn; var tmp = v1; v1 = v2; v2 = tmp; } // keep the up-facing front side
+                int bi = outVerts.Count;
+                outVerts.Add(v0); outVerts.Add(v1); outVerts.Add(v2);
+                outCols.Add(cols[a]); outCols.Add(cols[b]); outCols.Add(cols[c]);
+                outNormals.Add(fn); outNormals.Add(fn); outNormals.Add(fn);
+                outTris.Add(bi); outTris.Add(bi + 1); outTris.Add(bi + 2);
+                snowFaceCount++;
             }
 
             var mesh = new Mesh { name = name + "_mesh" };
-            mesh.indexFormat = vCount > 65000
+            mesh.indexFormat = outVerts.Count > 65000
                 ? UnityEngine.Rendering.IndexFormat.UInt32
                 : UnityEngine.Rendering.IndexFormat.UInt16;
-            mesh.vertices = verts;
-            mesh.colors = cols;
-            mesh.SetTriangles(tris, 0);
-            mesh.RecalculateNormals();
+            mesh.SetVertices(outVerts);
+            mesh.SetColors(outCols);
+            mesh.SetNormals(outNormals);   // EXPLICIT (smooth non-snow + flat snow) — never RecalculateNormals
+            mesh.SetTriangles(outTris, 0);
             mesh.RecalculateBounds();
             mf.sharedMesh = mesh;
 
             var col = go.AddComponent<MeshCollider>();
-            col.sharedMesh = mesh; // NavMesh bakes on the actual sloped island + mountain surface
+            col.sharedMesh = mesh; // NavMesh bakes on the actual sloped island + faceted snow surface
 
-            Debug.Log($"[poc-trace] BuildTerrainMesh '{name}': {vCount} verts, {tris.Count / 3} tris (clipped from " +
-                      $"{Seg * Seg * 2} full-grid), meanShoreR={MeanShoreR:F0}u peakH={MtnPeakHeight:F0}u seed={seed}");
+            Debug.Log($"[poc-trace] BuildTerrainMesh '{name}': {outVerts.Count} verts, {outTris.Count / 3} tris " +
+                      $"({snowFaceCount} FLAT snow-facet faces + welded-smooth rest; clipped from {Seg * Seg * 2} " +
+                      $"full-grid), meanShoreR={MeanShoreR:F0}u peakH={MtnPeakHeight:F0}u snowFacetFrac={SnowFacetFrac:F2} seed={seed}");
             return go;
         }
 
