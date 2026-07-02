@@ -87,7 +87,7 @@ namespace FarHorizon
         // WorldBootstrap.SunElevationDeg/SunAzimuthDeg — editor-only, can't be referenced from this runtime
         // asmdef, so the literals are kept in sync by hand). The live value is RE-DERIVED from the baked
         // _SunDirection on Resolve, so a default drift here only affects the no-material edge case.
-        private const float SunElevFallbackDeg = 25f;
+        private const float SunElevFallbackDeg = 8f;  // mirrors WorldBootstrap.SunElevationDeg (86cah90cp round-2 bake)
         private const float SunAzimuthFallbackDeg = -35f;
         private float _sunElevDeg = SunElevFallbackDeg;     // degrees above the horizon (re-derived on Resolve)
         private float _sunAzimuthDeg = SunAzimuthFallbackDeg; // azimuth/yaw (held constant while dialing elevation)

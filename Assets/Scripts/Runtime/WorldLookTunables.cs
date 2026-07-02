@@ -59,7 +59,7 @@ namespace FarHorizon
 
         // Sun elevation/azimuth (the disk is driven by the sky material's _SunDirection). Elevation is dialed;
         // azimuth held. Derived once from the baked _SunDirection so the first dial starts from the shipped sun.
-        private const float SunElevFallbackDeg = 25f;
+        private const float SunElevFallbackDeg = 8f;  // mirrors WorldBootstrap.SunElevationDeg (86cah90cp round-2 bake)
         private const float SunAzimuthFallbackDeg = -35f;
         private float _sunElevDeg = SunElevFallbackDeg;
         private float _sunAzimuthDeg = SunAzimuthFallbackDeg;

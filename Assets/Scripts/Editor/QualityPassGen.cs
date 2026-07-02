@@ -36,19 +36,19 @@ namespace FarHorizon.EditorTools
 
         // ---- SUN-DISK defaults (ticket 86cabc743 — Erik low-poly-sky research, POC item 2) ----
         // Warm toy-like sun disk in the GradientSkybox. Additive in the shader → the post Bloom lifts a soft
-        // corona. SPONSOR-ACCEPTED hue + size (soak 2026-07-01, F10 world-look nudge session, ticket 86cah90cp):
+        // corona. SPONSOR-ACCEPTED hue + size (86cah90cp ROUND-2 dial, 2026-07-02, soak-223 exe b8d6e96):
         // the Sponsor live-dialed _SunColor on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD and
-        // accepted (0.74,0.84,0.26) — a warm YELLOW-GREEN toy sun (G highest, B near-zero), a distinct dial from
-        // the prior soft warm white (0.98,0.86,0.86, soak 55bde02) — paired with the further-LOWERED 12° sun (see
+        // accepted (0.80,0.815,0.089) — a warm GOLDEN-YELLOW toy sun (R≈G, B near-zero; Player-prev.log final
+        // line "colour=(0,800,0,815,0,089)") — paired with the further-LOWERED 8° sun (see
         // WorldBootstrap.SunElevationDeg). The lerp-core-then-glow composite in GradientSkybox.shader preserves
         // this dialed hue through the bloom+tonemap (it does not clip to pure white at the core).
-        public static readonly Color SunColor   = new Color(0.74f, 0.84f, 0.26f, 1f); // Sponsor-accepted (soak 2026-07-01, 86cah90cp): warm yellow-green toy sun
-        // SIZE: the Sponsor dialed _SunSize to 0.95 (the shader property's lower clamp = the BIGGEST disk) — a
-        // chunky board-scale sun, the largest the shader range allows. (_SunSize is the disk-edge dot threshold:
-        // LOWER = BIGGER; the original 0.9985 was a sub-pixel pinpoint, 0.992 a ~7° disk, 0.95 the full board
-        // sun.) Hardness 60 stays — a crisp low-poly edge with a touch of softness for the bloom corona.
-        // Re-confirmed 0.95 on the 2026-07-01 86cah90cp soak (unchanged from soak 55bde02).
-        public const float SunSize     = 0.95f;  // Sponsor-accepted (soak 55bde02, re-confirmed 86cah90cp): the biggest disk in-range [0.95,0.9999]
+        public static readonly Color SunColor   = new Color(0.80f, 0.815f, 0.089f, 1f); // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02, Player-prev.log final line "colour=(0,800,0,815,0,089)"): warm golden-yellow toy sun, B near-zero
+        // SIZE: the Sponsor dialed _SunSize UP to 0.986 on the 86cah90cp round-2 dial (2026-07-02,
+        // Player-prev.log final line "size=0,9860") — a SMALLER, tighter disk than the prior full-board 0.95.
+        // (_SunSize is the disk-edge dot threshold: HIGHER = SMALLER; 0.9985 was a sub-pixel pinpoint, 0.992
+        // a ~7° disk, 0.95 the biggest in-range.) Hardness 60 stays — a crisp low-poly edge with a touch of
+        // softness for the bloom corona.
+        public const float SunSize     = 0.986f; // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02): tighter disk, in-range [0.95,0.9999]
         public const float SunHardness = 60f;     // crisp-but-not-pinpoint low-poly disk edge
         // SKY-1 (ticket 86cahhfkc): a bounded (≤0.06) warm bias into the horizon band around the sun azimuth,
         // ties the low sun into the sky at the horizon. Frag-only lerp toward _SunColor — does NOT touch
@@ -79,12 +79,13 @@ namespace FarHorizon.EditorTools
                 // smooth (no banding seam) so the cheerful blue eases into the warm horizon haze.
                 sky.SetFloat("_MidPoint", 0.18f);
                 sky.SetFloat("_Softness", 0.85f);
-                // SUN DISK (ticket 86cabc743 — Erik low-poly-sky research, POC item 2). Sponsor-ACCEPTED soft
-                // warm-white hue + biggest-in-range size (soak 55bde02, ticket 86cag25az); additive in the
+                // SUN DISK (ticket 86cabc743 — Erik low-poly-sky research, POC item 2). Sponsor-ACCEPTED
+                // golden-yellow hue + 0.986 size (86cah90cp round-2 dial 2026-07-02); additive in the
                 // shader so the post Bloom lifts a soft corona. The sun appears where the view ray faces the
                 // Sun's direction (the warm directional key at Quaternion.Euler(WorldBootstrap.SunElevationDeg
-                // =18, SunAzimuthDeg=-35, 0) — LOWERED from 48 to the accepted 18° so the disk frames low over
-                // the ocean at gameplay angles, ticket 86cag25az).
+                // =8, SunAzimuthDeg=-35, 0) — lowered 48→25→18→12→8 across the dial history so the disk frames
+                // low over the ocean INSIDE the real gameplay sky band (FOV 45, minPitch 8 → top of frame
+                // ~14.5° above the horizon), tickets 86cag25az/86cah90cp).
                 sky.SetColor("_SunColor", SunColor);
                 sky.SetFloat("_SunSize", SunSize);
                 sky.SetFloat("_SunHardness", SunHardness);

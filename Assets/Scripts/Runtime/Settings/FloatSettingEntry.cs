@@ -63,6 +63,12 @@ namespace FarHorizon.Settings
             float clamped = ClampValue(v);
             _set(clamped);
             PlayerPrefs.SetFloat(PrefsKey, clamped);
+            // STALE-DEFAULT STAMP (86cah90cp sun-fidelity fix): record WHICH baked default this override was
+            // persisted under. LoadFromPrefs only honours the override while the row's registration default is
+            // STILL that default — when a bake moves the default, the stamp mismatch discards the stale override
+            // so the new baked look actually shows (the #223 defect: a persisted sun_elevation=18 from the
+            // elev-18 era silently overrode the freshly-baked 12 on every launch, and re-persisted itself).
+            PlayerPrefs.SetFloat(DefaultStampKey, _default);
             return clamped;
         }
 
@@ -75,8 +81,28 @@ namespace FarHorizon.Settings
         public override void LoadFromPrefs()
         {
             if (!Available) return;
-            if (PlayerPrefs.HasKey(PrefsKey)) SetValue(PlayerPrefs.GetFloat(PrefsKey));
+            if (!PlayerPrefs.HasKey(PrefsKey)) return;
+            // STALE-DEFAULT INVALIDATION (86cah90cp sun-fidelity fix). A persisted override is only valid
+            // against the baked default it was dialed under. If the stamp is missing (legacy key from before
+            // stamping — e.g. the Sponsor's fh.settings.sun_elevation=18) or differs from the CURRENT
+            // registration-time default (the bake moved), the override is STALE: discard it and let the new
+            // baked default show. A user re-dial after the new bake re-persists with a fresh stamp, so a
+            // deliberate tweak still survives relaunches (AC5) — it just can't outlive the default it was
+            // dialed against.
+            bool stampedUnderCurrentDefault = PlayerPrefs.HasKey(DefaultStampKey)
+                && Mathf.Approximately(PlayerPrefs.GetFloat(DefaultStampKey), _default);
+            if (!stampedUnderCurrentDefault)
+            {
+                PlayerPrefs.DeleteKey(PrefsKey);
+                PlayerPrefs.DeleteKey(DefaultStampKey);
+                return; // keep the (new) baked default — the whole point of the bake
+            }
+            SetValue(PlayerPrefs.GetFloat(PrefsKey));
         }
+
+        /// <summary>The sibling PlayerPrefs key holding the baked default the persisted value was dialed
+        /// under (the stale-override invalidation stamp — see <see cref="LoadFromPrefs"/>).</summary>
+        public string DefaultStampKey => PrefsKey + ".def";
 
         public override void ResetToDefault()
         {

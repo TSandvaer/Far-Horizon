@@ -29,6 +29,35 @@ namespace FarHorizon.EditTests
         {
             if (_go != null) Object.DestroyImmediate(_go);
             _go = null;
+
+            // PREFS HYGIENE (86cah90cp sun-fidelity round): FloatSettingEntry.SetValue persists to REAL
+            // PlayerPrefs (the Windows registry), so every SetValue in this fixture LEAKED an fh.settings.*
+            // key on the machine that ran EditMode — and SettingsPanel.Start's LoadAll then re-applied those
+            // TEST values in the actual game at every boot (observed on the Sponsor's machine: fog_color_r,
+            // cloud_scale, mtn_* keys present from test runs; the same injector class as the stale
+            // sun_elevation=18 that caused the round-1 invisible sun). Delete every key this fixture can
+            // write (+ its .def stale-default stamp) after each test — tests must never leak prefs.
+            string[] touchedIds =
+            {
+                SettingsCatalog.CamFollowLerpId, SettingsCatalog.CamVertFollowLerpId,
+                SettingsCatalog.CamAirborneLerpId, SettingsCatalog.CamFollowLeadTimeId,
+                SettingsCatalog.GroundYOffsetId,
+                SettingsCatalog.ArmRightPitchId, SettingsCatalog.ArmRightYawId, SettingsCatalog.ArmRightRollId,
+                SettingsCatalog.ArmLeftPitchId, SettingsCatalog.ArmLeftYawId, SettingsCatalog.ArmLeftRollId,
+                SettingsCatalog.RunLowerPitchId, SettingsCatalog.RunLowerYawId, SettingsCatalog.RunLowerRollId,
+                SettingsCatalog.FogDensityId,
+                SettingsCatalog.FogColorRId, SettingsCatalog.FogColorGId, SettingsCatalog.FogColorBId,
+                SettingsCatalog.SkyHorizonRId, SettingsCatalog.SkyHorizonGId, SettingsCatalog.SkyHorizonBId,
+                SettingsCatalog.CloudScaleId, SettingsCatalog.CloudAltitudeId,
+                SettingsCatalog.MtnDistanceId, SettingsCatalog.MtnPeakScaleId,
+                SettingsCatalog.MtnWarmthId, SettingsCatalog.MtnBrightnessId,
+                SettingsCatalog.SunElevationId, SettingsCatalog.SunSizeId,
+            };
+            foreach (var id in touchedIds)
+            {
+                PlayerPrefs.DeleteKey("fh.settings." + id);
+                PlayerPrefs.DeleteKey("fh.settings." + id + ".def");
+            }
         }
 
         private T AddComponentOnGo<T>() where T : Component

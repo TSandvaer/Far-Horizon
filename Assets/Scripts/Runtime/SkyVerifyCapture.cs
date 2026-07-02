@@ -115,32 +115,36 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             Texture2D cloudTex = GrabFull(out float skyMedianLuma, out float brightFraction);
 
-            // --- Shot 3: GAMEPLAY-FRAMED (ticket 86cag25az sun-lower) — the over-shoulder orbit pose at the
-            // most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°), FACING the sun's azimuth, at the real
-            // orbit distance (14u). This is the eyes-on proof that the LOWERED sun (Sponsor-accepted elev 18°) is
-            // FRAMED in normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a tilt").
-            // A WIDE FOV (75°) is used DELIBERATELY: at the orbit's lowest pitch the camera still looks slightly
-            // DOWN (Euler-X is look-down), so a generous FOV is needed for the low elev-18° sun to clear scenery
-            // and sit in the lower-sky band. Yaw faces the sun's horizontal azimuth so the disk lands in frame.
+            // --- Shot 3: GAMEPLAY-FRAMED (86cag25az sun-lower; re-framed HONEST on 86cah90cp) — the
+            // over-shoulder orbit pose at the most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°),
+            // FACING the sun's azimuth, at the real orbit distance (14u) AND the REAL gameplay FOV (45 —
+            // MovementCameraScene bakes cam.fieldOfView = 45f). Eyes-on proof that the low sun is FRAMED in
+            // normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a tilt").
+            // The previous WIDE 75° FOV false-passed the visibility question (the #194-review NIT; the
+            // unity-conventions "non-gameplay FOV/pitch false-pass" class): at FOV 45 / pitch-8 look-down the
+            // frame tops out ~14.5° above the horizon, so an 18° sun sat ABOVE the frame at every playable
+            // pitch while the 75° capture (top ~29.5°) still showed it green. Shooting the REAL FOV is what
+            // proves the 86cah90cp round-2 8° bake actually sits inside the playable sky band.
             // NOTE: whether the sun is framed in NORMAL play also depends where the player looks + on tree
-            // occlusion — over the OCEAN azimuth (where the Sponsor judged 18°) there is no treeline; this
+            // occlusion — over the OCEAN azimuth (where the Sponsor judged 8°) there is no treeline; this
             // capture leans inland so it may show canopy. The Sponsor soak is the real judge ([[verify-grounding-soaks-by-gameplay-cam-visual]]);
             // this shot proves it CAN be framed at a playable angle, and the gameplay self-assert below is
             // ADVISORY (logged, NOT gating) so tree-position variance can't false-fail the gate.
             float sunAzimuthDeg = Mathf.Atan2(toSun.x, toSun.z) * Mathf.Rad2Deg; // horizontal heading toward the sun
             const float gameplayPitch = 8f;    // OrbitCamera.minPitch — the horizon-most playable tilt
             const float gameplayDist  = 14f;   // OrbitCamera.distance default
+            const float gameplayFov   = 45f;   // MovementCameraScene cam.fieldOfView — the REAL gameplay FOV
             Vector3 lookAt = new Vector3(0f, 1.0f, 0f); // ≈ player root + OrbitCamera.targetOffset
             Quaternion gpRot = Quaternion.Euler(gameplayPitch, sunAzimuthDeg, 0f);
             Vector3 gpForward = gpRot * Vector3.forward;
             camGo.transform.position = lookAt - gpForward * gameplayDist; // sit back along the view ray
             camGo.transform.rotation = gpRot;
-            cam.fieldOfView = 75f; // WIDE so the elev-25 sun clears the tall canopy + sits in the open sky band
+            cam.fieldOfView = gameplayFov; // REAL gameplay FOV — a wide capture FOV false-passes visibility
             for (int i = 0; i < settleFrames; i++) yield return null;
             yield return new WaitForEndOfFrame();
             string gameplayFile = Path.Combine(dir, "sky_gameplay.png");
             ScreenCapture.CaptureScreenshot(gameplayFile, 1);
-            Debug.Log($"[SkyVerifyCapture] wrote {gameplayFile} (gameplay-framed: pitch {gameplayPitch}, FOV 75, yaw->sun azimuth {sunAzimuthDeg:F1})");
+            Debug.Log($"[SkyVerifyCapture] wrote {gameplayFile} (gameplay-framed: pitch {gameplayPitch}, FOV {gameplayFov}, yaw->sun azimuth {sunAzimuthDeg:F1})");
             yield return new WaitForEndOfFrame();
             yield return new WaitForEndOfFrame();
             Texture2D gpTex = GrabWarmestUpper(out Color gpSun, out Color gpSky);

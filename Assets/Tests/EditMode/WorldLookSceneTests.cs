@@ -353,26 +353,27 @@ namespace FarHorizon.EditTests
                 "serialized into the scene — not Awake-added");
         }
 
-        // ---- SUN DEFAULT BAKE (ticket 86cah90cp — Sponsor-dialed 2026-07-01) ----
+        // ---- SUN DEFAULT BAKE (ticket 86cah90cp — Sponsor round-2 dial 2026-07-02) ----
 
         [Test]
-        public void SunDefault_IsSponsorBaked_Elevation12_HueYellowGreen_Size095()
+        public void SunDefault_IsSponsorBaked_Elevation8_HueGoldenYellow_Size0986()
         {
-            // Ticket 86cah90cp: the Sponsor live-dialed the sun on the F10 WorldLookNudgeTool SUN target in the
-            // shipped build and accepted elevation 12° / hue (0.74,0.84,0.26) / size 0.95. Bake into the SOURCE
-            // OF TRUTH — WorldBootstrap.SunElevationDeg (elevation) + QualityPassGen.SunColor/SunSize (hue/size)
+            // Ticket 86cah90cp ROUND 2: the Sponsor live-dialed the sun on the F10 WorldLookNudgeTool SUN target
+            // in the shipped soak-223 build (stamp b8d6e96) and accepted elevation 8° / hue (0.80,0.815,0.089) /
+            // size 0.986 (Player-prev.log final SUN line). Bake into the SOURCE OF TRUTH —
+            // WorldBootstrap.SunElevationDeg (elevation) + QualityPassGen.SunColor/SunSize (hue/size)
             // — so the shipped build shows it AND any branch cut from main inherits it ([[unity-procedural-
             // committed-assets-go-stale]]). This guards the CONSTANTS directly (never a silent-pass on a headless
-            // material miss); a regression to the prior 18° / warm-white (0.98,0.86,0.86) fails HERE.
-            Assert.AreEqual(12f, WorldBootstrap.SunElevationDeg, 0.001f,
-                "the sun ELEVATION default must be the Sponsor-baked 12° (WorldBootstrap.SunElevationDeg) — was " +
-                "18° pre-86cah90cp; the F10 nudge tool's elevation dial writes here");
+            // material miss); a regression to the prior 12° / yellow-green (0.74,0.84,0.26) fails HERE.
+            Assert.AreEqual(8f, WorldBootstrap.SunElevationDeg, 0.001f,
+                "the sun ELEVATION default must be the Sponsor-baked 8° (WorldBootstrap.SunElevationDeg) — was " +
+                "12° pre-round-2; the F10 nudge tool's elevation dial writes here");
             Color sun = QualityPassGen.SunColor;
-            Assert.AreEqual(0.74f, sun.r, 0.001f, "sun HUE R must be the Sponsor-baked 0.74 (QualityPassGen.SunColor)");
-            Assert.AreEqual(0.84f, sun.g, 0.001f, "sun HUE G must be the Sponsor-baked 0.84 (QualityPassGen.SunColor)");
-            Assert.AreEqual(0.26f, sun.b, 0.001f, "sun HUE B must be the Sponsor-baked 0.26 (QualityPassGen.SunColor)");
-            Assert.AreEqual(0.95f, QualityPassGen.SunSize, 0.001f,
-                "sun SIZE must be the Sponsor-baked 0.95 (QualityPassGen.SunSize) — the biggest disk in-range");
+            Assert.AreEqual(0.80f, sun.r, 0.001f, "sun HUE R must be the Sponsor-baked 0.80 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.815f, sun.g, 0.001f, "sun HUE G must be the Sponsor-baked 0.815 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.089f, sun.b, 0.001f, "sun HUE B must be the Sponsor-baked 0.089 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.986f, QualityPassGen.SunSize, 0.001f,
+                "sun SIZE must be the Sponsor-baked 0.986 (QualityPassGen.SunSize) — the round-2 tighter disk");
         }
 
         [Test]
@@ -392,19 +393,64 @@ namespace FarHorizon.EditTests
                 // NOTE (unlike the if(resolved) silent-pass pattern this test flags elsewhere): the source-of-
                 // truth constants test above ALWAYS runs, so the bake here is a supplementary end-to-end check.
                 Color baked = sky.GetColor("_SunColor");
-                Assert.AreEqual(0.74f, baked.r, 0.02f, "baked sky _SunColor R must == QualityPassGen.SunColor (0.74)");
-                Assert.AreEqual(0.84f, baked.g, 0.02f, "baked sky _SunColor G must == QualityPassGen.SunColor (0.84)");
-                Assert.AreEqual(0.26f, baked.b, 0.02f, "baked sky _SunColor B must == QualityPassGen.SunColor (0.26)");
-                Assert.AreEqual(0.95f, sky.GetFloat("_SunSize"), 0.02f, "baked sky _SunSize must == 0.95");
+                Assert.AreEqual(QualityPassGen.SunColor.r, baked.r, 0.02f, "baked sky _SunColor R must == QualityPassGen.SunColor");
+                Assert.AreEqual(QualityPassGen.SunColor.g, baked.g, 0.02f, "baked sky _SunColor G must == QualityPassGen.SunColor");
+                Assert.AreEqual(QualityPassGen.SunColor.b, baked.b, 0.02f, "baked sky _SunColor B must == QualityPassGen.SunColor");
+                Assert.AreEqual(QualityPassGen.SunSize, sky.GetFloat("_SunSize"), 0.02f, "baked sky _SunSize must == QualityPassGen.SunSize");
             }
             // The Sun directional light's elevation (Euler X) — the baked shading + disk direction source.
             var sun = GameObject.Find("Sun");
             Assert.IsNotNull(sun, "the Boot scene must carry the 'Sun' directional light");
             float elev = sun.transform.rotation.eulerAngles.x;
             if (elev > 180f) elev -= 360f;
-            Assert.AreEqual(12f, elev, 0.5f,
-                "the baked 'Sun' light elevation (Euler X) must == WorldBootstrap.SunElevationDeg (12°) — a stale " +
-                "committed Boot.unity would ship the old 18° even with the constant updated (regenerate + commit)");
+            Assert.AreEqual(WorldBootstrap.SunElevationDeg, elev, 0.5f,
+                "the baked 'Sun' light elevation (Euler X) must == WorldBootstrap.SunElevationDeg — a stale " +
+                "committed Boot.unity would ship the old value even with the constant updated (regenerate + commit)");
+        }
+
+        [Test]
+        public void SunDefault_CommittedSkyMaterialFile_MatchesTheGeneratorConstants()
+        {
+            // COMMITTED-ASSET-vs-GENERATOR guard (86cah90cp fidelity round; the PR #231-review class): CI green
+            // proves the BUILD is generator-correct (CI re-bakes from clean), never that the COMMITTED
+            // GradientSky.mat matches the generator — a same-session EditMode run or a stale regen can commit
+            // drifted values invisibly. Parse the committed .mat TEXT from disk (immune to any in-memory/live-
+            // material mutation a sibling test performs — the AssetDatabase instance is shared and pollutable)
+            // and assert the SUN quartet matches the constants: _SunDirection's elevation (asin of the
+            // y-component) == WorldBootstrap.SunElevationDeg, _SunColor == QualityPassGen.SunColor,
+            // _SunSize == QualityPassGen.SunSize.
+            string path = "Assets/Settings/GradientSky.mat";
+            Assert.IsTrue(System.IO.File.Exists(path), "the committed GradientSky.mat must exist at " + path);
+            string yaml = System.IO.File.ReadAllText(path);
+
+            var dirMatch = System.Text.RegularExpressions.Regex.Match(yaml,
+                @"_SunDirection:\s*\{r:\s*(?<x>-?[\d.eE+-]+),\s*g:\s*(?<y>-?[\d.eE+-]+),\s*b:\s*(?<z>-?[\d.eE+-]+)");
+            Assert.IsTrue(dirMatch.Success, "the committed GradientSky.mat must serialize _SunDirection");
+            float sx = float.Parse(dirMatch.Groups["x"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            float sy = float.Parse(dirMatch.Groups["y"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            float sz = float.Parse(dirMatch.Groups["z"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            float mag = Mathf.Sqrt(sx * sx + sy * sy + sz * sz);
+            Assert.Greater(mag, 0.5f, "committed _SunDirection must be a real unit-ish vector");
+            float committedElevDeg = Mathf.Asin(Mathf.Clamp(sy / mag, -1f, 1f)) * Mathf.Rad2Deg;
+            Assert.AreEqual(WorldBootstrap.SunElevationDeg, committedElevDeg, 0.25f,
+                "the COMMITTED GradientSky.mat _SunDirection elevation must match WorldBootstrap.SunElevationDeg " +
+                "— the shipped-artifact bake is CI-fresh, but the committed asset is what future branches inherit " +
+                "([[unity-procedural-committed-assets-go-stale]]); mismatch = stale/polluted commit, regenerate");
+
+            var colMatch = System.Text.RegularExpressions.Regex.Match(yaml,
+                @"_SunColor:\s*\{r:\s*(?<r>-?[\d.eE+-]+),\s*g:\s*(?<g>-?[\d.eE+-]+),\s*b:\s*(?<b>-?[\d.eE+-]+)");
+            Assert.IsTrue(colMatch.Success, "the committed GradientSky.mat must serialize _SunColor");
+            Assert.AreEqual(QualityPassGen.SunColor.r, float.Parse(colMatch.Groups["r"].Value, System.Globalization.CultureInfo.InvariantCulture), 0.005f,
+                "committed _SunColor R must match QualityPassGen.SunColor");
+            Assert.AreEqual(QualityPassGen.SunColor.g, float.Parse(colMatch.Groups["g"].Value, System.Globalization.CultureInfo.InvariantCulture), 0.005f,
+                "committed _SunColor G must match QualityPassGen.SunColor");
+            Assert.AreEqual(QualityPassGen.SunColor.b, float.Parse(colMatch.Groups["b"].Value, System.Globalization.CultureInfo.InvariantCulture), 0.005f,
+                "committed _SunColor B must match QualityPassGen.SunColor");
+
+            var sizeMatch = System.Text.RegularExpressions.Regex.Match(yaml, @"_SunSize:\s*(?<v>-?[\d.eE+-]+)");
+            Assert.IsTrue(sizeMatch.Success, "the committed GradientSky.mat must serialize _SunSize");
+            Assert.AreEqual(QualityPassGen.SunSize, float.Parse(sizeMatch.Groups["v"].Value, System.Globalization.CultureInfo.InvariantCulture), 0.005f,
+                "committed _SunSize must match QualityPassGen.SunSize");
         }
 
         // ---- SKY-TINT (Uma §3) ----

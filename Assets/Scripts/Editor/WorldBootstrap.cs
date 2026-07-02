@@ -45,13 +45,18 @@ namespace FarHorizon.EditorTools
         // -35 yaw/azimuth does NOT change elevation). QualityPassGen.ResolveSunDirection reads -light.forward
         // off this same Sun, so the baked sky-material _SunDirection (the visual disk) and the shading light
         // stay consistent.
-        // SPONSOR-ACCEPTED BAKE (soak 2026-07-01, F10 world-look nudge session, ticket 86cah90cp): the Sponsor
-        // live-dialed elevation LOWER on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD, looking out
-        // over the OCEAN horizon, and accepted 12° — a lower warm sun sitting closer to the water horizon than
-        // the prior 18°. The dial-from history: 48° (overhead-only, never framed) → 25° (intermediate) → 18°
-        // (soak 55bde02, 2026-06-30) → 12° (this soak — the Sponsor wanted it lower still). The Euler X IS the
-        // sun's elevation above the horizon (the -35 yaw does NOT change elevation — verified).
-        public const float SunElevationDeg = 12f; // Sponsor-accepted (soak 2026-07-01, 86cah90cp): low warm sun near the ocean horizon; deg above horizon
+        // SPONSOR-ACCEPTED BAKE (86cah90cp ROUND-2 dial, 2026-07-02, soak-223 exe stamp b8d6e96): the Sponsor
+        // live-dialed elevation on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD, looking out
+        // over the OCEAN horizon, and accepted 8° — a low sun sitting near the waterline (Player-prev.log:
+        // "SUN elevation=8,0deg (azimuth 325)"). At the REAL gameplay framing (camera FOV 45, OrbitCamera
+        // minPitch 8° look-down) the visible sky band tops out ~14.5° above the horizon — 8° sits clearly
+        // in-frame; the earlier 18° default was ABOVE the frame top at every playable pitch (the round-1
+        // "i cant see the sun": a STALE persisted fh.settings.sun_elevation=18 PlayerPrefs override stomped
+        // the baked 12° at boot — see FloatSettingEntry.LoadFromPrefs stale-default invalidation).
+        // The dial-from history: 48° (overhead-only, never framed) → 25° → 18° (soak 55bde02) → 12°
+        // (round-1 bake, stomped by the stale pref) → 8° (this bake). The Euler X IS the sun's elevation
+        // above the horizon (the -35 yaw does NOT change elevation — verified).
+        public const float SunElevationDeg = 8f; // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02): low sun near the ocean waterline; deg above horizon
         public const float SunAzimuthDeg   = -35f; // azimuth/yaw — unchanged (does not affect elevation)
 
         // ---- WORLD-LOOK POLISH palettes (ticket 86ca8t9pq — Uma world-look brief §1/§2) ----

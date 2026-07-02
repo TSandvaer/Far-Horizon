@@ -200,29 +200,31 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(sky.HasProperty("_SunHardness"), "the sky material must expose _SunHardness");
 
             Color sun = sky.GetColor("_SunColor");
-            // The Sponsor-dialed hue (0.74,0.84,0.26) is a warm YELLOW-GREEN toy sun (G highest, B near-zero) —
-            // a distinct dial from the prior soft warm white (0.98,0.86,0.86). Warm-not-cold still holds (R >> B).
+            // The Sponsor-dialed hue (0.80,0.815,0.089) is a warm GOLDEN-YELLOW toy sun (R≈G, B near-zero) —
+            // the 86cah90cp round-2 dial. Warm-not-cold still holds (R >> B).
             Assert.Greater(sun.r, sun.b,
                 "the sun disk must be WARM (R > B) — a cold/blue sun is a style mismatch with the warm Zone-D " +
-                "sky. The Sponsor-dialed hue is a warm yellow-green (0.74,0.84,0.26): B near-zero (ticket 86cah90cp)");
+                "sky. The Sponsor-dialed hue is a warm golden-yellow (0.80,0.815,0.089): B near-zero (ticket 86cah90cp)");
             Assert.AreEqual(QualityPassGen_SunColor.r, sun.r, 0.01f, "sun R must match the QualityPassGen Sponsor-accepted default");
             Assert.AreEqual(QualityPassGen_SunColor.g, sun.g, 0.01f, "sun G must match the QualityPassGen Sponsor-accepted default");
             Assert.AreEqual(QualityPassGen_SunColor.b, sun.b, 0.01f, "sun B must match the QualityPassGen Sponsor-accepted default");
             Assert.Greater(sky.GetFloat("_SunHardness"), 1f,
                 "_SunHardness must be a crisp-disk exponent (>1), not flattened to a sky-wide glow");
             float size = sky.GetFloat("_SunSize");
-            // The shader's _SunSize range is [0.95, 0.9999] (LOWER = BIGGER disk). The Sponsor accepted 0.95 —
-            // the biggest disk in-range. Guard the exact accepted value (the disk must not shrink toward a
-            // pinpoint near 1.0, nor drift out of the shader's lower bound).
+            // The shader's _SunSize range is [0.95, 0.9999] (HIGHER = SMALLER disk). The Sponsor's round-2 dial
+            // accepted 0.986 — a tighter disk than the earlier full-board 0.95. Guard the exact accepted value
+            // (the disk must not shrink toward a pinpoint near 1.0, nor balloon back to the 0.95 board sun).
             Assert.AreEqual(QualityPassGen_SunSize, size, 0.001f,
-                "_SunSize must match the Sponsor-accepted 0.95 (the biggest disk in the shader's [0.95,0.9999] range)");
+                "_SunSize must match the Sponsor-accepted 0.986 (86cah90cp round-2; range [0.95,0.9999])");
         }
 
         // Forwarded constants so this test asset (PlayTests/EditTests asmdef) reads the same Sponsor-accepted
         // defaults QualityPassGen ships, without depending on the editor-only QualityPassGen type directly.
-        // (soak 2026-07-01, ticket 86cah90cp — warm yellow-green hue + biggest-in-range size.)
-        private static readonly Color QualityPassGen_SunColor = new Color(0.74f, 0.84f, 0.26f, 1f);
-        private const float QualityPassGen_SunSize = 0.95f;
+        // (86cah90cp ROUND-2 dial 2026-07-02 — golden-yellow hue (0.80,0.815,0.089) + tighter 0.986 disk;
+        // kept in sync by hand with QualityPassGen.SunColor/SunSize — WorldLookSceneTests guards the editor-side
+        // constants directly, so a drift here reds one of the two.)
+        private static readonly Color QualityPassGen_SunColor = new Color(0.80f, 0.815f, 0.089f, 1f);
+        private const float QualityPassGen_SunSize = 0.986f;
 
         [Test]
         public void SkyVerifyCapture_WiredIntoBootScene()
