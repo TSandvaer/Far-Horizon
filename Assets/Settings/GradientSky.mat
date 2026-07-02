@@ -31,7 +31,7 @@ Material:
     - _SunHorizonWarmth: 0.06
     - _SunSize: 0.95
     m_Colors:
-    - _HorizonColor: {r: 0.42, g: 0.89, b: 0.92, a: 1}
+    - _HorizonColor: {r: 0.8, g: 0.89, b: 0.92, a: 1}
     - _MidColor: {r: 0.45, g: 0.7, b: 0.92, a: 1}
     - _SunColor: {r: 0.98, g: 0.86, b: 0.86, a: 1}
     - _SunDirection: {r: 0.54550356, g: 0.309017, b: -0.7790599, a: 0}
