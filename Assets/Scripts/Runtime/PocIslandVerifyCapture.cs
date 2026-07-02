@@ -57,10 +57,12 @@ namespace FarHorizon
             {
                 // Face toward the mountain from the player's ACTUAL spawn (computed, not hardcoded — the spawn
                 // moved off-origin to clear the mountain foot, so a fixed yaw would no longer point at the peak).
-                // The "feels big + a real mountain across the island" read: the player looks toward the far peak.
+                // LOW near-horizon pitch (OrbitCamera: high pitch = looking DOWN; the Sponsor's default 55 is
+                // top-down-ish and would hide the far peak) so the shot shows the "feels big + a real mountain
+                // rising across the island" vista — the far peak on the horizon ahead of the small player.
                 orbit.SetYaw(YawToMountain());
-                orbit.SetPitch(48f);
-                orbit.SetDistance(16f);
+                orbit.SetPitch(14f);
+                orbit.SetDistance(18f);
             }
             for (int i = 0; i < settleFrames; i++) yield return null;
             TraceCamera("gameplay");
@@ -269,7 +271,9 @@ namespace FarHorizon
             float climbMinFps = worstDt > 0f ? 1f / worstDt : 0f;
             float gainedY = player.transform.position.y - startY;
 
-            if (orbit != null) { orbit.SetYaw(YawToMountain()); orbit.SetPitch(40f); orbit.SetDistance(18f); }
+            // Low pitch so the shot shows the player ON the flank with the snow summit rising ABOVE them (a
+            // top-down pitch would hide the mountain the player just climbed). Look up-slope toward the peak.
+            if (orbit != null) { orbit.SetYaw(YawToMountain()); orbit.SetPitch(16f); orbit.SetDistance(18f); }
             for (int i = 0; i < settleFrames; i++) yield return null;
             float finalPlanar = Vector2.Distance(
                 new Vector2(player.transform.position.x, player.transform.position.z),
