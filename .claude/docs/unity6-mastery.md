@@ -8,6 +8,8 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 ## 1. Rendering Path — Set This First, Everything Else Depends on It
 
 - **Universal Renderer → Rendering Path = Forward+.** Required for GPU Resident Drawer and GPU Occlusion Culling. Removes per-object light cap (campfires/torches have no artificial limit). Loss of Reflection Probe Blending is acceptable for the stylized low-poly look.
+  - **Deliberate deviation (do NOT "fix"):** the shipped config runs plain **Forward + GPU Resident Drawer OFF** — at 1 shadowed directional + 1 unshadowed point light Forward+ buys nothing today, and GRD can't instance the world's unique per-instance meshes. Flip both at the **night / torches / many-campfires milestone** (the trigger where clustered lights + GPU-occlusion actually pay). See `team/analysis/2026-07-01-poly-style/consolidated.md` §4 T-H / §5 Tier-3 R6.
+- **Colour space = Gamma is a deliberate LOOK-LOCK (do NOT "fix" to Linear).** Technically wrong for the HDR + bloom + tonemap stack, but every palette constant was soaked against gamma output; a casual flip re-opens the whole colour bar. Revisit ONLY in an explicit look-overhaul milestone (zero desktop perf impact either way). See `team/analysis/2026-07-01-poly-style/consolidated.md` §1 item 5 / §4 T-H.
 - **Render Graph Compatibility Mode = OFF** in `Project Settings > Graphics > URP > Render Graph`. Compatibility Mode is a migration crutch, not a shipping state. GPU Occlusion Culling requires it OFF.
 - Any custom Renderer Feature (Zone-D fog/bloom pass, stylized water) MUST use the **Render Graph two-stage authoring model** (record → execute; system owns resource lifetime). Do NOT allocate/dispose RTs manually inside custom passes.
 
@@ -157,6 +159,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 ## 10. Build — Windows Desktop Only
 
 - **Scripting backend = IL2CPP** for the Windows player.
+  - **Deliberate deviation (do NOT "fix"):** the shipped config is **Mono, not IL2CPP** — runtime scripts are light so the CPU win is small, while IL2CPP ~doubles build time on the single (scarce) CI runner. Adopt trigger = **a second CI lane / nightly lane** exists to absorb the build-time cost. See `team/analysis/2026-07-01-poly-style/consolidated.md` §4 T-H / §5 Tier-3 S2b.
 - **Enable IL2CPP C# source line numbers** in Player Settings — required for meaningful crash call stacks from the shipped `FarHorizon.exe`.
 - All `Debug.Log` calls stripped from release builds (`[Conditional("DEVELOPMENT_BUILD")]` or disable logger in build pipeline).
 - `Build/`, `Captures/`, `*.log`, `test-results*.xml` are gitignored — **CI must upload these artifacts before cleanup.**
