@@ -86,8 +86,16 @@ namespace FarHorizon
             var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
             camData.renderPostProcessing = true;
             camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
-            // Sit above the play space so terrain never crowds the frame; the sky fills it.
-            camGo.transform.position = new Vector3(0f, 12f, 0f);
+            // Sit HIGH above the play space so the dead-aim shots have an unobstructed sky view. The disk is
+            // a SKYBOX element — its screen position depends only on camera DIRECTION, never position — so
+            // raising the camera changes nothing about the disk and only clears OCCLUDERS from the ray.
+            // y=12 was enough for the 18–48° suns (a steep ray clears the canopy fast), but the 86cah90cp
+            // round-2 waterline-low 8° sun keeps the dead-aim ray low over the terrain for hundreds of units:
+            // from y=12 the spawn-forest canopy sat across frame-centre and false-FAILED the shot-1 disk
+            // assert (the disk itself rendered fine — shot 3's advisory read it FRAMED through the canopy
+            // gap). From y=60 even the far vista peaks (~80u at ~500u → ~2° above the ray origin) sit below
+            // an 8°-up ray, so shot 1 verifies the DISK, not the trees. Shot 3 keeps the REAL gameplay pose.
+            camGo.transform.position = new Vector3(0f, 60f, 0f);
 
             // --- Shot 1: aim STRAIGHT at the Sun direction — the sun disk centred. ---
             camGo.transform.rotation = Quaternion.LookRotation(toSun, Vector3.up);
@@ -104,6 +112,10 @@ namespace FarHorizon
             // --- Shot 2: aim UP into the cloud band (high pitch, inland) — cloud-vs-sky contrast. ---
             // Pitch ~35deg up, inland (+Z) where BuildClouds biases the cloud lateral spread. The clouds sit
             // at 28-42u; from y=12 looking up-inland they fill the upper frame against the blue sky.
+            // (Shot 1 raised the camera to y=60 for an occluder-free dead-aim at the 8° sun — restore the
+            // y=12 framing this shot's cloud-band geometry was tuned for: from 60u the camera is ABOVE the
+            // 28-42u cloud band and an up-look would miss it.)
+            camGo.transform.position = new Vector3(0f, 12f, 0f);
             Vector3 cloudDir = new Vector3(0f, Mathf.Sin(35f * Mathf.Deg2Rad), Mathf.Cos(35f * Mathf.Deg2Rad)).normalized;
             camGo.transform.rotation = Quaternion.LookRotation(cloudDir, Vector3.up);
             for (int i = 0; i < settleFrames; i++) yield return null;
