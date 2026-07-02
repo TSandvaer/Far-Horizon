@@ -45,6 +45,13 @@ namespace FarHorizon
         {
             if (HasArg("-verifySnake"))
             {
+                // The project ships runInBackground: 0 (a desktop game pauses unfocused — correct for
+                // play). A VERIFY run launched from a script has no focus guarantee: an unfocused window
+                // pauses the player mid-coroutine and the gate hangs forever with zero captures (observed
+                // locally 2026-07-02: Player.log froze at 3111 bytes right after the wired line). The gate
+                // must not depend on desktop focus — run-in-background for THIS launch only (flag-scoped;
+                // normal play + soak launches keep the shipped pause-on-unfocus behavior).
+                Application.runInBackground = true;
                 if (player == null) player = Object.FindAnyObjectByType<WasdMovement>();
                 StartCoroutine(RunVerification());
             }
