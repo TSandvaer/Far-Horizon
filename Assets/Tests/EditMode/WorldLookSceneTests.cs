@@ -356,24 +356,23 @@ namespace FarHorizon.EditTests
         // ---- SUN DEFAULT BAKE (ticket 86cah90cp — Sponsor round-2 dial 2026-07-02) ----
 
         [Test]
-        public void SunDefault_IsSponsorBaked_Elevation8_HueGoldenYellow_Size0986()
+        public void SunDefault_IsSponsorBaked_Elevation8_HueGoldenYellow_Size0954()
         {
-            // Ticket 86cah90cp ROUND 2: the Sponsor live-dialed the sun on the F10 WorldLookNudgeTool SUN target
-            // in the shipped soak-223 build (stamp b8d6e96) and accepted elevation 8° / hue (0.80,0.815,0.089) /
-            // size 0.986 (Player-prev.log final SUN line). Bake into the SOURCE OF TRUTH —
-            // WorldBootstrap.SunElevationDeg (elevation) + QualityPassGen.SunColor/SunSize (hue/size)
+            // Ticket 86cah90cp ROUND 3 re-bake: the Sponsor live-dialed the sun again on the F10 WorldLookNudgeTool
+            // SUN target and accepted elevation 8° / hue (0.90,0.90,0.20) / size 0.9540. Bake into the SOURCE OF
+            // TRUTH — WorldBootstrap.SunElevationDeg (elevation) + QualityPassGen.SunColor/SunSize (hue/size)
             // — so the shipped build shows it AND any branch cut from main inherits it ([[unity-procedural-
             // committed-assets-go-stale]]). This guards the CONSTANTS directly (never a silent-pass on a headless
-            // material miss); a regression to the prior 12° / yellow-green (0.74,0.84,0.26) fails HERE.
+            // material miss); a regression to the prior round-2 (0.80,0.815,0.089)/0.986 or 12° fails HERE.
             Assert.AreEqual(8f, WorldBootstrap.SunElevationDeg, 0.001f,
                 "the sun ELEVATION default must be the Sponsor-baked 8° (WorldBootstrap.SunElevationDeg) — was " +
                 "12° pre-round-2; the F10 nudge tool's elevation dial writes here");
             Color sun = QualityPassGen.SunColor;
-            Assert.AreEqual(0.80f, sun.r, 0.001f, "sun HUE R must be the Sponsor-baked 0.80 (QualityPassGen.SunColor)");
-            Assert.AreEqual(0.815f, sun.g, 0.001f, "sun HUE G must be the Sponsor-baked 0.815 (QualityPassGen.SunColor)");
-            Assert.AreEqual(0.089f, sun.b, 0.001f, "sun HUE B must be the Sponsor-baked 0.089 (QualityPassGen.SunColor)");
-            Assert.AreEqual(0.986f, QualityPassGen.SunSize, 0.001f,
-                "sun SIZE must be the Sponsor-baked 0.986 (QualityPassGen.SunSize) — the round-2 tighter disk");
+            Assert.AreEqual(0.90f, sun.r, 0.001f, "sun HUE R must be the Sponsor-baked 0.90 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.90f, sun.g, 0.001f, "sun HUE G must be the Sponsor-baked 0.90 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.20f, sun.b, 0.001f, "sun HUE B must be the Sponsor-baked 0.20 (QualityPassGen.SunColor)");
+            Assert.AreEqual(0.9540f, QualityPassGen.SunSize, 0.001f,
+                "sun SIZE must be the Sponsor-baked 0.9540 (QualityPassGen.SunSize) — the round-3 disk");
         }
 
         [Test]
