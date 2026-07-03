@@ -17,15 +17,14 @@
 #      (a rendered panel that doesn't drive the game would still pass #1; this is the
 #      end-to-end "tweak takes effect" proof the success-test demands).
 #   3. frames_differ.py settings_open.png vs settings_tweaked.png — the tweak is VISIBLE.
-#      *** QUARANTINED (86cabe3e5) — runs for SIGNAL, NON-FATAL. ***
-#      Checks 1+2 BOTH passed on PR #83 while settings_tweaked.png was a PIXEL-IDENTICAL copy
-#      of settings_open.png. Root cause: the -verifySettings harness drives the tweak via the
-#      entry setter + RefreshReadouts directly, which bypasses the real UI Toolkit ChangeEvent,
-#      so the synthetic drive never repaints the slider readout under capture. A REAL drag DOES
-#      repaint (Tess + Drew confirmed) — the shipped feature works; only this synthetic test
-#      mechanism is wrong. The proper fix (drive a real ChangeEvent) is tracked in 86cabe3e5.
-#      Until then this sub-check is NON-FATAL: it still logs a fail for signal but does NOT red
-#      the gate. Checks 1+2 stay FATAL.
+#      FATAL (un-quarantined 86cabe3e5). Checks 1+2 BOTH passed on PR #83 while settings_tweaked.png
+#      was a PIXEL-IDENTICAL copy of settings_open.png, because the -verifySettings harness drove the
+#      tweak via the entry setter + RefreshReadouts, which bypasses the real UI Toolkit ChangeEvent →
+#      the synthetic drive never repainted the slider readout under capture. 86cabe3e5 replaced that
+#      synthetic drive with a REAL dispatched ChangeEvent (SettingsPanel.DriveFloat/DriveRange-
+#      ChangeEventForCapture — the same event a user's drag fires), so the captured frame now repaints
+#      and this sub-check is authoritative again: a byte-identical tweaked frame REDS the gate, catching
+#      any regression back to the synthetic drive.
 #
 # Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 /
 # unity-conventions.md). The component calls Application.Quit() when done; a wall-clock
@@ -117,21 +116,17 @@ fi
 
 # Check 3 — the tweak is VISIBLE: settings_tweaked.png must differ from settings_open.png.
 # A repainted readout label changes only a small region, so the floor is tiny but strictly > 0
-# (a byte-identical copy fails). This was the PR #83 re-QA regression guard.
+# (a byte-identical copy fails). This is the PR #83 re-QA regression guard.
 #
-# ── QUARANTINED (86cabe3e5) ──────────────────────────────────────────────────
-# This sub-check is run for SIGNAL but is NON-FATAL: a fail no longer reds the gate.
-# WHY: the -verifySettings capture harness drives the tweak by calling the entry
-# setter + RefreshReadouts directly (changedLive=True), which bypasses the real
-# UI Toolkit ChangeEvent — so the synthetic drive never repaints the slider readout
-# and settings_tweaked.png comes out pixel-identical to settings_open.png. Tess + Drew
-# confirmed a REAL drag DOES repaint (the shipped feature works); only this synthetic
-# test mechanism is wrong. The proper fix (drive a real ChangeEvent so the readout
-# repaints under capture) is tracked in follow-up 86cabe3e5 — do NOT remove this
-# quarantine until that lands. Checks 1 (frame_check: panel rendered) and 2
-# (changedLive=True: live param actually changed) remain FATAL — they are the real
-# shipped-build backstops and are untouched.
-# (Memory: sponsor-quarantines-env-blocked-tests — env/test-mechanism block, not a code bug.)
+# ── FATAL again, un-quarantined 86cabe3e5 ────────────────────────────────────
+# It was quarantined-non-fatal because the -verifySettings harness drove the tweak via the entry
+# setter + RefreshReadouts, which bypasses the real UI Toolkit ChangeEvent → the synthetic drive
+# never repainted the slider readout under capture, so settings_tweaked.png came out pixel-identical
+# to settings_open.png even though changedLive=True. 86cabe3e5 replaced that synthetic drive with a
+# REAL dispatched ChangeEvent on the bound control (SettingsPanel.DriveFloat/DriveRange-
+# ChangeEventForCapture — the same event a user's drag fires), so the captured frame now repaints.
+# This sub-check is therefore authoritative again: a byte-identical tweaked frame REDS the gate,
+# catching any regression back to the synthetic drive.
 diff_rc=0
 OPEN_PNG="$ABS_CAP/settings_open.png"
 TWEAKED_PNG="$ABS_CAP/settings_tweaked.png"
@@ -140,23 +135,22 @@ if [ ! -f "$OPEN_PNG" ] || [ ! -f "$TWEAKED_PNG" ]; then
        "(open=$OPEN_PNG tweaked=$TWEAKED_PNG)" >&2
   diff_rc=1
 else
-  # set +e around the call: script runs under `set -e` (re-enabled after the launch
-  # block above), so an unguarded non-zero exit here would ABORT the gate before we can
-  # treat Check 3 as quarantined-non-fatal. Capture the rc explicitly instead.
+  # set +e around the call: script runs under `set -e` (re-enabled after the launch block above),
+  # so an unguarded non-zero exit here would ABORT before the aggregate verdict line. Capture rc.
   set +e
   python3 "$HERE/frames_differ.py" "$OPEN_PNG" "$TWEAKED_PNG"
   diff_rc=$?
   set -e
 fi
 if [ "$diff_rc" -ne 0 ]; then
-  echo "[verify_settings] QUARANTINED (86cabe3e5): tweaked-frame visible-diff sub-check FAILED but is NON-FATAL — the synthetic capture drive bypasses the UI Toolkit ChangeEvent, so the readout never repaints under -verifySettings. Real drag DOES repaint (Tess+Drew confirmed). Not gating the merge on it; tracked in 86cabe3e5." >&2
+  echo "[verify_settings] FAILED — tweaked-frame visible-diff sub-check FAILED: settings_tweaked.png did not visibly differ from settings_open.png. The tweak did NOT repaint the panel under capture — a regression back to the synthetic entry-setter drive (the PR #83 re-QA bug). Drive the tweak via a real dispatched ChangeEvent (86cabe3e5)." >&2
 fi
 
-# Only the real shipped-build backstops gate the merge: panel rendered (Check 1) +
-# live param changed (Check 2). Check 3 (diff_rc) is quarantined-non-fatal above.
-if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ]; then
-  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc; diff_rc=$diff_rc QUARANTINED-non-fatal 86cabe3e5)" >&2
+# All three checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
+# tweak VISIBLE in the shipped frame (Check 3, un-quarantined 86cabe3e5).
+if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ]; then
+  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc)" >&2
   exit 1
 fi
-echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect (visible-diff sub-check QUARANTINED-non-fatal, 86cabe3e5; diff_rc=$diff_rc)"
+echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE in the shipped frame (diff_rc=$diff_rc)"
 exit 0
