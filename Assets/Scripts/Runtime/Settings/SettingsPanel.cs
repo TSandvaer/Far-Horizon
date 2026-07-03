@@ -101,6 +101,12 @@ namespace FarHorizon
         public FarHorizon.Combat.HealthRegen combatRegen;
         public FarHorizon.Combat.DeathHandler combatDeath;
 
+        [Tooltip("The FPS counter HUD (86cahmxmt) — the `FPS counter` on/off row drives its enabled flag " +
+                 "(OFF = no Update, no OnGUI = zero cost). Wired editor-time (the Boot object carries it next " +
+                 "to BootHud); the Awake FindObjectOfType stays the bare-scene safety net. May be null; the " +
+                 "row then simply doesn't appear.")]
+        public FarHorizon.FpsCounterHud fpsHud;
+
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). The console KEEPS F1 but polls it " +
                  "DIRECTLY (the 86cabeqj9 soak NIT F1/F2 de-conflict): F1 toggles ONLY the console; the LEGACY " +
@@ -172,6 +178,10 @@ namespace FarHorizon
             if (combatHealth == null) combatHealth = FindObjectOfType<FarHorizon.Combat.Health>();
             if (combatRegen == null) combatRegen = FindObjectOfType<FarHorizon.Combat.HealthRegen>();
             if (combatDeath == null) combatDeath = FindObjectOfType<FarHorizon.Combat.DeathHandler>();
+            // FPS counter (86cahmxmt) — build-safety fallback (the ship path wires it editor-time). Finds a
+            // DISABLED component too (FindObjectOfType filters by GameObject activeness, not component enabled
+            // state), so a persisted OFF pref still re-binds + re-applies on the next launch.
+            if (fpsHud == null) fpsHud = FindObjectOfType<FpsCounterHud>();
         }
 
         void Start()
@@ -192,6 +202,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateArmAndGround(Registry, chopCharacter, armPose); // F9 → ground-Y + arm pose (AC1)
             SettingsCatalog.PopulateWorldLook(Registry, worldLook);          // F10 → sky/fog/cloud/mountain/sun (AC2)
             SettingsCatalog.PopulateCombat(Registry, combatHealth, combatRegen, combatDeath); // Combat POC → per-tier HP/damage/regen/death (AC8b)
+            SettingsCatalog.PopulateFps(Registry, fpsHud);                   // FPS counter on/off (86cahmxmt — default ON, Sponsor-soak tunes)
 
             // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
             // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target

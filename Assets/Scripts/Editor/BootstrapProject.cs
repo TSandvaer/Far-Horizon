@@ -342,6 +342,13 @@ namespace FarHorizon.EditorTools
 
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<BootHud>();
+            // FPS counter (86cahmxmt — Sponsor #226 walk-soak item 3): "FPS <current> | avg <rolling>" on a
+            // plate directly UNDER the build stamp, so every perf soak has an on-screen ground-truth number in
+            // the same self-identifying corner. Ships ENABLED (default ON — Sponsor-soak tunes via the F1
+            // console's `FPS counter` row, which drives this component's enabled flag; SettingsCatalog
+            // .PopulateFps). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
+            // FpsCounterHudSceneTests guards its serialized presence + enabled default.
+            hudGo.AddComponent<FpsCounterHud>();
             // F2 MASTER on/off for the LEGACY dev/debug instrument-overlay layer (86cafd6d6; key moved F1→F2 by
             // the 86cabeqj9 soak NIT so F1 opens ONLY the dev console). Default HIDDEN — a normal launch / soak /
             // CI capture shows a CLEAN screen (this un-buries the #158 loot prompt the always-on "DEBUG — held
