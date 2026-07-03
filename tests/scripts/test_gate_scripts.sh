@@ -552,6 +552,31 @@ assert_rc 1 "verify_pond: persistent present-wedge fails after one retry" \
   -- bash "$POND_GATE" "$TMP/pond_hang_always.sh" "$TMP/pond_ha_caps" "$TMP/pond_ha.log"
 assert_attempts "$TMP/pond_hang_always.sh" 2 "verify_pond: present-wedge (rc 124) ran exactly twice (one retry)"
 
+echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ==="
+# 86cafzaeb adopted #189's hardening (LAUNCH_TIMEOUT 300, `timeout -k 15`, single rc==124-only
+# retry with per-attempt stale-clear) on EVERY windowed verify gate — settings/loot/water/chop/
+# sky were still on the old single-launch 120/180s shape; heldbelt + invdragghostpos shipped
+# hardened from day one (86cahx2p5 / 86cafhgun). capture_gate + pond keep their dedicated #189
+# recovery tests above; this loop pins the retry SEMANTICS uniformly per gate — the bug class,
+# not the instance: (a) a REAL non-124 failure runs the exe exactly ONCE (retrying a real
+# failure wastes a runner cycle / masks a genuine render fail), (b) a persistent timeout-hang
+# (rc 124) retries exactly ONCE (two runs, never a loop) and the gate still FAILS. All seven
+# wrappers share the `<exe> [capdir] [logfile]` CLI, so one loop covers them. A NEW verify gate
+# wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
+# the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
+# its aggregate fail path, so the grep needle is uniform too.
+for g in settings loot water chop sky heldbelt invdragghostpos; do
+  G="$SCRIPTS/verify_${g}_gate.sh"
+  make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
+  assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
+    -- bash "$G" "$TMP/${g}_ff.sh" "$TMP/${g}_ff_caps" "$TMP/${g}_ff.log"
+  assert_attempts "$TMP/${g}_ff.sh" 1 "verify_${g}: real non-124 failure ran exactly ONCE (no retry on a real failure)"
+  make_wedge_exe "$TMP/${g}_ha.sh" "hang-always"
+  assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: persistent 124-hang fails after one retry" \
+    -- bash "$G" "$TMP/${g}_ha.sh" "$TMP/${g}_ha_caps" "$TMP/${g}_ha.log"
+  assert_attempts "$TMP/${g}_ha.sh" 2 "verify_${g}: persistent 124-hang ran exactly TWICE (one retry, no loop)"
+done
+
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || { echo "GATE-SCRIPT TESTS FAILED"; exit 1; }
