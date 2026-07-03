@@ -52,6 +52,14 @@ namespace FarHorizon.PlayTests
                 {
                     float t0 = Time.realtimeSinceStartup;
                     while (!op.isDone && Time.realtimeSinceStartup - t0 < 5f) yield return null;
+                    // 86cajk7vb (Drew's #249 NIT): the 5s cap used to continue SILENTLY on a stuck unload, so a
+                    // never-completing UnloadSceneAsync degraded to "isolation didn't fully happen" with NO signal
+                    // — the next fixture could see a leaked scene's colliders. Surface the timeout so a future
+                    // regression of the 86cabfa21 hang class is VISIBLE in the log instead of silent.
+                    if (!op.isDone)
+                        Debug.LogWarning($"[PlayModeSceneIsolation] '{tag}': UnloadSceneAsync of scene '{s.name}' " +
+                            "did not complete within the 5s bound — the scene stays loaded (isolation incomplete). " +
+                            "This is the bounded-wait backstop for the 86cabfa21 unbounded-unload hang.");
                 }
             }
         }
