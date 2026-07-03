@@ -68,6 +68,122 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(SnakeAI.BiteConnects(1.3f, 1.0f, false));
         }
 
+        // ==================== 86cahzycp NIT 1 — the SetDestination repath throttle ====================
+
+        [Test]
+        public void ShouldRepath_TruthTable()
+        {
+            // Destination drifted past the move threshold → repath (the chase keeps tracking the player).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0.6f, 0.0f, 0.5f, 0.2f));
+            // Staleness interval elapsed → repath (bounds drift below the move threshold).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0.0f, 0.25f, 0.5f, 0.2f));
+            // Neither moved nor stale → HOLD the current path (the throttle — the NIT's point).
+            Assert.IsFalse(SnakeAI.ShouldRepath(0.3f, 0.1f, 0.5f, 0.2f));
+            // Boundaries are inclusive (a repath at exactly the threshold, never a dead band).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0.5f, 0f, 0.5f, 0.2f));
+            Assert.IsTrue(SnakeAI.ShouldRepath(0f, 0.2f, 0.5f, 0.2f));
+            // An intent-change reset (secondsSinceLast = +inf) always repaths — transitions stay
+            // frame-identical to the unthrottled behavior (the feel-neutrality contract).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0f, float.PositiveInfinity, 0.5f, 0.2f));
+        }
+
+        [Test]
+        public void RepathThrottle_StationaryTarget_BoundsPathRequestsPerSecond()
+        {
+            // The regression guard for the bug CLASS (SetDestination issued EVERY frame): simulate 1 s of
+            // 60 fps chase toward a STATIONARY destination, mirroring MoveTowards' exact bookkeeping
+            // (last-issued dest + last-issued time). Unthrottled this is 60 path requests; the throttle
+            // must bound it to the initial repath + interval-driven refreshes (1 + 1s/0.2s = ~6).
+            const float minMove = 0.5f, interval = 0.2f;
+            Vector3 dest = new Vector3(3f, 0f, 4f); // fixed — the target never moves
+            Vector3 lastDest = Vector3.zero;
+            float lastAt = float.NegativeInfinity;  // the intent-change reset state MoveTowards starts from
+            int repaths = 0;
+            for (int frame = 0; frame < 60; frame++)
+            {
+                float now = frame / 60f;
+                float movedXz = Vector2.Distance(new Vector2(dest.x, dest.z), new Vector2(lastDest.x, lastDest.z));
+                if (SnakeAI.ShouldRepath(movedXz, now - lastAt, minMove, interval))
+                {
+                    repaths++;
+                    lastDest = dest;
+                    lastAt = now;
+                }
+            }
+            Assert.GreaterOrEqual(repaths, 1, "the first frame after an intent change must always repath");
+            Assert.LessOrEqual(repaths, 6,
+                "a stationary target must cost at most 1 + (1s / interval) path requests per second, " +
+                "never one per frame (the 86cahzycp NIT-1 class)");
+        }
+
+        // ============== 86cahzycp NIT 2 — the -verifySnake bite gate is DETERMINISTIC ==============
+
+        [Test]
+        public void FreezeHpOverTime_DisablesBothHpTickerTypes()
+        {
+            var playerGo = new GameObject("player-freeze-rig");
+            try
+            {
+                playerGo.AddComponent<Health>();
+                var regen = playerGo.AddComponent<HealthRegen>();
+                var fx = playerGo.AddComponent<StatusEffectController>();
+
+                Assert.AreEqual(2, SnakeVerifyCapture.FreezeHpOverTime(playerGo),
+                    "both HP-over-time ticker types get disabled (regen + status DoT)");
+                Assert.IsFalse(regen.enabled, "HealthRegen frozen — no Update healing inside the gate window");
+                Assert.IsFalse(fx.enabled, "StatusEffectController frozen — the bite's own bleed can't tick");
+
+                // Idempotent + null-safe (the gate may run on a partial rig).
+                Assert.AreEqual(0, SnakeVerifyCapture.FreezeHpOverTime(playerGo));
+                Assert.AreEqual(0, SnakeVerifyCapture.FreezeHpOverTime(null));
+            }
+            finally { Object.DestroyImmediate(playerGo); }
+        }
+
+        [Test]
+        public void BiteGate_HpDelta_EqualsTierExpected_WhenTickersFrozen()
+        {
+            // The determinism pin behind the gate's tightened band (0.05 float-noise, was 0.5 + 1% absorbing
+            // regen/bleed drift): with the tickers frozen, hpBefore - hpAfter must EXACTLY equal
+            // expectedBase × damageTakenMul — the same formula SnakeVerifyCapture gates on — even though
+            // the bite APPLIES a bleed to the player (the DoT may exist; it may not TICK into the window).
+            var snakeGo = new GameObject("snake-gate-rig");
+            var playerGo = new GameObject("player-gate-rig");
+            try
+            {
+                snakeGo.AddComponent<Health>();
+                var enemy = snakeGo.AddComponent<SnakeEnemy>();
+                var playerHp = playerGo.AddComponent<Health>(); // default 100 max, neutral resistance
+                playerGo.AddComponent<HealthRegen>();
+                var fx = playerGo.AddComponent<StatusEffectController>();
+                fx.health = playerHp; // EditMode has no Awake on AddComponent — wire what the build's Awake wires
+                enemy.biteBleed = StatusEffectSpec.MakeBleed(1.5f, 3f); // same gotcha, snake side — mirror SnakeEnemy.Awake's seeding (:119)
+                playerHp.damageTakenMul = 1.25f; // a non-unit tier mul — the formula's second factor is live
+
+                SnakeVerifyCapture.FreezeHpOverTime(playerGo);
+
+                enemy.ApplyDifficulty(SurvivalNeed.DifficultyTier.Hard);
+                float before = playerHp.Current;
+                float ret = enemy.Bite(playerHp);
+                float removed = before - playerHp.Current;
+
+                float expected = SnakeEnemy.SnakeHardBiteDamage * playerHp.damageTakenMul;
+                Assert.AreEqual(expected, removed, 1e-3f,
+                    "the HP delta IS the pure seam value (expectedBase × damageTakenMul) — the gate formula");
+                Assert.AreEqual(ret, removed, 1e-3f, "the seam's return equals the actual HP delta");
+                Assert.AreEqual(1, fx.ActiveCount,
+                    "the bite still APPLIES its bleed (enemy→player DoT stays exercised) — frozen means " +
+                    "the DoT cannot TICK between the bite and the gate's hpAfter read");
+                Assert.Less(Mathf.Abs(removed - expected), 0.05f,
+                    "inside the gate's tightened float-noise band (the shipped assert's exact shape)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(snakeGo);
+                Object.DestroyImmediate(playerGo);
+            }
+        }
+
         // ==================== AC4 — MODERATE, difficulty-scaled bite (the tier map) ====================
 
         [Test]

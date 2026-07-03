@@ -77,6 +77,7 @@ namespace FarHorizon.Combat
         private readonly List<Vector3> _trail = new List<Vector3>(256); // [0] = newest (at the root)
         private readonly RaycastHit[] _hits = new RaycastHit[8];
         private float[] _plantOffsets;   // per-segment half-height (belly-to-center) from the baked mesh
+        private Vector3 _seedBackDir;    // cached at init (86cahzycp NIT 3) — the AUTHORED-layout back dir
         private Vector3 _lastSampled;
         private Vector3 _prevRootPos;
         private float _speedSmoothed;
@@ -169,15 +170,20 @@ namespace FarHorizon.Combat
             _trail.Clear();
             Vector3 rootP = transform.position;
             _trail.Add(rootP);
-            Vector3 back = SeedBackDir();
+            _seedBackDir = SeedBackDir(); // cached ONCE (86cahzycp NIT 3) — see the SeedBackDir comment
             for (int i = 1; i < Mathf.Max(2, n); i++)
-                _trail.Add(rootP + back * (segmentSpacing * i));
+                _trail.Add(rootP + _seedBackDir * (segmentSpacing * i));
             _lastSampled = rootP;
             _prevRootPos = rootP;
         }
 
         // The initial "behind the head" direction: from the authored layout when available (head → link1),
-        // else the root's planar -forward.
+        // else the root's planar -forward. Computed ONCE at init and cached as _seedBackDir (86cahzycp
+        // NIT 3 — this ran every LateUpdate): the fallback only ever MATTERS while the trail is too short
+        // to cover the body arc (right after init, when the posed segments still lie along the seeded
+        // straight trail, so a per-frame recompute returned the same direction anyway); once the trail
+        // covers BodyArcLength — guaranteed by the init seed + the 1.5× cap — PointAlongTrail never
+        // consumes the fallback. The AUTHORED-layout value is the honest one to hold.
         private Vector3 SeedBackDir()
         {
             if (segments != null && segments.Length >= 2 && segments[0] != null && segments[1] != null)
@@ -229,7 +235,7 @@ namespace FarHorizon.Combat
             float rear = 1f - (1f - telegraphT) * (1f - telegraphT);
 
             // --- 3. Pose every segment along the trail. ---
-            Vector3 fallbackBack = SeedBackDir();
+            Vector3 fallbackBack = _seedBackDir; // cached at init (86cahzycp NIT 3 — was recomputed per frame)
             for (int i = 0; i < segments.Length; i++)
             {
                 Transform seg = segments[i];
