@@ -211,6 +211,35 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 7. Corrupt-build canary wiring invariant (ticket 86cagr0zu). The warm (clean:false)
+#    runner intermittently ships a CORRUPT exe (stale Library/ScriptAssemblies →
+#    serialization-mismatch / missing-script / inert WASD+NavMesh). EditMode + review
+#    PASS on it (editor, fresh domain) and the console-error gate deliberately does not
+#    scan serialization warnings, so check_corrupt_build.sh is the ONLY signal that names
+#    it. Pin its wiring so a future ci.yml edit can't silently drop the canary and re-open
+#    the "dismissed as a launch flake" gap. A license-free literal grep on ci.yml text.
+# ---------------------------------------------------------------------------
+if [ ! -f "$CI_YML" ]; then
+  bad "ci.yml not found at $CI_YML (corrupt-build canary wiring check cannot run)"
+else
+  canary_fail=0
+  # BUILD job (build-time logs) + CAPTURE job (runtime log) both invoke the canary; the
+  # BUILD job also invokes the targeted heal. Require both references present. A pure ci.yml
+  # text grep (fixture-friendly, license-free) — same shape as check #6. If ci.yml references
+  # a script that does not exist the CI step fails loud at runtime, and the gate-script unit
+  # tests import both scripts by path, so their existence is guarded there, not here.
+  grep -qF 'check_corrupt_build.sh' "$CI_YML" \
+    || { note "ci.yml does not invoke check_corrupt_build.sh (corrupt-build canary dropped — 86cagr0zu)"; canary_fail=1; }
+  grep -qF 'clean_scriptassemblies.sh' "$CI_YML" \
+    || { note "ci.yml does not invoke clean_scriptassemblies.sh (corrupt-build heal dropped — 86cagr0zu)"; canary_fail=1; }
+  if [ "$canary_fail" -eq 0 ]; then
+    ok "corrupt-build canary wired into ci.yml (check_corrupt_build.sh + clean_scriptassemblies.sh — 86cagr0zu)"
+  else
+    bad "corrupt-build canary wiring BROKEN (86cagr0zu — warm-runner corrupt build would go undetected)"
+  fi
+fi
+
 echo "==================================="
 if [ "$fail" -ne 0 ]; then
   echo "structure check FAILED"

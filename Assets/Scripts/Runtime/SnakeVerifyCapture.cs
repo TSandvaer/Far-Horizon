@@ -84,6 +84,15 @@ namespace FarHorizon
                 yield break;
             }
 
+            // --- 0. FREEZE HP-over-time (86cahzycp NIT 2 — deterministic beats tolerant): HealthRegen and
+            //     StatusEffectController tick player HP through their Update between the bite and the
+            //     hpAfter read (the bite itself APPLIES a 1.5 HP/s bleed — SnakeEnemy.biteBleed), so the
+            //     hpBefore-hpAfter delta drifts from the pure seam value; a screenshot-hitch frame widens
+            //     the window toward the old tolerance edge. This is a VERIFICATION-ONLY launch that quits
+            //     at the end — disable the player's tickers for the whole gate; nothing to restore. ---
+            int frozen = FreezeHpOverTime(playerHealth.gameObject);
+            Debug.Log("[SnakeVerifyCapture] froze " + frozen + " HP-over-time ticker(s) for the gate window");
+
             // Settle: agents on mesh, camera framed.
             for (int i = 0; i < 30; i++) yield return null;
 
@@ -179,7 +188,9 @@ namespace FarHorizon
                                : enemy.medBiteDamage;
             float expected = expectedBase * Mathf.Max(0f, playerHealth.damageTakenMul) * ai.BitesLanded;
             bool biteLanded = ai.BitesLanded > 0 && removed > 0f;
-            bool biteAmountOk = !biteLanded || Mathf.Abs(removed - expected) < 0.5f + 0.01f * expected;
+            // HP-over-time is FROZEN (step 0), so the delta IS the pure seam value — the band is float-noise
+            // margin only, no longer absorbing regen/bleed drift (was 0.5 + 1%; 86cahzycp NIT 2).
+            bool biteAmountOk = !biteLanded || Mathf.Abs(removed - expected) < 0.05f;
             Debug.Log($"[SnakeVerifyCapture] bite: landed={ai.BitesLanded} removedHP={removed:F1} " +
                       $"expected={expected:F1} (tier={tier}) amountOk={biteAmountOk} " +
                       $"aggro={aggroSeen} telegraph={telegraphSeen} lunge={lungeSeen}");
@@ -246,6 +257,25 @@ namespace FarHorizon
             if (pHead.z > 0f && pTail.z > 0f)
                 spanFrac = Vector2.Distance(new Vector2(pHead.x, pHead.y), new Vector2(pTail.x, pTail.y));
             return inFrame;
+        }
+
+        /// <summary>
+        /// Disable every HP-over-time ticker (<see cref="HealthRegen"/> + <see cref="StatusEffectController"/>)
+        /// on the player root so the bite gate's hpBefore→hpAfter delta is EXACTLY the seam damage —
+        /// deterministic instead of tolerance-absorbed (86cahzycp NIT 2). Disabling the component stops its
+        /// Update accumulation (both tickers integrate Time.time deltas in Update; nothing else calls their
+        /// TickSeconds at runtime). Static + rig-friendly so EditMode pins that BOTH ticker types actually
+        /// get disabled (null-safe, idempotent). Returns how many components were newly disabled.
+        /// </summary>
+        public static int FreezeHpOverTime(GameObject playerRoot)
+        {
+            if (playerRoot == null) return 0;
+            int n = 0;
+            foreach (var regen in playerRoot.GetComponentsInChildren<HealthRegen>(true))
+                if (regen.enabled) { regen.enabled = false; n++; }
+            foreach (var fx in playerRoot.GetComponentsInChildren<StatusEffectController>(true))
+                if (fx.enabled) { fx.enabled = false; n++; }
+            return n;
         }
 
         // World direction → the camera-relative Vector2 WasdMovement expects (its input is WASD in the

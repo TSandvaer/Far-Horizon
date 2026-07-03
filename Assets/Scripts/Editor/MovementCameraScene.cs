@@ -3284,6 +3284,13 @@ namespace FarHorizon.EditorTools
             // camera-follow rows bind to panel.orbit; ground-Y to panel.chopCharacter — both already wired above/via
             // Awake. The F10 world-look seam is back-wired post-environment by WireWorldLookConsole.)
             panel.armPose = Object.FindObjectOfType<CastawayArmPose>();
+            // FPS counter (86cahmxmt) — the `FPS counter` on/off row binds to the FpsCounterHud that
+            // BootstrapProject.BuildBootScene added to the Boot object BEFORE this runs (NextIslandPocScene
+            // likewise authors it before calling Author). Wire it serialized so the row ships live without a
+            // runtime FindObjectOfType (the editor-vs-runtime ship-path discipline the stone-respawner
+            // dead-knob taught). The Awake fallback stays the bare-scene safety net. May be null on a bare
+            // rig — the row then simply doesn't appear.
+            panel.fpsHud = Object.FindObjectOfType<FarHorizon.FpsCounterHud>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +

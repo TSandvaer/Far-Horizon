@@ -87,6 +87,9 @@ namespace FarHorizon.EditorTools
 
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<FarHorizon.BootHud>();          // the BUILD stamp HUD (soak identity)
+            // FPS counter (86cahmxmt) — the ask CAME from this scene's walk-soak (#226 item 3), so the island
+            // POC gets the same under-stamp readout as the Boot scene. Default ON; the F1 console row toggles it.
+            hudGo.AddComponent<FarHorizon.FpsCounterHud>();
             hudGo.AddComponent<FarHorizon.CaptureGate>();      // generic -captureGate frame sanity
             hudGo.AddComponent<FarHorizon.FullscreenBoot>();   // fill the Sponsor's widescreen on a normal launch
             // The POC's shipped-build verify capture (perf verdict + side-profile silhouette). Serialized

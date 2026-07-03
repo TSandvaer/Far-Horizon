@@ -76,6 +76,91 @@ assert_rc_and_grep 1 "LOG GATE FAILED" "nit-1: error co-located with allowlisted
 printf 'Failed to create agent because there is no valid NavMesh\nFatal error: boom\n' > "$TMP/mixed.log"
 assert_rc_and_grep 1 "LOG GATE FAILED" "benign + real error together fails" -- bash "$LOG_GATE" "$TMP/mixed.log"
 
+echo "=== check_corrupt_build.sh (warm-runner corrupt-build canary, 86cagr0zu) ==="
+# THE bug class this guards (unity-conventions.md §Process notes, OBSERVED #197 v5): the
+# warm clean:false runner intermittently ships a CORRUPT exe from a stale/partial
+# Library/ScriptAssemblies — Unity loads the scene against a mismatched layout and emits
+# a SERIALIZATION-MISMATCH ("WasdMovement Read 84 expected 88") / MISSING-SCRIPT /
+# BROKEN-ASSEMBLY line, shipping a build with inert WASD/NavMesh. EditMode + review PASS
+# on it (editor, fresh domain) and the console-error gate does NOT scan serialization
+# warnings, so this canary is the only build-time signal. Load-bearing cases: the exact
+# #197 literal fires; clean + benign logs (incl. the allowlisted NavMesh race the console
+# gate treats as benign) do NOT false-positive.
+CORRUPT_GATE="$SCRIPTS/check_corrupt_build.sh"
+
+# 1. THE #197 literal serialization mismatch → FAIL (rc 1), NAMED as a corrupt build.
+printf 'Loaded scene Boot\nWasdMovement Read 84 expected 88\n' > "$TMP/corrupt_197.log"
+assert_rc_and_grep 1 "CORRUPT BUILD DETECTED" "corrupt: #197 'Read 84 expected 88' serialization mismatch fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_197.log"
+
+# 2. The verbose Unity serialization-layout wording → FAIL.
+printf 'A script behaviour has a different serialization layout when loading. (Read 12 Bytes but expected 20 bytes)\n' > "$TMP/corrupt_layout.log"
+assert_rc_and_grep 1 "CORRUPT-BUILD GATE FAILED" "corrupt: 'different serialization layout' fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_layout.log"
+
+# 3. Missing MonoBehaviour script reference (stale assembly dropped the type) → FAIL.
+printf "The referenced script (Assembly-CSharp) on this Behaviour is missing!\n" > "$TMP/corrupt_missing.log"
+assert_rc_and_grep 1 "CORRUPT BUILD DETECTED" "corrupt: missing referenced script fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_missing.log"
+
+# 4. Broken/unloadable managed assembly (partial ScriptAssemblies DLL) → FAIL.
+printf 'Unloading broken assembly Assets/... , this can cause crashes\n' > "$TMP/corrupt_broken.log"
+assert_rc_and_grep 1 "CORRUPT-BUILD GATE FAILED" "corrupt: broken assembly fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_broken.log"
+
+# 5. LOAD-BEARING false-positive guard — a CLEAN log with the KNOWN-BENIGN CI console lines
+#    (URP first-import terrain warnings + the recovered NavMesh race the console gate
+#    allowlists) must NOT be flagged. If this ever false-positives, every healthy warm run
+#    goes red — the corrupt-build gate would be worse than useless.
+printf '%s\n' \
+  '[BootstrapProject] complete' \
+  'shader Terrain Standard 4 Layers URP could not be found' \
+  "Couldn't find preset for Terrain" \
+  'Failed to create agent because there is no valid NavMesh' \
+  '[FarHorizonBuilder] result=Succeeded size=54000000' \
+  > "$TMP/corrupt_clean.log"
+assert_rc_and_grep 0 "CORRUPT-BUILD GATE PASSED" "corrupt: clean+benign log does NOT false-positive (load-bearing)" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_clean.log"
+
+# 6. A missing log is NOT a corruption signal (the producing step's own gate covers absence)
+#    → PASS. Prevents the canary from red-ing a run where a log simply wasn't written.
+assert_rc_and_grep 0 "CORRUPT-BUILD GATE PASSED" "corrupt: missing log is not a corruption signal" \
+  -- bash "$CORRUPT_GATE" "$TMP/does_not_exist.log"
+
+# 7. Multi-log: one clean + one corrupt → FAIL (scans every log handed to it).
+assert_rc_and_grep 1 "CORRUPT BUILD DETECTED" "corrupt: one corrupt log among several fails the batch" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_clean.log" "$TMP/corrupt_197.log"
+
+echo "=== clean_scriptassemblies.sh (targeted warm-runner heal, 86cagr0zu) ==="
+# The heal must delete ONLY the regenerable compiled-script + Bee caches so a corrupt warm
+# runner recompiles fresh on the re-run, while Library/PackageCache (the clean:false win)
+# stays WARM. Load-bearing: PackageCache survives; idempotent on absent dirs.
+SA_CLEAN="$SCRIPTS/clean_scriptassemblies.sh"
+
+# 1. Removes ScriptAssemblies + Bee, PRESERVES PackageCache → PASS + PackageCache still there.
+SAPROJ="$TMP/sa_proj"
+mkdir -p "$SAPROJ/Library/ScriptAssemblies" "$SAPROJ/Library/Bee" "$SAPROJ/Library/PackageCache/com.unity.x"
+printf 'x' > "$SAPROJ/Library/ScriptAssemblies/Assembly-CSharp.dll"
+printf 'x' > "$SAPROJ/Library/Bee/artifact.bin"
+printf 'x' > "$SAPROJ/Library/PackageCache/com.unity.x/pkg.txt"
+assert_rc_and_grep 0 "PackageCache left WARM" "sa-clean: runs clean + reports PackageCache preserved" \
+  -- bash "$SA_CLEAN" "$SAPROJ"
+if [ ! -e "$SAPROJ/Library/ScriptAssemblies" ] && [ ! -e "$SAPROJ/Library/Bee" ]; then
+  ok "sa-clean: ScriptAssemblies + Bee removed"
+else
+  bad "sa-clean: ScriptAssemblies/Bee NOT removed"
+fi
+# THE load-bearing assert — the expensive warm cache must survive (else this is just clean:true).
+if [ -f "$SAPROJ/Library/PackageCache/com.unity.x/pkg.txt" ]; then
+  ok "sa-clean: Library/PackageCache PRESERVED (warm-build win intact)"
+else
+  bad "sa-clean: Library/PackageCache was wiped — this would kill the clean:false warm-build win"
+fi
+
+# 2. Idempotent — second run on the now-absent dirs still exits 0, no error.
+assert_rc_and_grep 0 "PackageCache left WARM" "sa-clean: idempotent on absent dirs" \
+  -- bash "$SA_CLEAN" "$SAPROJ"
+
 echo "=== frame_check.py ==="
 
 # Build tiny PNG fixtures with stdlib only (no Pillow dep) so the test runs
@@ -189,11 +274,14 @@ make_min_repo() {
         '  build:' \
         '    runs-on: [self-hosted, windows, unity]' \
         '    concurrency: { group: unity-build, cancel-in-progress: false }' \
-        '    steps: []' \
+        '    steps:' \
+        '      - run: .github/workflows/scripts/check_corrupt_build.sh ci-out/build.log' \
+        '      - run: .github/workflows/scripts/clean_scriptassemblies.sh "$GITHUB_WORKSPACE"' \
         '  capture:' \
         '    runs-on: [self-hosted, windows, unity, capture]' \
         '    concurrency: { group: unity-capture, cancel-in-progress: false }' \
-        '    steps: []' \
+        '    steps:' \
+        '      - run: .github/workflows/scripts/check_corrupt_build.sh ci-out/capture.log' \
         '  playmode:' \
         '    runs-on: [self-hosted, windows, unity]' \
         '    concurrency: { group: unity-capture, cancel-in-progress: false }' \
@@ -286,6 +374,16 @@ CONC_CAP_REPO="$TMP/conc_cap_repo"; mkdir -p "$CONC_CAP_REPO"; make_min_repo "$C
 assert_rc_and_grep 1 "concurrency invariants BROKEN" "structure: capture cancel-in-progress:true flagged (86cah17eq drop-verdict guard)" \
   -- bash -c "cd '$CONC_CAP_REPO' && bash '$STRUCT'"
 
+# NEGATIVE D — the corrupt-build canary reference dropped from ci.yml (86cagr0zu wiring guard).
+# A future ci.yml edit that removes the check_corrupt_build.sh step re-opens the "warm-runner
+# corrupt build dismissed as a launch flake" gap. structure_check check #7 must catch it.
+CANARY_DROP_REPO="$TMP/canary_drop_repo"; mkdir -p "$CANARY_DROP_REPO"; make_min_repo "$CANARY_DROP_REPO"
+( cd "$CANARY_DROP_REPO" \
+  && sed -i '/check_corrupt_build.sh/d' .github/workflows/ci.yml \
+  && git add -A >/dev/null 2>&1 )
+assert_rc_and_grep 1 "corrupt-build canary wiring BROKEN" "structure: dropped corrupt-build canary flagged (86cagr0zu)" \
+  -- bash -c "cd '$CANARY_DROP_REPO' && bash '$STRUCT'"
+
 echo "=== verify_settings_gate.sh (settings-panel capture gate, 86caa4bqp) ==="
 
 # THE bug class this guards (Tess QA bounce, PR #83): the settings success-test is
@@ -376,17 +474,17 @@ assert_rc_and_grep 1 "no 'changedLive=True'" "missing proof line fails loud" \
 assert_rc_and_grep 1 "exe not found" "missing exe fails loud" \
   -- bash "$SETTINGS_GATE" "$TMP/does_not_exist.exe" "$TMP/scaps_x" "$TMP/slog_x.log"
 
-# 5. Check 3 (visible-tweak diff) is QUARANTINED-NON-FATAL (86cabe3e5). With changedLive=True
-#    (the live param DID change) but settings_tweaked.png a BYTE-COPY of settings_open.png (the
-#    SYNTHETIC -verifySettings drive bypasses the UI Toolkit ChangeEvent so the readout never
-#    repaints under capture), the gate now PASSES (rc=0) — Checks 1+2 (the real shipped-build
-#    backstops) both pass, and the pixel-identical diff_rc is logged for signal but does NOT red
-#    the gate. The quarantine marker must be present so the un-tweaked frame is visible in CI. The
-#    REAL drag repaints (Tess+Drew confirmed); proper fix tracked in 86cabe3e5. This assertion is
-#    the regression guard for the quarantine: if Check 3 ever silently becomes fatal again (or the
-#    quarantine marker is dropped) this fails.
+# 5. Check 3 (visible-tweak diff) is FATAL again — UN-QUARANTINED (86cabe3e5). This is THE
+#    regression guard for the bug class this ticket fixes: even with changedLive=True (the live
+#    param DID change), if settings_tweaked.png is a BYTE-COPY of settings_open.png — i.e. the
+#    tweak did NOT repaint the captured frame, the exact symptom of reverting to the SYNTHETIC
+#    entry-setter + RefreshReadouts drive instead of a real dispatched ChangeEvent — the gate must
+#    now FAIL (rc=1). 86cabe3e5 made the -verifySettings harness drive the tweak via a real
+#    ChangeEvent (SettingsPanel.DriveFloat/DriveRangeChangeEventForCapture), so a real run repaints;
+#    a pixel-identical tweaked frame therefore means a regression back to the synthetic drive and
+#    reds the gate. If Check 3 is ever silently re-quarantined / made non-fatal, this assertion fails.
 make_fake_exe "$TMP/fake_identical.sh" "True" "identical"
-assert_rc_and_grep 0 "QUARANTINED-non-fatal" "pixel-identical tweaked frame is quarantined-non-fatal (86cabe3e5)" \
+assert_rc_and_grep 1 "visible-diff sub-check FAILED" "pixel-identical tweaked frame FAILS the gate (un-quarantined 86cabe3e5)" \
   -- bash "$SETTINGS_GATE" "$TMP/fake_identical.sh" "$TMP/scaps_id" "$TMP/slog_id.log"
 
 echo "=== frames_differ.py (visible-tweak diff, 86caa4bqp re-QA) ==="
@@ -551,6 +649,31 @@ make_wedge_exe "$TMP/pond_hang_always.sh" "hang-always"
 assert_rc 1 "verify_pond: persistent present-wedge fails after one retry" \
   -- bash "$POND_GATE" "$TMP/pond_hang_always.sh" "$TMP/pond_ha_caps" "$TMP/pond_ha.log"
 assert_attempts "$TMP/pond_hang_always.sh" 2 "verify_pond: present-wedge (rc 124) ran exactly twice (one retry)"
+
+echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ==="
+# 86cafzaeb adopted #189's hardening (LAUNCH_TIMEOUT 300, `timeout -k 15`, single rc==124-only
+# retry with per-attempt stale-clear) on EVERY windowed verify gate — settings/loot/water/chop/
+# sky were still on the old single-launch 120/180s shape; heldbelt + invdragghostpos shipped
+# hardened from day one (86cahx2p5 / 86cafhgun). capture_gate + pond keep their dedicated #189
+# recovery tests above; this loop pins the retry SEMANTICS uniformly per gate — the bug class,
+# not the instance: (a) a REAL non-124 failure runs the exe exactly ONCE (retrying a real
+# failure wastes a runner cycle / masks a genuine render fail), (b) a persistent timeout-hang
+# (rc 124) retries exactly ONCE (two runs, never a loop) and the gate still FAILS. All seven
+# wrappers share the `<exe> [capdir] [logfile]` CLI, so one loop covers them. A NEW verify gate
+# wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
+# the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
+# its aggregate fail path, so the grep needle is uniform too.
+for g in settings loot water chop sky heldbelt invdragghostpos; do
+  G="$SCRIPTS/verify_${g}_gate.sh"
+  make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
+  assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
+    -- bash "$G" "$TMP/${g}_ff.sh" "$TMP/${g}_ff_caps" "$TMP/${g}_ff.log"
+  assert_attempts "$TMP/${g}_ff.sh" 1 "verify_${g}: real non-124 failure ran exactly ONCE (no retry on a real failure)"
+  make_wedge_exe "$TMP/${g}_ha.sh" "hang-always"
+  assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: persistent 124-hang fails after one retry" \
+    -- bash "$G" "$TMP/${g}_ha.sh" "$TMP/${g}_ha_caps" "$TMP/${g}_ha.log"
+  assert_attempts "$TMP/${g}_ha.sh" 2 "verify_${g}: persistent 124-hang ran exactly TWICE (one retry, no loop)"
+done
 
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"
