@@ -176,6 +176,15 @@ namespace FarHorizon
         // while the F1 field stayed focused → typed digits/arrows ALSO drove movement/orbit).
         private int _devFocusedFields;         // typed-fields holding keyboard focus in the DEV console (F3) drawer
         private int _playerFocusedFields;      // typed-fields holding keyboard focus in the PLAYER Settings (F1) drawer
+        // 86cah8ukr FIX4 (adversarial #247 verify) — the scroll-zoom POINTER gate (UiInputGate.PointerOverConsole)
+        // had the SAME shared-single-flag defect the focus gate above did: it was a bare global bool that OpenDrawer
+        // force-cleared UNCONDITIONALLY on any drawer close. So: open F1+F3 overlapping under the cursor, close F3 →
+        // the flag cleared while F1 stayed hovered, and UI Toolkit does NOT re-fire PointerEnter for a pointer
+        // already inside → the wheel zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter. Fixed
+        // the SAME way: track pointer-over PER DRAWER + re-derive the gate from which drawers are still open + hovered
+        // (RefreshPointerGate mirrors RefreshInputGate).
+        private bool _devPointerOver;          // pointer currently over the DEV console (F3) panel rect
+        private bool _playerPointerOver;       // pointer currently over the PLAYER Settings (F1) panel rect
         private ConsoleCorner _corner;         // the persisted panel corner (AC4)
         private float _uiScale = 1f;           // the persisted console UI scale multiplier (86cabeqj9 soak NIT)
         private float _textScale = 1f;         // the persisted UI TEXT scale multiplier (86cabeqj9 soak NIT — DISTINCT from _uiScale chrome)
@@ -317,7 +326,12 @@ namespace FarHorizon
         {
             _devFocusedFields = 0;
             _playerFocusedFields = 0;
+            // FIX4 — also clear pointer-over so a disable/destroy WHILE the cursor is over a drawer can never leave
+            // the scroll-zoom gate stuck true (mirrors the focus-gate release; a destroyed panel can't be hovered).
+            _devPointerOver = false;
+            _playerPointerOver = false;
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            UiInputGate.SetPointerOverConsole(false);
         }
 
         /// <summary>Open/close the DEV CONSOLE (F3). Kept as the public <c>SetOpen(bool)</c> surface (unchanged
@@ -341,25 +355,22 @@ namespace FarHorizon
             var panel = isDev ? _panel : _playerPanel;
             if (isDev) IsOpen = open; else IsPlayerOpen = open;
 
-            // AC3 (86cah8ukr FIX) — when CLOSING, clear ONLY the CLOSING drawer's focus count: its fields can no
-            // longer be visibly focused once display:None, and UI Toolkit does not reliably fire FocusOutEvent on
-            // a display:None ancestor (same gap the PointerLeave force-clear below guards), so we can't rely on the
-            // blur callback to zero it. Then RE-DERIVE the gate from the remaining focus state: closing one drawer
-            // must NOT release the gate the OTHER still-open drawer's focused field owns. (The old shared single
-            // counter zeroed BOTH drawers' focus on any close → open F1, focus a field, open+close F3 stopped
-            // swallowing world input while the F1 field stayed focused.) Still errs toward RELEASE for the true
-            // all-closed / all-blurred case (RefreshInputGate gates iff a focused field lives in a still-OPEN drawer).
+            // AC3 (86cah8ukr FIX / FIX4) — when CLOSING, clear ONLY the CLOSING drawer's focus count AND pointer-over
+            // flag: once display:None its fields can no longer be visibly focused nor its rect hovered, and UI Toolkit
+            // does not reliably fire FocusOutEvent OR PointerLeaveEvent on a display:None ancestor, so we can't rely on
+            // the blur/leave callbacks to zero them. Then RE-DERIVE BOTH gates from the remaining per-drawer state:
+            // closing one drawer must NOT release the gate the OTHER still-open drawer's focused field / hovered rect
+            // owns. (The old shared single focus-counter + single pointer-bool zeroed BOTH drawers on any close → open
+            // F1, focus a field / hover it, open+close F3 stopped swallowing world input / scroll-zoom while F1 stayed
+            // focused/hovered.) Both still err toward RELEASE for the true all-closed / all-blurred / all-unhovered
+            // case (the Refresh*Gate re-derives gate iff a focused field / hovered rect lives in a still-OPEN drawer).
             if (!open)
             {
-                if (isDev) _devFocusedFields = 0; else _playerFocusedFields = 0;
+                if (isDev) { _devFocusedFields = 0; _devPointerOver = false; }
+                else       { _playerFocusedFields = 0; _playerPointerOver = false; }
                 RefreshInputGate();
+                RefreshPointerGate();
             }
-            // 86cagz15v (#208 NIT) — CLOSING must ALSO clear the scroll-zoom pointer gate. UI Toolkit does not
-            // reliably dispatch PointerLeaveEvent on a display:None ancestor, so a close WHILE the cursor is over
-            // the panel rect would otherwise strand PointerOverConsole==true → OrbitCamera keeps swallowing the
-            // scroll-zoom. A hidden panel can never legitimately hold the pointer, so force it false here (cheap,
-            // idempotent, belt-and-suspenders). Applies to BOTH drawers (both set the pointer gate on enter/leave).
-            if (!open) UiInputGate.SetPointerOverConsole(false);
             if (scrim == null) return;
             scrim.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
             if (open)
@@ -509,7 +520,7 @@ namespace FarHorizon
             _scrim = devContainer.Q<VisualElement>("settings-scrim");
             _panel = devContainer.Q<VisualElement>("settings-panel");
             _rows = devContainer.Q<ScrollView>("settings-rows");
-            SetupDrawerCommon(devContainer, _panel, _rows, "Dev console");
+            SetupDrawerCommon(devContainer, _panel, _rows, "Dev console", isDev: true);
             // AC4 — the corner POSITION PICKER (dev console only). Cycles TL→TR→BL→BR; persists; re-parks live.
             _corner = ConsolePosition.Load();
             BuildCornerPicker(devContainer);
@@ -522,7 +533,7 @@ namespace FarHorizon
             _playerScrim = playerContainer.Q<VisualElement>("settings-scrim");
             _playerPanel = playerContainer.Q<VisualElement>("settings-panel");
             _playerRows = playerContainer.Q<ScrollView>("settings-rows");
-            SetupDrawerCommon(playerContainer, _playerPanel, _playerRows, "Settings");
+            SetupDrawerCommon(playerContainer, _playerPanel, _playerRows, "Settings", isDev: false);
 
             BuildRows();
             _built = true;
@@ -540,7 +551,7 @@ namespace FarHorizon
         // per-drawer): the vertical-only scroll (86cabeqj9 — no h-scrollbar), the pointer scroll-gate (both
         // drawers are UI panels, so hovering either swallows ONLY the wheel-zoom), the Reset-to-defaults button
         // (GLOBAL reset — either button reverts the whole registry, matching prior behavior), and the title.
-        private void SetupDrawerCommon(VisualElement container, VisualElement panel, ScrollView rows, string title)
+        private void SetupDrawerCommon(VisualElement container, VisualElement panel, ScrollView rows, string title, bool isDev)
         {
             if (rows != null)
             {
@@ -549,8 +560,11 @@ namespace FarHorizon
             }
             if (panel != null)
             {
-                panel.RegisterCallback<PointerEnterEvent>(_ => UiInputGate.SetPointerOverConsole(true));
-                panel.RegisterCallback<PointerLeaveEvent>(_ => UiInputGate.SetPointerOverConsole(false));
+                // FIX4 — track pointer-over PER DRAWER (isDev) then re-derive, so a close of the sibling drawer can't
+                // strand the gate this drawer's hovered rect owns. Both callbacks route through the shared core the
+                // UNITY_INCLUDE_TESTS seam also drives (PROD logic, not a copy — mirrors WireFieldFocus/FieldFocus*).
+                panel.RegisterCallback<PointerEnterEvent>(_ => PointerEnterDrawer(isDev));
+                panel.RegisterCallback<PointerLeaveEvent>(_ => PointerLeaveDrawer(isDev));
             }
             var reset = container.Q<Button>("settings-reset");
             // AC10 — reset-to-defaults END-TO-END: revert every live param, then FULLY repaint (readouts + typed
@@ -959,6 +973,37 @@ namespace FarHorizon
             UiInputGate.SetPanelOpen(held, ref _gateTracked);
         }
 
+        // Pointer enter/leave CORE (FIX4) — shared by the real PointerEnter/PointerLeave callbacks in
+        // SetupDrawerCommon AND the EditMode interleaving test seam below, so the two-drawer pointer-gate guard
+        // exercises PRODUCTION logic, not a parallel copy (mirrors FieldFocusIn/FieldFocusOut). Each sets its
+        // drawer's pointer-over flag then re-derives the scroll-zoom gate.
+        private void PointerEnterDrawer(bool isDev)
+        {
+            if (isDev) _devPointerOver = true; else _playerPointerOver = true;
+            RefreshPointerGate();
+        }
+
+        private void PointerLeaveDrawer(bool isDev)
+        {
+            if (isDev) _devPointerOver = false; else _playerPointerOver = false;
+            RefreshPointerGate();
+        }
+
+        /// <summary>86cah8ukr FIX4 — RE-DERIVE the scroll-zoom pointer gate (<see cref="UiInputGate.PointerOverConsole"/>)
+        /// from the actual per-drawer hover state: hold it iff the pointer is over SOME still-OPEN drawer's rect.
+        /// Called after every pointer enter/leave and after a drawer close, so closing one drawer never releases the
+        /// gate the OTHER still-open drawer's hovered rect owns (the shared-single-bool force-clear bug: open F1+F3
+        /// overlapping under the cursor, close F3 → the bare SetPointerOverConsole(false) cleared the flag while F1
+        /// stayed hovered, and UI Toolkit does NOT re-fire PointerEnter for a pointer already inside → the wheel
+        /// zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter). Mirrors <see cref="RefreshInputGate"/>
+        /// for the focus gate. A hidden drawer's pointer-over flag is excluded even if a stale PointerLeave never
+        /// fired (its open flag is false). Idempotent — SetPointerOverConsole just writes the bool.</summary>
+        private void RefreshPointerGate()
+        {
+            bool over = (IsOpen && _devPointerOver) || (IsPlayerOpen && _playerPointerOver);
+            UiInputGate.SetPointerOverConsole(over);
+        }
+
 #if UNITY_INCLUDE_TESTS
         /// <summary>EditMode test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS) — simulate a typed-field
         /// keyboard focus-in/out on the DEV (<paramref name="isDev"/>=true) or PLAYER drawer WITHOUT a UIDocument
@@ -970,6 +1015,16 @@ namespace FarHorizon
         public void SimulateFieldFocusForTest(bool isDev, bool focusIn)
         {
             if (focusIn) FieldFocusIn(isDev); else FieldFocusOut(isDev);
+        }
+
+        /// <summary>EditMode test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS) — simulate the pointer
+        /// entering/leaving the DEV (<paramref name="isDev"/>=true) or PLAYER drawer rect WITHOUT a UIDocument render
+        /// loop (UI Toolkit pointer events are unreliable in EditMode — DevConsoleTests §scroll-gate). Drives the SAME
+        /// <see cref="PointerEnterDrawer"/>/<see cref="PointerLeaveDrawer"/> + gate re-derive the real callbacks use,
+        /// so the FIX4 two-drawer pointer-gate interleaving guard tests production logic, not a copy.</summary>
+        public void SimulatePointerOverForTest(bool isDev, bool over)
+        {
+            if (over) PointerEnterDrawer(isDev); else PointerLeaveDrawer(isDev);
         }
 #endif
 

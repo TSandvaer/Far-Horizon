@@ -443,6 +443,87 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // ===== 86cah8ukr FIX4 — TWO-DRAWER SCROLL-ZOOM POINTER gate interleaving (adversarial #247 verify) =====
+        //
+        // Same bug CLASS as the focus-gate interleaving above, applied to the OTHER shared gate: PointerOverConsole
+        // was a bare shared bool that OpenDrawer force-cleared UNCONDITIONALLY on any drawer close. So: open F1+F3,
+        // cursor over the overlapping region (both rects hovered), close F3 → the flag cleared while F1 stayed open
+        // under the cursor, and UI Toolkit does NOT re-fire PointerEnter for a pointer already inside → the wheel
+        // zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter. FIX4 tracks pointer-over PER DRAWER
+        // + re-derives (RefreshPointerGate). Pinned via the UNITY_INCLUDE_TESTS pointer seam (UI Toolkit pointer
+        // EVENTS are unreliable in EditMode, but SetOpen/SetPlayerOpen + Simulate*ForTest run the full gate logic
+        // before bailing on the unbuilt view). Mirrors the two focus-gate interleaving guards above.
+
+        [Test]
+        public void PointerGate_ClosingOneDrawer_DoesNotReleaseGateHeldByOtherDrawersHoveredRect_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-pointer-gate-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open BOTH drawers; the cursor is over the overlapping region so BOTH rects report pointer-over
+                // (UI Toolkit fires PointerEnter on each). The scroll-zoom gate is held.
+                panel.SetPlayerOpen(true);
+                panel.SetOpen(true);
+                panel.SimulatePointerOverForTest(isDev: false, over: true);
+                panel.SimulatePointerOverForTest(isDev: true, over: true);
+                Assert.IsTrue(UiInputGate.PointerOverConsole,
+                    "pointer over an open drawer swallows the wheel so the console isn't scrolled AND the camera zoomed at once");
+
+                // Close F3 while the cursor is STILL over the open F1 panel. The old bare force-clear zeroed the
+                // shared pointer bool here → the wheel started zooming the OrbitCamera THROUGH the open F1 panel until
+                // a leave+re-enter (UI Toolkit never re-fires PointerEnter for a pointer already inside). FIX4:
+                // re-derive from per-drawer state → F1 still open + hovered keeps the gate held.
+                panel.SetOpen(false);
+                Assert.IsTrue(UiInputGate.PointerOverConsole,
+                    "closing F3 must NOT release the scroll-zoom gate the still-open, still-hovered F1 panel owns — the " +
+                    "shared-single-bool bug: the old force-clear zeroed BOTH drawers' pointer-over on any close, so the " +
+                    "wheel zoomed the camera through the open F1 panel until the cursor left and re-entered");
+
+                // True all-unhovered/closed path: leave F1 + close F1 → gate releases (the wheel zooms the world again).
+                panel.SimulatePointerOverForTest(isDev: false, over: false);
+                panel.SetPlayerOpen(false);
+                Assert.IsFalse(UiInputGate.PointerOverConsole,
+                    "every drawer closed + pointer off → the scroll-zoom gate releases (the wheel zooms the camera again)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        [Test]
+        public void PointerGate_ClosingAHoveredDrawer_ClearsItsOwnGate_ErrsTowardRelease_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-pointer-gate-test-2");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F3 + pointer over it → gate held.
+                panel.SetOpen(true);
+                panel.SimulatePointerOverForTest(isDev: true, over: true);
+                Assert.IsTrue(UiInputGate.PointerOverConsole, "pointer over the open dev console swallows the wheel");
+
+                // Close F3 WITHOUT a leave first (the display:None stale-hover case UI Toolkit does not reliably fire
+                // PointerLeave for) → the close clears the closing drawer's own flag AND the re-derive sees F3 no
+                // longer open, so the gate releases either way (belt + suspenders; a hidden panel can't swallow the wheel).
+                panel.SetOpen(false);
+                Assert.IsFalse(UiInputGate.PointerOverConsole,
+                    "closing a drawer releases the scroll-zoom gate its OWN (possibly stale-hovered) rect held — a " +
+                    "hidden panel can't keep swallowing the wheel");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
         // ===== 86cabeqj9 soak NIT — SCROLL-over-panel gate (fix 1): the wheel is swallowed while the pointer
         //       hovers the NON-MODAL console, but ONLY scroll (WASD/orbit stay live). Pinned at the gate level;
         //       the OrbitCamera reads (CaptureWorldInput || PointerOverConsole) to decide whether to zoom. The
