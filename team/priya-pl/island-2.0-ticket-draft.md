@@ -119,6 +119,55 @@ All four are REGEN + single-build-slot → **serialized**, not parallel (each re
 
 ---
 
+## AC UPDATE — post-C1 (Priya, 2026-07-03) — PASTE-READY for the C2 + C3 subtasks
+
+> **Why this update:** C1 (`86cahwx6w`, branch `devon/86cahwx6w-island2-c1`, NO PR yet — in progress) has landed the size + multi-mountain foundation and SETTLED several values the C2/C3 drafts left as ranges. C2/C3 must now build against C1's **concrete** vocabulary, not the pre-C1 estimates. The blocks below REPLACE the matching bullets on the C2/C3 subtasks. Sequencing unchanged: **C2 and C3 both sequence behind C1's MERGE** (C1 has no PR yet). C1 verified CLEAN — it touches only POC files, no shared start-island/worldlook asset.
+
+### What C1 settled (the concrete state C2/C3 extend)
+
+- **Island size is now FIXED at `MeanShoreR = 600f`** (~1200u diameter, ~1.5× #226) — NOT the draft's "~550-650 range". `CoreR = 450f`, `CoastIrregAmp = 105f`, `FalloffEnd = 705f`, `GridHalf = 745f`, `Seg = 386`. **C2/C3 do NOT re-grow the island** — that knob is spent; place onto the 600u land.
+- **Three peaks exist in `NextIslandPocGen.Peaks[]`** (`Peak` struct): `[0]` HERO climbable snow-cap dome (`cx 90, cz -60, height 135, footR 300` — BYTE-KEPT, do NOT re-tune), `[1]` NE massif (`cx 330, cz 150, height 105, footR 200, power 1.8`, small snow crown), `[2]` SE massif (smaller, bare rock, no snow).
+- **Per-peak rock band + tree line already baked into the TERRAIN** via colour ramp + per-peak scatter rejection: `HeroRockStartFrac 0.40 / HeroRockFullFrac 0.62 / HeroTreeLineFrac 0.45`; `CragRockStartFrac 0.12 / CragRockFullFrac 0.35 / CragTreeLineFrac 0.10`. Each `Peaks[i]` carries its own `rockStartFrac / rockFullFrac / treeLineFrac`.
+- **`NextIslandPocScatter.Scatter(parent, seed, groundCol, treeTarget)`** already: places `treeTarget` broadleaf trees rejecting each peak's upper flank (per-peak `treeLineFrac`), `rockTarget = Mathf.Max(20, treeTarget/5)` scatter rocks, and **`clumpTarget = Mathf.Max(120, treeTarget)` GRASS CLUMPS** (grass ALREADY exists — extend it, don't add a parallel system). `plantOuterR = MeanShoreR + CoastIrregAmp` (=705). Emits `[poc-trace]` scatter log.
+
+### PASTE → C2 subtask (`feat(world): island 2.0-B — rocky walls + huge stone slabs`)
+
+**🎯 Destination (unchanged):** dramatic rock features — near-vertical faceted rocky walls (default 3-6) + huge flat-topped stone slabs (default 8-15) reading as real rock (Bar 4: a wall you can't walk up; a slab sitting ON the ground).
+
+**🔒 Constraints (REPLACES the C2 constraint bullet):**
+- **C2's "rocky walls" are FREE-STANDING `FacetedRock` WALL PROPS scattered via `NextIslandPocScatter` — DISTINCT from C1's per-peak terrain rock-banding (already done).** Do NOT re-band the terrain colour or add more massifs to `Peaks[]`; add discrete near-vertical wall + slab prop meshes on the land. *Why:* C1 owns the terrain silhouette + crag banding; C2 owns discrete rock props — double-authoring the crag look re-opens C1's soaked terrain.
+- **Place onto the settled 600u land; reject footprints overlapping the three `Peaks[]` massifs** (hero `90,-60 r300`; NE `330,150 r200`; SE massif) — walls/slabs go on the flats, foreshore, and inter-peak cols, not clipped into a mountain foot. Use `plantOuterR` (=705) as the outer bound.
+- **New seed salts `seed+1111` (walls) / `seed+1212` (slabs)** — never mutate an existing `System.Random` stream (the tree/rock/grass streams are C1's). Mirror the existing `rockTarget` scatter idiom.
+- **Caster policy: large hero features (walls, big slabs) keep shadows + static-batch** — `MakeMeshObject(castShadows: true, BatchingStatic)`. Faceted flat-shaded `FacetedRock` idiom, `QuantizeFine` near-neutral tints, NEVER `RecalculateNormals`.
+- **Walls off-NavMesh or carved so they don't orphan the walkable surface** (C1 regenerated `PocNavMesh.asset` at 600u — keep the NavMesh-coverage trace + PlayMode walkable gate green).
+- **Commit ONLY `NextIslandPoc.unity` + `PocNavMesh.asset` + your new mesh/mat — do NOT commit a stray `GradientSky.mat` diff** that `NextIslandPocScene.Build` may emit (root cause tracked in `86caj0rrg`; until it lands, `git add` by path + verify `git status` shows no shared-asset diff).
+
+**🎚️ Defaults:** 3-6 walls (`seed+1111`), 8-15 slabs (`seed+1212`), scale bands — "default X — Sponsor-soak tunes". **Sequences after C1 MERGES.**
+
+### PASTE → C3 subtask (`feat(world): island 2.0-C — tree/bush/vegetation variety`)
+
+**🎯 Destination (unchanged):** the forest reads layered + alive — 2-3 tree species (broadleaf blob + `PineTree` cone-stack, ± a third), bushes, richer stationary ground vegetation — up from #226's single-species sparse read.
+
+**🔒 Constraints (REPLACES the C3 constraint bullet):**
+- **EXTEND C1's `NextIslandPocScatter.Scatter(parent, seed, groundCol, treeTarget)` — do NOT rewrite it.** C1 already does the tree loop with per-peak `treeLineFrac` rejection, `rockTarget` rocks, and `clumpTarget = Mathf.Max(120, treeTarget)` GRASS CLUMPS. C3 adds species + bushes + denser/varied grass INTO these existing loops. *Why:* the per-peak reject logic (rejecting all THREE `Peaks[]` tree lines) is C1's — new species must inherit it, not bypass it.
+- **New species selection is position-derived** (deterministic re-run) off the existing tree stream — `PineTree` cone-stack per poly-plan TRE-2, optional 3rd. **Every new species respects all three `Peaks[i].treeLineFrac`** (hero 0.45, crag 0.10) — a pine must not grow up the snow cap either.
+- **Per-tree/bush hue via VERTEX COLOUR only (T-A) — never per-material.** Up-biased foliage normals, NEVER `RecalculateNormals`. Grass stationary / no sway (`art-direction.md` §Grass, #172). Decoration (trees/bushes/grass) ships `MakeMeshObject(castShadows: false, BatchingStatic)`.
+- **Bushes = the start island's `BerryBush` body mesh, decoration-only (no berries)**, scattered off the steep peak flanks (reuse the per-peak reject). Denser/varied grass EXTENDS `clumpTarget`, via patch masking not a global flood.
+- **`treeTarget` raise is perf-gated** — hand the raised value to C4's re-measure; do NOT flood before the FPS number confirms it holds at 600u.
+- **Same stray-`GradientSky.mat` watch as C2** — commit by path, verify `git status` (`86caj0rrg`).
+
+**🎚️ Defaults:** 2-3 species, bush + grass density via patch masking, `treeTarget` raise — "default X — Sponsor-soak tunes". **Sequences after C1 MERGES; may pair-sequence with C2.**
+
+---
+
+## HYGIENE FINDINGS — 2026-07-03 (report-only; orchestrator executes ClickUp writes)
+
+- **Status drift:** the 8 `in review` tickets all map 1:1 to open PRs (`86cahnmjv`→#239, `86cahzycp`→#238, the five-ticket bundle `86caj0ahr`/`86cahx2p5`/`86cag1xn0`/`86cafzaeb`/`86cafhgun`→#237, `86cah90cp`→#223) — **no drift**. The ONE stale item is **`86cabeqwf` `in progress`** (PR #220 open, no agent) — superseded-by-`86cah8ukr` per that ticket's own decided-handling. **Recommend:** move `86cabeqwf` `in progress`→`to do` now (nothing is actively working it) + formally close as superseded + close PR #220 (do NOT merge) when `86cah8ukr` dispatches.
+- **Dupe check `86caffwv5` vs `86cah7ym9`:** **KEEP BOTH — not a dupe.** `86caffwv5` = per-weapon attack-CLIP import/wiring (sponsor-gated on the Sponsor supplying each Mixamo clip; `[[chop-swing-mixamo-clip-not-procedural]]`); `86cah7ym9` = weapon-roster DATA + mesh + material tiers (depends on combat POC `86cah7xxp`). Overlap seam: `86cah7ym9`'s phrase "each with its own mesh + swing animation" collides with `86caffwv5`'s whole scope. **Recommend:** (a) edit `86cah7ym9` to DEFER the per-weapon attack-animation wiring to `86caffwv5` (cross-ref) — keep `86cah7ym9` = data/mesh/tiers only; (b) apply the `sponsor-gate` tag to `86caffwv5` (it's gated on clip supply, recommends this itself). A new weapon is "done" only when both its data (`86cah7ym9`) and its attack clip (`86caffwv5`) land.
+- **Queue-order sanity (`#223-conflict-rebake` → `86cahvntg`):** **no dependency inversion — order is correct** (bake #223's sun values into `GradientSky.mat` FIRST, then land the stop-mutating hygiene fix `86cahvntg`; reverse order would clobber the fresh values). **But the queue is INCOMPLETE:** `GradientSky.mat` is a 4-ticket contention cluster — `86cah90cp`(#223) + `86cahvntg` + **`86caj0rrg`** (POC-Build mutates the shared sky mat) + **`86cahxeek`** (re-bake 2 stale committed assets). All four mutate the same committed `GradientSky.mat` → **all four must serialize, not just the first two.** Recommend sequencing `86caj0rrg` + `86cahxeek` into the same chain after `86cahvntg`. Note: `86caj0rrg` is a soft foot-gun for the island-2.0 regen children (C2/C3 run `NextIslandPocScene.Build`) — fixing it removes the stray-`GradientSky.mat`-diff risk (baked into the C2/C3 constraints above as a commit-by-path guard).
+
+---
+
 ## BOARD DEDUPE / HYGIENE REPORT (report-only — 2026-07-02)
 
 Read from the full board dump (`get_tasks`, 33 open tasks, list `901523878268`). Orchestrator executes any status writes — Priya is report-only here.
