@@ -23,6 +23,15 @@ namespace FarHorizon
     /// finger toward the palm. Local Z splays sideways (abduction); local Y is a near-useless twist. So the
     /// curl is authored about LOCAL X — measured, not guessed (the overturned-axis lesson).
     ///
+    /// THE THUMB IS MIRRORED (86cahnmjv "finger sticks out like it's broken" — measured via
+    /// CharacterAssetGen.ThumbOpposeAxisTrace): on this rig the thumb chain's local frame is FLIPPED vs the
+    /// fingers, so the original blanket +X thumb curl moved the thumb tip AWAY from the fist (+14°X measured
+    /// dDist +0.028 — it actively pushed the thumb OUT of the grip; the state-grid -verifyHands captures show
+    /// it as a stiff straight digit dangling below the haft, worst on the thin spear + the crouch diagonal,
+    /// while the empty hand reads fine — which is why the #186 empty-idle gate missed it). The measured
+    /// oppose family is NEGATIVE X on every thumb joint, with small −Y/−Z assists: (−18,−8,−8) per joint
+    /// closes the tip-to-fist gap 0.042→0.0135 (the thumb wraps the gripping fingers like a real haft grip).
+    ///
     /// WHY A RELATIVE OFFSET (multiply), not an absolute set: the clip animates the fingers every frame; we
     /// NUDGE that pose by a fixed curl, preserving any clip motion. bone.localRotation = clip * Euler(curl,0,0).
     ///
@@ -52,13 +61,16 @@ namespace FarHorizon
         [Tooltip("The right-hand THUMB bones — curled by thumbCurlDeg (a gentler opposing grip).")]
         public Transform[] thumbBones;
 
-        [Header("Curl (deg of LOCAL-X per bone — measured: +X curls toward the palm)")]
+        [Header("Curl (deg per bone — axes MEASURED per chain; the thumb frame is mirrored vs the fingers)")]
         [Tooltip("Degrees of LOCAL-X curl per finger bone (Index/Middle/Ring). The hand closes around the " +
                  "haft. Conservative-but-real — a too-small curl leaves the open-hand 'mangled' read; too big " +
                  "clenches a fist through the haft. The Sponsor can re-judge from the build.")]
         public float fingerCurlDeg = 26f;
-        [Tooltip("Degrees of LOCAL-X curl per THUMB bone — the thumb opposes the grip, curled less.")]
-        public float thumbCurlDeg = 14f;
+        [Tooltip("LOCAL euler offset per THUMB bone (86cahnmjv — measured via ThumbOpposeAxisTrace). The " +
+                 "thumb chain's frame is MIRRORED vs the fingers on this rig: oppose = NEGATIVE X (+X pushes " +
+                 "the thumb OUT of the grip — the 'finger sticks out like it's broken' defect). (−18,−8,−8) " +
+                 "closes the measured tip-to-fist gap 0.042→0.0135 so the thumb wraps the gripping fingers.")]
+        public Vector3 thumbCurlEuler = new Vector3(-18f, -8f, -8f);
 
         [Header("Gate")]
         [Tooltip("The inventory whose IsAxeSelectedInBelt gates the curl (AC4). Wired editor-time; " +
@@ -92,8 +104,12 @@ namespace FarHorizon
         public void RebuildCached()
         {
             _fingerOffset = Quaternion.Euler(fingerCurlDeg, 0f, 0f); // +local-X = curl toward the palm (measured)
-            _thumbOffset = Quaternion.Euler(thumbCurlDeg, 0f, 0f);
+            _thumbOffset = Quaternion.Euler(thumbCurlEuler);         // −X oppose family (measured; thumb frame mirrored)
         }
+
+        /// <summary>The composed thumb offset (read-only) — exposed so the oppose-direction regression
+        /// (EditMode, real FBX) asserts the SHIPPED offset moves the thumb tip TOWARD the fist.</summary>
+        public Quaternion ThumbOffset { get { return _thumbOffset; } }
 
         // Gripping = a held-visual weapon (axe OR spear — 86cahngdg) is the SELECTED belt item (shown in
         // hand), or alwaysCurl (AC4). Coherent with HeldAxe's visibility — the hand only closes around a
