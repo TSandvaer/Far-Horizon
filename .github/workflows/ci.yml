@@ -403,6 +403,40 @@ jobs:
             exit 1
           fi
 
+      # CORRUPT-BUILD canary (ticket 86cagr0zu). The clean:false warm runner intermittently
+      # ships a CORRUPT exe — a stale/partial Library/ScriptAssemblies from a concurrent/
+      # cancelled prior build → Unity loads Boot.unity against a mismatched script layout and
+      # emits SERIALIZATION-MISMATCH ("WasdMovement Read 84 expected 88") / MISSING-SCRIPT /
+      # BROKEN-ASSEMBLY lines, shipping a build where WASD/NavMesh are INERT (observed #197 v5,
+      # 2026-06-30). EditMode + peer review PASS on it (editor, fresh domain), and the
+      # console-error gate deliberately fails only on `error CS`/`Compilation failed`/`Fatal`
+      # — a serialization WARNING slips through. This scans the build-time logs for the
+      # corruption signatures a healthy bootstrap+build never emits (a fresh bootstrap re-bakes
+      # Boot.unity + recompiles, so a clean run never mismatches). Runs headlessly on ANY runner
+      # BEFORE the expensive serial capture job, so a corrupt build fails RED + NAMED here rather
+      # than as a "dismissed capture flake." id: used by the heal step below.
+      - name: Corrupt-build canary (stale-Library / serialization-mismatch)
+        id: corrupt_canary
+        if: always()
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/check_corrupt_build.sh
+          .github/workflows/scripts/check_corrupt_build.sh \
+            ci-out/bootstrap.log ci-out/editmode.log ci-out/build.log
+
+      # HEAL on detection (ticket 86cagr0zu — prevent, without blanket clean:true). When the
+      # canary fired, the warm runner's Library/ScriptAssemblies is stale/partial and a bare
+      # re-run would keep failing (warm-cache mtime skips the recompile). Delete ONLY the
+      # regenerable compiled-script + Bee build caches so the NEXT run recompiles fresh and
+      # HEALS, while Library/PackageCache stays WARM (the clean:false win). This run is already
+      # RED (the canary failed) — this is best-effort recovery for the re-run, never a gate.
+      - name: Heal warm runner on corrupt build (targeted ScriptAssemblies clean)
+        if: ${{ always() && steps.corrupt_canary.outcome == 'failure' }}
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/clean_scriptassemblies.sh
+          .github/workflows/scripts/clean_scriptassemblies.sh "$GITHUB_WORKSPACE"
+
   # ---------------------------------------------------------------------------
   # Capture gate — self-hosted Windows runner PINNED to runner-1 via the EXTRA
   # `capture` label. The WINDOWED-CAPTURE half of the old `unity` job (split in
@@ -501,6 +535,24 @@ jobs:
           path: ci-out/caps/*.png
           if-no-files-found: warn
           retention-days: 3
+
+      # CORRUPT-BUILD canary — RUNTIME player log (ticket 86cagr0zu). The generic capture
+      # gate above launches the SHIPPED exe (-logFile ci-out/capture.log), so this is the
+      # earliest point the built exe's OWN runtime log exists. A warm-runner corrupt build's
+      # serialization-mismatch / missing-script lines surface HERE at scene-load even when the
+      # spawn frame still rendered (a static scene can render while WASD/NavMesh are inert) —
+      # so frame_check alone is NOT sufficient. Scanning the runtime log NAMES a corrupt build
+      # ("re-run clean") instead of letting a red capture gate be dismissed as a launch flake
+      # (the exact #197 v5 mis-triage). if: always() so it runs even when the capture gate went
+      # red; it re-uses the SAME detector as the build job. (The targeted heal lives in the
+      # build job — the corrupt Library is on the BUILD runner, which may differ from this
+      # runner-1 capture runner, so cleaning here would miss it.)
+      - name: Corrupt-build canary (runtime player log)
+        if: always()
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/check_corrupt_build.sh
+          .github/workflows/scripts/check_corrupt_build.sh ci-out/capture.log
 
       # 8. Settings-panel shipped-build capture gate (ticket 86caa4bqp) — the
       #    panel-specific sibling of step 7. The generic -captureGate renders a

@@ -76,6 +76,91 @@ assert_rc_and_grep 1 "LOG GATE FAILED" "nit-1: error co-located with allowlisted
 printf 'Failed to create agent because there is no valid NavMesh\nFatal error: boom\n' > "$TMP/mixed.log"
 assert_rc_and_grep 1 "LOG GATE FAILED" "benign + real error together fails" -- bash "$LOG_GATE" "$TMP/mixed.log"
 
+echo "=== check_corrupt_build.sh (warm-runner corrupt-build canary, 86cagr0zu) ==="
+# THE bug class this guards (unity-conventions.md §Process notes, OBSERVED #197 v5): the
+# warm clean:false runner intermittently ships a CORRUPT exe from a stale/partial
+# Library/ScriptAssemblies — Unity loads the scene against a mismatched layout and emits
+# a SERIALIZATION-MISMATCH ("WasdMovement Read 84 expected 88") / MISSING-SCRIPT /
+# BROKEN-ASSEMBLY line, shipping a build with inert WASD/NavMesh. EditMode + review PASS
+# on it (editor, fresh domain) and the console-error gate does NOT scan serialization
+# warnings, so this canary is the only build-time signal. Load-bearing cases: the exact
+# #197 literal fires; clean + benign logs (incl. the allowlisted NavMesh race the console
+# gate treats as benign) do NOT false-positive.
+CORRUPT_GATE="$SCRIPTS/check_corrupt_build.sh"
+
+# 1. THE #197 literal serialization mismatch → FAIL (rc 1), NAMED as a corrupt build.
+printf 'Loaded scene Boot\nWasdMovement Read 84 expected 88\n' > "$TMP/corrupt_197.log"
+assert_rc_and_grep 1 "CORRUPT BUILD DETECTED" "corrupt: #197 'Read 84 expected 88' serialization mismatch fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_197.log"
+
+# 2. The verbose Unity serialization-layout wording → FAIL.
+printf 'A script behaviour has a different serialization layout when loading. (Read 12 Bytes but expected 20 bytes)\n' > "$TMP/corrupt_layout.log"
+assert_rc_and_grep 1 "CORRUPT-BUILD GATE FAILED" "corrupt: 'different serialization layout' fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_layout.log"
+
+# 3. Missing MonoBehaviour script reference (stale assembly dropped the type) → FAIL.
+printf "The referenced script (Assembly-CSharp) on this Behaviour is missing!\n" > "$TMP/corrupt_missing.log"
+assert_rc_and_grep 1 "CORRUPT BUILD DETECTED" "corrupt: missing referenced script fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_missing.log"
+
+# 4. Broken/unloadable managed assembly (partial ScriptAssemblies DLL) → FAIL.
+printf 'Unloading broken assembly Assets/... , this can cause crashes\n' > "$TMP/corrupt_broken.log"
+assert_rc_and_grep 1 "CORRUPT-BUILD GATE FAILED" "corrupt: broken assembly fails" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_broken.log"
+
+# 5. LOAD-BEARING false-positive guard — a CLEAN log with the KNOWN-BENIGN CI console lines
+#    (URP first-import terrain warnings + the recovered NavMesh race the console gate
+#    allowlists) must NOT be flagged. If this ever false-positives, every healthy warm run
+#    goes red — the corrupt-build gate would be worse than useless.
+printf '%s\n' \
+  '[BootstrapProject] complete' \
+  'shader Terrain Standard 4 Layers URP could not be found' \
+  "Couldn't find preset for Terrain" \
+  'Failed to create agent because there is no valid NavMesh' \
+  '[FarHorizonBuilder] result=Succeeded size=54000000' \
+  > "$TMP/corrupt_clean.log"
+assert_rc_and_grep 0 "CORRUPT-BUILD GATE PASSED" "corrupt: clean+benign log does NOT false-positive (load-bearing)" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_clean.log"
+
+# 6. A missing log is NOT a corruption signal (the producing step's own gate covers absence)
+#    → PASS. Prevents the canary from red-ing a run where a log simply wasn't written.
+assert_rc_and_grep 0 "CORRUPT-BUILD GATE PASSED" "corrupt: missing log is not a corruption signal" \
+  -- bash "$CORRUPT_GATE" "$TMP/does_not_exist.log"
+
+# 7. Multi-log: one clean + one corrupt → FAIL (scans every log handed to it).
+assert_rc_and_grep 1 "CORRUPT BUILD DETECTED" "corrupt: one corrupt log among several fails the batch" \
+  -- bash "$CORRUPT_GATE" "$TMP/corrupt_clean.log" "$TMP/corrupt_197.log"
+
+echo "=== clean_scriptassemblies.sh (targeted warm-runner heal, 86cagr0zu) ==="
+# The heal must delete ONLY the regenerable compiled-script + Bee caches so a corrupt warm
+# runner recompiles fresh on the re-run, while Library/PackageCache (the clean:false win)
+# stays WARM. Load-bearing: PackageCache survives; idempotent on absent dirs.
+SA_CLEAN="$SCRIPTS/clean_scriptassemblies.sh"
+
+# 1. Removes ScriptAssemblies + Bee, PRESERVES PackageCache → PASS + PackageCache still there.
+SAPROJ="$TMP/sa_proj"
+mkdir -p "$SAPROJ/Library/ScriptAssemblies" "$SAPROJ/Library/Bee" "$SAPROJ/Library/PackageCache/com.unity.x"
+printf 'x' > "$SAPROJ/Library/ScriptAssemblies/Assembly-CSharp.dll"
+printf 'x' > "$SAPROJ/Library/Bee/artifact.bin"
+printf 'x' > "$SAPROJ/Library/PackageCache/com.unity.x/pkg.txt"
+assert_rc_and_grep 0 "PackageCache left WARM" "sa-clean: runs clean + reports PackageCache preserved" \
+  -- bash "$SA_CLEAN" "$SAPROJ"
+if [ ! -e "$SAPROJ/Library/ScriptAssemblies" ] && [ ! -e "$SAPROJ/Library/Bee" ]; then
+  ok "sa-clean: ScriptAssemblies + Bee removed"
+else
+  bad "sa-clean: ScriptAssemblies/Bee NOT removed"
+fi
+# THE load-bearing assert — the expensive warm cache must survive (else this is just clean:true).
+if [ -f "$SAPROJ/Library/PackageCache/com.unity.x/pkg.txt" ]; then
+  ok "sa-clean: Library/PackageCache PRESERVED (warm-build win intact)"
+else
+  bad "sa-clean: Library/PackageCache was wiped — this would kill the clean:false warm-build win"
+fi
+
+# 2. Idempotent — second run on the now-absent dirs still exits 0, no error.
+assert_rc_and_grep 0 "PackageCache left WARM" "sa-clean: idempotent on absent dirs" \
+  -- bash "$SA_CLEAN" "$SAPROJ"
+
 echo "=== frame_check.py ==="
 
 # Build tiny PNG fixtures with stdlib only (no Pillow dep) so the test runs
@@ -189,11 +274,14 @@ make_min_repo() {
         '  build:' \
         '    runs-on: [self-hosted, windows, unity]' \
         '    concurrency: { group: unity-build, cancel-in-progress: false }' \
-        '    steps: []' \
+        '    steps:' \
+        '      - run: .github/workflows/scripts/check_corrupt_build.sh ci-out/build.log' \
+        '      - run: .github/workflows/scripts/clean_scriptassemblies.sh "$GITHUB_WORKSPACE"' \
         '  capture:' \
         '    runs-on: [self-hosted, windows, unity, capture]' \
         '    concurrency: { group: unity-capture, cancel-in-progress: false }' \
-        '    steps: []' \
+        '    steps:' \
+        '      - run: .github/workflows/scripts/check_corrupt_build.sh ci-out/capture.log' \
         '  playmode:' \
         '    runs-on: [self-hosted, windows, unity]' \
         '    concurrency: { group: unity-capture, cancel-in-progress: false }' \
@@ -285,6 +373,16 @@ CONC_CAP_REPO="$TMP/conc_cap_repo"; mkdir -p "$CONC_CAP_REPO"; make_min_repo "$C
   && git add -A >/dev/null 2>&1 )
 assert_rc_and_grep 1 "concurrency invariants BROKEN" "structure: capture cancel-in-progress:true flagged (86cah17eq drop-verdict guard)" \
   -- bash -c "cd '$CONC_CAP_REPO' && bash '$STRUCT'"
+
+# NEGATIVE D — the corrupt-build canary reference dropped from ci.yml (86cagr0zu wiring guard).
+# A future ci.yml edit that removes the check_corrupt_build.sh step re-opens the "warm-runner
+# corrupt build dismissed as a launch flake" gap. structure_check check #7 must catch it.
+CANARY_DROP_REPO="$TMP/canary_drop_repo"; mkdir -p "$CANARY_DROP_REPO"; make_min_repo "$CANARY_DROP_REPO"
+( cd "$CANARY_DROP_REPO" \
+  && sed -i '/check_corrupt_build.sh/d' .github/workflows/ci.yml \
+  && git add -A >/dev/null 2>&1 )
+assert_rc_and_grep 1 "corrupt-build canary wiring BROKEN" "structure: dropped corrupt-build canary flagged (86cagr0zu)" \
+  -- bash -c "cd '$CANARY_DROP_REPO' && bash '$STRUCT'"
 
 echo "=== verify_settings_gate.sh (settings-panel capture gate, 86caa4bqp) ==="
 
