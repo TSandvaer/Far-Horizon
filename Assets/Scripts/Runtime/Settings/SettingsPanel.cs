@@ -651,7 +651,10 @@ namespace FarHorizon
             // Clamp into the slider band so an out-of-band request still lands on a valid, notifying value.
             driveChangeEvent = v =>
             {
-                slider.value = Mathf.Clamp(v, e.Min, e.Max); // WITH notify → real ChangeEvent → callback + repaint
+                // 86cajb00b — WITH notify → real ChangeEvent → callback + repaint. DriveValueWithNotify fails LOUD
+                // if the clamped target equals the slider's current value (UI Toolkit would suppress the event → no
+                // repaint → false-RED verify_settings Check 3); safe today, guards a future same-value target.
+                DriveValueWithNotify(slider, Mathf.Clamp(v, e.Min, e.Max));
                 return e.Value;                              // the live value actually applied (post-clamp)
             };
             return refresh;
@@ -699,7 +702,9 @@ namespace FarHorizon
             {
                 float lo = Mathf.Clamp(newMin, e.LowerLimit, e.UpperLimit);
                 float hi = Mathf.Clamp(newMax, e.LowerLimit, e.UpperLimit);
-                range.value = new Vector2(lo, hi); // WITH notify → real ChangeEvent → callback + repaint
+                // 86cajb00b — WITH notify → real ChangeEvent → callback + repaint; fails LOUD if the clamped (lo,hi)
+                // equals the range's current value (UI Toolkit would suppress the event → false-RED Check 3).
+                DriveValueWithNotify(range, new Vector2(lo, hi));
             };
             return refresh;
         }
@@ -849,6 +854,29 @@ namespace FarHorizon
                     return true;
                 }
             return false;
+        }
+
+        /// <summary>86cajb00b (#244 NIT) — set a bound control's value WITH notify for the capture drive, failing
+        /// LOUD if the target EQUALS the control's current value. UI Toolkit's <c>BaseField&lt;T&gt;.value</c> setter
+        /// early-outs (dispatches NO ChangeEvent) when the new value equals the current one
+        /// (<c>EqualityComparer&lt;T&gt;.Default</c>) — so a capture drive to the current value would SILENTLY skip
+        /// the RegisterValueChangedCallback + the row repaint, leaving <c>settings_tweaked.png</c> pixel-identical to
+        /// <c>settings_open.png</c> and FALSE-REDding <c>verify_settings_gate.sh</c> Check 3 with no clue why (the exact
+        /// symptom #244 un-quarantined). Safe TODAY (every drive target differs from its default), but a future
+        /// same-value tweak target is a no-op that can never produce a visible diff — so surface it as a NAMED failure
+        /// telling the author to pick a target that actually moves the control, rather than chasing a mystery
+        /// pixel-identical red. Capture-only surface (reached solely via the Drive*ChangeEventForCapture helpers) —
+        /// ZERO player-facing behaviour. Works for both archetypes: <see cref="Slider"/> (BaseField&lt;float&gt;) and
+        /// <see cref="MinMaxSlider"/> (BaseField&lt;Vector2&gt;).</summary>
+        public static void DriveValueWithNotify<T>(BaseField<T> control, T target)
+        {
+            if (EqualityComparer<T>.Default.Equals(control.value, target))
+                throw new System.InvalidOperationException(
+                    $"SettingsPanel capture-drive target ({target}) equals the control's CURRENT value — UI Toolkit " +
+                    "suppresses the ChangeEvent for an unchanged value, so the -verifySettings capture would NOT " +
+                    "repaint (settings_tweaked.png == settings_open.png → false-RED verify_settings_gate Check 3). " +
+                    "Pick a capture tweak target that DIFFERS from the row's current value. (86cajb00b)");
+            control.value = target; // differs → the setter dispatches the real ChangeEvent → callback + repaint
         }
 
         // Repaint a single row (after a nudge / typed commit / slider drag on that entry) — cheaper than the
