@@ -1738,14 +1738,14 @@ namespace FarHorizon.EditorTools
             sb.AppendLine("[thumb-axis] --- combined sweeps (same offset on thumb1+2+3, the authoring shape) ---");
             foreach (var cand in new[]
             {
-                new Vector3(14f, 0f, 0f),   // the SHIPPED offset (the defect baseline)
-                new Vector3(25f, 0f, 0f),
-                new Vector3(0f, 25f, 0f), new Vector3(0f, -25f, 0f),
-                new Vector3(0f, 0f, 25f), new Vector3(0f, 0f, -25f),
-                new Vector3(20f, 0f, 20f), new Vector3(20f, 0f, -20f),
-                new Vector3(20f, 20f, 0f), new Vector3(20f, -20f, 0f),
-                new Vector3(30f, 0f, 15f), new Vector3(30f, 0f, -15f),
-                new Vector3(35f, 0f, 0f), new Vector3(15f, 10f, 20f), new Vector3(15f, -10f, -20f),
+                new Vector3(14f, 0f, 0f),   // the SHIPPED offset (the defect baseline — measured dDist +0.028 AWAY)
+                // The measured oppose family: every thumb joint opposes about NEGATIVE local X (the thumb
+                // chain's frame is mirrored vs the fingers on this rig — +X pushes the thumb OUT of the grip).
+                new Vector3(-10f, 0f, 0f), new Vector3(-15f, 0f, 0f), new Vector3(-20f, 0f, 0f),
+                new Vector3(-25f, 0f, 0f), new Vector3(-30f, 0f, 0f),
+                // −X with the weak −Y/−Z assists the per-joint probes showed on thumb1.
+                new Vector3(-18f, -8f, -8f), new Vector3(-22f, 0f, -10f), new Vector3(-15f, -10f, 0f),
+                new Vector3(-25f, -10f, -10f),
             })
             {
                 PoseGripState();
