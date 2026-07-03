@@ -868,13 +868,13 @@ jobs:
   #     run reports the job result as a (neutral) non-failure to the workflow, so
   #     branch protection (which gates on `structure` + `build` + `capture`)
   #     is unaffected. Do NOT add this job's check to required status checks.
-  #   * `timeout-minutes: 5` (was 20 — 86cae8vn2) is a HARD cap: a FUTURE play-mode-ENTER
-  #     env-deadlock fails FAST + NAMED (this job goes red, clearly attributable to PlayMode)
-  #     instead of hanging to the 90-min job cap and crashing the runner. Tightened 20→5
-  #     because a hung play-mode-enter pins a self-hosted runner for the full cap,
-  #     wedging the NEXT push's `build` merge-gate (per-runner PackageCache cap); 5 min
-  #     still lets play-mode-enter START + confirm the deadlock, then frees the runner ~15 min
-  #     sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
+  #   * `timeout-minutes: 15` (was 5 — 86cabfa21) is a HARD safety cap. The play-mode-enter
+  #     "hang" ROOT CAUSE IS NOW FIXED (86cabfa21): it was NOT environmental — the shared
+  #     PlayMode scene-isolation [UnitySetUp] unbound-waited on UnloadSceneAsync of the test
+  #     framework's own InitTestScene (never completes headless), hanging the whole run at the
+  #     first such fixture. With that fixed the full PlayMode suite COMPLETES (~3-4 min tests +
+  #     this job's own bootstrap), so the old 5-min cap would now KILL a healthy run mid-suite.
+  #     15 min gives completion headroom while still bounding a future regression.
   #   * `needs: build` (was `needs: unity` pre-86cafz9tg) gates this AFTER the build job
   #     completes. NOTE: `needs: build` alone does NOT prevent PlayMode from overlapping
   #     the `capture` job — both gate only on `build`, so after build they are eligible
@@ -893,11 +893,20 @@ jobs:
   #     on capture's SUCCESS — so it stays advisory + adds no sequential latency on the
   #     success path.
   #
-  # The play-mode-ENTER deadlock is ENVIRONMENTAL + fixture-presence-triggered (it
-  # fires before any single fixture runs; EditMode is unaffected; the same PlayMode
-  # pattern passed on green main run 27685445841). When the root cause is fixed,
-  # re-fold PlayMode into the blocking `build` gate + drop this job.
-  # Re-enable-blocking follow-up: ticket 86cab7u42 (this PR: 86caapwmt).
+  # ROOT CAUSE FOUND + FIXED (86cabfa21, Devon 2026-07-03 — NOT environmental, as the old note
+  # here wrongly concluded): the shared PlayMode scene-isolation [UnitySetUp] copied into 10
+  # locomotion/scene fixtures did `SceneManager.UnloadSceneAsync(s); while(!op.isDone) yield
+  # return null;` over EVERY loaded scene — INCLUDING the test framework's InitTestScene, whose
+  # async unload NEVER completes headless (it hosts the running test controller). The unbounded
+  # wait spun forever at the first alphabetical such fixture (AirborneAirControl), right after
+  # play-mode-enter — which LOOKED like an enter deadlock (hence the old "environmental" guess;
+  # the "green run 27685445841" predates the InitTestScene-unload copies). Fixed via the shared
+  # PlayModeSceneIsolation helper (skips InitTestScene + bounds the wait); the suite now COMPLETES
+  # reliably. STILL ADVISORY for now: un-hiding the suite EXPOSED 33 pre-existing failures in
+  # OTHER suites (recently-added combat/UI/rendering tests never CI-validated because the job
+  # always hung) — promoting to a BLOCKING gate is gated on triaging those (follow-up). The two
+  # suites THIS ticket targets — HungerNeed + InventoryBeltHeldAxe — now run GREEN + OBSERVED on
+  # every run. Re-fold/promote follow-up: ticket 86cab7u42.
   # ---------------------------------------------------------------------------
   playmode:
     name: playmode (self-hosted, advisory — non-blocking)
@@ -921,12 +930,13 @@ jobs:
     concurrency:
       group: unity-capture
       cancel-in-progress: false
-    continue-on-error: true   # ADVISORY — PlayMode can NEVER block a merge (86caapwmt)
-    # 20→5 (86cae8vn2): a hung play-mode-enter pins a self-hosted runner for the
-    # full cap, wedging the NEXT push's `build` merge-gate (per-runner PackageCache cap).
-    # 5 min still lets play-mode-enter START + confirm the deadlock fast, then frees the
-    # runner ~15 min sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
-    timeout-minutes: 5        # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
+    continue-on-error: true   # ADVISORY for now — un-hiding the suite (86cabfa21 hang fix)
+                              # EXPOSED 33 pre-existing failures in OTHER suites that would else
+                              # red-gate; promote to blocking once those are triaged (86cab7u42).
+    # 5→15 (86cabfa21): the play-mode-enter HANG is FIXED (InitTestScene unbounded-unload — see
+    # the job header), so the full suite now COMPLETES (~3-4 min tests + bootstrap). The old
+    # 5-min cap would KILL a healthy completing run; 15 gives headroom + still bounds a regression.
+    timeout-minutes: 15       # HARD safety cap (hang root-caused + fixed in 86cabfa21)
     env:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
