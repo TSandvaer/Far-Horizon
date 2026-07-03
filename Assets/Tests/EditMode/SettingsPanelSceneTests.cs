@@ -144,6 +144,13 @@ namespace FarHorizon.EditTests
             // F3 the DEV console (Sponsor-confirmed 2026-07-03), both wired editor-time. Drop the panel.warmth
             // wire or the toggle-key assignments in MovementCameraScene.BuildSettingsPanel and this goes red —
             // the guard that keeps the committed Boot.unity from silently regressing to a pre-split snapshot.
+            //
+            // KEY-ASSIGNMENT GENUINENESS (adversarial-review fix): SettingsPanel.toggleKey/devToggleKey now DEFAULT
+            // to KeyCode.None — the shipped F1/F3 can ONLY originate from BuildSettingsPanel's editor-time
+            // assignment (lines panel.toggleKey = F1 / devToggleKey = F3). Previously the fields defaulted to F1/F3
+            // in C#, so these AreEqual asserts passed for ANY bake whether or not the wiring ran (tautological —
+            // dropping the assignment left the code default and the test stayed green). With a None default, the CI
+            // re-bake of a wiring-dropped panel serializes None → this goes genuinely RED.
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var panel = FindPanel(scene);
             BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
@@ -153,9 +160,12 @@ namespace FarHorizon.EditTests
                 "SettingsPanel.warmth must be wired editor-time (the player-facing F1 warmth on/off + decay-rate " +
                 "rows bind to it — 86cah8ukr); an unwired ref would force a runtime FindObjectOfType (ship-path).");
             Assert.AreEqual(KeyCode.F1, panel.toggleKey,
-                "F1 opens the PLAYER Settings drawer (86cah8ukr split), serialized editor-time");
+                "F1 opens the PLAYER Settings drawer (86cah8ukr split), serialized editor-time from " +
+                "BuildSettingsPanel's panel.toggleKey=F1 assignment (the field default is KeyCode.None, so this " +
+                "AreEqual is genuine — drop that assignment and the CI re-bake serializes None → RED).");
             Assert.AreEqual(KeyCode.F3, panel.devToggleKey,
-                "F3 opens the DEV console (Sponsor-confirmed 2026-07-03), serialized editor-time");
+                "F3 opens the DEV console (Sponsor-confirmed 2026-07-03), serialized editor-time from " +
+                "BuildSettingsPanel's panel.devToggleKey=F3 assignment (the field default is KeyCode.None).");
         }
 
         [Test]

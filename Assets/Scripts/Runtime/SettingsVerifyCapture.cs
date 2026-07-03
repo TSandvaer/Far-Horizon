@@ -20,7 +20,7 @@ namespace FarHorizon
     /// settings_tweaked.png was pixel-identical to settings_open.png, the quarantined PR #83 re-QA bug this
     /// ticket fixes.) Proves, from GROUND TRUTH, input-event → param-change → repainted-frame end-to-end.
     ///
-    /// CAPTURES five frames, then quits:
+    /// CAPTURES the following frames (dev-console F3 first, then the player F1 drawer), then quits:
     ///   settings_closed.png — the gameplay frame BEFORE opening (the world, panel hidden).
     ///   settings_open.png   — the console OPEN at the shipped 1.0x scale, parked in a CORNER off the player
     ///                         (86cabeqj9 AC1/AC4).
@@ -32,6 +32,12 @@ namespace FarHorizon
     ///                         (AC2), AND the differs-from-default badge shows on the dialed row (AC9).
     ///   settings_reset.png  — the console open AFTER reset-to-defaults: the live params reverted, the
     ///                         readouts/fields re-rendered to the defaults, the differs badge cleared (AC10).
+    ///   settings_player_open.png       — the PLAYER Settings drawer (F1, 86cah8ukr split) OPEN: the built-exe
+    ///                         evidence for the F1 render every DEV-console (F3) frame above skipped (belt/stack +
+    ///                         warmth/hunger/thirst on/off + decay-rate rows).
+    ///   settings_player_decayhidden.png— the F1 drawer AFTER flipping the WARMTH on/off toggle OFF: the warmth
+    ///                         decay-rate slider row HIDES live (86cah8ukr AC1 conditional visibility) — proven
+    ///                         from ground truth via SettingsCategory.IsDecaySliderVisible in the shipped build.
     /// and LOGS the 86cabeqj9 NIT proofs: NIT 1 — the `Console UI scale` row drives the panel scale live; NIT 2 —
     /// the F1/F2 de-conflict (console toggle key=F1, legacy-overlay master=F2, distinct; opening the console does
     /// NOT flip the legacy DebugOverlays.Visible flag → the two layers no longer share state).
@@ -299,6 +305,58 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
             yield return new WaitForSeconds(0.5f);
+
+            // 5. PLAYER SETTINGS DRAWER (F1, 86cah8ukr split) — every frame above rendered the DEV console (F3).
+            //    The split moved the player-facing rows (belt/stack + warmth/hunger/thirst on/off + decay sliders)
+            //    into a SEPARATE F1 drawer the dev-console capture NEVER covered, so the shipped-build gate had a
+            //    blind spot on the F1 render (Devon's own #247 capture NIT). Close the dev console, open the player
+            //    drawer, and capture it — the automated backstop to the Sponsor soak's F1 pass (a UIDocument-render
+            //    surface needs BUILT-EXE evidence, not editor-only; unity-conventions.md §editor-vs-runtime).
+            panel.SetOpen(false);              // dev console away → a clean player-only frame
+            panel.SetPlayerOpen(true);
+            for (int i = 0; i < 8; i++) yield return null;  // let the open transition play + lay out
+            Debug.Log($"[SettingsVerifyCapture] PLAYER drawer OPEN (F1, 86cah8ukr): playerOpen={panel.IsPlayerOpen} " +
+                      $"devOpen={panel.IsOpen} worldInputGated={UiInputGate.CaptureWorldInput} (must be: playerOpen=" +
+                      $"True, devOpen=False, gated=False — open alone is non-modal, only a focused field gates).");
+            ShotTo(Path.Combine(dir, "settings_player_open.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // 5b. CONDITIONAL VISIBILITY (86cah8ukr AC1) — a per-need decay-rate slider shows ONLY while its need's
+            //     on/off toggle is ON; flip the toggle OFF and the slider row hides LIVE (display:None). Drive the
+            //     WARMTH need's decayEnabled flag DIRECTLY on the live component (NOT the entry setter → no
+            //     PlayerPrefs write-through → no soak pollution, so no snapshot/restore dance needed), then
+            //     RefreshReadouts (which runs ApplyConditionalVisibility + repaints the toggle to Off). Capture the
+            //     hidden frame + log the visibility flip from GROUND TRUTH via the SAME single-source decision the
+            //     panel uses (SettingsCategory.IsDecaySliderVisible). Restore the live flag after (never touched Prefs).
+            var warmthNeed = Object.FindAnyObjectByType<WarmthNeed>();
+            if (warmthNeed != null && panel.Registry != null)
+            {
+                bool warmthBefore = warmthNeed.decayEnabled;
+                warmthNeed.decayEnabled = true;   // ensure ON so the decay slider starts visible
+                panel.RefreshReadouts();
+                bool visibleWhenOn = SettingsCategory.IsDecaySliderVisible(panel.Registry, SettingsCatalog.WarmthDecayId);
+                warmthNeed.decayEnabled = false;  // flip OFF → the warmth decay-rate slider must hide LIVE (AC1)
+                panel.RefreshReadouts();
+                bool visibleWhenOff = SettingsCategory.IsDecaySliderVisible(panel.Registry, SettingsCatalog.WarmthDecayId);
+                for (int i = 0; i < 5; i++) yield return null;   // let the display:None re-layout land
+                Debug.Log($"[SettingsVerifyCapture] DECAY-SLIDER conditional visibility (86cah8ukr AC1): " +
+                          $"warmthOn->visible={visibleWhenOn} warmthOff->visible={visibleWhenOff} " +
+                          $"hidesOnToggleOff={(visibleWhenOn && !visibleWhenOff)} (must be: On->True, Off->False, " +
+                          $"hides=True — a disabled need has no rate to tune).");
+                ShotTo(Path.Combine(dir, "settings_player_decayhidden.png"));
+                yield return new WaitForEndOfFrame();
+                yield return null;
+                warmthNeed.decayEnabled = warmthBefore;   // restore the live flag (no PlayerPrefs was ever written)
+                panel.RefreshReadouts();
+            }
+            else
+            {
+                Debug.LogError("[SettingsVerifyCapture] cannot verify the F1 decay-slider hide-on-toggle-off " +
+                               "(86cah8ukr AC1) — WarmthNeed missing or registry null in the shipped scene.");
+            }
+            panel.SetPlayerOpen(false);        // leave the player drawer closed (the shipped default)
+            for (int i = 0; i < 3; i++) yield return null;
 
             Debug.Log("[SettingsVerifyCapture] verification complete (PlayerPrefs restored) -> " + dir);
             Application.Quit();

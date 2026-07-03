@@ -124,16 +124,21 @@ namespace FarHorizon
                  "SPLIT (86cah8ukr): F1 now opens ONLY the small player view; the full dev console moved to F3 " +
                  "(devToggleKey). Layout-agnostic + Danish-safe (an F-key) + verified non-clashing with " +
                  "WASD/Shift/Space/Tab/F2/F7-F10 ([[sponsor-danish-keyboard-layout]]). Update polls this " +
-                 "directly (SetPlayerOpen(!IsPlayerOpen)).")]
-        public KeyCode toggleKey = KeyCode.F1;
+                 "directly (SetPlayerOpen(!IsPlayerOpen)). DEFAULT = None (NOT F1): the shipped F1 comes ONLY from " +
+                 "MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the scene-presence guard goes " +
+                 "genuinely RED if that wiring is dropped (a code default of F1 made the guard tautological). A " +
+                 "never-wired panel then just no-ops on Input.GetKeyDown(None) — no crash.")]
+        public KeyCode toggleKey = KeyCode.None;
         [Tooltip("Key that opens/closes the DEV CONSOLE (F3, Sponsor-confirmed 2026-07-03) — EVERY other row " +
                  "(world-look, arm-pose, camera/zoom, held-weapon, locomotion incl. walk/run speed, resource " +
                  "timers/yields, inventory slots, console UI + text scale). The 86cabeqj9 F1/F2 de-conflict " +
                  "stands: F2 is still the legacy IMGUI overlay master (DebugOverlayToggle), distinct from both " +
                  "F1 and F3. Update polls this directly (SetOpen(!IsOpen)). The SHIPPED-BUILD verify-capture " +
                  "drives SetOpen PROGRAMMATICALLY (it can't synthesize a key-down in a windowed capture) — it " +
-                 "reads this field only to LOG the dev key, not to open.")]
-        public KeyCode devToggleKey = KeyCode.F3;
+                 "reads this field only to LOG the dev key, not to open.) DEFAULT = None (NOT F3): the shipped F3 " +
+                 "comes ONLY from MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the guard " +
+                 "goes genuinely RED if that wiring is dropped (a code default of F3 made it tautological).")]
+        public KeyCode devToggleKey = KeyCode.None;
 
         /// <summary>The registry this panel renders + drives. Built ONCE on Start from the catalog; both the F1
         /// player view and the F3 dev view filter this SAME registry by <see cref="SettingsCategory"/> (public
@@ -164,7 +169,13 @@ namespace FarHorizon
         private readonly Dictionary<string, VisualElement> _rowsById = new Dictionary<string, VisualElement>();
         private bool _built;
         private bool _gateTracked;             // whether THIS panel currently holds the UiInputGate open (FOCUS-gate, AC3)
-        private int _focusedFields;            // how many typed-fields currently hold keyboard focus (AC3 ref-count)
+        // 86cah8ukr FIX — keyboard-focus counts PER DRAWER (not one shared counter). The world-input gate is
+        // RE-DERIVED from these two + each drawer's open state (RefreshInputGate), so closing ONE drawer can no
+        // longer release the gate the OTHER drawer's still-focused field owns (the shared-single-counter
+        // force-clear bug: open F1 → focus a numeric field → open+close F3 → world input stopped being swallowed
+        // while the F1 field stayed focused → typed digits/arrows ALSO drove movement/orbit).
+        private int _devFocusedFields;         // typed-fields holding keyboard focus in the DEV console (F3) drawer
+        private int _playerFocusedFields;      // typed-fields holding keyboard focus in the PLAYER Settings (F1) drawer
         private ConsoleCorner _corner;         // the persisted panel corner (AC4)
         private float _uiScale = 1f;           // the persisted console UI scale multiplier (86cabeqj9 soak NIT)
         private float _textScale = 1f;         // the persisted UI TEXT scale multiplier (86cabeqj9 soak NIT — DISTINCT from _uiScale chrome)
@@ -290,7 +301,7 @@ namespace FarHorizon
             // keyboard focus (so the nudge keys don't fight a value being typed). PageUp/PageDown are the carried
             // nudge-tool idiom — Danish-keyboard-safe + NOT a locomotion key (WASD/arrows/Shift/Space), so they
             // act without stealing focus. Shift = 5x / Ctrl = 0.2x step (the exact WorldLookNudgeTool convention).
-            if ((IsOpen || IsPlayerOpen) && _focusedFields == 0 && _active != null)
+            if ((IsOpen || IsPlayerOpen) && _devFocusedFields + _playerFocusedFields == 0 && _active != null)
             {
                 int dir = 0;
                 if (Input.GetKeyDown(KeyCode.PageUp)) dir = 1;
@@ -304,7 +315,8 @@ namespace FarHorizon
         // gate is the FOCUS gate now (AC3) — the open panel itself no longer gates (AC2), only a focused field.
         void OnDisable()
         {
-            _focusedFields = 0;
+            _devFocusedFields = 0;
+            _playerFocusedFields = 0;
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
         }
 
@@ -329,13 +341,18 @@ namespace FarHorizon
             var panel = isDev ? _panel : _playerPanel;
             if (isDev) IsOpen = open; else IsPlayerOpen = open;
 
-            // AC3 — when CLOSING, drop any focus-gate held (a field can't keep gating once hidden). Force-clearing
-            // errs toward RELEASING world input (the safety-critical direction — never leave locomotion swallowed);
-            // at most one field is focused at a time across both drawers, so this can't wrongly strand the other.
-            if (!open && _focusedFields > 0)
+            // AC3 (86cah8ukr FIX) — when CLOSING, clear ONLY the CLOSING drawer's focus count: its fields can no
+            // longer be visibly focused once display:None, and UI Toolkit does not reliably fire FocusOutEvent on
+            // a display:None ancestor (same gap the PointerLeave force-clear below guards), so we can't rely on the
+            // blur callback to zero it. Then RE-DERIVE the gate from the remaining focus state: closing one drawer
+            // must NOT release the gate the OTHER still-open drawer's focused field owns. (The old shared single
+            // counter zeroed BOTH drawers' focus on any close → open F1, focus a field, open+close F3 stopped
+            // swallowing world input while the F1 field stayed focused.) Still errs toward RELEASE for the true
+            // all-closed / all-blurred case (RefreshInputGate gates iff a focused field lives in a still-OPEN drawer).
+            if (!open)
             {
-                _focusedFields = 0;
-                UiInputGate.SetPanelOpen(false, ref _gateTracked);
+                if (isDev) _devFocusedFields = 0; else _playerFocusedFields = 0;
+                RefreshInputGate();
             }
             // 86cagz15v (#208 NIT) — CLOSING must ALSO clear the scroll-zoom pointer gate. UI Toolkit does not
             // reliably dispatch PointerLeaveEvent on a display:None ancestor, so a close WHILE the cursor is over
@@ -903,18 +920,58 @@ namespace FarHorizon
         // merely open (AC2) — only a focused field does.
         private void WireFieldFocus(VisualElement field, SettingEntry entry)
         {
+            // Which drawer this field lives in = the SAME routing BuildRows uses (SettingsCategory.IsPlayer is the
+            // single source of truth), so per-drawer focus tracking can never desync from the row's destination.
+            bool isDev = !SettingsCategory.IsPlayer(entry.Id);
             field.RegisterCallback<FocusInEvent>(_ =>
             {
                 if (entry.Available) SetActive(entry);          // typing into a field also makes it the nudge target
-                _focusedFields++;
-                if (_focusedFields == 1) UiInputGate.SetPanelOpen(true, ref _gateTracked);
+                FieldFocusIn(isDev);
             });
-            field.RegisterCallback<FocusOutEvent>(_ =>
-            {
-                _focusedFields = Mathf.Max(0, _focusedFields - 1);
-                if (_focusedFields == 0) UiInputGate.SetPanelOpen(false, ref _gateTracked);
-            });
+            field.RegisterCallback<FocusOutEvent>(_ => FieldFocusOut(isDev));
         }
+
+        // Focus-in / focus-out CORE — shared by the real FocusIn/FocusOut callbacks above AND the EditMode
+        // interleaving test seam below, so the two-drawer gate guard exercises PRODUCTION logic, not a parallel
+        // copy. Each bumps its drawer's count then re-derives the gate.
+        private void FieldFocusIn(bool isDev)
+        {
+            if (isDev) _devFocusedFields++; else _playerFocusedFields++;
+            RefreshInputGate();
+        }
+
+        private void FieldFocusOut(bool isDev)
+        {
+            if (isDev) _devFocusedFields = Mathf.Max(0, _devFocusedFields - 1);
+            else _playerFocusedFields = Mathf.Max(0, _playerFocusedFields - 1);
+            RefreshInputGate();
+        }
+
+        /// <summary>86cah8ukr FIX — RE-DERIVE the world-input gate from the actual focus state: hold it iff SOME
+        /// typed-field in SOME still-OPEN drawer holds keyboard focus. Called after every focus in/out and after a
+        /// drawer close, so closing one drawer never releases the gate the OTHER drawer's focused field still owns,
+        /// while the true all-closed / all-blurred case still releases (world input is never left swallowed). A
+        /// hidden drawer's focus count is excluded even if a stale FocusOut never fired (its open flag is false).
+        /// Idempotent — <see cref="UiInputGate.SetPanelOpen"/> no-ops when the tracked state already matches.</summary>
+        private void RefreshInputGate()
+        {
+            bool held = (IsOpen && _devFocusedFields > 0) || (IsPlayerOpen && _playerFocusedFields > 0);
+            UiInputGate.SetPanelOpen(held, ref _gateTracked);
+        }
+
+#if UNITY_INCLUDE_TESTS
+        /// <summary>EditMode test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS) — simulate a typed-field
+        /// keyboard focus-in/out on the DEV (<paramref name="isDev"/>=true) or PLAYER drawer WITHOUT a UIDocument
+        /// render loop (UI Toolkit focus events are unreliable in EditMode — DevConsoleTests §AC3). Drives the SAME
+        /// <see cref="FieldFocusIn"/>/<see cref="FieldFocusOut"/> + gate re-derive the real FocusIn/FocusOut
+        /// callbacks use, so the two-drawer interleaving regression guard tests production logic, not a copy.
+        /// PUBLIC (matching the codebase's Registry/RefreshReadouts/CycleCorner "public for tests" seams — the
+        /// project has no InternalsVisibleTo); the UNITY_INCLUDE_TESTS guard keeps it out of the shipped build.</summary>
+        public void SimulateFieldFocusForTest(bool isDev, bool focusIn)
+        {
+            if (focusIn) FieldFocusIn(isDev); else FieldFocusOut(isDev);
+        }
+#endif
 
         /// <summary>Repaint EVERY row from its entry's CURRENT live value — readouts, sliders, typed fields,
         /// AND the differs-from-default badge (AC9/AC10). Called on open + after a Reset (so the UI fully

@@ -360,6 +360,89 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(UiInputGate.CaptureWorldInput, "world input passes again once the field blurs (AC3)");
         }
 
+        // ===== 86cah8ukr FIX — TWO-DRAWER input-gate interleaving (adversarial review of PR #247) =====
+        //
+        // The split gave F1 (player) + F3 (dev) INDEPENDENT open/close but ONE SHARED input-gate counter. The old
+        // OpenDrawer close-path force-clear zeroed that shared counter on ANY drawer close, so: open F1, click a
+        // numeric field (world input swallowed so a typed digit isn't ALSO read as movement), open F3 then close
+        // F3 → the force-clear released the gate while the F1 field was STILL focused → digits/arrows typed into
+        // F1 ALSO drove movement/orbit. The fix tracks focus PER DRAWER + re-derives the gate from which drawers
+        // are still open (RefreshInputGate). These guards pin the LOGIC via the UNITY_INCLUDE_TESTS focus seam —
+        // UI Toolkit focus EVENTS are unreliable in EditMode (see the class docstring), but SetOpen/SetPlayerOpen
+        // run their full gate logic before bailing on the (unbuilt) view, so the interleaving is testable here.
+
+        private static void DrainGate()
+        {
+            for (int i = 0; i < 8 && UiInputGate.CaptureWorldInput; i++) UiInputGate.PopPanel();
+            UiInputGate.SetPointerOverConsole(false);
+        }
+
+        [Test]
+        public void InputGate_ClosingOneDrawer_DoesNotReleaseGateHeldByOtherDrawersFocusedField_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-gate-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F1 (player) + focus a player field → world input swallowed (AC3).
+                panel.SetPlayerOpen(true);
+                panel.SimulateFieldFocusForTest(isDev: false, focusIn: true);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput,
+                    "a focused F1 field swallows world input so a typed digit isn't ALSO read as movement (AC3)");
+
+                // Open F3 (dev) then CLOSE it — F1 is still open and its field is still focused.
+                panel.SetOpen(true);
+                panel.SetOpen(false);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput,
+                    "closing F3 must NOT release the gate the still-focused F1 field owns — the shared-single-counter " +
+                    "bug: the old force-clear zeroed BOTH drawers' focus on any close, un-swallowing world input " +
+                    "mid-type while the F1 field kept focus (digits/arrows then also drove movement/orbit)");
+
+                // True all-closed path: blur the F1 field + close F1 → gate releases (never leave locomotion
+                // swallowed — the erring-toward-release safety for the genuine close case).
+                panel.SimulateFieldFocusForTest(isDev: false, focusIn: false);
+                panel.SetPlayerOpen(false);
+                Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                    "every drawer closed + every field blurred → the gate releases (world input never left swallowed)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        [Test]
+        public void InputGate_ClosingADrawer_ClearsItsOwnFocusedFieldGate_ErrsTowardRelease_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-gate-test-2");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F3 (dev) + focus a dev field → gate held.
+                panel.SetOpen(true);
+                panel.SimulateFieldFocusForTest(isDev: true, focusIn: true);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput, "a focused F3 field swallows world input (AC3)");
+
+                // Close F3 WITHOUT blurring the field first (the display:None stale-focus case UI Toolkit does not
+                // reliably fire FocusOut for) → the close clears the closing drawer's own count AND the re-derive
+                // sees F3 no longer open, so the gate releases either way (belt + suspenders; never left swallowed).
+                panel.SetOpen(false);
+                Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                    "closing a drawer releases the gate its OWN (possibly stale-focused) field held — the safety " +
+                    "direction: a hidden drawer can't keep swallowing locomotion input");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
         // ===== 86cabeqj9 soak NIT — SCROLL-over-panel gate (fix 1): the wheel is swallowed while the pointer
         //       hovers the NON-MODAL console, but ONLY scroll (WASD/orbit stay live). Pinned at the gate level;
         //       the OrbitCamera reads (CaptureWorldInput || PointerOverConsole) to decide whether to zoom. The
