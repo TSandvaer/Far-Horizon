@@ -72,10 +72,10 @@ namespace FarHorizon.EditTests
         [Test]
         public void AC2_CrossTime_IsInTheTwoToThreeMinuteBand()
         {
-            // Edge-to-edge crossing distance ~= the island diameter (~2×MeanShoreR). At the shipped WASD walk
-            // (5.5 u/s) a full walk crossing should be ~2-3 min; a run (9.5 u/s) faster. A realistic mixed
-            // walk/run therefore lands squarely in the 2-3 min band. Assert the WALK crossing is >= ~2 min
-            // (feels big) and the RUN crossing is <= ~3 min (not a slog) — the band the ticket targets.
+            // Edge-to-edge crossing distance ~= the island diameter (~2×MeanShoreR). 86cahwx6w grew the island
+            // to ~1200u: walk (5.5 u/s) ~3.6 min, run (9.5 u/s) ~2.1 min — a realistic mixed crossing still
+            // lands in the 2-3+ min "feels big, not a slog" envelope. The bounds stay #226's: the WALK crossing
+            // >= ~2 min (feels big) and the RUN crossing <= ~3.2 min (not a slog).
             const float walk = 5.5f, run = 9.5f;
             float crossing = NextIslandPocGen.MeanShoreR * 2f;
             float walkMin = crossing / walk / 60f;
@@ -91,8 +91,11 @@ namespace FarHorizon.EditTests
         [Test]
         public void AC3_HeroMountain_IsAConfidentGiantHill_NotAHorizonBackdrop()
         {
-            // The mountain must be a REAL tall mass: the peak height dwarfs the rolling hills, and the summit
+            // The hero must be a REAL tall mass: the peak height dwarfs the rolling hills, and the summit
             // sits well ABOVE the surrounding land (a giant hill, not a bump).
+            // (86cahwx6w: #226's "ONE peak, not many" clause is SUPERSEDED by the multi-mountain destination —
+            // the dominance contract is now: the hero DOMINATES the non-mountain land AND is the TALLEST peak
+            // of the range. MultiPeak_SecondaryMassifs_AreShorterAndSteeperThanHero owns the range shape.)
             Off(out float ox, out float oz);
             Assert.Greater(NextIslandPocGen.MtnPeakHeight, NextIslandPocGen.HillAmp * 4f,
                 $"the hero peak ({NextIslandPocGen.MtnPeakHeight:F0}u) must dwarf the rolling hills " +
@@ -100,21 +103,31 @@ namespace FarHorizon.EditTests
             float summitY = NextIslandPocGen.HeightAtRadial(NextIslandPocGen.MtnCenterX, NextIslandPocGen.MtnCenterZ, ox, oz);
             Assert.Greater(summitY, NextIslandPocGen.MtnPeakHeight * 0.7f,
                 $"the summit terrain Y ({summitY:F0}u) must reach most of the peak height — a real tall summit.");
-            // ONE dominant peak: the summit is far higher than any non-mountain interior sample (not two peaks).
+            // The hero summit dominates every NON-MOUNTAIN interior sample (outside EVERY peak's foot).
             float highestNonMtn = 0f;
             for (int a = 0; a < 24; a++)
             for (float rr = 40f; rr < NextIslandPocGen.CoreR; rr += 40f)
             {
                 float ang = a / 24f * Mathf.PI * 2f;
                 float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
-                // Skip samples inside the mountain foot (we want the NON-mountain land height).
-                if (Vector2.Distance(new Vector2(x, z), new Vector2(NextIslandPocGen.MtnCenterX, NextIslandPocGen.MtnCenterZ))
-                    < NextIslandPocGen.MtnFootRadius) continue;
+                if (InsideAnyPeakFoot(x, z)) continue; // we want the NON-mountain land height
                 float y = NextIslandPocGen.HeightAtRadial(x, z, ox, oz);
                 if (y > highestNonMtn) highestNonMtn = y;
             }
             Assert.Greater(summitY, highestNonMtn * 3f,
-                $"the hero summit ({summitY:F0}u) must DOMINATE the rest of the island ({highestNonMtn:F0}u) — ONE peak, not many.");
+                $"the hero summit ({summitY:F0}u) must DOMINATE the non-mountain land ({highestNonMtn:F0}u).");
+            // And the hero must be the TALLEST peak of the range (the approved snow-cap peak stays dominant).
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+                Assert.Greater(NextIslandPocGen.MtnPeakHeight, NextIslandPocGen.Peaks[i].height * 1.2f,
+                    $"the hero ({NextIslandPocGen.MtnPeakHeight:F0}u) must stay clearly the TALLEST peak — " +
+                    $"peak[{i}] is {NextIslandPocGen.Peaks[i].height:F0}u (silhouette steps DOWN from the hero).");
+        }
+
+        private static bool InsideAnyPeakFoot(float x, float z)
+        {
+            foreach (var p in NextIslandPocGen.Peaks)
+                if (Vector2.Distance(new Vector2(x, z), new Vector2(p.cx, p.cz)) < p.footR) return true;
+            return false;
         }
 
         [Test]
@@ -185,19 +198,24 @@ namespace FarHorizon.EditTests
             // The snow-cap threshold is keyed on the MOUNTAIN contribution, not raw height — so a tall rolling
             // HILL inland (which has NO mountain contribution) must NOT read snow, even if its Y is high.
             Off(out float ox, out float oz);
-            // A point far from the mountain but with a real hill height (interior). Its colour must NOT be white.
+            // Points far from EVERY peak but with a real hill height (interior). Colour must NOT be white.
+            // (Sampled at a bigger ring than #226's 120 — on the grown island r=120 sits entirely inside the
+            // hero foot and would skip every azimuth, making the loop vacuous.)
+            int sampled = 0;
             for (int a = 0; a < 16; a++)
             {
                 float ang = a / 16f * Mathf.PI * 2f;
-                float x = Mathf.Cos(ang) * 120f, z = Mathf.Sin(ang) * 120f;
-                if (Vector2.Distance(new Vector2(x, z), new Vector2(NextIslandPocGen.MtnCenterX, NextIslandPocGen.MtnCenterZ))
-                    < NextIslandPocGen.MtnFootRadius) continue; // skip the mountain footprint
+                float x = Mathf.Cos(ang) * 400f, z = Mathf.Sin(ang) * 400f;
+                if (InsideAnyPeakFoot(x, z)) continue; // skip every peak's footprint
                 float y = NextIslandPocGen.HeightAtRadial(x, z, ox, oz);
                 Color c = NextIslandPocGen.ColorAt(x, z, y, ox, oz, NextIslandPocScene.PocSeed);
                 Assert.Less(Mathf.Min(c.r, c.g, c.b), 0.78f,
-                    $"a non-mountain interior point (r=120, {x:F0},{z:F0}, y={y:F0}) must NOT read snow-white " +
-                    "— snow is MOUNTAIN-relative (only the hero peak snows), not white-everywhere-high.");
+                    $"a non-mountain interior point (r=400, {x:F0},{z:F0}, y={y:F0}) must NOT read snow-white " +
+                    "— snow is PEAK-relative (only snow-capped crowns whiten), not white-everywhere-high.");
+                sampled++;
             }
+            Assert.Greater(sampled, 4, "the non-mountain ring must actually sample points outside every foot " +
+                "(a vacuous skip-everything loop guards nothing).");
         }
 
         // ---- SPAWN — the player spawns on FLAT sea-level ground, OFF the mountain flank (run-2 regression) ----
@@ -274,6 +292,19 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(NextIslandPocGen.MtnCenterZ, cap.mountainCenter.z, 0.001f, "capture MtnCenterZ must match the gen.");
                 Assert.AreEqual(NextIslandPocGen.MtnPeakHeight, cap.mountainPeakHeight, 0.001f, "capture peak height must match the gen.");
                 Assert.AreEqual(NextIslandPocGen.MtnFootRadius, cap.mountainFootRadius, 0.001f, "capture foot radius must match the gen.");
+                // 86cahwx6w: the island size + the secondary peaks are ALSO duplicated in the capture (the
+                // coverage-trace extent, the overhead framing, and the whole-range side-profile framing key
+                // off them) — pin them so a gen re-tune cannot silently desync the shipped-build evidence.
+                Assert.AreEqual(NextIslandPocGen.MeanShoreR, cap.meanShoreRadius, 0.001f,
+                    "capture meanShoreRadius must match the gen (#226 buried this as a local const — pinned now).");
+                var p1 = NextIslandPocGen.Peaks[1];
+                var p2 = NextIslandPocGen.Peaks[2];
+                Assert.AreEqual(p1.cx, cap.secondaryPeak1.x, 0.001f, "capture secondaryPeak1 centre X must match Peaks[1].");
+                Assert.AreEqual(p1.cz, cap.secondaryPeak1.z, 0.001f, "capture secondaryPeak1 centre Z must match Peaks[1].");
+                Assert.AreEqual(p1.height, cap.secondaryPeak1.y, 0.001f, "capture secondaryPeak1 height (y) must match Peaks[1].");
+                Assert.AreEqual(p2.cx, cap.secondaryPeak2.x, 0.001f, "capture secondaryPeak2 centre X must match Peaks[2].");
+                Assert.AreEqual(p2.cz, cap.secondaryPeak2.z, 0.001f, "capture secondaryPeak2 centre Z must match Peaks[2].");
+                Assert.AreEqual(p2.height, cap.secondaryPeak2.y, 0.001f, "capture secondaryPeak2 height (y) must match Peaks[2].");
             }
             finally { Object.DestroyImmediate(cap.gameObject); }
         }
@@ -290,6 +321,234 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(genRatio, mirrorRatio, 0.02f,
                 $"the PlayMode mirror peak/foot ratio ({mirrorRatio:F3}) must match the gen ({genRatio:F3}) so " +
                 "the slope (walkable-vs-wall) is the same — re-scale the PlayMode mirror if the gen changes.");
+        }
+
+        // ============================================================================================
+        // ISLAND 2.0-A (ticket 86cahwx6w) — size growth + the multi-mountain range.
+        // REGRESSION GUARDS for the new contract: the island grew markedly; the range is 2-3 peaks with
+        // the HERO byte-kept (climb tuning + snow-cap faceting approved on #226/#230); secondaries are
+        // shorter + steeper + cannot orphan walkable ground; the range connects as ridges from one landmass.
+        // ============================================================================================
+
+        // The #226-approved hero dome, pinned INLINE (deliberately not via the gen's constants): if a future
+        // edit re-tunes the hero's shape — height, foot, power, centre, or the combining function — the
+        // byte-kept guard below reds. This is the "KEEP the climb tuning" contract as a test.
+        private static float HeroDomeReference226(float wx, float wz)
+        {
+            float dx = wx - 90f, dz = wz + 60f;
+            float d = Mathf.Sqrt(dx * dx + dz * dz);
+            if (d >= 300f) return 0f;
+            float t = d / 300f;
+            float dome = 0.5f + 0.5f * Mathf.Cos(t * Mathf.PI);
+            return 135f * Mathf.Pow(dome, 1.25f);
+        }
+
+        [Test]
+        public void Island2_SizeGrew_MarkedlyBiggerThan226_CoastAmpScaledProportionally()
+        {
+            // The ticket's size AC: land diameter ~1100-1300u (~1.4-1.6× #226's 800u). Guard the FLOOR (the
+            // "markedly bigger" claim) without pinning the exact default — the Sponsor dials inside the band.
+            float diameter = NextIslandPocGen.MeanShoreR * 2f;
+            Assert.GreaterOrEqual(diameter, 1080f,
+                $"island 2.0 must be markedly bigger than #226 (~800u) — diameter {diameter:F0}u must be >=1080u (~1.35×).");
+            // CoastIrregAmp scales PROPORTIONALLY with the size (the ticket constraint): the amp:radius ratio
+            // must stay the #226-approved 70/400 = 0.175 so the bigger coast keeps the approved wander character.
+            float ratio = NextIslandPocGen.CoastIrregAmp / NextIslandPocGen.MeanShoreR;
+            Assert.AreEqual(0.175f, ratio, 0.02f,
+                $"CoastIrregAmp/MeanShoreR ({ratio:F3}) must stay ~the #226-approved 0.175 — scale the amp with the size.");
+            // The terrain grid must keep ~the #226 cell density (~3.9u) so fidelity + NavMesh resolution carry.
+            float cell = NextIslandPocGen.GridHalf * 2f / NextIslandPocGen.Seg;
+            Assert.AreEqual(3.9f, cell, 0.25f,
+                $"terrain cell size ({cell:F2}u) must stay ~#226's 3.9u — grow Seg with GridHalf.");
+        }
+
+        [Test]
+        public void MultiPeak_RangeIsTwoToThreePeaks_HeroIsIndexZeroBuiltFromTheConstants()
+        {
+            // The ticket's default band: 2-3 peaks. Index 0 is ALWAYS the hero, built from the Mtn* constants
+            // (the capture calibration + the climb tests key off those — they must not drift apart).
+            int n = NextIslandPocGen.Peaks.Length;
+            Assert.That(n, Is.InRange(2, 3), $"the range must be 2-3 peaks (ticket default band) — got {n}.");
+            var hero = NextIslandPocGen.Peaks[0];
+            Assert.AreEqual(NextIslandPocGen.MtnCenterX, hero.cx, 0.001f, "Peaks[0] must BE the hero (cx = MtnCenterX).");
+            Assert.AreEqual(NextIslandPocGen.MtnCenterZ, hero.cz, 0.001f, "Peaks[0] must BE the hero (cz = MtnCenterZ).");
+            Assert.AreEqual(NextIslandPocGen.MtnPeakHeight, hero.height, 0.001f, "Peaks[0] must BE the hero (height).");
+            Assert.AreEqual(NextIslandPocGen.MtnFootRadius, hero.footR, 0.001f, "Peaks[0] must BE the hero (footR).");
+            Assert.IsTrue(hero.climbableDome, "the hero must stay the CLIMBABLE raised-cosine dome (Sponsor-approved).");
+            Assert.IsTrue(hero.snowCap, "the hero must keep its snow cap (Sponsor-approved).");
+        }
+
+        [Test]
+        public void MultiPeak_SecondaryMassifs_AreShorterAndSteeperThanHero()
+        {
+            // The ticket contract: secondaries are SHORTER (silhouette steps down) and STEEPER (non-climbable
+            // rock massifs) than the hero. Steepness is measured on the actual profile: the TIP slope must
+            // exceed the 45° NavMesh agent max (an un-climbable crown), where the hero's whole flank stays
+            // under it (AC3_HeroMountain_IsClimbable guards that side).
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                Assert.Less(p.height, NextIslandPocGen.MtnPeakHeight,
+                    $"peak[{i}] ({p.height:F0}u) must be SHORTER than the hero ({NextIslandPocGen.MtnPeakHeight:F0}u).");
+                Assert.IsFalse(p.climbableDome, $"peak[{i}] must use the steep PEAKED profile (a rock massif, not a second hero dome).");
+                // Numeric tip slope over the first metres of the radial profile.
+                float h0 = NextIslandPocGen.PeakHeightAt(i, p.cx, p.cz);
+                float h3 = NextIslandPocGen.PeakHeightAt(i, p.cx + 3f, p.cz);
+                float tipSlopeDeg = Mathf.Atan2(h0 - h3, 3f) * Mathf.Rad2Deg;
+                Assert.Greater(tipSlopeDeg, 45f,
+                    $"peak[{i}] tip slope ({tipSlopeDeg:F1}°) must exceed the 45° agent max — a NON-climbable steep crown " +
+                    "(the ticket's 'shorter/steeper rock massifs'; the hero stays the one climbable peak).");
+            }
+        }
+
+        [Test]
+        public void MultiPeak_SteepCrowns_CannotOrphanWalkableGround_SlopeMonotoneOutward()
+        {
+            // THE NO-ORPHAN GUARD (ticket constraint: steep features must not orphan walkable patches). The
+            // peaked profile's slope must DECREASE MONOTONICALLY outward: then the >45° zone is one contiguous
+            // cap containing the summit, with NOTHING walkable above it — no stranded walkable NavMesh island
+            // (a raised-cosine secondary would flunk this: its flat summit disc is walkable but unreachable
+            // across the steep mid-flank ring). Guards the bug CLASS: any future secondary-profile change that
+            // re-introduces a walkable-above-steep band reds here before it ships an orphaned NavMesh patch.
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                const float dr = 1f;
+                bool wentBelow = false; float crossR = 0f;
+                for (float rr = 0f; rr < p.footR - dr; rr += dr)
+                {
+                    float h0 = NextIslandPocGen.PeakHeightAt(i, p.cx + rr, p.cz);
+                    float h1 = NextIslandPocGen.PeakHeightAt(i, p.cx + rr + dr, p.cz);
+                    float slopeDeg = Mathf.Atan2(Mathf.Abs(h0 - h1), dr) * Mathf.Rad2Deg;
+                    if (!wentBelow && slopeDeg < 45f) { wentBelow = true; crossR = rr; }
+                    if (wentBelow)
+                        Assert.Less(slopeDeg, 45f,
+                            $"peak[{i}]: profile slope re-exceeded 45° at r={rr:F0} after dropping below it at " +
+                            $"r={crossR:F0} — a walkable band above a steep band ORPHANS a NavMesh patch (ticket constraint).");
+                }
+                Assert.IsTrue(wentBelow, $"peak[{i}]: the profile must ease under 45° before its foot (the walkable skirt " +
+                    "that lets the massif merge into the landmass).");
+                // And the crown-facet displacement zone must sit INSIDE the un-walkable cap, so the ±SnowFacetAmp
+                // jag never perturbs ground an agent can stand on (the hero's climb-bounded displacement is
+                // guarded separately by SnowFacetDisplacement_IsBounded_AndClimbable).
+                float facetR = 0f;
+                for (float rr = 0f; rr < p.footR; rr += 0.5f)
+                    if (NextIslandPocGen.MountainHeightFracAt(p.cx + rr, p.cz) >= NextIslandPocGen.SnowFacetFrac) facetR = rr;
+                    else break;
+                Assert.Less(facetR, crossR,
+                    $"peak[{i}]: the facet-displacement zone (r<={facetR:F0}) must sit inside the un-walkable crown " +
+                    $"(r<={crossR:F0}) so the angular jag never touches agent-walkable ground.");
+            }
+        }
+
+        [Test]
+        public void MultiPeak_HeroHeightField_ByteKept_ClimbTuningUnregressed()
+        {
+            // THE PRESERVATION GUARD (ticket: KEEP the hero's climb tuning + snow-cap faceting). The combined
+            // multi-peak field must equal the #226 hero dome EXACTLY (a) across the hero's core — summit, snow
+            // cap, facet zone (r<=150 covers the snow zone's ~107u) — and (b) along the whole spawn-facing
+            // approach sector out to the foot (the flank the Sponsor actually climbs). If a secondary's foot
+            // creeps into either region, or the combining function stops preserving the max, this reds.
+            for (int a = 0; a < 16; a++)
+            for (float rr = 0f; rr <= 150f; rr += 10f)
+            {
+                float ang = a / 16f * Mathf.PI * 2f;
+                float x = NextIslandPocGen.MtnCenterX + Mathf.Cos(ang) * rr;
+                float z = NextIslandPocGen.MtnCenterZ + Mathf.Sin(ang) * rr;
+                Assert.AreEqual(HeroDomeReference226(x, z), NextIslandPocGen.MountainHeightAt(x, z), 1e-4f,
+                    $"hero core must be BYTE-KEPT vs #226 at ({x:F0},{z:F0}) — the approved summit/snow/facet region.");
+                Assert.AreEqual(HeroDomeReference226(x, z) / 135f, NextIslandPocGen.MountainHeightFracAt(x, z), 1e-5f,
+                    $"hero core height-FRACTION must be byte-kept at ({x:F0},{z:F0}) — the snow band + facet zone key off it.");
+            }
+            // (b) the spawn-facing approach sector (the climbed flank): hero→spawn azimuth ±60°, foot-to-summit.
+            float spawnAng = Mathf.Atan2(NextIslandPocGen.SpawnZ - NextIslandPocGen.MtnCenterZ,
+                                         NextIslandPocGen.SpawnX - NextIslandPocGen.MtnCenterX);
+            for (int a = -6; a <= 6; a++)
+            for (float rr = 0f; rr < NextIslandPocGen.MtnFootRadius; rr += 12f)
+            {
+                float ang = spawnAng + a * (10f * Mathf.Deg2Rad);
+                float x = NextIslandPocGen.MtnCenterX + Mathf.Cos(ang) * rr;
+                float z = NextIslandPocGen.MtnCenterZ + Mathf.Sin(ang) * rr;
+                Assert.AreEqual(HeroDomeReference226(x, z), NextIslandPocGen.MountainHeightAt(x, z), 1e-4f,
+                    $"the spawn-side climb flank must be BYTE-KEPT vs #226 at ({x:F0},{z:F0}) (azimuth offset {a * 10}°).");
+            }
+        }
+
+        [Test]
+        public void MultiPeak_RangeConnects_AsRidgesFromOneLandmass_NotStampedCones()
+        {
+            // THE ANCHOR SENTENCE AS AN ASSERT (Bar 4): "several mountains read as ridges rising from one
+            // landmass, not cones stamped on a pancake." Mechanically: along the line between the hero and
+            // each secondary, the combined mountain field must NEVER drop to the flat plateau — a real
+            // connecting shoulder/col stays elevated between peaks. (A stamped-cone layout — feet not
+            // overlapping — would dip to ~0 between them and red here.)
+            var hero = NextIslandPocGen.Peaks[0];
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                float minH = float.MaxValue;
+                for (float s = 0.1f; s <= 0.9f; s += 0.02f)
+                {
+                    float x = Mathf.Lerp(hero.cx, p.cx, s);
+                    float z = Mathf.Lerp(hero.cz, p.cz, s);
+                    float h = NextIslandPocGen.MountainHeightAt(x, z);
+                    if (h < minH) minH = h;
+                }
+                Assert.Greater(minH, 8f,
+                    $"the col between the hero and peak[{i}] must stay a REAL connecting shoulder (min {minH:F1}u " +
+                    "along the ridge line must exceed 8u above the plateau) — ridges from one landmass, not stamped cones.");
+            }
+        }
+
+        [Test]
+        public void MultiPeak_CrownColours_SnowCapVsBareRock_PerPeakBanding()
+        {
+            // Peak-relative banding (the multi-peak sibling of AC3_HeroMountain_HasHeightThresholdSnowCap):
+            // a snowCap secondary's summit reads SNOW-white (its own small crown); a snowCap=false massif's
+            // summit reads bare grey ROCK (Bar 3 material-honest — stone reads as stone, never arbitrary),
+            // even though BOTH crowns facet. Also guards the SnowFracAt/heightFrac split in ColorAt.
+            Off(out float ox, out float oz);
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                float y = NextIslandPocGen.HeightAtRadial(p.cx, p.cz, ox, oz);
+                Color c = NextIslandPocGen.ColorAt(p.cx, p.cz, y, ox, oz, NextIslandPocScene.PocSeed);
+                if (p.snowCap)
+                {
+                    Assert.Greater(Mathf.Min(c.r, c.g, c.b), 0.78f,
+                        $"peak[{i}] is snowCap=true — its summit must read SNOW (near-white); got {c}.");
+                }
+                else
+                {
+                    Assert.Less(Mathf.Min(c.r, c.g, c.b), 0.78f,
+                        $"peak[{i}] is snowCap=false — its summit must read bare ROCK, never snow-white; got {c}.");
+                    Assert.Less(Mathf.Abs(c.g - c.r), 0.12f,
+                        $"peak[{i}] bare-rock summit must read GREY (r≈g, not green grass); got {c}.");
+                }
+                // Every crown facets (the chunky read) regardless of snow — the #230 idiom extended per-peak.
+                Assert.IsTrue(NextIslandPocGen.IsSnowFacetZone(p.cx, p.cz),
+                    $"peak[{i}]'s crown must be in the facet zone (chunky angular crown, snow or rock).");
+            }
+        }
+
+        [Test]
+        public void MultiPeak_SecondariesSitOnLand_ClearOfTheSpawn()
+        {
+            // Placement invariants: every secondary summit sits INSIDE the full-strength land core (its peak
+            // is never coast-damped into a mound), and every foot stays clear of the spawn clearing (the
+            // spawn must stay flat sea-level ground — the run-2 regression, multi-peak edition).
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                float centerR = Mathf.Sqrt(p.cx * p.cx + p.cz * p.cz);
+                Assert.Less(centerR, NextIslandPocGen.CoreR,
+                    $"peak[{i}] centre (r={centerR:F0}) must sit inside the land core ({NextIslandPocGen.CoreR:F0}u) " +
+                    "so its summit gets full landMask strength (not a coast-damped mound).");
+                float dSpawn = Mathf.Sqrt((p.cx - NextIslandPocGen.SpawnX) * (p.cx - NextIslandPocGen.SpawnX) +
+                                          (p.cz - NextIslandPocGen.SpawnZ) * (p.cz - NextIslandPocGen.SpawnZ));
+                Assert.Greater(dSpawn, p.footR + NextIslandPocGen.SpawnFlattenFullR,
+                    $"peak[{i}] foot (r={p.footR:F0} @ {dSpawn:F0}u from spawn) must clear the spawn clearing.");
+            }
         }
 
         // ---- MESH INTEGRATION — the built POC terrain carries the snow verts + is clipped + has a collider ----
