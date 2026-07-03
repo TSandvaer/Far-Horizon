@@ -34,10 +34,16 @@ namespace FarHorizon.Settings
         /// <param name="min">Slider floor.</param>
         /// <param name="max">Slider ceiling.</param>
         /// <param name="available">false = a not-yet-built extension hook (AC3), greyed + "(soon)"; setter inert.</param>
+        /// <param name="persist">false = a DIAL-TO-BAKE INSTRUMENT row (86cah90cp round-3): the row drives the
+        /// live param but never touches PlayerPrefs — its persistence mechanism is the BAKE, not prefs. Twice
+        /// (#223 round-1 legacy key, round-3 validly-stamped key) a persisted world-look override silently
+        /// stomped a freshly-baked sun at every boot — on soaks AND -verify* gates alike. LoadFromPrefs on a
+        /// non-persist row also DELETES any lingering key from earlier persisting builds (one-time self-heal).</param>
         public FloatSettingEntry(string id, string label, Func<float> get, Action<float> set,
-            float min, float max, bool available = true, string unit = "")
+            float min, float max, bool available = true, string unit = "", bool persist = true)
             : base(id, label, available, unit)
         {
+            Persist = persist;
             _get = get ?? throw new ArgumentNullException(nameof(get));
             _set = set ?? throw new ArgumentNullException(nameof(set));
             Min = Mathf.Min(min, max);
@@ -52,6 +58,10 @@ namespace FarHorizon.Settings
         /// <summary>The captured default (the value at registration — the current shipped default).</summary>
         public float Default => _default;
 
+        /// <summary>false = dial-to-bake instrument row: drives the live param, never reads/writes PlayerPrefs
+        /// (the bake is its persistence — 86cah90cp round-3; see the ctor doc).</summary>
+        public bool Persist { get; }
+
         /// <summary>
         /// Set the live param (AC2 — drives the game immediately): clamp to [Min, Max], write through the
         /// bind setter, then persist to PlayerPrefs (AC5). The SINGLE write authority. Inert (returns the
@@ -62,13 +72,16 @@ namespace FarHorizon.Settings
             if (!Available) return Value;
             float clamped = ClampValue(v);
             _set(clamped);
-            PlayerPrefs.SetFloat(PrefsKey, clamped);
-            // STALE-DEFAULT STAMP (86cah90cp sun-fidelity fix): record WHICH baked default this override was
-            // persisted under. LoadFromPrefs only honours the override while the row's registration default is
-            // STILL that default — when a bake moves the default, the stamp mismatch discards the stale override
-            // so the new baked look actually shows (the #223 defect: a persisted sun_elevation=18 from the
-            // elev-18 era silently overrode the freshly-baked 12 on every launch, and re-persisted itself).
-            PlayerPrefs.SetFloat(DefaultStampKey, _default);
+            if (Persist)
+            {
+                PlayerPrefs.SetFloat(PrefsKey, clamped);
+                // STALE-DEFAULT STAMP (86cah90cp sun-fidelity fix): record WHICH baked default this override was
+                // persisted under. LoadFromPrefs only honours the override while the row's registration default is
+                // STILL that default — when a bake moves the default, the stamp mismatch discards the stale override
+                // so the new baked look actually shows (the #223 defect: a persisted sun_elevation=18 from the
+                // elev-18 era silently overrode the freshly-baked 12 on every launch, and re-persisted itself).
+                PlayerPrefs.SetFloat(DefaultStampKey, _default);
+            }
             return clamped;
         }
 
@@ -81,6 +94,20 @@ namespace FarHorizon.Settings
         public override void LoadFromPrefs()
         {
             if (!Available) return;
+            if (!Persist)
+            {
+                // DIAL-TO-BAKE INSTRUMENT row (86cah90cp round-3): never apply a persisted override — the baked
+                // default IS the shipped look. Also SELF-HEAL: delete any lingering key an earlier persisting
+                // build left behind. The round-3 defect this kills: fh.settings.sun_elevation=18 sat in the
+                // registry stamped .def=8 — VALIDLY stamped under the CURRENT default, so the round-2 stamp
+                // invalidation could never discard it, and every boot re-applied 18 over the Sponsor-approved
+                // 8° bake (and re-freshened its own stamp via SetValue's re-persist). No stamp scheme can
+                // distinguish that from a deliberate dial — the cause-level fix is that bake-driven world-look
+                // rows have no business persisting at all (their dial session ends in a BAKE).
+                if (PlayerPrefs.HasKey(PrefsKey)) PlayerPrefs.DeleteKey(PrefsKey);
+                if (PlayerPrefs.HasKey(DefaultStampKey)) PlayerPrefs.DeleteKey(DefaultStampKey);
+                return;
+            }
             if (!PlayerPrefs.HasKey(PrefsKey)) return;
             // STALE-DEFAULT INVALIDATION (86cah90cp sun-fidelity fix). A persisted override is only valid
             // against the baked default it was dialed under. If the stamp is missing (legacy key from before

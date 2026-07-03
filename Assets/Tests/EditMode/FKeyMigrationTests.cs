@@ -229,5 +229,31 @@ namespace FarHorizon.EditTests
                 "a null world-look seam must register nothing (bare rig / world-less test unaffected)");
             Assert.IsFalse(reg.Has(SettingsCatalog.FogDensityId), "no world-look rows on a null seam");
         }
+
+        [Test]
+        public void WorldLook_EveryRow_IsANonPersistDialToBakeInstrument()
+        {
+            // 86cah90cp ROUND-3 regression guard: a PERSISTED world-look override stomped the freshly-baked
+            // sun at every boot twice (round-1 legacy sun_elevation=18; round-3 the same value validly stamped
+            // under the current default — undiscardable by the round-2 stamp invalidation). World-look rows are
+            // dial-to-bake instruments: the dial session ends in a BAKE, so no row may ever persist to
+            // PlayerPrefs. A future row added to PopulateWorldLook without persist:false re-opens the class —
+            // this guard enumerates the registry so it catches that row too.
+            var seam = AddComponentOnGo<WorldLookTunables>();
+            var reg = new SettingsRegistry();
+            SettingsCatalog.PopulateWorldLook(reg, seam);
+
+            int checkedRows = 0;
+            foreach (var entry in reg.Entries)
+            {
+                var f = entry as FloatSettingEntry;
+                Assert.IsNotNull(f, $"world-look row '{entry.Id}' must be a FloatSettingEntry (scalar dial)");
+                Assert.IsFalse(f.Persist,
+                    $"world-look row '{entry.Id}' must be persist:false — a persisted world-look override " +
+                    "silently stomps the next bake at every boot (the #223 sun-offset defect, twice)");
+                checkedRows++;
+            }
+            Assert.GreaterOrEqual(checkedRows, 17, "the guard must actually have enumerated the world-look rows");
+        }
     }
 }

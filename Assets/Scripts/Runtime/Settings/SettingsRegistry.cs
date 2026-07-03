@@ -62,8 +62,8 @@ namespace FarHorizon.Settings
         // --- Convenience registration helpers (the "a few lines" surface the ACs ask for) ---
 
         public FloatSettingEntry AddFloat(string id, string label, Func<float> get, Action<float> set,
-            float min, float max, bool available = true, string unit = "")
-            => Register(new FloatSettingEntry(id, label, get, set, min, max, available, unit));
+            float min, float max, bool available = true, string unit = "", bool persist = true)
+            => Register(new FloatSettingEntry(id, label, get, set, min, max, available, unit, persist));
 
         public RangeSettingEntry AddRange(string id, string label,
             Func<float> getMin, Action<float> setMin, Func<float> getMax, Action<float> setMax,

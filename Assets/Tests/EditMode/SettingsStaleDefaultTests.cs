@@ -109,6 +109,47 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(PlayerPrefs.HasKey(PrefsKey), "the legacy key must be deleted (one-time self-heal)");
         }
 
+        // ===== persist:false — DIAL-TO-BAKE INSTRUMENT rows (86cah90cp ROUND-3) =====
+        // The round-2 stamp invalidation has a structural hole: a stale value stamped under the CURRENT
+        // default (the observed round-3 state: fh.settings.sun_elevation=18 with .def=8 on the machine that
+        // renders the soak + the -verifySky gate) is INDISTINGUISHABLE from a deliberate dial, so it is
+        // honoured forever — re-applied over the Sponsor-approved 8° bake at every boot, and its stamp
+        // re-freshened by LoadFromPrefs's own SetValue re-persist. The cause-level fix: world-look dial rows
+        // are BAKE-persisted instruments and never touch PlayerPrefs (persist:false); LoadFromPrefs on such a
+        // row self-heals any lingering key an earlier persisting build left behind.
+
+        [Test]
+        public void NonPersistRow_SetValue_DrivesTheParam_ButWritesNoPlayerPrefs()
+        {
+            float[] cell = { 8f };
+            var e = new FloatSettingEntry(TestId, "probe", () => cell[0], v => cell[0] = v, 2f, 80f,
+                unit: "°", persist: false);
+            e.SetValue(18f);
+            Assert.AreEqual(18f, cell[0], 1e-4f, "a non-persist row still drives the live param (the dial works)");
+            Assert.IsFalse(PlayerPrefs.HasKey(PrefsKey),
+                "a dial-to-bake instrument row must NEVER persist its value (persistence is what stomped the sun bake twice)");
+            Assert.IsFalse(PlayerPrefs.HasKey(DefKey), "a non-persist row must never write a .def stamp either");
+        }
+
+        [Test]
+        public void NonPersistRow_LoadFromPrefs_SelfHeals_TheValidlyStampedStaleOverride()
+        {
+            // Seed the EXACT observed round-3 machine state: value 18 stamped under the CURRENT default (8) —
+            // the state the round-2 stamp invalidation can never discard.
+            PlayerPrefs.SetFloat(PrefsKey, 18f);
+            PlayerPrefs.SetFloat(DefKey, 8f);
+
+            float[] cell = { 8f };  // the freshly-baked live value
+            var e = new FloatSettingEntry(TestId, "probe", () => cell[0], v => cell[0] = v, 2f, 80f,
+                unit: "°", persist: false);
+            e.LoadFromPrefs();
+            Assert.AreEqual(8f, cell[0], 1e-4f,
+                "a non-persist row must NEVER apply a persisted override — the baked default is the shipped look " +
+                "(the round-3 defect: a validly-stamped sun_elevation=18 re-stomped the 8° bake at every boot)");
+            Assert.IsFalse(PlayerPrefs.HasKey(PrefsKey), "the lingering value key must be deleted (one-time self-heal)");
+            Assert.IsFalse(PlayerPrefs.HasKey(DefKey), "the lingering stamp key must be deleted");
+        }
+
         [Test]
         public void RedialAfterANewBake_PersistsAgain_WithAFreshStamp()
         {
