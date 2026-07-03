@@ -607,7 +607,9 @@ namespace FarHorizon
             foreach (var pair in SettingsCategory.DecaySliderGates)
             {
                 if (!_rowsById.TryGetValue(pair.Key, out var sliderRow) || sliderRow == null) continue;
-                bool on = Registry.Get(pair.Value) is BoolSettingEntry toggle && toggle.Value;
+                // Single source of truth: the SAME decision the AC4 test asserts (86cah8ukr) — a wrong impl
+                // can't pass a re-implemented proxy. Shows the slider iff its need's on/off toggle is ON.
+                bool on = SettingsCategory.IsDecaySliderVisible(Registry, pair.Key);
                 sliderRow.style.display = on ? DisplayStyle.Flex : DisplayStyle.None;
             }
         }

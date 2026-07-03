@@ -134,6 +134,31 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_SettingsPanel_WarmthWiredAndSplitKeys_Serialized()
+        {
+            // 86cah8ukr (F1/F3 split) — the split's editor-time wiring must reach the shipped Boot.unity (the
+            // stale-committed-scene trap; unity-procedural-committed-assets-go-stale memory): (1) the WARMTH
+            // target — the player-facing F1 warmth on/off toggle + warmth decay-rate slider bind to it — must be
+            // serialized, not left to the runtime Awake FindObjectOfType fallback (the ship-path discipline the
+            // orbit/wasd/berry/armPose/worldLook targets follow); (2) F1 opens the PLAYER Settings drawer and
+            // F3 the DEV console (Sponsor-confirmed 2026-07-03), both wired editor-time. Drop the panel.warmth
+            // wire or the toggle-key assignments in MovementCameraScene.BuildSettingsPanel and this goes red —
+            // the guard that keeps the committed Boot.unity from silently regressing to a pre-split snapshot.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            Assert.IsNotNull(panel.warmth,
+                "SettingsPanel.warmth must be wired editor-time (the player-facing F1 warmth on/off + decay-rate " +
+                "rows bind to it — 86cah8ukr); an unwired ref would force a runtime FindObjectOfType (ship-path).");
+            Assert.AreEqual(KeyCode.F1, panel.toggleKey,
+                "F1 opens the PLAYER Settings drawer (86cah8ukr split), serialized editor-time");
+            Assert.AreEqual(KeyCode.F3, panel.devToggleKey,
+                "F3 opens the DEV console (Sponsor-confirmed 2026-07-03), serialized editor-time");
+        }
+
+        [Test]
         public void BootScene_SettingsPanel_HasUIAssetsSerialized()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);

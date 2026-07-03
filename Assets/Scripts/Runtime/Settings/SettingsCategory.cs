@@ -68,5 +68,28 @@ namespace FarHorizon.Settings
         /// is not a conditionally-visible decay slider.</summary>
         public static string GateToggleFor(string sliderId)
             => sliderId != null && DecaySliderToGate.TryGetValue(sliderId, out var gate) ? gate : null;
+
+        /// <summary>
+        /// The CONDITIONAL-VISIBILITY decision for a per-need decay-rate slider (86cah8ukr AC1) — a decay
+        /// slider is shown iff its gating on/off toggle is registered AND currently ON. This is the SINGLE
+        /// SOURCE OF TRUTH: <see cref="SettingsPanel"/>'s ApplyConditionalVisibility calls THIS to decide each
+        /// slider row's display, and the AC4 test asserts THIS same function — so a wrong impl cannot pass a
+        /// re-implemented proxy (the guard-the-percept discipline).
+        ///
+        /// A <paramref name="sliderId"/> with NO gate mapping (i.e. not a conditionally-visible decay slider)
+        /// is ALWAYS visible → returns true (the caller only invokes this for the decay sliders, but the
+        /// contract stays total). A missing/unregistered toggle → HIDDEN (false): a decay slider whose gate
+        /// isn't live can't be tuned meaningfully, so the safe default is to hide it. Null-registry-safe.
+        /// Pure read (no UnityEngine, no scene) — <see cref="SettingsRegistry"/> is itself scene-free, so this
+        /// stays fully EditMode-testable without a UIDocument.
+        /// </summary>
+        public static bool IsDecaySliderVisible(SettingsRegistry registry, string sliderId)
+        {
+            string gate = GateToggleFor(sliderId);
+            if (gate == null) return true;   // not a gated decay slider → always shown (total contract)
+            return registry != null
+                && registry.Get(gate) is BoolSettingEntry toggle
+                && toggle.Value;
+        }
     }
 }
