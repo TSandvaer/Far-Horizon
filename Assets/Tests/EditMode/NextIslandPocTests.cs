@@ -385,6 +385,8 @@ namespace FarHorizon.EditTests
             // rock massifs) than the hero. Steepness is measured on the actual profile: the TIP slope must
             // exceed the 45° NavMesh agent max (an un-climbable crown), where the hero's whole flank stays
             // under it (AC3_HeroMountain_IsClimbable guards that side).
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -410,6 +412,8 @@ namespace FarHorizon.EditTests
             // (a raised-cosine secondary would flunk this: its flat summit disc is walkable but unreachable
             // across the steep mid-flank ring). Guards the bug CLASS: any future secondary-profile change that
             // re-introduces a walkable-above-steep band reds here before it ships an orphaned NavMesh patch.
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -483,6 +487,8 @@ namespace FarHorizon.EditTests
             // connecting shoulder/col stays elevated between peaks. (A stamped-cone layout — feet not
             // overlapping — would dip to ~0 between them and red here.)
             var hero = NextIslandPocGen.Peaks[0];
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -508,6 +514,8 @@ namespace FarHorizon.EditTests
             // summit reads bare grey ROCK (Bar 3 material-honest — stone reads as stone, never arbitrary),
             // even though BOTH crowns facet. Also guards the SnowFracAt/heightFrac split in ColorAt.
             Off(out float ox, out float oz);
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -541,6 +549,8 @@ namespace FarHorizon.EditTests
             // of a secondary's foot radius (height frac ≈ 0.34 on m=1.8 — under the old 0.40 start, so the
             // OLD code reads GRASS there and this test reds on it) the flank must read fully GREY ROCK.
             Off(out float ox, out float oz);
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -556,12 +566,14 @@ namespace FarHorizon.EditTests
                 Assert.Less(Mathf.Min(c.r, c.g, c.b), 0.78f,
                     $"peak[{i}] mid-flank must read ROCK, not snow-white; got {c}.");
             }
-            // Hero byte-keep drift guard: the hero's per-peak band must stay the #226-approved global values —
-            // where only the hero contributes, RockBandT is then byte-identical to the old formula.
-            Assert.AreEqual(NextIslandPocGen.HeroRockStartFrac, NextIslandPocGen.Peaks[0].rockStartFrac,
-                "the hero's rockStartFrac must stay the approved 0.40 (byte-kept look).");
-            Assert.AreEqual(NextIslandPocGen.HeroRockFullFrac, NextIslandPocGen.Peaks[0].rockFullFrac,
-                "the hero's rockFullFrac must stay the approved 0.62 (byte-kept look).");
+            // Hero byte-keep drift guard: the hero's per-peak band must stay the #226/#230-approved LITERAL
+            // values. Pinned to the literals (NOT to the Hero*Frac consts the field is INITIALISED from — that
+            // was tautological: Peaks[0].rockStartFrac == HeroRockStartFrac by construction, so it passed for
+            // ANY value). A retune of the const now flows into Peaks[0] and REDS this — the drift guard bites.
+            Assert.AreEqual(0.40f, NextIslandPocGen.Peaks[0].rockStartFrac, 1e-6f,
+                "the hero's rockStartFrac must stay the approved LITERAL 0.40 (byte-kept look; a retune reds this).");
+            Assert.AreEqual(0.62f, NextIslandPocGen.Peaks[0].rockFullFrac, 1e-6f,
+                "the hero's rockFullFrac must stay the approved LITERAL 0.62 (byte-kept look; a retune reds this).");
         }
 
         [Test]
@@ -570,6 +582,8 @@ namespace FarHorizon.EditTests
             // The scatter sibling of the per-peak rock band: the tree line must be PER-PEAK too, or trees
             // stand on the crag's low-starting stone (a forest on bare rock). Crag tree line (0.10 frac ≈
             // 51% of foot radius) sits just OUTSIDE the rock-start ring; the hero keeps the approved 0.45.
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -583,8 +597,9 @@ namespace FarHorizon.EditTests
             }
             // Hero line unchanged (approved 0.45): 40% up the dome is treed, 75% out is not. Sampled toward
             // -X, where no secondary foot reaches the hero flank.
-            Assert.AreEqual(NextIslandPocGen.HeroTreeLineFrac, NextIslandPocGen.Peaks[0].treeLineFrac,
-                "the hero's treeLineFrac must stay the approved 0.45 (byte-kept scatter line).");
+            Assert.AreEqual(0.45f, NextIslandPocGen.Peaks[0].treeLineFrac, 1e-6f,
+                "the hero's treeLineFrac must stay the approved LITERAL 0.45 (byte-kept scatter line; NOT the " +
+                "HeroTreeLineFrac const it is initialised from — that was tautological; a retune reds this).");
             float hx = NextIslandPocGen.MtnCenterX, hz = NextIslandPocGen.MtnCenterZ, hf = NextIslandPocGen.MtnFootRadius;
             Assert.IsTrue(NextIslandPocGen.AboveTreeLine(hx - hf * 0.40f, hz),
                 "40% out on the hero dome (height frac ≈ 0.59 > 0.45) must be above the hero tree line.");
@@ -598,6 +613,8 @@ namespace FarHorizon.EditTests
             // Placement invariants: every secondary summit sits INSIDE the full-strength land core (its peak
             // is never coast-damped into a mound), and every foot stays clear of the spawn clearing (the
             // spawn must stay flat sea-level ground — the run-2 regression, multi-peak edition).
+            Assert.Greater(NextIslandPocGen.Peaks.Length, 1,
+                "the range must have >=1 secondary peak or this per-peak loop is vacuous (guards a Length==1 regression).");
             for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
             {
                 var p = NextIslandPocGen.Peaks[i];
@@ -654,6 +671,75 @@ namespace FarHorizon.EditTests
                     "the POC sea must extend well past the island on all sides.");
             }
             finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void Scatter_RejectsTreesAndGrass_AboveThePerPeakTreeLine()
+        {
+            // INTEGRATION guard (independent-review NIT): the pure AboveTreeLine PREDICATE is unit-tested, but
+            // nothing exercised NextIslandPocScatter.Scatter() itself — so a future edit that drops the
+            // OnBareMountain rejection (or mis-wires it) would ship a forest growing up a snow cap / standing on
+            // a crag's bare rock band with every existing test still green. This runs the REAL scatter over the
+            // REAL built terrain collider and asserts no placed tree/grass sits above the per-peak tree line.
+            var parent = new GameObject("PocScatterTestParent");
+            try
+            {
+                var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                GameObject ground = NextIslandPocGen.BuildPocIsland(parent, NextIslandPocScene.PocSeed, vcMat, waterMat);
+                var col = ground.GetComponent<MeshCollider>();
+                Assert.IsNotNull(col, "the POC terrain must carry a MeshCollider for the scatter to ground onto.");
+
+                // Non-vacuity: the tree-line predicate must actually reject SOMEWHERE (the mountains exist),
+                // else "no tree above the line" would pass trivially on a mountain-free island.
+                Assert.IsTrue(NextIslandPocGen.AboveTreeLine(NextIslandPocGen.MtnCenterX, NextIslandPocGen.MtnCenterZ),
+                    "the hero summit must be ABOVE the tree line — the predicate must be non-trivially true (else vacuous).");
+
+                var scatterRoot = new GameObject("PocScatterRoot");
+                scatterRoot.transform.SetParent(parent.transform, false);
+                // A modest target keeps the EditMode run fast; the rejection logic is count-independent. The
+                // scatter grounds each prop with a straight-down raycast, so child.position.x/z == the scatter
+                // x/z it tested against OnBareMountain -> AboveTreeLine (a vertical ray preserves x/z exactly).
+                NextIslandPocScatter.Scatter(scatterRoot, NextIslandPocScene.PocSeed, col, 250);
+
+                int trees = 0, grass = 0, treesAbove = 0, grassAbove = 0;
+                foreach (Transform child in scatterRoot.transform)
+                {
+                    Vector3 p = child.position;
+                    bool above = NextIslandPocGen.AboveTreeLine(p.x, p.z);
+                    if (child.name == "LP_Tree") { trees++; if (above) treesAbove++; }
+                    else if (child.name == "LP_Grass") { grass++; if (above) grassAbove++; }
+                }
+                Assert.Greater(trees, 0, "the scatter must actually place trees (else the rejection guard is vacuous).");
+                Assert.Greater(grass, 0, "the scatter must actually place grass (else the rejection guard is vacuous).");
+                Assert.AreEqual(0, treesAbove,
+                    $"{treesAbove}/{trees} trees landed ABOVE the per-peak tree line — Scatter must reject trees on the " +
+                    "snow-cap flank / crag rock band (NextIslandPocScatter.OnBareMountain -> AboveTreeLine).");
+                Assert.AreEqual(0, grassAbove,
+                    $"{grassAbove}/{grass} grass clumps landed ABOVE the per-peak tree line — grass must be rejected on " +
+                    "the bare/snow flank too (a forest/lawn on bare rock is material-dishonest).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void PocTreeTarget_ScalesWithIslandArea_VsThe226Anchor_NotDegenerate()
+        {
+            // Proportionality guard (independent-review NIT): PocTreeTarget is a SOAK-TUNED default, so pin it to
+            // the AREA-SCALING relationship — NOT a hard ==1260 (that would red on any legitimate soak retune).
+            // The #226 anchor: 560 trees at MeanShoreR=400u; forest DENSITY is trees/area, so the grown island's
+            // target scales with (MeanShoreR/400)^2 to hold the #226-approved density (see the PocTreeTarget
+            // comment in NextIslandPocScene). A degenerate value (an un-scaled leftover 560, or 0) reds here.
+            const float anchorTrees = 560f, anchorShoreR = 400f;
+            float expected = anchorTrees * Mathf.Pow(NextIslandPocGen.MeanShoreR / anchorShoreR, 2f);
+            // FLOOR: the bigger island must never carry FEWER trees than the smaller #226 island (a density collapse).
+            Assert.GreaterOrEqual(NextIslandPocScene.PocTreeTarget, (int)anchorTrees,
+                $"PocTreeTarget ({NextIslandPocScene.PocTreeTarget}) must be >= the #226 count ({(int)anchorTrees}) — " +
+                "the grown island must not carry fewer trees than the smaller island it scaled from.");
+            // PROPORTIONALITY: within ±30% of the area-scaled anchor (soak-tuning headroom, no degenerate value).
+            Assert.That(NextIslandPocScene.PocTreeTarget, Is.EqualTo(expected).Within(expected * 0.30f),
+                $"PocTreeTarget ({NextIslandPocScene.PocTreeTarget}) must scale ~with island AREA vs the #226 anchor " +
+                $"(560 @ 400u -> ~{expected:F0} @ {NextIslandPocGen.MeanShoreR:F0}u, ±30%) — soak-tuned, not a hard 1260.");
         }
 
         // ---- SNOW-CAP FACETING (ticket 86cahmxh6) — the snow ZONE reads chunky/faceted, not a smooth dome ----
