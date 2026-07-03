@@ -532,6 +532,67 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void MultiPeak_RockBand_IsPerPeakProfile_CragFlankReadsStoneNotGreenHill()
+        {
+            // REGRESSION GUARD for the per-peak-BAND class (86cahwx6w capture-pass-2 finding): with the old
+            // GLOBAL 0.40..0.62 height-frac band, a peaked m=1.8 massif rocked only its top ~quarter of foot
+            // radius → the whole crag read "a green hill with a rock tip" (material-dishonest: steep bare
+            // crags hold no soil, Bar 3). Per-peak banding starts rock LOW on the crags. Mechanically: at 30%
+            // of a secondary's foot radius (height frac ≈ 0.34 on m=1.8 — under the old 0.40 start, so the
+            // OLD code reads GRASS there and this test reds on it) the flank must read fully GREY ROCK.
+            Off(out float ox, out float oz);
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                // Sample toward -X (both secondaries' -X flank is hero-free: the hero foot does not reach).
+                float x = p.cx - p.footR * 0.30f, z = p.cz;
+                Assert.Greater(NextIslandPocGen.RockBandT(x, z), 0.9f,
+                    $"peak[{i}] at 30% of its foot radius must be fully in the ROCK band (per-peak banding) " +
+                    "— a near-zero band here is the old global 0.40-start band = the green-hill-with-rock-tip defect.");
+                float y = NextIslandPocGen.HeightAtRadial(x, z, ox, oz);
+                Color c = NextIslandPocGen.ColorAt(x, z, y, ox, oz, NextIslandPocScene.PocSeed);
+                Assert.Less(Mathf.Abs(c.g - c.r), 0.12f,
+                    $"peak[{i}] mid-flank (30% foot radius) must read GREY stone (r≈g), not green grass; got {c}.");
+                Assert.Less(Mathf.Min(c.r, c.g, c.b), 0.78f,
+                    $"peak[{i}] mid-flank must read ROCK, not snow-white; got {c}.");
+            }
+            // Hero byte-keep drift guard: the hero's per-peak band must stay the #226-approved global values —
+            // where only the hero contributes, RockBandT is then byte-identical to the old formula.
+            Assert.AreEqual(NextIslandPocGen.HeroRockStartFrac, NextIslandPocGen.Peaks[0].rockStartFrac,
+                "the hero's rockStartFrac must stay the approved 0.40 (byte-kept look).");
+            Assert.AreEqual(NextIslandPocGen.HeroRockFullFrac, NextIslandPocGen.Peaks[0].rockFullFrac,
+                "the hero's rockFullFrac must stay the approved 0.62 (byte-kept look).");
+        }
+
+        [Test]
+        public void MultiPeak_TreeLine_IsPerPeak_NoForestOnACragRockBand()
+        {
+            // The scatter sibling of the per-peak rock band: the tree line must be PER-PEAK too, or trees
+            // stand on the crag's low-starting stone (a forest on bare rock). Crag tree line (0.10 frac ≈
+            // 51% of foot radius) sits just OUTSIDE the rock-start ring; the hero keeps the approved 0.45.
+            for (int i = 1; i < NextIslandPocGen.Peaks.Length; i++)
+            {
+                var p = NextIslandPocGen.Peaks[i];
+                // 40% of foot radius → height frac ≈ 0.20 on m=1.8: above the crag tree line (no trees)…
+                Assert.IsTrue(NextIslandPocGen.AboveTreeLine(p.cx - p.footR * 0.40f, p.cz),
+                    $"peak[{i}] at 40% of its foot radius must be ABOVE the crag tree line (frac ≈ 0.20 > 0.10) " +
+                    "— under the old global 0.45 line trees grew here, standing on the rock band.");
+                // …while near the foot the gentle grassy skirt still takes forest.
+                Assert.IsFalse(NextIslandPocGen.AboveTreeLine(p.cx - p.footR * 0.90f, p.cz),
+                    $"peak[{i}]'s grassy foot skirt (90% of foot radius) must stay BELOW the tree line (forest ok).");
+            }
+            // Hero line unchanged (approved 0.45): 40% up the dome is treed, 75% out is not. Sampled toward
+            // -X, where no secondary foot reaches the hero flank.
+            Assert.AreEqual(NextIslandPocGen.HeroTreeLineFrac, NextIslandPocGen.Peaks[0].treeLineFrac,
+                "the hero's treeLineFrac must stay the approved 0.45 (byte-kept scatter line).");
+            float hx = NextIslandPocGen.MtnCenterX, hz = NextIslandPocGen.MtnCenterZ, hf = NextIslandPocGen.MtnFootRadius;
+            Assert.IsTrue(NextIslandPocGen.AboveTreeLine(hx - hf * 0.40f, hz),
+                "40% out on the hero dome (height frac ≈ 0.59 > 0.45) must be above the hero tree line.");
+            Assert.IsFalse(NextIslandPocGen.AboveTreeLine(hx - hf * 0.75f, hz),
+                "75% out on the hero dome (height frac ≈ 0.09 < 0.45) must be below the hero tree line (forest ok).");
+        }
+
+        [Test]
         public void MultiPeak_SecondariesSitOnLand_ClearOfTheSpawn()
         {
             // Placement invariants: every secondary summit sits INSIDE the full-strength land core (its peak

@@ -55,11 +55,11 @@ namespace FarHorizon.EditorTools
                            (z - NextIslandPocGen.SpawnZ) * (z - NextIslandPocGen.SpawnZ)) < spawnClearR + extra;
 
             // Reject trees on every peak's STEEP UPPER flank + crown (a forest must not grow up a snow cap or
-            // a bare-rock crag). Below ~45% of a peak's OWN height the flank is gentle grass/lower-rock →
-            // trees are fine; above that it is steep bare rock → no trees. PER-PEAK fraction (86cahwx6w) so
-            // the tree line scales to each massif — the same 0.45 line the Sponsor approved on the hero.
+            // a bare-rock crag). PER-PEAK tree line (86cahwx6w capture-pass-2): the hero keeps the Sponsor-
+            // approved 0.45 line; the steep m=1.8 crags pull it DOWN (treeLineFrac 0.10 ≈ 51% of foot radius)
+            // so trees never stand on their low-starting rock band — see NextIslandPocGen.AboveTreeLine.
             bool OnBareMountain(float x, float z) =>
-                NextIslandPocGen.MountainHeightFracAt(x, z) > 0.45f;
+                NextIslandPocGen.AboveTreeLine(x, z);
 
             // ---- DENSE FOREST ----
             int treesPlaced = 0, treeGuard = 0;

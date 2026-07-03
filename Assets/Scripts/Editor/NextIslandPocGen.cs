@@ -94,6 +94,21 @@ namespace FarHorizon.EditorTools
         // A narrower foot made a 59° wall the agent could not climb (the AC3 slope guard caught it).
         public const float MtnFootRadius = 300f;   // the mountain's foot spans this radius (a broad climbable base)
 
+        // HERO banding constants (BYTE-KEPT — these are the #226/#230-approved global values, now carried
+        // per-peak so secondaries can band to their own steeper profile without touching the hero's look).
+        public const float HeroRockStartFrac = 0.40f;  // rock ramps in from 40% of the hero's height
+        public const float HeroRockFullFrac  = 0.62f;  // fully rock by 62%
+        public const float HeroTreeLineFrac  = 0.45f;  // scatter rejects trees/grass above 45% (the approved line)
+        // SECONDARY (peaked m=1.8) banding: chosen so the ROCK READ covers a comparable share of the FOOT
+        // RADIUS as the hero's approved band does on its dome. The hero's 0.40 height-frac lands at ~51% of
+        // its foot radius; on the m=1.8 peaked profile 0.40 lands at only ~26% — the "green hill with a rock
+        // tip" defect. 0.12 height-frac on m=1.8 lands at ~49% of foot radius (rock coverage matches the
+        // approved hero read); fully rock by 0.35 (~29% radius). Tree line 0.10 (~51% radius) sits just
+        // OUTSIDE the rock-start ring so trees never stand on stone. defaults — Sponsor-soak tunes.
+        public const float CragRockStartFrac = 0.12f;
+        public const float CragRockFullFrac  = 0.35f;
+        public const float CragTreeLineFrac  = 0.10f;
+
         /// <summary>One peak of the POC range. The HERO (index 0) uses the #226 raised-cosine dome (broad,
         /// climbable); secondaries use a PEAKED profile — h = H·(1 − sin(t·π/2))^m — whose slope is STEEPEST
         /// AT THE TIP and decreases MONOTONICALLY outward. That monotonicity is load-bearing: the >45° zone is
@@ -108,6 +123,14 @@ namespace FarHorizon.EditorTools
             public float power;       // dome exponent (hero) / peak exponent m (secondaries)
             public bool climbableDome; // true = hero raised-cosine dome; false = steep peaked profile
             public bool snowCap;      // does this peak's crown read snow? (colour only — faceting is all-peaks)
+            // PER-PEAK banding (86cahwx6w capture-pass-2 finding): on the hero's bulging dome, rock-from-40%-
+            // height covers ~half the footprint radius — but on a PEAKED profile 40% height is only the top
+            // ~quarter of the radius, so a steep crag dressed in the shared band read as "a green hill with a
+            // rock tip". Steep bare crags hold no soil (material-honest, Bar 3): secondaries start rock LOW.
+            // The hero carries the OLD global values (0.40/0.62/0.45) so its approved look is byte-kept.
+            public float rockStartFrac;  // rock colour ramps in from this per-peak height fraction
+            public float rockFullFrac;   // fully rock by this fraction
+            public float treeLineFrac;   // scatter rejects trees/grass above this fraction of THIS peak
         }
 
         /// <summary>The range (defaults — Sponsor-soak tunes counts/heights/placement). Index 0 is ALWAYS the
@@ -115,20 +138,28 @@ namespace FarHorizon.EditorTools
         public static readonly Peak[] Peaks =
         {
             // [0] HERO — Sponsor-approved climbable snow-cap peak (#226 dome, #230 faceting). DO NOT RE-TUNE.
+            //     Banding = the OLD global values (Hero* consts) so the approved look is byte-kept.
             new Peak { cx = MtnCenterX, cz = MtnCenterZ, height = MtnPeakHeight, footR = MtnFootRadius,
-                       power = 1.25f, climbableDome = true, snowCap = true },
+                       power = 1.25f, climbableDome = true, snowCap = true,
+                       rockStartFrac = HeroRockStartFrac, rockFullFrac = HeroRockFullFrac,
+                       treeLineFrac = HeroTreeLineFrac },
             // [1] NE massif — shorter + steeper, its own small snow crown (the board's 21h16_13 second peak).
             //     Foot 200 gives it MOUNTAIN MASS (the first capture pass at foot 140 read as a thin
             //     pinnacle, not a massif — author-eyeball reject); power 1.8 keeps the crown steep: tip
             //     slope ≈ atan(1.8·(π/2)·105/200) ≈ 56° (> the 45° agent max — non-climbable crown).
+            //     Crag banding (Crag* consts): steep bare crags hold no soil — rock starts LOW.
             //     default height 105 / foot 200 / m 1.8 — Sponsor-soak tunes.
             new Peak { cx = 330f, cz = 150f, height = 105f, footR = 200f,
-                       power = 1.8f, climbableDome = false, snowCap = true },
+                       power = 1.8f, climbableDome = false, snowCap = true,
+                       rockStartFrac = CragRockStartFrac, rockFullFrac = CragRockFullFrac,
+                       treeLineFrac = CragTreeLineFrac },
             // [2] SE massif — smallest + bare ROCK (no snow: silhouette + material variety; Bar 3 material-
             //     honest grey stone). Same mass-vs-needle fix: foot 115→160, power 1.8 → tip ≈ 54°.
             //     default 78/160/m 1.8 — Sponsor-soak tunes.
             new Peak { cx = 250f, cz = -285f, height = 78f, footR = 160f,
-                       power = 1.8f, climbableDome = false, snowCap = false },
+                       power = 1.8f, climbableDome = false, snowCap = false,
+                       rockStartFrac = CragRockStartFrac, rockFullFrac = CragRockFullFrac,
+                       treeLineFrac = CragTreeLineFrac },
         };
         // Snow line: the top ~28% of the peak height reads snow (tunable default — Sponsor dials the line).
         // Above SnowlineFrac × MtnPeakHeight (measured from the plateau) the vertex colour is the white snow cap.
@@ -306,6 +337,40 @@ namespace FarHorizon.EditorTools
                 if (c > f) f = c;
             }
             return Mathf.Clamp01(f);
+        }
+
+        /// <summary>
+        /// The ROCK-BAND blend (0 grass .. 1 fully rock) at world XZ — PER-PEAK (86cahwx6w capture-pass-2):
+        /// each peak ramps rock in over ITS OWN rockStartFrac..rockFullFrac height band, and the max wins.
+        /// On the hero this is byte-identical to the old global 0.40..0.62 SmoothStep; on a peaked m=1.8
+        /// massif the band starts LOW so the crag reads STONE over a comparable share of its foot radius
+        /// (the global band rocked only its top ~quarter → "a green hill with a rock tip"; steep bare crags
+        /// hold no soil — Bar 3 material-honest). PUBLIC so the banding tests sample it.
+        /// </summary>
+        public static float RockBandT(float wx, float wz)
+        {
+            float t = 0f;
+            for (int i = 0; i < Peaks.Length; i++)
+            {
+                Peak p = Peaks[i];
+                float frac = PeakHeightAt(i, wx, wz) / p.height;
+                float ti = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(p.rockStartFrac, p.rockFullFrac, frac));
+                if (ti > t) t = ti;
+            }
+            return t;
+        }
+
+        /// <summary>
+        /// True when world XZ is above SOME peak's tree line (per-peak treeLineFrac of that peak's OWN
+        /// height) — the scatter rejects trees/grass here so a forest never grows up a snow cap or stands
+        /// on a crag's low-starting rock band. Hero keeps the approved 0.45 line; crag lines sit lower,
+        /// just outside their rock-start ring. PUBLIC — the scatter + the tree-line tests consume it.
+        /// </summary>
+        public static bool AboveTreeLine(float wx, float wz)
+        {
+            for (int i = 0; i < Peaks.Length; i++)
+                if (PeakHeightAt(i, wx, wz) / Peaks[i].height > Peaks[i].treeLineFrac) return true;
+            return false;
         }
 
         /// <summary>True if this XZ is in the crown FACET zone (per-peak height fraction >= SnowFacetFrac) —
@@ -590,8 +655,9 @@ namespace FarHorizon.EditorTools
             float heightFrac = MountainHeightFracAt(wx, wz);  // max over ALL peaks, per-peak relative
             float snowFrac = SnowFracAt(wx, wz);              // max over SNOW-CAPPED peaks only
             Color land = grass;
-            // Rock starts ~40% up a peak, ramping in; snow starts at SnowlineFrac (snow-capped peaks only).
-            float rockT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.40f, 0.62f, heightFrac));
+            // Rock ramps in over each peak's OWN rockStartFrac..rockFullFrac band (per-peak — see RockBandT;
+            // hero byte-kept at 0.40..0.62); snow starts at SnowlineFrac (snow-capped peaks only).
+            float rockT = RockBandT(wx, wz);
             Color rock = Color.Lerp(RockLo, RockHi, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, SnowlineFrac, heightFrac)));
             land = Color.Lerp(land, rock, rockT);
             // SNOW cap above the snow line (height-threshold white — the constraint: NO snow texture).
