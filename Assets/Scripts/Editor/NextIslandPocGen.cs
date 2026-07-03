@@ -118,14 +118,17 @@ namespace FarHorizon.EditorTools
             new Peak { cx = MtnCenterX, cz = MtnCenterZ, height = MtnPeakHeight, footR = MtnFootRadius,
                        power = 1.25f, climbableDome = true, snowCap = true },
             // [1] NE massif — shorter + steeper, its own small snow crown (the board's 21h16_13 second peak).
-            //     Tip slope ≈ atan(1.35·(π/2)·105/140) ≈ 58° (> the 45° agent max — non-climbable crown).
-            //     default height 105 / foot 140 — Sponsor-soak tunes.
-            new Peak { cx = 330f, cz = 150f, height = 105f, footR = 140f,
-                       power = 1.35f, climbableDome = false, snowCap = true },
+            //     Foot 200 gives it MOUNTAIN MASS (the first capture pass at foot 140 read as a thin
+            //     pinnacle, not a massif — author-eyeball reject); power 1.8 keeps the crown steep: tip
+            //     slope ≈ atan(1.8·(π/2)·105/200) ≈ 56° (> the 45° agent max — non-climbable crown).
+            //     default height 105 / foot 200 / m 1.8 — Sponsor-soak tunes.
+            new Peak { cx = 330f, cz = 150f, height = 105f, footR = 200f,
+                       power = 1.8f, climbableDome = false, snowCap = true },
             // [2] SE massif — smallest + bare ROCK (no snow: silhouette + material variety; Bar 3 material-
-            //     honest grey stone). Tip slope ≈ atan(1.35·(π/2)·78/115) ≈ 55°. default 78/115 — Sponsor-soak tunes.
-            new Peak { cx = 250f, cz = -285f, height = 78f, footR = 115f,
-                       power = 1.35f, climbableDome = false, snowCap = false },
+            //     honest grey stone). Same mass-vs-needle fix: foot 115→160, power 1.8 → tip ≈ 54°.
+            //     default 78/160/m 1.8 — Sponsor-soak tunes.
+            new Peak { cx = 250f, cz = -285f, height = 78f, footR = 160f,
+                       power = 1.8f, climbableDome = false, snowCap = false },
         };
         // Snow line: the top ~28% of the peak height reads snow (tunable default — Sponsor dials the line).
         // Above SnowlineFrac × MtnPeakHeight (measured from the plateau) the vertex colour is the white snow cap.
