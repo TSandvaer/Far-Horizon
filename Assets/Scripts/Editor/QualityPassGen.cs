@@ -36,19 +36,20 @@ namespace FarHorizon.EditorTools
 
         // ---- SUN-DISK defaults (ticket 86cabc743 — Erik low-poly-sky research, POC item 2) ----
         // Warm toy-like sun disk in the GradientSkybox. Additive in the shader → the post Bloom lifts a soft
-        // corona. SPONSOR-ACCEPTED hue + size (86cah90cp ROUND-2 dial, 2026-07-02, soak-223 exe b8d6e96):
+        // corona. SPONSOR-ACCEPTED hue + size (86cah90cp ROUND-3 dial, 2026-07-03, soak-223-v3 exe 9f0dfb3):
         // the Sponsor live-dialed _SunColor on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD and
-        // accepted (0.80,0.815,0.089) — a warm GOLDEN-YELLOW toy sun (R≈G, B near-zero; Player-prev.log final
-        // line "colour=(0,800,0,815,0,089)") — paired with the further-LOWERED 8° sun (see
-        // WorldBootstrap.SunElevationDeg). The lerp-core-then-glow composite in GradientSkybox.shader preserves
-        // this dialed hue through the bloom+tonemap (it does not clip to pure white at the core).
-        public static readonly Color SunColor   = new Color(0.80f, 0.815f, 0.089f, 1f); // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02, Player-prev.log final line "colour=(0,800,0,815,0,089)"): warm golden-yellow toy sun, B near-zero
-        // SIZE: the Sponsor dialed _SunSize UP to 0.986 on the 86cah90cp round-2 dial (2026-07-02,
-        // Player-prev.log final line "size=0,9860") — a SMALLER, tighter disk than the prior full-board 0.95.
-        // (_SunSize is the disk-edge dot threshold: HIGHER = SMALLER; 0.9985 was a sub-pixel pinpoint, 0.992
-        // a ~7° disk, 0.95 the biggest in-range.) Hardness 60 stays — a crisp low-poly edge with a touch of
+        // accepted (0.90,0.90,0.20) — a warmer YELLOW toy sun (R==G, B low-but-lifted from the round-2 near-zero;
+        // F10 HUD read "(0,90 0,90 0,20)", Danish-locale commas = decimal points) — paired with the unchanged 8°
+        // sun (see WorldBootstrap.SunElevationDeg). The lerp-core-then-glow composite in GradientSkybox.shader
+        // preserves this dialed hue through the bloom+tonemap (it does not clip to pure white at the core).
+        // (ROUND-2 was (0.80,0.815,0.089); the Sponsor re-dialed it warmer/yellower this round.)
+        public static readonly Color SunColor   = new Color(0.90f, 0.90f, 0.20f, 1f); // Sponsor-accepted (86cah90cp round-3 dial 2026-07-03, F10 HUD "(0,90 0,90 0,20)"): warmer yellow toy sun
+        // SIZE: the Sponsor dialed _SunSize DOWN to 0.9540 on the 86cah90cp round-3 dial (2026-07-03,
+        // F10 HUD "0,9540") — a LARGER disk than round-2's 0.986. (_SunSize is the disk-edge dot threshold:
+        // HIGHER = SMALLER; 0.9985 was a sub-pixel pinpoint, 0.992 a ~7° disk, 0.95 the biggest in-range —
+        // so LOWERING 0.986→0.954 GROWS the disk.) Hardness 60 stays — a crisp low-poly edge with a touch of
         // softness for the bloom corona.
-        public const float SunSize     = 0.986f; // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02): tighter disk, in-range [0.95,0.9999]
+        public const float SunSize     = 0.9540f; // Sponsor-accepted (86cah90cp round-3 dial 2026-07-03): larger disk (lower threshold), in-range [0.95,0.9999]
         public const float SunHardness = 60f;     // crisp-but-not-pinpoint low-poly disk edge
         // SKY-1 (ticket 86cahhfkc): a bounded (≤0.06) warm bias into the horizon band around the sun azimuth,
         // ties the low sun into the sky at the horizon. Frag-only lerp toward _SunColor — does NOT touch

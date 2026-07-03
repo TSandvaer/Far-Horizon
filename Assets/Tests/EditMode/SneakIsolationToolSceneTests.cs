@@ -20,7 +20,8 @@ namespace FarHorizon.EditTests
     ///      LOCAL run against a stale committed Boot.unity may red here until the scene is regenerated — see
     ///      unity-conventions.md §"Run BootstrapProject.Run BEFORE any LOCAL EditMode run".)
     ///   2. DANISH-SAFE KEYS, NO COLLISION — F5/F6 (F-keys, layout-agnostic) distinct from every other dev key
-    ///      (F1 master / F7 camera / F8 float / F9 axe / F10 world; F2/F3 vacated — F2 now hosts #208 overlays).
+    ///      (F1 console / F7 camera / F8 float / F9 axe / F10 the SINGLE debug-overlay master; F2/F3 vacated and
+    ///      now UNBOUND — the legacy F2 overlay master (DebugOverlayToggle) was removed, 86cah90cp round-3).
     ///   3. PANEL placement — RIGHT-anchored so it never overlaps the LEFT-anchored F8 FloatDiagnostic panel
     ///      (both can be up at once behind the F1 master).
     /// </summary>
@@ -64,11 +65,13 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(tool);
             Assert.AreEqual(KeyCode.F5, tool.footSyncToggleKey,
                 "foot-sync must toggle on F5 — a Danish-keyboard-safe F-key ([[sponsor-danish-keyboard-layout]]). " +
-                "Moved off F2 (Sponsor-directed) — F2 now hosts #208's legacy overlays.");
+                "Moved off F2 (Sponsor-directed); F2 is now UNBOUND (the legacy F2 overlay master was removed, 86cah90cp round-3).");
             Assert.AreEqual(KeyCode.F6, tool.sneakSpeedSnapToggleKey,
                 "sneak-speed snap must toggle on F6 — a Danish-keyboard-safe F-key. Moved off F3.");
-            // The F5/F6 SUB-toggles must not collide with the established dev keys (F1 console / F2 #208 overlay
-            // master / F7 camera / F8 float / F9 axe / F10 world+sneak-overlay master). The overlayToggleKey is
+            // The F5/F6 SUB-toggles must not collide with the established dev keys (F1 console / F7 camera /
+            // F8 float / F9 axe / F10 the SINGLE debug-overlay master). F2/F3 are kept in the avoid-set below
+            // even though they are now UNBOUND (the legacy F2 master was removed, 86cah90cp round-3) so the
+            // sub-toggles never re-collide with the historically-reserved keys. The overlayToggleKey is
             // DELIBERATELY F10 (grouped with the WorldLookNudgeTool, 86cah90cp) so it is excluded from this loop
             // and asserted separately below.
             Assert.AreNotEqual(tool.footSyncToggleKey, tool.sneakSpeedSnapToggleKey,

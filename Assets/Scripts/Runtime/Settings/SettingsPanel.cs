@@ -18,9 +18,10 @@ namespace FarHorizon
     ///   • builds one UI Toolkit row per entry GENERICALLY off its archetype (AC2) — a new setting needs NO
     ///     change here; it just appears as a row, with a typed field (AC5), nudge selection (AC6), a baked-
     ///     default readout (AC8) and a differs-from-default badge (AC9) for free;
-    ///   • OPENS/CLOSES on F1, polled DIRECTLY (86cabeqj9 soak NIT — F1/F2 de-conflict). F1 toggles ONLY the
-    ///     console now; the LEGACY IMGUI overlays moved to F2 (DebugOverlayToggle). It previously rode the
-    ///     shared DebugOverlays.Visible flag, so one F1 popped the console AND the legacy overlays together —
+    ///   • OPENS/CLOSES on F1, polled DIRECTLY (86cabeqj9 soak NIT — F1/overlay de-conflict). F1 toggles ONLY
+    ///     the console; the dev/debug IMGUI overlays are on F10 (the single overlay master since the legacy F2
+    ///     DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). The console previously rode the
+    ///     shared DebugOverlays.Visible flag, so one F1 popped the console AND the overlays together —
     ///     decoupled here so each key reveals exactly one layer (AC1);
     ///   • is NON-MODAL (AC2): being open does NOT pause/gate gameplay (no Time.timeScale touch); world input
     ///     is swallowed ONLY while a typed-field holds keyboard focus (AC3 — so a typed number isn't also read
@@ -109,15 +110,15 @@ namespace FarHorizon
 
         [Header("Toggle")]
         [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). The console KEEPS F1 but polls it " +
-                 "DIRECTLY (the 86cabeqj9 soak NIT F1/F2 de-conflict): F1 toggles ONLY the console; the LEGACY " +
-                 "IMGUI overlays moved to F2 (DebugOverlayToggle). It previously rode the shared " +
-                 "DebugOverlays.Visible flag, so one F1 popped the console AND the legacy overlays together. " +
-                 "Layout-agnostic + verified non-clashing with WASD/Shift/Space/Tab/F7-F10 " +
+                 "DIRECTLY (the 86cabeqj9 soak NIT F1/overlay de-conflict): F1 toggles ONLY the console; the " +
+                 "dev/debug IMGUI overlays are on F10 (the single overlay master since the legacy F2 " +
+                 "DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). The console previously " +
+                 "rode the shared DebugOverlays.Visible flag, so one F1 popped the console AND the overlays " +
+                 "together. Layout-agnostic + verified non-clashing with WASD/Shift/Space/Tab/F7-F10 " +
                  "([[sponsor-danish-keyboard-layout]]). Update polls this field directly (SetOpen(!IsOpen)). " +
                  "NOTE (86cagpk72 NIT): the SHIPPED-BUILD verify-capture drives SetOpen/DebugOverlays " +
                  "PROGRAMMATICALLY (it can't synthesize an F1 key-down in a windowed capture) — it does NOT " +
-                 "read this field; the only toggleKey==F1 assertion in the scene tests is on DebugOverlayToggle, " +
-                 "not this component.")]
+                 "read this field.")]
         public KeyCode toggleKey = KeyCode.F1;
 
         /// <summary>The registry this panel renders + drives. Built on Start from the catalog (public for tests).</summary>
@@ -236,11 +237,12 @@ namespace FarHorizon
 
         void Update()
         {
-            // AC1 + 86cabeqj9 F1/F2 DE-CONFLICT (soak NIT). The console KEEPS F1, but now polls F1 DIRECTLY
+            // AC1 + 86cabeqj9 F1/overlay DE-CONFLICT (soak NIT). The console KEEPS F1, but now polls F1 DIRECTLY
             // rather than riding the shared DebugOverlays.Visible flag. Before this, the console synced to
-            // DebugOverlays.Visible (which DebugOverlayToggle flipped on F1) — so one F1 popped the console AND
-            // the legacy IMGUI overlays (axe-shaft length, pond recess/foam) together (the Sponsor's complaint).
-            // Decoupled: F1 toggles ONLY the console here; the legacy overlays moved to F2 (DebugOverlayToggle).
+            // DebugOverlays.Visible — so one F1 popped the console AND the dev/debug IMGUI overlays (axe-shaft
+            // length, pond recess/foam) together (the Sponsor's complaint).
+            // Decoupled: F1 toggles ONLY the console here; the dev/debug overlays are on F10 (the single overlay
+            // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
             // Layout-agnostic + Danish-safe (an F-key) and verified non-clashing with WASD/Shift/Space/Tab/F7-F10
             // ([[sponsor-danish-keyboard-layout]]). Legacy Input (activeInputHandler=0), like every debug toggle.
             if (Input.GetKeyDown(toggleKey)) SetOpen(!IsOpen);

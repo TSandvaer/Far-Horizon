@@ -49,22 +49,22 @@ namespace FarHorizon
     public class SneakIsolationTool : MonoBehaviour
     {
         // SHOW/HIDE key for this overlay's panel (ticket 86cah90cp — Sponsor 2026-07-01 F10 soak). The panel
-        // reveals with the rest of the legacy debug-overlay layer via the shared DebugOverlays.Visible flag.
-        // Historically that master lived on F1, then moved F1→F2 (#208 F1/F2 de-conflict — F1 is now the dev
-        // console). The Sponsor asked for the debug overlays GROUPED on F10 with the WorldLookNudgeTool (also
-        // F10) — "so F10 toggles the debug overlays together" — and F1 kept FREE for the console. So this tool
-        // now ALSO flips DebugOverlays.Visible on F10 (an ADDITIONAL master key alongside DebugOverlayToggle's
-        // F2 — both reveal the same shared flag; F2 stays for backward-compat, F10 is the Sponsor-grouped key).
-        // Pressing F10 reveals BOTH this panel and the world-look nudge panel together. F1 is NOT consumed here.
+        // reveals with the rest of the debug-overlay layer via the shared DebugOverlays.Visible flag.
+        // Historically that master lived on F1, then moved F1→F2 (#208 F1/F2 de-conflict), then the Sponsor
+        // asked for the debug overlays GROUPED on F10 with the WorldLookNudgeTool (also F10) — "so F10 toggles
+        // the debug overlays together" — and F1 kept FREE for the console. The legacy F2 master
+        // (DebugOverlayToggle) was then REMOVED entirely (86cah90cp round-3, Sponsor-directed 2026-07-03): F10 is
+        // now the SINGLE master. This tool flips DebugOverlays.Visible on F10; pressing F10 reveals BOTH this
+        // panel and the world-look nudge panel together. F2 is UNBOUND. F1 (dev console) is NOT consumed here.
         [Tooltip("Show/hide the debug-overlay layer (this panel + the WorldLookNudgeTool panel together). F10 — " +
-                 "the Sponsor-grouped debug-overlay key (86cah90cp), Danish-keyboard-safe. Flips the shared " +
-                 "DebugOverlays.Visible master (alongside DebugOverlayToggle's F2). F1 is the dev console — " +
+                 "the SINGLE debug-overlay master key (86cah90cp; the legacy F2 master was removed), " +
+                 "Danish-keyboard-safe. Flips the shared DebugOverlays.Visible master. F1 is the dev console — " +
                  "NOT consumed by this overlay.")]
         public KeyCode overlayToggleKey = KeyCode.F10;
 
         [Tooltip("Toggle the #186 FOOT-SYNC coupling on/off. F5 — Danish-keyboard-safe F-key, verified unbound " +
-                 "(dev keys are F1/F7-F10; F2/F3 vacated — F2 now hosts #208 legacy overlays). DEBUG-only; " +
-                 "default restores foot-sync ON each play-entry.")]
+                 "(dev keys are F1/F7-F10; F2/F3 vacated and now UNBOUND — the legacy F2 overlay master was removed). " +
+                 "DEBUG-only; default restores foot-sync ON each play-entry.")]
         public KeyCode footSyncToggleKey = KeyCode.F5;
 
         [Tooltip("Toggle SNEAK speed → NORMAL WALK speed (rules out the slow-sneak-speed-specific path). F6 — " +

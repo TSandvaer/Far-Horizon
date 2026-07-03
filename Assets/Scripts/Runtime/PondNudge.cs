@@ -207,8 +207,8 @@ namespace FarHorizon
 
         private void OnGUI()
         {
-            // F1 master gate (86cafd6d6): the dev/debug overlay layer is HIDDEN by default (clean screen for
-            // normal play / soak / CI captures). F1 (DebugOverlayToggle) reveals it.
+            // Overlay master gate (86cafd6d6): the dev/debug overlay layer is HIDDEN by default (clean screen for
+            // normal play / soak / CI captures). F10 (SneakIsolationTool, the single overlay master) reveals it.
             if (!DebugOverlays.Visible) return;
 
             if (_labelStyle == null)

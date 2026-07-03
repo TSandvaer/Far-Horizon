@@ -1,3 +1,4 @@
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -152,33 +153,46 @@ namespace FarHorizon.EditTests
                 "smooth-vs-faceted A/B is inert if the scene never carries it — the component-not-serialized trap)");
         }
 
-        // The LEGACY dev-overlay MASTER TOGGLE (ticket 86cafd6d6; key moved F1→F2 by 86cabeqj9 soak NIT) must
-        // be SERIALIZED onto the Boot object — same component-not-serialized-into-scene class: F2 can't toggle
-        // the legacy overlay layer if the scene never carries DebugOverlayToggle. Regression guard: delete the
-        // AddComponent<DebugOverlayToggle>() line in BootstrapProject.BuildBootScene and this goes red.
+        // F2 REMOVED — F10 IS THE SINGLE DEBUG-OVERLAY MASTER (86cah90cp round-3, Sponsor-directed 2026-07-03).
+        // The legacy #208-era DebugOverlayToggle (F2 master; formerly F1→F2 by the 86cabeqj9 soak NIT) is GONE.
+        // F10 (SneakIsolationTool.overlayToggleKey, which flips the shared DebugOverlays.Visible) is now the ONLY
+        // toggle for the debug-overlay layer; F1 (dev console) is untouched. This guard asserts (a) NO component
+        // serialized on the Boot object binds KeyCode.F2 anymore (F2 is UNBOUND), and (b) the F10 master is
+        // present + serialized. Regression guard: re-add an F2 binding, or drop the F10 master, and this reds.
         [Test]
-        public void BootScene_CarriesDebugOverlayToggle_Serialized()
+        public void BootScene_F2Unbound_F10IsTheOverlayMaster()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             Assert.IsTrue(scene.IsValid(), "the Boot scene must open clean");
 
-            DebugOverlayToggle toggle = null;
+            // (a) F2 UNBOUND — no MonoBehaviour on any Boot root has a public KeyCode field set to F2.
             foreach (var root in scene.GetRootGameObjects())
             {
-                toggle = root.GetComponentInChildren<DebugOverlayToggle>(true);
-                if (toggle != null) break;
+                foreach (var mb in root.GetComponentsInChildren<MonoBehaviour>(true))
+                {
+                    if (mb == null) continue;
+                    foreach (var f in mb.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        if (f.FieldType == typeof(KeyCode) && (KeyCode)f.GetValue(mb) == KeyCode.F2)
+                            Assert.Fail($"F2 must be UNBOUND (86cah90cp round-3, Sponsor-directed) — " +
+                                        $"{mb.GetType().Name}.{f.Name} still binds KeyCode.F2");
+                    }
+                }
             }
-            Assert.IsNotNull(toggle,
-                "the Boot scene must carry DebugOverlayToggle serialized (F2 can't master-toggle the legacy " +
-                "overlay layer if the scene never carries it — the component-not-serialized trap; unity-conventions.md)");
-            // 86cabeqj9 soak NIT — the legacy-overlay master toggle moved F1→F2 so F1 opens ONLY the dev console
-            // (SettingsPanel polls F1 directly now). F2 is layout-agnostic / Danish-keyboard-safe. The F1↔console
-            // / F2↔legacy split is the de-conflict; this guards the legacy side stays off F1.
-            Assert.AreEqual(KeyCode.F2, toggle.toggleKey,
-                "the legacy-overlay master toggle must be F2 (moved from F1 by the 86cabeqj9 soak NIT so F1 opens " +
-                "ONLY the dev console) — layout-agnostic, Danish-keyboard-safe");
-            Assert.AreNotEqual(KeyCode.F1, toggle.toggleKey,
-                "the legacy-overlay master must NOT share F1 with the dev console (the 86cabeqj9 de-conflict)");
+
+            // (b) F10 IS THE MASTER — SneakIsolationTool serialized with overlayToggleKey==F10 (it flips the
+            // shared DebugOverlays.Visible; the WorldLookNudgeTool also rides F10 so both panels reveal together).
+            SneakIsolationTool sneak = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                sneak = root.GetComponentInChildren<SneakIsolationTool>(true);
+                if (sneak != null) break;
+            }
+            Assert.IsNotNull(sneak,
+                "the Boot scene must carry SneakIsolationTool serialized (the F10 debug-overlay master — the " +
+                "component-not-serialized trap; unity-conventions.md)");
+            Assert.AreEqual(KeyCode.F10, sneak.overlayToggleKey,
+                "F10 must be the SINGLE debug-overlay master (SneakIsolationTool.overlayToggleKey) after the F2 removal");
         }
 
         // The FRESNEL/RIM A/B verify capture (ticket 86caamnnj — Fresnel/rim term) must be SERIALIZED into
