@@ -141,17 +141,28 @@ namespace FarHorizon
                 yield return ShootHand("hands_right.png", _rightHand, new Vector3(0.7f, 0.35f, 1.0f));
                 yield return ShootHand("hands_right_tips.png", _rightHand, new Vector3(0.15f, -0.9f, 0.5f));
                 yield return ShootHand("hands_right_rear.png", _rightHand, new Vector3(0.4f, 0.5f, -1.0f));
+                // 86cahnmjv soak-FAIL #2: a DEAD-FRONT "facing the camera" shot — the Sponsor's gameplay
+                // read-angle. The prior three angles are OUTER-front / from-below / rear; NONE looks at the
+                // right hand straight-on from the front, so a finger bent toward/away from a head-on viewer
+                // was invisible to the grid (the coverage gap that let this soak-fail through). This is the
+                // angle the Sponsor judges + the one the regression asserts.
+                yield return ShootHand("hands_right_front.png", _rightHand, new Vector3(0.05f, 0.15f, 1.0f));
             }
             if (_leftHand != null)
             {
                 yield return ShootHand("hands_left.png", _leftHand, new Vector3(-0.7f, 0.35f, 1.0f));
                 yield return ShootHand("hands_left_tips.png", _leftHand, new Vector3(-0.15f, -0.9f, 0.5f));
                 yield return ShootHand("hands_left_rear.png", _leftHand, new Vector3(-0.4f, 0.5f, -1.0f));
+                yield return ShootHand("hands_left_front.png", _leftHand, new Vector3(-0.05f, 0.15f, 1.0f));
             }
 
             // --- 2. AXE HELD, idle (grip curl active — the prime-suspect surface the old gate never framed) ---
             yield return SelectWeapon(ItemCatalog.AxeId, "idle_axe");
             yield return GridShots("idle_axe", shootLeft: true, tips: true, rear: true);
+            // Dead-front gripping shot (86cahnmjv soak-fail #2) — the same head-on angle as empty idle, so
+            // empty-vs-gripping right-hand reads are directly comparable from the Sponsor's view direction.
+            if (_rightHand != null)
+                yield return ShootHand("hands_idle_axe_right_front.png", _rightHand, new Vector3(0.05f, 0.15f, 1.0f));
 
             // --- 3. SPEAR HELD, idle (#232 — the newest grip surface; spear haft is thinner than the axe's) ---
             yield return SelectWeapon(ItemCatalog.SpearId, "idle_spear");
