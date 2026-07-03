@@ -60,13 +60,15 @@ LAUNCH_TIMEOUT=300
 launch_once() {
   rm -f "$ABS_CAP"/held_*.png
   rm -f "$LOG_FILE"
-  echo "[verify_heldbelt] launching shipped exe windowed (-verifyHeldBelt): $EXE"
+  echo "[verify_heldbelt] launching shipped exe -batchmode (headless RT-readback, -verifyHeldBelt): $EXE"
   echo "[verify_heldbelt]   captureDir=$ABS_CAP logFile=$LOG_FILE"
-  # Windowed + small so it never grabs the desktop; -verifyHeldBelt drives the AxeVerifyCapture
-  # held-belt path; -logFile redirects the player log so the STATE-1..4 verdict lines are grep-able.
+  # HEADLESS (86cag93zb): -batchmode, NO -nographics (real D3D12 device), NO window. The AxeVerifyCapture
+  # held-belt path captures Camera.main into an offscreen RT (SubmitRenderRequest); its self-asserts are
+  # LOGIC (renderer-enabled + held-mesh vertexCount), so the STATE-1..4 verdict is unchanged. -logFile
+  # redirects the player log so those verdict lines are grep-able.
   set +e
   timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
-    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -batchmode \
     -verifyHeldBelt -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
   exe_rc=$?
   set -e
