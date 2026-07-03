@@ -156,6 +156,7 @@ namespace FarHorizon.EditTests
                 var playerHp = playerGo.AddComponent<Health>(); // default 100 max, neutral resistance
                 playerGo.AddComponent<HealthRegen>();
                 var fx = playerGo.AddComponent<StatusEffectController>();
+                fx.health = playerHp; // EditMode has no Awake on AddComponent — wire what the build's Awake wires
                 playerHp.damageTakenMul = 1.25f; // a non-unit tier mul — the formula's second factor is live
 
                 SnakeVerifyCapture.FreezeHpOverTime(playerGo);
