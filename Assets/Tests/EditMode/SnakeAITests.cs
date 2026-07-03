@@ -116,6 +116,72 @@ namespace FarHorizon.EditTests
                 "never one per frame (the 86cahzycp NIT-1 class)");
         }
 
+        // ============== 86cahzycp NIT 2 — the -verifySnake bite gate is DETERMINISTIC ==============
+
+        [Test]
+        public void FreezeHpOverTime_DisablesBothHpTickerTypes()
+        {
+            var playerGo = new GameObject("player-freeze-rig");
+            try
+            {
+                playerGo.AddComponent<Health>();
+                var regen = playerGo.AddComponent<HealthRegen>();
+                var fx = playerGo.AddComponent<StatusEffectController>();
+
+                Assert.AreEqual(2, SnakeVerifyCapture.FreezeHpOverTime(playerGo),
+                    "both HP-over-time ticker types get disabled (regen + status DoT)");
+                Assert.IsFalse(regen.enabled, "HealthRegen frozen — no Update healing inside the gate window");
+                Assert.IsFalse(fx.enabled, "StatusEffectController frozen — the bite's own bleed can't tick");
+
+                // Idempotent + null-safe (the gate may run on a partial rig).
+                Assert.AreEqual(0, SnakeVerifyCapture.FreezeHpOverTime(playerGo));
+                Assert.AreEqual(0, SnakeVerifyCapture.FreezeHpOverTime(null));
+            }
+            finally { Object.DestroyImmediate(playerGo); }
+        }
+
+        [Test]
+        public void BiteGate_HpDelta_EqualsTierExpected_WhenTickersFrozen()
+        {
+            // The determinism pin behind the gate's tightened band (0.05 float-noise, was 0.5 + 1% absorbing
+            // regen/bleed drift): with the tickers frozen, hpBefore - hpAfter must EXACTLY equal
+            // expectedBase × damageTakenMul — the same formula SnakeVerifyCapture gates on — even though
+            // the bite APPLIES a bleed to the player (the DoT may exist; it may not TICK into the window).
+            var snakeGo = new GameObject("snake-gate-rig");
+            var playerGo = new GameObject("player-gate-rig");
+            try
+            {
+                snakeGo.AddComponent<Health>();
+                var enemy = snakeGo.AddComponent<SnakeEnemy>();
+                var playerHp = playerGo.AddComponent<Health>(); // default 100 max, neutral resistance
+                playerGo.AddComponent<HealthRegen>();
+                var fx = playerGo.AddComponent<StatusEffectController>();
+                playerHp.damageTakenMul = 1.25f; // a non-unit tier mul — the formula's second factor is live
+
+                SnakeVerifyCapture.FreezeHpOverTime(playerGo);
+
+                enemy.ApplyDifficulty(SurvivalNeed.DifficultyTier.Hard);
+                float before = playerHp.Current;
+                float ret = enemy.Bite(playerHp);
+                float removed = before - playerHp.Current;
+
+                float expected = SnakeEnemy.SnakeHardBiteDamage * playerHp.damageTakenMul;
+                Assert.AreEqual(expected, removed, 1e-3f,
+                    "the HP delta IS the pure seam value (expectedBase × damageTakenMul) — the gate formula");
+                Assert.AreEqual(ret, removed, 1e-3f, "the seam's return equals the actual HP delta");
+                Assert.AreEqual(1, fx.ActiveCount,
+                    "the bite still APPLIES its bleed (enemy→player DoT stays exercised) — frozen means " +
+                    "the DoT cannot TICK between the bite and the gate's hpAfter read");
+                Assert.Less(Mathf.Abs(removed - expected), 0.05f,
+                    "inside the gate's tightened float-noise band (the shipped assert's exact shape)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(snakeGo);
+                Object.DestroyImmediate(playerGo);
+            }
+        }
+
         // ==================== AC4 — MODERATE, difficulty-scaled bite (the tier map) ====================
 
         [Test]
