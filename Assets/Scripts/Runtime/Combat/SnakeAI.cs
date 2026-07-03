@@ -77,6 +77,14 @@ namespace FarHorizon.Combat
         [Tooltip("Pursuit speed (u/s) — faster than wander, slower than the player's run.")]
         public float chaseSpeed = 2.6f;
 
+        [Header("NavMesh repath throttle (86cahzycp — SetDestination is a PATH REQUEST, not a cheap setter)")]
+        [Tooltip("Re-issue SetDestination only when the wanted destination moved at least this far (u) from " +
+                 "the last ISSUED one. New intent (state change / wander re-pick) always repaths immediately.")]
+        public float repathMinMove = 0.5f;
+        [Tooltip("...or when this many seconds elapsed since the last issued repath — bounds path staleness " +
+                 "against a slow-drifting chase target. Small enough to be feel-imperceptible (>=5 repaths/s).")]
+        public float repathIntervalSeconds = 0.2f;
+
         [Header("Telegraphed lunge bite (AC3/AC4)")]
         [Tooltip("Planar range at which the chase stops and the telegraph (rear-up) begins.")]
         public float strikeRange = 1.7f;
@@ -103,6 +111,8 @@ namespace FarHorizon.Combat
         private Vector3 _home;
         private Vector3 _wanderDest;
         private Vector3 _lungeDir;
+        private Vector3 _lastRepathDest;
+        private float _lastRepathAt = float.NegativeInfinity; // -inf = the next MoveTowards always repaths
         private float _stateEnteredAt;
         private float _wanderPickedAt;
         private float _despawnAt;
@@ -118,6 +128,10 @@ namespace FarHorizon.Combat
         public int BitesLanded { get; private set; }
         /// <summary>The HP the LAST landed bite removed (post player-resistance/tier, from ApplyDamage).</summary>
         public float LastBiteDamage { get; private set; }
+        /// <summary>How many NavMesh path requests (SetDestination) were issued — the 86cahzycp repath
+        /// throttle's observable (unthrottled = one per Update while moving; throttled = on intent change
+        /// + bounded drift/staleness re-issues). Diagnostic/test read.</summary>
+        public int RepathsIssued { get; private set; }
         /// <summary>Where HOME (the patrol anchor = the authored spawn) is. Test/diagnostic read.</summary>
         public Vector3 Home { get { EnsureInit(); return _home; } }
 
@@ -157,6 +171,13 @@ namespace FarHorizon.Combat
         /// <summary>Lunge bite check: the (single) bite lands when the player is inside the bite radius.</summary>
         public static bool BiteConnects(float playerDistXz, float biteRadius, bool alreadyBitThisLunge)
             => !alreadyBitThisLunge && playerDistXz <= biteRadius;
+
+        /// <summary>Agent repath throttle (86cahzycp): a per-frame SetDestination is a per-frame NavMesh
+        /// PATH REQUEST — re-issue only when the wanted destination MOVED meaningfully since the last
+        /// issued one, or the staleness interval elapsed. Both thresholds inclusive. Intent changes
+        /// (state transition / wander re-pick) bypass via a reset (secondsSinceLast = +inf).</summary>
+        public static bool ShouldRepath(float destMovedDist, float secondsSinceLast, float minMove, float interval)
+            => destMovedDist >= minMove || secondsSinceLast >= interval;
 
         // ==================================================================================================
 
@@ -307,11 +328,13 @@ namespace FarHorizon.Combat
         {
             State = next;
             _stateEnteredAt = Time.time;
+            _lastRepathAt = float.NegativeInfinity; // new intent — the next MoveTowards repaths IMMEDIATELY
         }
 
         private void PickWanderDest()
         {
             _wanderPickedAt = Time.time;
+            _lastRepathAt = float.NegativeInfinity; // a fresh pick is new intent — repath immediately
             // Seeded planar point in the wander disc around home (deterministic patrol; runtime-only RNG —
             // NOT the island bake stream, so the seed-42 byte-lock is untouched by construction).
             float ang = (float)(_patrolRnd.NextDouble() * Mathf.PI * 2.0);
@@ -327,7 +350,19 @@ namespace FarHorizon.Combat
             {
                 _agent.isStopped = false;
                 _agent.speed = speed;
-                _agent.SetDestination(dest);
+                // Throttled repath (86cahzycp): SetDestination every frame = a path request every frame.
+                // Feel-neutral by construction — every INTENT change (Enter / PickWanderDest) resets the
+                // throttle so transitions repath frame-identically; within one intent the request re-issues
+                // on >= repathMinMove drift or the staleness interval. Aggro/strike checks read transforms
+                // directly (never the path), so chase/telegraph TIMING is untouched.
+                if (ShouldRepath(PlanarDist(dest, _lastRepathDest), Time.time - _lastRepathAt,
+                                 repathMinMove, repathIntervalSeconds))
+                {
+                    _agent.SetDestination(dest);
+                    _lastRepathDest = dest;
+                    _lastRepathAt = Time.time;
+                    RepathsIssued++;
+                }
                 return;
             }
             Vector3 to = dest - transform.position;

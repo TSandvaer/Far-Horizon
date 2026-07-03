@@ -68,6 +68,54 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(SnakeAI.BiteConnects(1.3f, 1.0f, false));
         }
 
+        // ==================== 86cahzycp NIT 1 — the SetDestination repath throttle ====================
+
+        [Test]
+        public void ShouldRepath_TruthTable()
+        {
+            // Destination drifted past the move threshold → repath (the chase keeps tracking the player).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0.6f, 0.0f, 0.5f, 0.2f));
+            // Staleness interval elapsed → repath (bounds drift below the move threshold).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0.0f, 0.25f, 0.5f, 0.2f));
+            // Neither moved nor stale → HOLD the current path (the throttle — the NIT's point).
+            Assert.IsFalse(SnakeAI.ShouldRepath(0.3f, 0.1f, 0.5f, 0.2f));
+            // Boundaries are inclusive (a repath at exactly the threshold, never a dead band).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0.5f, 0f, 0.5f, 0.2f));
+            Assert.IsTrue(SnakeAI.ShouldRepath(0f, 0.2f, 0.5f, 0.2f));
+            // An intent-change reset (secondsSinceLast = +inf) always repaths — transitions stay
+            // frame-identical to the unthrottled behavior (the feel-neutrality contract).
+            Assert.IsTrue(SnakeAI.ShouldRepath(0f, float.PositiveInfinity, 0.5f, 0.2f));
+        }
+
+        [Test]
+        public void RepathThrottle_StationaryTarget_BoundsPathRequestsPerSecond()
+        {
+            // The regression guard for the bug CLASS (SetDestination issued EVERY frame): simulate 1 s of
+            // 60 fps chase toward a STATIONARY destination, mirroring MoveTowards' exact bookkeeping
+            // (last-issued dest + last-issued time). Unthrottled this is 60 path requests; the throttle
+            // must bound it to the initial repath + interval-driven refreshes (1 + 1s/0.2s = ~6).
+            const float minMove = 0.5f, interval = 0.2f;
+            Vector3 dest = new Vector3(3f, 0f, 4f); // fixed — the target never moves
+            Vector3 lastDest = Vector3.zero;
+            float lastAt = float.NegativeInfinity;  // the intent-change reset state MoveTowards starts from
+            int repaths = 0;
+            for (int frame = 0; frame < 60; frame++)
+            {
+                float now = frame / 60f;
+                float movedXz = Vector2.Distance(new Vector2(dest.x, dest.z), new Vector2(lastDest.x, lastDest.z));
+                if (SnakeAI.ShouldRepath(movedXz, now - lastAt, minMove, interval))
+                {
+                    repaths++;
+                    lastDest = dest;
+                    lastAt = now;
+                }
+            }
+            Assert.GreaterOrEqual(repaths, 1, "the first frame after an intent change must always repath");
+            Assert.LessOrEqual(repaths, 6,
+                "a stationary target must cost at most 1 + (1s / interval) path requests per second, " +
+                "never one per frame (the 86cahzycp NIT-1 class)");
+        }
+
         // ==================== AC4 — MODERATE, difficulty-scaled bite (the tier map) ====================
 
         [Test]
