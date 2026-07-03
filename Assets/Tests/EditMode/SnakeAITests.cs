@@ -157,6 +157,7 @@ namespace FarHorizon.EditTests
                 playerGo.AddComponent<HealthRegen>();
                 var fx = playerGo.AddComponent<StatusEffectController>();
                 fx.health = playerHp; // EditMode has no Awake on AddComponent — wire what the build's Awake wires
+                enemy.biteBleed = StatusEffectSpec.MakeBleed(1.5f, 3f); // same gotcha, snake side — mirror SnakeEnemy.Awake's seeding (:119)
                 playerHp.damageTakenMul = 1.25f; // a non-unit tier mul — the formula's second factor is live
 
                 SnakeVerifyCapture.FreezeHpOverTime(playerGo);
