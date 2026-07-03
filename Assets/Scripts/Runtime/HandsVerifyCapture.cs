@@ -300,6 +300,20 @@ namespace FarHorizon
             while (Time.time - start < seconds) yield return null;
         }
 
+        // One line of live-state evidence per grid state — proves in the log WHICH state each frame set was
+        // shot under (selection + grip + locomotion flags), so a "clean"/"defective" verdict is attributable.
+        private void LogState(string state)
+        {
+            bool axeSel = _inventory != null && _inventory.IsAxeSelectedInBelt;
+            bool spearSel = _inventory != null && _inventory.IsSpearSelectedInBelt;
+            bool gripping = _curl != null && _curl.IsGripping;
+            bool walking = _castaway != null && _castaway.IsWalking;
+            bool running = _castaway != null && _castaway.IsRunning;
+            bool crouching = _castaway != null && _castaway.IsCrouching;
+            Debug.Log($"[hands-state] {state}: axeSel={axeSel} spearSel={spearSel} gripping={gripping} " +
+                      $"walking={walking} running={running} crouching={crouching}");
+        }
+
         // One tightly-framed hand shot. The camera RE-FRAMES EVERY settle frame (model-relative view direction),
         // so a translating/turning character (walk/run/chop) keeps the hand centred — the original static one-shot
         // framing only worked for the pinned idle. viewDir is expressed in the MODEL (facing) frame: +Z = the way
