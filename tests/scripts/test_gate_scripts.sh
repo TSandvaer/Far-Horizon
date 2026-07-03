@@ -376,17 +376,17 @@ assert_rc_and_grep 1 "no 'changedLive=True'" "missing proof line fails loud" \
 assert_rc_and_grep 1 "exe not found" "missing exe fails loud" \
   -- bash "$SETTINGS_GATE" "$TMP/does_not_exist.exe" "$TMP/scaps_x" "$TMP/slog_x.log"
 
-# 5. Check 3 (visible-tweak diff) is QUARANTINED-NON-FATAL (86cabe3e5). With changedLive=True
-#    (the live param DID change) but settings_tweaked.png a BYTE-COPY of settings_open.png (the
-#    SYNTHETIC -verifySettings drive bypasses the UI Toolkit ChangeEvent so the readout never
-#    repaints under capture), the gate now PASSES (rc=0) — Checks 1+2 (the real shipped-build
-#    backstops) both pass, and the pixel-identical diff_rc is logged for signal but does NOT red
-#    the gate. The quarantine marker must be present so the un-tweaked frame is visible in CI. The
-#    REAL drag repaints (Tess+Drew confirmed); proper fix tracked in 86cabe3e5. This assertion is
-#    the regression guard for the quarantine: if Check 3 ever silently becomes fatal again (or the
-#    quarantine marker is dropped) this fails.
+# 5. Check 3 (visible-tweak diff) is FATAL again — UN-QUARANTINED (86cabe3e5). This is THE
+#    regression guard for the bug class this ticket fixes: even with changedLive=True (the live
+#    param DID change), if settings_tweaked.png is a BYTE-COPY of settings_open.png — i.e. the
+#    tweak did NOT repaint the captured frame, the exact symptom of reverting to the SYNTHETIC
+#    entry-setter + RefreshReadouts drive instead of a real dispatched ChangeEvent — the gate must
+#    now FAIL (rc=1). 86cabe3e5 made the -verifySettings harness drive the tweak via a real
+#    ChangeEvent (SettingsPanel.DriveFloat/DriveRangeChangeEventForCapture), so a real run repaints;
+#    a pixel-identical tweaked frame therefore means a regression back to the synthetic drive and
+#    reds the gate. If Check 3 is ever silently re-quarantined / made non-fatal, this assertion fails.
 make_fake_exe "$TMP/fake_identical.sh" "True" "identical"
-assert_rc_and_grep 0 "QUARANTINED-non-fatal" "pixel-identical tweaked frame is quarantined-non-fatal (86cabe3e5)" \
+assert_rc_and_grep 1 "visible-diff sub-check FAILED" "pixel-identical tweaked frame FAILS the gate (un-quarantined 86cabe3e5)" \
   -- bash "$SETTINGS_GATE" "$TMP/fake_identical.sh" "$TMP/scaps_id" "$TMP/slog_id.log"
 
 echo "=== frames_differ.py (visible-tweak diff, 86caa4bqp re-QA) ==="
