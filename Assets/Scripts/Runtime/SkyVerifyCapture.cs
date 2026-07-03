@@ -76,6 +76,22 @@ namespace FarHorizon
 
             for (int i = 0; i < warmupFrames; i++) yield return null;
 
+            // Diagnose-via-trace: log the camera roster BEFORE we take over so a future mis-render (wrong camera
+            // winning the backbuffer) is readable from the build log — this is exactly the bug this block fixes.
+            foreach (var c in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                Debug.Log($"[sky-cam-roster] '{c.name}' enabled={c.enabled} depth={c.depth} " +
+                          $"isMain={(c == Camera.main)} tag={c.tag}");
+
+            // DISABLE every existing camera so ONLY our SkyCaptureCamera composites the backbuffer. WITHOUT this
+            // the gameplay orbit camera (also Skybox-clear, default depth 0) renders at the SAME depth as our
+            // capture camera → UNDEFINED render order → the orbit cam's ground-level player view races ours into
+            // the captured frame (PR #223 run 28658539450: sky_sun.png showed the forest+HUD, the centre patch
+            // read a foliage-toned tree, not the sun disk → SUN self-assert FAIL). Every reliable Skybox-clear
+            // sibling does this — WeaponSetVerifyCapture disables ALL cameras + sets a top depth, Rock/Rim/
+            // FlatShading disable the orbit cam ("else both draw"). Match the strongest form: disable ALL + depth.
+            foreach (var existing in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                existing.enabled = false;
+
             // A dedicated SKY camera with the gameplay render path (Skybox clear so the gradient sky + sun
             // render; Zone-D post + SMAA so bloom lifts the warm corona). Parked high over the play centre.
             var camGo = new GameObject("SkyCaptureCamera");
@@ -83,18 +99,19 @@ namespace FarHorizon
             cam.clearFlags = CameraClearFlags.Skybox; // LOAD-BEARING: render the gradient sky we are verifying
             cam.fieldOfView = fieldOfView;
             cam.farClipPlane = 2000f;
+            cam.depth = 100f; // render last / on top — belt-and-suspenders with the disable-all above
             var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
             camData.renderPostProcessing = true;
             camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
-            // Sit HIGH above the play space so the dead-aim shots have an unobstructed sky view. The disk is
+            // Sit HIGH above the play space so the dead-aim shot has an unobstructed sky view. The disk is
             // a SKYBOX element — its screen position depends only on camera DIRECTION, never position — so
-            // raising the camera changes nothing about the disk and only clears OCCLUDERS from the ray.
-            // y=12 was enough for the 18–48° suns (a steep ray clears the canopy fast), but the 86cah90cp
-            // round-2 waterline-low 8° sun keeps the dead-aim ray low over the terrain for hundreds of units:
-            // from y=12 the spawn-forest canopy sat across frame-centre and false-FAILED the shot-1 disk
-            // assert (the disk itself rendered fine — shot 3's advisory read it FRAMED through the canopy
-            // gap). From y=60 even the far vista peaks (~80u at ~500u → ~2° above the ray origin) sit below
-            // an 8°-up ray, so shot 1 verifies the DISK, not the trees. Shot 3 keeps the REAL gameplay pose.
+            // raising the camera changes nothing about the disk and only clears OCCLUDERS from the ray. From
+            // y=60 even the far vista peaks (~80u at ~500u → ~2° above the ray origin) sit below an 8°-up ray,
+            // so shot 1 shows the DISK against clear sky, not terrain. (NOTE: an earlier y=12→y=60 raise was
+            // aimed at a MIS-diagnosed "canopy at frame-centre false-fails shot 1" — the real cause was the
+            // gameplay orbit camera winning the render, fixed by the disable-all above; the trees seen in the
+            // pre-fix shot 1 were the ORBIT cam's, never this camera's. y=60 is still the right unobstructed
+            // dead-aim pose now that this camera actually renders.) Shot 3 restores the REAL gameplay pose.
             camGo.transform.position = new Vector3(0f, 60f, 0f);
 
             // --- Shot 1: aim STRAIGHT at the Sun direction — the sun disk centred. ---
