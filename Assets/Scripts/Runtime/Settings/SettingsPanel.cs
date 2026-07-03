@@ -6,26 +6,33 @@ using FarHorizon.Settings;
 namespace FarHorizon
 {
     /// <summary>
-    /// The in-game DEV TWEAK CONSOLE (tickets 86caa4bqp + 86cabeqj9 foundation) — a UI Toolkit workbench
-    /// drawer the Sponsor keeps OPEN and tweaks WHILE he plays, to dial live gameplay params, then we BAKE
-    /// the chosen values as new defaults (the give-him-the-knob soak-tuning instrument; cf. the F9 axe-nudge
-    /// tool). It is a DEV tool, NOT player-facing ([[sponsor-wants-unified-dev-tweak-console]]).
+    /// The in-game settings UI (tickets 86caa4bqp + 86cabeqj9 foundation; SPLIT into two panels by 86cah8ukr) —
+    /// a UI Toolkit workbench drawer. ONE MonoBehaviour drives TWO drawers off ONE registry:
+    ///   • F1 = the small PLAYER-facing Settings panel (belt slots, inventory stack size, warmth/hunger/thirst
+    ///     decay on-off toggles + their decay-rate sliders — SettingsCategory.IsPlayer);
+    ///   • F3 = the full DEV CONSOLE the Sponsor keeps OPEN and tweaks WHILE he plays (world-look, arm-pose,
+    ///     camera/zoom, held-weapon, locomotion, resource timers/yields, inventory slots, console scale — every
+    ///     row that is NOT player-facing). The console is the give-him-the-knob soak-tuning instrument; we BAKE
+    ///     the dialed values as new defaults (cf. the F9 axe-nudge tool).
+    /// Both drawers filter the SAME registry by <see cref="SettingsCategory"/> — "route views, don't re-bind":
+    /// the registry + every Populate* binding is UNCHANGED; only the destination view differs.
     ///
     /// THE THIN VIEW. The extensible contract lives in <see cref="SettingsRegistry"/> + the typed
     /// <see cref="SettingEntry"/>s (pure C#, unit-tested in EditMode). This MonoBehaviour:
-    ///   • builds the registry via <see cref="SettingsCatalog"/> from the serialized live targets (AC3);
+    ///   • builds the registry ONCE via <see cref="SettingsCatalog"/> from the serialized live targets (AC3);
     ///   • loads persisted values (AC5) + applies them on Start;
     ///   • builds one UI Toolkit row per entry GENERICALLY off its archetype (AC2) — a new setting needs NO
-    ///     change here; it just appears as a row, with a typed field (AC5), nudge selection (AC6), a baked-
-    ///     default readout (AC8) and a differs-from-default badge (AC9) for free;
-    ///   • OPENS/CLOSES on F1, polled DIRECTLY (86cabeqj9 soak NIT — F1/F2 de-conflict). F1 toggles ONLY the
-    ///     console now; the LEGACY IMGUI overlays moved to F2 (DebugOverlayToggle). It previously rode the
-    ///     shared DebugOverlays.Visible flag, so one F1 popped the console AND the legacy overlays together —
-    ///     decoupled here so each key reveals exactly one layer (AC1);
+    ///     change here; it just appears as a row (routed to F1 or F3 by category), with a typed field (AC5),
+    ///     nudge selection (AC6), a baked-default readout (AC8) and a differs-from-default badge (AC9) for free;
+    ///   • OPENS/CLOSES the player drawer on F1 + the dev console on F3, each polled DIRECTLY (86cah8ukr). The
+    ///     86cabeqj9 F1/F2 de-conflict stands: F2 is still the legacy IMGUI overlay master (DebugOverlayToggle),
+    ///     distinct from both F1 and F3 — each key reveals exactly one layer (AC1);
+    ///   • CONDITIONAL VISIBILITY (86cah8ukr AC1): a per-need decay-rate slider is shown only while its need's
+    ///     on/off toggle is ON (live show/hide on toggle change);
     ///   • is NON-MODAL (AC2): being open does NOT pause/gate gameplay (no Time.timeScale touch); world input
     ///     is swallowed ONLY while a typed-field holds keyboard focus (AC3 — so a typed number isn't also read
-    ///     as movement), via the ref-counted UiInputGate the console OPTS INTO per-field (genuinely-modal
-    ///     future panels like inventory Tab still opt into the open-gate).
+    ///     as movement), via the ref-counted UiInputGate each drawer OPTS INTO per-field, releasing on close
+    ///     AND OnDisable (so world input is never left permanently swallowed).
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): the UIDocument + UXML/USS + the live-target
     /// references are wired editor-time (MovementCameraScene) + serialized into Boot.unity. The Awake

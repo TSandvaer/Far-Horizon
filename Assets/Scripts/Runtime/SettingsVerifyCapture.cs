@@ -94,20 +94,22 @@ namespace FarHorizon
                       $"worldInputGated={UiInputGate.CaptureWorldInput} (AC2/AC3: must be False — open alone " +
                       $"does NOT swallow locomotion/orbit; only a focused field does).");
 
-            // 86cabeqj9 NIT 2 — F1/F2 DE-CONFLICT (ground truth in the shipped build). The verify-capture
-            // can't synthesize a legacy key-down, but the DECOUPLE is machine-checkable: the console's toggle
-            // key is F1 + the legacy-overlay master is F2 (distinct), AND opening the console (SetOpen above)
-            // did NOT flip the legacy DebugOverlays.Visible flag — proving F1↔console and F2↔legacy no longer
-            // share state. Before the fix, opening rode DebugOverlays.Visible (so they were the SAME flag).
+            // 86cabeqj9 NIT 2 + 86cah8ukr SPLIT — F1/F2/F3 DE-CONFLICT (ground truth in the shipped build). The
+            // verify-capture can't synthesize a key-down, but the DECOUPLE is machine-checkable: the DEV console
+            // now opens on F3 (devToggleKey), the PLAYER Settings drawer on F1 (toggleKey), the legacy-overlay
+            // master on F2 (all distinct), AND opening the console (SetOpen above) did NOT flip the legacy
+            // DebugOverlays.Visible flag — proving F3↔console and F2↔legacy no longer share state.
             var legacyToggle = Object.FindAnyObjectByType<DebugOverlayToggle>();
-            KeyCode consoleKey = panel.toggleKey;
+            KeyCode consoleKey = panel.devToggleKey;
+            KeyCode playerKey = panel.toggleKey;
             KeyCode legacyKey = legacyToggle != null ? legacyToggle.toggleKey : KeyCode.None;
-            Debug.Log($"[SettingsVerifyCapture] F1/F2 DE-CONFLICT (NIT 2): consoleToggleKey={consoleKey} " +
-                      $"legacyOverlayKey={legacyKey} keysDistinct={(consoleKey != legacyKey)} " +
+            bool keysDistinct = consoleKey != legacyKey && consoleKey != playerKey && playerKey != legacyKey;
+            Debug.Log($"[SettingsVerifyCapture] F1/F2/F3 DE-CONFLICT (NIT 2 + 86cah8ukr): devConsoleKey={consoleKey} " +
+                      $"playerSettingsKey={playerKey} legacyOverlayKey={legacyKey} keysDistinct={keysDistinct} " +
                       $"consoleOpen={panel.IsOpen} legacyOverlaysVisible={DebugOverlays.Visible} " +
-                      $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: consoleKey=F1, " +
-                      $"legacyKey=F2, distinct=True, decoupled=True — opening the console does NOT reveal the " +
-                      $"legacy overlays).");
+                      $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: devConsoleKey=F3, " +
+                      $"playerSettingsKey=F1, legacyKey=F2, distinct=True, decoupled=True — opening the console " +
+                      $"does NOT reveal the legacy overlays).");
 
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();

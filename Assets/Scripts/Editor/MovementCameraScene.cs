@@ -3244,9 +3244,10 @@ namespace FarHorizon.EditorTools
             var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(SettingsPanelUxmlPath);
             var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(PaletteUssPath);
             var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(SettingsPanelUssPath);
-            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the SINGLE clone (it CloneTree's
-            // the serialized panelUxml, adds the stylesheets, and re-resolves elements by name; it also carries
-            // the build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
+            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the clone(s) (86cah8ukr: it now
+            // CloneTree's the serialized panelUxml TWICE, once per drawer — F1 player + F3 dev — into two scoped
+            // containers, adds the stylesheets, and re-resolves elements per-container; it also carries the
+            // build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
             // here would make the UIDocument ALSO auto-clone the shell on enable → a duplicate, always-visible
             // orphan settings-scrim laid over the world that Q("settings-scrim") never binds (codereview #83).
 
@@ -3265,6 +3266,17 @@ namespace FarHorizon.EditorTools
             // rows are live in the shipped build without a runtime FindObjectOfType. The Awake fallback stays as
             // the bare-scene safety net. May be null on a bare rig — the rows then simply don't appear.
             panel.hunger = Object.FindObjectOfType<HungerNeed>();
+            // Per-need on/off + warmth decay-rate (86cabeqwf, folded into the F1/F3 split 86cah8ukr) — the
+            // warmth on/off toggle + warmth decay-rate slider bind to the WarmthNeed BootstrapProject added to
+            // the Survival object BEFORE this runs (the hunger/thirst on/off toggles bind to those needs wired
+            // above). Serialized so the PLAYER-facing rows ship live without a runtime FindObjectOfType. May be
+            // null on a bare rig — the warmth rows then simply don't appear.
+            panel.warmth = Object.FindObjectOfType<WarmthNeed>();
+            // 86cah8ukr SPLIT — wire BOTH toggle keys editor-time so they serialize into Boot.unity (the
+            // field-default-not-serialized trap): F1 opens the player Settings drawer, F3 the dev console
+            // (Sponsor-confirmed 2026-07-03). F2 stays the legacy IMGUI overlay master (DebugOverlayToggle).
+            panel.toggleKey = KeyCode.F1;
+            panel.devToggleKey = KeyCode.F3;
             // Held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows bind to it. BuildPlayer
             // (which authors the HeroAxe + its HeldWeaponPlacement) runs BEFORE this in Author, so the seam
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
