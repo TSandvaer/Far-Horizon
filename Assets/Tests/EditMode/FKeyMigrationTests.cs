@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
 using FarHorizon;
@@ -24,9 +25,23 @@ namespace FarHorizon.EditTests
         // Bare in-EditMode component rig (created per-test, torn down in TearDown). No scene, no NavMesh.
         private GameObject _go;
 
+        // ticket 86cahvntg — a world-look test drives WorldLookTunables, whose seam mutates LIVE global +
+        // ASSET state: RenderSettings fog (density/colour/mode/enabled) and the skybox material's _HorizonColor
+        // (= the committed Assets/Settings/GradientSky.mat instance whenever Boot.unity is open — the observed
+        // r->0.42 corruption, PR #231 comment 4866007232), plus the scene mountain/terrain/rock shared-material
+        // props and LP_Cloud/Vista transforms the seam resolves. EditMode has NO domain reload between tests and
+        // (locally) runs against the OPEN Boot.unity, so an unrestored mutation is faithfully committed by the
+        // next same-session bootstrap regen — invisible to CI (which always re-bakes from a clean process).
+        // A world-look test captures BEFORE mutating; TearDown restores (runs even on test failure) so no live
+        // asset/global is ever left dirty. Null on tests that touch nothing global.
+        private WorldLookStateSnapshot _worldLook;
+
         [TearDown]
         public void Cleanup()
         {
+            // Restore FIRST — must run even when the test threw mid-way (NUnit runs TearDown after a failure).
+            _worldLook?.Restore();
+            _worldLook = null;
             if (_go != null) Object.DestroyImmediate(_go);
             _go = null;
 
@@ -57,6 +72,72 @@ namespace FarHorizon.EditTests
             {
                 PlayerPrefs.DeleteKey("fh.settings." + id);
                 PlayerPrefs.DeleteKey("fh.settings." + id + ".def");
+            }
+        }
+
+        /// <summary>
+        /// Snapshot + restore of every live global/asset handle the <see cref="WorldLookTunables"/> seam can
+        /// mutate. Captured before a world-look test runs; restored teardown-safe. In headless CI (no scene
+        /// loaded) the scans find nothing and Capture/Restore are inert — CI stays green either way.
+        /// </summary>
+        private sealed class WorldLookStateSnapshot
+        {
+            private bool _fog;
+            private FogMode _fogMode;
+            private float _fogDensity;
+            private Color _fogColor;
+            private Material _skybox;
+            private bool _hasHorizon;
+            private Color _horizon;
+            private readonly Dictionary<Material, Color> _tint = new Dictionary<Material, Color>();
+            private readonly Dictionary<Material, float> _meadow = new Dictionary<Material, float>();
+            private readonly Dictionary<Material, float> _rim = new Dictionary<Material, float>();
+            private readonly List<(Transform t, Vector3 pos, Vector3 scale)> _xforms =
+                new List<(Transform, Vector3, Vector3)>();
+
+            public static WorldLookStateSnapshot Capture()
+            {
+                var s = new WorldLookStateSnapshot
+                {
+                    _fog = RenderSettings.fog,
+                    _fogMode = RenderSettings.fogMode,
+                    _fogDensity = RenderSettings.fogDensity,
+                    _fogColor = RenderSettings.fogColor,
+                    _skybox = RenderSettings.skybox,
+                };
+                if (s._skybox != null && s._skybox.HasProperty("_HorizonColor"))
+                {
+                    s._hasHorizon = true;
+                    s._horizon = s._skybox.GetColor("_HorizonColor");
+                }
+                // Mirror WorldLookTunables.EnsureResolved's discovery so we snapshot exactly what it can mutate.
+                foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                {
+                    if (t.name == "LP_Cloud" || (t.parent != null && t.parent.name == "Vista"))
+                        s._xforms.Add((t, t.position, t.localScale));
+                    var mr = t.GetComponent<MeshRenderer>();
+                    var m = mr != null ? mr.sharedMaterial : null;
+                    if (m == null) continue;
+                    if (m.HasProperty("_Tint") && !s._tint.ContainsKey(m)) s._tint[m] = m.GetColor("_Tint");
+                    if (m.HasProperty("_MeadowPatchAmp") && !s._meadow.ContainsKey(m)) s._meadow[m] = m.GetFloat("_MeadowPatchAmp");
+                    if (m.HasProperty("_RimIntensity") && !s._rim.ContainsKey(m)) s._rim[m] = m.GetFloat("_RimIntensity");
+                }
+                return s;
+            }
+
+            public void Restore()
+            {
+                RenderSettings.fog = _fog;
+                RenderSettings.fogMode = _fogMode;
+                RenderSettings.fogDensity = _fogDensity;
+                RenderSettings.fogColor = _fogColor;
+                RenderSettings.skybox = _skybox;
+                if (_hasHorizon && _skybox != null && _skybox.HasProperty("_HorizonColor"))
+                    _skybox.SetColor("_HorizonColor", _horizon);
+                foreach (var kv in _tint) if (kv.Key != null) kv.Key.SetColor("_Tint", kv.Value);
+                foreach (var kv in _meadow) if (kv.Key != null) kv.Key.SetFloat("_MeadowPatchAmp", kv.Value);
+                foreach (var kv in _rim) if (kv.Key != null) kv.Key.SetFloat("_RimIntensity", kv.Value);
+                foreach (var x in _xforms) if (x.t != null) { x.t.position = x.pos; x.t.localScale = x.scale; }
             }
         }
 
@@ -173,6 +254,7 @@ namespace FarHorizon.EditTests
         [Test]
         public void WorldLook_RowsDriveTheSeam_FogDensityAndColour_SeamKill()
         {
+            _worldLook = WorldLookStateSnapshot.Capture(); // restore fog + GradientSky.mat _HorizonColor in TearDown (86cahvntg)
             var seam = AddComponentOnGo<WorldLookTunables>();
             var reg = new SettingsRegistry();
             SettingsCatalog.PopulateWorldLook(reg, seam);
@@ -194,6 +276,7 @@ namespace FarHorizon.EditTests
         [Test]
         public void WorldLook_CloudAndMountainAndSun_RowsRegistered_AndSeamGetSetRoundTrips()
         {
+            _worldLook = WorldLookStateSnapshot.Capture(); // restore mountain _Tint + cloud/vista transforms in TearDown (86cahvntg)
             var seam = AddComponentOnGo<WorldLookTunables>();
             var reg = new SettingsRegistry();
             SettingsCatalog.PopulateWorldLook(reg, seam);
@@ -254,6 +337,32 @@ namespace FarHorizon.EditTests
                 checkedRows++;
             }
             Assert.GreaterOrEqual(checkedRows, 17, "the guard must actually have enumerated the world-look rows");
+        }
+
+        // ===== AC4 (86cahvntg) — committed generated asset must match generator output (corruption tripwire) =====
+
+        [Test]
+        public void CommittedGradientSkyMat_HorizonColor_MatchesGeneratorConstant_NoDrift()
+        {
+            // The corruption class this ticket fixes: a same-session EditMode test leaves GradientSky.mat's
+            // _HorizonColor mutated (observed r->0.42), which a later bootstrap regen commits — invisible to CI
+            // (the unity job always re-bakes from a clean process, so the shipped artifact is generator-correct
+            // while only the COMMITTED source asset is wrong; caught before only by a reviewer diffing values).
+            // QualityPassGen.BuildGradientSkybox writes WorldLookPalette.SkyHorizon into _HorizonColor from a
+            // brand-new Material (never reading the prior asset), so the committed value MUST equal that constant.
+            // This asserts it loudly at test time. (Reads the on-disk committed asset via AssetDatabase; the
+            // snapshot/restore above keeps the in-memory instance clean so this cannot false-red off a sibling.)
+            const string path = "Assets/Settings/GradientSky.mat";
+            var mat = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(path);
+            Assert.IsNotNull(mat, $"the committed gradient skybox material must exist at {path}");
+            Assert.IsTrue(mat.HasProperty("_HorizonColor"), "GradientSky.mat must expose _HorizonColor");
+            Color committed = mat.GetColor("_HorizonColor");
+            Color expected = WorldLookPalette.SkyHorizon;
+            Assert.AreEqual(expected.r, committed.r, 1e-3f,
+                "committed _HorizonColor.r must == WorldLookPalette.SkyHorizon.r (the QualityPassGen bake constant) — " +
+                "an r-only drift here IS the same-session-test corruption class (86cahvntg)");
+            Assert.AreEqual(expected.g, committed.g, 1e-3f, "committed _HorizonColor.g must == the bake constant");
+            Assert.AreEqual(expected.b, committed.b, 1e-3f, "committed _HorizonColor.b must == the bake constant");
         }
     }
 }

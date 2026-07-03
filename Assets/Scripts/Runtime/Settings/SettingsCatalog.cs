@@ -35,8 +35,8 @@ namespace FarHorizon.Settings
         public const string RunSpeedId     = "run_speed";
         // Air-control accel (ticket 86caambxh). The `Air-control accel` row drives WasdMovement.airControlAccel —
         // how strongly A/D steers the player WHILE AIRBORNE (u/s²). The Sponsor soak-APPROVED the locomotion but
-        // asked to dial the mid-air A/D nudge subtler; the shipped default is lowered 8→5 AND this live slider lets
-        // him fine-tune it in the soak ([[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] +
+        // asked to dial the mid-air A/D nudge subtler; the shipped default is 9 u/s² (Sponsor soak 2026-07-01 raised
+        // it 5→9) AND this live slider lets him fine-tune it in the soak ([[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] +
         // [[sponsor-wants-unified-dev-tweak-console]]). GROUNDED movement is unaffected (it commands full speed).
         public const string AirControlAccelId = "air_control_accel";
         public const string JumpHeightId   = "jump_height";
@@ -448,8 +448,9 @@ namespace FarHorizon.Settings
 
                 // --- AIR-CONTROL ACCEL (live, 86caambxh) — WasdMovement.airControlAccel is how strongly A/D
                 //     steers the player WHILE AIRBORNE (u/s², the capped-accel airborne branch). The Sponsor
-                //     soaked #71's 8 u/s² as "still slightly too speedy"; the shipped default is lowered to 5,
-                //     and this LIVE slider lets him fine-tune the mid-air A/D nudge in the soak (a direct-tweak
+                //     soaked #71's 8 u/s² as "still slightly too speedy"; the shipped default is 9 u/s² (was
+                //     lowered to 5, then Sponsor soak 2026-07-01 raised it 5→9), and this LIVE slider lets him
+                //     fine-tune the mid-air A/D nudge in the soak (a direct-tweak
                 //     handle for a fiddly feel dial). GROUNDED movement is untouched (it commands full speed). ---
                 reg.AddFloat(AirControlAccelId, "Air-control accel",
                     () => wasd.airControlAccel, v => wasd.airControlAccel = v,
