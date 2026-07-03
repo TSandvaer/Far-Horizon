@@ -1631,6 +1631,142 @@ namespace FarHorizon.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
+        // ===== THUMB-OPPOSE AXIS TRACE (86cahnmjv — "finger sticks out like it's broken" = the THUMB while
+        // gripping). The -verifyHands STATE-GRID reproduction pinned the dangler: while CastawayFingerCurl
+        // fists the fingers (+26°/joint local-X — measured, wraps the haft correctly), the thumb's blanket
+        // +14°/joint about the SAME local X barely moves it — the thumb stays a stiff near-straight digit
+        // poking below the haft (worst on the thin spear shaft + the crouch diagonal). The FINGER curl axis
+        // was measured on this rig; the THUMB's never was (the overturned-axis lesson,
+        // procedural-animation-verbs.md §authoring checklist — thumb joint frames differ from fingers).
+        //
+        // This trace measures it: under the Breathing-Idle pose WITH the runtime finger fist composed
+        // (+26° local-X on Index/Middle/Ring 1-3, mirroring CastawayFingerCurl's grip state), it applies a
+        // ±20° test rotation about each LOCAL axis of each thumb joint (one at a time) and reports the
+        // thumb-TIP displacement in HAND-LOCAL space + the CHANGE in distance from the tip to the gripping
+        // index/middle chain (opposition = the tip approaches the fist wrapping the haft; negative Δdist =
+        // opposes). It ends with combined-candidate sweeps (the same euler on all 3 joints at several
+        // magnitudes) so the authored offset can be picked straight from the printout. Run:
+        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.ThumbOpposeAxisTrace
+        public static void ThumbOpposeAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[thumb-axis] ===== THUMB-OPPOSE AXIS TRACE (86cahnmjv — thumb sticks out while gripping) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[thumb-axis] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+            var breathing = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            sb.AppendLine($"[thumb-axis] breathingIdle={(breathing != null ? breathing.name : "<null — using rest pose>")}");
+
+            var model = Object.Instantiate(fbx);
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null) { sb.AppendLine("[thumb-axis] no SkinnedMeshRenderer"); Object.DestroyImmediate(model);
+                Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            Transform Bone(string tok)
+            {
+                foreach (var b in smr.bones) if (b != null && ExactTokenLocal(b.name) == tok) return b;
+                return null;
+            }
+            var hand = Bone("righthand");
+            var thumb = new[] { Bone("righthandthumb1"), Bone("righthandthumb2"), Bone("righthandthumb3") };
+            var fingers = new[]
+            {
+                Bone("righthandindex1"), Bone("righthandindex2"), Bone("righthandindex3"),
+                Bone("righthandmiddle1"), Bone("righthandmiddle2"), Bone("righthandmiddle3"),
+                Bone("righthandring1"), Bone("righthandring2"), Bone("righthandring3"),
+            };
+            var index2 = Bone("righthandindex2");
+            var middle2 = Bone("righthandmiddle2");
+            if (hand == null || thumb[0] == null || thumb[2] == null || index2 == null || middle2 == null)
+            {
+                sb.AppendLine("[thumb-axis] MISSING bones (hand/thumb1-3/index2/middle2) — cannot measure");
+                Object.DestroyImmediate(model); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return;
+            }
+            // The thumb TIP: thumb3's child end-joint when the rig has one, else extrapolate one segment past
+            // thumb3 along thumb2→thumb3.
+            Transform thumbEnd = thumb[2].childCount > 0 ? thumb[2].GetChild(0) : null;
+            Vector3 TipWorld() => thumbEnd != null
+                ? thumbEnd.position
+                : thumb[2].position + (thumb[2].position - thumb[1].position);
+
+            var fingerFistQ = Quaternion.Euler(26f, 0f, 0f); // CastawayFingerCurl.fingerCurlDeg — the live grip fist
+            void PoseGripState()
+            {
+                if (breathing != null) breathing.SampleAnimation(model, breathing.length * 0.2f);
+                foreach (var f in fingers) if (f != null) f.localRotation = f.localRotation * fingerFistQ;
+            }
+            // The oppose metric: distance from the thumb tip to the gripping index/middle mid-chain (the fist
+            // segment the haft runs under). The thumb WRAPS the grip when this closes.
+            float DistToFist() => Vector3.Distance(TipWorld(), (index2.position + middle2.position) * 0.5f);
+            Vector3 TipHandLocal() => hand.InverseTransformPoint(TipWorld());
+
+            PoseGripState();
+            float baseDist = DistToFist();
+            Vector3 baseTip = TipHandLocal();
+            sb.AppendLine($"[thumb-axis] GRIP-STATE BASELINE (fingers fisted +26X, thumb at clip pose): " +
+                          $"tipHandLocal={Fmt(baseTip)} distToFist={baseDist:F4}");
+            sb.AppendLine($"[thumb-axis] thumb rest eulers: t1={Fmt(NormEuler(thumb[0].localRotation.eulerAngles))} " +
+                          $"t2={Fmt(NormEuler(thumb[1].localRotation.eulerAngles))} " +
+                          $"t3={Fmt(NormEuler(thumb[2].localRotation.eulerAngles))}");
+
+            // Per-joint per-axis probes (±20°, one joint at a time).
+            string[] axisName = { "X", "Y", "Z" };
+            Vector3[] axisVec = { new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, 1) };
+            for (int j = 0; j < 3; j++)
+            {
+                for (int a = 0; a < 3; a++)
+                {
+                    foreach (float sign in new[] { +20f, -20f })
+                    {
+                        PoseGripState();
+                        thumb[j].localRotation = thumb[j].localRotation * Quaternion.Euler(axisVec[a] * sign);
+                        float d = DistToFist();
+                        Vector3 tip = TipHandLocal();
+                        sb.AppendLine($"[thumb-axis] thumb{j + 1} {(sign > 0 ? "+" : "-")}{axisName[a]}20: " +
+                                      $"tipHandLocal={Fmt(tip)} dTip={Fmt(tip - baseTip)} " +
+                                      $"distToFist={d:F4} dDist={d - baseDist,8:F4}" +
+                                      (d - baseDist < -0.005f ? "  <== OPPOSES (tip toward the fist)" : ""));
+                    }
+                }
+            }
+
+            // Combined-candidate sweeps: the same euler offset on ALL THREE thumb joints (the authoring shape —
+            // CastawayFingerCurl applies one offset per thumb bone), at several magnitudes per promising axis.
+            sb.AppendLine("[thumb-axis] --- combined sweeps (same offset on thumb1+2+3, the authoring shape) ---");
+            foreach (var cand in new[]
+            {
+                new Vector3(14f, 0f, 0f),   // the SHIPPED offset (the defect baseline)
+                new Vector3(25f, 0f, 0f),
+                new Vector3(0f, 25f, 0f), new Vector3(0f, -25f, 0f),
+                new Vector3(0f, 0f, 25f), new Vector3(0f, 0f, -25f),
+                new Vector3(20f, 0f, 20f), new Vector3(20f, 0f, -20f),
+                new Vector3(20f, 20f, 0f), new Vector3(20f, -20f, 0f),
+                new Vector3(30f, 0f, 15f), new Vector3(30f, 0f, -15f),
+                new Vector3(35f, 0f, 0f), new Vector3(15f, 10f, 20f), new Vector3(15f, -10f, -20f),
+            })
+            {
+                PoseGripState();
+                var q = Quaternion.Euler(cand);
+                for (int j = 0; j < 3; j++) thumb[j].localRotation = thumb[j].localRotation * q;
+                float d = DistToFist();
+                Vector3 tip = TipHandLocal();
+                sb.AppendLine($"[thumb-axis] combined {Fmt(cand)}: tipHandLocal={Fmt(tip)} " +
+                              $"distToFist={d:F4} dDist={d - baseDist,8:F4}" +
+                              (d - baseDist < -0.01f ? "  <== strong oppose" : ""));
+            }
+
+            Object.DestroyImmediate(model);
+            sb.AppendLine("[thumb-axis] VERDICT GUIDE: author CastawayFingerCurl's thumb offset from the combined " +
+                          "candidate with the strongest negative dDist whose tipHandLocal stays plausible (no " +
+                          "palm-piercing — |tip| within hand scale); verify VISUALLY via the -verifyHands state grid.");
+            sb.AppendLine("[thumb-axis] ===== END THUMB-OPPOSE AXIS TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         // Normalize Euler components to (-180,180] so a 359deg rest reads as -1, not a fake 359 delta.
         private static Vector3 NormEuler(Vector3 e)
         {
