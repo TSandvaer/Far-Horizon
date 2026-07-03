@@ -60,6 +60,16 @@ namespace FarHorizon
 
         [Header("Decay")]
         [Tooltip(
+            "Master ON/OFF for this need's decay (dev-tweak-console per-need toggle, ticket 86cabeqwf). " +
+            "When OFF, TickSeconds/Update stop draining the bar so the Sponsor can disable one need while " +
+            "soaking another system — WITHOUT disabling the component (the HUD keeps painting + Changed " +
+            "still fires on a satisfaction). Defaults ON (needs decay normally). Flipping it back ON resumes " +
+            "decay from the CURRENT value with no restart (no catch-up: the paused window is never applied — " +
+            "see TickSeconds). A serialized INSTANCE field (not a static), so no [RuntimeInitializeOnLoadMethod] " +
+            "reset is required (the static-reset audit covers only mutable statics).")]
+        public bool decayEnabled = true;
+
+        [Tooltip(
             "ACTIVE decay lost per second. This is the single field the decay path + tests read; the " +
             "difficulty tier (easy/med/hard) writes it via ApplyDifficulty. A FULL bar drains in " +
             "~max/decayPerSecond seconds.")]
@@ -156,6 +166,11 @@ namespace FarHorizon
         public void TickSeconds(float seconds)
         {
             if (seconds <= 0f) return;
+            // Per-need ON/OFF (86cabeqwf): when decay is toggled OFF the bar holds — no drain. Gated HERE
+            // (not in Update) so it covers BOTH the Update path AND a direct TickSeconds call (tests / the
+            // HUD-driven tick). Update still advances _lastTickTime every frame regardless, so re-enabling
+            // resumes from the CURRENT value with NO catch-up drain for the paused window (see decayEnabled).
+            if (!decayEnabled) return;
             float floor = floor01 * max;
             if (_current <= floor) return; // already at/below the floor — decay rests here
             // Clamp the decayed value to the floor: a single large tick (or a long Update gap) must
