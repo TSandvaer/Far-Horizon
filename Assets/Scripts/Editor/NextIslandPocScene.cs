@@ -149,9 +149,11 @@ namespace FarHorizon.EditorTools
         }
 
         // Dense-but-perf-honest forest target for the POC (the #1 finding: does the EXISTING low-poly gen +
-        // static batching hold 60fps as the island scales — a real prop load is part of that question). Sized
-        // to the ~800u island area proportionally to the start island's 320 trees over ~240u. Tunable.
-        public const int PocTreeTarget = 560;
+        // static batching hold 60fps as the island scales — a real prop load is part of that question).
+        // Scaled with the ISLAND AREA (86cahwx6w: 560 × (600/400)² = 1260) so the grown island keeps the
+        // #226-approved forest DENSITY — the same 560 trees on 2.25× the land would read sparser than the
+        // island the Sponsor judged. Perf-gated by the -perfProbe re-measure. default — Sponsor-soak tunes.
+        public const int PocTreeTarget = 1260;
 
         // ---- Zone-D look for the POC (lighting + gradient skybox + warm fog + post) — mirrors
         //      WorldBootstrap's look setup WITHOUT calling WorldBootstrap (which rebuilds the start island). ----

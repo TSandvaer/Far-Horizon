@@ -17,7 +17,11 @@ namespace FarHorizon
     ///   2. poc_mountain_side.png — a SIDE-PROFILE (silhouette) of the hero mountain (the MANDATORY
     ///                             physical-feature gate, lowpoly-quality.md §0): up-vs-down + grass→rock→SNOW
     ///                             banding + organic footprint read cleanly SIDE-ON, invisible top-down/player-eye.
-    ///   3. poc_overhead.png     — a high frame of the WHOLE big island (organic outline + water on all sides).
+    ///   2b. poc_range_side.png (+ _nofog) — the WHOLE-RANGE side profile (86cahwx6w Bar 4): all peaks in one
+    ///                             side-on skyline — connected ridges of different heights rising from ONE
+    ///                             landmass (hero tallest + snow, NE massif small snow crown, SE bare rock).
+    ///   3. poc_overhead.png     — a high frame of the WHOLE big island (organic outline + water on all sides;
+    ///                             fog off for this frame — the outline is the judged property).
     ///   4. poc_on_mountain.png  — the player DRIVEN UP the mountain via the NavMesh (proves the peak is a
     ///                             CLIMBABLE giant hill, not a wall).
     /// plus the PERF measurement + NavMesh coverage as [poc-trace] log lines (the ground-truth the perf
@@ -38,6 +42,15 @@ namespace FarHorizon
         public Vector3 mountainCenter = new Vector3(90f, 0f, -60f);
         public float mountainPeakHeight = 135f;
         public float mountainFootRadius = 300f;
+        // The island mean shore radius (must match NextIslandPocGen.MeanShoreR — calibration-pinned like the
+        // mountain trio above; #226 buried this as a method-local 400f const that a re-size could silently
+        // desync, 86cahwx6w promotes + pins it). Drives the coverage-trace extent + the overhead framing.
+        public float meanShoreRadius = 600f;
+        // The secondary massifs (86cahwx6w — x/z = centre, y = PEAK HEIGHT; calibration-pinned to
+        // NextIslandPocGen.Peaks[1]/[2]). Drive the whole-range side-profile framing (Bar 4: several
+        // mountains must read as ridges rising from one landmass — judged side-on).
+        public Vector3 secondaryPeak1 = new Vector3(330f, 105f, 150f);
+        public Vector3 secondaryPeak2 = new Vector3(250f, 78f, -285f);
 
         void Start()
         {
@@ -83,15 +96,27 @@ namespace FarHorizon
             //      prop would read flat here; a real giant hill shows a rising silhouette to a single snow summit.
             yield return CaptureMountainSideProfile(dir);
 
-            // ---- 3. OVERHEAD — the WHOLE big island (organic outline + water on all sides + the mountain mass) ----
+            // ---- 2b. WHOLE-RANGE side profile (86cahwx6w Bar 4) — all peaks in ONE side-on frame, from the
+            //      spawn/west side, so "several mountains = ridges rising from one landmass, not stamped
+            //      cones" is judged on the actual skyline: hero tall centre, NE massif stepped down with its
+            //      own snow crown, SE bare-rock massif smallest. Shot twice: as-shipped (fog) + fog-off (the
+            //      honest geometry read at range — Exp² fog washes ~80% at 1000u and would hide the shape).
+            yield return CaptureRangeSideProfile(dir);
+
+            // ---- 3. OVERHEAD — the WHOLE big island (organic outline + water on all sides + the range mass) ----
             if (orbit != null) orbit.enabled = false;
             var cam = Camera.main;
+            bool overheadFogWas = RenderSettings.fog;
             if (cam != null)
             {
-                cam.farClipPlane = Mathf.Max(cam.farClipPlane, 3000f);
-                // High + back, looking down at the island centre. The POC island is ~800u across, so this is
-                // far higher/back than the start island's overhead.
-                cam.transform.position = new Vector3(60f, 620f, -560f);
+                cam.farClipPlane = Mathf.Max(cam.farClipPlane, 4000f);
+                // High + back, looking down at the island centre — the #226 vantage scaled with the island
+                // size (framing ∝ meanShoreRadius). Fog OFF for this frame only: at the grown island the
+                // vantage sits ~1250u out and the Exp² fog (0.0016) would wash ~98% of the outline — the
+                // judged property here is the organic OUTLINE, so read it unfogged (restored right after).
+                float s = meanShoreRadius / 400f;
+                RenderSettings.fog = false;
+                cam.transform.position = new Vector3(60f * s, 620f * s, -560f * s);
                 cam.transform.rotation = Quaternion.LookRotation((Vector3.zero - cam.transform.position).normalized, Vector3.up);
             }
             for (int i = 0; i < settleFrames; i++) yield return null;
@@ -99,6 +124,7 @@ namespace FarHorizon
             Shot(Path.Combine(dir, "poc_overhead.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+            RenderSettings.fog = overheadFogWas;
 
             // ---- 4. ON THE MOUNTAIN — drive the player UP the peak via the NavMesh + a moving-window PERF read
             //      (traversal FPS while climbing), proving the peak is a CLIMBABLE giant hill (AC3) + the perf
@@ -110,7 +136,8 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return new WaitForSeconds(0.7f);
             Debug.Log("[poc-trace] PocIslandVerifyCapture done -> " + dir +
-                      " (poc_gameplay + poc_mountain_side + poc_mountain_side2 + poc_overhead + poc_on_mountain)");
+                      " (poc_gameplay + poc_mountain_side + poc_mountain_side2 + poc_range_side[+_nofog] + " +
+                      "poc_overhead + poc_on_mountain)");
             Application.Quit();
         }
 
@@ -179,6 +206,49 @@ namespace FarHorizon
             Shot(Path.Combine(dir, "poc_mountain_side2.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+        }
+
+        // The WHOLE-RANGE side profile (86cahwx6w — the multi-mountain Bar-4 gate). Camera WEST of the range
+        // (the spawn side — what the player's opening vista faces), near hero-summit height, looking east
+        // across the range centroid so all three silhouettes stack in one frame: the skyline must read as
+        // connected ridges of DIFFERENT heights rising from one landmass (cols between peaks, no floating
+        // cones, hero tallest). Framing is computed from the pinned peak fields so a re-tune re-frames itself.
+        private IEnumerator CaptureRangeSideProfile(string dir)
+        {
+            var cam = Camera.main;
+            if (cam == null) yield break;
+            cam.farClipPlane = Mathf.Max(cam.farClipPlane, 4000f);
+
+            Vector3 mc = mountainCenter, p1 = secondaryPeak1, p2 = secondaryPeak2;
+            // Range centroid on the ground plane (y fields of the secondaries carry HEIGHT, not elevation).
+            Vector3 centroid = new Vector3((mc.x + p1.x + p2.x) / 3f, 0f, (mc.z + p1.z + p2.z) / 3f);
+            // Stand off west far enough that the widest peak spread (z-extent + feet) fits the horizontal FOV.
+            float zSpread = Mathf.Max(Mathf.Abs(p1.z - p2.z), Mathf.Abs(p1.z - mc.z), Mathf.Abs(p2.z - mc.z));
+            float standOff = Mathf.Max(700f, zSpread + mountainFootRadius + 300f);
+            Vector3 camPos = new Vector3(centroid.x - standOff, mountainPeakHeight * 0.65f, centroid.z);
+            Vector3 lookAt = new Vector3(centroid.x, mountainPeakHeight * 0.55f, centroid.z);
+            cam.transform.position = camPos;
+            cam.transform.rotation = Quaternion.LookRotation((lookAt - camPos).normalized, Vector3.up);
+            Debug.Log($"[poc-trace] RANGE-PROFILE: camPos={camPos.ToString("F0")} looking east across the range " +
+                      $"(hero {mc.ToString("F0")} h{mountainPeakHeight:F0} | NE {p1.ToString("F0")} | SE {p2.ToString("F0")}) " +
+                      "— the skyline must read as connected ridges of different heights rising from ONE landmass " +
+                      "(hero tallest with the big snow cap, NE massif smaller snow crown, SE massif bare rock), " +
+                      "NOT cones stamped on a pancake.");
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            TraceCamera("range_side");
+            Shot(Path.Combine(dir, "poc_range_side.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // Fog-off variant — the honest geometry read (at ~1000u the Exp² fog washes most silhouette
+            // contrast; the judged property here is SHAPE, so capture it unfogged too, then restore).
+            bool fogWas = RenderSettings.fog;
+            RenderSettings.fog = false;
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            Shot(Path.Combine(dir, "poc_range_side_nofog.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+            RenderSettings.fog = fogWas;
         }
 
         // Drive the player's NavMeshAgent UP the mountain (proving the peak is CLIMBABLE, AC3) and read the
@@ -294,7 +364,7 @@ namespace FarHorizon
         // live NavMesh. Reports the walkable fraction + the highest reachable Y (the mountain climb proof).
         private void TraceNavCoverage()
         {
-            const float meanShoreR = 400f; // NextIslandPocGen.MeanShoreR
+            float meanShoreR = meanShoreRadius; // pinned to NextIslandPocGen.MeanShoreR by the calibration test
             float plantR = meanShoreR - 40f;
             int groundLayer = LayerMask.NameToLayer("Ground");
             int groundMask = groundLayer >= 0 ? (1 << groundLayer) : ~0;
@@ -359,7 +429,7 @@ namespace FarHorizon
             Debug.Log("[poc-trace] captured -> " + path);
         }
 
-        private static string NextIslandSize() => "800"; // ~2*MeanShoreR, for the log line
+        private string NextIslandSize() => (meanShoreRadius * 2f).ToString("F0"); // ~2*MeanShoreR, for the log line
 
         private string ResolveDir()
         {
