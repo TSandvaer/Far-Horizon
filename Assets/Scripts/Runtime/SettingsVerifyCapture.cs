@@ -132,6 +132,16 @@ namespace FarHorizon
                       $"flex-grow ScrollView renders the header + footer but ZERO rows even though the " +
                       $"registry/handles built + drove live).");
 
+            // #247 v2 — STEPPER-FIT ground truth for the DEV drawer (the "don't regress F3" half). The Sponsor
+            // flagged the F1 int-stepper rows as CRAMPED ("− 5 [+ 5] 5" jammed) while F3 read fine; this logs the
+            // smallest resolved [−]/value/[+] cell width so verify_settings_gate.sh Check 5 proves F3's steppers
+            // stay roomy after the F1 fix (a healthy cell = a 28px button; a crushed control collapses them <10px).
+            float devStepperCell = panel.MinStepperCellWidth(true);
+            int devStepperRows = panel.StepperRowCount(true);
+            Debug.Log($"[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth={devStepperCell:F1}px " +
+                      $"stepperRows={devStepperRows} (must be > 20px OR -1/no-steppers — F3 must stay roomy; a " +
+                      $"crushed control collapses the 28/44px cells so the glyphs overlap).");
+
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
@@ -342,6 +352,19 @@ namespace FarHorizon
             Debug.Log($"[SettingsVerifyCapture] PLAYER drawer OPEN (F1, 86cah8ukr): playerOpen={panel.IsPlayerOpen} " +
                       $"devOpen={panel.IsOpen} worldInputGated={UiInputGate.CaptureWorldInput} (must be: playerOpen=" +
                       $"True, devOpen=False, gated=False — open alone is non-modal, only a focused field gates).");
+
+            // #247 v2 — STEPPER-FIT ground truth for the PLAYER drawer (the fix's primary proof). The Sponsor
+            // re-soak flagged the F1 int-stepper rows (Belt slots + Inventory stack size) as CRAMPED: the [−]/
+            // value/[+] columns clipped/overlapped ("− 5 [+ 5] 5" jammed). Root cause: the stepper control was
+            // flex-grow:1 with the DEFAULT flex-shrink:1, so on the (no-scrollbar) F1 rows it was the only
+            // shrinkable child and collapsed below its 100px content, crushing the 28/44px cells. The #247 v2 USS
+            // fix pins the control + cells flex-shrink:0 + a min-width so the overflow WRAPS (like F3) instead of
+            // crushing. Log the smallest resolved cell width so verify_settings_gate.sh Check 5 FAILS on a crush.
+            float playerStepperCell = panel.MinStepperCellWidth(false);
+            int playerStepperRows = panel.StepperRowCount(false);
+            Debug.Log($"[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth={playerStepperCell:F1}px " +
+                      $"stepperRows={playerStepperRows} (must be > 20px — the F1 int-stepper [−]/value/[+] cells " +
+                      $"must NOT crush below their 28/44px design widths; a collapse is the 'not enough room' overlap).");
             ShotTo(Path.Combine(dir, "settings_player_open.png"));
             yield return new WaitForEndOfFrame();
             yield return null;

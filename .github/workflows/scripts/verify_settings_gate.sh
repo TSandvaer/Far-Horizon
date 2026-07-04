@@ -10,7 +10,7 @@
 #   settings_closed.png  settings_open.png  settings_tweaked.png
 # plus the ground-truth log line `[SettingsVerifyCapture] WALK SPEED tweak: ... changedLive=True`.
 #
-# Three authoritative checks, ALL must pass:
+# Five authoritative checks, ALL must pass:
 #   1. frame_check.py on the panel PNGs — the open + tweaked frames are not black/uniform/
 #      magenta (the panel actually RENDERED in the shipped player, not just the editor).
 #   2. a grep of the player log for `changedLive=True` — the LIVE param actually changed
@@ -25,6 +25,12 @@
 #      ChangeEventForCapture — the same event a user's drag fires), so the captured frame now repaints
 #      and this sub-check is authoritative again: a byte-identical tweaked frame REDS the gate, catching
 #      any regression back to the synthetic drive.
+#   4. both drawers SHOW ROWS (#247 empty-drawers guard) — the row-visibility probe proves the F1 + F3
+#      ScrollView viewports didn't collapse to zero height (header + footer but no rows).
+#   5. the int-stepper columns have ROOM (#247 v2 F1-cramp guard) — the smallest resolved [−]/value/[+]
+#      cell width per drawer proves the stepper control didn't collapse and overlap its glyphs. Check 1
+#      (whole-frame) and Check 4 (row overlaps viewport) both PASS on a crushed stepper — a WITHIN-row
+#      column crush is invisible to them, which is exactly how the F1 cramp reached the soak.
 #
 # Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 /
 # unity-conventions.md). The component calls Application.Quit() when done; a wall-clock
@@ -175,12 +181,53 @@ else
   rows_rc=1
 fi
 
-# All four checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
+# Check 5 — the int-stepper rows have ROOM (#247 v2 F1-cramp regression guard). The Sponsor re-soak of
+# soak-247-v2 confirmed the empty-drawers fix, but flagged the F1 PLAYER drawer's int-stepper rows (Belt
+# slots + Inventory stack size) as CRAMPED: the [−]/value/[+] columns clipped/overlapped ("− 5 [+ 5] 5"
+# jammed). Root cause: the stepper control was flex-grow:1 with the DEFAULT flex-shrink:1, so on the F1 rows
+# (no v-scrollbar → the row fit on one line) it was the only shrinkable child and collapsed below its 100px
+# content, crushing the 28/44px cells; F3 read fine because its scrollbar narrowed the row past the wrap point.
+# Neither frame_check (Check 1, whole-frame) nor the row-visibility probe (Check 4, viewport overlap) can see
+# a WITHIN-row column crush — a crushed stepper still counts as a visible row. SettingsVerifyCapture now probes
+# GROUND TRUTH — the smallest resolved [−]/value/[+] cell width per drawer — and logs
+# `PLAYER STEPPER fit (#247 v2): minCellWidth=Npx` + `DEV STEPPER fit (#247 v2): minCellWidth=Npx`.
+# FAIL if EITHER drawer's steppers crushed (minCellWidth < 20px; healthy = a 28px button), or a line is absent.
+# A minCellWidth of -1 means the drawer legitimately has no stepper row (nothing to crush) → treated as pass.
+stepper_rc=0
+check_stepper_fit() {   # $1 = grep tag   $2 = human label
+  local line w ok
+  line=$(grep -F "$1" "$LOG_FILE" | head -n1)
+  if [ -z "$line" ]; then
+    echo "[verify_settings] FAILED — missing the #247 v2 $2 stepper-fit proof line (expected '$1 (#247 v2): minCellWidth=Npx')" >&2
+    stepper_rc=1
+    return
+  fi
+  w=$(printf '%s\n' "$line" | grep -oE 'minCellWidth=-?[0-9]+(\.[0-9]+)?' | head -n1 | cut -d= -f2)
+  # threshold 20px: a healthy row keeps every cell at its design width (button 28px / value 44px); a crushed
+  # flex-shrink control collapses them well below 10px. -1 = no stepper row in that drawer → legit skip (pass).
+  ok=$(awk -v w="$w" 'BEGIN { print (w+0 >= 20.0 || w+0 < 0) ? 1 : 0 }')
+  if [ "$ok" != "1" ]; then
+    echo "[verify_settings] FAILED — $2 int-stepper columns CRUSHED (#247 v2): minCellWidth=${w}px < 20px — the [−]/value/[+] cells collapsed below their 28/44px design widths (the 'not enough room' overlap the Sponsor flagged). The stepper control must be flex-shrink:0 + min-width so the row WRAPS instead of crushing." >&2
+    stepper_rc=1
+  else
+    echo "[verify_settings]   $2 stepper-fit OK: $line"
+  fi
+}
+if [ ! -f "$LOG_FILE" ]; then
+  echo "[verify_settings] FAILED — no player log at $LOG_FILE; cannot verify the stepper fit (#247 v2)" >&2
+  stepper_rc=1
+else
+  echo "[verify_settings] stepper-fit proof (#247 v2 — F1 int-stepper rows have room, F3 not regressed):"
+  check_stepper_fit "PLAYER STEPPER fit" "F1 (player)"
+  check_stepper_fit "DEV STEPPER fit" "F3 (dev)"
+fi
+
+# All FIVE checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
 # tweak VISIBLE in the shipped frame (Check 3, un-quarantined 86cabe3e5) + BOTH drawers have rows
-# (Check 4, #247 empty-drawers guard).
-if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ] || [ "$rows_rc" -ne 0 ]; then
-  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc rows_rc=$rows_rc)" >&2
+# (Check 4, #247 empty-drawers guard) + int-stepper columns have room (Check 5, #247 v2 F1-cramp guard).
+if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ] || [ "$rows_rc" -ne 0 ] || [ "$stepper_rc" -ne 0 ]; then
+  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc rows_rc=$rows_rc stepper_rc=$stepper_rc)" >&2
   exit 1
 fi
-echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE + both drawers have rows (rows_rc=$rows_rc)"
+echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE + both drawers have rows + stepper columns have room (stepper_rc=$stepper_rc)"
 exit 0

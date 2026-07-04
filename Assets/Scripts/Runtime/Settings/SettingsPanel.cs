@@ -1131,6 +1131,54 @@ namespace FarHorizon
             return n;
         }
 
+        /// <summary>#247 v2 — the SMALLEST resolved width (px) among the [−]/value/[+] cells of ANY stepper row
+        /// routed to the given drawer (dev=F3 / player=F1), or -1 if the drawer has no stepper row. THIS is the
+        /// F1-cramp measure the Sponsor flagged: the base <c>.setting-row__control</c> is flex-grow:1 with the
+        /// DEFAULT flex-shrink:1, so on a squeezed row the stepper control is the only shrinkable child and absorbs
+        /// the whole width deficit — collapsing its 28px buttons / 44px value below their glyph widths so
+        /// "− 5 [+ 5] 5" jams together and overlaps. A HEALTHY row keeps every cell at/above its design width
+        /// (min cell = a 28px button); the #247 v2 USS fix (flex-shrink:0 + min-width on the stepper control +
+        /// cells) makes the overflow WRAP instead of crush, so this stays ~28px. Requires a LIVE layout pass
+        /// (worldBound/resolvedStyle) — populated only under the windowed shipped build with the drawer OPEN + a
+        /// few settle frames (EditMode has no layout pass — DevConsoleTests §), so this is a shipped-build-only
+        /// ground-truth probe, the sibling of <see cref="VisibleRowCount"/>. PUBLIC for the capture.</summary>
+        public float MinStepperCellWidth(bool dev)
+        {
+            float min = float.PositiveInfinity;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Row == null || h.Entry == null) continue;
+                if (h.Entry.Kind != SettingEntry.Archetype.Stepper) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;
+                var control = h.Row.Q<VisualElement>("stepper");   // the flexDirection:row [−]/value/[+] container
+                if (control == null) continue;
+                foreach (var cell in control.Children())
+                {
+                    float w = cell.resolvedStyle.width;
+                    if (w < min) min = w;
+                }
+            }
+            return float.IsInfinity(min) ? -1f : min;   // -1 = no stepper row in this drawer (nothing to crush)
+        }
+
+        /// <summary>#247 v2 — the count of stepper rows routed to the given drawer (dev=F3 / player=F1), so the
+        /// capture log can name the denominator behind <see cref="MinStepperCellWidth"/> (a -1 with 0 rows is a
+        /// legit skip; a -1 with rows would be a probe miss). PUBLIC for the capture.</summary>
+        public int StepperRowCount(bool dev)
+        {
+            int n = 0;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Entry == null) continue;
+                if (h.Entry.Kind != SettingEntry.Archetype.Stepper) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;
+                n++;
+            }
+            return n;
+        }
+
         /// <summary>86cabe3e5 — drive a REAL UI Toolkit ChangeEvent on the SLIDER row bound to <paramref
         /// name="settingId"/>, the SAME event a user's drag fires (set the control's value WITH notify). Unlike
         /// calling the entry setter + <see cref="RefreshReadouts"/> directly (which drives the live param + writes
