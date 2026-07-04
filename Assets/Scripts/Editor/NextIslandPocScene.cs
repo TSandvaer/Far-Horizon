@@ -87,6 +87,9 @@ namespace FarHorizon.EditorTools
 
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<FarHorizon.BootHud>();          // the BUILD stamp HUD (soak identity)
+            // FPS counter (86cahmxmt) — the ask CAME from this scene's walk-soak (#226 item 3), so the island
+            // POC gets the same under-stamp readout as the Boot scene. Default ON; the F1 console row toggles it.
+            hudGo.AddComponent<FarHorizon.FpsCounterHud>();
             hudGo.AddComponent<FarHorizon.CaptureGate>();      // generic -captureGate frame sanity
             hudGo.AddComponent<FarHorizon.FullscreenBoot>();   // fill the Sponsor's widescreen on a normal launch
             // The POC's shipped-build verify capture (perf verdict + side-profile silhouette). Serialized
@@ -146,9 +149,11 @@ namespace FarHorizon.EditorTools
         }
 
         // Dense-but-perf-honest forest target for the POC (the #1 finding: does the EXISTING low-poly gen +
-        // static batching hold 60fps as the island scales — a real prop load is part of that question). Sized
-        // to the ~800u island area proportionally to the start island's 320 trees over ~240u. Tunable.
-        public const int PocTreeTarget = 560;
+        // static batching hold 60fps as the island scales — a real prop load is part of that question).
+        // Scaled with the ISLAND AREA (86cahwx6w: 560 × (600/400)² = 1260) so the grown island keeps the
+        // #226-approved forest DENSITY — the same 560 trees on 2.25× the land would read sparser than the
+        // island the Sponsor judged. Perf-gated by the -perfProbe re-measure. default — Sponsor-soak tunes.
+        public const int PocTreeTarget = 1260;
 
         // ---- Zone-D look for the POC (lighting + gradient skybox + warm fog + post) — mirrors
         //      WorldBootstrap's look setup WITHOUT calling WorldBootstrap (which rebuilds the start island). ----

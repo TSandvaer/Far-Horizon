@@ -35,8 +35,8 @@ namespace FarHorizon.Settings
         public const string RunSpeedId     = "run_speed";
         // Air-control accel (ticket 86caambxh). The `Air-control accel` row drives WasdMovement.airControlAccel —
         // how strongly A/D steers the player WHILE AIRBORNE (u/s²). The Sponsor soak-APPROVED the locomotion but
-        // asked to dial the mid-air A/D nudge subtler; the shipped default is lowered 8→5 AND this live slider lets
-        // him fine-tune it in the soak ([[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] +
+        // asked to dial the mid-air A/D nudge subtler; the shipped default is 9 u/s² (Sponsor soak 2026-07-01 raised
+        // it 5→9) AND this live slider lets him fine-tune it in the soak ([[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] +
         // [[sponsor-wants-unified-dev-tweak-console]]). GROUNDED movement is unaffected (it commands full speed).
         public const string AirControlAccelId = "air_control_accel";
         public const string JumpHeightId   = "jump_height";
@@ -162,6 +162,16 @@ namespace FarHorizon.Settings
         public const string DamageTakenMulId = "damage_taken_mul";
         public const string HpRegenRateId    = "hp_regen_rate";
         public const string DeathBehaviorId  = "death_behavior_tier";
+
+        // FPS counter visibility (ticket 86cahmxmt — Sponsor #226 walk-soak item 3: "We need to introduce a
+        // FPS counter to be displayed"). A BOOL row driving the FpsCounterHud component's enabled flag
+        // (disabled = no Update, no OnGUI = zero cost). DEFAULT ON in this first build so the Sponsor sees it
+        // at soak ("default — Sponsor-soak tunes"; his toggle persists via the entry's PlayerPrefs). Registered
+        // by PopulateFps (the PopulateCombat/PopulateWorldLook de-collision precedent — called from
+        // SettingsPanel.Start, NOT part of the Build overload chain). Registering through the registry means
+        // the row mechanically survives the future F1/F3 panel-split (86cah8ukr) with whichever panel hosts
+        // the registry rows.
+        public const string FpsCounterId = "fps_counter";
 
         // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
         // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
@@ -438,8 +448,9 @@ namespace FarHorizon.Settings
 
                 // --- AIR-CONTROL ACCEL (live, 86caambxh) — WasdMovement.airControlAccel is how strongly A/D
                 //     steers the player WHILE AIRBORNE (u/s², the capped-accel airborne branch). The Sponsor
-                //     soaked #71's 8 u/s² as "still slightly too speedy"; the shipped default is lowered to 5,
-                //     and this LIVE slider lets him fine-tune the mid-air A/D nudge in the soak (a direct-tweak
+                //     soaked #71's 8 u/s² as "still slightly too speedy"; the shipped default is 9 u/s² (was
+                //     lowered to 5, then Sponsor soak 2026-07-01 raised it 5→9), and this LIVE slider lets him
+                //     fine-tune the mid-air A/D nudge in the soak (a direct-tweak
                 //     handle for a fiddly feel dial). GROUNDED movement is untouched (it commands full speed). ---
                 reg.AddFloat(AirControlAccelId, "Air-control accel",
                     () => wasd.airControlAccel, v => wasd.airControlAccel = v,
@@ -995,6 +1006,35 @@ namespace FarHorizon.Settings
                 () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "");
             reg.AddFloat(RockRimId, "Rock rim intensity",
                 () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the FPS-COUNTER visibility toggle (ticket 86cahmxmt — Sponsor #226 walk-soak item 3) into
+        /// the registry: an `FPS counter` BOOL row driving the <paramref name="fps"/> component's
+        /// <c>enabled</c> flag (the <see cref="BoolSettingEntry"/> doc's own hunger.enabled idiom). Disabled =
+        /// no Update, no OnGUI = literally zero cost; enabled = the "FPS &lt;current&gt; | avg &lt;rolling&gt;"
+        /// plate under the top-right BUILD stamp.
+        ///
+        /// DEFAULT = ON: the component ships enabled in the scene, so the entry captures default=true at
+        /// registration — deliberate for this first build so the Sponsor sees the number immediately at soak
+        /// ("default — Sponsor-soak tunes"; his toggle persists across relaunches via the entry's PlayerPrefs,
+        /// and reset-to-defaults returns to ON). No dedicated hotkey — the row lives on the F1 console
+        /// (F-keys + the PgUp/PgDn generic nudge are Danish-keyboard-safe, [[sponsor-danish-keyboard-layout]]),
+        /// and a registry row mechanically survives the future F1/F3 panel-split (86cah8ukr).
+        ///
+        /// A null fps registers NOTHING (the settings panel for a counter-less rig simply lacks the row), so
+        /// existing callers / bare test rigs never null-ref and never add a dead knob. Registered via THIS
+        /// method called from SettingsPanel.Start (the PopulateCombat/PopulateWorldLook de-collision precedent
+        /// — each feature adds its OWN Populate method; never grows the Build overload chain).
+        /// </summary>
+        public static void PopulateFps(SettingsRegistry reg, FarHorizon.FpsCounterHud fps)
+        {
+            if (reg == null || fps == null) return;
+
+            // FPS COUNTER (live) — drives the component's enabled flag. ON = the readout draws + measures;
+            // OFF = the component is fully idle (no Update, no OnGUI — the toggle IS the zero-cost switch).
+            reg.AddBool(FpsCounterId, "FPS counter",
+                () => fps.enabled, v => fps.enabled = v);
         }
     }
 }

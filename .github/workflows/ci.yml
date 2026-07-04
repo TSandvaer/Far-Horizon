@@ -333,6 +333,13 @@ jobs:
       #    86cafz9tg split — PlayMode runs in its own `playmode` job which uploads its own
       #    log; globbing it from THIS build runner would only ever sweep a stale pre-split
       #    carry-over.)
+      # RETENTION POLICY (86caj0ahr audit): EVERY upload-artifact step carries an EXPLICIT
+      # retention-days — 3 for the Windows build artifact (the Sponsor soak-serving window;
+      # it is ALSO the capture job's same-run download, so it must never drop below 1 day)
+      # and 3 for capture/log evidence bundles (the PR review/QA window, weekend-inclusive;
+      # was 14 — evidence is dead weight once the PR merges or re-pushes). Design rule:
+      # retention must never strand an in-progress run's inter-job artifact — >=1 day
+      # satisfies this; 3 keeps margin. New upload steps must set retention-days explicitly.
       - name: Upload test results + logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -344,13 +351,16 @@ jobs:
             ci-out/editmode.log
             ci-out/build.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       # The capture job (different runner) DOWNLOADS this artifact to drive the
       # windowed gates against the SAME exe the build produced — the cross-runner
-      # hand-off that makes the split work. retention-days: 1 because its primary
-      # consumer is the same-run capture job (not a 14-day soak artifact); the
-      # soak-build artifact for the Sponsor is still the per-PR merge-ref build.
+      # hand-off that makes the split work. retention-days: 3 (was 1 — 86caj0ahr):
+      # this artifact IS the per-PR merge-ref soak build served to the Sponsor
+      # ([[soak-build-stamp-is-merge-ref-not-headsha]]), and a soak often happens
+      # 1-2 days after CI ran — at 1 day the soak exe could expire before it is
+      # played. 3 covers the soak-serving window and stays >=1 day so the same-run
+      # capture download is never stranded.
       - name: Upload Windows build
         if: always()
         uses: actions/upload-artifact@v4
@@ -358,7 +368,7 @@ jobs:
           name: FarHorizon-Windows-${{ github.sha }}
           path: Build/Windows/**
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 3
 
       # 6. Authoritative gates — run AFTER upload so evidence is preserved even
       #    when a gate fails. The XML parser and the log scanner (with the URP
@@ -393,6 +403,40 @@ jobs:
             exit 1
           fi
 
+      # CORRUPT-BUILD canary (ticket 86cagr0zu). The clean:false warm runner intermittently
+      # ships a CORRUPT exe — a stale/partial Library/ScriptAssemblies from a concurrent/
+      # cancelled prior build → Unity loads Boot.unity against a mismatched script layout and
+      # emits SERIALIZATION-MISMATCH ("WasdMovement Read 84 expected 88") / MISSING-SCRIPT /
+      # BROKEN-ASSEMBLY lines, shipping a build where WASD/NavMesh are INERT (observed #197 v5,
+      # 2026-06-30). EditMode + peer review PASS on it (editor, fresh domain), and the
+      # console-error gate deliberately fails only on `error CS`/`Compilation failed`/`Fatal`
+      # — a serialization WARNING slips through. This scans the build-time logs for the
+      # corruption signatures a healthy bootstrap+build never emits (a fresh bootstrap re-bakes
+      # Boot.unity + recompiles, so a clean run never mismatches). Runs headlessly on ANY runner
+      # BEFORE the expensive serial capture job, so a corrupt build fails RED + NAMED here rather
+      # than as a "dismissed capture flake." id: used by the heal step below.
+      - name: Corrupt-build canary (stale-Library / serialization-mismatch)
+        id: corrupt_canary
+        if: always()
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/check_corrupt_build.sh
+          .github/workflows/scripts/check_corrupt_build.sh \
+            ci-out/bootstrap.log ci-out/editmode.log ci-out/build.log
+
+      # HEAL on detection (ticket 86cagr0zu — prevent, without blanket clean:true). When the
+      # canary fired, the warm runner's Library/ScriptAssemblies is stale/partial and a bare
+      # re-run would keep failing (warm-cache mtime skips the recompile). Delete ONLY the
+      # regenerable compiled-script + Bee build caches so the NEXT run recompiles fresh and
+      # HEALS, while Library/PackageCache stays WARM (the clean:false win). This run is already
+      # RED (the canary failed) — this is best-effort recovery for the re-run, never a gate.
+      - name: Heal warm runner on corrupt build (targeted ScriptAssemblies clean)
+        if: ${{ always() && steps.corrupt_canary.outcome == 'failure' }}
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/clean_scriptassemblies.sh
+          .github/workflows/scripts/clean_scriptassemblies.sh "$GITHUB_WORKSPACE"
+
   # ---------------------------------------------------------------------------
   # Capture gate — self-hosted Windows runner PINNED to runner-1 via the EXTRA
   # `capture` label. The WINDOWED-CAPTURE half of the old `unity` job (split in
@@ -416,6 +460,23 @@ jobs:
   # build-job gate step went red — the capture verdict is REQUIRED, not optional.
   # No bootstrap / no Unity build here: this job launches the prebuilt exe only, so
   # it has no PackageCache contention of its own.
+  #
+  # HEADLESS RT-READBACK CONVERSION (86cag93zb AC2/AC3, 2026-07-03) — 4 SCENE-CONTENT gates now launch
+  # -batchmode (NO -nographics, NO window): the GENERIC capture gate (capture_gate.sh), CHOP
+  # (verify_chop_gate.sh), HELD-BELT (verify_heldbelt_gate.sh) + SKY (verify_sky_gate.sh). Their
+  # components render Camera.main / a dedicated cam into an OFFSCREEN RenderTexture
+  # (RenderTextureCapture.CaptureCameraToTexture → RenderPipeline.SubmitRenderRequest, full URP post) and
+  # read the pixels back — a real D3D12 device inits under -batchmode (proven on the shipped standalone
+  # player, not just the editor spike #248), so NO windowed swapchain is needed. The launch-mode change
+  # lives in the gate SCRIPTS, so these step invocations are unchanged.
+  # STILL WINDOWED (-screen-fullscreen 0) — the OVERLAY gates whose deliverable is an IMGUI / UI-Toolkit
+  # SCREEN overlay that never composites into a camera RT (backbuffer ScreenCapture is dead headless —
+  # empirically re-confirmed): SETTINGS (UI-Toolkit panel), LOOT + WATER (IMGUI prompt), INV-DRAG-GHOST
+  # (UI-Toolkit) — AND POND (verify_pond_gate.sh: scene-content + convertible, but its 7 finely-tuned
+  # #130-nine-round-soak perceptual gates are deferred to a careful follow-up so a blind convert can't
+  # false-green the very percept the pond gate exists to guard). Because those gates still need a window,
+  # this whole job STAYS PINNED to runner-1 + SERIAL for now; unpinning is AC4 (86cag93zb), which splits
+  # the headless gates into their own unpinned job once they prove stable in CI here.
   # ---------------------------------------------------------------------------
   capture:
     name: capture (self-hosted runner-1, windowed gates)
@@ -449,9 +510,11 @@ jobs:
         shell: bash
         run: |
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
-                ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log
+                ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
+                ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
-                 ci-out/loot-caps ci-out/water-caps ci-out/chop-caps
+                 ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
+                 ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -488,7 +551,25 @@ jobs:
           name: FarHorizon-captures-${{ github.sha }}
           path: ci-out/caps/*.png
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
+
+      # CORRUPT-BUILD canary — RUNTIME player log (ticket 86cagr0zu). The generic capture
+      # gate above launches the SHIPPED exe (-logFile ci-out/capture.log), so this is the
+      # earliest point the built exe's OWN runtime log exists. A warm-runner corrupt build's
+      # serialization-mismatch / missing-script lines surface HERE at scene-load even when the
+      # spawn frame still rendered (a static scene can render while WASD/NavMesh are inert) —
+      # so frame_check alone is NOT sufficient. Scanning the runtime log NAMES a corrupt build
+      # ("re-run clean") instead of letting a red capture gate be dismissed as a launch flake
+      # (the exact #197 v5 mis-triage). if: always() so it runs even when the capture gate went
+      # red; it re-uses the SAME detector as the build job. (The targeted heal lives in the
+      # build job — the corrupt Library is on the BUILD runner, which may differ from this
+      # runner-1 capture runner, so cleaning here would miss it.)
+      - name: Corrupt-build canary (runtime player log)
+        if: always()
+        shell: bash
+        run: |
+          chmod +x .github/workflows/scripts/check_corrupt_build.sh
+          .github/workflows/scripts/check_corrupt_build.sh ci-out/capture.log
 
       # 8. Settings-panel shipped-build capture gate (ticket 86caa4bqp) — the
       #    panel-specific sibling of step 7. The generic -captureGate renders a
@@ -524,7 +605,7 @@ jobs:
             ci-out/settings-caps/*.png
             ci-out/verify-settings.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       # 9. Freshwater-pond shipped-build capture gate (ticket 86caamkv7 follow-up, re-wired
       #    in 86cadj4g7 — removed from #129 in ead2bd5 when it was RED on a pre-existing
@@ -562,7 +643,7 @@ jobs:
             ci-out/pond-caps/*.png
             ci-out/verify-pond.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       # 10. Loot-prompt shipped-build capture gate (ticket 86cafc6ud — Tess QA #158 block,
       #     comment 4825495098). The loot-proximity prompt ("Press E to pick up berries") is
@@ -600,6 +681,9 @@ jobs:
             ci-out/loot-caps/*.png
             ci-out/verify-loot.log
           if-no-files-found: warn
+          # Was the ONE upload step with NO explicit retention-days (86caj0ahr audit) —
+          # it silently rode the repo default (90 days). Now pinned like its siblings.
+          retention-days: 3
 
       # WATER-ACQUISITION capture gate (ticket 86cafc6vx AC6 — the GET side that closes the thirst loop).
       #     The generic -captureGate (step 7) only shoots the DEFAULT SPAWN frame — the player stands
@@ -635,7 +719,7 @@ jobs:
             ci-out/water-caps/*.png
             ci-out/verify-water.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       # 11. Chop → pile → E-loot shipped-build capture gate (ticket 86cafecuj — PR #165
       #     review gap, Drew comment 4826621229). Tree-chop AC8 requires a SHIPPED-BUILD
@@ -680,7 +764,119 @@ jobs:
             ci-out/chop-caps/*.png
             ci-out/verify-chop.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
+
+      # 12. Held-belt-selection shipped-build capture gate (ticket 86cahx2p5 — the CI wiring
+      #     follow-up to PR #232 / 86cahngdg, the soak-224 crossed-visual fix). The belt-selection
+      #     table ("the held visual follows the SELECTED belt weapon": axe -> AXE mesh, spear ->
+      #     SPEAR mesh, empty -> hidden, back-to-axe -> the mesh RETURNS, never the stale spear)
+      #     was proven by PlayMode tests + a manual soak only — the generic -captureGate (step 7)
+      #     shoots the default spawn frame with NO weapons acquired, so a re-break of the selection
+      #     sync would slip through GREEN CI exactly like the #165 chop class. This launches the
+      #     SAME built exe windowed with -verifyHeldBelt, driving AxeVerifyCapture's held-belt path:
+      #     acquire axe + spear via the REAL Inventory pickup seams, drive all four selection states,
+      #     SELF-ASSERT renderer visibility + held-mesh identity per state (vertex-count swap proof).
+      #     The component Quit(1)s on any failed state (or missing wiring), so the exe's exit code IS
+      #     the gate verdict; frame_check.py is a swapchain-content backstop. STATE-4 writes no PNG
+      #     yet (needs a runtime change — remaining scope on 86cahx2p5); its assert rides the exit
+      #     code. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
+      - name: Held-belt capture gate (held visual follows belt selection)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_heldbelt_gate.sh
+            .github/workflows/scripts/verify_heldbelt_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/heldbelt-caps ci-out/verify-heldbelt.log
+          else
+            echo "[verify-heldbelt] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload held-belt frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-heldbelt-caps-${{ github.sha }}
+          path: |
+            ci-out/heldbelt-caps/*.png
+            ci-out/verify-heldbelt.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 13. Sky-facing (sun-disk + cloud-contrast) shipped-build capture gate (ticket 86cag1xn0 —
+      #     the #194 follow-up that makes the existing verify_sky_gate.sh an actual CI gate; the
+      #     script + SkyVerifyCapture landed with the sun-disk POC but were never invoked here, so
+      #     the sun-disk/cloud-contrast read had NO recurring built-frame gate). The generic
+      #     -captureGate (step 7) frames the spawn looking DOWN over the shoulder — it never tilts
+      #     up to the sky. This launches the SAME built exe windowed with -verifySky, driving
+      #     SkyVerifyCapture: park a dedicated sky camera, aim at the LIVE Sun (sky_sun.png) + up
+      #     into the cloud band (sky_clouds.png) + a gameplay-framed shot, and SELF-ASSERT (1) SUN
+      #     VISIBLE (centre brighter + warmer than the blue surround) and (2) CLOUD-VS-SKY CONTRAST
+      #     (a non-trivial pixel fraction well above the sky median luma). The component Quit(1)s
+      #     on either failure (or a missing Sun), so the exe's exit code IS the gate verdict;
+      #     frame_check.py is a swapchain-content backstop. Runs only when the build produced an
+      #     exe; frames + log upload AFTER (if: always()) so the sky evidence survives a fail.
+      - name: Sky capture gate (sun disk visible + cloud contrast)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_sky_gate.sh
+            .github/workflows/scripts/verify_sky_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/sky-caps ci-out/verify-sky.log
+          else
+            echo "[verify-sky] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload sky frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-sky-caps-${{ github.sha }}
+          path: |
+            ci-out/sky-caps/*.png
+            ci-out/verify-sky.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 14. Inventory drag-ghost-position shipped-build capture gate at 2560x1440 (ticket
+      #     86cafhgun — promotes the 86caffw9h -verifyInvDragGhostPos probe to a REQUIRED gate).
+      #     The bug class ("the dragged bag item suddenly displays in a different position"): the
+      #     ghost positioning must apply the ScaleWithScreenSize panel SCALE; a scale-less
+      #     regression is INVISIBLE at exactly 1920x1080 (panel scale ~= 1) — so this gate runs the
+      #     exe at an EXPLICIT NON-1080p size (2560x1440, load-bearing) and the probe SELF-GUARDS
+      #     it (Quit(3) if the panel scale reads ~1, so a silently-clamped window FAILS rather than
+      #     false-greens). Drives InventoryDragGhostPosVerifyCapture: open the pack with berries,
+      #     BEGIN a real drag, let the production cursor-driven path position the ghost, then
+      #     SELF-ASSERT ghost-center == expected panel point for the live cursor (tol 2 panel px;
+      #     Quit(5) on divergence — the real regression). The exe's exit code IS the gate verdict;
+      #     frame_check.py is a swapchain backstop on inv_drag_ghost_pos.png. Runs only when the
+      #     build produced an exe; frame + log upload AFTER (if: always()).
+      - name: Inv drag-ghost-position capture gate (2560x1440, ghost rides the cursor)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_invdragghostpos_gate.sh
+            .github/workflows/scripts/verify_invdragghostpos_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/invdragghost-caps ci-out/verify-invdragghostpos.log
+          else
+            echo "[verify-invdragghostpos] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload inv drag-ghost frame + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-invdragghost-caps-${{ github.sha }}
+          path: |
+            ci-out/invdragghost-caps/*.png
+            ci-out/verify-invdragghostpos.log
+          if-no-files-found: warn
+          retention-days: 3
 
   # ---------------------------------------------------------------------------
   # PlayMode gate — ADVISORY, NON-REQUIRED, FAIL-FAST. Runs the PlayMode suite for
@@ -689,13 +885,13 @@ jobs:
   #     run reports the job result as a (neutral) non-failure to the workflow, so
   #     branch protection (which gates on `structure` + `build` + `capture`)
   #     is unaffected. Do NOT add this job's check to required status checks.
-  #   * `timeout-minutes: 5` (was 20 — 86cae8vn2) is a HARD cap: a FUTURE play-mode-ENTER
-  #     env-deadlock fails FAST + NAMED (this job goes red, clearly attributable to PlayMode)
-  #     instead of hanging to the 90-min job cap and crashing the runner. Tightened 20→5
-  #     because a hung play-mode-enter pins a self-hosted runner for the full cap,
-  #     wedging the NEXT push's `build` merge-gate (per-runner PackageCache cap); 5 min
-  #     still lets play-mode-enter START + confirm the deadlock, then frees the runner ~15 min
-  #     sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
+  #   * `timeout-minutes: 15` (was 5 — 86cabfa21) is a HARD safety cap. The play-mode-enter
+  #     "hang" ROOT CAUSE IS NOW FIXED (86cabfa21): it was NOT environmental — the shared
+  #     PlayMode scene-isolation [UnitySetUp] unbound-waited on UnloadSceneAsync of the test
+  #     framework's own InitTestScene (never completes headless), hanging the whole run at the
+  #     first such fixture. With that fixed the full PlayMode suite COMPLETES (~3-4 min tests +
+  #     this job's own bootstrap), so the old 5-min cap would now KILL a healthy run mid-suite.
+  #     15 min gives completion headroom while still bounding a future regression.
   #   * `needs: build` (was `needs: unity` pre-86cafz9tg) gates this AFTER the build job
   #     completes. NOTE: `needs: build` alone does NOT prevent PlayMode from overlapping
   #     the `capture` job — both gate only on `build`, so after build they are eligible
@@ -714,11 +910,20 @@ jobs:
   #     on capture's SUCCESS — so it stays advisory + adds no sequential latency on the
   #     success path.
   #
-  # The play-mode-ENTER deadlock is ENVIRONMENTAL + fixture-presence-triggered (it
-  # fires before any single fixture runs; EditMode is unaffected; the same PlayMode
-  # pattern passed on green main run 27685445841). When the root cause is fixed,
-  # re-fold PlayMode into the blocking `build` gate + drop this job.
-  # Re-enable-blocking follow-up: ticket 86cab7u42 (this PR: 86caapwmt).
+  # ROOT CAUSE FOUND + FIXED (86cabfa21, Devon 2026-07-03 — NOT environmental, as the old note
+  # here wrongly concluded): the shared PlayMode scene-isolation [UnitySetUp] copied into 10
+  # locomotion/scene fixtures did `SceneManager.UnloadSceneAsync(s); while(!op.isDone) yield
+  # return null;` over EVERY loaded scene — INCLUDING the test framework's InitTestScene, whose
+  # async unload NEVER completes headless (it hosts the running test controller). The unbounded
+  # wait spun forever at the first alphabetical such fixture (AirborneAirControl), right after
+  # play-mode-enter — which LOOKED like an enter deadlock (hence the old "environmental" guess;
+  # the "green run 27685445841" predates the InitTestScene-unload copies). Fixed via the shared
+  # PlayModeSceneIsolation helper (skips InitTestScene + bounds the wait); the suite now COMPLETES
+  # reliably. STILL ADVISORY for now: un-hiding the suite EXPOSED 33 pre-existing failures in
+  # OTHER suites (recently-added combat/UI/rendering tests never CI-validated because the job
+  # always hung) — promoting to a BLOCKING gate is gated on triaging those (follow-up). The two
+  # suites THIS ticket targets — HungerNeed + InventoryBeltHeldAxe — now run GREEN + OBSERVED on
+  # every run. Re-fold/promote follow-up: ticket 86cab7u42.
   # ---------------------------------------------------------------------------
   playmode:
     name: playmode (self-hosted, advisory — non-blocking)
@@ -742,12 +947,13 @@ jobs:
     concurrency:
       group: unity-capture
       cancel-in-progress: false
-    continue-on-error: true   # ADVISORY — PlayMode can NEVER block a merge (86caapwmt)
-    # 20→5 (86cae8vn2): a hung play-mode-enter pins a self-hosted runner for the
-    # full cap, wedging the NEXT push's `build` merge-gate (per-runner PackageCache cap).
-    # 5 min still lets play-mode-enter START + confirm the deadlock fast, then frees the
-    # runner ~15 min sooner. Re-fold + re-tighten when the deadlock root cause lands (86cab7u42).
-    timeout-minutes: 5        # HARD fail-fast cap: a play-mode-enter deadlock fails FAST + NAMED
+    continue-on-error: true   # ADVISORY for now — un-hiding the suite (86cabfa21 hang fix)
+                              # EXPOSED 33 pre-existing failures in OTHER suites that would else
+                              # red-gate; promote to blocking once those are triaged (86cab7u42).
+    # 5→15 (86cabfa21): the play-mode-enter HANG is FIXED (InitTestScene unbounded-unload — see
+    # the job header), so the full suite now COMPLETES (~3-4 min tests + bootstrap). The old
+    # 5-min cap would KILL a healthy completing run; 15 gives headroom + still bounds a regression.
+    timeout-minutes: 15       # HARD safety cap (hang root-caused + fixed in 86cabfa21)
     env:
       UNITY: 'C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Unity.exe'
       RESULTS: ${{ github.workspace }}\ci-out
@@ -796,7 +1002,7 @@ jobs:
             ci-out/test-results-playmode.xml
             ci-out/playmode.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       # Advisory result gate — reports PlayMode pass/fail for SIGNAL. The job-level
       # continue-on-error keeps a red here from ever blocking a merge.
