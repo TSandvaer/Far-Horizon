@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.UIElements;
 using FarHorizon;
 using FarHorizon.Settings;
 
@@ -626,6 +627,51 @@ namespace FarHorizon.EditTests
             e2.LoadFromPrefs();
 
             Assert.AreEqual(1.7f, textScale2, 1e-4f, "the persisted UI text scale survives a relaunch (86cabeqj9 NIT)");
+        }
+
+        // ===== #247 EMPTY-DRAWERS layout guard (86cah8ukr fix cycle) =====
+        //
+        // The two-drawer split wraps each SettingsPanel shell clone in a scoped container (so the duplicate
+        // element names resolve per-drawer). A PLAIN VisualElement container has auto height 0 — its only child,
+        // the position:absolute scrim, is out of flow → zero in-flow content → height 0. The scrim's inset-0 +
+        // the panel's percentage max-height then resolve against a zero-height block, collapsing the flex-grow
+        // rows ScrollView to ZERO: both drawers rendered header + footer but NO rows (registry/handles/live-drive
+        // were all fine — 70 settings built + the walk tweak drove live; only the VISUAL layer collapsed). The
+        // Sponsor soak on build 61a6a9d caught it; the green capture gate had ALSO shown empty drawers (its
+        // frame_check reads the whole frame, never the panel region). MakeDrawerOverlay restores root's own
+        // full-screen box (absolute, inset-0) so the scrim/panel/ScrollView resolve exactly as pre-split.
+        //
+        // UI Toolkit LAYOUT geometry is unreliable in EditMode (no panel/layout pass — see this class's summary),
+        // so the visible-rows PROOF lives in the shipped-build capture gate (verify_settings_gate.sh Check 4 +
+        // SettingsPanel.VisibleRowCount). This EditMode test guards the STRUCTURAL invariant that FIXES the bug —
+        // the container carries the full-screen-overlay styling — which IS readable off a bare VisualElement's
+        // inline style with NO render loop. Revert MakeDrawerOverlay to a plain container and this goes red.
+
+        [Test]
+        public void DrawerOverlay_FillsRootAsAbsoluteInsetZero_SoTheRowsScrollViewCanResolveHeight()
+        {
+            var container = new VisualElement();
+            SettingsPanel.MakeDrawerOverlay(container);
+
+            Assert.AreEqual(Position.Absolute, container.style.position.value,
+                "the drawer container must be position:absolute so it establishes a definite full-screen " +
+                "containing block for the scrim — a plain (relative, auto-height) container collapses the " +
+                "flex-grow rows ScrollView to zero (the #247 empty-drawers bug)");
+            Assert.AreEqual(0f, container.style.left.value.value, 1e-4f, "inset left must be 0 (fill root width)");
+            Assert.AreEqual(0f, container.style.top.value.value, 1e-4f, "inset top must be 0 (fill root height)");
+            Assert.AreEqual(0f, container.style.right.value.value, 1e-4f, "inset right must be 0 (fill root width)");
+            Assert.AreEqual(0f, container.style.bottom.value.value, 1e-4f, "inset bottom must be 0 (fill root height)");
+            Assert.AreEqual(PickingMode.Ignore, container.pickingMode,
+                "the always-present full-screen overlay must be pickingMode:Ignore so it never eats gameplay " +
+                "mouse input while its scrim is display:None — picking still descends to the scrim's children " +
+                "when the drawer IS open, so open/dim/scroll-gate behaviour is byte-identical to pre-split");
+        }
+
+        [Test]
+        public void DrawerOverlay_IsNullSafe()
+        {
+            Assert.DoesNotThrow(() => SettingsPanel.MakeDrawerOverlay(null),
+                "MakeDrawerOverlay must be null-safe (mirrors the panel's other null-guarded helpers)");
         }
     }
 }

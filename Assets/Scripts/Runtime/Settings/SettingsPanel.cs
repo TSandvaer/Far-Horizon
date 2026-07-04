@@ -515,6 +515,7 @@ namespace FarHorizon
             // DEV console drawer (F3) — resolves into _scrim/_panel/_rows (the UNCHANGED capture surface). Owns
             // the corner-picker + UI/text scale (its 86cabeqj9 NITs).
             var devContainer = new VisualElement { name = "dev-drawer-root" };
+            MakeDrawerOverlay(devContainer);   // #247 — full-screen containing block so the scrim + rows resolve
             root.Add(devContainer);
             CloneShell(devContainer);
             _scrim = devContainer.Q<VisualElement>("settings-scrim");
@@ -528,6 +529,7 @@ namespace FarHorizon
             // PLAYER Settings drawer (F1) — resolves into _playerScrim/_playerPanel/_playerRows. Fixed TOP-RIGHT
             // corner (PlayerCorner), no corner-picker + no chrome scale (a lean player-facing view).
             var playerContainer = new VisualElement { name = "player-drawer-root" };
+            MakeDrawerOverlay(playerContainer);   // #247 — full-screen containing block so the scrim + rows resolve
             root.Add(playerContainer);
             CloneShell(playerContainer);
             _playerScrim = playerContainer.Q<VisualElement>("settings-scrim");
@@ -545,6 +547,34 @@ namespace FarHorizon
         {
             if (panelUxml != null) panelUxml.CloneTree(container);
             else BuildShellInCode(container);
+        }
+
+        /// <summary>#247 EMPTY-DRAWERS FIX — make a drawer's scoped container a FULL-SCREEN overlay so the scrim
+        /// (position:absolute inset-0) + the panel (max-height:70%) + the rows ScrollView (flex-grow:1) resolve
+        /// against a DEFINITE-height containing block. THE BUG: the 86cah8ukr split wraps each shell clone in a
+        /// scoped container (so the duplicate element names resolve per-drawer). A plain VisualElement here has
+        /// auto height = 0 — its ONLY child, the scrim, is position:absolute → OUT of flow → the container has
+        /// ZERO in-flow content → height 0. The scrim's inset-0 + the panel's percentage max-height then resolve
+        /// against a 0-height block, so the flex-grow ScrollView gets ZERO extra to grow into and COLLAPSES: the
+        /// panel renders its intrinsic-height header + footer but NO rows (registry/handles/live-drive all fine —
+        /// the DATA layer built 70 settings; only the VISUAL layer collapsed). The pre-split panel cloned the
+        /// scrim STRAIGHT into root, whose definite full-screen height made this work; the intermediate container
+        /// silently broke that chain. FIX: give the container root's own full-screen box (absolute, inset-0) — an
+        /// overlay identical in size to root, so the scrim/panel/ScrollView resolve exactly as pre-split.
+        /// pickingMode = Ignore so the always-present full-screen overlay never eats gameplay MOUSE input while
+        /// its scrim is display:None (closed) — picking descends to the scrim's children when it IS open, so the
+        /// open/dim/scroll-gate behaviour is byte-identical to pre-split (the InventoryUI scrim=Ignore precedent).
+        /// Being absolute, the two drawer containers OVERLAY (don't split root's height like two flex siblings
+        /// would) and don't change z-order (hierarchy order is unchanged — only layout).</summary>
+        public static void MakeDrawerOverlay(VisualElement container)
+        {
+            if (container == null) return;
+            container.style.position = Position.Absolute;
+            container.style.left = 0f;
+            container.style.top = 0f;
+            container.style.right = 0f;
+            container.style.bottom = 0f;
+            container.pickingMode = PickingMode.Ignore;
         }
 
         // Wire the pieces common to BOTH drawers, scoped to the drawer's OWN container (duplicate names resolve
@@ -1042,6 +1072,63 @@ namespace FarHorizon
             // 86cah8ukr AC1 — reset-to-defaults / open may have flipped a need toggle; re-evaluate decay-slider
             // visibility so the F1 panel never shows a decay slider for an OFF need after a reset.
             ApplyConditionalVisibility();
+        }
+
+        /// <summary>#247 EMPTY-DRAWERS GATE-HARDEN — the resolved ON-SCREEN height of the given drawer's rows
+        /// ScrollView VIEWPORT (dev=F3 / player=F1). THIS is the collapse measure: the empty-drawers bug shrank
+        /// the flex-grow rows ScrollView to ~0 because its container had no definite height, so the VIEWPORT
+        /// went to zero. Note a row's OWN height does NOT go to zero (a ScrollView clips overflow — the rows keep
+        /// their intrinsic 44px inside the content container and are simply CLIPPED out of the zero-height
+        /// viewport), so a per-row height probe would MISS the bug; the viewport height is what actually
+        /// collapses. Populated only under a live panel + layout pass (windowed build) — EditMode has no layout
+        /// pass (DevConsoleTests §), so this is a shipped-build-only ground-truth probe. PUBLIC for the capture.</summary>
+        public float RowsViewportHeight(bool dev)
+        {
+            var sv = dev ? _rows : _playerRows;
+            return sv != null ? sv.resolvedStyle.height : 0f;
+        }
+
+        /// <summary>#247 EMPTY-DRAWERS GATE-HARDEN — the count of rows in the given drawer (dev=F3 / player=F1)
+        /// that are ACTUALLY VISIBLE on screen: their world rect overlaps the rows ScrollView's VIEWPORT rect
+        /// with real height. Threshold-free + robust to the clip subtlety above — in the collapsed bug the
+        /// viewport height is ~0 so NO row overlaps it (returns 0); once the container gets a definite height the
+        /// viewport opens and the on-screen rows overlap it (returns > 0). The shipped-build capture logs this so
+        /// <c>verify_settings_gate.sh</c> Check 4 FAILS on a zero-row drawer — the generic frame_check only proves
+        /// the whole FRAME isn't uniform (the green world passes), never that the PANEL region shows rows, which
+        /// is exactly how the empty drawers slipped the gate. PUBLIC for the capture.</summary>
+        public int VisibleRowCount(bool dev)
+        {
+            var sv = dev ? _rows : _playerRows;
+            if (sv == null) return 0;
+            Rect viewport = sv.worldBound;
+            if (viewport.height <= 1f) return 0;   // collapsed viewport → nothing can be visible
+            int n = 0;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Row == null || h.Entry == null) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;   // wrong drawer for this row
+                Rect rb = h.Row.worldBound;
+                // Vertically overlaps the viewport (the ScrollView clips to this rect) AND has real height.
+                if (rb.height > 1f && rb.yMax > viewport.yMin + 1f && rb.yMin < viewport.yMax - 1f) n++;
+            }
+            return n;
+        }
+
+        /// <summary>#247 — the TOTAL rows routed to the given drawer (dev=F3 / player=F1), regardless of layout
+        /// (the denominator for the visible-rows proof; a data-layer count that holds even when the visual layer
+        /// collapsed). PUBLIC for the shipped-build capture's ground-truth log.</summary>
+        public int RoutedRowCount(bool dev)
+        {
+            int n = 0;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Row == null || h.Entry == null) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;
+                n++;
+            }
+            return n;
         }
 
         /// <summary>86cabe3e5 — drive a REAL UI Toolkit ChangeEvent on the SLIDER row bound to <paramref

@@ -117,6 +117,21 @@ namespace FarHorizon
                       $"playerSettingsKey=F1, legacyKey=F2, distinct=True, decoupled=True — opening the console " +
                       $"does NOT reveal the legacy overlays).");
 
+            // #247 EMPTY-DRAWERS GUARD — the PR #247 build passed this gate while both drawers rendered header +
+            // footer but ZERO rows (the flex-grow ScrollView collapsed against a zero-height drawer container).
+            // frame_check.py only proves the whole FRAME isn't uniform (the green gameplay world passes), never
+            // that the PANEL region has rows — so an empty drawer slipped straight through. Probe GROUND TRUTH:
+            // the count of DEV rows actually VISIBLE (world rect overlapping the ScrollView viewport) + the
+            // viewport's resolved height (the collapse measure — ~0 when empty), now that the console is open +
+            // settled. verify_settings_gate.sh Check 4 FAILS if the visible count is 0.
+            int devVisible = panel.VisibleRowCount(true);
+            int devRouted = panel.RoutedRowCount(true);
+            float devViewport = panel.RowsViewportHeight(true);
+            Debug.Log($"[SettingsVerifyCapture] DEV rows visible: {devVisible} / {devRouted} routed " +
+                      $"(viewportHeight={devViewport:F1}px; #247 empty-drawers guard — MUST be > 0; a collapsed " +
+                      $"flex-grow ScrollView renders the header + footer but ZERO rows even though the " +
+                      $"registry/handles built + drove live).");
+
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
@@ -315,6 +330,15 @@ namespace FarHorizon
             panel.SetOpen(false);              // dev console away → a clean player-only frame
             panel.SetPlayerOpen(true);
             for (int i = 0; i < 8; i++) yield return null;  // let the open transition play + lay out
+            // #247 EMPTY-DRAWERS GUARD (F1 half) — same ground-truth row-visibility probe for the PLAYER drawer.
+            // The Sponsor soak showed F1 rendering ONLY "Settings" + "Reset to defaults" with zero rows (belt/stack
+            // + warmth/hunger/thirst on/off + decay sliders all missing); this asserts the F1 rows are visible.
+            int playerVisible = panel.VisibleRowCount(false);
+            int playerRouted = panel.RoutedRowCount(false);
+            float playerViewport = panel.RowsViewportHeight(false);
+            Debug.Log($"[SettingsVerifyCapture] PLAYER rows visible: {playerVisible} / {playerRouted} routed " +
+                      $"(viewportHeight={playerViewport:F1}px; #247 empty-drawers guard — MUST be > 0; the F1 " +
+                      $"drawer showed header + footer but ZERO rows).");
             Debug.Log($"[SettingsVerifyCapture] PLAYER drawer OPEN (F1, 86cah8ukr): playerOpen={panel.IsPlayerOpen} " +
                       $"devOpen={panel.IsOpen} worldInputGated={UiInputGate.CaptureWorldInput} (must be: playerOpen=" +
                       $"True, devOpen=False, gated=False — open alone is non-modal, only a focused field gates).");

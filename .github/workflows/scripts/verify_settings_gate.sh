@@ -146,11 +146,41 @@ if [ "$diff_rc" -ne 0 ]; then
   echo "[verify_settings] FAILED — tweaked-frame visible-diff sub-check FAILED: settings_tweaked.png did not visibly differ from settings_open.png. The tweak did NOT repaint the panel under capture — a regression back to the synthetic entry-setter drive (the PR #83 re-QA bug). Drive the tweak via a real dispatched ChangeEvent (86cabe3e5)." >&2
 fi
 
-# All three checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
-# tweak VISIBLE in the shipped frame (Check 3, un-quarantined 86cabe3e5).
-if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ]; then
-  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc)" >&2
+# Check 4 — the drawers actually SHOW ROWS (#247 empty-drawers regression guard). This gate went GREEN
+# on the PR #247 build while BOTH drawers rendered header + footer but ZERO setting rows: the two-drawer
+# split wrapped each shell in a scoped container with auto height 0 (its only child, the position:absolute
+# scrim, is out of flow), so the panel's percentage max-height + the rows ScrollView's flex-grow resolved
+# against a zero-height block → the ScrollView viewport collapsed → the rows were clipped out of view.
+# Check 1 (frame_check) could not catch it: it checks the WHOLE 1280x720 frame (the green gameplay world =
+# obviously not black/uniform → pass), never the panel region. SettingsVerifyCapture now probes GROUND TRUTH
+# — the count of rows whose world rect overlaps the ScrollView VIEWPORT (+ the viewport's resolved height) per
+# drawer — and logs `DEV rows visible: N / M routed (viewportHeight=Hpx)` + `PLAYER rows visible: N / M ...`.
+# FAIL if EITHER drawer shows 0 visible rows, or if the proof line is absent.
+rows_rc=0
+if [ ! -f "$LOG_FILE" ]; then
+  echo "[verify_settings] FAILED — no player log at $LOG_FILE; cannot verify the drawers show rows (#247)" >&2
+  rows_rc=1
+elif grep -qE "rows visible: 0 " "$LOG_FILE"; then
+  echo "[verify_settings] FAILED — a drawer showed ZERO visible rows (#247 empty-drawers regression): the " \
+       "panel rendered its header + footer but no setting rows (a collapsed flex-grow ScrollView viewport)." >&2
+  grep -F "rows visible:" "$LOG_FILE" | sed 's/^/[verify_settings]   /' || true
+  rows_rc=1
+elif grep -qE "DEV rows visible: [1-9]" "$LOG_FILE" && grep -qE "PLAYER rows visible: [1-9]" "$LOG_FILE"; then
+  echo "[verify_settings] row-render proof (#247): both drawers show > 0 rows:"
+  grep -F "rows visible:" "$LOG_FILE" | sed 's/^/[verify_settings]   /'
+else
+  echo "[verify_settings] FAILED — missing the #247 row-visibility proof line for one/both drawers " \
+       "(expected 'DEV rows visible: N / M' AND 'PLAYER rows visible: N / M', both N>0)." >&2
+  grep -F "rows visible:" "$LOG_FILE" | sed 's/^/[verify_settings]   /' || true
+  rows_rc=1
+fi
+
+# All four checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
+# tweak VISIBLE in the shipped frame (Check 3, un-quarantined 86cabe3e5) + BOTH drawers have rows
+# (Check 4, #247 empty-drawers guard).
+if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ] || [ "$rows_rc" -ne 0 ]; then
+  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc rows_rc=$rows_rc)" >&2
   exit 1
 fi
-echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE in the shipped frame (diff_rc=$diff_rc)"
+echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE + both drawers have rows (rows_rc=$rows_rc)"
 exit 0
