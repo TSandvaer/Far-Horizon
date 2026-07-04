@@ -578,6 +578,17 @@ namespace FarHorizon
             if (_dragGhost != null) _dragGhost.style.display = DisplayStyle.None;
         }
 
+        /// <summary>
+        /// Verification seam: raise the #drag-ghost carrying <paramref name="def"/> WITHOUT arming a drag, so
+        /// <see cref="Update"/>'s per-frame <c>PositionGhostAtMouse</c> tracking does NOT fire (that only runs
+        /// while <c>_dragging</c>) and a subsequent synthetic <see cref="PositionGhostAtScreenPoint"/> is NOT
+        /// overwritten by the live OS cursor. This lets the shipped-build capture drive a KNOWN, on-screen
+        /// cursor DETERMINISTICALLY — the old gate rode the live off-window OS cursor (Input.mousePosition),
+        /// which is unstable/lagged in an automated launch and produced a false divergence (86cajrtr1). No
+        /// gameplay caller: real drags go through <see cref="BeginDrag"/>.
+        /// </summary>
+        public void ShowGhostForVerification(ItemDef def) => ShowGhost(def);
+
         /// <summary>Half the 56px ghost — the offset that centers the ghost on the cursor (panel units;
         /// ScreenToPanel output is already in panel space, so the -28 is a panel-unit nudge, not screen px).</summary>
         private const float GhostHalfSize = 28f;
@@ -641,6 +652,21 @@ namespace FarHorizon
             return RuntimePanelUtils.ScreenToPanel(_dragGhost.panel, sp);
         }
 
+        /// <summary>Diagnostic (86cajrtr1) — dump the ghost's laid-out geometry (layout vs worldBound vs
+        /// style.left/top, resolved scale + transform-origin). Logged by the shipped -verifyInvDragGhostPos
+        /// gate ONLY on a divergence, so a future re-break is triageable from the CI log without a rebuild.</summary>
+        public string GhostGeomDiag()
+        {
+            if (_dragGhost == null || _dragGhost.panel == null) return "ghost/panel null";
+            var g = _dragGhost;
+            var rs = g.resolvedStyle;
+            string parentWb = g.parent != null ? g.parent.worldBound.ToString() : "no-parent";
+            return "layout=" + g.layout + " worldBound=" + g.worldBound +
+                   " styleL/T=(" + g.style.left + "," + g.style.top + ")" +
+                   " resolvedScale=" + rs.scale + " transformOrigin=" + rs.transformOrigin +
+                   " rsW/H=(" + rs.width + "," + rs.height + ")" + " parentWB=" + parentWb;
+        }
+
         // ============================================================================================
         // Pointer-over-UI test (86caa4c5c CHANGE 1 — the left-click-chop UI guard).
         // ============================================================================================
@@ -698,9 +724,27 @@ namespace FarHorizon
         public static bool ScreenPointOverlapsAnyRect(Vector2 screenPos, float screenHeight, float panelScale,
                                                       IReadOnlyList<Rect> uiRects)
         {
+            return HitIndex(uiRects, ScreenToPanelPoint(screenPos, screenHeight, panelScale)) >= 0;
+        }
+
+        /// <summary>
+        /// PURE model of <c>RuntimePanelUtils.ScreenToPanel</c> under PanelScaleMode.ScaleWithScreenSize: given
+        /// a SCREEN-space point (Y-UP, <c>Input.mousePosition</c> convention), the screen HEIGHT, and the panel
+        /// SCALE (screen px per panel unit — 1.0 at the 1920x1080 reference, ~1.333 at 2560x1440), return the
+        /// point in PANEL space (Y-DOWN, worldBound convention): FLIP Y first, THEN divide BOTH axes by the
+        /// scale. This is THE recurring-bug math (86caffw9h / 86cajrtr1): the drag-ghost center, the
+        /// pointer-over-UI hit-test, and the shipped -verifyInvDragGhostPos gate all rest on this exact
+        /// flip-then-scale. Layout-free + static so an EditMode test pins it at BOTH scale 1.0 AND 1.333 — a
+        /// scale=1-only test cannot catch a dropped scale term (invisible at exactly 1080p). Production
+        /// <see cref="PositionGhostAtScreenPoint"/> defers to the ENGINE's ScreenToPanel (authoritative); this
+        /// static documents + guards the intended relation the engine must satisfy.
+        /// </summary>
+        /// <param name="panelScale">Screen px per panel unit. A value &lt;= 0 is treated as 1 (no scale) so a
+        /// degenerate call never divides by zero.</param>
+        public static Vector2 ScreenToPanelPoint(Vector2 screenPos, float screenHeight, float panelScale)
+        {
             float s = panelScale > 0f ? panelScale : 1f;
-            Vector2 panelPos = new Vector2(screenPos.x / s, (screenHeight - screenPos.y) / s);
-            return HitIndex(uiRects, panelPos) >= 0;
+            return new Vector2(screenPos.x / s, (screenHeight - screenPos.y) / s);
         }
     }
 }
