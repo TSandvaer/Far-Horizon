@@ -54,14 +54,15 @@ LAUNCH_TIMEOUT=300
 launch_once() {
   rm -f "$ABS_CAP"/sky_*.png
   rm -f "$LOG_FILE"
-  echo "[verify_sky] launching shipped exe windowed (-verifySky): $EXE"
+  echo "[verify_sky] launching shipped exe -batchmode (headless RT-readback, -verifySky): $EXE"
   echo "[verify_sky]   captureDir=$ABS_CAP logFile=$LOG_FILE"
-  # Windowed + small so it never grabs the desktop; -verifySky drives SkyVerifyCapture; -logFile
-  # redirects the standalone player's Player.log so the SUN + CONTRAST verdict lines are grep-able
-  # here. The component calls Application.Quit(0/1) when done.
+  # HEADLESS (86cag93zb): -batchmode, NO -nographics (real D3D12 device), NO window. SkyVerifyCapture
+  # renders its dedicated sky camera into an offscreen RT (SubmitRenderRequest — Skybox + Zone-D post
+  # survive) and reads the SAME frame back for the SUN + CONTRAST asserts. -logFile redirects the
+  # Player.log so those verdict lines are grep-able. The component calls Application.Quit(0/1).
   set +e
   timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
-    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -batchmode \
     -verifySky -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
   exe_rc=$?
   set -e

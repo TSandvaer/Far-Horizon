@@ -35,7 +35,9 @@ namespace FarHorizon
     /// Exits non-zero if EITHER the demo-tree chop OR the scatter-tree choppability fails to be proven.
     ///
     /// Inert unless launched with -verifyChop (so the normal game / boot capture is unaffected).
-    ///   FarHorizon.exe -screen-fullscreen 0 -verifyChop -captureDir &lt;dir&gt;
+    /// HEADLESS via RT-readback (86cag93zb): captures render Camera.main into an offscreen RT, so it runs
+    /// under -batchmode (no window). Self-asserts are LOGIC (WoodCount / InstanceCount), unaffected.
+    ///   FarHorizon.exe -batchmode -verifyChop -captureDir &lt;dir&gt;
     /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the demo tree, wood in readout)
     /// + chop_scatter.png (at a real scatter tree, MORE wood), then quits non-zero if either proof failed.
     /// </summary>
@@ -48,6 +50,9 @@ namespace FarHorizon
         public Vector3 craftSpot = new Vector3(8f, 0f, 6f);
         public Vector3 treeSpot = new Vector3(-9f, 0f, -7f);
         public string subDir = "Captures";
+        // RT-readback capture resolution (86cag93zb; headless -batchmode, no window).
+        public int captureWidth = 1280;
+        public int captureHeight = 720;
 
         void Start()
         {
@@ -81,7 +86,6 @@ namespace FarHorizon
             Debug.Log("[ChopVerifyCapture] before: HasAxe=" + (inventory != null && inventory.HasAxe) +
                       " wood=" + (inventory != null ? inventory.WoodCount : -1));
             ShotTo(Path.Combine(dir, "chop_before.png"));
-            yield return new WaitForEndOfFrame();
             yield return null;
 
             // 2. First get the axe — teleport to the craft spot and wait for HasAxe (U2-2's seam).
@@ -137,7 +141,6 @@ namespace FarHorizon
             // Let the camera settle, then capture the 'after' shot with wood in the readout.
             for (int i = 0; i < 8; i++) yield return null;
             ShotTo(Path.Combine(dir, "chop_after.png"));
-            yield return new WaitForEndOfFrame();
             yield return null;
 
             // 4. CHANGE (a) GATE-HARDENING — prove a REAL seed-42 SCATTER tree is choppable in the BUILT scene
@@ -179,7 +182,6 @@ namespace FarHorizon
 
                 for (int i = 0; i < 8; i++) yield return null;
                 ShotTo(Path.Combine(dir, "chop_scatter.png"));
-                yield return new WaitForEndOfFrame();
                 yield return null;
             }
             yield return new WaitForSeconds(0.5f);
@@ -278,9 +280,21 @@ namespace FarHorizon
             return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
+        // HEADLESS RT-readback (86cag93zb): render Camera.main (the gameplay orbit cam) full-pipeline into an
+        // offscreen RT and write the PNG — works under -batchmode (no swapchain), unlike ScreenCapture.
+        // The chop gate's self-asserts are LOGIC (WoodCount / InstanceCount), so no pixel read changes; this
+        // only swaps HOW the diagnostic frame is captured. Camera.main-only means the HUD overlay isn't in
+        // the frame (frame_check gates on scene content — the felled tree / pile / wood scene reads fine).
         private void ShotTo(string file)
         {
-            ScreenCapture.CaptureScreenshot(file, 1);
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[ChopVerifyCapture] no Camera.main — cannot capture " + file);
+                return;
+            }
+            Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
+            if (tex != null) Object.Destroy(tex);
             Debug.Log("[ChopVerifyCapture] wrote " + file);
         }
 
