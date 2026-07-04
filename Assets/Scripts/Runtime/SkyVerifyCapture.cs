@@ -40,9 +40,10 @@ namespace FarHorizon
     /// Quit(1) on any failure (or a missing Sun) so the exe exit code IS the gate; frame_check.py backstops.
     ///
     /// Inert unless launched with -verifySky (normal game / boot capture unaffected):
-    ///   FarHorizon.exe -screen-fullscreen 0 -verifySky [-captureDir &lt;dir&gt;]
-    /// MUST run WINDOWED, not -batchmode (ScreenCapture needs a real swapchain — spike iter-4 lesson;
-    /// editor RenderTexture mis-renders URP).
+    ///   FarHorizon.exe -batchmode -verifySky [-captureDir &lt;dir&gt;]
+    /// HEADLESS via RT-readback (86cag93zb): each shot renders the sky camera full-pipeline into an
+    /// offscreen RenderTexture (Skybox + Zone-D post survive SubmitRenderRequest) and reads the SAME
+    /// frame back for the self-assert — so it runs under -batchmode with no window/swapchain.
     /// </summary>
     public class SkyVerifyCapture : MonoBehaviour
     {
@@ -50,6 +51,9 @@ namespace FarHorizon
         public int warmupFrames = 10;
         public int settleFrames = 12;
         public float fieldOfView = 50f;
+        // RT-readback capture resolution (86cag93zb; headless -batchmode, no window).
+        public int captureWidth = 1280;
+        public int captureHeight = 720;
 
         void Start()
         {
@@ -115,16 +119,16 @@ namespace FarHorizon
             camGo.transform.position = new Vector3(0f, 60f, 0f);
 
             // --- Shot 1: aim STRAIGHT at the Sun direction — the sun disk centred. ---
+            // HEADLESS RT-readback (86cag93zb): render the sky camera full-pipeline into an offscreen RT
+            // (Skybox + Zone-D post survive via SubmitRenderRequest) and read the SAME frame back for the
+            // self-assert — no backbuffer, works under -batchmode. Replaces ScreenCapture + a separate
+            // backbuffer ReadPixels (dead headless). The sample math is unchanged (reads tex.width/height).
             camGo.transform.rotation = Quaternion.LookRotation(toSun, Vector3.up);
             for (int i = 0; i < settleFrames; i++) yield return null;
-            yield return new WaitForEndOfFrame();
             string sunFile = Path.Combine(dir, "sky_sun.png");
-            ScreenCapture.CaptureScreenshot(sunFile, 1);
+            Texture2D sunTex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, sunFile);
             Debug.Log("[SkyVerifyCapture] wrote " + sunFile + " (aimed at sun dir)");
-            yield return new WaitForEndOfFrame();
-            // Read back the centre pixels for the self-assert (sun warmer + brighter than the sky surround).
-            yield return new WaitForEndOfFrame();
-            Texture2D sunTex = GrabCentre(out Color sunCentre, out Color sunSurround);
+            SampleCentre(sunTex, out Color sunCentre, out Color sunSurround);
 
             // --- Shot 2: aim UP into the cloud band (high pitch, inland) — cloud-vs-sky contrast. ---
             // Pitch ~35deg up, inland (+Z) where BuildClouds biases the cloud lateral spread. The clouds sit
@@ -136,13 +140,10 @@ namespace FarHorizon
             Vector3 cloudDir = new Vector3(0f, Mathf.Sin(35f * Mathf.Deg2Rad), Mathf.Cos(35f * Mathf.Deg2Rad)).normalized;
             camGo.transform.rotation = Quaternion.LookRotation(cloudDir, Vector3.up);
             for (int i = 0; i < settleFrames; i++) yield return null;
-            yield return new WaitForEndOfFrame();
             string cloudFile = Path.Combine(dir, "sky_clouds.png");
-            ScreenCapture.CaptureScreenshot(cloudFile, 1);
+            Texture2D cloudTex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, cloudFile);
             Debug.Log("[SkyVerifyCapture] wrote " + cloudFile + " (aimed up-inland into the cloud band)");
-            yield return new WaitForEndOfFrame();
-            yield return new WaitForEndOfFrame();
-            Texture2D cloudTex = GrabFull(out float skyMedianLuma, out float brightFraction);
+            SampleFull(cloudTex, out float skyMedianLuma, out float brightFraction);
 
             // --- Shot 3: GAMEPLAY-FRAMED (86cag25az sun-lower; re-framed HONEST on 86cah90cp) — the
             // over-shoulder orbit pose at the most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°),
@@ -170,13 +171,14 @@ namespace FarHorizon
             camGo.transform.rotation = gpRot;
             cam.fieldOfView = gameplayFov; // REAL gameplay FOV — a wide capture FOV false-passes visibility
             for (int i = 0; i < settleFrames; i++) yield return null;
-            yield return new WaitForEndOfFrame();
             string gameplayFile = Path.Combine(dir, "sky_gameplay.png");
-            ScreenCapture.CaptureScreenshot(gameplayFile, 1);
+            // Merge-resolve (#223 ← main): main's headless RT-readback capture path (86cag93zb — shots 1+2
+            // above already use it; the backbuffer ScreenCapture path is DEAD under main's -batchmode -verifySky
+            // CI, and GrabWarmestUpper no longer exists) + #223's ACCURATE {gameplayFov} log (the camera is at
+            // FOV 45 per the round-2 8° reframe above; main's copy hardcoded a stale "75").
+            Texture2D gpTex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, gameplayFile);
             Debug.Log($"[SkyVerifyCapture] wrote {gameplayFile} (gameplay-framed: pitch {gameplayPitch}, FOV {gameplayFov}, yaw->sun azimuth {sunAzimuthDeg:F1})");
-            yield return new WaitForEndOfFrame();
-            yield return new WaitForEndOfFrame();
-            Texture2D gpTex = GrabWarmestUpper(out Color gpSun, out Color gpSky);
+            SampleWarmestUpper(gpTex, out Color gpSun, out Color gpSky);
 
             yield return new WaitForSeconds(0.3f);
 
@@ -232,15 +234,12 @@ namespace FarHorizon
             Application.Quit(pass ? 0 : 1);
         }
 
-        // Capture the current backbuffer + sample a small CENTRE patch (the sun) and a SURROUND ring (the
-        // sky around it), averaging each. ReadPixels must run inside WaitForEndOfFrame (caller ensures it).
-        private Texture2D GrabCentre(out Color centre, out Color surround)
+        // Sample a small CENTRE patch (the sun) and a SURROUND ring (the sky around it) from the RT-readback
+        // texture, averaging each. (86cag93zb: reads the passed-in offscreen-RT frame — no backbuffer read.)
+        private void SampleCentre(Texture2D tex, out Color centre, out Color surround)
         {
-            int w = Screen.width, h = Screen.height;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
-
+            if (tex == null) { centre = Color.black; surround = Color.black; return; }
+            int w = tex.width, h = tex.height;
             int cx = w / 2, cy = h / 2;
             int patch = Mathf.Max(3, Mathf.Min(w, h) / 80);   // tight centre patch (the gold disk core only,
                                                               // not the blue bloom halo around it)
@@ -255,17 +254,14 @@ namespace FarHorizon
             surround = new Color((sl.r + sr.r + su.r + sd.r) * 0.25f,
                                  (sl.g + sr.g + su.g + sd.g) * 0.25f,
                                  (sl.b + sr.b + su.b + sd.b) * 0.25f);
-            return tex;
         }
 
-        // Capture the full frame; compute the sky median luma + the fraction of pixels notably brighter than
-        // it (the bright clouds). Sub-sampled for speed.
-        private Texture2D GrabFull(out float skyMedianLuma, out float brightFraction)
+        // Compute the sky median luma + the fraction of pixels notably brighter than it (the bright clouds)
+        // from the RT-readback texture. Sub-sampled for speed. (86cag93zb: reads the passed-in RT frame.)
+        private void SampleFull(Texture2D tex, out float skyMedianLuma, out float brightFraction)
         {
-            int w = Screen.width, h = Screen.height;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
+            if (tex == null) { skyMedianLuma = 0f; brightFraction = 0f; return; }
+            int w = tex.width, h = tex.height;
 
             // Sample a grid; the sky band (no cloud) is the bulk → its median is the sky luma reference.
             const int gx = 64, gy = 36;
@@ -283,20 +279,18 @@ namespace FarHorizon
             int bright = 0;
             foreach (var l in lumas) if (l > thr) bright++;
             brightFraction = (float)bright / lumas.Count;
-            return tex;
         }
 
-        // Capture the gameplay-framed frame; in its UPPER band (where a low sun sits) find the WARMEST patch
+        // In the gameplay-framed RT frame's UPPER band (where a low sun sits) find the WARMEST patch
         // (highest R-B = the warm-gold sun core) + a sky reference beside it. WARMTH-STRICT on purpose: the
         // sky has bright near-white CYAN clouds (B>R) whose high luma fooled an earlier luma+warmth picker into
         // locking onto a cloud; scoring purely on warmth (with a brightness floor to skip dark canopy gaps)
         // makes the gold disk win. Used for the ADVISORY gameplay-sun readout only (not a hard gate).
-        private Texture2D GrabWarmestUpper(out Color sun, out Color sky)
+        // (86cag93zb: reads the passed-in RT frame — no backbuffer read.)
+        private void SampleWarmestUpper(Texture2D tex, out Color sun, out Color sky)
         {
-            int w = Screen.width, h = Screen.height;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
+            if (tex == null) { sun = Color.black; sky = Color.black; return; }
+            int w = tex.width, h = tex.height;
 
             int patch = Mathf.Max(3, Mathf.Min(w, h) / 90);
             // Scan the upper band: y in [0.55h .. 0.97h] (top of the screen is HIGH y in bottom-left origin),
@@ -323,7 +317,6 @@ namespace FarHorizon
             Color sLeft = AvgPatch(tex, bsx - off, bsy, patch);
             Color sRight = AvgPatch(tex, bsx + off, bsy, patch);
             sky = new Color((sLeft.r + sRight.r) * 0.5f, (sLeft.g + sRight.g) * 0.5f, (sLeft.b + sRight.b) * 0.5f);
-            return tex;
         }
 
         private static Color AvgPatch(Texture2D tex, int cx, int cy, int half)

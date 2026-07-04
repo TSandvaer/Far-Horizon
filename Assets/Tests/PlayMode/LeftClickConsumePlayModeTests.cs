@@ -67,13 +67,21 @@ namespace FarHorizon.PlayTests
         private int Berries => _inv.Model.CountItem(ItemCatalog.BerryId);
         private int Water => _inv.Model.CountItem(ItemCatalog.WaterId);
 
-        // Give n of an item, then SELECT the belt slot it landed in (consumables auto-land on the belt — found,
-        // not assumed). Returns true once the id is the selected belt item.
+        // Give n of an item, MOVE it onto the belt, then SELECT that belt slot. Returns true once the id is
+        // the selected belt item.
+        //
+        // 86cajk7vb: the old helper assumed AddItem AUTO-LANDS consumables on the belt ("found, not assumed").
+        // It does NOT — InventoryModel.AddItem fills the INVENTORY first and only spills belt-eligible OVERFLOW
+        // onto the belt (contract §2/§4), so a small consumable stack (3 berries / 2 water) lands wholly in the
+        // pack and never reaches the belt → the old belt-scan found nothing and IsSelectedBeltItem was false.
+        // That was a STALE TEST assumption, not a game bug: the model is inventory-first by design. Model the
+        // real player flow — drag the consumable to the hotbar — with an explicit inventory→belt TryMove.
         private bool GiveAndSelect(string id, int n)
         {
             var def = _inv.Catalog.ById(id);
             Assert.IsNotNull(def, "the catalog must define " + id);
             _inv.Model.AddItem(def, n);
+            MoveFirstInventoryToBelt(id);
             var belt = _inv.Model.BeltSlots;
             for (int i = 0; i < belt.Count; i++)
             {
@@ -81,6 +89,22 @@ namespace FarHorizon.PlayTests
                 if (!s.IsEmpty && s.Def.Id == id) { _inv.Model.SelectBelt(i); break; }
             }
             return _inv.Model.IsSelectedBeltItem(id);
+        }
+
+        // Move the first inventory stack of `id` onto the first empty belt slot (both belt-eligible; TryMove
+        // enforces the eligibility gate). No-op if the item already sits on the belt (overflow spill) or has
+        // no empty belt slot to land in.
+        private void MoveFirstInventoryToBelt(string id)
+        {
+            var inv = _inv.Model.InventorySlots;
+            int fromIdx = -1;
+            for (int i = 0; i < inv.Count; i++)
+                if (!inv[i].IsEmpty && inv[i].Def.Id == id) { fromIdx = i; break; }
+            if (fromIdx < 0) return; // already on the belt (or absent)
+
+            var belt = _inv.Model.BeltSlots;
+            for (int i = 0; i < belt.Count; i++)
+                if (belt[i].IsEmpty) { _inv.Model.TryMove(SlotRef.Inventory(fromIdx), SlotRef.Belt(i)); return; }
         }
 
         // === SELECT BERRY + LEFT-CLICK -> one berry consumed AND hunger restored (atomic, end-to-end) =====

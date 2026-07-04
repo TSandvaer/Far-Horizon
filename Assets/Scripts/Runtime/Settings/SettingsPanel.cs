@@ -519,6 +519,13 @@ namespace FarHorizon
             public VisualElement Row;
             public System.Action Repaint;       // re-read live value → readout + typed field + badge
             public System.Action ApplyActive;   // add/remove the active-selection outline class
+            // 86cabe3e5 — drive a REAL UI Toolkit ChangeEvent on this row's bound control (set control.value
+            // WITH notify), the SAME event a user's drag fires. Populated per-archetype: Slider → DriveFloat,
+            // Range → DriveRange. Null for archetypes the capture never drives (Stepper/Toggle). Used by the
+            // shipped-build capture to prove input-event → param-change → REPAINTED-frame end-to-end (the
+            // entry-setter + RefreshReadouts path drives the param but does NOT repaint the captured frame).
+            public System.Func<float, float> DriveFloat;         // Slider: control.value = clamp(v); returns applied
+            public System.Action<float, float> DriveRange;       // Range: control.value = (clampedMin, clampedMax)
         }
 
         private VisualElement BuildRow(SettingEntry entry)
@@ -532,15 +539,18 @@ namespace FarHorizon
             RegisterText(label, 14f);   // base 14px (setting-row__label) — scales with UI text scale
             row.Add(label);
 
-            // The archetype control + the generic typed field; each returns its repaint closure.
+            // The archetype control + the generic typed field; each returns its repaint closure and (for the
+            // value archetypes) a driver that dispatches a REAL ChangeEvent on the control (86cabe3e5).
             System.Action repaintValue;
+            System.Func<float, float> driveFloat = null;   // Slider
+            System.Action<float, float> driveRange = null; // Range
             switch (entry.Kind)
             {
                 case SettingEntry.Archetype.Slider:
-                    repaintValue = BuildSliderRow(row, (FloatSettingEntry)entry);
+                    repaintValue = BuildSliderRow(row, (FloatSettingEntry)entry, out driveFloat);
                     break;
                 case SettingEntry.Archetype.Range:
-                    repaintValue = BuildRangeRow(row, (RangeSettingEntry)entry);
+                    repaintValue = BuildRangeRow(row, (RangeSettingEntry)entry, out driveRange);
                     break;
                 case SettingEntry.Archetype.Stepper:
                     repaintValue = BuildStepperRow(row, (IntSettingEntry)entry);
@@ -592,7 +602,8 @@ namespace FarHorizon
             if (entry.Available)
                 row.RegisterCallback<ClickEvent>(_ => SetActive(entry));
 
-            _handles.Add(new RowHandle { Entry = entry, Row = row, Repaint = repaint, ApplyActive = applyActive });
+            _handles.Add(new RowHandle { Entry = entry, Row = row, Repaint = repaint, ApplyActive = applyActive,
+                                         DriveFloat = driveFloat, DriveRange = driveRange });
             return row;
         }
 
@@ -606,7 +617,7 @@ namespace FarHorizon
         // Each Build*Row returns a closure that re-reads the entry's LIVE value into its control + typed field
         // (so RefreshReadouts after a nudge / Reset / entry-setter tweak repaints the row — AC10).
 
-        private System.Action BuildSliderRow(VisualElement row, FloatSettingEntry e)
+        private System.Action BuildSliderRow(VisualElement row, FloatSettingEntry e, out System.Func<float, float> driveChangeEvent)
         {
             row.AddToClassList("setting-row--slider");
             var slider = new Slider(e.Min, e.Max) { value = e.Value };
@@ -634,10 +645,24 @@ namespace FarHorizon
             // AC5 — type a number + commit (Enter/blur): applies live + clamps to [Min,Max].
             field.RegisterValueChangedCallback(evt => { e.SetValue(evt.newValue); RefreshRow(e); });
             WireFieldFocus(field, e);
+            // 86cabe3e5 — dispatch the SAME ChangeEvent a real drag fires: set the SLIDER'S value WITH notify.
+            // That flows through the RegisterValueChangedCallback above (drives the live param + repaints the
+            // row) AND schedules a UI Toolkit repaint of the control — so the captured shipped-build frame
+            // VISIBLY reflects the tweak. Contrast the entry-setter path (e.SetValue + RefreshReadouts), which
+            // changes the live param but does NOT repaint the captured frame (the PR #83 pixel-identical bug).
+            // Clamp into the slider band so an out-of-band request still lands on a valid, notifying value.
+            driveChangeEvent = v =>
+            {
+                // 86cajb00b — WITH notify → real ChangeEvent → callback + repaint. DriveValueWithNotify fails LOUD
+                // if the clamped target equals the slider's current value (UI Toolkit would suppress the event → no
+                // repaint → false-RED verify_settings Check 3); safe today, guards a future same-value target.
+                DriveValueWithNotify(slider, Mathf.Clamp(v, e.Min, e.Max));
+                return e.Value;                              // the live value actually applied (post-clamp)
+            };
             return refresh;
         }
 
-        private System.Action BuildRangeRow(VisualElement row, RangeSettingEntry e)
+        private System.Action BuildRangeRow(VisualElement row, RangeSettingEntry e, out System.Action<float, float> driveChangeEvent)
         {
             row.AddToClassList("setting-row--range");
             var range = new MinMaxSlider(e.MinValue, e.MaxValue, e.LowerLimit, e.UpperLimit);
@@ -671,6 +696,18 @@ namespace FarHorizon
             fieldMax.RegisterValueChangedCallback(evt => { e.SetMax(evt.newValue); RefreshRow(e); });
             WireFieldFocus(fieldMin, e);
             WireFieldFocus(fieldMax, e);
+            // 86cabe3e5 — dispatch the SAME ChangeEvent a real MinMaxSlider drag fires: set the range control's
+            // value WITH notify. Flows through the RegisterValueChangedCallback above (SetMin/SetMax drive the
+            // live system + repaint the row) AND schedules a UI Toolkit repaint — so the captured frame reflects
+            // the tweak. Clamp both ends into the hard limits so an out-of-band request still notifies.
+            driveChangeEvent = (newMin, newMax) =>
+            {
+                float lo = Mathf.Clamp(newMin, e.LowerLimit, e.UpperLimit);
+                float hi = Mathf.Clamp(newMax, e.LowerLimit, e.UpperLimit);
+                // 86cajb00b — WITH notify → real ChangeEvent → callback + repaint; fails LOUD if the clamped (lo,hi)
+                // equals the range's current value (UI Toolkit would suppress the event → false-RED Check 3).
+                DriveValueWithNotify(range, new Vector2(lo, hi));
+            };
             return refresh;
         }
 
@@ -786,6 +823,62 @@ namespace FarHorizon
                 _handles[i].Repaint?.Invoke();
                 _handles[i].ApplyActive?.Invoke();
             }
+        }
+
+        /// <summary>86cabe3e5 — drive a REAL UI Toolkit ChangeEvent on the SLIDER row bound to <paramref
+        /// name="settingId"/>, the SAME event a user's drag fires (set the control's value WITH notify). Unlike
+        /// calling the entry setter + <see cref="RefreshReadouts"/> directly (which drives the live param + writes
+        /// PlayerPrefs but BYPASSES the control's RegisterValueChangedCallback, so the row never repaints under
+        /// the -verifySettings shipped-build capture → settings_tweaked.png came out PIXEL-IDENTICAL to
+        /// settings_open.png, the PR #83 re-QA bug), the ChangeEvent flows through the panel binding → the
+        /// callback drives the live param AND UI Toolkit schedules a repaint, so the captured frame VISIBLY
+        /// reflects the tweak. Returns the value actually applied (post-clamp), or NaN if no such Slider row.
+        /// PUBLIC for the shipped-build capture (SettingsVerifyCapture) so the gate proves input-event →
+        /// param-change → repainted-frame end-to-end, not a synthetic setter.</summary>
+        public float DriveFloatChangeEventForCapture(string settingId, float newValue)
+        {
+            for (int i = 0; i < _handles.Count; i++)
+                if (_handles[i].Entry != null && _handles[i].Entry.Id == settingId && _handles[i].DriveFloat != null)
+                    return _handles[i].DriveFloat(newValue);
+            return float.NaN;
+        }
+
+        /// <summary>86cabe3e5 — drive a REAL ChangeEvent on the RANGE (MinMaxSlider) row bound to <paramref
+        /// name="settingId"/> (set the control's value WITH notify). Same rationale as
+        /// <see cref="DriveFloatChangeEventForCapture"/> for the dual-thumb range archetype. Returns true if a
+        /// matching Range row was driven, false otherwise. PUBLIC for the shipped-build capture.</summary>
+        public bool DriveRangeChangeEventForCapture(string settingId, float newMin, float newMax)
+        {
+            for (int i = 0; i < _handles.Count; i++)
+                if (_handles[i].Entry != null && _handles[i].Entry.Id == settingId && _handles[i].DriveRange != null)
+                {
+                    _handles[i].DriveRange(newMin, newMax);
+                    return true;
+                }
+            return false;
+        }
+
+        /// <summary>86cajb00b (#244 NIT) — set a bound control's value WITH notify for the capture drive, failing
+        /// LOUD if the target EQUALS the control's current value. UI Toolkit's <c>BaseField&lt;T&gt;.value</c> setter
+        /// early-outs (dispatches NO ChangeEvent) when the new value equals the current one
+        /// (<c>EqualityComparer&lt;T&gt;.Default</c>) — so a capture drive to the current value would SILENTLY skip
+        /// the RegisterValueChangedCallback + the row repaint, leaving <c>settings_tweaked.png</c> pixel-identical to
+        /// <c>settings_open.png</c> and FALSE-REDding <c>verify_settings_gate.sh</c> Check 3 with no clue why (the exact
+        /// symptom #244 un-quarantined). Safe TODAY (every drive target differs from its default), but a future
+        /// same-value tweak target is a no-op that can never produce a visible diff — so surface it as a NAMED failure
+        /// telling the author to pick a target that actually moves the control, rather than chasing a mystery
+        /// pixel-identical red. Capture-only surface (reached solely via the Drive*ChangeEventForCapture helpers) —
+        /// ZERO player-facing behaviour. Works for both archetypes: <see cref="Slider"/> (BaseField&lt;float&gt;) and
+        /// <see cref="MinMaxSlider"/> (BaseField&lt;Vector2&gt;).</summary>
+        public static void DriveValueWithNotify<T>(BaseField<T> control, T target)
+        {
+            if (EqualityComparer<T>.Default.Equals(control.value, target))
+                throw new System.InvalidOperationException(
+                    $"SettingsPanel capture-drive target ({target}) equals the control's CURRENT value — UI Toolkit " +
+                    "suppresses the ChangeEvent for an unchanged value, so the -verifySettings capture would NOT " +
+                    "repaint (settings_tweaked.png == settings_open.png → false-RED verify_settings_gate Check 3). " +
+                    "Pick a capture tweak target that DIFFERS from the row's current value. (86cajb00b)");
+            control.value = target; // differs → the setter dispatches the real ChangeEvent → callback + repaint
         }
 
         // Repaint a single row (after a nudge / typed commit / slider drag on that entry) — cheaper than the

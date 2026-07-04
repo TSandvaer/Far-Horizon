@@ -12,8 +12,13 @@ namespace FarHorizon
     /// proving the UX-visible panel OPENS and a tweak TAKES EFFECT LIVE in the BUILT exe — not just the
     /// editor (UI Toolkit panels are a UIDocument-render surface; editor evidence is necessary, never
     /// sufficient). A real Esc keystroke + slider drag can't be injected into a scripted/windowed build, so
-    /// this drives the panel + registry programmatically (the SAME SetOpen / SettingEntry.SetValue paths a
-    /// real interaction drives) and proves, from GROUND TRUTH, that the live param actually changed.
+    /// this drives the panel programmatically. The OPEN/corner paths use SetOpen/CycleCorner; the VALUE tweaks
+    /// (walk/zoom/scale/text) dispatch REAL UI Toolkit ChangeEvents on the bound controls via SettingsPanel.
+    /// DriveFloat/DriveRangeChangeEventForCapture — the SAME event a user's slider drag fires (86cabe3e5). That
+    /// flows through the panel binding so the live param changes AND the captured frame REPAINTS. (The earlier
+    /// entry-setter + RefreshReadouts drive changed the live param but did NOT repaint the frame →
+    /// settings_tweaked.png was pixel-identical to settings_open.png, the quarantined PR #83 re-QA bug this
+    /// ticket fixes.) Proves, from GROUND TRUTH, input-event → param-change → repainted-frame end-to-end.
     ///
     /// CAPTURES five frames, then quits:
     ///   settings_closed.png — the gameplay frame BEFORE opening (the world, panel hidden).
@@ -125,8 +130,10 @@ namespace FarHorizon
                 if (scaleEntry != null)
                 {
                     float scaleBefore = scaleEntry.Value;
-                    float scaleApplied = scaleEntry.SetValue(SettingsCatalog.ConsoleUiScaleMin); // 0.5x — visibly smaller
-                    panel.RefreshReadouts();   // the entry-setter path bypasses the slider callback (same as walk/zoom)
+                    // 86cabe3e5 — drive a REAL ChangeEvent on the slider (NOT the entry setter + RefreshReadouts):
+                    // the callback applies the live scale AND UI Toolkit repaints the captured frame.
+                    float scaleApplied = panel.DriveFloatChangeEventForCapture(
+                        SettingsCatalog.ConsoleUiScaleId, SettingsCatalog.ConsoleUiScaleMin); // 0.5x — visibly smaller
                     Debug.Log($"[SettingsVerifyCapture] CONSOLE UI SCALE tweak (NIT 1): before={Fmt(scaleBefore)} " +
                               $"setTo={Fmt(scaleApplied)} liveScale={Fmt(scaleEntry.Value)} " +
                               $"changedLive={(!Mathf.Approximately(scaleBefore, scaleEntry.Value))} differs=" +
@@ -148,7 +155,9 @@ namespace FarHorizon
             yield return null;
 
             // Restore the panel to 1.0x for the remaining frames (tweak/reset) so they read at the shipped scale.
-            if (scaleEntry != null) { scaleEntry.SetValue(1f); RestorePrefs(scaleSnapshot); panel.RefreshReadouts(); }
+            // Drive via the real ChangeEvent (86cabe3e5) so the slider + readout + transform all reset together;
+            // then restore PlayerPrefs (the ChangeEvent write-through re-dirtied the scale key — no soak pollution).
+            if (scaleEntry != null) { panel.DriveFloatChangeEventForCapture(SettingsCatalog.ConsoleUiScaleId, 1f); RestorePrefs(scaleSnapshot); }
             for (int i = 0; i < 4; i++) yield return null;
 
             // 86cabeqj9 NIT 3 — UI TEXT SCALE. DISTINCT from Console UI scale (chrome transform): dial the
@@ -163,8 +172,9 @@ namespace FarHorizon
                 if (textEntry != null)
                 {
                     float textBefore = textEntry.Value;
-                    float textApplied = textEntry.SetValue(SettingsCatalog.ConsoleTextScaleMax); // 2.0x — visibly bigger text
-                    panel.RefreshReadouts();
+                    // 86cabe3e5 — REAL ChangeEvent (the callback resizes the fonts + repaints the captured frame).
+                    float textApplied = panel.DriveFloatChangeEventForCapture(
+                        SettingsCatalog.ConsoleTextScaleId, SettingsCatalog.ConsoleTextScaleMax); // 2.0x — visibly bigger text
                     Debug.Log($"[SettingsVerifyCapture] UI TEXT SCALE tweak (NIT 3): before={Fmt(textBefore)} " +
                               $"setTo={Fmt(textApplied)} liveScale={Fmt(textEntry.Value)} " +
                               $"changedLive={(!Mathf.Approximately(textBefore, textEntry.Value))} differs=" +
@@ -187,8 +197,8 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
 
-            // Restore text scale to 1.0x for the remaining frames (no soak pollution).
-            if (textEntry != null) { textEntry.SetValue(1f); RestorePrefs(textSnapshot); panel.RefreshReadouts(); }
+            // Restore text scale to 1.0x for the remaining frames (no soak pollution). Real ChangeEvent (86cabe3e5).
+            if (textEntry != null) { panel.DriveFloatChangeEventForCapture(SettingsCatalog.ConsoleTextScaleId, 1f); RestorePrefs(textSnapshot); }
             for (int i = 0; i < 4; i++) yield return null;
 
             // 3. TWEAK walk speed to its slider max and prove the LIVE param changed (AC2).
@@ -216,17 +226,24 @@ namespace FarHorizon
             // they capture is unaffected by an early restore.)
             try
             {
-                if (walk != null) applied = walk.SetValue(walk.Max);
+                // 86cabe3e5 — drive the walk-speed tweak via a REAL UI Toolkit ChangeEvent on the bound slider
+                // (the SAME event a user's drag fires), NOT the entry setter + RefreshReadouts. The ChangeEvent
+                // flows through the panel binding → the callback drives WasdMovement.moveSpeed live (AC2) AND
+                // UI Toolkit repaints the row, so settings_tweaked.png VISIBLY reflects the new value instead of
+                // coming out pixel-identical to settings_open.png (the PR #83 re-QA bug this ticket fixes).
+                if (walk != null) applied = panel.DriveFloatChangeEventForCapture(SettingsCatalog.WalkSpeedId, walk.Max);
                 float walkAfter = wasd != null ? wasd.moveSpeed : float.NaN;
                 Debug.Log($"[SettingsVerifyCapture] WALK SPEED tweak: before={Fmt(walkBefore)} " +
                           $"setTo={Fmt(applied)} liveAfter={Fmt(walkAfter)} " +
                           $"changedLive={(!float.IsNaN(walkAfter) && !Mathf.Approximately(walkBefore, walkAfter))} (AC2)");
 
-                // Also drive + log the ZOOM range clamping the live camera (AC4).
+                // Also drive + log the ZOOM range clamping the live camera (AC4) — likewise a REAL ChangeEvent on
+                // the MinMaxSlider (86cabe3e5), preserving the current min end and moving the max down.
                 if (zoom != null && orbit != null)
                 {
                     float newMax = Mathf.Min(zoom.UpperLimit, 18f);
-                    float setMax = zoom.SetMax(newMax);
+                    panel.DriveRangeChangeEventForCapture(SettingsCatalog.ZoomRangeId, zoom.MinValue, newMax);
+                    float setMax = zoom.MaxValue;
                     Debug.Log($"[SettingsVerifyCapture] ZOOM range: setMax={Fmt(setMax)} -> orbit.maxDistance=" +
                               $"{Fmt(orbit.maxDistance)} (live system clamps to the range, AC4)");
                 }
@@ -244,18 +261,15 @@ namespace FarHorizon
                 RestorePrefs(prefsSnapshot);
             }
 
-            // REPAINT the panel so settings_tweaked.png VISIBLY shows the changed value (re-QA #83 fix).
-            // The tweak above drove the LIVE param via the entry setter (walk.SetValue / zoom.SetMax) — the
-            // single write authority — but that path BYPASSES the slider's RegisterValueChangedCallback, which
-            // is what repaints the row readout on a real drag (SettingsPanel.cs:215-219). So the live param
-            // changed (the gate log's changedLive=True proves it) yet the captured FRAME still showed the
-            // un-tweaked readout → settings_tweaked.png came out pixel-identical to settings_open.png. Drive
-            // the same RefreshReadouts() repaint the panel uses on open/Reset (it re-reads each entry's live
-            // Value and rewrites the readout text), then settle frames so UI Toolkit lays out + renders the
-            // new text before the screenshot. NOTE: RestorePrefs() above only rewrites PlayerPrefs keys — it
-            // does NOT re-apply to the live params — so the live walk/zoom values stay at the tweaked numbers
-            // here, and RefreshReadouts() reads those tweaked values. (AC2/AC4 now VISIBLE, not just logged.)
-            panel.RefreshReadouts();
+            // 86cabe3e5 — settings_tweaked.png VISIBLY shows the changed value because the walk/zoom tweaks above
+            // were driven via REAL UI Toolkit ChangeEvents on the bound controls (DriveFloat/DriveRangeChangeEvent),
+            // which repaint the row as a side effect of the dispatched event — no post-hoc RefreshReadouts crutch
+            // needed. The PREVIOUS approach drove the entry setter directly + called RefreshReadouts to force a
+            // repaint, but under -verifySettings that synthetic path did NOT repaint the captured frame, so
+            // settings_tweaked.png came out pixel-identical to settings_open.png (the PR #83 re-QA bug; the gate's
+            // visible-diff sub-check was quarantined for it). RestorePrefs() above only rewrites PlayerPrefs keys
+            // (it does NOT re-apply to the live params), so the live walk/zoom values stay at the tweaked numbers
+            // the ChangeEvent applied. Just settle frames so UI Toolkit lays out + renders before the screenshot.
             for (int i = 0; i < 5; i++) yield return null;
             ShotTo(Path.Combine(dir, "settings_tweaked.png"));
             yield return new WaitForEndOfFrame();
