@@ -35,14 +35,28 @@ namespace FarHorizon
     /// WHY A RELATIVE OFFSET (multiply), not an absolute set: the clip animates the fingers every frame; we
     /// NUDGE that pose by a fixed curl, preserving any clip motion. bone.localRotation = clip * Euler(curl,0,0).
     ///
-    /// GATED ON A HELD WEAPON BEING SHOWN: the curl applies ONLY when a held-visual weapon (axe OR spear —
-    /// 86cahngdg) is the SELECTED belt item (Inventory.IsAxeSelectedInBelt / IsSpearSelectedInBelt — AC4
-    /// 86caa4bya), coherent with HeldAxe's visibility. Empty-handed OR with the weapon in a non-selected
-    /// belt slot / in the pack, the hand keeps its natural open clip pose — we only close the hand when a
-    /// haft is actually shown in it. This SUPERSEDES the old HasAxe (ownership) gate (before the belt,
-    /// owning == holding; now selection is the right signal — item-model contract §5). Subscribes to
-    /// Inventory.Changed + applies on enable, so it is correct at spawn (no weapon → open hand) and after
-    /// every selection/move (→ gripping only when a weapon is in hand), no per-frame polling of the ledger.
+    /// GATED ON A HELD WEAPON BEING SHOWN: the curl applies whenever a weapon is actually SHOWN in the hand —
+    /// either (a) a held-visual belt weapon (axe OR spear — 86cahngdg) is the SELECTED belt item
+    /// (Inventory.IsAxeSelectedInBelt / IsSpearSelectedInBelt — AC4 86caa4bya), coherent with HeldAxe's
+    /// visibility, OR (b) the [B] DEBUG CYCLE is showing a weapon (HeldWeaponCycleDebug.DebugViewActive — the
+    /// knife/sword/spear/axe look-soak view). Empty-handed OR with the weapon in a non-selected belt slot / in
+    /// the pack, the hand keeps its natural open clip pose — we only close the hand when a haft is actually
+    /// shown in it. This SUPERSEDES the old HasAxe (ownership) gate (before the belt, owning == holding; now
+    /// selection is the right signal — item-model contract §5).
+    ///
+    /// soak-239-v2 FOUNDATION-GAP FIX (86cahnmjv — "the finger does not wrap around the handle", observed on
+    /// the debug-cycle SWORD): the belt-selection-only gate was BLIND to the [B] debug view. The knife + sword
+    /// have NO belt items (they are [B]-only look-soak weapons), and the debug cycle can only SHOW them when NO
+    /// held-visual weapon is selected — so IsAxeSelectedInBelt/IsSpearSelectedInBelt were both FALSE while the
+    /// sword was in hand → the curl NEVER RAN → the hand stayed in the open clip pose (thumb straight out, not
+    /// wrapping). The prior -verifyHands "thumbs wrap" evidence measured only the axe/spear GRIPPING states, so
+    /// it and the Sponsor's eye were reading DIFFERENT states. The hand-close is weapon-AGNOSTIC (it closes the
+    /// fingers/thumb toward the palm; the weapon seats INTO that grip via its per-weapon mesh-holder offset), so
+    /// the SAME curl family wraps any displayed weapon — the fix is GATE COVERAGE, not a per-weapon curl value.
+    ///
+    /// The selection part is cached on Inventory.Changed + applied on enable (no per-frame ledger polling);
+    /// the debug-view part is read LIVE each LateUpdate (a single bool — the [B] cycle does NOT fire
+    /// Inventory.Changed, so a cached-only gate would miss it), correct at spawn and after every change.
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): authored editor-time by MovementCameraScene
     /// (BuildPlayer → AddFingerCurl) and serialized onto the avatar root with the finger bones resolved from
@@ -77,15 +91,26 @@ namespace FarHorizon
                  "scene-found fallback in Awake. When the axe is not the selected belt item (or none is " +
                  "held), the hand keeps its natural OPEN clip pose (we only grip a haft actually in hand).")]
         public Inventory inventory;
+        [Tooltip("The [B] debug-cycle handle (HeldWeaponCycleDebug). When its DebugViewActive is true a " +
+                 "look-soak weapon (knife/sword/...) is shown in the hand WITHOUT a belt selection, so the " +
+                 "curl must grip it too (soak-239-v2 foundation-gap fix). Runtime-resolved in Awake if unwired " +
+                 "so the committed Boot.unity needs no regen; the debug-view read is null-safe when absent.")]
+        public HeldWeaponCycleDebug weaponCycle;
         [Tooltip("If true, always curl regardless of selection (verification/diagnostic only).")]
         public bool alwaysCurl = false;
 
         private Quaternion _fingerOffset, _thumbOffset;
-        private bool _gripping;
+        private bool _selectionGrip; // cached: a held-visual weapon is the SELECTED belt item (Changed-driven)
 
         void Awake()
         {
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
+            // Runtime-resolve the [B] debug handle if unwired (the committed Boot.unity predates this field →
+            // deserializes null there; a fresh bootstrap can wire it, but the fallback keeps the shipped scene
+            // correct with NO regen — mirrors the `inventory` fallback above). Inactive-include: the HeroAxe
+            // seat carrying it may be renderer-hidden. Null-safe if absent (a stripped build has no debug view).
+            if (weaponCycle == null)
+                weaponCycle = FindAnyObjectByType<HeldWeaponCycleDebug>(FindObjectsInactive.Include);
             RebuildCached();
         }
 
@@ -111,25 +136,37 @@ namespace FarHorizon
         /// (EditMode, real FBX) asserts the SHIPPED offset moves the thumb tip TOWARD the fist.</summary>
         public Quaternion ThumbOffset { get { return _thumbOffset; } }
 
-        // Gripping = a held-visual weapon (axe OR spear — 86cahngdg) is the SELECTED belt item (shown in
-        // hand), or alwaysCurl (AC4). Coherent with HeldAxe's visibility — the hand only closes around a
-        // haft that is actually shown. The spear joined the predicate with the soak-224 crossed-visual fix:
-        // the spear's Sponsor-dialed in-hand seat (5caf1be) was dialed WITH the curl active (axe selected
-        // while the spear was [B]-displayed), so gripping the selected spear reproduces the approved read;
-        // an open hand through the spear haft is the documented "mangled finger" percept.
+        // Selection-grip = a held-visual weapon (axe OR spear — 86cahngdg) is the SELECTED belt item (shown in
+        // hand). Coherent with HeldAxe's visibility — the hand only closes around a haft that is actually shown.
+        // The spear joined the predicate with the soak-224 crossed-visual fix: the spear's Sponsor-dialed
+        // in-hand seat (5caf1be) was dialed WITH the curl active, so gripping the selected spear reproduces the
+        // approved read. Cached on Inventory.Changed (no per-frame ledger polling); the [B] debug-view part is
+        // OR'd LIVE in ShouldGrip (the [B] cycle does NOT fire Changed, so a cached-only gate would miss it).
         private void ApplyGate()
         {
-            _gripping = alwaysCurl || (inventory != null &&
-                        (inventory.IsAxeSelectedInBelt || inventory.IsSpearSelectedInBelt));
+            _selectionGrip = inventory != null &&
+                             (inventory.IsAxeSelectedInBelt || inventory.IsSpearSelectedInBelt);
         }
 
+        /// <summary>True when the [B] debug cycle is showing a look-soak weapon in the hand (no belt selection).
+        /// Read LIVE (the cycle toggles it on a keypress, not via Inventory.Changed). Null-safe if no debug
+        /// handle is present (a stripped build).</summary>
+        private bool DebugWeaponShown => weaponCycle != null && weaponCycle.DebugViewActive;
+
+        /// <summary>The PURE grip predicate (soak-239-v2 foundation-gap fix): the hand curls whenever a weapon
+        /// is actually shown in it — a SELECTED belt weapon OR a [B] debug-view weapon OR the diagnostic
+        /// alwaysCurl override. Extracted so the EditMode gate contract pins that the debug view IS covered
+        /// (a re-narrowing to belt-selection-only — the exact soak-239-v2 regression — reds this).</summary>
+        public static bool ShouldGrip(bool alwaysCurl, bool selectionGrip, bool debugWeaponShown)
+            => alwaysCurl || selectionGrip || debugWeaponShown;
+
         /// <summary>Whether the curl is currently applied (the hand is gripping). Exposed for the PlayMode
-        /// regression so it can assert the gate flips with HasAxe.</summary>
-        public bool IsGripping => _gripping;
+        /// regression so it can assert the gate flips with a held weapon (belt selection OR the [B] debug view).</summary>
+        public bool IsGripping => ShouldGrip(alwaysCurl, _selectionGrip, DebugWeaponShown);
 
         void LateUpdate()
         {
-            if (!_gripping) return; // empty hand keeps the natural open clip pose
+            if (!IsGripping) return; // empty hand keeps the natural open clip pose
             if (fingerBones != null)
                 foreach (var b in fingerBones)
                     if (b != null) b.localRotation = b.localRotation * _fingerOffset;

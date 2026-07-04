@@ -355,10 +355,12 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(pose.seedEulersFromDegFields,
                 "the shipped arm pose must NOT re-seed from the deg fields (else a RebuildCached clobbers the " +
                 "Sponsor's baked F9 dial — re-soak #1)");
-            Assert.That(pose.rightArmEuler, Is.EqualTo(new Vector3(-4.0f, -50.0f, -3.0f)),
-                "the RIGHT arm euler must ship the Sponsor's dialed value (-4,-50,-3)");
+            Assert.That(pose.rightArmEuler, Is.EqualTo(new Vector3(-2.0f, -34.0f, -7.0f)),
+                "the RIGHT arm euler must ship the Sponsor's dialed value (-2,-34,-7) — soak-239-v2 (c962ace) " +
+                "SUPERSEDES (-4,-50,-3). CI re-bootstraps Boot.unity before this test, so the field-initializer " +
+                "default in CastawayArmPose is the ship source (no committed-scene regen needed).");
             Assert.That(pose.leftArmEuler, Is.EqualTo(new Vector3(-5.0f, 22.0f, 0.0f)),
-                "the LEFT arm euler must ship the Sponsor's dialed value (-5,22,0)");
+                "the LEFT arm euler must ship the Sponsor's dialed value (-5,22,0) — unchanged in soak-239-v2");
         }
 
         // RE-SOAK #2 contact-shadow wiring guard (86ca8rdkp re-soak — 'he STILL seems elevated'): the foot-

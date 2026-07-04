@@ -53,6 +53,7 @@ namespace FarHorizon
         private Inventory _inventory;
         private WasdMovement _player;
         private CastawayFingerCurl _curl;
+        private HeldWeaponCycleDebug _weaponCycle; // the [B] debug handle — drives the sword/knife look-soak states
         private string _dir;
         private bool _stateEngageFailed;
 
@@ -92,8 +93,9 @@ namespace FarHorizon
             _inventory = Object.FindAnyObjectByType<Inventory>();
             _player = Object.FindAnyObjectByType<WasdMovement>();
             _curl = Object.FindAnyObjectByType<CastawayFingerCurl>();
+            _weaponCycle = Object.FindAnyObjectByType<HeldWeaponCycleDebug>(FindObjectsInactive.Include);
             Debug.Log("[HandsVerifyCapture] seams: inventory=" + (_inventory != null) + " player=" + (_player != null) +
-                      " fingerCurl=" + (_curl != null));
+                      " fingerCurl=" + (_curl != null) + " weaponCycle=" + (_weaponCycle != null));
 
             // Pin facing to +Z (front) so the empty-idle baseline framing is deterministic run-to-run (the same
             // construction CastawayVerifyCapture uses). Movement states re-face naturally; framing is model-relative.
@@ -167,6 +169,9 @@ namespace FarHorizon
             // --- 3. SPEAR HELD, idle (#232 — the newest grip surface; spear haft is thinner than the axe's) ---
             yield return SelectWeapon(ItemCatalog.SpearId, "idle_spear");
             yield return GridShots("idle_spear", shootLeft: true, tips: true, rear: true);
+            // Dead-front gripping shot — the thumb-vs-grip wrap angle, for ALL FOUR held weapons (86cahnmjv v3).
+            if (_rightHand != null)
+                yield return ShootHand("hands_idle_spear_right_front.png", _rightHand, new Vector3(0.05f, 0.15f, 1.0f));
 
             // --- 4. WALK with the axe (curl composes onto the Walk clip's finger pose; two gait phases) ---
             yield return SelectWeapon(ItemCatalog.AxeId, "walk_axe");
@@ -206,7 +211,25 @@ namespace FarHorizon
                 yield return WaitSettle(1.2f); // let the one-shot return to idle
             }
 
-            // --- 8. WALK EMPTY-HANDED (isolates clip-pose vs curl if a walk_axe frame shows a defect) ---
+            // --- 7b. SWORD (debug-view) idle — THE soak-239-v2 finger-fail state (86cahnmjv). The sword has NO
+            //     belt item (it is [B]-only), and the [B] cycle only SHOWS it with no axe/spear selected — so the
+            //     old belt-selection-only curl gate was OFF here (open hand, thumb not wrapping). The curl now
+            //     gates on the debug view too; this state PROVES the wrap engages on the sword the Sponsor judged.
+            //     Dead-front + outer + tips so the thumb-vs-grip wrap is judgeable at his read-angle. ---
+            yield return SelectDebugWeapon(2 /*sword — HeldWeaponCycleDebug index*/, "idle_sword");
+            yield return GridShots("idle_sword", shootLeft: true, tips: true, rear: false);
+            if (_rightHand != null)
+                yield return ShootHand("hands_idle_sword_right_front.png", _rightHand, new Vector3(0.05f, 0.15f, 1.0f));
+
+            // --- 7c. KNIFE (debug-view) idle — the other [B]-only look-soak weapon; same curl coverage. ---
+            yield return SelectDebugWeapon(1 /*knife*/, "idle_knife");
+            yield return GridShots("idle_knife", shootLeft: false, tips: true, rear: false);
+            if (_rightHand != null)
+                yield return ShootHand("hands_idle_knife_right_front.png", _rightHand, new Vector3(0.05f, 0.15f, 1.0f));
+
+            // --- 8. WALK EMPTY-HANDED (isolates clip-pose vs curl if a walk_axe frame shows a defect). Selecting
+            //     an empty belt slot below also CLEARS the [B] debug view (Inventory.Changed → the cycle's sync),
+            //     so SelectEmptyBeltSlot's !gripping assert holds after the sword/knife states above. ---
             yield return SelectEmptyBeltSlot("walk_empty");
             if (_player != null) { _player.SetInputOverride(new Vector2(0f, 1f)); _player.SetSprintOverride(false); }
             yield return WaitSettle(1.4f);
@@ -293,6 +316,45 @@ namespace FarHorizon
             {
                 Debug.LogError($"[hands-state] {state}: curl STILL gripping with an empty slot selected — " +
                                "gate regression; failing the run");
+                _stateEngageFailed = true;
+            }
+        }
+
+        // Show a [B]-debug-view weapon (knife/sword — no belt item) through the REAL cycle seam, then verify
+        // the state engaged (debug view shown + the curl now GRIPPING via the widened gate). This is the state
+        // the Sponsor judged the sword in (soak-239-v2); a silently-unengaged state would produce a lying
+        // "clean" frame, so engage-failure fails the run — same contract as SelectWeapon.
+        private IEnumerator SelectDebugWeapon(int familyIndex, string state)
+        {
+            if (_weaponCycle == null || _inventory == null)
+            {
+                Debug.LogError($"[hands-state] {state}: missing HeldWeaponCycleDebug/Inventory — cannot drive the " +
+                               "debug-view weapon (build-side regression signal)");
+                _stateEngageFailed = true;
+                yield break;
+            }
+            // Deselect any held-visual belt weapon so the [B] cycle isn't REFUSED (selection owns the visual).
+            var belt = _inventory.Model.BeltSlots;
+            int empty = -1;
+            for (int i = 0; i < belt.Count; i++) if (belt[i].IsEmpty) { empty = i; break; }
+            if (empty >= 0) _inventory.Model.SelectBelt(empty);
+            for (int i = 0; i < 6; i++) yield return null;
+
+            // Cycle [B] to the desired family index (0=axe,1=knife,2=sword,3=spear; wraps — bounded by size+1).
+            int guard = 0;
+            while (_weaponCycle.CurrentIndex != familyIndex &&
+                   guard++ <= HeldWeaponCycleDebug.WeaponNodeNames.Length)
+                _weaponCycle.CycleHeldWeaponDebug();
+            for (int i = 0; i < 12; i++) yield return null; // curl gate re-reads DebugViewActive live next LateUpdate
+
+            bool shown = _weaponCycle.DebugViewActive && _weaponCycle.CurrentIndex == familyIndex;
+            bool gripping = _curl != null && _curl.IsGripping;
+            Debug.Log($"[hands-state] {state}: debug-view {HeldWeaponCycleDebug.WeaponLabels[familyIndex]} " +
+                      $"idx={_weaponCycle.CurrentIndex} debugView={_weaponCycle.DebugViewActive} gripping={gripping}");
+            if (!shown || !gripping)
+            {
+                Debug.LogError($"[hands-state] {state}: debug-view weapon did NOT engage (shown={shown} " +
+                               $"gripping={gripping}) — the grid frame would lie; failing the run");
                 _stateEngageFailed = true;
             }
         }

@@ -114,8 +114,17 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial, 5 = AXE HEAD size
+        /// <summary>The ARM-POSE target index — the tool BOOTS here (86cahnmjv deliverable 3). The Sponsor burned
+        /// two sessions on the RUN-target zero-engagement trap (target 4 is INERT at walk/idle — run weight 0 —
+        /// so dialing it does nothing until he happens to be running, reading as a dead tool). The arm target is
+        /// the one he dials most (it produced the baked RightArmEuler/LeftArmEuler), and it engages immediately
+        /// at idle, so booting here removes the Tab-hunt + the dead-on-arrival RUN landing.</summary>
+        public const int ArmTargetIndex = 2;
+        private int _target = ArmTargetIndex;   // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y, 4 = RUN, 5 = AXE HEAD
         private const int TargetCount = 6;
+        /// <summary>The current nudge target index (read-only) — exposed so the EditMode guard pins the boot
+        /// default to the arm target (deliverable 3), not the RUN-target zero-engagement trap.</summary>
+        public int ActiveTargetIndex => _target;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         // 86cabh907 soak round 2 — the HELD target is GENERALIZED to whatever weapon [B] has selected. For the

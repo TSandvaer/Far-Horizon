@@ -95,11 +95,13 @@ namespace FarHorizon
         // — this is what-he-dialed-is-what-ships. seedEulersFromDegFields ships FALSE so RebuildCached does NOT
         // re-derive over them from the deg fields (the deg fields stay only as the conservative SEED path the
         // EditMode seed test still exercises). The F9 tool still nudges these so he can re-tune later.
-        [Tooltip("RIGHT upper-arm LOCAL-euler offset (deg) — BAKED from the Sponsor's F9 dial (re-soak #1). " +
-                 "The F9 nudge tool (arm-pose target) edits this; paste RightArmEuler to re-bake.")]
-        public Vector3 rightArmEuler = new Vector3(-4.0f, -50.0f, -3.0f);
-        [Tooltip("LEFT upper-arm LOCAL-euler offset (deg) — BAKED from the Sponsor's F9 dial (re-soak #1). " +
-                 "Dialed via F9; paste LeftArmEuler to re-bake.")]
+        [Tooltip("RIGHT upper-arm LOCAL-euler offset (deg) — BAKED from the Sponsor's F9 dial. soak-239-v2 " +
+                 "(build c962ace, 2026-07-04) SUPERSEDES the re-soak-#1 (-4,-50,-3): the Sponsor re-dialed the " +
+                 "right arm via the F9 arm target and settled on (-2,-34,-7). The F9 tool edits this; paste " +
+                 "RightArmEuler to re-bake.")]
+        public Vector3 rightArmEuler = new Vector3(-2.0f, -34.0f, -7.0f);
+        [Tooltip("LEFT upper-arm LOCAL-euler offset (deg) — BAKED from the Sponsor's F9 dial. soak-239-v2 " +
+                 "confirmed (-5,22,0) unchanged. Dialed via F9; paste LeftArmEuler to re-bake.")]
         public Vector3 leftArmEuler = new Vector3(-5.0f, 22.0f, 0.0f);
 
         // When true, RebuildCached re-DERIVES the per-arm eulers from the named deg fields (the conservative

@@ -25,6 +25,7 @@ namespace FarHorizon.PlayTests
     {
         private GameObject _root;          // the avatar root carrying CastawayFingerCurl
         private GameObject _invGo;
+        private GameObject _seatGo;        // the [B] debug-cycle seat (built only by the debug-view test)
         private Inventory _inv;
         private CastawayFingerCurl _curl;
         private Transform[] _fingerBones;
@@ -72,6 +73,7 @@ namespace FarHorizon.PlayTests
         {
             Object.Destroy(_root);
             Object.Destroy(_invGo);
+            if (_seatGo != null) Object.Destroy(_seatGo);
         }
 
         // EMPTY-handed (HasAxe false): the fingers keep their OPEN clip pose — the curl must NOT fire (we only
@@ -114,6 +116,67 @@ namespace FarHorizon.PlayTests
                 Assert.Less(moved, 0.5f,
                     $"finger {i} curl must be a bounded grip ({moved:F4}u), not a wild clench-through.");
             }
+        }
+
+        // soak-239-v2 FOUNDATION-GAP regression (86cahnmjv — "the finger does not wrap around the handle",
+        // observed on the debug-cycle SWORD). The sword/knife have NO belt items; the [B] cycle only SHOWS them
+        // with no axe/spear selected — so the OLD belt-selection-only gate was OFF while the sword was in hand
+        // (open 'mangled' hand). Drives the REAL HeldWeaponCycleDebug seam: with NO weapon selected, [B]-cycle to
+        // a look-soak weapon (DebugViewActive) and assert the curl now GRIPS + the fingers close. A gate that
+        // ignores the debug view reds here (IsGripping stays false; the fingers never curl).
+        [UnityTest]
+        public IEnumerator DebugViewWeapon_FingersCurl_EvenWithNoBeltSelection()
+        {
+            // A minimal debug-cycle seat: a Cube = MeshFilter+MeshRenderer on the root (the collapsed
+            // single-node-FBX topology). HeldWeaponCycleDebug.Awake captures the root MeshFilter as the holder.
+            _seatGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Object.Destroy(_seatGo.GetComponent<Collider>());
+            var cycle = _seatGo.AddComponent<HeldWeaponCycleDebug>();
+            var gate = _seatGo.AddComponent<HeldAxe>();
+            gate.inventory = _inv;
+            _curl.weaponCycle = cycle; // wire the curl to the [B] handle (runtime-resolved on the real rig)
+            yield return null; // Awake/OnEnable wiring
+
+            Assert.IsFalse(_curl.IsGripping,
+                "precondition: no belt weapon selected + no debug view -> open hand (not gripping)");
+            Vector3[] openTips = SampleTips();
+
+            // [B]-cycle off the axe (index 0) to the next look-soak weapon (knife) — no belt weapon is selected,
+            // so the cycle is NOT refused and DebugViewActive turns on. This is the exact seam the Sponsor used.
+            Assert.IsTrue(cycle.CycleHeldWeaponDebug(),
+                "empty-handed the [B] debug cycle must engage (the knife/sword look-soak view)");
+            yield return null; // the curl re-reads DebugViewActive live next LateUpdate
+            yield return null;
+
+            Assert.IsTrue(cycle.DebugViewActive, "the debug view is active (a look-soak weapon is shown)");
+            Assert.IsTrue(_curl.IsGripping,
+                "THE FOUNDATION-GAP GUARD: the curl must GRIP a [B] debug-view weapon even though NO belt weapon " +
+                "is selected — the old belt-selection-only gate left the sword in an open hand (soak-239-v2)");
+            for (int i = 0; i < 3; i++)
+            {
+                float moved = Vector3.Distance(_fingerTips[i].position, openTips[i]);
+                Assert.Greater(moved, 0.01f,
+                    $"finger {i} tip must CURL into the grip around the debug-view weapon (moved {moved:F4}u) — " +
+                    "a gate that ignores the debug view ships the open 'mangled' hand on the sword/knife.");
+                Assert.Less(moved, 0.5f, $"finger {i} curl must be a bounded grip ({moved:F4}u), not a clench-through.");
+            }
+
+            // An inventory change CLEARS the debug view (the cycle's sync) -> the hand re-opens (no false grip).
+            _inv.CraftAxe();          // axe now owned+selected -> selection owns the visual, debug view cleared
+            _inv.Model.SelectBelt(FindEmptyBelt()); // deselect to an empty slot -> nothing shown
+            yield return null;
+            yield return null;
+            Assert.IsFalse(cycle.DebugViewActive, "an inventory change clears the [B] debug view");
+            Assert.IsFalse(_curl.IsGripping,
+                "with the debug view cleared AND no weapon selected the hand re-opens (no lingering false grip)");
+        }
+
+        // The first empty belt slot (to deselect all weapons) — mirrors HandsVerifyCapture.SelectEmptyBeltSlot.
+        private int FindEmptyBelt()
+        {
+            var belt = _inv.Model.BeltSlots;
+            for (int i = 0; i < belt.Count; i++) if (belt[i].IsEmpty) return i;
+            return 0;
         }
 
         private Vector3[] SampleTips()
