@@ -460,6 +460,23 @@ jobs:
   # build-job gate step went red — the capture verdict is REQUIRED, not optional.
   # No bootstrap / no Unity build here: this job launches the prebuilt exe only, so
   # it has no PackageCache contention of its own.
+  #
+  # HEADLESS RT-READBACK CONVERSION (86cag93zb AC2/AC3, 2026-07-03) — 4 SCENE-CONTENT gates now launch
+  # -batchmode (NO -nographics, NO window): the GENERIC capture gate (capture_gate.sh), CHOP
+  # (verify_chop_gate.sh), HELD-BELT (verify_heldbelt_gate.sh) + SKY (verify_sky_gate.sh). Their
+  # components render Camera.main / a dedicated cam into an OFFSCREEN RenderTexture
+  # (RenderTextureCapture.CaptureCameraToTexture → RenderPipeline.SubmitRenderRequest, full URP post) and
+  # read the pixels back — a real D3D12 device inits under -batchmode (proven on the shipped standalone
+  # player, not just the editor spike #248), so NO windowed swapchain is needed. The launch-mode change
+  # lives in the gate SCRIPTS, so these step invocations are unchanged.
+  # STILL WINDOWED (-screen-fullscreen 0) — the OVERLAY gates whose deliverable is an IMGUI / UI-Toolkit
+  # SCREEN overlay that never composites into a camera RT (backbuffer ScreenCapture is dead headless —
+  # empirically re-confirmed): SETTINGS (UI-Toolkit panel), LOOT + WATER (IMGUI prompt), INV-DRAG-GHOST
+  # (UI-Toolkit) — AND POND (verify_pond_gate.sh: scene-content + convertible, but its 7 finely-tuned
+  # #130-nine-round-soak perceptual gates are deferred to a careful follow-up so a blind convert can't
+  # false-green the very percept the pond gate exists to guard). Because those gates still need a window,
+  # this whole job STAYS PINNED to runner-1 + SERIAL for now; unpinning is AC4 (86cag93zb), which splits
+  # the headless gates into their own unpinned job once they prove stable in CI here.
   # ---------------------------------------------------------------------------
   capture:
     name: capture (self-hosted runner-1, windowed gates)

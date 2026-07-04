@@ -152,6 +152,30 @@ namespace FarHorizon.Combat
             if (groundMask.value == 0) groundMask = 1 << LayerMask.NameToLayer("Ground");
 
             int n = segments != null ? segments.Length : 0;
+            RebuildPlantOffsets(n);
+
+            // Seed the trail from the AUTHORED layout (head at root, body laid out behind) so frame 1
+            // already poses a full snake — no pop-in while the real trail accumulates.
+            _trail.Clear();
+            Vector3 rootP = transform.position;
+            _trail.Add(rootP);
+            _seedBackDir = SeedBackDir(); // cached ONCE (86cahzycp NIT 3) — see the SeedBackDir comment
+            for (int i = 1; i < Mathf.Max(2, n); i++)
+                _trail.Add(rootP + _seedBackDir * (segmentSpacing * i));
+            _lastSampled = rootP;
+            _prevRootPos = rootP;
+        }
+
+        // Build the per-segment belly-to-center half-height array, sized to EXACTLY `n` (the current
+        // segments.Length). 86cajk7vb: EnsureInit is _initialized-guarded and ran once at Awake; if `segments`
+        // is assigned AFTER Awake (the normal AddComponent-then-wire order — every PlayMode snake rig, and any
+        // runtime re-seg), the old code left _plantOffsets sized to the Awake-time length (1 when segments was
+        // still null) while LateUpdate indexes _plantOffsets[i] for i < segments.Length → IndexOutOfRange at
+        // line ~264. LateUpdate now re-syncs via this helper whenever the lengths diverge, so the array always
+        // matches the live segment count (shipped Boot.unity serializes segments pre-Awake, so it never diverged
+        // there — this hardens the post-init-assignment path the tests exercise).
+        private void RebuildPlantOffsets(int n)
+        {
             _plantOffsets = new float[Mathf.Max(1, n)];
             for (int i = 0; i < n; i++)
             {
@@ -164,17 +188,6 @@ namespace FarHorizon.Combat
                 }
                 _plantOffsets[i] = half;
             }
-
-            // Seed the trail from the AUTHORED layout (head at root, body laid out behind) so frame 1
-            // already poses a full snake — no pop-in while the real trail accumulates.
-            _trail.Clear();
-            Vector3 rootP = transform.position;
-            _trail.Add(rootP);
-            _seedBackDir = SeedBackDir(); // cached ONCE (86cahzycp NIT 3) — see the SeedBackDir comment
-            for (int i = 1; i < Mathf.Max(2, n); i++)
-                _trail.Add(rootP + _seedBackDir * (segmentSpacing * i));
-            _lastSampled = rootP;
-            _prevRootPos = rootP;
         }
 
         // The initial "behind the head" direction: from the authored layout when available (head → link1),
@@ -201,6 +214,10 @@ namespace FarHorizon.Combat
         {
             EnsureInit();
             if (segments == null || segments.Length == 0) return;
+            // Re-sync the plant-offset array if `segments` grew/changed after EnsureInit (assigned post-Awake —
+            // the PlayMode-rig order). Guards the _plantOffsets[i] index at the loop below (86cajk7vb).
+            if (_plantOffsets == null || _plantOffsets.Length != segments.Length)
+                RebuildPlantOffsets(segments.Length);
 
             // --- 1. Trail upkeep: sample the root's path; the body follows THIS polyline. ---
             Vector3 rootP = transform.position;
