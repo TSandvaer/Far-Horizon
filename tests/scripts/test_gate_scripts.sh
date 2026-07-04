@@ -431,9 +431,16 @@ IDENTDIR="$TMP/frames_ident_fix"; python3 "$PNG_HELPER" "$IDENTDIR" identical   
 
 # Fake-exe factory: writes 3 good PNGs into -captureDir and a log into -logFile.
 # $1 = output path, $2 = the changedLive token (True / False / empty = no proof line),
-# $3 = "identical" → tweaked frame is a byte-copy of open (the PR #83 pixel-identical bug).
+# $3 = "identical" → tweaked frame is a byte-copy of open (the PR #83 pixel-identical bug),
+# $4 = #247 row-visibility proof emission (Check 4 — DEV at the open frame + PLAYER at the F1
+#      drawer; the real SettingsVerifyCapture logs BOTH from VisibleRowCount ground truth):
+#        "both"   (default) → DEV rows visible: 9/62 AND PLAYER rows visible: 8/8 (both > 0) — the
+#                             faithful mirror of a healthy shipped run; Check 4 passes.
+#        "devzero"          → DEV rows visible: 0/62 (one collapsed drawer, the #247 regression) —
+#                             Check 4's zero-rows branch must red the gate.
+#        "none"             → emit NEITHER proof line — Check 4's absent-proof branch must red it.
 make_fake_exe() {
-  local exe="$1" changed="$2" ident="${3:-}"
+  local exe="$1" changed="$2" ident="${3:-}" rows="${4:-both}"
   cat > "$exe" <<FAKE
 #!/usr/bin/env bash
 capdir=""; logf=""
@@ -448,6 +455,16 @@ python3 "$PNG_HELPER" "\$capdir" "$ident"
 if [ -n "$changed" ]; then
   echo "[SettingsVerifyCapture] WALK SPEED tweak: before=5.00 setTo=9.00 liveAfter=9.00 changedLive=$changed (AC2)" >> "\$logf"
 fi
+# #247 row-visibility proof lines — mirror the real SettingsVerifyCapture emission so the gate's
+# Check 4 (both drawers show > 0 rows) and this fixture path AGREE. Check 4 greps per-drawer:
+# 'DEV rows visible: [1-9]' AND 'PLAYER rows visible: [1-9]' (pass) / 'rows visible: 0 ' (fail).
+case "$rows" in
+  both)    echo "[SettingsVerifyCapture] DEV rows visible: 9 / 62 routed (viewportHeight=699.0px; #247 empty-drawers guard)" >> "\$logf"
+           echo "[SettingsVerifyCapture] PLAYER rows visible: 8 / 8 routed (viewportHeight=565.5px; #247 empty-drawers guard)" >> "\$logf";;
+  devzero) echo "[SettingsVerifyCapture] DEV rows visible: 0 / 62 routed (viewportHeight=0.0px; #247 empty-drawers guard)" >> "\$logf"
+           echo "[SettingsVerifyCapture] PLAYER rows visible: 8 / 8 routed (viewportHeight=565.5px; #247 empty-drawers guard)" >> "\$logf";;
+  none)    : ;;  # emit NEITHER proof line (the absent-proof-line case)
+esac
 echo "[SettingsVerifyCapture] verification complete -> \$capdir" >> "\$logf"
 exit 0
 FAKE
@@ -486,6 +503,22 @@ assert_rc_and_grep 1 "exe not found" "missing exe fails loud" \
 make_fake_exe "$TMP/fake_identical.sh" "True" "identical"
 assert_rc_and_grep 1 "visible-diff sub-check FAILED" "pixel-identical tweaked frame FAILS the gate (un-quarantined 86cabe3e5)" \
   -- bash "$SETTINGS_GATE" "$TMP/fake_identical.sh" "$TMP/scaps_id" "$TMP/slog_id.log"
+
+# 6. THE #247 EMPTY-DRAWERS GUARD — Check 4 is FATAL. A drawer reporting ZERO visible rows FAILS the
+#    gate even with changedLive=True AND a visibly-different tweaked frame (Checks 1-3 all GREEN): the
+#    exact PR #247 symptom — the panel drew its header + footer but the flex-grow rows ScrollView
+#    collapsed against a zero-height drawer container → zero rows rendered, and frame_check (whole-frame
+#    only) waved the green gameplay world through. This isolates Check 4 as the sole failing check.
+make_fake_exe "$TMP/fake_devzero.sh" "True" "" "devzero"
+assert_rc_and_grep 1 "a drawer showed ZERO visible rows" "empty DEV drawer (0 rows) FAILS the gate (#247)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_devzero.sh" "$TMP/scaps_dz" "$TMP/slog_dz.log"
+
+# 7. #247 — the row-visibility proof line ABSENT for both drawers FAILS the gate. A build that never
+#    probed row visibility (an older/regressed SettingsVerifyCapture) cannot silently pass Check 4;
+#    the check demands the ground-truth proof line, not its mere absence. Checks 1-3 green; Check 4 fails.
+make_fake_exe "$TMP/fake_norows.sh" "True" "" "none"
+assert_rc_and_grep 1 "missing the #247 row-visibility proof line" "absent row-visibility proof FAILS the gate (#247)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_norows.sh" "$TMP/scaps_nr" "$TMP/slog_nr.log"
 
 echo "=== frames_differ.py (visible-tweak diff, 86caa4bqp re-QA) ==="
 
