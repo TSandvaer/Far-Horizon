@@ -439,8 +439,16 @@ IDENTDIR="$TMP/frames_ident_fix"; python3 "$PNG_HELPER" "$IDENTDIR" identical   
 #        "devzero"          → DEV rows visible: 0/62 (one collapsed drawer, the #247 regression) —
 #                             Check 4's zero-rows branch must red the gate.
 #        "none"             → emit NEITHER proof line — Check 4's absent-proof branch must red it.
+# $5 = #247 v2 stepper-fit proof emission (Check 5 — the smallest resolved [−]/value/[+] cell
+#      width per drawer; the real SettingsVerifyCapture logs BOTH from MinStepperCellWidth ground
+#      truth). Check 5 greps 'PLAYER STEPPER fit' / 'DEV STEPPER fit' + extracts minCellWidth
+#      (>= 20px pass; < 20px crush fail; -1 no-stepper-row legit pass):
+#        "both"   (default) → both drawers minCellWidth=28.0px (healthy 28px button) — Check 5 passes.
+#        "crush"            → PLAYER minCellWidth=8.0px (the F1 [−]/value/[+] crush the #247 v2 gate
+#                             catches; F3 stays roomy) — Check 5's crush branch must red the gate.
+#        "none"             → emit NEITHER stepper-fit line — Check 5's absent-proof branch must red it.
 make_fake_exe() {
-  local exe="$1" changed="$2" ident="${3:-}" rows="${4:-both}"
+  local exe="$1" changed="$2" ident="${3:-}" rows="${4:-both}" stepper="${5:-both}"
   cat > "$exe" <<FAKE
 #!/usr/bin/env bash
 capdir=""; logf=""
@@ -464,6 +472,17 @@ case "$rows" in
   devzero) echo "[SettingsVerifyCapture] DEV rows visible: 0 / 62 routed (viewportHeight=0.0px; #247 empty-drawers guard)" >> "\$logf"
            echo "[SettingsVerifyCapture] PLAYER rows visible: 8 / 8 routed (viewportHeight=565.5px; #247 empty-drawers guard)" >> "\$logf";;
   none)    : ;;  # emit NEITHER proof line (the absent-proof-line case)
+esac
+# #247 v2 stepper-fit proof lines (Check 5) — mirror the real SettingsVerifyCapture emission
+# (SettingsVerifyCapture.cs PLAYER/DEV STEPPER fit) so the gate's Check 5 (both drawers'
+# [−]/value/[+] columns have room) and this fixture path AGREE. Check 5 greps per-drawer:
+# 'PLAYER STEPPER fit' / 'DEV STEPPER fit' + extracts minCellWidth (>= 20px pass / < 20px crush).
+case "$stepper" in
+  both)  echo "[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px)" >> "\$logf"
+         echo "[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px OR -1/no-steppers)" >> "\$logf";;
+  crush) echo "[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth=8.0px stepperRows=2 (must be > 20px)" >> "\$logf"
+         echo "[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px OR -1/no-steppers)" >> "\$logf";;
+  none)  : ;;  # emit NEITHER stepper-fit line (the absent-proof-line case)
 esac
 echo "[SettingsVerifyCapture] verification complete -> \$capdir" >> "\$logf"
 exit 0
@@ -519,6 +538,17 @@ assert_rc_and_grep 1 "a drawer showed ZERO visible rows" "empty DEV drawer (0 ro
 make_fake_exe "$TMP/fake_norows.sh" "True" "" "none"
 assert_rc_and_grep 1 "missing the #247 row-visibility proof line" "absent row-visibility proof FAILS the gate (#247)" \
   -- bash "$SETTINGS_GATE" "$TMP/fake_norows.sh" "$TMP/scaps_nr" "$TMP/slog_nr.log"
+
+# 8. THE #247 v2 F1-CRAMP GUARD — Check 5 is FATAL. A drawer whose int-stepper [−]/value/[+]
+#    columns crush below their design width (minCellWidth < 20px) FAILS the gate even with
+#    changedLive=True, a visibly-different tweaked frame, AND both drawers showing rows (Checks
+#    1-4 all GREEN): the exact PR #247 v2 symptom the Sponsor re-soak flagged — the F1 stepper
+#    control (flex-grow:1 + default flex-shrink:1) collapsed and overlapped its glyphs on the
+#    no-scrollbar F1 rows. A within-row column crush is invisible to Check 1 (whole-frame) and
+#    Check 4 (row overlaps viewport). This isolates Check 5 as the sole failing check.
+make_fake_exe "$TMP/fake_crush.sh" "True" "" "both" "crush"
+assert_rc_and_grep 1 "int-stepper columns CRUSHED" "crushed F1 stepper column FAILS the gate (#247 v2)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_crush.sh" "$TMP/scaps_cr" "$TMP/slog_cr.log"
 
 echo "=== frames_differ.py (visible-tweak diff, 86caa4bqp re-QA) ==="
 
