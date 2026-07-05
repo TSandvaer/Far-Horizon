@@ -192,16 +192,22 @@ namespace FarHorizon.EditorTools
         // — NOT a final bake (he re-confirms + may micro-dial; a later pass bakes). F9 still drives it.
         // SUPERSEDES (0.1312,0.1409,0.0593).
         public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
-        // ===== CASTAWAY v2 held-axe seat (86cajwp23 AC2 — the RE-MEASURE). v2 is a fresh Mixamo Standard A-pose
-        // rig; its mixamorig:RightHand LOCAL FRAME may differ from the old rig's, so the seat above (dialed on the
-        // OLD hand frame) is not assumed to carry 1:1. INITIAL VALUES = the OLD rig's Sponsor-approved seat as the
-        // best available PRIOR (both are Mixamo Standard A-pose hands → the frame is likely close), NOT a fresh v2
-        // measurement — the runner-side CharacterAssetGen.CastawayV2HandAxisTrace dumps v2's real hand axes to
-        // refine these, and the Sponsor F9-dials the final seat in the soak (iterative, per [[verify-soak-builds-
-        // or-bake-and-judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used ONLY when
-        // CharacterAssetGen.UseCastawayV2; the old seat is byte-unchanged when the toggle is OFF.
-        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(-186.0f, -168.0f, -84.0f);
-        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
+        // ===== CASTAWAY v2 held-axe seat (86cajx050 AC2 — the MEASURED re-seat; supersedes the 86cajwp23 blind
+        // old-rig copy). v2 is a fresh Mixamo Standard A-pose rig; the trace CONFIRMED its mixamorig:RightHand
+        // LOCAL FRAME differs materially from the old rig's (old +Y≈(0.05,-1.00,0.06) points ~straight down; v2
+        // +Y≈(0.00,-0.88,0.48) tilts ~28° forward), so the old seat did NOT carry 1:1. These values are a
+        // MEASURED first-pass derived by CharacterAssetGen.CastawayV2HandAxisTrace: it TRANSFERS the Sponsor-
+        // APPROVED old-rig WORLD carry onto v2's hand frame (the axe MESH is identical, so matching its WORLD
+        // orientation reproduces the approved look) —
+        //   HeldAxeV2RelEuler = eulerAngles( Inv(R_v2hand) * R_oldhand * Euler(HeldAxeRelEuler) )
+        //   HeldAxeV2LocalOffsetFromHand = Inv(R_v2hand) * ( R_oldhand * HeldAxeLocalOffsetFromHand )
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. It is a
+        // FIRST PASS, capture-verified to sit the axe roughly in v2's hand; the Sponsor F9-DIALS the final seat
+        // in the soak (iterative, per [[verify-soak-builds-or-bake-and-judge]] / [[sponsor-prefers-direct-tweak-
+        // tools-for-fiddly-placement]]). Used ONLY when CharacterAssetGen.UseCastawayV2; the old seat above is
+        // byte-unchanged when the toggle is OFF (rollback path).
+        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(20.9f, -16.1f, 74.9f);
+        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.1819f, 0.0435f, 0.0946f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -1205,13 +1211,22 @@ namespace FarHorizon.EditorTools
             curl.inventory = Object.FindObjectOfType<Inventory>();
             curl.RebuildCached();
 
-            if (fingers.Count < 6)
+            // v2 (86cajx050) is the 41-bone Mixamo variant: its RIGHT hand carries ONLY index 1-3 + thumb 1-3 —
+            // no middle/ring/pinky (CastawayV2HandAxisTrace: index/middle/ring=3/9, thumb=3/3, pinky=0/3). So the
+            // OLD "expected 9, floor 6" bar is WRONG for v2 (v2 physically cannot resolve middle/ring). The real
+            // regression this guards is a resolution FAILURE (the curl wired to fewer bones than the rig actually
+            // provides), so the floor is per-rig: v2=3 (index 1-3, all v2 has), old=6 (a partial old resolve still
+            // ships an incomplete grip). A LogError here would also red the EditMode rebuild test via LogAssert.
+            int expectedFingerFloor = CharacterAssetGen.UseCastawayV2 ? 3 : 6;
+            if (fingers.Count < expectedFingerFloor)
                 Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
-                               " finger bones (expected 9: Index/Middle/Ring 1-3) — the grip curl will be " +
-                               "partial. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
+                               " right-hand finger bones (expected >= " + expectedFingerFloor +
+                               (CharacterAssetGen.UseCastawayV2 ? " for v2: Index 1-3" : ": Index/Middle/Ring 1-3") +
+                               ") — the grip curl will be partial/unwired. Re-run CharacterAssetGen.CastawayV2HandAxisTrace to dump the rig.");
             else
                 Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
-                          thumbs.Count + " thumb bones, HasAxe-gated)");
+                          thumbs.Count + " thumb bones, HasAxe-gated" +
+                          (CharacterAssetGen.UseCastawayV2 ? "; v2 index+thumb only" : "") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/

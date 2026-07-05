@@ -17,11 +17,11 @@ namespace FarHorizon.EditTests
     ///   3. v2 base height-normalizes toward ~1u (the un-normalized-giant guard).
     ///   4. v2's skeleton carries the CORE mixamorig bones the 18 existing clips drive — the CLIP-CARRY guard
     ///      (catches a v2 re-export dropping a core bone → a limb the transform-path clips can't animate).
-    ///   5. The staged-rollout toggle DEFAULTS OFF (AC4 — the OLD castaway stays live until the soak passes);
-    ///      FbxPath + the v2 material textures track the toggle.
+    ///   5. The rollout toggle DEFAULTS ON (86cajx050 — v2 is now the LIVE hero after the Sponsor soak; the old
+    ///      base stays reachable behind the toggle for rollback); FbxPath + the v2 material textures track it.
     ///
-    /// v2 is configured on EVERY bootstrap (CharacterAssetGen.ConfigureV2BaseFbx, toggle-independent) so these
-    /// import guards run against a real import even in the default (toggle-OFF) CI run.
+    /// v2 is configured on EVERY bootstrap (CharacterAssetGen.ConfigureV2BaseFbx) so these import guards run
+    /// against a real import; with the default now ON, the default CI run also renders v2.
     /// </summary>
     public class CastawayV2BaseTests
     {
@@ -117,17 +117,20 @@ namespace FarHorizon.EditTests
                 "(righthand is also the held-axe seat bone.)");
         }
 
-        // (5) STAGED-ROLLOUT toggle (AC4) — the committed DEFAULT is OLD-live (v2 gated) so this PR is
-        // behavior-neutral on the shipped base until the Sponsor soak passes. FbxPath tracks the toggle.
+        // (5) ACTIVATED toggle (86cajx050) — v2 is now the LIVE DEFAULT (the Sponsor soaked v2 in a shipped
+        // build and approved making it live). The old base stays reachable behind the toggle for rollback (a
+        // one-line flip of UseCastawayV2Default back to false), but the committed default is v2. FbxPath tracks.
         [Test]
-        public void CastawayV2_Toggle_DefaultsOff_And_FbxPathTracksToggle()
+        public void CastawayV2_Toggle_DefaultsOn_And_FbxPathTracksToggle()
         {
-            Assert.IsFalse(CharacterAssetGen.UseCastawayV2Default,
-                "the committed default MUST be OLD-live (AC4 Sponsor-lock — v2 stays behind the toggle until the " +
-                "soak passes; do NOT flip UseCastawayV2Default to true in this PR)");
+            Assert.IsTrue(CharacterAssetGen.UseCastawayV2Default,
+                "v2 is now the LIVE DEFAULT (86cajx050 — Sponsor soaked + approved). The old base stays reachable " +
+                "behind the toggle for rollback, but the committed default is v2. Flipping this back to false " +
+                "would revert the hero character to the old castaway.");
 
-            // FbxPath resolves to the toggle-selected mesh (env-driven; asserted against whatever the toggle is
-            // in THIS run so it holds both in default CI and in a FARHORIZON_CASTAWAY_V2=1 soak build run).
+            // With the default ON, UseCastawayV2 is true regardless of the env override, so FbxPath resolves to
+            // the v2 rigged base. (Asserted against whatever the toggle evaluates to in THIS run so it also holds
+            // if a future rollback flips the default back to false.)
             string expected = CharacterAssetGen.UseCastawayV2
                 ? CharacterAssetGen.V2RiggedFbxPath
                 : CharacterAssetGen.IdleFbxPath;

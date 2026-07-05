@@ -108,15 +108,16 @@ namespace FarHorizon.EditorTools
         public const string V2DiffusePngPath = V2Dir + "/texture_diffuse.png"; // de-lit toon albedo (URP _BaseMap; NO shirt-recolor — v2 has no shirt)
         public const string V2NormalPngPath = V2Dir + "/texture_normal.png";   // normal map (low strength)
 
-        // AC4 STAGED-ROLLOUT TOGGLE (SPONSOR-LOCKED 2026-07-05). The OLD castaway stays LIVE by DEFAULT; v2
-        // (Rodin base) is gated behind this flag UNTIL it passes the Sponsor soak in a shipped build — the OLD
-        // base is NOT deleted. Resolved at BOOTSTRAP time: CI re-runs BootstrapProject.Run before EVERY build
-        // (ci.yml), so the env var is honored WITHOUT committing a regenerated Boot.unity (which is re-authored
-        // each bootstrap anyway). To produce a v2 SOAK build set the env var before the bootstrap+build:
-        //   FARHORIZON_CASTAWAY_V2=1  Unity … -executeMethod …BootstrapProject.Run   (then …BuildWindows)
-        // Default (env unset) => the old castaway ships UNCHANGED (this PR is behavior-neutral on the live base).
-        // When v2 passes soak it is promoted to the default + the old base is removed in a follow-up.
-        public const bool UseCastawayV2Default = false;
+        // AC4 STAGED-ROLLOUT TOGGLE (SPONSOR-LOCKED 2026-07-05; DEFAULT FLIPPED TO v2 2026-07-05, ticket
+        // 86cajx050 — the Sponsor soaked v2 in a shipped build and APPROVED making it LIVE). v2 (Rodin base)
+        // is now the DEFAULT hero character; the old base is NOT deleted (it stays reachable so a rollback is
+        // a one-line flip of this const back to false). Resolved at BOOTSTRAP time: CI re-runs
+        // BootstrapProject.Run before EVERY build (ci.yml), so the toggle is honored WITHOUT committing a
+        // regenerated Boot.unity (which is re-authored each bootstrap anyway). The FARHORIZON_CASTAWAY_V2 env
+        // var stays as an override handle (UseCastawayV2 = env==1 OR default); with the default now true the
+        // toggle is ON regardless. When the old base is finally removed in a follow-up, RecolorShirtToTan +
+        // the Shirt* constants + the old-base seat constants get deleted with it.
+        public const bool UseCastawayV2Default = true;
         public const string CastawayV2EnvVar = "FARHORIZON_CASTAWAY_V2";
         public static bool UseCastawayV2 =>
             System.Environment.GetEnvironmentVariable(CastawayV2EnvVar) == "1" || UseCastawayV2Default;
@@ -1299,80 +1300,6 @@ namespace FarHorizon.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
-        // ===== CASTAWAY v2 HAND-AXIS TRACE (86cajwp23 AC2 — the held-axe RE-MEASURE instrument). Durable
-        // read-only diagnostic (procedural-animation-verbs.md "measure bone axes FIRST"): the HeldAxeRig seat
-        // (HeldAxeRelEuler / HeldAxeLocalOffsetFromHand in MovementCameraScene) was dialed against the OLD rig's
-        // mixamorig:RightHand LOCAL FRAME; v2's rigged bind pose may orient that frame differently, so the seat
-        // must be re-derived from v2's ACTUAL hand-bone axes rather than guessed. Dumps, for v2's
-        // mixamorig:RightHand: local rotation (Euler), lossyScale (the §FBX lossy-bone trap check), and each
-        // LOCAL axis (+X/+Y/+Z) expressed as a WORLD direction at the T-pose bind — so the grip/forearm axis is
-        // identifiable. Run on the runner (has a warm Library) to get MEASURED values before the soak locks:
-        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV2HandAxisTrace
-        public static void CastawayV2HandAxisTrace()
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("[v2-hand] ===== CASTAWAY v2 HAND-AXIS TRACE (86cajwp23 AC2) =====");
-
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(V2RiggedFbxPath);
-            if (fbx == null)
-            {
-                sb.AppendLine("[v2-hand] v2 base FBX NOT FOUND at " + V2RiggedFbxPath);
-                Debug.Log(sb.ToString());
-                if (Application.isBatchMode) EditorApplication.Exit(0);
-                return;
-            }
-
-            var inst = Object.Instantiate(fbx);
-            inst.transform.position = Vector3.zero;
-            inst.transform.rotation = Quaternion.identity;
-            inst.transform.localScale = Vector3.one;
-
-            // Overall height (confirms the height-normalize landed ~1u) + the full bone list, flagging the hands.
-            var rends = inst.GetComponentsInChildren<Renderer>();
-            if (rends.Length > 0)
-            {
-                Bounds b = rends[0].bounds;
-                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
-                sb.AppendLine($"[v2-hand] normalized height={b.size.y:F3}u (target {TargetImportHeightU}u)");
-            }
-
-            Transform rightHand = null, leftHand = null;
-            int boneCount = 0;
-            foreach (var t in inst.GetComponentsInChildren<Transform>(true))
-            {
-                boneCount++;
-                string tok = ExactTokenLocal(t.name);
-                if (tok == "righthand") rightHand = t;
-                if (tok == "lefthand") leftHand = t;
-            }
-            sb.AppendLine($"[v2-hand] transforms={boneCount}  rightHand={(rightHand != null ? rightHand.name : "<MISSING>")}" +
-                          $"  leftHand={(leftHand != null ? leftHand.name : "<MISSING>")}");
-
-            if (rightHand != null)
-            {
-                sb.AppendLine($"[v2-hand] RightHand localRotation(euler)={NormEuler(rightHand.localRotation.eulerAngles)}");
-                sb.AppendLine($"[v2-hand] RightHand worldRotation(euler)={NormEuler(rightHand.rotation.eulerAngles)}");
-                sb.AppendLine($"[v2-hand] RightHand lossyScale={rightHand.lossyScale} (expect ~1,1,1 — Mixamo has NO 267x trap)");
-                // The +X/+Y/+Z LOCAL axes as WORLD directions at bind — identifies which local axis points along
-                // the grip/forearm (the held-axe relEuler is dialed against these).
-                sb.AppendLine($"[v2-hand] RightHand local+X in world={(rightHand.rotation * Vector3.right).ToString("F3")}");
-                sb.AppendLine($"[v2-hand] RightHand local+Y in world={(rightHand.rotation * Vector3.up).ToString("F3")}");
-                sb.AppendLine($"[v2-hand] RightHand local+Z in world={(rightHand.rotation * Vector3.forward).ToString("F3")}");
-                sb.AppendLine("[v2-hand] SEAT-DERIVE: compare these axes to the OLD rig's (run CharacterDiagnoseTrace on the old " +
-                              "Idle.fbx) — if the local frame matches, the OLD HeldAxeRelEuler carries; if it differs, rotate " +
-                              "HeldAxeV2RelEuler by the frame delta, then the Sponsor F9-dials the final seat in the soak.");
-            }
-            else
-            {
-                sb.AppendLine("[v2-hand] mixamorig:RightHand NOT resolved — the held axe cannot seat; the v2 export is missing the hand bone");
-            }
-
-            Object.DestroyImmediate(inst);
-            sb.AppendLine("[v2-hand] ===== END TRACE =====");
-            Debug.Log(sb.ToString());
-            if (Application.isBatchMode) EditorApplication.Exit(0);
-        }
-
         // ===== (attempt-8 throwaway import-flag fix-probes REMOVED post-diagnosis: useFileScale=false made it
         // WORSE — 218u tall + the 100× node SURVIVED; bakeAxisConversion=true ALSO kept the 100× node. Both
         // REFUTED the "an importer flag collapses the cm→m node" hypothesis — the 100× is intrinsic to the FBX
@@ -1829,5 +1756,154 @@ namespace FarHorizon.EditorTools
             return d;
         }
         private static string Fmt(Vector3 e) => $"({e.x,6:F1},{e.y,6:F1},{e.z,6:F1})";
+
+        // ===== CASTAWAY v2 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cajx050 AC2 / referenced by 86cajwp23) =====
+        // Diagnose-via-trace for the v2 default flip. Dumps, in ONE headless run, every number the v2
+        // activation needs so the re-seat + the EditMode-guard reconciliation are MEASURED, not guessed:
+        //   (1) v2's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
+        //       held-axe seat re-measure. The OLD-rig seat (dialed on the old hand frame) does NOT carry 1:1:
+        //       v2 is a fresh Mixamo A-pose rig whose hand-bone bind orientation differs from the old rig's.
+        //   (2) A MEASURED first-pass v2 seat = the Sponsor-APPROVED old-rig WORLD carry TRANSFERRED onto v2's
+        //       hand frame (the axe MESH is identical, so matching its WORLD orientation reproduces the approved
+        //       look). relEuler_v2 = Inv(R_v2hand) * R_oldhand * Euler(oldRelEuler); the hand-local offset is
+        //       re-expressed the same way. Both are computed with Unity's own Quaternion math (convention-safe)
+        //       and printed ready-to-bake into MovementCameraScene.HeldAxeV2*; the Sponsor F9-finalizes the exact
+        //       grip in the soak (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools).
+        //   (3) v2's right-hand FINGER/THUMB/PINKY bone resolution (the finger-curl guard reconciliation — v2 is
+        //       the 41-bone fist-hand variant) + the heads-tall proportion fingerprint (the chunky-band guard).
+        // Run headless:
+        //   Unity … -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV2HandAxisTrace
+        public static void CastawayV2HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v2-seat] ===== CASTAWAY v2 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cajx050 AC2) =====");
+
+            var oldGo = InstantiateBareForTrace(IdleFbxPath, sb, "OLD");
+            var v2Go = InstantiateBareForTrace(V2RiggedFbxPath, sb, "v2");
+            if (v2Go == null)
+            {
+                if (oldGo) Object.DestroyImmediate(oldGo);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            Transform oldHand = oldGo != null ? FindBoneExactForTrace(oldGo.transform, "righthand") : null;
+            Transform v2Hand = FindBoneExactForTrace(v2Go.transform, "righthand");
+            sb.AppendLine($"[v2-seat] RightHand found: OLD={(oldHand != null)} v2={(v2Hand != null)}");
+            if (oldHand != null) LogFrameForTrace(sb, "OLD-RightHand", oldHand);
+            if (v2Hand != null) LogFrameForTrace(sb, "v2 -RightHand", v2Hand);
+
+            if (oldHand != null && v2Hand != null)
+            {
+                Quaternion rOld = oldHand.rotation, rV2 = v2Hand.rotation;
+                // (2) WORLD-TRANSFER: reproduce the approved OLD world carry on v2's hand frame.
+                Quaternion axeWorld = rOld * Quaternion.Euler(MovementCameraScene.HeldAxeRelEuler);
+                Vector3 relV2 = NormEuler((Quaternion.Inverse(rV2) * axeWorld).eulerAngles);
+                Vector3 worldOff = rOld * MovementCameraScene.HeldAxeLocalOffsetFromHand;
+                Vector3 offV2 = Quaternion.Inverse(rV2) * worldOff;
+                sb.AppendLine("[v2-seat] --- MEASURED first-pass seat (WORLD-TRANSFER of the approved old carry) ---");
+                sb.AppendLine($"[v2-seat]   HeldAxeV2RelEuler            = new Vector3({relV2.x:F1}f, {relV2.y:F1}f, {relV2.z:F1}f);");
+                sb.AppendLine($"[v2-seat]   HeldAxeV2LocalOffsetFromHand = new Vector3({offV2.x:F4}f, {offV2.y:F4}f, {offV2.z:F4}f);");
+                // Fallback: axe long axis (+Y) -> world UP (head straight up) — a facing-agnostic sanity option.
+                Vector3 relUp = NormEuler(Quaternion.Inverse(rV2).eulerAngles);
+                sb.AppendLine($"[v2-seat]   [ALT world-up head-up] HeldAxeV2RelEuler = new Vector3({relUp.x:F1}f, {relUp.y:F1}f, {relUp.z:F1}f);");
+            }
+
+            // (3a) FINGER-CURL reconciliation: which of the curl/thumb/pinky tokens exist on v2's rig?
+            LogFingerResolutionForTrace(sb, v2Go.transform);
+            // (3b) CHUNKY-band reconciliation: v2's heads-tall proportion fingerprint.
+            LogHeadsTallForTrace(sb, v2Go.transform);
+
+            if (oldGo) Object.DestroyImmediate(oldGo);
+            Object.DestroyImmediate(v2Go);
+            sb.AppendLine("[v2-seat] ===== END =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        private static GameObject InstantiateBareForTrace(string fbxPath, System.Text.StringBuilder sb, string label)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
+            if (fbx == null) { sb.AppendLine($"[v2-seat] {label} FBX NOT FOUND at {fbxPath}"); return null; }
+            var go = Object.Instantiate(fbx);
+            go.transform.position = Vector3.zero;
+            go.transform.rotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+            return go;
+        }
+
+        private static Transform FindBoneExactForTrace(Transform root, string token)
+        {
+            var smr = root.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr != null && smr.bones != null)
+                foreach (var b in smr.bones)
+                    if (b != null && TokForTrace(b.name) == token) return b;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (TokForTrace(t.name) == token) return t;
+            return null;
+        }
+
+        private static string TokForTrace(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            string n = name.ToLowerInvariant();
+            int c = n.LastIndexOf(':');
+            if (c >= 0) n = n.Substring(c + 1);
+            return n;
+        }
+
+        private static void LogFrameForTrace(System.Text.StringBuilder sb, string label, Transform t)
+        {
+            Vector3 r = t.right, u = t.up, f = t.forward;
+            Vector3 e = NormEuler(t.localRotation.eulerAngles);
+            sb.AppendLine($"[v2-seat] {label}: localRotEuler=({e.x:F2},{e.y:F2},{e.z:F2}) " +
+                          $"+X=({r.x:F3},{r.y:F3},{r.z:F3}) +Y=({u.x:F3},{u.y:F3},{u.z:F3}) " +
+                          $"+Z=({f.x:F3},{f.y:F3},{f.z:F3}) lossyScale=({t.lossyScale.x:F2},{t.lossyScale.y:F2},{t.lossyScale.z:F2})");
+        }
+
+        private static void LogFingerResolutionForTrace(System.Text.StringBuilder sb, Transform root)
+        {
+            string[] fingerTokens = { "righthandindex1", "righthandindex2", "righthandindex3",
+                "righthandmiddle1", "righthandmiddle2", "righthandmiddle3",
+                "righthandring1", "righthandring2", "righthandring3" };
+            string[] thumbTokens = { "righthandthumb1", "righthandthumb2", "righthandthumb3" };
+            string[] pinkyTokens = { "righthandpinky1", "righthandpinky2", "righthandpinky3" };
+            int nf = 0, nt = 0, np = 0;
+            var got = new System.Collections.Generic.List<string>();
+            foreach (var tk in fingerTokens) if (FindBoneExactForTrace(root, tk) != null) { nf++; got.Add(tk); }
+            foreach (var tk in thumbTokens) if (FindBoneExactForTrace(root, tk) != null) { nt++; got.Add(tk); }
+            foreach (var tk in pinkyTokens) if (FindBoneExactForTrace(root, tk) != null) { np++; got.Add(tk); }
+            sb.AppendLine($"[v2-seat] FINGER-CURL resolution on v2: index/middle/ring={nf}/9, thumb={nt}/3, pinky={np}/3");
+            sb.AppendLine($"[v2-seat]   resolved: {(got.Count > 0 ? string.Join(",", got) : "<NONE — fist hand, no separated fingers>")}");
+        }
+
+        private static void LogHeadsTallForTrace(System.Text.StringBuilder sb, Transform root)
+        {
+            var smr = root.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            var head = FarHorizon.CastawayProportions.FindHeadBone(root);
+            if (smr == null || smr.sharedMesh == null || head == null)
+            {
+                sb.AppendLine($"[v2-seat] HEADS-TALL: cannot measure (smr={(smr != null)} head={(head != null)})");
+                return;
+            }
+            var baked = new Mesh();
+            smr.BakeMesh(baked, true);
+            var verts = baked.vertices;
+            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+            float top = float.NegativeInfinity, bot = float.PositiveInfinity;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                float y = l2w.MultiplyPoint3x4(verts[i]).y;
+                if (y > top) top = y;
+                if (y < bot) bot = y;
+            }
+            Object.DestroyImmediate(baked);
+            float total = top - bot, headH = top - head.position.y;
+            float ratio = (headH > 0.0001f && total > 0.0001f) ? total / headH : float.NaN;
+            sb.AppendLine($"[v2-seat] HEADS-TALL fingerprint: ratio={ratio:F2} (headBone='{head.name}' " +
+                          $"total={total:F3} headSpan={headH:F3}); OLD toy band [" +
+                          $"{FarHorizon.CastawayProportions.MinHeadsTall},{FarHorizon.CastawayProportions.MaxHeadsTall}]");
+        }
     }
 }
