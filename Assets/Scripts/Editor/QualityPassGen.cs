@@ -61,7 +61,19 @@ namespace FarHorizon.EditorTools
         // registered in AlwaysIncludedShaders so it does not strip in the standalone build (the spike's
         // magenta class). Falls back to the built-in Skybox/Procedural (2-color, horizon-warm) if the
         // custom shader is somehow unresolved — never a broken/magenta sky.
-        public static void BuildGradientSkybox()
+        public static void BuildGradientSkybox() => BuildGradientSkybox(SettingsDir + "/GradientSky.mat");
+
+        /// <summary>
+        /// Build the gradient skybox material AT <paramref name="skyMatPath"/> and assign it to
+        /// RenderSettings.skybox. The shared Boot sky lives at the default Assets/Settings/GradientSky.mat
+        /// (the no-arg overload — WorldBootstrap). A STAND-ALONE build with its OWN Sun (the NextIslandPoc
+        /// POC, whose Sun sits at 48° elevation vs Boot's 18°) MUST pass its OWN path here: this method calls
+        /// AssetDatabase.CreateAsset, which fully REPLACES the target material — so a sibling build hitting the
+        /// shared GradientSky.mat path was overwriting its _SunDirection to the POC's 48° (the #231 shared-
+        /// asset-corruption class: it false-redded ZoneDLookTests.Sun_LoweredTowardHorizon in a same-session
+        /// EditMode run and risked committing the polluted value). Ticket 86caj0rrg / Devon's #236 review.
+        /// </summary>
+        public static void BuildGradientSkybox(string skyMatPath)
         {
             var grad = Shader.Find("FarHorizon/GradientSkybox");
             Material sky;
@@ -111,7 +123,7 @@ namespace FarHorizon.EditorTools
                 sky.SetFloat("_Exposure", 1.0f);
                 Debug.LogWarning("[QualityPassGen] FarHorizon/GradientSkybox unresolved; falling back to Skybox/Procedural (2-color)");
             }
-            AssetDatabase.CreateAsset(sky, SettingsDir + "/GradientSky.mat");
+            AssetDatabase.CreateAsset(sky, skyMatPath);
             RenderSettings.skybox = sky;
             RenderSettings.ambientMode = AmbientMode.Skybox; // sky drives ambient (warm-bright fill)
             DynamicGI.UpdateEnvironment();
