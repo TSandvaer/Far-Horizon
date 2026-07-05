@@ -201,13 +201,14 @@ namespace FarHorizon.EditorTools
         // orientation reproduces the approved look) —
         //   HeldAxeV2RelEuler = eulerAngles( Inv(R_v2hand) * R_oldhand * Euler(HeldAxeRelEuler) )
         //   HeldAxeV2LocalOffsetFromHand = Inv(R_v2hand) * ( R_oldhand * HeldAxeLocalOffsetFromHand )
-        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. It is a
-        // FIRST PASS, capture-verified to sit the axe roughly in v2's hand; the Sponsor F9-DIALS the final seat
-        // in the soak (iterative, per [[verify-soak-builds-or-bake-and-judge]] / [[sponsor-prefers-direct-tweak-
-        // tools-for-fiddly-placement]]). Used ONLY when CharacterAssetGen.UseCastawayV2; the old seat above is
-        // byte-unchanged when the toggle is OFF (rollback path).
-        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(20.9f, -16.1f, 74.9f);
-        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.1819f, 0.0435f, 0.0946f);
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. The measured
+        // first-pass (20.9,-16.1,74.9)/(0.1819,0.0435,0.0946) got the axe roughly into v2's hand; the Sponsor then
+        // F9-DIALED the final seat live in soak-v2-live @ stamp 1ff2f9d and APPROVED the result (axe reads seated in
+        // v2's hand) — the values below are those BAKED Sponsor-dialed numbers (per [[verify-soak-builds-or-bake-and-
+        // judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used ONLY when
+        // CharacterAssetGen.UseCastawayV2; the old seat above is byte-unchanged when the toggle is OFF (rollback path).
+        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(20.0f, -16.1f, 74.9f);
+        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.0619f, 0.1235f, 0.0454f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
