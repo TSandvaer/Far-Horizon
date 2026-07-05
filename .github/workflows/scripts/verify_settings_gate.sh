@@ -24,7 +24,11 @@
 #      synthetic drive with a REAL dispatched ChangeEvent (SettingsPanel.DriveFloat/DriveRange-
 #      ChangeEventForCapture — the same event a user's drag fires), so the captured frame now repaints
 #      and this sub-check is authoritative again: a byte-identical tweaked frame REDS the gate, catching
-#      any regression back to the synthetic drive.
+#      any regression back to the synthetic drive. DE-MISLEAD (86cajt6kq): this canned "synthetic
+#      entry-setter drive (PR #83)" text fires ONLY when BOTH frames are PRESENT and pixel-identical.
+#      A MISSING settings_tweaked.png is the present-loop WEDGE/TRUNCATION signature (retried once on
+#      rc==124 above), NOT a content regression — it reports its own message naming the last frame
+#      actually present, so a wedge is never mis-attributed to the historical PR-#83 content bug.
 #   4. both drawers SHOW ROWS (#247 empty-drawers guard) — the row-visibility probe proves the F1 + F3
 #      ScrollView viewports didn't collapse to zero height (header + footer but no rows).
 #   5. the int-stepper columns have ROOM (#247 v2 F1-cramp guard) — the smallest resolved [−]/value/[+]
@@ -84,15 +88,19 @@ launch_once() {
 }
 
 launch_once
-# ONE retry, ONLY on a timeout-hang (rc 124 = the first-frame present-loop wedge). A real
-# non-zero exit is NOT a wedge — never retry it. NOTE: this gate's PASS criteria are checks
-# 1+2 below (frames + changedLive), NOT the exe exit code — unchanged by the hardening.
+# ONE retry, ONLY on a timeout-hang (rc 124 = the present-loop wedge). BEFORE declaring failure
+# (86cajt6kq AC1): the windowed -verifySettings exe intermittently WEDGES in its D3D12 present loop
+# and is timeout-killed, truncating the capture before settings_tweaked.png (written LAST) — the
+# observed flake is exactly this, "did not self-quit within 300s" ×2, and the SAME commit has
+# failed then passed on a serial rerun. A real non-124 exit is NOT a wedge and must NOT retry —
+# uniform with every other verify_*_gate.sh (86cafzaeb; the cross-gate wedge-retry test pins it).
+# This gate's PASS criteria are the five checks below, NOT the exe exit code.
 if [ "$rc" -eq 124 ]; then
   echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s (timeout-hang; likely the present-loop wedge) — retrying ONCE" >&2
   launch_once
 fi
 if [ "$rc" -eq 124 ]; then
-  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s on the retry either; inspecting whatever it captured" >&2
+  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s on the retry either; Check 3 below reports whether the capture truncated (settings_tweaked.png absent)" >&2
 fi
 
 # Check 1 — the panel frames rendered (open + tweaked must be real content). Three frames
@@ -137,19 +145,31 @@ diff_rc=0
 OPEN_PNG="$ABS_CAP/settings_open.png"
 TWEAKED_PNG="$ABS_CAP/settings_tweaked.png"
 if [ ! -f "$OPEN_PNG" ] || [ ! -f "$TWEAKED_PNG" ]; then
-  echo "[verify_settings] FAILED — missing open/tweaked frame for the visible-tweak diff " \
-       "(open=$OPEN_PNG tweaked=$TWEAKED_PNG)" >&2
+  # MISSING-FRAME = the WEDGE / TRUNCATION signature, NOT the PR-#83 content regression
+  # (86cajt6kq AC2 de-mislead). The capture writes closed → open → tweaked IN ORDER; when the
+  # present-loop wedge truncates it, the LAST frame (settings_tweaked.png) is absent. Do NOT fire
+  # the canned "synthetic entry-setter drive" text here — that mis-attributes a missing-frame wedge
+  # to a historical content bug (the exact mis-diagnosis this ticket fixes). Name the last frame
+  # ACTUALLY present so the truncation point is legible in the CI log.
   diff_rc=1
+  last_present="(none — no frames captured)"
+  for f in settings_closed.png settings_open.png settings_tweaked.png; do
+    [ -f "$ABS_CAP/$f" ] && last_present="$f"
+  done
+  echo "[verify_settings] FAILED — capture TRUNCATED (WEDGE): settings_tweaked.png (written LAST) is absent; last frame actually present = $last_present. This is the present-loop wedge signature — the -verifySettings exe did not finish the capture sequence — NOT a visible-diff content regression. The bounded retry above did not clear it; a serial rerun has cleared this flake before (86cajt6kq)." >&2
 else
-  # set +e around the call: script runs under `set -e` (re-enabled after the launch block above),
-  # so an unguarded non-zero exit here would ABORT before the aggregate verdict line. Capture rc.
+  # BOTH frames present → the real visible-tweak diff. set +e around the call: script runs under
+  # `set -e` (re-enabled after the launch block above), so an unguarded non-zero exit here would
+  # ABORT before the aggregate verdict line. Capture rc.
   set +e
   python3 "$HERE/frames_differ.py" "$OPEN_PNG" "$TWEAKED_PNG"
   diff_rc=$?
   set -e
-fi
-if [ "$diff_rc" -ne 0 ]; then
-  echo "[verify_settings] FAILED — tweaked-frame visible-diff sub-check FAILED: settings_tweaked.png did not visibly differ from settings_open.png. The tweak did NOT repaint the panel under capture — a regression back to the synthetic entry-setter drive (the PR #83 re-QA bug). Drive the tweak via a real dispatched ChangeEvent (86cabe3e5)." >&2
+  if [ "$diff_rc" -ne 0 ]; then
+    # PRESENT-BUT-IDENTICAL = the REAL visible-diff regression → the canned PR-#83 text fires ONLY
+    # here (86cajt6kq AC2), never on a missing-frame wedge.
+    echo "[verify_settings] FAILED — tweaked-frame visible-diff sub-check FAILED: settings_tweaked.png did not visibly differ from settings_open.png. The tweak did NOT repaint the panel under capture — a regression back to the synthetic entry-setter drive (the PR #83 re-QA bug). Drive the tweak via a real dispatched ChangeEvent (86cabe3e5)." >&2
+  fi
 fi
 
 # Check 4 — the drawers actually SHOW ROWS (#247 empty-drawers regression guard). This gate went GREEN
