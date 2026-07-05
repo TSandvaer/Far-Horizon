@@ -187,7 +187,13 @@ namespace FarHorizon.EditorTools
             RenderSettings.ambientGroundColor = new Color(0.34f, 0.30f, 0.24f);
 
             // Gradient skybox + skybox-driven ambient + warm global fog + post (the Zone-D quality pass).
-            QualityPassGen.BuildGradientSkybox();
+            // The POC gets its OWN sky material (86caj0rrg / Devon's #236 review): QualityPassGen.CreateAsset
+            // fully REPLACES the target, and the POC Sun is at 48° elevation (line above) vs Boot's 18°, so a
+            // shared-path bake would overwrite the shared GradientSky.mat's _SunDirection (the #231 shared-
+            // asset-corruption class — false-reds ZoneDLookTests in a same-session run + risks committing the
+            // polluted value). Own path keeps the seed-42 Boot assets byte-untouched, matching this scene's
+            // existing PocTerrainMat/PocWaterMat/PocNavMesh isolation.
+            QualityPassGen.BuildGradientSkybox(SettingsDir + "/PocGradientSky.mat");
             QualityPassGen.EnableGlobalFog();
             QualityPassGen.BuildGlobalPostVolume();
             var postVol = GameObject.Find("ZoneD_PostVolume");
