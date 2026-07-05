@@ -39,8 +39,9 @@ namespace FarHorizon
     ///                         decay-rate slider row HIDES live (86cah8ukr AC1 conditional visibility) — proven
     ///                         from ground truth via SettingsCategory.IsDecaySliderVisible in the shipped build.
     /// and LOGS the 86cabeqj9 NIT proofs: NIT 1 — the `Console UI scale` row drives the panel scale live; NIT 2 —
-    /// the F1/F2 de-conflict (console toggle key=F1, legacy-overlay master=F2, distinct; opening the console does
-    /// NOT flip the legacy DebugOverlays.Visible flag → the two layers no longer share state).
+    /// the F1/overlay de-conflict (console toggle key=F1, debug-overlay master=F10, distinct; opening the console
+    /// does NOT flip the DebugOverlays.Visible flag → the two layers no longer share state). (86cah90cp round-3:
+    /// the legacy F2 master (DebugOverlayToggle) was removed — F10 is now the SINGLE overlay master; F2 is UNBOUND.)
     /// and LOGS the live-effect proof: the walk-speed param BEFORE vs AFTER the tweak (must differ), the
     /// zoom-range MIN/MAX clamping OrbitCamera.minDistance/maxDistance, the differs-from-default flag flipping
     /// on tweak + clearing on reset (AC9/AC10), and the registered entry count + archetypes (the extensible
@@ -100,22 +101,24 @@ namespace FarHorizon
                       $"worldInputGated={UiInputGate.CaptureWorldInput} (AC2/AC3: must be False — open alone " +
                       $"does NOT swallow locomotion/orbit; only a focused field does).");
 
-            // 86cabeqj9 NIT 2 + 86cah8ukr SPLIT — F1/F2/F3 DE-CONFLICT (ground truth in the shipped build). The
+            // 86cabeqj9 NIT 2 + 86cah8ukr SPLIT — F1/F3/F10 DE-CONFLICT (ground truth in the shipped build). The
             // verify-capture can't synthesize a key-down, but the DECOUPLE is machine-checkable: the DEV console
-            // now opens on F3 (devToggleKey), the PLAYER Settings drawer on F1 (toggleKey), the legacy-overlay
-            // master on F2 (all distinct), AND opening the console (SetOpen above) did NOT flip the legacy
-            // DebugOverlays.Visible flag — proving F3↔console and F2↔legacy no longer share state.
-            var legacyToggle = Object.FindAnyObjectByType<DebugOverlayToggle>();
+            // opens on F3 (devToggleKey), the PLAYER Settings drawer on F1 (toggleKey), the debug-overlay master
+            // on F10 (SneakIsolationTool.overlayToggleKey) — all distinct, F2 UNBOUND (the legacy F2 master
+            // DebugOverlayToggle was REMOVED in 86cah90cp round-3, Sponsor-directed 2026-07-03) — AND opening the
+            // console (SetOpen above) did NOT flip the shared DebugOverlays.Visible flag, proving F3↔console and
+            // F10↔overlays no longer share state.
+            var overlayMaster = Object.FindAnyObjectByType<SneakIsolationTool>();
             KeyCode consoleKey = panel.devToggleKey;
             KeyCode playerKey = panel.toggleKey;
-            KeyCode legacyKey = legacyToggle != null ? legacyToggle.toggleKey : KeyCode.None;
-            bool keysDistinct = consoleKey != legacyKey && consoleKey != playerKey && playerKey != legacyKey;
-            Debug.Log($"[SettingsVerifyCapture] F1/F2/F3 DE-CONFLICT (NIT 2 + 86cah8ukr): devConsoleKey={consoleKey} " +
-                      $"playerSettingsKey={playerKey} legacyOverlayKey={legacyKey} keysDistinct={keysDistinct} " +
+            KeyCode overlayKey = overlayMaster != null ? overlayMaster.overlayToggleKey : KeyCode.None;
+            bool keysDistinct = consoleKey != overlayKey && consoleKey != playerKey && playerKey != overlayKey;
+            Debug.Log($"[SettingsVerifyCapture] F1/F3/F10 DE-CONFLICT (NIT 2 + 86cah8ukr): devConsoleKey={consoleKey} " +
+                      $"playerSettingsKey={playerKey} overlayMasterKey={overlayKey} keysDistinct={keysDistinct} " +
                       $"consoleOpen={panel.IsOpen} legacyOverlaysVisible={DebugOverlays.Visible} " +
                       $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: devConsoleKey=F3, " +
-                      $"playerSettingsKey=F1, legacyKey=F2, distinct=True, decoupled=True — opening the console " +
-                      $"does NOT reveal the legacy overlays).");
+                      $"playerSettingsKey=F1, overlayKey=F10, distinct=True, decoupled=True — opening the console " +
+                      $"does NOT reveal the debug overlays; F2 is unbound).");
 
             // #247 EMPTY-DRAWERS GUARD — the PR #247 build passed this gate while both drawers rendered header +
             // footer but ZERO rows (the flex-grow ScrollView collapsed against a zero-height drawer container).
@@ -152,7 +155,10 @@ namespace FarHorizon
             // scale PlayerPrefs key (soak hygiene — the next launch must boot at the shipped 1.0x default).
             var scaleEntry = reg?.Get(SettingsCatalog.ConsoleUiScaleId) as FloatSettingEntry;
             var scaleSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (scaleEntry != null) SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey);
+            // Snapshot the value key AND its .def stale-default stamp (86cah90cp): SetValue writes both; a
+            // restore that puts back only the value would leave the run's stamp behind and could re-validate
+            // a stale override the invalidation should discard.
+            if (scaleEntry != null) { SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey); SnapshotFloat(scaleSnapshot, scaleEntry.DefaultStampKey); }
             try
             {
                 if (scaleEntry != null)
@@ -194,7 +200,7 @@ namespace FarHorizon
             // visibly LARGER (the font resized, independent of the chrome). Snapshot+restore its PlayerPrefs key.
             var textEntry = reg?.Get(SettingsCatalog.ConsoleTextScaleId) as FloatSettingEntry;
             var textSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (textEntry != null) SnapshotFloat(textSnapshot, textEntry.PrefsKey);
+            if (textEntry != null) { SnapshotFloat(textSnapshot, textEntry.PrefsKey); SnapshotFloat(textSnapshot, textEntry.DefaultStampKey); }
             try
             {
                 if (textEntry != null)
@@ -240,7 +246,7 @@ namespace FarHorizon
             var walk = reg?.Get(SettingsCatalog.WalkSpeedId) as FloatSettingEntry;
             var zoom = reg?.Get(SettingsCatalog.ZoomRangeId) as RangeSettingEntry;
             var prefsSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (walk != null) SnapshotFloat(prefsSnapshot, walk.PrefsKey);
+            if (walk != null) { SnapshotFloat(prefsSnapshot, walk.PrefsKey); SnapshotFloat(prefsSnapshot, walk.DefaultStampKey); }
             if (zoom != null) { SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".min"); SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".max"); }
 
             float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;

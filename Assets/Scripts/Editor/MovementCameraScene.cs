@@ -1398,9 +1398,13 @@ namespace FarHorizon.EditorTools
                 tool = bootGo.AddComponent<SneakIsolationTool>();
             // EXPLICITLY re-assert the toggle keys every bootstrap — a bare AddComponent leaves stale SERIALIZED
             // KeyCode values in the committed binary Boot.unity when the component already exists, so a code-only
-            // default change (F2/F3 → F5/F6) would NEVER reach the shipped exe (editor-vs-runtime serialization
-            // trap + [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
-            // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated (#208 → F2).
+            // default change would NEVER reach the shipped exe (editor-vs-runtime serialization trap +
+            // [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
+            // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated and now
+            // UNBOUND (the legacy F2 overlay master (DebugOverlayToggle) was removed, 86cah90cp round-3).
+            // F10 = the SINGLE show/hide master (86cah90cp — Sponsor-grouped debug-overlay key; flips DebugOverlays.
+            // Visible so F10 reveals this panel + the WorldLookNudgeTool panel together; F1 stays the console).
+            tool.overlayToggleKey = KeyCode.F10;
             tool.footSyncToggleKey = KeyCode.F5;
             tool.sneakSpeedSnapToggleKey = KeyCode.F6;
             EditorUtility.SetDirty(bootGo);
@@ -3274,7 +3278,8 @@ namespace FarHorizon.EditorTools
             panel.warmth = Object.FindObjectOfType<WarmthNeed>();
             // 86cah8ukr SPLIT — wire BOTH toggle keys editor-time so they serialize into Boot.unity (the
             // field-default-not-serialized trap): F1 opens the player Settings drawer, F3 the dev console
-            // (Sponsor-confirmed 2026-07-03). F2 stays the legacy IMGUI overlay master (DebugOverlayToggle).
+            // (Sponsor-confirmed 2026-07-03). Debug overlays are on F10 (SneakIsolationTool, the single overlay
+            // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
             panel.toggleKey = KeyCode.F1;
             panel.devToggleKey = KeyCode.F3;
             // Held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows bind to it. BuildPlayer

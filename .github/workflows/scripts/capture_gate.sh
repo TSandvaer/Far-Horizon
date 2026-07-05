@@ -66,13 +66,15 @@ launch_once() {
   # Clear any stale captures so frame_check only sees THIS attempt's frames.
   rm -f "$ABS_CAP"/capture_*.png
   rm -f "$LOG_FILE"
-  echo "[capture_gate] launching shipped exe windowed: $EXE"
+  echo "[capture_gate] launching shipped exe -batchmode (headless RT-readback): $EXE"
   echo "[capture_gate]   frames=$FRAMES captureDir=$ABS_CAP logFile=$LOG_FILE"
-  # Windowed + small so it never grabs the desktop; -captureGate drives CaptureGate;
-  # the component calls Application.Quit() when done. -logFile redirects the player log.
+  # HEADLESS (86cag93zb): -batchmode with NO -nographics (a real D3D12 device inits) and NO window.
+  # CaptureGate now renders Camera.main into an offscreen RenderTexture (SubmitRenderRequest) instead of
+  # the backbuffer ScreenCapture, so it works window-less — removing the windowed-swapchain contention
+  # that pinned the capture job to one runner. The component calls Application.Quit() when done.
   set +e
   timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
-    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -batchmode \
     -captureGate -captureFrames "$FRAMES" -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
   rc=$?
   set -e

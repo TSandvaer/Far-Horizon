@@ -1033,6 +1033,14 @@ namespace FarHorizon.Settings
         /// archetype). Setting a fog or sky-horizon channel keeps the seam-kill (fog colour == horizon stop) via the
         /// seam. A null seam registers NOTHING (the catalog never null-refs), so a world-less rig / bare test is
         /// unaffected.
+        ///
+        /// EVERY world-look row is persist:false — a DIAL-TO-BAKE INSTRUMENT, not a player preference
+        /// (86cah90cp round-3). A persisted world-look override stomped the freshly-baked sun at every boot
+        /// TWICE (#223 round-1: legacy un-stamped sun_elevation=18; round-3: sun_elevation=18 validly stamped
+        /// under the current default, which no stamp-invalidation can ever discard) — poisoning soaks and
+        /// -verify* gates alike. The dial session's outcome is a BAKE (WorldBootstrap/QualityPassGen constants);
+        /// the bake is the persistence. LoadFromPrefs on these rows self-heals lingering keys from earlier
+        /// persisting builds.
         /// </summary>
         public static void PopulateWorldLook(SettingsRegistry reg, FarHorizon.WorldLookTunables world)
         {
@@ -1040,50 +1048,50 @@ namespace FarHorizon.Settings
 
             // FOG — density + per-channel colour (seam-kill applied in the seam).
             reg.AddFloat(FogDensityId, "Fog density",
-                () => world.FogDensity, v => world.FogDensity = v, FogDensityMin, FogDensityMax, unit: "");
+                () => world.FogDensity, v => world.FogDensity = v, FogDensityMin, FogDensityMax, unit: "", persist: false);
             reg.AddFloat(FogColorRId, "Fog colour R",
-                () => world.FogColorR, v => world.FogColorR = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.FogColorR, v => world.FogColorR = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(FogColorGId, "Fog colour G",
-                () => world.FogColorG, v => world.FogColorG = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.FogColorG, v => world.FogColorG = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(FogColorBId, "Fog colour B",
-                () => world.FogColorB, v => world.FogColorB = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.FogColorB, v => world.FogColorB = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
 
             // SKY HORIZON stop — per-channel colour (the seam-driving stop; locks the fog colour to it).
             reg.AddFloat(SkyHorizonRId, "Sky horizon R",
-                () => world.SkyHorizonR, v => world.SkyHorizonR = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.SkyHorizonR, v => world.SkyHorizonR = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(SkyHorizonGId, "Sky horizon G",
-                () => world.SkyHorizonG, v => world.SkyHorizonG = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.SkyHorizonG, v => world.SkyHorizonG = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(SkyHorizonBId, "Sky horizon B",
-                () => world.SkyHorizonB, v => world.SkyHorizonB = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.SkyHorizonB, v => world.SkyHorizonB = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
 
             // CLOUDS — scale + additive altitude offset.
             reg.AddFloat(CloudScaleId, "Cloud scale",
-                () => world.CloudScale, v => world.CloudScale = v, CloudScaleMin, CloudScaleMax, unit: "x");
+                () => world.CloudScale, v => world.CloudScale = v, CloudScaleMin, CloudScaleMax, unit: "x", persist: false);
             reg.AddFloat(CloudAltitudeId, "Cloud altitude",
-                () => world.CloudAltitude, v => world.CloudAltitude = v, CloudAltMin, CloudAltMax, unit: "u");
+                () => world.CloudAltitude, v => world.CloudAltitude = v, CloudAltMin, CloudAltMax, unit: "u", persist: false);
 
             // MOUNTAINS — distance + peak scale + warmth + brightness.
             reg.AddFloat(MtnDistanceId, "Mountain distance",
-                () => world.MountainDistanceScale, v => world.MountainDistanceScale = v, MtnDistanceMin, MtnDistanceMax, unit: "x");
+                () => world.MountainDistanceScale, v => world.MountainDistanceScale = v, MtnDistanceMin, MtnDistanceMax, unit: "x", persist: false);
             reg.AddFloat(MtnPeakScaleId, "Mountain peak scale",
-                () => world.MountainPeakScale, v => world.MountainPeakScale = v, MtnPeakScaleMin, MtnPeakScaleMax, unit: "x");
+                () => world.MountainPeakScale, v => world.MountainPeakScale = v, MtnPeakScaleMin, MtnPeakScaleMax, unit: "x", persist: false);
             reg.AddFloat(MtnWarmthId, "Mountain warmth",
-                () => world.MountainWarmth, v => world.MountainWarmth = v, MtnWarmthMin, MtnWarmthMax, unit: "");
+                () => world.MountainWarmth, v => world.MountainWarmth = v, MtnWarmthMin, MtnWarmthMax, unit: "", persist: false);
             reg.AddFloat(MtnBrightnessId, "Mountain brightness",
-                () => world.MountainBrightness, v => world.MountainBrightness = v, MtnBrightnessMin, MtnBrightnessMax, unit: "x");
+                () => world.MountainBrightness, v => world.MountainBrightness = v, MtnBrightnessMin, MtnBrightnessMax, unit: "x", persist: false);
 
-            // SUN — elevation + size.
+            // SUN — elevation + size (THE round-3 defect surface: a persisted sun_elevation=18 stomped the 8° bake).
             reg.AddFloat(SunElevationId, "Sun elevation",
-                () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°");
+                () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°", persist: false);
             reg.AddFloat(SunSizeId, "Sun size",
-                () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "");
+                () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "", persist: false);
 
             // WAVE1-B COLOUR DIALS (ticket 86cahhfkc) — GRD-2 meadow-patch amp + RCK-1 rock rim, for the
             // ONE-soak A/B. Both mutate live materials through the seam; both start at the shipped baked value.
             reg.AddFloat(MeadowPatchAmpId, "Meadow patch amp",
-                () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "");
+                () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "", persist: false);
             reg.AddFloat(RockRimId, "Rock rim intensity",
-                () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "");
+                () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "", persist: false);
         }
 
         /// <summary>

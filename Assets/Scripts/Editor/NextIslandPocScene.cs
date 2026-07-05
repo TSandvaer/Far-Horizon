@@ -149,9 +149,11 @@ namespace FarHorizon.EditorTools
         }
 
         // Dense-but-perf-honest forest target for the POC (the #1 finding: does the EXISTING low-poly gen +
-        // static batching hold 60fps as the island scales — a real prop load is part of that question). Sized
-        // to the ~800u island area proportionally to the start island's 320 trees over ~240u. Tunable.
-        public const int PocTreeTarget = 560;
+        // static batching hold 60fps as the island scales — a real prop load is part of that question).
+        // Scaled with the ISLAND AREA (86cahwx6w: 560 × (600/400)² = 1260) so the grown island keeps the
+        // #226-approved forest DENSITY — the same 560 trees on 2.25× the land would read sparser than the
+        // island the Sponsor judged. Perf-gated by the -perfProbe re-measure. default — Sponsor-soak tunes.
+        public const int PocTreeTarget = 1260;
 
         // ---- Zone-D look for the POC (lighting + gradient skybox + warm fog + post) — mirrors
         //      WorldBootstrap's look setup WITHOUT calling WorldBootstrap (which rebuilds the start island). ----
@@ -185,7 +187,13 @@ namespace FarHorizon.EditorTools
             RenderSettings.ambientGroundColor = new Color(0.34f, 0.30f, 0.24f);
 
             // Gradient skybox + skybox-driven ambient + warm global fog + post (the Zone-D quality pass).
-            QualityPassGen.BuildGradientSkybox();
+            // The POC gets its OWN sky material (86caj0rrg / Devon's #236 review): QualityPassGen.CreateAsset
+            // fully REPLACES the target, and the POC Sun is at 48° elevation (line above) vs Boot's 18°, so a
+            // shared-path bake would overwrite the shared GradientSky.mat's _SunDirection (the #231 shared-
+            // asset-corruption class — false-reds ZoneDLookTests in a same-session run + risks committing the
+            // polluted value). Own path keeps the seed-42 Boot assets byte-untouched, matching this scene's
+            // existing PocTerrainMat/PocWaterMat/PocNavMesh isolation.
+            QualityPassGen.BuildGradientSkybox(SettingsDir + "/PocGradientSky.mat");
             QualityPassGen.EnableGlobalFog();
             QualityPassGen.BuildGlobalPostVolume();
             var postVol = GameObject.Find("ZoneD_PostVolume");

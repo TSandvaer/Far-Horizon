@@ -25,8 +25,9 @@ namespace FarHorizon
     ///     change here; it just appears as a row (routed to F1 or F3 by category), with a typed field (AC5),
     ///     nudge selection (AC6), a baked-default readout (AC8) and a differs-from-default badge (AC9) for free;
     ///   • OPENS/CLOSES the player drawer on F1 + the dev console on F3, each polled DIRECTLY (86cah8ukr). The
-    ///     86cabeqj9 F1/F2 de-conflict stands: F2 is still the legacy IMGUI overlay master (DebugOverlayToggle),
-    ///     distinct from both F1 and F3 — each key reveals exactly one layer (AC1);
+    ///     dev/debug IMGUI overlays are on F10 (SneakIsolationTool, the single overlay master since the legacy
+    ///     F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). Each key (F1 player / F3 dev
+    ///     console / F10 overlays) reveals exactly one layer (AC1);
     ///   • CONDITIONAL VISIBILITY (86cah8ukr AC1): a per-need decay-rate slider is shown only while its need's
     ///     on/off toggle is ON (live show/hide on toggle change);
     ///   • is NON-MODAL (AC2): being open does NOT pause/gate gameplay (no Time.timeScale touch); world input
@@ -123,21 +124,22 @@ namespace FarHorizon
                  "size, warmth/hunger/thirst on-off + decay-rate sliders (SettingsCategory.IsPlayer). The panel " +
                  "SPLIT (86cah8ukr): F1 now opens ONLY the small player view; the full dev console moved to F3 " +
                  "(devToggleKey). Layout-agnostic + Danish-safe (an F-key) + verified non-clashing with " +
-                 "WASD/Shift/Space/Tab/F2/F7-F10 ([[sponsor-danish-keyboard-layout]]). Update polls this " +
-                 "directly (SetPlayerOpen(!IsPlayerOpen)). DEFAULT = None (NOT F1): the shipped F1 comes ONLY from " +
-                 "MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the scene-presence guard goes " +
-                 "genuinely RED if that wiring is dropped (a code default of F1 made the guard tautological). A " +
+                 "WASD/Shift/Space/Tab/F7-F10 (F2 UNBOUND) ([[sponsor-danish-keyboard-layout]]). Update polls " +
+                 "this directly (SetPlayerOpen(!IsPlayerOpen)). DEFAULT = None (NOT F1): the shipped F1 comes ONLY " +
+                 "from MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the scene-presence guard " +
+                 "goes genuinely RED if that wiring is dropped (a code default of F1 made the guard tautological). A " +
                  "never-wired panel then just no-ops on Input.GetKeyDown(None) — no crash.")]
         public KeyCode toggleKey = KeyCode.None;
         [Tooltip("Key that opens/closes the DEV CONSOLE (F3, Sponsor-confirmed 2026-07-03) — EVERY other row " +
                  "(world-look, arm-pose, camera/zoom, held-weapon, locomotion incl. walk/run speed, resource " +
-                 "timers/yields, inventory slots, console UI + text scale). The 86cabeqj9 F1/F2 de-conflict " +
-                 "stands: F2 is still the legacy IMGUI overlay master (DebugOverlayToggle), distinct from both " +
-                 "F1 and F3. Update polls this directly (SetOpen(!IsOpen)). The SHIPPED-BUILD verify-capture " +
-                 "drives SetOpen PROGRAMMATICALLY (it can't synthesize a key-down in a windowed capture) — it " +
-                 "reads this field only to LOG the dev key, not to open.) DEFAULT = None (NOT F3): the shipped F3 " +
-                 "comes ONLY from MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the guard " +
-                 "goes genuinely RED if that wiring is dropped (a code default of F3 made it tautological).")]
+                 "timers/yields, inventory slots, console UI + text scale). The dev/debug IMGUI overlays are on " +
+                 "F10 (SneakIsolationTool, the single overlay master since the legacy F2 DebugOverlayToggle was " +
+                 "removed in 86cah90cp round-3; F2 is UNBOUND) — F1/F3/F10 are all distinct. Update polls this " +
+                 "directly (SetOpen(!IsOpen)). The SHIPPED-BUILD verify-capture drives SetOpen PROGRAMMATICALLY " +
+                 "(it can't synthesize a key-down in a windowed capture) — it reads this field only to LOG the " +
+                 "dev key, not to open.) DEFAULT = None (NOT F3): the shipped F3 comes ONLY from " +
+                 "MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the guard goes genuinely RED " +
+                 "if that wiring is dropped (a code default of F3 made it tautological).")]
         public KeyCode devToggleKey = KeyCode.None;
 
         /// <summary>The registry this panel renders + drives. Built ONCE on Start from the catalog; both the F1
@@ -293,11 +295,12 @@ namespace FarHorizon
 
         void Update()
         {
-            // AC1 + 86cabeqj9 F1/F2 DE-CONFLICT (soak NIT). The console KEEPS F1, but now polls F1 DIRECTLY
+            // AC1 + 86cabeqj9 F1/overlay DE-CONFLICT (soak NIT). The console KEEPS F1, but now polls F1 DIRECTLY
             // rather than riding the shared DebugOverlays.Visible flag. Before this, the console synced to
-            // DebugOverlays.Visible (which DebugOverlayToggle flipped on F1) — so one F1 popped the console AND
-            // the legacy IMGUI overlays (axe-shaft length, pond recess/foam) together (the Sponsor's complaint).
-            // Decoupled: F1 toggles ONLY the console here; the legacy overlays moved to F2 (DebugOverlayToggle).
+            // DebugOverlays.Visible — so one F1 popped the console AND the dev/debug IMGUI overlays (axe-shaft
+            // length, pond recess/foam) together (the Sponsor's complaint).
+            // Decoupled: F1 toggles ONLY the console here; the dev/debug overlays are on F10 (the single overlay
+            // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
             // Layout-agnostic + Danish-safe (an F-key) and verified non-clashing with WASD/Shift/Space/Tab/F7-F10
             // ([[sponsor-danish-keyboard-layout]]). Legacy Input (activeInputHandler=0), like every debug toggle.
             // 86cah8ukr SPLIT — F1 toggles the PLAYER Settings drawer; F3 toggles the DEV console. Each polled

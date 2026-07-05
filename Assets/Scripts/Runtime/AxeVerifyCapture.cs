@@ -81,6 +81,9 @@ namespace FarHorizon
         public float heldBeltViewPitch = 22f;
         public float heldBeltViewDistance = 6.5f;
         public float heldBeltCloseDistance = 2.8f;
+        // RT-readback capture resolution for the -verifyHeldBelt CI gate (86cag93zb; headless -batchmode).
+        public int captureWidth = 1280;
+        public int captureHeight = 720;
 
         // 86cahngdg — the shipped-build gate for "the held visual follows the SELECTED belt weapon".
         private IEnumerator RunHeldBeltVerification()
@@ -234,7 +237,11 @@ namespace FarHorizon
             return false;
         }
 
-        // Park the gameplay camera over-shoulder on the castaway at the given distance and screenshot.
+        // Park the gameplay camera over-shoulder on the castaway at the given distance and capture.
+        // HEADLESS RT-readback (86cag93zb): render Camera.main full-pipeline into an offscreen RT (works
+        // under -batchmode, no swapchain). The held-belt self-asserts are LOGIC (renderer enabled + held
+        // mesh vertexCount), so the capture-mechanism swap does not touch the gate verdict — only the
+        // diagnostic frames. Camera-only render: no HUD overlay in frame; frame_check gates scene content.
         private IEnumerator CaptureHeldFrame(GameObject camGo, Vector3 target, float distance, string file)
         {
             Vector3 look = target + new Vector3(0f, 1.0f, 0f);
@@ -242,10 +249,10 @@ namespace FarHorizon
             camGo.transform.position = look + rot * new Vector3(0f, 0f, -distance);
             camGo.transform.LookAt(look);
             for (int i = 0; i < 6; i++) yield return null;
-            yield return new WaitForEndOfFrame();
-            ScreenCapture.CaptureScreenshot(file, 1);
+            var cam = camGo.GetComponent<Camera>();
+            Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
+            if (tex != null) Object.Destroy(tex);
             Debug.Log("[AxeVerifyCapture] HELD-BELT wrote " + file);
-            yield return new WaitForEndOfFrame();
         }
 
         // 86cabh907: capture the held axe at EACH of the 4 shaft-length variants, proving the [L] picker's

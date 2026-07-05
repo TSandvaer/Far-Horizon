@@ -738,6 +738,40 @@ for g in settings loot water chop sky heldbelt invdragghostpos; do
   assert_attempts "$TMP/${g}_ha.sh" 2 "verify_${g}: persistent 124-hang ran exactly TWICE (one retry, no loop)"
 done
 
+echo "=== gate launch-mode invariant (86cag93zb — headless RT-readback vs windowed overlay) ==="
+# THE bug class this guards: a HEADLESS-converted scene-content gate silently reverting to a windowed
+# launch (or a windowed overlay gate losing its window) — either way the CI capture step would launch
+# the exe in the WRONG mode and the fix would regress unnoticed. The 4 scene-content gates render
+# Camera.main / a dedicated cam into an offscreen RenderTexture (SubmitRenderRequest) and MUST launch
+# -batchmode (NO -screen-fullscreen 0); the OVERLAY + soak-fragile gates still need a real swapchain and
+# MUST keep -screen-fullscreen 0 (their IMGUI/UI-Toolkit overlay never composites into a camera RT —
+# backbuffer capture is dead headless). Static grep over the LAUNCH line only ('^\s*-batchmode' can't
+# match a '#'-prefixed comment; '-screen-fullscreen 0' appears only in the windowed launch flag line) —
+# zero Unity dependency, runs every PR in the license-free structure job. A NEW gate must be added to the
+# matching list here (mirrors the wedge-retry loop above — this is the launch-mode regression guard).
+assert_launch_headless() { # <script-name>
+  local s="$SCRIPTS/$1"
+  if grep -qE '^[[:space:]]*-batchmode' "$s" && ! grep -q -- '-screen-fullscreen 0' "$s"; then
+    ok "launch-mode: $1 launches -batchmode (headless RT-readback), no windowed swapchain"
+  else
+    bad "launch-mode: $1 MUST launch -batchmode and NOT -screen-fullscreen 0 (86cag93zb headless conversion regressed)"
+  fi
+}
+assert_launch_windowed() { # <script-name>
+  local s="$SCRIPTS/$1"
+  if grep -q -- '-screen-fullscreen 0' "$s"; then
+    ok "launch-mode: $1 keeps -screen-fullscreen 0 (overlay/soak-fragile gate needs a window)"
+  else
+    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 (its IMGUI/UI-Toolkit overlay is dead headless)"
+  fi
+}
+for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh; do
+  assert_launch_headless "$s"
+done
+for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh; do
+  assert_launch_windowed "$s"
+done
+
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || { echo "GATE-SCRIPT TESTS FAILED"; exit 1; }

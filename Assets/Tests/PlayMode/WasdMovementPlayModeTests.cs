@@ -55,17 +55,7 @@ namespace FarHorizon.PlayTests
         {
             // Fresh empty scene (cross-fixture leak fix, mirrors the harness): OUR synthetic colliders must be
             // the only Ground surfaces when the snap raycast fires.
-            var empty = SceneManager.CreateScene("WasdHarnessIsolated_" + System.Guid.NewGuid().ToString("N"));
-            SceneManager.SetActiveScene(empty);
-            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-            {
-                var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded)
-                {
-                    var op = SceneManager.UnloadSceneAsync(s);
-                    if (op != null) while (!op.isDone) yield return null;
-                }
-            }
+            yield return PlayModeSceneIsolation.IsolateInFreshScene("WasdHarnessIsolated");
 
             int groundLayer = LayerMask.NameToLayer("Ground");
 

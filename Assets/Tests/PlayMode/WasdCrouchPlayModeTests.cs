@@ -51,17 +51,7 @@ namespace FarHorizon.PlayTests
         public IEnumerator SetUp()
         {
             // Fresh isolated scene so OUR flat ground is the only NavMesh surface.
-            var empty = SceneManager.CreateScene("WasdCrouchIsolated_" + System.Guid.NewGuid().ToString("N"));
-            SceneManager.SetActiveScene(empty);
-            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-            {
-                var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded)
-                {
-                    var op = SceneManager.UnloadSceneAsync(s);
-                    if (op != null) while (!op.isDone) yield return null;
-                }
-            }
+            yield return PlayModeSceneIsolation.IsolateInFreshScene("WasdCrouchIsolated");
 
             int groundLayer = LayerMask.NameToLayer("Ground");
 

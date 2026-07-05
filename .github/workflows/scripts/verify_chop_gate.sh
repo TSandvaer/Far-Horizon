@@ -67,14 +67,15 @@ LAUNCH_TIMEOUT=300
 launch_once() {
   rm -f "$ABS_CAP"/chop_*.png
   rm -f "$LOG_FILE"
-  echo "[verify_chop] launching shipped exe windowed (-verifyChop): $EXE"
+  echo "[verify_chop] launching shipped exe -batchmode (headless RT-readback, -verifyChop): $EXE"
   echo "[verify_chop]   captureDir=$ABS_CAP logFile=$LOG_FILE"
-  # Windowed + small so it never grabs the desktop; -verifyChop drives ChopVerifyCapture;
-  # -logFile redirects the standalone player's Player.log so the demoWood/scatterWood verdict
-  # lines are grep-able here. The component calls Application.Quit(0/1) when done.
+  # HEADLESS (86cag93zb): -batchmode, NO -nographics (real D3D12 device), NO window. ChopVerifyCapture
+  # captures Camera.main into an offscreen RT (SubmitRenderRequest); its self-asserts are LOGIC
+  # (WoodCount / InstanceCount), so the demoWood/scatterWood verdict is unchanged. -logFile redirects
+  # the Player.log so the verdict lines are grep-able here. The component calls Application.Quit(0/1).
   set +e
   timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
-    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -batchmode \
     -verifyChop -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
   exe_rc=$?
   set -e

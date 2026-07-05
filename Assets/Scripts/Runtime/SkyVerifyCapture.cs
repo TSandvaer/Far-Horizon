@@ -40,9 +40,10 @@ namespace FarHorizon
     /// Quit(1) on any failure (or a missing Sun) so the exe exit code IS the gate; frame_check.py backstops.
     ///
     /// Inert unless launched with -verifySky (normal game / boot capture unaffected):
-    ///   FarHorizon.exe -screen-fullscreen 0 -verifySky [-captureDir &lt;dir&gt;]
-    /// MUST run WINDOWED, not -batchmode (ScreenCapture needs a real swapchain — spike iter-4 lesson;
-    /// editor RenderTexture mis-renders URP).
+    ///   FarHorizon.exe -batchmode -verifySky [-captureDir &lt;dir&gt;]
+    /// HEADLESS via RT-readback (86cag93zb): each shot renders the sky camera full-pipeline into an
+    /// offscreen RenderTexture (Skybox + Zone-D post survive SubmitRenderRequest) and reads the SAME
+    /// frame back for the self-assert — so it runs under -batchmode with no window/swapchain.
     /// </summary>
     public class SkyVerifyCapture : MonoBehaviour
     {
@@ -50,6 +51,9 @@ namespace FarHorizon
         public int warmupFrames = 10;
         public int settleFrames = 12;
         public float fieldOfView = 50f;
+        // RT-readback capture resolution (86cag93zb; headless -batchmode, no window).
+        public int captureWidth = 1280;
+        public int captureHeight = 720;
 
         void Start()
         {
@@ -76,6 +80,22 @@ namespace FarHorizon
 
             for (int i = 0; i < warmupFrames; i++) yield return null;
 
+            // Diagnose-via-trace: log the camera roster BEFORE we take over so a future mis-render (wrong camera
+            // winning the backbuffer) is readable from the build log — this is exactly the bug this block fixes.
+            foreach (var c in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                Debug.Log($"[sky-cam-roster] '{c.name}' enabled={c.enabled} depth={c.depth} " +
+                          $"isMain={(c == Camera.main)} tag={c.tag}");
+
+            // DISABLE every existing camera so ONLY our SkyCaptureCamera composites the backbuffer. WITHOUT this
+            // the gameplay orbit camera (also Skybox-clear, default depth 0) renders at the SAME depth as our
+            // capture camera → UNDEFINED render order → the orbit cam's ground-level player view races ours into
+            // the captured frame (PR #223 run 28658539450: sky_sun.png showed the forest+HUD, the centre patch
+            // read a foliage-toned tree, not the sun disk → SUN self-assert FAIL). Every reliable Skybox-clear
+            // sibling does this — WeaponSetVerifyCapture disables ALL cameras + sets a top depth, Rock/Rim/
+            // FlatShading disable the orbit cam ("else both draw"). Match the strongest form: disable ALL + depth.
+            foreach (var existing in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                existing.enabled = false;
+
             // A dedicated SKY camera with the gameplay render path (Skybox clear so the gradient sky + sun
             // render; Zone-D post + SMAA so bloom lifts the warm corona). Parked high over the play centre.
             var camGo = new GameObject("SkyCaptureCamera");
@@ -83,67 +103,82 @@ namespace FarHorizon
             cam.clearFlags = CameraClearFlags.Skybox; // LOAD-BEARING: render the gradient sky we are verifying
             cam.fieldOfView = fieldOfView;
             cam.farClipPlane = 2000f;
+            cam.depth = 100f; // render last / on top — belt-and-suspenders with the disable-all above
             var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
             camData.renderPostProcessing = true;
             camData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
-            // Sit above the play space so terrain never crowds the frame; the sky fills it.
-            camGo.transform.position = new Vector3(0f, 12f, 0f);
+            // Sit HIGH above the play space so the dead-aim shot has an unobstructed sky view. The disk is
+            // a SKYBOX element — its screen position depends only on camera DIRECTION, never position — so
+            // raising the camera changes nothing about the disk and only clears OCCLUDERS from the ray. From
+            // y=60 even the far vista peaks (~80u at ~500u → ~2° above the ray origin) sit below an 8°-up ray,
+            // so shot 1 shows the DISK against clear sky, not terrain. (NOTE: an earlier y=12→y=60 raise was
+            // aimed at a MIS-diagnosed "canopy at frame-centre false-fails shot 1" — the real cause was the
+            // gameplay orbit camera winning the render, fixed by the disable-all above; the trees seen in the
+            // pre-fix shot 1 were the ORBIT cam's, never this camera's. y=60 is still the right unobstructed
+            // dead-aim pose now that this camera actually renders.) Shot 3 restores the REAL gameplay pose.
+            camGo.transform.position = new Vector3(0f, 60f, 0f);
 
             // --- Shot 1: aim STRAIGHT at the Sun direction — the sun disk centred. ---
+            // HEADLESS RT-readback (86cag93zb): render the sky camera full-pipeline into an offscreen RT
+            // (Skybox + Zone-D post survive via SubmitRenderRequest) and read the SAME frame back for the
+            // self-assert — no backbuffer, works under -batchmode. Replaces ScreenCapture + a separate
+            // backbuffer ReadPixels (dead headless). The sample math is unchanged (reads tex.width/height).
             camGo.transform.rotation = Quaternion.LookRotation(toSun, Vector3.up);
             for (int i = 0; i < settleFrames; i++) yield return null;
-            yield return new WaitForEndOfFrame();
             string sunFile = Path.Combine(dir, "sky_sun.png");
-            ScreenCapture.CaptureScreenshot(sunFile, 1);
+            Texture2D sunTex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, sunFile);
             Debug.Log("[SkyVerifyCapture] wrote " + sunFile + " (aimed at sun dir)");
-            yield return new WaitForEndOfFrame();
-            // Read back the centre pixels for the self-assert (sun warmer + brighter than the sky surround).
-            yield return new WaitForEndOfFrame();
-            Texture2D sunTex = GrabCentre(out Color sunCentre, out Color sunSurround);
+            SampleCentre(sunTex, out Color sunCentre, out Color sunSurround);
 
             // --- Shot 2: aim UP into the cloud band (high pitch, inland) — cloud-vs-sky contrast. ---
             // Pitch ~35deg up, inland (+Z) where BuildClouds biases the cloud lateral spread. The clouds sit
             // at 28-42u; from y=12 looking up-inland they fill the upper frame against the blue sky.
+            // (Shot 1 raised the camera to y=60 for an occluder-free dead-aim at the 8° sun — restore the
+            // y=12 framing this shot's cloud-band geometry was tuned for: from 60u the camera is ABOVE the
+            // 28-42u cloud band and an up-look would miss it.)
+            camGo.transform.position = new Vector3(0f, 12f, 0f);
             Vector3 cloudDir = new Vector3(0f, Mathf.Sin(35f * Mathf.Deg2Rad), Mathf.Cos(35f * Mathf.Deg2Rad)).normalized;
             camGo.transform.rotation = Quaternion.LookRotation(cloudDir, Vector3.up);
             for (int i = 0; i < settleFrames; i++) yield return null;
-            yield return new WaitForEndOfFrame();
             string cloudFile = Path.Combine(dir, "sky_clouds.png");
-            ScreenCapture.CaptureScreenshot(cloudFile, 1);
+            Texture2D cloudTex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, cloudFile);
             Debug.Log("[SkyVerifyCapture] wrote " + cloudFile + " (aimed up-inland into the cloud band)");
-            yield return new WaitForEndOfFrame();
-            yield return new WaitForEndOfFrame();
-            Texture2D cloudTex = GrabFull(out float skyMedianLuma, out float brightFraction);
+            SampleFull(cloudTex, out float skyMedianLuma, out float brightFraction);
 
-            // --- Shot 3: GAMEPLAY-FRAMED (ticket 86cag25az sun-lower) — the over-shoulder orbit pose at the
-            // most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°), FACING the sun's azimuth, at the real
-            // orbit distance (14u). This is the eyes-on proof that the LOWERED sun (Sponsor-accepted elev 18°) is
-            // FRAMED in normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a tilt").
-            // A WIDE FOV (75°) is used DELIBERATELY: at the orbit's lowest pitch the camera still looks slightly
-            // DOWN (Euler-X is look-down), so a generous FOV is needed for the low elev-18° sun to clear scenery
-            // and sit in the lower-sky band. Yaw faces the sun's horizontal azimuth so the disk lands in frame.
+            // --- Shot 3: GAMEPLAY-FRAMED (86cag25az sun-lower; re-framed HONEST on 86cah90cp) — the
+            // over-shoulder orbit pose at the most HORIZON-WARD playable pitch (OrbitCamera.minPitch 8°),
+            // FACING the sun's azimuth, at the real orbit distance (14u) AND the REAL gameplay FOV (45 —
+            // MovementCameraScene bakes cam.fieldOfView = 45f). Eyes-on proof that the low sun is FRAMED in
+            // normal play (the (a) shot aims dead at the sun — it can't show "is it framed at a tilt").
+            // The previous WIDE 75° FOV false-passed the visibility question (the #194-review NIT; the
+            // unity-conventions "non-gameplay FOV/pitch false-pass" class): at FOV 45 / pitch-8 look-down the
+            // frame tops out ~14.5° above the horizon, so an 18° sun sat ABOVE the frame at every playable
+            // pitch while the 75° capture (top ~29.5°) still showed it green. Shooting the REAL FOV is what
+            // proves the 86cah90cp round-2 8° bake actually sits inside the playable sky band.
             // NOTE: whether the sun is framed in NORMAL play also depends where the player looks + on tree
-            // occlusion — over the OCEAN azimuth (where the Sponsor judged 18°) there is no treeline; this
+            // occlusion — over the OCEAN azimuth (where the Sponsor judged 8°) there is no treeline; this
             // capture leans inland so it may show canopy. The Sponsor soak is the real judge ([[verify-grounding-soaks-by-gameplay-cam-visual]]);
             // this shot proves it CAN be framed at a playable angle, and the gameplay self-assert below is
             // ADVISORY (logged, NOT gating) so tree-position variance can't false-fail the gate.
             float sunAzimuthDeg = Mathf.Atan2(toSun.x, toSun.z) * Mathf.Rad2Deg; // horizontal heading toward the sun
             const float gameplayPitch = 8f;    // OrbitCamera.minPitch — the horizon-most playable tilt
             const float gameplayDist  = 14f;   // OrbitCamera.distance default
+            const float gameplayFov   = 45f;   // MovementCameraScene cam.fieldOfView — the REAL gameplay FOV
             Vector3 lookAt = new Vector3(0f, 1.0f, 0f); // ≈ player root + OrbitCamera.targetOffset
             Quaternion gpRot = Quaternion.Euler(gameplayPitch, sunAzimuthDeg, 0f);
             Vector3 gpForward = gpRot * Vector3.forward;
             camGo.transform.position = lookAt - gpForward * gameplayDist; // sit back along the view ray
             camGo.transform.rotation = gpRot;
-            cam.fieldOfView = 75f; // WIDE so the elev-25 sun clears the tall canopy + sits in the open sky band
+            cam.fieldOfView = gameplayFov; // REAL gameplay FOV — a wide capture FOV false-passes visibility
             for (int i = 0; i < settleFrames; i++) yield return null;
-            yield return new WaitForEndOfFrame();
             string gameplayFile = Path.Combine(dir, "sky_gameplay.png");
-            ScreenCapture.CaptureScreenshot(gameplayFile, 1);
-            Debug.Log($"[SkyVerifyCapture] wrote {gameplayFile} (gameplay-framed: pitch {gameplayPitch}, FOV 75, yaw->sun azimuth {sunAzimuthDeg:F1})");
-            yield return new WaitForEndOfFrame();
-            yield return new WaitForEndOfFrame();
-            Texture2D gpTex = GrabWarmestUpper(out Color gpSun, out Color gpSky);
+            // Merge-resolve (#223 ← main): main's headless RT-readback capture path (86cag93zb — shots 1+2
+            // above already use it; the backbuffer ScreenCapture path is DEAD under main's -batchmode -verifySky
+            // CI, and GrabWarmestUpper no longer exists) + #223's ACCURATE {gameplayFov} log (the camera is at
+            // FOV 45 per the round-2 8° reframe above; main's copy hardcoded a stale "75").
+            Texture2D gpTex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, gameplayFile);
+            Debug.Log($"[SkyVerifyCapture] wrote {gameplayFile} (gameplay-framed: pitch {gameplayPitch}, FOV {gameplayFov}, yaw->sun azimuth {sunAzimuthDeg:F1})");
+            SampleWarmestUpper(gpTex, out Color gpSun, out Color gpSky);
 
             yield return new WaitForSeconds(0.3f);
 
@@ -199,15 +234,12 @@ namespace FarHorizon
             Application.Quit(pass ? 0 : 1);
         }
 
-        // Capture the current backbuffer + sample a small CENTRE patch (the sun) and a SURROUND ring (the
-        // sky around it), averaging each. ReadPixels must run inside WaitForEndOfFrame (caller ensures it).
-        private Texture2D GrabCentre(out Color centre, out Color surround)
+        // Sample a small CENTRE patch (the sun) and a SURROUND ring (the sky around it) from the RT-readback
+        // texture, averaging each. (86cag93zb: reads the passed-in offscreen-RT frame — no backbuffer read.)
+        private void SampleCentre(Texture2D tex, out Color centre, out Color surround)
         {
-            int w = Screen.width, h = Screen.height;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
-
+            if (tex == null) { centre = Color.black; surround = Color.black; return; }
+            int w = tex.width, h = tex.height;
             int cx = w / 2, cy = h / 2;
             int patch = Mathf.Max(3, Mathf.Min(w, h) / 80);   // tight centre patch (the gold disk core only,
                                                               // not the blue bloom halo around it)
@@ -222,17 +254,14 @@ namespace FarHorizon
             surround = new Color((sl.r + sr.r + su.r + sd.r) * 0.25f,
                                  (sl.g + sr.g + su.g + sd.g) * 0.25f,
                                  (sl.b + sr.b + su.b + sd.b) * 0.25f);
-            return tex;
         }
 
-        // Capture the full frame; compute the sky median luma + the fraction of pixels notably brighter than
-        // it (the bright clouds). Sub-sampled for speed.
-        private Texture2D GrabFull(out float skyMedianLuma, out float brightFraction)
+        // Compute the sky median luma + the fraction of pixels notably brighter than it (the bright clouds)
+        // from the RT-readback texture. Sub-sampled for speed. (86cag93zb: reads the passed-in RT frame.)
+        private void SampleFull(Texture2D tex, out float skyMedianLuma, out float brightFraction)
         {
-            int w = Screen.width, h = Screen.height;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
+            if (tex == null) { skyMedianLuma = 0f; brightFraction = 0f; return; }
+            int w = tex.width, h = tex.height;
 
             // Sample a grid; the sky band (no cloud) is the bulk → its median is the sky luma reference.
             const int gx = 64, gy = 36;
@@ -250,20 +279,18 @@ namespace FarHorizon
             int bright = 0;
             foreach (var l in lumas) if (l > thr) bright++;
             brightFraction = (float)bright / lumas.Count;
-            return tex;
         }
 
-        // Capture the gameplay-framed frame; in its UPPER band (where a low sun sits) find the WARMEST patch
+        // In the gameplay-framed RT frame's UPPER band (where a low sun sits) find the WARMEST patch
         // (highest R-B = the warm-gold sun core) + a sky reference beside it. WARMTH-STRICT on purpose: the
         // sky has bright near-white CYAN clouds (B>R) whose high luma fooled an earlier luma+warmth picker into
         // locking onto a cloud; scoring purely on warmth (with a brightness floor to skip dark canopy gaps)
         // makes the gold disk win. Used for the ADVISORY gameplay-sun readout only (not a hard gate).
-        private Texture2D GrabWarmestUpper(out Color sun, out Color sky)
+        // (86cag93zb: reads the passed-in RT frame — no backbuffer read.)
+        private void SampleWarmestUpper(Texture2D tex, out Color sun, out Color sky)
         {
-            int w = Screen.width, h = Screen.height;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
+            if (tex == null) { sun = Color.black; sky = Color.black; return; }
+            int w = tex.width, h = tex.height;
 
             int patch = Mathf.Max(3, Mathf.Min(w, h) / 90);
             // Scan the upper band: y in [0.55h .. 0.97h] (top of the screen is HIGH y in bottom-left origin),
@@ -290,7 +317,6 @@ namespace FarHorizon
             Color sLeft = AvgPatch(tex, bsx - off, bsy, patch);
             Color sRight = AvgPatch(tex, bsx + off, bsy, patch);
             sky = new Color((sLeft.r + sRight.r) * 0.5f, (sLeft.g + sRight.g) * 0.5f, (sLeft.b + sRight.b) * 0.5f);
-            return tex;
         }
 
         private static Color AvgPatch(Texture2D tex, int cx, int cy, int half)
