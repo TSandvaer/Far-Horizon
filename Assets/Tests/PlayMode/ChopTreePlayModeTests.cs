@@ -54,9 +54,27 @@ namespace FarHorizon.PlayTests
         private LogPileSpawner _spawner;
         private PickableLooter _looter;
 
+        // 86cajt6j8 — STABLE-CLOCK HARNESS (FH-PMTRIAGE-CHOP). The hold-to-chop cadence gates
+        // (swingImpactDelaySeconds ~0.1s + the clip-completion window ~0.3s) are TIME-SPACED across many frames.
+        // Under a bare headless -batchmode run Time.deltaTime≈0 while Time.time leaps in coarse/variable wall-clock
+        // jumps, so a SINGLE frame's Time.time delta can exceed BOTH the impact delay AND the clip length: the
+        // impact resolves (one chop) AND the next swing begins in the same Update, collapsing the cadence and
+        // OVER-COUNTING chops (the run-28679257846 reds: 2 vs 1, 4 vs 1, 5 vs 3, 12 vs 5; and ChoppedTree fading
+        // before its 0.3s post-fell visible window). This is a HEADLESS-CLOCK artifact, NOT a real double-apply:
+        // ChoppableTreeState.LandChop increments once per call behind an IsChoppable guard, ApplyChopEffect is
+        // single-flighted by _impactPending, and the shipped -verifyChop capture PASSES at real framerate. Pinning
+        // Time.captureDeltaTime forces a FIXED virtual step per frame (decoupled from wall-clock, honoured in
+        // -batchmode) so each cadence window spans a DETERMINISTIC frame count — the gates hold exactly as they do
+        // at 60fps, so these tests still GUARD the machine-gun-chop bug class instead of being quarantined. Step
+        // 0.01s (100Hz) keeps every "tick N frames" assertion (max 20 frames = 0.2s) comfortably inside the
+        // smallest impact window (0.4s). Restored to 0 in TearDown so other test classes run on the normal clock.
+        private const float StableStepSeconds = 0.01f;
+
         [SetUp]
         public void SetUp()
         {
+            Time.captureDeltaTime = StableStepSeconds; // fixed virtual clock → deterministic cadence (86cajt6j8)
+
             // CastawayCharacter.Awake logs "modelPrefab not wired" in a bare rig (no scene FBX); ignore it — these
             // tests only exercise the chop MECHANIC + the TriggerChop latch, not the rendered model.
             LogAssert.ignoreFailingMessages = true;
@@ -121,6 +139,7 @@ namespace FarHorizon.PlayTests
             foreach (var pile in Object.FindObjectsByType<LogPile>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 Object.Destroy(pile.gameObject);
             LogAssert.ignoreFailingMessages = false;
+            Time.captureDeltaTime = 0f; // restore the normal wall-clock for other test classes (86cajt6j8)
         }
 
         // Place the axe in the belt AND make it the selected belt item (CraftAxe puts it in slot 0, which is
