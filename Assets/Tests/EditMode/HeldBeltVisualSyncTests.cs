@@ -45,12 +45,12 @@ namespace FarHorizon.EditTests
         public void FamilyContract_SpearIndexNamesTheSpearNode()
         {
             Assert.AreEqual(0, HeldWeaponCycleDebug.AxeFamilyIndex, "the axe is the locked default index 0");
-            Assert.AreEqual("wpn_axe_01",
+            Assert.AreEqual("wpn_axe_stone_01",
                 HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.AxeFamilyIndex]);
-            Assert.AreEqual("wpn_spear_01",
+            Assert.AreEqual("wpn_spear_stone_01",
                 HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SpearFamilyIndex],
-                "SpearFamilyIndex MUST name the spear node — a WeaponNodeNames reorder without re-pinning " +
-                "this index would render the WRONG weapon for the selected spear (the crossed-visual class)");
+                "SpearFamilyIndex MUST name the STONE spear node — a WeaponNodeNames reorder without re-pinning " +
+                "this index would render the WRONG weapon for the selected spear (the crossed-visual class; 86cajkk7h)");
             Assert.AreEqual("SPEAR",
                 HeldWeaponCycleDebug.WeaponLabels[HeldWeaponCycleDebug.SpearFamilyIndex]);
         }

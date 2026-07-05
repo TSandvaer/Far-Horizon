@@ -118,34 +118,24 @@ namespace FarHorizon.EditorTools
         // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
         // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
-        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is HEAD-height-normalized so the
-        // byte-locked 0.65× head keeps its approved size while the 1.1× straight haft sets the total to ~1.08u
-        // longest (WeaponPackAssetGen.HeroAxeTargetHeadHeightU; 86cabh907 FINAL — the Sponsor's [L]=1.1x pick).
+        // under the avatar root scaled PlayerVisualHeight (1.8). The STONE axe FBX is FAMILY-normalized so its
+        // imported longest-axis == the retired axe's ~1.08u (WeaponPackAssetGen.NewFamilyAxeTargetLongestU;
+        // 86cajkk7h — a drop-in for THIS locked held scale, so the in-hand size is unchanged from the approved axe).
         // Effective world length ≈ localScale × 1.8 (root) × 1.08 (axe). localScale 0.45 → ~0.49u longest extent
         // — a believable kid-sized hatchet that clears the gameplay-visibility floor (the invisible-sliver soak
         // guard). REASONABLE default — the exact Sponsor F9 dial is a FOLLOW-UP (drives the HeldAxeRig fields).
         public static readonly float HeldAxeLocalScaleUniform = 0.45f;
-        // GRIP-POINT SHIFT (86cabh907 FINAL bake — the longer STRAIGHT haft re-seats the grip). The axe FBX origin
-        // is (0,0,0) — preserved (the §6 grip-point semantics). On the original short haft that origin sat ~mid-
-        // axe; the 2.0× haft moves the origin to ~65% UP the total length (near the head), so seating the FBX
-        // origin at the hand would grip near the HEAD. To grip the LOWER-THIRD of the handle (head up top, like
-        // the board axe 21h08_08), we slide the DISPLAYED MESH up its long axis toward the HEAD via the
-        // WeaponMeshHolder so the hand lands on the lower-third grip point.
-        //
-        // AXIS (diagnose-via-trace, AxeSeatProbe — the §FBX bakeAxisConversion trap): after import the axe's long
-        // axis is UNITY +Y (NOT Z), HEAD at +Y, grip-end at −Y (Blender +Z → Unity +Y). A first pass shifted +Z
-        // (off-axis) → the held capture showed the hand still at the HEAD (the shift went sideways, not down the
-        // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + handleLen/3.
-        // 86cabh907 FINAL (PR #100, the Sponsor's [L]=1.1x pick — "not wasting more time on the axe"): the haft
-        // shortened 1.5x->1.1x, so the grip RE-SEATS to the shorter handle. Re-derived from ground truth (bl_20,
-        // the canonical now = the coaxial 1.1x len11 mesh, globalScale 1.05680): grip_end_Y=−0.52551,
-        // head_base_Y=+0.02396 → handleLen(Unity)=0.54947 → lower_third_Y = grip_end_Y + handleLen/3 = −0.34235.
-        // Shifting the mesh +0.34235 Y brings that point to the root origin (the hand seat) → head UP, grip-end
-        // DOWN. The hand (Y=0) then sits at GRIP_FRACTION 0.3333 of the graspable handle = the lower-third grip.
-        // (Was 0.47181 for the 1.5x handle, 0.6427 for 2.0x.) Authored on the WeaponMeshHolder at EDIT-TIME so it
-        // serializes into Boot.unity (static EditMode bounds == runtime). The F9 held target + the soak let the
-        // Sponsor micro-dial; this is the lower-third default for the FINAL 1.1x axe.
-        public static readonly float HeldAxeGripShiftY = 0.34235f;
+        // GRIP-POINT SHIFT (86cajkk7h — the STONE axe honors the §6 grip origin, so the shift is ZERO).
+        // The retired flint axe had its FBX origin at the weapon MIDPOINT (~49% up the long axis), so a large
+        // +0.34235 Y mesh shift was needed to slide the grip down to the hand. The new Sponsor-approved STONE
+        // axe (wpn_axe_stone_01) is authored per pipeline §6 — the FBX origin IS the grip (measured at ~24% up
+        // the long axis = the lower-haft grip point), blade up +Z (→ Unity +Y after Bake Axis Conversion). So
+        // seating the FBX origin at the hand ALREADY grips the lower haft with the head UP TOP (the board-axe
+        // read), with NO mesh shift. The WeaponMeshHolder child is still authored (at zero offset) because the
+        // single-node FBX collapses its MeshFilter onto the rig-driven root and the rig would stomp a per-weapon
+        // TRS on it (#100 BUG-2) — the holder is the rig-untouched home the [B] cycle + belt-sync drive. The F9
+        // held target + the soak let the Sponsor micro-dial the grip; 0 is the §6-correct starting point.
+        public static readonly float HeldAxeGripShiftY = 0f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
@@ -785,12 +775,10 @@ namespace FarHorizon.EditorTools
             // offset) and starts on the LOCKED axe, so a soak that never presses [B] sees the shipped axe.
             if (axe.GetComponent<HeldWeaponCycleDebug>() == null) axe.AddComponent<HeldWeaponCycleDebug>();
 
-            // SHAFT-LENGTH PICKER (86cabh907 — the unstick instrument): cycle the held axe through 4 pre-baked
-            // length variants (1.1x->1.4x, head LOCKED + coaxial) with [L] so the Sponsor PICKS the haft length
-            // in-hand instead of us guessing (he rejected 2.0x + 1.5x as too long). Shares the cycle's mesh
-            // holder; only acts while the axe is held. Starts UNSELECTED (shipped length) so a soak that never
-            // presses [L] sees the shipped axe. Authored after the cycle so its Awake finds the cycle component.
-            if (axe.GetComponent<HeldAxeLengthPicker>() == null) axe.AddComponent<HeldAxeLengthPicker>();
+            // SHAFT-LENGTH PICKER RETIRED (86cajkk7h): the [L] length picker + its wpn_axe_01_len11..14 variants
+            // were the unstick instrument that let the Sponsor pick the retired flint axe's haft length. The
+            // STONE axe (wpn_axe_stone_01) is the Sponsor-approved authored mesh — there is no length to pick —
+            // so the picker, its AxeLengthVariants prefab, and the len11..14 FBXs are all removed.
 
             // HELD-WEAPON PLACEMENT SEAM (86caffwuz) — the single binding surface the unified settings console's
             // 7 held-weapon rows (pos X/Y/Z, rot pitch/yaw/roll, scale) drive. Lives on THIS seat object so it
@@ -820,7 +808,7 @@ namespace FarHorizon.EditorTools
             WireAxeNudgeTool();
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
-            Debug.Log("[MovementCameraScene] attached HeroAxe (in-house wpn_axe_01) to bone '" + hand.name +
+            Debug.Log("[MovementCameraScene] attached HeroAxe (in-house wpn_axe_stone_01) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
         }
 
@@ -2080,34 +2068,36 @@ namespace FarHorizon.EditorTools
         // AND from craft (8,6), 5.1u from the snake (5,4), ≥7u from every other loop spot — within GroundHalf=30.
         public static readonly Vector3 SpearPickupPosition = new Vector3(4f, 0f, 9f);
 
-        // A wired SPEAR pickup (AC4): a long thin faceted shaft + tip proxy (a placeholder for the in-house
-        // Blender spear — the polished weapon is the roster ticket, OOS here) + a SpearPickup component wired
-        // to the scene Inventory. The player walks up to acquire the spear onto the belt. Collider-free — never
-        // blocks the ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
+        // A wired SPEAR pickup (AC4). 86cajkk7h: the polished in-house STONE spear (wpn_spear_stone_01) now
+        // EXISTS, so the world pickup is the REAL weapon mesh (shared Mat_WeaponPalette) — matching the world
+        // axe pickup (both real FBXs), retiring the old shaft+tip primitive proxy. Laid near-horizontal on the
+        // ground so it reads as a dropped spear; the player walks up to acquire it onto the belt. Collider-free
+        // — never blocks the ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
         private static void BuildSpearPickup(GameObject player)
         {
             var spear = new GameObject("SpearPickup");
             spear.transform.position = SpearPickupPosition;
 
-            // Shaft: a long thin tapered cylinder, laid at a slight lean so it reads as a spear on the ground.
-            var shaft = new GameObject("Shaft");
-            shaft.transform.SetParent(spear.transform, false);
-            shaft.transform.localPosition = new Vector3(0f, 0.15f, 0f);
-            shaft.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean
-            var shaftMf = shaft.AddComponent<MeshFilter>();
-            shaftMf.sharedMesh = LowPolyMeshes.TaperedCylinder(0.05f, 0.04f, 1.6f, 5);
-            var shaftMr = shaft.AddComponent<MeshRenderer>();
-            ApplyLitColor(shaftMr, new Color(0.60f, 0.44f, 0.26f), "SpearShaftMat"); // warm tan shaft
-
-            // Tip: a small cone/faceted point at the head end (grey stone/metal — material-honest).
-            var tip = new GameObject("Tip");
-            tip.transform.SetParent(spear.transform, false);
-            tip.transform.localPosition = new Vector3(0f, 1.05f, 0f);
-            tip.transform.localRotation = Quaternion.Euler(0f, 0f, 78f);
-            var tipMf = tip.AddComponent<MeshFilter>();
-            tipMf.sharedMesh = LowPolyMeshes.Cone(0.09f, 0.28f, 5);
-            var tipMr = tip.AddComponent<MeshRenderer>();
-            ApplyLitColor(tipMr, new Color(0.58f, 0.60f, 0.62f), "SpearTipMat"); // stone/metal grey
+            // The in-house stone spear FBX (family-normalized, blade up +Z → Unity +Y). Instantiate under the
+            // pickup root and lay it near-horizontal (rotate the +Y long axis toward the ground) so it reads as
+            // a spear resting on the beach, then apply the shared palette material.
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.SpearFbxPath);
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "SpearMesh";
+                mesh.transform.SetParent(spear.transform, false);
+                mesh.transform.localPosition = new Vector3(0f, 0.12f, 0f);
+                mesh.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean (matches the old proxy)
+                ApplyWeaponPaletteMaterial(mesh);
+                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] stone spear FBX not found at " + WeaponPackAssetGen.SpearFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no spear pickup mesh");
+            }
 
             var pickup = spear.AddComponent<FarHorizon.Combat.SpearPickup>();
             pickup.inventory = Object.FindObjectOfType<Inventory>();
@@ -2119,20 +2109,6 @@ namespace FarHorizon.EditorTools
 
             Debug.Log("[MovementCameraScene] authored SpearPickup at " + SpearPickupPosition +
                       " (inventory wired: " + (pickup.inventory != null) + ")");
-        }
-
-        // Apply an inline URP/Lit matte material of a given color to a renderer (a small helper for the combat
-        // props — the spear shaft/tip; matte so the low-poly reads by shape/shading, not gloss). Serializes
-        // into the scene (no .mat churn). Falls back gracefully if the URP shader is missing.
-        private static void ApplyLitColor(MeshRenderer mr, Color color, string matName)
-        {
-            var lit = Shader.Find("Universal Render Pipeline/Lit");
-            if (lit == null) return;
-            var mat = new Material(lit) { name = matName };
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
-            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.08f);
-            mr.sharedMaterial = mat;
-            EnsureShaderAlwaysIncluded(lit);
         }
 
         // A wired BERRY BUSH (86caa5zz3): a squat leafy blob dome (BushBlob) with a child "Berries" mesh
