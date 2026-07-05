@@ -1,27 +1,44 @@
 Hyper3D + Mixamo Castaway — asset attribution
 =============================================
 
-Model:    Far Horizon castaway (young/hopeful chunky low-poly castaway)
-Pipeline: Hyper3D Rodin (Image-to-3D, Gen-2.5 Quad ~8000) → Mixamo auto-rig (Standard 65
-          skeleton) → Unity Humanoid. See .claude/docs/character-pipeline.md for the full recipe.
-Concept:  generated from an openai-image A-pose reference (inspiration/hyper3d-castaway/concepts/).
+Model:    Far Horizon castaway (chunky low-poly castaway)
+Pipeline: Hyper3D Rodin (Image-to-3D, Gen-2.5 Quad ~8000) -> Mixamo auto-rig (Standard
+          skeleton) -> Unity GENERIC rig. See .claude/docs/character-pipeline.md for the full recipe.
+Concept:  generated from an openai-image A-pose reference.
 
 This is GENERATED 3D content (Hyper3D Rodin, Creator-tier web export) animated with Mixamo
 clips (Adobe, free account). Retain this attribution in any distribution of the game (an
 in-game / about-screen credits entry covers it).
 
-Asset contents in this folder:
-  - Idle.fbx              — WITH skin: the rigged mesh (mixamorig Standard-65 skeleton, 46 bones,
-                            rootBone mixamorig:Hips) + the Idle clip (take "mixamo.com", 8.33s).
-  - Walking.fbx           — WITHOUT skin: the Walk clip only (take "mixamo.com", 1.03s),
-                            retargeted onto Idle's Humanoid avatar via CopyFromOther.
-  - texture_diffuse.png   — 2048x2048 de-lit toon color albedo (the _BaseMap). The IDENTITY RECOLOR
-                            (warm the mustard-yellow shirt toward tan) is a luma-preserving HSV remap
-                            baked into this PNG by CharacterAssetGen.RecolorShirtToTan (reproducible-
-                            from-code, idempotent — re-run on every bootstrap).
-  - texture_normal.png    — 2048x2048 normal map (bound at low strength; the albedo carries shading).
+RIG = GENERIC, NOT Humanoid (ticket 86ca8rdkp). The Mixamo Humanoid muscle-space retarget
+EXPLODED the skinned mesh into a cone at runtime under the scaled scene hierarchy; GENERIC binds
+each clip by TRANSFORM PATH onto the FBX's own mixamorig skeleton (no muscle retarget) and renders
+clean. The with-skin mesh FBX imports CreateFromThisModel (its own avatar); the without-skin clip
+FBX each CreateFromThisModel too and bind by transform path onto the mesh — NO CopyFromOther.
 
-Integrated as the Far Horizon castaway base (ticket 86ca8rdkp) — SUPERSEDES the Sketchfab "Mini
-Chibi Kid" (the Sponsor APPROVED the swap 2026-06-15 after the viability spike 86ca8r72j / PR #45
-proved the asset animates clean + on-style in the shipped URP exe). Imported HUMANOID (the spike's
-proven two-FBX retarget pipeline): Idle.fbx CreateFromThisModel + Walking.fbx CopyFromOther(Idle).
+Original castaway (v1) — files in this folder:
+  - Idle.fbx              — WITH skin: the rigged mesh (mixamorig Standard skeleton, rootBone
+                            mixamorig:Hips) + an Idle take. The Idle STATE now plays the Breathing
+                            Idle clip; Idle.fbx supplies the MESH + rig + avatar.
+  - Walking.fbx / Running.fbx / Jump_*.fbx / Melee_Attack.fbx / crouch + hit-react FBX
+                          — WITHOUT skin (Melee/Idle carry skin): clips only, bound by transform
+                            path onto Idle's mesh (Generic — no retarget).
+  - texture_diffuse.png   — de-lit toon color albedo (the _BaseMap). The v1 IDENTITY RECOLOR (warm
+                            the mustard-yellow shirt toward tan) is a luma-preserving HSV remap baked
+                            into this PNG by CharacterAssetGen.RecolorShirtToTan (v1-only).
+  - texture_normal.png    — normal map (bound at low strength; the albedo carries shading).
+
+Castaway v2 (Rodin base — ticket 86cajwp23, Sponsor-approved 2026-07-05) — files in v2/:
+  A NEW hero base (bearded rugged adult survivor), same Hyper3D Rodin -> Mixamo -> Unity GENERIC
+  route, generated from a fresh A-pose concept. Source-of-truth + provenance:
+  art-src/castaway-rodin-export/README.md.
+  - v2/castaway_rigged_tpose.fbx — WITH skin: the Rodin mesh + Mixamo Standard skeleton (41 bones,
+                            no middle/ring fingers — a subset of the v1 clip skeleton, so the 18
+                            existing clips bind by transform path with NO retarget). Imported GENERIC
+                            + CreateFromThisModel, height-normalized to ~1.0u.
+  - v2/texture_diffuse.png — de-lit toon albedo (Rodin De-light pass). NO shirt-recolor (v2 has no
+                            shirt) — RecolorShirtToTan is retired for v2.
+  - v2/texture_normal.png  — normal map (bound at low strength).
+  STAGED ROLLOUT (Sponsor-locked): the v1 castaway stays LIVE by default; v2 is gated behind the
+  CharacterAssetGen.UseCastawayV2 toggle (env FARHORIZON_CASTAWAY_V2=1 at bootstrap) until it passes
+  the Sponsor soak in a shipped build, then v2 is promoted to the default + v1 is removed.

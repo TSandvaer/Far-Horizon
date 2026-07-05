@@ -192,6 +192,16 @@ namespace FarHorizon.EditorTools
         // — NOT a final bake (he re-confirms + may micro-dial; a later pass bakes). F9 still drives it.
         // SUPERSEDES (0.1312,0.1409,0.0593).
         public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
+        // ===== CASTAWAY v2 held-axe seat (86cajwp23 AC2 — the RE-MEASURE). v2 is a fresh Mixamo Standard A-pose
+        // rig; its mixamorig:RightHand LOCAL FRAME may differ from the old rig's, so the seat above (dialed on the
+        // OLD hand frame) is not assumed to carry 1:1. INITIAL VALUES = the OLD rig's Sponsor-approved seat as the
+        // best available PRIOR (both are Mixamo Standard A-pose hands → the frame is likely close), NOT a fresh v2
+        // measurement — the runner-side CharacterAssetGen.CastawayV2HandAxisTrace dumps v2's real hand axes to
+        // refine these, and the Sponsor F9-dials the final seat in the soak (iterative, per [[verify-soak-builds-
+        // or-bake-and-judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used ONLY when
+        // CharacterAssetGen.UseCastawayV2; the old seat is byte-unchanged when the toggle is OFF.
+        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(-186.0f, -168.0f, -84.0f);
+        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -739,9 +749,12 @@ namespace FarHorizon.EditorTools
             // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
             // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
             // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
-            Vector3 handLocalOffset = HeldAxeLocalOffsetFromHand;
+            // 86cajwp23 AC2 — the v2 base rides its OWN re-measured seat prior (v2's mixamorig:RightHand local
+            // frame differs from the old rig's); the old seat is unchanged when the toggle is OFF.
+            Vector3 handLocalOffset = CharacterAssetGen.UseCastawayV2 ? HeldAxeV2LocalOffsetFromHand : HeldAxeLocalOffsetFromHand;
+            Vector3 relEuler = CharacterAssetGen.UseCastawayV2 ? HeldAxeV2RelEuler : HeldAxeRelEuler;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
-            rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
+            rig.relEuler = relEuler;                   // hand-relative — turns with the hand
             // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
             // natural swing during locomotion: it rides the RAW hand bone. The prior swing-stabilizer /
             // grip-anchor (86ca8rdkp) + the vertical-decouple bounce/ratchet fix (86ca9ykp0) are REMOVED
@@ -765,12 +778,13 @@ namespace FarHorizon.EditorTools
             // hand-local field is facing-invariant, so this static pose == the runtime pose at EVERY facing
             // (re-expressed per facing). localRot = Euler(relEuler) (hand-relative).
             Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
-            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
+            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(relEuler);
             axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
             axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
             Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
                       handLocalOffset.ToString("F4") +
-                      " relEuler=" + HeldAxeRelEuler.ToString("F1") +
+                      " relEuler=" + relEuler.ToString("F1") +
+                      (CharacterAssetGen.UseCastawayV2 ? " [v2 seat prior]" : "") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
 
