@@ -597,9 +597,9 @@ namespace FarHorizon
         /// <summary>The Animator's CURRENT Speed param value this frame (86caa3kur re-soak attempt-3 isolation
         /// instrument) — the DAMPED blend-tree Speed the LateUpdate SetFloat fed (NOT the raw planar speed
         /// <see cref="CurrentSpeed"/>). Read off GetFloat so the readout shows what the Walk<->Run blend tree
-        /// actually consumes (it eases toward the raw speed via speedDampTime). NaN when no Animator. Exposed so
-        /// the SneakIsolationTool readout can show whether the Speed param oscillates per gait cycle (the
-        /// foot-sync / blend-tree suspect) vs holds steady.</summary>
+        /// actually consumes (it eases toward the raw speed via speedDampTime). NaN when no Animator. Exposed for
+        /// diagnostic readouts of whether the Speed param oscillates per gait cycle (the foot-sync / blend-tree
+        /// suspect) vs holds steady; its former SneakIsolationTool readout consumer was retired in 86caju054.</summary>
         public float CurrentAnimatorSpeedParam
         {
             get

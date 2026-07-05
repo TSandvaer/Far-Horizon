@@ -25,7 +25,7 @@ namespace FarHorizon
     ///     change here; it just appears as a row (routed to F1 or F3 by category), with a typed field (AC5),
     ///     nudge selection (AC6), a baked-default readout (AC8) and a differs-from-default badge (AC9) for free;
     ///   • OPENS/CLOSES the player drawer on F1 + the dev console on F3, each polled DIRECTLY (86cah8ukr). The
-    ///     dev/debug IMGUI overlays are on F10 (SneakIsolationTool, the single overlay master since the legacy
+    ///     dev/debug IMGUI overlays are on F10 (DebugOverlayMaster, the single overlay master since the legacy
     ///     F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). Each key (F1 player / F3 dev
     ///     console / F10 overlays) reveals exactly one layer (AC1);
     ///   • CONDITIONAL VISIBILITY (86cah8ukr AC1): a per-need decay-rate slider is shown only while its need's
@@ -133,7 +133,7 @@ namespace FarHorizon
         [Tooltip("Key that opens/closes the DEV CONSOLE (F3, Sponsor-confirmed 2026-07-03) — EVERY other row " +
                  "(world-look, arm-pose, camera/zoom, held-weapon, locomotion incl. walk/run speed, resource " +
                  "timers/yields, inventory slots, console UI + text scale). The dev/debug IMGUI overlays are on " +
-                 "F10 (SneakIsolationTool, the single overlay master since the legacy F2 DebugOverlayToggle was " +
+                 "F10 (DebugOverlayMaster, the single overlay master since the legacy F2 DebugOverlayToggle was " +
                  "removed in 86cah90cp round-3; F2 is UNBOUND) — F1/F3/F10 are all distinct. Update polls this " +
                  "directly (SetOpen(!IsOpen)). The SHIPPED-BUILD verify-capture drives SetOpen PROGRAMMATICALLY " +
                  "(it can't synthesize a key-down in a windowed capture) — it reads this field only to LOG the " +
