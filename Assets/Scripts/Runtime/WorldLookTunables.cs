@@ -65,6 +65,39 @@ namespace FarHorizon
         private float _sunAzimuthDeg = SunAzimuthFallbackDeg;
         private bool _sunDerived;
 
+        // ===== RUNTIME SEAM-KILL ENFORCEMENT (ticket 86cajt6jb — WorldLook Sky fog seam) =====
+        // The seam-kill (fog colour == sky horizon stop == WorldLookPalette.SkyHorizon) is baked into Boot.unity
+        // at bootstrap time (QualityPassGen.EnableGlobalFog / BuildGradientSkybox, both == the SkyHorizon
+        // constant). But the COMMITTED scene value is the ONLY runtime source of the fog colour — so any drift of
+        // the committed RenderSettings.fogColor ships a broken sky seam that only a re-bootstrap clears. That
+        // drift is a PROVEN class: a same-session EditMode test that mutates the LIVE global RenderSettings before
+        // a regen commits the polluted value (unity-conventions.md §"A local EditMode test that mutates a LIVE
+        // singleton asset through global engine state" — the fog-R 0.42 corruption; root-fixed at the TEST layer
+        // by 86cahvntg / #241's snapshot-restore, but the committed value is still the sole runtime authority).
+        // Re-assert the seam from the SINGLE palette constant at RUNTIME so a drifted committed value can never
+        // carry a broken seam into the shipped build — the "set fog from the palette at runtime" route (needs NO
+        // Boot.unity regen: this seam already ships serialized on the active hudGo, so its Start runs at runtime).
+        private void Start()
+        {
+            ApplyPaletteSeamKill();
+        }
+
+        /// <summary>
+        /// Re-assert the seam-kill from <see cref="FarHorizon.WorldLookPalette.SkyHorizon"/>: BOTH
+        /// RenderSettings.fogColor AND the live skybox <c>_HorizonColor</c> == the one palette constant.
+        /// Idempotent + byte-identical (a no-op) when the committed scene is already correct; when the committed
+        /// fog drifted (e.g. the 0.42 fog-R corruption class) it snaps every channel back to the palette. Public
+        /// so the EditMode regression guard can drive it deterministically (Start does not auto-run headless).
+        /// </summary>
+        public void ApplyPaletteSeamKill()
+        {
+            EnsureResolved();
+            Color seam = FarHorizon.WorldLookPalette.SkyHorizon;
+            seam.a = 1f;
+            RenderSettings.fogColor = seam;
+            if (_skyMat != null && _skyMat.HasProperty("_HorizonColor")) _skyMat.SetColor("_HorizonColor", seam);
+        }
+
         // ---- Resolve (lazy; re-resolve if the skybox/collections came up empty — a late-built world) ----
         private void EnsureResolved()
         {

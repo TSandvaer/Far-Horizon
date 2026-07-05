@@ -84,7 +84,10 @@ namespace FarHorizon.PlayTests
 
             Assert.IsNotNull(RenderSettings.skybox, "the gradient skybox must be assigned at runtime");
             Assert.IsTrue(RenderSettings.fog, "distance fog must be on at runtime (the atmospheric fade)");
-            // The seam-kill must hold at runtime: fog colour == the horizon sky stop.
+            // The seam-kill must hold at runtime: fog colour == the horizon sky stop. Hardened by the runtime
+            // WorldLookTunables.ApplyPaletteSeamKill applier (ticket 86cajt6jb) — the fog is re-asserted from the
+            // WorldLookPalette.SkyHorizon constant on Start, so this holds even if the committed Boot.unity
+            // fogColor ever drifts (the fog-R 0.42 corruption class), not just when the bake happened to be clean.
             Color fog = RenderSettings.fogColor;
             Color horizon = FarHorizon.WorldLookPalette.SkyHorizon;
             Assert.AreEqual(horizon.r, fog.r, 0.02f, "runtime fog R must == the horizon stop (seam-kill)");
