@@ -6,6 +6,7 @@ One-line index of durable debug/build instruments. Reuse before rebuilding.
 
 | Tool | Purpose |
 |---|---|
+| `Assets/Scripts/Editor/FogSeamDump.cs` (editor -executeMethod) | Ground-truth WorldLook fog-seam dumper (86cajt6jb). `FarHorizon.EditorTools.FogSeamDump.DumpCommitted` opens the COMMITTED Boot.unity + logs `[fog-seam-dump] fog=… skybox._HorizonColor=… palette.SkyHorizon=… seamKillR_ok=…` (what a bare LoadScene sees); `.DumpAfterBootstrap` runs `BootstrapProject.Run` first (what the CI playmode job — which re-bootstraps — sees). Run when a fog-R-0.42-class seam drift is suspected to tell committed-drift from a live writer, before assuming a Boot.unity regen is needed. |
 | `blender_mcp_send.py` | Send a command to the running BlenderMCP (ahujasid) addon over its TCP socket (localhost:9876). Modes: `code <file>` (execute_code), `scene` (get_scene_info), `shot <out.png>` (viewport screenshot). The transport for all Far Horizon Blender-MCP modeling when the `mcp__blender__*` tools aren't wired into the agent session. |
 | `bl_01_setup.py` | Weapon-pack scene setup: clean scene, metric units, 1.8m char reference, writes the locked 9-hex `weapon_palette.png`, builds the shared `WeaponPalette` material. Run once per modeling session. |
 | `bl_02_axe.py` | Builds the hero-axe geometry (haft + faceted red head matching inspiration `21h08_08`): hawk-beak poll w/ top notch, fanned cutting edge, grip-through-head. Shade Smooth + all-edges Mark Sharp. |
