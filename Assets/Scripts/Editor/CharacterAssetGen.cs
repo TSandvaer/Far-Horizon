@@ -93,10 +93,39 @@ namespace FarHorizon.EditorTools
         public const string MaterialPath = CharDir + "/CastawayMat.mat";
         public const string ControllerPath = CharDir + "/CastawayAnimator.controller";
 
-        // The model prefab MovementCameraScene instantiates IS the Idle FBX (it carries the skin + rig).
-        // Kept as the canonical "FbxPath" name so existing callers (MovementCameraScene, tests) need no
-        // rename — it now points at the with-skin Idle FBX.
-        public const string FbxPath = IdleFbxPath;
+        // ===== CASTAWAY v2 (Rodin base — ticket 86cajwp23). A NEW hero base (bearded rugged adult survivor,
+        // Sponsor-approved 2026-07-05), generated via the SAME Hyper3D-Rodin → Mixamo → Unity route as the
+        // original castaway (character-pipeline.md). Imported GENERIC + transform-path (CreateFromThisModel),
+        // the SAME shipping recipe as the current castaway — NOT Humanoid, NOT CopyFromOther (Humanoid
+        // cone-explodes the skinned mesh at runtime; 86ca8rdkp / live anti-Humanoid gate). v2's 41 Mixamo
+        // bones are a SUBSET of the clip skeleton (only middle/ring fingers missing), so the existing 18
+        // WITHOUT-skin clips (BreathingIdle/Walk/Run/Jump*/Melee/Crouch*/hit-reacts/Stunned/…) bind onto v2's
+        // mesh by TRANSFORM PATH with NO retarget — the same way they already bind onto the old Idle.fbx mesh.
+        // Source-of-truth files live under art-src/castaway-rodin-export/; the integration-consumed subset
+        // (rigged mesh + de-lit diffuse + normal) is committed here under v2/ so the .meta is deterministic.
+        public const string V2Dir = CharDir + "/v2";
+        public const string V2RiggedFbxPath = V2Dir + "/castaway_rigged_tpose.fbx"; // WITH skin (mesh+rig; T-pose take unused)
+        public const string V2DiffusePngPath = V2Dir + "/texture_diffuse.png"; // de-lit toon albedo (URP _BaseMap; NO shirt-recolor — v2 has no shirt)
+        public const string V2NormalPngPath = V2Dir + "/texture_normal.png";   // normal map (low strength)
+
+        // AC4 STAGED-ROLLOUT TOGGLE (SPONSOR-LOCKED 2026-07-05). The OLD castaway stays LIVE by DEFAULT; v2
+        // (Rodin base) is gated behind this flag UNTIL it passes the Sponsor soak in a shipped build — the OLD
+        // base is NOT deleted. Resolved at BOOTSTRAP time: CI re-runs BootstrapProject.Run before EVERY build
+        // (ci.yml), so the env var is honored WITHOUT committing a regenerated Boot.unity (which is re-authored
+        // each bootstrap anyway). To produce a v2 SOAK build set the env var before the bootstrap+build:
+        //   FARHORIZON_CASTAWAY_V2=1  Unity … -executeMethod …BootstrapProject.Run   (then …BuildWindows)
+        // Default (env unset) => the old castaway ships UNCHANGED (this PR is behavior-neutral on the live base).
+        // When v2 passes soak it is promoted to the default + the old base is removed in a follow-up.
+        public const bool UseCastawayV2Default = false;
+        public const string CastawayV2EnvVar = "FARHORIZON_CASTAWAY_V2";
+        public static bool UseCastawayV2 =>
+            System.Environment.GetEnvironmentVariable(CastawayV2EnvVar) == "1" || UseCastawayV2Default;
+
+        // The model prefab MovementCameraScene instantiates IS the with-skin mesh FBX (it carries the skin +
+        // rig). Toggle-aware (was a const alias of IdleFbxPath): resolves to the v2 rigged base when
+        // UseCastawayV2 is set, else the old Idle.fbx. Callers (MovementCameraScene.BuildModel, diagnostics)
+        // read CharacterAssetGen.FbxPath unchanged — the SAME accessor now returns the toggle-selected mesh.
+        public static string FbxPath => UseCastawayV2 ? V2RiggedFbxPath : IdleFbxPath;
 
         // Mixamo clip-take finding (EMPIRICAL, spike Hyper3DSpikeDiag 2026-06-15): BOTH FBX export their
         // single clip as the take name "mixamo.com" (NOT "Idle"/"Walk"). An exact/Contains "Idle"/"Walk"
@@ -215,6 +244,12 @@ namespace FarHorizon.EditorTools
 
         public static void PrepareCharacter()
         {
+            // CASTAWAY v2 (86cajwp23) — ALWAYS configure the v2 base FBX importer (Generic + CreateFromThisModel
+            // + height-normalize), even when the toggle is OFF, so its .meta is deterministic + the EditMode
+            // import guards (CastawayV2BaseTests) always have a real import to assert. The WIRING (which mesh →
+            // Boot.unity, which textures → CastawayMat, whether RecolorShirtToTan runs, which axe seat) is what
+            // the UseCastawayV2 toggle gates below — importing the base is cheap + side-effect-free on the old path.
+            ConfigureV2BaseFbx();
             ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize (the WITH-skin mesh/rig)
             // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle STATE plays. WITHOUT-skin Generic,
             // binds by transform path onto Idle's mesh (the Walk/Run idiom). LOOP (a sustained breathing cycle).
@@ -254,13 +289,77 @@ namespace FarHorizon.EditorTools
             // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
             // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
             // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
-            RecolorShirtToTan();
-            BuildMaterial();      // flat de-lit URP/Lit from the (now recolored) texture_diffuse
+            // AC3 (86cajwp23) — RETIRED for v2: the Rodin base has NO shirt, so the yellow→tan shirt remap is
+            // OLD-castaway-only. Gated OFF when UseCastawayV2 (which also swaps BuildMaterial to v2's already-
+            // de-lit textures). When v2 is promoted to the default, RecolorShirtToTan is deleted outright.
+            if (!UseCastawayV2)
+                RecolorShirtToTan();
+            BuildMaterial();      // flat de-lit URP/Lit from texture_diffuse (v2's de-lit albedo, or the old recolored shirt)
             BuildAnimatorController();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[CharacterAssetGen] Hyper3D castaway prepared: " + IdleFbxPath + " + " + WalkFbxPath +
                       " + " + MaterialPath + " + " + ControllerPath);
+        }
+
+        // CASTAWAY v2 base (86cajwp23) — the Rodin rigged mesh FBX (WITH skin: mesh + mixamorig skeleton +
+        // an unused T-pose take). Import config is IDENTICAL to ConfigureIdleFbx's mesh path: GENERIC +
+        // CreateFromThisModel (its OWN avatar from its OWN mixamorig skeleton — the anti-Humanoid recipe;
+        // 86ca8rdkp Humanoid cone-explodes the mesh at runtime) + height-normalize to TargetImportHeightU.
+        // The 18 existing WITHOUT-skin clips bind onto THIS mesh by transform path (matching mixamorig bone
+        // names) with NO retarget — exactly how they already bind onto the old Idle.fbx. importAnimation=false:
+        // v2's own T-pose take is unused (the controller drives BreathingIdle/Walk/Run/… from the clip FBX),
+        // so we import the mesh + rig ONLY (no stray clip). materialImportMode=None: the shared de-lit
+        // CastawayMat is authored by BuildMaterial + bound editor-time by MovementCameraScene (no stray FBX mat).
+        // Configured on EVERY bootstrap (toggle-independent) so the .meta is deterministic + the EditMode import
+        // guards always assert a real import; only the SCENE WIRING is gated on UseCastawayV2.
+        private static void ConfigureV2BaseFbx()
+        {
+            var importer = AssetImporter.GetAtPath(V2RiggedFbxPath) as ModelImporter;
+            if (importer == null)
+            {
+                Debug.LogError("[CharacterAssetGen] castaway v2 base FBX not found at " + V2RiggedFbxPath +
+                               " — v2 integration (86cajwp23) cannot import; the old castaway is unaffected");
+                return;
+            }
+
+            importer.animationType = ModelImporterAnimationType.Generic; // NOT Humanoid (86ca8rdkp runtime-explosion)
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = false; // mesh+rig only — clips come from the WITHOUT-skin clip FBX by transform path
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            // HEIGHT NORMALIZE the intrinsic import to ~1u (v2 imports at ~1.889m; TargetImportHeightU=1.0).
+            // Self-correcting: reads the current globalScale, measures at that scale, re-scales to hit target —
+            // convergent regardless of the committed .meta's starting globalScale (the old Idle path idiom).
+            float measured = MeasureHeight(V2RiggedFbxPath);
+            if (measured > 0.01f)
+            {
+                float factor = importer.globalScale * (TargetImportHeightU / measured);
+                importer.globalScale = factor;
+                Debug.Log($"[CharacterAssetGen] v2 base height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                          $"(target {TargetImportHeightU}u)");
+            }
+            else
+            {
+                Debug.LogWarning("[CharacterAssetGen] could not measure v2 base height — skipping normalize");
+            }
+
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+
+            var avatar = LoadAvatar(V2RiggedFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] castaway v2 base did NOT produce a VALID avatar (avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               ") — clips will not bind (the T-pose class)");
+            else
+                Debug.Log("[CharacterAssetGen] castaway v2 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
+                          (UseCastawayV2 ? " [WIRED — UseCastawayV2 ON]" : " [imported only — toggle OFF, old castaway live]"));
         }
 
         // Idle.fbx carries the skin (mesh+rig) + the Idle clip. Humanoid rig, avatar created from THIS model
@@ -408,8 +507,14 @@ namespace FarHorizon.EditorTools
         // MovementCameraScene binds this onto the avatar's SkinnedMeshRenderer(s) editor-time.
         private static void BuildMaterial()
         {
-            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(DiffusePngPath);
-            if (diffuse == null) { Debug.LogError("[CharacterAssetGen] texture_diffuse not found at " + DiffusePngPath); return; }
+            // AC1 (86cajwp23) — v2 binds its OWN de-lit diffuse + normal (URP toon albedo, no shirt-recolor);
+            // the old path binds the recolored old texture_diffuse. Same material path (CastawayMat.mat) + same
+            // toon idiom either way, so MovementCameraScene binds it unchanged; only the source textures switch.
+            string diffusePath = UseCastawayV2 ? V2DiffusePngPath : DiffusePngPath;
+            string normalPath = UseCastawayV2 ? V2NormalPngPath : NormalPngPath;
+
+            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(diffusePath);
+            if (diffuse == null) { Debug.LogError("[CharacterAssetGen] texture_diffuse not found at " + diffusePath); return; }
 
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (litShader == null) { Debug.LogError("[CharacterAssetGen] URP/Lit shader not found"); return; }
@@ -421,10 +526,10 @@ namespace FarHorizon.EditorTools
             if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
             if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
 
-            var normalTex = AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPngPath);
+            var normalTex = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
             if (normalTex != null)
             {
-                var ni = AssetImporter.GetAtPath(NormalPngPath) as TextureImporter;
+                var ni = AssetImporter.GetAtPath(normalPath) as TextureImporter;
                 if (ni != null && ni.textureType != TextureImporterType.NormalMap)
                 {
                     ni.textureType = TextureImporterType.NormalMap;
@@ -450,6 +555,12 @@ namespace FarHorizon.EditorTools
         // value window), and a re-run sees the ALREADY-TANNED pixels OUTSIDE that band (tan hue ~34° is below
         // ShirtHueMin 38°), so a bootstrap re-run does NOT re-shift them — it converges. (Defensive: even if a
         // re-run caught an edge pixel still in-band, the absolute target hue makes it converge, not drift.)
+        //
+        // AC3 (86cajwp23) — OLD-CASTAWAY-ONLY, RETIRED for v2. The Rodin base (v2) has NO shirt, and its albedo
+        // is already de-lit from Rodin's De-light pass, so v2 needs no recolor at all. PrepareCharacter no longer
+        // calls this when UseCastawayV2 (see the gated call). It is kept (not deleted) ONLY because the old base
+        // stays live behind the toggle (AC4); when v2 is promoted to the default this method + its Shirt* constants
+        // are deleted outright.
         public static void RecolorShirtToTan()
         {
             string path = DiffusePngPath;
@@ -1184,6 +1295,80 @@ namespace FarHorizon.EditorTools
                 Object.DestroyImmediate(inst);
             }
             sb.AppendLine("[char-trace] ===== END TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CASTAWAY v2 HAND-AXIS TRACE (86cajwp23 AC2 — the held-axe RE-MEASURE instrument). Durable
+        // read-only diagnostic (procedural-animation-verbs.md "measure bone axes FIRST"): the HeldAxeRig seat
+        // (HeldAxeRelEuler / HeldAxeLocalOffsetFromHand in MovementCameraScene) was dialed against the OLD rig's
+        // mixamorig:RightHand LOCAL FRAME; v2's rigged bind pose may orient that frame differently, so the seat
+        // must be re-derived from v2's ACTUAL hand-bone axes rather than guessed. Dumps, for v2's
+        // mixamorig:RightHand: local rotation (Euler), lossyScale (the §FBX lossy-bone trap check), and each
+        // LOCAL axis (+X/+Y/+Z) expressed as a WORLD direction at the T-pose bind — so the grip/forearm axis is
+        // identifiable. Run on the runner (has a warm Library) to get MEASURED values before the soak locks:
+        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV2HandAxisTrace
+        public static void CastawayV2HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v2-hand] ===== CASTAWAY v2 HAND-AXIS TRACE (86cajwp23 AC2) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(V2RiggedFbxPath);
+            if (fbx == null)
+            {
+                sb.AppendLine("[v2-hand] v2 base FBX NOT FOUND at " + V2RiggedFbxPath);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            var inst = Object.Instantiate(fbx);
+            inst.transform.position = Vector3.zero;
+            inst.transform.rotation = Quaternion.identity;
+            inst.transform.localScale = Vector3.one;
+
+            // Overall height (confirms the height-normalize landed ~1u) + the full bone list, flagging the hands.
+            var rends = inst.GetComponentsInChildren<Renderer>();
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                sb.AppendLine($"[v2-hand] normalized height={b.size.y:F3}u (target {TargetImportHeightU}u)");
+            }
+
+            Transform rightHand = null, leftHand = null;
+            int boneCount = 0;
+            foreach (var t in inst.GetComponentsInChildren<Transform>(true))
+            {
+                boneCount++;
+                string tok = ExactTokenLocal(t.name);
+                if (tok == "righthand") rightHand = t;
+                if (tok == "lefthand") leftHand = t;
+            }
+            sb.AppendLine($"[v2-hand] transforms={boneCount}  rightHand={(rightHand != null ? rightHand.name : "<MISSING>")}" +
+                          $"  leftHand={(leftHand != null ? leftHand.name : "<MISSING>")}");
+
+            if (rightHand != null)
+            {
+                sb.AppendLine($"[v2-hand] RightHand localRotation(euler)={NormEuler(rightHand.localRotation.eulerAngles)}");
+                sb.AppendLine($"[v2-hand] RightHand worldRotation(euler)={NormEuler(rightHand.rotation.eulerAngles)}");
+                sb.AppendLine($"[v2-hand] RightHand lossyScale={rightHand.lossyScale} (expect ~1,1,1 — Mixamo has NO 267x trap)");
+                // The +X/+Y/+Z LOCAL axes as WORLD directions at bind — identifies which local axis points along
+                // the grip/forearm (the held-axe relEuler is dialed against these).
+                sb.AppendLine($"[v2-hand] RightHand local+X in world={(rightHand.rotation * Vector3.right).ToString("F3")}");
+                sb.AppendLine($"[v2-hand] RightHand local+Y in world={(rightHand.rotation * Vector3.up).ToString("F3")}");
+                sb.AppendLine($"[v2-hand] RightHand local+Z in world={(rightHand.rotation * Vector3.forward).ToString("F3")}");
+                sb.AppendLine("[v2-hand] SEAT-DERIVE: compare these axes to the OLD rig's (run CharacterDiagnoseTrace on the old " +
+                              "Idle.fbx) — if the local frame matches, the OLD HeldAxeRelEuler carries; if it differs, rotate " +
+                              "HeldAxeV2RelEuler by the frame delta, then the Sponsor F9-dials the final seat in the soak.");
+            }
+            else
+            {
+                sb.AppendLine("[v2-hand] mixamorig:RightHand NOT resolved — the held axe cannot seat; the v2 export is missing the hand bone");
+            }
+
+            Object.DestroyImmediate(inst);
+            sb.AppendLine("[v2-hand] ===== END TRACE =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }

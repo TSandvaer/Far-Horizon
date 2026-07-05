@@ -18,9 +18,11 @@ reverses the earlier "young + happy" lock (Sponsor chose "Full reference look" a
 3. **Mixamo auto-rig:** `castaway_rigged_tpose.fbx` — uploaded `base_basic_shaded.fbx`,
    markers chin/wrists/elbows/knees/groin, Symmetry ON, Standard Skeleton LOD.
    **Verified in Blender:** root `mixamorig:Hips`, 41 bones (no-finger variant — fine: fist
-   hands; Humanoid retarget is muscle-space so existing clips carry), skinned mesh 7,658 verts /
-   34 vgroups, FBX 7700, imports at 1.889 m (Unity import will height-normalize to 1.0 u like
-   `CharacterAssetGen.TargetImportHeightU` does today).
+   hands; the 41 bones are a SUBSET of the clip skeleton, so under the GENERIC rig the existing
+   clips bind by TRANSFORM PATH — matching mixamorig bone names — with no retarget; the missing
+   middle/ring finger curves simply have no target and are ignored), skinned mesh 7,658 verts /
+   34 vgroups, FBX 7700, imports at 1.889 m (Unity import height-normalizes to 1.0 u via
+   `CharacterAssetGen.TargetImportHeightU`).
 
 ## Committed subset (harvest PR 2026-07-05)
 
@@ -32,15 +34,23 @@ URP-Unlit-style project, re-downloadable / in the local export folder if ever ne
 `base_basic_pbr.fbx`, `texture_metallic.png`, `texture_roughness.png`, `texture_pbr.png`,
 `shaded.png` (preview bake).
 
-## Integration handoff (next steps — team ticket)
+## Integration handoff (DONE — ticket 86cajwp23, on PR #260)
 
-- Unity import as Humanoid (`CreateFromThisModel` on the rigged FBX), height-normalize to 1.0 u,
-  retarget the existing 18 Mixamo clips via `CopyFromOther` (same recipe as current castaway).
-- `HeldAxeRig` / `CastawayArmPose` bone-axis re-measure ritual (procedural-animation-verbs.md).
-- Retire `CharacterAssetGen.RecolorShirtToTan` (no shirt on the new base).
-- Update `Castaway_Attribution.txt` (same Hyper3D+Mixamo pipeline, new generation).
-- Old castaway stays live until the new one passes the Sponsor soak in a shipped build
-  (staged, soak-gated rollout — Sponsor-locked plan).
+- Unity import as **GENERIC + transform-path** (`CreateFromThisModel` on the rigged FBX),
+  height-normalize to 1.0 u. **NOT Humanoid, NOT `CopyFromOther`** — the Mixamo Humanoid
+  muscle-space retarget CONE-EXPLODES the skinned mesh at runtime under the scaled scene
+  hierarchy (ticket `86ca8rdkp`; live anti-Humanoid gate). Generic binds each of the existing
+  18 clips by transform path onto v2's mesh (v2's 41 bones are a subset of the clip skeleton —
+  only middle/ring fingers missing), so NO retarget is needed. Implemented in
+  `CharacterAssetGen.ConfigureV2BaseFbx` (Generic, `CreateFromThisModel`, height-normalize).
+- `HeldAxeRig` bone-axis re-measure: `CharacterAssetGen.CastawayV2HandAxisTrace` dumps v2's
+  `mixamorig:RightHand` local frame; seat prior in `MovementCameraScene.HeldAxeV2RelEuler` /
+  `HeldAxeV2LocalOffsetFromHand` (soak-dialable via F9).
+- `CharacterAssetGen.RecolorShirtToTan` gated OFF for v2 (no shirt on the new base).
+- `Castaway_Attribution.txt` updated (Generic pipeline + a v2 section).
+- Old castaway stays live behind the `CharacterAssetGen.UseCastawayV2` toggle
+  (env `FARHORIZON_CASTAWAY_V2=1` at bootstrap) until v2 passes the Sponsor soak in a shipped
+  build, then v2 is promoted to the default + v1 removed (staged, Sponsor-locked plan).
 - **Gear modules (in-house, Blender):** chest strap / wristbands / future wear as separate
   palette meshes skinned to the same skeleton — deliberately NOT baked into the Rodin mesh.
   Modular-parts history and the v1–v7 in-house build (kept for reference + palette/module
