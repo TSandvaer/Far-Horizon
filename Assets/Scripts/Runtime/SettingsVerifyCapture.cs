@@ -33,8 +33,9 @@ namespace FarHorizon
     ///   settings_reset.png  — the console open AFTER reset-to-defaults: the live params reverted, the
     ///                         readouts/fields re-rendered to the defaults, the differs badge cleared (AC10).
     /// and LOGS the 86cabeqj9 NIT proofs: NIT 1 — the `Console UI scale` row drives the panel scale live; NIT 2 —
-    /// the F1/F2 de-conflict (console toggle key=F1, legacy-overlay master=F2, distinct; opening the console does
-    /// NOT flip the legacy DebugOverlays.Visible flag → the two layers no longer share state).
+    /// the F1/overlay de-conflict (console toggle key=F1, debug-overlay master=F10, distinct; opening the console
+    /// does NOT flip the DebugOverlays.Visible flag → the two layers no longer share state). (86cah90cp round-3:
+    /// the legacy F2 master (DebugOverlayToggle) was removed — F10 is now the SINGLE overlay master; F2 is UNBOUND.)
     /// and LOGS the live-effect proof: the walk-speed param BEFORE vs AFTER the tweak (must differ), the
     /// zoom-range MIN/MAX clamping OrbitCamera.minDistance/maxDistance, the differs-from-default flag flipping
     /// on tweak + clearing on reset (AC9/AC10), and the registered entry count + archetypes (the extensible
@@ -94,20 +95,21 @@ namespace FarHorizon
                       $"worldInputGated={UiInputGate.CaptureWorldInput} (AC2/AC3: must be False — open alone " +
                       $"does NOT swallow locomotion/orbit; only a focused field does).");
 
-            // 86cabeqj9 NIT 2 — F1/F2 DE-CONFLICT (ground truth in the shipped build). The verify-capture
-            // can't synthesize a legacy key-down, but the DECOUPLE is machine-checkable: the console's toggle
-            // key is F1 + the legacy-overlay master is F2 (distinct), AND opening the console (SetOpen above)
-            // did NOT flip the legacy DebugOverlays.Visible flag — proving F1↔console and F2↔legacy no longer
-            // share state. Before the fix, opening rode DebugOverlays.Visible (so they were the SAME flag).
-            var legacyToggle = Object.FindAnyObjectByType<DebugOverlayToggle>();
+            // 86cabeqj9 NIT 2 — F1/overlay DE-CONFLICT (ground truth in the shipped build). The verify-capture
+            // can't synthesize a key-down, but the DECOUPLE is machine-checkable: the console's toggle key is
+            // F1 + the debug-overlay master is F10 (distinct), AND opening the console (SetOpen above) did NOT
+            // flip the DebugOverlays.Visible flag — proving F1↔console and F10↔overlays no longer share state.
+            // (86cah90cp round-3, Sponsor-directed 2026-07-03: the legacy F2 master (DebugOverlayToggle) was
+            // REMOVED — F10 (SneakIsolationTool.overlayToggleKey) is now the SINGLE overlay master; F2 is UNBOUND.)
+            var overlayMaster = Object.FindAnyObjectByType<SneakIsolationTool>();
             KeyCode consoleKey = panel.toggleKey;
-            KeyCode legacyKey = legacyToggle != null ? legacyToggle.toggleKey : KeyCode.None;
-            Debug.Log($"[SettingsVerifyCapture] F1/F2 DE-CONFLICT (NIT 2): consoleToggleKey={consoleKey} " +
-                      $"legacyOverlayKey={legacyKey} keysDistinct={(consoleKey != legacyKey)} " +
-                      $"consoleOpen={panel.IsOpen} legacyOverlaysVisible={DebugOverlays.Visible} " +
+            KeyCode overlayKey = overlayMaster != null ? overlayMaster.overlayToggleKey : KeyCode.None;
+            Debug.Log($"[SettingsVerifyCapture] F1/overlay DE-CONFLICT (NIT 2): consoleToggleKey={consoleKey} " +
+                      $"overlayMasterKey={overlayKey} keysDistinct={(consoleKey != overlayKey)} " +
+                      $"consoleOpen={panel.IsOpen} overlaysVisible={DebugOverlays.Visible} " +
                       $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: consoleKey=F1, " +
-                      $"legacyKey=F2, distinct=True, decoupled=True — opening the console does NOT reveal the " +
-                      $"legacy overlays).");
+                      $"overlayKey=F10, distinct=True, decoupled=True — opening the console does NOT reveal the " +
+                      $"debug overlays; F2 is unbound).");
 
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();
@@ -119,7 +121,10 @@ namespace FarHorizon
             // scale PlayerPrefs key (soak hygiene — the next launch must boot at the shipped 1.0x default).
             var scaleEntry = reg?.Get(SettingsCatalog.ConsoleUiScaleId) as FloatSettingEntry;
             var scaleSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (scaleEntry != null) SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey);
+            // Snapshot the value key AND its .def stale-default stamp (86cah90cp): SetValue writes both; a
+            // restore that puts back only the value would leave the run's stamp behind and could re-validate
+            // a stale override the invalidation should discard.
+            if (scaleEntry != null) { SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey); SnapshotFloat(scaleSnapshot, scaleEntry.DefaultStampKey); }
             try
             {
                 if (scaleEntry != null)
@@ -161,7 +166,7 @@ namespace FarHorizon
             // visibly LARGER (the font resized, independent of the chrome). Snapshot+restore its PlayerPrefs key.
             var textEntry = reg?.Get(SettingsCatalog.ConsoleTextScaleId) as FloatSettingEntry;
             var textSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (textEntry != null) SnapshotFloat(textSnapshot, textEntry.PrefsKey);
+            if (textEntry != null) { SnapshotFloat(textSnapshot, textEntry.PrefsKey); SnapshotFloat(textSnapshot, textEntry.DefaultStampKey); }
             try
             {
                 if (textEntry != null)
@@ -207,7 +212,7 @@ namespace FarHorizon
             var walk = reg?.Get(SettingsCatalog.WalkSpeedId) as FloatSettingEntry;
             var zoom = reg?.Get(SettingsCatalog.ZoomRangeId) as RangeSettingEntry;
             var prefsSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (walk != null) SnapshotFloat(prefsSnapshot, walk.PrefsKey);
+            if (walk != null) { SnapshotFloat(prefsSnapshot, walk.PrefsKey); SnapshotFloat(prefsSnapshot, walk.DefaultStampKey); }
             if (zoom != null) { SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".min"); SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".max"); }
 
             float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;

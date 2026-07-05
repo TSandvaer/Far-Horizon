@@ -45,14 +45,18 @@ namespace FarHorizon.EditorTools
         // -35 yaw/azimuth does NOT change elevation). QualityPassGen.ResolveSunDirection reads -light.forward
         // off this same Sun, so the baked sky-material _SunDirection (the visual disk) and the shading light
         // stay consistent.
-        // SPONSOR-ACCEPTED BAKE (soak of 55bde02, 2026-06-30): the Sponsor live-dialed elevation on the F10
-        // WorldLookNudgeTool SUN target IN THE SHIPPED BUILD, looking out over the OCEAN horizon, and accepted
-        // 18° — the disk reads VISIBLE + warm over the water at the gameplay over-shoulder framing. So the
-        // dial-from history is settled here at 18°: the earlier 48° was overhead-only (never framed), and the
-        // first dry-run 18° looked occluded ONLY in the dedicated sky_gameplay capture that yaws toward the
-        // inland blob-canopy treeline — over the OCEAN azimuth there is no canopy, which is where the Sponsor
-        // judged it. 25° was the intermediate dial-from; the Sponsor's live soak superseded it to 18°.
-        public const float SunElevationDeg = 18f; // Sponsor-accepted (soak 55bde02): low warm sun, visible over the ocean; deg above horizon
+        // SPONSOR-ACCEPTED BAKE (86cah90cp ROUND-2 dial, 2026-07-02, soak-223 exe stamp b8d6e96): the Sponsor
+        // live-dialed elevation on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD, looking out
+        // over the OCEAN horizon, and accepted 8° — a low sun sitting near the waterline (Player-prev.log:
+        // "SUN elevation=8,0deg (azimuth 325)"). At the REAL gameplay framing (camera FOV 45, OrbitCamera
+        // minPitch 8° look-down) the visible sky band tops out ~14.5° above the horizon — 8° sits clearly
+        // in-frame; the earlier 18° default was ABOVE the frame top at every playable pitch (the round-1
+        // "i cant see the sun": a STALE persisted fh.settings.sun_elevation=18 PlayerPrefs override stomped
+        // the baked 12° at boot — see FloatSettingEntry.LoadFromPrefs stale-default invalidation).
+        // The dial-from history: 48° (overhead-only, never framed) → 25° → 18° (soak 55bde02) → 12°
+        // (round-1 bake, stomped by the stale pref) → 8° (this bake). The Euler X IS the sun's elevation
+        // above the horizon (the -35 yaw does NOT change elevation — verified).
+        public const float SunElevationDeg = 8f; // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02): low sun near the ocean waterline; deg above horizon
         public const float SunAzimuthDeg   = -35f; // azimuth/yaw — unchanged (does not affect elevation)
 
         // ---- WORLD-LOOK POLISH palettes (ticket 86ca8t9pq — Uma world-look brief §1/§2) ----
@@ -331,14 +335,14 @@ namespace FarHorizon.EditorTools
             light.type = LightType.Directional;
             light.intensity = 1.25f;
             light.color = new Color(1f, 0.93f, 0.80f);  // warm amber key
-            // SUN-LOWER (ticket 86cag25az — folded into the #194 sky PR). The disk was baked at elevation 48°
+            // SUN-LOWER (ticket 86cag25az → re-lowered by 86cah90cp). The disk was baked at elevation 48°
             // (Euler X); the gameplay over-shoulder orbit (default pitch 55 looking DOWN, clamped to [8,70])
             // physically can't tilt up far enough to frame a sun that high — so the Sponsor's first #194 soak
             // saw the warm-gold disk only in the dedicated -verifySky shot, never in normal play ("baked too
-            // high to see"). LOWER the elevation to the SPONSOR-ACCEPTED 18° (Euler X; yaw/azimuth -35 unchanged)
-            // so the disk sits in the low warm band the orbit frames when the player looks toward the HORIZON
-            // over the OCEAN — the far-horizon north-star framing (the Sponsor live-dialed + accepted 18° on the
-            // 55bde02 soak, sun visible + warm over the water). The Euler X IS the sun's elevation above the
+            // high to see"). LOWER the elevation to the SPONSOR-ACCEPTED 12° (Euler X; yaw/azimuth -35 unchanged;
+            // was 18° on soak 55bde02, dialed lower to 12° on the 2026-07-01 86cah90cp soak) so the disk sits in
+            // the low warm band the orbit frames when the player looks toward the HORIZON over the OCEAN — the
+            // far-horizon north-star framing. The Euler X IS the sun's elevation above the
             // horizon (the -35 yaw doesn't change elevation — verified). This is the CAUSE-level fix (the disk
             // was where the LIGHT pointed, just too high): lowering the actual Sun light lowers BOTH the shading
             // direction AND the baked _SunDirection (QualityPassGen.ResolveSunDirection reads -light.forward off

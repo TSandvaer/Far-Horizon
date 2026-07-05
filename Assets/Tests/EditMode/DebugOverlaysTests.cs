@@ -7,15 +7,16 @@ using FarHorizon;
 namespace FarHorizon.EditTests
 {
     /// <summary>
-    /// EditMode coverage for the shared LEGACY dev/debug overlay visibility flag (ticket 86cafd6d6 — "assign
-    /// a debug-overlay key"; the master key moved F1→F2 by the 86cabeqj9 soak NIT so F1 opens ONLY the dev
-    /// console). The flag is the ONE thing every LEGACY dev overlay reads to decide whether to draw; these
-    /// guards pin its load-bearing contracts (the flag's Show/Hide/Toggle semantics are key-agnostic — only
-    /// the master KEY moved, in DebugOverlayToggle):
+    /// EditMode coverage for the shared dev/debug overlay visibility flag (ticket 86cafd6d6 — "assign
+    /// a debug-overlay key"; the master key was F1→F2, and the legacy F2 master (DebugOverlayToggle) was
+    /// REMOVED in 86cah90cp round-3 so F10 is now the SINGLE master — SneakIsolationTool.overlayToggleKey
+    /// flips this flag on F10). The flag is the ONE thing every dev overlay reads to decide whether to draw;
+    /// these guards pin its load-bearing contracts (the flag's Show/Hide/Toggle semantics are key-agnostic —
+    /// only the master KEY changed):
     ///
     ///   1. DEFAULT = HIDDEN (AC2): a clean screen for normal play / soak / CI captures (also un-buries the
     ///      #158 loot prompt). A regression that flips the default to visible reds here.
-    ///   2. Show / Hide / Toggle semantics: the F2 handler + the verify-capture path drive these.
+    ///   2. Show / Hide / Toggle semantics: the F10 master + the verify-capture path drive these.
     ///   3. The mandatory SubsystemRegistration reset re-seeds the HIDDEN default each play-entry (domain-
     ///      reload-disabled discipline — a stale "overlays on" must not survive a re-Play). This is also
     ///      enforced asmdef-wide by StaticStateResetTests; this asserts the concrete behaviour.
@@ -46,15 +47,15 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(DebugOverlays.Visible, "Hide() must conceal the dev-overlay layer");
         }
 
-        // Toggle flips the layer — this is exactly what the F2 handler (DebugOverlayToggle) does each press.
+        // Toggle flips the layer — this is exactly what the F10 master (SneakIsolationTool) does each press.
         [Test]
         public void Toggle_FlipsVisibility()
         {
             Assert.IsFalse(DebugOverlays.Visible, "precondition: hidden");
             DebugOverlays.Toggle();
-            Assert.IsTrue(DebugOverlays.Visible, "first F2 press reveals the legacy layer");
+            Assert.IsTrue(DebugOverlays.Visible, "first F10 press reveals the overlay layer");
             DebugOverlays.Toggle();
-            Assert.IsFalse(DebugOverlays.Visible, "second F2 press hides the legacy layer again");
+            Assert.IsFalse(DebugOverlays.Visible, "second F10 press hides the overlay layer again");
         }
 
         // The mandatory per-play-entry reset must re-seed the HIDDEN default — a previous session's "overlays
