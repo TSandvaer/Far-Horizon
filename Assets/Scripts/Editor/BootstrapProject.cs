@@ -351,7 +351,7 @@ namespace FarHorizon.EditorTools
             hudGo.AddComponent<FpsCounterHud>();
             // NOTE — the legacy F2 debug-overlay master (DebugOverlayToggle, #208-era F1→F2 by 86cabeqj9) was
             // REMOVED in 86cah90cp round-3 (Sponsor-directed 2026-07-03): F10 is now the SINGLE key for the
-            // debug-overlay layer. F10 (SneakIsolationTool.overlayToggleKey) flips the shared DebugOverlays.Visible,
+            // debug-overlay layer. F10 (DebugOverlayMaster.overlayToggleKey) flips the shared DebugOverlays.Visible,
             // and the WorldLookNudgeTool also rides F10, so one F10 press reveals BOTH panels together; F1 (dev
             // console / SettingsPanel) stays untouched. The layer still defaults HIDDEN (clean screen on a normal
             // launch / soak / CI capture) and still gates ONLY dev overlays — never the build stamp or gameplay UI.

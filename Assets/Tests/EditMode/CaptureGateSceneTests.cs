@@ -155,10 +155,12 @@ namespace FarHorizon.EditTests
 
         // F2 REMOVED — F10 IS THE SINGLE DEBUG-OVERLAY MASTER (86cah90cp round-3, Sponsor-directed 2026-07-03).
         // The legacy #208-era DebugOverlayToggle (F2 master; formerly F1→F2 by the 86cabeqj9 soak NIT) is GONE.
-        // F10 (SneakIsolationTool.overlayToggleKey, which flips the shared DebugOverlays.Visible) is now the ONLY
-        // toggle for the debug-overlay layer; F1 (dev console) is untouched. This guard asserts (a) NO component
-        // serialized on the Boot object binds KeyCode.F2 anymore (F2 is UNBOUND), and (b) the F10 master is
-        // present + serialized. Regression guard: re-add an F2 binding, or drop the F10 master, and this reds.
+        // F10 (DebugOverlayMaster.overlayToggleKey, which flips the shared DebugOverlays.Visible) is now the ONLY
+        // toggle for the debug-overlay layer; F1 (dev console) is untouched. (86caju054 — the F10 master was
+        // re-homed off the RETIRED SneakIsolationTool, which owned it before the sneak panel was retired.) This
+        // guard asserts (a) NO component serialized on the Boot object binds KeyCode.F2 anymore (F2 is UNBOUND),
+        // and (b) the F10 master is present + serialized. Regression guard: re-add an F2 binding, or drop the F10
+        // master, and this reds.
         [Test]
         public void BootScene_F2Unbound_F10IsTheOverlayMaster()
         {
@@ -180,19 +182,19 @@ namespace FarHorizon.EditTests
                 }
             }
 
-            // (b) F10 IS THE MASTER — SneakIsolationTool serialized with overlayToggleKey==F10 (it flips the
+            // (b) F10 IS THE MASTER — DebugOverlayMaster serialized with overlayToggleKey==F10 (it flips the
             // shared DebugOverlays.Visible; the WorldLookNudgeTool also rides F10 so both panels reveal together).
-            SneakIsolationTool sneak = null;
+            DebugOverlayMaster master = null;
             foreach (var root in scene.GetRootGameObjects())
             {
-                sneak = root.GetComponentInChildren<SneakIsolationTool>(true);
-                if (sneak != null) break;
+                master = root.GetComponentInChildren<DebugOverlayMaster>(true);
+                if (master != null) break;
             }
-            Assert.IsNotNull(sneak,
-                "the Boot scene must carry SneakIsolationTool serialized (the F10 debug-overlay master — the " +
+            Assert.IsNotNull(master,
+                "the Boot scene must carry DebugOverlayMaster serialized (the F10 debug-overlay master — the " +
                 "component-not-serialized trap; unity-conventions.md)");
-            Assert.AreEqual(KeyCode.F10, sneak.overlayToggleKey,
-                "F10 must be the SINGLE debug-overlay master (SneakIsolationTool.overlayToggleKey) after the F2 removal");
+            Assert.AreEqual(KeyCode.F10, master.overlayToggleKey,
+                "F10 must be the SINGLE debug-overlay master (DebugOverlayMaster.overlayToggleKey) after the F2 removal");
         }
 
         // The FRESNEL/RIM A/B verify capture (ticket 86caamnnj — Fresnel/rim term) must be SERIALIZED into

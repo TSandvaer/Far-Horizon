@@ -1382,31 +1382,28 @@ namespace FarHorizon.EditorTools
 
         // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument) onto
         // Boot so it SERIALIZES into Boot.unity (the editor-vs-runtime serialization trap — it would ship inert
-        // otherwise). F2 toggles #186 foot-sync; F3 snaps sneak→walk speed; the live readout shows which number
-        // oscillates per gait cycle. Behind the F1 dev-overlay master gate; default state = shipped crouch (foot-
-        // sync ON, reduced sneak). Sibling of WireFloatDiagnostic.
-        private static void WireSneakIsolationTool()
+        // otherwise). F10 flips the shared DebugOverlays.Visible master so every dev overlay reveals together;
+        // default state = clean screen (master hidden). Sibling of WireFloatDiagnostic. (86caju054 — re-homed off
+        // the RETIRED SneakIsolationTool: the sneak readout + its F5/F6 handles are gone, F10 stays the master.)
+        private static void WireDebugOverlayMaster()
         {
             var bootGo = GameObject.Find("Boot");
             if (bootGo == null)
             {
-                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakIsolationTool");
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host DebugOverlayMaster");
                 return;
             }
-            var tool = bootGo.GetComponent<SneakIsolationTool>();
+            var tool = bootGo.GetComponent<DebugOverlayMaster>();
             if (tool == null)
-                tool = bootGo.AddComponent<SneakIsolationTool>();
-            // EXPLICITLY re-assert the toggle keys every bootstrap — a bare AddComponent leaves stale SERIALIZED
-            // KeyCode values in the committed binary Boot.unity when the component already exists, so a code-only
+                tool = bootGo.AddComponent<DebugOverlayMaster>();
+            // EXPLICITLY re-assert the toggle key every bootstrap — a bare AddComponent leaves a stale SERIALIZED
+            // KeyCode value in the committed binary Boot.unity when the component already exists, so a code-only
             // default change would NEVER reach the shipped exe (editor-vs-runtime serialization trap +
-            // [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
-            // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated and now
-            // UNBOUND (the legacy F2 overlay master (DebugOverlayToggle) was removed, 86cah90cp round-3).
-            // F10 = the SINGLE show/hide master (86cah90cp — Sponsor-grouped debug-overlay key; flips DebugOverlays.
-            // Visible so F10 reveals this panel + the WorldLookNudgeTool panel together; F1 stays the console).
+            // [[unity-procedural-committed-assets-go-stale]]). Setting the field makes the baked scene
+            // authoritative-from-code. F10 = the SINGLE debug-overlay master (86cah90cp; the legacy F2 master was
+            // removed round-3) — flips DebugOverlays.Visible so F10 reveals the WorldLookNudgeTool + nudge panels
+            // together; F1 stays the console, F2 is UNBOUND.
             tool.overlayToggleKey = KeyCode.F10;
-            tool.footSyncToggleKey = KeyCode.F5;
-            tool.sneakSpeedSnapToggleKey = KeyCode.F6;
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -2973,7 +2970,7 @@ namespace FarHorizon.EditorTools
             // Serializes onto Boot so the F2 (foot-sync) + F3 (sneak-speed snap) toggles + the live readout ship;
             // behind the F1 dev-overlay master gate, default = shipped crouch behavior. The Sponsor sneaks, flips
             // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
-            WireSneakIsolationTool();
+            WireDebugOverlayMaster();
 
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
@@ -3278,7 +3275,7 @@ namespace FarHorizon.EditorTools
             panel.warmth = Object.FindObjectOfType<WarmthNeed>();
             // 86cah8ukr SPLIT — wire BOTH toggle keys editor-time so they serialize into Boot.unity (the
             // field-default-not-serialized trap): F1 opens the player Settings drawer, F3 the dev console
-            // (Sponsor-confirmed 2026-07-03). Debug overlays are on F10 (SneakIsolationTool, the single overlay
+            // (Sponsor-confirmed 2026-07-03). Debug overlays are on F10 (DebugOverlayMaster, the single overlay
             // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
             panel.toggleKey = KeyCode.F1;
             panel.devToggleKey = KeyCode.F3;

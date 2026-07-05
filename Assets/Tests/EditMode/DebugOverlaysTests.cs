@@ -9,7 +9,7 @@ namespace FarHorizon.EditTests
     /// <summary>
     /// EditMode coverage for the shared dev/debug overlay visibility flag (ticket 86cafd6d6 — "assign
     /// a debug-overlay key"; the master key was F1→F2, and the legacy F2 master (DebugOverlayToggle) was
-    /// REMOVED in 86cah90cp round-3 so F10 is now the SINGLE master — SneakIsolationTool.overlayToggleKey
+    /// REMOVED in 86cah90cp round-3 so F10 is now the SINGLE master — DebugOverlayMaster.overlayToggleKey
     /// flips this flag on F10). The flag is the ONE thing every dev overlay reads to decide whether to draw;
     /// these guards pin its load-bearing contracts (the flag's Show/Hide/Toggle semantics are key-agnostic —
     /// only the master KEY changed):
@@ -47,7 +47,7 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(DebugOverlays.Visible, "Hide() must conceal the dev-overlay layer");
         }
 
-        // Toggle flips the layer — this is exactly what the F10 master (SneakIsolationTool) does each press.
+        // Toggle flips the layer — this is exactly what the F10 master (DebugOverlayMaster) does each press.
         [Test]
         public void Toggle_FlipsVisibility()
         {

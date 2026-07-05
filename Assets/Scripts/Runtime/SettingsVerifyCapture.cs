@@ -104,11 +104,11 @@ namespace FarHorizon
             // 86cabeqj9 NIT 2 + 86cah8ukr SPLIT — F1/F3/F10 DE-CONFLICT (ground truth in the shipped build). The
             // verify-capture can't synthesize a key-down, but the DECOUPLE is machine-checkable: the DEV console
             // opens on F3 (devToggleKey), the PLAYER Settings drawer on F1 (toggleKey), the debug-overlay master
-            // on F10 (SneakIsolationTool.overlayToggleKey) — all distinct, F2 UNBOUND (the legacy F2 master
-            // DebugOverlayToggle was REMOVED in 86cah90cp round-3, Sponsor-directed 2026-07-03) — AND opening the
-            // console (SetOpen above) did NOT flip the shared DebugOverlays.Visible flag, proving F3↔console and
-            // F10↔overlays no longer share state.
-            var overlayMaster = Object.FindAnyObjectByType<SneakIsolationTool>();
+            // on F10 (DebugOverlayMaster.overlayToggleKey — re-homed off the retired SneakIsolationTool, 86caju054)
+            // — all distinct, F2 UNBOUND (the legacy F2 master DebugOverlayToggle was REMOVED in 86cah90cp round-3,
+            // Sponsor-directed 2026-07-03) — AND opening the console (SetOpen above) did NOT flip the shared
+            // DebugOverlays.Visible flag, proving F3↔console and F10↔overlays no longer share state.
+            var overlayMaster = Object.FindAnyObjectByType<DebugOverlayMaster>();
             KeyCode consoleKey = panel.devToggleKey;
             KeyCode playerKey = panel.toggleKey;
             KeyCode overlayKey = overlayMaster != null ? overlayMaster.overlayToggleKey : KeyCode.None;
