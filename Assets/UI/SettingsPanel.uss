@@ -141,12 +141,28 @@
     border-radius: 6px;
     width: 28px; height: 28px;
     -unity-font-style: bold;
+    flex-shrink: 0;             /* #247 v2 — never let a squeezed row crush a button below its glyph width */
 }
 .setting-row--stepper .stepper__btn:hover { background-color: var(--slot-hover); }
 .setting-row--stepper .stepper__value {
     color: var(--ink-cream);
     -unity-text-align: middle-center;
     width: 44px;
+    flex-shrink: 0;             /* #247 v2 — hold the value column so "− 5 [+ 5] 5" can't jam together */
+}
+
+/* #247 v2 — the stepper's [ − ] value [ + ] control must NEVER be crushed. The base .setting-row__control
+ * is flex-grow:1 with the DEFAULT flex-shrink:1, so on a squeezed row it is the ONLY shrinkable child and
+ * absorbs the whole width deficit — collapsing below its 100px content and overlapping the glyphs (the F1
+ * "not enough room" the Sponsor flagged: F1 has no v-scrollbar so the row fit on one line and the control
+ * collapsed, while F3's scrollbar narrowed the row past the wrap point → its def-hint wrapped to line 2 and
+ * the control stayed roomy). Pin flex-shrink:0 + a min-width covering [−]28 + value44 + [+]28 = 100px + a
+ * little air, so instead of crushing, the row WRAPS the trailing readout/def to a 2nd line (flex-wrap on
+ * .setting-row — the designed overflow, "never a horizontal scrollbar"). Stepper-only: sliders/ranges/toggles
+ * are untouched, and F3 (already roomy) stays roomy. */
+.setting-row--stepper .setting-row__control {
+    flex-shrink: 0;
+    min-width: 108px;
 }
 
 /* disabled / not-yet-built extension hook (AC3): greyed + a "(soon)" tag, present-but-not-a-live-knob */

@@ -6,27 +6,34 @@ using FarHorizon.Settings;
 namespace FarHorizon
 {
     /// <summary>
-    /// The in-game DEV TWEAK CONSOLE (tickets 86caa4bqp + 86cabeqj9 foundation) — a UI Toolkit workbench
-    /// drawer the Sponsor keeps OPEN and tweaks WHILE he plays, to dial live gameplay params, then we BAKE
-    /// the chosen values as new defaults (the give-him-the-knob soak-tuning instrument; cf. the F9 axe-nudge
-    /// tool). It is a DEV tool, NOT player-facing ([[sponsor-wants-unified-dev-tweak-console]]).
+    /// The in-game settings UI (tickets 86caa4bqp + 86cabeqj9 foundation; SPLIT into two panels by 86cah8ukr) —
+    /// a UI Toolkit workbench drawer. ONE MonoBehaviour drives TWO drawers off ONE registry:
+    ///   • F1 = the small PLAYER-facing Settings panel (belt slots, inventory stack size, warmth/hunger/thirst
+    ///     decay on-off toggles + their decay-rate sliders — SettingsCategory.IsPlayer);
+    ///   • F3 = the full DEV CONSOLE the Sponsor keeps OPEN and tweaks WHILE he plays (world-look, arm-pose,
+    ///     camera/zoom, held-weapon, locomotion, resource timers/yields, inventory slots, console scale — every
+    ///     row that is NOT player-facing). The console is the give-him-the-knob soak-tuning instrument; we BAKE
+    ///     the dialed values as new defaults (cf. the F9 axe-nudge tool).
+    /// Both drawers filter the SAME registry by <see cref="SettingsCategory"/> — "route views, don't re-bind":
+    /// the registry + every Populate* binding is UNCHANGED; only the destination view differs.
     ///
     /// THE THIN VIEW. The extensible contract lives in <see cref="SettingsRegistry"/> + the typed
     /// <see cref="SettingEntry"/>s (pure C#, unit-tested in EditMode). This MonoBehaviour:
-    ///   • builds the registry via <see cref="SettingsCatalog"/> from the serialized live targets (AC3);
+    ///   • builds the registry ONCE via <see cref="SettingsCatalog"/> from the serialized live targets (AC3);
     ///   • loads persisted values (AC5) + applies them on Start;
     ///   • builds one UI Toolkit row per entry GENERICALLY off its archetype (AC2) — a new setting needs NO
-    ///     change here; it just appears as a row, with a typed field (AC5), nudge selection (AC6), a baked-
-    ///     default readout (AC8) and a differs-from-default badge (AC9) for free;
-    ///   • OPENS/CLOSES on F1, polled DIRECTLY (86cabeqj9 soak NIT — F1/overlay de-conflict). F1 toggles ONLY
-    ///     the console; the dev/debug IMGUI overlays are on F10 (the single overlay master since the legacy F2
-    ///     DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). The console previously rode the
-    ///     shared DebugOverlays.Visible flag, so one F1 popped the console AND the overlays together —
-    ///     decoupled here so each key reveals exactly one layer (AC1);
+    ///     change here; it just appears as a row (routed to F1 or F3 by category), with a typed field (AC5),
+    ///     nudge selection (AC6), a baked-default readout (AC8) and a differs-from-default badge (AC9) for free;
+    ///   • OPENS/CLOSES the player drawer on F1 + the dev console on F3, each polled DIRECTLY (86cah8ukr). The
+    ///     dev/debug IMGUI overlays are on F10 (SneakIsolationTool, the single overlay master since the legacy
+    ///     F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). Each key (F1 player / F3 dev
+    ///     console / F10 overlays) reveals exactly one layer (AC1);
+    ///   • CONDITIONAL VISIBILITY (86cah8ukr AC1): a per-need decay-rate slider is shown only while its need's
+    ///     on/off toggle is ON (live show/hide on toggle change);
     ///   • is NON-MODAL (AC2): being open does NOT pause/gate gameplay (no Time.timeScale touch); world input
     ///     is swallowed ONLY while a typed-field holds keyboard focus (AC3 — so a typed number isn't also read
-    ///     as movement), via the ref-counted UiInputGate the console OPTS INTO per-field (genuinely-modal
-    ///     future panels like inventory Tab still opt into the open-gate).
+    ///     as movement), via the ref-counted UiInputGate each drawer OPTS INTO per-field, releasing on close
+    ///     AND OnDisable (so world input is never left permanently swallowed).
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): the UIDocument + UXML/USS + the live-target
     /// references are wired editor-time (MovementCameraScene) + serialized into Boot.unity. The Awake
@@ -57,6 +64,10 @@ namespace FarHorizon
         [Tooltip("The hunger need (86cabd75y) — hunger decay rate + berry restore amount bind here. " +
                  "May be null; the hunger rows then simply don't appear.")]
         public HungerNeed hunger;
+        [Tooltip("The warmth need (86cabeqwf/86cah8ukr) — the warmth on/off toggle + warmth decay-rate slider " +
+                 "bind here (the PLAYER-facing F1 rows). The hunger/thirst on/off toggles bind to those needs " +
+                 "above. May be null; the warmth rows then simply don't appear.")]
+        public WarmthNeed warmth;
         [Tooltip("The castaway (86caa4c5c change-(b)) — tool-use speed flips the reserved row live to its " +
                  "chopSpeed (the Mixamo melee Attack-state playback rate). May be null; the tool-use-speed row " +
                  "then stays greyed (extension hook).")]
@@ -108,31 +119,74 @@ namespace FarHorizon
                  "row then simply doesn't appear.")]
         public FarHorizon.FpsCounterHud fpsHud;
 
-        [Header("Toggle")]
-        [Tooltip("Key that opens/closes the console — F1 (86cabeqj9 AC1). The console KEEPS F1 but polls it " +
-                 "DIRECTLY (the 86cabeqj9 soak NIT F1/overlay de-conflict): F1 toggles ONLY the console; the " +
-                 "dev/debug IMGUI overlays are on F10 (the single overlay master since the legacy F2 " +
-                 "DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND). The console previously " +
-                 "rode the shared DebugOverlays.Visible flag, so one F1 popped the console AND the overlays " +
-                 "together. Layout-agnostic + verified non-clashing with WASD/Shift/Space/Tab/F7-F10 " +
-                 "([[sponsor-danish-keyboard-layout]]). Update polls this field directly (SetOpen(!IsOpen)). " +
-                 "NOTE (86cagpk72 NIT): the SHIPPED-BUILD verify-capture drives SetOpen/DebugOverlays " +
-                 "PROGRAMMATICALLY (it can't synthesize an F1 key-down in a windowed capture) — it does NOT " +
-                 "read this field.")]
-        public KeyCode toggleKey = KeyCode.F1;
+        [Header("Toggle keys (86cah8ukr — F1 player Settings / F3 dev console)")]
+        [Tooltip("Key that opens/closes the PLAYER-facing Settings panel (F1) — belt slots, inventory stack " +
+                 "size, warmth/hunger/thirst on-off + decay-rate sliders (SettingsCategory.IsPlayer). The panel " +
+                 "SPLIT (86cah8ukr): F1 now opens ONLY the small player view; the full dev console moved to F3 " +
+                 "(devToggleKey). Layout-agnostic + Danish-safe (an F-key) + verified non-clashing with " +
+                 "WASD/Shift/Space/Tab/F7-F10 (F2 UNBOUND) ([[sponsor-danish-keyboard-layout]]). Update polls " +
+                 "this directly (SetPlayerOpen(!IsPlayerOpen)). DEFAULT = None (NOT F1): the shipped F1 comes ONLY " +
+                 "from MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the scene-presence guard " +
+                 "goes genuinely RED if that wiring is dropped (a code default of F1 made the guard tautological). A " +
+                 "never-wired panel then just no-ops on Input.GetKeyDown(None) — no crash.")]
+        public KeyCode toggleKey = KeyCode.None;
+        [Tooltip("Key that opens/closes the DEV CONSOLE (F3, Sponsor-confirmed 2026-07-03) — EVERY other row " +
+                 "(world-look, arm-pose, camera/zoom, held-weapon, locomotion incl. walk/run speed, resource " +
+                 "timers/yields, inventory slots, console UI + text scale). The dev/debug IMGUI overlays are on " +
+                 "F10 (SneakIsolationTool, the single overlay master since the legacy F2 DebugOverlayToggle was " +
+                 "removed in 86cah90cp round-3; F2 is UNBOUND) — F1/F3/F10 are all distinct. Update polls this " +
+                 "directly (SetOpen(!IsOpen)). The SHIPPED-BUILD verify-capture drives SetOpen PROGRAMMATICALLY " +
+                 "(it can't synthesize a key-down in a windowed capture) — it reads this field only to LOG the " +
+                 "dev key, not to open.) DEFAULT = None (NOT F3): the shipped F3 comes ONLY from " +
+                 "MovementCameraScene.BuildSettingsPanel's editor-time assignment, so the guard goes genuinely RED " +
+                 "if that wiring is dropped (a code default of F3 made it tautological).")]
+        public KeyCode devToggleKey = KeyCode.None;
 
-        /// <summary>The registry this panel renders + drives. Built on Start from the catalog (public for tests).</summary>
+        /// <summary>The registry this panel renders + drives. Built ONCE on Start from the catalog; both the F1
+        /// player view and the F3 dev view filter this SAME registry by <see cref="SettingsCategory"/> (public
+        /// for tests). "Route views, don't re-bind" — one build, two filtered views.</summary>
         public SettingsRegistry Registry { get; private set; }
 
-        /// <summary>Whether the panel is currently open. Other systems gate their input on this (research §E1).</summary>
+        /// <summary>Whether the DEV CONSOLE (F3) is open. Kept named <c>IsOpen</c> (not <c>IsDevOpen</c>) so the
+        /// shipped-build capture (SettingsVerifyCapture) + its gate keep driving the console via the unchanged
+        /// SetOpen/IsOpen surface. Other systems gate their input on this (research §E1).</summary>
         public bool IsOpen { get; private set; }
 
-        private VisualElement _scrim;          // the full-screen scrim (the show/hide target — display:None)
-        private VisualElement _panel;          // the corner-parked column (the transition target)
-        private ScrollView _rows;
+        /// <summary>Whether the PLAYER Settings panel (F1) is open (86cah8ukr). Independent of <see cref="IsOpen"/>
+        /// — the two drawers open/close independently.</summary>
+        public bool IsPlayerOpen { get; private set; }
+
+        // --- DEV console drawer (F3) — owns the corner-picker + UI/text scale (its 86cabeqj9 NITs). ---
+        private VisualElement _scrim;          // the dev full-screen scrim (the show/hide target — display:None)
+        private VisualElement _panel;          // the dev corner-parked column (the transition + scale target)
+        private ScrollView _rows;              // the dev rows (SettingsCategory.IsDev entries)
+        // --- PLAYER Settings drawer (F1, 86cah8ukr) — the small player-facing view; parked TOP-RIGHT (fixed) so
+        //     it never overlaps the dev console's default TOP-LEFT corner if both happen to be open. ---
+        private VisualElement _playerScrim;
+        private VisualElement _playerPanel;
+        private ScrollView _playerRows;        // the player rows (SettingsCategory.IsPlayer entries)
+        private const ConsoleCorner PlayerCorner = ConsoleCorner.TopRight;
+        // Every row keyed by its entry id, so the conditional-visibility pass (a decay slider shown only while
+        // its toggle is ON — 86cah8ukr AC1) can show/hide a row by id live. Populated in BuildRows.
+        private readonly Dictionary<string, VisualElement> _rowsById = new Dictionary<string, VisualElement>();
         private bool _built;
         private bool _gateTracked;             // whether THIS panel currently holds the UiInputGate open (FOCUS-gate, AC3)
-        private int _focusedFields;            // how many typed-fields currently hold keyboard focus (AC3 ref-count)
+        // 86cah8ukr FIX — keyboard-focus counts PER DRAWER (not one shared counter). The world-input gate is
+        // RE-DERIVED from these two + each drawer's open state (RefreshInputGate), so closing ONE drawer can no
+        // longer release the gate the OTHER drawer's still-focused field owns (the shared-single-counter
+        // force-clear bug: open F1 → focus a numeric field → open+close F3 → world input stopped being swallowed
+        // while the F1 field stayed focused → typed digits/arrows ALSO drove movement/orbit).
+        private int _devFocusedFields;         // typed-fields holding keyboard focus in the DEV console (F3) drawer
+        private int _playerFocusedFields;      // typed-fields holding keyboard focus in the PLAYER Settings (F1) drawer
+        // 86cah8ukr FIX4 (adversarial #247 verify) — the scroll-zoom POINTER gate (UiInputGate.PointerOverConsole)
+        // had the SAME shared-single-flag defect the focus gate above did: it was a bare global bool that OpenDrawer
+        // force-cleared UNCONDITIONALLY on any drawer close. So: open F1+F3 overlapping under the cursor, close F3 →
+        // the flag cleared while F1 stayed hovered, and UI Toolkit does NOT re-fire PointerEnter for a pointer
+        // already inside → the wheel zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter. Fixed
+        // the SAME way: track pointer-over PER DRAWER + re-derive the gate from which drawers are still open + hovered
+        // (RefreshPointerGate mirrors RefreshInputGate).
+        private bool _devPointerOver;          // pointer currently over the DEV console (F3) panel rect
+        private bool _playerPointerOver;       // pointer currently over the PLAYER Settings (F1) panel rect
         private ConsoleCorner _corner;         // the persisted panel corner (AC4)
         private float _uiScale = 1f;           // the persisted console UI scale multiplier (86cabeqj9 soak NIT)
         private float _textScale = 1f;         // the persisted UI TEXT scale multiplier (86cabeqj9 soak NIT — DISTINCT from _uiScale chrome)
@@ -159,6 +213,7 @@ namespace FarHorizon
             if (wasd == null) wasd = FindObjectOfType<WasdMovement>();
             if (thirst == null) thirst = FindObjectOfType<ThirstNeed>();
             if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
+            if (warmth == null) warmth = FindObjectOfType<WarmthNeed>();
             if (chopCharacter == null) chopCharacter = FindObjectOfType<CastawayCharacter>();
             if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
@@ -193,7 +248,9 @@ namespace FarHorizon
             // hunger overload (86cabd75y) adds the hunger decay rate + berry restore amount rows; the berry
             // overload (86cabn67w) adds the `Berry regrowth time` range row fanning out across every bush; the
             // inventory overload (86cabfa4e) adds `inventory slots` + `belt slots` + `inventory stack size`.
-            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory);
+            // The 12-arg overload appends the per-need on/off toggles + warmth decay-rate slider (86cabeqwf,
+            // folded into the F1/F3 split 86cah8ukr) — warmth/hunger/thirst decay ON/OFF + `warmth_decay_rate`.
+            Registry = SettingsCatalog.Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner, heldWeapon, hunger, berryBushes, inventory, warmth);
 
             // F-KEY MIGRATION (86caber95) — fold the standalone F7/F9/F10 live-tune dials into the console as
             // rows (AC1/AC2/AC3), each Tab-cycled target its own row; vectors decomposed per-axis (AC4). These
@@ -232,7 +289,8 @@ namespace FarHorizon
             BuildView();
             ApplyConsoleScale();  // apply the loaded UI scale now that _panel exists (86cabeqj9 soak NIT)
             ApplyTextScale();     // apply the loaded TEXT scale now that the rows exist (86cabeqj9 soak NIT)
-            SetOpen(false); // start hidden — F1 opens it (86cabeqj9 — console-only F1, polled directly)
+            SetOpen(false);       // dev console starts hidden — F3 opens it
+            SetPlayerOpen(false); // player Settings starts hidden — F1 opens it (86cah8ukr split)
         }
 
         void Update()
@@ -245,13 +303,17 @@ namespace FarHorizon
             // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
             // Layout-agnostic + Danish-safe (an F-key) and verified non-clashing with WASD/Shift/Space/Tab/F7-F10
             // ([[sponsor-danish-keyboard-layout]]). Legacy Input (activeInputHandler=0), like every debug toggle.
-            if (Input.GetKeyDown(toggleKey)) SetOpen(!IsOpen);
+            // 86cah8ukr SPLIT — F1 toggles the PLAYER Settings drawer; F3 toggles the DEV console. Each polled
+            // DIRECTLY (legacy Input, activeInputHandler=0). The dev console keeps the unchanged SetOpen/IsOpen
+            // surface (the shipped-build capture drives it); the player drawer uses SetPlayerOpen/IsPlayerOpen.
+            if (Input.GetKeyDown(toggleKey)) SetPlayerOpen(!IsPlayerOpen);
+            if (Input.GetKeyDown(devToggleKey)) SetOpen(!IsOpen);
 
-            // AC6 — NUDGE the focused/selected entry. Only while the console is open AND no typed-field holds
+            // AC6 — NUDGE the focused/selected entry. Only while EITHER drawer is open AND no typed-field holds
             // keyboard focus (so the nudge keys don't fight a value being typed). PageUp/PageDown are the carried
             // nudge-tool idiom — Danish-keyboard-safe + NOT a locomotion key (WASD/arrows/Shift/Space), so they
             // act without stealing focus. Shift = 5x / Ctrl = 0.2x step (the exact WorldLookNudgeTool convention).
-            if (IsOpen && _focusedFields == 0 && _active != null)
+            if ((IsOpen || IsPlayerOpen) && _devFocusedFields + _playerFocusedFields == 0 && _active != null)
             {
                 int dir = 0;
                 if (Input.GetKeyDown(KeyCode.PageUp)) dir = 1;
@@ -265,50 +327,71 @@ namespace FarHorizon
         // gate is the FOCUS gate now (AC3) — the open panel itself no longer gates (AC2), only a focused field.
         void OnDisable()
         {
-            _focusedFields = 0;
+            _devFocusedFields = 0;
+            _playerFocusedFields = 0;
+            // FIX4 — also clear pointer-over so a disable/destroy WHILE the cursor is over a drawer can never leave
+            // the scroll-zoom gate stuck true (mirrors the focus-gate release; a destroyed panel can't be hovered).
+            _devPointerOver = false;
+            _playerPointerOver = false;
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            UiInputGate.SetPointerOverConsole(false);
         }
 
-        /// <summary>Open/close the console (AC1/AC2). NON-MODAL: opening NO LONGER swallows world/locomotion
-        /// input (#83 was modal) and NEVER touches Time.timeScale — WASD/run/jump/orbit stay live so the
-        /// Sponsor tweaks WHILE he plays and sees the effect in real time. Hide via display:None (zero render
-        /// cost — unity6-mastery §9), then play the open transition on the now-laid-out panel.</summary>
-        public void SetOpen(bool open)
+        /// <summary>Open/close the DEV CONSOLE (F3). Kept as the public <c>SetOpen(bool)</c> surface (unchanged
+        /// signature) so the shipped-build capture (SettingsVerifyCapture) + its gate keep driving the console.
+        /// NON-MODAL: opening NO LONGER swallows world/locomotion input (#83 was modal) and NEVER touches
+        /// Time.timeScale — WASD/run/jump/orbit stay live so the Sponsor tweaks WHILE he plays.</summary>
+        public void SetOpen(bool open) => OpenDrawer(open, isDev: true);
+
+        /// <summary>Open/close the PLAYER Settings drawer (F1, 86cah8ukr split). Same non-modal focus-gate model
+        /// as the dev console (world input swallowed ONLY while a typed field holds focus, released on close).
+        /// Parked TOP-RIGHT (fixed) so it never overlaps the dev console's default corner.</summary>
+        public void SetPlayerOpen(bool open) => OpenDrawer(open, isDev: false);
+
+        /// <summary>Shared open/close for either drawer (86cah8ukr). <paramref name="isDev"/> selects the DEV
+        /// console (corner-picker-parked + UI/text-scaled — its 86cabeqj9 NITs) vs the PLAYER Settings drawer
+        /// (fixed TOP-RIGHT corner, no chrome scale). Hide via display:None (zero render cost — unity6-mastery
+        /// §9), then play the open transition on the now-laid-out panel.</summary>
+        private void OpenDrawer(bool open, bool isDev)
         {
-            IsOpen = open;
-            // AC3 — when CLOSING, drop any focus-gate this panel held (a field can't keep gating once hidden).
-            if (!open && _focusedFields > 0)
+            var scrim = isDev ? _scrim : _playerScrim;
+            var panel = isDev ? _panel : _playerPanel;
+            if (isDev) IsOpen = open; else IsPlayerOpen = open;
+
+            // AC3 (86cah8ukr FIX / FIX4) — when CLOSING, clear ONLY the CLOSING drawer's focus count AND pointer-over
+            // flag: once display:None its fields can no longer be visibly focused nor its rect hovered, and UI Toolkit
+            // does not reliably fire FocusOutEvent OR PointerLeaveEvent on a display:None ancestor, so we can't rely on
+            // the blur/leave callbacks to zero them. Then RE-DERIVE BOTH gates from the remaining per-drawer state:
+            // closing one drawer must NOT release the gate the OTHER still-open drawer's focused field / hovered rect
+            // owns. (The old shared single focus-counter + single pointer-bool zeroed BOTH drawers on any close → open
+            // F1, focus a field / hover it, open+close F3 stopped swallowing world input / scroll-zoom while F1 stayed
+            // focused/hovered.) Both still err toward RELEASE for the true all-closed / all-blurred / all-unhovered
+            // case (the Refresh*Gate re-derives gate iff a focused field / hovered rect lives in a still-OPEN drawer).
+            if (!open)
             {
-                _focusedFields = 0;
-                UiInputGate.SetPanelOpen(false, ref _gateTracked);
+                if (isDev) { _devFocusedFields = 0; _devPointerOver = false; }
+                else       { _playerFocusedFields = 0; _playerPointerOver = false; }
+                RefreshInputGate();
+                RefreshPointerGate();
             }
-            // 86cagz15v (#208 NIT) — CLOSING must ALSO clear the scroll-zoom pointer gate. UI Toolkit does not
-            // reliably dispatch PointerLeaveEvent on a display:None ancestor, so an F1-close WHILE the cursor is
-            // over the panel rect would otherwise strand PointerOverConsole==true → OrbitCamera keeps swallowing
-            // the scroll-zoom until the cursor next enters+leaves a reopened panel ("scroll-zoom randomly stopped
-            // working"). A hidden panel can never legitimately hold the pointer, so force it false here (cheap,
-            // idempotent, belt-and-suspenders). Does NOT touch the scroll-gate semantics — only the enter/leave
-            // wiring's close-path gap.
-            if (!open) UiInputGate.SetPointerOverConsole(false);
-            if (_scrim == null) return;
-            _scrim.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
+            if (scrim == null) return;
+            scrim.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
             if (open)
             {
-                // Apply the persisted UI scale (86cabeqj9 soak NIT) + park the panel in the persisted corner
-                // (AC4 — off the player) BEFORE the open transition.
-                ApplyConsoleScale();
-                ApplyTextScale();
-                ConsolePosition.Apply(_scrim, _corner);
+                // Park + (dev only) scale BEFORE the open transition. Dev uses the persisted corner + chrome
+                // scale (AC4 + 86cabeqj9 NITs); player uses its fixed TOP-RIGHT corner (no chrome scale).
+                if (isDev) { ApplyConsoleScale(); ApplyTextScale(); ConsolePosition.Apply(scrim, _corner); }
+                else { ApplyTextScale(); ConsolePosition.Apply(scrim, PlayerCorner); }
                 // Snappy slide-up + fade-in (the USS transition is on .settings-panel). Set the start state
                 // then the end state next layout so the transition plays.
-                if (_panel != null)
+                if (panel != null)
                 {
-                    _panel.style.translate = new Translate(0, 16, 0);
-                    _panel.style.opacity = 0f;
-                    _panel.schedule.Execute(() =>
+                    panel.style.translate = new Translate(0, 16, 0);
+                    panel.style.opacity = 0f;
+                    panel.schedule.Execute(() =>
                     {
-                        _panel.style.translate = new Translate(0, 0, 0);
-                        _panel.style.opacity = 1f;
+                        panel.style.translate = new Translate(0, 0, 0);
+                        panel.style.opacity = 1f;
                     }).StartingIn(0);
                 }
                 RefreshReadouts();
@@ -401,6 +484,7 @@ namespace FarHorizon
                 }
             }
             RefreshRow(_active);
+            ApplyConditionalVisibility();   // 86cah8ukr AC1 — a nudged need toggle may show/hide its decay slider
         }
 
         // The MODIFIER multiply (Shift=5x / Ctrl=0.2x) reads live Input — stays here (not headless-testable).
@@ -424,57 +508,113 @@ namespace FarHorizon
             if (paletteUss != null) root.styleSheets.Add(paletteUss);
             if (panelUss != null) root.styleSheets.Add(panelUss);
 
-            if (panelUxml != null)
-            {
-                panelUxml.CloneTree(root);
-            }
-            else
-            {
-                // Build-safety net: if the UXML asset didn't serialize, build the shell in code so the panel
-                // still works (the row build is identical either way).
-                BuildShellInCode(root);
-            }
+            // 86cah8ukr SPLIT — TWO drawers from the SAME shell UXML: ONE registry, two filtered views ("route
+            // views, don't re-bind"). Each shell is cloned into its OWN scoped container so the duplicate element
+            // names (settings-scrim / -panel / -rows) resolve PER-DRAWER (a root-level Q would bind only the
+            // first clone). doc.visualTreeAsset stays UNASSIGNED — the panel owns the clones (the #83 double-clone
+            // guard: SettingsPanelSceneTests.BootScene_UIDocument_HasNoVisualTreeAsset still holds; panelUxml is
+            // cloned HERE, now twice).
 
-            _scrim = root.Q<VisualElement>("settings-scrim");
-            _panel = root.Q<VisualElement>("settings-panel");
-            _rows = root.Q<ScrollView>("settings-rows");
-            if (_rows != null)
-            {
-                // 86cabeqj9 soak NIT — kill the horizontal scrollbar: vertical-only ScrollView, h-scroller
-                // never shown. Combined with the flexible (wrapping) row layout in USS, no h-scroll ever
-                // appears at the default console scale; vertical scroll stays.
-                _rows.mode = ScrollViewMode.Vertical;
-                _rows.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            }
-            if (_panel != null)
-            {
-                // 86cabeqj9 soak NIT — SCROLL passthrough: mark the pointer as OVER the console while it hovers
-                // the panel rect, so OrbitCamera swallows ONLY the wheel-zoom (WASD/orbit stay live — the
-                // intentional non-modal passthrough). UI Toolkit can't stop legacy Input.* polling, hence the flag.
-                _panel.RegisterCallback<PointerEnterEvent>(_ => UiInputGate.SetPointerOverConsole(true));
-                _panel.RegisterCallback<PointerLeaveEvent>(_ => UiInputGate.SetPointerOverConsole(false));
-            }
-            var reset = root.Q<Button>("settings-reset");
-            // AC10 — reset-to-defaults END-TO-END: revert every live param, then FULLY repaint (readouts +
-            // typed fields + sliders re-render to the defaults AND the differs badge clears — RefreshReadouts
-            // now repaints all of those, not just the readout text).
-            if (reset != null) reset.clicked += () => { Registry.ResetAll(); RefreshReadouts(); };
-
-            // AC4 — the corner POSITION PICKER, parked in the header (mouse-driven, Danish-safe). Cycles
-            // TL→TR→BL→BR; persists the chosen corner; re-parks the panel live.
+            // DEV console drawer (F3) — resolves into _scrim/_panel/_rows (the UNCHANGED capture surface). Owns
+            // the corner-picker + UI/text scale (its 86cabeqj9 NITs).
+            var devContainer = new VisualElement { name = "dev-drawer-root" };
+            MakeDrawerOverlay(devContainer);   // #247 — full-screen containing block so the scrim + rows resolve
+            root.Add(devContainer);
+            CloneShell(devContainer);
+            _scrim = devContainer.Q<VisualElement>("settings-scrim");
+            _panel = devContainer.Q<VisualElement>("settings-panel");
+            _rows = devContainer.Q<ScrollView>("settings-rows");
+            SetupDrawerCommon(devContainer, _panel, _rows, "Dev console", isDev: true);
+            // AC4 — the corner POSITION PICKER (dev console only). Cycles TL→TR→BL→BR; persists; re-parks live.
             _corner = ConsolePosition.Load();
-            BuildCornerPicker(root);
+            BuildCornerPicker(devContainer);
+
+            // PLAYER Settings drawer (F1) — resolves into _playerScrim/_playerPanel/_playerRows. Fixed TOP-RIGHT
+            // corner (PlayerCorner), no corner-picker + no chrome scale (a lean player-facing view).
+            var playerContainer = new VisualElement { name = "player-drawer-root" };
+            MakeDrawerOverlay(playerContainer);   // #247 — full-screen containing block so the scrim + rows resolve
+            root.Add(playerContainer);
+            CloneShell(playerContainer);
+            _playerScrim = playerContainer.Q<VisualElement>("settings-scrim");
+            _playerPanel = playerContainer.Q<VisualElement>("settings-panel");
+            _playerRows = playerContainer.Q<ScrollView>("settings-rows");
+            SetupDrawerCommon(playerContainer, _playerPanel, _playerRows, "Settings", isDev: false);
 
             BuildRows();
             _built = true;
         }
 
-        // AC4 — a small "⊞ TL" button in the header that cycles the panel corner, persists it, and re-parks
-        // the panel immediately. Added to the existing header so no UXML edit is needed (the extensible spirit).
-        private Button _cornerBtn;
-        private void BuildCornerPicker(VisualElement root)
+        // Clone the shell UXML into a scoped container (or the code build-safety net if the asset didn't serialize —
+        // BuildShellInCode adds into the given container, not root, so the two drawers stay isolated).
+        private void CloneShell(VisualElement container)
         {
-            var header = root.Q<VisualElement>("settings-header");
+            if (panelUxml != null) panelUxml.CloneTree(container);
+            else BuildShellInCode(container);
+        }
+
+        /// <summary>#247 EMPTY-DRAWERS FIX — make a drawer's scoped container a FULL-SCREEN overlay so the scrim
+        /// (position:absolute inset-0) + the panel (max-height:70%) + the rows ScrollView (flex-grow:1) resolve
+        /// against a DEFINITE-height containing block. THE BUG: the 86cah8ukr split wraps each shell clone in a
+        /// scoped container (so the duplicate element names resolve per-drawer). A plain VisualElement here has
+        /// auto height = 0 — its ONLY child, the scrim, is position:absolute → OUT of flow → the container has
+        /// ZERO in-flow content → height 0. The scrim's inset-0 + the panel's percentage max-height then resolve
+        /// against a 0-height block, so the flex-grow ScrollView gets ZERO extra to grow into and COLLAPSES: the
+        /// panel renders its intrinsic-height header + footer but NO rows (registry/handles/live-drive all fine —
+        /// the DATA layer built 70 settings; only the VISUAL layer collapsed). The pre-split panel cloned the
+        /// scrim STRAIGHT into root, whose definite full-screen height made this work; the intermediate container
+        /// silently broke that chain. FIX: give the container root's own full-screen box (absolute, inset-0) — an
+        /// overlay identical in size to root, so the scrim/panel/ScrollView resolve exactly as pre-split.
+        /// pickingMode = Ignore so the always-present full-screen overlay never eats gameplay MOUSE input while
+        /// its scrim is display:None (closed) — picking descends to the scrim's children when it IS open, so the
+        /// open/dim/scroll-gate behaviour is byte-identical to pre-split (the InventoryUI scrim=Ignore precedent).
+        /// Being absolute, the two drawer containers OVERLAY (don't split root's height like two flex siblings
+        /// would) and don't change z-order (hierarchy order is unchanged — only layout).</summary>
+        public static void MakeDrawerOverlay(VisualElement container)
+        {
+            if (container == null) return;
+            container.style.position = Position.Absolute;
+            container.style.left = 0f;
+            container.style.top = 0f;
+            container.style.right = 0f;
+            container.style.bottom = 0f;
+            container.pickingMode = PickingMode.Ignore;
+        }
+
+        // Wire the pieces common to BOTH drawers, scoped to the drawer's OWN container (duplicate names resolve
+        // per-drawer): the vertical-only scroll (86cabeqj9 — no h-scrollbar), the pointer scroll-gate (both
+        // drawers are UI panels, so hovering either swallows ONLY the wheel-zoom), the Reset-to-defaults button
+        // (GLOBAL reset — either button reverts the whole registry, matching prior behavior), and the title.
+        private void SetupDrawerCommon(VisualElement container, VisualElement panel, ScrollView rows, string title, bool isDev)
+        {
+            if (rows != null)
+            {
+                rows.mode = ScrollViewMode.Vertical;
+                rows.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            }
+            if (panel != null)
+            {
+                // FIX4 — track pointer-over PER DRAWER (isDev) then re-derive, so a close of the sibling drawer can't
+                // strand the gate this drawer's hovered rect owns. Both callbacks route through the shared core the
+                // UNITY_INCLUDE_TESTS seam also drives (PROD logic, not a copy — mirrors WireFieldFocus/FieldFocus*).
+                panel.RegisterCallback<PointerEnterEvent>(_ => PointerEnterDrawer(isDev));
+                panel.RegisterCallback<PointerLeaveEvent>(_ => PointerLeaveDrawer(isDev));
+            }
+            var reset = container.Q<Button>("settings-reset");
+            // AC10 — reset-to-defaults END-TO-END: revert every live param, then FULLY repaint (readouts + typed
+            // fields + sliders re-render to the defaults, the differs badge clears, AND the conditional decay-slider
+            // visibility re-evaluates — RefreshReadouts now covers all of those).
+            if (reset != null) reset.clicked += () => { Registry.ResetAll(); RefreshReadouts(); };
+            // Per-drawer title ("Settings" vs "Dev console"). Registered for text-scale like the code-shell title.
+            var titleLabel = container.Q<Label>(null, "settings-panel__title");
+            if (titleLabel != null) { titleLabel.text = title; RegisterText(titleLabel, 20f); }
+        }
+
+        // AC4 — a small "⊞ TL" button in the DEV header that cycles the console corner, persists it, and re-parks
+        // the panel immediately. Scoped to the dev container's header (the player drawer has no corner-picker).
+        private Button _cornerBtn;
+        private void BuildCornerPicker(VisualElement container)
+        {
+            var header = container.Q<VisualElement>("settings-header");
             if (header == null) return;
             _cornerBtn = new Button { name = "settings-corner" };
             _cornerBtn.AddToClassList("settings-corner");
@@ -500,14 +640,41 @@ namespace FarHorizon
         /// nudge selection (AC6), baked-default readout (AC8) and differs badge (AC9) for free.</summary>
         private void BuildRows()
         {
-            if (_rows == null || Registry == null) return;
+            if (_rows == null || _playerRows == null || Registry == null) return;
             _rows.Clear();
+            _playerRows.Clear();
             _handles.Clear();
+            _rowsById.Clear();
             _active = null;
             foreach (var entry in Registry.Entries)
             {
                 VisualElement row = BuildRow(entry);
-                if (row != null) _rows.Add(row);
+                if (row == null) continue;
+                _rowsById[entry.Id] = row;
+                // 86cah8ukr — ROUTE each row to its view by category (the registry + bindings are UNCHANGED;
+                // only the destination ScrollView differs). Player-facing → F1 Settings; everything else → F3 dev.
+                if (SettingsCategory.IsPlayer(entry.Id)) _playerRows.Add(row);
+                else _rows.Add(row);
+            }
+            // AC1 — set the initial conditional visibility (a decay slider hidden if its need's toggle starts OFF).
+            ApplyConditionalVisibility();
+        }
+
+        /// <summary>86cah8ukr AC1 — CONDITIONAL VISIBILITY: each per-need decay-rate slider is shown only while
+        /// its on/off toggle is ON; when the toggle flips OFF the slider row hides live (a disabled need has no
+        /// rate to tune), and flipping it back ON re-reveals it. Evaluated on build, on every toggle change, and
+        /// after a reset. Hides via display:None (no layout, no render — unity6-mastery §9). Cheap (3 lookups),
+        /// null-safe. Both endpoints are player-facing, so the show/hide stays within the F1 view.</summary>
+        private void ApplyConditionalVisibility()
+        {
+            if (Registry == null) return;
+            foreach (var pair in SettingsCategory.DecaySliderGates)
+            {
+                if (!_rowsById.TryGetValue(pair.Key, out var sliderRow) || sliderRow == null) continue;
+                // Single source of truth: the SAME decision the AC4 test asserts (86cah8ukr) — a wrong impl
+                // can't pass a re-implemented proxy. Shows the slider iff its need's on/off toggle is ON.
+                bool on = SettingsCategory.IsDecaySliderVisible(Registry, pair.Key);
+                sliderRow.style.display = on ? DisplayStyle.Flex : DisplayStyle.None;
             }
         }
 
@@ -769,6 +936,7 @@ namespace FarHorizon
                 e.SetValue(evt.newValue);                       // drives the flag live (AC2) + persists (AC5)
                 if (e.Available) SetActive(e);
                 RefreshRow(e);
+                ApplyConditionalVisibility();                   // 86cah8ukr AC1 — a need toggle may show/hide its decay slider
             });
             return refresh;
         }
@@ -799,18 +967,99 @@ namespace FarHorizon
         // merely open (AC2) — only a focused field does.
         private void WireFieldFocus(VisualElement field, SettingEntry entry)
         {
+            // Which drawer this field lives in = the SAME routing BuildRows uses (SettingsCategory.IsPlayer is the
+            // single source of truth), so per-drawer focus tracking can never desync from the row's destination.
+            bool isDev = !SettingsCategory.IsPlayer(entry.Id);
             field.RegisterCallback<FocusInEvent>(_ =>
             {
                 if (entry.Available) SetActive(entry);          // typing into a field also makes it the nudge target
-                _focusedFields++;
-                if (_focusedFields == 1) UiInputGate.SetPanelOpen(true, ref _gateTracked);
+                FieldFocusIn(isDev);
             });
-            field.RegisterCallback<FocusOutEvent>(_ =>
-            {
-                _focusedFields = Mathf.Max(0, _focusedFields - 1);
-                if (_focusedFields == 0) UiInputGate.SetPanelOpen(false, ref _gateTracked);
-            });
+            field.RegisterCallback<FocusOutEvent>(_ => FieldFocusOut(isDev));
         }
+
+        // Focus-in / focus-out CORE — shared by the real FocusIn/FocusOut callbacks above AND the EditMode
+        // interleaving test seam below, so the two-drawer gate guard exercises PRODUCTION logic, not a parallel
+        // copy. Each bumps its drawer's count then re-derives the gate.
+        private void FieldFocusIn(bool isDev)
+        {
+            if (isDev) _devFocusedFields++; else _playerFocusedFields++;
+            RefreshInputGate();
+        }
+
+        private void FieldFocusOut(bool isDev)
+        {
+            if (isDev) _devFocusedFields = Mathf.Max(0, _devFocusedFields - 1);
+            else _playerFocusedFields = Mathf.Max(0, _playerFocusedFields - 1);
+            RefreshInputGate();
+        }
+
+        /// <summary>86cah8ukr FIX — RE-DERIVE the world-input gate from the actual focus state: hold it iff SOME
+        /// typed-field in SOME still-OPEN drawer holds keyboard focus. Called after every focus in/out and after a
+        /// drawer close, so closing one drawer never releases the gate the OTHER drawer's focused field still owns,
+        /// while the true all-closed / all-blurred case still releases (world input is never left swallowed). A
+        /// hidden drawer's focus count is excluded even if a stale FocusOut never fired (its open flag is false).
+        /// Idempotent — <see cref="UiInputGate.SetPanelOpen"/> no-ops when the tracked state already matches.</summary>
+        private void RefreshInputGate()
+        {
+            bool held = (IsOpen && _devFocusedFields > 0) || (IsPlayerOpen && _playerFocusedFields > 0);
+            UiInputGate.SetPanelOpen(held, ref _gateTracked);
+        }
+
+        // Pointer enter/leave CORE (FIX4) — shared by the real PointerEnter/PointerLeave callbacks in
+        // SetupDrawerCommon AND the EditMode interleaving test seam below, so the two-drawer pointer-gate guard
+        // exercises PRODUCTION logic, not a parallel copy (mirrors FieldFocusIn/FieldFocusOut). Each sets its
+        // drawer's pointer-over flag then re-derives the scroll-zoom gate.
+        private void PointerEnterDrawer(bool isDev)
+        {
+            if (isDev) _devPointerOver = true; else _playerPointerOver = true;
+            RefreshPointerGate();
+        }
+
+        private void PointerLeaveDrawer(bool isDev)
+        {
+            if (isDev) _devPointerOver = false; else _playerPointerOver = false;
+            RefreshPointerGate();
+        }
+
+        /// <summary>86cah8ukr FIX4 — RE-DERIVE the scroll-zoom pointer gate (<see cref="UiInputGate.PointerOverConsole"/>)
+        /// from the actual per-drawer hover state: hold it iff the pointer is over SOME still-OPEN drawer's rect.
+        /// Called after every pointer enter/leave and after a drawer close, so closing one drawer never releases the
+        /// gate the OTHER still-open drawer's hovered rect owns (the shared-single-bool force-clear bug: open F1+F3
+        /// overlapping under the cursor, close F3 → the bare SetPointerOverConsole(false) cleared the flag while F1
+        /// stayed hovered, and UI Toolkit does NOT re-fire PointerEnter for a pointer already inside → the wheel
+        /// zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter). Mirrors <see cref="RefreshInputGate"/>
+        /// for the focus gate. A hidden drawer's pointer-over flag is excluded even if a stale PointerLeave never
+        /// fired (its open flag is false). Idempotent — SetPointerOverConsole just writes the bool.</summary>
+        private void RefreshPointerGate()
+        {
+            bool over = (IsOpen && _devPointerOver) || (IsPlayerOpen && _playerPointerOver);
+            UiInputGate.SetPointerOverConsole(over);
+        }
+
+#if UNITY_INCLUDE_TESTS
+        /// <summary>EditMode test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS) — simulate a typed-field
+        /// keyboard focus-in/out on the DEV (<paramref name="isDev"/>=true) or PLAYER drawer WITHOUT a UIDocument
+        /// render loop (UI Toolkit focus events are unreliable in EditMode — DevConsoleTests §AC3). Drives the SAME
+        /// <see cref="FieldFocusIn"/>/<see cref="FieldFocusOut"/> + gate re-derive the real FocusIn/FocusOut
+        /// callbacks use, so the two-drawer interleaving regression guard tests production logic, not a copy.
+        /// PUBLIC (matching the codebase's Registry/RefreshReadouts/CycleCorner "public for tests" seams — the
+        /// project has no InternalsVisibleTo); the UNITY_INCLUDE_TESTS guard keeps it out of the shipped build.</summary>
+        public void SimulateFieldFocusForTest(bool isDev, bool focusIn)
+        {
+            if (focusIn) FieldFocusIn(isDev); else FieldFocusOut(isDev);
+        }
+
+        /// <summary>EditMode test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS) — simulate the pointer
+        /// entering/leaving the DEV (<paramref name="isDev"/>=true) or PLAYER drawer rect WITHOUT a UIDocument render
+        /// loop (UI Toolkit pointer events are unreliable in EditMode — DevConsoleTests §scroll-gate). Drives the SAME
+        /// <see cref="PointerEnterDrawer"/>/<see cref="PointerLeaveDrawer"/> + gate re-derive the real callbacks use,
+        /// so the FIX4 two-drawer pointer-gate interleaving guard tests production logic, not a copy.</summary>
+        public void SimulatePointerOverForTest(bool isDev, bool over)
+        {
+            if (over) PointerEnterDrawer(isDev); else PointerLeaveDrawer(isDev);
+        }
+#endif
 
         /// <summary>Repaint EVERY row from its entry's CURRENT live value — readouts, sliders, typed fields,
         /// AND the differs-from-default badge (AC9/AC10). Called on open + after a Reset (so the UI fully
@@ -823,6 +1072,114 @@ namespace FarHorizon
                 _handles[i].Repaint?.Invoke();
                 _handles[i].ApplyActive?.Invoke();
             }
+            // 86cah8ukr AC1 — reset-to-defaults / open may have flipped a need toggle; re-evaluate decay-slider
+            // visibility so the F1 panel never shows a decay slider for an OFF need after a reset.
+            ApplyConditionalVisibility();
+        }
+
+        /// <summary>#247 EMPTY-DRAWERS GATE-HARDEN — the resolved ON-SCREEN height of the given drawer's rows
+        /// ScrollView VIEWPORT (dev=F3 / player=F1). THIS is the collapse measure: the empty-drawers bug shrank
+        /// the flex-grow rows ScrollView to ~0 because its container had no definite height, so the VIEWPORT
+        /// went to zero. Note a row's OWN height does NOT go to zero (a ScrollView clips overflow — the rows keep
+        /// their intrinsic 44px inside the content container and are simply CLIPPED out of the zero-height
+        /// viewport), so a per-row height probe would MISS the bug; the viewport height is what actually
+        /// collapses. Populated only under a live panel + layout pass (windowed build) — EditMode has no layout
+        /// pass (DevConsoleTests §), so this is a shipped-build-only ground-truth probe. PUBLIC for the capture.</summary>
+        public float RowsViewportHeight(bool dev)
+        {
+            var sv = dev ? _rows : _playerRows;
+            return sv != null ? sv.resolvedStyle.height : 0f;
+        }
+
+        /// <summary>#247 EMPTY-DRAWERS GATE-HARDEN — the count of rows in the given drawer (dev=F3 / player=F1)
+        /// that are ACTUALLY VISIBLE on screen: their world rect overlaps the rows ScrollView's VIEWPORT rect
+        /// with real height. Threshold-free + robust to the clip subtlety above — in the collapsed bug the
+        /// viewport height is ~0 so NO row overlaps it (returns 0); once the container gets a definite height the
+        /// viewport opens and the on-screen rows overlap it (returns > 0). The shipped-build capture logs this so
+        /// <c>verify_settings_gate.sh</c> Check 4 FAILS on a zero-row drawer — the generic frame_check only proves
+        /// the whole FRAME isn't uniform (the green world passes), never that the PANEL region shows rows, which
+        /// is exactly how the empty drawers slipped the gate. PUBLIC for the capture.</summary>
+        public int VisibleRowCount(bool dev)
+        {
+            var sv = dev ? _rows : _playerRows;
+            if (sv == null) return 0;
+            Rect viewport = sv.worldBound;
+            if (viewport.height <= 1f) return 0;   // collapsed viewport → nothing can be visible
+            int n = 0;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Row == null || h.Entry == null) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;   // wrong drawer for this row
+                Rect rb = h.Row.worldBound;
+                // Vertically overlaps the viewport (the ScrollView clips to this rect) AND has real height.
+                if (rb.height > 1f && rb.yMax > viewport.yMin + 1f && rb.yMin < viewport.yMax - 1f) n++;
+            }
+            return n;
+        }
+
+        /// <summary>#247 — the TOTAL rows routed to the given drawer (dev=F3 / player=F1), regardless of layout
+        /// (the denominator for the visible-rows proof; a data-layer count that holds even when the visual layer
+        /// collapsed). PUBLIC for the shipped-build capture's ground-truth log.</summary>
+        public int RoutedRowCount(bool dev)
+        {
+            int n = 0;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Row == null || h.Entry == null) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;
+                n++;
+            }
+            return n;
+        }
+
+        /// <summary>#247 v2 — the SMALLEST resolved width (px) among the [−]/value/[+] cells of ANY stepper row
+        /// routed to the given drawer (dev=F3 / player=F1), or -1 if the drawer has no stepper row. THIS is the
+        /// F1-cramp measure the Sponsor flagged: the base <c>.setting-row__control</c> is flex-grow:1 with the
+        /// DEFAULT flex-shrink:1, so on a squeezed row the stepper control is the only shrinkable child and absorbs
+        /// the whole width deficit — collapsing its 28px buttons / 44px value below their glyph widths so
+        /// "− 5 [+ 5] 5" jams together and overlaps. A HEALTHY row keeps every cell at/above its design width
+        /// (min cell = a 28px button); the #247 v2 USS fix (flex-shrink:0 + min-width on the stepper control +
+        /// cells) makes the overflow WRAP instead of crush, so this stays ~28px. Requires a LIVE layout pass
+        /// (worldBound/resolvedStyle) — populated only under the windowed shipped build with the drawer OPEN + a
+        /// few settle frames (EditMode has no layout pass — DevConsoleTests §), so this is a shipped-build-only
+        /// ground-truth probe, the sibling of <see cref="VisibleRowCount"/>. PUBLIC for the capture.</summary>
+        public float MinStepperCellWidth(bool dev)
+        {
+            float min = float.PositiveInfinity;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Row == null || h.Entry == null) continue;
+                if (h.Entry.Kind != SettingEntry.Archetype.Stepper) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;
+                var control = h.Row.Q<VisualElement>("stepper");   // the flexDirection:row [−]/value/[+] container
+                if (control == null) continue;
+                foreach (var cell in control.Children())
+                {
+                    float w = cell.resolvedStyle.width;
+                    if (w < min) min = w;
+                }
+            }
+            return float.IsInfinity(min) ? -1f : min;   // -1 = no stepper row in this drawer (nothing to crush)
+        }
+
+        /// <summary>#247 v2 — the count of stepper rows routed to the given drawer (dev=F3 / player=F1), so the
+        /// capture log can name the denominator behind <see cref="MinStepperCellWidth"/> (a -1 with 0 rows is a
+        /// legit skip; a -1 with rows would be a probe miss). PUBLIC for the capture.</summary>
+        public int StepperRowCount(bool dev)
+        {
+            int n = 0;
+            for (int i = 0; i < _handles.Count; i++)
+            {
+                var h = _handles[i];
+                if (h.Entry == null) continue;
+                if (h.Entry.Kind != SettingEntry.Archetype.Stepper) continue;
+                if ((!SettingsCategory.IsPlayer(h.Entry.Id)) != dev) continue;
+                n++;
+            }
+            return n;
         }
 
         /// <summary>86cabe3e5 — drive a REAL UI Toolkit ChangeEvent on the SLIDER row bound to <paramref
@@ -910,14 +1267,16 @@ namespace FarHorizon
             return string.IsNullOrEmpty(unit) ? num : num + " " + unit;
         }
 
-        // Build-safety net only — mirrors SettingsPanel.uxml if the asset reference didn't serialize.
-        private void BuildShellInCode(VisualElement root)
+        // Build-safety net only — mirrors SettingsPanel.uxml if the asset reference didn't serialize. Adds into
+        // the given CONTAINER (86cah8ukr — CloneShell calls this per-drawer, so the two shells stay isolated).
+        // The title text + its text-scale registration are set by SetupDrawerCommon (uniform across the UXML and
+        // code paths — it Q's "settings-panel__title"), so this only tags the class; it does NOT RegisterText it.
+        private void BuildShellInCode(VisualElement container)
         {
             var scrim = new VisualElement { name = "settings-scrim" }; scrim.AddToClassList("settings-scrim");
             var panel = new VisualElement { name = "settings-panel" }; panel.AddToClassList("settings-panel");
             var header = new VisualElement { name = "settings-header" }; header.AddToClassList("settings-panel__header");
             var title = new Label("Settings"); title.AddToClassList("settings-panel__title");
-            RegisterText(title, 20f);
             header.Add(title);
             var rows = new ScrollView { name = "settings-rows" }; rows.AddToClassList("settings-panel__rows");
             var footer = new VisualElement { name = "settings-footer" }; footer.AddToClassList("settings-panel__footer");
@@ -925,7 +1284,7 @@ namespace FarHorizon
             footer.Add(reset);
             panel.Add(header); panel.Add(rows); panel.Add(footer);
             scrim.Add(panel);
-            root.Add(scrim);
+            container.Add(scrim);
         }
     }
 }
