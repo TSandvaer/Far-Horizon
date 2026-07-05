@@ -164,6 +164,51 @@ namespace FarHorizon.EditTests
                 "invalidating worldBound and breaking the position-resolved drop on the source slot (NIT 2)");
         }
 
+        // 86cajrtr1 (recurrence of 86caffw9h) — the DRAG-GHOST scale math: screen (Y-up) -> panel (Y-down)
+        // is FLIP-Y-then-DIVIDE-BY-PANEL-SCALE. This pins the pure static InventoryUI.ScreenToPanelPoint (the
+        // seam the drag-ghost center AND the pointer-over-UI hit-test both rest on) at BOTH panel scales — the
+        // 1.0 (1080p) case CANNOT catch a dropped scale term, so the 1.3333 (1440p) case is load-bearing. The
+        // scale-1.3333 vector is the EXACT screen point + expected panel center the shipped gate logged on its
+        // first real run (run 28680351313: screen (-1198,1361) -> expectedPanelCenter (-898.5,59.25)).
+        [Test]
+        public void ScreenToPanelPoint_FlipsYThenDividesByScale_AtBothPanelScales()
+        {
+            // Scale 1.0 (1920x1080 reference): flip Y only, no scale.
+            Vector2 p1 = InventoryUI.ScreenToPanelPoint(new Vector2(960f, 540f), 1080f, 1.0f);
+            Assert.AreEqual(960f, p1.x, 0.01f, "x is unchanged at scale 1");
+            Assert.AreEqual(540f, p1.y, 0.01f, "y is flipped (1080-540) at scale 1");
+
+            // Scale 1.3333 (2560x1440): flip Y, THEN divide BOTH axes by the scale (== *0.75). EXACT gate values.
+            const float s = 1440f / 1080f;   // 1.33333
+            Vector2 p2 = InventoryUI.ScreenToPanelPoint(new Vector2(-1198f, 1361f), 1440f, s);
+            Assert.AreEqual(-898.5f, p2.x, 0.05f, "x divided by the panel scale (-1198/1.3333 = -898.5)");
+            Assert.AreEqual(59.25f, p2.y, 0.05f, "flip (1440-1361=79) THEN /scale (79/1.3333 = 59.25)");
+
+            // Degenerate scale (<=0) is treated as 1 so a bad call never divides by zero.
+            Vector2 deg = InventoryUI.ScreenToPanelPoint(new Vector2(100f, 100f), 1080f, 0f);
+            Assert.AreEqual(100f, deg.x, 0.01f, "degenerate scale <=0 -> no scale");
+            Assert.AreEqual(980f, deg.y, 0.01f, "flip only (1080-100) when scale is degenerate");
+        }
+
+        // 86cajrtr1 — the scale term is INVISIBLE at exactly 1080p: the SAME screen point maps to a very
+        // different panel point at 1.3333 vs 1.0. A dropped-scale regression (the recurring bug class) would
+        // place the ghost at the scale-1 point even at 1440p — hundreds of px off toward the bottom-right. This
+        // is WHY a scale=1-only (1080p) test can never catch the bug, and why the shipped gate forces 2560x1440.
+        [Test]
+        public void ScaleTerm_MovesTheGhostHundredsOfPx_AndIsInvisibleAt1080p()
+        {
+            const float s = 1440f / 1080f;
+            var far = new Vector2(2180f, 260f);            // far top-right screen point (large X)
+            Vector2 scaled = InventoryUI.ScreenToPanelPoint(far, 1440f, s);
+            Vector2 unscaled = InventoryUI.ScreenToPanelPoint(far, 1440f, 1.0f);
+
+            Assert.AreEqual(1635f, scaled.x, 0.05f, "2180/1.3333 = 1635");
+            Assert.AreEqual(885f, scaled.y, 0.05f, "(1440-260)/1.3333 = 885");
+            Assert.Greater(Vector2.Distance(scaled, unscaled), 400f,
+                "at 1440p the panel scale moves the ghost hundreds of px vs the scale-1 result — a scale=1-only " +
+                "test cannot catch a dropped scale term (86caffw9h/86cajrtr1: invisible at exactly 1080p)");
+        }
+
         // BUG 2 — the model has exactly ONE programmatic select path; the UI fix routes the docked-row click
         // AWAY from it (asserted end-to-end in PlayMode). Here: SelectBelt is the only mutator of selection,
         // so a view that does not call it on the docked row cannot change selection (the invariant the fix
