@@ -525,6 +525,62 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // ===== 86cak0uq6 — the THIRD shared single-state of the FIX1 focus / FIX4 pointer class: the NUDGE
+        //       selection (_active, the PageUp/PageDown target). It was cleared ONLY on a full BuildRows, never on
+        //       drawer close — so selecting a row in one drawer, closing it, then opening the other left PageUp/
+        //       PageDown nudging the now-hidden entry (and its --active outline stuck on the closed row). Fixed
+        //       per-drawer like the two gates: closing a drawer clears _active ONLY if it lived in that drawer.
+
+        [Test]
+        public void NudgeSelection_ClosingTheOwningDrawer_ClearsActive_86cak0uq6()
+        {
+            var go = new GameObject("settings-panel-active-clear-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+                var reg = new SettingsRegistry();
+                var devEntry = reg.AddFloat("con_walk", "Walk speed", () => 5.5f, _ => { }, 1f, 12f); // dev id → F3
+
+                // Select a DEV row as the nudge target, F3 open.
+                panel.SetOpen(true);
+                panel.SimulateSetActiveForTest(devEntry);
+                Assert.AreSame(devEntry, panel.ActiveEntryForTest, "clicking a dev row makes it the nudge target");
+
+                // Close F3 → its own nudge target must clear (a display:None row can't be the visible nudge target,
+                // and PageUp/PageDown must not drive a hidden dev entry once the drawer is gone).
+                panel.SetOpen(false);
+                Assert.IsNull(panel.ActiveEntryForTest,
+                    "closing the DEV drawer must clear the nudge selection that lived in it — the shared-single-state " +
+                    "bug: _active was cleared only on BuildRows, so a stale dev entry stayed the PageUp/PageDown target");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        [Test]
+        public void NudgeSelection_ClosingTheOtherDrawer_PreservesActive_86cak0uq6()
+        {
+            var go = new GameObject("settings-panel-active-preserve-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+                var reg = new SettingsRegistry();
+                var playerEntry = reg.AddInt(SettingsCatalog.BeltSlotsId, "Belt slots", () => 5, _ => { }, 1, 9); // player id → F1
+
+                // Select a PLAYER row as the nudge target with BOTH drawers open.
+                panel.SetPlayerOpen(true);
+                panel.SetOpen(true);
+                panel.SimulateSetActiveForTest(playerEntry);
+                Assert.AreSame(playerEntry, panel.ActiveEntryForTest, "clicking a player row makes it the nudge target");
+
+                // Close the DEV drawer → the PLAYER drawer is still open and owns the selection, so it must SURVIVE
+                // (per-drawer discipline: closing one drawer must not drop the other still-open drawer's nudge target).
+                panel.SetOpen(false);
+                Assert.AreSame(playerEntry, panel.ActiveEntryForTest,
+                    "closing the DEV drawer must NOT clear a PLAYER-drawer nudge target while F1 stays open");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
         // ===== 86cabeqj9 soak NIT — SCROLL-over-panel gate (fix 1): the wheel is swallowed while the pointer
         //       hovers the NON-MODAL console, but ONLY scroll (WASD/orbit stay live). Pinned at the gate level;
         //       the OrbitCamera reads (CaptureWorldInput || PointerOverConsole) to decide whether to zoom. The

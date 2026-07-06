@@ -371,6 +371,15 @@ namespace FarHorizon
             {
                 if (isDev) { _devFocusedFields = 0; _devPointerOver = false; }
                 else       { _playerFocusedFields = 0; _playerPointerOver = false; }
+                // 86cak0uq6 — clear the NUDGE selection (_active) if it belonged to the CLOSING drawer: the third
+                // shared single-state of the FIX1 focus / FIX4 pointer class. A row hidden by display:None can no
+                // longer be the visible nudge target, and PageUp/PageDown while the OTHER drawer is open must not
+                // nudge (nor keep the --active outline on) an entry from the now-closed drawer. Per-drawer like the
+                // gates: closing one drawer must NOT drop a selection the OTHER still-open drawer owns — so clear
+                // ONLY when _active lives in the closing view (IsPlayer(id) == this is the player drawer). SetActive
+                // repaints every row so the stale setting-row--active class clears too.
+                if (_active != null && SettingsCategory.IsPlayer(_active.Id) == !isDev)
+                    SetActive(null);
                 RefreshInputGate();
                 RefreshPointerGate();
             }
@@ -1059,6 +1068,14 @@ namespace FarHorizon
         {
             if (over) PointerEnterDrawer(isDev); else PointerLeaveDrawer(isDev);
         }
+
+        /// <summary>EditMode test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS) — drive the SAME
+        /// <see cref="SetActive"/> a row click uses, so the 86cak0uq6 clear-on-close guard tests production logic,
+        /// not a copy. Pass null to clear.</summary>
+        public void SimulateSetActiveForTest(SettingEntry entry) => SetActive(entry);
+
+        /// <summary>EditMode test seam — the current nudge target (<see cref="_active"/>); null when none selected.</summary>
+        public SettingEntry ActiveEntryForTest => _active;
 #endif
 
         /// <summary>Repaint EVERY row from its entry's CURRENT live value — readouts, sliders, typed fields,
