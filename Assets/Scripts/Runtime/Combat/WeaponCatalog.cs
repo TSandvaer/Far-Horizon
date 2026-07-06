@@ -23,6 +23,12 @@ namespace FarHorizon.Combat
         public const string AxeId = "axe";
         /// <summary>Canonical SPEAR id (matches the spear ItemDef id "spear").</summary>
         public const string SpearId = "spear";
+        /// <summary>Stone pickaxe id (ticket 86cakkmgw / I-0 — §1; matches ItemCatalog.PickaxeStoneId
+        /// "pickaxe_stone"). A WeaponDef so the held-tool chain + mine verb resolve the pickaxe when it is the
+        /// selected belt item (the axe/spear precedent).</summary>
+        public const string PickaxeStoneId = "pickaxe_stone";
+        /// <summary>Iron pickaxe id (matches ItemCatalog.PickaxeIronId "pickaxe_iron").</summary>
+        public const string PickaxeIronId = "pickaxe_iron";
 
         // === Named default attributes (the single source AC4/AC10 read; NOT magic literals) ===
         // AXE — Slash, medium reach, hits harder up close, faster cadence, a light bleed on hit.
@@ -35,6 +41,16 @@ namespace FarHorizon.Combat
         public const float SpearDamage = 9f;
         public const float SpearReach = 3.6f;
         public const float SpearAttackSpeed = 0.9f;
+        // PICKAXE (ticket 86cakkmgw / I-0) — the 5th tool type, both tiers. A PEACEFUL mining tool (no combat
+        // dep, Sponsor Q4 locked): the WeaponDef exists so the held-tool chain + the I-2 mine swing resolve it,
+        // but its damage is NOT a combat number — the mining verb reads its own strikes-to-break. Modest Slash
+        // stats; iron is the upgrade (marginally better). default X — Sponsor-soak tunes. No on-hit status.
+        public const float PickaxeStoneDamage = 8f;
+        public const float PickaxeStoneReach = 2.0f;
+        public const float PickaxeStoneAttackSpeed = 1.0f;
+        public const float PickaxeIronDamage = 12f;
+        public const float PickaxeIronReach = 2.1f;
+        public const float PickaxeIronAttackSpeed = 1.2f;
 
         [SerializeField] private List<WeaponDef> _all = new List<WeaponDef>();
         private Dictionary<string, WeaponDef> _byId;
@@ -82,7 +98,18 @@ namespace FarHorizon.Combat
                 SpearDamage, SpearReach, SpearAttackSpeed, DamageType.Pierce,
                 StatusEffectSpec.None, "spear_thrust");
 
-            SetAll(new[] { axe, spear });
+            // Pickaxes (ticket 86cakkmgw / I-0) — the 5th tool type, both tiers. Peaceful mining tools; the
+            // WeaponDef exists for held-tool resolution + the mine swing ("pickaxe_mine" swing ref). No on-hit
+            // status. Ids match the ItemCatalog pickaxe ids so the belt-item → WeaponDef lookup binds.
+            var pickaxeStone = WeaponDef.Create(PickaxeStoneId, "Stone Pickaxe",
+                PickaxeStoneDamage, PickaxeStoneReach, PickaxeStoneAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "pickaxe_mine");
+
+            var pickaxeIron = WeaponDef.Create(PickaxeIronId, "Iron Pickaxe",
+                PickaxeIronDamage, PickaxeIronReach, PickaxeIronAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "pickaxe_mine");
+
+            SetAll(new[] { axe, spear, pickaxeStone, pickaxeIron });
         }
     }
 }

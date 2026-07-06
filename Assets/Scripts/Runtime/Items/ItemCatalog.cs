@@ -41,6 +41,24 @@ namespace FarHorizon
         /// </summary>
         public const string WaterId = "water";
 
+        // === Iron progression ids (ticket 86cakkmgw / I-0 — the §1 vocabulary contract, minted here as the
+        // type-author). The mining/forge/craft tickets (I-2/I-3/I-4) import THESE exact strings; a rename
+        // breaks the parallel PRs. iron_ore + iron_ingot are RAW CRAFTING MATERIALS → ItemKind.Resource
+        // (inventory-only, stackable) — the wood/stone sibling, NOT the belt (belt = Tool/Consumable only).
+        // The smelt consumes ore from the inventory (the SpendWood idiom); ingots are a craft input. ===
+        /// <summary>Raw iron-ore item id (§1). A Resource — the wood/stone raw-material sibling.</summary>
+        public const string IronOreId = "iron_ore";
+        /// <summary>Iron-ingot item id (§1). A Resource — the smelted craft input for the iron tier.</summary>
+        public const string IronIngotId = "iron_ingot";
+        // Pickaxe = the 5th tool type, both tiers (DECISIONS 2026-07-06). Belt-eligible ItemKind.Tool like the
+        // axe (holdable + selectable, cap 1) so the mine verb (I-2) resolves the pickaxe WeaponDef when it is
+        // the selected belt item. Ids match WeaponCatalog.PickaxeStone/IronId so the item + weapon lanes share
+        // one id (the axe/spear precedent). These are the ONLY NEW tool ids this feature introduces (§1).
+        /// <summary>Stone pickaxe id (§1). A belt-eligible Tool, first-craft tier.</summary>
+        public const string PickaxeStoneId = "pickaxe_stone";
+        /// <summary>Iron pickaxe id (§1). A belt-eligible Tool, the forged upgrade tier.</summary>
+        public const string PickaxeIronId = "pickaxe_iron";
+
         [SerializeField,
          Tooltip("The canonical item defs (axe / wood / stone / berry). Authored at bootstrap; the world-" +
                  "resource tickets look these up by id, never mint their own.")]
@@ -124,7 +142,24 @@ namespace FarHorizon
             var spear = CreateInstance<ItemDef>(); spear.name = "spear";
             spear.Init(SpearId, "Spear", ItemKind.Tool, null);
 
-            SetAll(new[] { axe, wood, stone, berry, water, spear });
+            // Iron progression (ticket 86cakkmgw / I-0). iron_ore + iron_ingot are RAW MATERIALS → Resource
+            // (inventory-only, stackable, like wood/stone). pickaxe_stone + pickaxe_iron are the 5th tool type
+            // → Tool (belt-eligible, cap 1, like the axe). Icons null → letter-chip fallback for now (baked
+            // icons + the pickaxe MESH are I-1/later polish, OOS for the data foundation).
+            var ironOre = CreateInstance<ItemDef>(); ironOre.name = "iron_ore";
+            ironOre.Init(IronOreId, "Iron Ore", ItemKind.Resource, null);
+
+            var ironIngot = CreateInstance<ItemDef>(); ironIngot.name = "iron_ingot";
+            ironIngot.Init(IronIngotId, "Iron Ingot", ItemKind.Resource, null);
+
+            var pickaxeStone = CreateInstance<ItemDef>(); pickaxeStone.name = "pickaxe_stone";
+            pickaxeStone.Init(PickaxeStoneId, "Stone Pickaxe", ItemKind.Tool, null);
+
+            var pickaxeIron = CreateInstance<ItemDef>(); pickaxeIron.name = "pickaxe_iron";
+            pickaxeIron.Init(PickaxeIronId, "Iron Pickaxe", ItemKind.Tool, null);
+
+            SetAll(new[] { axe, wood, stone, berry, water, spear,
+                           ironOre, ironIngot, pickaxeStone, pickaxeIron });
         }
     }
 }
