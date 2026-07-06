@@ -863,7 +863,7 @@ assert_launch_windowed() { # <script-name>
 for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh; do
   assert_launch_headless "$s"
 done
-for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh; do
+for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh; do
   assert_launch_windowed "$s"
 done
 
