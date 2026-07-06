@@ -71,11 +71,16 @@ namespace FarHorizon
     /// (axe/knife/sword/spear): for the AXE it nudges the shared-seat HeldAxeRig (the locked baseline); for
     /// knife/sword/spear it routes the offset+angle into HeldWeaponCycleDebug's per-weapon arrays
     /// (WeaponMeshLocalOffset / WeaponMeshLocalEuler / WeaponMeshScale[index]) so each weapon is positioned +
-    /// angled IN-HAND independently, with its own copy-pasteable bake values logged. A 6TH target — AXE HEAD
-    /// SIZE — dials the axe BLADE-CLUSTER smaller/bigger relative to the haft (the head still read too big even
-    /// after the 0.8x bake, and head proportion isn't a uniform scale) so the Sponsor shrinks the head by eye +
-    /// reports the factor to bake into the .blend head re-author later. The arm-switch moved off [B] to [N] so
-    /// it never cross-fires with the always-on weapon-cycle [B] (the [B]-binding-conflict fix).
+    /// angled IN-HAND independently, with its own copy-pasteable bake values logged. The arm-switch moved off
+    /// [B] to [N] so it never cross-fires with the always-on weapon-cycle [B] (the [B]-binding-conflict fix).
+    ///
+    /// 86cakkfz9 v3 DIAL-IN — the 6TH target (AXE HEAD SIZE) + its mouse slider are REMOVED (absorbs 86cajuuz0):
+    /// the axe head is AUTHORED Blender geometry now (wpn_axe_stone_01), so runtime vertex-scaling it distorts
+    /// the knapped biface (the rejected "chipping") — head SIZE is a Blender re-author, not a runtime dial.
+    /// Overall held-scale is dialed on the HELD target (HeldWeaponCycleDebug's O/I Danish-safe letter keys) +
+    /// the settings-console HeldScale row. TargetCount is 5 (held/stump/arm/GROUND-Y/RUN). A NOT-ENGAGED signpost
+    /// (absorbs 86caju055) shows when the debug-overlay layer is up but F9 is asleep, so the Sponsor doesn't
+    /// nudge into the void.
     ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
@@ -114,8 +119,11 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial, 5 = AXE HEAD size
-        private const int TargetCount = 6;
+        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial
+        // 86cakkfz9: the 6th target (AXE HEAD size) + its mouse slider are REMOVED — head SIZE is authored
+        // Blender geometry now, not a runtime dial (see HeldWeaponCycleDebug's O/I key note). Overall held-scale
+        // is dialed on the HELD target (O/I keys) + the settings-console HeldScale row.
+        private const int TargetCount = 5;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         // 86cabh907 soak round 2 — the HELD target is GENERALIZED to whatever weapon [B] has selected. For the
@@ -228,14 +236,12 @@ namespace FarHorizon
             }
 
             // Bail if the current target isn't resolved (re-resolve on a cycle so a late-spawned axe is found).
-            // The RUN target (4) lives on the CastawayArmPose, same as the arm pose (2); the HEAD target (5)
-            // needs the weapon-cycle component (which owns the axe head dial).
+            // The RUN target (4) lives on the CastawayArmPose, same as the arm pose (2).
             bool haveTarget = _target == 0 ? (_heldRig != null || _weaponCycle != null)
                             : _target == 1 ? _stump != null
                             : _target == 2 ? _armPose != null
                             : _target == 3 ? _castaway != null
-                            : _target == 4 ? _armPose != null
-                            : _weaponCycle != null;
+                            : _armPose != null; // target 4 = RUN arm-lower
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -259,21 +265,6 @@ namespace FarHorizon
             if (Input.GetKeyDown(KeyCode.H)) dr.y -= rs;
             if (Input.GetKeyDown(KeyCode.U)) dr.z += rs;
             if (Input.GetKeyDown(KeyCode.J)) dr.z -= rs;
-
-            // HEAD-SIZE target (5): the axe head dial has ONE multiplicative channel. PageUp = bigger, PageDown
-            // = smaller (±5% via the weapon-cycle's DialAxeHead). Inert unless the held weapon is the axe.
-            if (_target == 5)
-            {
-                bool hb = Input.GetKeyDown(KeyCode.PageUp);
-                bool hs = Input.GetKeyDown(KeyCode.PageDown);
-                if ((hb || hs) && _weaponCycle != null)
-                {
-                    if (_weaponCycle.DialAxeHead(hb ? 1.05f : 1f / 1.05f)) changed = true;
-                    else Debug.Log("[AxeNudgeTool] HEAD-SIZE: cycle [B] to the AXE first (only the axe has a head)");
-                }
-                if (changed) LogCurrent();
-                return;
-            }
 
             if (dp != Vector3.zero || dr != Vector3.zero)
             {
@@ -381,8 +372,7 @@ namespace FarHorizon
         private string TargetName() =>
             _target == 0 ? "HELD weapon (" + HeldWeaponLabel() + ")" : _target == 1 ? "STUMP axe"
             : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")"
-            : _target == 3 ? "GROUND-Y offset" : _target == 4 ? "RUN arm-lower"
-            : "AXE HEAD size";
+            : _target == 3 ? "GROUND-Y offset" : "RUN arm-lower";
 
         // The currently-held weapon's label (AXE/KNIFE/SWORD/SPEAR) for the generalized HELD target panel.
         private string HeldWeaponLabel() => _weaponCycle != null ? _weaponCycle.CurrentLabel : "AXE";
@@ -425,13 +415,6 @@ namespace FarHorizon
                               $"HeldAxeRelEuler=({_heldRig.relEuler.x:F1}f,{_heldRig.relEuler.y:F1}f,{_heldRig.relEuler.z:F1}f)");
                 }
             }
-            else if (_target == 5 && _weaponCycle != null)
-            {
-                // 86cabh907 soak round 2 — the AXE HEAD factor (bake into the .blend head re-author; 1.000 ==
-                // current shipped head). Inert unless the axe is held; the panel/log surfaces that.
-                Debug.Log($"[AxeNudgeTool] AXE HEAD  factor={_weaponCycle.AxeHeadFactor:F3}f  " +
-                          $"(held weapon = {_weaponCycle.CurrentLabel}; head dial applies to the AXE only)");
-            }
             else if (_target == 1 && _stump != null)
                 Debug.Log($"[AxeNudgeTool] STUMP StumpAxeLocalPos=({_stump.localPosition.x:F3}f,{_stump.localPosition.y:F3}f,{_stump.localPosition.z:F3}f)  " +
                           $"StumpAxeLocalEuler=({Norm(_stump.localEulerAngles.x):F1}f,{Norm(_stump.localEulerAngles.y):F1}f,{Norm(_stump.localEulerAngles.z):F1}f)");
@@ -460,10 +443,24 @@ namespace FarHorizon
 
         private static float Norm(float a) { a %= 360f; if (a > 180f) a -= 360f; return a; }
 
+        /// <summary>
+        /// 86caju055 — true when the dev-overlay layer is revealed (F10 master ON) but THIS F9 dial tool is NOT
+        /// engaged. Drives the "not engaged" indicator so the Sponsor knows the nudge keys are asleep (he isn't
+        /// nudging into the void). Pure + public so the indicator's show-condition is regression-tested without a
+        /// render. Note: F10 (DebugOverlays) is the master reveal; the indicator only shows within that layer.
+        /// </summary>
+        public bool ShowNotEngagedHint => DebugOverlays.Visible && !_active;
+
         void OnGUI()
         {
             if (!DebugOverlays.Visible) return; // F1 master gate (86cafd6d6) — F9 is the sub-toggle below it
-            if (!_active) return; // INERT in normal play — no overlay unless toggled on
+            if (!_active)
+            {
+                // 86caju055 — F9 dial mode is OFF but the debug-overlay layer is up: draw a small "not engaged"
+                // signpost so the Sponsor knows to press F9 before nudging (else the keys silently do nothing).
+                DrawNotEngagedHint();
+                return; // still INERT — no nudge panel until toggled on
+            }
 
             if (_style == null)
             {
@@ -491,16 +488,14 @@ namespace FarHorizon
             GUI.color = Color.white;
 
             string tgt = _target == 0
-                ? "HELD weapon: " + HeldWeaponLabel() + " (cycle [B]; offset + angle — per weapon)"
+                ? "HELD weapon: " + HeldWeaponLabel() + " (cycle [B]; offset + angle + [O]/[I] scale — per weapon)"
                 : _target == 1
                 ? "STUMP axe (in block — local)"
                 : _target == 2
                 ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([N] switch arm; rotation only)"
                 : _target == 3
                 ? "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)"
-                : _target == 4
-                ? "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)"
-                : "AXE HEAD size (resize the whole head uniformly — PgUp/PgDn; cycle [B] to the axe)";
+                : "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -559,17 +554,7 @@ namespace FarHorizon
                     ? $"RUN ENGAGED ✓ weight={_armPose.RunWeight:F2} (judge now; dial Z MORE negative to lower the arm)"
                     : $"run weight={_armPose.RunWeight:F2} — RUN (Shift) to engage + judge; walk/idle untouched";
             }
-            else if (_target == 5 && _weaponCycle != null)
-            {
-                // 86cabh907 soak round 2 — the AXE HEAD-size dial (one multiplicative channel). PgUp/PgDn = ±5%.
-                // Inert unless the axe is held; surface that so the Sponsor cycles [B] to the axe first.
-                bool axeHeld = _weaponCycle.CurrentIndex == 0;
-                posLine = $"axe head factor={_weaponCycle.AxeHeadFactor:F3}   (PgUp bigger / PgDn smaller; 1.000 = shipped)";
-                eulerLine = axeHeld
-                    ? "resizes the WHOLE head uniformly (shape kept) — read the factor to bake into the .blend head"
-                    : $"◄ held weapon is {_weaponCycle.CurrentLabel} — cycle [B] to the AXE to dial its head";
-            }
-            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : _target == 4 ? "(arm pose not found)" : "(weapon-cycle not found)"; eulerLine = ""; }
+            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : "(arm pose not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -583,83 +568,31 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            // 86cabh907 DANISH-KEYBOARD MOUSE CONTROL (primary deliverable): on the AXE-HEAD target, draw a
-            // mouse-driven head-size control — a slider (drag to resize LIVE) + [Head -]/[Head +] buttons
-            // (click for ±5% steps). The Sponsor cannot use ;/' (Danish punctuation) NOR PgUp/PgDn (laptop
-            // Fn-layer), so the MOUSE is the layout-independent, laptop-independent control that cannot fail.
-            // It drives HeldWeaponCycleDebug's EXISTING uniform-scale path (SetAxeHeadFactor / DialAxeHead ->
-            // ApplyAxeHead — Vector3.one * factor about the junction); stone shape + material unchanged.
-            if (_target == 5)
-            {
-                DrawHeadSizeMouseControl(lx, y + 126f, lw);
-                GUI.Label(new Rect(lx, y + 184f, lw, 20f),
-                    "Mouse drag / buttons resize the head LIVE (Danish-safe).  Keyboard fallback: [O]/[I] bigger/smaller.", _hintStyle);
-                GUI.Label(new Rect(lx, y + 204f, lw, 20f),
-                    "[K] cycle target   [B] cycle held weapon (cycle to the AXE to resize its head)", _hintStyle);
-                GUI.Label(new Rect(lx, y + 224f, lw, 20f),
-                    "Factor also prints to the log — copy it to bake the head default.", _hintStyle);
-            }
-            else
-            {
-                GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held weapon / stump / arm / GROUND-Y / RUN / AXE-HEAD    [N] right<->left arm", _hintStyle);
-                GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y (axe-head: MOUSE slider/buttons or [O]/[I])", _hintStyle);
-                GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
-                GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step", _hintStyle);
-                GUI.Label(new Rect(lx, y + 210f, lw, 20f),
-                    "Values also print to the log each nudge — copy them to bake the default.", _hintStyle);
-            }
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held weapon / stump / arm / GROUND-Y / RUN    [N] right<->left arm", _hintStyle);
+            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
+            GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 206f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
         }
 
-        // 86cabh907 — the MOUSE-driven axe head-size control (the Danish-keyboard fix). A horizontal slider
-        // (drag = resize LIVE) + [Head -] / [Head +] buttons (click = ±5% step) + the live factor label, all
-        // pointer-driven so they are layout-independent + laptop-independent (no key registration involved).
-        // Every path routes through HeldWeaponCycleDebug's EXISTING uniform-scale code (SetAxeHeadFactor for the
-        // slider's absolute value; DialAxeHead for the ±5% buttons) — NO new scale path, NO mesh re-author. The
-        // stone shape + material stay exactly the restored 4208067 head; only the SIZE changes. Inert (controls
-        // disabled) unless the held weapon is the AXE — only the axe has a head.
-        private void DrawHeadSizeMouseControl(float lx, float topY, float lw)
+        // 86caju055 — the "F9 dial: NOT ENGAGED" signpost drawn when the debug-overlay layer is up but this tool
+        // is asleep. A small dim badge, top-right, BELOW BootHud's build-stamp plate (y 8..34) and clear of the
+        // bottom HUD zones. So the Sponsor never nudges into the void wondering why nothing moves.
+        private void DrawNotEngagedHint()
         {
-            bool axeHeld = _weaponCycle != null && _weaponCycle.CurrentIndex == 0;
-            float factor = _weaponCycle != null ? _weaponCycle.AxeHeadFactor : 1f;
-
-            // Live factor read-out (always shown so the Sponsor sees the current head size).
-            GUI.Label(new Rect(lx, topY, lw, 20f),
-                "Head size  ×" + factor.ToString("F3") + "   (1.000 = shipped)", _style);
-
-            // The control row is INERT unless the axe is held — grey it out + tell the Sponsor to cycle [B].
-            bool prevEnabled = GUI.enabled;
-            GUI.enabled = axeHeld && _weaponCycle != null;
-
-            // --- the SLIDER (drag to resize LIVE). Bound to the head factor over the full clamp range; dragging
-            //     it calls SetAxeHeadFactor (absolute) -> the same uniform-scale path. ---
-            float sliderY = topY + 22f;
-            float btnW = 74f, gap = 8f;
-            float sliderW = lw - (btnW * 2f) - (gap * 2f);
-            float newFactor = GUI.HorizontalSlider(
-                new Rect(lx, sliderY + 3f, sliderW, 18f),
-                factor, HeldWeaponCycleDebug.HeadFactorMin, HeldWeaponCycleDebug.HeadFactorMax);
-            if (axeHeld && _weaponCycle != null && !Mathf.Approximately(newFactor, factor))
+            if (_hintStyle == null)
             {
-                if (_weaponCycle.SetAxeHeadFactor(newFactor)) LogCurrent();
+                _hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };
+                _hintStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
             }
-
-            // --- the two ±5% BUTTONS (click = one step; same DialAxeHead path as PgUp/PgDn / [O]/[I]). ---
-            float bx = lx + sliderW + gap;
-            if (GUI.Button(new Rect(bx, sliderY, btnW, 24f), "Head −"))
-            {
-                if (_weaponCycle != null && _weaponCycle.DialAxeHead(1f / 1.05f)) LogCurrent();
-            }
-            if (GUI.Button(new Rect(bx + btnW + gap, sliderY, btnW, 24f), "Head +"))
-            {
-                if (_weaponCycle != null && _weaponCycle.DialAxeHead(1.05f)) LogCurrent();
-            }
-
-            GUI.enabled = prevEnabled;
-
-            if (!axeHeld)
-                GUI.Label(new Rect(lx, sliderY + 26f, lw, 20f),
-                    "◄ held weapon is " + (_weaponCycle != null ? _weaponCycle.CurrentLabel : "?") +
-                    " — cycle [B] to the AXE to resize its head", _hintStyle);
+            const float w = 340f, h = 22f;
+            float x = Mathf.Max(12f, Screen.width - w - 12f);
+            float y = 40f; // just under the top-right build stamp
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
+            GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(x + 8f, y + 2f, w - 12f, 18f),
+                "WEAPON NUDGE (F9): NOT ENGAGED — press F9 to dial", _hintStyle);
         }
     }
 }

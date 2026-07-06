@@ -8,9 +8,8 @@ using FarHorizon;
 namespace FarHorizon.PlayTests
 {
     /// <summary>
-    /// PlayMode coverage for the 86cabh907 weapon dial handles, REWORKED for the "STOP chipping" blocker
-    /// (Sponsor: "everytime you make the axe head smaller it looks worse. its like youre chipping off the axe
-    /// head instead of just resizing it"):
+    /// PlayMode coverage for the weapon dial handles (86cabh907 generalized nudge), REWORKED for the 86cakkfz9
+    /// v3 dial-in (absorbs 86cajuuz0):
     ///
     ///   1. The generalized HELD-weapon nudge actually MOVES the rendered mesh-holder transform for a NON-axe
     ///      weapon — AND that move SURVIVES a HeldToolRig.LateUpdate frame. #100 root cause: the in-house axe
@@ -19,45 +18,30 @@ namespace FarHorizon.PlayTests
     ///      STOMPED next frame and the F9 nudge "did nothing" for knife/sword/spear. The fix re-homes the mesh
     ///      onto a child the rig never touches; this test reproduces the rig-on-root topology and asserts the
     ///      VISIBLE holder localPosition/localRotation changed after the nudge AND after a rig frame.
-    ///   2. The axe HEAD-size dial resizes the WHOLE head UNIFORMLY about the head<->haft junction — it scales
-    ///      the head's bounding box by the SAME factor on EVERY axis (no axis-squish) and PRESERVES the head's
-    ///      aspect ratio, WHILE the grip/haft below the junction stays anchored. This is the STOP-chipping
-    ///      contract: the OLD dial classified an off-centreline blade SUBSET and scaled it toward an eye pivot,
-    ///      squishing the head into a sliver. A regression back to a non-uniform / subset scale (head aspect
-    ///      ratio changes, or one axis squishes more than another) reds here. Operates on a per-instance CLONE.
-    ///   3. The [B] (weapon-cycle) and [N] (F9 arm-switch) bindings are DISTINCT — the soak-round-2 conflict fix.
+    ///   2. OVERALL HELD-SCALE (86cakkfz9): NudgeCurrentWeapon's scale factor actually resizes a NON-axe weapon's
+    ///      held scale live, and the axe nudge stays INERT (its hold is the shared-seat rig baseline).
+    ///   3. The Danish-safe O/I overall-held-scale keys are LETTER keys (86cakkfz9 — the ]/=/[/- punctuation keys
+    ///      don't register on the Sponsor's Danish laptop), distinct from gameplay/belt keys.
+    ///   4. The [B] (weapon-cycle) and [N] (F9 arm-switch) bindings are DISTINCT — the soak-round-2 conflict fix.
     ///
-    /// These catch the bug CLASS, not the instance: a regression that lets the rig stomp the per-weapon nudge,
-    /// or makes the head dial NON-uniform / squish the head / move the grip, or makes the non-axe nudge a
-    /// no-op, reds here.
+    /// 86cajuuz0 ABSORBED: the runtime axe HEAD-vertex resize dial (DialAxeHead / SetAxeHeadFactor / AxeHeadFactor)
+    /// is REMOVED — the axe head is authored Blender geometry now; vertex-scaling the knapped biface is the
+    /// rejected "chipping". The removal is proven by this file compiling against the trimmed API surface.
+    ///
+    /// These catch the bug CLASS, not the instance: a regression that lets the rig stomp the per-weapon nudge, or
+    /// makes the non-axe nudge/scale a no-op, or re-binds the scale keys onto punctuation/gameplay keys, reds here.
     /// </summary>
     public class HeldWeaponDialPlayModeTests
     {
-        // The head<->haft junction fraction the dial cuts at for THIS synthetic mesh. The PRODUCTION default
-        // (HeldWeaponCycleDebug.headJunctionFraction) is geometry-specific — it was re-measured to 0.50 for the
-        // restored 4208067 stone-axe FBX (86cabh907; the old 0.62 was tuned for the rejected flat-wood mesh and
-        // mis-grabbed haft verts on the stone mesh). This is an ALGORITHM test on a SYNTHETIC mesh, so it SETS
-        // the fraction EXPLICITLY (in BuildRigDrivenHeroAxe) to decouple from the real-FBX default — the dial's
-        // uniform-scale contract is what's under test, not the real axe's specific junction. For the synthetic
-        // mesh the haft runs y=0..2.0, head box y=1.4..2.0, grip y=0..1.1; 0.62 → junction y=1.24 sits in the
-        // clean gap (1.1..1.4) so verts above it are exactly the WHOLE head box.
-        private const float JunctionFraction = 0.62f;
-
-        // A taller "axe-like" mesh whose HEAD is a clean island ABOVE the head<->haft junction (a coherent
-        // box-ish head with distinct width/height/depth so an aspect-ratio check is meaningful), plus a HAFT
-        // column from the grip (y=0) up THROUGH the junction. The STOP-chipping head dial must resize the WHOLE
-        // head (every vert above the junction) UNIFORMLY — preserving its aspect ratio — and leave the
-        // grip/lower-haft anchored.
+        // A taller "axe-like" mesh with a HAFT column (grip y=0) up through a coherent HEAD box (y 1.4..2.0). Used
+        // to reproduce the #100 rig-on-root topology for the non-axe nudge test.
         private static Mesh MakeAxeLikeMesh()
         {
             var m = new Mesh { name = "synthetic_axe" };
             var verts = new Vector3[]
             {
-                // --- HAFT / grip: below the junction (y = 1.24). These must NOT move when the head resizes. ---
                 new Vector3(0f, 0.0f, 0f), new Vector3(0.02f, 0.4f, 0f), new Vector3(-0.02f, 0.8f, 0f),
                 new Vector3(0f, 1.1f, 0f),
-                // --- HEAD: a coherent box ABOVE the junction (y 1.4..2.0; x -0.30..0.30; z -0.06..0.06). A clear
-                //     width(0.60) != height(0.60) != depth(0.12) so a UNIFORM resize is provable by aspect ratio.
                 new Vector3(-0.30f, 1.4f, -0.06f), new Vector3(0.30f, 1.4f, -0.06f),
                 new Vector3(0.30f, 1.4f,  0.06f), new Vector3(-0.30f, 1.4f, 0.06f),
                 new Vector3(-0.30f, 2.0f, -0.06f), new Vector3(0.30f, 2.0f, -0.06f),
@@ -67,14 +51,6 @@ namespace FarHorizon.PlayTests
             m.triangles = new[] { 0, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 8, 8, 9, 10, 10, 11, 4 };
             m.RecalculateBounds();
             return m;
-        }
-
-        // Axis-aligned bounds of a vert subset (for the head aspect-ratio check).
-        private static Bounds BoundsOf(Vector3[] v, params int[] idx)
-        {
-            var b = new Bounds(v[idx[0]], Vector3.zero);
-            foreach (int i in idx) b.Encapsulate(v[i]);
-            return b;
         }
 
         private GameObject _go;
@@ -104,10 +80,6 @@ namespace FarHorizon.PlayTests
             var rig = _go.AddComponent<HeldAxeRig>();  // drives the ROOT transform every LateUpdate
             rig.hand = hand;
             _cycle = _go.AddComponent<HeldWeaponCycleDebug>();
-            // ALGORITHM test: pin the junction fraction to THIS synthetic mesh's gap (0.62 → y=1.24 in the
-            // 1.1..1.4 gap), decoupled from the production default (0.50 for the real stone FBX). The uniform-
-            // scale contract is what's under test, not the real axe's specific junction.
-            _cycle.headJunctionFraction = JunctionFraction;
         }
 
         // (1) The generalized HELD nudge moves the RENDERED holder transform for a NON-axe weapon, and the move
@@ -118,7 +90,6 @@ namespace FarHorizon.PlayTests
             BuildRigDrivenHeroAxe();
             yield return null; // Awake re-homes the mesh onto a child holder; rig LateUpdate runs
 
-            // The displayed mesh must now live on a child holder the rig does NOT drive (not the HeroAxe root).
             var holderField = typeof(HeldWeaponCycleDebug).GetField("_meshHolder",
                 BindingFlags.NonPublic | BindingFlags.Instance);
             var holder = (MeshFilter)holderField.GetValue(_cycle);
@@ -135,18 +106,14 @@ namespace FarHorizon.PlayTests
             Vector3 posBefore = holder.transform.localPosition;
             Quaternion rotBefore = holder.transform.localRotation;
 
-            // Nudge the held knife's offset + euler (what the F9 tool routes for a non-axe weapon).
             bool edited = _cycle.NudgeCurrentWeapon(new Vector3(0.1f, 0.05f, -0.2f), new Vector3(0f, 25f, 0f), 1f);
             Assert.IsTrue(edited, "NudgeCurrentWeapon must edit a NON-axe weapon (the axe-only-bug fix)");
 
-            // The rendered holder transform must have MOVED immediately (the dial shows this frame).
             Assert.AreNotEqual(posBefore, holder.transform.localPosition,
                 "the rendered knife holder's localPosition must change on a nudge (not just the backing array)");
             Assert.Greater(Quaternion.Angle(rotBefore, holder.transform.localRotation), 1f,
                 "the rendered knife holder's localRotation must change on a nudge");
 
-            // CRITICAL (#100): let a rig LateUpdate frame run — the move must SURVIVE (the rig drives the root,
-            // NOT the child holder, so the per-weapon offset is not stomped).
             Vector3 posAfterNudge = holder.transform.localPosition;
             yield return null;
             yield return null;
@@ -155,64 +122,35 @@ namespace FarHorizon.PlayTests
                 "root, not the child holder — the bug was the rig stomping the nudge every frame)");
         }
 
-        // (2) STOP-chipping: the axe HEAD dial resizes the WHOLE head UNIFORMLY about the junction — same factor
-        // on every axis (no axis-squish), head ASPECT RATIO preserved — while the grip/haft below the junction
-        // stays anchored. The OLD dial scaled an off-centreline blade SUBSET toward an eye pivot, squishing the
-        // head into a sliver (the chipping). This is the regression guard for that whole class.
+        // (2) OVERALL HELD-SCALE (86cakkfz9 — the [O]/[I] repoint target): NudgeCurrentWeapon's scale factor
+        // resizes a NON-axe weapon's held scale live (up scales up, down scales down), and the change shows on the
+        // rendered holder. The axe scale is Sponsor-LOCKED (its nudge is inert — covered by (2b)).
         [UnityTest]
-        public IEnumerator AxeHeadDial_ResizesWholeHeadUniformly_PreservesAspect_LeavesGripAnchored()
+        public IEnumerator NonAxeHeldScale_NudgeFactor_ResizesLiveScale()
         {
             BuildRigDrivenHeroAxe();
-            yield return null; // Awake captures the holder + seeds the live arrays
+            yield return null;
 
-            Mesh src = MakeAxeLikeMesh();
-            Vector3[] baseV = src.vertices;
-            // Indices: 0-3 = haft/grip (below junction y=1.24), 4-11 = the head box (above the junction).
-            int[] headIdx = { 4, 5, 6, 7, 8, 9, 10, 11 };
-            float gripXBefore = baseV[0].x, gripYBefore = baseV[0].y; // the grip vert at y=0 (below junction)
-            Bounds headBefore = BoundsOf(baseV, headIdx);
+            var idxField = typeof(HeldWeaponCycleDebug).GetField("_index",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            idxField.SetValue(_cycle, 1); // KNIFE
 
-            const float factor = 0.5f;
-            Assert.IsTrue(_cycle.DialAxeHead(factor), "DialAxeHead must succeed with the axe held (index 0)");
-            Assert.Less(_cycle.AxeHeadFactor, 1f, "the head factor must drop below 1 after a shrink");
-
+            float scaleBefore = _cycle.CurrentScale;
             var holderField = typeof(HeldWeaponCycleDebug).GetField("_meshHolder",
                 BindingFlags.NonPublic | BindingFlags.Instance);
             var holder = (MeshFilter)holderField.GetValue(_cycle);
-            Mesh shown = holder.sharedMesh;
-            Assert.IsNotNull(shown);
-            Assert.IsTrue(shown.name.Contains("headDial"),
-                "the head dial must display a per-instance CLONE, never mutate the shared mesh asset");
-            Vector3[] dialV = shown.vertices;
-            Bounds headAfter = BoundsOf(dialV, headIdx);
+            Vector3 holderScaleBefore = holder.transform.localScale;
 
-            // --- UNIFORM: each axis of the head's bounding box scaled by the SAME factor (within tolerance).
-            // (A directional / single-axis squish — the chipping — would scale one axis far more than another.)
-            Vector3 sBefore = headBefore.size, sAfter = headAfter.size;
-            float fx = sAfter.x / sBefore.x, fy = sAfter.y / sBefore.y, fz = sAfter.z / sBefore.z;
-            Assert.That(fx, Is.EqualTo(factor).Within(0.02f), $"head WIDTH must scale by {factor} (got {fx:F3}) — uniform, no squish");
-            Assert.That(fy, Is.EqualTo(factor).Within(0.02f), $"head HEIGHT must scale by {factor} (got {fy:F3}) — uniform, no squish");
-            Assert.That(fz, Is.EqualTo(factor).Within(0.02f), $"head DEPTH must scale by {factor} (got {fz:F3}) — uniform, no squish");
-            Assert.That(fx, Is.EqualTo(fy).Within(0.02f), "head x-scale must equal y-scale (x==y==z — no axis-squish / chipping)");
-            Assert.That(fy, Is.EqualTo(fz).Within(0.02f), "head y-scale must equal z-scale (x==y==z — no axis-squish / chipping)");
+            Assert.IsTrue(_cycle.NudgeCurrentWeapon(Vector3.zero, Vector3.zero, 1.05f),
+                "a scale-up nudge must edit a NON-axe weapon");
+            Assert.Greater(_cycle.CurrentScale, scaleBefore, "a +5% scale factor must raise the held scale");
+            Assert.Greater(holder.transform.localScale.x, holderScaleBefore.x,
+                "the rendered holder must actually scale up (not just the backing value)");
 
-            // --- ASPECT RATIO preserved: the head's width:height:depth ratios are unchanged after the resize.
-            float arWH_before = sBefore.x / sBefore.y, arWH_after = sAfter.x / sAfter.y;
-            float arWD_before = sBefore.x / sBefore.z, arWD_after = sAfter.x / sAfter.z;
-            Assert.That(arWH_after, Is.EqualTo(arWH_before).Within(0.02f),
-                $"head width:height aspect must be preserved ({arWH_before:F3} -> {arWH_after:F3}) — a resize, not a chip");
-            Assert.That(arWD_after, Is.EqualTo(arWD_before).Within(0.02f),
-                $"head width:depth aspect must be preserved ({arWD_before:F3} -> {arWD_after:F3}) — a resize, not a chip");
-
-            // --- the head actually got SMALLER (the dial does something).
-            Assert.Less(sAfter.x, sBefore.x - 0.05f, "the head must actually shrink (width down)");
-
-            // --- the GRIP vert (below the junction, on the centreline) must NOT move — handle length preserved.
-            Assert.That(dialV[0].x, Is.EqualTo(gripXBefore).Within(0.001f),
-                $"the grip vert X must NOT move (head resizes vs the handle; x {gripXBefore:F3} -> {dialV[0].x:F3})");
-            Assert.That(dialV[0].y, Is.EqualTo(gripYBefore).Within(0.001f),
-                $"the grip vert Y must NOT move (the handle length is preserved; y {gripYBefore:F3} -> {dialV[0].y:F3})");
-            Object.Destroy(src);
+            float scaleUp = _cycle.CurrentScale;
+            Assert.IsTrue(_cycle.NudgeCurrentWeapon(Vector3.zero, Vector3.zero, 1f / 1.05f),
+                "a scale-down nudge must edit a NON-axe weapon");
+            Assert.Less(_cycle.CurrentScale, scaleUp, "a -5% scale factor must lower the held scale");
         }
 
         // (2b) The HELD nudge is INERT on the axe (index 0) — the axe hold is the shared-seat rig baseline.
@@ -225,64 +163,28 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(edited, "the axe nudge must route to the shared-seat HeldAxeRig, not the per-weapon arrays");
         }
 
-        // (2c) DANISH-KEYBOARD MOUSE SLIDER driver (86cabh907). The F9 panel's mouse slider calls
-        // SetAxeHeadFactor(absolute) — it must (a) set the factor to the requested ABSOLUTE value within the
-        // clamp range, (b) drive the SAME uniform-scale path the multiplicative dial uses (a per-instance CLONE
-        // resized uniformly about the junction — NOT a new scale path, NOT the shared asset), and (c) CLAMP out
-        // of range. This catches the bug class: a slider that drove a separate/non-uniform scale path, mutated
-        // the shared mesh, or didn't clamp, reds here. It proves the slider == the dial's resize, just absolute.
-        [UnityTest]
-        public IEnumerator SetAxeHeadFactor_AbsoluteSet_ResizesViaTheSameUniformClonePath_AndClamps()
+        // (3) The Danish-safe overall-held-scale keys are LETTER keys O / I (86cakkfz9 — the ]/=/[/- punctuation
+        // keys don't register on the Sponsor's Danish laptop). Catches a regression that re-binds them onto
+        // punctuation or a gameplay/belt key.
+        [Test]
+        public void DanishSafeScaleKeys_AreLetters_O_And_I_NotGameplayKeys()
         {
-            BuildRigDrivenHeroAxe();
-            yield return null; // Awake captures the holder + seeds the live arrays
-
-            var holderField = typeof(HeldWeaponCycleDebug).GetField("_meshHolder",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            var holder = (MeshFilter)holderField.GetValue(_cycle);
-
-            // (a) absolute set lands the factor exactly (within the clamp range).
-            Assert.IsTrue(_cycle.SetAxeHeadFactor(0.6f), "SetAxeHeadFactor must succeed with the axe held (index 0)");
-            Assert.That(_cycle.AxeHeadFactor, Is.EqualTo(0.6f).Within(1e-4f),
-                "the slider's ABSOLUTE set must land the factor at exactly the requested value (not a relative step)");
-
-            // (b) it drives the SAME uniform-clone path the multiplicative dial uses — a per-instance CLONE, never
-            // the shared asset, and the head box scales uniformly (same factor every axis) about the junction.
-            Mesh shown = holder.sharedMesh;
-            Assert.IsTrue(shown.name.Contains("headDial"),
-                "SetAxeHeadFactor must display the per-instance CLONE (the same ApplyAxeHead path as the dial) — " +
-                "never mutate the shared mesh asset, never a separate scale path");
-            int[] headIdx = { 4, 5, 6, 7, 8, 9, 10, 11 };
-            Vector3[] baseV = MakeAxeLikeMeshVertsForCheck();
-            Bounds headBefore = BoundsOf(baseV, headIdx);
-            Bounds headAfter = BoundsOf(shown.vertices, headIdx);
-            Vector3 sB = headBefore.size, sA = headAfter.size;
-            float fx = sA.x / sB.x, fy = sA.y / sB.y, fz = sA.z / sB.z;
-            Assert.That(fx, Is.EqualTo(0.6f).Within(0.02f), $"head WIDTH must scale to the absolute factor (got {fx:F3})");
-            Assert.That(fx, Is.EqualTo(fy).Within(0.02f), "uniform: x-scale == y-scale (no axis-squish)");
-            Assert.That(fy, Is.EqualTo(fz).Within(0.02f), "uniform: y-scale == z-scale (no axis-squish)");
-
-            // (c) out-of-range absolute values CLAMP to [HeadFactorMin..HeadFactorMax].
-            _cycle.SetAxeHeadFactor(99f);
-            Assert.That(_cycle.AxeHeadFactor, Is.EqualTo(HeldWeaponCycleDebug.HeadFactorMax).Within(1e-4f),
-                "an above-range slider value must clamp to HeadFactorMax");
-            _cycle.SetAxeHeadFactor(-5f);
-            Assert.That(_cycle.AxeHeadFactor, Is.EqualTo(HeldWeaponCycleDebug.HeadFactorMin).Within(1e-4f),
-                "a below-range slider value must clamp to HeadFactorMin");
-            yield return null;
+            var go = new GameObject("HeroAxe");
+            go.AddComponent<MeshFilter>();
+            var cycle = go.AddComponent<HeldWeaponCycleDebug>();
+            Assert.AreEqual(KeyCode.O, cycle.scaleUpKeyDanish, "Danish-safe scale-up key must be the letter O");
+            Assert.AreEqual(KeyCode.I, cycle.scaleDownKeyDanish, "Danish-safe scale-down key must be the letter I");
+            foreach (var reserved in new[] { KeyCode.W, KeyCode.A, KeyCode.S, KeyCode.D, KeyCode.Space,
+                KeyCode.B, KeyCode.N, KeyCode.Alpha1, KeyCode.Alpha9 })
+            {
+                Assert.AreNotEqual(reserved, cycle.scaleUpKeyDanish, "scale-up key must be free of gameplay/belt keys");
+                Assert.AreNotEqual(reserved, cycle.scaleDownKeyDanish, "scale-down key must be free of gameplay/belt keys");
+            }
+            Assert.AreNotEqual(cycle.scaleUpKeyDanish, cycle.scaleDownKeyDanish, "up + down must be distinct keys");
+            Object.Destroy(go);
         }
 
-        // The synthetic axe's base verts (factor=1 baseline) for the resize-ratio check above — built fresh so
-        // the test does not depend on a shared mesh instance that ApplyAxeHead may have cloned/replaced.
-        private static Vector3[] MakeAxeLikeMeshVertsForCheck()
-        {
-            var m = MakeAxeLikeMesh();
-            var v = m.vertices;
-            Object.Destroy(m);
-            return v;
-        }
-
-        // (3) The [B] weapon-cycle and the [N] F9 arm-switch are DISTINCT keys (the soak-round-2 conflict fix).
+        // (4) The [B] weapon-cycle and the [N] F9 arm-switch are DISTINCT keys (the soak-round-2 conflict fix).
         [Test]
         public void WeaponCycle_AndArmSwitch_UseDistinctKeys()
         {
@@ -299,10 +201,8 @@ namespace FarHorizon.PlayTests
             Object.Destroy(cycleGo);
         }
 
-        // (4) The F9 nudge tool's TARGET-CYCLE key must NOT be Tab — Tab is the inventory toggle
+        // (5) The F9 nudge tool's TARGET-CYCLE key must NOT be Tab — Tab is the inventory toggle
         // (InventoryUI.toggleKey), and the two conflicted (86cabh907 dial-tool round, Sponsor blocker #3).
-        // Catches the bug CLASS: any rebind of the nudge cycle back onto Tab (or onto the belt 1..9 / [B] / [N]
-        // / a dial key) reds here.
         [Test]
         public void NudgeTargetCycle_IsNotTheInventoryToggle_NorAGameplayKey()
         {
@@ -312,7 +212,6 @@ namespace FarHorizon.PlayTests
                 "the F9 nudge target-cycle must NOT be Tab (Tab is the inventory toggle — Sponsor blocker #3)");
             Assert.AreNotEqual(KeyCode.Tab, worldNudge.cycleKey,
                 "the F10 world-look nudge target-cycle must NOT be Tab either (same inventory conflict)");
-            // Not a reserved gameplay / belt / dial key.
             foreach (var reserved in new[] { KeyCode.B, KeyCode.N, KeyCode.Space, KeyCode.LeftShift,
                 KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.W, KeyCode.A, KeyCode.S, KeyCode.D })
                 Assert.AreNotEqual(reserved, axeNudge.cycleKey,
