@@ -99,11 +99,14 @@ namespace FarHorizon.EditTests
             Object.DestroyImmediate(inst);
 
             // The core Mixamo Standard hierarchy the locomotion + jump + chop + hit-react + held-axe systems need.
+            // Toe bones are core, NOT optional: the CrouchWalk (Sneak Walk) clip drives LeftToeBase by transform
+            // path (SneakGaitCurveFix smooths its mid-cycle LeftToeBase quaternion spike — that fix is a no-op if
+            // the rig drops the toe bone), so a v2 re-export dropping *toebase silently un-animates the toes.
             string[] core =
             {
                 "hips", "spine", "spine1", "spine2", "neck", "head",
-                "leftupleg", "leftleg", "leftfoot",
-                "rightupleg", "rightleg", "rightfoot",
+                "leftupleg", "leftleg", "leftfoot", "lefttoebase",
+                "rightupleg", "rightleg", "rightfoot", "righttoebase",
                 "leftshoulder", "leftarm", "leftforearm", "lefthand",
                 "rightshoulder", "rightarm", "rightforearm", "righthand",
             };
