@@ -392,19 +392,31 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(curl, "the avatar must carry a serialized CastawayFingerCurl (the #4 grip fix) — " +
                 "a component in source but absent from the scene ships the open 'mangled' hand");
             Assert.IsNotNull(curl.fingerBones, "the finger-curl must have its finger bones wired");
-            // v2 (86cajx050) AND v3 (86cak9kau) are 41-bone Mixamo variants whose RIGHT hand carries ONLY index
-            // 1-3 + thumb 1-3 (CastawayV2/V3HandAxisTrace: index/middle/ring=3/9, thumb=3/3, pinky=0/3 for BOTH —
-            // v3's "16 finger bones" do NOT surface as separated mixamorig middle/ring/pinky curl targets), so the
-            // OLD "expected >= 6" (Index/Middle/Ring) floor is unreachable on the fist-hand variants. The real
-            // regression is a resolution FAILURE (the curl wired to fewer bones than the rig provides), so the
-            // floor is per-rig: fist-hand (v2/v3)=3 (all their curl-token fingers), old=6. A partial resolve on
-            // ANY rig still reds here.
-            bool fistHandVariant = CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
-            int expectedFingerFloor = fistHandVariant ? 3 : 6;
-            Assert.GreaterOrEqual(curl.fingerBones.Length, expectedFingerFloor,
-                "the finger-curl must resolve the right-hand finger bones the rig provides (v2/v3: Index 1-3; old: " +
-                $"Index/Middle/Ring proximal..distal); got {curl.fingerBones.Length}, floor {expectedFingerFloor} " +
-                "(a partial resolve means the grip curl ships incomplete)");
+            // Context: v2 (86cajx050) AND v3 (86cak9kau) are 41-bone Mixamo variants whose RIGHT hand carries ONLY
+            // index 1-3 + thumb 1-3 (CastawayV2/V3HandAxisTrace: index/middle/ring=3/9, thumb=3/3, pinky=0/3 for
+            // BOTH — v3's "16 finger bones" do NOT surface as separated mixamorig middle/ring/pinky curl targets),
+            // so the fist-hand variants resolve 3 index bones today. The prior hardcoded `fistHandVariant ? 3 : 6`
+            // floor could NOT re-tighten if a future rig gained middle/ring chains.
+            // 86cakbe2v item 3 (Tess PR #264 coverage note 4): DERIVE the expected floor from the rig's ACTUAL
+            // curl-resolvable finger bones instead of a hardcoded 3, so a future v3 re-export that ADDS separated
+            // middle/ring curl chains RE-TIGHTENS this guard automatically. The curl resolves exactly the
+            // MovementCameraScene.RightFingerCurlTokens the rig provides; count how many that rig carries (matched
+            // by the SAME exact-token discipline the curl uses) and require the serialized curl to resolve every
+            // one. A resolution FAILURE (curl wired to fewer bones than the rig actually provides) reds; and if a
+            // richer rig ships later, the floor rises with it — no stale hardcoded 3 to maintain.
+            var smr = castaway.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            Assert.IsNotNull(smr, "the castaway must have a SkinnedMeshRenderer to read the rig's finger bones from");
+            int rigCurlBones = 0;
+            foreach (var tok in MovementCameraScene.RightFingerCurlTokens)
+                foreach (var bone in smr.bones)
+                    if (bone != null && ExactBoneToken(bone.name) == tok) { rigCurlBones++; break; }
+            Assert.Greater(rigCurlBones, 0,
+                "the rig must provide at least the right-hand index curl chain (else the grip has nothing to curl)");
+            Assert.GreaterOrEqual(curl.fingerBones.Length, rigCurlBones,
+                $"the finger-curl must resolve EVERY curl-resolvable right-hand finger bone the rig provides (rig " +
+                $"carries {rigCurlBones} of the index/middle/ring curl tokens; curl resolved {curl.fingerBones.Length}) " +
+                "— a partial resolve ships an incomplete grip. This floor is DERIVED from the rig so a future " +
+                "re-export that adds middle/ring chains re-tightens it automatically (86cakbe2v item 3).");
             foreach (var b in curl.fingerBones)
             {
                 Assert.IsNotNull(b, "every wired finger bone must be non-null");
@@ -472,64 +484,96 @@ namespace FarHorizon.EditTests
                 "baked-in offset means the feet plant off the visible sand unless the Sponsor re-dials");
         }
 
-        // The IDENTITY RECOLOR guard (86ca8rdkp AC4): the generated MUSTARD-YELLOW shirt is warmed toward
-        // TAN (the concept read) WITHOUT flattening the toon gradient. We read the SAME diffuse the material
-        // binds and assert: (1) the saturated-yellow shirt band is now SMALL (the bulk was remapped), and
-        // (2) the remapped region reads warm-tan (R>G>B, hue below the yellow band) with REAL value variation
-        // (the gradient survived — not a flat tint). Catches a regression that drops the recolor (mustard
-        // returns) OR flattens it (gradient lost).
+        // V3-ACTIVATION SERIALIZED-IDENTITY guard (86cakbe2v item 1 — Tess PR #264 coverage note 1). The existing
+        // character guards (Player_HasSerializedSkinnedBonedCastaway / Castaway_ReadsChunky /
+        // Material_BindsTheDiffuseToonAtlas) ALL pass for v2 AND v3 (verts>100, heads-tall band spans both,
+        // "texture_diffuse" is a substring of both diffuse names) — so a STALE-committed Boot baked with v2 while
+        // the const says v3 (the [[unity-procedural-committed-assets-go-stale]] class) would ship v2 and pass 100%
+        // green; NOTHING asserts the serialized bytes against the configured default. This asserts the baked
+        // skinned mesh's SOURCE FBX == the configured-default hero's FBX (CharacterAssetGen.FbxPath, which is what
+        // BuildModel wires castaway.modelPrefab from). It BITES specifically when the baked character != the
+        // configured default: a stale v2 Boot under a v3 const → the mesh's source path is v2's FBX != FbxPath (v3)
+        // → RED. (CI is green because BootstrapProject.Run re-bakes from the const before EditMode; this is the
+        // guard that reds if that re-bake is ever skipped/broken and the stale committed scene ships.)
         [Test]
-        public void Diffuse_ShirtWarmedToTan_NotMustardYellow_GradientPreserved()
+        public void Boot_SerializedSkinnedMeshIdentity_MatchesConfiguredDefaultHero()
         {
-            string path = CharacterAssetGen.DiffusePngPath;
-            Assert.IsTrue(System.IO.File.Exists(path), "the bound diffuse PNG must exist at " + path);
-            var tex = new Texture2D(2, 2);
-            Assert.IsTrue(tex.LoadImage(System.IO.File.ReadAllBytes(path)), "diffuse PNG must decode");
+            OpenBootAndFindPlayer();
+            var castaway = _player.GetComponentInChildren<CastawayCharacter>(true);
+            Assert.IsNotNull(castaway, "the player must carry a CastawayCharacter avatar");
 
-            var pixels = tex.GetPixels();
-            int saturatedYellow = 0;   // pixels still in the mustard-yellow band (should be ~0 after recolor)
-            int warmTan = 0;           // pixels in the post-recolor warm-tan band
-            var tanValues = new System.Collections.Generic.List<float>();
-            foreach (var c in pixels)
-            {
-                Color.RGBToHSV(c, out float h, out float s, out float v);
-                float hueDeg = h * 360f;
-                bool inYellowBand = hueDeg >= CharacterAssetGen.ShirtHueMinDeg &&
-                                    hueDeg <= CharacterAssetGen.ShirtHueMaxDeg &&
-                                    s >= CharacterAssetGen.ShirtSatMin && v >= CharacterAssetGen.ShirtValMin;
-                if (inYellowBand) saturatedYellow++;
-                // warm tan: hue near the target (28-38°), warm (R>G>B), reasonably lit.
-                if (hueDeg >= 26f && hueDeg <= 40f && c.r > c.g && c.g > c.b && v >= CharacterAssetGen.ShirtValMin)
-                {
-                    warmTan++;
-                    tanValues.Add(v);
-                }
-            }
-            Object.DestroyImmediate(tex);
+            var smr = castaway.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            Assert.IsNotNull(smr, "the castaway must have a serialized SkinnedMeshRenderer");
+            Assert.IsNotNull(smr.sharedMesh, "the skinned mesh must be present (FBX imported + baked into Boot)");
 
-            float yellowFrac = (float)saturatedYellow / pixels.Length;
-            float tanFrac = (float)warmTan / pixels.Length;
+            string bakedMeshFbx = AssetDatabase.GetAssetPath(smr.sharedMesh);
+            Assert.IsFalse(string.IsNullOrEmpty(bakedMeshFbx),
+                "the baked skinned mesh must resolve to its source FBX asset (an orphan scene-local mesh means the " +
+                "avatar was not instantiated from the imported hero FBX)");
+            Assert.AreEqual(CharacterAssetGen.FbxPath, bakedMeshFbx,
+                "the BAKED Boot skinned-mesh identity must be the CONFIGURED-DEFAULT hero's FBX (" +
+                CharacterAssetGen.FbxPath + ") — a stale-committed Boot baked with a DIFFERENT hero than the const " +
+                "selects (the unity-procedural-committed-assets-go-stale class) reds here even though the " +
+                "verts/heads-tall/diffuse-substring guards pass for BOTH heroes");
+        }
 
-            // (1) The mustard-yellow shirt band must be largely GONE (the source band measured ~12.9% of the
-            // atlas; after the remap the saturated-yellow shirt is recolored, so this must drop well below 2%).
-            Assert.Less(yellowFrac, 0.02f,
-                $"the saturated mustard-yellow shirt band must be remapped away (still {yellowFrac:P1} of the " +
-                "atlas in the yellow band — the recolor did not run / regressed)");
+        // V3-ACTIVATION HELD-AXE SEAT-SELECTION guard (86cakbe2v item 2 — Tess PR #264 coverage note 2). The
+        // held-axe seat is chosen by a per-hero ternary in MovementCameraScene.BuildModel
+        // (UseCastawayV3 ? HeldAxeV3* : UseCastawayV2 ? HeldAxeV2* : HeldAxe*). HeldToolRigTests /
+        // HeldAxeSeatFacingIndependentTests pin the OLD-rig constants (rollback guards that hold regardless of the
+        // live hero), so DROPPING the v3 ternary branch (falling to the v2/old seat) passes every EditMode test AND
+        // the held-belt capture gate (which asserts axe SHOWN + is-axe, not the specific offset). This asserts the
+        // SERIALIZED Boot HeldAxeRig carries the seat the CONFIGURED-DEFAULT hero selects: under v3, BuildModel must
+        // have baked HeldAxeV3* into the rig. Drop the v3 branch → the rig bakes v2/old values → RED. Mirrors the
+        // source precedence so a rollback (env v2/old) build stays guarded too. The axe is hand-parented + active
+        // (visibility is gated by HeldAxe on renderer.enabled, not GameObject active), so it deserializes here.
+        [Test]
+        public void Boot_SerializedHeldAxeSeat_MatchesConfiguredDefaultHeroSeat()
+        {
+            OpenBootAndFindPlayer();
+            var rig = _player.GetComponentInChildren<HeldAxeRig>(true);
+            Assert.IsNotNull(rig, "the Boot scene must carry the serialized held-axe rig (the axe is hand-parented, " +
+                "visibility-gated on HasAxe — the GameObject is present + active, only its renderers are disabled)");
 
-            // (2) A real warm-tan region must now exist (the shirt landed in the tan band).
-            Assert.Greater(tanFrac, 0.04f,
-                $"a real warm-tan shirt region must exist after the recolor (only {tanFrac:P1} in the tan band — " +
-                "the shirt did not land warm-tan)");
+            Vector3 expectedOffset =
+                CharacterAssetGen.UseCastawayV3 ? MovementCameraScene.HeldAxeV3LocalOffsetFromHand :
+                CharacterAssetGen.UseCastawayV2 ? MovementCameraScene.HeldAxeV2LocalOffsetFromHand :
+                                                  MovementCameraScene.HeldAxeLocalOffsetFromHand;
+            Vector3 expectedEuler =
+                CharacterAssetGen.UseCastawayV3 ? MovementCameraScene.HeldAxeV3RelEuler :
+                CharacterAssetGen.UseCastawayV2 ? MovementCameraScene.HeldAxeV2RelEuler :
+                                                  MovementCameraScene.HeldAxeRelEuler;
+            string hero = CharacterAssetGen.UseCastawayV3 ? "v3" : CharacterAssetGen.UseCastawayV2 ? "v2" : "old";
 
-            // (3) The gradient survived: the tan region carries real VALUE variation (a flat tint would have
-            // ~zero std-dev). Std-dev of HSV value over the tan pixels must be non-trivial.
-            float mean = 0f; foreach (var v in tanValues) mean += v; mean /= Mathf.Max(1, tanValues.Count);
-            float var2 = 0f; foreach (var v in tanValues) var2 += (v - mean) * (v - mean);
-            var2 /= Mathf.Max(1, tanValues.Count);
-            float std = Mathf.Sqrt(var2);
-            Assert.Greater(std, 0.03f,
-                $"the tan shirt must keep its toon light→dark gradient (value std {std:F3} > 0.03); a near-zero " +
-                "std means the recolor flattened the gradient (the per-material-tint trap)");
+            Assert.That((rig.worldOffsetFromHand - expectedOffset).magnitude, Is.LessThan(1e-3f),
+                $"under the configured-default hero ({hero}) BuildModel must seat the axe with THAT hero's HAND-LOCAL " +
+                $"offset (expected {expectedOffset:F4}, serialized {rig.worldOffsetFromHand:F4}) — dropping the v3 " +
+                "ternary branch bakes the v2/old offset here (the seat-selection regression the capture gate can't see)");
+            Assert.That((rig.relEuler - expectedEuler).magnitude, Is.LessThan(1e-2f),
+                $"under the configured-default hero ({hero}) BuildModel must seat the axe with THAT hero's " +
+                $"hand-relative euler (expected {expectedEuler:F1}, serialized {rig.relEuler:F1}) — dropping the v3 " +
+                "ternary branch bakes the v2/old euler here");
+        }
+
+        // (86cakbe2v item 4 — RETIRED) The old IDENTITY-RECOLOR guard `Diffuse_ShirtWarmedToTan_...` was removed
+        // here. It read CharacterAssetGen.DiffusePngPath (the OLD base's texture_diffuse.png) off disk directly and
+        // asserted the mustard-yellow shirt was warmed to tan — a v1/OLD-base operation. The live hero is now v3
+        // (UseCastawayV3Default; v2 is the shallow-rollback target), and the shirt-recolor path is OLD-castaway-only
+        // and DORMANT (BuildMaterial gates it behind `!UseCastawayV2` — CharacterAssetGen.cs), so this test was dead
+        // coverage for the live hero: it passed on a STALE committed PNG regardless of which base actually ships
+        // (Tess PR #264 coverage note 5). Retired rather than repointed — v3's posterized diffuse has no
+        // mustard-shirt recolor to assert. If a future DEEP-rollback re-activates the old base, re-introduce a
+        // recolor guard gated on that base being live (not an unconditional off-disk read).
+
+        // Mirror of MovementCameraScene.ExactBoneToken (private there): strip the "mixamorig:" namespace + lower-case
+        // for an exact bone-token compare (86cakbe2v item 3 — matches the curl's own exact-token resolution).
+        private static string ExactBoneToken(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return "";
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1);
+            return n;
         }
     }
 }

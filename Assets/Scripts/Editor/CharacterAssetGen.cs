@@ -1988,7 +1988,7 @@ namespace FarHorizon.EditorTools
         }
 
         // ===== CASTAWAY v3 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cak9kau — the v3 ACTIVATION re-seat) =====
-        // The v3 sibling of CastawayV3HandAxisTrace's template CastawayV2HandAxisTrace above. Diagnose-via-trace
+        // The v3 sibling of the template CastawayV2HandAxisTrace above. Diagnose-via-trace
         // for the v3 default flip: dumps, in ONE headless run, every number the v3 activation needs so the
         // re-seat + the finger-curl reconciliation are MEASURED, not guessed:
         //   (1) v3's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
