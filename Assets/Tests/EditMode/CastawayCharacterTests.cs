@@ -392,14 +392,17 @@ namespace FarHorizon.EditTests
             Assert.IsNotNull(curl, "the avatar must carry a serialized CastawayFingerCurl (the #4 grip fix) — " +
                 "a component in source but absent from the scene ships the open 'mangled' hand");
             Assert.IsNotNull(curl.fingerBones, "the finger-curl must have its finger bones wired");
-            // v2 (86cajx050) is the 41-bone Mixamo variant — its RIGHT hand carries ONLY index 1-3 + thumb 1-3
-            // (CastawayV2HandAxisTrace: index/middle/ring=3/9, thumb=3/3, pinky=0/3), so the OLD "expected >= 6"
-            // (Index/Middle/Ring) floor is unreachable on v2. The real regression is a resolution FAILURE (the
-            // curl wired to fewer bones than the rig provides), so the floor is per-rig: v2=3 (all its curl-token
-            // fingers), old=6. A partial resolve on EITHER rig still reds here.
-            int expectedFingerFloor = CharacterAssetGen.UseCastawayV2 ? 3 : 6;
+            // v2 (86cajx050) AND v3 (86cak9kau) are 41-bone Mixamo variants whose RIGHT hand carries ONLY index
+            // 1-3 + thumb 1-3 (CastawayV2/V3HandAxisTrace: index/middle/ring=3/9, thumb=3/3, pinky=0/3 for BOTH —
+            // v3's "16 finger bones" do NOT surface as separated mixamorig middle/ring/pinky curl targets), so the
+            // OLD "expected >= 6" (Index/Middle/Ring) floor is unreachable on the fist-hand variants. The real
+            // regression is a resolution FAILURE (the curl wired to fewer bones than the rig provides), so the
+            // floor is per-rig: fist-hand (v2/v3)=3 (all their curl-token fingers), old=6. A partial resolve on
+            // ANY rig still reds here.
+            bool fistHandVariant = CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
+            int expectedFingerFloor = fistHandVariant ? 3 : 6;
             Assert.GreaterOrEqual(curl.fingerBones.Length, expectedFingerFloor,
-                "the finger-curl must resolve the right-hand finger bones the rig provides (v2: Index 1-3; old: " +
+                "the finger-curl must resolve the right-hand finger bones the rig provides (v2/v3: Index 1-3; old: " +
                 $"Index/Middle/Ring proximal..distal); got {curl.fingerBones.Length}, floor {expectedFingerFloor} " +
                 "(a partial resolve means the grip curl ships incomplete)");
             foreach (var b in curl.fingerBones)

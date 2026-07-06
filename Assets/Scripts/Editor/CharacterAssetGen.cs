@@ -143,11 +143,15 @@ namespace FarHorizon.EditorTools
         public const string V3RiggedFbxPath = V3Dir + "/castaway_v3_rigged.fbx"; // WITH skin (mixamo/Idle.fbx: mesh+rig; Idle take unused)
         public const string V3DiffusePosterizedPngPath = V3Dir + "/texture_diffuse_posterized.png"; // HSV-posterized flat diffuse (URP _BaseMap)
 
-        // v3 STAGED-ROLLOUT TOGGLE (86cak41d4) — DEFAULT OFF: v2 remains the LIVE hero; v3 is dormant until a
-        // separate activation/soak PR flips this default true. Resolved at BOOTSTRAP time (CI re-runs
-        // BootstrapProject.Run before every build), so the toggle is honored WITHOUT committing a regenerated
-        // Boot.unity. FARHORIZON_CASTAWAY_V3=1 overrides for the env-var soak build.
-        public const bool UseCastawayV3Default = false;
+        // v3 STAGED-ROLLOUT TOGGLE (86cak41d4 dormant integration; ACTIVATED 86cak9kau — DEFAULT FLIPPED TO
+        // true 2026-07-06 after the Sponsor soaked v3 in a shipped build and APPROVED making it LIVE). v3
+        // (Rodin Smart-Low-poly base) is now the DEFAULT hero character. v2 is NOT deleted — it stays reachable
+        // as the ROLLBACK target: flipping this const back to false selects v2 (UseCastawayV2 stays true), a
+        // one-line rollback, mirroring how #262 kept the old base behind the v2 toggle. Resolved at BOOTSTRAP
+        // time (CI re-runs BootstrapProject.Run before every build), so the toggle is honored WITHOUT committing
+        // a regenerated Boot.unity. FARHORIZON_CASTAWAY_V3=1 stays as an override handle; with the default now
+        // true the toggle is ON regardless.
+        public const bool UseCastawayV3Default = true;
         public const string CastawayV3EnvVar = "FARHORIZON_CASTAWAY_V3";
         public static bool UseCastawayV3 =>
             System.Environment.GetEnvironmentVariable(CastawayV3EnvVar) == "1" || UseCastawayV3Default;
@@ -1979,6 +1983,80 @@ namespace FarHorizon.EditorTools
             if (oldGo) Object.DestroyImmediate(oldGo);
             Object.DestroyImmediate(v2Go);
             sb.AppendLine("[v2-seat] ===== END =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CASTAWAY v3 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cak9kau — the v3 ACTIVATION re-seat) =====
+        // The v3 sibling of CastawayV3HandAxisTrace's template CastawayV2HandAxisTrace above. Diagnose-via-trace
+        // for the v3 default flip: dumps, in ONE headless run, every number the v3 activation needs so the
+        // re-seat + the finger-curl reconciliation are MEASURED, not guessed:
+        //   (1) v3's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
+        //       held-axe seat re-measure. v3 is a FRESH Mixamo Standard rig (Smart-Low-poly mesh) whose hand-bone
+        //       bind orientation differs from BOTH the old rig's AND v2's, so neither prior seat carries 1:1.
+        //   (2) A MEASURED first-pass v3 seat = the Sponsor-APPROVED v2 WORLD carry TRANSFERRED onto v3's hand
+        //       frame (the axe MESH is identical, so matching its WORLD orientation reproduces the LIVE-approved
+        //       look — v2's seat IS the current live-approved carry). We transfer from v2 (not old) so the first
+        //       pass lands on the seat the Sponsor most recently blessed:
+        //         relEuler_v3 = eulerAngles( Inv(R_v3hand) * R_v2hand * Euler(HeldAxeV2RelEuler) )
+        //         offset_v3   = Inv(R_v3hand) * ( R_v2hand * HeldAxeV2LocalOffsetFromHand )
+        //       computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses, printed
+        //       ready-to-bake into MovementCameraScene.HeldAxeV3*; the Sponsor F9-finalizes the exact grip in the
+        //       soak (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools).
+        //   (3) v3's right-hand FINGER/THUMB/PINKY bone resolution (the finger-curl floor reconciliation — v3 is
+        //       the 41-bone rig WITH 16 finger bones, unlike v2's index+thumb-only) + the heads-tall fingerprint.
+        // Run headless:
+        //   Unity … -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV3HandAxisTrace
+        public static void CastawayV3HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v3-seat] ===== CASTAWAY v3 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cak9kau) =====");
+
+            var oldGo = InstantiateBareForTrace(IdleFbxPath, sb, "OLD");
+            var v2Go = InstantiateBareForTrace(V2RiggedFbxPath, sb, "v2");
+            var v3Go = InstantiateBareForTrace(V3RiggedFbxPath, sb, "v3");
+            if (v3Go == null)
+            {
+                if (oldGo) Object.DestroyImmediate(oldGo);
+                if (v2Go) Object.DestroyImmediate(v2Go);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            Transform oldHand = oldGo != null ? FindBoneExactForTrace(oldGo.transform, "righthand") : null;
+            Transform v2Hand = v2Go != null ? FindBoneExactForTrace(v2Go.transform, "righthand") : null;
+            Transform v3Hand = FindBoneExactForTrace(v3Go.transform, "righthand");
+            sb.AppendLine($"[v3-seat] RightHand found: OLD={(oldHand != null)} v2={(v2Hand != null)} v3={(v3Hand != null)}");
+            if (oldHand != null) LogFrameForTrace(sb, "OLD-RightHand", oldHand);
+            if (v2Hand != null) LogFrameForTrace(sb, "v2 -RightHand", v2Hand);
+            if (v3Hand != null) LogFrameForTrace(sb, "v3 -RightHand", v3Hand);
+
+            if (v2Hand != null && v3Hand != null)
+            {
+                Quaternion rV2 = v2Hand.rotation, rV3 = v3Hand.rotation;
+                // (2) WORLD-TRANSFER: reproduce the approved v2 LIVE world carry on v3's hand frame.
+                Quaternion axeWorld = rV2 * Quaternion.Euler(MovementCameraScene.HeldAxeV2RelEuler);
+                Vector3 relV3 = NormEuler((Quaternion.Inverse(rV3) * axeWorld).eulerAngles);
+                Vector3 worldOff = rV2 * MovementCameraScene.HeldAxeV2LocalOffsetFromHand;
+                Vector3 offV3 = Quaternion.Inverse(rV3) * worldOff;
+                sb.AppendLine("[v3-seat] --- MEASURED first-pass seat (WORLD-TRANSFER of the approved v2 live carry) ---");
+                sb.AppendLine($"[v3-seat]   HeldAxeV3RelEuler            = new Vector3({relV3.x:F1}f, {relV3.y:F1}f, {relV3.z:F1}f);");
+                sb.AppendLine($"[v3-seat]   HeldAxeV3LocalOffsetFromHand = new Vector3({offV3.x:F4}f, {offV3.y:F4}f, {offV3.z:F4}f);");
+                // Fallback: axe long axis (+Y) -> world UP (head straight up) — a facing-agnostic sanity option.
+                Vector3 relUp = NormEuler(Quaternion.Inverse(rV3).eulerAngles);
+                sb.AppendLine($"[v3-seat]   [ALT world-up head-up] HeldAxeV3RelEuler = new Vector3({relUp.x:F1}f, {relUp.y:F1}f, {relUp.z:F1}f);");
+            }
+
+            // (3a) FINGER-CURL reconciliation: which of the curl/thumb/pinky tokens exist on v3's rig?
+            LogFingerResolutionForTrace(sb, v3Go.transform);
+            // (3b) CHUNKY-band reconciliation: v3's heads-tall proportion fingerprint.
+            LogHeadsTallForTrace(sb, v3Go.transform);
+
+            if (oldGo) Object.DestroyImmediate(oldGo);
+            if (v2Go) Object.DestroyImmediate(v2Go);
+            Object.DestroyImmediate(v3Go);
+            sb.AppendLine("[v3-seat] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
