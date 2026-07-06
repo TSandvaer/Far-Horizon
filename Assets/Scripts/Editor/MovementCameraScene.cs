@@ -47,7 +47,7 @@ namespace FarHorizon.EditorTools
         // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp;
         // re-made IN-HOUSE under 86cabh907 — Route A weapon SET). The procedural HeroAxeMesh wedge AND the
         // earlier CC-BY sourced hatchet are both RETIRED; the axe is the in-house faceted flat-shaded
-        // wpn_axe_01 (WeaponPackAssetGen.HeroAxeFbxPath, shared palette material). It is ATTACHED to the
+        // wpn_axe_stone_01 (WeaponPackAssetGen.HeroAxeFbxPath, shared palette material). It is ATTACHED to the
         // castaway's RIGHT HAND bone (mixamorig:RightHand — probe-verified by
         // CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it, and is shown only
         // once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture +
@@ -630,7 +630,7 @@ namespace FarHorizon.EditorTools
         // Attach the IN-HOUSE hero axe (ticket 86cabh907 — Route A weapon SET) to the chibi's RIGHT HAND bone
         // so the castaway HOLDS the axe. The procedural HeroAxeMesh wedge AND the earlier CC-BY sourced
         // hatchet are both RETIRED. The imported FBX (WeaponPackAssetGen.HeroAxeFbxPath — faceted flat-shaded
-        // wpn_axe_01, shared palette material) is instantiated as a child of the right-hand bone
+        // wpn_axe_stone_01, shared palette material) is instantiated as a child of the right-hand bone
         // (probe-verified) so it RIDES the hand's animated transform every frame; the attach-local pose puts
         // the handle in the palm + the blade forward, and the attach-local scale brings the normalized prop
         // to a believable axe size.
