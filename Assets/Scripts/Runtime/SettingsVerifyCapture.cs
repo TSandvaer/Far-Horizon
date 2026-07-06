@@ -20,7 +20,7 @@ namespace FarHorizon
     /// settings_tweaked.png was pixel-identical to settings_open.png, the quarantined PR #83 re-QA bug this
     /// ticket fixes.) Proves, from GROUND TRUTH, input-event → param-change → repainted-frame end-to-end.
     ///
-    /// CAPTURES five frames, then quits:
+    /// CAPTURES the following frames (dev-console F3 first, then the player F1 drawer), then quits:
     ///   settings_closed.png — the gameplay frame BEFORE opening (the world, panel hidden).
     ///   settings_open.png   — the console OPEN at the shipped 1.0x scale, parked in a CORNER off the player
     ///                         (86cabeqj9 AC1/AC4).
@@ -32,9 +32,16 @@ namespace FarHorizon
     ///                         (AC2), AND the differs-from-default badge shows on the dialed row (AC9).
     ///   settings_reset.png  — the console open AFTER reset-to-defaults: the live params reverted, the
     ///                         readouts/fields re-rendered to the defaults, the differs badge cleared (AC10).
+    ///   settings_player_open.png       — the PLAYER Settings drawer (F1, 86cah8ukr split) OPEN: the built-exe
+    ///                         evidence for the F1 render every DEV-console (F3) frame above skipped (belt/stack +
+    ///                         warmth/hunger/thirst on/off + decay-rate rows).
+    ///   settings_player_decayhidden.png— the F1 drawer AFTER flipping the WARMTH on/off toggle OFF: the warmth
+    ///                         decay-rate slider row HIDES live (86cah8ukr AC1 conditional visibility) — proven
+    ///                         from ground truth via SettingsCategory.IsDecaySliderVisible in the shipped build.
     /// and LOGS the 86cabeqj9 NIT proofs: NIT 1 — the `Console UI scale` row drives the panel scale live; NIT 2 —
-    /// the F1/F2 de-conflict (console toggle key=F1, legacy-overlay master=F2, distinct; opening the console does
-    /// NOT flip the legacy DebugOverlays.Visible flag → the two layers no longer share state).
+    /// the F1/overlay de-conflict (console toggle key=F1, debug-overlay master=F10, distinct; opening the console
+    /// does NOT flip the DebugOverlays.Visible flag → the two layers no longer share state). (86cah90cp round-3:
+    /// the legacy F2 master (DebugOverlayToggle) was removed — F10 is now the SINGLE overlay master; F2 is UNBOUND.)
     /// and LOGS the live-effect proof: the walk-speed param BEFORE vs AFTER the tweak (must differ), the
     /// zoom-range MIN/MAX clamping OrbitCamera.minDistance/maxDistance, the differs-from-default flag flipping
     /// on tweak + clearing on reset (AC9/AC10), and the registered entry count + archetypes (the extensible
@@ -94,20 +101,49 @@ namespace FarHorizon
                       $"worldInputGated={UiInputGate.CaptureWorldInput} (AC2/AC3: must be False — open alone " +
                       $"does NOT swallow locomotion/orbit; only a focused field does).");
 
-            // 86cabeqj9 NIT 2 — F1/F2 DE-CONFLICT (ground truth in the shipped build). The verify-capture
-            // can't synthesize a legacy key-down, but the DECOUPLE is machine-checkable: the console's toggle
-            // key is F1 + the legacy-overlay master is F2 (distinct), AND opening the console (SetOpen above)
-            // did NOT flip the legacy DebugOverlays.Visible flag — proving F1↔console and F2↔legacy no longer
-            // share state. Before the fix, opening rode DebugOverlays.Visible (so they were the SAME flag).
-            var legacyToggle = Object.FindAnyObjectByType<DebugOverlayToggle>();
-            KeyCode consoleKey = panel.toggleKey;
-            KeyCode legacyKey = legacyToggle != null ? legacyToggle.toggleKey : KeyCode.None;
-            Debug.Log($"[SettingsVerifyCapture] F1/F2 DE-CONFLICT (NIT 2): consoleToggleKey={consoleKey} " +
-                      $"legacyOverlayKey={legacyKey} keysDistinct={(consoleKey != legacyKey)} " +
+            // 86cabeqj9 NIT 2 + 86cah8ukr SPLIT — F1/F3/F10 DE-CONFLICT (ground truth in the shipped build). The
+            // verify-capture can't synthesize a key-down, but the DECOUPLE is machine-checkable: the DEV console
+            // opens on F3 (devToggleKey), the PLAYER Settings drawer on F1 (toggleKey), the debug-overlay master
+            // on F10 (DebugOverlayMaster.overlayToggleKey — re-homed off the retired SneakIsolationTool, 86caju054)
+            // — all distinct, F2 UNBOUND (the legacy F2 master DebugOverlayToggle was REMOVED in 86cah90cp round-3,
+            // Sponsor-directed 2026-07-03) — AND opening the console (SetOpen above) did NOT flip the shared
+            // DebugOverlays.Visible flag, proving F3↔console and F10↔overlays no longer share state.
+            var overlayMaster = Object.FindAnyObjectByType<DebugOverlayMaster>();
+            KeyCode consoleKey = panel.devToggleKey;
+            KeyCode playerKey = panel.toggleKey;
+            KeyCode overlayKey = overlayMaster != null ? overlayMaster.overlayToggleKey : KeyCode.None;
+            bool keysDistinct = consoleKey != overlayKey && consoleKey != playerKey && playerKey != overlayKey;
+            Debug.Log($"[SettingsVerifyCapture] F1/F3/F10 DE-CONFLICT (NIT 2 + 86cah8ukr): devConsoleKey={consoleKey} " +
+                      $"playerSettingsKey={playerKey} overlayMasterKey={overlayKey} keysDistinct={keysDistinct} " +
                       $"consoleOpen={panel.IsOpen} legacyOverlaysVisible={DebugOverlays.Visible} " +
-                      $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: consoleKey=F1, " +
-                      $"legacyKey=F2, distinct=True, decoupled=True — opening the console does NOT reveal the " +
-                      $"legacy overlays).");
+                      $"decoupled={(panel.IsOpen && !DebugOverlays.Visible)} (must be: devConsoleKey=F3, " +
+                      $"playerSettingsKey=F1, overlayKey=F10, distinct=True, decoupled=True — opening the console " +
+                      $"does NOT reveal the debug overlays; F2 is unbound).");
+
+            // #247 EMPTY-DRAWERS GUARD — the PR #247 build passed this gate while both drawers rendered header +
+            // footer but ZERO rows (the flex-grow ScrollView collapsed against a zero-height drawer container).
+            // frame_check.py only proves the whole FRAME isn't uniform (the green gameplay world passes), never
+            // that the PANEL region has rows — so an empty drawer slipped straight through. Probe GROUND TRUTH:
+            // the count of DEV rows actually VISIBLE (world rect overlapping the ScrollView viewport) + the
+            // viewport's resolved height (the collapse measure — ~0 when empty), now that the console is open +
+            // settled. verify_settings_gate.sh Check 4 FAILS if the visible count is 0.
+            int devVisible = panel.VisibleRowCount(true);
+            int devRouted = panel.RoutedRowCount(true);
+            float devViewport = panel.RowsViewportHeight(true);
+            Debug.Log($"[SettingsVerifyCapture] DEV rows visible: {devVisible} / {devRouted} routed " +
+                      $"(viewportHeight={devViewport:F1}px; #247 empty-drawers guard — MUST be > 0; a collapsed " +
+                      $"flex-grow ScrollView renders the header + footer but ZERO rows even though the " +
+                      $"registry/handles built + drove live).");
+
+            // #247 v2 — STEPPER-FIT ground truth for the DEV drawer (the "don't regress F3" half). The Sponsor
+            // flagged the F1 int-stepper rows as CRAMPED ("− 5 [+ 5] 5" jammed) while F3 read fine; this logs the
+            // smallest resolved [−]/value/[+] cell width so verify_settings_gate.sh Check 5 proves F3's steppers
+            // stay roomy after the F1 fix (a healthy cell = a 28px button; a crushed control collapses them <10px).
+            float devStepperCell = panel.MinStepperCellWidth(true);
+            int devStepperRows = panel.StepperRowCount(true);
+            Debug.Log($"[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth={devStepperCell:F1}px " +
+                      $"stepperRows={devStepperRows} (must be > 20px OR -1/no-steppers — F3 must stay roomy; a " +
+                      $"crushed control collapses the 28/44px cells so the glyphs overlap).");
 
             ShotTo(Path.Combine(dir, "settings_open.png"));
             yield return new WaitForEndOfFrame();
@@ -119,7 +155,10 @@ namespace FarHorizon
             // scale PlayerPrefs key (soak hygiene — the next launch must boot at the shipped 1.0x default).
             var scaleEntry = reg?.Get(SettingsCatalog.ConsoleUiScaleId) as FloatSettingEntry;
             var scaleSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (scaleEntry != null) SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey);
+            // Snapshot the value key AND its .def stale-default stamp (86cah90cp): SetValue writes both; a
+            // restore that puts back only the value would leave the run's stamp behind and could re-validate
+            // a stale override the invalidation should discard.
+            if (scaleEntry != null) { SnapshotFloat(scaleSnapshot, scaleEntry.PrefsKey); SnapshotFloat(scaleSnapshot, scaleEntry.DefaultStampKey); }
             try
             {
                 if (scaleEntry != null)
@@ -161,7 +200,7 @@ namespace FarHorizon
             // visibly LARGER (the font resized, independent of the chrome). Snapshot+restore its PlayerPrefs key.
             var textEntry = reg?.Get(SettingsCatalog.ConsoleTextScaleId) as FloatSettingEntry;
             var textSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (textEntry != null) SnapshotFloat(textSnapshot, textEntry.PrefsKey);
+            if (textEntry != null) { SnapshotFloat(textSnapshot, textEntry.PrefsKey); SnapshotFloat(textSnapshot, textEntry.DefaultStampKey); }
             try
             {
                 if (textEntry != null)
@@ -207,7 +246,7 @@ namespace FarHorizon
             var walk = reg?.Get(SettingsCatalog.WalkSpeedId) as FloatSettingEntry;
             var zoom = reg?.Get(SettingsCatalog.ZoomRangeId) as RangeSettingEntry;
             var prefsSnapshot = new System.Collections.Generic.List<PrefSnapshot>();
-            if (walk != null) SnapshotFloat(prefsSnapshot, walk.PrefsKey);
+            if (walk != null) { SnapshotFloat(prefsSnapshot, walk.PrefsKey); SnapshotFloat(prefsSnapshot, walk.DefaultStampKey); }
             if (zoom != null) { SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".min"); SnapshotFloat(prefsSnapshot, zoom.PrefsKey + ".max"); }
 
             float walkBefore = wasd != null ? wasd.moveSpeed : float.NaN;
@@ -297,6 +336,80 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
             yield return new WaitForSeconds(0.5f);
+
+            // 5. PLAYER SETTINGS DRAWER (F1, 86cah8ukr split) — every frame above rendered the DEV console (F3).
+            //    The split moved the player-facing rows (belt/stack + warmth/hunger/thirst on/off + decay sliders)
+            //    into a SEPARATE F1 drawer the dev-console capture NEVER covered, so the shipped-build gate had a
+            //    blind spot on the F1 render (Devon's own #247 capture NIT). Close the dev console, open the player
+            //    drawer, and capture it — the automated backstop to the Sponsor soak's F1 pass (a UIDocument-render
+            //    surface needs BUILT-EXE evidence, not editor-only; unity-conventions.md §editor-vs-runtime).
+            panel.SetOpen(false);              // dev console away → a clean player-only frame
+            panel.SetPlayerOpen(true);
+            for (int i = 0; i < 8; i++) yield return null;  // let the open transition play + lay out
+            // #247 EMPTY-DRAWERS GUARD (F1 half) — same ground-truth row-visibility probe for the PLAYER drawer.
+            // The Sponsor soak showed F1 rendering ONLY "Settings" + "Reset to defaults" with zero rows (belt/stack
+            // + warmth/hunger/thirst on/off + decay sliders all missing); this asserts the F1 rows are visible.
+            int playerVisible = panel.VisibleRowCount(false);
+            int playerRouted = panel.RoutedRowCount(false);
+            float playerViewport = panel.RowsViewportHeight(false);
+            Debug.Log($"[SettingsVerifyCapture] PLAYER rows visible: {playerVisible} / {playerRouted} routed " +
+                      $"(viewportHeight={playerViewport:F1}px; #247 empty-drawers guard — MUST be > 0; the F1 " +
+                      $"drawer showed header + footer but ZERO rows).");
+            Debug.Log($"[SettingsVerifyCapture] PLAYER drawer OPEN (F1, 86cah8ukr): playerOpen={panel.IsPlayerOpen} " +
+                      $"devOpen={panel.IsOpen} worldInputGated={UiInputGate.CaptureWorldInput} (must be: playerOpen=" +
+                      $"True, devOpen=False, gated=False — open alone is non-modal, only a focused field gates).");
+
+            // #247 v2 — STEPPER-FIT ground truth for the PLAYER drawer (the fix's primary proof). The Sponsor
+            // re-soak flagged the F1 int-stepper rows (Belt slots + Inventory stack size) as CRAMPED: the [−]/
+            // value/[+] columns clipped/overlapped ("− 5 [+ 5] 5" jammed). Root cause: the stepper control was
+            // flex-grow:1 with the DEFAULT flex-shrink:1, so on the (no-scrollbar) F1 rows it was the only
+            // shrinkable child and collapsed below its 100px content, crushing the 28/44px cells. The #247 v2 USS
+            // fix pins the control + cells flex-shrink:0 + a min-width so the overflow WRAPS (like F3) instead of
+            // crushing. Log the smallest resolved cell width so verify_settings_gate.sh Check 5 FAILS on a crush.
+            float playerStepperCell = panel.MinStepperCellWidth(false);
+            int playerStepperRows = panel.StepperRowCount(false);
+            Debug.Log($"[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth={playerStepperCell:F1}px " +
+                      $"stepperRows={playerStepperRows} (must be > 20px — the F1 int-stepper [−]/value/[+] cells " +
+                      $"must NOT crush below their 28/44px design widths; a collapse is the 'not enough room' overlap).");
+            ShotTo(Path.Combine(dir, "settings_player_open.png"));
+            yield return new WaitForEndOfFrame();
+            yield return null;
+
+            // 5b. CONDITIONAL VISIBILITY (86cah8ukr AC1) — a per-need decay-rate slider shows ONLY while its need's
+            //     on/off toggle is ON; flip the toggle OFF and the slider row hides LIVE (display:None). Drive the
+            //     WARMTH need's decayEnabled flag DIRECTLY on the live component (NOT the entry setter → no
+            //     PlayerPrefs write-through → no soak pollution, so no snapshot/restore dance needed), then
+            //     RefreshReadouts (which runs ApplyConditionalVisibility + repaints the toggle to Off). Capture the
+            //     hidden frame + log the visibility flip from GROUND TRUTH via the SAME single-source decision the
+            //     panel uses (SettingsCategory.IsDecaySliderVisible). Restore the live flag after (never touched Prefs).
+            var warmthNeed = Object.FindAnyObjectByType<WarmthNeed>();
+            if (warmthNeed != null && panel.Registry != null)
+            {
+                bool warmthBefore = warmthNeed.decayEnabled;
+                warmthNeed.decayEnabled = true;   // ensure ON so the decay slider starts visible
+                panel.RefreshReadouts();
+                bool visibleWhenOn = SettingsCategory.IsDecaySliderVisible(panel.Registry, SettingsCatalog.WarmthDecayId);
+                warmthNeed.decayEnabled = false;  // flip OFF → the warmth decay-rate slider must hide LIVE (AC1)
+                panel.RefreshReadouts();
+                bool visibleWhenOff = SettingsCategory.IsDecaySliderVisible(panel.Registry, SettingsCatalog.WarmthDecayId);
+                for (int i = 0; i < 5; i++) yield return null;   // let the display:None re-layout land
+                Debug.Log($"[SettingsVerifyCapture] DECAY-SLIDER conditional visibility (86cah8ukr AC1): " +
+                          $"warmthOn->visible={visibleWhenOn} warmthOff->visible={visibleWhenOff} " +
+                          $"hidesOnToggleOff={(visibleWhenOn && !visibleWhenOff)} (must be: On->True, Off->False, " +
+                          $"hides=True — a disabled need has no rate to tune).");
+                ShotTo(Path.Combine(dir, "settings_player_decayhidden.png"));
+                yield return new WaitForEndOfFrame();
+                yield return null;
+                warmthNeed.decayEnabled = warmthBefore;   // restore the live flag (no PlayerPrefs was ever written)
+                panel.RefreshReadouts();
+            }
+            else
+            {
+                Debug.LogError("[SettingsVerifyCapture] cannot verify the F1 decay-slider hide-on-toggle-off " +
+                               "(86cah8ukr AC1) — WarmthNeed missing or registry null in the shipped scene.");
+            }
+            panel.SetPlayerOpen(false);        // leave the player drawer closed (the shipped default)
+            for (int i = 0; i < 3; i++) yield return null;
 
             Debug.Log("[SettingsVerifyCapture] verification complete (PlayerPrefs restored) -> " + dir);
             Application.Quit();

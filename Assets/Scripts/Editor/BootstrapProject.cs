@@ -349,16 +349,12 @@ namespace FarHorizon.EditorTools
             // .PopulateFps). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
             // FpsCounterHudSceneTests guards its serialized presence + enabled default.
             hudGo.AddComponent<FpsCounterHud>();
-            // F2 MASTER on/off for the LEGACY dev/debug instrument-overlay layer (86cafd6d6; key moved F1→F2 by
-            // the 86cabeqj9 soak NIT so F1 opens ONLY the dev console). Default HIDDEN — a normal launch / soak /
-            // CI capture shows a CLEAN screen (this un-buries the #158 loot prompt the always-on "DEBUG — held
-            // weapon" overlay was burying); F2 reveals/hides the whole LEGACY layer (HeldWeaponCycleDebug /
-            // HeldAxeLengthPicker / PondNudge + the F7-F10 nudge panels, which each read DebugOverlays.Visible).
-            // The dev CONSOLE (SettingsPanel) keeps F1 and polls it directly (no longer rides DebugOverlays.Visible).
-            // Gates ONLY dev overlays — NEVER the build stamp (BootHud) or gameplay UI (SurvivalHud need bars /
-            // inventory / loot prompt). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
-            // DebugOverlayToggleSceneTests guards its serialized presence.
-            hudGo.AddComponent<DebugOverlayToggle>();
+            // NOTE — the legacy F2 debug-overlay master (DebugOverlayToggle, #208-era F1→F2 by 86cabeqj9) was
+            // REMOVED in 86cah90cp round-3 (Sponsor-directed 2026-07-03): F10 is now the SINGLE key for the
+            // debug-overlay layer. F10 (DebugOverlayMaster.overlayToggleKey) flips the shared DebugOverlays.Visible,
+            // and the WorldLookNudgeTool also rides F10, so one F10 press reveals BOTH panels together; F1 (dev
+            // console / SettingsPanel) stays untouched. The layer still defaults HIDDEN (clean screen on a normal
+            // launch / soak / CI capture) and still gates ONLY dev overlays — never the build stamp or gameplay UI.
             hudGo.AddComponent<BootScreenshot>();
             // Standard shipped-build capture component (testing-bar capture gate, 86ca86g7k).
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime

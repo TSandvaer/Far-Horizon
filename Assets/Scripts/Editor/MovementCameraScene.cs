@@ -182,6 +182,23 @@ namespace FarHorizon.EditorTools
         // — NOT a final bake (he re-confirms + may micro-dial; a later pass bakes). F9 still drives it.
         // SUPERSEDES (0.1312,0.1409,0.0593).
         public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
+        // ===== CASTAWAY v2 held-axe seat (86cajx050 AC2 — the MEASURED re-seat; supersedes the 86cajwp23 blind
+        // old-rig copy). v2 is a fresh Mixamo Standard A-pose rig; the trace CONFIRMED its mixamorig:RightHand
+        // LOCAL FRAME differs materially from the old rig's (old +Y≈(0.05,-1.00,0.06) points ~straight down; v2
+        // +Y≈(0.00,-0.88,0.48) tilts ~28° forward), so the old seat did NOT carry 1:1. These values are a
+        // MEASURED first-pass derived by CharacterAssetGen.CastawayV2HandAxisTrace: it TRANSFERS the Sponsor-
+        // APPROVED old-rig WORLD carry onto v2's hand frame (the axe MESH is identical, so matching its WORLD
+        // orientation reproduces the approved look) —
+        //   HeldAxeV2RelEuler = eulerAngles( Inv(R_v2hand) * R_oldhand * Euler(HeldAxeRelEuler) )
+        //   HeldAxeV2LocalOffsetFromHand = Inv(R_v2hand) * ( R_oldhand * HeldAxeLocalOffsetFromHand )
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. The measured
+        // first-pass (20.9,-16.1,74.9)/(0.1819,0.0435,0.0946) got the axe roughly into v2's hand; the Sponsor then
+        // F9-DIALED the final seat live in soak-v2-live @ stamp 1ff2f9d and APPROVED the result (axe reads seated in
+        // v2's hand) — the values below are those BAKED Sponsor-dialed numbers (per [[verify-soak-builds-or-bake-and-
+        // judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used ONLY when
+        // CharacterAssetGen.UseCastawayV2; the old seat above is byte-unchanged when the toggle is OFF (rollback path).
+        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(20.0f, -16.1f, 74.9f);
+        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.0619f, 0.1235f, 0.0454f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -729,9 +746,12 @@ namespace FarHorizon.EditorTools
             // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
             // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
             // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
-            Vector3 handLocalOffset = HeldAxeLocalOffsetFromHand;
+            // 86cajwp23 AC2 — the v2 base rides its OWN re-measured seat prior (v2's mixamorig:RightHand local
+            // frame differs from the old rig's); the old seat is unchanged when the toggle is OFF.
+            Vector3 handLocalOffset = CharacterAssetGen.UseCastawayV2 ? HeldAxeV2LocalOffsetFromHand : HeldAxeLocalOffsetFromHand;
+            Vector3 relEuler = CharacterAssetGen.UseCastawayV2 ? HeldAxeV2RelEuler : HeldAxeRelEuler;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
-            rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
+            rig.relEuler = relEuler;                   // hand-relative — turns with the hand
             // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
             // natural swing during locomotion: it rides the RAW hand bone. The prior swing-stabilizer /
             // grip-anchor (86ca8rdkp) + the vertical-decouple bounce/ratchet fix (86ca9ykp0) are REMOVED
@@ -755,12 +775,13 @@ namespace FarHorizon.EditorTools
             // hand-local field is facing-invariant, so this static pose == the runtime pose at EVERY facing
             // (re-expressed per facing). localRot = Euler(relEuler) (hand-relative).
             Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
-            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
+            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(relEuler);
             axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
             axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
             Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
                       handLocalOffset.ToString("F4") +
-                      " relEuler=" + HeldAxeRelEuler.ToString("F1") +
+                      " relEuler=" + relEuler.ToString("F1") +
+                      (CharacterAssetGen.UseCastawayV2 ? " [v2 seat prior]" : "") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
 
@@ -1179,13 +1200,22 @@ namespace FarHorizon.EditorTools
             curl.inventory = Object.FindObjectOfType<Inventory>();
             curl.RebuildCached();
 
-            if (fingers.Count < 6)
+            // v2 (86cajx050) is the 41-bone Mixamo variant: its RIGHT hand carries ONLY index 1-3 + thumb 1-3 —
+            // no middle/ring/pinky (CastawayV2HandAxisTrace: index/middle/ring=3/9, thumb=3/3, pinky=0/3). So the
+            // OLD "expected 9, floor 6" bar is WRONG for v2 (v2 physically cannot resolve middle/ring). The real
+            // regression this guards is a resolution FAILURE (the curl wired to fewer bones than the rig actually
+            // provides), so the floor is per-rig: v2=3 (index 1-3, all v2 has), old=6 (a partial old resolve still
+            // ships an incomplete grip). A LogError here would also red the EditMode rebuild test via LogAssert.
+            int expectedFingerFloor = CharacterAssetGen.UseCastawayV2 ? 3 : 6;
+            if (fingers.Count < expectedFingerFloor)
                 Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
-                               " finger bones (expected 9: Index/Middle/Ring 1-3) — the grip curl will be " +
-                               "partial. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
+                               " right-hand finger bones (expected >= " + expectedFingerFloor +
+                               (CharacterAssetGen.UseCastawayV2 ? " for v2: Index 1-3" : ": Index/Middle/Ring 1-3") +
+                               ") — the grip curl will be partial/unwired. Re-run CharacterAssetGen.CastawayV2HandAxisTrace to dump the rig.");
             else
                 Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
-                          thumbs.Count + " thumb bones, HasAxe-gated)");
+                          thumbs.Count + " thumb bones, HasAxe-gated" +
+                          (CharacterAssetGen.UseCastawayV2 ? "; v2 index+thumb only" : "") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -1370,27 +1400,28 @@ namespace FarHorizon.EditorTools
 
         // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument) onto
         // Boot so it SERIALIZES into Boot.unity (the editor-vs-runtime serialization trap — it would ship inert
-        // otherwise). F2 toggles #186 foot-sync; F3 snaps sneak→walk speed; the live readout shows which number
-        // oscillates per gait cycle. Behind the F1 dev-overlay master gate; default state = shipped crouch (foot-
-        // sync ON, reduced sneak). Sibling of WireFloatDiagnostic.
-        private static void WireSneakIsolationTool()
+        // otherwise). F10 flips the shared DebugOverlays.Visible master so every dev overlay reveals together;
+        // default state = clean screen (master hidden). Sibling of WireFloatDiagnostic. (86caju054 — re-homed off
+        // the RETIRED SneakIsolationTool: the sneak readout + its F5/F6 handles are gone, F10 stays the master.)
+        private static void WireDebugOverlayMaster()
         {
             var bootGo = GameObject.Find("Boot");
             if (bootGo == null)
             {
-                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakIsolationTool");
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host DebugOverlayMaster");
                 return;
             }
-            var tool = bootGo.GetComponent<SneakIsolationTool>();
+            var tool = bootGo.GetComponent<DebugOverlayMaster>();
             if (tool == null)
-                tool = bootGo.AddComponent<SneakIsolationTool>();
-            // EXPLICITLY re-assert the toggle keys every bootstrap — a bare AddComponent leaves stale SERIALIZED
-            // KeyCode values in the committed binary Boot.unity when the component already exists, so a code-only
-            // default change (F2/F3 → F5/F6) would NEVER reach the shipped exe (editor-vs-runtime serialization
-            // trap + [[unity-procedural-committed-assets-go-stale]]). Setting the fields makes the baked scene
-            // authoritative-from-code. F5/F6 are Danish-safe F-keys, verified unbound; F2/F3 vacated (#208 → F2).
-            tool.footSyncToggleKey = KeyCode.F5;
-            tool.sneakSpeedSnapToggleKey = KeyCode.F6;
+                tool = bootGo.AddComponent<DebugOverlayMaster>();
+            // EXPLICITLY re-assert the toggle key every bootstrap — a bare AddComponent leaves a stale SERIALIZED
+            // KeyCode value in the committed binary Boot.unity when the component already exists, so a code-only
+            // default change would NEVER reach the shipped exe (editor-vs-runtime serialization trap +
+            // [[unity-procedural-committed-assets-go-stale]]). Setting the field makes the baked scene
+            // authoritative-from-code. F10 = the SINGLE debug-overlay master (86cah90cp; the legacy F2 master was
+            // removed round-3) — flips DebugOverlays.Visible so F10 reveals the WorldLookNudgeTool + nudge panels
+            // together; F1 stays the console, F2 is UNBOUND.
+            tool.overlayToggleKey = KeyCode.F10;
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -2945,7 +2976,7 @@ namespace FarHorizon.EditorTools
             // Serializes onto Boot so the F2 (foot-sync) + F3 (sneak-speed snap) toggles + the live readout ship;
             // behind the F1 dev-overlay master gate, default = shipped crouch behavior. The Sponsor sneaks, flips
             // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
-            WireSneakIsolationTool();
+            WireDebugOverlayMaster();
 
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
@@ -3220,9 +3251,10 @@ namespace FarHorizon.EditorTools
             var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(SettingsPanelUxmlPath);
             var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(PaletteUssPath);
             var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(SettingsPanelUssPath);
-            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the SINGLE clone (it CloneTree's
-            // the serialized panelUxml, adds the stylesheets, and re-resolves elements by name; it also carries
-            // the build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
+            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the clone(s) (86cah8ukr: it now
+            // CloneTree's the serialized panelUxml TWICE, once per drawer — F1 player + F3 dev — into two scoped
+            // containers, adds the stylesheets, and re-resolves elements per-container; it also carries the
+            // build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
             // here would make the UIDocument ALSO auto-clone the shell on enable → a duplicate, always-visible
             // orphan settings-scrim laid over the world that Q("settings-scrim") never binds (codereview #83).
 
@@ -3241,6 +3273,18 @@ namespace FarHorizon.EditorTools
             // rows are live in the shipped build without a runtime FindObjectOfType. The Awake fallback stays as
             // the bare-scene safety net. May be null on a bare rig — the rows then simply don't appear.
             panel.hunger = Object.FindObjectOfType<HungerNeed>();
+            // Per-need on/off + warmth decay-rate (86cabeqwf, folded into the F1/F3 split 86cah8ukr) — the
+            // warmth on/off toggle + warmth decay-rate slider bind to the WarmthNeed BootstrapProject added to
+            // the Survival object BEFORE this runs (the hunger/thirst on/off toggles bind to those needs wired
+            // above). Serialized so the PLAYER-facing rows ship live without a runtime FindObjectOfType. May be
+            // null on a bare rig — the warmth rows then simply don't appear.
+            panel.warmth = Object.FindObjectOfType<WarmthNeed>();
+            // 86cah8ukr SPLIT — wire BOTH toggle keys editor-time so they serialize into Boot.unity (the
+            // field-default-not-serialized trap): F1 opens the player Settings drawer, F3 the dev console
+            // (Sponsor-confirmed 2026-07-03). Debug overlays are on F10 (DebugOverlayMaster, the single overlay
+            // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
+            panel.toggleKey = KeyCode.F1;
+            panel.devToggleKey = KeyCode.F3;
             // Held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows bind to it. BuildPlayer
             // (which authors the HeroAxe + its HeldWeaponPlacement) runs BEFORE this in Author, so the seam
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the

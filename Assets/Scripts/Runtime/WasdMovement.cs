@@ -119,8 +119,9 @@ namespace FarHorizon
         // (sneak) move commands the NORMAL WALK speed instead of the reduced sneakSpeed — so the Sponsor can A/B
         // whether the per-gait-cycle jerk is SPECIFIC to the slow sneak speed (gone at walk speed = a slow-speed
         // root-translation / blend artifact) or persists regardless (an animation-clip-loop artifact). DEBUG-only:
-        // default OFF so shipped crouch behavior (reduced sneak speed) is byte-unchanged; the SneakIsolationTool
-        // flips it live behind the dev-overlay gate. NOT a serialized field (a runtime debug mirror).
+        // default OFF so shipped crouch behavior (reduced sneak speed) is byte-unchanged. (The SneakIsolationTool
+        // that once flipped this live was RETIRED in 86caju054; the seam stays — covered by WasdMovementTests +
+        // available to any future isolation instrument.) NOT a serialized field (a runtime debug mirror).
         private bool _sneakSpeedSnapToWalk;
 
         /// <summary>Drive WASD programmatically (the input-independent seam — the verify capture's analog of
@@ -152,13 +153,13 @@ namespace FarHorizon
         /// <summary>ISOLATION TOGGLE (86caa3kur re-soak attempt-3 /unstick instrument): when <paramref name="snap"/>
         /// is true, a crouched (sneak) move commands the NORMAL WALK speed instead of the reduced sneakSpeed — the
         /// disconfirming control for "is the per-gait-cycle jerk SPECIFIC to the slow sneak speed?". DEBUG-only;
-        /// default OFF (shipped reduced-sneak behavior unchanged). The SneakIsolationTool flips it live behind the
-        /// dev-overlay gate. Idempotent.</summary>
+        /// default OFF (shipped reduced-sneak behavior unchanged). (The SneakIsolationTool that once flipped this
+        /// live was RETIRED in 86caju054; the seam + WasdMovementTests coverage stay.) Idempotent.</summary>
         public void SetSneakSpeedSnapToWalk(bool snap) => _sneakSpeedSnapToWalk = snap;
 
         /// <summary>Whether the sneak-speed-snap-to-walk isolation toggle is ON this frame (86caa3kur attempt-3
-        /// instrument). Exposed so the SneakIsolationTool readout shows the current A/B state + an EditMode guard
-        /// asserts the default is OFF (shipped crouch speed unchanged).</summary>
+        /// instrument). Exposed for the EditMode guard that asserts the default is OFF (shipped crouch speed
+        /// unchanged); its former SneakIsolationTool readout consumer was retired in 86caju054.</summary>
         public bool SneakSpeedSnappedToWalk => _sneakSpeedSnapToWalk;
 
         /// <summary>Request a JUMP programmatically — the input-independent analog of pressing Space (ticket

@@ -48,6 +48,20 @@ assert_rc_and_grep() {
   fi
 }
 
+# assert_rc_grep_present_absent <expected-rc> <needle-present> <needle-absent> <label> -- <cmd...>
+# Passes iff rc matches AND the present-needle IS in the output AND the absent-needle is NOT.
+# Proves a message SPLIT: the correct message fires and the WRONG (mis-attributing) one does not.
+assert_rc_grep_present_absent() {
+  local exp="$1" yes="$2" no="$3" label="$4"; shift 5
+  local out; out="$("$@" 2>&1)"; local rc=$?
+  if [ "$rc" -eq "$exp" ] && printf '%s' "$out" | grep -qF "$yes" && ! printf '%s' "$out" | grep -qF "$no"; then
+    ok "$label (rc=$rc, matched '$yes', absent '$no')"
+  else
+    bad "$label — expected rc=$exp + '$yes' present + '$no' absent; got rc=$rc"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+}
+
 echo "=== check_unity_log.sh ==="
 
 # 1. Clean log → PASS (rc 0).
@@ -431,9 +445,24 @@ IDENTDIR="$TMP/frames_ident_fix"; python3 "$PNG_HELPER" "$IDENTDIR" identical   
 
 # Fake-exe factory: writes 3 good PNGs into -captureDir and a log into -logFile.
 # $1 = output path, $2 = the changedLive token (True / False / empty = no proof line),
-# $3 = "identical" → tweaked frame is a byte-copy of open (the PR #83 pixel-identical bug).
+# $3 = "identical" → tweaked frame is a byte-copy of open (the PR #83 pixel-identical bug),
+# $4 = #247 row-visibility proof emission (Check 4 — DEV at the open frame + PLAYER at the F1
+#      drawer; the real SettingsVerifyCapture logs BOTH from VisibleRowCount ground truth):
+#        "both"   (default) → DEV rows visible: 9/62 AND PLAYER rows visible: 8/8 (both > 0) — the
+#                             faithful mirror of a healthy shipped run; Check 4 passes.
+#        "devzero"          → DEV rows visible: 0/62 (one collapsed drawer, the #247 regression) —
+#                             Check 4's zero-rows branch must red the gate.
+#        "none"             → emit NEITHER proof line — Check 4's absent-proof branch must red it.
+# $5 = #247 v2 stepper-fit proof emission (Check 5 — the smallest resolved [−]/value/[+] cell
+#      width per drawer; the real SettingsVerifyCapture logs BOTH from MinStepperCellWidth ground
+#      truth). Check 5 greps 'PLAYER STEPPER fit' / 'DEV STEPPER fit' + extracts minCellWidth
+#      (>= 20px pass; < 20px crush fail; -1 no-stepper-row legit pass):
+#        "both"   (default) → both drawers minCellWidth=28.0px (healthy 28px button) — Check 5 passes.
+#        "crush"            → PLAYER minCellWidth=8.0px (the F1 [−]/value/[+] crush the #247 v2 gate
+#                             catches; F3 stays roomy) — Check 5's crush branch must red the gate.
+#        "none"             → emit NEITHER stepper-fit line — Check 5's absent-proof branch must red it.
 make_fake_exe() {
-  local exe="$1" changed="$2" ident="${3:-}"
+  local exe="$1" changed="$2" ident="${3:-}" rows="${4:-both}" stepper="${5:-both}"
   cat > "$exe" <<FAKE
 #!/usr/bin/env bash
 capdir=""; logf=""
@@ -448,6 +477,27 @@ python3 "$PNG_HELPER" "\$capdir" "$ident"
 if [ -n "$changed" ]; then
   echo "[SettingsVerifyCapture] WALK SPEED tweak: before=5.00 setTo=9.00 liveAfter=9.00 changedLive=$changed (AC2)" >> "\$logf"
 fi
+# #247 row-visibility proof lines — mirror the real SettingsVerifyCapture emission so the gate's
+# Check 4 (both drawers show > 0 rows) and this fixture path AGREE. Check 4 greps per-drawer:
+# 'DEV rows visible: [1-9]' AND 'PLAYER rows visible: [1-9]' (pass) / 'rows visible: 0 ' (fail).
+case "$rows" in
+  both)    echo "[SettingsVerifyCapture] DEV rows visible: 9 / 62 routed (viewportHeight=699.0px; #247 empty-drawers guard)" >> "\$logf"
+           echo "[SettingsVerifyCapture] PLAYER rows visible: 8 / 8 routed (viewportHeight=565.5px; #247 empty-drawers guard)" >> "\$logf";;
+  devzero) echo "[SettingsVerifyCapture] DEV rows visible: 0 / 62 routed (viewportHeight=0.0px; #247 empty-drawers guard)" >> "\$logf"
+           echo "[SettingsVerifyCapture] PLAYER rows visible: 8 / 8 routed (viewportHeight=565.5px; #247 empty-drawers guard)" >> "\$logf";;
+  none)    : ;;  # emit NEITHER proof line (the absent-proof-line case)
+esac
+# #247 v2 stepper-fit proof lines (Check 5) — mirror the real SettingsVerifyCapture emission
+# (SettingsVerifyCapture.cs PLAYER/DEV STEPPER fit) so the gate's Check 5 (both drawers'
+# [−]/value/[+] columns have room) and this fixture path AGREE. Check 5 greps per-drawer:
+# 'PLAYER STEPPER fit' / 'DEV STEPPER fit' + extracts minCellWidth (>= 20px pass / < 20px crush).
+case "$stepper" in
+  both)  echo "[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px)" >> "\$logf"
+         echo "[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px OR -1/no-steppers)" >> "\$logf";;
+  crush) echo "[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth=8.0px stepperRows=2 (must be > 20px)" >> "\$logf"
+         echo "[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px OR -1/no-steppers)" >> "\$logf";;
+  none)  : ;;  # emit NEITHER stepper-fit line (the absent-proof-line case)
+esac
 echo "[SettingsVerifyCapture] verification complete -> \$capdir" >> "\$logf"
 exit 0
 FAKE
@@ -486,6 +536,114 @@ assert_rc_and_grep 1 "exe not found" "missing exe fails loud" \
 make_fake_exe "$TMP/fake_identical.sh" "True" "identical"
 assert_rc_and_grep 1 "visible-diff sub-check FAILED" "pixel-identical tweaked frame FAILS the gate (un-quarantined 86cabe3e5)" \
   -- bash "$SETTINGS_GATE" "$TMP/fake_identical.sh" "$TMP/scaps_id" "$TMP/slog_id.log"
+
+# 6. THE #247 EMPTY-DRAWERS GUARD — Check 4 is FATAL. A drawer reporting ZERO visible rows FAILS the
+#    gate even with changedLive=True AND a visibly-different tweaked frame (Checks 1-3 all GREEN): the
+#    exact PR #247 symptom — the panel drew its header + footer but the flex-grow rows ScrollView
+#    collapsed against a zero-height drawer container → zero rows rendered, and frame_check (whole-frame
+#    only) waved the green gameplay world through. This isolates Check 4 as the sole failing check.
+make_fake_exe "$TMP/fake_devzero.sh" "True" "" "devzero"
+assert_rc_and_grep 1 "a drawer showed ZERO visible rows" "empty DEV drawer (0 rows) FAILS the gate (#247)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_devzero.sh" "$TMP/scaps_dz" "$TMP/slog_dz.log"
+
+# 7. #247 — the row-visibility proof line ABSENT for both drawers FAILS the gate. A build that never
+#    probed row visibility (an older/regressed SettingsVerifyCapture) cannot silently pass Check 4;
+#    the check demands the ground-truth proof line, not its mere absence. Checks 1-3 green; Check 4 fails.
+make_fake_exe "$TMP/fake_norows.sh" "True" "" "none"
+assert_rc_and_grep 1 "missing the #247 row-visibility proof line" "absent row-visibility proof FAILS the gate (#247)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_norows.sh" "$TMP/scaps_nr" "$TMP/slog_nr.log"
+
+# 8. THE #247 v2 F1-CRAMP GUARD — Check 5 is FATAL. A drawer whose int-stepper [−]/value/[+]
+#    columns crush below their design width (minCellWidth < 20px) FAILS the gate even with
+#    changedLive=True, a visibly-different tweaked frame, AND both drawers showing rows (Checks
+#    1-4 all GREEN): the exact PR #247 v2 symptom the Sponsor re-soak flagged — the F1 stepper
+#    control (flex-grow:1 + default flex-shrink:1) collapsed and overlapped its glyphs on the
+#    no-scrollbar F1 rows. A within-row column crush is invisible to Check 1 (whole-frame) and
+#    Check 4 (row overlaps viewport). This isolates Check 5 as the sole failing check.
+make_fake_exe "$TMP/fake_crush.sh" "True" "" "both" "crush"
+assert_rc_and_grep 1 "int-stepper columns CRUSHED" "crushed F1 stepper column FAILS the gate (#247 v2)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_crush.sh" "$TMP/scaps_cr" "$TMP/slog_cr.log"
+
+# ── WEDGE HARDENING (86cajt6kq) ──────────────────────────────────────────────────────────────
+# THE flake this fixes: the windowed -verifySettings exe intermittently WEDGES in its present loop
+# and is killed by the timeout, TRUNCATING the capture before settings_tweaked.png (written LAST).
+# Old behaviour: the missing frame drove Check 3 to fire the CANNED "synthetic entry-setter drive
+# (PR #83)" text — mis-attributing a missing-frame wedge to a historical content bug. Fix = (AC1) a
+# bounded retry on the wedge signature, (AC2) a message SPLIT so the PR-#83 text fires ONLY on a
+# present-but-identical frame, never on a truncation.
+#
+# Wedge fake-exe factory: emits every OTHER proof line (changedLive / rows / stepper) so the ONLY
+# failing check is Check 3's missing-tweaked-frame branch — isolating the wedge-vs-content split.
+#   mode "always"  → EVERY invocation writes ONLY closed + open (deletes tweaked) and exits 124 (the
+#                    timeout-wedge signature). Both the run AND its retry truncate.
+#   mode "recover" → attempt 1 truncates + exits 124; attempt 2 (the retry) writes ALL 3 frames +
+#                    exits 0. Proves the bounded retry RECOVERS a one-shot wedge.
+# The gate wipes capdir+logfile at the START of each attempt, so an inter-attempt counter FILE
+# (outside both) is how the exe knows which attempt it is on. (Named distinctly from the cross-gate
+# make_wedge_exe below — this one emits the settings-specific proof lines + models truncation.)
+make_settings_wedge_exe() {
+  local exe="$1" mode="$2" counter="$3"
+  cat > "$exe" <<FAKE
+#!/usr/bin/env bash
+capdir=""; logf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -captureDir) capdir="\$2"; shift 2;;
+    -logFile)    logf="\$2"; shift 2;;
+    *) shift;;
+  esac
+done
+n=0; [ -f "$counter" ] && n=\$(cat "$counter"); n=\$((n+1)); echo "\$n" > "$counter"
+emit_proof() {
+  echo "[SettingsVerifyCapture] WALK SPEED tweak: before=5.00 setTo=9.00 liveAfter=9.00 changedLive=True (AC2)" >> "\$logf"
+  echo "[SettingsVerifyCapture] DEV rows visible: 9 / 62 routed (viewportHeight=699.0px; #247 empty-drawers guard)" >> "\$logf"
+  echo "[SettingsVerifyCapture] PLAYER rows visible: 8 / 8 routed (viewportHeight=565.5px; #247 empty-drawers guard)" >> "\$logf"
+  echo "[SettingsVerifyCapture] PLAYER STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px)" >> "\$logf"
+  echo "[SettingsVerifyCapture] DEV STEPPER fit (#247 v2): minCellWidth=28.0px stepperRows=2 (must be > 20px OR -1/no-steppers)" >> "\$logf"
+}
+if [ "$mode" = "recover" ] && [ "\$n" -ge 2 ]; then
+  python3 "$PNG_HELPER" "\$capdir"          # full 3-frame capture on the retry
+  emit_proof
+  exit 0
+else
+  python3 "$PNG_HELPER" "\$capdir"          # writes closed + open + tweaked ...
+  rm -f "\$capdir/settings_tweaked.png"      # ... then TRUNCATE at settings_open.png (the wedge)
+  emit_proof
+  exit 124                                   # timeout-wedge exit signature
+fi
+FAKE
+  chmod +x "$exe"
+}
+
+# 9. AC2 de-mislead — a persistent wedge (BOTH attempts truncate) reports the WEDGE/TRUNCATION
+#    message naming the last frame present, and does NOT fire the canned PR-#83 "synthetic
+#    entry-setter drive" text. This is the mis-attribution the ticket fixes.
+make_settings_wedge_exe "$TMP/fake_wedge.sh" "always" "$TMP/wedge_ctr"
+assert_rc_grep_present_absent 1 "capture TRUNCATED (WEDGE)" "synthetic entry-setter drive" \
+  "wedge truncation → WEDGE message, NOT the PR-#83 canned regression (86cajt6kq AC2)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_wedge.sh" "$TMP/scaps_wedge" "$TMP/slog_wedge.log"
+
+# 10. AC2 — the wedge message NAMES the last frame actually present (closed → open → tweaked; the
+#     capture truncated at settings_open.png), so the truncation point is legible in the CI log.
+assert_rc_and_grep 1 "last frame actually present = settings_open.png" \
+  "wedge message names the last frame present (86cajt6kq AC2)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_wedge.sh" "$TMP/scaps_wedge2" "$TMP/slog_wedge2.log"
+
+# 11. AC1 retry — a one-shot wedge (attempt 1 truncates + exits 124; the retry captures cleanly)
+#     RECOVERS to a PASS. GATE PASSED here is only reachable via the retry: attempt 1 wrote no
+#     tweaked frame, so without the bounded retry Check 3 would red the gate.
+make_settings_wedge_exe "$TMP/fake_recover.sh" "recover" "$TMP/recover_ctr"
+assert_rc_and_grep 0 "SETTINGS CAPTURE GATE PASSED" \
+  "bounded retry RECOVERS a one-shot wedge (86cajt6kq AC1)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_recover.sh" "$TMP/scaps_recover" "$TMP/slog_recover.log"
+
+# 12. AC2 — the content-regression path is UNCHANGED: a present-but-pixel-identical tweaked frame
+#     STILL fires the canned PR-#83 text (and is NOT mis-labelled a wedge/truncation). This is the
+#     other side of the split — the message the wedge path must NOT steal.
+make_fake_exe "$TMP/fake_ident2.sh" "True" "identical"
+assert_rc_grep_present_absent 1 "synthetic entry-setter drive" "capture TRUNCATED (WEDGE)" \
+  "present-but-identical frame → PR-#83 text, NOT the wedge message (86cajt6kq AC2)" \
+  -- bash "$SETTINGS_GATE" "$TMP/fake_ident2.sh" "$TMP/scaps_id2" "$TMP/slog_id2.log"
 
 echo "=== frames_differ.py (visible-tweak diff, 86caa4bqp re-QA) ==="
 

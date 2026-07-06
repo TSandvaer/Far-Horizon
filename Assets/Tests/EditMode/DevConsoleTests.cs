@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.UIElements;
 using FarHorizon;
 using FarHorizon.Settings;
 
@@ -360,6 +361,170 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(UiInputGate.CaptureWorldInput, "world input passes again once the field blurs (AC3)");
         }
 
+        // ===== 86cah8ukr FIX — TWO-DRAWER input-gate interleaving (adversarial review of PR #247) =====
+        //
+        // The split gave F1 (player) + F3 (dev) INDEPENDENT open/close but ONE SHARED input-gate counter. The old
+        // OpenDrawer close-path force-clear zeroed that shared counter on ANY drawer close, so: open F1, click a
+        // numeric field (world input swallowed so a typed digit isn't ALSO read as movement), open F3 then close
+        // F3 → the force-clear released the gate while the F1 field was STILL focused → digits/arrows typed into
+        // F1 ALSO drove movement/orbit. The fix tracks focus PER DRAWER + re-derives the gate from which drawers
+        // are still open (RefreshInputGate). These guards pin the LOGIC via the UNITY_INCLUDE_TESTS focus seam —
+        // UI Toolkit focus EVENTS are unreliable in EditMode (see the class docstring), but SetOpen/SetPlayerOpen
+        // run their full gate logic before bailing on the (unbuilt) view, so the interleaving is testable here.
+
+        private static void DrainGate()
+        {
+            for (int i = 0; i < 8 && UiInputGate.CaptureWorldInput; i++) UiInputGate.PopPanel();
+            UiInputGate.SetPointerOverConsole(false);
+        }
+
+        [Test]
+        public void InputGate_ClosingOneDrawer_DoesNotReleaseGateHeldByOtherDrawersFocusedField_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-gate-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F1 (player) + focus a player field → world input swallowed (AC3).
+                panel.SetPlayerOpen(true);
+                panel.SimulateFieldFocusForTest(isDev: false, focusIn: true);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput,
+                    "a focused F1 field swallows world input so a typed digit isn't ALSO read as movement (AC3)");
+
+                // Open F3 (dev) then CLOSE it — F1 is still open and its field is still focused.
+                panel.SetOpen(true);
+                panel.SetOpen(false);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput,
+                    "closing F3 must NOT release the gate the still-focused F1 field owns — the shared-single-counter " +
+                    "bug: the old force-clear zeroed BOTH drawers' focus on any close, un-swallowing world input " +
+                    "mid-type while the F1 field kept focus (digits/arrows then also drove movement/orbit)");
+
+                // True all-closed path: blur the F1 field + close F1 → gate releases (never leave locomotion
+                // swallowed — the erring-toward-release safety for the genuine close case).
+                panel.SimulateFieldFocusForTest(isDev: false, focusIn: false);
+                panel.SetPlayerOpen(false);
+                Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                    "every drawer closed + every field blurred → the gate releases (world input never left swallowed)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        [Test]
+        public void InputGate_ClosingADrawer_ClearsItsOwnFocusedFieldGate_ErrsTowardRelease_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-gate-test-2");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F3 (dev) + focus a dev field → gate held.
+                panel.SetOpen(true);
+                panel.SimulateFieldFocusForTest(isDev: true, focusIn: true);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput, "a focused F3 field swallows world input (AC3)");
+
+                // Close F3 WITHOUT blurring the field first (the display:None stale-focus case UI Toolkit does not
+                // reliably fire FocusOut for) → the close clears the closing drawer's own count AND the re-derive
+                // sees F3 no longer open, so the gate releases either way (belt + suspenders; never left swallowed).
+                panel.SetOpen(false);
+                Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                    "closing a drawer releases the gate its OWN (possibly stale-focused) field held — the safety " +
+                    "direction: a hidden drawer can't keep swallowing locomotion input");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        // ===== 86cah8ukr FIX4 — TWO-DRAWER SCROLL-ZOOM POINTER gate interleaving (adversarial #247 verify) =====
+        //
+        // Same bug CLASS as the focus-gate interleaving above, applied to the OTHER shared gate: PointerOverConsole
+        // was a bare shared bool that OpenDrawer force-cleared UNCONDITIONALLY on any drawer close. So: open F1+F3,
+        // cursor over the overlapping region (both rects hovered), close F3 → the flag cleared while F1 stayed open
+        // under the cursor, and UI Toolkit does NOT re-fire PointerEnter for a pointer already inside → the wheel
+        // zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter. FIX4 tracks pointer-over PER DRAWER
+        // + re-derives (RefreshPointerGate). Pinned via the UNITY_INCLUDE_TESTS pointer seam (UI Toolkit pointer
+        // EVENTS are unreliable in EditMode, but SetOpen/SetPlayerOpen + Simulate*ForTest run the full gate logic
+        // before bailing on the unbuilt view). Mirrors the two focus-gate interleaving guards above.
+
+        [Test]
+        public void PointerGate_ClosingOneDrawer_DoesNotReleaseGateHeldByOtherDrawersHoveredRect_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-pointer-gate-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open BOTH drawers; the cursor is over the overlapping region so BOTH rects report pointer-over
+                // (UI Toolkit fires PointerEnter on each). The scroll-zoom gate is held.
+                panel.SetPlayerOpen(true);
+                panel.SetOpen(true);
+                panel.SimulatePointerOverForTest(isDev: false, over: true);
+                panel.SimulatePointerOverForTest(isDev: true, over: true);
+                Assert.IsTrue(UiInputGate.PointerOverConsole,
+                    "pointer over an open drawer swallows the wheel so the console isn't scrolled AND the camera zoomed at once");
+
+                // Close F3 while the cursor is STILL over the open F1 panel. The old bare force-clear zeroed the
+                // shared pointer bool here → the wheel started zooming the OrbitCamera THROUGH the open F1 panel until
+                // a leave+re-enter (UI Toolkit never re-fires PointerEnter for a pointer already inside). FIX4:
+                // re-derive from per-drawer state → F1 still open + hovered keeps the gate held.
+                panel.SetOpen(false);
+                Assert.IsTrue(UiInputGate.PointerOverConsole,
+                    "closing F3 must NOT release the scroll-zoom gate the still-open, still-hovered F1 panel owns — the " +
+                    "shared-single-bool bug: the old force-clear zeroed BOTH drawers' pointer-over on any close, so the " +
+                    "wheel zoomed the camera through the open F1 panel until the cursor left and re-entered");
+
+                // True all-unhovered/closed path: leave F1 + close F1 → gate releases (the wheel zooms the world again).
+                panel.SimulatePointerOverForTest(isDev: false, over: false);
+                panel.SetPlayerOpen(false);
+                Assert.IsFalse(UiInputGate.PointerOverConsole,
+                    "every drawer closed + pointer off → the scroll-zoom gate releases (the wheel zooms the camera again)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        [Test]
+        public void PointerGate_ClosingAHoveredDrawer_ClearsItsOwnGate_ErrsTowardRelease_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-pointer-gate-test-2");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F3 + pointer over it → gate held.
+                panel.SetOpen(true);
+                panel.SimulatePointerOverForTest(isDev: true, over: true);
+                Assert.IsTrue(UiInputGate.PointerOverConsole, "pointer over the open dev console swallows the wheel");
+
+                // Close F3 WITHOUT a leave first (the display:None stale-hover case UI Toolkit does not reliably fire
+                // PointerLeave for) → the close clears the closing drawer's own flag AND the re-derive sees F3 no
+                // longer open, so the gate releases either way (belt + suspenders; a hidden panel can't swallow the wheel).
+                panel.SetOpen(false);
+                Assert.IsFalse(UiInputGate.PointerOverConsole,
+                    "closing a drawer releases the scroll-zoom gate its OWN (possibly stale-hovered) rect held — a " +
+                    "hidden panel can't keep swallowing the wheel");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
         // ===== 86cabeqj9 soak NIT — SCROLL-over-panel gate (fix 1): the wheel is swallowed while the pointer
         //       hovers the NON-MODAL console, but ONLY scroll (WASD/orbit stay live). Pinned at the gate level;
         //       the OrbitCamera reads (CaptureWorldInput || PointerOverConsole) to decide whether to zoom. The
@@ -462,6 +627,51 @@ namespace FarHorizon.EditTests
             e2.LoadFromPrefs();
 
             Assert.AreEqual(1.7f, textScale2, 1e-4f, "the persisted UI text scale survives a relaunch (86cabeqj9 NIT)");
+        }
+
+        // ===== #247 EMPTY-DRAWERS layout guard (86cah8ukr fix cycle) =====
+        //
+        // The two-drawer split wraps each SettingsPanel shell clone in a scoped container (so the duplicate
+        // element names resolve per-drawer). A PLAIN VisualElement container has auto height 0 — its only child,
+        // the position:absolute scrim, is out of flow → zero in-flow content → height 0. The scrim's inset-0 +
+        // the panel's percentage max-height then resolve against a zero-height block, collapsing the flex-grow
+        // rows ScrollView to ZERO: both drawers rendered header + footer but NO rows (registry/handles/live-drive
+        // were all fine — 70 settings built + the walk tweak drove live; only the VISUAL layer collapsed). The
+        // Sponsor soak on build 61a6a9d caught it; the green capture gate had ALSO shown empty drawers (its
+        // frame_check reads the whole frame, never the panel region). MakeDrawerOverlay restores root's own
+        // full-screen box (absolute, inset-0) so the scrim/panel/ScrollView resolve exactly as pre-split.
+        //
+        // UI Toolkit LAYOUT geometry is unreliable in EditMode (no panel/layout pass — see this class's summary),
+        // so the visible-rows PROOF lives in the shipped-build capture gate (verify_settings_gate.sh Check 4 +
+        // SettingsPanel.VisibleRowCount). This EditMode test guards the STRUCTURAL invariant that FIXES the bug —
+        // the container carries the full-screen-overlay styling — which IS readable off a bare VisualElement's
+        // inline style with NO render loop. Revert MakeDrawerOverlay to a plain container and this goes red.
+
+        [Test]
+        public void DrawerOverlay_FillsRootAsAbsoluteInsetZero_SoTheRowsScrollViewCanResolveHeight()
+        {
+            var container = new VisualElement();
+            SettingsPanel.MakeDrawerOverlay(container);
+
+            Assert.AreEqual(Position.Absolute, container.style.position.value,
+                "the drawer container must be position:absolute so it establishes a definite full-screen " +
+                "containing block for the scrim — a plain (relative, auto-height) container collapses the " +
+                "flex-grow rows ScrollView to zero (the #247 empty-drawers bug)");
+            Assert.AreEqual(0f, container.style.left.value.value, 1e-4f, "inset left must be 0 (fill root width)");
+            Assert.AreEqual(0f, container.style.top.value.value, 1e-4f, "inset top must be 0 (fill root height)");
+            Assert.AreEqual(0f, container.style.right.value.value, 1e-4f, "inset right must be 0 (fill root width)");
+            Assert.AreEqual(0f, container.style.bottom.value.value, 1e-4f, "inset bottom must be 0 (fill root height)");
+            Assert.AreEqual(PickingMode.Ignore, container.pickingMode,
+                "the always-present full-screen overlay must be pickingMode:Ignore so it never eats gameplay " +
+                "mouse input while its scrim is display:None — picking still descends to the scrim's children " +
+                "when the drawer IS open, so open/dim/scroll-gate behaviour is byte-identical to pre-split");
+        }
+
+        [Test]
+        public void DrawerOverlay_IsNullSafe()
+        {
+            Assert.DoesNotThrow(() => SettingsPanel.MakeDrawerOverlay(null),
+                "MakeDrawerOverlay must be null-safe (mirrors the panel's other null-guarded helpers)");
         }
     }
 }

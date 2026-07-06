@@ -40,8 +40,10 @@ namespace FarHorizon
     public static class DebugOverlays
     {
         /// <summary>
-        /// Master visibility for the dev/debug instrument-overlay layer. Default HIDDEN (AC2). F1 toggles it
-        /// (<see cref="DebugOverlayToggle"/>); every dev overlay's OnGUI reads it and early-returns when false.
+        /// Master visibility for the dev/debug instrument-overlay layer. Default HIDDEN (AC2). F10 toggles it
+        /// (<see cref="DebugOverlayMaster"/>, the single overlay master since the legacy F2 DebugOverlayToggle
+        /// was removed in 86cah90cp round-3 — re-homed off the retired SneakIsolationTool in 86caju054); every
+        /// dev overlay's OnGUI reads it and early-returns when false.
         /// </summary>
         public static bool Visible;
 

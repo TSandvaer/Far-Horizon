@@ -51,6 +51,17 @@ namespace FarHorizon.Settings
         // refactor 86cabgvgw is NOT a hard-dep, so this binds HungerNeed directly per the ticket default).
         public const string HungerDecayId  = "hunger_decay_rate";
         public const string BerryRestoreId = "berry_restore_amount";
+        // Per-need decay ON/OFF toggles + the WARMTH decay-rate slider (ticket 86cabeqwf — the dev-tweak-console
+        // per-need entries, folded into the F1/F3 split 86cah8ukr). ALL THREE need components (WarmthNeed /
+        // HungerNeed / ThirstNeed) exist on main, so all three toggles are LIVE. Each on/off drives
+        // SurvivalNeed.decayEnabled (halt/resume decay live). The hunger/thirst decay-rate sliders already exist
+        // (HungerDecayId / ThirstDecayId, via PopulateHunger / PopulateThirst); warmth had NO catalog row, so
+        // PopulateNeeds also adds the warmth decay-rate slider. These four + belt/stack are the PLAYER-facing set
+        // (SettingsCategory.IsPlayer); every other row is the dev console (Sponsor-confirmed 2026-07-03).
+        public const string WarmthEnabledId = "warmth_enabled";
+        public const string HungerEnabledId = "hunger_enabled";
+        public const string ThirstEnabledId = "thirst_enabled";
+        public const string WarmthDecayId   = "warmth_decay_rate";
         // Berry-regrowth tweakable (ticket 86cabn67w — the 86caa5zz3 AC4 settings-registration follow-up).
         // The `Berry regrowth time` row drives EVERY BerryBush's regrowMinSeconds / regrowMaxSeconds (a RANGE
         // — RANDOM regrowth within [min,max], like tree-regrowth / stone-respawn). DISTINCT id from #183's
@@ -207,6 +218,10 @@ namespace FarHorizon.Settings
         // band brackets 0.35 sanely (0.1..1.0), mirroring the ThirstDecayMin/Max band shape (a touch tighter
         // than thirst's 0.05..1.5 since hunger is the SLOWER background pressure — food is found, not lost).
         public const float HungerDecayMin = 0.1f, HungerDecayMax = 1.0f;
+        // Warmth-decay slider band (ticket 86cabeqwf; around the WarmthNeed default medDecayPerSecond 0.55 —
+        // warmth is the FASTEST need). Mirrors the thirst band shape (0.05..1.5) since both sit at/above the
+        // hunger 0.1..1.0 band and warmth is the most pressing — gentle for kids..punishing for adults.
+        public const float WarmthDecayMin = 0.05f, WarmthDecayMax = 1.5f;
         // Berry-restore slider band (around the berryRestoreAmount 18 default) — a nibble..a hearty handful.
         public const float BerryRestoreMin = 5f, BerryRestoreMax = 50f;
         // Tool-use-speed slider band (ticket V1 — flips the reserved ToolSpeedId row LIVE to the chop swing
@@ -410,6 +425,27 @@ namespace FarHorizon.Settings
             return reg;
         }
 
+        /// <summary>
+        /// Build the standard registry AND every prior need/feature AND the PER-NEED on/off + warmth decay-rate
+        /// rows (ticket 86cabeqwf, folded into the F1/F3 split 86cah8ukr): warmth/hunger/thirst decay ON/OFF
+        /// toggles (each driving <see cref="SurvivalNeed.decayEnabled"/>) + the warmth decay-rate slider (the
+        /// hunger/thirst decay-rate sliders already come from PopulateHunger / PopulateThirst). A null
+        /// <paramref name="warmth"/>/<paramref name="hunger"/>/<paramref name="thirst"/> skips only its own
+        /// rows (the catalog never null-refs). The 11-arg Build stays free of these ids (backward-compatible).
+        /// </summary>
+        public static SettingsRegistry Build(OrbitCamera orbit, WasdMovement wasd, FarHorizon.ThirstNeed thirst,
+            FarHorizon.CastawayCharacter chopCharacter, FarHorizon.ChopTree chopTree,
+            FarHorizon.StoneRespawner stoneRespawner, FarHorizon.LogPileSpawner logPileSpawner,
+            FarHorizon.HeldWeaponPlacement held, FarHorizon.HungerNeed hunger,
+            IReadOnlyList<FarHorizon.BerryBush> berryBushes, FarHorizon.Inventory inventory,
+            FarHorizon.WarmthNeed warmth)
+        {
+            var reg = Build(orbit, wasd, thirst, chopCharacter, chopTree, stoneRespawner, logPileSpawner,
+                held, hunger, berryBushes, inventory);
+            PopulateNeeds(reg, warmth, hunger, thirst);
+            return reg;
+        }
+
         /// <summary>Populate an existing registry (so callers can add their own settings before/after).</summary>
         public static void Populate(SettingsRegistry reg, OrbitCamera orbit, WasdMovement wasd)
         {
@@ -523,6 +559,48 @@ namespace FarHorizon.Settings
             reg.AddFloat(BerryRestoreId, "Berry restore amount",
                 () => hunger.berryRestoreAmount, v => hunger.berryRestoreAmount = v,
                 BerryRestoreMin, BerryRestoreMax, unit: "");
+        }
+
+        /// <summary>
+        /// Register the PER-NEED entries (ticket 86cabeqwf — the dev-tweak-console per-need on/off, folded into
+        /// the F1/F3 panel split 86cah8ukr) into the registry: a warmth/hunger/thirst decay ON/OFF Toggle (the
+        /// Bool archetype from the 86cabeqj9 foundation), each LIVE-bound to <see cref="SurvivalNeed.decayEnabled"/>,
+        /// plus the WARMTH decay-rate slider bound to <see cref="SurvivalNeed.decayPerSecond"/>. The hunger/thirst
+        /// decay-rate sliders already come from PopulateHunger / PopulateThirst — re-adding them would throw a
+        /// duplicate-id, so PopulateNeeds does NOT. Each need is INDEPENDENTLY nullable — a null target skips only
+        /// its own row(s) (the catalog never null-refs). Null-registry-safe (mirrors the other Populate* methods).
+        ///
+        /// These + belt/stack are the PLAYER-facing set (F1 Settings panel — SettingsCategory.IsPlayer); the
+        /// toggle's dependent decay slider is shown only while the toggle is ON (SettingsPanel conditional
+        /// visibility). The on/off is a live HALT of decay — the WarmthToggleOff...HaltsDecay end-to-end test
+        /// proves it gates the real TickSeconds path (the #218 AC6 dead-knob guard class).
+        /// </summary>
+        public static void PopulateNeeds(SettingsRegistry reg, FarHorizon.WarmthNeed warmth,
+            FarHorizon.HungerNeed hunger, FarHorizon.ThirstNeed thirst)
+        {
+            if (reg == null) return;
+
+            // WARMTH — the on/off toggle (drives decayEnabled) + the decay-rate slider (drives decayPerSecond).
+            // Warmth had NO catalog row before this, so it also gets the decay-rate slider here (unlike hunger/
+            // thirst, whose decay sliders come from PopulateHunger / PopulateThirst).
+            if (warmth != null)
+            {
+                reg.AddBool(WarmthEnabledId, "Warmth decay on",
+                    () => warmth.decayEnabled, v => warmth.decayEnabled = v);
+                reg.AddFloat(WarmthDecayId, "Warmth decay rate",
+                    () => warmth.decayPerSecond, v => warmth.decayPerSecond = v,
+                    WarmthDecayMin, WarmthDecayMax, unit: "/s");
+            }
+
+            // HUNGER — the on/off toggle only (its decay-rate slider is PopulateHunger's HungerDecayId row).
+            if (hunger != null)
+                reg.AddBool(HungerEnabledId, "Hunger decay on",
+                    () => hunger.decayEnabled, v => hunger.decayEnabled = v);
+
+            // THIRST — the on/off toggle only (its decay-rate slider is PopulateThirst's ThirstDecayId row).
+            if (thirst != null)
+                reg.AddBool(ThirstEnabledId, "Thirst decay on",
+                    () => thirst.decayEnabled, v => thirst.decayEnabled = v);
         }
 
         /// <summary>
@@ -955,6 +1033,14 @@ namespace FarHorizon.Settings
         /// archetype). Setting a fog or sky-horizon channel keeps the seam-kill (fog colour == horizon stop) via the
         /// seam. A null seam registers NOTHING (the catalog never null-refs), so a world-less rig / bare test is
         /// unaffected.
+        ///
+        /// EVERY world-look row is persist:false — a DIAL-TO-BAKE INSTRUMENT, not a player preference
+        /// (86cah90cp round-3). A persisted world-look override stomped the freshly-baked sun at every boot
+        /// TWICE (#223 round-1: legacy un-stamped sun_elevation=18; round-3: sun_elevation=18 validly stamped
+        /// under the current default, which no stamp-invalidation can ever discard) — poisoning soaks and
+        /// -verify* gates alike. The dial session's outcome is a BAKE (WorldBootstrap/QualityPassGen constants);
+        /// the bake is the persistence. LoadFromPrefs on these rows self-heals lingering keys from earlier
+        /// persisting builds.
         /// </summary>
         public static void PopulateWorldLook(SettingsRegistry reg, FarHorizon.WorldLookTunables world)
         {
@@ -962,50 +1048,50 @@ namespace FarHorizon.Settings
 
             // FOG — density + per-channel colour (seam-kill applied in the seam).
             reg.AddFloat(FogDensityId, "Fog density",
-                () => world.FogDensity, v => world.FogDensity = v, FogDensityMin, FogDensityMax, unit: "");
+                () => world.FogDensity, v => world.FogDensity = v, FogDensityMin, FogDensityMax, unit: "", persist: false);
             reg.AddFloat(FogColorRId, "Fog colour R",
-                () => world.FogColorR, v => world.FogColorR = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.FogColorR, v => world.FogColorR = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(FogColorGId, "Fog colour G",
-                () => world.FogColorG, v => world.FogColorG = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.FogColorG, v => world.FogColorG = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(FogColorBId, "Fog colour B",
-                () => world.FogColorB, v => world.FogColorB = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.FogColorB, v => world.FogColorB = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
 
             // SKY HORIZON stop — per-channel colour (the seam-driving stop; locks the fog colour to it).
             reg.AddFloat(SkyHorizonRId, "Sky horizon R",
-                () => world.SkyHorizonR, v => world.SkyHorizonR = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.SkyHorizonR, v => world.SkyHorizonR = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(SkyHorizonGId, "Sky horizon G",
-                () => world.SkyHorizonG, v => world.SkyHorizonG = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.SkyHorizonG, v => world.SkyHorizonG = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
             reg.AddFloat(SkyHorizonBId, "Sky horizon B",
-                () => world.SkyHorizonB, v => world.SkyHorizonB = v, ColorChannelMin, ColorChannelMax, unit: "");
+                () => world.SkyHorizonB, v => world.SkyHorizonB = v, ColorChannelMin, ColorChannelMax, unit: "", persist: false);
 
             // CLOUDS — scale + additive altitude offset.
             reg.AddFloat(CloudScaleId, "Cloud scale",
-                () => world.CloudScale, v => world.CloudScale = v, CloudScaleMin, CloudScaleMax, unit: "x");
+                () => world.CloudScale, v => world.CloudScale = v, CloudScaleMin, CloudScaleMax, unit: "x", persist: false);
             reg.AddFloat(CloudAltitudeId, "Cloud altitude",
-                () => world.CloudAltitude, v => world.CloudAltitude = v, CloudAltMin, CloudAltMax, unit: "u");
+                () => world.CloudAltitude, v => world.CloudAltitude = v, CloudAltMin, CloudAltMax, unit: "u", persist: false);
 
             // MOUNTAINS — distance + peak scale + warmth + brightness.
             reg.AddFloat(MtnDistanceId, "Mountain distance",
-                () => world.MountainDistanceScale, v => world.MountainDistanceScale = v, MtnDistanceMin, MtnDistanceMax, unit: "x");
+                () => world.MountainDistanceScale, v => world.MountainDistanceScale = v, MtnDistanceMin, MtnDistanceMax, unit: "x", persist: false);
             reg.AddFloat(MtnPeakScaleId, "Mountain peak scale",
-                () => world.MountainPeakScale, v => world.MountainPeakScale = v, MtnPeakScaleMin, MtnPeakScaleMax, unit: "x");
+                () => world.MountainPeakScale, v => world.MountainPeakScale = v, MtnPeakScaleMin, MtnPeakScaleMax, unit: "x", persist: false);
             reg.AddFloat(MtnWarmthId, "Mountain warmth",
-                () => world.MountainWarmth, v => world.MountainWarmth = v, MtnWarmthMin, MtnWarmthMax, unit: "");
+                () => world.MountainWarmth, v => world.MountainWarmth = v, MtnWarmthMin, MtnWarmthMax, unit: "", persist: false);
             reg.AddFloat(MtnBrightnessId, "Mountain brightness",
-                () => world.MountainBrightness, v => world.MountainBrightness = v, MtnBrightnessMin, MtnBrightnessMax, unit: "x");
+                () => world.MountainBrightness, v => world.MountainBrightness = v, MtnBrightnessMin, MtnBrightnessMax, unit: "x", persist: false);
 
-            // SUN — elevation + size.
+            // SUN — elevation + size (THE round-3 defect surface: a persisted sun_elevation=18 stomped the 8° bake).
             reg.AddFloat(SunElevationId, "Sun elevation",
-                () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°");
+                () => world.SunElevationDeg, v => world.SunElevationDeg = v, SunElevationMin, SunElevationMax, unit: "°", persist: false);
             reg.AddFloat(SunSizeId, "Sun size",
-                () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "");
+                () => world.SunSize, v => world.SunSize = v, SunSizeMin, SunSizeMax, unit: "", persist: false);
 
             // WAVE1-B COLOUR DIALS (ticket 86cahhfkc) — GRD-2 meadow-patch amp + RCK-1 rock rim, for the
             // ONE-soak A/B. Both mutate live materials through the seam; both start at the shipped baked value.
             reg.AddFloat(MeadowPatchAmpId, "Meadow patch amp",
-                () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "");
+                () => world.MeadowPatchAmp, v => world.MeadowPatchAmp = v, MeadowPatchAmpMin, MeadowPatchAmpMax, unit: "", persist: false);
             reg.AddFloat(RockRimId, "Rock rim intensity",
-                () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "");
+                () => world.RockRimIntensity, v => world.RockRimIntensity = v, RockRimMin, RockRimMax, unit: "", persist: false);
         }
 
         /// <summary>

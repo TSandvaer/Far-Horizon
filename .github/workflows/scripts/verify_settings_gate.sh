@@ -10,7 +10,7 @@
 #   settings_closed.png  settings_open.png  settings_tweaked.png
 # plus the ground-truth log line `[SettingsVerifyCapture] WALK SPEED tweak: ... changedLive=True`.
 #
-# Three authoritative checks, ALL must pass:
+# Five authoritative checks, ALL must pass:
 #   1. frame_check.py on the panel PNGs — the open + tweaked frames are not black/uniform/
 #      magenta (the panel actually RENDERED in the shipped player, not just the editor).
 #   2. a grep of the player log for `changedLive=True` — the LIVE param actually changed
@@ -24,7 +24,17 @@
 #      synthetic drive with a REAL dispatched ChangeEvent (SettingsPanel.DriveFloat/DriveRange-
 #      ChangeEventForCapture — the same event a user's drag fires), so the captured frame now repaints
 #      and this sub-check is authoritative again: a byte-identical tweaked frame REDS the gate, catching
-#      any regression back to the synthetic drive.
+#      any regression back to the synthetic drive. DE-MISLEAD (86cajt6kq): this canned "synthetic
+#      entry-setter drive (PR #83)" text fires ONLY when BOTH frames are PRESENT and pixel-identical.
+#      A MISSING settings_tweaked.png is the present-loop WEDGE/TRUNCATION signature (retried once on
+#      rc==124 above), NOT a content regression — it reports its own message naming the last frame
+#      actually present, so a wedge is never mis-attributed to the historical PR-#83 content bug.
+#   4. both drawers SHOW ROWS (#247 empty-drawers guard) — the row-visibility probe proves the F1 + F3
+#      ScrollView viewports didn't collapse to zero height (header + footer but no rows).
+#   5. the int-stepper columns have ROOM (#247 v2 F1-cramp guard) — the smallest resolved [−]/value/[+]
+#      cell width per drawer proves the stepper control didn't collapse and overlap its glyphs. Check 1
+#      (whole-frame) and Check 4 (row overlaps viewport) both PASS on a crushed stepper — a WITHIN-row
+#      column crush is invisible to them, which is exactly how the F1 cramp reached the soak.
 #
 # Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 /
 # unity-conventions.md). The component calls Application.Quit() when done; a wall-clock
@@ -78,15 +88,19 @@ launch_once() {
 }
 
 launch_once
-# ONE retry, ONLY on a timeout-hang (rc 124 = the first-frame present-loop wedge). A real
-# non-zero exit is NOT a wedge — never retry it. NOTE: this gate's PASS criteria are checks
-# 1+2 below (frames + changedLive), NOT the exe exit code — unchanged by the hardening.
+# ONE retry, ONLY on a timeout-hang (rc 124 = the present-loop wedge). BEFORE declaring failure
+# (86cajt6kq AC1): the windowed -verifySettings exe intermittently WEDGES in its D3D12 present loop
+# and is timeout-killed, truncating the capture before settings_tweaked.png (written LAST) — the
+# observed flake is exactly this, "did not self-quit within 300s" ×2, and the SAME commit has
+# failed then passed on a serial rerun. A real non-124 exit is NOT a wedge and must NOT retry —
+# uniform with every other verify_*_gate.sh (86cafzaeb; the cross-gate wedge-retry test pins it).
+# This gate's PASS criteria are the five checks below, NOT the exe exit code.
 if [ "$rc" -eq 124 ]; then
   echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s (timeout-hang; likely the present-loop wedge) — retrying ONCE" >&2
   launch_once
 fi
 if [ "$rc" -eq 124 ]; then
-  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s on the retry either; inspecting whatever it captured" >&2
+  echo "[verify_settings] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s on the retry either; Check 3 below reports whether the capture truncated (settings_tweaked.png absent)" >&2
 fi
 
 # Check 1 — the panel frames rendered (open + tweaked must be real content). Three frames
@@ -131,26 +145,109 @@ diff_rc=0
 OPEN_PNG="$ABS_CAP/settings_open.png"
 TWEAKED_PNG="$ABS_CAP/settings_tweaked.png"
 if [ ! -f "$OPEN_PNG" ] || [ ! -f "$TWEAKED_PNG" ]; then
-  echo "[verify_settings] FAILED — missing open/tweaked frame for the visible-tweak diff " \
-       "(open=$OPEN_PNG tweaked=$TWEAKED_PNG)" >&2
+  # MISSING-FRAME = the WEDGE / TRUNCATION signature, NOT the PR-#83 content regression
+  # (86cajt6kq AC2 de-mislead). The capture writes closed → open → tweaked IN ORDER; when the
+  # present-loop wedge truncates it, the LAST frame (settings_tweaked.png) is absent. Do NOT fire
+  # the canned "synthetic entry-setter drive" text here — that mis-attributes a missing-frame wedge
+  # to a historical content bug (the exact mis-diagnosis this ticket fixes). Name the last frame
+  # ACTUALLY present so the truncation point is legible in the CI log.
   diff_rc=1
+  last_present="(none — no frames captured)"
+  for f in settings_closed.png settings_open.png settings_tweaked.png; do
+    [ -f "$ABS_CAP/$f" ] && last_present="$f"
+  done
+  echo "[verify_settings] FAILED — capture TRUNCATED (WEDGE): settings_tweaked.png (written LAST) is absent; last frame actually present = $last_present. This is the present-loop wedge signature — the -verifySettings exe did not finish the capture sequence — NOT a visible-diff content regression. The bounded retry above did not clear it; a serial rerun has cleared this flake before (86cajt6kq)." >&2
 else
-  # set +e around the call: script runs under `set -e` (re-enabled after the launch block above),
-  # so an unguarded non-zero exit here would ABORT before the aggregate verdict line. Capture rc.
+  # BOTH frames present → the real visible-tweak diff. set +e around the call: script runs under
+  # `set -e` (re-enabled after the launch block above), so an unguarded non-zero exit here would
+  # ABORT before the aggregate verdict line. Capture rc.
   set +e
   python3 "$HERE/frames_differ.py" "$OPEN_PNG" "$TWEAKED_PNG"
   diff_rc=$?
   set -e
-fi
-if [ "$diff_rc" -ne 0 ]; then
-  echo "[verify_settings] FAILED — tweaked-frame visible-diff sub-check FAILED: settings_tweaked.png did not visibly differ from settings_open.png. The tweak did NOT repaint the panel under capture — a regression back to the synthetic entry-setter drive (the PR #83 re-QA bug). Drive the tweak via a real dispatched ChangeEvent (86cabe3e5)." >&2
+  if [ "$diff_rc" -ne 0 ]; then
+    # PRESENT-BUT-IDENTICAL = the REAL visible-diff regression → the canned PR-#83 text fires ONLY
+    # here (86cajt6kq AC2), never on a missing-frame wedge.
+    echo "[verify_settings] FAILED — tweaked-frame visible-diff sub-check FAILED: settings_tweaked.png did not visibly differ from settings_open.png. The tweak did NOT repaint the panel under capture — a regression back to the synthetic entry-setter drive (the PR #83 re-QA bug). Drive the tweak via a real dispatched ChangeEvent (86cabe3e5)." >&2
+  fi
 fi
 
-# All three checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
-# tweak VISIBLE in the shipped frame (Check 3, un-quarantined 86cabe3e5).
-if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ]; then
-  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc)" >&2
+# Check 4 — the drawers actually SHOW ROWS (#247 empty-drawers regression guard). This gate went GREEN
+# on the PR #247 build while BOTH drawers rendered header + footer but ZERO setting rows: the two-drawer
+# split wrapped each shell in a scoped container with auto height 0 (its only child, the position:absolute
+# scrim, is out of flow), so the panel's percentage max-height + the rows ScrollView's flex-grow resolved
+# against a zero-height block → the ScrollView viewport collapsed → the rows were clipped out of view.
+# Check 1 (frame_check) could not catch it: it checks the WHOLE 1280x720 frame (the green gameplay world =
+# obviously not black/uniform → pass), never the panel region. SettingsVerifyCapture now probes GROUND TRUTH
+# — the count of rows whose world rect overlaps the ScrollView VIEWPORT (+ the viewport's resolved height) per
+# drawer — and logs `DEV rows visible: N / M routed (viewportHeight=Hpx)` + `PLAYER rows visible: N / M ...`.
+# FAIL if EITHER drawer shows 0 visible rows, or if the proof line is absent.
+rows_rc=0
+if [ ! -f "$LOG_FILE" ]; then
+  echo "[verify_settings] FAILED — no player log at $LOG_FILE; cannot verify the drawers show rows (#247)" >&2
+  rows_rc=1
+elif grep -qE "rows visible: 0 " "$LOG_FILE"; then
+  echo "[verify_settings] FAILED — a drawer showed ZERO visible rows (#247 empty-drawers regression): the " \
+       "panel rendered its header + footer but no setting rows (a collapsed flex-grow ScrollView viewport)." >&2
+  grep -F "rows visible:" "$LOG_FILE" | sed 's/^/[verify_settings]   /' || true
+  rows_rc=1
+elif grep -qE "DEV rows visible: [1-9]" "$LOG_FILE" && grep -qE "PLAYER rows visible: [1-9]" "$LOG_FILE"; then
+  echo "[verify_settings] row-render proof (#247): both drawers show > 0 rows:"
+  grep -F "rows visible:" "$LOG_FILE" | sed 's/^/[verify_settings]   /'
+else
+  echo "[verify_settings] FAILED — missing the #247 row-visibility proof line for one/both drawers " \
+       "(expected 'DEV rows visible: N / M' AND 'PLAYER rows visible: N / M', both N>0)." >&2
+  grep -F "rows visible:" "$LOG_FILE" | sed 's/^/[verify_settings]   /' || true
+  rows_rc=1
+fi
+
+# Check 5 — the int-stepper rows have ROOM (#247 v2 F1-cramp regression guard). The Sponsor re-soak of
+# soak-247-v2 confirmed the empty-drawers fix, but flagged the F1 PLAYER drawer's int-stepper rows (Belt
+# slots + Inventory stack size) as CRAMPED: the [−]/value/[+] columns clipped/overlapped ("− 5 [+ 5] 5"
+# jammed). Root cause: the stepper control was flex-grow:1 with the DEFAULT flex-shrink:1, so on the F1 rows
+# (no v-scrollbar → the row fit on one line) it was the only shrinkable child and collapsed below its 100px
+# content, crushing the 28/44px cells; F3 read fine because its scrollbar narrowed the row past the wrap point.
+# Neither frame_check (Check 1, whole-frame) nor the row-visibility probe (Check 4, viewport overlap) can see
+# a WITHIN-row column crush — a crushed stepper still counts as a visible row. SettingsVerifyCapture now probes
+# GROUND TRUTH — the smallest resolved [−]/value/[+] cell width per drawer — and logs
+# `PLAYER STEPPER fit (#247 v2): minCellWidth=Npx` + `DEV STEPPER fit (#247 v2): minCellWidth=Npx`.
+# FAIL if EITHER drawer's steppers crushed (minCellWidth < 20px; healthy = a 28px button), or a line is absent.
+# A minCellWidth of -1 means the drawer legitimately has no stepper row (nothing to crush) → treated as pass.
+stepper_rc=0
+check_stepper_fit() {   # $1 = grep tag   $2 = human label
+  local line w ok
+  line=$(grep -F "$1" "$LOG_FILE" | head -n1)
+  if [ -z "$line" ]; then
+    echo "[verify_settings] FAILED — missing the #247 v2 $2 stepper-fit proof line (expected '$1 (#247 v2): minCellWidth=Npx')" >&2
+    stepper_rc=1
+    return
+  fi
+  w=$(printf '%s\n' "$line" | grep -oE 'minCellWidth=-?[0-9]+(\.[0-9]+)?' | head -n1 | cut -d= -f2)
+  # threshold 20px: a healthy row keeps every cell at its design width (button 28px / value 44px); a crushed
+  # flex-shrink control collapses them well below 10px. -1 = no stepper row in that drawer → legit skip (pass).
+  ok=$(awk -v w="$w" 'BEGIN { print (w+0 >= 20.0 || w+0 < 0) ? 1 : 0 }')
+  if [ "$ok" != "1" ]; then
+    echo "[verify_settings] FAILED — $2 int-stepper columns CRUSHED (#247 v2): minCellWidth=${w}px < 20px — the [−]/value/[+] cells collapsed below their 28/44px design widths (the 'not enough room' overlap the Sponsor flagged). The stepper control must be flex-shrink:0 + min-width so the row WRAPS instead of crushing." >&2
+    stepper_rc=1
+  else
+    echo "[verify_settings]   $2 stepper-fit OK: $line"
+  fi
+}
+if [ ! -f "$LOG_FILE" ]; then
+  echo "[verify_settings] FAILED — no player log at $LOG_FILE; cannot verify the stepper fit (#247 v2)" >&2
+  stepper_rc=1
+else
+  echo "[verify_settings] stepper-fit proof (#247 v2 — F1 int-stepper rows have room, F3 not regressed):"
+  check_stepper_fit "PLAYER STEPPER fit" "F1 (player)"
+  check_stepper_fit "DEV STEPPER fit" "F3 (dev)"
+fi
+
+# All FIVE checks gate the merge: panel rendered (Check 1) + live param changed (Check 2) +
+# tweak VISIBLE in the shipped frame (Check 3, un-quarantined 86cabe3e5) + BOTH drawers have rows
+# (Check 4, #247 empty-drawers guard) + int-stepper columns have room (Check 5, #247 v2 F1-cramp guard).
+if [ "$frame_rc" -ne 0 ] || [ "$log_rc" -ne 0 ] || [ "$diff_rc" -ne 0 ] || [ "$rows_rc" -ne 0 ] || [ "$stepper_rc" -ne 0 ]; then
+  echo "[verify_settings] SETTINGS CAPTURE GATE FAILED (frames_rc=$frame_rc log_rc=$log_rc diff_rc=$diff_rc rows_rc=$rows_rc stepper_rc=$stepper_rc)" >&2
   exit 1
 fi
-echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE in the shipped frame (diff_rc=$diff_rc)"
+echo "[verify_settings] SETTINGS CAPTURE GATE PASSED — panel rendered + live tweak took effect + tweak VISIBLE + both drawers have rows + stepper columns have room (stepper_rc=$stepper_rc)"
 exit 0
