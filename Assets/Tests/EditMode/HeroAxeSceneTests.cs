@@ -102,28 +102,10 @@ namespace FarHorizon.EditTests
                 "the build is the component-not-serialized trap this guards");
         }
 
-        [Test]
-        public void BootScene_HeldAxe_CarriesTheShaftLengthPicker_AndItsCycleComponent()
-        {
-            // 86cabh907 SHAFT-LENGTH PICKER scene-presence guard. The HeldAxeLengthPicker (the unstick
-            // instrument) must be SERIALIZED on the held axe alongside the HeldWeaponCycleDebug whose mesh
-            // holder it shares — else the Sponsor's soak build has no [L] length picker (the component-not-
-            // serialized trap, unity-conventions.md editor-vs-runtime). Drop the picker authoring and this reds.
-            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-            var axe = FindHeroAxe();
-            Assert.IsNotNull(axe, "hero axe must be present (see BootScene_CarriesHeroAxe_HeldUnderTheRightHandBone)");
-
-            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
-            Assert.IsNotNull(cycle, "the held axe must carry HeldWeaponCycleDebug (the picker shares its mesh holder)");
-            var picker = axe.GetComponent<HeldAxeLengthPicker>();
-            Assert.IsNotNull(picker,
-                "the held axe must carry the HeldAxeLengthPicker (the 86cabh907 in-hand shaft-length picker) — " +
-                "serialized into the scene so the Sponsor's soak build has the [L] length cycle");
-            // The picker's cycle key must be a layout-safe LETTER (Danish-keyboard-safe — [[sponsor-danish-
-            // keyboard-layout]]); a regression to US-position punctuation reds here.
-            Assert.IsTrue(picker.lengthCycleKey >= KeyCode.A && picker.lengthCycleKey <= KeyCode.Z,
-                "the picker's length-cycle key must be a layout-safe LETTER (got " + picker.lengthCycleKey + ")");
-        }
+        // 86cajkk7h: BootScene_HeldAxe_CarriesTheShaftLengthPicker RETIRED — the HeldAxeLengthPicker + its
+        // wpn_axe_01_len11..14 variants are removed. The STONE axe (wpn_axe_stone_01) is the Sponsor-approved
+        // authored mesh; there is no shaft length to pick, so the picker no longer ships. The [B] weapon-cycle
+        // (HeldWeaponCycleDebug) presence is still guarded by BootScene_CarriesHeldWeaponCycleDebug_OnTheHeroAxe.
 
         [Test]
         public void BootScene_HeldAxe_PosedHandLocal_SoRotationTracksTheBone()
@@ -186,19 +168,12 @@ namespace FarHorizon.EditTests
             Bounds b = mr.bounds;
             float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
             // Floor catches a regression to the 0.43u sliver; upper guard catches the 267×-bone GIANT trap.
-            // #100 calibration: the in-house wpn_axe_01 (86cabh907) is height-normalized to 1.0u longest-axis
-            // at IMPORT (WeaponPackAssetGen.HeroAxeTargetHeadHeightU) and held at HeldAxeLocalScaleUniform
-            // 0.45 under the hand bone → a stable measured world extent of ~0.68u (deterministic across
-            // bootstraps; the new axe reads SMALLER than the retired CC-BY hatchet that set the old 0.7 floor).
-            // 0.68u is a clearly-visible hero axe, NOT the 0.43u sliver the floor guards against. Lower the
-            // floor to 0.6 (still well above the sliver) so the floor tracks the in-house axe; the band still
-            // reds on a sliver (<0.6) OR a giant (>3.0).
-            // 86cabh907 FINAL (the Sponsor's [L]=1.1x pick): the in-house wpn_axe_01 is HEAD-height-normalized
-            // (the byte-locked 0.65× head holds its size while the 1.1× straight haft sets the total to ~1.08u
-            // longest) and held at HeldAxeLocalScaleUniform 0.45 → ~0.49u longest world extent. Still a clearly-
-            // visible hero axe, NOT the 0.43u sliver the floor guards against. Band [0.4, 3.0]: floor 0.4 stays
-            // above the sliver (and below the new ~0.49u so float jitter never reds it), ceiling 3.0 catches the
-            // 267×-bone giant.
+            // 86cajkk7h calibration: the in-house STONE axe (wpn_axe_stone_01) is FAMILY-normalized so its
+            // imported longest-axis == the retired axe's ~1.08u (WeaponPackAssetGen.NewFamilyAxeTargetLongestU),
+            // a DROP-IN for the unchanged held scale — held at HeldAxeLocalScaleUniform 0.45 under the hand bone
+            // → ~0.49u longest world extent, the SAME in-hand size as the approved axe. Still a clearly-visible
+            // hero axe, NOT the 0.43u sliver the floor guards against. Band [0.4, 3.0]: floor 0.4 stays above the
+            // sliver (and below the ~0.49u so float jitter never reds it), ceiling 3.0 catches the 267×-bone giant.
             Assert.That(longest, Is.InRange(0.4f, 3.0f),
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
                 "<0.5 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
@@ -467,7 +442,7 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalEuler.Length, "WeaponMeshLocalEuler must align with WeaponNodeNames.");
-            Assert.AreEqual("wpn_axe_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the axe must be cycle index 0 (the locked default).");
+            Assert.AreEqual("wpn_axe_stone_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the STONE axe must be cycle index 0 (the locked default; 86cajkk7h).");
             Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
                 "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
             Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0],

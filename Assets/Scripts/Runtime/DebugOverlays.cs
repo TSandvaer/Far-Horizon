@@ -9,7 +9,6 @@ namespace FarHorizon
     ///
     /// === What this gates (the dev/debug INSTRUMENT layer) ===
     ///   - HeldWeaponCycleDebug   ("DEBUG — held weapon: …", bottom-center; the #158 loot-prompt-burier)
-    ///   - HeldAxeLengthPicker    ("AXE SHAFT LENGTH: …", top-center)
     ///   - PondNudge              ("POND RECESS / FOAM …", top-center)
     ///   - FloatDiagnostic        (F8 GAP readout)        — F8 stays a SUB-toggle; F1 is the master switch
     ///   - AxeNudgeTool           (F9 nudge panel)        — F9 stays a SUB-toggle

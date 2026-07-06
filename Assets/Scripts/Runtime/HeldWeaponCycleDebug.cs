@@ -112,20 +112,19 @@ namespace FarHorizon
         [Tooltip("STOP-chipping head-dial: the head<->haft junction expressed as a FRACTION of the haft (long) " +
                  "axis span (haftMin + this × haftSpan). The whole head = EVERY vert ABOVE it along the haft " +
                  "axis, scaled UNIFORMLY about the junction — no off-centreline subset test (that was the " +
-                 "chipping). RESTORED 4208067 stone-axe FBX (86cabh907): the head<->haft gap was measured " +
-                 "empirically from the imported mesh (128 verts; long axis Z, span 1.146; the clean gap with " +
-                 "NO verts spans Z=-0.117..0.050) — a fraction in 0.40..0.55 all cut the same clean 104-vert " +
-                 "head wedge (a stable plateau, robust to FBX float jitter), so 0.50 sits mid-gap. NOTE the " +
-                 "old 0.62 was tuned for the REJECTED flat-wood re-author and mis-grabbed 42 haft verts as " +
-                 "'head' on the restored stone mesh. Fraction-based so it survives FBX height-normalization. " +
-                 "Lower to include more haft as 'head'; raise to lift the junction toward the head tip.")]
+                 "chipping). 86cajkk7h: the axe is now the Sponsor-APPROVED STONE axe (wpn_axe_stone_01), whose " +
+                 "head size is authored + approved — the runtime head-dial is a soak-convenience only (rarely " +
+                 "needed now). 0.50 = mid-span cut of the head wedge; fraction-based so it survives the family " +
+                 "scale-normalize. Lower to include more haft as 'head'; raise to lift the junction toward the tip.")]
         public float headJunctionFraction = 0.50f;
 
-        // The four family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names =
-        // the FBX file-name-without-extension; see WeaponPackAssetGen.BuildLineupPrefab). Order = cycle order.
-        // PUBLIC + static so the EditMode guard reads the cycle contract directly (no reflection): the lineup
-        // prefab MUST carry a mesh node for each of these, or cycling resolves nothing.
-        public static readonly string[] WeaponNodeNames = { "wpn_axe_01", "wpn_knife_01", "wpn_sword_01", "wpn_spear_01" };
+        // The four LIVE (STONE-tier) family meshes' names inside Resources/WeaponSetLineup.prefab (the child
+        // object names = the FBX file-name-without-extension; see WeaponPackAssetGen.BuildFamilyPrefab).
+        // Order = cycle order. 86cajkk7h: repointed to the STONE tier (the first-craft weapons); the iron
+        // nodes also live in the family prefab (contrast capture) but are NOT cycled — the cycle resolves
+        // only these STONE names. PUBLIC + static so the EditMode guard reads the cycle contract directly
+        // (no reflection): the family prefab MUST carry a mesh node for each of these, or cycling resolves nothing.
+        public static readonly string[] WeaponNodeNames = { "wpn_axe_stone_01", "wpn_knife_stone_01", "wpn_sword_stone_01", "wpn_spear_stone_01" };
         public static readonly string[] WeaponLabels = { "AXE", "KNIFE", "SWORD", "SPEAR" };
         public const string LineupResourcePath = "WeaponSetLineup"; // Assets/Resources/WeaponSetLineup.prefab
 
@@ -161,6 +160,11 @@ namespace FarHorizon
         // axe holds at 1.0 (Sponsor-LOCKED). knife 0.85 / sword 0.95 / spear 0.90 are the baked committed
         // defaults; assert the committed value, not just regen ([[unity-procedural-committed-assets-go-stale]]).
         // PUBLIC so the EditMode guard pins the axe-locked-default contract (index 0 == identity) + the dialed values.
+        // 86cajkk7h: these 86caffwuz-dialed seats CARRY to the STONE tier as the soak STARTING seat — the new
+        // knife/sword/spear are authored at ~the same imported size (family-normalized) AND the SAME grip-origin
+        // fractions as the retired meshes (measured: knife 0.17, sword 0.14 along the long axis — unchanged), so
+        // the dialed offsets/scales seat them comparably. The Sponsor re-confirms + micro-dials in THIS ticket's
+        // soak via the unified console's held-weapon rows; the equality-pin below is the drift regression-guard.
         public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f };
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
@@ -259,11 +263,10 @@ namespace FarHorizon
         public float AxeHeadFactor => _axeHeadFactor;
 
         /// <summary>The MeshFilter the cycle drives (the WeaponMeshHolder child, post-#100 re-home) — exposed
-        /// so the <see cref="HeldAxeLengthPicker"/> (86cabh907 shaft-length picker) swaps the axe through its
-        /// 4 length-variant meshes on the SAME holder via the SAME proven mesh-swap mechanism. Null until Awake.</summary>
+        /// so the belt-selection sync + the [B] cycle swap the family meshes on the SAME holder. Null until Awake.</summary>
         public MeshFilter MeshHolder => _meshHolder;
-        /// <summary>The captured original (shipped) axe mesh — index-0 baseline. The length picker restores this
-        /// when the chosen length is the shipped one and uses it as the "current" source-of-truth for index 0.</summary>
+        /// <summary>The captured original (shipped) axe mesh — index-0 baseline; restored when cycling back to
+        /// the axe as the "current" source-of-truth for index 0.</summary>
         public Mesh AxeOriginalMesh => _axeOriginalMesh;
         /// <summary>True while the AXE (index 0) is the currently-displayed weapon — the length picker only acts
         /// on the axe (knife/sword/spear have no shaft-length variants).</summary>

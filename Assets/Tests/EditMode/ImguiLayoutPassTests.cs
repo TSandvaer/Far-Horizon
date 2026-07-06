@@ -33,10 +33,11 @@ namespace FarHorizon.EditTests
         // runtime draws with explicit Rects. Add a type here ONLY with a justifying comment.
         private static readonly Type[] LayoutAllowlist = Array.Empty<Type>();
 
-        // The 11 components C2a opted out at authoring time (2026-07-02). The scan below is the real guard;
-        // this count only pins that the scan is actually FINDING the OnGUI family (an empty scan must not
-        // false-green the suite if a refactor breaks the reflection).
-        private const int KnownOnGuiComponentsAtAuthoringTime = 11;
+        // The OnGUI-component floor. Set to 11 at C2a authoring time (2026-07-02); LOWERED to 10 on
+        // 86cajkk7h (2026-07-06) when HeldAxeLengthPicker — an OnGUI component — was retired with the flint
+        // axe. The scan below is the real guard; this count only pins that the scan is actually FINDING the
+        // OnGUI family (an empty/shrunk scan must not false-green the suite if a refactor breaks the reflection).
+        private const int KnownOnGuiComponentsAtAuthoringTime = 10;
 
         [Test]
         public void EveryOnGuiComponent_OptsOutOfTheImguiLayoutPass_InAwake()
@@ -44,7 +45,7 @@ namespace FarHorizon.EditTests
             List<Type> onGuiTypes = FindRuntimeOnGuiComponentTypes();
 
             Assert.GreaterOrEqual(onGuiTypes.Count, KnownOnGuiComponentsAtAuthoringTime,
-                "the reflection scan must find at least the 11 OnGUI components known at C2a authoring time — " +
+                "the reflection scan must find at least the OnGUI-component floor (10 after the 86cajkk7h flint-axe retire) — " +
                 "a smaller count means the scan itself broke (which would false-green everything it guards). " +
                 $"Found: {string.Join(", ", onGuiTypes)}");
 
