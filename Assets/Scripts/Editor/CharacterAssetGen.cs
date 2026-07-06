@@ -122,11 +122,53 @@ namespace FarHorizon.EditorTools
         public static bool UseCastawayV2 =>
             System.Environment.GetEnvironmentVariable(CastawayV2EnvVar) == "1" || UseCastawayV2Default;
 
+        // ===== CASTAWAY v3 (Rodin Smart-Low-poly base — ticket 86cak41d4). The Sponsor-locked NEXT hero: a
+        // hopeful young-ish mid-30s adventurer (torn teal shirt, warm palette), 7.4k tris of REAL facet
+        // geometry (Rodin Smart-Low-poly route, NOT a decimated high-poly), HSV-POSTERIZED flat diffuse.
+        // Same Hyper3D-Rodin → Mixamo → Unity route as v1/v2 (character-pipeline.md); imported GENERIC +
+        // CreateFromThisModel (the anti-Humanoid recipe, 86ca8rdkp). Mixamo returned 41 bones incl. 16 finger
+        // bones, root mixamorig:Hips, all verts weighted — the existing 18 WITHOUT-skin clips bind onto v3's
+        // mesh by TRANSFORM PATH with NO retarget (same way they bind onto v2's mesh).
+        //
+        // DORMANT INTEGRATION (mirrors the v2 staged-toggle exactly): v2 STAYS the LIVE default; v3 activates
+        // only under FARHORIZON_CASTAWAY_V3=1 (default OFF), so this PR merges dormant-safe (toggle OFF ⇒ v2
+        // byte-unchanged, every consumer gated). Activation is a SEPARATE default-flip + soak PR.
+        //
+        // Source-of-truth export lives under art-src/castaway-v3-rodin-export-lowpoly/; the integration-consumed
+        // subset (the with-skin mixamo/Idle.fbx rigged mesh + the posterized diffuse) is committed here under v3/
+        // so the .meta is deterministic. Material: URP/Unlit + posterized diffuse, NO normal/metallic/roughness
+        // (the weapon-family material contract, 86cak3r3k — v2's URP/Lit+normal was a diagnosed style-mismatch
+        // cause). A URP/Lit-no-normal variant is available behind FARHORIZON_CASTAWAY_V3_LIT=1 for the soak A/B.
+        public const string V3Dir = CharDir + "/v3";
+        public const string V3RiggedFbxPath = V3Dir + "/castaway_v3_rigged.fbx"; // WITH skin (mixamo/Idle.fbx: mesh+rig; Idle take unused)
+        public const string V3DiffusePosterizedPngPath = V3Dir + "/texture_diffuse_posterized.png"; // HSV-posterized flat diffuse (URP _BaseMap)
+
+        // v3 STAGED-ROLLOUT TOGGLE (86cak41d4) — DEFAULT OFF: v2 remains the LIVE hero; v3 is dormant until a
+        // separate activation/soak PR flips this default true. Resolved at BOOTSTRAP time (CI re-runs
+        // BootstrapProject.Run before every build), so the toggle is honored WITHOUT committing a regenerated
+        // Boot.unity. FARHORIZON_CASTAWAY_V3=1 overrides for the env-var soak build.
+        public const bool UseCastawayV3Default = false;
+        public const string CastawayV3EnvVar = "FARHORIZON_CASTAWAY_V3";
+        public static bool UseCastawayV3 =>
+            System.Environment.GetEnvironmentVariable(CastawayV3EnvVar) == "1" || UseCastawayV3Default;
+
+        // v3 MATERIAL A/B sub-toggle (86cak41d4) — URP/Unlit is the v3 primary (weapon-family material contract).
+        // If the Unlit v3 reads "pasted-in" against the lit terrain at the soak, FARHORIZON_CASTAWAY_V3_LIT=1
+        // cuts an alternate build binding a URP/Lit-no-normal-map variant material instead (same posterized
+        // diffuse). The Sponsor rules at soak; both are noted in the Self-Test Report. Only meaningful when
+        // UseCastawayV3 is also set.
+        public const string CastawayV3LitEnvVar = "FARHORIZON_CASTAWAY_V3_LIT";
+        public static bool UseCastawayV3LitMaterial =>
+            System.Environment.GetEnvironmentVariable(CastawayV3LitEnvVar) == "1";
+
         // The model prefab MovementCameraScene instantiates IS the with-skin mesh FBX (it carries the skin +
-        // rig). Toggle-aware (was a const alias of IdleFbxPath): resolves to the v2 rigged base when
-        // UseCastawayV2 is set, else the old Idle.fbx. Callers (MovementCameraScene.BuildModel, diagnostics)
-        // read CharacterAssetGen.FbxPath unchanged — the SAME accessor now returns the toggle-selected mesh.
-        public static string FbxPath => UseCastawayV2 ? V2RiggedFbxPath : IdleFbxPath;
+        // rig). Toggle-aware: resolves to the v3 rigged base when UseCastawayV3, else the v2 rigged base when
+        // UseCastawayV2, else the old Idle.fbx. Callers (MovementCameraScene.BuildModel, diagnostics) read
+        // CharacterAssetGen.FbxPath unchanged — the SAME accessor now returns the toggle-selected mesh. v3
+        // default OFF ⇒ with no env override this still returns V2RiggedFbxPath (v2 byte-unchanged).
+        public static string FbxPath =>
+            UseCastawayV3 ? V3RiggedFbxPath :
+            UseCastawayV2 ? V2RiggedFbxPath : IdleFbxPath;
 
         // Mixamo clip-take finding (EMPIRICAL, spike Hyper3DSpikeDiag 2026-06-15): BOTH FBX export their
         // single clip as the take name "mixamo.com" (NOT "Idle"/"Walk"). An exact/Contains "Idle"/"Walk"
@@ -251,6 +293,12 @@ namespace FarHorizon.EditorTools
             // Boot.unity, which textures → CastawayMat, whether RecolorShirtToTan runs, which axe seat) is what
             // the UseCastawayV2 toggle gates below — importing the base is cheap + side-effect-free on the old path.
             ConfigureV2BaseFbx();
+            // CASTAWAY v3 (86cak41d4) — ALWAYS configure the v3 base FBX importer (Generic + CreateFromThisModel
+            // + height-normalize), even when the toggle is OFF, so its .meta is deterministic + the EditMode
+            // import guards (CastawayV3BaseTests) always have a real import to assert. Same rationale as v2: the
+            // WIRING (which mesh → Boot.unity, which diffuse → CastawayMat) is what UseCastawayV3 gates below —
+            // importing the base is cheap + side-effect-free on the v2/old path.
+            ConfigureV3BaseFbx();
             ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize (the WITH-skin mesh/rig)
             // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle STATE plays. WITHOUT-skin Generic,
             // binds by transform path onto Idle's mesh (the Walk/Run idiom). LOOP (a sustained breathing cycle).
@@ -361,6 +409,69 @@ namespace FarHorizon.EditorTools
             else
                 Debug.Log("[CharacterAssetGen] castaway v2 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
                           (UseCastawayV2 ? " [WIRED — UseCastawayV2 ON]" : " [imported only — toggle OFF, old castaway live]"));
+        }
+
+        // CASTAWAY v3 base (86cak41d4) — the Rodin Smart-Low-poly rigged mesh FBX (mixamo/Idle.fbx, WITH skin:
+        // mesh + mixamorig skeleton + an unused Idle take). Import config is IDENTICAL to ConfigureV2BaseFbx:
+        // GENERIC + CreateFromThisModel (its OWN avatar from its OWN mixamorig skeleton — the anti-Humanoid
+        // recipe; 86ca8rdkp Humanoid cone-explodes the mesh at runtime) + height-normalize to TargetImportHeightU.
+        // The 18 existing WITHOUT-skin clips bind onto THIS mesh by transform path (matching mixamorig bone
+        // names) with NO retarget. importAnimation=false: v3's own Idle take is unused (the controller drives
+        // BreathingIdle/Walk/Run/… from the clip FBX). materialImportMode=None: the shared CastawayMat is
+        // authored by BuildMaterial + bound editor-time by MovementCameraScene (no stray FBX mat).
+        //
+        // FBX-7700 STRAY NODE (86cak41d4): mixamo/Idle.fbx carries a stray empty `Armature` node from the
+        // FBX-7700 export. Harmless — CreateFromThisModel builds the avatar from the mixamorig:* skeleton and the
+        // empty node becomes an inert transform; the avatar-valid assert below still guards clip binding.
+        // Configured on EVERY bootstrap (toggle-independent) so the .meta is deterministic + the EditMode import
+        // guards always assert a real import; only the SCENE WIRING is gated on UseCastawayV3.
+        private static void ConfigureV3BaseFbx()
+        {
+            var importer = AssetImporter.GetAtPath(V3RiggedFbxPath) as ModelImporter;
+            if (importer == null)
+            {
+                Debug.LogError("[CharacterAssetGen] castaway v3 base FBX not found at " + V3RiggedFbxPath +
+                               " — v3 integration (86cak41d4) cannot import; v2/old castaway is unaffected");
+                return;
+            }
+
+            importer.animationType = ModelImporterAnimationType.Generic; // NOT Humanoid (86ca8rdkp runtime-explosion)
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = false; // mesh+rig only — clips come from the WITHOUT-skin clip FBX by transform path
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            // HEIGHT NORMALIZE the intrinsic import to ~1u. Self-correcting: reads the current globalScale,
+            // measures at that scale, re-scales to hit target — convergent regardless of the committed .meta's
+            // starting globalScale (the old Idle path idiom, shared with ConfigureV2BaseFbx).
+            float measured = MeasureHeight(V3RiggedFbxPath);
+            if (measured > 0.01f)
+            {
+                float factor = importer.globalScale * (TargetImportHeightU / measured);
+                importer.globalScale = factor;
+                Debug.Log($"[CharacterAssetGen] v3 base height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                          $"(target {TargetImportHeightU}u)");
+            }
+            else
+            {
+                Debug.LogWarning("[CharacterAssetGen] could not measure v3 base height — skipping normalize");
+            }
+
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+
+            var avatar = LoadAvatar(V3RiggedFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] castaway v3 base did NOT produce a VALID avatar (avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               ") — clips will not bind (the T-pose class)");
+            else
+                Debug.Log("[CharacterAssetGen] castaway v3 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
+                          (UseCastawayV3 ? " [WIRED — UseCastawayV3 ON]" : " [imported only — toggle OFF, v2 castaway live]"));
         }
 
         // Idle.fbx carries the skin (mesh+rig) + the Idle clip. Humanoid rig, avatar created from THIS model
@@ -508,6 +619,18 @@ namespace FarHorizon.EditorTools
         // MovementCameraScene binds this onto the avatar's SkinnedMeshRenderer(s) editor-time.
         private static void BuildMaterial()
         {
+            // CASTAWAY v3 (86cak41d4) — v3 adopts the WEAPON-FAMILY material contract (86cak3r3k): URP/Unlit +
+            // the POSTERIZED diffuse as Base Map, NO normal, NO metallic/roughness (v2's URP/Lit+normal-map was a
+            // diagnosed style-mismatch cause). Built to the SAME CastawayMat.mat path so MovementCameraScene's
+            // BindCastawayMaterial binds it unchanged; only the shader + source texture switch. A/B: if the Unlit
+            // v3 reads "pasted-in" against the lit terrain at soak, FARHORIZON_CASTAWAY_V3_LIT=1 builds a
+            // URP/Lit-no-normal variant instead (same posterized diffuse). The Sponsor rules at soak.
+            if (UseCastawayV3)
+            {
+                BuildV3Material();
+                return;
+            }
+
             // AC1 (86cajwp23) — v2 binds its OWN de-lit diffuse + normal (URP toon albedo, no shirt-recolor);
             // the old path binds the recolored old texture_diffuse. Same material path (CastawayMat.mat) + same
             // toon idiom either way, so MovementCameraScene binds it unchanged; only the source textures switch.
@@ -548,6 +671,44 @@ namespace FarHorizon.EditorTools
             AssetDatabase.CreateAsset(mat, MaterialPath);
             AssetDatabase.SaveAssets();
             Debug.Log("[CharacterAssetGen] de-lit URP/Lit material built from texture_diffuse -> " + MaterialPath);
+        }
+
+        // CASTAWAY v3 material (86cak41d4) — the weapon-family material contract (86cak3r3k): URP/Unlit + the
+        // POSTERIZED diffuse as Base Map, NO normal, NO metallic/roughness. Written to CastawayMat.mat (bound
+        // unchanged by MovementCameraScene.BindCastawayMaterial). A/B: FARHORIZON_CASTAWAY_V3_LIT=1 swaps the
+        // shader to URP/Lit (matte, no normal map) so the Sponsor can compare the Unlit-vs-Lit read at soak.
+        private static void BuildV3Material()
+        {
+            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(V3DiffusePosterizedPngPath);
+            if (diffuse == null)
+            {
+                Debug.LogError("[CharacterAssetGen] v3 posterized diffuse not found at " + V3DiffusePosterizedPngPath +
+                               " — v3 material cannot build");
+                return;
+            }
+
+            bool lit = UseCastawayV3LitMaterial;
+            string shaderName = lit ? "Universal Render Pipeline/Lit" : "Universal Render Pipeline/Unlit";
+            var shader = Shader.Find(shaderName);
+            if (shader == null) { Debug.LogError("[CharacterAssetGen] shader not found: " + shaderName); return; }
+
+            var mat = new Material(shader) { name = "CastawayMat" };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", diffuse);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+            if (lit)
+            {
+                // URP/Lit A/B variant — matte, NO normal map, NO metallic (the posterized diffuse carries the
+                // flat banded look; a normal map / gloss would fight it — 86cak3r3k).
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.03f);
+                if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+                if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+            }
+
+            EnsureShaderAlwaysIncluded(shader);
+            AssetDatabase.CreateAsset(mat, MaterialPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[CharacterAssetGen] v3 material built: shader={shaderName} (posterized diffuse Base Map, " +
+                      $"no normal/metallic) -> {MaterialPath}" + (lit ? " [LIT A/B variant]" : " [UNLIT primary]"));
         }
 
         // IDENTITY RECOLOR (86ca8rdkp AC4) — warm the saturated-yellow SHIRT region of texture_diffuse toward
