@@ -25,8 +25,15 @@ namespace FarHorizon.EditorTools
         static readonly Color CanopyTop    = new Color(0.48f, 0.74f, 0.34f);
         static readonly Color CanopyShadow = new Color(0.18f, 0.40f, 0.17f);
         static readonly Color RockCol      = new Color(0.62f, 0.60f, 0.555f);
+        // Hero rock-feature tints (island 2.0-B / C2). NEAR-NEUTRAL warm-grey, sub-1.0 all channels, R>=G>=B —
+        // routed through the local QuantizeFine so they never pink-cast (lowpoly-quality.md §1 Rec 1: the coarse
+        // 12-step grid split R≈G≈B into R>G=B). Walls a touch cooler/darker than the small scatter rocks so the
+        // big cliffs read with more gravitas; slabs mid-grey stone. Tonal variation is VERTEX-COLOUR only (the
+        // FacetedRock per-facet value + AO the mesh bakes), NEVER per-material (T-A) — hence ONE shared mat each.
+        static readonly Color WallCol      = new Color(0.56f, 0.55f, 0.52f);
+        static readonly Color SlabCol      = new Color(0.60f, 0.585f, 0.55f);
 
-        static Material _canopyMat, _trunkMat, _rockMat, _grassMat;
+        static Material _canopyMat, _trunkMat, _rockMat, _grassMat, _wallMat, _slabMat;
 
         /// <summary>
         /// Scatter the POC forest/rocks/grass under `parent`, grounded onto `groundCol` (the POC terrain
@@ -38,7 +45,7 @@ namespace FarHorizon.EditorTools
         {
             // Reset the per-build material cache so a re-run does not return materials owned by a destroyed
             // scene (the editor keeps statics across executeMethod invocations).
-            _canopyMat = _trunkMat = _rockMat = _grassMat = null;
+            _canopyMat = _trunkMat = _rockMat = _grassMat = _wallMat = _slabMat = null;
 
             var rnd = new System.Random(seed + 555);
             NextIslandPocGen.SeedOffset(seed, out float ox, out float oz);
@@ -116,8 +123,75 @@ namespace FarHorizon.EditorTools
                 clumpsPlaced++;
             }
 
+            // ---- ROCKY WALLS + HUGE STONE SLABS (island 2.0-B / C2, ticket 86cakk4w8) ----
+            // FREE-STANDING FacetedRock hero PROPS scattered onto the settled 600u land — DISTINCT from C1's
+            // per-peak terrain rock-banding (untouched). NEW seed streams (seed+1111 / seed+1212) so C1's
+            // tree/rock/grass streams above are BYTE-UNTOUCHED (a re-run reproduces the soaked C1 scatter
+            // exactly). Both classes reject footprints overlapping the three Peaks[] feet (walls/slabs go on
+            // flats/foreshore/inter-peak cols, never clipped into a mountain foot) + the spawn clearing.
+            int wallsPlaced = ScatterWalls(parent, seed, groundCol, plantOuterR, OnLandmass, InSpawnClearing);
+            int slabsPlaced = ScatterSlabs(parent, seed, groundCol, plantOuterR, OnLandmass, InSpawnClearing);
+
             Debug.Log($"[poc-trace] Scatter: {treesPlaced} trees (target {treeTarget}), {rocksPlaced} rocks, " +
-                      $"{clumpsPlaced} grass clumps — seed {seed}");
+                      $"{clumpsPlaced} grass clumps, {wallsPlaced} rocky walls, {slabsPlaced} stone slabs — seed {seed}");
+        }
+
+        // Reject a footprint that overlaps ANY of C1's three peaks (hero 90,-60 r300; NE 330,150 r200; SE
+        // 250,-285 r160) — plus a margin for the prop's own base — so a wall/slab is never clipped into a
+        // mountain foot (which would read broken + risk orphaning the walkable surface). Keyed off Peaks[]
+        // directly (no hardcoded centres) so a peak re-tune re-rejects automatically.
+        static bool OverlapsAnyPeakFoot(float x, float z, float margin)
+        {
+            foreach (var p in NextIslandPocGen.Peaks)
+            {
+                float dx = x - p.cx, dz = z - p.cz;
+                if (dx * dx + dz * dz < (p.footR + margin) * (p.footR + margin)) return true;
+            }
+            return false;
+        }
+
+        // 3-6 near-vertical faceted ROCKY WALLS (default — Sponsor-soak tunes). seed+1111 (a NEW stream — never
+        // mutate C1's seed+555 above). Returns the count placed (for the trace + the Predict-Before-Soak grade).
+        static int ScatterWalls(GameObject parent, int seed, MeshCollider groundCol, float plantOuterR,
+            System.Func<float, float, bool> onLandmass, System.Func<float, float, float, bool> inSpawnClearing)
+        {
+            var rnd = new System.Random(seed + 1111);
+            int target = 3 + rnd.Next(0, 4);                 // 3..6
+            int placed = 0, guard = 0;
+            while (placed < target && guard++ < target * 40)
+            {
+                float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (inSpawnClearing(x, z, 14f)) continue;
+                if (!onLandmass(x, z)) continue;
+                if (OverlapsAnyPeakFoot(x, z, 6f)) continue;
+                BuildWall(parent, GroundPoint(groundCol, x, z), rnd);
+                placed++;
+            }
+            return placed;
+        }
+
+        // 8-15 huge flat-topped STONE SLABS (default — Sponsor-soak tunes), scale ~3-6, some partly embedded.
+        // seed+1212 (a NEW stream, disjoint from walls' seed+1111 and C1's seed+555).
+        static int ScatterSlabs(GameObject parent, int seed, MeshCollider groundCol, float plantOuterR,
+            System.Func<float, float, bool> onLandmass, System.Func<float, float, float, bool> inSpawnClearing)
+        {
+            var rnd = new System.Random(seed + 1212);
+            int target = 8 + rnd.Next(0, 8);                 // 8..15
+            int placed = 0, guard = 0;
+            while (placed < target && guard++ < target * 40)
+            {
+                float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (inSpawnClearing(x, z, 12f)) continue;
+                if (!onLandmass(x, z)) continue;
+                if (OverlapsAnyPeakFoot(x, z, 4f)) continue;
+                BuildSlab(parent, GroundPoint(groundCol, x, z), rnd);
+                placed++;
+            }
+            return placed;
         }
 
         // Raycast a point down onto the ground collider (grounds the prop base on the sloped terrain).
@@ -193,22 +267,124 @@ namespace FarHorizon.EditorTools
             go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
 
+        // A near-vertical faceted ROCKY WALL (island 2.0-B / C2) — a FacetedRock stretched into a tall thin FIN
+        // (long face + real height + thin depth => a wall/cliff you can't walk up, not a boulder). The FacetedRock
+        // idiom carries the flat-shaded facets + per-facet vertex-colour tonal variation (NEVER RecalculateNormals).
+        // Hero feature => shadows ON + static-batch. A carving NavMeshObstacle keeps the agent off it (can't-walk-up)
+        // without orphaning the walkable surface (carving only subtracts — see AddCarveObstacle).
+        static void BuildWall(GameObject parent, Vector3 at, System.Random rnd)
+        {
+            var wall = new GameObject("LP_RockWall");
+            wall.transform.SetParent(parent.transform, false);
+
+            float len  = 4f + (float)rnd.NextDouble() * 4f;    // 4..8 — the long rock face
+            float hgt  = 12f + (float)rnd.NextDouble() * 10f;  // 12..22 — the near-vertical rise (clearly >> len/thick)
+            float thk  = 2f + (float)rnd.NextDouble() * 2f;    // 2..4 — thin => a wall/fin, not a lump
+            float yaw  = (float)rnd.NextDouble() * 360f;
+            float tilt = ((float)rnd.NextDouble() - 0.5f) * 8f; // +/-4deg organic lean (stays near-vertical)
+            wall.transform.rotation = Quaternion.Euler(tilt, yaw, tilt * 0.5f);
+            wall.transform.localScale = new Vector3(len, hgt, thk);
+
+            var mesh = LowPolyMeshes.FacetedRock(0.5f, jitter: 0.42f, seed: rnd.Next());
+            var body = MakeMeshObject(wall, "WallMesh", mesh, WallMat(), castShadows: true);
+
+            SeatOnGround(wall, body, at, embed: 0.6f + (float)rnd.NextDouble() * 0.8f);
+            AddCarveObstacle(wall, mesh);
+            MarkStaticBatch(wall);
+        }
+
+        // A huge flat-topped STONE SLAB (island 2.0-B / C2) — a FacetedRock spread WIDE + FLATTENED so it reads as
+        // a big boulder sitting ON the ground with a broad flat top (scale ~3-6). ~40% are PARTLY EMBEDDED (the
+        // ticket's "some part-embedded"). Same hero caster policy (shadows ON + static-batch) + carving obstacle.
+        static void BuildSlab(GameObject parent, Vector3 at, System.Random rnd)
+        {
+            var slab = new GameObject("LP_StoneSlab");
+            slab.transform.SetParent(parent.transform, false);
+
+            float s    = 3f + (float)rnd.NextDouble() * 3f;             // 3..6 base scale (huge boulder)
+            float wide = s * (1.3f + (float)rnd.NextDouble() * 0.7f);   // wide footprint
+            float deep = s * (1.3f + (float)rnd.NextDouble() * 0.7f);
+            float flat = s * (0.40f + (float)rnd.NextDouble() * 0.35f); // FLATTENED Y => a flat-topped slab
+            float yaw  = (float)rnd.NextDouble() * 360f;
+            float tilt = ((float)rnd.NextDouble() - 0.5f) * 12f;        // +/-6deg — a boulder resting at an angle
+            slab.transform.rotation = Quaternion.Euler(tilt, yaw, tilt * 0.6f);
+            slab.transform.localScale = new Vector3(wide, flat, deep);
+
+            var mesh = LowPolyMeshes.FacetedRock(0.5f, jitter: 0.34f, seed: rnd.Next());
+            var body = MakeMeshObject(slab, "SlabMesh", mesh, SlabMat(), castShadows: true);
+
+            float worldH = body.GetComponent<MeshRenderer>().bounds.size.y;
+            bool embedded = rnd.NextDouble() < 0.4;
+            float embed = embedded ? worldH * (0.30f + (float)rnd.NextDouble() * 0.25f) : 0.2f;
+            SeatOnGround(slab, body, at, embed);
+            AddCarveObstacle(slab, mesh);
+            MarkStaticBatch(slab);
+        }
+
+        // Seat a rock feature so its BASE meets the ground point (minus `embed`). Reads the WORLD renderer bounds
+        // AFTER rotation + non-uniform scale, so the seat holds under the yaw/tilt (a mesh centred on its origin
+        // would otherwise sink half-underground). x/z stay at the scatter point.
+        static void SeatOnGround(GameObject root, GameObject body, Vector3 at, float embed)
+        {
+            root.transform.position = at;
+            float bottom = body.GetComponent<MeshRenderer>().bounds.min.y;
+            root.transform.position += new Vector3(0f, (at.y - embed) - bottom, 0f);
+        }
+
+        // A carving NavMeshObstacle sized to the feature footprint — the SAME idiom the trees use (BuildTree). The
+        // baked PocNavMesh.asset is UNCHANGED (obstacles carve at RUNTIME over the baked surface), so the bake-time
+        // NavMesh-coverage trace stays green. Carving only SUBTRACTS the footprint => a free-standing wall/slab can
+        // NEVER orphan a walkable patch (it creates no walkable island). The NavMeshAgent player cannot enter the
+        // footprint => can't walk up a vertical wall / through a boulder; a vertical jump can't cross it either (the
+        // agent owns world XZ — CastawayCharacter). Box in LOCAL mesh units; the root lossyScale scales it to world.
+        static void AddCarveObstacle(GameObject root, Mesh mesh)
+        {
+            var obs = root.AddComponent<UnityEngine.AI.NavMeshObstacle>();
+            obs.carving = true;
+            obs.shape = UnityEngine.AI.NavMeshObstacleShape.Box;
+            obs.center = mesh.bounds.center;
+            obs.size = mesh.bounds.size;
+        }
+
         static void MarkStaticBatch(GameObject go) =>
             UnityEditor.GameObjectUtility.SetStaticEditorFlags(go,
                 UnityEditor.StaticEditorFlags.BatchingStatic);
 
-        static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat)
+        static GameObject MakeMeshObject(GameObject parent, string name, Mesh mesh, Material mat, bool castShadows = true)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            // Caster policy (C2): hero silhouette features (walls, big slabs) keep shadows; decoration-scale debris
+            // ships castShadows:false (the shadow pass is the dominant GPU cost — poly-plan headline). Default true
+            // preserves the existing tree/rock On behaviour; grass keeps its explicit post-create Off below.
+            mr.shadowCastingMode = castShadows
+                ? UnityEngine.Rendering.ShadowCastingMode.On
+                : UnityEngine.Rendering.ShadowCastingMode.Off;
             return go;
+        }
+
+        // 24-step quantizer (mirrors LowPolyZoneGen.QuantizeFine) — snaps a near-neutral warm-grey tint to the fine
+        // grid so it preserves R>=G>=B and never pink-casts (the coarse 12-step grid collapsed R≈G≈B to R>G=B;
+        // lowpoly-quality.md §1 Rec 1), while collapsing tints to a few shared materials (SRP-Batcher-friendly).
+        static Color QuantizeFine(Color c)
+        {
+            const float steps = 24f;
+            return new Color(
+                Mathf.Round(c.r * steps) / steps,
+                Mathf.Round(c.g * steps) / steps,
+                Mathf.Round(c.b * steps) / steps, 1f);
         }
 
         static Material CanopyMat() => _canopyMat ??= VertexColorMat("LPPocCanopyMat", Color.white, sway: true);
         static Material RockMat()   => _rockMat   ??= VertexColorMat("LPPocRockMat", RockCol, sway: false);
         static Material GrassMat()  => _grassMat  ??= VertexColorMat("LPPocGrassMat", new Color(0.36f, 0.54f, 0.24f), sway: false);
+        // ONE shared material per hero-rock class (T-A: tonal variation is vertex-colour only, never per-material) —
+        // near-neutral warm-grey tints routed through QuantizeFine so they never pink-cast (lowpoly-quality §1).
+        static Material WallMat()   => _wallMat   ??= VertexColorMat("LPPocWallMat", QuantizeFine(WallCol), sway: false);
+        static Material SlabMat()   => _slabMat   ??= VertexColorMat("LPPocSlabMat", QuantizeFine(SlabCol), sway: false);
 
         static Material TrunkMat()
         {

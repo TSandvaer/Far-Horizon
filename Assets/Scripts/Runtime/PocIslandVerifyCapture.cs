@@ -103,6 +103,13 @@ namespace FarHorizon
             //      honest geometry read at range — Exp² fog washes ~80% at 1000u and would hide the shape).
             yield return CaptureRangeSideProfile(dir);
 
+            // ---- 2c. ROCK-FEATURE side profiles (island 2.0-B / C2, ticket 86cakk4w8) — the MANDATORY
+            //      per-new-class silhouette gate (lowpoly-quality.md §0). A rocky WALL is a near-vertical rock
+            //      face you can't walk up; a stone SLAB is a big flat-topped boulder sitting ON the ground. Both
+            //      up-vs-down reads (wall RISES vertical / slab sits low + flat on the surface) are invisible
+            //      player-eye/top-down + obvious side-on — so shoot each free-standing feature side-on. ----
+            yield return CaptureRockFeatureSideProfiles(dir);
+
             // ---- 3. OVERHEAD — the WHOLE big island (organic outline + water on all sides + the range mass) ----
             if (orbit != null) orbit.enabled = false;
             var cam = Camera.main;
@@ -137,7 +144,7 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.7f);
             Debug.Log("[poc-trace] PocIslandVerifyCapture done -> " + dir +
                       " (poc_gameplay + poc_mountain_side + poc_mountain_side2 + poc_range_side[+_nofog] + " +
-                      "poc_overhead + poc_on_mountain)");
+                      "poc_wall_side + poc_slab_side + poc_overhead + poc_on_mountain)");
             Application.Quit();
         }
 
@@ -249,6 +256,53 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return null;
             RenderSettings.fog = fogWas;
+        }
+
+        // The ROCK-FEATURE side profiles (island 2.0-B / C2) — a side-on silhouette of one rocky WALL + one stone
+        // SLAB, the mandatory per-new-class physical-feature gate. Finds a representative feature by name (the
+        // scatter tags them LP_RockWall / LP_StoneSlab), parks a camera OUT to the side at the feature's own height
+        // looking horizontally ACROSS it, so up-vs-down reads: the WALL rises near-vertical (un-walkable face); the
+        // SLAB sits low + flat ON the ground. The ground contact line is kept in frame (camera near the base height)
+        // so "sits ON the ground" vs "floats" is judged. Skips gracefully if the class is absent (logs it).
+        private IEnumerator CaptureRockFeatureSideProfiles(string dir)
+        {
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            yield return CaptureFeatureSide(dir, "LP_RockWall", "poc_wall_side.png", "rocky WALL",
+                "the silhouette must RISE near-VERTICAL (a rock face you can't walk up), faceted, not a smooth block");
+            yield return CaptureFeatureSide(dir, "LP_StoneSlab", "poc_slab_side.png", "stone SLAB",
+                "must sit ON the ground with a broad FLAT top (a big boulder resting on the surface), faceted, some part-embedded");
+        }
+
+        // Frame one named free-standing rock feature side-on + capture it. Camera stands off along +X at the
+        // feature's mid-height, looking across it toward -X, far enough to frame the whole foot-to-top silhouette.
+        private IEnumerator CaptureFeatureSide(string dir, string findName, string fileName, string label, string anchor)
+        {
+            var cam = Camera.main;
+            if (cam == null) yield break;
+            var go = GameObject.Find(findName);
+            var rend = go != null ? go.GetComponentInChildren<Renderer>() : null;
+            if (rend == null)
+            {
+                Debug.Log($"[poc-trace] SIDE-PROFILE {label}: no '{findName}' found in the scene — the C2 scatter " +
+                          "must place at least one (silhouette gate cannot be judged without it).");
+                yield break;
+            }
+            cam.farClipPlane = Mathf.Max(cam.farClipPlane, 3000f);
+            Bounds b = rend.bounds;
+            float span = Mathf.Max(b.size.x, b.size.y, b.size.z);
+            float standOff = span * 2.6f + 10f;
+            // Height near the base + a bit up so the ground contact line stays in frame (up-vs-down: on-ground vs floating).
+            Vector3 camPos = new Vector3(b.center.x + standOff, b.min.y + b.size.y * 0.45f, b.center.z);
+            Vector3 lookAt = new Vector3(b.center.x, b.min.y + b.size.y * 0.5f, b.center.z);
+            cam.transform.position = camPos;
+            cam.transform.rotation = Quaternion.LookRotation((lookAt - camPos).normalized, Vector3.up);
+            for (int i = 0; i < settleFrames; i++) yield return null;
+            Debug.Log($"[poc-trace] SIDE-PROFILE {label}: camPos={camPos.ToString("F0")} across '{findName}' at " +
+                      $"{b.center.ToString("F0")} (size {b.size.ToString("F1")}) — {anchor}.");
+            Shot(Path.Combine(dir, fileName));
+            yield return new WaitForEndOfFrame();
+            yield return null;
         }
 
         // Drive the player's NavMeshAgent UP the mountain (proving the peak is CLIMBABLE, AC3) and read the
