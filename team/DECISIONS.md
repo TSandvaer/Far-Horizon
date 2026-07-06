@@ -445,3 +445,59 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Why: proven in-session end-to-end (concept → Rodin → Mixamo → Blender-verified 41-bone rig); extends the existing character-pipeline.md route; the Rodin base is welded, so customization = gear modules + texture recolors (deeper hair/beard modularity = phase 2).
 - Reversibility: reversible in principle (route choice); one-way in practice for v2
 - Affects: character pipeline, character-pipeline.md, all future hero-character work, gear-module strategy
+
+## 2026-07-06 — Sponsor walkthrough: #261 fold+merge, axe redo iter-1 approved, v2 owns grip, combined re-seat
+- **#261 docs:** fold the 2 stale CLAUDE.md lines (line-3 identity, doc-index Humanoid->Generic; + the hero-route/v2-LIVE line, same error class) then auto-merge label. Folded as `d697960`.
+- **Stone-axe redo (86cajkk7h):** Sponsor approved iteration 1 on the A/B — haft radial x0.70 (0.051–0.064 m), head uniform x0.88 about the mount point (X-width 0.312->0.2746 m). Baked to FBX + blend saved. Original rejected FBX preserved in session scratchpad only.
+- **PR #239 / 86cahnmjv:** closed superseded-by-v2-rig; the combined v2 re-seat pass owns thumb/grip on the new hand; fresh fix only if v2 reproduces the defect.
+- **Re-seat sequencing:** ONE combined Devon pass (new axe integration + all-4 stone weapons on the v2 hand) instead of two passes/two soaks.
+- **Auto-status:** stays OFF during the interactive session; re-arm when dispatchable work exists.
+
+## 2026-07-06 — Hero-character low-poly direction re-opened (Sponsor, feedback-driven)
+Sponsor received feedback that the Hyper3D/Rodin castaway is "not low poly like the rest of the game" and wants to revisit the in-house low-poly path. Route decision deferred to evidence: Erik consult dispatched FIRST (ticket 86cak3r3k, note → team/erik-consult/lowpoly-hero-conversion-research.md) evaluating (1) low-polyfy the existing v2 mesh, (2) fresh hand-model burst (context: 7 bpy hero fails 2026-07-05), (3) Rodin re-gen from low-poly concept, (4) shader-only faceting. Castaway v2 STAYS the live default until a replacement passes the full soak gate — this decision re-opens direction, it does not revert #262.
+
+## 2026-07-06 — Castaway v3 identity: hopeful-but-SCARED young adventurer (reverses the v2 bearded-rugged lock)
+Sponsor (verbatim, route-pick popup): "I dont actually like the current v2. he is too strong and too happy. I would like another go at a hopeful but scared young man prepared for adventure." So the 2026-07-05 bearded-rugged-friendly identity is REJECTED for the next hero, partially returning to the original young+hopeful direction with a scared/brave nuance. Erik's Route-1 conversion mechanics (retopo ~1,500–3,000 tris + flat-shade + palette re-texture + Mixamo Generic; 86cak3r3k) are ADOPTED but applied to a NEW base mesh: concept → WEB-Rodin → retopo/low-polyfy → Mixamo → Unity Generic, staged v3 toggle. v2 stays the LIVE default until v3 passes the full soak gate. CLAUDE.md's character line stays describing the LIVE v2 (#261 unchanged); it flips when v3 activates.
+
+## 2026-07-06 — Castaway v3 concept LOCKED (variant E)
+Sponsor picked concept E after 2 rounds (5 candidates): man in his mid-30s, light stubble (adult, NOT v2-rugged), lean ordinary-guy build, scared-but-going-anyway expression (wide worried eyes, set mouth), torn-sleeve teal shirt, rope belt, rolled grey-brown trousers, barefoot, A-pose. Locked file: art-src/castaway_v3_concept_apose.png. Round-1 direction note: "torn shirt, but not a boy, a man in his 30s" (rejected the young-boy reads A/B/C). Next: Sponsor runs WEB-Rodin image-to-3D on the locked concept (ticket 86cak41d4).
+
+## 2026-07-06 — Castaway v3 concept RE-LOCKED: variant G supersedes E (expression dialed back)
+Sponsor re-judged after locking E: "he looks too scared" → "should be more neutral" → picked G from the F/G/H expression round: mid-30s, light stubble, lean, head-on gentle friendly smile (not scared, not neutral-blank), torn teal shirt, rope belt, rolled trousers, barefoot, A-pose. art-src/castaway_v3_concept_apose.png now = G (E superseded, kept in session scratchpad only). Identity nuance final: the "scared" part of the original brief is carried by ANIMATION/posture, not the sculpt — the face bakes a mild friendly-neutral read.
+
+## 2026-07-06 — Castaway v3 facet density LOCKED: 3.0k tris (QuadriFlow 1509 quads)
+Sponsor picked the 3.0k-tri conversion from the facet A/B (raw-Rodin vs 3.0k vs 2.1k): clearly faceted, keeps hands/belt/silhouette, better rig deformation headroom; top of Erik's 1,500-3,000 band. Source of truth: art-src/castaway_v3_lowpoly.blend (raw 8,370-quad Rodin import + the chosen v3_lp_2800tri mesh). Remaining before Mixamo: region-color cleanup (border noise), painted/geometry face features, final palette texture + UV placement.
+
+## 2026-07-06 — Castaway v3 Route-1 conversion GESTALT-REJECTED ("no its terrible" — the whole converted character)
+The retopo conversion (QuadriFlow 3.0k + flat semantic regions + geometry face decals) cleared every itemized defect (density Sponsor-picked from A/B, regions cleaned, face positions verified against the sculpt's measured sockets) and still failed the Sponsor's bar as a WHOLE. Per character-pipeline.md's ratified gestalt diagnostic: route switched, not iterated. Work preserved in art-src/castaway_v3_lowpoly.blend for reference. v2 stays LIVE. Next: Sponsor picks among remaining routes (Rodin Smart-Low-poly re-gen probe / Quaternius-class low-poly base customization toward concept G / exaggerated-chunky concept re-draw / pause).
+
+## 2026-07-06 — v3 route after gestalt-fail: Rodin Smart-Low-poly(BETA) re-gen probe
+Sponsor picked the probe: re-run locked concept G through Rodin choosing Smart-Low-poly topology at Confirm (instead of Quad-8000). Framed explicitly as a PROBE (Erik grade: unproven, vendor-claimed) — fallbacks remain low-poly-base customization (Quaternius-class, v1 precedent) and exaggerated-chunky concept re-draw. Export lands in a SEPARATE folder (art-src/castaway-v3-rodin-export-lowpoly/); the first Quad-8000 export stays untouched.
+
+## 2026-07-06 — v3 hero route LOCKED: Rodin Smart-Low-poly + HSV-posterized diffuse
+The Smart-Low-poly(BETA) probe SUCCEEDED where the retopo conversion gestalt-failed: Rodin re-gen of locked concept G with Smart-Low-poly topology (Quad type, Low density) produced REAL facet geometry at 3,605 quads / 7.4k tri-equiv (~half of Quad-8000's 16.7k), keeping the concept's painted cartoon face. Sponsor picked the HSV-POSTERIZED diffuse treatment (V 5-steps / S 4-steps, hue untouched — flattens cloth/skin shading to steps, keeps the face) over painted-as-is. Erik's 1.5–3k band is superseded by Sponsor verdict at 7.4k. Export: art-src/castaway-v3-rodin-export-lowpoly/ + texture_diffuse_posterized.png. Next: Mixamo auto-rig (A-pose ok) → Unity GENERIC → staged v3 toggle + capture-gate reconcile + held-weapon re-seat.
+
+## 2026-07-06 — Double soak-PASS: v3 identity + #254 weapons; activation ordered
+Sponsor (verbatim): "soak v3 identity approved. soak 254 approved lets move on with v3 char and dial in the weapons with that char."
+- v3 identity soak (Build\soak-v3\, stamp bb715b1) PASSED -> activation ticket 86cak9kau un-gates (default flip + capture-gate reconcile + ALL-4-weapon re-seat on the v3 hand + finger-curl + Drew's #263 NIT).
+- #254 weapons soak (Build\soak-254-v2\, stamp 10b8195) PASSED -> auto-merge labeled (MERGEABLE, sequenced after #263's 11:46Z merge). 86cajkk7h complete on merge; 86cahnmjv closed (thumb defect not reproduced; v3 grip owned by 86cak9kau item 4).
+- Weapon "dial-in" on the v3 char = 86cak9kau scope items 3-4, dispatching once #254 lands on main (re-seat then covers all 4 stone weapons).
+
+## 2026-07-06 — v3-live soak PASS (with follow-up): v3 activation ships
+Sponsor (verbatim, walkthrough): "pass but weapons etc. need to be dialed in for the new v3 character." #264 auto-merge-labeled; 86cak9kau completes on merge; v3 = the shipped default hero. Follow-up: a weapon DIAL-IN pass on v3 (seat/scale/pose fine-tuning, Sponsor-driven) — per [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]], route through the F9 nudge handle (fix its broken head-resize keys 86cajuuz0 where still relevant) -> Sponsor dials -> bake. Ticket to be filed this walkthrough round.
+
+## 2026-07-06 — Walkthrough Q2+Q3: #265 Sponsor-browser-merging now; island lane GREEN-LIT
+- #265 (weaponset CI gate): Sponsor merging in browser now; orch flips 86caju052 complete on observed merge.
+- Island lane: GO — dispatch C2 (86cakk4w8) when the build slot frees post-#264-merge; C2->C3->C4 serial; the v3 weapon dial-in follow-up runs in the non-build lane in parallel.
+
+## 2026-07-06 — Iron progression Q1: MODEL A locked (mine ore + smelter)
+Sponsor picked Model A over Erik's D recommendation: full mining chain — ore nodes, pickaxe (new 5th tool type per tier), smelter. Richest survival build, scope L. Consequences: pickaxe extends the Sponsor-locked weapon set (Blender burst needed for wpn_pickaxe_{stone,iron}_01); 86cah7y5b (find-in-world) stays standalone (not absorbed). Q2-Q5 refine the model below.
+
+## 2026-07-06 — Iron progression Q2+Q3: WORK-LED earn feel; NEW forge/furnace structure
+Q2: work-led — the crafting/smelting grind is the point (ore findable without heavy exploration; effort = mining volume + fuel + smelt time). Q3: a NEW buildable forge/furnace structure (distinct from the bonfire; extends the survival arc shipwreck->...->furnace->iron; crafting-table-class buildable).
+
+## 2026-07-06 — Iron progression Q4+Q5: PEACEFUL gather/craft; BOTH difficulty dials
+Q4: NO combat guard — mining is peaceful; the iron chain ships fully independent of the combat cluster (no hard dep). Q5: BOTH dials exposed — ore rarity + smelt cost (fuel/time/material), per-tier easy/med/hard presets, registered in SettingsCatalog per the existing tweakable pattern.
+
+## 2026-07-06 — Iron progression BONUS: PICKAXE approved as the 5th tool type (both tiers)
+wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knapped stone / forged iron recipes per [[weapon-two-tier-style-stone-iron]]); authored via an interactive Sponsor-judged Blender burst (schedulable). IRON DESIGN NOW FULLY LOCKED: Model A (mine ore + smelter) · work-led · new forge/furnace buildable · peaceful (no combat dep) · both difficulty dials (ore rarity + smelt cost) · pickaxe 5th type. Erik's note must be committed to main before/with the citing implementation spec.
