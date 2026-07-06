@@ -20,6 +20,19 @@ namespace FarHorizon.PlayTests
     /// mesh, so a renderer-only assert would false-green it. The spear mesh resolves from the committed
     /// Resources/WeaponSetLineup.prefab (the same source the shipped sync uses).
     /// </summary>
+    // 86cajt6jz (FH-PMTRIAGE-DEBUGCYCLE) — HEADLESS RED RESOLVED. DebugCycle_… failed headless at the
+    // "debug view SHOWS through the gate" assert (line ~154) because HeldWeaponCycleDebug.ResolveGate
+    // PERMANENTLY cached a NULL HeldTool: the cycle is AddComponent'd BEFORE the sibling HeldAxe gate in
+    // SetUp, and AddComponent on an active GO runs OnEnable synchronously, so the cycle's OnEnable->
+    // ResolveGate ran GetComponent<HeldTool>() while the gate did not yet exist. With the gate null-cached,
+    // CycleHeldWeaponDebug() could never call gateTool.RefreshRenderers(), so the empty-handed [B] look-soak
+    // view never re-applied visibility and the renderer stayed disabled. NOT a mesh-resolve bug
+    // (renderer.enabled is written ONLY by HeldTool.Apply — ResolveMeshes/ApplyCurrent never touch it) and
+    // NOT a timing/Time.captureDeltaTime window (there is none in this transition-only test). Fix:
+    // HeldWeaponCycleDebug.ResolveGate re-resolves while null; the SHIPPED scene is unchanged (both
+    // components deserialize together — all Awakes before all OnEnables — so GetComponent finds the gate
+    // first try). This class (esp. DebugCycle + its cycle-first SetUp order) IS the regression guard; the
+    // shipped -verifyHeldBelt gate drives only the SelectBelt/Inventory.Changed path and never exercises [B].
     public class HeldBeltWeaponVisualPlayModeTests
     {
         private GameObject _invGo;
@@ -42,6 +55,11 @@ namespace FarHorizon.PlayTests
             _seatGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
             Object.Destroy(_seatGo.GetComponent<Collider>());
             _renderer = _seatGo.GetComponent<MeshRenderer>();
+            // REGRESSION-CRITICAL ORDER (86cajt6jz): cycle FIRST so the gate's Awake caches it. This also
+            // reproduces the add-order that EXPOSED the null-gate bug — the cycle's synchronous OnEnable
+            // resolves its HeldTool gate BEFORE HeldAxe is added below, so a permanently-null-cached gate
+            // would silently break the empty-handed [B] cycle's RefreshRenderers. Do NOT reorder these two
+            // (it would both null the gate's _cycle back-ref AND blind this guard).
             _cycle = _seatGo.AddComponent<HeldWeaponCycleDebug>();
             _gate = _seatGo.AddComponent<HeldAxe>();
             _gate.inventory = _inv;
