@@ -431,3 +431,17 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Why: The #218 migration correctly consolidated the standalone F7/F9/F10 dev nudges into the console, but it put them alongside genuine player settings, and the Sponsor's soak surfaced that a player opening Settings must NOT see arm-pose eulers / fog channels / follow-gains. The split keeps the dev-tuning unification (one console, all nudges) while giving the shipping player a clean, minimal Settings panel. The conditional-visibility fix (#220) removes the meaningless decay slider for a disabled need.
 - Reversibility: reversible (a UI routing/key split + a per-need slider visibility rule; the underlying registry + bindings are unchanged, so revert is ≤1 PR — re-point both panels at one registry view + one key).
 - Affects: `SettingsPanel` / `SettingsCatalog` / the panel scene wiring (`MovementCameraScene`/`Boot.unity`), the two open keys (F1 player + proposed F3 dev), the superseded #220 per-need work (`86cabeqwf`), memory `[[sponsor-wants-unified-dev-tweak-console]]` (now scoped to the dev console only), Devon (author) + Drew (reviewer) + Tess (shipped-build capture gate) + the Sponsor (soak).
+
+## 2026-07-05 — Castaway v2 identity: bearded, rugged, friendly-neutral adult survivor
+- Decided by: Sponsor
+- Decision: The hero castaway's identity becomes a **bearded, rugged, friendly-neutral adult survivor**, deliberately REVERSING the earlier "young + happy" lock. (Sponsor chose the "Full reference look" against `inspiration/2026-06-12_21h00_32.png`, then iterated the concept to a friendly-neutral expression.)
+- Why: Sponsor's direct in-session art call on the Castaway v2 concept — the full-reference rugged look reads as the intended hero over the earlier young+happy design sheet.
+- Reversibility: reversible (asset/identity choice; the old castaway stays live until v2 passes the soak)
+- Affects: character art, CLAUDE.md character identity, the Castaway v2 integration, downstream gear/customization
+
+## 2026-07-05 — Hero-character route ratified: concept → Rodin → Mixamo
+- Decided by: Sponsor
+- Decision: The hero-character production route is ratified as **AI concept image (openai-image gpt-image-1, image-to-image from the inspiration board) → Hyper3D Rodin (web UI, Gen-2.5/High, de-light ON, Quad ~8000) → Mixamo auto-rig → Unity Humanoid**, proven end-to-end by shipping Castaway v2 through it (harvest PR #260).
+- Why: proven in-session end-to-end (concept → Rodin → Mixamo → Blender-verified 41-bone rig); extends the existing character-pipeline.md route; the Rodin base is welded, so customization = gear modules + texture recolors (deeper hair/beard modularity = phase 2).
+- Reversibility: reversible in principle (route choice); one-way in practice for v2
+- Affects: character pipeline, character-pipeline.md, all future hero-character work, gear-module strategy
