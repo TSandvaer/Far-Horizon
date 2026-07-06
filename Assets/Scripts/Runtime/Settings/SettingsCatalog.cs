@@ -184,6 +184,18 @@ namespace FarHorizon.Settings
         // the registry rows.
         public const string FpsCounterId = "fps_counter";
 
+        // Iron-progression difficulty dials (ticket 86cakkmgw / I-0 — the §1 vocabulary, minted as EXTENSION
+        // HOOKS here). Two Sponsor-locked dials (DECISIONS 2026-07-06): ore RARITY + smelt COST (fuel/time/
+        // material). I-0 mints these ids Available=false "(soon)"; the node ticket (I-2) flips iron_ore_rarity
+        // LIVE (node count/density), the forge ticket (I-3) flips the three smelt-cost ids LIVE. Registered by
+        // PopulateIron (the PopulateThirst/PopulateStones de-collision precedent — never grow the base Populate
+        // signature). DEV-CONSOLE by default (absent from SettingsCategory.PlayerIds) per the ticket constraint.
+        // The per-tier easy/med/hard presets live as DATA in IronDifficultyPresets (Items/IronDifficulty.cs).
+        public const string IronOreRarityId    = "iron_ore_rarity";
+        public const string SmeltFuelCostId    = "smelt_fuel_cost";
+        public const string SmeltTimeId        = "smelt_time";
+        public const string SmeltOrePerIngotId = "smelt_ore_per_ingot";
+
         // Console UI scale (86cabeqj9 soak NIT — the panel/text read very large at the Sponsor's resolution).
         // A FLOAT slider multiplying the panel element's transform.scale so he dials the whole console (plate +
         // text) live. NOT a gameplay param — bound to a SettingsPanel-owned scale field (registered by the panel
@@ -304,6 +316,14 @@ namespace FarHorizon.Settings
         // Wave1-B colour dials (86cahhfkc). Meadow amp 0..1.5 (0 = baked patches only); rim 0..0.5 (0 = today).
         public const float MeadowPatchAmpMin = 0f, MeadowPatchAmpMax = 1.5f;
         public const float RockRimMin = 0f, RockRimMax = 0.5f;
+        // Iron-progression dial bands (ticket 86cakkmgw / I-0). Generous around the medium-tier preset defaults
+        // (14 nodes / 2 ore-per-ingot / 2 fuel / 12s) so the Sponsor soaks common..sparse and cheap-fast..
+        // costly-slow, bounded so a dial can't zero the earn or run away. These size the greyed rows now; I-2/I-3
+        // reuse the same bands when they flip the rows LIVE.
+        public const int IronOreRarityMin = 4,    IronOreRarityMax = 40;   // nodes per island (common..sparse)
+        public const int SmeltOrePerIngotMin = 1,  SmeltOrePerIngotMax = 10; // raw ore per ingot
+        public const int SmeltFuelCostMin = 0,     SmeltFuelCostMax = 20;    // fuel units per smelt
+        public const float SmeltTimeMin = 1f,      SmeltTimeMax = 120f;      // seconds per smelt
 
         /// <summary>
         /// Build the standard Far Horizon settings registry against the live systems. A null target simply
@@ -761,6 +781,52 @@ namespace FarHorizon.Settings
                 () => stoneRespawner.RespawnMinSeconds, v => stoneRespawner.RespawnMinSeconds = v,
                 () => stoneRespawner.RespawnMaxSeconds, v => stoneRespawner.RespawnMaxSeconds = v,
                 StoneRespawnLower, StoneRespawnUpper, unit: "s");
+        }
+
+        /// <summary>
+        /// Register the IRON-PROGRESSION difficulty dials (ticket 86cakkmgw / I-0 — the §1 vocabulary) as
+        /// EXTENSION HOOKS: four rows, each <c>Available=false</c> "(soon)", reserving the ids for the node/
+        /// forge tickets to flip LIVE. There is NO live system to bind yet (ore nodes = I-2; the forge/smelt
+        /// runtime = I-3), so we reserve the rows greyed rather than fake a param — the JumpHeight/ToolSpeed
+        /// extension-hook idiom (<see cref="SettingEntry.Available"/>). The getters read the MEDIUM preset
+        /// (a sane readout for a greyed row); the setters are no-ops until the owning ticket removes-then-re-adds
+        /// the row bound to its real target (the remove-then-add live-rebind seam PopulateChop uses for
+        /// tool_use_speed).
+        ///
+        /// The four hooks are the two Sponsor-locked dials (DECISIONS 2026-07-06) decomposed:
+        ///   • <see cref="IronOreRarityId"/>    — ore RARITY (node count/density). I-2 flips it LIVE.
+        ///   • <see cref="SmeltOrePerIngotId"/> — smelt COST (raw ore per ingot).  I-3 flips it LIVE.
+        ///   • <see cref="SmeltFuelCostId"/>    — smelt COST (fuel per smelt).     I-3 flips it LIVE.
+        ///   • <see cref="SmeltTimeId"/>        — smelt COST (seconds per smelt).  I-3 flips it LIVE.
+        /// The per-tier easy/med/hard PRESET DATA lives in <see cref="IronDifficultyPresets"/> (Items/); this
+        /// method registers the DIALS, the presets seed their values. Both dials are DEV-CONSOLE by default
+        /// (absent from <see cref="SettingsCategory.PlayerIds"/>) per the ticket constraint. Registered by THIS
+        /// per-feature method (never grows the base Populate signature — the de-collision precedent). No live
+        /// target, so it takes only the registry; null-registry-safe like every other Populate* method.
+        /// </summary>
+        public static void PopulateIron(SettingsRegistry reg)
+        {
+            if (reg == null) return;
+
+            // ORE RARITY — the node-count/density dial (I-2 flips it LIVE). Int stepper; medium preset readout.
+            reg.AddInt(IronOreRarityId, "Iron ore rarity",
+                () => IronDifficultyPresets.Medium.OreNodeCount, _ => { },
+                IronOreRarityMin, IronOreRarityMax, available: false, unit: " nodes");
+
+            // SMELT ORE-PER-INGOT — the material half of the smelt-cost dial (I-3 flips it LIVE).
+            reg.AddInt(SmeltOrePerIngotId, "Smelt ore per ingot",
+                () => IronDifficultyPresets.Medium.OrePerIngot, _ => { },
+                SmeltOrePerIngotMin, SmeltOrePerIngotMax, available: false);
+
+            // SMELT FUEL COST — the fuel half of the smelt-cost dial (I-3 flips it LIVE).
+            reg.AddInt(SmeltFuelCostId, "Smelt fuel cost",
+                () => IronDifficultyPresets.Medium.FuelPerSmelt, _ => { },
+                SmeltFuelCostMin, SmeltFuelCostMax, available: false);
+
+            // SMELT TIME — the time half of the smelt-cost dial; the work-led earn is the WAIT (I-3 flips LIVE).
+            reg.AddFloat(SmeltTimeId, "Smelt time",
+                () => IronDifficultyPresets.Medium.SecondsPerSmelt, _ => { },
+                SmeltTimeMin, SmeltTimeMax, available: false, unit: "s");
         }
 
         /// <summary>
