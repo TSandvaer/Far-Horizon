@@ -76,47 +76,23 @@ namespace FarHorizon
         [Tooltip("Per-keypress multiplicative scale step for the live dial (1.05 = +5% up / -5% down).")]
         public float scaleStep = 1.05f;
 
-        // LIVE AXE HEAD-SIZE DIAL — REWRITTEN for the 86cabh907 "STOP chipping" blocker (Sponsor: "everytime
-        // you make the axe head smaller it looks worse. its like youre chipping off the axe head instead of
-        // just resizing it"). The OLD dial classified a vertex SUBSET (off-centreline "blade" verts in the
-        // upper haft) and scaled THAT subset toward an eye pivot — leaving the head-base/junction verts that
-        // failed the subset test UNMOVED while the classified verts pulled inward, which SQUISHED/FLATTENED the
-        // head into a sliver (the chipping). The NEW dial treats the WHOLE head as ONE rigid unit:
-        //   - The head = EVERY vert ABOVE the head<->haft junction along the haft axis (bl_15 cut the head as a
-        //     clean island at JUNCTION_FRACTION of the haft span). Not a subset; the entire head.
-        //   - It scales those verts UNIFORMLY (x==y==z, one factor — Vector3.one * factor) about the junction
-        //     point on the haft centreline. A uniform scale of a coherent unit PRESERVES the head's shape and
-        //     proportions (a true resize), so shrinking can never chip again.
-        // The haft length, grip-point origin, and +Z forward axis are untouched (everything at/below the
-        // junction is the haft and never moves). Operates on a per-instance CLONE (never the shared asset), so
-        // it is reversible. ONLY the axe has a head; knife/sword/spear are inert. The Sponsor reads the factor
-        // off the HUD/log to bake into the .blend default later (this round does NOT bake — OOS). Keys free in
-        // normal play + outside the F9 AxeNudgeTool key set (F9/Tab/N/arrows/PgUp-Dn/TGYHUJ/Shift/Ctrl) and the
-        // [ ]/= - scale dial:
-        //   ' (apostrophe)  -> head SMALLER (-5%)
-        //   ; (semicolon)   -> head BIGGER  (+5%)
-        public KeyCode headSmallerKey = KeyCode.Quote;      // '
-        public KeyCode headBiggerKey = KeyCode.Semicolon;   // ;
-        // DANISH-KEYBOARD FALLBACK KEYS (86cabh907 — [[sponsor-danish-keyboard-layout]]). The ;/' dial above is
-        // US-position PUNCTUATION that does NOT register on the Sponsor's DANISH LAPTOP keyboard, and the F9
-        // tool's PgUp/PgDn also failed (laptop Fn-layer). LETTER keys sit at ~the same physical position on
-        // Danish vs US, so they always land. O = head BIGGER, I = head SMALLER (adjacent, both free: not WASD/
-        // Space/Shift, not 1..9 belt, not [B] cycle, not [N] arm-switch, not [K] target-cycle, not TGYHUJ F9
-        // rotation, not the F9 arrows/PgUp-Dn). The MOUSE slider/buttons in the F9 panel are the PRIMARY control;
-        // these letters are the keyboard fallback.
-        public KeyCode headBiggerKeyAlt = KeyCode.O;        // O — Danish-safe letter
-        public KeyCode headSmallerKeyAlt = KeyCode.I;       // I — Danish-safe letter
-        [Tooltip("Per-keypress multiplicative head-size step for the axe head dial (1.05 = +5%/-5%). UNIFORM " +
-                 "scale (x==y==z) of the whole head about the junction.")]
-        public float headStep = 1.05f;
-        [Tooltip("STOP-chipping head-dial: the head<->haft junction expressed as a FRACTION of the haft (long) " +
-                 "axis span (haftMin + this × haftSpan). The whole head = EVERY vert ABOVE it along the haft " +
-                 "axis, scaled UNIFORMLY about the junction — no off-centreline subset test (that was the " +
-                 "chipping). 86cajkk7h: the axe is now the Sponsor-APPROVED STONE axe (wpn_axe_stone_01), whose " +
-                 "head size is authored + approved — the runtime head-dial is a soak-convenience only (rarely " +
-                 "needed now). 0.50 = mid-span cut of the head wedge; fraction-based so it survives the family " +
-                 "scale-normalize. Lower to include more haft as 'head'; raise to lift the junction toward the tip.")]
-        public float headJunctionFraction = 0.50f;
+        // DANISH-SAFE OVERALL-HELD-SCALE LETTER KEYS (86cakkfz9 v3 dial-in; ABSORBS 86cajuuz0). The
+        // bracket/equals/minus scale keys above are US-position PUNCTUATION that does NOT register on the
+        // Sponsor's DANISH LAPTOP ([[sponsor-danish-keyboard-layout]]). O / I are LETTER keys that sit at ~the
+        // same physical position on Danish vs US, so they always land. They drive the SAME overall-held-scale
+        // dial as ]/=/[/- (scale the CURRENT held weapon's mesh-holder ±5%; the axe is Sponsor-LOCKED and
+        // refuses). O = held weapon BIGGER (+5%), I = held weapon SMALLER (-5%). Both free: not WASD/Space/
+        // Shift, not 1..9 belt, not [B] cycle, not [N] arm-switch, not [K] F9 target-cycle, not TGYHUJ F9
+        // rotation, not the F9 arrows/PgUp-Dn.
+        //
+        // 86cajuuz0 ABSORBED — the axe HEAD-vertex resize dial is REMOVED (these O/I keys formerly drove it).
+        // WHY: the axe head is now AUTHORED Blender geometry (wpn_axe_stone_01 — a knapped biface); runtime
+        // vertex-scaling an authored head distorts it into the Sponsor-rejected "chipping"
+        // ([[weapon-asset-material-honest-pattern-via-geometry]]). Head SIZE is a Blender re-author now, NOT a
+        // runtime dial. Overall held-scale is the honest in-game handle; for the axe's own size use the
+        // settings-console HeldScale row (a locked-baseline multiplier). "Don't leave dead keys" (86cakkfz9).
+        public KeyCode scaleUpKeyDanish = KeyCode.O;        // O — Danish-safe letter, held weapon BIGGER
+        public KeyCode scaleDownKeyDanish = KeyCode.I;      // I — Danish-safe letter, held weapon SMALLER
 
         // The four LIVE (STONE-tier) family meshes' names inside Resources/WeaponSetLineup.prefab (the child
         // object names = the FBX file-name-without-extension; see WeaponPackAssetGen.BuildFamilyPrefab).
@@ -233,20 +209,9 @@ namespace FarHorizon
         private Vector3[] _liveOffset;
         private Vector3[] _liveEuler;
 
-        // LIVE AXE HEAD-SIZE dial (86cabh907 STOP-chipping rewrite). The held axe FBX is a SINGLE mesh; bl_15
-        // cut the head as a clean island whose base is the head<->haft junction. To resize the head we clone
-        // the axe mesh per-instance and scale the WHOLE head (every vert above the junction) UNIFORMLY about
-        // the junction by this live factor. _axeHeadFactor=1 == the shipped head, which is now the
-        // OFFLINE-BAKED 0.65x stone head (tools/debug/bl_17_axe_head_bake_065.py baked a uniform 0.65x of the
-        // restored 4208067 head about the 0.50-fraction junction directly into wpn_axe_01.fbx — the runtime
-        // dial was broken across all inputs, so the size is baked + verifiable in the CI capture). Default 1.0
-        // therefore shows the baked 0.65x head with NO double-apply.
-        private float _axeHeadFactor = 1f;
-        private Mesh _axeHeadDialMesh;          // per-instance clone we deform (never the shared asset)
-        private Vector3[] _axeBaseVerts;        // the axe mesh's ORIGINAL local verts (factor=1 baseline)
-        private int[] _axeHeadVertIdx;          // indices of the WHOLE head (verts above the junction) in _axeBaseVerts
-        private Vector3 _axeHeadPivot;          // the head<->haft junction point (uniform scale is about THIS)
-        private bool _axeHeadResolved;
+        // 86cakkfz9: the LIVE axe HEAD-SIZE dial state (per-instance clone + head-vertex indices + junction
+        // pivot) is REMOVED — the axe head is authored Blender geometry now; runtime vertex-scaling it distorts
+        // the knapped biface (the rejected "chipping"). Head SIZE is a Blender re-author. See the O/I key note.
 
         /// <summary>The currently-held weapon index (0=axe,1=knife,2=sword,3=spear) — read by the F9 tool so
         /// its generalized HELD target dials whichever weapon is shown.</summary>
@@ -259,8 +224,6 @@ namespace FarHorizon
         public Vector3 CurrentEuler => _liveEuler != null ? _liveEuler[_index] : WeaponMeshLocalEuler[_index];
         /// <summary>Live per-weapon held scale for the F9 tool to read (the bake value).</summary>
         public float CurrentScale => _liveScale != null ? _liveScale[_index] : WeaponMeshScale[_index];
-        /// <summary>The live axe head-size factor (1 == shipped head) — for the F9 tool's HEAD-SIZE target.</summary>
-        public float AxeHeadFactor => _axeHeadFactor;
 
         /// <summary>The MeshFilter the cycle drives (the WeaponMeshHolder child, post-#100 re-home) — exposed
         /// so the belt-selection sync + the [B] cycle swap the family meshes on the SAME holder. Null until Awake.</summary>
@@ -292,45 +255,9 @@ namespace FarHorizon
             return true;
         }
 
-        /// <summary>The clamp range the head-size factor is held within (shared by the multiplicative dial,
-        /// the absolute set, and the F9 mouse slider so all three agree).</summary>
-        public const float HeadFactorMin = 0.2f;
-        public const float HeadFactorMax = 2f;
-
-        /// <summary>
-        /// F9-tool entry point (86cabh907 soak round 2): dial the AXE HEAD size by a multiplicative factor
-        /// (1.05 = +5%). Inert unless the axe is the currently-held weapon. Returns true if the axe head was
-        /// dialed. Mirrors the always-on ;/' dial so the Sponsor can drive the head from either panel.
-        /// </summary>
-        public bool DialAxeHead(float factor)
-        {
-            if (_index != 0) return false;          // only the axe has a head
-            if (!_axeHeadResolved) ResolveAxeHead();
-            if (_axeHeadVertIdx == null || _axeHeadVertIdx.Length == 0) return false;
-            _axeHeadFactor = Mathf.Clamp(_axeHeadFactor * factor, HeadFactorMin, HeadFactorMax);
-            ApplyAxeHead();
-            return true;
-        }
-
-        /// <summary>
-        /// F9-tool entry point (86cabh907 Danish-keyboard MOUSE control — the Sponsor cannot use ;/' (Danish
-        /// punctuation) NOR PgUp/PgDn (laptop Fn-layer), so the F9 panel's mouse slider drives this directly).
-        /// Sets the AXE HEAD size to an ABSOLUTE factor (clamped to [HeadFactorMin..HeadFactorMax]) and drives
-        /// the SAME uniform-scale path the multiplicative dial uses (ResolveAxeHead -> ApplyAxeHead). The stone
-        /// shape + material are unchanged — only the SIZE scales (Vector3.one * factor about the junction).
-        /// Inert unless the axe is the currently-held weapon. Returns true if the axe head was set.
-        /// </summary>
-        public bool SetAxeHeadFactor(float factor)
-        {
-            if (_index != 0) return false;          // only the axe has a head
-            if (!_axeHeadResolved) ResolveAxeHead();
-            if (_axeHeadVertIdx == null || _axeHeadVertIdx.Length == 0) return false;
-            float clamped = Mathf.Clamp(factor, HeadFactorMin, HeadFactorMax);
-            if (Mathf.Approximately(clamped, _axeHeadFactor)) return false; // no-op: don't churn the clone
-            _axeHeadFactor = clamped;
-            ApplyAxeHead();
-            return true;
-        }
+        // 86cakkfz9: the axe HEAD-size API (HeadFactorMin/Max, DialAxeHead, SetAxeHeadFactor) is REMOVED —
+        // head SIZE is authored Blender geometry now, not a runtime dial (see the O/I key note above). The F9
+        // AxeNudgeTool's AXE-HEAD target + its mouse slider are removed in the same change.
 
         private void Awake()
         {
@@ -564,17 +491,19 @@ namespace FarHorizon
                 return;
             }
 
-            // LIVE SCALE DIAL ([ ] / - =) — scale the CURRENT held weapon's mesh-holder up/down in ~5% steps so
-            // the Sponsor dials its in-hand size by eye + reads the value to bake. REFUSES the axe (Sponsor-
-            // LOCKED): on index 0 the dial only logs that the axe is locked, never changes the seat.
-            bool up = Input.GetKeyDown(scaleUpKey) || Input.GetKeyDown(scaleUpKeyAlt);
-            bool down = Input.GetKeyDown(scaleDownKey) || Input.GetKeyDown(scaleDownKeyAlt);
+            // LIVE OVERALL-HELD-SCALE DIAL ([ ] / - = US-punct; O / I Danish-safe letters) — scale the CURRENT
+            // held weapon's mesh-holder up/down in ~5% steps so the Sponsor dials its in-hand size by eye +
+            // reads the value to bake. REFUSES the axe (Sponsor-LOCKED): on index 0 the dial only logs that the
+            // axe is locked (use the settings-console HeldScale row for the axe), never changes the seat.
+            bool up = Input.GetKeyDown(scaleUpKey) || Input.GetKeyDown(scaleUpKeyAlt) || Input.GetKeyDown(scaleUpKeyDanish);
+            bool down = Input.GetKeyDown(scaleDownKey) || Input.GetKeyDown(scaleDownKeyAlt) || Input.GetKeyDown(scaleDownKeyDanish);
             if (up || down)
             {
                 if (_index == 0)
                 {
-                    Debug.Log("[HeldWeaponCycleDebug] AXE seat is Sponsor-LOCKED — scale dial refused. " +
-                              "Cycle [" + cycleKey + "] to a knife/sword/spear to dial its held size.");
+                    Debug.Log("[HeldWeaponCycleDebug] AXE seat is Sponsor-LOCKED — held-scale dial refused. " +
+                              "Cycle [" + cycleKey + "] to a knife/sword/spear to dial its held size, or use " +
+                              "the settings-console HeldScale row for the axe.");
                     return;
                 }
                 if (!_resolved) ResolveMeshes(); // dialing before any cycle still resolves + applies cleanly
@@ -584,27 +513,6 @@ namespace FarHorizon
                 Debug.Log("[HeldWeaponCycleDebug] " + WeaponLabels[_index] + " held scale -> " +
                           _liveScale[_index].ToString("F3") + "  (bake into WeaponMeshScale[" + _index + "])");
                 return;
-            }
-
-            // LIVE AXE HEAD-SIZE DIAL (; / ') — shrink/grow ONLY the axe BLADE-CLUSTER toward the eye, leaving
-            // the haft length + origin untouched, so the Sponsor dials the head proportion by eye + reads the
-            // factor to bake into the .blend head re-author later (86cabh907 soak round 2). ONLY the axe has a
-            // head; on knife/sword/spear the dial logs that it is inert.
-            // ;/' are the original (US-punctuation) keys; O/I are the DANISH-SAFE LETTER fallback (the Sponsor's
-            // Danish laptop can't press ;/' NOR PgUp/PgDn — [[sponsor-danish-keyboard-layout]]).
-            bool headBigger = Input.GetKeyDown(headBiggerKey) || Input.GetKeyDown(headBiggerKeyAlt);
-            bool headSmaller = Input.GetKeyDown(headSmallerKey) || Input.GetKeyDown(headSmallerKeyAlt);
-            if (headBigger || headSmaller)
-            {
-                if (_index != 0)
-                {
-                    Debug.Log("[HeldWeaponCycleDebug] head-size dial only applies to the AXE — cycle [" +
-                              cycleKey + "] to the axe to dial its head.");
-                    return;
-                }
-                if (DialAxeHead(headBigger ? headStep : 1f / headStep))
-                    Debug.Log("[HeldWeaponCycleDebug] AXE head factor -> " + _axeHeadFactor.ToString("F3") +
-                              "  (bake into the .blend head re-author; 1.000 == current shipped head)");
             }
         }
 
@@ -618,10 +526,10 @@ namespace FarHorizon
             var t = _meshHolder.transform;
             if (_index == 0)
             {
-                // AXE — Sponsor-LOCKED seat: restore the captured original local TRS (byte-unchanged). The
-                // displayed mesh is the head-dial CLONE if the head has been dialed (so the shrink shows),
-                // else the original axe mesh. The head dial NEVER touches the seat transform — only the verts.
-                _meshHolder.sharedMesh = (_axeHeadDialMesh != null) ? _axeHeadDialMesh : _axeOriginalMesh;
+                // AXE — Sponsor-LOCKED seat: restore the captured original local TRS (byte-unchanged) and the
+                // shipped authored axe mesh. (86cakkfz9: the runtime head-dial clone is gone — head SIZE is
+                // authored Blender geometry now, not a runtime vertex deform.)
+                _meshHolder.sharedMesh = _axeOriginalMesh;
                 t.localPosition = _holderOrigPos;
                 t.localRotation = _holderOrigRot;
                 t.localScale = _holderOrigScale;
@@ -639,78 +547,8 @@ namespace FarHorizon
             }
         }
 
-        // Resolve the axe head dial (STOP-chipping rewrite): capture the axe mesh's original verts, identify the
-        // WHOLE head (every vert ABOVE the head<->haft junction along the haft axis — bl_15 cut the head as a
-        // clean island whose base is the junction), and compute the junction point the whole head scales
-        // UNIFORMLY about. Lazy (first head dial). NO off-centreline subset test — that subset/directional scale
-        // WAS the chipping (it squished the head into a sliver by moving only some verts). The head is treated
-        // as ONE rigid unit and scaled uniformly, so its shape/proportions are preserved on every resize.
-        private void ResolveAxeHead()
-        {
-            _axeHeadResolved = true;
-            if (_axeOriginalMesh == null) return;
-            _axeBaseVerts = _axeOriginalMesh.vertices;
-            int n = _axeBaseVerts.Length;
-            if (n == 0) return;
-
-            // Mesh-local bounds → the haft is the LONG axis (grip..haft-top). The junction sits at
-            // headJunctionFraction of that span; everything ABOVE it is the whole head.
-            Vector3 bMin = _axeBaseVerts[0], bMax = _axeBaseVerts[0];
-            for (int i = 1; i < n; i++)
-            {
-                bMin = Vector3.Min(bMin, _axeBaseVerts[i]);
-                bMax = Vector3.Max(bMax, _axeBaseVerts[i]);
-            }
-            Vector3 ext = (bMax - bMin) * 0.5f;
-            Vector3 ctr = (bMax + bMin) * 0.5f;
-            int longAxis = (ext.x >= ext.y && ext.x >= ext.z) ? 0 : (ext.y >= ext.z ? 1 : 2);
-
-            float haftMin = Comp(bMin, longAxis), haftMax = Comp(bMax, longAxis);
-            float haftSpan = Mathf.Max(1e-4f, haftMax - haftMin);
-            float junctionCoord = haftMin + haftSpan * headJunctionFraction; // head base along the haft axis
-
-            // The WHOLE head = every vert above the junction along the haft axis (NOT an off-centreline subset).
-            var idx = new System.Collections.Generic.List<int>(n);
-            for (int i = 0; i < n; i++)
-                if (Comp(_axeBaseVerts[i], longAxis) > junctionCoord) idx.Add(i);
-            _axeHeadVertIdx = idx.ToArray();
-            if (_axeHeadVertIdx.Length == 0) return;
-
-            // Junction pivot = on the haft CENTRELINE (the off-haft axes take the bounds-centre so the pivot is
-            // the haft axis) at the junction coord along the haft axis. Uniform-scaling the whole head about
-            // THIS keeps the head's base seated on the haft while the head resizes coherently (shape preserved).
-            _axeHeadPivot = ctr;
-            SetComp(ref _axeHeadPivot, longAxis, junctionCoord);
-            Debug.Log($"[HeldWeaponCycleDebug] axe head dial resolved (UNIFORM, whole-head): " +
-                      $"{_axeHeadVertIdx.Length}/{n} head verts above junction " +
-                      $"(longAxis={longAxis}, junctionFraction={headJunctionFraction:F2}, junctionCoord={junctionCoord:F3}), " +
-                      $"pivot={_axeHeadPivot.ToString("F3")}");
-        }
-
-        // Apply the live head factor to the per-instance clone (never the shared asset) + re-display it.
-        // UNIFORM scale (x==y==z = Vector3.one * factor) of the WHOLE head about the junction — the head resizes
-        // as a coherent unit; its proportions are preserved (no axis-squish, no chipping).
-        private void ApplyAxeHead()
-        {
-            if (_axeBaseVerts == null || _axeHeadVertIdx == null) return;
-            if (_axeHeadDialMesh == null)
-            {
-                _axeHeadDialMesh = Object.Instantiate(_axeOriginalMesh);
-                _axeHeadDialMesh.name = _axeOriginalMesh.name + "_headDial";
-            }
-            var verts = (Vector3[])_axeBaseVerts.Clone();
-            foreach (int i in _axeHeadVertIdx)
-                verts[i] = _axeHeadPivot + (_axeBaseVerts[i] - _axeHeadPivot) * _axeHeadFactor; // uniform x==y==z
-            _axeHeadDialMesh.vertices = verts;
-            _axeHeadDialMesh.RecalculateBounds();
-            // Do NOT RecalculateNormals — the faceted flat-shaded normals are load-bearing (lowpoly-quality.md
-            // §1). A UNIFORM scale about a point preserves every face's planarity AND its normal DIRECTION, so
-            // the baked per-face normals stay valid (a non-uniform/axis scale would NOT — another reason uniform).
-            if (_index == 0 && _meshHolder != null) _meshHolder.sharedMesh = _axeHeadDialMesh;
-        }
-
-        private static float Comp(Vector3 v, int a) => a == 0 ? v.x : a == 1 ? v.y : v.z;
-        private static void SetComp(ref Vector3 v, int a, float val) { if (a == 0) v.x = val; else if (a == 1) v.y = val; else v.z = val; }
+        // 86cakkfz9: ResolveAxeHead / ApplyAxeHead (the runtime axe-head vertex-scale dial) are REMOVED — head
+        // SIZE is authored Blender geometry now; vertex-scaling the knapped biface is the rejected "chipping".
 
         private void OnGUI()
         {
@@ -737,20 +575,20 @@ namespace FarHorizon
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            // Line 1: which weapon + its LIVE read-out. The AXE shows its HEAD factor (the round-2 dial); the
-            // others show their held SCALE (the round-1 dial). Both are the bake numbers.
+            // Line 1: which weapon + its LIVE held-scale read-out (the bake number). The AXE is Sponsor-LOCKED
+            // (scale 1.000); knife/sword/spear show their dialed held scale.
             string readOut = _index == 0
-                ? "head " + _axeHeadFactor.ToString("F3") + "  (scale 1.000 LOCKED)"
+                ? "scale 1.000 LOCKED"
                 : "scale " + (_liveScale != null ? _liveScale[_index].ToString("F3") : WeaponMeshScale[_index].ToString("F3"));
             GUI.Label(new Rect(x + 10f, y + 5f, w - 20f, 20f),
                 "DEBUG — held weapon: " + WeaponLabels[_index] + "   " + readOut, _labelStyle);
-            // Line 2: the cycle key. Line 3: scale dial (non-axe). Line 4: HEAD-size dial (axe).
+            // Line 2: the cycle key. Line 3: overall held-scale dial (US-punct + Danish-safe letters).
             GUI.Label(new Rect(x + 10f, y + 24f, w - 20f, 18f),
                 "[" + cycleKey + "] debug cycle (refused while a belt weapon is selected — selection owns the visual)", _keyStyle);
             GUI.Label(new Rect(x + 10f, y + 42f, w - 20f, 18f),
-                "[ ] / [=] bigger   [[] / [-] smaller   whole weapon (±5%; knife/sword/spear)", _keyStyle);
+                "[O] / [I] bigger/smaller held scale (Danish-safe; = [ ]/[=] / [[]/[-])  — knife/sword/spear; axe LOCKED", _keyStyle);
             GUI.Label(new Rect(x + 10f, y + 60f, w - 20f, 18f),
-                "[O] / [I] axe HEAD bigger/smaller (±5%)   F9 panel: MOUSE slider + buttons resize the head", _keyStyle);
+                "axe size: settings-console HeldScale row (head SIZE is a Blender re-author, not a runtime dial)", _keyStyle);
         }
     }
 }
