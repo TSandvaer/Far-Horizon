@@ -292,8 +292,12 @@ namespace FarHorizon
             Bounds b = rend.bounds;
             float span = Mathf.Max(b.size.x, b.size.y, b.size.z);
             float standOff = span * 2.6f + 10f;
-            // Height near the base + a bit up so the ground contact line stays in frame (up-vs-down: on-ground vs floating).
-            Vector3 camPos = new Vector3(b.center.x + standOff, b.min.y + b.size.y * 0.45f, b.center.z);
+            // Stand off along the SMALLER horizontal axis (the depth) so the camera looks across the WIDER face —
+            // a wide wall viewed end-on would read thin (a shard). Frame the broad silhouette, not the edge.
+            bool offAlongX = b.size.x <= b.size.z;
+            Vector3 camPos = offAlongX
+                ? new Vector3(b.center.x + standOff, b.min.y + b.size.y * 0.45f, b.center.z)
+                : new Vector3(b.center.x, b.min.y + b.size.y * 0.45f, b.center.z + standOff);
             Vector3 lookAt = new Vector3(b.center.x, b.min.y + b.size.y * 0.5f, b.center.z);
             cam.transform.position = camPos;
             cam.transform.rotation = Quaternion.LookRotation((lookAt - camPos).normalized, Vector3.up);

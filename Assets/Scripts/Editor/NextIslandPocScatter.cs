@@ -150,15 +150,17 @@ namespace FarHorizon.EditorTools
             return false;
         }
 
-        // 3-6 near-vertical faceted ROCKY WALLS (default — Sponsor-soak tunes). seed+1111 (a NEW stream — never
-        // mutate C1's seed+555 above). Returns the count placed (for the trace + the Predict-Before-Soak grade).
+        // 3-6 WIDE faceted ROCKY WALLS (default — Sponsor-soak tunes). seed+1111 (a NEW stream — never mutate
+        // C1's seed+555 above). Returns the count placed (for the trace + the Predict-Before-Soak grade). Each
+        // candidate is REJECTED where the local footprint slope is too steep (a wide wall conformed onto a steep
+        // slope would bury one end ugly) or the footprint spills over water — the guard-loop retries elsewhere.
         static int ScatterWalls(GameObject parent, int seed, MeshCollider groundCol, float plantOuterR,
             System.Func<float, float, bool> onLandmass, System.Func<float, float, float, bool> inSpawnClearing)
         {
             var rnd = new System.Random(seed + 1111);
             int target = 3 + rnd.Next(0, 4);                 // 3..6
             int placed = 0, guard = 0;
-            while (placed < target && guard++ < target * 40)
+            while (placed < target && guard++ < target * 60)
             {
                 float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
                 float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
@@ -166,21 +168,21 @@ namespace FarHorizon.EditorTools
                 if (inSpawnClearing(x, z, 14f)) continue;
                 if (!onLandmass(x, z)) continue;
                 if (OverlapsAnyPeakFoot(x, z, 6f)) continue;
-                BuildWall(parent, GroundPoint(groundCol, x, z), rnd);
-                placed++;
+                if (BuildWall(parent, groundCol, x, z, rnd, placed)) placed++;
             }
             return placed;
         }
 
         // 8-15 huge flat-topped STONE SLABS (default — Sponsor-soak tunes), scale ~3-6, some partly embedded.
-        // seed+1212 (a NEW stream, disjoint from walls' seed+1111 and C1's seed+555).
+        // seed+1212 (a NEW stream, disjoint from walls' seed+1111 and C1's seed+555). Same slope/water reject so
+        // a slab is seated ON the ground (its downhill underside contacts terrain), never floating on a slope.
         static int ScatterSlabs(GameObject parent, int seed, MeshCollider groundCol, float plantOuterR,
             System.Func<float, float, bool> onLandmass, System.Func<float, float, float, bool> inSpawnClearing)
         {
             var rnd = new System.Random(seed + 1212);
             int target = 8 + rnd.Next(0, 8);                 // 8..15
             int placed = 0, guard = 0;
-            while (placed < target && guard++ < target * 40)
+            while (placed < target && guard++ < target * 60)
             {
                 float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
                 float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
@@ -188,8 +190,7 @@ namespace FarHorizon.EditorTools
                 if (inSpawnClearing(x, z, 12f)) continue;
                 if (!onLandmass(x, z)) continue;
                 if (OverlapsAnyPeakFoot(x, z, 4f)) continue;
-                BuildSlab(parent, GroundPoint(groundCol, x, z), rnd);
-                placed++;
+                if (BuildSlab(parent, groundCol, x, z, rnd, placed)) placed++;
             }
             return placed;
         }
@@ -204,6 +205,40 @@ namespace FarHorizon.EditorTools
                     return hit.point;
             }
             return new Vector3(x, 0f, z);
+        }
+
+        // Terrain height (world Y) at a world XZ via a straight-down ray onto the ground collider. Returns
+        // float.NaN when the ray misses (off the landmass / over water) so callers can reject footprints that
+        // spill past the coast (a wall half over the sea would float over water).
+        static float GroundY(MeshCollider groundCol, float x, float z)
+        {
+            if (groundCol != null)
+            {
+                var ray = new Ray(new Vector3(x, 300f, z), Vector3.down);
+                if (groundCol.Raycast(ray, out RaycastHit hit, 600f)) return hit.point.y;
+            }
+            return float.NaN;
+        }
+
+        // Is the terrain under a `radius` footprint at (cx,cz) gentle enough to seat a feature cleanly? Samples
+        // an 8-point ring + the centre; rejects if any sample misses terrain (footprint spills over water) or if
+        // the terrain spread across the footprint exceeds `maxDrop` (too steep — conforming would bury one end).
+        // This is the "REJECT placements where local slope exceeds a threshold" arm of the grounding fix.
+        static bool FootprintSlopeOk(MeshCollider groundCol, float cx, float cz, float radius, float maxDrop)
+        {
+            if (groundCol == null) return true;
+            float lo = float.MaxValue, hi = float.MinValue;
+            float cy = GroundY(groundCol, cx, cz);
+            if (float.IsNaN(cy)) return false;
+            lo = Mathf.Min(lo, cy); hi = Mathf.Max(hi, cy);
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k / 8f * Mathf.PI * 2f;
+                float gy = GroundY(groundCol, cx + Mathf.Cos(a) * radius, cz + Mathf.Sin(a) * radius);
+                if (float.IsNaN(gy)) return false;             // footprint edge off the landmass → reject
+                lo = Mathf.Min(lo, gy); hi = Mathf.Max(hi, gy);
+            }
+            return (hi - lo) <= maxDrop;
         }
 
         // A low-poly tree: tapered trunk + a blob canopy (multi-value greens via vertex colour), a
@@ -267,46 +302,59 @@ namespace FarHorizon.EditorTools
             go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
 
-        // A near-vertical faceted ROCKY WALL (island 2.0-B / C2) — a FacetedRock stretched into a tall thin FIN
-        // (long face + real height + thin depth => a wall/cliff you can't walk up, not a boulder). The FacetedRock
-        // idiom carries the flat-shaded facets + per-facet vertex-colour tonal variation (NEVER RecalculateNormals).
-        // Hero feature => shadows ON + static-batch. A carving NavMeshObstacle keeps the agent off it (can't-walk-up)
-        // without orphaning the walkable surface (carving only subtracts — see AddCarveObstacle).
-        static void BuildWall(GameObject parent, Vector3 at, System.Random rnd)
+        // A WIDE faceted ROCKY WALL (island 2.0-B / C2) — a FacetedRock stretched into a broad near-vertical rock
+        // FACE: WIDTH dominates (18..40u run), a moderate HEIGHT (9..16u), and a THIN depth (4..6.5u) => a rock
+        // wall/face you can't walk up, NOT a needle/shard (the pre-fix 5×24×7 read as a monolith slice; the
+        // real-world anchor is that a wall is WIDE relative to its height — lowpoly-quality.md §0). Keeps the
+        // FacetedRock idiom (flat-shaded facets + per-facet vertex-colour, NEVER RecalculateNormals). Hero feature
+        // => shadows ON + static-batch + carving NavMeshObstacle (off-NavMesh, no orphan). Rejects (returns false)
+        // where the local footprint slope is too steep / spills over water so the guard-loop retries elsewhere.
+        static bool BuildWall(GameObject parent, MeshCollider groundCol, float cx, float cz, System.Random rnd, int idx)
         {
+            float wide = 18f + (float)rnd.NextDouble() * 22f;   // 18..40 — the DOMINANT width (a long rock face)
+            float hgt  = 9f + (float)rnd.NextDouble() * 7f;     // 9..16 — moderate rise (< width => a WALL not a spike)
+            float thk  = 4f + (float)rnd.NextDouble() * 2.5f;   // 4..6.5 — thin depth (< height => near-vertical face)
+            // Slope/water reject BEFORE building: SeatConform already grounds the wall on any slope, so this only
+            // needs to reject GENUINELY steep / cliff-edge / over-water footprints (where conforming would bury one
+            // end deep). Generous maxDrop keyed to the height so rolling-hill interior stays plentiful (no starve).
+            if (!FootprintSlopeOk(groundCol, cx, cz, wide * 0.5f, hgt * 0.85f + 2f)) return false;
+
             var wall = new GameObject("LP_RockWall");
             wall.transform.SetParent(parent.transform, false);
-
-            float len  = 4f + (float)rnd.NextDouble() * 4f;    // 4..8 — the long rock face
-            float hgt  = 12f + (float)rnd.NextDouble() * 10f;  // 12..22 — the near-vertical rise (clearly >> len/thick)
-            float thk  = 2f + (float)rnd.NextDouble() * 2f;    // 2..4 — thin => a wall/fin, not a lump
             float yaw  = (float)rnd.NextDouble() * 360f;
-            float tilt = ((float)rnd.NextDouble() - 0.5f) * 8f; // +/-4deg organic lean (stays near-vertical)
+            float tilt = ((float)rnd.NextDouble() - 0.5f) * 6f; // +/-3deg organic lean (stays near-vertical)
             wall.transform.rotation = Quaternion.Euler(tilt, yaw, tilt * 0.5f);
-            wall.transform.localScale = new Vector3(len, hgt, thk);
+            wall.transform.localScale = new Vector3(wide, hgt, thk);
 
             var mesh = LowPolyMeshes.FacetedRock(0.5f, jitter: 0.42f, seed: rnd.Next());
             var body = MakeMeshObject(wall, "WallMesh", mesh, WallMat(), castShadows: true);
 
-            SeatOnGround(wall, body, at, embed: 0.6f + (float)rnd.NextDouble() * 0.8f);
+            SeatConform(wall, body, groundCol, cx, cz, embed: 0.5f + (float)rnd.NextDouble() * 0.6f);
+            GroundingTrace(body, groundCol, cx, cz, "wall", idx);
             AddCarveObstacle(wall, mesh);
             MarkStaticBatch(wall);
+            return true;
         }
 
         // A huge flat-topped STONE SLAB (island 2.0-B / C2) — a FacetedRock spread WIDE + FLATTENED so it reads as
         // a big boulder sitting ON the ground with a broad flat top (scale ~3-6). ~40% are PARTLY EMBEDDED (the
         // ticket's "some part-embedded"). Same hero caster policy (shadows ON + static-batch) + carving obstacle.
-        static void BuildSlab(GameObject parent, Vector3 at, System.Random rnd)
+        // Grounding CONFORMS to the local slope (SeatConform) so the downhill underside contacts terrain — the
+        // pre-fix single-centre-point seat floated the seaward half on a slope (the poc_slab_side saucer defect).
+        static bool BuildSlab(GameObject parent, MeshCollider groundCol, float cx, float cz, System.Random rnd, int idx)
         {
-            var slab = new GameObject("LP_StoneSlab");
-            slab.transform.SetParent(parent.transform, false);
-
             float s    = 3f + (float)rnd.NextDouble() * 3f;             // 3..6 base scale (huge boulder)
             float wide = s * (1.3f + (float)rnd.NextDouble() * 0.7f);   // wide footprint
             float deep = s * (1.3f + (float)rnd.NextDouble() * 0.7f);
             float flat = s * (0.40f + (float)rnd.NextDouble() * 0.35f); // FLATTENED Y => a flat-topped slab
+            // Slope/water reject: a big flat slab on a steep slope can't sit flat (it would float one edge or bury
+            // the other); reject and retry on gentler ground. maxDrop ~ the slab's own flattened height.
+            if (!FootprintSlopeOk(groundCol, cx, cz, Mathf.Max(wide, deep) * 0.5f, flat * 0.9f + 0.5f)) return false;
+
+            var slab = new GameObject("LP_StoneSlab");
+            slab.transform.SetParent(parent.transform, false);
             float yaw  = (float)rnd.NextDouble() * 360f;
-            float tilt = ((float)rnd.NextDouble() - 0.5f) * 12f;        // +/-6deg — a boulder resting at an angle
+            float tilt = ((float)rnd.NextDouble() - 0.5f) * 10f;       // +/-5deg — a boulder resting at an angle
             slab.transform.rotation = Quaternion.Euler(tilt, yaw, tilt * 0.6f);
             slab.transform.localScale = new Vector3(wide, flat, deep);
 
@@ -315,20 +363,66 @@ namespace FarHorizon.EditorTools
 
             float worldH = body.GetComponent<MeshRenderer>().bounds.size.y;
             bool embedded = rnd.NextDouble() < 0.4;
-            float embed = embedded ? worldH * (0.30f + (float)rnd.NextDouble() * 0.25f) : 0.2f;
-            SeatOnGround(slab, body, at, embed);
+            float embed = embedded ? worldH * (0.30f + (float)rnd.NextDouble() * 0.25f) : 0.3f;
+            SeatConform(slab, body, groundCol, cx, cz, embed);
+            GroundingTrace(body, groundCol, cx, cz, "slab", idx);
             AddCarveObstacle(slab, mesh);
             MarkStaticBatch(slab);
+            return true;
         }
 
-        // Seat a rock feature so its BASE meets the ground point (minus `embed`). Reads the WORLD renderer bounds
-        // AFTER rotation + non-uniform scale, so the seat holds under the yaw/tilt (a mesh centred on its origin
-        // would otherwise sink half-underground). x/z stay at the scatter point.
-        static void SeatOnGround(GameObject root, GameObject body, Vector3 at, float embed)
+        // Seat a rock feature CONFORMED to the local slope: sample the terrain across the feature's WORLD footprint
+        // (centre + an 8-point ring at the footprint half-extents) and seat the base to the LOWEST sampled ground
+        // (minus `embed`). This guarantees the DOWNHILL underside contacts terrain — no air gap under the seaward
+        // half (the pre-fix single-centre seat floated the downhill half on a slope: the poc_slab_side saucer).
+        // The uphill side embeds into the slope, which reads as a grounded boulder. x/z stay at the scatter point.
+        static void SeatConform(GameObject root, GameObject body, MeshCollider groundCol, float cx, float cz, float embed)
         {
-            root.transform.position = at;
-            float bottom = body.GetComponent<MeshRenderer>().bounds.min.y;
-            root.transform.position += new Vector3(0f, (at.y - embed) - bottom, 0f);
+            root.transform.position = new Vector3(cx, 0f, cz);
+            var mr = body.GetComponent<MeshRenderer>();
+            Bounds b = mr.bounds;                              // world AABB after rotation + non-uniform scale
+            float rx = b.size.x * 0.5f, rz = b.size.z * 0.5f;
+            float minG = float.MaxValue;
+            float cy = GroundY(groundCol, cx, cz);
+            if (!float.IsNaN(cy)) minG = cy;
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k / 8f * Mathf.PI * 2f;
+                float gy = GroundY(groundCol, cx + Mathf.Cos(a) * rx, cz + Mathf.Sin(a) * rz);
+                if (!float.IsNaN(gy) && gy < minG) minG = gy;
+            }
+            if (minG == float.MaxValue) minG = 0f;             // fully off-collider fallback (should not happen post-reject)
+            float bottom = mr.bounds.min.y;                    // current world underside (root just placed at y=0)
+            root.transform.position += new Vector3(0f, (minG - embed) - bottom, 0f);
+        }
+
+        // Per-feature GROUNDING TRACE (ticket 86cakk4w8 pre-soak fix): after seating, sample the terrain at the
+        // feature's centre + an 8-point footprint ring and report the MAX air gap = (underside − terrainY) over
+        // those points. A positive max means the underside FLOATS above terrain somewhere (the defect); the
+        // SeatConform seat drives it firmly negative (underside at/under the lowest footprint ground). Printed
+        // for EVERY placed wall/slab so a regression re-floats loudly in the shipped-exe log.
+        static void GroundingTrace(GameObject body, MeshCollider groundCol, float cx, float cz, string label, int idx)
+        {
+            Bounds b = body.GetComponent<MeshRenderer>().bounds;
+            float underside = b.min.y;
+            float rx = b.size.x * 0.5f, rz = b.size.z * 0.5f;
+            float maxAirGap = float.MinValue; int samples = 0;
+            void Sample(float gx, float gz)
+            {
+                float gy = GroundY(groundCol, gx, gz);
+                if (float.IsNaN(gy)) return;
+                float airGap = underside - gy;                 // >0 => underside ABOVE terrain => FLOATS here
+                if (airGap > maxAirGap) maxAirGap = airGap;
+                samples++;
+            }
+            Sample(cx, cz);
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k / 8f * Mathf.PI * 2f;
+                Sample(cx + Mathf.Cos(a) * rx, cz + Mathf.Sin(a) * rz);
+            }
+            Debug.Log($"[poc-trace] C2 grounding {label}#{idx} @({cx:F0},{cz:F0}): underside={underside:F2}u " +
+                      $"maxAirGap={maxAirGap:F2}u over {samples} footprint pts (>0 => FLOATS; must be <=0 — grounded).");
         }
 
         // A carving NavMeshObstacle sized to the feature footprint — the SAME idiom the trees use (BuildTree). The

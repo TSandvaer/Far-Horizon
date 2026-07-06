@@ -1053,12 +1053,14 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void C2_Walls_ReadNearVertical_Slabs_ReadFlatTopped_AndBothSitOnTheGround()
+        public void C2_Walls_ReadWideRockFace_Slabs_ReadFlatTopped_AndBothSitOnTheGround()
         {
-            // THE PHYSICAL-ANCHOR GUARD (lowpoly-quality §0). A rocky WALL is a near-vertical face you can't walk
-            // up => its silhouette must be TALLER than its footprint. A stone SLAB is a flat-topped boulder sitting
-            // ON the ground => WIDER than it is tall, and its base must MEET the terrain (not float / not fully
-            // buried). Up-vs-down is invisible player-eye + obvious in these bounds — this asserts it headlessly.
+            // THE PHYSICAL-ANCHOR GUARD (lowpoly-quality §0). A rocky WALL is a WIDE near-vertical rock FACE you
+            // can't walk up => its silhouette must be WIDER than it is tall (the real-world anchor: a wall is wide
+            // relative to its height), and it must RISE above its thin depth (the un-walkable face). The pre-fix
+            // 5×24×7 needle read as a shard/monolith — this reds on that class. A stone SLAB is a flat-topped
+            // boulder sitting ON the ground => WIDER than it is tall. Both bases must MEET the terrain across their
+            // whole FOOTPRINT (not float on the downhill edge / not fully buried) — the grounding-fix guard.
             var parent = new GameObject("C2ShapeParent");
             try
             {
@@ -1066,11 +1068,26 @@ namespace FarHorizon.EditTests
                 var ground = FindChild(parent.transform, "Ground_Poc").GetComponent<MeshCollider>();
                 foreach (var w in walls)
                 {
-                    Bounds b = w.GetComponentInChildren<MeshRenderer>().bounds;
-                    float footprint = Mathf.Max(b.size.x, b.size.z);
-                    Assert.Greater(b.size.y, footprint * 1.1f,
-                        $"rocky WALL '{w.name}' must read NEAR-VERTICAL — height {b.size.y:F1}u must exceed its footprint " +
-                        $"{footprint:F1}u (a face you can't walk up, not a squat lump).");
+                    // Measure the wall's TRUE oriented dimensions (mesh-local bounds × lossyScale), NOT the world
+                    // AABB: a thin-wide box rotated to a diagonal yaw balloons its AABB depth toward its width, so
+                    // an AABB read would false-judge the proportions. Local size × the WallMesh lossyScale (the
+                    // (wide,hgt,thk) parent scale) gives the honest face proportions independent of yaw.
+                    var mf = w.GetComponentInChildren<MeshFilter>();
+                    Vector3 ls = mf.transform.lossyScale;
+                    Vector3 ms = mf.sharedMesh.bounds.size;
+                    float dx = ms.x * Mathf.Abs(ls.x), dy = ms.y * Mathf.Abs(ls.y), dz = ms.z * Mathf.Abs(ls.z);
+                    float width = Mathf.Max(dx, dz), depth = Mathf.Min(dx, dz), height = dy;
+                    // WIDE (not a shard): a wall reads as a broad rock run, wider than tall.
+                    Assert.Greater(width, height,
+                        $"rocky WALL '{w.name}' must read WIDE — width {width:F1}u must exceed height {height:F1}u " +
+                        "(a broad rock face, NOT a needle/shard — the pre-fix 5×24×7 monolith).");
+                    // A real face, not a small rock: the wide run is a landmark scale.
+                    Assert.Greater(width, 14f,
+                        $"rocky WALL '{w.name}' width {width:F1}u must be a landmark-scale rock face (>14u), not a small rock.");
+                    // NEAR-VERTICAL FACE: rises clearly above its thin depth (you can't walk up it).
+                    Assert.Greater(height, depth * 1.1f,
+                        $"rocky WALL '{w.name}' must rise NEAR-VERTICAL — height {height:F1}u must exceed its thin " +
+                        $"depth {depth:F1}u (a face you can't walk up).");
                     AssertSeatedOnGround(w, ground, "wall");
                 }
                 foreach (var s in slabs)
@@ -1086,20 +1103,42 @@ namespace FarHorizon.EditTests
             finally { Object.DestroyImmediate(parent); }
         }
 
-        // A feature "sits ON the ground" when its mesh base is near the terrain surface directly under it — not
-        // floating above and not fully buried. Raycast the terrain at the feature's x/z, compare to the renderer
-        // bounds' min.y (the base). Tolerances allow the SeatOnGround embed (walls ~0.6-1.4u; slabs up to ~half).
+        // A feature "sits ON the ground" when its mesh base meets the terrain across its WHOLE FOOTPRINT — not
+        // floating above ANYWHERE (the pre-fix centre-only check was blind to the seaward-half float on a slope)
+        // and not fully buried. Samples the terrain at an 8-point footprint ring + the centre and asserts NO
+        // sample leaves an air gap under the base. This is the regression guard for the FLOAT bug CLASS.
         private static void AssertSeatedOnGround(Transform feature, MeshCollider ground, string label)
         {
             Bounds b = feature.GetComponentInChildren<MeshRenderer>().bounds;
-            var ray = new Ray(new Vector3(feature.position.x, 300f, feature.position.z), Vector3.down);
-            Assert.IsTrue(ground.Raycast(ray, out RaycastHit hit, 600f),
-                $"the {label} at ({feature.position.x:F0},{feature.position.z:F0}) must stand over terrain.");
-            float baseGap = b.min.y - hit.point.y;   // >0 base above ground (floating), <0 embedded below
-            Assert.Less(baseGap, 0.6f,
-                $"the {label} base ({b.min.y:F1}u) must not FLOAT above the terrain ({hit.point.y:F1}u) — gap {baseGap:F1}u.");
-            Assert.Greater(baseGap, -b.size.y,
-                $"the {label} must not be FULLY buried — base {b.min.y:F1}u vs terrain {hit.point.y:F1}u (feature height {b.size.y:F1}u).");
+            float underside = b.min.y;
+            float rx = b.size.x * 0.5f, rz = b.size.z * 0.5f;
+            float maxAirGap = float.MinValue; float minGround = float.MaxValue; int samples = 0;
+            void Sample(float gx, float gz)
+            {
+                var ray = new Ray(new Vector3(gx, 300f, gz), Vector3.down);
+                if (!ground.Raycast(ray, out RaycastHit hit, 600f)) return;
+                float airGap = underside - hit.point.y;   // >0 base above ground here (floating)
+                if (airGap > maxAirGap) maxAirGap = airGap;
+                if (hit.point.y < minGround) minGround = hit.point.y;
+                samples++;
+            }
+            Sample(b.center.x, b.center.z);
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k / 8f * Mathf.PI * 2f;
+                Sample(b.center.x + Mathf.Cos(a) * rx, b.center.z + Mathf.Sin(a) * rz);
+            }
+            Assert.Greater(samples, 4,
+                $"the {label} at ({feature.position.x:F0},{feature.position.z:F0}) must stand over terrain at its footprint.");
+            // NO FLOAT anywhere on the footprint: the max air gap across all samples must be at/under the surface
+            // (a small +tol allows facet micro-relief; the pre-fix seaward-half float was multiple metres).
+            Assert.Less(maxAirGap, 0.6f,
+                $"the {label} base must not FLOAT above the terrain at ANY footprint point — max air gap {maxAirGap:F1}u " +
+                "(this is the seaward-half saucer defect; SeatConform seats to the lowest footprint ground).");
+            // Not fully buried: the top must sit above the lowest footprint ground by a real fraction of its height.
+            Assert.Greater(b.max.y, minGround + b.size.y * 0.25f,
+                $"the {label} must not be FULLY buried — top {b.max.y:F1}u vs lowest footprint ground {minGround:F1}u " +
+                $"(feature height {b.size.y:F1}u).");
         }
 
         private static int CountNamed(GameObject root, string name)
