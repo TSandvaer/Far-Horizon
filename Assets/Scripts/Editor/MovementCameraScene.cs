@@ -1232,6 +1232,13 @@ namespace FarHorizon.EditorTools
             // guards is a resolution FAILURE (the curl wired to fewer bones than the rig actually provides), so the
             // floor is per-rig: fist-hand variant (v2/v3)=3 (index 1-3, all they have), old=6 (a partial old
             // resolve still ships an incomplete grip). A LogError here also reds the EditMode rebuild test via LogAssert.
+            // 86cakbe2v item 3: this build-time floor stays a HARDCODED baseline on PURPOSE — deriving it from the
+            // rig here would be tautological (fingers.Count IS "the curl tokens the rig provides", so a rig-derived
+            // floor could never fire). It catches a rig that provides FEWER than a known-good baseline (e.g. a swap
+            // that drops the index chain). The RE-TIGHTENING guard (reds if a future re-export adds middle/ring
+            // chains the curl fails to resolve) lives in the TEST, CastawayCharacterTests
+            // .Avatar_HasSerializedFingerCurl_WithRightHandFingerBones, which derives the floor from the rig's
+            // actual curl-token bone count. If a future rig gains separated middle/ring chains, raise this baseline.
             bool fistHandVariant = CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
             int expectedFingerFloor = fistHandVariant ? 3 : 6;
             if (fingers.Count < expectedFingerFloor)
