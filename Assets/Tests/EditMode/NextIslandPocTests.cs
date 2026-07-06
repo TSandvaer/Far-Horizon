@@ -863,6 +863,291 @@ namespace FarHorizon.EditTests
                 "headroom under the 45° NavMesh agent max so the faceted cap stays CLIMBABLE (Sponsor APPROVED the climb).");
         }
 
+        // ============================================================================================
+        // ISLAND 2.0-B (ticket 86cakk4w8 — C2): rocky WALLS + huge stone SLABS. FREE-STANDING FacetedRock hero
+        // PROPS scattered via NextIslandPocScatter (DISTINCT from C1's per-peak terrain banding). These run the
+        // REAL scatter over the REAL built terrain collider — the bug CLASS each guards is named in-test.
+        // ============================================================================================
+
+        // Run the C2 scatter over the built POC terrain + collect the wall/slab feature roots (a shared helper so
+        // each test asserts one property without re-building). Returns the scatter root; out-lists the features.
+        private static GameObject ScatterC2(out System.Collections.Generic.List<Transform> walls,
+                                            out System.Collections.Generic.List<Transform> slabs,
+                                            GameObject parent, int seed)
+        {
+            var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            GameObject ground = NextIslandPocGen.BuildPocIsland(parent, seed, vcMat, waterMat);
+            var col = ground.GetComponent<MeshCollider>();
+            Assert.IsNotNull(col, "the POC terrain must carry a MeshCollider for the scatter to ground onto.");
+            var root = new GameObject("PocScatterRoot");
+            root.transform.SetParent(parent.transform, false);
+            NextIslandPocScatter.Scatter(root, seed, col, 120);
+            walls = new System.Collections.Generic.List<Transform>();
+            slabs = new System.Collections.Generic.List<Transform>();
+            foreach (Transform child in root.transform)
+            {
+                if (child.name == "LP_RockWall") walls.Add(child);
+                else if (child.name == "LP_StoneSlab") slabs.Add(child);
+            }
+            return root;
+        }
+
+        [Test]
+        public void C2_Scatter_PlacesRockyWalls_AndStoneSlabs_InTheDefaultBands()
+        {
+            // The Sponsor-soak default bands (ticket 86cakk4w8): 3-6 rocky walls + 8-15 stone slabs. Guards the
+            // guard-loop STARVATION bug class — if the peak/landmass rejection were too aggressive the scatter
+            // would place FEWER than target (silent under-population); asserting IN-band proves placement is not
+            // starved on the real terrain.
+            var parent = new GameObject("C2CountParent");
+            try
+            {
+                ScatterC2(out var walls, out var slabs, parent, NextIslandPocScene.PocSeed);
+                Assert.That(walls.Count, Is.InRange(3, 6),
+                    $"the scatter must place 3-6 rocky WALLS (default band) — got {walls.Count} (guard-loop starved?).");
+                Assert.That(slabs.Count, Is.InRange(8, 15),
+                    $"the scatter must place 8-15 stone SLABS (default band) — got {slabs.Count} (guard-loop starved?).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void C2_RockFeatures_RejectPeakFootprints_NeverClippedIntoAMountain()
+        {
+            // THE PEAK-REJECT GUARD (ticket constraint): a wall/slab footprint must never overlap any of C1's
+            // three Peaks[] feet — clipping a hero prop into a mountain reads broken + risks orphaning the
+            // walkable surface. SeatOnGround only moves Y (a straight-down ground raycast preserves x/z), so the
+            // feature root x/z == the scatter point tested against the peak feet.
+            var parent = new GameObject("C2PeakParent");
+            try
+            {
+                ScatterC2(out var walls, out var slabs, parent, NextIslandPocScene.PocSeed);
+                Assert.Greater(walls.Count + slabs.Count, 0, "the scatter must place features (else this guard is vacuous).");
+                foreach (var f in walls.Concat(slabs))
+                foreach (var p in NextIslandPocGen.Peaks)
+                {
+                    float d = Vector2.Distance(new Vector2(f.position.x, f.position.z), new Vector2(p.cx, p.cz));
+                    Assert.Greater(d, p.footR,
+                        $"'{f.name}' @ ({f.position.x:F0},{f.position.z:F0}) sits {d:F0}u from peak ({p.cx:F0},{p.cz:F0}) " +
+                        $"— inside its foot ({p.footR:F0}u). Walls/slabs must go on flats/foreshore/cols, never clipped into a peak.");
+                }
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void C2_RockFeatures_UseNewSeedStreams_Deterministic_C1ScatterUnperturbed()
+        {
+            // NEW seed streams (walls seed+1111 / slabs seed+1212) — never mutate C1's seed+555 stream. Two proofs:
+            // (1) DETERMINISM: two scatters at the same seed place walls/slabs at identical positions (a reproducible
+            //     baked scene). (2) C1-UNPERTURBED: the tree/rock/grass COUNTS are identical across the two runs
+            //     (the C2 loops run on separate Random instances AFTER the C1 loops, so they cannot re-roll C1).
+            var pa = new GameObject("C2DetA");
+            var pb = new GameObject("C2DetB");
+            try
+            {
+                var ra = ScatterC2(out var wallsA, out var slabsA, pa, NextIslandPocScene.PocSeed);
+                var rb = ScatterC2(out var wallsB, out var slabsB, pb, NextIslandPocScene.PocSeed);
+                Assert.AreEqual(wallsA.Count, wallsB.Count, "wall count must be deterministic across identical seeds.");
+                Assert.AreEqual(slabsA.Count, slabsB.Count, "slab count must be deterministic across identical seeds.");
+                for (int i = 0; i < wallsA.Count; i++)
+                    Assert.Less(Vector3.Distance(wallsA[i].position, wallsB[i].position), 1e-3f,
+                        $"wall {i} must land at the SAME position across identical seeds (reproducible baked scene).");
+                int treesA = CountNamed(ra, "LP_Tree"), treesB = CountNamed(rb, "LP_Tree");
+                int rocksA = CountNamed(ra, "LP_Rock"), rocksB = CountNamed(rb, "LP_Rock");
+                int grassA = CountNamed(ra, "LP_Grass"), grassB = CountNamed(rb, "LP_Grass");
+                Assert.Greater(treesA, 0, "the C1 tree loop must still run (non-vacuous).");
+                Assert.AreEqual(treesA, treesB, "C1 tree count must be deterministic (the C2 streams must not perturb it).");
+                Assert.AreEqual(rocksA, rocksB, "C1 rock count must be deterministic (C2 streams disjoint).");
+                Assert.AreEqual(grassA, grassB, "C1 grass count must be deterministic (C2 streams disjoint).");
+            }
+            finally { Object.DestroyImmediate(pa); Object.DestroyImmediate(pb); }
+        }
+
+        [Test]
+        public void C2_RockFeatures_HeroCasterPolicy_ShadowsOn_AndStaticBatched()
+        {
+            // Caster policy (ticket constraint): large hero silhouette features (walls, big slabs) KEEP shadows +
+            // static-batch (the shadow pass is the dominant GPU cost — silhouette features need shadows). Guards a
+            // regression that ships them castShadows:false (a silent silhouette-flattening).
+            var parent = new GameObject("C2CasterParent");
+            try
+            {
+                ScatterC2(out var walls, out var slabs, parent, NextIslandPocScene.PocSeed);
+                foreach (var f in walls.Concat(slabs))
+                {
+                    var mr = f.GetComponentInChildren<MeshRenderer>();
+                    Assert.IsNotNull(mr, $"'{f.name}' must carry a MeshRenderer.");
+                    Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.On, mr.shadowCastingMode,
+                        $"'{f.name}' is a hero feature — it must CAST shadows (silhouette read).");
+                    var flags = UnityEditor.GameObjectUtility.GetStaticEditorFlags(f.gameObject);
+                    Assert.IsTrue(flags.HasFlag(UnityEditor.StaticEditorFlags.BatchingStatic),
+                        $"'{f.name}' must be BatchingStatic (URP static-batches the hero rock — the perf lever).");
+                }
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void C2_RockFeatures_CarveNavMesh_NoOrphan_SolidToTheAgent()
+        {
+            // THE NO-ORPHAN + SOLID GUARD (ticket constraint: "walls off-NavMesh or carved so they don't orphan
+            // the walkable surface"). Each wall/slab carries a CARVING Box NavMeshObstacle — the tree idiom. Carving
+            // only SUBTRACTS the footprint (never creates a walkable island), so a free-standing feature can NEVER
+            // orphan a walkable patch; and the NavMeshAgent player cannot enter the carved footprint => can't walk
+            // up a vertical wall / through a boulder. (It also leaves the BAKED asset unchanged — runtime carve.)
+            var parent = new GameObject("C2NavParent");
+            try
+            {
+                ScatterC2(out var walls, out var slabs, parent, NextIslandPocScene.PocSeed);
+                Assert.Greater(walls.Count + slabs.Count, 0, "the scatter must place features (else this guard is vacuous).");
+                foreach (var f in walls.Concat(slabs))
+                {
+                    var obs = f.GetComponent<UnityEngine.AI.NavMeshObstacle>();
+                    Assert.IsNotNull(obs, $"'{f.name}' must carry a NavMeshObstacle (solid to the agent + off-NavMesh).");
+                    Assert.IsTrue(obs.carving, $"'{f.name}' obstacle must CARVE (subtract-only => no orphaned walkable patch).");
+                    Assert.AreEqual(UnityEngine.AI.NavMeshObstacleShape.Box, obs.shape,
+                        $"'{f.name}' obstacle must be a Box (a wall/slab footprint, not a capsule).");
+                    Assert.Greater(obs.size.sqrMagnitude, 0f, $"'{f.name}' obstacle must have a real footprint size.");
+                }
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void C2_RockFeatures_ShareOneMaterialPerClass_TonalVariationIsVertexColour()
+        {
+            // T-A (ticket constraint): tonal variation is VERTEX-COLOUR only, NEVER per-material — so all walls
+            // share ONE material + all slabs share ONE material (per-material tint would break the SRP-Batcher
+            // ~1-draw read). And the FacetedRock mesh must carry per-vertex COLOURS (that IS the tonal variation).
+            var parent = new GameObject("C2MatParent");
+            try
+            {
+                ScatterC2(out var walls, out var slabs, parent, NextIslandPocScene.PocSeed);
+                AssertOneSharedMaterialAndVertexColours(walls, "rocky wall");
+                AssertOneSharedMaterialAndVertexColours(slabs, "stone slab");
+                // The two classes use DISTINCT materials (walls a touch cooler/darker than slabs) — but still just 2.
+                var wm = walls[0].GetComponentInChildren<MeshRenderer>().sharedMaterial;
+                var sm = slabs[0].GetComponentInChildren<MeshRenderer>().sharedMaterial;
+                Assert.AreNotSame(wm, sm, "walls and slabs use their own shared material each (2 hero-rock mats total).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        private static void AssertOneSharedMaterialAndVertexColours(
+            System.Collections.Generic.List<Transform> features, string label)
+        {
+            Assert.Greater(features.Count, 0, $"the scatter must place {label}s (else this guard is vacuous).");
+            Material shared = features[0].GetComponentInChildren<MeshRenderer>().sharedMaterial;
+            Assert.IsNotNull(shared, $"a {label} must carry a material.");
+            foreach (var f in features)
+            {
+                var mr = f.GetComponentInChildren<MeshRenderer>();
+                Assert.AreSame(shared, mr.sharedMaterial,
+                    $"every {label} must share ONE material (tonal variation is vertex-colour, never per-material — T-A).");
+                var mesh = f.GetComponentInChildren<MeshFilter>().sharedMesh;
+                Assert.Greater(mesh.colors.Length, 0,
+                    $"the {label} FacetedRock mesh must carry per-vertex COLOURS (the per-facet tonal variation).");
+            }
+        }
+
+        [Test]
+        public void C2_Walls_ReadWideRockFace_Slabs_ReadFlatTopped_AndBothSitOnTheGround()
+        {
+            // THE PHYSICAL-ANCHOR GUARD (lowpoly-quality §0). A rocky WALL is a WIDE near-vertical rock FACE you
+            // can't walk up => its silhouette must be WIDER than it is tall (the real-world anchor: a wall is wide
+            // relative to its height), and it must RISE above its thin depth (the un-walkable face). The pre-fix
+            // 5×24×7 needle read as a shard/monolith — this reds on that class. A stone SLAB is a flat-topped
+            // boulder sitting ON the ground => WIDER than it is tall. Both bases must MEET the terrain across their
+            // whole FOOTPRINT (not float on the downhill edge / not fully buried) — the grounding-fix guard.
+            var parent = new GameObject("C2ShapeParent");
+            try
+            {
+                var root = ScatterC2(out var walls, out var slabs, parent, NextIslandPocScene.PocSeed);
+                var ground = FindChild(parent.transform, "Ground_Poc").GetComponent<MeshCollider>();
+                foreach (var w in walls)
+                {
+                    // Measure the wall's TRUE oriented dimensions (mesh-local bounds × lossyScale), NOT the world
+                    // AABB: a thin-wide box rotated to a diagonal yaw balloons its AABB depth toward its width, so
+                    // an AABB read would false-judge the proportions. Local size × the WallMesh lossyScale (the
+                    // (wide,hgt,thk) parent scale) gives the honest face proportions independent of yaw.
+                    var mf = w.GetComponentInChildren<MeshFilter>();
+                    Vector3 ls = mf.transform.lossyScale;
+                    Vector3 ms = mf.sharedMesh.bounds.size;
+                    float dx = ms.x * Mathf.Abs(ls.x), dy = ms.y * Mathf.Abs(ls.y), dz = ms.z * Mathf.Abs(ls.z);
+                    float width = Mathf.Max(dx, dz), depth = Mathf.Min(dx, dz), height = dy;
+                    // WIDE (not a shard): a wall reads as a broad rock run, wider than tall.
+                    Assert.Greater(width, height,
+                        $"rocky WALL '{w.name}' must read WIDE — width {width:F1}u must exceed height {height:F1}u " +
+                        "(a broad rock face, NOT a needle/shard — the pre-fix 5×24×7 monolith).");
+                    // A real face, not a small rock: the wide run is a landmark scale.
+                    Assert.Greater(width, 14f,
+                        $"rocky WALL '{w.name}' width {width:F1}u must be a landmark-scale rock face (>14u), not a small rock.");
+                    // NEAR-VERTICAL FACE: rises clearly above its thin depth (you can't walk up it).
+                    Assert.Greater(height, depth * 1.1f,
+                        $"rocky WALL '{w.name}' must rise NEAR-VERTICAL — height {height:F1}u must exceed its thin " +
+                        $"depth {depth:F1}u (a face you can't walk up).");
+                    AssertSeatedOnGround(w, ground, "wall");
+                }
+                foreach (var s in slabs)
+                {
+                    Bounds b = s.GetComponentInChildren<MeshRenderer>().bounds;
+                    float footprint = Mathf.Max(b.size.x, b.size.z);
+                    Assert.Less(b.size.y, footprint,
+                        $"stone SLAB '{s.name}' must read FLAT-TOPPED — height {b.size.y:F1}u must be under its footprint " +
+                        $"{footprint:F1}u (a wide boulder sitting ON the ground, not a tall spike).");
+                    AssertSeatedOnGround(s, ground, "slab");
+                }
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        // A feature "sits ON the ground" when its mesh base meets the terrain across its WHOLE FOOTPRINT — not
+        // floating above ANYWHERE (the pre-fix centre-only check was blind to the seaward-half float on a slope)
+        // and not fully buried. Samples the terrain at an 8-point footprint ring + the centre and asserts NO
+        // sample leaves an air gap under the base. This is the regression guard for the FLOAT bug CLASS.
+        private static void AssertSeatedOnGround(Transform feature, MeshCollider ground, string label)
+        {
+            Bounds b = feature.GetComponentInChildren<MeshRenderer>().bounds;
+            float underside = b.min.y;
+            float rx = b.size.x * 0.5f, rz = b.size.z * 0.5f;
+            float maxAirGap = float.MinValue; float minGround = float.MaxValue; int samples = 0;
+            void Sample(float gx, float gz)
+            {
+                var ray = new Ray(new Vector3(gx, 300f, gz), Vector3.down);
+                if (!ground.Raycast(ray, out RaycastHit hit, 600f)) return;
+                float airGap = underside - hit.point.y;   // >0 base above ground here (floating)
+                if (airGap > maxAirGap) maxAirGap = airGap;
+                if (hit.point.y < minGround) minGround = hit.point.y;
+                samples++;
+            }
+            Sample(b.center.x, b.center.z);
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k / 8f * Mathf.PI * 2f;
+                Sample(b.center.x + Mathf.Cos(a) * rx, b.center.z + Mathf.Sin(a) * rz);
+            }
+            Assert.Greater(samples, 4,
+                $"the {label} at ({feature.position.x:F0},{feature.position.z:F0}) must stand over terrain at its footprint.");
+            // NO FLOAT anywhere on the footprint: the max air gap across all samples must be at/under the surface
+            // (a small +tol allows facet micro-relief; the pre-fix seaward-half float was multiple metres).
+            Assert.Less(maxAirGap, 0.6f,
+                $"the {label} base must not FLOAT above the terrain at ANY footprint point — max air gap {maxAirGap:F1}u " +
+                "(this is the seaward-half saucer defect; SeatConform seats to the lowest footprint ground).");
+            // Not fully buried: the top must sit above the lowest footprint ground by a real fraction of its height.
+            Assert.Greater(b.max.y, minGround + b.size.y * 0.25f,
+                $"the {label} must not be FULLY buried — top {b.max.y:F1}u vs lowest footprint ground {minGround:F1}u " +
+                $"(feature height {b.size.y:F1}u).");
+        }
+
+        private static int CountNamed(GameObject root, string name)
+        {
+            int n = 0;
+            foreach (Transform child in root.transform) if (child.name == name) n++;
+            return n;
+        }
+
         private static Transform FindChild(Transform root, string name)
         {
             foreach (var t in root.GetComponentsInChildren<Transform>(true))
