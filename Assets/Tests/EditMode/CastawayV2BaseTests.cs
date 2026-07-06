@@ -117,25 +117,28 @@ namespace FarHorizon.EditTests
                 "(righthand is also the held-axe seat bone.)");
         }
 
-        // (5) ACTIVATED toggle (86cajx050) — v2 is now the LIVE DEFAULT (the Sponsor soaked v2 in a shipped
-        // build and approved making it live). The old base stays reachable behind the toggle for rollback (a
-        // one-line flip of UseCastawayV2Default back to false), but the committed default is v2. FbxPath tracks.
+        // (5) ROLLBACK-TARGET toggle (86cajx050; superseded as LIVE by v3 activation 86cak9kau) — v2's default
+        // stays ON so it remains the reachable ROLLBACK target: with v3 live, flipping UseCastawayV3Default back
+        // to false makes UseCastawayV2 (still true) select v2. So FbxPath no longer resolves to v2 while v3 is
+        // live — v3 takes precedence. This test now guards that v2's default is intact (rollback available) AND
+        // that FbxPath resolves to whatever the FULL toggle chain selects (v3-first).
         [Test]
-        public void CastawayV2_Toggle_DefaultsOn_And_FbxPathTracksToggle()
+        public void CastawayV2_DefaultStaysOn_AsRollbackTarget_UnderV3()
         {
             Assert.IsTrue(CharacterAssetGen.UseCastawayV2Default,
-                "v2 is now the LIVE DEFAULT (86cajx050 — Sponsor soaked + approved). The old base stays reachable " +
-                "behind the toggle for rollback, but the committed default is v2. Flipping this back to false " +
-                "would revert the hero character to the old castaway.");
+                "v2's default must stay ON as the rollback target under v3 (86cak9kau): with v3 live, a one-line " +
+                "flip of UseCastawayV3Default back to false selects v2. Flipping v2's default off would remove the " +
+                "rollback target (rollback would land on the old Idle base instead of v2).");
 
-            // With the default ON, UseCastawayV2 is true regardless of the env override, so FbxPath resolves to
-            // the v2 rigged base. (Asserted against whatever the toggle evaluates to in THIS run so it also holds
-            // if a future rollback flips the default back to false.)
-            string expected = CharacterAssetGen.UseCastawayV2
-                ? CharacterAssetGen.V2RiggedFbxPath
-                : CharacterAssetGen.IdleFbxPath;
+            // FbxPath resolves via the FULL chain (v3-first, then v2, then Idle). With v3 live it must be v3;
+            // if v3 is ever rolled back, it falls to v2. Asserted against the evaluated toggles so it holds in
+            // either state.
+            string expected =
+                CharacterAssetGen.UseCastawayV3 ? CharacterAssetGen.V3RiggedFbxPath :
+                CharacterAssetGen.UseCastawayV2 ? CharacterAssetGen.V2RiggedFbxPath :
+                CharacterAssetGen.IdleFbxPath;
             Assert.AreEqual(expected, CharacterAssetGen.FbxPath,
-                "FbxPath must resolve to the toggle-selected mesh (v2 rigged base when UseCastawayV2, else Idle.fbx)");
+                "FbxPath must resolve to the toggle-selected mesh (v3 when live, else the v2 rollback target, else Idle)");
         }
 
         // (5b) v2 material sources — the de-lit diffuse + normal the v2 CastawayMat binds must be importable.

@@ -18,12 +18,12 @@ namespace FarHorizon.EditTests
     ///      stray empty `Armature` node did NOT break avatar construction.
     ///   3. v3 base height-normalizes toward ~1u (the un-normalized-giant guard).
     ///   4. v3's skeleton carries the CORE mixamorig bones the 18 existing clips drive — the CLIP-CARRY guard.
-    ///   5. THE DORMANT-INVARIANT guard: the rollout toggle DEFAULTS OFF (v2 stays the LIVE hero); with v3 off
-    ///      and no env override, FbxPath resolves to the v2 base — v3 ships dormant-safe.
+    ///   5. THE ACTIVATED-TOGGLE guard (86cak9kau): the rollout toggle DEFAULTS ON (v3 is now the LIVE hero after
+    ///      the Sponsor soak); FbxPath resolves v3-first. v2 stays reachable behind the toggle for rollback.
     ///   6. v3's posterized diffuse (the URP/Unlit Base Map) is importable.
     ///
     /// v3 is configured on EVERY bootstrap (CharacterAssetGen.ConfigureV3BaseFbx) so these import guards run
-    /// against a real import even though the default CI run renders v2.
+    /// against a real import; with the default now ON, the default CI run also renders v3.
     /// </summary>
     public class CastawayV3BaseTests
     {
@@ -115,30 +115,28 @@ namespace FarHorizon.EditTests
                 "(righthand is also the held-axe seat bone.)");
         }
 
-        // (5) DORMANT-INVARIANT guard (86cak41d4) — v3 defaults OFF: v2 stays the LIVE hero, so this PR merges
-        // dormant-safe. With v3 off + no env override, FbxPath must resolve to the v2 base (v2 byte-unchanged).
+        // (5) ACTIVATED toggle (86cak9kau) — v3 is now the LIVE DEFAULT (the Sponsor soaked v3 in a shipped build
+        // and approved making it live, 2026-07-06). v2 stays reachable behind the toggle as the ROLLBACK target
+        // (flip UseCastawayV3Default back to false → UseCastawayV2 selects v2), mirroring how #262 kept the old
+        // base behind the v2 toggle. FbxPath resolves v3-first.
         [Test]
-        public void CastawayV3_Toggle_DefaultsOff_And_DoesNotDisturbLiveSelection()
+        public void CastawayV3_Toggle_DefaultsOn_And_FbxPathResolvesToV3()
         {
-            Assert.IsFalse(CharacterAssetGen.UseCastawayV3Default,
-                "v3 must ship DORMANT (default OFF) — v2 stays the live hero until a separate activation/soak PR " +
-                "flips this default. Flipping it true here would silently activate v3 in the default build.");
+            Assert.IsTrue(CharacterAssetGen.UseCastawayV3Default,
+                "v3 is now the LIVE DEFAULT (86cak9kau — Sponsor soaked + approved). v2 stays reachable behind the " +
+                "toggle for rollback (flip this back to false → UseCastawayV2 selects v2). Flipping this back would " +
+                "revert the hero character to v2.");
 
-            // FbxPath must resolve to whatever the LIVE toggle selects — with v3 default OFF and no env override,
-            // that is the v2 base (the dormant-safe invariant). Asserted against the evaluated toggles so it also
-            // holds if a future activation flips a default.
-            string expected =
-                CharacterAssetGen.UseCastawayV3 ? CharacterAssetGen.V3RiggedFbxPath :
-                CharacterAssetGen.UseCastawayV2 ? CharacterAssetGen.V2RiggedFbxPath :
-                CharacterAssetGen.IdleFbxPath;
-            Assert.AreEqual(expected, CharacterAssetGen.FbxPath,
-                "FbxPath must resolve to the toggle-selected mesh (v3 when UseCastawayV3, else v2, else Idle)");
-
-            // Belt-and-suspenders: in the DEFAULT run (no env set) v3 must NOT be the selected mesh — proves
-            // the dormant integration doesn't disturb the live v2 hero.
-            if (!CharacterAssetGen.UseCastawayV3)
-                Assert.AreNotEqual(CharacterAssetGen.V3RiggedFbxPath, CharacterAssetGen.FbxPath,
-                    "with v3 dormant, the live FbxPath must not be the v3 base");
+            // With the default ON, UseCastawayV3 is true regardless of the env override. NIT (Drew #263): the old
+            // middle assertion re-derived FbxPath's OWN ternary (string expected = UseCastawayV3 ? V3 : ...), which
+            // is a tautology — it always equals FbxPath by construction. Replace it with the CONCRETE resolved
+            // value: with v3 live, FbxPath must be the v3 rigged base directly. This bites if FbxPath's ternary is
+            // reordered (e.g. a future edit checks v2 before v3, silently shipping v2 while v3's default is true).
+            Assert.IsTrue(CharacterAssetGen.UseCastawayV3,
+                "v3 default ON ⇒ UseCastawayV3 true regardless of the FARHORIZON_CASTAWAY_V3 env override");
+            Assert.AreEqual(CharacterAssetGen.V3RiggedFbxPath, CharacterAssetGen.FbxPath,
+                "with v3 live, FbxPath must resolve to the v3 rigged base — v3 takes precedence over the v2 " +
+                "rollback target and the old Idle base");
         }
 
         // (6) v3 material source — the posterized diffuse the v3 URP/Unlit CastawayMat binds must be importable.
