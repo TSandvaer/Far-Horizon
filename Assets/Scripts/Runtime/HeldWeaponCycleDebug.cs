@@ -189,8 +189,7 @@ namespace FarHorizon
         private Inventory _inventory;
         private bool _inventoryResolved;
         private bool _debugView;
-        private HeldTool _gateTool;         // the sibling visibility gate on this seat (cached; may be null)
-        private bool _gateResolved;
+        private HeldTool _gateTool;         // the sibling visibility gate on this seat (lazily resolved; see ResolveGate)
 
         /// <summary>True while the [B] debug cycle is showing a weapon WITHOUT a held-visual weapon being
         /// selected on the belt (the empty-handed knife/sword look-soak aid). The <see cref="HeldAxe"/>
@@ -359,11 +358,17 @@ namespace FarHorizon
 
         private HeldTool ResolveGate()
         {
-            if (!_gateResolved)
-            {
-                _gateResolved = true;
-                _gateTool = GetComponent<HeldTool>();
-            }
+            // 86cajt6jz — re-resolve while null; do NOT permanently cache a null gate. This component's
+            // OnEnable can run BEFORE the sibling HeldTool gate exists when the two are AddComponent'd
+            // sequentially (AddComponent on an active GO runs Awake+OnEnable synchronously, so the cycle
+            // resolves the gate before the gate component is even added — the PlayMode rig; also any runtime
+            // AddComponent path). Caching that null would leave the empty-handed [B] debug cycle unable to
+            // re-apply the visibility gate FOREVER (CycleHeldWeaponDebug's gateTool.RefreshRenderers is
+            // skipped), so the debug view never shows through the gate. In the SHIPPED scene both components
+            // deserialize together (all Awakes run before all OnEnables), so GetComponent finds the gate on
+            // the first call — behaviour is UNCHANGED there; this only hardens the add-order-dependent path.
+            // GetComponent re-runs only while still null, then the reference sticks.
+            if (_gateTool == null) _gateTool = GetComponent<HeldTool>();
             return _gateTool;
         }
 
