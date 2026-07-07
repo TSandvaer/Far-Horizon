@@ -1117,6 +1117,60 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void C4_VegetationCasterPolicy_ShadowsOff_KeepsShadowPassInBudget()
+        {
+            // C4 SILENT-REGRESSION GUARD (ticket 86cakk4xf): the shadow pass is the dominant GPU cost (the
+            // start-island perf note's headline), so ALL decoration vegetation ships castShadows:false — the
+            // perf verdict rests on the shadow-caster count staying ≈ the C1 baseline (terrain + LP_Rock +
+            // the C2 hero wall/slab features), NOT + the ~1260 trees + ~1449 grass + bushes. The C2 sibling
+            // (C2_RockFeatures_HeroCasterPolicy) guards the ON side (walls/slabs must cast); THIS guards the
+            // OFF side. If a future edit ships a vegetation class castShadows:On, the shadow-caster count
+            // silently inflates and this reds in CI BEFORE a frame-rate soak would catch it. (Empirically:
+            // the shipped-exe -perfProbe measured 35 avg / 42 max shadow-caster draws on the full scene —
+            // dominated by LP_Rock, not vegetation; a vegetation caster would push that into the hundreds.)
+            var parent = new GameObject("C4VegCasterParent");
+            try
+            {
+                var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                GameObject ground = NextIslandPocGen.BuildPocIsland(parent, NextIslandPocScene.PocSeed, vcMat, waterMat);
+                var col = ground.GetComponent<MeshCollider>();
+                Assert.IsNotNull(col, "the POC terrain must carry a MeshCollider for the scatter to ground onto.");
+                var root = new GameObject("PocScatterRoot");
+                root.transform.SetParent(parent.transform, false);
+                NextIslandPocScatter.Scatter(root, NextIslandPocScene.PocSeed, col, 300);
+
+                int trees = 0, pines = 0, bushes = 0, grass = 0, checkedRenderers = 0;
+                foreach (Transform child in root.transform)
+                {
+                    bool veg = child.name == "LP_Tree" || child.name == "LP_PineTree"
+                            || child.name == "LP_Bush" || child.name == "LP_Grass";
+                    if (!veg) continue;
+                    if (child.name == "LP_Tree") trees++;
+                    else if (child.name == "LP_PineTree") pines++;
+                    else if (child.name == "LP_Bush") bushes++;
+                    else grass++;
+                    // EVERY renderer under a vegetation root (a tree carries trunk + canopy/crown) must be Off.
+                    foreach (var mr in child.GetComponentsInChildren<MeshRenderer>())
+                    {
+                        Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.Off, mr.shadowCastingMode,
+                            $"'{child.name}/{mr.name}' is decoration vegetation — it MUST NOT cast shadows " +
+                            "(the shadow pass is the dominant GPU cost; a vegetation caster silently inflates it — C4).");
+                        checkedRenderers++;
+                    }
+                }
+                // Non-vacuity: all four vegetation classes must actually be present (else the guard is trivial).
+                Assert.Greater(trees, 0, "the scatter must place broadleaf trees (else the caster guard is vacuous).");
+                Assert.Greater(pines, 0, "the scatter must place PINE trees (else the pine caster guard is vacuous).");
+                Assert.Greater(bushes, 0, "the scatter must place bushes (else the bush caster guard is vacuous).");
+                Assert.Greater(grass, 0, "the scatter must place grass (else the grass caster guard is vacuous).");
+                Assert.GreaterOrEqual(checkedRenderers, trees + pines + bushes + grass,
+                    "every vegetation root must contribute at least one checked renderer (the loop must descend into children).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
         public void C2_RockFeatures_CarveNavMesh_NoOrphan_SolidToTheAgent()
         {
             // THE NO-ORPHAN + SOLID GUARD (ticket constraint: "walls off-NavMesh or carved so they don't orphan
