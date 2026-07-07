@@ -213,8 +213,15 @@ namespace FarHorizon.EditorTools
         // in the v3 soak, then a follow-up bakes the dialed numbers here ([[verify-soak-builds-or-bake-and-judge]]
         // / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used when CharacterAssetGen.UseCastawayV3;
         // the v2 + old seats above are byte-unchanged when the toggle is OFF (the rollback path).
-        public static readonly Vector3 HeldAxeV3RelEuler = new Vector3(17.5f, -5.9f, 92.9f);
-        public static readonly Vector3 HeldAxeV3LocalOffsetFromHand = new Vector3(0.0271f, 0.1399f, 0.0288f);
+        // 86cakkfz9 v3 DIAL-IN BAKE (dial exe stamp d306552, F9 WEAPON NUDGE TOOL): the Sponsor F9-dialed the
+        // FINAL v3 held-axe seat in the shipped build and asked to bake it as the shipped default (applies with
+        // NO F9). Recovered from Player-prev.log (the dial session; Danish-locale decimals — final resting line
+        // "HeldAxeLocalOffsetFromHand=(0,0071f,0,0599f,0,0288f) HeldAxeRelEuler=(-152,5f,-5,9f,108,9f)") and
+        // cross-checked against the ticket screenshot table (identical). SUPERSEDES the measured first-pass
+        // (17.5,-5.9,92.9)/(0.0271,0.1399,0.0288). SCALE is UNTOUCHED — the axe's held scale comes from the
+        // settings HeldScale row, NOT the nudge (ticket: axe scale LOCKED). F9 still drives these fields.
+        public static readonly Vector3 HeldAxeV3RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
+        public static readonly Vector3 HeldAxeV3LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
