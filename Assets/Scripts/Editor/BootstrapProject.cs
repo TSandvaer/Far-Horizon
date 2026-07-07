@@ -413,13 +413,13 @@ namespace FarHorizon.EditorTools
             // built earlier in BuildBootScene, so this post-environment wiring mirrors WireStoneScatterRoot).
             if (hudGo.GetComponent<FarHorizon.WorldLookTunables>() == null)
                 hudGo.AddComponent<FarHorizon.WorldLookTunables>();
-            // POND RECESS + FOAM live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak: he dials the
-            // final pond recess depth + foam amount IN THE SHIPPED BUILD + reports the values to bake).
-            // ALWAYS-LIVE (like HeldAxeLengthPicker, NOT F-key-toggle-gated) — the on-screen panel shows the
-            // current recess + foam value the whole soak; PgUp/PgDn step the recess (flush->knee-deep->deeper,
-            // default knee-deep), Home/End step the foam (off->light->sea-like, default OFF). LAYOUT-AGNOSTIC
-            // keys (Danish-keyboard-safe). Starts at the shipped defaults so a soak that never presses a key
-            // sees exactly the shipped pond. Serialized editor-time per the editor-vs-runtime trap.
+            // POND RECESS live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak: he dials the final pond
+            // recess depth IN THE SHIPPED BUILD + reports the value to bake). ALWAYS-LIVE (unlike the F-key-
+            // toggle-gated nudge tools) — the on-screen panel shows the current recess the whole soak; PgUp/PgDn
+            // step the recess (flush->shipped->deeper, default SHIPPED). The foam dial was DROPPED (#130 third
+            // re-soak — the freshwater pond foam is baked OFF, not a runtime control). LAYOUT-AGNOSTIC keys
+            // (Danish-keyboard-safe). Starts at the shipped default so a soak that never presses a key sees
+            // exactly the shipped pond. Serialized editor-time per the editor-vs-runtime trap.
             hudGo.AddComponent<FarHorizon.PondNudge>();
             // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
             // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted

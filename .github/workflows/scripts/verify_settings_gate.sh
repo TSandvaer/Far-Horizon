@@ -216,13 +216,16 @@ fi
 stepper_rc=0
 check_stepper_fit() {   # $1 = grep tag   $2 = human label
   local line w ok
-  line=$(grep -F "$1" "$LOG_FILE" | head -n1)
+  # `|| true`: under `set -o pipefail` a `grep | head -n1` pipeline returns non-zero when head closes the pipe
+  # early (grep SIGPIPE) OR when the tag is absent (grep rc 1) — a no-match is an EXPECTED outcome handled by
+  # the empty-check below, so keep the substitution pipefail-safe rather than leaking a spurious failure rc.
+  line=$(grep -F "$1" "$LOG_FILE" | head -n1 || true)
   if [ -z "$line" ]; then
     echo "[verify_settings] FAILED — missing the #247 v2 $2 stepper-fit proof line (expected '$1 (#247 v2): minCellWidth=Npx')" >&2
     stepper_rc=1
     return
   fi
-  w=$(printf '%s\n' "$line" | grep -oE 'minCellWidth=-?[0-9]+(\.[0-9]+)?' | head -n1 | cut -d= -f2)
+  w=$(printf '%s\n' "$line" | grep -oE 'minCellWidth=-?[0-9]+(\.[0-9]+)?' | head -n1 | cut -d= -f2 || true)  # pipefail-safe (grep|head SIGPIPE / no-token yields empty -> awk reds it below)
   # threshold 20px: a healthy row keeps every cell at its design width (button 28px / value 44px); a crushed
   # flex-shrink control collapses them well below 10px. -1 = no stepper row in that drawer → legit skip (pass).
   ok=$(awk -v w="$w" 'BEGIN { print (w+0 >= 20.0 || w+0 < 0) ? 1 : 0 }')

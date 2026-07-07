@@ -7,7 +7,7 @@ namespace FarHorizon
     ///
     /// A neutral, single-purpose key handler: pressing F10 flips the shared <see cref="DebugOverlays.Visible"/>
     /// layer master, which every dev/debug overlay's <c>OnGUI</c> reads (WorldLookNudgeTool F10 / AxeNudgeTool F9 /
-    /// FloatDiagnostic F8 / CameraFollowNudgeTool F7 / HeldWeaponCycleDebug / HeldAxeLengthPicker / PondNudge).
+    /// FloatDiagnostic F8 / CameraFollowNudgeTool F7 / HeldWeaponCycleDebug / PondNudge).
     /// Before this ticket that flip lived inside <c>SneakIsolationTool.Update</c>; when the Sponsor retired the
     /// sneak-isolation panel (86caju054, "the sneak isolation panel should die"), the F10 master was re-homed HERE
     /// so F10 keeps toggling the remaining overlays together while the sneak readout + its F5/F6 handles are gone.

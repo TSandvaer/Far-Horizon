@@ -112,6 +112,13 @@ if [ "$KEEP_CHURN" -eq 0 ]; then
   step "7/7 cleanup — discarding bootstrap's tracked-asset churn"
   # shellcheck disable=SC2086
   git checkout -- $CHURN_ROOTS 2>/dev/null || true
+  # NextIslandPocScene.Build CreateAsset's an UNTRACKED Assets/Settings/PocGradientSky.mat (+.meta) — its own
+  # isolated sky material (86caj0rrg / #256). `git checkout` restores TRACKED churn but cannot remove an
+  # untracked file, so drop it explicitly or every POC build leaves it behind, tripping the "not fully
+  # restored" WARN below + risking PR contamination ([[stray-untracked-artifacts-contaminate-prs]]). Its
+  # siblings PocTerrainMat/PocWaterMat.mat ARE committed (restored by the checkout above); this one is
+  # generated-only, so a targeted rm is the parity-preserving cleanup.
+  rm -f Assets/Settings/PocGradientSky.mat Assets/Settings/PocGradientSky.mat.meta
   if [ -n "$(git status --porcelain)" ]; then
     echo "[build_poc] WARN — worktree not fully restored after cleanup:" >&2
     git status --porcelain >&2

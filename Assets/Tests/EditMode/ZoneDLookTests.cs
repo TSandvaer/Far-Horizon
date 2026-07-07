@@ -231,18 +231,23 @@ namespace FarHorizon.EditTests
         {
             // GRADIENT-SKY SHARED-ASSET GUARD (ticket 86caj0rrg — Devon's #236 review). The COMMITTED shared
             // Boot sky material (Assets/Settings/GradientSky.mat) must carry the BOOT generator's constants,
-            // NOT a value baked by a SIBLING build or a same-session test. Two writer classes this catches:
+            // NOT a value baked by a SIBLING build or a same-session test. Two writer classes it targets:
             //   (1) _SunDirection pollution (86caj0rrg): NextIslandPocScene authors a 48°-elevation POC Sun;
             //       before the fix its BuildGradientSkybox() CreateAsset'd onto THIS shared path, flipping
             //       _SunDirection to 48° — which false-redded the sibling Sun_LoweredTowardHorizon test in a
-            //       same-session EditMode run and risked committing the polluted value (#231 class).
+            //       same-session EditMode run.
             //   (2) _HorizonColor R-channel corruption (86cahvntg): a same-session settings-row test writing
-            //       0.8 -> 0.42 on the live material, faithfully committed by the next regen — and the
-            //       86cahxeek stale-committed-asset class.
+            //       0.8 -> 0.42 on the live material — and the 86cahxeek stale-committed-asset class.
+            // SCOPE — do not over-read this guard (#256 NIT 2): it reliably catches the LOCAL / same-session
+            // mechanism (a run whose live-asset pollution reaches disk, or a stale checkout read before any
+            // regen). It does NOT close the CI commit-masking gap: the CI `unity` job runs BootstrapProject.Run
+            // (which RE-BAKES GradientSky.mat from the generator) BEFORE EditMode, so a COMMITTED-ONLY polluted
+            // value is overwritten with generator-correct bytes before this test reads it — the exact #231
+            // lesson that "CI-green proves the BUILD is correct, never that the COMMIT matches the generator"
+            // (that gap is closed only by a reviewer diffing committed values against the generator constants).
             // Read the COMMITTED bytes off disk (AssetDatabase.LoadAssetAtPath, not the live
             // RenderSettings.skybox — that couples to open-scene session state), and compare to the
-            // GENERATOR'S OWN SOURCE CONSTANTS (CI-green proves the BUILD is correct, never that the COMMIT
-            // matches the generator — the exact gap the #231 review named).
+            // GENERATOR'S OWN SOURCE CONSTANTS.
             var sky = AssetDatabase.LoadAssetAtPath<Material>("Assets/Settings/GradientSky.mat");
             Assert.IsNotNull(sky, "the committed shared Boot sky material (Assets/Settings/GradientSky.mat) must load");
             Assert.AreEqual("FarHorizon/GradientSkybox", sky.shader.name,
