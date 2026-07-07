@@ -99,7 +99,7 @@ namespace FarHorizon
         // the [B] weapon-cycle, not the [N] arm-switch, not the ]/[ ;/' dials, not the F7-F10 toggles, not the
         // arrows/PgUp-Dn/TGYHUJ nudge keys, not the mouse-wheel zoom). The sibling WorldLookNudgeTool's cycle
         // is rebound to [K] too — the two panels are mutually exclusive, so they can share the cycle key.
-        [Tooltip("Cycle the nudge target (held weapon -> stump axe -> arm -> GROUND-Y -> RUN -> AXE-HEAD). " +
+        [Tooltip("Cycle the nudge target (held weapon -> stump axe -> arm -> GROUND-Y -> RUN). " +
                  "[K] (was [Tab]; Tab is the inventory toggle, so they no longer conflict).")]
         public KeyCode cycleKey = KeyCode.K;
         // [B]-CONFLICT FIX (86cabh907 soak round 2): the arm-switch was on [B], which ALSO cycles the held
@@ -354,8 +354,9 @@ namespace FarHorizon
             // resolve the CastawayArmPose (the tool nudges its per-arm LOCAL-euler offsets).
             Transform held = FindByName(HeldAxeName);
             _heldRig = held != null ? held.GetComponent<HeldAxeRig>() : null;
-            // 86cabh907 soak round 2 — the weapon-cycle component owns the per-weapon offset/euler/scale + the
-            // axe head dial; the generalized HELD target + the HEAD-SIZE target route through it.
+            // 86cabh907 soak round 2 — the weapon-cycle component owns the per-weapon offset/euler/scale; the
+            // generalized HELD target routes through it. (86cakkfz9: the axe head-size dial + its HEAD-SIZE
+            // target are removed — head SIZE is authored Blender geometry now, not a runtime dial.)
             _weaponCycle = held != null ? held.GetComponent<HeldWeaponCycleDebug>()
                                         : Object.FindAnyObjectByType<HeldWeaponCycleDebug>(FindObjectsInactive.Include);
             _stump = FindByName(StumpAxeName);
@@ -560,7 +561,7 @@ namespace FarHorizon
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
             GUI.Label(new Rect(lx, y + 8f, lw, 22f), "WEAPON NUDGE TOOL  (debug — F9 to close)", _titleStyle);
             GUI.Label(new Rect(lx, y + 30f, lw, 20f),
-                "Dial each weapon's position/angle (+axe head) in-game, then read the values to bake.", _hintStyle);
+                "Dial each weapon's position/angle in-game, then read the values to bake.", _hintStyle);
 
             GUI.Label(new Rect(lx, y + 56f, lw, 22f), "Editing: " + tgt, _style);
             // SOAKFIX10 — position + euler on their OWN lines so all three components of EACH are always

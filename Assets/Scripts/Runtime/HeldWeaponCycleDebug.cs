@@ -150,12 +150,19 @@ namespace FarHorizon
         // the committed on-disk constant). The earlier {-0.34/-0.80/-1.50} z-only pull-backs were FIRST-GUESS
         // look-soak seats; the Sponsor re-seated each by eye (small Y drop into the palm + a slight X for the
         // sword/spear). The axe stays zero (Sponsor-LOCKED seat, bar #6 — don't regress a praised grip).
+        // 86cakkfz9 v3 DIAL-IN BAKE (dial exe stamp d306552, F9 WEAPON NUDGE TOOL generalized HELD target): the
+        // Sponsor re-positioned each non-axe weapon in-hand on the v3 build and asked to bake the dialed offsets.
+        // Recovered from Player-prev.log final resting lines (Danish-locale decimals) + cross-checked against the
+        // ticket screenshot table (identical): knife (-0.020,0.020,0.000), sword (-0.020,0.040,0.000), spear
+        // (-0.020,0.560,0.000). Only the OFFSETS changed this round — the held SCALES (0.85/0.95/0.90) + the
+        // zero eulers he dialed match the prior 86caffwuz bake, so those are unchanged. SUPERSEDES the 5caf1be
+        // offsets ({0,-0.100,-0.020}/{-0.020,-0.120,0}/{-0.020,-0.120,0}). Axe = zero (Sponsor-LOCKED seat).
         public static readonly Vector3[] WeaponMeshLocalOffset =
         {
             Vector3.zero,                            // axe — LOCKED, no compensation
-            new Vector3(0.000f, -0.100f, -0.020f),   // knife (Sponsor-dialed 5caf1be)
-            new Vector3(-0.020f, -0.120f, 0.000f),   // sword (Sponsor-dialed 5caf1be)
-            new Vector3(-0.020f, -0.120f, 0.000f),   // spear (Sponsor-dialed 5caf1be)
+            new Vector3(-0.020f, 0.020f, 0.000f),    // knife (Sponsor-dialed d306552)
+            new Vector3(-0.020f, 0.040f, 0.000f),    // sword (Sponsor-dialed d306552)
+            new Vector3(-0.020f, 0.560f, 0.000f),    // spear (Sponsor-dialed d306552)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME

@@ -2,6 +2,8 @@
 
 This file is the orchestrator's source of truth between ticks. The first section is always the live "Resume next-action" header — if a session dies, the next orchestrator starts there.
 
+> **Drew in-flight (2026-07-07 — `86cakkfz9` v3 weapon DIAL-IN bake):** baked the Sponsor's F9-dialed seats into the persistent held-rig config — AXE → `MovementCameraScene.HeldAxeV3LocalOffsetFromHand`/`HeldAxeV3RelEuler` (v3 live); knife/sword/spear offsets → `HeldWeaponCycleDebug.WeaponMeshLocalOffset[]` (scales/eulers already matched). Values confirmed against Player-prev.log + ticket table. Folded Tess's 3 PR#270 stale-text NITs. Paired EditMode drift-guard updated (`HeroAxeSceneTests`). Boot.unity NOT re-committed — CI re-bakes it via BootstrapProject.Run before EditMode+build, so the shipped exe carries the dialed seats. PR open → reviewer Devon → Sponsor confirm soak.
+
 ---
 
 ## RESUME NEXT-ACTION — 2026-06-30 (4 PRs on the SPONSOR's plate; board drained otherwise; 0 agents in flight)
