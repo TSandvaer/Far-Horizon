@@ -24,6 +24,17 @@ namespace FarHorizon.EditorTools
         static readonly Color CanopyBody   = new Color(0.30f, 0.58f, 0.24f);
         static readonly Color CanopyTop    = new Color(0.48f, 0.74f, 0.34f);
         static readonly Color CanopyShadow = new Color(0.18f, 0.40f, 0.17f);
+        // Pine (conifer) greens — COOLER + DARKER than the broadleaf blob so the two tree species read
+        // VISIBLY DISTINCT at orbit distance (the soak's "multiple tree species visibly distinct" AC). Per-tree
+        // hue is jittered off these in PineCanopy + baked to vertex COLOUR (T-A), NEVER per-material.
+        static readonly Color PineBody     = new Color(0.20f, 0.42f, 0.24f);
+        static readonly Color PineTop      = new Color(0.34f, 0.58f, 0.32f);
+        static readonly Color PineShadow   = new Color(0.12f, 0.28f, 0.16f);
+        // Bush understory greens — a mid leafy green family (LowPolyMeshes.BushBlob), per-bush hue-jittered so
+        // the understory varies. Decoration-only (NO berries — the berry cluster is survival-loop wiring, OOS).
+        static readonly Color BushBody     = new Color(0.32f, 0.54f, 0.24f);
+        static readonly Color BushTop      = new Color(0.50f, 0.70f, 0.34f);
+        static readonly Color BushShadow   = new Color(0.18f, 0.36f, 0.18f);
         static readonly Color RockCol      = new Color(0.62f, 0.60f, 0.555f);
         // Hero rock-feature tints (island 2.0-B / C2). NEAR-NEUTRAL warm-grey, sub-1.0 all channels, R>=G>=B —
         // routed through the local QuantizeFine so they never pink-cast (lowpoly-quality.md §1 Rec 1: the coarse
@@ -33,7 +44,22 @@ namespace FarHorizon.EditorTools
         static readonly Color WallCol      = new Color(0.56f, 0.55f, 0.52f);
         static readonly Color SlabCol      = new Color(0.60f, 0.585f, 0.55f);
 
-        static Material _canopyMat, _trunkMat, _rockMat, _grassMat, _wallMat, _slabMat;
+        static Material _canopyMat, _trunkMat, _rockMat, _grassMat, _wallMat, _slabMat, _pineMat, _bushMat;
+
+        // ---- Island 2.0-C / C3 (ticket 86cakk4x2) — position-derived species + patch masks (consume NO rnd,
+        //      so the seed+555 tree/rock streams stay byte-aligned; TRE-2 "type swap at fixed positions"). ----
+        // PINE species mask: a low-freq value field so pines form natural STANDS (not salt-and-pepper); ~35-40%
+        // of forest positions clear the threshold overall (Sponsor-soak tunes the threshold).
+        const float PineFieldFreq = 0.020f;   // ~50u stands
+        const float PineThreshold = 0.55f;
+        static bool PineAt(float x, float z) =>
+            Mathf.PerlinNoise((x + 4096f) * PineFieldFreq, (z + 4096f) * PineFieldFreq) > PineThreshold;
+
+        // GRASS/BUSH PATCH density mask (0..1): a low-freq value field so ground vegetation reads as denser
+        // MEADOW PATCHES with barer ground between — the "richer + VARIED, not a uniform lawn" read.
+        const float PatchFreq = 0.030f;       // ~33u meadows
+        static float GrassPatchMask(float x, float z) =>
+            Mathf.PerlinNoise((x + 8192f) * PatchFreq, (z + 8192f) * PatchFreq);
 
         /// <summary>
         /// Scatter the POC forest/rocks/grass under `parent`, grounded onto `groundCol` (the POC terrain
@@ -45,7 +71,7 @@ namespace FarHorizon.EditorTools
         {
             // Reset the per-build material cache so a re-run does not return materials owned by a destroyed
             // scene (the editor keeps statics across executeMethod invocations).
-            _canopyMat = _trunkMat = _rockMat = _grassMat = _wallMat = _slabMat = null;
+            _canopyMat = _trunkMat = _rockMat = _grassMat = _wallMat = _slabMat = _pineMat = _bushMat = null;
 
             var rnd = new System.Random(seed + 555);
             NextIslandPocGen.SeedOffset(seed, out float ox, out float oz);
@@ -68,8 +94,11 @@ namespace FarHorizon.EditorTools
             bool OnBareMountain(float x, float z) =>
                 NextIslandPocGen.AboveTreeLine(x, z);
 
-            // ---- DENSE FOREST ----
-            int treesPlaced = 0, treeGuard = 0;
+            // ---- DENSE FOREST (multi-species: broadleaf blob + PineTree cone-stack — C3) ----
+            // Species is POSITION-DERIVED (PineAt — consumes NO rnd) so the seed+555 tree POSITIONS stay
+            // byte-identical to C1 (TRE-2 "type swap at fixed positions"), and BuildTree draws the SAME rnd
+            // sequence for either species so the downstream rock scatter stays byte-aligned too.
+            int treesPlaced = 0, pinesPlaced = 0, treeGuard = 0;
             while (treesPlaced < treeTarget && treeGuard++ < treeTarget * 8)
             {
                 float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
@@ -83,8 +112,10 @@ namespace FarHorizon.EditorTools
                 bool tall = rnd.NextDouble() < 0.55f;
                 float scale = tall ? (1.5f + (float)rnd.NextDouble() * 0.9f)
                                    : (1.0f + (float)rnd.NextDouble() * 0.6f);
-                BuildTree(parent, GroundPoint(groundCol, x, z), scale, rnd, tall);
+                bool pine = PineAt(x, z);
+                BuildTree(parent, GroundPoint(groundCol, x, z), scale, rnd, tall, pine);
                 treesPlaced++;
+                if (pine) pinesPlaced++;
             }
 
             // ---- ROCK OUTCROPS (clustered boulders, biased to the higher inland ground) ----
@@ -107,9 +138,13 @@ namespace FarHorizon.EditorTools
                 }
             }
 
-            // ---- GRASS TUFTS (dense interior ground cover, sparse at the coast) ----
-            int clumpTarget = Mathf.Max(120, treeTarget), clumpsPlaced = 0, clumpGuard = 0;
-            while (clumpsPlaced < clumpTarget && clumpGuard++ < clumpTarget * 6)
+            // ---- GRASS TUFTS (richer + VARIED via PATCH MASKING, not a global flood — C3) ----
+            // Denser meadow PATCHES + barer ground between (a low-freq patch mask) + a WIDER per-clump scale
+            // spread, so the ground reads varied/wild rather than a repeated single tuft. Grass stays
+            // STATIONARY (Sponsor-locked no-sway; BuildGrassClump ships castShadows OFF). Count raised only
+            // modestly (perf-gated — the big raise is handed to C4); the mask concentrates them into meadows.
+            int clumpTarget = Mathf.Max(160, Mathf.RoundToInt(treeTarget * 1.15f)), clumpsPlaced = 0, clumpGuard = 0;
+            while (clumpsPlaced < clumpTarget && clumpGuard++ < clumpTarget * 8)
             {
                 float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
                 float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
@@ -117,9 +152,11 @@ namespace FarHorizon.EditorTools
                 if (!OnLandmass(x, z)) continue;
                 if (OnBareMountain(x, z)) continue;                    // no grass on the bare/snow flank
                 float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
-                if (rnd.NextDouble() > Mathf.Clamp01(0.25f + inlandT * 0.7f)) continue;
+                float patch = GrassPatchMask(x, z);                    // 0..1 meadow density (position-derived)
+                float accept = Mathf.Clamp01((0.18f + inlandT * 0.55f) * (0.35f + patch * 1.3f));
+                if (rnd.NextDouble() > accept) continue;
                 BuildGrassClump(parent, GroundPoint(groundCol, x, z),
-                    0.6f + (float)rnd.NextDouble() * 0.6f, rnd);
+                    0.45f + (float)rnd.NextDouble() * 0.95f, rnd);     // wider scale spread -> varied tufts
                 clumpsPlaced++;
             }
 
@@ -132,8 +169,19 @@ namespace FarHorizon.EditorTools
             int wallsPlaced = ScatterWalls(parent, seed, groundCol, plantOuterR, OnLandmass, InSpawnClearing);
             int slabsPlaced = ScatterSlabs(parent, seed, groundCol, plantOuterR, OnLandmass, InSpawnClearing);
 
-            Debug.Log($"[poc-trace] Scatter: {treesPlaced} trees (target {treeTarget}), {rocksPlaced} rocks, " +
-                      $"{clumpsPlaced} grass clumps, {wallsPlaced} rocky walls, {slabsPlaced} stone slabs — seed {seed}");
+            // ---- BUSHES (decoration understory — island 2.0-C / C3, ticket 86cakk4x2) ----
+            // Squat BushBlob domes scattered as UNDERSTORY (NO berries — decoration-only; berries = survival-loop
+            // wiring, OOS here). NEW seed salt (seed+1616) so C1's tree/rock/grass streams stay byte-untouched.
+            // Off the steep peak flanks (the SAME per-peak reject the trees use) + off the spawn clearing. Ships
+            // castShadows OFF + static-batch + STATIONARY (no sway) — decoration in the shadow pass would silently
+            // re-inflate the dominant GPU cost.
+            int bushesPlaced = ScatterBushes(parent, seed, groundCol, plantOuterR, treeTarget,
+                                             OnLandmass, OnBareMountain, InSpawnClearing);
+
+            Debug.Log($"[poc-trace] Scatter: {treesPlaced} trees (target {treeTarget}; " +
+                      $"{treesPlaced - pinesPlaced} broadleaf + {pinesPlaced} pine), {bushesPlaced} bushes, " +
+                      $"{rocksPlaced} rocks, {clumpsPlaced} grass clumps, {wallsPlaced} rocky walls, " +
+                      $"{slabsPlaced} stone slabs — seed {seed}");
         }
 
         // Reject a footprint that overlaps ANY of C1's three peaks (hero 90,-60 r300; NE 330,150 r200; SE
@@ -195,6 +243,35 @@ namespace FarHorizon.EditorTools
             return placed;
         }
 
+        // BUSH understory scatter (island 2.0-C / C3). NEW seed salt (seed+1616) — disjoint from C1's seed+555
+        // (trees/rocks/grass) and C2's seed+1111/seed+1212 (walls/slabs), so no existing stream is mutated. Off
+        // the steep peak flanks (the SAME per-peak reject the trees use — a bush must not grow up a snow cap /
+        // crag rock band) + off the spawn clearing. Bushes CLUSTER in their own patches (an offset patch field)
+        // so the understory reads varied, not a uniform sprinkle. Returns the count placed (for the trace).
+        static int ScatterBushes(GameObject parent, int seed, MeshCollider groundCol, float plantOuterR,
+            int treeTarget, System.Func<float, float, bool> onLandmass, System.Func<float, float, bool> onBareMountain,
+            System.Func<float, float, float, bool> inSpawnClearing)
+        {
+            var rnd = new System.Random(seed + 1616);
+            int target = Mathf.Max(80, treeTarget / 6), placed = 0, guard = 0; // default — Sponsor-soak tunes
+            while (placed < target && guard++ < target * 8)
+            {
+                float ang = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float rr = plantOuterR * Mathf.Sqrt((float)rnd.NextDouble());
+                float x = Mathf.Cos(ang) * rr, z = Mathf.Sin(ang) * rr;
+                if (inSpawnClearing(x, z, 4f)) continue;
+                if (!onLandmass(x, z)) continue;
+                if (onBareMountain(x, z)) continue;                    // off the steep/snow flanks (per-peak reject)
+                float inlandT = Mathf.InverseLerp(plantOuterR, 0f, rr);
+                float patch = GrassPatchMask(x + 512f, z - 512f);      // bushes cluster in their OWN patches
+                float accept = Mathf.Clamp01((0.20f + inlandT * 0.5f) * (0.4f + patch * 1.2f));
+                if (rnd.NextDouble() > accept) continue;
+                BuildBush(parent, GroundPoint(groundCol, x, z), 0.7f + (float)rnd.NextDouble() * 0.9f, rnd);
+                placed++;
+            }
+            return placed;
+        }
+
         // Raycast a point down onto the ground collider (grounds the prop base on the sloped terrain).
         static Vector3 GroundPoint(MeshCollider groundCol, float x, float z)
         {
@@ -241,38 +318,71 @@ namespace FarHorizon.EditorTools
             return (hi - lo) <= maxDrop;
         }
 
-        // A low-poly tree: tapered trunk + a blob canopy (multi-value greens via vertex colour), a
-        // NavMeshObstacle carve so the agent paths around it, static-batched. Mirrors LowPolyZoneGen.BuildTree
-        // (the reused primitive), self-contained so the start-island file stays byte-untouched.
-        static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool tall)
+        // A low-poly tree — BROADLEAF (tapered trunk + BlobCanopy) or PINE (short trunk + a stacked-cone
+        // conifer crown), chosen by position (PineAt). The rnd DRAW SEQUENCE (yaw, trunkH-if-tall, a detail
+        // count, a mesh seed) is IDENTICAL for both species so a type-swap at a fixed position leaves the
+        // seed+555 stream byte-aligned — C1's broadleaf placement/appearance + the downstream rock scatter stay
+        // byte-identical (only the MESH built from the drawn values differs by species). Per-tree hue is baked
+        // to VERTEX COLOUR (T-A). Decoration ships castShadows OFF + static-batch (C3 spec: vegetation in the
+        // shadow pass re-inflates the dominant GPU cost). NavMeshObstacle carve so the agent paths around the stem.
+        static void BuildTree(GameObject parent, Vector3 at, float scale, System.Random rnd, bool tall, bool pine)
         {
-            var tree = new GameObject("LP_Tree");
+            float yaw      = (float)rnd.NextDouble() * 360f;                       // draw 1
+            float trunkH   = tall ? (3.6f + (float)rnd.NextDouble() * 1.4f) : 1.6f; // draw 2 (only if tall)
+            int   detail   = rnd.Next(0, 3);                                        // draw 3
+            int   meshSeed = rnd.Next();                                            // draw 4
+
+            var tree = new GameObject(pine ? "LP_PineTree" : "LP_Tree");
             tree.transform.SetParent(parent.transform, false);
             tree.transform.position = at;
-            float yaw = (float)rnd.NextDouble() * 360f;
             tree.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
             tree.transform.localScale = new Vector3(scale, scale, scale);
 
-            float trunkH = tall ? (3.6f + (float)rnd.NextDouble() * 1.4f) : 1.6f;
-            float botR = tall ? 0.22f : 0.18f, topR = 0.12f;
-            var trunk = MakeMeshObject(tree, "Trunk", LowPolyMeshes.TaperedCylinder(botR, topR, trunkH, 6), TrunkMat());
-            trunk.transform.localPosition = Vector3.zero;
+            if (pine)
+            {
+                // PINE: a short bare trunk + a stacked-cone conifer crown (local PineCanopy; up-biased normals,
+                // NEVER RecalculateNormals). The crown sways like the broadleaf canopy (trees up in the air move).
+                float pTrunkH = trunkH * (tall ? 0.55f : 0.65f);
+                float pBotR   = tall ? 0.20f : 0.16f;
+                MakeMeshObject(tree, "Trunk", LowPolyMeshes.TaperedCylinder(pBotR, 0.10f, pTrunkH, 6), TrunkMat(),
+                               castShadows: false);
+                int   tiers  = 3 + (detail >= 2 ? 1 : 0);         // 3-4 tiers (the stepped conifer read)
+                float crownH = tall ? 4.4f : 2.7f;
+                float crownR = tall ? 1.5f : 1.1f;
+                var crown = MakeMeshObject(tree, "Crown", PineCanopy(crownR, crownH, tiers, meshSeed), PineMat(),
+                                           castShadows: false);
+                crown.transform.localPosition = new Vector3(0f, pTrunkH, 0f);
+                AddTreeObstacle(tree, pBotR, scale, pTrunkH + crownH);
+            }
+            else
+            {
+                // BROADLEAF (byte-identical to C1 except the spec-directed castShadows flip): trunk + blob canopy.
+                float botR = tall ? 0.22f : 0.18f, topR = 0.12f;
+                MakeMeshObject(tree, "Trunk", LowPolyMeshes.TaperedCylinder(botR, topR, trunkH, 6), TrunkMat(),
+                               castShadows: false);
+                int blobCount = (tall ? 5 : 4) + detail;
+                float canopyR = tall ? 1.55f : 1.15f;
+                var canopy = MakeMeshObject(tree, "Canopy",
+                    LowPolyMeshes.BlobCanopy(canopyR, blobCount, CanopyBody, CanopyTop, CanopyShadow, meshSeed),
+                    CanopyMat(), castShadows: false);
+                canopy.transform.localPosition = new Vector3(0f, trunkH + (tall ? 0.9f : 0.55f), 0f);
+                AddTreeObstacle(tree, botR, scale, trunkH + 1.6f);
+            }
 
-            int blobCount = tall ? (5 + rnd.Next(0, 3)) : (4 + rnd.Next(0, 3));
-            float canopyR = tall ? 1.55f : 1.15f;
-            var canopy = MakeMeshObject(tree, "Canopy",
-                LowPolyMeshes.BlobCanopy(canopyR, blobCount, CanopyBody, CanopyTop, CanopyShadow, rnd.Next()),
-                CanopyMat());
-            canopy.transform.localPosition = new Vector3(0f, trunkH + (tall ? 0.9f : 0.55f), 0f);
+            MarkStaticBatch(tree);
+        }
 
+        // Carving capsule NavMeshObstacle on a tree stem (broadleaf + pine) — the agent paths around the trunk.
+        // The baked PocNavMesh is UNCHANGED (obstacles carve at RUNTIME over the baked surface), so the
+        // coverage trace + the PlayMode walkable gate stay green.
+        static void AddTreeObstacle(GameObject tree, float botR, float scale, float height)
+        {
             var obstacle = tree.AddComponent<UnityEngine.AI.NavMeshObstacle>();
             obstacle.carving = true;
             obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
             obstacle.radius = botR + 0.12f / Mathf.Max(0.0001f, scale); // snug collar on the stem at every scale
-            obstacle.height = trunkH + 1.6f;
-            obstacle.center = new Vector3(0f, (trunkH + 1.6f) * 0.5f, 0f);
-
-            MarkStaticBatch(tree);
+            obstacle.height = height;
+            obstacle.center = new Vector3(0f, height * 0.5f, 0f);
         }
 
         static void BuildRock(GameObject parent, Vector3 at, float scale, System.Random rnd)
@@ -300,6 +410,103 @@ namespace FarHorizon.EditorTools
             // Grass reads a fixed GRASS-GREEN _Tint (the mesh carries no colour); a mid leaf green.
             MarkStaticBatch(clump);
             go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        // A decoration BUSH — a squat BushBlob dome (the SAME clustered-spheroid idiom as the tree canopy, so
+        // bushes read as one family with the world's foliage). Decoration-only: NO berries, NO NavMeshObstacle
+        // (a small bush is not a path blocker — the player walks around/through it), STATIONARY (BushMat sway
+        // OFF — Sponsor-locked: bushes stay still), castShadows OFF + static-batch. Per-bush HUE via VERTEX
+        // COLOUR (T-A): jitter the bush green family per bush + bake into BushBlob's per-blob colours (one
+        // shared white-tint material renders every bush) so the understory varies without new materials.
+        static void BuildBush(GameObject parent, Vector3 at, float scale, System.Random rnd)
+        {
+            var bush = new GameObject("LP_Bush");
+            bush.transform.SetParent(parent.transform, false);
+            bush.transform.position = at;
+            bush.transform.rotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
+            bush.transform.localScale = Vector3.one * scale;
+
+            float hj = (float)(rnd.NextDouble() - 0.5) * 0.10f, vj = (float)(rnd.NextDouble() - 0.5) * 0.08f;
+            Color Shift(Color c) => new Color(Mathf.Clamp01(c.r + hj + vj), Mathf.Clamp01(c.g + vj),
+                                              Mathf.Clamp01(c.b - hj + vj), 1f);
+            int blobs = 4 + rnd.Next(0, 3);
+            float radius = 0.85f + (float)rnd.NextDouble() * 0.4f;
+            MakeMeshObject(bush, "BushMesh",
+                LowPolyMeshes.BushBlob(radius, blobs, Shift(BushBody), Shift(BushTop), Shift(BushShadow), rnd.Next()),
+                BushMat(), castShadows: false);
+            MarkStaticBatch(bush);
+        }
+
+        // LOCAL stacked-cone conifer crown (island 2.0-C / C3) — the PineTree species (poly-plan TRE-2). A stack
+        // of `tiers` faceted cones tapering upward => the classic low-poly pine silhouette, VISIBLY distinct from
+        // the broadleaf BlobCanopy. Kept LOCAL to this file (ticket: new mesh helpers stay local). Per-TREE hue is
+        // baked into per-vertex COLOUR (T-A — never per-material): a green ramp (shadow at the tier bases ->
+        // top-lit near the apexes) plus a per-tree hue jitter from `seed`, so a shared white-tint vertex-colour
+        // material renders every pine's own green. Normals are EXPLICIT + UP-BIASED (up*0.8 + outward*0.2), NEVER
+        // RecalculateNormals (lowpoly-quality.md §1 + the ticket constraint) — the soft evenly-lit foliage read
+        // that keeps the pines in the same lighting family as the blob canopies (no dark-shard backfaces). Side
+        // faces are OUTWARD-wound (matching the shipped LowPolyMeshes.Cone) so the shader's Cull Back keeps them.
+        // Every crown vert carries alpha 1 (the sway mask) so PineMat's canopy-sway term moves the crown (trees
+        // up in the air move; bushes/grass stay still).
+        //   radius — crown base radius (bottom tier); tiers taper to ~0 at the top
+        //   height — total crown height (trunk-top to spire tip)
+        //   tiers  — 3-4 cone tiers (the stepped conifer read)
+        //   seed   — deterministic per-tree hue jitter + tiny facet wobble (reproducible baked scene)
+        static Mesh PineCanopy(float radius, float height, int tiers, int seed)
+        {
+            tiers = Mathf.Max(2, tiers);
+            var rnd = new System.Random(seed);
+            const int sides = 7;
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var normals = new System.Collections.Generic.List<Vector3>();
+            var cols = new System.Collections.Generic.List<Color>();
+            var tris = new System.Collections.Generic.List<int>();
+
+            // Per-tree hue jitter (baked, not per-material) so the forest reads with per-tree hue variation.
+            float hj = (float)(rnd.NextDouble() - 0.5) * 0.10f;
+            float vj = (float)(rnd.NextDouble() - 0.5) * 0.08f;
+            Color Shift(Color c) => new Color(Mathf.Clamp01(c.r + hj * 0.5f + vj), Mathf.Clamp01(c.g + vj),
+                                              Mathf.Clamp01(c.b - hj * 0.5f + vj), 1f);
+            Color pineShadow = Shift(PineShadow), pineBody = Shift(PineBody), pineTop = Shift(PineTop);
+            Color tierBase = Color.Lerp(pineShadow, pineBody, 0.5f);   // tier ring = mid/shadow green
+
+            for (int t = 0; t < tiers; t++)
+            {
+                float f = t / (float)tiers;                            // 0 bottom -> ~1 top
+                float baseY = height * (f * 0.72f);                    // tiers climb (overlap keeps it continuous)
+                float apexY = baseY + (height / (tiers * 0.65f + 0.35f)) * (1.15f + (float)rnd.NextDouble() * 0.2f);
+                float rTier = Mathf.Max(0.05f, radius * (1f - f) * (0.9f + (float)rnd.NextDouble() * 0.15f));
+
+                int ringStart = verts.Count;
+                for (int i = 0; i < sides; i++)
+                {
+                    float a = (i + (float)rnd.NextDouble() * 0.15f) / sides * Mathf.PI * 2f;
+                    Vector3 outward = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                    verts.Add(new Vector3(outward.x * rTier, baseY, outward.z * rTier));
+                    normals.Add((Vector3.up * 0.8f + outward * 0.2f).normalized);   // up-biased foliage normal
+                    cols.Add(tierBase);
+                }
+                int apex = verts.Count;
+                verts.Add(new Vector3(0f, apexY, 0f));
+                normals.Add(Vector3.up);
+                cols.Add(pineTop);
+                for (int i = 0; i < sides; i++)                        // apex fan, OUTWARD-wound (matches Cone)
+                {
+                    int ni = (i + 1) % sides;
+                    tris.Add(ringStart + i); tris.Add(apex); tris.Add(ringStart + ni);
+                }
+            }
+
+            var mesh = new Mesh { name = "LP_PineCanopy" };
+            mesh.indexFormat = verts.Count > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals);      // EXPLICIT up-biased — NEVER RecalculateNormals
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
         }
 
         // A WIDE faceted ROCKY WALL (island 2.0-B / C2) — a FacetedRock stretched into a broad near-vertical rock
@@ -475,6 +682,11 @@ namespace FarHorizon.EditorTools
         static Material CanopyMat() => _canopyMat ??= VertexColorMat("LPPocCanopyMat", Color.white, sway: true);
         static Material RockMat()   => _rockMat   ??= VertexColorMat("LPPocRockMat", RockCol, sway: false);
         static Material GrassMat()  => _grassMat  ??= VertexColorMat("LPPocGrassMat", new Color(0.36f, 0.54f, 0.24f), sway: false);
+        // Pine crown: white tint (the per-tree green is baked into the mesh's vertex colour) + SWAY ON (the pine
+        // crown is up in the air → it moves like the broadleaf canopy). Bush: white tint + SWAY OFF (Sponsor-
+        // locked: bushes stay still — sway is gated by _SwayAmp, which stays 0 when sway:false).
+        static Material PineMat()   => _pineMat   ??= VertexColorMat("LPPocPineMat", Color.white, sway: true);
+        static Material BushMat()   => _bushMat   ??= VertexColorMat("LPPocBushMat", Color.white, sway: false);
         // ONE shared material per hero-rock class (T-A: tonal variation is vertex-colour only, never per-material) —
         // near-neutral warm-grey tints routed through QuantizeFine so they never pink-cast (lowpoly-quality §1).
         static Material WallMat()   => _wallMat   ??= VertexColorMat("LPPocWallMat", QuantizeFine(WallCol), sway: false);
