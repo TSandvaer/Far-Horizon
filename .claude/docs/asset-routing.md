@@ -41,6 +41,8 @@ the target style**", `86ca8ca1m`):
 (See `character-pipeline.md` for the same rule from the character side, and `blender-asset-pipeline.md` §3
 for "source a purpose-built base" on the hero-prop side.)
 
+> **Sharpened precedent (castaway v2, 2026-07-05):** seven procedural Blender attempts at a hero-character rebuild each failed the Sponsor's bar on GESTALT — the whole didn't land — not on any itemized/fixable defect; switching to the Character route (concept→web-Rodin→Mixamo) succeeded in under an hour. This refines the "2+ attempts fail" rule above: **a GESTALT failure (no punch-list, just "doesn't look right") is a switch-route signal on its own** — when a round clears every itemized defect and still doesn't land, switch immediately rather than running a further round. Full account: `character-pipeline.md`'s route-ratification note.
+
 ---
 
 ## Cross-cutting rules that apply across ALL routes

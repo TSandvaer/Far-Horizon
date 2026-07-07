@@ -28,6 +28,8 @@ ONLY** — proportions/stylization transfer to the LOCKED young/hopeful identity
 bearded rugged adult is NOT adopted (`_castaway_judge/` sheets stay the identity ground truth).
 Ticket `86ca8ca1m`.
 
+> **SUPERSEDED 2026-07-05 — identity reversed to bearded-rugged-FRIENDLY adult.** The "STYLE ONLY… bearded rugged adult is NOT adopted" call directly above is REVERSED by castaway v2: after 7 procedural Blender hero-character attempts failed the Sponsor's bar on GESTALT (the whole didn't land, not an itemized defect list), the Sponsor ratified concept→web-Rodin→Mixamo as the ONLY hero-character route (`character-pipeline.md`), and the identity itself moved to bearded/rugged/**FRIENDLY** (a first concept pass read "angry" and was Sponsor-corrected before generation). **The OLD castaway (young/hopeful, `_castaway_judge/` sheets) stays the LIVE in-game character until v2 is soak-approved** — v2 is a candidate, not a shipped replacement. (Note: CLAUDE.md's Core-feel line still reads "young + happy," now stale — CLAUDE.md is out of this doc's scope; flagged for whoever owns that edit.)
+
 ### Tools/props family — `21h06_54` (pickaxe), `21h07_20` (sword), `21h07_42` (curved blade), `21h08_08` (axe)
 A coherent flat-shaded tool language: faceted heads/blades with a white edge-highlight plane,
 chunky slightly-bent wooden hafts, segmented wrapped grips, mild asymmetry (nothing machined).

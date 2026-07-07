@@ -10,7 +10,7 @@ Every dispatch to a named persona (Priya / Uma / Devon / Drew / Tess) via the `A
 
 **Excluded:** ad-hoc Read-only investigations or one-shot survey questions that don't open a PR (e.g., a quick file inspection the orchestrator runs itself, or a non-named general-purpose agent for a research-only probe). The template assumes PR-producing work in a role worktree.
 
-**Mandatory blocks** (always included): Worktree state, Scoped contract, ClickUp lifecycle, Final-report shape, Doc-update reporting, Done clause (which carries the reviewer-track gate), Lesson reminder, STATE.md update, Merge identity.
+**Mandatory blocks** (always included): Worktree state, Scoped contract, Advisor escalation, ClickUp lifecycle, Final-report shape, Doc-update reporting, Done clause (which carries the reviewer-track gate), Lesson reminder, STATE.md update, Merge identity.
 
 **Situational blocks** (included when the predicate matches): Self-Test Report (UX-visible PRs), Visual-primitive test bar (tween / modulate / Polygon2D / CPUParticles2D PRs), HTML5-visual-gated merge-gate (gated-class PRs), Vocabulary contract (parallel dispatches sharing a NEW concept), Diagnose-Before-Fix (every `fix(...)` dispatch), Real-world anchor + silhouette gate (every physical-world-feature PR — pond / fire / hill / terrain / water body / shaped prop).
 
@@ -97,6 +97,21 @@ When dispatching two or more agents in parallel where both will reference a NEW 
 **Cross-review check.** When peer-reviewing one parallel PR sharing a concept with another in-flight PR, grep the sibling branch for the identifier names + verify they match yours. Vocabulary divergence is mergeability-blocking — file `REQUEST_CHANGES`, not `APPROVE_WITH_NITS`. (See "Three-verdict cross-review format" below.)
 
 **Why:** User-global rule `Parallel-agent shared-concept vocabulary discipline` (codified after ClaudeTeam M3-10, 2026-05-25, where Felix + Maya invented divergent type names — `PersonaGroup` vs `CollapsedPersonaGroup` — under a shape-only contract; the second PR was non-mergeable and required a reconciliation re-dispatch). RG hasn't hit this yet but has parallel-dispatch patterns (W3-T7 Stage 3+4 in flight today; Devon ↔ Drew on shared scenes) where it could. Cheap insurance.
+
+## Advisor escalation (mandatory in every dispatch — fable-advisor policy, Sponsor 2026-07-07)
+
+The orchestrator (fable) authors the PLAN; the agent (opus) implements it. The agent never designs solo around a gap.
+
+```markdown
+**Advisor escalation (plan-gap protocol):**
+- Your brief carries an orchestrator-authored PLAN (destination, route, key decisions pre-made). Implement THAT plan. If you are unsure about a judgment call, hit a contradiction, or the plan does not cover an issue you encounter, do NOT improvise around the gap — STOP at a safe point:
+  1. Commit + push your WIP to your branch (never leave work stranded uncommitted).
+  2. End your turn with a final report whose FIRST line is `ADVISEMENT NEEDED: <what you hit + the options you see + what the plan says or omits>`.
+  3. The orchestrator answers via SendMessage into your context; you resume with that advice.
+- This applies to design/judgment calls, plan contradictions, and unexpected blockers. It does NOT apply to trivial mechanical choices squarely inside the plan's intent — decide those yourself and note them in the report.
+```
+
+Orchestrator-side: on an `ADVISEMENT NEEDED` report, answer via `SendMessage` to the agent's ID (resumes its context) — do NOT re-dispatch fresh; the agent's in-progress context is the asset.
 
 ## Mandatory docs pre-read (mandatory in every dispatch)
 
@@ -443,6 +458,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **If taste-sensitive (feel / visual / first-of-class):** the relevant `team/quality-bars.md` bar is pasted into the brief (run `/name-the-bar` first if the bar is unconfirmed), so the author predicts against a CONFIRMED bar, not a guess.
 - [ ] **If soak-gated:** the Self-Test Report block carries the **Predict-Before-Soak** lines (falsifiable pre-soak prediction + bounded convergence claim — bar tested + bars NOT tested). Tess bounces otherwise. See `team/TESTING_BAR.md` § Predict-Before-Soak.
 - [ ] **If tween / modulate / Polygon2D / CPUParticles2D / Area2D-state surface:** Visual-primitive test bar block present + HTML5-visual-gated merge-gate block present.
+- [ ] **Plan + Advisor-escalation block present (fable-advisor policy, 2026-07-07).** The brief carries the orchestrator-authored plan (key decisions pre-made) AND the Advisor-escalation block. NO `model:"fable"` override on any dispatch — personas run their opus pins; helpers get explicit `model:"sonnet"`.
 - [ ] **`run_in_background: true`** on the Agent call per `agents-always-in-background`. Foreground dispatch blocks the orchestrator's turn until the slowest parallel agent returns; main thread floods with sub-agent tool calls and Sponsor can't reach the orchestrator.
 - [ ] **`name:` set** on the Agent call to a recognizable handle (e.g. `name: "drew-w3-t8"`) so `SendMessage` / `TaskOutput` can address the agent later if needed.
 

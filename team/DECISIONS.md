@@ -501,3 +501,10 @@ Q4: NO combat guard — mining is peaceful; the iron chain ships fully independe
 
 ## 2026-07-06 — Iron progression BONUS: PICKAXE approved as the 5th tool type (both tiers)
 wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knapped stone / forged iron recipes per [[weapon-two-tier-style-stone-iron]]); authored via an interactive Sponsor-judged Blender burst (schedulable). IRON DESIGN NOW FULLY LOCKED: Model A (mine ore + smelter) · work-led · new forge/furnace buildable · peaceful (no combat dep) · both difficulty dials (ore rarity + smelt cost) · pickaxe 5th type. Erik's note must be committed to main before/with the citing implementation spec.
+
+## 2026-07-07 — Fable = advisor-only; opus implements everything (supersedes the design-lane fable exception)
+- Decided by: Sponsor
+- Decision: Fable (the orchestrator session) only analyzes tasks, authors the plan/brief, and gives advisement; ALL implementation — including the creative/Blender/design-build lane — runs on opus agents; an agent that is unsure or hits a plan gap STOPS (commit+push WIP) and asks fable for advisement (`ADVISEMENT NEEDED:` report → SendMessage answer) instead of improvising.
+- Why: fable token conservation (Sponsor verbatim 2026-07-07: "stop burning fable tokens and begin using fable only as an advisor…"). Supersedes the 2026-07-03 per-dispatch `model:"fable"` design-lane upgrade.
+- Reversibility: reversible (re-enable per-dispatch upgrades on the Sponsor's word)
+- Affects: orchestrator dispatch policy, all personas, R&D/creative lane, dispatch-template (new Advisor-escalation block)
