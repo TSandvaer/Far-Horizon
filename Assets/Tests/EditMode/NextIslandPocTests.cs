@@ -702,24 +702,151 @@ namespace FarHorizon.EditTests
                 // x/z it tested against OnBareMountain -> AboveTreeLine (a vertical ray preserves x/z exactly).
                 NextIslandPocScatter.Scatter(scatterRoot, NextIslandPocScene.PocSeed, col, 250);
 
-                int trees = 0, grass = 0, treesAbove = 0, grassAbove = 0;
+                // C3 extends this guard to ALL vegetation classes (broadleaf LP_Tree + pine LP_PineTree + bush
+                // LP_Bush + grass LP_Grass): every one must inherit the per-peak OnBareMountain reject, or a new
+                // species would ship growing up a snow cap / on a crag's bare rock band with the old guard green.
+                int trees = 0, pines = 0, bushes = 0, grass = 0;
+                int treesAbove = 0, pinesAbove = 0, bushesAbove = 0, grassAbove = 0;
                 foreach (Transform child in scatterRoot.transform)
                 {
                     Vector3 p = child.position;
                     bool above = NextIslandPocGen.AboveTreeLine(p.x, p.z);
                     if (child.name == "LP_Tree") { trees++; if (above) treesAbove++; }
+                    else if (child.name == "LP_PineTree") { pines++; if (above) pinesAbove++; }
+                    else if (child.name == "LP_Bush") { bushes++; if (above) bushesAbove++; }
                     else if (child.name == "LP_Grass") { grass++; if (above) grassAbove++; }
                 }
-                Assert.Greater(trees, 0, "the scatter must actually place trees (else the rejection guard is vacuous).");
+                Assert.Greater(trees, 0, "the scatter must actually place broadleaf trees (else the guard is vacuous).");
+                Assert.Greater(pines, 0, "the scatter must actually place PINE trees (else the pine reject is vacuous).");
+                Assert.Greater(bushes, 0, "the scatter must actually place bushes (else the bush reject is vacuous).");
                 Assert.Greater(grass, 0, "the scatter must actually place grass (else the rejection guard is vacuous).");
                 Assert.AreEqual(0, treesAbove,
-                    $"{treesAbove}/{trees} trees landed ABOVE the per-peak tree line — Scatter must reject trees on the " +
-                    "snow-cap flank / crag rock band (NextIslandPocScatter.OnBareMountain -> AboveTreeLine).");
+                    $"{treesAbove}/{trees} broadleaf trees landed ABOVE the per-peak tree line — Scatter must reject " +
+                    "trees on the snow-cap flank / crag rock band (NextIslandPocScatter.OnBareMountain -> AboveTreeLine).");
+                Assert.AreEqual(0, pinesAbove,
+                    $"{pinesAbove}/{pines} PINE trees landed ABOVE the per-peak tree line — pines inherit the same " +
+                    "OnBareMountain reject (a pine must not grow up the snow cap — C3 constraint).");
+                Assert.AreEqual(0, bushesAbove,
+                    $"{bushesAbove}/{bushes} bushes landed ABOVE the per-peak tree line — bushes must be off the steep " +
+                    "flanks too (C3: reuse the per-peak reject).");
                 Assert.AreEqual(0, grassAbove,
                     $"{grassAbove}/{grass} grass clumps landed ABOVE the per-peak tree line — grass must be rejected on " +
                     "the bare/snow flank too (a forest/lawn on bare rock is material-dishonest).");
             }
             finally { Object.DestroyImmediate(parent); }
+        }
+
+        // ---- ISLAND 2.0-C (ticket 86cakk4x2) — vegetation VARIETY: 2 tree species + bushes + the pine mesh ----
+
+        [Test]
+        public void Scatter_PlacesBothTreeSpecies_AndBushes_ForAVariedForest()
+        {
+            // C3 variety guard: the forest must read LAYERED — BOTH tree species (broadleaf LP_Tree + pine
+            // LP_PineTree) present AND a bush understory (LP_Bush) present. A regression that drops a species or
+            // the bushes (PineAt always-false, ScatterBushes mis-wired) reds here — the "single repeated tree on
+            // bare ground" anti-goal from the strip-test.
+            var parent = new GameObject("PocSpeciesTestParent");
+            try
+            {
+                var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                GameObject ground = NextIslandPocGen.BuildPocIsland(parent, NextIslandPocScene.PocSeed, vcMat, waterMat);
+                var col = ground.GetComponent<MeshCollider>();
+                var scatterRoot = new GameObject("PocScatterRoot");
+                scatterRoot.transform.SetParent(parent.transform, false);
+                NextIslandPocScatter.Scatter(scatterRoot, NextIslandPocScene.PocSeed, col, 400);
+
+                int broadleaf = 0, pine = 0, bush = 0;
+                foreach (Transform c in scatterRoot.transform)
+                {
+                    if (c.name == "LP_Tree") broadleaf++;
+                    else if (c.name == "LP_PineTree") pine++;
+                    else if (c.name == "LP_Bush") bush++;
+                }
+                Assert.Greater(broadleaf, 0, "the forest must place broadleaf trees (LP_Tree).");
+                Assert.Greater(pine, 0, "the forest must place PINE trees (LP_PineTree) — a distinct 2nd species (TRE-2).");
+                Assert.Greater(bush, 0, "the understory must place bushes (LP_Bush) — decoration-only, no berries.");
+                // Pines are a real MINORITY-to-substantial mix (a mixed forest, not a pine monoculture nor ~0).
+                float pineFrac = pine / (float)(broadleaf + pine);
+                Assert.That(pineFrac, Is.InRange(0.12f, 0.65f),
+                    $"pines ({pineFrac:P0} of trees) must be a real mix, not ~0 or ~all — a varied forest (TRE-2 ~35%).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        [Test]
+        public void Scatter_PineCrown_IsGreenConifer_UpBiasedNormals_NotCulled()
+        {
+            // The PINE mesh (local PineCanopy) must: (a) carry GREEN vertex colours (per-tree hue via vertex
+            // colour, T-A); (b) use UP-BIASED explicit normals (soft foliage read, NEVER RecalculateNormals —
+            // the mean normal points up); (c) be OUTWARD-wound like the shipped LowPolyMeshes.Cone (a pine wound
+            // the other way is CULLED by the shader's Cull Back → an invisible tree); (d) read as a CONIFER
+            // silhouette (taller than wide — the stacked-cone taper), so it is visibly distinct from the
+            // roughly-spherical broadleaf BlobCanopy.
+            var parent = new GameObject("PocPineTestParent");
+            try
+            {
+                var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                GameObject ground = NextIslandPocGen.BuildPocIsland(parent, NextIslandPocScene.PocSeed, vcMat, waterMat);
+                var col = ground.GetComponent<MeshCollider>();
+                var scatterRoot = new GameObject("PocScatterRoot");
+                scatterRoot.transform.SetParent(parent.transform, false);
+                NextIslandPocScatter.Scatter(scatterRoot, NextIslandPocScene.PocSeed, col, 400);
+
+                Mesh crown = null;
+                foreach (Transform c in scatterRoot.transform)
+                    if (c.name == "LP_PineTree")
+                    {
+                        var cr = c.Find("Crown");
+                        if (cr != null) { crown = cr.GetComponent<MeshFilter>().sharedMesh; break; }
+                    }
+                Assert.IsNotNull(crown, "the scatter must place at least one pine with a Crown mesh.");
+
+                var cols = crown.colors; var norms = crown.normals; var verts = crown.vertices;
+                Assert.Greater(cols.Length, 0, "the pine crown must carry per-vertex colours (hue via vertex colour).");
+                // (a) green-dominant on average
+                float mr = 0, mg = 0, mb = 0;
+                foreach (var c in cols) { mr += c.r; mg += c.g; mb += c.b; }
+                mr /= cols.Length; mg /= cols.Length; mb /= cols.Length;
+                Assert.Greater(mg, mr, "the pine crown must read GREEN (mean g > r).");
+                Assert.Greater(mg, mb, "the pine crown must read GREEN (mean g > b).");
+                // (b) up-biased normals (mean .y clearly positive → soft foliage, never RecalculateNormals)
+                float ny = 0; foreach (var n in norms) ny += n.y; ny /= norms.Length;
+                Assert.Greater(ny, 0.4f,
+                    $"pine normals must be UP-BIASED (mean n.y {ny:F2} > 0.4 — soft foliage, no RecalculateNormals).");
+                // (c) OUTWARD winding parity with the shipped (visible) LowPolyMeshes.Cone: a face's geometric
+                // normal (from winding) must point AWAY from the vertical axis, same sign as the reference cone.
+                Assert.Greater(OutwardWindingSign(crown), 0f,
+                    "the pine crown must be OUTWARD-wound (same as LowPolyMeshes.Cone) — an inward-wound pine is " +
+                    "culled by the shader's Cull Back (an invisible tree).");
+                Assert.Greater(OutwardWindingSign(LowPolyMeshes.Cone(1f, 2f, 7)), 0f,
+                    "reference guard: the shipped LowPolyMeshes.Cone must be outward-wound (calibrates the sign).");
+                // (d) conifer silhouette: taller than wide (distinct from the ~spherical blob canopy)
+                Assert.Greater(crown.bounds.size.y, crown.bounds.size.x,
+                    "the pine crown must be TALLER than wide (a stacked-cone conifer, distinct from the blob canopy).");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
+        // Mean sign of (geometric face normal · radial-outward) over a mesh's radial SIDE faces. >0 = outward-
+        // wound (renders under Cull Back), <0 = inward (culled). Cap/near-axis faces are excluded (their outward
+        // vector is ~0). Verified by hand for the apex-fan winding (ring[i], apex, ring[ni]) → positive.
+        private static float OutwardWindingSign(Mesh m)
+        {
+            var v = m.vertices; var t = m.triangles;
+            Vector3 axis = new Vector3(m.bounds.center.x, 0f, m.bounds.center.z);
+            float sum = 0f; int n = 0;
+            for (int i = 0; i < t.Length; i += 3)
+            {
+                Vector3 a = v[t[i]], b = v[t[i + 1]], c = v[t[i + 2]];
+                Vector3 fn = Vector3.Cross(b - a, c - a);
+                Vector3 centroid = (a + b + c) / 3f;
+                Vector3 outward = new Vector3(centroid.x - axis.x, 0f, centroid.z - axis.z);
+                if (outward.sqrMagnitude < 1e-3f || Mathf.Abs(fn.normalized.y) > 0.9f) continue; // skip caps/near-axis
+                sum += Vector3.Dot(fn.normalized, outward.normalized); n++;
+            }
+            return n > 0 ? sum / n : 0f;
         }
 
         [Test]
