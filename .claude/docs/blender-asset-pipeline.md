@@ -21,6 +21,7 @@ Every new asset must:
 ## 1. Project / Scene Setup (do once per `.blend`)
 
 - **Units:** Metric, Unit Scale = 1.0.
+- **Save the `.blend` source OUTSIDE `Assets/`** — `art-src/weapons_reauthor.blend` is the live source (established 2026-07-03). Unity auto-imports any `.blend` under `Assets/` when Blender is installed on the machine, so a WIP source dropped next to the FBXs would pollute the Unity project with a duplicate auto-imported model. Only the exported FBX goes into `Assets/Art/Props/WeaponPack/`.
 - **Character reference:** 1.8m cube in the scene at all times — all weapon proportions scale against it. Hafts read "chunky" at ~0.08m diameter vs 1.8m height.
 - **Collections:** `Blockout` / `LowPoly` / `Export`. Keep finished weapons in `Export` collection for FBX selection.
 - **Naming convention:** `wpn_axe_01`, `wpn_knife_01`, `wpn_sword_01`, `wpn_spear_01`, `prop_crate_wood_01`, `env_rock_03`. Consistent prefix (`wpn_` / `prop_` / `env_`) + material + index. Unity mirrors the filename as the asset name.
@@ -61,6 +62,18 @@ Every new asset must:
 | ShadowFace | `#4A3728` | Underside/shadow face |
 | Black | `#1A1A1A` | Edge outlines if used |
 
+### Scripting the palette PNG via bpy — 4 color-pipeline gotchas (castaway v2/v3, 2026-07-05/06)
+
+When creating/editing a palette PNG via `bpy` (MCP `execute_blender_code` or a headless `--python` script) instead of hand-painting it in the Image Editor, four traps make a CORRECT palette (or a posterized texture) look wrong:
+
+1. **Byte-image `pixels` writes are sRGB-passthrough — never pre-linearize.** A `bpy.data.images.new(...)` byte image (the normal case, `float_buffer=False`) stores `pixels` floats as raw-bytes/255, i.e. already sRGB-encoded; writing a hex color's 0–1 values straight in is CORRECT. Running the value through an sRGB→linear conversion first (correct only for FLOAT-buffer images) double-transforms and darkens/oversaturates every swatch — the "pumpkin skin" failure.
+2. **The AgX view transform (Blender 4.x default) visibly desaturates flat palette colors in the viewport.** A punchy hex swatch previews washed-out/muddy under AgX even though the pixel data is right. Set **Color Management → View Transform = Standard** before judging URP/Unlit palette colors in the viewport (that also matches how Unity Unlit will render them), or judge the PNG in an image viewer.
+3. **The GPU texture is STALE after a script writes `image.pixels`.** The viewport keeps rendering the pre-edit palette until the texture re-uploads — call `image.update_tag()` (or `image.reload()` after saving to disk) plus a viewport redraw before screenshotting/judging, or a genuine color fix looks like it "changed nothing".
+
+4. **Posterize in HSV, never per-channel RGB (castaway v3, `86cak41d4`).** `round(rgb*4)/4`-style per-channel quantization HUE-SHIFTS regions that should stay one flat color (produced a red neck blotch, green-tinted stubble, red ankles on the castaway diffuse). Convert to HSV first, quantize **V→5 steps** and **S→4 steps**, leave **H untouched**, convert back to RGB before writing pixels. This produced `texture_diffuse_posterized.png`, the Sponsor-locked "posterized flats" hero texture treatment (referenced from `character-pipeline.md`'s Smart-Low-poly step; harvest PR pending).
+
+**Net effect if you skip these:** a byte-correct palette (or a logically-correct posterize) on disk can still fail every Blender-side visual check (wrong hue / washed out / hue-shifted regions / still the old colors). Verify the actual PNG bytes before concluding the color logic is broken.
+
 ---
 
 ## 3. Modeling — Silhouette First, Details Never
@@ -85,6 +98,14 @@ Every new asset must:
 | World prop (rock, stump) | 50–200 |
 
 No Sub-D modifiers. No Bevel modifier. No Subdivision Surface. These are hard polygon assets.
+
+### Family-extension route: duplicate an approved sibling instead of reblocking from scratch (pickaxe burst, ticket `86cakkmmz`, pending I-1 harvest PR)
+
+The "start with a Plane/Cube" rule above is for the FIRST asset in a family. When adding a new same-tier tool that shares its handle family with an approved sibling (e.g. a new stone/iron tool alongside the approved axes): **duplicate the approved sibling object, delete ONLY its head mesh-island, keep the haft/grip/pommel islands verbatim** — their exact geometry AND palette UVs carry forward untouched. Guarantees family consistency (identical handles across the tier) and zero re-UV work; only the new head gets modeled fresh. Before deleting, verify island identity by vertex-count + z-range (§12 item 5) — never infer membership from position/z-order. Precedent: `wpn_pickaxe_stone_01` (88 tris) / `wpn_pickaxe_iron_01` (154 tris) built from the approved axe siblings' 32-vert / 22-vert head-island deletions (`art-src/weapons_reauthor.blend`).
+
+### Crosswise-mounted heads (pickaxe / hammer / mattock class) need a BOX-section eye, not a diamond/lens section (ticket `86cakkmmz`, pending I-1 harvest PR)
+
+The biface diamond/lens cross-section used for in-line blade heads (axe/knife/sword/spear) thins toward its top ridge — fine when the haft meets the head from below, but it fails for a **crosswise-mounted head** whose eye the haft passes straight THROUGH: where the eye overlaps the haft's TOP, the hex haft's corners poke through the head's sloped upper faces as a visible wood-notch defect. **Widening the diamond does NOT fix it** — the section fundamentally cannot enclose a box near its ridge (cost 2 iterations to diagnose on the pickaxe burst). **Fix:** model the eye segment (the short run the haft passes through) as its own **BOX section** — flat top over the haft cap, wide enough to fully enclose the haft — then transition to diamond/tapered sections for the arms. Keep the eye box modest or the head reads as a mushroom cap (an iteration-3 defect): `~0.06 × 0.06 × 0.084` against the family's `~0.05`-diameter haft was the fit that read correctly. In-line biface heads are unaffected — keep the diamond/lens language for those.
 
 ---
 
@@ -230,6 +251,59 @@ Write the `bpy` operations (material setup, UV placement, transform-apply, norma
 
 When briefing a dispatched Blender asset task, include the exact Blender executable path + a pointer to the `.blend` source so the persona scripts it headless from the start.
 
+### `get_viewport_screenshot` returns black when the Blender window isn't drawing — render to a file instead (2026-07-06)
+
+**Symptom:** `mcp__blender__get_viewport_screenshot` returns an all-black image with no error when the Blender window is minimized or not actively drawing.
+
+**Diagnostic:** run `bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=2)` — completing in ~0.005–0.01ms average confirms the window genuinely isn't drawing (a real redraw takes measurably longer), i.e. the black screenshot is a draw-state problem, not a scene/lighting bug.
+
+**Workaround — render a real camera shot to a file instead of the viewport screenshot tool:**
+1. Point a camera at the target mesh (aim via `track_quat` / rotate toward the mesh's world-space centroid).
+2. Set `scene.view_settings.view_transform = 'Standard'` (per §2 — matches how Unity Unlit renders palette colours; AgX would desaturate the judge shot).
+3. Isolate the asset(s) under judgment: `obj.hide_render = True` on unrelated scene meshes (temporarily; restore after).
+4. Add a temporary `SUN` light so the render isn't black from missing illumination.
+5. Set `scene.render.filepath` and call `bpy.ops.render.render(write_still=True)`, then `Read` the PNG.
+6. **Cleanup before saving the `.blend`:** delete the judge camera/light and any reference meshes imported for A/B comparison, then `bpy.ops.outliner.orphans_purge(do_recursive=True)` — don't let judge helpers leak into the saved source file.
+
+```python
+import bpy, mathutils
+
+cam_data = bpy.data.cameras.new("JudgeCam")
+cam = bpy.data.objects.new("JudgeCam", cam_data)
+bpy.context.scene.collection.objects.link(cam)
+target = bpy.data.objects["wpn_axe_stone_01"].matrix_world.translation
+cam.location = target + mathutils.Vector((0, -1.2, 0.3))
+cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()
+bpy.context.scene.camera = cam
+
+sun_data = bpy.data.lights.new("JudgeSun", type='SUN')
+sun = bpy.data.objects.new("JudgeSun", sun_data)
+bpy.context.scene.collection.objects.link(sun)
+
+bpy.context.scene.view_settings.view_transform = 'Standard'
+bpy.context.scene.render.filepath = "<session scratchpad>/judge_axe.png"
+bpy.ops.render.render(write_still=True)
+```
+
+**Prefer this render-to-file method over `get_viewport_screenshot` by default** for any Blender judging step — not only after hitting the black-screen symptom — whenever the Blender window's draw state is uncertain (minimized, backgrounded, long-running MCP session with focus elsewhere).
+
+### `bpy.ops.import_scene.fbx` fails "Context missing active object" on armature-bearing FBX (castaway v3, `86cak41d4`)
+
+Importing a plain-mesh FBX via `execute_blender_code` works fine, but an FBX carrying an **armature** (e.g. a Mixamo-rigged export) fails with `RuntimeError: Operator bpy.ops.object.mode_set.poll() Context missing active object` — the importer's armature-build step enters Edit Mode, which needs a real 3D-viewport context the MCP bridge's synthetic call doesn't provide.
+
+**Fix — wrap the import in a manual context override targeting a `VIEW_3D` window/area/region:**
+
+```python
+import bpy
+window = bpy.context.window_manager.windows[0]
+area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
+region = next(r for r in area.regions if r.type == 'WINDOW')
+with bpy.context.temp_override(window=window, area=area, region=region):
+    bpy.ops.import_scene.fbx(filepath=r"<path to rigged .fbx>")
+```
+
+Plain-mesh (non-armature) FBX imports do NOT need this — a mesh-only import succeeding earlier in the session won't reveal the gap, so apply the override proactively whenever the FBX carries a rig.
+
 ---
 
 ## 11. Style Checklist — Sign Off Before Calling an Asset "Done"
@@ -270,6 +344,10 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 
 **4. Measure the JUNCTION ANGLE between components, not just each component's internal straightness (#100, `86cabh907`, 2026-06-23).** A multi-part prop can pass a "straightness" check and still read as BENT. On #100 the haft measured `residual_bend 0.0000°` (perfectly straight in X/Y/Z) and the head was byte-LOCKED (shape verified preserved) — yet the Sponsor saw a clear "bend." Root cause: the **head mounted 20.14° off the haft long axis** (head principal axis `(+0.3428,−0.0311,+0.9389)` vs haft +Z), reading as a dogleg at the head end. The straightness check measured only the haft RINGS; nothing angle-checked the head-vs-haft junction. **Rule: when verifying a multi-part prop is "straight," measure the MOUNT-LINE angle — the line from the JUNCTION point to the component's centroid, vs the shared long axis (e.g. `(haft-top → head-centroid)` vs `haft +Z`) — NOT the component's own internal principal/centroid axis.** The two references DIVERGE, and the internal axis is the WRONG one: on #100 (re-bake, 2026-06-23) zeroing the head's INTERNAL centroid-line (its intrinsic mass lean) left a **2.71° residual that STILL read as a dogleg**, while zeroing the MOUNT line about the junction got it to **0.02° = genuinely coaxial**. A straight haft + a locked head still read bent at the junction if you correct the wrong axis. Fix = a RIGID rotation of the off-axis component **about the JUNCTION point** until the mount line is coaxial (preserves the component's locked shape/size — not a reshape; re-derive any §9 import-normalize constant per the rotation corollary above).
 
+**5. Verify mesh-island IDENTITY before transforming — don't infer membership from z-order (multi-island weapons, 2026-07-06).** A multi-part weapon can have MORE islands than "haft + head" — `wpn_axe_stone_01` is THREE separate mesh islands: head biface (32v), main haft (12v, rings only at z=0 and z=0.62), and a grip band (12v, a SEPARATE island spanning z 0.10–0.21). A "lowest island = haft, rest = head" heuristic silently swept the grip band into the head transform. **Rule: before any per-component edit, print each island's own vertex z-range and confirm the count and range match your mental model — never assume island count or membership from position alone.** Caught by re-measuring per-island z-ranges; fixed by inverting the selection, not by re-deriving from scratch. This check applies one level earlier than §12.4's junction-angle check — get the island grouping right before you ever measure an angle between components.
+
+**6. Proportion-edit recipe: choose pivots ON the shared axis so junction coaxiality is preserved BY CONSTRUCTION (Sponsor-approved, 2026-07-06).** When resizing a multi-part weapon's proportions: thin the **haft** per-ring, radially, about **each ring's own centroid** (z untouched — the straight-haft rule stays intact; a grip band thinned by the same factor stays proud of the haft). Shrink the **head** uniformly about the **haft-top-ring centroid** (e.g. `(0,0,0.62)`), NOT the head's own centroid — a pivot chosen ON the haft axis keeps the head-haft junction coaxial automatically, without a separate angle-correction pass. This composes with the §12.4 junction-angle rule: get the pivot right and the mount-line check should already read ~0°. For a per-PR visual judge, A/B-render the edited mesh against the original FBX side-by-side (§10 render-to-file method) rather than trusting vertex-bounds numbers alone — a coaxiality regression is easy to see, harder to catch from measurements.
+
 ---
 
 ## Quick Reference: Critical Don'ts
@@ -286,6 +364,8 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | Add a MeshCollider in Unity | Add a Box Collider |
 | Let Unity auto-create material stubs | Material Creation Mode = None; assign manually |
 | Tune the current shipped axe as the style reference | The shipped axe is a placeholder — use `21h08_08` as the target |
+| Reblock a new same-tier tool from scratch | Duplicate the approved sibling, delete only its head island (verify identity via §12 item 5 first), keep haft/grip/pommel verbatim |
+| Use a diamond/lens eye section on a crosswise-mounted head (pickaxe/hammer/mattock) | Use a BOX-section eye wide enough to enclose the haft; taper to diamond only on the arms |
 
 ---
 

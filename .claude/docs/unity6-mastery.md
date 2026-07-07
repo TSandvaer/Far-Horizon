@@ -78,6 +78,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - `Update` → input, per-frame logic. Multiply by `Time.deltaTime`.
 - `FixedUpdate` → Rigidbody/physics forces only.
 - `LateUpdate` → **orbit camera follow MUST go here.**
+- **Never permanently one-shot-cache a cross-component `GetComponent<T>()` result resolved in `OnEnable`.** `OnEnable` fires SYNCHRONOUSLY during `AddComponent` — if a sibling component is added a moment later (common in test-rig `SetUp` code), the cache can capture and keep a `null` forever even though the sibling exists by the time anything actually uses it. Re-resolve lazily while the reference is still null/missing, rather than caching the miss. Incident + fix: `unity-conventions.md` § Editor-vs-runtime divergence, ticket `86cajt6jz`.
 
 **Fundamentals:**
 - File name MUST match class name or the component shows "Missing".
