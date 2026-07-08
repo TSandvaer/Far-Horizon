@@ -7,9 +7,9 @@ namespace FarHorizon.EditorTools
     /// <summary>
     /// Imports the IN-HOUSE two-tier weapon SET (ticket 86cajkk7h — Sponsor-approved STONE + IRON recipes,
     /// 2026-07-03; [[weapon-two-tier-style-stone-iron]]) and wires the SHARED palette material. SCOPE: the
-    /// matched family — axe / knife / sword / spear — in TWO tiers (stone = first-craft; iron = later
-    /// progression), all on ONE shared URP/Unlit material so the SRP Batcher folds the whole set into ~1
-    /// SetPass (batches by shader variant, NOT material count).
+    /// matched family — axe / knife / sword / spear / PICKAXE (86cam9q5f — the 5th tool type) — in TWO tiers
+    /// (stone = first-craft; iron = later progression), all on ONE shared URP/Unlit material so the SRP
+    /// Batcher folds the whole set into ~1 SetPass (batches by shader variant, NOT material count).
     ///
     /// TIER DISPOSITION (86cajkk7h):
     ///   - STONE is the LIVE crafted tier: <see cref="HeroAxeFbxPath"/> == the stone axe, so the held /
@@ -61,6 +61,16 @@ namespace FarHorizon.EditorTools
         public const string IronSwordFbxPath = Dir + "/wpn_sword_iron_01.fbx";
         public const string IronSpearFbxPath = Dir + "/wpn_spear_iron_01.fbx";
 
+        // === PICKAXE — the 5th tool type, both tiers (ticket 86cam9q5f — I-1 productionization of the
+        // Sponsor-PASSED Blender burst, 2026-07-07; spec §4/I-1 + [[weapon-two-tier-style-stone-iron]]).
+        // Authored via the family-extension route (blender-asset-pipeline §3): the approved stone/iron AXE
+        // siblings duplicated, head swapped for a crosswise BOX-section pick head, haft/grip kept verbatim —
+        // so both pickaxes share the axe family's grip origin + import normalization and drop onto the axe
+        // seat (offset zero, unit scale) with no re-derive. Stone = 88 tris, iron = 154 tris. Both share the
+        // one Mat_WeaponPalette (no per-asset atlas — the palette carries the pickaxe coords already). ===
+        public const string PickaxeStoneFbxPath = Dir + "/wpn_pickaxe_stone_01.fbx";
+        public const string PickaxeIronFbxPath = Dir + "/wpn_pickaxe_iron_01.fbx";
+
         public const string PalettePngPath = Dir + "/weapon_palette.png";
         public const string MaterialPath = Dir + "/Mat_WeaponPalette.mat";
 
@@ -84,21 +94,25 @@ namespace FarHorizon.EditorTools
         public const float NewFamilyAxeTargetLongestU = 1.08f;
 
         // The LIVE stone family, paired with the family-display layout column (x) — the stone row (z=0).
+        // 86cam9q5f: the stone pickaxe joins as the 5th column (the family-extension route shares the axe
+        // haft, so it rides the SAME familyGlobalScale as the rest — proportions held).
         private static readonly (string path, float x)[] StoneSet =
         {
-            (AxeFbxPath,   -0.75f),
-            (KnifeFbxPath, -0.25f),
-            (SwordFbxPath,  0.25f),
-            (SpearFbxPath,  0.85f),
+            (AxeFbxPath,          -0.75f),
+            (KnifeFbxPath,        -0.25f),
+            (SwordFbxPath,         0.25f),
+            (SpearFbxPath,         0.85f),
+            (PickaxeStoneFbxPath,  1.45f),
         };
 
         // The IRON family, same column layout — the iron row (z behind stone) for the contrast capture.
         private static readonly (string path, float x)[] IronSet =
         {
-            (IronAxeFbxPath,   -0.75f),
-            (IronKnifeFbxPath, -0.25f),
-            (IronSwordFbxPath,  0.25f),
-            (IronSpearFbxPath,  0.85f),
+            (IronAxeFbxPath,      -0.75f),
+            (IronKnifeFbxPath,    -0.25f),
+            (IronSwordFbxPath,     0.25f),
+            (IronSpearFbxPath,     0.85f),
+            (PickaxeIronFbxPath,   1.45f),
         };
 
         public static void PrepareWeaponPack()
@@ -168,7 +182,8 @@ namespace FarHorizon.EditorTools
             Directory.CreateDirectory("Assets/Resources");
             PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
             Object.DestroyImmediate(root);
-            Debug.Log("[WeaponPackAssetGen] built " + PrefabPath + " (8-item family: stone + iron rows, shared material)");
+            Debug.Log("[WeaponPackAssetGen] built " + PrefabPath + " (10-item family: stone + iron rows incl. " +
+                  "pickaxe, shared material)");
         }
 
         private static void AddRow(Transform parent, (string path, float x)[] set, float z, Material mat)
