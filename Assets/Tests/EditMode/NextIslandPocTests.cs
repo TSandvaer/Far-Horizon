@@ -1350,6 +1350,25 @@ namespace FarHorizon.EditTests
         // will red on purpose — re-bless the goldens ONLY after confirming the change is deliberate, and know
         // that a baked NextIslandPoc scene re-scatters differently once you do. A future C5 island child that
         // reuses this stream idiom inherits the same contract; keep these two guards as its tripwire.
+        //
+        // WHAT THESE TWO GUARDS DO NOT COVER (the coverage boundary — read before you trust them as a
+        // complete stream-shift tripwire; Devon's #281 NIT-1 comment 4909467226 + Tess's #281 QA Note 2
+        // comment 4909556862). Both escapes below shift the WHOLE seed+555 stream UNIFORMLY across runs, so
+        // the run-to-run C2_RockFeatures_UseNewSeedStreams determinism test stays green on them too (both runs
+        // re-roll identically on a deterministic shift) — no existing guard catches either class:
+        //   * A UNIFORM rnd draw added to the C1 `while`-loop body OUTSIDE BuildTree (e.g. an extra
+        //     `rnd.NextDouble()` in the trees/rocks/grass fill loop, not inside BuildTree) shifts the whole
+        //     stream yet stays GREEN here. Keystone_PineBroadleaf drives BuildTreeForTest DIRECTLY, bypassing
+        //     the C1 `while` loop, so it never sees a draw added in the loop body; Keystone_ScatterCounts is
+        //     target-fill-INVARIANT to position shifts (the counts still fill to the golden targets).
+        //   * A fully SYMMETRIC per-tree rnd draw added to BOTH species branches of BuildTree shifts the
+        //     seed+555 stream — re-rolling every downstream rock/grass POSITION — yet keeps both guards green
+        //     (species stay lock-step so Keystone_PineBroadleaf passes; counts still fill to the golden
+        //     targets so Keystone_ScatterCounts passes). This is BY DESIGN, not a hole in what shipped: the
+        //     goldens are deliberately position-INSENSITIVE integer counts (a sound float-drift /
+        //     machine-independence tradeoff). If a future C5 child ever needs position-EXACT reproduction, a
+        //     committed position-hash guard (accepting the float-drift re-bless cost this suite deliberately
+        //     avoids) is what closes this last axis.
         // ============================================================================================
 
         [Test]
