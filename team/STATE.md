@@ -257,4 +257,5 @@ Each role updates its own section as it works M-U1 / M-U2 tickets. The orchestra
 (fresh — populated as M-U2 content work dispatches)
 
 ### Tess (Tester)
-(fresh — owns U7 testing-bar translation in QA; build-capture gate per `team/TESTING_BAR.md`)
+(owns U7 testing-bar translation in QA; build-capture gate per `team/TESTING_BAR.md`)
+- **2026-07-08 · `86camdk4x` (PR open, `tess/86camdk4x-berry-belt`)** — playmode triage fix 3/3: `LeftClick_BerryEat_RefillsTheHungerHudBar` was red because the berry never landed in a SELECTED belt slot (inline `AddItem`+belt-scan = stale inventory-first assumption). Fix: parameterize the shared `GiveAndSelect` helper on `Inventory` + reuse it in the UnityTest (explicit inventory→belt `TryMove`). Local PlayMode `LeftClickConsumePlayModeTests` = 9/9. Stay-live proven (temp `return false` in `TryConsumeSelected` → red → restored). Test-only; reviewer Devon/Drew.

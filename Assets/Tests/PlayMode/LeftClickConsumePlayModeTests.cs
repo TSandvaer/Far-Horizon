@@ -76,42 +76,42 @@ namespace FarHorizon.PlayTests
         // pack and never reaches the belt → the old belt-scan found nothing and IsSelectedBeltItem was false.
         // That was a STALE TEST assumption, not a game bug: the model is inventory-first by design. Model the
         // real player flow — drag the consumable to the hotbar — with an explicit inventory→belt TryMove.
-        private bool GiveAndSelect(string id, int n)
+        private bool GiveAndSelect(Inventory inv, string id, int n)
         {
-            var def = _inv.Catalog.ById(id);
+            var def = inv.Catalog.ById(id);
             Assert.IsNotNull(def, "the catalog must define " + id);
-            _inv.Model.AddItem(def, n);
-            MoveFirstInventoryToBelt(id);
-            var belt = _inv.Model.BeltSlots;
+            inv.Model.AddItem(def, n);
+            MoveFirstInventoryToBelt(inv, id);
+            var belt = inv.Model.BeltSlots;
             for (int i = 0; i < belt.Count; i++)
             {
-                var s = _inv.Model.At(SlotRef.Belt(i));
-                if (!s.IsEmpty && s.Def.Id == id) { _inv.Model.SelectBelt(i); break; }
+                var s = inv.Model.At(SlotRef.Belt(i));
+                if (!s.IsEmpty && s.Def.Id == id) { inv.Model.SelectBelt(i); break; }
             }
-            return _inv.Model.IsSelectedBeltItem(id);
+            return inv.Model.IsSelectedBeltItem(id);
         }
 
         // Move the first inventory stack of `id` onto the first empty belt slot (both belt-eligible; TryMove
         // enforces the eligibility gate). No-op if the item already sits on the belt (overflow spill) or has
         // no empty belt slot to land in.
-        private void MoveFirstInventoryToBelt(string id)
+        private void MoveFirstInventoryToBelt(Inventory inv, string id)
         {
-            var inv = _inv.Model.InventorySlots;
+            var slots = inv.Model.InventorySlots;
             int fromIdx = -1;
-            for (int i = 0; i < inv.Count; i++)
-                if (!inv[i].IsEmpty && inv[i].Def.Id == id) { fromIdx = i; break; }
+            for (int i = 0; i < slots.Count; i++)
+                if (!slots[i].IsEmpty && slots[i].Def.Id == id) { fromIdx = i; break; }
             if (fromIdx < 0) return; // already on the belt (or absent)
 
-            var belt = _inv.Model.BeltSlots;
+            var belt = inv.Model.BeltSlots;
             for (int i = 0; i < belt.Count; i++)
-                if (belt[i].IsEmpty) { _inv.Model.TryMove(SlotRef.Inventory(fromIdx), SlotRef.Belt(i)); return; }
+                if (belt[i].IsEmpty) { inv.Model.TryMove(SlotRef.Inventory(fromIdx), SlotRef.Belt(i)); return; }
         }
 
         // === SELECT BERRY + LEFT-CLICK -> one berry consumed AND hunger restored (atomic, end-to-end) =====
         [Test]
         public void LeftClick_BerrySelected_EatsOneBerry_AndRestoresHunger()
         {
-            Assert.IsTrue(GiveAndSelect(ItemCatalog.BerryId, 3), "precondition: 3 berries held + berry selected");
+            Assert.IsTrue(GiveAndSelect(_inv, ItemCatalog.BerryId, 3), "precondition: 3 berries held + berry selected");
             float hungerBefore = _hunger.Current; // 0 at start (startFull=false), no tick yet
 
             bool consumed = _consume.TryConsumeSelected();
@@ -127,7 +127,7 @@ namespace FarHorizon.PlayTests
         [Test]
         public void LeftClick_WaterSelected_DrinksOneWater_AndRestoresThirst()
         {
-            Assert.IsTrue(GiveAndSelect(ItemCatalog.WaterId, 2), "precondition: 2 water held + water selected");
+            Assert.IsTrue(GiveAndSelect(_inv, ItemCatalog.WaterId, 2), "precondition: 2 water held + water selected");
             float thirstBefore = _thirst.Current;
 
             bool consumed = _consume.TryConsumeSelected();
@@ -189,7 +189,7 @@ namespace FarHorizon.PlayTests
         [Test]
         public void LeftClick_SingleClick_ConsumesExactlyOne()
         {
-            Assert.IsTrue(GiveAndSelect(ItemCatalog.BerryId, 5), "precondition: 5 berries held + selected");
+            Assert.IsTrue(GiveAndSelect(_inv, ItemCatalog.BerryId, 5), "precondition: 5 berries held + selected");
             int before = Berries;
 
             _consume.TryConsumeSelected(); // ONE click
@@ -202,7 +202,7 @@ namespace FarHorizon.PlayTests
         [Test]
         public void LeftClick_WaterSelected_NoWaterLeft_IsAtomicNoOp()
         {
-            Assert.IsTrue(GiveAndSelect(ItemCatalog.WaterId, 1), "precondition: 1 water held + selected");
+            Assert.IsTrue(GiveAndSelect(_inv, ItemCatalog.WaterId, 1), "precondition: 1 water held + selected");
             Assert.IsTrue(_consume.TryConsumeSelected(), "the only water is drunk");
             Assert.AreEqual(0, Water, "no water left");
             float thirstAfterFirst = _thirst.Current;
@@ -219,7 +219,7 @@ namespace FarHorizon.PlayTests
         public void LeftClick_WaterSelected_NoThirstNeed_ConsumesGracefully()
         {
             _consume.thirst = null;
-            Assert.IsTrue(GiveAndSelect(ItemCatalog.WaterId, 2), "precondition: 2 water held + selected");
+            Assert.IsTrue(GiveAndSelect(_inv, ItemCatalog.WaterId, 2), "precondition: 2 water held + selected");
 
             bool consumed = false;
             Assert.DoesNotThrow(() => consumed = _consume.TryConsumeSelected(),
@@ -253,15 +253,14 @@ namespace FarHorizon.PlayTests
             consume.eatSeam = eat;
             consume.inventoryUI = null;
 
-            var def = inv.Catalog.ById(ItemCatalog.BerryId);
-            inv.Model.AddItem(def, 1);
-            // Select the berry belt slot.
-            var belt = inv.Model.BeltSlots;
-            for (int i = 0; i < belt.Count; i++)
-            {
-                var s = inv.Model.At(SlotRef.Belt(i));
-                if (!s.IsEmpty && s.Def.Id == ItemCatalog.BerryId) { inv.Model.SelectBelt(i); break; }
-            }
+            // 86camdk4x: reuse the shared GiveAndSelect helper (the sibling water/berry tests use it). The old
+            // inline AddItem + belt-scan was the STALE assumption that AddItem auto-lands the berry on the belt —
+            // it does NOT (InventoryModel is inventory-first; a single berry stays in the pack), so the belt-scan
+            // found nothing, the SELECTED belt slot was empty, and TryConsumeSelected() no-op'd at the failing
+            // assert (the [consume-trace] "no consumable selected" in the CI playmode.log). GiveAndSelect does the
+            // explicit inventory->belt TryMove that lands the berry in the selected slot.
+            Assert.IsTrue(GiveAndSelect(inv, ItemCatalog.BerryId, 1),
+                "precondition: 1 berry held + berry selected on the belt");
 
             yield return null; // Start() seeds _current + fires the initial Changed
 
