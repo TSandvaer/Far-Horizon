@@ -277,20 +277,22 @@ namespace FarHorizon
         }
 
         // ============================================================================================
-        // Live-dial setters (SettingsCatalog.PopulateSmeltLive binds here). Each clamps to its [Min,Max] band.
+        // Live-dial setters (SettingsCatalog.PopulateSmeltLive binds here — it clamps to the registered [Min,Max]
+        // band before calling, mirroring PopulateIronLive; these apply only a model-level SANITY floor so a bare
+        // caller can't set a degenerate value, keeping the gameplay Forge decoupled from the settings layer).
         // ============================================================================================
 
-        /// <summary>Set the ore-per-ingot smelt-cost dial (clamped). Bound LIVE to smelt_ore_per_ingot.</summary>
-        public void SetOrePerIngot(int v)
-            => orePerIngot = Mathf.Clamp(v, SettingsCatalog.SmeltOrePerIngotMin, SettingsCatalog.SmeltOrePerIngotMax);
+        /// <summary>Set the ore-per-ingot smelt-cost dial (floored at 1 — a smelt consumes at least one ore).
+        /// Bound LIVE to smelt_ore_per_ingot (the settings lambda clamps to the band first).</summary>
+        public void SetOrePerIngot(int v) => orePerIngot = Mathf.Max(1, v);
 
-        /// <summary>Set the fuel-per-smelt smelt-cost dial (clamped). Bound LIVE to smelt_fuel_cost.</summary>
-        public void SetFuelPerSmelt(int v)
-            => fuelPerSmelt = Mathf.Clamp(v, SettingsCatalog.SmeltFuelCostMin, SettingsCatalog.SmeltFuelCostMax);
+        /// <summary>Set the fuel-per-smelt smelt-cost dial (floored at 0 — a free-fuel smelt is allowed at the
+        /// easy end). Bound LIVE to smelt_fuel_cost (the settings lambda clamps to the band first).</summary>
+        public void SetFuelPerSmelt(int v) => fuelPerSmelt = Mathf.Max(0, v);
 
-        /// <summary>Set the seconds-per-smelt smelt-cost dial (clamped). Bound LIVE to smelt_time.</summary>
-        public void SetSmeltSeconds(float v)
-            => smeltSeconds = Mathf.Clamp(v, SettingsCatalog.SmeltTimeMin, SettingsCatalog.SmeltTimeMax);
+        /// <summary>Set the seconds-per-smelt smelt-cost dial (floored non-negative). Bound LIVE to smelt_time
+        /// (the settings lambda clamps to the band first).</summary>
+        public void SetSmeltSeconds(float v) => smeltSeconds = Mathf.Max(0f, v);
 
 #if UNITY_INCLUDE_TESTS
         /// <summary>86cakkmvc / #288 pattern — TEST-ONLY deterministic clock (public seam, STRIPPED from ship builds

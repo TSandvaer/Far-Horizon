@@ -3,6 +3,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using FarHorizon;
+using FarHorizon.Settings;
 
 namespace FarHorizon.EditTests
 {

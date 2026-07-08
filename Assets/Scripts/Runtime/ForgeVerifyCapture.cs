@@ -79,7 +79,7 @@ namespace FarHorizon
             {
                 forge.SetOrePerIngot(1);
                 forge.SetFuelPerSmelt(1);
-                forge.SetSmeltSeconds(SettingsCatalog.SmeltTimeMin); // the floor (fast) for the capture
+                forge.SetSmeltSeconds(1f); // a short smelt so the headless capture completes fast
             }
             Debug.Log("[ForgeVerifyCapture] granted mats: wood=" + Count(ItemCatalog.WoodId) + " stone=" +
                       Count(ItemCatalog.StoneId) + " iron_ore=" + Count(ItemCatalog.IronOreId));

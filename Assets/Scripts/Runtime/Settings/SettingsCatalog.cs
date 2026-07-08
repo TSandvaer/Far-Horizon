@@ -867,17 +867,20 @@ namespace FarHorizon.Settings
 
             reg.Remove(SmeltOrePerIngotId);
             reg.AddInt(SmeltOrePerIngotId, "Smelt ore per ingot",
-                () => forge.orePerIngot, v => forge.SetOrePerIngot(v),
+                () => forge.orePerIngot,
+                v => forge.SetOrePerIngot(Mathf.Clamp(v, SmeltOrePerIngotMin, SmeltOrePerIngotMax)),
                 SmeltOrePerIngotMin, SmeltOrePerIngotMax);
 
             reg.Remove(SmeltFuelCostId);
             reg.AddInt(SmeltFuelCostId, "Smelt fuel cost",
-                () => forge.fuelPerSmelt, v => forge.SetFuelPerSmelt(v),
+                () => forge.fuelPerSmelt,
+                v => forge.SetFuelPerSmelt(Mathf.Clamp(v, SmeltFuelCostMin, SmeltFuelCostMax)),
                 SmeltFuelCostMin, SmeltFuelCostMax);
 
             reg.Remove(SmeltTimeId);
             reg.AddFloat(SmeltTimeId, "Smelt time",
-                () => forge.smeltSeconds, v => forge.SetSmeltSeconds(v),
+                () => forge.smeltSeconds,
+                v => forge.SetSmeltSeconds(Mathf.Clamp(v, SmeltTimeMin, SmeltTimeMax)),
                 SmeltTimeMin, SmeltTimeMax, unit: "s");
         }
 

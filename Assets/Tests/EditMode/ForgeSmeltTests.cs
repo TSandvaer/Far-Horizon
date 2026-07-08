@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using FarHorizon;
+using FarHorizon.Settings;
 
 namespace FarHorizon.EditTests
 {
