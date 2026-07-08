@@ -82,6 +82,9 @@ namespace FarHorizon
                  "bind to it; `chops-to-fell` binds to the chop tree above. May be null; the yield/despawn rows " +
                  "then simply don't appear.")]
         public LogPileSpawner logPileSpawner;
+        [Tooltip("The ore-node manager (86cakkmr0 / I-2) — `iron ore rarity` FLIPS LIVE bound to its ActiveNodeCount " +
+                 "(the ore-rarity dial). May be null; the row then stays greyed (the I-0 extension hook).")]
+        public MineOre mineOre;
         [Tooltip("The held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows (pos X/Y/Z, " +
                  "rot pitch/yaw/roll, scale) bind to the CURRENTLY-held weapon's seat through it. May be null; " +
                  "the held-weapon rows then simply don't appear.")]
@@ -218,6 +221,7 @@ namespace FarHorizon
             if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
             if (logPileSpawner == null) logPileSpawner = FindObjectOfType<LogPileSpawner>();
+            if (mineOre == null) mineOre = FindObjectOfType<MineOre>();
             if (heldWeapon == null) heldWeapon = FindObjectOfType<HeldWeaponPlacement>();
             // Berry-regrowth fans out across EVERY bush (each holds its own regrow window — no shared manager,
             // unlike the ChopTree). Resolve the full set once at startup (a bake-time/startup Find, not per-frame
@@ -262,6 +266,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateCombat(Registry, combatHealth, combatRegen, combatDeath); // Combat POC → per-tier HP/damage/regen/death (AC8b)
             SettingsCatalog.PopulateFps(Registry, fpsHud);                   // FPS counter on/off (86cahmxmt — default ON, Sponsor-soak tunes)
             SettingsCatalog.PopulateIron(Registry);                          // iron-progression dials (86cakkmgw — extension hooks; I-2/I-3 flip live)
+            SettingsCatalog.PopulateIronLive(Registry, mineOre);             // I-2 (86cakkmr0): flip `iron ore rarity` LIVE → MineOre.ActiveNodeCount
 
             // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
             // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target

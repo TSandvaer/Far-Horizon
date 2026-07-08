@@ -501,6 +501,13 @@ namespace FarHorizon.EditTests
             AssertSeat(2, new Vector3(-0.020f, 0.040f, 0.000f), Vector3.zero, 0.95f);
             // SPEAR (index 3) — Sponsor-dialed d306552.
             AssertSeat(3, new Vector3(-0.020f, 0.560f, 0.000f), Vector3.zero, 0.90f);
+            // PICKAXE STONE (index 4) — Sponsor-dialed, build d699c81 (86cakkmr0 final round). Cross-checked
+            // against Player.log final resting line (Danish-locale) + the nudge-panel screenshot (identical).
+            AssertSeat(4, new Vector3(-0.040f, 0.000f, 0.020f), new Vector3(8.0f, 10.0f, 0.0f), 1f);
+            // PICKAXE IRON (index 5) — SHARES the stone pickaxe seat: both tiers share the family haft/grip +
+            // head geometry by construction (the family-extension route kept the stone-axe haft verbatim), so
+            // one dial covers both. If the iron tier ever gets a distinct baseline, re-dial + re-pin here.
+            AssertSeat(5, new Vector3(-0.040f, 0.000f, 0.020f), new Vector3(8.0f, 10.0f, 0.0f), 1f);
         }
 
         [Test]

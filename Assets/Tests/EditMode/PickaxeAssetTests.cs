@@ -121,22 +121,23 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void Picker_PickaxeSeats_StartFromTheAxeSeat_ZeroOffsetUnitScale()
+        public void Picker_BothPickaxeTiers_ShareOneSeat_AtUnitScale()
         {
-            // 86cam9q5f: the pickaxe shares the stone-axe haft (family-extension route) so it seats at the
-            // axe's baseline — zero mesh-holder offset/euler + unit scale — with no per-weapon compensation.
-            // The Sponsor micro-dials at the picker soak (Bar 5/8); this pins the shipped STARTING seat.
-            foreach (int i in new[] { HeldWeaponCycleDebug.PickaxeStoneFamilyIndex,
-                                      HeldWeaponCycleDebug.PickaxeIronFamilyIndex })
-            {
-                Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i],
-                    $"{HeldWeaponCycleDebug.WeaponLabels[i]} must start from the axe seat (zero offset).");
-                Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalEuler[i],
-                    $"{HeldWeaponCycleDebug.WeaponLabels[i]} must start from the axe seat (zero euler).");
-                Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[i], 1e-4f,
-                    $"{HeldWeaponCycleDebug.WeaponLabels[i]} must start from the axe seat (unit scale) — it " +
-                    "shares the axe haft + familyGlobalScale.");
-            }
+            // 86cam9q5f + 86cakkmr0 BAKE: the pickaxe shares the stone-axe haft/grip + head geometry (family-
+            // extension route), so BOTH tiers seat IDENTICALLY — one F9 dial covers both. The Sponsor dialed the
+            // seat at the mine-loop soak (build d699c81) and it was baked into idx 4/5; the EXACT dialed values
+            // are pinned in HeroAxeSceneTests.AssertSeat(4/5). This test pins the load-bearing INVARIANT that
+            // survives any future re-dial: the two tiers share ONE seat (so a dial can never diverge them) and
+            // keep UNIT scale (the Sponsor left scale at 1.0 — both share the family scale). (Superseded the old
+            // zero-offset "starting seat" pin, which the Sponsor's approved dial made obsolete.)
+            int s = HeldWeaponCycleDebug.PickaxeStoneFamilyIndex;
+            int ir = HeldWeaponCycleDebug.PickaxeIronFamilyIndex;
+            Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalOffset[s], HeldWeaponCycleDebug.WeaponMeshLocalOffset[ir],
+                "both pickaxe tiers must share ONE mesh-holder offset (shared family haft/head — one dial covers both).");
+            Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalEuler[s], HeldWeaponCycleDebug.WeaponMeshLocalEuler[ir],
+                "both pickaxe tiers must share ONE mesh-holder euler.");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[s], 1e-4f, "stone pickaxe stays unit scale (shared family scale).");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[ir], 1e-4f, "iron pickaxe stays unit scale (shared family scale).");
         }
 
         private static Transform FindByName(Transform root, string name)

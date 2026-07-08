@@ -52,6 +52,33 @@ namespace FarHorizon.EditTests
             Object.DestroyImmediate(catalog);
         }
 
+        // I-2 (86cakkmr0) SOAK NIT — the PICKAXE belt-slot letter must read "P" (the pickaxe TYPE), not the
+        // first char of its tier-prefixed DisplayName ("Stone Pickaxe"→"S" / "Iron Pickaxe"→"I"). The fix is a
+        // targeted id override in LetterChip that must NOT break the other letters (axe→"A", spear→"S").
+        [Test]
+        public void LetterChip_PickaxeReadsP_WithoutBreakingAxeOrSpear()
+        {
+            var catalog = ScriptableObject.CreateInstance<ItemCatalog>();
+            catalog.BuildDefaults();
+            try
+            {
+                Assert.AreEqual("P", InventoryUI.LetterChip(catalog.ById(ItemCatalog.PickaxeStoneId)),
+                    "the stone pickaxe chip reads 'P' (the pickaxe TYPE), not 'S' from 'Stone Pickaxe'");
+                Assert.AreEqual("P", InventoryUI.LetterChip(catalog.ById(ItemCatalog.PickaxeIronId)),
+                    "the iron pickaxe chip ALSO reads 'P' (both tiers are pickaxes), not 'I' from 'Iron Pickaxe'");
+                // The override must not disturb the other letters (regression guard).
+                Assert.AreEqual("A", InventoryUI.LetterChip(catalog.ById(ItemCatalog.AxeId)), "axe stays 'A'");
+                Assert.AreEqual("S", InventoryUI.LetterChip(catalog.ById(ItemCatalog.SpearId)), "spear stays 'S'");
+                Assert.AreEqual("W", InventoryUI.LetterChip(catalog.ById(ItemCatalog.WoodId)), "wood stays 'W'");
+                Assert.AreEqual("?", InventoryUI.LetterChip(null), "a null def stays '?'");
+            }
+            finally
+            {
+                foreach (var d in catalog.All) if (d != null) Object.DestroyImmediate(d);
+                Object.DestroyImmediate(catalog);
+            }
+        }
+
         // BUG 1 — the position→slot hit-test resolves the slot whose rect contains the cursor (this is what
         // the captured-pointer drop uses INSTEAD of the PointerUp event target, which the capture redirect
         // pins to the SOURCE slot). Synthetic rects → deterministic, no panel layout needed.

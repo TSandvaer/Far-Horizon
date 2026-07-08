@@ -42,12 +42,18 @@ namespace FarHorizon
             _cycle = GetComponent<HeldWeaponCycleDebug>();
         }
 
-        // Show the seat when the SELECTED belt item is a held-visual weapon (axe/spear — 86cahngdg), or
-        // while the [B] debug look-soak view is active. The defensive no-inventory case (default VISIBLE so
-        // a wiring regression fails loud) is handled by the base.
+        // Show the seat when the SELECTED belt item is a held-visual weapon (axe/spear/pickaxe), or while the
+        // [B] debug look-soak view is active. I-2 (86cakkmr0) added the PICKAXE (both tiers) — the soak-fail was
+        // exactly this omission: selecting the pickaxe belt slot satisfied NEITHER axe nor spear, so ShouldShow
+        // returned false and the seat renderers stayed DISABLED -> empty hands (confirmed by the -verifyMine
+        // held-seat isolation: rendererEnabled=False, holderMesh=wpn_axe_stone_01). The mesh half is fixed in
+        // HeldWeaponCycleDebug.SelectionIndexFor (now maps the pickaxe tiers). The defensive no-inventory case
+        // (default VISIBLE so a wiring regression fails loud) is handled by the base.
         protected override bool ShouldShow()
             => inventory.IsAxeSelectedInBelt
                || inventory.IsSpearSelectedInBelt
+               || inventory.IsPickaxeStoneSelectedInBelt
+               || inventory.IsPickaxeIronSelectedInBelt
                || (_cycle != null && _cycle.DebugViewActive);
     }
 }

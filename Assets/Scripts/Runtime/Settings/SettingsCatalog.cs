@@ -830,6 +830,26 @@ namespace FarHorizon.Settings
         }
 
         /// <summary>
+        /// FLIP the reserved <see cref="IronOreRarityId"/> row LIVE (ticket 86cakkmr0 / I-2 — the I-0 extension hook
+        /// goes live here), bound to the <paramref name="mineOre"/> ore-node manager's <see cref="MineOre.ActiveNodeCount"/>
+        /// (the ore-RARITY dial: how many pool nodes are enabled — easy common / hard sparse). REMOVE the greyed hook
+        /// <see cref="PopulateIron"/> registered (Remove no-ops if absent), then re-add it LIVE so there is exactly ONE
+        /// `iron_ore_rarity` row (no duplicate-id throw) — the SAME remove-then-add live-rebind seam PopulateChop uses
+        /// for `tool_use_speed`. Called by SettingsPanel AFTER <see cref="PopulateIron"/>. A null MineOre leaves the row
+        /// greyed (a mine-less rig / bare test never null-refs). The setter clamps to the [Min,Max] band; MineOre
+        /// additionally clamps to its authored pool size (the dev-dial ceiling can exceed the pool — no over-reach).
+        /// </summary>
+        public static void PopulateIronLive(SettingsRegistry reg, FarHorizon.MineOre mineOre)
+        {
+            if (reg == null || mineOre == null) return;
+            reg.Remove(IronOreRarityId);
+            reg.AddInt(IronOreRarityId, "Iron ore rarity",
+                () => mineOre.ActiveNodeCount,
+                v => mineOre.SetActiveNodeCount(Mathf.Clamp(v, IronOreRarityMin, IronOreRarityMax)),
+                IronOreRarityMin, IronOreRarityMax, unit: " nodes");
+        }
+
+        /// <summary>
         /// Register the HELD-WEAPON in-hand PLACEMENT tweakables (ticket 86caffwuz) into the registry, bound to
         /// the <paramref name="held"/> binding seam (the single surface over the axe rig + the per-weapon arrays).
         /// SEVEN slider rows for the CURRENTLY-held weapon's seat — position X/Y/Z, rotation pitch/yaw/roll, and a

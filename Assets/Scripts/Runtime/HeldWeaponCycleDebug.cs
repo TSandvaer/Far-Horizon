@@ -127,12 +127,22 @@ namespace FarHorizon
         /// <summary>
         /// 86cahngdg — the PURE selection -> family-index mapping the belt sync applies (extracted so the
         /// EditMode guard pins it without component lifecycle): the SELECTED belt weapon owns the held
-        /// visual. Axe selected -> 0; spear selected -> <see cref="SpearFamilyIndex"/>; neither (empty /
-        /// berry / water / axe-in-pack...) -> -1 = selection does not drive a held-weapon mesh (the
-        /// HeldAxe gate hides the seat; the displayed mesh is left alone).
+        /// visual. Axe selected -> 0; spear -> <see cref="SpearFamilyIndex"/>; STONE pickaxe ->
+        /// <see cref="PickaxeStoneFamilyIndex"/>; IRON pickaxe -> <see cref="PickaxeIronFamilyIndex"/>
+        /// (I-2 86cakkmr0 — the 5th tool type is now belt-selectable, so the belt→held mesh sync must map it
+        /// or the held pickaxe never shows the right mesh — the soak-fail). Neither (empty / berry / water /
+        /// weapon-in-pack...) -> -1 = selection does not drive a held-weapon mesh (the HeldAxe gate hides the
+        /// seat; the displayed mesh is left alone). Deterministic priority: axe > spear > pickaxe-stone >
+        /// pickaxe-iron (only one belt slot is selected, so at most one flag is ever true in play; the tie-
+        /// break is pinned for the contract test).
         /// </summary>
-        public static int SelectionIndexFor(bool axeSelected, bool spearSelected)
-            => axeSelected ? AxeFamilyIndex : spearSelected ? SpearFamilyIndex : -1;
+        public static int SelectionIndexFor(bool axeSelected, bool spearSelected,
+                                            bool pickaxeStoneSelected, bool pickaxeIronSelected)
+            => axeSelected ? AxeFamilyIndex
+             : spearSelected ? SpearFamilyIndex
+             : pickaxeStoneSelected ? PickaxeStoneFamilyIndex
+             : pickaxeIronSelected ? PickaxeIronFamilyIndex
+             : -1;
 
         // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
         // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
@@ -181,8 +191,9 @@ namespace FarHorizon
             new Vector3(-0.020f, 0.020f, 0.000f),    // knife (Sponsor-dialed d306552)
             new Vector3(-0.020f, 0.040f, 0.000f),    // sword (Sponsor-dialed d306552)
             new Vector3(-0.020f, 0.560f, 0.000f),    // spear (Sponsor-dialed d306552)
-            Vector3.zero,                            // pickaxe stone (86cam9q5f — axe-seat start; shares the haft)
-            Vector3.zero,                            // pickaxe iron  (86cam9q5f — axe-seat start; shares the haft)
+            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
+            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe iron  (86cakkmr0 — SHARES the stone seat: both tiers
+                                                     //   share the family haft/grip + head geometry by construction)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
@@ -197,8 +208,8 @@ namespace FarHorizon
             Vector3.zero,   // knife
             Vector3.zero,   // sword
             Vector3.zero,   // spear
-            Vector3.zero,   // pickaxe stone (86cam9q5f)
-            Vector3.zero,   // pickaxe iron  (86cam9q5f)
+            new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
+            new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe iron  (86cakkmr0 — SHARES the stone seat: same family haft/head)
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)
@@ -430,7 +441,8 @@ namespace FarHorizon
             var inv = ResolveInventory();
             if (inv == null || _meshHolder == null) return;
 
-            int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt);
+            int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                            inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt);
             if (desired >= 0)
             {
                 _debugView = false; // selection owns the held visual
@@ -466,7 +478,8 @@ namespace FarHorizon
         {
             if (_meshHolder == null) return false; // Awake found no MeshFilter — nothing to cycle
             var inv = ResolveInventory();
-            if (inv != null && SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt) >= 0)
+            if (inv != null && SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                                 inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0)
             {
                 Debug.Log("[HeldWeaponCycleDebug] [" + cycleKey + "] cycle REFUSED — the selected belt weapon " +
                           "owns the held visual (86cahngdg). Select an empty/non-weapon belt slot to use the " +

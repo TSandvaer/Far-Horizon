@@ -189,6 +189,16 @@ namespace FarHorizon
         /// <summary>Combat POC 86cah7xxp — true once the castaway OWNS a spear (in any slot).</summary>
         public bool HasSpear => Model.OwnsItem(ItemCatalog.SpearId);
 
+        /// <summary>I-2 (86cakkmr0) — true when the STONE pickaxe is the SELECTED belt item. The held-visual gate
+        /// (HeldAxe.ShouldShow) + the mesh sync (HeldWeaponCycleDebug.SelectionIndexFor) read this so the held
+        /// pickaxe SHOWS in-hand when selected — the axe/spear-sibling query. Fixes the soak-fail where selecting
+        /// the pickaxe belt slot showed EMPTY hands (the belt→held coupling omitted the 5th tool type).</summary>
+        public bool IsPickaxeStoneSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeStoneId);
+
+        /// <summary>I-2 (86cakkmr0) — true when the IRON pickaxe is the SELECTED belt item (the iron-tier sibling
+        /// of <see cref="IsPickaxeStoneSelectedInBelt"/>).</summary>
+        public bool IsPickaxeIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
+
         // ============================================================================================
         // LEGACY ledger surface — preserved VERBATIM (contract §7). Every caller stays green.
         // ============================================================================================

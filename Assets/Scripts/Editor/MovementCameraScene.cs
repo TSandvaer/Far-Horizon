@@ -320,6 +320,19 @@ namespace FarHorizon.EditorTools
             // up to loot. Built BEFORE the looter so the looter discovers it (it discovers IPickables anyway).
             BuildWiredStone(player, groundLayer);
 
+            // 86cakkmr0 (I-2 of the iron chain): iron-ore rock NODES + the active-left-click MINE verb + the
+            // OrePileSpawner. The castaway finds ore nodes, mines them WITH A PICKAXE SELECTED by left-clicking
+            // (the chop-verb sibling), breaks them for a lootable iron-ore pile, then the node regrows. Built
+            // BEFORE BuildPickableLooter so the OrePileSpawner exists when the looter back-wires it (mirrors the
+            // LogPileSpawner back-wire). Authored editor-time so the node pool + MineOre/OrePileSpawner refs
+            // SERIALIZE into Boot.unity (editor-vs-runtime trap). Collider-free — no NavMesh/raycast impact.
+            BuildOreNodes(player, groundLayer);
+
+            // 86cakkmr0 (I-2 soak-enabler): a wired stone-PICKAXE pickup so the mine loop is live-triggerable in the
+            // soak (the mine gate needs a pickaxe SELECTED). The axe/spear pickup idiom; the real pickaxe mesh
+            // (I-1/#283). Placed CLEAR of spawn (> pickupRadius) so it can't auto-grab belt slot 0 (the PR #224 class).
+            BuildPickaxePickup(player);
+
             // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
             // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
             // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
@@ -328,6 +341,10 @@ namespace FarHorizon.EditorTools
             // serialized. The looter discovers IPickables at runtime (Awake), so this can run before/after any
             // pickable author. PickableLooterSceneTests guards the serialized presence + wiring.
             BuildPickableLooter(player);
+
+            // 86cakkmr0 (I-2): the shipped-build MINE capture gate — wired AFTER BuildPickableLooter + the pickaxe
+            // pickup so all its deps (looter + pickaxe pickup + MineOre) exist. Inert unless launched with -verifyMine.
+            WireMineVerifyCapture(player);
 
             // 86caamkv7: a wired FRESHWATER POND inland near the loop centre — the thirst source for the merged
             // survival loop. The castaway walks up (no tool) and DRINKS FROM HAND — a small per-scoop restore,
@@ -2337,6 +2354,256 @@ namespace FarHorizon.EditorTools
                       "WireStoneScatterRoot, yields " + StoneProp.StonePerPickupDefault + " stone on E)");
         }
 
+        // ============================================================================================
+        // 86cakkmr0 (I-2 of the iron chain) — iron-ore NODES + the active-left-click MINE verb.
+        // ============================================================================================
+
+        // The world position of the stone-PICKAXE pickup (I-2 soak-enabler). On the way from spawn toward the ore
+        // field; CLEAR of spawn (0,6) by MORE than pickupRadius (2.0u) so it can NEVER auto-grab belt slot 0 at
+        // spawn (the PR #224 chop-capture regression class — guarded by MineSceneTests). Clear of the axe (3,2)
+        // + craft (8,6) too. A DETERMINISTIC scene-author ADD — outside the seeded LowPolyZoneGen stream.
+        public static readonly Vector3 PickaxePickupPosition = new Vector3(6f, 0f, 2f);
+
+        // The authored ore-node POOL size = the Easy preset's node count (24 — the largest preset), so the
+        // ore-rarity dial can enable up to Easy-many live; Medium (14, the default) + Hard (8) enable fewer.
+        // A named source (not a magic literal) mirroring the difficulty-preset data.
+        private static int OreNodePoolSize => IronDifficultyPresets.Easy.OreNodeCount;
+
+        // Ore-node materials (shared across the whole pool — 2 material instances of ONE shader = SRP-batched,
+        // unity6-mastery §2). GREY faceted rock body + a RUSTY iron-ore vein (pattern via geometry, NOT texture —
+        // Bar 3 [[weapon-asset-material-honest-pattern-via-geometry]]). default rusty tint — Sponsor-soak tunes.
+        private static readonly Color OreRockGrey = new Color(0.50f, 0.48f, 0.45f); // warm stone grey
+        private static readonly Color OreVeinRust = new Color(0.44f, 0.25f, 0.18f); // rusty iron-ore red-brown
+
+        // Author the iron-ore node POOL (I-2). REAL-WORLD ANCHOR: an iron-ore node is a chunky ROCK OUTCROP rising
+        // UP out of the ground with rusty ore veins in it (a bump UP, not a hole) — the side-profile capture must
+        // read as an outcrop sticking up. A deterministic SEEDED scatter places OreNodePoolSize nodes organically
+        // (Bar 1 — no grid) in an annulus around the loop, avoiding the landmarks. The MineOre manager reads the
+        // pool + enables the first ActiveNodeCount (the ore-rarity dial). The OrePileSpawner mints an OrePile per
+        // broken node. Authored editor-time so the pool + MineOre/OrePileSpawner refs SERIALIZE into Boot.unity
+        // (editor-vs-runtime trap). Collider-free — the player walks up to mine; no NavMesh/raycast impact.
+        private static void BuildOreNodes(GameObject player, int groundLayer)
+        {
+            // Shared materials for the whole pool (2 instances of the LowPolyVertexColor shader → SRP-batched).
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material rockMat = null, veinMat = null;
+            if (vc != null)
+            {
+                rockMat = new Material(vc) { name = "OreRockMat" };
+                if (rockMat.HasProperty("_Tint")) rockMat.SetColor("_Tint", OreRockGrey);
+                veinMat = new Material(vc) { name = "OreVeinMat" };
+                if (veinMat.HasProperty("_Tint")) veinMat.SetColor("_Tint", OreVeinRust);
+            }
+
+            // The pool root — MineOre.nodeRoot points here; the OreNode children are the pool.
+            var root = new GameObject("OreNodes");
+            root.transform.position = Vector3.zero;
+
+            // Deterministic seeded organic placement (Bar 1). An annulus band around the loop centre, rejecting
+            // positions too close to a landmark or another node. OUTSIDE the seeded LowPolyZoneGen stream (a scene-
+            // author ADD, like the pond/stick/stone) so it provably cannot perturb the seed-42 island/scatter.
+            var landmarks = new Vector3[]
+            {
+                new Vector3(0f, 0f, 6f),   // spawn
+                CraftSpotPosition,          // craft (8,6)
+                ChopTreePosition,           // tree (-9,-7)
+                BerryBushPosition,          // bush (-6,7)
+                WiredStickPosition,         // stick (-3,-4)
+                WiredStonePosition,         // stone (0,-5)
+                PondPosition,               // pond (7,-3)
+                new Vector3(4f, 0f, -8f),   // campfire
+                new Vector3(3f, 0f, 2f),    // axe pickup
+                PickaxePickupPosition,      // pickaxe pickup (6,2)
+            };
+            var placed = new System.Collections.Generic.List<Vector3>();
+            var rng = new System.Random(86201); // deterministic — the pool is byte-identical every bootstrap
+            int target = OreNodePoolSize;
+            int guard = 0;
+            while (placed.Count < target && guard < 8000)
+            {
+                guard++;
+                // Annulus 9..17u from origin — findable without heavy exploration (Q2), and inside the PROVEN-
+                // walkable loop zone (the campfire r≈9, craft r≈10, chop tree r≈11.4 are all reachable on the
+                // NavMesh, per ChopVerifyCapture), so the nodes land on walkable ground for the mine soak + capture.
+                double ang = rng.NextDouble() * System.Math.PI * 2.0;
+                double rad = 9.0 + rng.NextDouble() * 8.0;
+                float x = (float)(System.Math.Cos(ang) * rad);
+                float z = (float)(System.Math.Sin(ang) * rad);
+                var p = new Vector3(x, 0f, z);
+                bool tooClose = false;
+                foreach (var lm in landmarks)
+                    if (PlanarDistXZ(p, lm) < 3.5f) { tooClose = true; break; }
+                if (!tooClose)
+                    foreach (var q in placed)
+                        if (PlanarDistXZ(p, q) < 3.0f) { tooClose = true; break; } // spaced apart (organic, not clumped)
+                if (tooClose) continue;
+                placed.Add(p);
+            }
+
+            for (int i = 0; i < placed.Count; i++)
+                BuildOreNodeVisual(root.transform, placed[i], 86300 + i * 17, rockMat, veinMat);
+
+            // The OrePileSpawner (the ore-drop factory + the `ore yield` / `ore-pile despawn` host). Its looter ref
+            // is back-wired LATER in BuildPickableLooter (the looter doesn't exist yet). oreMaterial = the shared
+            // rock material so a spawned pile reads as the same ore.
+            var spawnerGo = new GameObject("OrePileSpawner");
+            var orePileSpawner = spawnerGo.AddComponent<OrePileSpawner>();
+            if (rockMat != null) orePileSpawner.oreMaterial = rockMat;
+
+            // The MineOre manager (the mine verb + node resolver). Wired to the inventory/player/character/UI/
+            // spawner/nodeRoot editor-time so it ships in Boot.unity (the Awake FindObjectOfType is the fallback).
+            var mineGo = new GameObject("MineOre");
+            var mine = mineGo.AddComponent<MineOre>();
+            mine.player = player.transform;
+            mine.inventory = Object.FindObjectOfType<Inventory>();
+            mine.character = Object.FindObjectOfType<CastawayCharacter>();
+            mine.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+            mine.orePileSpawner = orePileSpawner;
+            mine.nodeRoot = root.transform;
+            mine.strikesToBreak = MineOre.StrikesToBreakDefault;
+            mine.mineRadius = 2.2f;
+            mine.activeNodeCount = IronDifficultyPresets.Medium.OreNodeCount; // the Medium default (14 of the 24 pool)
+            mine.regrowSeed = 86311; // deterministic regrow rolls for headless/capture stability
+            if (mine.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire MineOre to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            if (mine.character == null)
+                Debug.LogWarning("[MovementCameraScene] no CastawayCharacter to wire MineOre.character to — " +
+                                 "the mine will land strikes but the arm won't swing (BuildPlayer before BuildOreNodes)");
+
+            EditorUtility.SetDirty(mineGo);
+            EditorUtility.SetDirty(spawnerGo);
+            EditorUtility.SetDirty(root);
+
+            // Wire the SETTINGS PANEL's mineOre ref now that MineOre exists (BuildSettingsPanel ran before this, so
+            // its serialized ref was not yet resolvable). `iron ore rarity` flips LIVE bound to MineOre.ActiveNodeCount.
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.mineOre = mine;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
+            Debug.Log("[MovementCameraScene] authored " + placed.Count + " ore nodes (pool=" + OreNodePoolSize +
+                      ", active=" + mine.activeNodeCount + "; inventory wired: " + (mine.inventory != null) + ")");
+        }
+
+        // One ore-node visual: a chunky GREY faceted ROCK outcrop rising UP from the ground (half-embedded so it
+        // reads as an outcrop, not a floating boulder) with a couple of RUSTY ore-vein facets clustered on its
+        // upper surface (pattern via geometry — Bar 3). Each is a GameObject named MineOre.OreNodeName under the
+        // pool root; MineOre discovers + drives it. Collider-free.
+        private static void BuildOreNodeVisual(Transform parent, Vector3 groundPos, int seed,
+                                               Material rockMat, Material veinMat)
+        {
+            var node = new GameObject(MineOre.OreNodeName);
+            node.transform.SetParent(parent, false);
+            // A small deterministic yaw so the pool doesn't read as identical rocks (organic — Bar 1).
+            var rng = new System.Random(seed);
+            float yaw = (float)(rng.NextDouble() * 360.0);
+            const float rockRadius = 0.58f;
+            // Lift so the rock base sits at ~ground and the outcrop rises UP (half-embedded — a bump UP, not a hole).
+            node.transform.position = groundPos + Vector3.up * (rockRadius * 0.55f);
+            node.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // Rock body — a chunky faceted boulder (grey), flat-shaded via the shared LowPolyVertexColor material.
+            var body = new GameObject("OreRock");
+            body.transform.SetParent(node.transform, false);
+            var bmf = body.AddComponent<MeshFilter>();
+            bmf.sharedMesh = LowPolyMeshes.FacetedRock(rockRadius, 0.42f, seed);
+            var bmr = body.AddComponent<MeshRenderer>();
+            if (rockMat != null) bmr.sharedMaterial = rockMat;
+
+            // Ore veins — 3 small rusty faceted lumps clustered on the upper surface (partially embedded), so the
+            // node reads as iron ORE in rock (Bar 3). Deterministic positions per node seed.
+            var veins = new GameObject("OreVeins");
+            veins.transform.SetParent(node.transform, false);
+            int veinCount = 3;
+            for (int v = 0; v < veinCount; v++)
+            {
+                float va = (float)(rng.NextDouble() * System.Math.PI * 2.0);
+                float vr = rockRadius * 0.55f;
+                var vpos = new Vector3(Mathf.Cos(va) * vr, rockRadius * (0.35f + 0.35f * (float)rng.NextDouble()),
+                                       Mathf.Sin(va) * vr);
+                var vein = new GameObject("Vein" + v);
+                vein.transform.SetParent(veins.transform, false);
+                vein.transform.localPosition = vpos;
+                var vmf = vein.AddComponent<MeshFilter>();
+                vmf.sharedMesh = LowPolyMeshes.FacetedRock(0.15f + 0.05f * (float)rng.NextDouble(), 0.5f, seed + 991 + v);
+                var vmr = vein.AddComponent<MeshRenderer>();
+                if (veinMat != null) vmr.sharedMaterial = veinMat;
+            }
+        }
+
+        private static float PlanarDistXZ(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
+        // A wired stone-PICKAXE pickup (I-2 soak-enabler). Mirrors BuildSpearPickup: the real stone-pickaxe FBX
+        // (I-1/#283) on the shared palette, laid on the ground, + a PickaxePickup component (grants pickaxe_stone
+        // to the belt on proximity). Placed CLEAR of spawn so it can't auto-grab slot 0 (the PR #224 class).
+        private static void BuildPickaxePickup(GameObject player)
+        {
+            var pick = new GameObject("PickaxePickup");
+            pick.transform.position = PickaxePickupPosition;
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.PickaxeStoneFbxPath);
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "PickaxeMesh";
+                mesh.transform.SetParent(pick.transform, false);
+                mesh.transform.localPosition = new Vector3(0f, 0.12f, 0f);
+                mesh.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean (matches the spear pickup)
+                ApplyWeaponPaletteMaterial(mesh);
+                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] stone pickaxe FBX not found at " + WeaponPackAssetGen.PickaxeStoneFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no pickaxe pickup mesh");
+            }
+
+            var pickup = pick.AddComponent<PickaxePickup>();
+            pickup.inventory = Object.FindObjectOfType<Inventory>();
+            pickup.player = player.transform;
+            pickup.visual = pick.transform;
+            if (pickup.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory to wire PickaxePickup to — BootstrapProject " +
+                               "must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored PickaxePickup at " + PickaxePickupPosition +
+                      " (inventory wired: " + (pickup.inventory != null) + ")");
+        }
+
+        // Wire the verification-only shipped-build MINE capture (grants+selects a pickaxe, mines a node, loots the
+        // ore pile) onto the Boot object — sibling of WireChopVerifyCapture. Inert unless launched with -verifyMine.
+        private static void WireMineVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host MineVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<MineVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<MineVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.mine = Object.FindObjectOfType<MineOre>();
+            cap.looter = Object.FindObjectOfType<PickableLooter>();
+            cap.pickaxePickup = Object.FindObjectOfType<PickaxePickup>();
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] MineVerifyCapture.player wiring is null — the player has no " +
+                               "ClickToMove (BuildPlayer must run before WireMineVerifyCapture)");
+            if (cap.mine == null)
+                Debug.LogError("[MovementCameraScene] MineVerifyCapture.mine wiring is null — BuildOreNodes must " +
+                               "author the MineOre before WireMineVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // The E-LOOT interactor (86caf7a6q): the PLAYER side of the shared E-loot surface. Pressing E loots the
         // nearest in-range IPickable (the berry bush; sticks/stones build on the same surface) into the
         // inventory. Authored editor-time onto the PLAYER so the component + its Inventory/player refs SERIALIZE
@@ -2374,6 +2641,22 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no LogPileSpawner in scene to back-wire PickableLooter onto — " +
                                "BuildChopTree must author the LogPileSpawner before BuildPickableLooter; a spawned " +
                                "log pile would never be looted (#165)");
+            }
+
+            // 86cakkmr0 (I-2) — SAME #165 back-wire for the OrePileSpawner: every runtime-spawned OrePile must
+            // register with this looter or it is never looted (the live build always has ≥1 serialized pickable).
+            // BuildOreNodes ran BEFORE BuildPickableLooter in Author, so the spawner exists here.
+            var orePileSpawner = Object.FindObjectOfType<OrePileSpawner>();
+            if (orePileSpawner != null)
+            {
+                orePileSpawner.looter = looter;
+                EditorUtility.SetDirty(orePileSpawner);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] no OrePileSpawner in scene to back-wire PickableLooter onto — " +
+                               "BuildOreNodes must author the OrePileSpawner before BuildPickableLooter; a spawned " +
+                               "ore pile would never be looted (#165)");
             }
 
             // LOOT PROXIMITY PROMPT (86cafc6ud AC2/AC3): the "Press E to pick up {name}" tooltip, authored on

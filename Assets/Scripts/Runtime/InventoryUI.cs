@@ -335,9 +335,16 @@ namespace FarHorizon
             }
         }
 
-        // The first letter of the display name, upper-cased (A axe / W wood / S stone / B berries).
-        private static string LetterChip(ItemDef def)
+        // The first letter of the display name, upper-cased (A axe / W wood / S stone / B berries), with a
+        // per-tool override where the first-letter default reads wrong. PICKAXE (both tiers) shows "P" (I-2
+        // 86cakkmr0 soak NIT: the DisplayName "Stone Pickaxe"/"Iron Pickaxe" first-charred to "S"/"I", but the
+        // Sponsor expects "P" for the pickaxe TYPE) — a targeted id override that leaves A/S (axe/spear) + every
+        // other letter untouched. Public static so the EditMode guard pins the pickaxe-"P" + the unbroken letters.
+        public static string LetterChip(ItemDef def)
         {
+            if (def != null &&
+                (def.Id == ItemCatalog.PickaxeStoneId || def.Id == ItemCatalog.PickaxeIronId))
+                return "P"; // the pickaxe TYPE letter, not the first char of its tier-prefixed name
             string n = def != null && !string.IsNullOrEmpty(def.DisplayName) ? def.DisplayName : def?.Id;
             return string.IsNullOrEmpty(n) ? "?" : n.Substring(0, 1).ToUpperInvariant();
         }
