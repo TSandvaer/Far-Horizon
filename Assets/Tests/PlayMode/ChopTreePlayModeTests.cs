@@ -36,9 +36,12 @@ namespace FarHorizon.PlayTests
     /// unit-asserted headlessly in EditMode (ChopClickGateTests over ChopTree.ShouldChopOnClick); these
     /// PlayMode tests cover the live click-drives-a-chop loop.
     ///
-    /// Headless time discipline (unity-conventions.md / playbook E6/E7): all waits are real Time.time /
-    /// WaitForSeconds windows — NEVER WaitForEndOfFrame (does not fire in -batchmode), NEVER per-frame
-    /// deltaTime assertions (deltaTime ≈ 0 headless). The swing + regrow are anchored on Time.time.
+    /// Headless time discipline (unity-conventions.md / playbook E6/E7): NEVER WaitForEndOfFrame (does not fire in
+    /// -batchmode), NEVER per-frame deltaTime assertions (deltaTime ≈ 0 headless). The cadence/fade/regrow gates are
+    /// anchored on an OWNED deterministic clock (86camdk1h) the test advances a fixed step per frame via
+    /// Step()/StepUntil — because headless -batchmode does NOT honor Time.captureDeltaTime (the #255 pin was
+    /// ineffective in CI), a wall-clock / captureDeltaTime window is non-deterministic and over-counts. See the
+    /// StableStep block below.
     /// </summary>
     public class ChopTreePlayModeTests
     {
@@ -54,26 +57,33 @@ namespace FarHorizon.PlayTests
         private LogPileSpawner _spawner;
         private PickableLooter _looter;
 
-        // 86cajt6j8 — STABLE-CLOCK HARNESS (FH-PMTRIAGE-CHOP). The hold-to-chop cadence gates
-        // (swingImpactDelaySeconds ~0.1s + the clip-completion window ~0.3s) are TIME-SPACED across many frames.
-        // Under a bare headless -batchmode run Time.deltaTime≈0 while Time.time leaps in coarse/variable wall-clock
-        // jumps, so a SINGLE frame's Time.time delta can exceed BOTH the impact delay AND the clip length: the
-        // impact resolves (one chop) AND the next swing begins in the same Update, collapsing the cadence and
-        // OVER-COUNTING chops (the run-28679257846 reds: 2 vs 1, 4 vs 1, 5 vs 3, 12 vs 5; and ChoppedTree fading
-        // before its 0.3s post-fell visible window). This is a HEADLESS-CLOCK artifact, NOT a real double-apply:
-        // ChoppableTreeState.LandChop increments once per call behind an IsChoppable guard, ApplyChopEffect is
-        // single-flighted by _impactPending, and the shipped -verifyChop capture PASSES at real framerate. Pinning
-        // Time.captureDeltaTime forces a FIXED virtual step per frame (decoupled from wall-clock, honoured in
-        // -batchmode) so each cadence window spans a DETERMINISTIC frame count — the gates hold exactly as they do
-        // at 60fps, so these tests still GUARD the machine-gun-chop bug class instead of being quarantined. Step
-        // 0.01s (100Hz) keeps every "tick N frames" assertion (max 20 frames = 0.2s) comfortably inside the
-        // smallest impact window (0.4s). Restored to 0 in TearDown so other test classes run on the normal clock.
-        private const float StableStepSeconds = 0.01f;
+        // 86camdk1h — OWNED DETERMINISTIC CLOCK (supersedes the #255 Time.captureDeltaTime pin, which was
+        // INEFFECTIVE in CI). The hold-to-chop cadence gates (swingImpactDelaySeconds + the clip-completion window)
+        // and each tree's fade/regrow timers are TIME-SPACED across many frames off Time.time. Under a bare
+        // headless -batchmode run Time.deltaTime≈0 while Time.time leaps in coarse/variable wall-clock jumps, so a
+        // SINGLE frame's Time.time delta can exceed a whole cadence window: the impact resolves (one chop) AND the
+        // next swing begins in the same Update, collapsing the cadence and OVER-COUNTING (the reds: 2 vs 1, 4 vs 1,
+        // 5 vs 3, 12 vs 5; ChoppedTree fading / trees regrowing before their windows). #255 pinned
+        // Time.captureDeltaTime to force a fixed virtual step — but headless -batchmode PlayMode does NOT honor
+        // captureDeltaTime (empirically: the pin is present at HEAD yet the over-count PERSISTS in CI — PR body).
+        // So instead the TEST OWNS the clock ChopTree reads (via the behavior-neutral, UNITY_INCLUDE_TESTS-stripped
+        // ChopTree.TestClock seam) and ADVANCES it a fixed StableStep every frame it steps — a WORKING
+        // captureDeltaTime. Each cadence/fade/regrow window then spans a DETERMINISTIC frame count regardless of
+        // the (un-honored) engine capture clock or the coarse headless wall-clock. The gates hold exactly as they
+        // do at 60fps, so these tests still GUARD the machine-gun-chop / too-fast-regrow bug class (a real
+        // regression still reds them) instead of being [Ignore]-quarantined. Step 0.01s (100Hz) keeps every "tick
+        // N frames" assertion (max 20 frames = 0.2s) comfortably inside the smallest impact window (0.4s). The
+        // production gate logic is UNCHANGED — only the clock SOURCE is injected (null → Time.time in the ship build).
+        private const float StableStep = 0.01f;
+
+        // The fake clock ChopTree.Now reads via TestClock. Advanced a fixed StableStep per frame by Step() below,
+        // so the Time.time-based cadence + fade/regrow gates advance deterministically (86camdk1h).
+        private float _now;
 
         [SetUp]
         public void SetUp()
         {
-            Time.captureDeltaTime = StableStepSeconds; // fixed virtual clock → deterministic cadence (86cajt6j8)
+            _now = 0f; // reset the owned clock each test (86camdk1h)
 
             // CastawayCharacter.Awake logs "modelPrefab not wired" in a bare rig (no scene FBX); ignore it — these
             // tests only exercise the chop MECHANIC + the TriggerChop latch, not the rendered model.
@@ -104,6 +114,11 @@ namespace FarHorizon.PlayTests
 
             _treeGo = new GameObject("ChopTree");
             _treeGo.transform.position = Vector3.zero;
+            // The demo tree needs a Renderer BEFORE ChopTree.Awake constructs its ChoppableTreeState, because the
+            // state captures GetComponentsInChildren<Renderer> at construction (in the real Boot scene the tree is
+            // a real mesh) — the fade-out/regrow test reads IsTreeVisible off those captured renderers. Adding it
+            // in the test body (post-construction) was too late → IsVisible saw an empty renderer set (86camdk1h).
+            _treeGo.AddComponent<MeshRenderer>();
             _tree = _treeGo.AddComponent<ChopTree>();
             _tree.inventory = _inv;
             _tree.player = _playerGo.transform;
@@ -124,6 +139,10 @@ namespace FarHorizon.PlayTests
             // it short (but ≥ the impact delay) so the headless hold tests advance quickly in wall-clock time while
             // still exercising the "next swing waits for the clip to finish" gate (cadence ≥ this, not the 0.1 impact).
             _tree.swingClipLengthSeconds = 0.3f;
+
+            // 86camdk1h — inject the OWNED deterministic clock. The setter propagates to instance 0 (the demo tree,
+            // already built in Awake during AddComponent above); scatter trees built later in Start inherit it too.
+            _tree.TestClock = () => _now;
         }
 
         [TearDown]
@@ -139,7 +158,6 @@ namespace FarHorizon.PlayTests
             foreach (var pile in Object.FindObjectsByType<LogPile>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 Object.Destroy(pile.gameObject);
             LogAssert.ignoreFailingMessages = false;
-            Time.captureDeltaTime = 0f; // restore the normal wall-clock for other test classes (86cajt6j8)
         }
 
         // Place the axe in the belt AND make it the selected belt item (CraftAxe puts it in slot 0, which is
@@ -152,23 +170,67 @@ namespace FarHorizon.PlayTests
 
         private void StandAtTree() => _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
 
-        // CHANGE 1 + refinement 3 — request ONE chop-click (the input-independent seam) then advance frames until
-        // the chop EFFECT has LANDED AT IMPACT (the click fires the swing now; the effect lands ~impactDelay
-        // later — refinement 3). One frame consumes the latch + schedules the impact; we then wait out the impact
-        // window so the effect (wood / deplete / fell) has applied before the caller asserts. A rejected click
-        // (out of range / no axe / over-UI) schedules nothing → ImpactPending stays false → the wait is one frame.
-        // UiInputGate is forced closed (no modal panel) so the headless gate decision is range + axe-selected only.
+        // 86camdk1h — advance the OWNED clock one fixed StableStep + tick one frame (the deterministic analog of a
+        // rendered capture frame). EVERY wait that expects the production cadence/fade/regrow to progress steps via
+        // these — a bare `yield return null` no longer advances the clock ChopTree reads, so bare yields are used
+        // ONLY where the assertion is that NOTHING happens (no click / no chop over N frames).
+        private IEnumerator Step()
+        {
+            _now += StableStep;
+            yield return null;
+        }
+        private IEnumerator StepFrames(int n) { for (int i = 0; i < n; i++) yield return Step(); }
+        // Advance until a condition holds, bounded by a DETERMINISTIC frame budget (never a wall-clock timeout — the
+        // owned clock is decoupled from real time) so a stuck condition fails fast instead of hanging the run.
+        private IEnumerator StepUntil(System.Func<bool> done, int maxFrames = 6000)
+        {
+            int f = 0;
+            while (!done() && f++ < maxFrames) yield return Step();
+        }
+
+        // CHANGE 1 + refinement 3 — request ONE chop-click (the input-independent seam) then advance the owned clock
+        // until the chop EFFECT has LANDED AT IMPACT (the click fires the swing now; the effect lands ~impactDelay
+        // later — refinement 3). One frame consumes the latch + schedules the impact; StepUntil then advances the
+        // clock across the impact window so the effect (deplete / fell) has applied before the caller asserts. A
+        // rejected click (out of range / no axe / over-UI) schedules nothing → ImpactPending stays false → StepUntil
+        // returns immediately (a ~2-frame no-op). UiInputGate is forced closed so the gate is range + axe-selected.
         private IEnumerator ClickChop()
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked); // ensure no modal-panel gate in the test
             _tree.RequestChopClick();
-            yield return null;                 // consume the latch → schedule the impact (or reject the click)
-            // Wait out the impact window so the effect has applied (bounded so a rejected click can't hang).
-            float start = Time.time;
-            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
-            yield return null;                 // one more frame for the impact-resolve Update to apply the effect
+            yield return Step();                              // consume the latch → schedule the impact (or reject)
+            yield return StepUntil(() => !_tree.ImpactPending); // advance across the impact window → effect lands
+            yield return Step();                              // one more frame for the impact-resolve Update to apply
         }
         private bool _gateTracked;
+
+        // === 86camdk1h AC(a) — EMPIRICAL PROBE: is Time.captureDeltaTime honored in headless -batchmode PlayMode? ===
+        // The ROOT-CAUSE evidence for why the #255 pin was ineffective. It sets captureDeltaTime to a fixed 0.01s
+        // virtual step, ticks 10 bare frames, and LOGS the measured per-frame Time.time advance + Time.deltaTime to
+        // playmode.log (grep `[clock-probe]`). If captureDeltaTime were honored the 10-frame advance would be ~0.10s
+        // and deltaTime ~0.01; in CI headless -batchmode it is NOT — which is exactly why the cadence gates
+        // over-counted WITH the pin present (see the PR body: the pin is at HEAD yet CI still reds). Restores
+        // captureDeltaTime to 0. Does NOT ASSERT the (env-dependent) honoring — it is pure evidence; the real cadence
+        // tests are clock-INDEPENDENT (they use the owned TestClock), so they pass regardless of this measurement.
+        [UnityTest]
+        public IEnumerator Probe_CaptureDeltaTime_Honoring_InHeadlessBatchmode()
+        {
+            const float pin = 0.01f;
+            const int frames = 10;
+            Time.captureDeltaTime = pin;
+            float t0 = Time.time;
+            for (int i = 0; i < frames; i++) yield return null; // BARE frames — measuring the ENGINE clock, not TestClock
+            float advance = Time.time - t0;
+            float lastDelta = Time.deltaTime;
+            bool honored = Mathf.Abs(advance - frames * pin) < frames * pin * 0.25f; // within 25% of the ideal 0.10s
+            Debug.Log($"[clock-probe] captureDeltaTime pin={pin} frames={frames} " +
+                      $"expectedAdvance={frames * pin:F4} actualAdvance={advance:F4} " +
+                      $"perFrame~{advance / frames:F5} lastDeltaTime={lastDelta:F5} captureDeltaTimeHonored={honored}");
+            Time.captureDeltaTime = 0f;
+
+            // Never-flaky sanity: Time.time is monotonic, so the probe ran + measured. The finding lives in the log.
+            Assert.GreaterOrEqual(advance, 0f, "[clock-probe] the probe measured a real (monotonic) engine clock");
+        }
 
         // === CHANGE 1 — at the tree WITHOUT a click does NOTHING (the proximity-auto trigger is REMOVED) ===
         [UnityTest]
@@ -178,9 +240,9 @@ namespace FarHorizon.PlayTests
             StandAtTree();
 
             // Stand in range, axe selected, but NEVER request a click — the old proximity-auto would have
-            // chopped here; the new left-click trigger must NOT.
-            float start = Time.time;
-            while (Time.time - start < 0.5f) yield return null;
+            // chopped here; the new left-click trigger must NOT. Advance the owned clock so a time-based
+            // proximity-auto regression would fire during this window (keeps the test LIVE, not clock-frozen).
+            yield return StepFrames(50);
 
             Assert.AreEqual(0, _inv.WoodCount, "standing at the tree WITHOUT a click must not chop (CHANGE 1)");
             Assert.AreEqual(0, _tree.Chops, "no click -> no chops land (proximity-auto is removed)");
@@ -353,16 +415,15 @@ namespace FarHorizon.PlayTests
             // NOT landed yet (no wood, no chop count, the tree is unchanged) — the down-stroke hasn't arrived.
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
             _tree.RequestChopClick();
-            yield return null; // consume the click → schedule impact
+            yield return Step(); // consume the click → schedule impact
             Assert.IsTrue(_tree.ImpactPending, "the swing fired + the impact is SCHEDULED (not yet applied)");
             Assert.AreEqual(0, _tree.Chops, "the chop EFFECT has NOT landed on the click frame (no depletion yet)");
             Assert.AreEqual(0, _inv.WoodCount, "no wood on the click frame — wood lands at IMPACT, not on click");
             Assert.IsTrue(_character.ConsumeChopTriggered(), "the SWING fired immediately on the click");
 
-            // Wait out the impact window — now the effect lands (wood + one chop).
-            float start = Time.time;
-            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
-            yield return null;
+            // Advance across the impact window — now the effect lands (one chop).
+            yield return StepUntil(() => !_tree.ImpactPending);
+            yield return Step();
             Assert.AreEqual(1, _tree.Chops, "the chop EFFECT lands AT IMPACT (one chop after the down-stroke)");
             // REWORK 86caf9u5t — a non-felling chop banks NO wood (the chop count, landed at impact, is the signal).
             Assert.AreEqual(0, _inv.WoodCount, "a non-felling chop banks no wood — the count is the impact signal (AC1)");
@@ -379,17 +440,16 @@ namespace FarHorizon.PlayTests
             // First click → schedules an impact.
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
             _tree.RequestChopClick();
-            yield return null;
+            yield return Step();
             Assert.IsTrue(_tree.ImpactPending, "first click scheduled an impact");
 
             // A SECOND click while the impact is pending must be ignored (no stack) — request several.
-            for (int i = 0; i < 4; i++) { _tree.RequestChopClick(); yield return null; }
+            for (int i = 0; i < 4; i++) { _tree.RequestChopClick(); yield return Step(); }
             Assert.IsTrue(_tree.ImpactPending, "still exactly ONE impact pending (the extra clicks were ignored)");
 
             // Let the single impact land — exactly ONE chop (not 1 + 4); the chop count is the single-flight signal.
-            float start = Time.time;
-            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
-            yield return null;
+            yield return StepUntil(() => !_tree.ImpactPending);
+            yield return Step();
             Assert.AreEqual(1, _tree.Chops, "one swing = one impact = ONE chop (the mid-swing clicks didn't stack)");
             Assert.AreEqual(0, _inv.WoodCount, "a non-felling chop banks no wood — no double-apply (REWORK AC1)");
         }
@@ -414,17 +474,15 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_tree.IsFelled, "tree felled (now fading)");
             Assert.IsTrue(_tree.IsTreeVisible, "right after felling, the tree is still visible (mid-fell, pre-fade)");
 
-            // Wait past the fade delay + the fade-out tween — the tree must FADE OUT + its renderers disable
-            // (gone; the ground is empty), but it has NOT yet regrown.
-            float start = Time.time;
-            while (Time.time - start < 1.4f && _tree.IsTreeVisible) yield return null;
+            // Advance past the fade delay + the fade-out tween — the tree must FADE OUT + its renderers disable
+            // (gone; the ground is empty), but it has NOT yet regrown (regrow 1.6–1.8 ≫ fade completion ~1.3).
+            yield return StepUntil(() => !_tree.IsTreeVisible);
             Assert.IsFalse(_tree.IsTreeVisible, "after the fade-out delay the tree disappears (renderers disabled)");
             Assert.IsTrue(_tree.IsTreeRemoved, "the faded tree is REMOVED (ground empty) — the persistent stump is gone");
             Assert.IsTrue(_tree.IsFelled, "still felled (awaiting regrow) — removal is not regrow");
 
-            // Wait past the regrow window — the tree regrows at the SAME spot, visible + choppable again (AC3).
-            start = Time.time;
-            while (Time.time - start < _tree.regrowthMaxSeconds + 1.5f && _tree.IsFelled) yield return null;
+            // Advance past the regrow window — the tree regrows at the SAME spot, visible + choppable again (AC3).
+            yield return StepUntil(() => !_tree.IsFelled);
             Assert.IsFalse(_tree.IsFelled, "the tree regrew after the timer (AC3 still applies post-fade)");
             Assert.IsTrue(_tree.IsTreeVisible, "the regrown tree is visible again (renderers re-enabled)");
             Assert.AreEqual(0, _tree.Chops, "a regrown tree resets its chop count — choppable anew");
@@ -454,9 +512,8 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_tree.IsFelled, "a felled tree stays felled through its regrow window");
             Assert.AreEqual(chopsAtFell, _tree.Chops, "a felled tree takes no further chops (clicking it does nothing)");
 
-            // Wait past the max regrow time + the rise tween — the stump regrows into a standing tree.
-            float start = Time.time;
-            while (Time.time - start < _tree.regrowthMaxSeconds + 1.5f && _tree.IsFelled) yield return null;
+            // Advance past the max regrow time + the rise tween — the stump regrows into a standing tree.
+            yield return StepUntil(() => !_tree.IsFelled);
             Assert.IsFalse(_tree.IsFelled, "the stump regrew into a standing tree after the timer (AC3)");
             Assert.AreEqual(0, _tree.Chops, "a regrown tree resets its chop count — it can be chopped anew");
 
@@ -478,19 +535,18 @@ namespace FarHorizon.PlayTests
         // THEN wait out the CLIP-COMPLETION cadence gate (86caf7a0p re-iter — the next swing can't begin until the
         // current swing's clip finishes). Returns when the swing's effect has applied AND the cadence gate is open
         // for the next swing (or after a bounded wait if no swing began — e.g. felled / out of range).
+        // 86camdk1h — advance the OWNED clock across exactly ONE more COMPLETED held swing (its impact = one chop).
+        // With the deterministic clock a HELD chain re-arms the next swing the instant the current clip completes,
+        // so "wait until SwingInProgress is false" never sees a stable edge — the robust primitive is to advance
+        // until the chop COUNT increments by one. The production single-flight (one impact per swing) + clip-
+        // completion (next swing waits for the clip) gates guarantee that's exactly one swing at a time; a
+        // machine-gun / over-pacing regression is caught by the count-window tests (HoldChain_OneImpactPerSwing /
+        // HoldChain_NextSwingWaitsForClipToFinish), not by this stepper. Bounded; called only when a chop is due.
         private IEnumerator StepHeldSwing()
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
-            // One frame to begin the swing (the held chain logic schedules the impact this frame if eligible).
-            yield return null;
-            // Wait out the impact window so the chop EFFECT lands before the caller asserts (bounded).
-            float start = Time.time;
-            while (_tree.ImpactPending && Time.time - start < 2f) yield return null;
-            yield return null; // one more frame for the impact-resolve Update to apply the effect
-            // Wait out the CLIP-COMPLETION cadence gate so the NEXT StepHeldSwing can actually begin a swing
-            // (the swing clip plays PAST the impact; the next swing is gated on it finishing). Bounded.
-            start = Time.time;
-            while (_tree.SwingInProgress && Time.time - start < 2f) yield return null;
+            int before = _tree.Chops;
+            yield return StepUntil(() => _tree.Chops > before);
         }
 
         // === AC1 — HOLDING LMB repeats swings: N swings land N chops, no double-apply (REWORK: wood drops on fell,
@@ -518,9 +574,9 @@ namespace FarHorizon.PlayTests
 
             // RELEASE — the chain stops; no further swings even across many frames.
             _tree.SetChopHeld(false);
-            yield return null; // the release-frame drops the lock
+            yield return Step(); // the release-frame drops the lock
             Assert.IsFalse(_tree.IsChopChainActive, "releasing LMB stops the chain (no lock)");
-            for (int i = 0; i < 10; i++) yield return null;
+            yield return StepFrames(10);
             Assert.AreEqual(3, _tree.Chops, "after release, NO further chops land (the repeat stopped)");
         }
 
@@ -538,8 +594,8 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(0, _inv.WoodCount, "one click → one chop, NO wood (wood drops on fell — REWORK AC1)");
             Assert.IsFalse(_tree.IsChopChainActive, "a single click never leaves a chain running");
 
-            // Many idle frames → no repeat.
-            for (int i = 0; i < 12; i++) yield return null;
+            // Many idle frames (owned clock advancing) → no repeat.
+            yield return StepFrames(12);
             Assert.AreEqual(1, _tree.Chops, "a single click does NOT repeat — exactly one swing");
         }
 
@@ -565,7 +621,7 @@ namespace FarHorizon.PlayTests
 
             // STILL HOLDING, but the tree is felled — no further swing at the empty/falling tree (the chop count
             // is the signal; wood drops on fell as the pile, not banked here — REWORK 86caf9u5t).
-            for (int i = 0; i < 12; i++) yield return null;
+            yield return StepFrames(12);
             Assert.AreEqual(_tree.chopsToFell, _tree.Chops, "no chops at a felled tree even while still holding (AC2)");
             Assert.IsFalse(_tree.IsChopChainActive, "the chain stays stopped while held over the felled tree");
         }
@@ -579,24 +635,22 @@ namespace FarHorizon.PlayTests
             StandAtTree();
             _tree.chopsToFell = 10;
             _tree.swingImpactDelaySeconds = 0.4f;  // a wide impact window so many frames tick during ONE swing
+            _tree.swingClipLengthSeconds = 0.5f;   // clip > impact → after the impact the clip-gate blocks the next swing
 
             _tree.SetChopHeld(true);
-            yield return null; // begin the first swing (schedules impact)
+            yield return Step(); // begin the first swing (schedules impact)
             Assert.IsTrue(_tree.ImpactPending, "the first held swing scheduled exactly one impact");
 
             // Tick MANY frames while still holding + impact pending — NOT ONE extra swing/impact may begin (the
             // single-flight guard makes the cadence one-swing-per-impact, independent of frame rate / poll count).
-            for (int i = 0; i < 20; i++) yield return null;
+            yield return StepFrames(20); // 20 * 0.01 = 0.2s, still comfortably inside the 0.4s impact window
             Assert.AreEqual(0, _tree.Chops, "no impact has landed yet (still within the one impact window)");
 
-            // Let the single impact resolve → exactly ONE chop (not 1-per-frame).
-            float start = Time.time;
-            while (_tree.ImpactPending && Time.time - start < 1f) yield return null;
-            yield return null;
-            Assert.AreEqual(1, _tree.Chops, "exactly ONE chop per swing — the 20 idle frames did NOT stack impacts");
-
+            // Let the single impact resolve → exactly ONE chop (not 1-per-frame), then RELEASE so the chain adds no more.
+            yield return StepUntil(() => _tree.Chops >= 1);
             _tree.SetChopHeld(false);
-            yield return null;
+            yield return Step();
+            Assert.AreEqual(1, _tree.Chops, "exactly ONE chop per swing — the 20 idle frames did NOT stack impacts");
         }
 
         // ============================================================================================
@@ -619,35 +673,34 @@ namespace FarHorizon.PlayTests
             _tree.swingClipLengthSeconds = 0.5f;   // ...but the CLIP runs much longer — the cadence must track THIS
 
             _tree.SetChopHeld(true);
-            yield return null;                     // begin the first swing
+            yield return Step();                   // begin the first swing
             Assert.IsTrue(_tree.ImpactPending, "the first swing scheduled its impact");
 
-            // Let the FIRST swing's impact resolve (one chop), but the CLIP is still playing afterward.
-            float start = Time.time;
-            while (_tree.ImpactPending && Time.time - start < 2f) yield return null;
-            yield return null;
+            // Let the FIRST swing's impact resolve (one chop), but the CLIP is still playing afterward (clip > impact).
+            yield return StepUntil(() => _tree.Chops >= 1);
+            float firstChopAt = _now;
             Assert.AreEqual(1, _tree.Chops, "the first completed swing landed exactly one chop at impact");
             Assert.IsTrue(_tree.SwingInProgress,
                 "the swing CLIP is still playing AFTER its impact (cadence is gated on clip completion, not impact)");
 
-            // Tick MANY frames while the clip is still in progress — NO second swing/chop may begin (the animation
-            // must finish first). This is the regression guard for the over-pacing bug.
-            int chopsBefore = _tree.Chops;
-            start = Time.time;
-            while (_tree.SwingInProgress && Time.time - start < 2f)
-            {
-                Assert.IsFalse(_tree.ImpactPending,
-                    "NO new swing began while the current swing clip is still playing (animation must finish first)");
-                yield return null;
-            }
-            Assert.AreEqual(chopsBefore, _tree.Chops, "no extra chop landed during the clip-in-progress window");
+            // The regression guard for the over-pacing bug ("animation not allowed to finish → tree goes down too
+            // fast"): advance a window LONGER than the impact delay (0.1s) but SHORTER than the clip (0.5s) and prove
+            // NO second chop lands — the next swing must WAIT for the CLIP, not fire again at the impact delay. A
+            // machine-gun regression (cadence gated on impact, not clip) would land a 2nd chop inside this window.
+            yield return StepFrames(20); // 0.2s: past the 0.1s impact delay but well inside the 0.5s clip
+            Assert.AreEqual(1, _tree.Chops, "NO 2nd chop within the impact-delay window — the next swing waits for the CLIP");
+            Assert.IsTrue(_tree.SwingInProgress, "the clip is STILL playing 0.2s after the impact (cadence ≥ clip length)");
 
-            // Once the clip finishes, the next swing begins — exactly ONE more chop.
-            yield return StepHeldSwing();
+            // Once the clip finishes, the next swing begins — exactly ONE more chop, and it lands ≥ one CLIP length
+            // after the first (cadence rides clip completion, not the shorter impact delay).
+            yield return StepUntil(() => _tree.Chops >= 2);
+            float secondChopAt = _now;
             Assert.AreEqual(2, _tree.Chops, "after the clip FINISHED, exactly ONE more chop landed (the next swing)");
+            Assert.GreaterOrEqual(secondChopAt - firstChopAt, _tree.swingClipLengthSeconds - 0.05f,
+                "the 2nd chop lands ≥ one CLIP length after the 1st — the cadence tracks clip completion, not the impact delay");
 
             _tree.SetChopHeld(false);
-            yield return null;
+            yield return Step();
         }
 
         // === RE-ITER 2 — ONE completed swing = exactly ONE chop across a hold: N completed swings yield N chops,
@@ -793,14 +846,14 @@ namespace FarHorizon.PlayTests
 
             // STILL HOLDING — the standing neighbour must NOT be auto-chopped (AC2 default: re-press required).
             int chopsOnStandingBefore = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
-            for (int i = 0; i < 12; i++) yield return null;
+            yield return StepFrames(12);
             int chopsOnStandingAfter = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
             Assert.AreEqual(chopsOnStandingBefore, chopsOnStandingAfter,
                 "the standing neighbour is NOT auto-chopped while the button stays held (re-press required, AC2)");
 
             // RE-PRESS (release then hold) — a fresh press starts a NEW chain on the standing neighbour.
             _genTree.SetChopHeld(false);
-            yield return null;
+            yield return Step();
             _genTree.SetChopHeld(true);
             yield return StepHeldSwingGen();
             int chopsOnStandingAfterRepress = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
@@ -833,10 +886,9 @@ namespace FarHorizon.PlayTests
 
             // HOLD → the chain locks on the nearest (instance 1 at ~0.42 vs instance 2 at ~0.96). Fell it in one swing.
             _genTree.SetChopHeld(true);
-            yield return null;                        // begin the felling swing (schedules impact)
-            float start = Time.time;
-            while (_genTree.ImpactPending && Time.time - start < 2f) yield return null;
-            yield return null;                        // apply the fell at impact
+            yield return Step();                      // begin the felling swing (schedules impact)
+            yield return StepUntil(() => !_genTree.ImpactPending);
+            yield return Step();                      // apply the fell at impact
             Assert.IsTrue(_genTree.IsFelledOn(1), "the locked tree felled on its single swing");
             // The felling swing's CLIP is still playing — without the N1 reset, SwingInProgress would still be true
             // and would block the re-press below. With the reset (fell OPENS the gate), it is already clear.
@@ -847,22 +899,21 @@ namespace FarHorizon.PlayTests
             // fresh swing must schedule an impact on the very next frames — NOT wait out the prior swing's clip.
             int chopsBefore = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
             _genTree.SetChopHeld(false);
-            yield return null;
+            yield return Step();
             _genTree.SetChopHeld(true);
-            yield return null;                        // the fresh press — must begin a swing THIS frame (gate open)
+            yield return Step();                      // the fresh press — must begin a swing THIS frame (gate open)
             Assert.IsTrue(_genTree.ImpactPending,
                 "a re-press within the clip window fires a FRESH swing immediately (AC1) — not blocked by the stale gate");
 
             // ...and that swing lands its chop on the neighbour (proving the immediate fire actually connected).
-            start = Time.time;
-            while (_genTree.ImpactPending && Time.time - start < 2f) yield return null;
-            yield return null;
+            yield return StepUntil(() => !_genTree.ImpactPending);
+            yield return Step();
             int chopsAfter = _genTree.IsFelledOn(1) ? _genTree.ChopsOn(2) : _genTree.ChopsOn(1);
             Assert.Greater(chopsAfter, chopsBefore,
                 "the immediate re-press swing chopped the standing neighbour within the felled swing's clip window");
 
             _genTree.SetChopHeld(false);
-            yield return null;
+            yield return Step();
         }
 
         // === Out of range with the axe selected — a click never chops (proximity is required too) ===
@@ -925,6 +976,11 @@ namespace FarHorizon.PlayTests
             _genTree.regrowSeed = 999;
             _genTree.swingImpactDelaySeconds = 0.1f; // refinement 3: short impact delay for the scatter tests
             _genTree.swingClipLengthSeconds = 0.3f;  // 86caf7a0p re-iter — short clip-completion cadence (no Animator)
+
+            // 86camdk1h — the scatter rig shares the OWNED clock, so its cadence/fade/regrow are deterministic too.
+            // Set BEFORE the `yield return null` that runs Start(): the setter propagates to instance 0 now, and the
+            // scatter LP_Tree instances built in Start inherit it (ChopTree.NewState), so all read one clock.
+            _genTree.TestClock = () => _now;
         }
 
         [TearDown]
@@ -938,25 +994,30 @@ namespace FarHorizon.PlayTests
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
             _genTree.RequestChopClick();
-            yield return null;                 // schedule the impact (refinement 3)
-            float start = Time.time;
-            while (_genTree.ImpactPending && Time.time - start < 1f) yield return null;
-            yield return null;                 // apply the effect at impact
+            yield return Step();                                 // schedule the impact (refinement 3)
+            yield return StepUntil(() => !_genTree.ImpactPending); // advance across the impact window
+            yield return Step();                                 // apply the effect at impact
         }
 
         // HOLD-TO-CHOP (86caf7a0p) — step ONE swing of a HELD chain on the scatter rig (the SetChopHeld seam must
         // already be true). Mirrors StepHeldSwing for the _genTree scatter component, incl. the 86caf7a0p re-iter
         // clip-completion wait so the next StepHeldSwingGen can actually begin a swing.
+        // Total chops across every scatter instance — the chain locks ONE tree, so this increments by exactly one
+        // per completed held swing (the demo instance-0 is far away + untouched in the scatter tests).
+        private int GenTotalChops()
+        {
+            int t = 0;
+            for (int i = 0; i < _genTree.InstanceCount; i++) t += _genTree.ChopsOn(i);
+            return t;
+        }
+
+        // Advance the owned clock across exactly ONE more COMPLETED held swing on the LOCKED scatter tree (the
+        // chop-count form — see StepHeldSwing for why "wait for SwingInProgress false" can't be used on a held chain).
         private IEnumerator StepHeldSwingGen()
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
-            yield return null;                 // begin the swing (schedule impact this frame if eligible)
-            float start = Time.time;
-            while (_genTree.ImpactPending && Time.time - start < 2f) yield return null;
-            yield return null;                 // apply the effect at impact
-            // Wait out the clip-completion cadence gate (the next swing is gated on the clip finishing).
-            start = Time.time;
-            while (_genTree.SwingInProgress && Time.time - start < 2f) yield return null;
+            int before = GenTotalChops();
+            yield return StepUntil(() => GenTotalChops() > before);
         }
 
         // === CHANGE (a) — the resolver tracks the demo tree + every scatter tree ===
@@ -1028,10 +1089,8 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(_genTree.chopsToFell, _genTree.ChopsOn(1), "a felled stump takes no further chops (not choppable)");
             Assert.IsTrue(_genTree.IsFelledOn(1), "the stump persists through its own regrow window (AC4)");
 
-            // Wait past instance 1's regrow window — it regrows into a standing, choppable tree, independently.
-            float start = Time.time;
-            while (Time.time - start < _genTree.regrowthMaxSeconds + 1.5f && _genTree.IsFelledOn(1))
-                yield return null;
+            // Advance past instance 1's regrow window — it regrows into a standing, choppable tree, independently.
+            yield return StepUntil(() => !_genTree.IsFelledOn(1));
             Assert.IsFalse(_genTree.IsFelledOn(1), "the stump regrew into a standing tree after its own timer (AC3)");
             Assert.AreEqual(0, _genTree.ChopsOn(1), "the regrown tree reset its chop count");
 
