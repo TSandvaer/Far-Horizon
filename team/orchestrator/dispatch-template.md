@@ -72,6 +72,7 @@ Replace placeholders with the task-specific scope. Skip the block only for trivi
 - The `git checkout -B` always force-creates from `origin/main`. Don't try to recover prior in-flight work — every dispatch starts fresh.
 - Other agents may be in flight in parallel; their worktrees + file scopes are documented in your task-specific brief above. No file overlap is expected; if you find one, surface it (don't blind-resolve).
 - **Reviewer-side checkout pattern** (when reviewing a PR whose branch is still claimed by the author's worktree): use `git fetch origin pull/<n>/head:pr-<n>-review && git checkout pr-<n>-review` OR `git checkout --detach origin/<author-branch>`. Do NOT use `gh pr checkout` if the author's worktree is still bound to the head ref — it yanks the branch out from under the author (worktree-concurrency race).
+- **Worktree cleanup = NAMED STASH ONLY (added 2026-07-08, process-incident).** When leaving a worktree clean after a QA/review/bootstrap run, park churn via `git stash push -m "<who>-<task>-churn"` — NEVER `git checkout -- .` or `git reset --hard`. A tree-wide discard is irreversible and uninstructed (it trips the harness's destructive-action warning in auto mode); a named stash keeps the discard reviewable and recoverable. (Incident: team/log/process-incidents.md 2026-07-08 — no damage, but only by luck of the content being machine churn.)
 ```
 
 Replace `<your-role>` with the literal role name (priya / uma / devon / drew / tess) and `<task-name>` with a kebab-case task slug.

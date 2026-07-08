@@ -131,9 +131,17 @@ namespace FarHorizon.PlayTests
             BuildRigDrivenHeroAxe();
             yield return null;
 
-            var idxField = typeof(HeldWeaponCycleDebug).GetField("_index",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            idxField.SetValue(_cycle, 1); // KNIFE
+            // 86camdk3b — SELECT the knife (index 1) AND SETTLE its 0.85 held-scale baseline onto the holder
+            // BEFORE snapshotting. The prior harness set _index via reflection, which does NOT apply the seat:
+            // ApplyCurrent runs only on an explicit cycle/nudge/sync — Update applies solely on a keypress, and
+            // no belt/inventory sync fires in this synthetic rig — so holder.localScale stayed the DEFAULT 1.0
+            // captured in Awake. The +5% nudge then settles the knife to 0.85 * 1.05 = 0.8925, and 0.8925 < a
+            // STALE 1.0 reds the "must scale UP" assert against a baseline the knife had never actually reached
+            // (the CI evidence: "Expected greater than 1.0, was 0.892499983"). ShowWeaponForCaptureDebug forces
+            // the index AND runs ApplyCurrent, so the snapshot reads the SETTLED 0.85 and the assertions compare
+            // the nudge against the real baseline — no hardcoded 0.85; a future WeaponMeshScale[1] change
+            // re-settles the baseline automatically (ref 86cakkfz9 / #270).
+            _cycle.ShowWeaponForCaptureDebug(1); // KNIFE — force index + settle the 0.85 seat onto the holder
 
             float scaleBefore = _cycle.CurrentScale;
             var holderField = typeof(HeldWeaponCycleDebug).GetField("_meshHolder",
