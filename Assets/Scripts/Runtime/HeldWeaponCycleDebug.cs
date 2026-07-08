@@ -191,8 +191,9 @@ namespace FarHorizon
             new Vector3(-0.020f, 0.020f, 0.000f),    // knife (Sponsor-dialed d306552)
             new Vector3(-0.020f, 0.040f, 0.000f),    // sword (Sponsor-dialed d306552)
             new Vector3(-0.020f, 0.560f, 0.000f),    // spear (Sponsor-dialed d306552)
-            Vector3.zero,                            // pickaxe stone (86cam9q5f — axe-seat start; shares the haft)
-            Vector3.zero,                            // pickaxe iron  (86cam9q5f — axe-seat start; shares the haft)
+            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
+            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe iron  (86cakkmr0 — SHARES the stone seat: both tiers
+                                                     //   share the family haft/grip + head geometry by construction)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
@@ -207,8 +208,8 @@ namespace FarHorizon
             Vector3.zero,   // knife
             Vector3.zero,   // sword
             Vector3.zero,   // spear
-            Vector3.zero,   // pickaxe stone (86cam9q5f)
-            Vector3.zero,   // pickaxe iron  (86cam9q5f)
+            new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
+            new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe iron  (86cakkmr0 — SHARES the stone seat: same family haft/head)
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)
