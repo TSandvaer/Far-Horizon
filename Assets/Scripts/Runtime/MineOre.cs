@@ -174,7 +174,7 @@ namespace FarHorizon
         public bool ImpactPending => _impactPending;
 
         /// <summary>True while the CURRENT swing's clip is still playing (a held chain waits for it before the next swing).</summary>
-        public bool SwingInProgress => Time.time < _swingEndsAt;
+        public bool SwingInProgress => Now < _swingEndsAt;
 
         /// <summary>The effective per-swing clip DURATION for the current tool-use speed (live clip length else the
         /// serialized fallback, ÷ chopSpeed) — the minimum spacing between two completed hold swings.</summary>
@@ -197,6 +197,55 @@ namespace FarHorizon
 
         /// <summary>True while a given tracked node is ENABLED (active in the pool per the rarity dial).</summary>
         public bool IsNodeEnabled(int index) => index >= 0 && index < _nodes.Count && _nodes[index].Enabled;
+
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86camf3xe — TEST-ONLY deterministic clock (public seam, STRIPPED from ship builds via
+        /// UNITY_INCLUDE_TESTS; the project has no InternalsVisibleTo, so the "public for tests" seam convention
+        /// applies — mirrors ChopTree.TestClock, PR #288 / 86camdk1h). A PlayMode test injects this fake clock and
+        /// advances it a fixed step per frame — a WORKING captureDeltaTime — making the <c>Time.time</c>-based
+        /// cadence gates (impact / clip-completion / cooldown) AND each node's break/fade/regrow SCHEDULING
+        /// deterministic and clock-INDEPENDENT while keeping the SAME shipped gate logic LIVE (a real machine-gun /
+        /// double-apply / too-fast-regrow regression still reds the tests). Setting it propagates to every
+        /// already-created <see cref="MineableNodeState"/>; nodes discovered later in Start inherit it via
+        /// <see cref="NewNodeState"/>. Null → <c>Time.time</c> (the default), so even in a test build an unset
+        /// clock is production-identical.</summary>
+        public System.Func<float> TestClock
+        {
+            get => _testClock;
+            set
+            {
+                _testClock = value;
+                for (int i = 0; i < _nodes.Count; i++) _nodes[i].TestClock = value;
+            }
+        }
+        private System.Func<float> _testClock;
+#endif
+
+        /// <summary>The scheduling/cadence clock the gates read. <c>Time.time</c> in the shipped IL2CPP build (the
+        /// TestClock seam above is compiled out, so this is a plain <c>Time.time</c> read — production
+        /// byte-identical); a PlayMode test may override it deterministically (86camf3xe, mirrors ChopTree.Now).</summary>
+        private float Now
+        {
+            get
+            {
+#if UNITY_INCLUDE_TESTS
+                if (_testClock != null) return _testClock();
+#endif
+                return Time.time;
+            }
+        }
+
+        // Create a per-node state, propagating the test clock (86camf3xe) so nodes discovered in Start (after a
+        // PlayMode test injects TestClock in SetUp) read the SAME deterministic clock. In the shipped build this is
+        // a plain `new MineableNodeState(...)` (the propagation strips out — production byte-identical).
+        private MineableNodeState NewNodeState(Transform visual, int seed)
+        {
+            var s = new MineableNodeState(visual, seed);
+#if UNITY_INCLUDE_TESTS
+            s.TestClock = _testClock;
+#endif
+            return s;
+        }
 
         void Awake()
         {
@@ -244,7 +293,7 @@ namespace FarHorizon
                 Transform child = root.GetChild(i);
                 if (child.name == OreNodeName)
                 {
-                    _nodes.Add(new MineableNodeState(child, DeriveSeed(idx)));
+                    _nodes.Add(NewNodeState(child, DeriveSeed(idx)));
                     idx++;
                 }
                 else if (child.childCount > 0)
@@ -297,7 +346,7 @@ namespace FarHorizon
             // Resolve a PENDING IMPACT when its scheduled time arrives (the strike EFFECT lands at the swing's
             // down-stroke, not on the click frame). Before reading new input so a held chain can begin the next
             // swing the same frame the impact resolves.
-            if (_impactPending && Time.time >= _impactAt)
+            if (_impactPending && Now >= _impactAt)
             {
                 _impactPending = false;
                 MineableNodeState t = _pendingTarget;
@@ -366,8 +415,8 @@ namespace FarHorizon
             }
 
             // Inter-swing cooldown.
-            if (Time.time - _lastStrikeAt < Mathf.Max(0f, strikeInterval)) return;
-            _lastStrikeAt = Time.time;
+            if (Now - _lastStrikeAt < Mathf.Max(0f, strikeInterval)) return;
+            _lastStrikeAt = Now;
 
             _chainTarget = target;
             BeginMineSwing(target);
@@ -469,10 +518,10 @@ namespace FarHorizon
                 : 1f;
             float delay = Mathf.Max(0f, swingImpactDelaySeconds) / Mathf.Max(0.0001f, speed);
             _pendingTarget = target;
-            _impactAt = Time.time + delay;
+            _impactAt = Now + delay;
             _impactPending = true;
 
-            _swingEndsAt = Time.time + Mathf.Max(delay, ComputeSwingDuration());
+            _swingEndsAt = Now + Mathf.Max(delay, ComputeSwingDuration());
         }
 
         private float ComputeSwingDuration()
@@ -514,7 +563,7 @@ namespace FarHorizon
             }
             if (broke)
                 MineTrace("node BROKEN after " + target.Strikes + " strikes; regrow in " +
-                          (target.RegrowAt - Time.time).ToString("F0") + "s");
+                          (target.RegrowAt - Now).ToString("F0") + "s");
         }
 
         // [mine-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call + its
@@ -530,8 +579,11 @@ namespace FarHorizon
     /// regrows at the same spot on its own random timer. <see cref="Enabled"/> gates whether the node participates
     /// (the ore-rarity dial disables pool nodes beyond ActiveNodeCount — a disabled node hides + is not mineable).
     ///
-    /// Wall-clock paced via Time.unscaledDeltaTime + Time.time (headless deltas ~0, so a headless run lands at each
-    /// tween's end state quickly — unity-conventions.md headless-time discipline). NO mutable statics.
+    /// Tween-STEPPED via <see cref="_dt"/> (Time.unscaledDeltaTime in the ship build; the injected test clock's
+    /// per-frame advance under a PlayMode test) and SCHEDULED via <see cref="Now"/> (Time.time in the ship build;
+    /// the injected test clock under a test). The test seam (86camf3xe, mirrors ChoppableTreeState / PR #288) makes
+    /// the break/fade/regrow timers deterministic headlessly instead of freezing on Time.unscaledDeltaTime≈0 — the
+    /// shipped build is byte-identical (the seam compiles out). NO mutable statics.
     /// </summary>
     public class MineableNodeState
     {
@@ -558,6 +610,37 @@ namespace FarHorizon
         private bool _shaking;
         private float _shakeT;
         private float _shakeDeg;
+
+        // 86camf3xe — this Tick's tween STEP delta (set at the top of Tick). Time.unscaledDeltaTime in the shipped
+        // build (production unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected
+        // test clock's per-frame advance under a PlayMode test, so the break/fade/regrow tweens complete in a
+        // DETERMINISTIC fixed-step frame count instead of FREEZING on the headless -batchmode Time.unscaledDeltaTime≈0
+        // (the historical regrow red: the tween never advanced → the node never regrew). The tween Step* methods read
+        // this field, never Time.unscaledDeltaTime directly. Mirrors ChoppableTreeState._dt (PR #288 / 86camdk1h).
+        private float _dt;
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86camf3xe — TEST-ONLY deterministic clock (STRIPPED from ship builds via UNITY_INCLUDE_TESTS),
+        /// set by the owning <see cref="MineOre"/> to its injected fake clock so a PlayMode test's fixed-step clock
+        /// drives this node's break/fade/regrow SCHEDULING (Now) AND its tween STEPPING (_dt) deterministically.
+        /// Null → <c>Time.time</c> (production-identical). Mirrors ChoppableTreeState.TestClock.</summary>
+        public System.Func<float> TestClock;
+        private float _prevNow;      // previous Tick's clock sample (to derive the fixed-step tween delta)
+        private bool _prevNowSet;
+#endif
+
+        /// <summary>The SCHEDULING clock this node's break/fade/regrow timers read. <c>Time.time</c> in the shipped
+        /// build (the TestClock seam is compiled out → a plain <c>Time.time</c> read, production byte-identical);
+        /// a test clock when the owning MineOre injects one (86camf3xe). Tween STEPPING rides <see cref="_dt"/>.</summary>
+        private float Now
+        {
+            get
+            {
+#if UNITY_INCLUDE_TESTS
+                if (TestClock != null) return TestClock();
+#endif
+                return Time.time;
+            }
+        }
 
         private const float BreakDuration = 0.4f;
         private const float FadeOutDuration = 0.7f;
@@ -631,19 +714,35 @@ namespace FarHorizon
 
         public void Tick()
         {
+            // 86camf3xe — this frame's tween step delta. Time.unscaledDeltaTime in the shipped build (production
+            // unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected test clock's
+            // per-frame advance under a PlayMode test, so the tweens complete in a DETERMINISTIC frame count
+            // headlessly instead of freezing on Time.unscaledDeltaTime≈0. Computed EVERY Tick (even while disabled)
+            // so a tween that starts later has a consistent step (no accumulated gap from Ticks that ran no Step*).
+            _dt = Time.unscaledDeltaTime;
+#if UNITY_INCLUDE_TESTS
+            if (TestClock != null)
+            {
+                float now = TestClock();
+                _dt = _prevNowSet ? now - _prevNow : 0f;
+                _prevNow = now;
+                _prevNowSet = true;
+            }
+#endif
+
             if (!_enabled) return;
             if (_breaking) { StepBreaking(); return; }
             if (_fadingOut) { StepFadeOut(); return; }
             if (_regrowing) { StepRegrow(); return; }
             if (_removed)
             {
-                if (Time.time >= _regrowAt) BeginRegrow();
+                if (Now >= _regrowAt) BeginRegrow();
                 return;
             }
             if (_broken)
             {
-                if (Time.time >= _regrowAt) { BeginRegrow(); return; }
-                if (Time.time >= _fadeAt) BeginFadeOut();
+                if (Now >= _regrowAt) { BeginRegrow(); return; }
+                if (Now >= _fadeAt) BeginFadeOut();
                 return;
             }
             if (_shaking) StepShake();
@@ -661,7 +760,7 @@ namespace FarHorizon
                 _broken = true;
                 _shaking = false;
                 BeginBreaking();
-                _fadeAt = Time.time + FadeOutDelaySeconds;
+                _fadeAt = Now + FadeOutDelaySeconds;
                 ScheduleRegrow(regrowthMinSeconds, regrowthMaxSeconds);
                 return true;
             }
@@ -679,7 +778,7 @@ namespace FarHorizon
         private void StepShake()
         {
             if (_visual == null) { _shaking = false; return; }
-            _shakeT += Time.unscaledDeltaTime;
+            _shakeT += _dt;
             float k = Mathf.Clamp01(_shakeT / ShakeDuration);
             float tip = Mathf.Sin(k * Mathf.PI) * _shakeDeg;
             _visual.rotation = _standRot * Quaternion.Euler(tip, 0f, 0f);
@@ -702,7 +801,7 @@ namespace FarHorizon
             float min = Mathf.Max(0f, regrowthMinSeconds);
             float max = Mathf.Max(min, regrowthMaxSeconds);
             float delay = min + (float)_rng.NextDouble() * (max - min);
-            _regrowAt = Time.time + delay;
+            _regrowAt = Now + delay;
         }
 
         private void BeginBreaking()
@@ -718,7 +817,7 @@ namespace FarHorizon
         private void StepBreaking()
         {
             if (_visual == null) { _breaking = false; return; }
-            _tweenT += Time.unscaledDeltaTime;
+            _tweenT += _dt;
             float k = Mathf.Clamp01(_tweenT / BreakDuration);
             float ease = k * k * (3f - 2f * k);
             _visual.position = _standPos + BreakDrop * ease;
@@ -731,7 +830,7 @@ namespace FarHorizon
         private void StepFadeOut()
         {
             if (_visual == null) { _fadingOut = false; _removed = true; return; }
-            _tweenT += Time.unscaledDeltaTime;
+            _tweenT += _dt;
             float k = Mathf.Clamp01(_tweenT / FadeOutDuration);
             float ease = k * k * (3f - 2f * k);
             _visual.localScale = _standScale * (1f - ease);
@@ -761,7 +860,7 @@ namespace FarHorizon
         private void StepRegrow()
         {
             if (_visual == null) { _regrowing = false; _broken = false; _strikes = 0; return; }
-            _tweenT += Time.unscaledDeltaTime;
+            _tweenT += _dt;
             float k = Mathf.Clamp01(_tweenT / RegrowRiseDuration);
             float ease = k * k * (3f - 2f * k);
             _visual.localScale = _standScale * Mathf.Max(0.001f, ease);

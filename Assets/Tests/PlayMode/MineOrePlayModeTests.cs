@@ -21,12 +21,25 @@ namespace FarHorizon.PlayTests
     ///   the SWING — each strike fires the melee swing (CastawayCharacter.TriggerChop latches ChopTriggered);
     ///   HOLD-TO-MINE — holding LMB repeats swings until the node breaks / release;
     ///   REGROW — a broken node regrows after the (tweakable) timer into a mineable node;
-    ///   the RARITY DIAL — ActiveNodeCount enables/disables pool nodes live (the ore-rarity difficulty dial).
+    ///   the RARITY DIAL — ActiveNodeCount enables/disables pool nodes live (the ore-rarity difficulty dial);
+    ///   the STAY-LIVE GUARD — the next held swing waits for the CLIP to finish (cadence ≥ clip length), so a real
+    ///        machine-gun / un-pinned-clock mining-cadence regression still REDS the suite (86camf3xe).
     ///
     /// The pure guard truth-table is unit-asserted headlessly in EditMode (MineClickGateTests over
-    /// MineOre.ShouldMineOnClick). Headless time discipline (unity-conventions.md): all waits are real
-    /// Time.time / WaitForSeconds windows; the stable-clock harness (Time.captureDeltaTime) pins the cadence
-    /// gates deterministically (the 86cajt6j8 fix — the chop-cadence over-count trap applies identically here).
+    /// MineOre.ShouldMineOnClick); these PlayMode tests cover the live click-drives-a-strike loop.
+    ///
+    /// === Headless time discipline (86camf3xe — mirrors ChopTreePlayModeTests / PR #288 / 86camdk1h) ===
+    /// The hold-to-mine cadence gates (swingImpactDelaySeconds + the clip-completion window) and each node's
+    /// break/fade/regrow timers are TIME-SPACED across many frames. Two headless -batchmode traps invalidated the
+    /// prior <c>Time.captureDeltaTime</c> pin here: (A) the old <c>while (SwingInProgress)</c>/wall-clock steppers
+    /// let a HELD chain auto-re-arm the next swing before the loop saw a stable edge → OVER-COUNT (HoldingLmb 3→6);
+    /// (B) the break/fade/regrow tweens rode <c>Time.unscaledDeltaTime</c>, which is ≈0 in headless -batchmode, so
+    /// the regrow tween FROZE — the node never regrew (BrokenNode_RegrowsAfterTimer stayed Broken=True). So instead
+    /// the TEST OWNS the clock MineOre reads (via the behavior-neutral, UNITY_INCLUDE_TESTS-stripped
+    /// <see cref="MineOre.TestClock"/> seam) and ADVANCES it a fixed <see cref="StableStepSeconds"/> per stepped
+    /// frame — a WORKING captureDeltaTime that also drives the tween <c>_dt</c>. Each cadence/fade/regrow window
+    /// then spans a DETERMINISTIC frame count; the production gate logic is UNCHANGED (null clock → Time.time in the
+    /// ship build). A bare <c>yield return null</c> is used ONLY where the assertion is that NOTHING happens.
     /// </summary>
     public class MineOrePlayModeTests
     {
@@ -37,13 +50,17 @@ namespace FarHorizon.PlayTests
         private PickableLooter _looter;
         private MineOre _mine;
 
+        // 86camf3xe — OWNED DETERMINISTIC CLOCK step (supersedes the ineffective Time.captureDeltaTime pin). 0.01s
+        // (100Hz) keeps every "tick N frames" assertion comfortably inside the smallest impact window (0.1s here).
         private const float StableStepSeconds = 0.01f;
+        // The fake clock MineOre.Now reads via TestClock. Advanced a fixed StableStepSeconds per frame by Step().
+        private float _now;
         private bool _gateTracked;
 
         [SetUp]
         public void SetUp()
         {
-            Time.captureDeltaTime = StableStepSeconds; // fixed virtual clock → deterministic cadence (86cajt6j8)
+            _now = 0f;                                 // reset the owned clock each test (86camf3xe)
             LogAssert.ignoreFailingMessages = true;    // bare-rig CastawayCharacter "modelPrefab not wired" etc.
 
             _invGo = new GameObject("Inventory");
@@ -88,6 +105,10 @@ namespace FarHorizon.PlayTests
             _mine.regrowthMaxSeconds = 0.6f;
             _mine.regrowSeed = 24680;
             _mine.activeNodeCount = 3;     // all 3 pool nodes enabled for the mine tests
+
+            // 86camf3xe — inject the OWNED deterministic clock. The nodes are built in Start (first stepped frame)
+            // via MineOre.NewNodeState, which propagates this clock to each MineableNodeState (setter + Start-time).
+            _mine.TestClock = () => _now;
         }
 
         [TearDown]
@@ -98,7 +119,6 @@ namespace FarHorizon.PlayTests
             foreach (var pile in Object.FindObjectsByType<OrePile>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 Object.Destroy(pile.gameObject);
             LogAssert.ignoreFailingMessages = false;
-            Time.captureDeltaTime = 0f;
         }
 
         private static void MakeNode(Transform parent, Vector3 pos)
@@ -120,16 +140,35 @@ namespace FarHorizon.PlayTests
 
         private int OreCount() => _inv.Model.CountItem(ItemCatalog.IronOreId);
 
-        // Request ONE mine-click then advance frames until the strike EFFECT has LANDED AT IMPACT. Mirrors the chop
-        // ClickChop() helper. A rejected click schedules nothing → ImpactPending stays false → the wait is one frame.
+        // 86camf3xe — advance the OWNED clock one fixed StableStep + tick one frame (the deterministic analog of a
+        // rendered capture frame). EVERY wait that expects the production cadence/fade/regrow to progress steps via
+        // these — a bare `yield return null` no longer advances the clock MineOre reads, so bare yields are used
+        // ONLY where the assertion is that NOTHING happens (no click / no strike over N frames).
+        private IEnumerator Step()
+        {
+            _now += StableStepSeconds;
+            yield return null;
+        }
+        private IEnumerator StepFrames(int n) { for (int i = 0; i < n; i++) yield return Step(); }
+        // Advance until a condition holds, bounded by a DETERMINISTIC frame budget (never a wall-clock timeout — the
+        // owned clock is decoupled from real time) so a stuck condition fails fast instead of hanging the run.
+        private IEnumerator StepUntil(System.Func<bool> done, int maxFrames = 6000)
+        {
+            int f = 0;
+            while (!done() && f++ < maxFrames) yield return Step();
+        }
+
+        // Request ONE mine-click (the input-independent seam) then advance the owned clock until the strike EFFECT
+        // has LANDED AT IMPACT (the click fires the swing now; the effect lands ~impactDelay later). Mirrors the chop
+        // ClickChop() helper. A rejected click (out of range / no pickaxe / over-UI) schedules nothing → ImpactPending
+        // stays false → StepUntil returns immediately (a ~2-frame no-op). UiInputGate is forced closed.
         private IEnumerator ClickMine()
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
             _mine.RequestMineClick();
-            yield return null; // consume the latch → schedule the impact (or reject the click)
-            float start = Time.time;
-            while (_mine.ImpactPending && Time.time - start < 1f) yield return null;
-            yield return null; // one more frame for the impact-resolve Update to apply the effect
+            yield return Step();                                // consume the latch → schedule the impact (or reject)
+            yield return StepUntil(() => !_mine.ImpactPending); // advance across the impact window → effect lands
+            yield return Step();                                // one more frame for the impact-resolve Update to apply
         }
 
         // === FOLDED NEGATIVE (Tess NIT 2) — at a node WITH a pickaxe selected but NO click does NOTHING ===
@@ -140,9 +179,9 @@ namespace FarHorizon.PlayTests
             SelectPickaxe();
 
             // Stand in range, pickaxe selected, but NEVER request a click — the #224 proximity-auto would have
-            // mined here; the active-left-click trigger must NOT.
-            float start = Time.time;
-            while (Time.time - start < 0.5f) yield return null;
+            // mined here; the active-left-click trigger must NOT. Advance the owned clock so a time-based
+            // proximity-auto regression would fire during this window (keeps the test LIVE, not clock-frozen).
+            yield return StepFrames(50);
 
             Assert.AreEqual(0, OreCount(), "standing at the node WITHOUT a click must not mine (no proximity-auto)");
             Assert.AreEqual(0, _mine.StrikesOn(0), "no click -> no strikes land (proximity-auto is not present)");
@@ -160,7 +199,7 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(1, _mine.StrikesOn(0), "ONE click -> exactly ONE strike (one strike per click)");
             Assert.IsFalse(_mine.IsBrokenOn(0), "one strike of three does not break the node");
 
-            // A second frame WITHOUT a new click does not strike again.
+            // A second frame WITHOUT a new click does not strike again (bare yield — asserting NOTHING happens).
             yield return null;
             Assert.AreEqual(1, _mine.StrikesOn(0), "no further strike without a NEW click (one strike per click)");
         }
@@ -251,21 +290,23 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_mine.IsBrokenOn(0), "not yet broken (strikesToBreak=6, only 3 swings)");
 
             _mine.SetMineHeld(false);
-            yield return null;
+            yield return Step(); // the release-frame drops the lock
             Assert.IsFalse(_mine.IsMineChainActive, "releasing LMB stops the chain");
-            for (int i = 0; i < 10; i++) yield return null;
+            yield return StepFrames(10);
             Assert.AreEqual(3, _mine.StrikesOn(0), "after release, NO further strikes land");
         }
 
+        // 86camf3xe — advance the OWNED clock across exactly ONE more COMPLETED held swing (its impact = one strike).
+        // With the deterministic clock a HELD chain re-arms the next swing the instant the current clip completes, so
+        // "wait until SwingInProgress is false" never sees a stable edge — the robust primitive is to advance until
+        // the STRIKE count increments by one. The production single-flight (one impact per swing) + clip-completion
+        // (next swing waits for the clip) gates guarantee that's exactly one swing at a time; a machine-gun /
+        // over-pacing regression is caught by the count-window tests, not by this stepper. Bounded; called when due.
         private IEnumerator StepHeldSwing()
         {
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
-            yield return null;
-            float start = Time.time;
-            while (_mine.ImpactPending && Time.time - start < 2f) yield return null;
-            yield return null;
-            start = Time.time;
-            while (_mine.SwingInProgress && Time.time - start < 2f) yield return null;
+            int before = _mine.StrikesOn(0);
+            yield return StepUntil(() => _mine.StrikesOn(0) > before);
         }
 
         // === REGROW — a broken node regrows after the timer into a mineable node ===
@@ -278,9 +319,9 @@ namespace FarHorizon.PlayTests
             for (int i = 0; i < _mine.strikesToBreak; i++) yield return ClickMine();
             Assert.IsTrue(_mine.IsBrokenOn(0), "node broken");
 
-            // Wait past the max regrow + tweens — the node regrows, mineable anew.
-            float start = Time.time;
-            while (Time.time - start < _mine.regrowthMaxSeconds + 2.5f && _mine.IsBrokenOn(0)) yield return null;
+            // Advance past the break-crumble + max regrow + rise tweens — the node regrows, mineable anew. (Under the
+            // owned clock the regrow tween ADVANCES deterministically; the prior Time.unscaledDeltaTime≈0 froze it.)
+            yield return StepUntil(() => !_mine.IsBrokenOn(0));
             Assert.IsFalse(_mine.IsBrokenOn(0), "the node regrew after the timer");
             Assert.AreEqual(0, _mine.StrikesOn(0), "a regrown node resets its strike count");
 
@@ -315,6 +356,50 @@ namespace FarHorizon.PlayTests
             _mine.SetActiveNodeCount(99);
             yield return null;
             Assert.AreEqual(3, _mine.ActiveNodeCount, "a dial above the pool clamps to the pool size (no over-reach)");
+        }
+
+        // === STAY-LIVE GUARD (86camf3xe — the ticket's named regression proof, the sibling of the chop
+        //     HoldChain_NextSwingWaitsForClipToFinish guard) — the next held swing is GATED on the swing CLIP
+        //     completing (cadence ≥ clip length), NOT the shorter impact delay. A machine-gun regression (cadence
+        //     gated on impact, or the clock un-pinned) lands a 2nd strike inside the impact-delay window → this REDS.
+        [UnityTest]
+        public IEnumerator HoldChain_NextStrikeWaitsForClipToFinish_NotImpactDelay()
+        {
+            yield return null; // Start discovers the pool
+            SelectPickaxe();
+            _mine.strikesToBreak = 10;
+            _mine.swingImpactDelaySeconds = 0.1f;  // impact lands EARLY (mid-clip)...
+            _mine.swingClipLengthSeconds = 0.5f;   // ...but the CLIP runs much longer — the cadence must track THIS
+
+            UiInputGate.SetPanelOpen(false, ref _gateTracked);
+            _mine.SetMineHeld(true);
+            yield return Step();                   // begin the first swing (schedules the impact)
+            Assert.IsTrue(_mine.ImpactPending, "the first held swing scheduled its impact");
+
+            // Let the first swing's impact resolve (one strike); the CLIP is still playing afterward (clip > impact).
+            yield return StepUntil(() => _mine.StrikesOn(0) >= 1);
+            float firstStrikeAt = _now;
+            Assert.AreEqual(1, _mine.StrikesOn(0), "the first completed swing landed exactly one strike at impact");
+            Assert.IsTrue(_mine.SwingInProgress,
+                "the swing CLIP is still playing AFTER its impact (cadence gated on clip completion, not impact)");
+
+            // The regression guard for the over-pacing bug: advance a window LONGER than the impact delay (0.1s) but
+            // SHORTER than the clip (0.5s) and prove NO 2nd strike lands — the next swing must WAIT for the CLIP. A
+            // machine-gun regression (cadence gated on impact, not clip) would land a 2nd strike inside this window.
+            yield return StepFrames(20); // 0.2s: past the 0.1s impact delay but well inside the 0.5s clip
+            Assert.AreEqual(1, _mine.StrikesOn(0), "NO 2nd strike within the impact-delay window — the next swing waits for the CLIP");
+            Assert.IsTrue(_mine.SwingInProgress, "the clip is STILL playing 0.2s after the impact (cadence ≥ clip length)");
+
+            // Once the clip finishes, the next swing begins — exactly ONE more strike, ≥ one CLIP length after the
+            // first (cadence rides clip completion, not the shorter impact delay).
+            yield return StepUntil(() => _mine.StrikesOn(0) >= 2);
+            float secondStrikeAt = _now;
+            Assert.AreEqual(2, _mine.StrikesOn(0), "after the clip FINISHED, exactly ONE more strike landed (the next swing)");
+            Assert.GreaterOrEqual(secondStrikeAt - firstStrikeAt, _mine.swingClipLengthSeconds - 0.05f,
+                "the 2nd strike lands ≥ one CLIP length after the 1st — the cadence tracks clip completion, not the impact delay");
+
+            _mine.SetMineHeld(false);
+            yield return Step();
         }
     }
 }
