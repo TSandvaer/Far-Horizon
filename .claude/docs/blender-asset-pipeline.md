@@ -107,6 +107,8 @@ The "start with a Plane/Cube" rule above is for the FIRST asset in a family. Whe
 
 The biface diamond/lens cross-section used for in-line blade heads (axe/knife/sword/spear) thins toward its top ridge — fine when the haft meets the head from below, but it fails for a **crosswise-mounted head** whose eye the haft passes straight THROUGH: where the eye overlaps the haft's TOP, the hex haft's corners poke through the head's sloped upper faces as a visible wood-notch defect. **Widening the diamond does NOT fix it** — the section fundamentally cannot enclose a box near its ridge (cost 2 iterations to diagnose on the pickaxe burst). **Fix:** model the eye segment (the short run the haft passes through) as its own **BOX section** — flat top over the haft cap, wide enough to fully enclose the haft — then transition to diamond/tapered sections for the arms. Keep the eye box modest or the head reads as a mushroom cap (an iteration-3 defect): `~0.06 × 0.06 × 0.084` against the family's `~0.05`-diameter haft was the fit that read correctly. In-line biface heads are unaffected — keep the diamond/lens language for those.
 
+**The crosswise class ALSO needs its own in-hand seat euler (PR #283 finding, merged):** a crosswise-mounted head seated at an in-line weapon's dialed rig rotation presents EDGE-ON to the camera — it reads blade-like, not a T-tool, even though the mesh is correct. The axe-seat baseline is a valid mechanical start (shared haft/grip origin), but plan a per-tool seat dial (Sponsor picker/F9, per [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]) for every crosswise tool — do NOT copy an in-line sibling's euler and call the look done, and do NOT guess-dial it yourself.
+
 ---
 
 ## 4. Shading — Shade Smooth + Mark Sharp (Blender 4.1+)

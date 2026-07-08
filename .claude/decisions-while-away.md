@@ -418,3 +418,34 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Alternative:** queue the NIT for the sponsor walkthrough (delays a mechanical S-ticket for no decision value).
 - **Reversibility:** delete/close the ticket; 1 click.
 - **Status:** accepted 2026-07-07 (Sponsor, /sponsor-questions-walkthrough popup)
+
+## 2026-07-07 ~22:1x UTC — Advisement: dupe-close 3 orphaned island-2.0 placeholder subtasks (Priya ADVISEMENT NEEDED)
+
+- **Decided:** advised Priya (first advisor-loop escalation under the new fable-advisor policy) to dupe-close placeholder subtasks 86cahwx91 (C2) / 86cahwxb3 (C3) / 86cahwxf1 (C4) as superseded — the real C2/C3/C4 landed under standalone tickets 86cakk4w8/86cakk4x2/86cakk4xf, all complete with merged PRs #271/#277/#278; parent 86cahwwvg closed complete this tick.
+- **Foundation:** [[clickup-task-management-full-autonomy]] + dupe-close is in Priya's standing hygiene mandate (CLAUDE.md "Priya owns the board"); the superseding tickets are complete with merged-PR evidence.
+- **Alternative:** leave 3 dead "to do" placeholders inflating the open board (the noise class behind the 2026-06-28 idle-failure).
+- **Reversibility:** reopen the 3 subtasks; 1 click each.
+- **Status:** pending review
+
+## 2026-07-07 ~22:5x UTC — Filed PR #281 NIT-1 as follow-up ticket 86cama43f (auto-decide, pre-cleared class)
+
+- **Decided:** created XS ticket `86cama43f` (document the keystone guards' coverage boundary in NextIslandPocTests.cs) verbatim from Devon's APPROVE_WITH_NITS comment 4909467226 NIT-1 on PR #281; sequenced after #281 merges (same file).
+- **Foundation:** user-global orchestrator-autonomy rule 6 "NITs-ticket-creation from APPROVE_WITH_NITS" — doc-only, file-derivable scope, no new scope added.
+- **Alternative:** queue for the sponsor walkthrough (no decision value for a comment-only XS).
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
+
+## 2026-07-07 ~23:0x UTC — Filed Tess's playmode changed-behavior note as investigation ticket 86cama53u (auto-decide)
+
+- **Decided:** created S-M investigation ticket `86cama53u` (advisory playmode job now COMPLETES with 10 real failures on main — was documented as hangs-at-enter) verbatim from Tess's #279 QA note N3 + orchestrator note (comment 4909506137; main run 28817657531 cited). Triage-only scope; advisory→required flip explicitly OOS (sponsor ci.yml call).
+- **Foundation:** rule-6 mechanical follow-up class (scope verbatim from a QA note with run-ID evidence) + [[scan-board-before-filing-followups]] dedupe (no existing ticket covers the 10-failure set; 86cajt6k4 covers only the 13 quarantined INVUI tests).
+- **Alternative:** leave the changed CI behavior undocumented until it surprises a merge gate.
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
+
+## 2026-07-08 ~09:0x UTC — Filed PR #287 NIT (mine-tests clock inheritance) as ticket 86camf3xe (auto-decide, pre-cleared class)
+
+- **Decided:** created S ticket `86camf3xe` (apply #288's TestClock pattern to MineOrePlayModeTests) verbatim from Devon's APPROVE_WITH_NITS comment 4912697997 on PR #287; sequenced after #287+#288 merge.
+- **Foundation:** rule-6 NITs-ticket class — reviewer-enumerated, XML-evidenced (12-vs-10 delta), scope mechanical (apply an existing merged pattern).
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
