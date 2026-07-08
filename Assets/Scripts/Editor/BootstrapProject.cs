@@ -438,8 +438,8 @@ namespace FarHorizon.EditorTools
 
             // U2-2 (86ca8bdaq): the inventory seed — the held-resource ledger (HasAxe / WoodCount) the
             // craft step writes and U2-5's HUD reads. SERIALIZED here editor-time (NOT Awake) per the
-            // editor-vs-runtime trap. Added BEFORE MovementCameraScene.Author so CraftSpot (authored
-            // there) finds + wires this Inventory.
+            // editor-vs-runtime trap. Added BEFORE MovementCameraScene.Author so the crafting-table
+            // placement + recipe menu (86camz9uz ①, authored there) find + wire this Inventory.
             var inventory = survivalGo.AddComponent<Inventory>();
 
             // HUNGER (86caamkp8): the second survival need — hunger decays as a SLOWER background

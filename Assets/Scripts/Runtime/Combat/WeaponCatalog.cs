@@ -30,6 +30,16 @@ namespace FarHorizon.Combat
         /// <summary>Iron pickaxe id (matches ItemCatalog.PickaxeIronId "pickaxe_iron").</summary>
         public const string PickaxeIronId = "pickaxe_iron";
 
+        // === WOOD-tier weapon ids (ticket 86camz9uz / crafting-redesign ① — §6b). Match the ItemCatalog
+        // wood ids so the belt-item → WeaponDef lookup binds (the axe/spear precedent). The wood tier is the
+        // crudest rung; combat WIRING for wood tools (chop/mine/attack verbs) is ②+/follow-up — these defs
+        // exist so the id resolves in BOTH catalogs (① success test) + future held-tool/verb resolution. ===
+        public const string AxeWoodId = "axe_wood";
+        public const string PickaxeWoodId = "pickaxe_wood";
+        public const string SpearWoodId = "spear_wood";
+        public const string DaggerWoodId = "dagger_wood";
+        public const string SwordWoodId = "sword_wood";
+
         // === Named default attributes (the single source AC4/AC10 read; NOT magic literals) ===
         // AXE — Slash, medium reach, hits harder up close, faster cadence, a light bleed on hit.
         public const float AxeDamage = 14f;
@@ -51,6 +61,26 @@ namespace FarHorizon.Combat
         public const float PickaxeIronDamage = 12f;
         public const float PickaxeIronReach = 2.1f;
         public const float PickaxeIronAttackSpeed = 1.2f;
+        // WOOD tier (ticket 86camz9uz ①) — the crudest rung, ~0.7× the stone-tier where a stone baseline
+        // exists (§7-B). Reach is a physical length (unscaled by tier); wood weapons carry NO on-hit status
+        // (bleed is the forged stone-axe's edge). dagger/sword have no stone WeaponDef yet, so their wood stats
+        // are standalone predictions. ALL 🎚️ default — Sponsor-soak tunes (combat with wood tools is ②+, so
+        // these do not yet drive gameplay). Opaque animationIds name a future swing (unwired in ①).
+        public const float AxeWoodDamage = 10f;      // ~0.7×14
+        public const float AxeWoodReach = 2.0f;
+        public const float AxeWoodAttackSpeed = 1.3f;
+        public const float PickaxeWoodDamage = 6f;   // ~0.7×8
+        public const float PickaxeWoodReach = 2.0f;
+        public const float PickaxeWoodAttackSpeed = 0.95f;
+        public const float SpearWoodDamage = 6f;     // ~0.7×9
+        public const float SpearWoodReach = 3.6f;
+        public const float SpearWoodAttackSpeed = 0.85f;
+        public const float DaggerWoodDamage = 6f;    // fast + short (no stone baseline)
+        public const float DaggerWoodReach = 1.6f;
+        public const float DaggerWoodAttackSpeed = 1.8f;
+        public const float SwordWoodDamage = 12f;    // reach + heft (no stone baseline)
+        public const float SwordWoodReach = 2.4f;
+        public const float SwordWoodAttackSpeed = 1.15f;
 
         [SerializeField] private List<WeaponDef> _all = new List<WeaponDef>();
         private Dictionary<string, WeaponDef> _byId;
@@ -109,7 +139,27 @@ namespace FarHorizon.Combat
                 PickaxeIronDamage, PickaxeIronReach, PickaxeIronAttackSpeed, DamageType.Slash,
                 StatusEffectSpec.None, "pickaxe_mine");
 
-            SetAll(new[] { axe, spear, pickaxeStone, pickaxeIron });
+            // WOOD tier (ticket 86camz9uz ①) — mint the 5 wood weapon defs so the wood ids resolve in the
+            // weapon lane too (① success test: "wood ids resolve in both catalogs"). No on-hit status (wood is
+            // cruder than forged stone). Ids match the ItemCatalog wood ids.
+            var axeWood = WeaponDef.Create(AxeWoodId, "Wood Axe",
+                AxeWoodDamage, AxeWoodReach, AxeWoodAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "axe_chop");
+            var pickaxeWood = WeaponDef.Create(PickaxeWoodId, "Wood Pickaxe",
+                PickaxeWoodDamage, PickaxeWoodReach, PickaxeWoodAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "pickaxe_mine");
+            var spearWood = WeaponDef.Create(SpearWoodId, "Wood Spear",
+                SpearWoodDamage, SpearWoodReach, SpearWoodAttackSpeed, DamageType.Pierce,
+                StatusEffectSpec.None, "spear_thrust");
+            var daggerWood = WeaponDef.Create(DaggerWoodId, "Wood Dagger",
+                DaggerWoodDamage, DaggerWoodReach, DaggerWoodAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "dagger_stab");
+            var swordWood = WeaponDef.Create(SwordWoodId, "Wood Sword",
+                SwordWoodDamage, SwordWoodReach, SwordWoodAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "sword_slash");
+
+            SetAll(new[] { axe, spear, pickaxeStone, pickaxeIron,
+                           axeWood, pickaxeWood, spearWood, daggerWood, swordWood });
         }
     }
 }

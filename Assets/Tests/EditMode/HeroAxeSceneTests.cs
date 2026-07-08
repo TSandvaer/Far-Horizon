@@ -295,38 +295,10 @@ namespace FarHorizon.EditTests
                 "HeldAxeRig.clampCeilingAboveShoulder must be removed (the detaching world-Y clamp is reverted).");
         }
 
-        [Test]
-        public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
-        {
-            // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the
-            // chopping-block stump and visible FROM SPAWN (the always-on-screen hero axe + the walk-here
-            // cue). It is gated as the INVERSE of HasAxe (StumpAxe): shown at spawn, hidden once crafted.
-            // Drop the plant or its wiring and this reds in CI rather than re-shipping the empty stump.
-            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-            var stumpAxe = FindByNameInScene(MovementCameraScene.StumpAxeObjectName);
-            Assert.IsNotNull(stumpAxe,
-                $"the Boot scene must carry the '{MovementCameraScene.StumpAxeObjectName}' GameObject — the " +
-                "axe planted in the stump, visible from spawn (the Sponsor's 'stump is there but no axe')");
-
-            var mf = stumpAxe.GetComponentInChildren<MeshFilter>(true);
-            Assert.IsNotNull(mf, "the stump axe must carry a MeshFilter (the sourced hatchet mesh)");
-            Assert.IsNotNull(mf.sharedMesh, "the stump axe's mesh must be serialized into the scene");
-            Assert.Greater(mf.sharedMesh.vertexCount, 20,
-                "the stump axe must be the real sourced hatchet mesh, not a placeholder primitive");
-
-            // The INVERSE gate must be wired editor-time (serialized), so the stump axe shows at spawn and
-            // hides on craft without an Awake-time scene search in the build.
-            var stump = stumpAxe.GetComponent<StumpAxe>();
-            Assert.IsNotNull(stump, "the stump axe must carry the StumpAxe component (inverse-HasAxe gate)");
-            Assert.IsNotNull(stump.inventory,
-                "StumpAxe.inventory must be wired editor-time (serialized) — the component-not-serialized trap");
-
-            // It must be parented under the CraftSpot (rides the stump), not free-floating.
-            bool underCraftSpot = false;
-            Transform t = stumpAxe.transform;
-            while (t != null) { if (t.GetComponent<CraftSpot>() != null) { underCraftSpot = true; break; } t = t.parent; }
-            Assert.IsTrue(underCraftSpot, "the stump axe must be parented under the CraftSpot (planted in the stump)");
-        }
+        // 86camz9uz ① — BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated is REMOVED: the CraftSpot
+        // stump + its planted always-visible axe are RETIRED (replaced by the place-to-build crafting table +
+        // the now-active world AxePickup as the single visible spawn axe). The held HeroAxe (the tests above/
+        // below) is unchanged. The visible spawn axe is now guarded by InventorySceneTests (AxePickup active).
 
         [Test]
         public void BootScene_CarriesAxeVerifyCapture_OnTheBootObject()

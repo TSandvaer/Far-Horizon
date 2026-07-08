@@ -48,31 +48,11 @@ namespace FarHorizon.EditTests
                 .FirstOrDefault();
         }
 
-        // === CraftVerifyCapture (-verifyCraft): player (ClickToMove) + inventory ===
-        [Test]
-        public void BootScene_CraftVerifyCapture_HasWiredPlayerAndInventory_BoundToSceneInstances()
-        {
-            var scene = OpenBoot();
-            var cap = FindInScene<CraftVerifyCapture>(scene);
-            Assert.IsNotNull(cap,
-                "the Boot scene must carry CraftVerifyCapture serialized (the -verifyCraft shipped-build gate; " +
-                "component-not-serialized trap)");
-
-            Assert.IsNotNull(cap.player,
-                "CraftVerifyCapture.player must be wired editor-time (the ClickToMove the harness drives to the " +
-                "craft spot) — an Awake FindObjectByType fallback exists but is the non-ship path; a dropped " +
-                "wiring must fail HERE (CI step 2), not silently re-resolve then mis-resolve in the 20-min gate");
-            Assert.IsNotNull(cap.inventory,
-                "CraftVerifyCapture.inventory must be wired editor-time (the harness reads HasAxe to gate PASS)");
-
-            var ctm = FindInScene<ClickToMove>(scene);
-            var inv = FindInScene<Inventory>(scene);
-            Assert.AreSame(ctm, cap.player,
-                "CraftVerifyCapture.player must be THE scene's ClickToMove (binding-identity: a stale/duplicate " +
-                "ref drives the wrong agent — the #162-class wrong-instance failure the gate exists to prevent)");
-            Assert.AreSame(inv, cap.inventory,
-                "CraftVerifyCapture.inventory must be THE scene's Inventory (binding-identity)");
-        }
+        // === CraftVerifyCapture REMOVED (86camz9uz ①) ===
+        // The -verifyCraft gate + CraftVerifyCapture are retired with the CraftSpot stump (there is no free
+        // craft-on-arrival to prove any more). The place-to-build table's visual proof is the CraftingTable
+        // side-profile capture + the CraftingMenu PlayMode gate; its scene presence is guarded by
+        // CraftingTableSceneTests. The Chop/Campfire capture deps below are unchanged.
 
         // === ChopVerifyCapture (-verifyChop): player (ClickToMove) + inventory + chop (ChopTree) ===
         [Test]

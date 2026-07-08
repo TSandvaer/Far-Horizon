@@ -46,23 +46,9 @@ namespace FarHorizon.EditTests
                 "without an Awake-time FindObjectOfType in the build");
         }
 
-        [Test]
-        public void BootScene_CarriesCraftSpot_WiredToInventoryAndPlayer()
-        {
-            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-
-            CraftSpot spot = FindInScene<CraftSpot>(scene);
-            Assert.IsNotNull(spot,
-                "the Boot scene must carry the CraftSpot — the loop's entry interaction the castaway " +
-                "click-moves to (unity-conventions.md editor-vs-runtime trap: serialized, not Awake-built)");
-            Assert.IsNotNull(spot.inventory,
-                "CraftSpot's Inventory reference must be wired editor-time so reaching the spot writes the " +
-                "crafted axe without an Awake-time scene search in the build");
-            Assert.IsNotNull(spot.player,
-                "CraftSpot's player reference (the moving agent root) must be wired editor-time so the " +
-                "proximity check has a target without an Awake-time scene search in the build");
-            Assert.Greater(spot.craftRadius, 0f, "craftRadius must be positive — a zero radius never crafts");
-        }
+        // 86camz9uz ① — the CraftSpot auto-craft stump is RETIRED (replaced by the place-to-build crafting
+        // table). Its scene-presence guard moves to CraftingTableSceneTests (the table + ghost + menu +
+        // placement). The Inventory + SurvivalHud guards above are unchanged (still the loop's ledger + HUD).
 
         private static T FindInScene<T>(Scene scene) where T : Component
         {

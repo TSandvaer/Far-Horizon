@@ -59,6 +59,24 @@ namespace FarHorizon
         /// <summary>Iron pickaxe id (§1). A belt-eligible Tool, the forged upgrade tier.</summary>
         public const string PickaxeIronId = "pickaxe_iron";
 
+        // === WOOD-tier tool ids (ticket 86camz9uz / crafting-redesign ① — §6b). The FIRST material-cost
+        // craftables: the crudest pre-stone rung (all-wood tools), minted here as NEW belt-eligible Tools so
+        // the recipe seam can grant them. The shipped stone ids ("axe"/"spear"/"pickaxe_stone") stay STABLE
+        // (§6b — do NOT migrate them; migrating breaks the chop gate / held-axe / pickups / combat POC). The
+        // stone/iron cells for dagger/sword/axe_iron etc. are minted by ②/③ when those rows go live — ① mints
+        // ONLY the wood cells (STONE/IRON rows ship as Locked placeholders). "dagger" is the Sponsor's display
+        // + id term (§6a); the wpn_knife_* FBX is reused unchanged (an asset rename is pure churn). ===
+        /// <summary>Wood axe id (① — crudest axe rung). A belt-eligible Tool.</summary>
+        public const string AxeWoodId = "axe_wood";
+        /// <summary>Wood pickaxe id (① — the tool that gates boulder-stone mining in ②). A belt-eligible Tool.</summary>
+        public const string PickaxeWoodId = "pickaxe_wood";
+        /// <summary>Wood spear id (①). A belt-eligible Tool.</summary>
+        public const string SpearWoodId = "spear_wood";
+        /// <summary>Wood dagger id (① — "dagger" per §6a; reuses the wpn_knife_* FBX). A belt-eligible Tool.</summary>
+        public const string DaggerWoodId = "dagger_wood";
+        /// <summary>Wood sword id (①). A belt-eligible Tool.</summary>
+        public const string SwordWoodId = "sword_wood";
+
         [SerializeField,
          Tooltip("The canonical item defs (axe / wood / stone / berry). Authored at bootstrap; the world-" +
                  "resource tickets look these up by id, never mint their own.")]
@@ -158,8 +176,24 @@ namespace FarHorizon
             var pickaxeIron = CreateInstance<ItemDef>(); pickaxeIron.name = "pickaxe_iron";
             pickaxeIron.Init(PickaxeIronId, "Iron Pickaxe", ItemKind.Tool, null);
 
+            // WOOD tier (ticket 86camz9uz ①) — the 5 NEW craftable wood tools. Belt-eligible Tools (holdable,
+            // cap 1) like the axe, so the recipe grant (AddToolToBelt) lands them on the belt + they resolve as
+            // the selected belt item. Icons null → letter-chip fallback (the in-hand MESH + a baked icon come
+            // from the parallel wood-ART R&D burst — OOS here per the ① brief). Display names use "dagger" (§6a).
+            var axeWood = CreateInstance<ItemDef>(); axeWood.name = "axe_wood";
+            axeWood.Init(AxeWoodId, "Wood Axe", ItemKind.Tool, null);
+            var pickaxeWood = CreateInstance<ItemDef>(); pickaxeWood.name = "pickaxe_wood";
+            pickaxeWood.Init(PickaxeWoodId, "Wood Pickaxe", ItemKind.Tool, null);
+            var spearWood = CreateInstance<ItemDef>(); spearWood.name = "spear_wood";
+            spearWood.Init(SpearWoodId, "Wood Spear", ItemKind.Tool, null);
+            var daggerWood = CreateInstance<ItemDef>(); daggerWood.name = "dagger_wood";
+            daggerWood.Init(DaggerWoodId, "Wood Dagger", ItemKind.Tool, null);
+            var swordWood = CreateInstance<ItemDef>(); swordWood.name = "sword_wood";
+            swordWood.Init(SwordWoodId, "Wood Sword", ItemKind.Tool, null);
+
             SetAll(new[] { axe, wood, stone, berry, water, spear,
-                           ironOre, ironIngot, pickaxeStone, pickaxeIron });
+                           ironOre, ironIngot, pickaxeStone, pickaxeIron,
+                           axeWood, pickaxeWood, spearWood, daggerWood, swordWood });
         }
     }
 }
