@@ -850,6 +850,38 @@ namespace FarHorizon.Settings
         }
 
         /// <summary>
+        /// FLIP the three reserved SMELT-COST rows LIVE (ticket 86cakkmvc / I-3 — the I-0 extension hooks go live
+        /// here), bound to the <paramref name="forge"/>'s three smelt-cost fields (the SECOND difficulty dial; the
+        /// ore-RARITY dial went live on the node ticket I-2). REMOVE the greyed hooks <see cref="PopulateIron"/>
+        /// registered (Remove no-ops if absent), then re-add each LIVE so there is exactly ONE row per id (no
+        /// duplicate-id throw) — the SAME remove-then-add live-rebind seam <see cref="PopulateIronLive"/> uses. Called
+        /// by SettingsPanel AFTER <see cref="PopulateIron"/>. A null Forge leaves the rows greyed (a forge-less rig /
+        /// bare test never null-refs). The Forge's setters clamp to each [Min,Max] band.
+        ///   • <see cref="SmeltOrePerIngotId"/> — raw ore per ingot (material cost).
+        ///   • <see cref="SmeltFuelCostId"/>    — fuel (wood) per smelt.
+        ///   • <see cref="SmeltTimeId"/>        — seconds per smelt (the work-led earn is the WAIT).
+        /// </summary>
+        public static void PopulateSmeltLive(SettingsRegistry reg, FarHorizon.Forge forge)
+        {
+            if (reg == null || forge == null) return;
+
+            reg.Remove(SmeltOrePerIngotId);
+            reg.AddInt(SmeltOrePerIngotId, "Smelt ore per ingot",
+                () => forge.orePerIngot, v => forge.SetOrePerIngot(v),
+                SmeltOrePerIngotMin, SmeltOrePerIngotMax);
+
+            reg.Remove(SmeltFuelCostId);
+            reg.AddInt(SmeltFuelCostId, "Smelt fuel cost",
+                () => forge.fuelPerSmelt, v => forge.SetFuelPerSmelt(v),
+                SmeltFuelCostMin, SmeltFuelCostMax);
+
+            reg.Remove(SmeltTimeId);
+            reg.AddFloat(SmeltTimeId, "Smelt time",
+                () => forge.smeltSeconds, v => forge.SetSmeltSeconds(v),
+                SmeltTimeMin, SmeltTimeMax, unit: "s");
+        }
+
+        /// <summary>
         /// Register the HELD-WEAPON in-hand PLACEMENT tweakables (ticket 86caffwuz) into the registry, bound to
         /// the <paramref name="held"/> binding seam (the single surface over the axe rig + the per-weapon arrays).
         /// SEVEN slider rows for the CURRENTLY-held weapon's seat — position X/Y/Z, rotation pitch/yaw/roll, and a

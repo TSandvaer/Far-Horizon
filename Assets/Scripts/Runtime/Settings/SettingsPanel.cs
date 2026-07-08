@@ -85,6 +85,10 @@ namespace FarHorizon
         [Tooltip("The ore-node manager (86cakkmr0 / I-2) — `iron ore rarity` FLIPS LIVE bound to its ActiveNodeCount " +
                  "(the ore-rarity dial). May be null; the row then stays greyed (the I-0 extension hook).")]
         public MineOre mineOre;
+        [Tooltip("The forge (86cakkmvc / I-3) — the three `smelt_*` rows FLIP LIVE bound to its smelt-cost fields " +
+                 "(ore-per-ingot / fuel / time — the smelt-cost dial). May be null; the rows then stay greyed (the " +
+                 "I-0 extension hooks).")]
+        public Forge forge;
         [Tooltip("The held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows (pos X/Y/Z, " +
                  "rot pitch/yaw/roll, scale) bind to the CURRENTLY-held weapon's seat through it. May be null; " +
                  "the held-weapon rows then simply don't appear.")]
@@ -222,6 +226,7 @@ namespace FarHorizon
             if (stoneRespawner == null) stoneRespawner = FindObjectOfType<StoneRespawner>();
             if (logPileSpawner == null) logPileSpawner = FindObjectOfType<LogPileSpawner>();
             if (mineOre == null) mineOre = FindObjectOfType<MineOre>();
+            if (forge == null) forge = FindObjectOfType<Forge>();
             if (heldWeapon == null) heldWeapon = FindObjectOfType<HeldWeaponPlacement>();
             // Berry-regrowth fans out across EVERY bush (each holds its own regrow window — no shared manager,
             // unlike the ChopTree). Resolve the full set once at startup (a bake-time/startup Find, not per-frame
@@ -267,6 +272,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateFps(Registry, fpsHud);                   // FPS counter on/off (86cahmxmt — default ON, Sponsor-soak tunes)
             SettingsCatalog.PopulateIron(Registry);                          // iron-progression dials (86cakkmgw — extension hooks; I-2/I-3 flip live)
             SettingsCatalog.PopulateIronLive(Registry, mineOre);             // I-2 (86cakkmr0): flip `iron ore rarity` LIVE → MineOre.ActiveNodeCount
+            SettingsCatalog.PopulateSmeltLive(Registry, forge);              // I-3 (86cakkmvc): flip the three `smelt_*` LIVE → Forge smelt-cost fields
 
             // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
             // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target
