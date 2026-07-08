@@ -251,7 +251,7 @@ On Devon + Drew done → re-reconcile #48 onto new #47 + regenerate Boot.unity �
 Each role updates its own section as it works M-U1 / M-U2 tickets. The orchestrator reads the whole file at every tick to spot stalls. Don't edit another role's section. Last-updated uses ISO date `YYYY-MM-DD`.
 
 ### Priya (Project Leader)
-(run: 86ca9a340 — authored the Diagnose-Before-Fix pre-fix PR convention: full standalone section in `team/TESTING_BAR.md` + paste-able block in `team/orchestrator/dispatch-template.md`, with the walk-float `-footTrace` worked example + the stack-trace-only OOS boundary; Erik research §A Rank 1; reviewer Devon. Next planning surface is the M-U2 thin-survival-loop backlog, which files when M-U1 closes)
+(run: 86camz6n0 — authored the crafting-system redesign spec + re-scope: `team/priya-pl/crafting-system-spec.md` (unified place-to-build + recipe-menu table + WOOD/STONE/IRON tiers + material-cost seam + tier-gated loop), a 4-draft Commander's-Intent ticket table (① table foundation+wood · ② boulder-mining+stone · ③ forge place-to-build rework+iron · ④ full-chain soak), a supersede/absorb map (absorbs I-4 86cakkmy2 + forge-vis 86camyvzw + NIT 86camw8rm →③; I-5 86cakkn15 →④; icons 86camyvwn stays separate), + a DECISIONS.md entry. Verified code-map vs origin/main @ #292; reconciled 3 divergences (StickProp/StoneProp bootstrap ALREADY ships, MineOre is the boulder-mine sibling, shipped ids are un-tiered). 3 ADVISEMENT items (placement mechanic / mixed-id scheme / tier-unlock+per-tier stats) — all carry recommended defaults. Reviewer Uma or Devon. Supersedes iron-model-a-spec.md on the crafting-table question)
 
 ### Uma (Game UX Designer)
 (fresh — first M-U2 surface is the thin-loop UX once M-U1 closes)

@@ -17,6 +17,16 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 
 ---
 
+## 2026-07-08 — Crafting system redesigned: placed recipe-menu table + 3 tiers + unified place-to-build
+
+- Decided by: Sponsor + orchestrator (grill-resolved, ticket `86camz6n0`, 2026-07-08; grounded on the forge-soak feedback in `86camyvzw`/`86camyvwn`)
+- Decision: The crafting surface is redesigned. (1) **Unified place-to-build**: the crafting table (wood+stone), forge (much more stone), and campfire are all placed by the player and are **INVISIBLE until placed** (retires the pre-visible fixed spots). (2) **Crafting table = a recipe MENU** — recipes grouped by tier, greyed until the tier is unlocked AND affordable, click-to-craft; RETIRES the `CraftSpot` auto-craft stump + the free-mint `CraftAxe` path. (3) **Three tiers WOOD→STONE→IRON**, each with axe/pickaxe/spear/dagger/sword (~15 recipes) crafted via a **material-cost seam** (`InventoryModel.RemoveItem` all-or-nothing → `AddToolToBelt`). (4) **Tier-gated loop**: hand-gather sticks+pebbles → table → wood tools → wood-pick mines STONE from boulders (NEW) → stone tools → stone-pick mines IRON-ORE (shipped #287) → forge smelts → BARS (shipped #292) → iron tools. Re-scoped into 4 build-lane tickets (① table foundation + wood tier, ② boulder-mining + stone tier, ③ forge place-to-build rework + iron tier, ④ full-chain soak). Absorbs I-4 `86cakkmy2` + forge-vis `86camyvzw` + NIT `86camw8rm` (→③) and I-5 `86cakkn15` (→④); icons `86camyvwn` stays a separate fable session. Full spec: `team/priya-pl/crafting-system-spec.md`.
+- Why: The Sponsor's forge-soak (2026-07-08, build `4cb464b`) rejected pre-visible/auto-built structures ("must NOT be visible before it is built — the player builds it by gathering the ingredients and PLACING it"); the grill generalised that to every structure + turned the thin one-recipe stump into a real tiered recipe menu, giving the survival arc its full gather→craft→upgrade spine. Model-A's shipped mine/smelt mechanics are reused; its "extend the thin CraftSpot bench" assumption is superseded.
+- Reversibility: reversible per ticket (each of ①–④ is a discrete PR); the design direction is Sponsor-locked
+- Affects: crafting/inventory/structures/UI, Devon + Drew + Tess + Uma; supersedes `iron-model-a-spec.md` on the crafting-table question
+
+---
+
 ## 2026-06-12 — Project founded: Far Horizon (Sponsor-directed)
 
 - Decided by: Sponsor (sequence of popup decisions, recorded verbatim on RandomGame ClickUp ticket 86ca85ttd)
