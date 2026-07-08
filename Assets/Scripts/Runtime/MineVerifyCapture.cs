@@ -90,6 +90,14 @@ namespace FarHorizon
             Debug.Log("[MineVerifyCapture] pickaxe granted=" + granted + " selected=" +
                       MineOre.IsPickaxeSelected(inventory));
 
+            // DIAGNOSE-BEFORE-FIX (Sponsor soak FAIL: held pickaxe invisible). With the pickaxe SELECTED, dump
+            // the held-seat ground truth so the cause (renderer disabled / mesh unresolved / wrong seat) is
+            // isolated, not guessed — then capture a frame with the pickaxe selected to eyeball the hand.
+            for (int i = 0; i < 3; i++) yield return null; // let Inventory.Changed sync + the gate apply
+            LogHeldSeatDiag();
+            ShotTo(Path.Combine(dir, "mine_pickaxe_selected.png"));
+            yield return null;
+
             // 3. Teleport to a real ore node + drive left-click mine strikes + E-loot until iron_ore lands.
             bool haveNode = TryPickReachableOreNode(out Vector3 node);
             Debug.Log("[MineVerifyCapture] ore node picked: " + haveNode + " at " + node);
@@ -215,6 +223,57 @@ namespace FarHorizon
         {
             float dx = a.x - b.x, dz = a.z - b.z;
             return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
+        // DIAGNOSE-BEFORE-FIX diagnostic (Sponsor soak: held pickaxe invisible). Dumps the held-seat ground
+        // truth with the pickaxe SELECTED so the cause is isolated (renderer disabled vs mesh unresolved vs
+        // wrong seat), plus every enabled MeshRenderer near the character's head (to identify the "grey object
+        // behind the head" the soak screenshot showed). Read-only; -verifyMine only.
+        private void LogHeldSeatDiag()
+        {
+            bool axeSel = inventory != null && inventory.IsAxeSelectedInBelt;
+            bool spearSel = inventory != null && inventory.IsSpearSelectedInBelt;
+            bool pickStoneSel = inventory != null && inventory.IsPickaxeStoneSelectedInBelt;
+            bool pickIronSel = inventory != null && inventory.IsPickaxeIronSelectedInBelt;
+            var cycle = Object.FindAnyObjectByType<HeldWeaponCycleDebug>();
+            bool debugView = cycle != null && cycle.DebugViewActive;
+            Debug.Log("[MineHeldDiag] ShouldShow inputs: axeSelected=" + axeSel + " spearSelected=" + spearSel +
+                      " pickaxeStoneSelected=" + pickStoneSel + " pickaxeIronSelected=" + pickIronSel +
+                      " debugView=" + debugView + " => HeldAxe.ShouldShow would be " +
+                      (axeSel || spearSel || pickStoneSel || pickIronSel || debugView));
+
+            if (cycle != null && cycle.MeshHolder != null)
+            {
+                var mr = cycle.MeshHolder.GetComponent<MeshRenderer>();
+                var mesh = cycle.MeshHolder.sharedMesh;
+                Vector3 wp = cycle.MeshHolder.transform.position;
+                Debug.Log("[MineHeldDiag] held seat: cycleIndex=" + cycle.CurrentIndex + " (" + cycle.CurrentLabel +
+                          ") holderMesh=" + (mesh != null ? mesh.name : "null") +
+                          " rendererEnabled=" + (mr != null ? mr.enabled.ToString() : "no-renderer") +
+                          " holderWorldPos=" + wp.ToString("F2"));
+            }
+            else
+            {
+                Debug.Log("[MineHeldDiag] held seat: no HeldWeaponCycleDebug/MeshHolder found");
+            }
+
+            // Enumerate enabled MeshRenderers near the character head (identify the grey object).
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            Vector3 head = castaway != null ? castaway.transform.position + Vector3.up * 1.5f
+                : (player != null ? player.transform.position + Vector3.up * 1.5f : Vector3.zero);
+            int near = 0;
+            foreach (var r in Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (r == null || !r.enabled) continue;
+                if (Vector3.Distance(r.transform.position, head) <= 1.5f)
+                {
+                    near++;
+                    Debug.Log("[MineHeldDiag] enabled renderer near head: '" + r.gameObject.name + "' at " +
+                              r.transform.position.ToString("F2") + " (parent '" +
+                              (r.transform.parent != null ? r.transform.parent.name : "none") + "')");
+                }
+            }
+            Debug.Log("[MineHeldDiag] enabled renderers within 1.5m of head: " + near + " (head~" + head.ToString("F2") + ")");
         }
 
         private void ShotTo(string file)

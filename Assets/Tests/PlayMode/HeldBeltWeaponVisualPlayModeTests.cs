@@ -142,6 +142,37 @@ namespace FarHorizon.PlayTests
                 "axe selected -> the AXE mesh (order-independent — AC2)");
         }
 
+        // I-2 (86cakkmr0) SOAK-FAIL regression — the belt-selected PICKAXE must SHOW in-hand with the PICKAXE
+        // mesh. The defect (confirmed by the -verifyMine held-seat isolation: rendererEnabled=False,
+        // holderMesh=wpn_axe_stone_01): selecting the pickaxe belt slot satisfied NEITHER the HeldAxe.ShouldShow
+        // predicate (axe/spear only) NOR the SelectionIndexFor mesh sync (-1) — so the seat renderer stayed
+        // DISABLED and the holder still carried the AXE mesh. Asserts the PERCEPT pair (renderer.enabled AND the
+        // holder mesh identity) exactly like the soak-224 axe/spear table above — a renderer-only assert would
+        // false-green the wrong-mesh half.
+        [UnityTest]
+        public IEnumerator PickaxeSelected_ShowsPickaxeInHand()
+        {
+            yield return null; // OnEnable wiring
+            Assert.IsFalse(_renderer.enabled, "spawn: nothing owned -> hidden");
+
+            var slot = _inv.Model.AddToolToBelt(_inv.Catalog.ById(ItemCatalog.PickaxeStoneId));
+            Assert.IsTrue(slot.HasValue, "stone pickaxe acquired onto the belt");
+            _inv.Model.SelectBelt(slot.Value.Index);
+            yield return null;
+
+            Assert.IsTrue(_renderer.enabled,
+                "SOAK-FAIL FIX: pickaxe selected -> seat SHOWN (used to be EMPTY hands — ShouldShow omitted the pickaxe)");
+            Assert.AreEqual(HeldWeaponCycleDebug.PickaxeStoneFamilyIndex, _cycle.CurrentIndex,
+                "pickaxe selected -> the STONE pickaxe is the displayed weapon");
+            Assert.IsNotNull(Holder(), "the pickaxe mesh resolved from the committed lineup prefab");
+            Assert.AreNotSame(_cycle.AxeOriginalMesh, Holder(),
+                "SOAK-FAIL FIX: the holder carries the PICKAXE mesh, not the stale axe baseline (SelectionIndexFor now maps it)");
+
+            _inv.Model.SelectBelt((slot.Value.Index + 1) % _inv.BeltSlotCount); // deselect the pickaxe
+            yield return null;
+            Assert.IsFalse(_renderer.enabled, "deselecting the pickaxe -> EMPTY hands again (owned != selected)");
+        }
+
         // The [B] debug-cycle landmine: with a weapon selected the cycle REFUSES (it could otherwise
         // re-create the exact soak-224 crossed state in one keypress); empty-handed it still works as the
         // knife/sword look-soak aid, and ANY selection change re-asserts the selection over the debug view.
