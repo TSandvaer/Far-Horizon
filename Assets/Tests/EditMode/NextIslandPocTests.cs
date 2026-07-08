@@ -1322,6 +1322,125 @@ namespace FarHorizon.EditTests
                 $"(feature height {b.size.y:F1}u).");
         }
 
+        // ============================================================================================
+        // KEYSTONE GUARD (ticket 86cakp58u) — the SEED+555 STREAM-ISOLATION invariant, made falsifiable.
+        // --------------------------------------------------------------------------------------------
+        // WHY THIS EXISTS (read before you touch NextIslandPocScatter): the whole multi-island scatter rests
+        // on ONE contract — the C1 forest/rock/grass draws come from a single `new System.Random(seed + 555)`
+        // stream, consumed sequentially (trees -> rocks -> grass), while every feature added LATER runs on a
+        // DISJOINT salt (C2 walls seed+1111 / slabs seed+1212; C3 bushes seed+1616). Two properties MUST hold
+        // for a baked island to stay reproducible AND for the seed to keep meaning the same world:
+        //   (A) SPECIES-SWAP IS DRAW-NEUTRAL. Pine-vs-broadleaf is POSITION-derived (PineAt consumes NO rnd)
+        //       and BuildTree draws the SAME sequence {yaw, [trunkH if tall], detail, meshSeed} for either
+        //       species (the per-species mesh uses its own internal Random seeded by meshSeed — it never
+        //       touches the shared stream). So flipping a position's species must NOT shift the seed+555
+        //       stream by even one draw, or every DOWNSTREAM rock/grass position re-rolls.
+        //   (B) DISJOINT SALTS. C2/C3 features draw from their own +1111/+1212/+1616 Randoms AFTER the C1
+        //       loops, so they can never re-roll C1 (guarded by C2_RockFeatures_UseNewSeedStreams).
+        //
+        // THE GAP THIS CLOSES (Devon's #277 APPROVE_WITH_NITS, comment 4899433555): the existing
+        // C2_RockFeatures_UseNewSeedStreams determinism check is RUN-TO-RUN only (treesA==treesB), so a future
+        // edit that inserts an extra rnd draw into BuildTree (or the C1 loops) would shift the whole stream yet
+        // stay GREEN — both runs re-roll identically. The two guards below are STREAM-SHIFT-sensitive:
+        //   * Keystone_PineBroadleaf_ConsumeIdenticalDraws — a same-seeded-Random state check that reds the
+        //     instant a species branch consumes a different number of draws (the exact silent-reroll class).
+        //   * Keystone_ScatterCounts_AreGolden — golden formula-fills at the locked seed (rocks==252 etc.);
+        //     reds if a stream/target-formula change alters the byte-aligned configuration.
+        // If you INTENTIONALLY change the stream (a new draw, a new species, a re-tuned target formula), these
+        // will red on purpose — re-bless the goldens ONLY after confirming the change is deliberate, and know
+        // that a baked NextIslandPoc scene re-scatters differently once you do. A future C5 island child that
+        // reuses this stream idiom inherits the same contract; keep these two guards as its tripwire.
+        // ============================================================================================
+
+        [Test]
+        public void Keystone_PineBroadleaf_ConsumeIdenticalDraws_StreamStaysByteAligned()
+        {
+            // Property (A): a broadleaf/pine type-swap at a FIXED position must consume the IDENTICAL number of
+            // seed+555 draws, so PineAt (position-derived, rnd-free) can flip species WITHOUT shifting the
+            // downstream rock/grass stream. Proof without counting internals: drive the REAL BuildTree with two
+            // Randoms started at the SAME seed — one broadleaf, one pine — then compare a run of subsequent
+            // draws. If (and only if) both branches consumed the same count, the two Randoms are left in the
+            // SAME internal state and their next draws match. A future edit that adds a pine-only (or
+            // broadleaf-only) rnd draw desyncs them and this reds — the exact "silently re-roll and stay green"
+            // gap the run-to-run determinism test misses. Checked for BOTH `tall` values (tall gates the extra
+            // trunkH draw, which must still be species-symmetric).
+            foreach (bool tall in new[] { false, true })
+            {
+                const int fixedSeed = 555;   // arbitrary fixed seed; only STREAM ALIGNMENT is under test, not values
+                var rndBroadleaf = new System.Random(fixedSeed);
+                var rndPine = new System.Random(fixedSeed);
+                var pB = new GameObject("KeystoneBroadleaf");
+                var pP = new GameObject("KeystonePine");
+                try
+                {
+                    NextIslandPocScatter.BuildTreeForTest(pB, Vector3.zero, 1f, rndBroadleaf, tall, pine: false);
+                    NextIslandPocScatter.BuildTreeForTest(pP, Vector3.zero, 1f, rndPine, tall, pine: true);
+                    // Sanity: the seam actually built the requested species (else the equal-draw claim is vacuous).
+                    Assert.AreEqual("LP_Tree", pB.transform.GetChild(0).name, "broadleaf seam must build LP_Tree.");
+                    Assert.AreEqual("LP_PineTree", pP.transform.GetChild(0).name, "pine seam must build LP_PineTree.");
+                    // The two same-seeded Randoms must now be in lock-step (equal draws consumed by each species).
+                    for (int k = 0; k < 16; k++)
+                        Assert.AreEqual(rndBroadleaf.Next(), rndPine.Next(),
+                            $"tall={tall}, follow-up draw {k}: BuildTree must consume the SAME number of seed+555 " +
+                            "rnd draws for broadleaf vs pine — a species branch that draws a different count shifts " +
+                            "every downstream rock/grass position (the C1 stream-isolation invariant, ticket 86cakp58u).");
+                }
+                finally { Object.DestroyImmediate(pB); Object.DestroyImmediate(pP); }
+            }
+        }
+
+        [Test]
+        public void Keystone_ScatterCounts_AreGolden_AtLockedSeed()
+        {
+            // GOLDEN guard: at the locked PocSeed and a FIXED literal target, the C1 stream fills to the same
+            // byte-aligned configuration it does today. Pinned to a LITERAL target (NOT NextIslandPocScene
+            // .PocTreeTarget) so a Sponsor soak-retune of the production density does NOT red this — the guard
+            // watches the STREAM LOGIC (the rockTarget=treeTarget/5 and clumpTarget≈treeTarget*1.15 formulas +
+            // the guard-loop fill), not the tuning. rocks==252 is Devon's named golden (252 = 1260/5). If a
+            // future edit changes a target formula or exhausts a guard loop, the fill counts move and this reds
+            // — re-bless the constants ONLY after confirming the stream change is deliberate.
+            const int goldenTarget = 1260;   // literal: decoupled from PocTreeTarget soak-tuning (see comment)
+            const int goldenRocks  = 252;    // max(20, 1260/5) — Devon's golden; fills to rockTarget
+            const int goldenGrass  = 1449;   // max(160, round(1260*1.15)) — clumpTarget fill
+            const int goldenTrees  = 1260;   // treeTarget fill (island is big enough not to starve the guard)
+
+            var parent = new GameObject("KeystoneGoldenParent");
+            try
+            {
+                var vcMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                var waterMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                GameObject ground = NextIslandPocGen.BuildPocIsland(parent, NextIslandPocScene.PocSeed, vcMat, waterMat);
+                var col = ground.GetComponent<MeshCollider>();
+                Assert.IsNotNull(col, "the POC terrain must carry a MeshCollider for the scatter to ground onto.");
+                var root = new GameObject("KeystoneGoldenScatter");
+                root.transform.SetParent(parent.transform, false);
+                NextIslandPocScatter.Scatter(root, NextIslandPocScene.PocSeed, col, goldenTarget);
+
+                int broadleaf = CountNamed(root, "LP_Tree");
+                int pine      = CountNamed(root, "LP_PineTree");
+                int rocks     = CountNamed(root, "LP_Rock");
+                int grass     = CountNamed(root, "LP_Grass");
+                int bushes    = CountNamed(root, "LP_Bush");
+                int trees     = broadleaf + pine;
+                Debug.Log($"[keystone] golden scatter @ seed {NextIslandPocScene.PocSeed} target {goldenTarget}: " +
+                          $"trees={trees} ({broadleaf} broadleaf + {pine} pine), rocks={rocks}, grass={grass}, bushes={bushes}");
+
+                // Float-drift-SAFE goldens (target/formula fills — position-insensitive integer counts, so they
+                // hold across machines/Unity versions; the position-sensitive pine split is guarded structurally
+                // by Keystone_PineBroadleaf_ConsumeIdenticalDraws above, not pinned to an exact value here).
+                Assert.AreEqual(goldenTrees, trees,
+                    $"tree fill drifted from the golden {goldenTrees} (got {trees}) — the C1 tree guard-loop no " +
+                    "longer fills the target at the locked seed (a stream/reject regression). Re-bless only if deliberate.");
+                Assert.AreEqual(goldenRocks, rocks,
+                    $"rock fill drifted from the golden {goldenRocks} (got {rocks}) — rockTarget=max(20,target/5) or the " +
+                    "guard-loop fill changed (Devon's #277 named golden). Re-bless only if the stream change is deliberate.");
+                Assert.AreEqual(goldenGrass, grass,
+                    $"grass fill drifted from the golden {goldenGrass} (got {grass}) — clumpTarget≈round(target*1.15) or the " +
+                    "guard-loop fill changed. Re-bless only if the stream change is deliberate.");
+            }
+            finally { Object.DestroyImmediate(parent); }
+        }
+
         private static int CountNamed(GameObject root, string name)
         {
             int n = 0;

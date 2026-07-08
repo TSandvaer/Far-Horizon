@@ -372,6 +372,23 @@ namespace FarHorizon.EditorTools
             MarkStaticBatch(tree);
         }
 
+#if UNITY_INCLUDE_TESTS
+        // KEYSTONE test seam (STRIPPED from ship builds via UNITY_INCLUDE_TESTS; the project has no
+        // InternalsVisibleTo, so this mirrors the codebase's "public for tests" seam convention — see
+        // SettingsPanel.SimulateFieldFocusForTest). Runs the REAL BuildTree draw path with a caller-supplied
+        // System.Random so an EditMode test can PROVE that a broadleaf/pine type-swap at a fixed position
+        // consumes the IDENTICAL number of rnd draws — i.e. the seed+555 stream stays byte-aligned across the
+        // species split (TRE-2 "type swap at fixed positions"; the C1/C2/C3 stream-isolation invariant). It
+        // drives production BuildTree, NOT a copy, so the guard tests the shipped code. Returns the built root
+        // (the caller destroys `parent`). This changes NO scatter behaviour — it only exposes the existing path.
+        public static GameObject BuildTreeForTest(
+            GameObject parent, Vector3 at, float scale, System.Random rnd, bool tall, bool pine)
+        {
+            BuildTree(parent, at, scale, rnd, tall, pine);
+            return parent.transform.GetChild(parent.transform.childCount - 1).gameObject;
+        }
+#endif
+
         // Carving capsule NavMeshObstacle on a tree stem (broadleaf + pine) — the agent paths around the trunk.
         // The baked PocNavMesh is UNCHANGED (obstacles carve at RUNTIME over the baked surface), so the
         // coverage trace + the PlayMode walkable gate stay green.
