@@ -508,3 +508,10 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Why: fable token conservation (Sponsor verbatim 2026-07-07: "stop burning fable tokens and begin using fable only as an advisor…"). Supersedes the 2026-07-03 per-dispatch `model:"fable"` design-lane upgrade.
 - Reversibility: reversible (re-enable per-dispatch upgrades on the Sponsor's word)
 - Affects: orchestrator dispatch policy, all personas, R&D/creative lane, dispatch-template (new Advisor-escalation block)
+
+## 2026-07-08 — STANDING AUTO-MERGE authorization (supersedes per-PR merge approval for the non-soak class)
+- Decided by: Sponsor (popup, 2026-07-08 morning)
+- Decision: the orchestrator auto-labels ANY PR for merge — present or away, no per-PR ask — once ALL machine gates are green (required CI SUCCESS + peer APPROVE verdict + Tess QA where the class requires it + Self-Test Report where UX-visible) AND the PR has no soak surface. Soak-surface (feel/visual) PRs still gate on the Sponsor's soak verdict. Workflow-file (.github) PRs remain manual until the scoped-PAT fix (86cafhehe) lands.
+- Why: Sponsor verbatim: "look into why i have to do any manual merges, I want to avoid this." Investigation: the label path was already mechanical; only the per-PR-approval policy forced manual steps. The one-click staging class is retired.
+- Reversibility: reversible — Sponsor revokes with a word; falls back to one-click staging.
+- Affects: orchestrator merge flow, away-queue format (one-click class retired), all personas' merge expectations
