@@ -210,6 +210,10 @@ namespace FarHorizon
         /// <summary>Live wood tally — summed Count of all "wood" stacks. The HUD reads it.</summary>
         public int WoodCount => Model.CountItem(ItemCatalog.WoodId);
 
+        /// <summary>Live stone tally — summed Count of all "stone" stacks. The forge build gate reads it
+        /// (86cakkmvc / I-3). Sibling of <see cref="WoodCount"/>.</summary>
+        public int StoneCount => Model.CountItem(ItemCatalog.StoneId);
+
         /// <summary>
         /// Craft (== acquire) the axe — the legacy entry to the loop, now placing the axe tool on the
         /// belt. Idempotent: crafting an axe you already hold is a no-op (no Changed). Returns true only
@@ -244,6 +248,20 @@ namespace FarHorizon
             // RemoveItem is itself all-or-nothing: it returns false + debits nothing if fewer than
             // 'amount' are held — the load-bearing "no wood -> no campfire" gate (contract §7).
             return _model.RemoveItem(ItemCatalog.WoodId, amount);
+        }
+
+        /// <summary>
+        /// Spend stone — the forge BUILD seam (86cakkmvc / I-3), the STONE sibling of <see cref="SpendWood"/>.
+        /// ALL-OR-NOTHING: if fewer than <paramref name="amount"/> stone is held, NOTHING is spent and false is
+        /// returned (no partial debit, no Changed) — the load-bearing "not enough mats -> no forge" gate. On
+        /// success debits the stone across stacks, fires Changed, returns true. A zero/negative amount is a no-op
+        /// success (matches SpendWood).
+        /// </summary>
+        public bool SpendStone(int amount)
+        {
+            EnsureModel();
+            if (amount <= 0) return true;
+            return _model.RemoveItem(ItemCatalog.StoneId, amount);
         }
     }
 }

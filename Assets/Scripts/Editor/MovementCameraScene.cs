@@ -366,6 +366,14 @@ namespace FarHorizon.EditorTools
             // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
             BuildCampfire(player, groundLayer);
 
+            // 86cakkmvc (I-3 of the iron chain): the FORGE/FURNACE — a NEW buildable DISTINCT from the campfire
+            // (Sponsor Q3). A stone furnace the castaway builds from wood + stone (the ForgePlacement wood+stone
+            // gate), then SMELTS iron-ore into iron ingots over a timer (the work-led earn). Authored editor-time
+            // so the furnace mesh + glow/Light + Forge/ForgePlacement refs SERIALIZE into Boot.unity (editor-vs-
+            // runtime trap). Built AFTER the campfire (the survival arc reads shipwreck -> ... -> fire -> FURNACE ->
+            // iron) and BEFORE the NavMesh bake (collider-free — the player walks up to it).
+            BuildForge(player, groundLayer);
+
             // 86caa4bya: the INVENTORY pack (Tab) + BELT hotbar UI (UI Toolkit) + a pickable world axe.
             // The InventoryUI's UIDocument + UXML/USS + the Inventory reference SERIALIZE into Boot.unity
             // (editor-vs-runtime trap). The pickable axe is the AC3 PoC pickup (auto-places in belt slot 1).
@@ -2414,6 +2422,7 @@ namespace FarHorizon.EditorTools
                 new Vector3(4f, 0f, -8f),   // campfire
                 new Vector3(3f, 0f, 2f),    // axe pickup
                 PickaxePickupPosition,      // pickaxe pickup (6,2)
+                ForgeSpotPosition,          // forge/furnace build spot (I-3) — keep ore nodes off the furnace
             };
             var placed = new System.Collections.Generic.List<Vector3>();
             var rng = new System.Random(86201); // deterministic — the pool is byte-identical every bootstrap
@@ -3028,6 +3037,157 @@ namespace FarHorizon.EditorTools
                 mr.sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }
+        }
+
+        // ---- 86cakkmvc (I-3): the FORGE / FURNACE — a NEW buildable, DISTINCT from the campfire ----
+        // ANCHOR (the real-world referent this build must satisfy — physical-features rule): a furnace is a
+        // SQUAT STONE CHAMBER standing ON the ground with a dark FIREBOX opening at the front and a VENT on top;
+        // heat + glow come OUT the front opening (and the top vent) when it is working. It is NOT an open campfire
+        // (no exposed flame tongues) — it is a closed masonry block. The build must read that side-on: a chunky
+        // stone body sitting UP on the ground (not sunk), a dark mouth, a chimney above.
+        public static readonly Vector3 ForgeSpotPosition = new Vector3(-7f, 0f, 0f);
+
+        private static readonly Color ForgeStoneGrey  = new Color(0.46f, 0.47f, 0.48f); // cool masonry stone
+        private static readonly Color ForgeStoneDark  = new Color(0.22f, 0.22f, 0.24f); // dark firebox mouth
+        private static readonly Color ForgeGlowOrange = new Color(1.0f, 0.50f, 0.14f);  // warm smelt glow (emissive)
+
+        private static void BuildForge(GameObject player, int groundLayer)
+        {
+            var forgeGo = new GameObject("Forge");
+            forgeGo.transform.position = ForgeSpotPosition;
+
+            var visual = new GameObject("ForgeVisual");
+            visual.transform.SetParent(forgeGo.transform, false);
+            visual.transform.localPosition = Vector3.zero;
+
+            // --- body: a squat octagonal stone drum standing ON the ground (base at y=0, rises UP) ---
+            BuildCampfirePart(visual, "ForgeBody", LowPolyMeshes.TaperedCylinder(0.74f, 0.60f, 1.05f, 8),
+                ForgeStoneGrey, Vector3.zero, 0.05f, "ForgeBodyMat");
+
+            // --- top vent / chimney: a narrower dark stone stub on top (heat escapes here too) ---
+            BuildCampfirePart(visual, "ForgeVent", LowPolyMeshes.TaperedCylinder(0.24f, 0.17f, 0.46f, 6),
+                new Color(0.34f, 0.34f, 0.35f), new Vector3(0f, 1.05f, 0f), 0.05f, "ForgeVentMat");
+
+            // --- firebox opening: a dark mouth panel PROUD of the +Z front face (the octagon's +Z vertex sits at
+            //     ~0.70u at this height, so the panel front at ~0.75u reads as the cavity, not hidden inside the
+            //     opaque body). Reads side-on as the dark firebox mouth (the anchor). ---
+            BuildForgeBox(visual, "ForgeMouth", ForgeStoneDark,
+                new Vector3(0f, 0.34f, 0.64f), new Vector3(0.42f, 0.36f, 0.22f), 0.02f, emissive: false);
+
+            // --- the smelt GLOW: a warm emissive block over the mouth (front ~0.78u, just proud of the dark
+            //     mouth panel so it reads as "the mouth lights up"), its OWN child so Forge toggles it with the
+            //     smelting state (a furnace glows only while it is working — Bar 2 "life"). Ships OFF. ---
+            var glowGo = new GameObject("ForgeGlow");
+            glowGo.transform.SetParent(visual.transform, false);
+            glowGo.transform.localPosition = Vector3.zero;
+            BuildForgeBox(glowGo, "GlowBlock", ForgeGlowOrange,
+                new Vector3(0f, 0.34f, 0.68f), new Vector3(0.30f, 0.26f, 0.20f), 0f, emissive: true);
+            glowGo.SetActive(false); // ships cold — Forge shows it while smelting
+
+            // --- the warm point Light at the mouth (heat glow into the Zone-D look) — disabled until smelting ---
+            var lightGo = new GameObject("ForgeLight");
+            lightGo.transform.SetParent(forgeGo.transform, false);
+            lightGo.transform.localPosition = new Vector3(0f, 0.5f, 0.6f);
+            var forgeLight = lightGo.AddComponent<Light>();
+            forgeLight.type = LightType.Point;
+            forgeLight.color = new Color(1f, 0.6f, 0.28f);
+            forgeLight.intensity = 2.0f;
+            forgeLight.range = 5f;
+            forgeLight.shadows = LightShadows.None; // no shadow cost (unity6-mastery §3 — no shadowed point lights)
+            forgeLight.enabled = false;             // ships off — Forge enables it while smelting
+
+            // The Forge component: the built state + the smelt runtime. Smelt-cost dials seeded from the Medium
+            // preset (the balanced default; the smelt_* settings flip these live via PopulateSmeltLive).
+            var med = IronDifficultyPresets.Medium;
+            var forge = forgeGo.AddComponent<Forge>();
+            forge.inventory = Object.FindObjectOfType<Inventory>();
+            forge.player = player.transform;
+            forge.glowVisual = glowGo;
+            forge.forgeLight = forgeLight;
+            forge.smeltRadius = 3.0f;
+            forge.orePerIngot = med.OrePerIngot;
+            forge.fuelPerSmelt = med.FuelPerSmelt;
+            forge.smeltSeconds = med.SecondsPerSmelt;
+            if (forge.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire Forge to — BootstrapProject " +
+                               "must add the Survival Inventory before MovementCameraScene.Author");
+
+            // The ForgePlacement component: the wood+stone-gated build interaction (on the SAME GO — the forge IS
+            // its own build spot, like the campfire pit is its own build spot).
+            var place = forgeGo.AddComponent<ForgePlacement>();
+            place.inventory = forge.inventory;
+            place.forge = forge;
+            place.player = player.transform;
+
+            // Wire the SETTINGS PANEL's forge ref now that the Forge exists (BuildSettingsPanel ran earlier). The
+            // three `smelt_*` rows flip LIVE bound to the Forge's smelt-cost fields (the second difficulty dial).
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.forge = forge;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
+            // Wire the verification-only shipped-build FORGE capture (-verifyForge drives grant → build → smelt →
+            // ingot) onto the Boot object.
+            WireForgeVerifyCapture(player);
+
+            EditorUtility.SetDirty(forgeGo);
+            Debug.Log("[MovementCameraScene] authored Forge at " + ForgeSpotPosition +
+                      " (ships cold; inventory wired: " + (forge.inventory != null) + "; smelt " + forge.orePerIngot +
+                      " ore + " + forge.fuelPerSmelt + " fuel / " + forge.smeltSeconds.ToString("F0") + "s)");
+        }
+
+        // A blocky forge part (firebox mouth / glow block): a Cube primitive (collider stripped — set-dressing) with
+        // an inline URP/Lit material, optionally emissive (the smelt glow survives the stripped build — URP/Lit
+        // emission is built-in, no custom shader to strip). Sibling of BuildDebrisPlank's cube idiom.
+        private static void BuildForgeBox(GameObject parent, string name, Color color, Vector3 localPos,
+            Vector3 localScale, float smoothness, bool emissive)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>()); // never blocks raycast/NavMesh
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localScale = localScale;
+            var mr = go.GetComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = name + "Mat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+                if (emissive)
+                {
+                    mat.EnableKeyword("_EMISSION");
+                    mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                    if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", color * 1.4f);
+                }
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        // Wire the verification-only shipped-build FORGE capture onto the Boot object — sibling of
+        // WireMineVerifyCapture. Inert unless launched with -verifyForge.
+        private static void WireForgeVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host ForgeVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<ForgeVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<ForgeVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.forge = Object.FindObjectOfType<Forge>();
+            cap.placement = Object.FindObjectOfType<ForgePlacement>();
+            if (cap.forge == null)
+                Debug.LogError("[MovementCameraScene] ForgeVerifyCapture.forge wiring is null — BuildForge must " +
+                               "author the Forge before WireForgeVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
         }
 
         // ---- M-U3-SCENE-4 (86ca8feuf): washed-ashore shipwreck debris ----
