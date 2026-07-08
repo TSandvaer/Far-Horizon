@@ -64,6 +64,12 @@ namespace FarHorizon
             // the flag is its OWN (-verifyHeldBelt) per the isolation rule.
             else if (HasArg("-verifyHeldBelt"))
                 StartCoroutine(RunHeldBeltVerification());
+            // 86cam9q5f — IN-HAND capture of BOTH pickaxe tiers via the [B] picker (Bar 5). The pickaxe has
+            // no belt pickup yet (belt/crafting is I-2+), so the discrete mesh-swap cycle is the only in-hand
+            // view; drive HeldWeaponCycleDebug.ShowWeaponForCaptureDebug to each pickaxe index + capture.
+            // Its OWN flag (isolation rule); no new component so Boot.unity needs no regen.
+            else if (HasArg("-verifyHeldPickaxe"))
+                StartCoroutine(RunHeldPickaxeVerification());
             else if (HasArg("-verifyAxe"))
                 StartCoroutine(RunVerification());
         }
@@ -207,6 +213,89 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.3f);
             Application.Quit(pass ? 0 : 1);
         }
+
+        // 86cam9q5f — shipped-build IN-HAND capture of both pickaxe tiers via the [B] picker (Bar 5). Drives
+        // HeldWeaponCycleDebug.ShowWeaponForCaptureDebug to each pickaxe index, force-shows the seat, and
+        // captures a gameplay-representative over-shoulder frame per tier (+ a close frame). Self-asserts the
+        // held mesh swapped to the requested index (a non-null holder mesh). Author-run evidence for the
+        // Self-Test Report (not a CI gate). Uses RT-readback so it also runs headless if ever needed.
+        private IEnumerator RunHeldPickaxeVerification()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            GameObject axe = FindHeroAxe();
+            if (axe == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-PICKAXE: HeroAxe not in scene — the held seat is missing");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
+            if (cycle == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-PICKAXE: HeroAxe lacks HeldWeaponCycleDebug — build-side regression");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            if (castaway == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-PICKAXE: no CastawayCharacter found");
+                yield return null; Application.Quit(1); yield break;
+            }
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-PICKAXE: no Camera.main");
+                yield return null; Application.Quit(1); yield break;
+            }
+            cam.fieldOfView = 40f;
+            for (int i = 0; i < 8; i++) yield return null; // Awake/OnEnable wiring settle
+
+            // Face the castaway toward the camera so the right-hand tool reads in frame.
+            castaway.FaceWorldYawInstant(heldBeltViewYaw + 165f);
+
+            // Baseline axe verts (the swap-proof: each pickaxe mesh must differ from the axe's holder mesh).
+            cycle.ShowWeaponForCaptureDebug(HeldWeaponCycleDebug.AxeFamilyIndex);
+            yield return null;
+            int axeVerts = HolderVerts(cycle);
+
+            var tiers = new (int index, string label, string file)[]
+            {
+                (HeldWeaponCycleDebug.PickaxeStoneFamilyIndex, "STONE", "held_pickaxe_stone.png"),
+                (HeldWeaponCycleDebug.PickaxeIronFamilyIndex,  "IRON",  "held_pickaxe_iron.png"),
+            };
+            bool pass = true;
+            foreach (var t in tiers)
+            {
+                cycle.ShowWeaponForCaptureDebug(t.index);
+                // Force-show the seat renderers (verification-only; the picker's debug view also shows it).
+                foreach (var r in axe.GetComponentsInChildren<Renderer>(true)) if (r != null) r.enabled = true;
+                for (int i = 0; i < 8; i++) yield return null;
+                bool shown = AnyRendererEnabled(axe);
+                int verts = HolderVerts(cycle);
+                bool meshRight = cycle.CurrentIndex == t.index && verts > 0 && verts != axeVerts;
+                Debug.Log("[AxeVerifyCapture] HELD-PICKAXE " + t.label + ": shown=" + shown +
+                          " index=" + cycle.CurrentIndex + " verts=" + verts + " (axe verts=" + axeVerts +
+                          " — the numeric swap proof)");
+                pass &= shown && meshRight;
+                yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                              Path.Combine(dir, t.file));
+                yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltCloseDistance,
+                                              Path.Combine(dir, t.file.Replace(".png", "_close.png")));
+            }
+
+            Debug.Log("[AxeVerifyCapture] HELD-PICKAXE verification complete => " +
+                      (pass ? "GATE-PASS" : "GATE-FAIL") + " -> " + dir);
+            yield return new WaitForSeconds(0.3f);
+            Application.Quit(pass ? 0 : 1);
+        }
+
+        private static int HolderVerts(HeldWeaponCycleDebug cycle)
+            => cycle.MeshHolder != null && cycle.MeshHolder.sharedMesh != null
+               ? cycle.MeshHolder.sharedMesh.vertexCount : -1;
 
         private static int FindBeltSlotById(InventoryModel model, string id)
         {

@@ -5,8 +5,9 @@ namespace FarHorizon
     /// <summary>
     /// DEBUG / SOAK-VIEWING handle (ticket 86cabh907) — lets the Sponsor SEE each member of the in-house
     /// weapon family HELD by the castaway, in-engine, by pressing a key to CYCLE the held mesh through
-    ///   axe -> knife -> sword -> spear -> (wrap)
-    /// at runtime. The castaway visibly wields each weapon as it is cycled.
+    ///   axe -> knife -> sword -> spear -> pickaxe(stone) -> pickaxe(iron) -> (wrap)
+    /// at runtime. The castaway visibly wields each weapon as it is cycled. (86cam9q5f appended BOTH pickaxe
+    /// tiers so the 5th tool type is judged in-hand via this discrete picker — Bar 5; spec §4/I-1.)
     ///
     /// 86cahngdg — BELT SELECTION NOW OWNS THE HELD VISUAL (the soak-224 crossed-visual fix). The old
     /// framing ("belt -> wield is a LATER ticket") is OBSOLETE for the axe + spear: this component now
@@ -94,14 +95,22 @@ namespace FarHorizon
         public KeyCode scaleUpKeyDanish = KeyCode.O;        // O — Danish-safe letter, held weapon BIGGER
         public KeyCode scaleDownKeyDanish = KeyCode.I;      // I — Danish-safe letter, held weapon SMALLER
 
-        // The four LIVE (STONE-tier) family meshes' names inside Resources/WeaponSetLineup.prefab (the child
-        // object names = the FBX file-name-without-extension; see WeaponPackAssetGen.BuildFamilyPrefab).
-        // Order = cycle order. 86cajkk7h: repointed to the STONE tier (the first-craft weapons); the iron
-        // nodes also live in the family prefab (contrast capture) but are NOT cycled — the cycle resolves
-        // only these STONE names. PUBLIC + static so the EditMode guard reads the cycle contract directly
-        // (no reflection): the family prefab MUST carry a mesh node for each of these, or cycling resolves nothing.
-        public static readonly string[] WeaponNodeNames = { "wpn_axe_stone_01", "wpn_knife_stone_01", "wpn_sword_stone_01", "wpn_spear_stone_01" };
-        public static readonly string[] WeaponLabels = { "AXE", "KNIFE", "SWORD", "SPEAR" };
+        // The LIVE family meshes' names inside Resources/WeaponSetLineup.prefab (the child object names = the
+        // FBX file-name-without-extension; see WeaponPackAssetGen.BuildFamilyPrefab). Order = cycle order.
+        // 86cajkk7h: indices 0-3 are the STONE tier (the first-craft weapons); the iron nodes for axe/knife/
+        // sword/spear also live in the family prefab (contrast capture) but are NOT cycled.
+        // 86cam9q5f: the PICKAXE (the 5th tool type) is APPENDED in BOTH tiers — index 4 (stone) + index 5
+        // (iron) — so BOTH pickaxes are judged IN-HAND via this discrete mesh-swap picker (spec §4/I-1, Bar 5;
+        // the pickaxe has no belt pickup yet — belt/crafting is I-2+ — so the [B] cycle is the only in-hand
+        // view). Appending KEEPS indices 0-3 (AxeFamilyIndex 0, SpearFamilyIndex 3) unchanged so the belt-
+        // selection sync + its EditMode contract are untouched. PUBLIC + static so the EditMode guard reads
+        // the cycle contract directly (no reflection): the family prefab MUST carry a mesh node for each of
+        // these, or cycling resolves nothing.
+        public static readonly string[] WeaponNodeNames =
+            { "wpn_axe_stone_01", "wpn_knife_stone_01", "wpn_sword_stone_01", "wpn_spear_stone_01",
+              "wpn_pickaxe_stone_01", "wpn_pickaxe_iron_01" };
+        public static readonly string[] WeaponLabels =
+            { "AXE", "KNIFE", "SWORD", "SPEAR", "PICKAXE STONE", "PICKAXE IRON" };
         public const string LineupResourcePath = "WeaponSetLineup"; // Assets/Resources/WeaponSetLineup.prefab
 
         /// <summary>The axe's family index (0 — the Sponsor-LOCKED default seat).</summary>
@@ -110,6 +119,10 @@ namespace FarHorizon
         /// maps IsSpearSelectedInBelt to THIS index; pinned by an EditMode contract test so a family
         /// reorder cannot silently cross the held visual again).</summary>
         public const int SpearFamilyIndex = 3;
+        /// <summary>The stone pickaxe's cycle index (86cam9q5f — the 5th tool type, stone tier).</summary>
+        public const int PickaxeStoneFamilyIndex = 4;
+        /// <summary>The iron pickaxe's cycle index (86cam9q5f — the 5th tool type, iron tier).</summary>
+        public const int PickaxeIronFamilyIndex = 5;
 
         /// <summary>
         /// 86cahngdg — the PURE selection -> family-index mapping the belt sync applies (extracted so the
@@ -141,7 +154,12 @@ namespace FarHorizon
         // fractions as the retired meshes (measured: knife 0.17, sword 0.14 along the long axis — unchanged), so
         // the dialed offsets/scales seat them comparably. The Sponsor re-confirms + micro-dials in THIS ticket's
         // soak via the unified console's held-weapon rows; the equality-pin below is the drift regression-guard.
-        public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f };
+        // 86cam9q5f: the two pickaxe tiers (index 4/5) START from the AXE seat — unit scale. The family-
+        // extension route (blender-asset-pipeline §3) built the pickaxe by keeping the stone-axe haft/grip
+        // verbatim, so it shares the axe's grip origin + familyGlobalScale and seats at the axe's baseline
+        // (scale 1.0) with no per-weapon compensation. The Sponsor micro-dials in-hand at the picker soak
+        // (Bar 5/8 — HeldWeaponPlacement); these are the predicted starting seats to bake if he nudges them.
+        public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f, 1f, 1f };
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
         // 86caffwuz BAKE (build 5caf1be): these are the Sponsor's DIALED in-hand offsets — he soaked + nudged
@@ -163,6 +181,8 @@ namespace FarHorizon
             new Vector3(-0.020f, 0.020f, 0.000f),    // knife (Sponsor-dialed d306552)
             new Vector3(-0.020f, 0.040f, 0.000f),    // sword (Sponsor-dialed d306552)
             new Vector3(-0.020f, 0.560f, 0.000f),    // spear (Sponsor-dialed d306552)
+            Vector3.zero,                            // pickaxe stone (86cam9q5f — axe-seat start; shares the haft)
+            Vector3.zero,                            // pickaxe iron  (86cam9q5f — axe-seat start; shares the haft)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
@@ -177,6 +197,8 @@ namespace FarHorizon
             Vector3.zero,   // knife
             Vector3.zero,   // sword
             Vector3.zero,   // spear
+            Vector3.zero,   // pickaxe stone (86cam9q5f)
+            Vector3.zero,   // pickaxe iron  (86cam9q5f)
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)
@@ -460,6 +482,29 @@ namespace FarHorizon
             Debug.Log("[HeldWeaponCycleDebug] held weapon -> " + WeaponLabels[_index] +
                       " (" + WeaponNodeNames[_index] + ")  [DEBUG cycle, key=" + cycleKey + "]");
             return true;
+        }
+
+        /// <summary>
+        /// 86cam9q5f — CAPTURE-ONLY: force the displayed held mesh to a specific family index, mirroring the
+        /// [B] cycle's swap WITHOUT the belt-selection refusal. Used by the shipped-build -verifyHeldPickaxe
+        /// gate to seat each pickaxe tier (index <see cref="PickaxeStoneFamilyIndex"/> /
+        /// <see cref="PickaxeIronFamilyIndex"/>) in the hand for the Bar-5 in-hand capture — the pickaxe has
+        /// no belt pickup yet (belt/crafting is I-2+), so the picker is the only in-hand view. Resolves the
+        /// family meshes if needed, sets the index, applies the per-weapon seat, marks the debug view + pokes
+        /// the sibling HeldTool gate so the seat shows through it. NOT a gameplay path (only a -verify flag
+        /// calls it); instance state only, so no SubsystemRegistration reset is needed.
+        /// </summary>
+        public void ShowWeaponForCaptureDebug(int index)
+        {
+            if (_meshHolder == null) return;
+            if (!_resolved) ResolveMeshes();
+            _index = Mathf.Clamp(index, 0, WeaponNodeNames.Length - 1);
+            _debugView = true;
+            ApplyCurrent();
+            var gateTool = ResolveGate();
+            if (gateTool != null) gateTool.RefreshRenderers();
+            Debug.Log("[HeldWeaponCycleDebug] capture view -> " + WeaponLabels[_index] +
+                      " (" + WeaponNodeNames[_index] + ")  [86cam9q5f -verifyHeldPickaxe]");
         }
 
         // Resolve the family meshes from the lineup prefab lazily (the first cycle), so a soak that never
