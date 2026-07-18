@@ -87,5 +87,38 @@ namespace FarHorizon
             float sum = aRadius + bRadius;
             return dx * dx + dz * dz < sum * sum;
         }
+
+        /// <summary>A discovered no-build source for a placement session (a transform + its planar footprint
+        /// radius). The shared shape both placement drivers hold their session pool as.</summary>
+        public struct SessionObstacle { public Transform t; public float radius; }
+
+        // Planar no-build radii for the discrete collider-free pools discovered each placement session.
+        private const float OreNodeObstacleRadius = 0.6f;   // an ore node's rough footprint
+        private const float StructureObstacleRadius = 0.9f; // a lit campfire (a placed table/forge self-registers)
+
+        /// <summary>
+        /// Collect the NON-self-registering session obstacles into <paramref name="into"/> (③ reconciliation —
+        /// the shared discovery both <see cref="CraftingTablePlacement"/> and <see cref="ForgePlacement"/> call
+        /// at EnterPlacement, NOT per frame). Clears + fills the list with: active ore nodes (the mine pool) +
+        /// LIT campfires. Placed TABLES + FORGES are NOT scanned here — they self-register via
+        /// <see cref="PlacementObstacle"/> (their Reveal/Build enables it) and are caught by
+        /// <see cref="IsFootprintBlocked"/>, so scanning them here would double-count. Allocation only grows the
+        /// caller's reused list (called once per placement session, not per frame).
+        /// </summary>
+        public static void CollectSessionObstacles(List<SessionObstacle> into)
+        {
+            if (into == null) return;
+            into.Clear();
+            foreach (var mine in Object.FindObjectsByType<MineOre>(FindObjectsSortMode.None))
+            {
+                if (mine == null || mine.nodeRoot == null) continue;
+                foreach (Transform node in mine.nodeRoot)
+                    if (node != null && node.name == MineOre.OreNodeName && node.gameObject.activeInHierarchy)
+                        into.Add(new SessionObstacle { t = node, radius = OreNodeObstacleRadius });
+            }
+            foreach (var fire in Object.FindObjectsByType<Campfire>(FindObjectsSortMode.None))
+                if (fire != null && fire.IsLit)
+                    into.Add(new SessionObstacle { t = fire.transform, radius = StructureObstacleRadius });
+        }
     }
 }

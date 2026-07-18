@@ -113,6 +113,37 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_inv.Model.OwnsItem(ItemCatalog.AxeWoodId), "the wood axe is on the belt");
         }
 
+        // === ③ strip-test (ticket 86camz9vh): IRON tier LIVE — with the table placed + iron ingots owned, the
+        // IRON axe row is Craftable + crafts the iron axe to the belt (the forged upgrade earned at the table). ===
+        [UnityTest]
+        public IEnumerator PlacedTable_WithIronIngots_IronAxeRow_CraftableAndCraftsToBelt()
+        {
+            yield return null;
+            _table.Reveal(Vector3.zero, Quaternion.identity); // table placed → WOOD unlocked; IRON needs an ingot
+            _inv.AddWood(10);
+
+            Recipe ironAxe = null;
+            foreach (var r in _menu.Recipes)
+                if (r.Tier == CraftTier.Iron && r.Tool == CraftTool.Axe) { ironAxe = r; break; }
+            Assert.IsNotNull(ironAxe, "the menu carries the iron-axe recipe");
+            Assert.IsFalse(ironAxe.Placeholder, "③ flips the IRON row LIVE (no longer a Locked placeholder)");
+
+            // Before any ingot: the IRON tier is LOCKED (unlock = first-iron-ingot-owned, §7-C).
+            Assert.AreEqual(RecipeRowState.Locked, _menu.RowStateOf(ironAxe),
+                "IRON stays Locked until the player has ever owned an iron ingot (the forge smelt gate)");
+
+            // Smelt an ingot (seed it — the forge #292 loop is tested separately) → IRON unlocks + is affordable.
+            _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.IronIngotId), 5);
+            Assert.AreEqual(RecipeRowState.Craftable, _menu.RowStateOf(ironAxe),
+                "with an iron ingot owned + wood in hand, the iron axe row is Craftable");
+
+            Assert.IsTrue(_menu.CraftRecipe(ironAxe), "clicking the iron-axe row crafts it");
+            Assert.AreEqual(10 - CraftingRecipeBook.IronAxeWood, _inv.WoodCount, "the iron axe debited its wood cost");
+            Assert.AreEqual(5 - CraftingRecipeBook.IronAxeIngot, _inv.Model.CountItem(ItemCatalog.IronIngotId),
+                "the iron axe debited its iron-ingot cost (all-or-nothing)");
+            Assert.IsTrue(_inv.Model.OwnsItem(ItemCatalog.AxeIronId), "the iron axe (axe_iron) is on the belt");
+        }
+
         [UnityTest]
         public IEnumerator OpenMenu_PushesUiInputGate_SwallowsWorldInput()
         {

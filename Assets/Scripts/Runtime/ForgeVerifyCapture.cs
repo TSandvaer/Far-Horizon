@@ -10,8 +10,8 @@ namespace FarHorizon
     /// The testing bar's shipped-build gate (unity-conventions.md §editor-vs-runtime) requires proving the forge
     /// loop works in the BUILT exe, not just the editor. The direct sibling of <see cref="MineVerifyCapture"/> /
     /// <see cref="ChopVerifyCapture"/>: it drives the full loop seam — wait for the agent on the NavMesh, GRANT the
-    /// build + smelt mats (wood + stone + iron-ore) into the pack, teleport to the forge build spot, BUILD the forge
-    /// (proximity gate), then SMELT (proximity auto-tend) until an iron-INGOT lands — then asserts the ingot count
+    /// build + smelt mats (wood + stone + iron-ore) into the pack, PLACE the forge via the place-to-build seam
+    /// (86camz9vh ③ — invisible-until-placed), then SMELT (proximity auto-tend) until an iron-INGOT lands — then asserts the ingot count
     /// rose, proving end-to-end "gather mats → build furnace → smelt ore → iron ingot" in the shipped player with
     /// the HUD build stamp visible.
     ///
@@ -84,19 +84,21 @@ namespace FarHorizon
             Debug.Log("[ForgeVerifyCapture] granted mats: wood=" + Count(ItemCatalog.WoodId) + " stone=" +
                       Count(ItemCatalog.StoneId) + " iron_ore=" + Count(ItemCatalog.IronOreId));
 
-            // 3. Teleport to the forge build spot + let ForgePlacement's proximity gate build it.
+            // 3. Teleport near the parked spot, then PLACE the forge via the place-to-build seam (86camz9vh ③ —
+            // the forge is invisible-until-placed now; there is no proximity gate). Aim the ghost at a walkable
+            // navmesh spot ~2.5u in front of the player (off-self, on-navmesh so the obstruction gate passes) and
+            // confirm — RequestBuildAt enters placement, forces the pose, and confirms in one shot.
             bool built = false;
             if (placement != null)
             {
                 TeleportPlayer(placement.transform.position);
-                float bstart = Time.time;
-                while (Time.time - bstart < 6f && !placement.HasBuilt)
-                {
-                    // Proximity build fires in ForgePlacement.Update; force it too (harmless if already built).
-                    placement.TryBuild();
-                    yield return null;
-                }
-                built = placement.HasBuilt || (forge != null && forge.IsBuilt);
+                for (int i = 0; i < 3; i++) yield return null; // let the agent settle on the navmesh
+                Vector3 stand = player != null ? player.transform.position : placement.transform.position;
+                // 1.5u ahead: >= minDistFromPlayer (1.0), and well inside the forge park spot's ore/boulder
+                // clearance ring (landmarks keep >=4u) so the footprint is clear.
+                Vector3 buildSpot = stand + new Vector3(0f, 0f, 1.5f);
+                if (NavMesh.SamplePosition(buildSpot, out NavMeshHit bh, 4f, NavMesh.AllAreas)) buildSpot = bh.position;
+                built = placement.RequestBuildAt(buildSpot, 0f) || (forge != null && forge.IsBuilt);
             }
             Debug.Log("[ForgeVerifyCapture] forge built: " + built);
             for (int i = 0; i < 5; i++) yield return null;

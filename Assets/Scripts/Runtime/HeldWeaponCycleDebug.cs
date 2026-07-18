@@ -106,11 +106,20 @@ namespace FarHorizon
         // selection sync + its EditMode contract are untouched. PUBLIC + static so the EditMode guard reads
         // the cycle contract directly (no reflection): the family prefab MUST carry a mesh node for each of
         // these, or cycling resolves nothing.
+        // 86camz9vh (③): APPEND the 4 iron weapons (axe/knife/sword/spear iron — indices 6-9) so the shipped iron
+        // FBX set (#254/#283) is judged IN-HAND via this picker (spec §DRAFT③ Bar 5 — "iron in-hand via the
+        // picker"), mirroring how 86cam9q5f appended the iron pickaxe. Append-only: indices 0-5 (the soaked stone
+        // tier + both pickaxes) are BYTE-IDENTICAL, so the belt-selection sync + its EditMode contract are
+        // untouched. The iron variants share their stone counterpart's family haft/grip (same seat — see the seat
+        // arrays below). The belt→held-mesh SYNC for the non-pickaxe iron weapons is the deferred "real equip"
+        // follow-up (the wood/stone dagger/sword are [B]-only too); ③ makes them SOAKABLE in-hand via [B].
         public static readonly string[] WeaponNodeNames =
             { "wpn_axe_stone_01", "wpn_knife_stone_01", "wpn_sword_stone_01", "wpn_spear_stone_01",
-              "wpn_pickaxe_stone_01", "wpn_pickaxe_iron_01" };
+              "wpn_pickaxe_stone_01", "wpn_pickaxe_iron_01",
+              "wpn_axe_iron_01", "wpn_knife_iron_01", "wpn_sword_iron_01", "wpn_spear_iron_01" };
         public static readonly string[] WeaponLabels =
-            { "AXE", "KNIFE", "SWORD", "SPEAR", "PICKAXE STONE", "PICKAXE IRON" };
+            { "AXE", "KNIFE", "SWORD", "SPEAR", "PICKAXE STONE", "PICKAXE IRON",
+              "AXE IRON", "DAGGER IRON", "SWORD IRON", "SPEAR IRON" };
         public const string LineupResourcePath = "WeaponSetLineup"; // Assets/Resources/WeaponSetLineup.prefab
 
         /// <summary>The axe's family index (0 — the Sponsor-LOCKED default seat).</summary>
@@ -123,6 +132,14 @@ namespace FarHorizon
         public const int PickaxeStoneFamilyIndex = 4;
         /// <summary>The iron pickaxe's cycle index (86cam9q5f — the 5th tool type, iron tier).</summary>
         public const int PickaxeIronFamilyIndex = 5;
+        /// <summary>The iron AXE's cycle index (86camz9vh ③ — appended for the in-hand iron soak, Bar 5).</summary>
+        public const int AxeIronFamilyIndex = 6;
+        /// <summary>The iron DAGGER's cycle index (86camz9vh ③ — the wpn_knife_iron_01 mesh, "dagger" per §6a).</summary>
+        public const int DaggerIronFamilyIndex = 7;
+        /// <summary>The iron SWORD's cycle index (86camz9vh ③).</summary>
+        public const int SwordIronFamilyIndex = 8;
+        /// <summary>The iron SPEAR's cycle index (86camz9vh ③).</summary>
+        public const int SpearIronFamilyIndex = 9;
 
         /// <summary>
         /// 86cahngdg — the PURE selection -> family-index mapping the belt sync applies (extracted so the
@@ -169,7 +186,11 @@ namespace FarHorizon
         // verbatim, so it shares the axe's grip origin + familyGlobalScale and seats at the axe's baseline
         // (scale 1.0) with no per-weapon compensation. The Sponsor micro-dials in-hand at the picker soak
         // (Bar 5/8 — HeldWeaponPlacement); these are the predicted starting seats to bake if he nudges them.
-        public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f, 1f, 1f };
+        // 86camz9vh (③): the 4 iron weapons (idx 6-9) START from their STONE counterpart's soaked held scale —
+        // the iron variant shares the same family haft/grip + overall size (blender-asset-pipeline family-
+        // extension), so it seats identically. axe_iron←axe(1.0), knife_iron←knife(0.85), sword_iron←sword(0.95),
+        // spear_iron←spear(0.90). The Sponsor micro-dials in-hand at the picker soak (Bar 5 — HeldWeaponPlacement).
+        public static readonly float[] WeaponMeshScale = { 1f, 0.85f, 0.95f, 0.90f, 1f, 1f, 1f, 0.85f, 0.95f, 0.90f };
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
         // 86caffwuz BAKE (build 5caf1be): these are the Sponsor's DIALED in-hand offsets — he soaked + nudged
@@ -194,6 +215,12 @@ namespace FarHorizon
             new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
             new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe iron  (86cakkmr0 — SHARES the stone seat: both tiers
                                                      //   share the family haft/grip + head geometry by construction)
+            // 86camz9vh (③): iron axe/knife/sword/spear (idx 6-9) START from their STONE counterpart's soaked
+            // held offset (same family grip origin → same seat). Sponsor micro-dials in-hand at the picker soak.
+            Vector3.zero,                            // axe iron   ← axe   (LOCKED seat, no compensation)
+            new Vector3(-0.020f, 0.020f, 0.000f),    // dagger iron ← knife
+            new Vector3(-0.020f, 0.040f, 0.000f),    // sword iron  ← sword
+            new Vector3(-0.020f, 0.560f, 0.000f),    // spear iron  ← spear
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
@@ -210,6 +237,12 @@ namespace FarHorizon
             Vector3.zero,   // spear
             new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
             new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe iron  (86cakkmr0 — SHARES the stone seat: same family haft/head)
+            // 86camz9vh (③): iron axe/knife/sword/spear (idx 6-9) share their STONE counterpart's euler (zero — the
+            // non-axe weapons' hold is the shared-seat baseline; Sponsor micro-dials at the picker soak).
+            Vector3.zero,   // axe iron
+            Vector3.zero,   // dagger iron
+            Vector3.zero,   // sword iron
+            Vector3.zero,   // spear iron
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)

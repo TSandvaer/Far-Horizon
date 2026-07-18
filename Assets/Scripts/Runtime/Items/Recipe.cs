@@ -181,13 +181,16 @@ namespace FarHorizon
                 new Recipe(CraftTier.Stone, CraftTool.Dagger,  ItemCatalog.DaggerStoneId,  "Stone Dagger",  WoodStone(StoneDaggerWood, StoneDaggerStone),   false),
                 new Recipe(CraftTier.Stone, CraftTool.Sword,   ItemCatalog.SwordStoneId,   "Stone Sword",   WoodStone(StoneSwordWood, StoneSwordStone),     false),
 
-                // IRON tier — Locked placeholders (③). Future ids per §6b: pickaxe_iron exists; axe_iron/spear_iron/
-                // dagger_iron/sword_iron are minted by ③.
-                new Recipe(CraftTier.Iron, CraftTool.Axe,     "axe_iron",                "Iron Axe",     WoodIngot(IronAxeWood, IronAxeIngot),         true),
-                new Recipe(CraftTier.Iron, CraftTool.Pickaxe, ItemCatalog.PickaxeIronId, "Iron Pickaxe", WoodIngot(IronPickaxeWood, IronPickaxeIngot), true),
-                new Recipe(CraftTier.Iron, CraftTool.Spear,   "spear_iron",              "Iron Spear",   WoodIngot(IronSpearWood, IronSpearIngot),     true),
-                new Recipe(CraftTier.Iron, CraftTool.Dagger,  "dagger_iron",             "Iron Dagger",  WoodIngot(IronDaggerWood, IronDaggerIngot),   true),
-                new Recipe(CraftTier.Iron, CraftTool.Sword,   "sword_iron",              "Iron Sword",   WoodIngot(IronSwordWood, IronSwordIngot),     true),
+                // IRON tier — LIVE (③ — ticket 86camz9vh). Placeholder=false: the forge (place-to-build) smelts
+                // iron ore → ingots (shipped #292), so the ingot input now exists and these are craftable. pickaxe_iron
+                // + the NEW axe_iron/spear_iron/dagger_iron/sword_iron ids (§6b) are minted in ItemCatalog/WeaponCatalog.
+                // The tier still gates on §7-C (IRON unlocks on first-iron-ingot-owned) via IsTierUnlocked — Placeholder=false
+                // makes the row LIVE once the tier unlocks + is affordable (the menu paints it + the seam crafts it).
+                new Recipe(CraftTier.Iron, CraftTool.Axe,     ItemCatalog.AxeIronId,     "Iron Axe",     WoodIngot(IronAxeWood, IronAxeIngot),         false),
+                new Recipe(CraftTier.Iron, CraftTool.Pickaxe, ItemCatalog.PickaxeIronId, "Iron Pickaxe", WoodIngot(IronPickaxeWood, IronPickaxeIngot), false),
+                new Recipe(CraftTier.Iron, CraftTool.Spear,   ItemCatalog.SpearIronId,   "Iron Spear",   WoodIngot(IronSpearWood, IronSpearIngot),     false),
+                new Recipe(CraftTier.Iron, CraftTool.Dagger,  ItemCatalog.DaggerIronId,  "Iron Dagger",  WoodIngot(IronDaggerWood, IronDaggerIngot),   false),
+                new Recipe(CraftTier.Iron, CraftTool.Sword,   ItemCatalog.SwordIronId,   "Iron Sword",   WoodIngot(IronSwordWood, IronSwordIngot),     false),
             };
         }
 

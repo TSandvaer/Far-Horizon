@@ -620,6 +620,13 @@ namespace FarHorizon.EditorTools
             foreach (var r in tableVisual.GetComponentsInChildren<Renderer>(true))
                 if (r != null) r.enabled = false; // invisible-until-placed (serialized hidden; Awake re-asserts)
 
+            // The no-build zone the table self-registers ONCE PLACED (#302 seam, ③ reconciliation) so a later
+            // forge/table placement ghost reads RED over it. Authored DISABLED — CraftingTable.Reveal enables it.
+            var tableObstacle = tableGo.AddComponent<PlacementObstacle>();
+            tableObstacle.footprintRadius = 0.6f; // ~half the 1.1×0.8 table top
+            tableObstacle.enabled = false;
+            table.placementObstacle = tableObstacle;
+
             // (b) the placement GHOST — translucent, hidden until the player enters placement mode.
             var ghostGo = new GameObject(CraftingTableGhostObjectName);
             ghostGo.transform.position = CraftSpotPosition;
@@ -3260,10 +3267,18 @@ namespace FarHorizon.EditorTools
         private static readonly Color ForgeStoneDark  = new Color(0.22f, 0.22f, 0.24f); // dark firebox mouth
         private static readonly Color ForgeGlowOrange = new Color(1.0f, 0.50f, 0.14f);  // warm smelt glow (emissive)
 
+        // The FORGE place-to-build flow (86camz9vh ③ — REWRITE of the shipped fixed-spot proximity build). The
+        // Sponsor rejected a pre-visible forge (86camyvzw), so the forge now uses the SAME invisible-until-placed
+        // place-to-build flow as the ① table (spec §2). Authors, all editor-time so they SERIALIZE into Boot.unity
+        // (editor-vs-runtime trap): (a) the REAL forge (stone-furnace mesh + glow/light), renderers DISABLED =
+        // invisible until placed; (b) a translucent GHOST (body+vent silhouette) hidden until placement; (c) a
+        // PlacementObstacle on the forge (disabled — Build enables it so the placed forge self-registers a no-build
+        // zone, #302 seam); (d) the rewritten ForgePlacement driver wiring them + the Inventory/Forge/player refs.
+        // ForgeSceneTests guards the serialized presence + invisible-until-placed + wiring.
         private static void BuildForge(GameObject player, int groundLayer)
         {
             var forgeGo = new GameObject("Forge");
-            forgeGo.transform.position = ForgeSpotPosition;
+            forgeGo.transform.position = ForgeSpotPosition; // parked here, INVISIBLE, until the player places it
 
             var visual = new GameObject("ForgeVisual");
             visual.transform.SetParent(forgeGo.transform, false);
@@ -3293,6 +3308,15 @@ namespace FarHorizon.EditorTools
                 new Vector3(0f, 0.34f, 0.68f), new Vector3(0.30f, 0.26f, 0.20f), 0f, emissive: true);
             glowGo.SetActive(false); // ships cold — Forge shows it while smelting
 
+            // INVISIBLE-UNTIL-PLACED (spec §2): disable the forge structure's renderers (NOT the glow — it is
+            // smelt-state-driven + already off). Forge.Build reveals them at the confirmed ghost pose.
+            foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (r.transform.IsChildOf(glowGo.transform)) continue; // glow toggled by the smelt state
+                r.enabled = false;
+            }
+
             // --- the warm point Light at the mouth (heat glow into the Zone-D look) — disabled until smelting ---
             var lightGo = new GameObject("ForgeLight");
             lightGo.transform.SetParent(forgeGo.transform, false);
@@ -3305,14 +3329,34 @@ namespace FarHorizon.EditorTools
             forgeLight.shadows = LightShadows.None; // no shadow cost (unity6-mastery §3 — no shadowed point lights)
             forgeLight.enabled = false;             // ships off — Forge enables it while smelting
 
+            // (b) the placement GHOST — a translucent body+vent silhouette (enough to read footprint + facing),
+            // a SEPARATE root the placement moves under the cursor. Hidden until the player enters placement.
+            var ghostGo = new GameObject("ForgeGhost");
+            ghostGo.transform.position = ForgeSpotPosition;
+            var ghostMat = EnsureCraftingGhostMat(); // the shared translucent unlit ghost material (tinted per-frame)
+            AddForgeGhostPart(ghostGo.transform, "GhostBody",
+                LowPolyMeshes.TaperedCylinder(0.74f, 0.60f, 1.05f, 8), Vector3.zero, ghostMat);
+            AddForgeGhostPart(ghostGo.transform, "GhostVent",
+                LowPolyMeshes.TaperedCylinder(0.24f, 0.17f, 0.46f, 6), new Vector3(0f, 1.05f, 0f), ghostMat);
+            foreach (var r in ghostGo.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false; // shown only while placing
+
+            // (c) the no-build zone the forge self-registers ONCE BUILT (#302 seam). Authored DISABLED — Forge.Build
+            // enables it (OnEnable → Register), so an unbuilt/invisible forge never blocks placement.
+            var obstacle = forgeGo.AddComponent<PlacementObstacle>();
+            obstacle.footprintRadius = 0.9f; // a chunky stone furnace
+            obstacle.enabled = false;
+
             // The Forge component: the built state + the smelt runtime. Smelt-cost dials seeded from the Medium
             // preset (the balanced default; the smelt_* settings flip these live via PopulateSmeltLive).
             var med = IronDifficultyPresets.Medium;
             var forge = forgeGo.AddComponent<Forge>();
             forge.inventory = Object.FindObjectOfType<Inventory>();
             forge.player = player.transform;
+            forge.visual = visual.transform;
             forge.glowVisual = glowGo;
             forge.forgeLight = forgeLight;
+            forge.placementObstacle = obstacle;
             forge.smeltRadius = 3.0f;
             forge.orePerIngot = med.OrePerIngot;
             forge.fuelPerSmelt = med.FuelPerSmelt;
@@ -3321,12 +3365,17 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire Forge to — BootstrapProject " +
                                "must add the Survival Inventory before MovementCameraScene.Author");
 
-            // The ForgePlacement component: the wood+stone-gated build interaction (on the SAME GO — the forge IS
-            // its own build spot, like the campfire pit is its own build spot).
+            // The rewritten ForgePlacement: the wood+STONE place-to-build driver (on the SAME GO as the Forge).
+            // Costs default 6 wood + 12 stone (spec §5 — "forge >> weapons"). groundMask = the world's Ground layer
+            // so the cursor ray hits ground + the navmesh-availability gate is ON in the shipped world.
             var place = forgeGo.AddComponent<ForgePlacement>();
             place.inventory = forge.inventory;
             place.forge = forge;
             place.player = player.transform;
+            place.ghost = ghostGo.transform;
+            place.groundMask = 1 << groundLayer;
+            place.woodCost = ForgePlacement.ForgeWoodCostDefault;   // 6
+            place.stoneCost = ForgePlacement.ForgeStoneCostDefault; // 12
 
             // Wire the SETTINGS PANEL's forge ref now that the Forge exists (BuildSettingsPanel ran earlier). The
             // three `smelt_*` rows flip LIVE bound to the Forge's smelt-cost fields (the second difficulty dial).
@@ -3337,14 +3386,27 @@ namespace FarHorizon.EditorTools
                 EditorUtility.SetDirty(settingsPanel);
             }
 
-            // Wire the verification-only shipped-build FORGE capture (-verifyForge drives grant → build → smelt →
+            // Wire the verification-only shipped-build FORGE capture (-verifyForge drives place → build → smelt →
             // ingot) onto the Boot object.
             WireForgeVerifyCapture(player);
 
-            EditorUtility.SetDirty(forgeGo);
-            Debug.Log("[MovementCameraScene] authored Forge at " + ForgeSpotPosition +
+            EditorUtility.SetDirty(forgeGo); EditorUtility.SetDirty(ghostGo);
+            Debug.Log("[MovementCameraScene] authored Forge (invisible-until-placed) + ghost + placement (" +
+                      place.woodCost + "w+" + place.stoneCost + "s) at park " + ForgeSpotPosition +
                       " (ships cold; inventory wired: " + (forge.inventory != null) + "; smelt " + forge.orePerIngot +
                       " ore + " + forge.fuelPerSmelt + " fuel / " + forge.smeltSeconds.ToString("F0") + "s)");
+        }
+
+        // One translucent forge-ghost part: a MeshFilter+MeshRenderer with the shared ghost material (the
+        // placement tints it green/red per-frame via a MaterialPropertyBlock). Collider-free set-dressing.
+        private static void AddForgeGhostPart(Transform parent, string name, Mesh mesh, Vector3 localPos, Material ghostMat)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (ghostMat != null) mr.sharedMaterial = ghostMat;
         }
 
         // A blocky forge part (firebox mouth / glow block): a Cube primitive (collider stripped — set-dressing) with

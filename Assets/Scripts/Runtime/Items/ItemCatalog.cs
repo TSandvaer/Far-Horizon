@@ -88,6 +88,22 @@ namespace FarHorizon
         /// <summary>Stone sword id (② — the STONE tier goes live). A belt-eligible Tool.</summary>
         public const string SwordStoneId = "sword_stone";
 
+        // === IRON-tier NEW tool ids (ticket 86camz9vh / crafting-redesign ③ — §6b). ③ flips the IRON tier
+        // LIVE (the forged upgrade, crafted from iron ingots at the table). pickaxe_iron already ships (I-0);
+        // the ONLY new IRON cells are axe/spear/dagger/sword (they were placeholder-string-literals in the ①
+        // recipe rows). Minted here as belt-eligible Tools so the IRON recipe grant (AddToolToBelt) lands them;
+        // the shipped iron FBX set (wpn_*_iron_01, #254/#283) is the wielded upgrade judged in-hand via the
+        // picker (Bar 5). "dagger" per §6a (the wpn_knife_iron_01 FBX is reused unchanged). Icons null →
+        // letter-chip fallback (a baked icon is a follow-up, like the wood/stone tiers). ===
+        /// <summary>Iron axe id (③ — the forged axe upgrade). A belt-eligible Tool.</summary>
+        public const string AxeIronId = "axe_iron";
+        /// <summary>Iron spear id (③). A belt-eligible Tool.</summary>
+        public const string SpearIronId = "spear_iron";
+        /// <summary>Iron dagger id (③ — "dagger" per §6a; reuses the wpn_knife_iron_01 FBX). A belt-eligible Tool.</summary>
+        public const string DaggerIronId = "dagger_iron";
+        /// <summary>Iron sword id (③). A belt-eligible Tool.</summary>
+        public const string SwordIronId = "sword_iron";
+
         [SerializeField,
          Tooltip("The canonical item defs (axe / wood / stone / berry). Authored at bootstrap; the world-" +
                  "resource tickets look these up by id, never mint their own.")]
@@ -210,10 +226,24 @@ namespace FarHorizon
             var swordStone = CreateInstance<ItemDef>(); swordStone.name = "sword_stone";
             swordStone.Init(SwordStoneId, "Stone Sword", ItemKind.Tool, null);
 
+            // IRON tier (ticket 86camz9vh ③) — the 4 NEW iron cells (axe/spear/dagger/sword). pickaxe_iron
+            // already ships (I-0). Belt-eligible Tools so the IRON recipe grant (AddToolToBelt) lands them on
+            // the belt; the shipped iron FBX set is the wielded upgrade (in-hand via the picker, Bar 5). Icons
+            // null → letter-chip fallback (a baked icon is a follow-up). "dagger" §6a.
+            var axeIron = CreateInstance<ItemDef>(); axeIron.name = "axe_iron";
+            axeIron.Init(AxeIronId, "Iron Axe", ItemKind.Tool, null);
+            var spearIron = CreateInstance<ItemDef>(); spearIron.name = "spear_iron";
+            spearIron.Init(SpearIronId, "Iron Spear", ItemKind.Tool, null);
+            var daggerIron = CreateInstance<ItemDef>(); daggerIron.name = "dagger_iron";
+            daggerIron.Init(DaggerIronId, "Iron Dagger", ItemKind.Tool, null);
+            var swordIron = CreateInstance<ItemDef>(); swordIron.name = "sword_iron";
+            swordIron.Init(SwordIronId, "Iron Sword", ItemKind.Tool, null);
+
             SetAll(new[] { axe, wood, stone, berry, water, spear,
                            ironOre, ironIngot, pickaxeStone, pickaxeIron,
                            axeWood, pickaxeWood, spearWood, daggerWood, swordWood,
-                           daggerStone, swordStone });
+                           daggerStone, swordStone,
+                           axeIron, spearIron, daggerIron, swordIron });
         }
     }
 }

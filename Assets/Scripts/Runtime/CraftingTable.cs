@@ -21,6 +21,11 @@ namespace FarHorizon
                  "table is placed (invisible-until-placed, spec §2). Falls back to this transform.")]
         public Transform visual;
 
+        [Tooltip("The no-build zone this table projects ONCE PLACED (the #302 PlacementObstacle seam) so a " +
+                 "later forge/table placement ghost reads RED over it (③ reconciliation). Authored disabled; " +
+                 "Reveal() enables it. Optional (null → the table simply doesn't self-register).")]
+        public PlacementObstacle placementObstacle;
+
         // The table ships UNBUILT/invisible; the placement Reveal()s it once. Instance state only.
         private bool _built;
 
@@ -47,6 +52,9 @@ namespace FarHorizon
             transform.SetPositionAndRotation(position, rotation);
             _built = true;
             SetVisualEnabled(true);
+            // Self-register as a no-build zone (#302 seam, ③ reconciliation) so a later forge/table placement
+            // ghost reads RED over the placed table. Enabling the component fires its OnEnable → Register.
+            if (placementObstacle != null) placementObstacle.enabled = true;
         }
 
         private void SetVisualEnabled(bool on)
