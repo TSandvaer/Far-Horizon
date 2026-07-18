@@ -525,3 +525,9 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Why: Sponsor verbatim: "look into why i have to do any manual merges, I want to avoid this." Investigation: the label path was already mechanical; only the per-PR-approval policy forced manual steps. The one-click staging class is retired.
 - Reversibility: reversible — Sponsor revokes with a word; falls back to one-click staging.
 - Affects: orchestrator merge flow, away-queue format (one-click class retired), all personas' merge expectations
+
+## 2026-07-18 — Wood-tier weapon set PASSED (Sponsor walkthrough verdict)
+
+- **Decision:** Sponsor PASSED all 5 wood-tier pieces as-is (axe/pickaxe/spear/knife/sword; whittled-wood, existing palette tones, 28-41 tris) from the 13 staged renders in art-src/wood-burst-renders/ — "PASS — export FBXs, integrate" via /sponsor-questions-walkthrough popup.
+- **Consequence:** FBXs export from art-src/weapons_reauthor.blend (wood row y=-0.6) to Assets/Art/Props/WeaponPack/ and integration proceeds (ids *_wood already live in #294 catalogs; in-hand seating + verbs remain ②/art-burst scope per the #294 deferred flags).
+- **Source:** away-queue item 0b (staged 2026-07-08) → resolved 2026-07-18.
