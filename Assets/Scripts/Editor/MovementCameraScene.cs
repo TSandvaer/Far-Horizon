@@ -334,6 +334,13 @@ namespace FarHorizon.EditorTools
             // (I-1/#283). Placed CLEAR of spawn (> pickupRadius) so it can't auto-grab belt slot 0 (the PR #224 class).
             BuildPickaxePickup(player);
 
+            // 86camz9v7 (crafting-redesign ②): LARGER BOULDERS — the VOLUME stone source. With a WOOD pickaxe
+            // selected the castaway mines stone from boulders (the MineOre sibling), breaks them for a lootable
+            // stone pile, then the boulder regrows. A DISCRETE mineable pool authored editor-time (distinct from
+            // the decorative scatter rocks + the ore nodes). Built BEFORE BuildPickableLooter so the StonePileSpawner
+            // exists when the looter back-wires it (mirrors the OrePileSpawner back-wire). Collider-free.
+            BuildBoulders(player, groundLayer);
+
             // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
             // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
             // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
@@ -346,6 +353,10 @@ namespace FarHorizon.EditorTools
             // 86cakkmr0 (I-2): the shipped-build MINE capture gate — wired AFTER BuildPickableLooter + the pickaxe
             // pickup so all its deps (looter + pickaxe pickup + MineOre) exist. Inert unless launched with -verifyMine.
             WireMineVerifyCapture(player);
+
+            // 86camz9v7 (②): the shipped-build BOULDER capture gate — wired AFTER BuildPickableLooter + BuildBoulders
+            // so its deps (looter + MineBoulder) exist. Inert unless launched with -verifyBoulder.
+            WireBoulderVerifyCapture(player);
 
             // 86caamkv7: a wired FRESHWATER POND inland near the loop centre — the thirst source for the merged
             // survival loop. The castaway walks up (no tool) and DRINKS FROM HAND — a small per-scoop restore,
@@ -2561,6 +2572,176 @@ namespace FarHorizon.EditorTools
             return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
+        // === BOULDER pool (ticket 86camz9v7 / crafting-redesign ② — boulder mining) ===
+
+        // The authored boulder POOL size — a modest DISCRETE pool of the VOLUME stone source (each yields ~5 stone +
+        // regrows), NOT a rarity-dialed cloud like the ore nodes. A named source (not a magic literal).
+        private const int BoulderPoolSize = 7;
+
+        // Boulder material — the PROVEN warm-light STONE grey (matches the shipped scatter-rock RockCol
+        // 0.62/0.60/0.555, LowPolyZoneGen.cs:92) so the boulder reads as the SAME warm-light stone family + does NOT
+        // silhouette dark/cool under the Zone-D fog (the 86ca8m5zu dark-rock reject lesson — a side-profile capture at
+        // 0.52 read too dark). The FacetedRock vertex-value contrast multiplies onto this _Tint. default — Sponsor-soak tunes.
+        private static readonly Color BoulderStoneGrey = new Color(0.62f, 0.60f, 0.555f);
+
+        // Author the boulder POOL (②). REAL-WORLD ANCHOR: a boulder is a LARGE chunky ROCK resting ON the ground —
+        // a bump UP, half-embedded (you can walk up to it), NOT a hole. A deterministic SEEDED scatter places
+        // BoulderPoolSize boulders organically (Bar 1 — no grid) in the walkable loop annulus, avoiding the
+        // landmarks AND the ore nodes (so the two mineable pools read distinct). MineBoulder reads the pool; the
+        // StonePileSpawner mints a StonePile per broken boulder. Authored editor-time so the pool + MineBoulder/
+        // StonePileSpawner refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A DISCRETE scene-author ADD
+        // OUTSIDE the seeded LowPolyZoneGen scatter stream — it provably cannot perturb the seed-42 island/scatter
+        // ([[world-is-big-round-island]]). Collider-free — the player walks up to mine; no NavMesh/raycast impact.
+        private static void BuildBoulders(GameObject player, int groundLayer)
+        {
+            // Shared material for the whole pool (ONE instance of the LowPolyVertexColor shader → SRP-batched).
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material boulderMat = null;
+            if (vc != null)
+            {
+                boulderMat = new Material(vc) { name = "BoulderStoneMat" };
+                if (boulderMat.HasProperty("_Tint")) boulderMat.SetColor("_Tint", BoulderStoneGrey);
+            }
+
+            // The pool root — MineBoulder.boulderRoot points here; the Boulder children are the pool.
+            var root = new GameObject("Boulders");
+            root.transform.position = Vector3.zero;
+
+            // Landmarks + the ore nodes to avoid (boulders are a DISTINCT mineable pool from the ore nodes).
+            var landmarks = new System.Collections.Generic.List<Vector3>
+            {
+                new Vector3(0f, 0f, 6f),   // spawn
+                CraftSpotPosition,          // craft
+                ChopTreePosition,           // tree
+                BerryBushPosition,          // bush
+                WiredStickPosition,         // stick
+                WiredStonePosition,         // stone
+                PondPosition,               // pond
+                new Vector3(4f, 0f, -8f),   // campfire
+                AxePickupPosition,          // axe pickup
+                PickaxePickupPosition,      // pickaxe pickup
+                ForgeSpotPosition,          // forge/furnace build spot
+            };
+            // Avoid the ore nodes too (they were authored just before us into "OreNodes").
+            var oreRoot = GameObject.Find("OreNodes");
+            if (oreRoot != null)
+                foreach (var t in oreRoot.GetComponentsInChildren<Transform>(true))
+                    if (t.name == MineOre.OreNodeName) landmarks.Add(t.position);
+
+            var placed = new System.Collections.Generic.List<Vector3>();
+            var rng = new System.Random(91442); // deterministic — the pool is byte-identical every bootstrap
+            int guard = 0;
+            while (placed.Count < BoulderPoolSize && guard < 12000)
+            {
+                guard++;
+                // Same walkable loop annulus (9..17u) the ore nodes use — findable without heavy exploration and on
+                // the proven-walkable NavMesh loop (for the mine soak + capture).
+                double ang = rng.NextDouble() * System.Math.PI * 2.0;
+                double rad = 9.0 + rng.NextDouble() * 8.0;
+                float x = (float)(System.Math.Cos(ang) * rad);
+                float z = (float)(System.Math.Sin(ang) * rad);
+                var p = new Vector3(x, 0f, z);
+                bool tooClose = false;
+                foreach (var lm in landmarks)
+                    if (PlanarDistXZ(p, lm) < 4.0f) { tooClose = true; break; } // a boulder is big — keep clearance
+                if (!tooClose)
+                    foreach (var q in placed)
+                        if (PlanarDistXZ(p, q) < 4.5f) { tooClose = true; break; } // spaced apart (organic, not clumped)
+                if (tooClose) continue;
+                placed.Add(p);
+            }
+
+            for (int i = 0; i < placed.Count; i++)
+                BuildBoulderVisual(root.transform, placed[i], 91500 + i * 23, boulderMat);
+
+            // The StonePileSpawner (the stone-drop factory + the `stone yield` / `stone-pile despawn` host). Its
+            // looter ref is back-wired LATER in BuildPickableLooter (the looter doesn't exist yet). stoneMaterial =
+            // the shared boulder material so a spawned pile reads as the same stone.
+            var spawnerGo = new GameObject("StonePileSpawner");
+            var stonePileSpawner = spawnerGo.AddComponent<StonePileSpawner>();
+            if (boulderMat != null) stonePileSpawner.stoneMaterial = boulderMat;
+
+            // The MineBoulder manager (the boulder-mine verb + resolver). Wired editor-time so it ships in Boot.unity
+            // (the Awake FindObjectOfType is the fallback).
+            var mineGo = new GameObject("MineBoulder");
+            var mine = mineGo.AddComponent<MineBoulder>();
+            mine.player = player.transform;
+            mine.inventory = Object.FindObjectOfType<Inventory>();
+            mine.character = Object.FindObjectOfType<CastawayCharacter>();
+            mine.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+            mine.stonePileSpawner = stonePileSpawner;
+            mine.boulderRoot = root.transform;
+            mine.strikesToBreak = MineBoulder.StrikesToBreakDefault;
+            mine.mineRadius = 2.4f;
+            mine.activeNodeCount = -1;   // ALL boulders active (a fixed discrete pool, no rarity dial)
+            mine.regrowSeed = 91577;     // deterministic regrow rolls for headless/capture stability
+            if (mine.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire MineBoulder to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            if (mine.character == null)
+                Debug.LogWarning("[MovementCameraScene] no CastawayCharacter to wire MineBoulder.character to — " +
+                                 "the mine will land strikes but the arm won't swing (BuildPlayer before BuildBoulders)");
+
+            EditorUtility.SetDirty(mineGo);
+            EditorUtility.SetDirty(spawnerGo);
+            EditorUtility.SetDirty(root);
+
+            Debug.Log("[MovementCameraScene] authored " + placed.Count + " boulders (pool=" + BoulderPoolSize +
+                      "; inventory wired: " + (mine.inventory != null) + ")");
+        }
+
+        // One boulder visual: a LARGE chunky faceted STONE lump resting ON the ground (half-embedded so it reads as
+        // a boulder sitting on the surface — a bump UP, not a floating rock or a hole). Named MineBoulder.BoulderNodeName
+        // under the pool root; MineBoulder discovers + drives it. The body mesh is named "BoulderMesh" (NOT "RockMesh")
+        // so the scatter-rock guards (RockBoulderSceneTests) don't pick it up. Collider-free.
+        private static void BuildBoulderVisual(Transform parent, Vector3 groundPos, int seed, Material boulderMat)
+        {
+            var node = new GameObject(MineBoulder.BoulderNodeName);
+            node.transform.SetParent(parent, false);
+            var rng = new System.Random(seed);
+            float yaw = (float)(rng.NextDouble() * 360.0);
+            // A big boulder (radius ~1.05–1.35u — clearly larger than the 0.58u ore outcrops), half-embedded so the
+            // base sits at ~ground and the chunk rises UP.
+            float radius = 1.05f + 0.30f * (float)rng.NextDouble();
+            node.transform.position = groundPos + Vector3.up * (radius * 0.45f);
+            node.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            var body = new GameObject("BoulderMesh");
+            body.transform.SetParent(node.transform, false);
+            var bmf = body.AddComponent<MeshFilter>();
+            // FacetedRock — flat-shaded angular stone (per-face normals + baked value contrast) — the "reads as stone"
+            // percept RockBoulderSceneTests guards; a bigger, chunkier jitter for a boulder read.
+            bmf.sharedMesh = LowPolyMeshes.FacetedRock(radius, 0.40f, seed);
+            var bmr = body.AddComponent<MeshRenderer>();
+            if (boulderMat != null) bmr.sharedMaterial = boulderMat;
+        }
+
+        // Wire the shipped-build boulder-mine capture (drives wood-pick → boulder → break → stone pile → E-loot,
+        // + a side-profile boulder shot) onto the Boot object — sibling of WireMineVerifyCapture. Inert unless
+        // launched with -verifyBoulder.
+        private static void WireBoulderVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host BoulderVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<BoulderVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<BoulderVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.mine = Object.FindObjectOfType<MineBoulder>();
+            cap.looter = Object.FindObjectOfType<PickableLooter>();
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] BoulderVerifyCapture.player wiring is null — the player has no " +
+                               "ClickToMove (BuildPlayer must run before WireBoulderVerifyCapture)");
+            if (cap.mine == null)
+                Debug.LogError("[MovementCameraScene] BoulderVerifyCapture.mine wiring is null — BuildBoulders must " +
+                               "author the MineBoulder before WireBoulderVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // A wired stone-PICKAXE pickup (I-2 soak-enabler). Mirrors BuildSpearPickup: the real stone-pickaxe FBX
         // (I-1/#283) on the shared palette, laid on the ground, + a PickaxePickup component (grants pickaxe_stone
         // to the belt on proximity). Placed CLEAR of spawn so it can't auto-grab slot 0 (the PR #224 class).
@@ -2678,6 +2859,22 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no OrePileSpawner in scene to back-wire PickableLooter onto — " +
                                "BuildOreNodes must author the OrePileSpawner before BuildPickableLooter; a spawned " +
                                "ore pile would never be looted (#165)");
+            }
+
+            // 86camz9v7 (②) — SAME #165 back-wire for the StonePileSpawner: every runtime-spawned StonePile must
+            // register with this looter or it is never looted. BuildBoulders ran BEFORE BuildPickableLooter, so the
+            // spawner exists here.
+            var stonePileSpawner = Object.FindObjectOfType<StonePileSpawner>();
+            if (stonePileSpawner != null)
+            {
+                stonePileSpawner.looter = looter;
+                EditorUtility.SetDirty(stonePileSpawner);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] no StonePileSpawner in scene to back-wire PickableLooter onto — " +
+                               "BuildBoulders must author the StonePileSpawner before BuildPickableLooter; a spawned " +
+                               "stone pile would never be looted (#165)");
             }
 
             // LOOT PROXIMITY PROMPT (86cafc6ud AC2/AC3): the "Press E to pick up {name}" tooltip, authored on

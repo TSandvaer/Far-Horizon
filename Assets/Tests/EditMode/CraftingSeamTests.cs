@@ -111,11 +111,94 @@ namespace FarHorizon.EditTests
             var go = new GameObject("Inv");
             var inv = go.AddComponent<Inventory>();
             inv.AddWood(99);
-            var stoneAxe = FindRecipe(CraftTier.Stone, CraftTool.Axe); // ① Locked placeholder
-            Assert.IsTrue(stoneAxe.Placeholder, "the STONE axe row is a ① placeholder");
-            Assert.IsFalse(inv.CanAfford(stoneAxe), "a placeholder is never affordable-to-craft");
-            Assert.IsFalse(inv.TryCraft(stoneAxe), "a placeholder recipe never crafts in ① (② wires it live)");
+            // ② flipped STONE live; IRON is the remaining Locked placeholder tier (③ wires it).
+            var ironAxe = FindRecipe(CraftTier.Iron, CraftTool.Axe);
+            Assert.IsTrue(ironAxe.Placeholder, "the IRON axe row is a placeholder until ③");
+            Assert.IsFalse(inv.CanAfford(ironAxe), "a placeholder is never affordable-to-craft");
+            Assert.IsFalse(inv.TryCraft(ironAxe), "a placeholder recipe never crafts (③ wires IRON live)");
             Object.DestroyImmediate(go);
+        }
+
+        // === STONE tier LIVE (② — ticket 86camz9v7): the strip-test — craft a stone axe at the table ===
+
+        [Test]
+        public void Facade_TryCraft_StoneAxeRecipe_DebitsAndGrants()
+        {
+            var go = new GameObject("Inv");
+            var inv = go.AddComponent<Inventory>();
+            inv.AddWood(10);
+            inv.Model.AddItem(inv.Catalog.ById(ItemCatalog.StoneId), 10); // stone is mined from boulders (②); seed it directly
+            var recipe = FindRecipe(CraftTier.Stone, CraftTool.Axe);
+            Assert.IsFalse(recipe.Placeholder, "② flips the STONE axe row LIVE (Placeholder=false)");
+
+            Assert.IsTrue(inv.CanAfford(recipe), "10 wood + 10 stone affords the stone axe");
+            Assert.IsTrue(inv.TryCraft(recipe), "the façade resolves the stone-axe output id + crafts it");
+            Assert.AreEqual(10 - CraftingRecipeBook.StoneAxeWood, inv.WoodCount, "wood debited by the recipe cost");
+            Assert.AreEqual(10 - CraftingRecipeBook.StoneAxeStone, inv.StoneCount, "stone debited by the recipe cost");
+            Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.AxeId), "the stone 'axe' (shipped id, §6b) is granted to the belt");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void Facade_TryCraft_StoneDaggerAndSword_NewIds_DebitAndGrant()
+        {
+            var go = new GameObject("Inv");
+            var inv = go.AddComponent<Inventory>();
+            inv.AddWood(20); inv.Model.AddItem(inv.Catalog.ById(ItemCatalog.StoneId), 20);
+
+            var dagger = FindRecipe(CraftTier.Stone, CraftTool.Dagger);
+            Assert.IsFalse(dagger.Placeholder, "② flips the stone dagger LIVE");
+            Assert.AreEqual(ItemCatalog.DaggerStoneId, dagger.OutputItemId, "the stone dagger mints the NEW dagger_stone id");
+            Assert.IsTrue(inv.TryCraft(dagger), "the stone dagger crafts");
+            Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.DaggerStoneId), "dagger_stone granted");
+
+            var sword = FindRecipe(CraftTier.Stone, CraftTool.Sword);
+            Assert.AreEqual(ItemCatalog.SwordStoneId, sword.OutputItemId, "the stone sword mints the NEW sword_stone id");
+            Assert.IsTrue(inv.TryCraft(sword), "the stone sword crafts");
+            Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.SwordStoneId), "sword_stone granted");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void StoneTierNewIds_ResolveInBothCatalogs_AsTools()
+        {
+            var weap = ScriptableObject.CreateInstance<WeaponCatalog>();
+            weap.BuildDefaults();
+            foreach (var id in new[] { ItemCatalog.DaggerStoneId, ItemCatalog.SwordStoneId })
+            {
+                var item = _cat.ById(id);
+                Assert.IsNotNull(item, $"'{id}' must resolve in ItemCatalog");
+                Assert.AreEqual(ItemKind.Tool, item.Kind, $"'{id}' is a belt-eligible Tool");
+                Assert.IsNotNull(weap.ById(id), $"'{id}' must resolve in WeaponCatalog (both lanes share the id)");
+            }
+        }
+
+        // === NIT #1 (folded — Drew's PR #294 review, comment 4919859554): the grant-first LOSS-FREE abort ===
+        // TryCraft grants the output FIRST; if the inventory is COMPLETELY full so the grant cannot land, the craft
+        // aborts with NO debit (materials are never spent for a tool that had nowhere to go).
+        [Test]
+        public void Craft_FullInventory_NoRoom_AbortsWithNoDebit_NoGrant()
+        {
+            // 1 belt slot + 2 inventory slots — tiny grid so we can fill it exactly.
+            var model = new InventoryModel(inventorySlots: 2, beltSlots: 1);
+            // Fill the single belt slot with a tool (so a granted tool can't land there).
+            var beltTool = model.AddToolToBelt(_cat.ById(ItemCatalog.AxeId));
+            Assert.IsTrue(beltTool.HasValue, "precondition: the belt's one slot is filled with a tool");
+            // Fill BOTH inventory slots with the recipe's inputs (wood + stone) so the pack is completely full AND
+            // the craft is affordable — the ONLY thing that can fail is the grant having nowhere to land.
+            Assert.AreEqual(0, model.AddItem(_cat.ById(ItemCatalog.WoodId), 3), "wood fills inventory slot 0");
+            Assert.AreEqual(0, model.AddItem(_cat.ById(ItemCatalog.StoneId), 3), "stone fills inventory slot 1");
+
+            var costs = new[] { new RecipeCost(ItemCatalog.WoodId, 3), new RecipeCost(ItemCatalog.StoneId, 3) };
+            var output = _cat.ById(ItemCatalog.PickaxeStoneId); // a Tool → needs a free belt/inventory slot to land
+
+            Assert.IsTrue(model.CanAfford(costs), "precondition: the recipe IS affordable (3 wood + 3 stone held)");
+            bool ok = model.TryCraft(costs, output);
+
+            Assert.IsFalse(ok, "a full inventory (no room for the granted tool) → the craft ABORTS");
+            Assert.AreEqual(3, model.CountItem(ItemCatalog.WoodId), "LOSS-FREE: no wood debited on the aborted craft");
+            Assert.AreEqual(3, model.CountItem(ItemCatalog.StoneId), "LOSS-FREE: no stone debited on the aborted craft");
+            Assert.IsFalse(model.OwnsItem(ItemCatalog.PickaxeStoneId), "no output granted on the aborted craft");
         }
 
         // === Row-state truth-table (spec §3) ===
@@ -205,28 +288,30 @@ namespace FarHorizon.EditTests
         // === Recipe book shape ===
 
         [Test]
-        public void RecipeBook_Has15Rows_5WoodLive_10Placeholder_WoodOutputsResolve()
+        public void RecipeBook_Has15Rows_10Live_5IronPlaceholder_LiveOutputsResolve()
         {
+            // ① shipped WOOD live; ② (ticket 86camz9v7) flips STONE live → 10 live (wood + stone), 5 IRON placeholders.
             var book = CraftingRecipeBook.BuildDefaults();
             Assert.AreEqual(15, book.Count, "3 tiers × 5 tools");
-            int wood = 0, placeholders = 0;
+            int live = 0, placeholders = 0;
             foreach (var r in book)
             {
-                if (r.Tier == CraftTier.Wood)
+                if (r.Tier == CraftTier.Iron)
                 {
-                    wood++;
-                    Assert.IsFalse(r.Placeholder, "WOOD rows are LIVE in ①");
-                    Assert.IsNotNull(_cat.ById(r.OutputItemId), $"WOOD recipe output '{r.OutputItemId}' must resolve");
-                    Assert.Greater(r.Costs.Length, 0, "a WOOD recipe has a cost");
+                    Assert.IsTrue(r.Placeholder, "IRON rows are Locked placeholders until ③");
+                    placeholders++;
                 }
                 else
                 {
-                    Assert.IsTrue(r.Placeholder, "STONE/IRON rows are Locked placeholders in ①");
-                    placeholders++;
+                    live++;
+                    Assert.IsFalse(r.Placeholder, "WOOD + STONE rows are LIVE (① + ②)");
+                    Assert.IsNotNull(_cat.ById(r.OutputItemId),
+                        $"a live {r.Tier} recipe output '{r.OutputItemId}' must resolve in the catalog");
+                    Assert.Greater(r.Costs.Length, 0, "a live recipe has a cost");
                 }
             }
-            Assert.AreEqual(5, wood, "5 WOOD rows");
-            Assert.AreEqual(10, placeholders, "10 STONE/IRON placeholder rows");
+            Assert.AreEqual(10, live, "10 LIVE rows (5 WOOD + 5 STONE)");
+            Assert.AreEqual(5, placeholders, "5 IRON placeholder rows");
         }
 
         // === REGRESSION GUARD: CraftAxe retirement must NOT strand a caller (chop/held-axe stay green) ===
