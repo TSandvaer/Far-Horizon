@@ -61,6 +61,14 @@
     relaunch the runner needs ~10-30s to re-register; the cooldown stops a tight
     relaunch loop while GitHub's status catches up.
 
+.PARAMETER StartupGraceSeconds
+    Skip kill/relaunch when the listener process started less than this many
+    seconds ago. GitHub's runner status lags a reboot/logon; without the grace
+    the at-logon pass kills the healthy just-started listener and the relaunch
+    collides with the orphaned session ("A session for this runner already
+    exists" conflict loop -- observed on this machine 2026-07-18 after a
+    driver-update reboot). Default 300.
+
 .PARAMETER LogDir
     Where to write watchdog logs. Default: <RunnerDir>\_watchdog.
 
@@ -85,6 +93,7 @@ param(
     [int]   $IntervalSeconds = 300,
     [switch]$Once,
     [int]   $CooldownSeconds = 600,
+    [int]   $StartupGraceSeconds = 300,
     [string]$LogDir
 )
 
@@ -252,6 +261,19 @@ function Invoke-WatchdogPass {
                 return
             }
 
+            # Startup grace: GitHub's status lags a reboot/logon. A listener
+            # that just started is still registering; killing it here orphans
+            # its session and the relaunch loops on "A session for this runner
+            # already exists" until the orphan expires (observed 2026-07-18
+            # post-reboot). Wait it out instead.
+            if ($null -ne $listener.CreationDate) {
+                $uptimeSec = ((Get-Date) - $listener.CreationDate).TotalSeconds
+                if ($uptimeSec -lt $StartupGraceSeconds) {
+                    Write-Log 'INFO' "Runner '$RunnerName' OFFLINE but listener (PID $($listener.ProcessId)) started only $([int]$uptimeSec)s ago -- likely stale GitHub status after boot/logon. Startup grace ${StartupGraceSeconds}s; no action."
+                    return
+                }
+            }
+
             if (Test-CooldownActive) {
                 Write-Log 'INFO' "Runner '$RunnerName' OFFLINE + listener alive (PID $($listener.ProcessId)), but within relaunch cooldown (${CooldownSeconds}s). Waiting for re-register. No action."
                 return
@@ -268,7 +290,7 @@ function Invoke-WatchdogPass {
 
 # --- Entry point -------------------------------------------------------------
 Initialize-LogDir
-Write-Log 'START' "Runner disconnect watchdog | repo=$Repo runner=$RunnerName dir=$RunnerDir once=$($Once.IsPresent) interval=${IntervalSeconds}s cooldown=${CooldownSeconds}s"
+Write-Log 'START' "Runner disconnect watchdog | repo=$Repo runner=$RunnerName dir=$RunnerDir once=$($Once.IsPresent) interval=${IntervalSeconds}s cooldown=${CooldownSeconds}s grace=${StartupGraceSeconds}s"
 
 if ($Once) {
     Invoke-WatchdogPass
