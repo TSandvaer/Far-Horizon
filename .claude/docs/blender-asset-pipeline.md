@@ -217,6 +217,8 @@ Run these IN ORDER before File > Export > FBX:
 
 Save FBX to `Assets/Art/Props/WeaponPack/`: `wpn_axe_01.fbx` etc.
 
+> **§8 is for weapons/props/static meshes ONLY — NEVER for a character headed to Mixamo (castaway v4, `86catpwc4`, 2026-07-18).** These settings declare `Up=+Z / Front=+Y` in the FBX GlobalSettings and rely on Unity's Bake-Axis-Conversion to digest that; **Mixamo has no such option** and auto-rigs the character BACKWARD (back-facing load; Orient-step rotation + correct markers do NOT save it). Characters destined for Mixamo export with **Blender's FBX defaults** (`-Z Forward / Y Up / FBX_SCALE_NONE`, no geometry rotation) — confirmed root cause, the raw-parse verification ritual, and the full recipe live in `character-pipeline.md` §Step 3.
+
 ---
 
 ## 9. Unity Import Settings

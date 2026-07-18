@@ -81,8 +81,9 @@ Logs are written to `C:\actions-runner-farhorizon\_watchdog\runner-disconnect-wa
 
 Run this **once** in your normal-user PowerShell. It registers a task that runs
 the watchdog as **you** (interactive logon), at logon, repeating every 5 minutes
-indefinitely, via **`powershell.exe`** (Windows PowerShell 5.1). Edit the two
-paths in the first two lines if your clone differs.
+indefinitely, via **`powershell.exe`** (Windows PowerShell — see the callout below
+for why NOT bare `pwsh.exe`). Edit the two paths in the first two lines if your
+clone differs.
 
 > **Use `powershell.exe`, not bare `pwsh.exe`, unless PowerShell 7 was installed
 > machine-wide (MSI).** On this machine pwsh is the **Microsoft Store user-scoped
