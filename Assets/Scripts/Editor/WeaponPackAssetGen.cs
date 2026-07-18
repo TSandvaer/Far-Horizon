@@ -5,19 +5,24 @@ using UnityEngine;
 namespace FarHorizon.EditorTools
 {
     /// <summary>
-    /// Imports the IN-HOUSE two-tier weapon SET (ticket 86cajkk7h — Sponsor-approved STONE + IRON recipes,
-    /// 2026-07-03; [[weapon-two-tier-style-stone-iron]]) and wires the SHARED palette material. SCOPE: the
-    /// matched family — axe / knife / sword / spear / PICKAXE (86cam9q5f — the 5th tool type) — in TWO tiers
-    /// (stone = first-craft; iron = later progression), all on ONE shared URP/Unlit material so the SRP
-    /// Batcher folds the whole set into ~1 SetPass (batches by shader variant, NOT material count).
+    /// Imports the IN-HOUSE weapon SET (ticket 86cajkk7h — Sponsor-approved STONE + IRON recipes, 2026-07-03;
+    /// [[weapon-two-tier-style-stone-iron]]; + WOOD tier 86catqn5n, 2026-07-18) and wires the SHARED palette
+    /// material. SCOPE: the matched family — axe / knife / sword / spear / PICKAXE (86cam9q5f — the 5th tool
+    /// type) — in THREE tiers (wood = crudest first-craft; stone = mid; iron = later progression), all on ONE
+    /// shared URP/Unlit material so the SRP Batcher folds the whole set into ~1 SetPass (batches by shader
+    /// variant, NOT material count).
     ///
-    /// TIER DISPOSITION (86cajkk7h):
+    /// TIER DISPOSITION (86cajkk7h / 86catqn5n):
     ///   - STONE is the LIVE crafted tier: <see cref="HeroAxeFbxPath"/> == the stone axe, so the held /
     ///     stump / pickup gameplay axe (MovementCameraScene) + the [B] cycle + the belt-selection held
     ///     visual all resolve the STONE meshes. The stone family is the runtime source (WeaponSetLineup).
     ///   - IRON is imported + laid into the SAME family-display prefab for the soak's stone/iron CONTRAST
     ///     capture, but is NOT wielded (no iron-crafting system yet — that is an iron-progression DESIGN
     ///     follow-up, OOS here). The [B] cycle + belt sync read the STONE names only.
+    ///   - WOOD (86catqn5n) is likewise imported + laid into the lineup (front row) for the tier-contrast
+    ///     capture so the wood ids (live as DATA in both catalogs since #294 ①) resolve a REAL modeled mesh
+    ///     instead of a letter-chip placeholder. In-hand seating dials + verbs are OOS (②/art-burst), so the
+    ///     wood row is NOT added to the [B] picker (that needs per-weapon seat arrays = seating scope).
     ///
     /// Pipeline contract (`.claude/docs/blender-asset-pipeline.md`):
     ///   - ONE shared 128x128 sRGB palette PNG (weapon_palette.png; the +2 iron tone blocks landed with the
@@ -71,6 +76,24 @@ namespace FarHorizon.EditorTools
         public const string PickaxeStoneFbxPath = Dir + "/wpn_pickaxe_stone_01.fbx";
         public const string PickaxeIronFbxPath = Dir + "/wpn_pickaxe_iron_01.fbx";
 
+        // === WOOD tier — the crudest first-craft rung (ticket 86catqn5n — the Sponsor-PASSED wood weapon
+        // burst, 2026-07-18; DECISIONS 2026-07-18). The 5 whittled-wood tools (axe/pickaxe/spear/knife/sword)
+        // were authored via the family-extension route (blender-asset-pipeline §3): the approved stone/iron
+        // siblings duplicated, so the wood row shares the family's grip origin + the ONE Mat_WeaponPalette
+        // (the palette carries the wood/leather tones already — no per-asset atlas). They ride the SAME
+        // familyGlobalScale as stone/iron so proportions hold, and drop onto the shared family seat. The wood
+        // ids resolve as DATA in both ItemCatalog + WeaponCatalog (#294 ①); these meshes give the wood tools a
+        // REAL modeled mesh in the shared lineup (the capture/display source) instead of the letter-chip
+        // placeholder. In-hand seating dials + verbs are OOS here (②/art-burst per #294 deferred flags) — the
+        // wood row is imported + laid into the lineup for the tier-contrast capture but is NOT added to the [B]
+        // picker (that needs per-weapon seat arrays = seating scope). The dagger reuses the wpn_knife_* naming
+        // (§6a — an asset rename is pure churn; the item id is dagger_wood). ===
+        public const string AxeWoodFbxPath = Dir + "/wpn_axe_wood_01.fbx";
+        public const string PickaxeWoodFbxPath = Dir + "/wpn_pickaxe_wood_01.fbx";
+        public const string SpearWoodFbxPath = Dir + "/wpn_spear_wood_01.fbx";
+        public const string KnifeWoodFbxPath = Dir + "/wpn_knife_wood_01.fbx"; // dagger_wood item id (§6a)
+        public const string SwordWoodFbxPath = Dir + "/wpn_sword_wood_01.fbx";
+
         public const string PalettePngPath = Dir + "/weapon_palette.png";
         public const string MaterialPath = Dir + "/Mat_WeaponPalette.mat";
 
@@ -115,6 +138,19 @@ namespace FarHorizon.EditorTools
             (PickaxeIronFbxPath,   1.45f),
         };
 
+        // The WOOD family (86catqn5n), same column layout — the wood row (front, z in front of stone) so the
+        // lineup capture reads the three tiers wood -> stone -> iron front-to-back per column. Column ORDER
+        // matches Stone/IronSet (axe/knife/sword/spear/pickaxe) so tiers align per column; only the file NAMES
+        // differ (wpn_*_wood_01). Node names = FBX names (the AddRow child naming). Rides familyGlobalScale.
+        private static readonly (string path, float x)[] WoodSet =
+        {
+            (AxeWoodFbxPath,      -0.75f),
+            (KnifeWoodFbxPath,    -0.25f),
+            (SwordWoodFbxPath,     0.25f),
+            (SpearWoodFbxPath,     0.85f),
+            (PickaxeWoodFbxPath,   1.45f),
+        };
+
         public static void PrepareWeaponPack()
         {
             ConfigurePalette();
@@ -125,6 +161,7 @@ namespace FarHorizon.EditorTools
             //    read the real authored geometry before the family normalize.
             foreach (var (path, _) in StoneSet) ConfigureFbxImporter(path, 1f);
             foreach (var (path, _) in IronSet) ConfigureFbxImporter(path, 1f);
+            foreach (var (path, _) in WoodSet) ConfigureFbxImporter(path, 1f);
 
             // 2) Derive ONE family globalScale from the STONE AXE (the seat reference) and apply it to ALL 8
             //    so the Sponsor-approved family proportions are preserved and the stone axe lands at the
@@ -136,6 +173,7 @@ namespace FarHorizon.EditorTools
                 familyGlobalScale = NewFamilyAxeTargetLongestU / axeLongest;
                 foreach (var (path, _) in StoneSet) ConfigureFbxImporter(path, familyGlobalScale);
                 foreach (var (path, _) in IronSet) ConfigureFbxImporter(path, familyGlobalScale);
+                foreach (var (path, _) in WoodSet) ConfigureFbxImporter(path, familyGlobalScale);
                 float axeFinal = MeasureImportedModelLongestAxis(AxeFbxPath);
                 Debug.Log($"[WeaponPackAssetGen] family scale normalize: stone-axe longest {axeLongest:F4}u @gs1 -> " +
                           $"globalScale={familyGlobalScale:F5} (target {NewFamilyAxeTargetLongestU}u; " +
@@ -153,8 +191,8 @@ namespace FarHorizon.EditorTools
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[WeaponPackAssetGen] two-tier weapon SET prepared: STONE (live) + IRON (capture-only), " +
-                      "axe/knife/sword/spear, shared palette material.");
+            Debug.Log("[WeaponPackAssetGen] weapon SET prepared: WOOD + STONE (live) + IRON (capture-only), " +
+                      "axe/knife/sword/spear/pickaxe, shared palette material.");
         }
 
         // Build Resources/WeaponSetLineup.prefab = the weapon family stood up in rows, all sharing
@@ -168,7 +206,8 @@ namespace FarHorizon.EditorTools
             if (mat == null) return;
             var root = new GameObject("WeaponSetLineup");
 
-            AddRow(root.transform, StoneSet, 0f, mat);   // stone — front row
+            AddRow(root.transform, WoodSet, -1.1f, mat); // wood  — front row (crudest tier; 86catqn5n)
+            AddRow(root.transform, StoneSet, 0f, mat);   // stone — middle row
             AddRow(root.transform, IronSet, 1.1f, mat);  // iron  — back row (clear of the stone row)
 
             var lightGo = new GameObject("StandLight");
@@ -182,8 +221,8 @@ namespace FarHorizon.EditorTools
             Directory.CreateDirectory("Assets/Resources");
             PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
             Object.DestroyImmediate(root);
-            Debug.Log("[WeaponPackAssetGen] built " + PrefabPath + " (10-item family: stone + iron rows incl. " +
-                  "pickaxe, shared material)");
+            Debug.Log("[WeaponPackAssetGen] built " + PrefabPath + " (15-item family: wood + stone + iron rows " +
+                  "incl. pickaxe, shared material)");
         }
 
         private static void AddRow(Transform parent, (string path, float x)[] set, float z, Material mat)
