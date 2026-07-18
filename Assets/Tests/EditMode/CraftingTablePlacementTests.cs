@@ -135,5 +135,108 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(CraftingTablePlacement.PlaneIntersect(ray, 0f, out _),
                 "a ray pointing away from the plane (upward, plane below) never intersects it");
         }
+
+        // ---- 86catqxm0: object-overlap validity (the ghost reads RED over an object) ----
+
+        [Test]
+        public void Full_Invalid_WhenObstructed_EvenOnGoodGround_AndAffordable()
+        {
+            Assert.IsFalse(CraftingTablePlacement.IsValidPlacement(
+                groundFound: true, normalY: 1.0f, distFromPlayer: 2.5f, MinDist, MinNormalY,
+                canAfford: true, obstructed: true),
+                "86catqxm0: good flat ground + affordable BUT the footprint overlaps an object → INVALID " +
+                "(red, 'overlaps an object')");
+        }
+
+        [Test]
+        public void Full_Valid_WhenUnobstructed_GroundGood_Affordable()
+        {
+            Assert.IsTrue(CraftingTablePlacement.IsValidPlacement(
+                groundFound: true, normalY: 1.0f, distFromPlayer: 2.5f, MinDist, MinNormalY,
+                canAfford: true, obstructed: false),
+                "good ground + affordable + clear of objects → valid (green, READY)");
+        }
+
+        [Test]
+        public void Full_SixArgOverload_TreatsObstructionAsFalse_NoRegression()
+        {
+            // The pre-86catqxm0 F4 cells must still pass unchanged — the 6-arg overload defaults obstructed:false.
+            Assert.IsTrue(CraftingTablePlacement.IsValidPlacement(
+                groundFound: true, normalY: 1.0f, distFromPlayer: 2.5f, MinDist, MinNormalY, canAfford: true),
+                "6-arg overload on good ground + affordable stays valid (obstruction dimension absent)");
+            Assert.IsFalse(CraftingTablePlacement.IsValidPlacement(
+                groundFound: false, normalY: 1.0f, distFromPlayer: 2.5f, MinDist, MinNormalY, canAfford: true),
+                "6-arg overload: no ground still INVALID (F1/F4 unchanged)");
+        }
+
+        // ---- 86catqxm0: PURE planar circle-overlap core (the collider-free obstruction test) ----
+
+        [Test]
+        public void CircleOverlaps_Overlapping_True()
+        {
+            Assert.IsTrue(PlacementObstacleRegistry.CircleOverlaps(0f, 0f, 0.55f, 0.5f, 0f, 0.6f),
+                "centres 0.5u apart with radii 0.55+0.6 (sum 1.15) overlap");
+        }
+
+        [Test]
+        public void CircleOverlaps_Apart_False()
+        {
+            Assert.IsFalse(PlacementObstacleRegistry.CircleOverlaps(0f, 0f, 0.55f, 3f, 0f, 0.6f),
+                "centres 3u apart with radii summing 1.15 do NOT overlap");
+        }
+
+        [Test]
+        public void CircleOverlaps_ExactlyTouching_False()
+        {
+            Assert.IsFalse(PlacementObstacleRegistry.CircleOverlaps(0f, 0f, 0.5f, 1.0f, 0f, 0.5f),
+                "planar distance 1.0 == radii sum 1.0 → boundary treated as clear (strict less-than)");
+        }
+
+        // ---- 86catqxm0: the registration seam (② boulders adopt this) ----
+
+        [Test]
+        public void Registry_RegisteredZone_BlocksFootprint_ClearsOnUnregister()
+        {
+            var go = new GameObject("ObstacleProbe");
+            go.transform.position = new Vector3(5f, 0f, 5f);
+            try
+            {
+                PlacementObstacleRegistry.Register(go.transform, 0.6f);
+                Assert.IsTrue(PlacementObstacleRegistry.IsFootprintBlocked(new Vector3(5f, 0f, 5f), 0.55f),
+                    "a footprint on the registered zone is blocked (RED)");
+                Assert.IsFalse(PlacementObstacleRegistry.IsFootprintBlocked(new Vector3(20f, 0f, 20f), 0.55f),
+                    "a footprint far from any registered zone is clear (GREEN)");
+                PlacementObstacleRegistry.Unregister(go.transform);
+                Assert.IsFalse(PlacementObstacleRegistry.IsFootprintBlocked(new Vector3(5f, 0f, 5f), 0.55f),
+                    "after Unregister the zone no longer blocks");
+            }
+            finally
+            {
+                PlacementObstacleRegistry.Unregister(go.transform); // keep the static registry hermetic across tests
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
+        public void Registry_IgnoreRoot_DoesNotBlockItself()
+        {
+            var root = new GameObject("GhostRoot");
+            var child = new GameObject("GhostPart");
+            child.transform.SetParent(root.transform, false);
+            child.transform.position = new Vector3(1f, 0f, 1f);
+            try
+            {
+                PlacementObstacleRegistry.Register(child.transform, 0.6f);
+                Assert.IsFalse(PlacementObstacleRegistry.IsFootprintBlocked(new Vector3(1f, 0f, 1f), 0.55f, root.transform),
+                    "a zone under the ignoreRoot (the ghost/table) never blocks itself");
+                Assert.IsTrue(PlacementObstacleRegistry.IsFootprintBlocked(new Vector3(1f, 0f, 1f), 0.55f),
+                    "the same zone DOES block when no ignoreRoot is passed");
+            }
+            finally
+            {
+                PlacementObstacleRegistry.Unregister(child.transform);
+                Object.DestroyImmediate(root);
+            }
+        }
     }
 }
