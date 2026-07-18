@@ -15,3 +15,12 @@
 # recurring churn (no renormalization commit needed; content is fully derived
 # from manifest.json so the committed copy stays stable across machines).
 Packages/packages-lock.json text eol=lf
+
+# Ops watchdog scripts run under Windows Task Scheduler via powershell.exe on the
+# runner machine, so the working-copy encoding must be CRLF to match what the
+# scheduled task actually executes (autocrlf normalization would otherwise leave
+# the on-disk file diverging from the committed blob, and the PR-body sha256
+# citations wouldn't line up with `git hash-object`). WinPS 5.1 additionally
+# requires the .ps1 content stay BOM + pure-ASCII to parse cleanly — see
+# tools/ops/runner-disconnect-watchdog-INSTALL.md (86catpwcc follow-up).
+*.ps1 text eol=crlf
