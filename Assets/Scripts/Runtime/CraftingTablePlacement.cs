@@ -46,8 +46,11 @@ namespace FarHorizon
     /// a lit campfire / built forge discovered this session, plus anything registered via
     /// <see cref="PlacementObstacle"/> / <see cref="PlacementObstacleRegistry"/> (the seam ②'s minable boulders
     /// adopt, 86camz9v7). RESIDUAL (flagged): small decorative scatter rocks are collider-free AND do not carve
-    /// the navmesh, so they are NOT covered — a world-content follow-up. The NavMesh path is inert headless
-    /// (no bake → deterministic); the pure validity truth-table is the EditMode seam.
+    /// the navmesh, so they are NOT covered — a world-content follow-up. The NavMesh path is gated on THIS
+    /// instance's serialized <see cref="groundMask"/> (a real mask = the shipped world; 0 = a synthetic rig),
+    /// NOT on the process-global <c>NavMesh.CalculateTriangulation()</c> — a prior fixture's baked navmesh is
+    /// process-global and BLEEDS into a bare rig, so "no bake here" is NOT a safe headless assumption (see
+    /// <see cref="ComputeNavMeshAvailable"/>). The pure validity truth-table is the EditMode seam.
     ///
     /// === Serialization (unity-conventions.md §editor-vs-runtime) ===
     /// This component + the (hidden) real table + the (hidden) ghost + the Inventory/player/menu refs are
@@ -393,8 +396,23 @@ namespace FarHorizon
             return true;
         }
 
-        private static bool ComputeNavMeshAvailable()
+        // FIXTURE-SAFE navmesh-availability gate (fix for the PROCESS-GLOBAL CalculateTriangulation trap —
+        // 86catqxm0 Drew review). NavMesh.CalculateTriangulation() reads process-global navmesh state, so a
+        // prior PlayMode fixture's baked island navmesh (RoundIslandNavCoveragePlayModeTests loads Boot Single
+        // and never clears it — subsequent bare rigs then run alongside a live island navmesh) BLEEDS into a
+        // synthetic rig and makes it falsely report _navMeshAvailable=true; FootprintOffNavMesh then fires on
+        // that unintended navmesh and the rig reads _obstructed → IsCurrentPlacementValid false. Neither the
+        // global triangulation NOR "does the current scene own a navmesh" excludes such a rig (it can be
+        // co-located in the still-live Boot scene). So the on/off decision is driven by THIS instance's own
+        // serialized groundMask — the component's established world-vs-rig signal (groundMask==0 selects the
+        // flat-ground fallback in UpdateGhostPose): the shipped Boot.unity wires a real ground mask
+        // (MovementCameraScene.BuildCraftingTable, groundMask = 1<<groundLayer) so the walkability rule stays
+        // ON in the world, while EVERY synthetic rig (groundMask==0) skips it — deterministic under ANY
+        // fixture order, no global-state dependency. The CalculateTriangulation read is retained only as a
+        // secondary "a navmesh really is baked" guard once we know we're in the real world.
+        private bool ComputeNavMeshAvailable()
         {
+            if (groundMask.value == 0) return false; // synthetic/headless rig — no real navmesh context
             var tri = NavMesh.CalculateTriangulation();
             return tri.vertices != null && tri.vertices.Length > 0;
         }
