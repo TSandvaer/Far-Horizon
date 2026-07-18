@@ -160,15 +160,18 @@ namespace FarHorizon.PlayTests
         {
             yield return null;
 
-            // Build the table (it lands ~2.5u in front of the player on the no-camera fallback).
-            _inv.AddWood(10);
-            _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.StoneId), 3);
-            _place.EnterPlacement();
-            yield return null;
-            Assert.IsTrue(_place.TryConfirm(), "table built");
-            Assert.IsTrue(_table.IsBuilt);
-            _menu.Close(); // start from the closed built-table state (the modal gate released)
-            Assert.IsFalse(UiInputGate.CaptureWorldInput, "gate clean after closing the opened menu");
+            // DETERMINISM (F5-fix, 2026-07-18): F5 is the E-ARBITER test (nearest-in-range + menu-open +
+            // precedence), NOT the placement flow — so build the table DIRECTLY at a KNOWN in-range pose via the
+            // same Reveal() the placement confirm calls. This makes the test fully deterministic and
+            // camera-independent. The placement ghost path depends on Camera.main + the mouse cursor, and headless
+            // Input.mousePosition=(0,0) makes the ghost land at an arbitrary spot: far → OUTSIDE openRadius
+            // (ResolveNearestPickable returns null — the CI red), or on top of the player → invalid (TryConfirm
+            // refuses). Both are placement-rig artifacts, not F5 production bugs (the shipped build places the
+            // table under the real cursor and the player then walks into openRadius). The placement
+            // build/debit/menu-open handoff is covered by PlaceTable_OpensMenu_CraftWoodAxe_LandsOnBelt.
+            _table.Reveal(new Vector3(0f, 0f, 1.5f), Quaternion.identity); // 1.5u ahead, inside openRadius (2.5)
+            Assert.IsTrue(_table.IsBuilt, "table built (revealed at a known in-range pose)");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "no modal gate held (built directly; menu never opened)");
 
             // F5: the built table is USED with E via the player-side PickableLooter (nearest-interactable). The
             // menu is an IPickable ("use" verb) — no C-reopen.
@@ -179,7 +182,7 @@ namespace FarHorizon.PlayTests
             var looterGo = new GameObject("PickableLooter");
             var looter = looterGo.AddComponent<PickableLooter>();
             looter.inventory = _inv;
-            looter.player = _playerGo.transform; // at origin; table ~2.5u out, within openRadius (2.5)
+            looter.player = _playerGo.transform; // at origin; table revealed 1.5u out, within openRadius (2.5)
             looter.DiscoverPickables();
 
             Assert.AreSame(_menu, looter.ResolveNearestPickable(_playerGo.transform.position),
@@ -190,7 +193,7 @@ namespace FarHorizon.PlayTests
 
             // Now put a loose STONE CLOSER than the table — the nearer interactable must win (precedence).
             var stoneGo = new GameObject("Stone");
-            stoneGo.transform.position = new Vector3(0f, 0f, 1f); // 1u from player < the table's ~2.5u
+            stoneGo.transform.position = new Vector3(0f, 0f, 1f); // 1u from player < the table's 1.5u
             var stone = stoneGo.AddComponent<StoneProp>();
             stone.inventory = _inv;
             looter.DiscoverPickables();
