@@ -512,11 +512,11 @@ jobs:
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
-                ci-out/verify-weaponset.log
+                ci-out/verify-weaponset.log ci-out/verify-mine.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
-                 ci-out/weaponset-caps
+                 ci-out/weaponset-caps ci-out/mine-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -918,6 +918,48 @@ jobs:
           path: |
             ci-out/weaponset-caps/*.png
             ci-out/verify-weaponset.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 16. Mine-loop (select pickaxe → strike node → break → E-loot → iron ore) shipped-build capture
+      #     gate (ticket 86camk1x4 — the CI-wiring follow-up Tess flagged on PR #287; QA note N1 verbatim:
+      #     "-verifyMine not wired into CI ... I-3/I-4 mine regressions otherwise uncaught", + N3: the
+      #     author captures were gitignored with no artifact — wiring fixes both). -verifyMine
+      #     (MineVerifyCapture.cs) has PASSED manually since #287 but was NEVER a CI gate
+      #     (grep -rn verifyMine .github/workflows/ → zero hits before this), so a real break in the mine
+      #     loop would slip straight through GREEN CI exactly like the #165 chop class — the generic
+      #     -captureGate (step 7) only shoots the default spawn frame (no pickaxe selected, no node in
+      #     range), so nothing about the mine loop is exercised. This launches the SAME built exe with
+      #     -verifyMine, driving MineVerifyCapture: GRANT + SELECT a stone pickaxe, teleport to a
+      #     runtime-discovered reachable ore node, drive the real MineOre.RequestMineClick +
+      #     PickableLooter.RequestLoot path until the node BREAKS + the ore pile is looted, and
+      #     SELF-ASSERT haveNode && gotOre (iron_ore count rose). The component Quit(1)s on any failure
+      #     (or missing wiring from Boot.unity), so the exe's exit code IS the gate verdict; frame_check.py
+      #     is a swapchain-content backstop. HEADLESS via RT-readback (86cag93zb, same as chop/held-belt):
+      #     the gate SCRIPT launches -batchmode (no -nographics, no window), so this step invocation is the
+      #     same shape as its siblings. Runs only when the build produced an exe; frames + log upload AFTER
+      #     (if: always()) so the mine evidence survives a fail.
+      - name: Mine capture gate (select pickaxe → strike → break → E-loot → iron ore)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_mine_gate.sh
+            .github/workflows/scripts/verify_mine_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/mine-caps ci-out/verify-mine.log
+          else
+            echo "[verify-mine] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload mine frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-mine-caps-${{ github.sha }}
+          path: |
+            ci-out/mine-caps/*.png
+            ci-out/verify-mine.log
           if-no-files-found: warn
           retention-days: 3
 
