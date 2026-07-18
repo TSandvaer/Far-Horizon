@@ -88,29 +88,22 @@ namespace FarHorizon
             ShotTo(Path.Combine(dir, "chop_before.png"));
             yield return null;
 
-            // 2. First get the axe — teleport to the craft spot and wait for HasAxe (U2-2's seam).
-            // WHY TELEPORT, NOT MoveTo (the WASD-pivot fix — 86cafecuj CI-gate triage): the live build drives
-            // locomotion via WasdMovement, which HARD-SETS NavMeshAgent.velocity = inputDir*speed EVERY frame
-            // (WasdMovement.cs:259). With no WASD input fed, that velocity is ZERO each frame — clobbering the
-            // path-following velocity ClickToMove.MoveTo→SetDestination would set up, so the agent never moves
-            // and the player freezes at spawn (MoveTo returns true but the agent stays put → axe never crafts →
-            // the whole chop loop cascade-fails). MoveTo is a DEAD seam under WASD locomotion. The deterministic,
-            // NavMesh-safe drive (the SAME pattern the passing LootPromptVerifyCapture gate uses) is to Warp the
-            // agent into range of each target; the chop/loot then fire via the input-independent RequestChopClick/
-            // RequestLoot seams below. We teleport ONTO each target (the craft spot / tree trunk): that is well
-            // within the proximity radii (craftRadius 2.0u / chopRadius 2.2u), so the craft still fires via its
-            // OWN Update proximity poll and the chop via RequestChopClick's own in-range check — we drive the
-            // player into range, we do NOT bypass the gameplay seam. (The crafted axe lands in belt slot 0, which
-            // is the default-selected slot, so IsAxeSelectedInBelt — the chop's select guard — is satisfied.)
-            bool setCraft = TeleportPlayer(craftSpot);
-            Debug.Log("[ChopVerifyCapture] teleport to craft spot set: " + setCraft + " target=" + craftSpot);
+            // 2. First get the axe. 86camz9uz ① — the free auto-craft CraftSpot is RETIRED (this PR deletes
+            // CraftSpot/BuildCraftSpot/AttachStumpAxe). The stone chopping axe now comes from the world
+            // AxePickup (flipped spawn-ACTIVE this PR as the single visible stone-axe source); its acquisition
+            // seam is Inventory.PickUpAxe — the SAME input-independent seam SurvivalLoopPlayModeTests Beat 1
+            // now drives. Acquire the axe through that seam here, consistent with how this capture already
+            // drives EVERY other gameplay action programmatically (RequestChopClick / RequestLoot / agent.Warp),
+            // since the shipped exe can't inject real input into a scripted capture. PickUpAxe lands the axe in
+            // the first free belt slot — slot 0, the default-SELECTED slot on a fresh boot inventory — so
+            // IsAxeSelectedInBelt (the chop's select guard) is satisfied, EXACTLY the end-state the old
+            // CraftSpot → CraftAxe(→ PickUpAxe) path produced. (craftSpot field kept only for the editor-time
+            // MovementCameraScene wiring; it is no longer read here — the axe no longer needs a position.)
+            bool axeAcquired = inventory != null && inventory.PickUpAxe();
+            Debug.Log("[ChopVerifyCapture] axe acquired via PickUpAxe: " + axeAcquired +
+                      " HasAxe=" + (inventory != null && inventory.HasAxe) +
+                      " axeSelected=" + (inventory != null && inventory.IsAxeSelectedInBelt));
             float start = Time.time;
-            while (Time.time - start < 12f)
-            {
-                if (inventory != null && inventory.HasAxe) break;
-                yield return null;
-            }
-            Debug.Log("[ChopVerifyCapture] axe crafted: " + (inventory != null && inventory.HasAxe));
 
             // 3. Now chop the DEMO tree — drive to the tree, then (CHANGE 1) drive LEFT-CLICK chop requests once
             // in range until wood is yielded. The chop is per-click now, so standing at the tree alone does

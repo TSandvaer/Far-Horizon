@@ -277,12 +277,13 @@ namespace FarHorizon.EditorTools
             // (the component-in-source-but-not-in-scene + asset-not-serialized traps). Esc toggles it in play.
             BuildSettingsPanel(camGo, player);
 
-            // U2-2 (86ca8bdaq): the craft spot — the entry to the survival loop. A world marker the
-            // castaway click-moves to; reaching it crafts the axe (one recipe, no UI tree). Authored
-            // editor-time so the spot mesh + CraftSpot's Inventory/player references SERIALIZE into
-            // Boot.unity (editor-vs-runtime trap). The Inventory + InventoryReadout live on the
-            // Survival object (added by BootstrapProject before this runs); we find + wire them here.
-            BuildCraftSpot(player, groundLayer);
+            // 86camz9uz (crafting-redesign ①): the PLACE-TO-BUILD crafting table + recipe MENU + material-cost
+            // craft seam — RETIRES the U2-2 auto-craft stump (CraftSpot). The table ships INVISIBLE (no pre-
+            // placed marker — spec §2); the castaway gathers wood+stone, PLACES it (ghost + confirm), then
+            // walks up to open a recipe MENU and crafts WOOD-tier tools by SPENDING materials. Authored editor-
+            // time so the (hidden) table + ghost + the menu UIDocument + the placement's Inventory/player refs
+            // SERIALIZE into Boot.unity (editor-vs-runtime trap). CraftingTableSceneTests guards the presence.
+            BuildCraftingTable(player, groundLayer);
 
             // U2-3 (86ca8bdd8): the choppable tree — the "do work in the world" beat. A Zone-D low-poly
             // tree the castaway click-moves to; reaching it WITH the axe (U2-2) chops it for wood. Authored
@@ -569,94 +570,157 @@ namespace FarHorizon.EditorTools
             return prefab != null ? prefab.GetComponent<ClickMarker>() : null;
         }
 
-        // World position of the craft spot on the flat test ground. Distinct from spawn (origin) so the
-        // craft is a real click-move journey, comfortably inside the GroundHalf=30 walkable extent, and
-        // on the NavMesh. CraftVerifyCapture drives the player here to prove the craft in the shipped exe.
+        // Legacy world position (8,6) on the flat test ground — formerly the auto-craft stump spot (retired
+        // with CraftSpot in 86camz9uz ①). KEPT because it is still a shared WAYPOINT the Chop/Campfire verify
+        // captures route the player through + an organic-scatter landmark-avoidance point for the ore nodes.
+        // The crafting table is now INVISIBLE until the player places it (no fixed spawn spot), so this is no
+        // longer a craft location — just a stable named landmark. Do not repurpose without checking those uses.
         public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
 
-        // Name of the serialized axe-on-the-stump GameObject (SOAKFIX2). Distinct from HeroAxeObjectName so
-        // the -verifyAxe HeroAxe search + the held-axe scene guard never resolve the stump one by mistake.
-        public const string StumpAxeObjectName = "StumpAxe";
+        public const string CraftingTableObjectName = "CraftingTable";
+        public const string CraftingTableGhostObjectName = "CraftingTableGhost";
+        public const string CraftingMenuObjectName = "CraftingMenuUI";
+        public const string CraftingTablePlacementObjectName = "CraftingTablePlacement";
+        public const string CraftingMenuPanelSettingsAssetPath = SettingsDir + "/CraftingMenuPanelSettings.asset";
+        public const string CraftingTableMatPath = SettingsDir + "/CraftingTableMat.mat";
+        public const string CraftingGhostMatPath = SettingsDir + "/CraftingGhostMat.mat";
 
-        // The axe-on-the-stump's pose, in CraftSpot-LOCAL space (the CraftSpot is unscaled at world 1u, so
-        // these are intuitive world units — NO 267× bone trap here, unlike the held axe). The stump top sits
-        // at world-y ≈ 0.70 (cylinder localScale.y 0.35 → 0.70 tall; PoseTrace: CraftStump TOP.y 0.700).
-        //
-        // SOAKFIX4 (the Sponsor's "head BURIED in the block, only the handle pokes out"): the prior pose
-        // (localPos.y 1.15, scale 1.4, near-vertical) put the axe HEAD — which is the LOW half of the mesh
-        // (PoseTrace: longAxis Y, the wide steel end is local-Y -0.974..-0.474) — DOWN at world min.y -0.266,
-        // i.e. BELOW the ground and buried inside the block; only the thin haft (the HIGH half) rose above the
-        // 0.700 stump top. FIX: pose it as an axe STUCK IN the block — the HEAD's blade edge bites at/into the
-        // TOP of the block (~0.70) and the HAFT angles UP-and-out so the whole handle reads above the block.
-        // Done by (a) RAISING localPos.y so the head sits at the top not the bottom, (b) LEANING the axe ~26°
-        // off vertical (a lodged-in-the-block axe leans, it does not stand to attention), (c) trimming the
-        // scale 1.4 -> 1.1 so the head doesn't overhang the small block. Re-measured by PoseTrace post-change
-        // (head bottom at ~block-top, handle top ~1.4 clearly visible from spawn). Final read is the SHIPPED
-        // build (editor RT is framing/size-only, not colour — unity-conventions.md).
-        // SOAKFIX7 (86ca8ce6y — the stump axe BAKED at the Sponsor's dialed-in pose). The Sponsor finalized
-        // the in-block transform IN-GAME via the build-gated AxeNudgeTool (F9: cycles held/stump target,
-        // nudges XYZ + pitch/yaw/roll, reads the live values off the HUD) and confirmed it "perfect"; these
-        // are his last reported nudge-panel values, baked as the stump DEFAULT (replacing the soakfix5
-        // placeholder). The axe reads as stuck SQUARELY in the block — head biting the top, haft angled
-        // up-and-out. The F9 AxeNudgeTool stays build-gated/inert for any future re-tune. Sponsor-reported
-        // values (European decimal commas -> dot-decimal here). Scale unchanged (1.1u reads at spawn).
-        public static readonly Vector3 StumpAxeLocalPos = new Vector3(-0.210f, 1.540f, 0.430f);
-        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(12.0f, 53.0f, 48.0f);
-        public static readonly float StumpAxeLocalScaleUniform = 1.1f;
-
-        // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
-        // crafts the axe. A small chopping-block stump the castaway walks ONTO. NO collider so it never
-        // blocks the ground raycast or the NavMesh. The stump mesh + CraftSpot's Inventory/player refs are
-        // authored editor-time so they serialize into Boot.unity (editor-vs-runtime trap — an Awake-built
-        // prop ships mangled, the "legs-up" class).
-        //
-        // SOAKFIX2 (the Sponsor's "stump is there but no axe"): an axe is PLANTED in the stump and visible
-        // FROM SPAWN (StumpAxe component, the inverse gate of HeldAxe). It is the always-on-screen hero axe +
-        // the diegetic "walk here" cue. On reaching the spot the craft fires: the stump-axe HIDES and the
-        // HELD axe APPEARS (AttachHeroAxeToHand) — reading as "the kid picks it up".
-        private static void BuildCraftSpot(GameObject player, int groundLayer)
+        // The crafting TABLE + recipe MENU + place-to-build flow (86camz9uz ① — replaces CraftSpot). Authors,
+        // all editor-time so they SERIALIZE into Boot.unity (editor-vs-runtime trap): (a) the REAL table (a
+        // flat-work-surface-on-legs low-poly mesh — Bar 4 anchor), renderers DISABLED = invisible until placed
+        // (spec §2); (b) a translucent GHOST (same mesh) hidden until placement; (c) the recipe-menu UIDocument
+        // (modal, its own PanelSettings on the shared runtime theme); (d) the CraftingTablePlacement driver
+        // wiring them + the Inventory/player refs. Collider-free (cubes' box colliders stripped) so nothing
+        // blocks the ground raycast / NavMesh. CraftingTableSceneTests guards the serialized presence + wiring.
+        private static void BuildCraftingTable(GameObject player, int groundLayer)
         {
-            var spot = new GameObject("CraftSpot");
-            spot.transform.position = CraftSpotPosition;
-
-            // A small low cylinder as the "chopping block" the player walks toward. Primitive cylinder,
-            // collider stripped. The hero axe is planted in it (below).
-            var visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            visual.name = "CraftStump";
-            Object.DestroyImmediate(visual.GetComponent<Collider>()); // no block on raycast / NavMesh
-            visual.transform.SetParent(spot.transform, false);
-            visual.transform.localScale = new Vector3(0.7f, 0.35f, 0.7f); // squat stump
-            visual.transform.localPosition = new Vector3(0f, 0.35f, 0f);  // sit on the ground
-
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null)
-            {
-                var mat = new Material(litShader);
-                if (mat.HasProperty("_BaseColor"))
-                    mat.SetColor("_BaseColor", new Color(0.45f, 0.32f, 0.20f)); // warm timber brown
-                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
-                AssetDatabase.CreateAsset(mat, SettingsDir + "/CraftStumpMat.mat");
-                visual.GetComponent<MeshRenderer>().sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
-            }
-
-            // SOAKFIX2: plant the always-visible-from-spawn axe in the stump (the Sponsor's literal ask).
-            AttachStumpAxe(spot);
-
-            var craft = spot.AddComponent<CraftSpot>();
-            craft.player = player.transform;
-            craft.inventory = Object.FindObjectOfType<Inventory>();
-            if (craft.inventory == null)
-                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire CraftSpot to — " +
+            var inv = Object.FindObjectOfType<Inventory>();
+            if (inv == null)
+                Debug.LogError("[MovementCameraScene] no Inventory to wire the crafting table to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
 
-            // Wire the verification-only shipped-build CRAFT capture (drives the player to the spot,
-            // proves the axe is crafted in the BUILT exe) onto the Boot object — sibling of the
-            // movement-verify capture. Inert unless launched with -verifyCraft.
-            WireCraftVerifyCapture(player);
+            // (a) the REAL table — parked at the legacy landmark until placed; invisible (renderers off).
+            var tableGo = new GameObject(CraftingTableObjectName);
+            tableGo.transform.position = CraftSpotPosition;
+            var tableVisual = MakeCraftingTableMesh("TableVisual", EnsureCraftingTableMat());
+            tableVisual.SetParent(tableGo.transform, false);
+            var table = tableGo.AddComponent<CraftingTable>();
+            table.visual = tableVisual;
+            foreach (var r in tableVisual.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false; // invisible-until-placed (serialized hidden; Awake re-asserts)
 
-            Debug.Log("[MovementCameraScene] authored CraftSpot at " + CraftSpotPosition +
-                      " (inventory wired: " + (craft.inventory != null) + ")");
+            // (b) the placement GHOST — translucent, hidden until the player enters placement mode.
+            var ghostGo = new GameObject(CraftingTableGhostObjectName);
+            ghostGo.transform.position = CraftSpotPosition;
+            var ghostVisual = MakeCraftingTableMesh("GhostVisual", EnsureCraftingGhostMat());
+            ghostVisual.SetParent(ghostGo.transform, false);
+            foreach (var r in ghostVisual.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false;
+
+            // (c) the recipe MENU (UI Toolkit, modal). Own PanelSettings on the shared resolving runtime theme
+            // (a base-less theme HANGS the windowed exe at 0 frames — EnsureRuntimeTheme is the proven fix).
+            var menuGo = new GameObject(CraftingMenuObjectName);
+            var doc = menuGo.AddComponent<UIDocument>();
+            doc.panelSettings = EnsureCraftingMenuPanelSettings();
+            doc.sortingOrder = 95f; // above the inventory belt (90), below the dev settings panel (100)
+            var menu = menuGo.AddComponent<CraftingMenuUI>();
+            menu.document = doc;
+            menu.inventory = inv;
+            menu.table = table;
+            menu.player = player != null ? player.transform : null;
+
+            // (d) the PLACEMENT driver.
+            var placeGo = new GameObject(CraftingTablePlacementObjectName);
+            var placement = placeGo.AddComponent<CraftingTablePlacement>();
+            placement.inventory = inv;
+            placement.player = player != null ? player.transform : null;
+            placement.table = table;
+            placement.ghost = ghostGo.transform;
+            placement.menu = menu;
+            placement.groundMask = 1 << groundLayer;
+
+            EditorUtility.SetDirty(tableGo); EditorUtility.SetDirty(ghostGo);
+            EditorUtility.SetDirty(menuGo); EditorUtility.SetDirty(placeGo);
+            Debug.Log("[MovementCameraScene] authored crafting table (invisible-until-placed) + ghost + recipe " +
+                      "menu (sortingOrder 95) + placement (inventory wired: " + (inv != null) + ")");
+        }
+
+        // Build the low-poly crafting-table mesh — a flat work SURFACE on 4 LEGS standing ON the ground (the
+        // Bar 4 anchor: "a crafting table is a flat work surface on legs standing on the ground"). Faceted
+        // cube parts (box colliders stripped). Shared by the real table + the translucent ghost (same mesh).
+        private static Transform MakeCraftingTableMesh(string name, Material mat)
+        {
+            var root = new GameObject(name);
+            AddTablePart(root.transform, "Top",   new Vector3(1.10f, 0.14f, 0.80f), new Vector3(0f, 0.78f, 0f), mat);
+            AddTablePart(root.transform, "LegNE", new Vector3(0.14f, 0.72f, 0.14f), new Vector3( 0.46f, 0.36f,  0.32f), mat);
+            AddTablePart(root.transform, "LegNW", new Vector3(0.14f, 0.72f, 0.14f), new Vector3(-0.46f, 0.36f,  0.32f), mat);
+            AddTablePart(root.transform, "LegSE", new Vector3(0.14f, 0.72f, 0.14f), new Vector3( 0.46f, 0.36f, -0.32f), mat);
+            AddTablePart(root.transform, "LegSW", new Vector3(0.14f, 0.72f, 0.14f), new Vector3(-0.46f, 0.36f, -0.32f), mat);
+            return root.transform;
+        }
+
+        private static void AddTablePart(Transform parent, string name, Vector3 scale, Vector3 localPos, Material mat)
+        {
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = name;
+            Object.DestroyImmediate(cube.GetComponent<Collider>()); // no NavMesh / raycast block
+            cube.transform.SetParent(parent, false);
+            cube.transform.localScale = scale;
+            cube.transform.localPosition = localPos;
+            var mr = cube.GetComponent<MeshRenderer>();
+            if (mr != null && mat != null) mr.sharedMaterial = mat;
+        }
+
+        private static Material EnsureCraftingTableMat()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(CraftingTableMatPath);
+            if (existing != null) return existing;
+            var lit = Shader.Find("Universal Render Pipeline/Lit");
+            var mat = new Material(lit);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.48f, 0.34f, 0.21f)); // warm timber
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
+            AssetDatabase.CreateAsset(mat, CraftingTableMatPath);
+            EnsureShaderAlwaysIncluded(lit);
+            return mat;
+        }
+
+        // Translucent URP/Unlit for the placement ghost (the standard headless transparent recipe). The
+        // placement tints it green/red per-frame via a MaterialPropertyBlock (_BaseColor) — the hue channel
+        // of the dual-channel valid/invalid cue (the WORD cue is the colour-independent channel).
+        private static Material EnsureCraftingGhostMat()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(CraftingGhostMatPath);
+            if (existing != null) return existing;
+            var unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            var mat = new Material(unlit);
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);   // Transparent
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);       // Alpha
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.35f, 0.85f, 0.40f, 0.45f));
+            AssetDatabase.CreateAsset(mat, CraftingGhostMatPath);
+            EnsureShaderAlwaysIncluded(unlit);
+            return mat;
+        }
+
+        // Own PanelSettings for the crafting-menu UIDocument (mirrors EnsureInventoryPanelSettings) — the
+        // shared EnsureRuntimeTheme resolves a USABLE runtime theme (a base-less theme hangs the exe at 0 frames).
+        private static PanelSettings EnsureCraftingMenuPanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(CraftingMenuPanelSettingsAssetPath);
+            if (existing != null) return existing;
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            ps.themeStyleSheet = EnsureRuntimeTheme();
+            AssetDatabase.CreateAsset(ps, CraftingMenuPanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
         }
 
         // Attach the IN-HOUSE hero axe (ticket 86cabh907 — Route A weapon SET) to the chibi's RIGHT HAND bone
@@ -887,43 +951,10 @@ namespace FarHorizon.EditorTools
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
         }
 
-        // SOAKFIX2: plant the SOURCED hatchet in the chopping-block stump so an axe is VISIBLE FROM SPAWN
-        // (the Sponsor's literal "stump is there but no axe"). Same sourced FBX as the held axe — one asset,
-        // identical read. Parented to the CraftSpot (unscaled world-1u, so NO 267× bone trap — the local
-        // pose is intuitive). A StumpAxe component gates it as the INVERSE of HasAxe: shown at spawn, HIDDEN
-        // once crafted (the held axe appears at the same instant → "the kid picks it up"). Editor-time so
-        // the axe mesh + StumpAxe wiring SERIALIZE into Boot.unity (the editor-vs-runtime trap).
-        private static void AttachStumpAxe(GameObject craftSpot)
-        {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
-            if (fbx == null)
-            {
-                Debug.LogError("[MovementCameraScene] in-house flint axe FBX not found at " +
-                               WeaponPackAssetGen.HeroAxeFbxPath +
-                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no stump axe planted");
-                return;
-            }
-
-            var axe = Object.Instantiate(fbx);
-            axe.name = StumpAxeObjectName;
-            axe.transform.SetParent(craftSpot.transform, false);
-            axe.transform.localPosition = StumpAxeLocalPos;
-            axe.transform.localRotation = Quaternion.Euler(StumpAxeLocalEuler);
-            axe.transform.localScale = Vector3.one * StumpAxeLocalScaleUniform;
-            ApplyWeaponPaletteMaterial(axe);
-
-            // Gate visibility as the INVERSE of HasAxe: shown at spawn, hidden once crafted.
-            var stump = axe.GetComponent<StumpAxe>();
-            if (stump == null) stump = axe.AddComponent<StumpAxe>();
-            stump.inventory = Object.FindObjectOfType<Inventory>();
-
-            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
-
-            int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
-            Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
-                      ", inverse-HasAxe-gated, visible from spawn)");
-        }
+        // (86camz9uz ①) AttachStumpAxe is RETIRED with the CraftSpot stump — the free auto-craft stump +
+        // its planted always-visible axe are replaced by the place-to-build table + AxePickup (now the single
+        // visible spawn axe). The StumpAxe.cs component is retained (a reusable inverse-HasAxe visibility gate)
+        // but is no longer authored into the scene.
 
         // === 86caa4bya — INVENTORY pack + BELT hotbar UI (UI Toolkit) ============================
         public const string InventoryPanelSettingsAssetPath = SettingsDir + "/InventoryPanelSettings.asset";
@@ -1126,20 +1157,20 @@ namespace FarHorizon.EditorTools
             pickup.inventory = Object.FindObjectOfType<Inventory>();
             pickup.player = player != null ? player.transform : null;
             pickup.visual = visual;
-            // #100 BUG-1 (the axe-in-two-places fix): the StumpAxe craft block is the SINGLE visible spawn axe
-            // for the dial-tool soak. This AC3 PoC pickup is authored INACTIVE so it doesn't render a SECOND
-            // world axe (the Sponsor's "axe in two places" / "pick up one, both disappear" report). The
-            // component + Inventory/player wiring still serialize, so the AC3 PoC + its EditMode presence guard
-            // (InventorySceneTests.BootScene_CarriesAxePickup_WiredToInventoryAndPlayer) carry forward unchanged
-            // — only the spawn visual + proximity pickup stand down. Flip activeAtSpawn true to re-enable the PoC.
-            pickup.activeAtSpawn = false;
+            // 86camz9uz (crafting-redesign ①): the AxePickup is now the SINGLE visible spawn axe → authored
+            // ACTIVE. The #100 "axe in two places" concern is GONE (the StumpAxe/CraftSpot stump that was the
+            // other visible axe is RETIRED this ticket), so re-activating the one remaining pickup keeps the
+            // #100 intent (ONE clear acquisition axe) AND keeps the stone "axe" obtainable in ① — so chop +
+            // held-axe stay LIVE-triggerable in the shipped build (the stone axe becomes a STONE-tier table
+            // recipe in ②, which reworks/retires this world pickup; it is the ①-interim source).
+            pickup.activeAtSpawn = true;
             if (visual != null)
                 foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
-                    if (r != null) r.enabled = false; // serialize the hidden state into Boot.unity (static load too)
+                    if (r != null) r.enabled = true; // visible in Boot.unity (the single spawn axe)
 
             EditorUtility.SetDirty(go);
             Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition +
-                      " (auto-belt-slot-1 PoC; #100 spawn-inactive — StumpAxe is the single visible spawn axe)");
+                      " (auto-belt-slot-1; ① spawn-ACTIVE — the single visible spawn axe; stump retired)");
         }
 
         // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time
@@ -1506,28 +1537,9 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
-        private static void WireCraftVerifyCapture(GameObject player)
-        {
-            var bootGo = GameObject.Find("Boot");
-            if (bootGo == null)
-            {
-                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CraftVerifyCapture");
-                return;
-            }
-            var cap = bootGo.GetComponent<CraftVerifyCapture>();
-            if (cap == null) cap = bootGo.AddComponent<CraftVerifyCapture>();
-            cap.player = player.GetComponent<ClickToMove>();
-            cap.inventory = Object.FindObjectOfType<Inventory>();
-            cap.craftSpot = CraftSpotPosition;
-            // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1 console-error gate) if a capture-gate dep
-            // dropped, rather than letting the Awake FindObjectByType fallback mask it into the 20-min gate.
-            if (cap.player == null)
-                Debug.LogError("[MovementCameraScene] CraftVerifyCapture.player wiring is null — the player has " +
-                               "no ClickToMove (BuildPlayer must run before WireCraftVerifyCapture)");
-            if (cap.inventory == null)
-                Debug.LogError("[MovementCameraScene] CraftVerifyCapture.inventory wiring is null — " +
-                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
-        }
+        // (86camz9uz ①) WireCraftVerifyCapture is RETIRED with CraftSpot — CraftVerifyCapture.cs is deleted
+        // (it drove the player to the stump + asserted the free craft, a flow that no longer exists). The
+        // place-to-build table's visual proof is the CraftingTable side-profile capture + the PlayMode gate.
 
         // World position of the choppable tree on the flat test ground (U2-3, 86ca8bdd8). Distinct from
         // spawn (origin) and the craft spot (8,6) so the loop is a real journey: spawn -> craft axe ->

@@ -263,5 +263,43 @@ namespace FarHorizon
             if (amount <= 0) return true;
             return _model.RemoveItem(ItemCatalog.StoneId, amount);
         }
+
+        // ============================================================================================
+        // MATERIAL-COST CRAFT façade (ticket 86camz9uz / crafting-redesign ① — the recipe seam). Resolves a
+        // Recipe's explicit outputItemId against the catalog + delegates to InventoryModel.TryCraft (the pure
+        // all-or-nothing debit → AddToolToBelt grant). This is the NEW crafting entry — distinct from the
+        // legacy free-mint CraftAxe (which is retained VERBATIM for the legacy callers/tests but is NOT
+        // extended by the new material-cost path, per the ① constraint).
+        // ============================================================================================
+
+        /// <summary>
+        /// Craft <paramref name="recipe"/> — the material-cost table craft. Refuses a null/Placeholder recipe
+        /// (STONE/IRON rows are Locked in ①) and a recipe whose <see cref="Recipe.OutputItemId"/> does not
+        /// resolve in the catalog (both return false, debit nothing). Otherwise resolves the output ItemDef +
+        /// calls <see cref="InventoryModel.TryCraft"/> (all-or-nothing debit across the cost lines → grant the
+        /// tool onto the belt). Returns true iff the craft happened. The menu clicks this; a follow gate check
+        /// (tier unlocked) lives in the menu UI, but the model still enforces affordability + the placeholder
+        /// refusal here so a stray call can never mint a Locked tool for free.
+        /// </summary>
+        public bool TryCraft(Recipe recipe)
+        {
+            EnsureModel();
+            if (recipe == null || recipe.Placeholder) return false; // Locked placeholder → never crafts in ①
+            var output = _catalog.ById(recipe.OutputItemId);
+            if (output == null) return false;                       // unresolved output id → no craft
+            return _model.TryCraft(recipe.Costs, output);
+        }
+
+        /// <summary>
+        /// True iff <paramref name="recipe"/>'s inputs are affordable right now (the menu paints
+        /// Craftable-vs-Unaffordable from this). Forwards to <see cref="InventoryModel.CanAfford"/>; a
+        /// Placeholder recipe is never affordable-to-craft (it is Locked), so returns false. Read-only.
+        /// </summary>
+        public bool CanAfford(Recipe recipe)
+        {
+            EnsureModel();
+            if (recipe == null || recipe.Placeholder) return false;
+            return _model.CanAfford(recipe.Costs);
+        }
     }
 }

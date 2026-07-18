@@ -291,6 +291,61 @@ namespace FarHorizon
         }
 
         // ============================================================================================
+        // MATERIAL-COST CRAFT (ticket 86camz9uz / crafting-redesign ① — the recipe seam). Debit inputs
+        // all-or-nothing (the SpendWood idiom, generalised to multiple input lines) → grant the output tool
+        // via AddToolToBelt. This COMPOSES the existing mutators (RemoveItem + AddToolToBelt) — it does NOT
+        // fork a parallel inventory/recipe model, and it is NOT the free-mint CraftAxe path (which mints an
+        // axe for free; this SPENDS materials). Pure C# so the affordability/debit/grant truth-table is
+        // EditMode-testable without a scene.
+        // ============================================================================================
+
+        /// <summary>
+        /// PURE affordability check ACROSS ALL cost lines (all-or-nothing): true iff the pack+belt hold at
+        /// least the summed required amount of EVERY distinct input id. Sums per id so a recipe listing the
+        /// same id twice (defensive — ① recipes use one line per id) is honoured. Debits NOTHING — the read-
+        /// only gate the craft checks BEFORE touching any stack (so a short-on-line-2 recipe never debits
+        /// line 1). The load-bearing "can't afford → no craft, no debit" contract.
+        /// </summary>
+        public bool CanAfford(IReadOnlyList<RecipeCost> costs)
+        {
+            if (costs == null || costs.Count == 0) return true; // a free recipe trivially affordable
+            for (int i = 0; i < costs.Count; i++)
+            {
+                if (costs[i].Amount <= 0) continue;
+                // Sum every line that shares this id (handles a repeated id) — count once per distinct id.
+                bool seenEarlier = false;
+                for (int j = 0; j < i; j++) if (costs[j].ItemId == costs[i].ItemId) { seenEarlier = true; break; }
+                if (seenEarlier) continue;
+                int required = 0;
+                for (int j = 0; j < costs.Count; j++)
+                    if (costs[j].ItemId == costs[i].ItemId && costs[j].Amount > 0) required += costs[j].Amount;
+                if (CountItem(costs[i].ItemId) < required) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Craft: check <paramref name="costs"/> are affordable across ALL lines, GRANT the output tool onto
+        /// the belt (or the pack if the belt is full) FIRST, then debit the inputs. Granting first makes the
+        /// craft LOSS-FREE — if the inventory is completely full so the grant cannot land, the craft aborts
+        /// with NO debit (materials are never spent for a tool that had nowhere to go). Because granting a
+        /// Tool never changes any RESOURCE count, the affordability check taken before the grant still holds,
+        /// so the debit after it is guaranteed. Returns true iff the craft actually happened (output granted +
+        /// inputs debited). A null output or an unaffordable/no-room recipe returns false and debits nothing.
+        /// </summary>
+        public bool TryCraft(IReadOnlyList<RecipeCost> costs, ItemDef output)
+        {
+            if (output == null) return false;
+            if (!CanAfford(costs)) return false;            // can't afford → no craft, no debit
+            var landed = AddToolToBelt(output);             // grant FIRST (loss-free) — fires Changed on placement
+            if (landed == null) return false;               // inventory completely full → abort, nothing debited
+            if (costs != null)
+                for (int i = 0; i < costs.Count; i++)
+                    if (costs[i].Amount > 0) RemoveItem(costs[i].ItemId, costs[i].Amount); // guaranteed by CanAfford
+            return true;
+        }
+
+        // ============================================================================================
         // QUERIES — the façade + held-item drivers read these (contract §5/§7).
         // ============================================================================================
 

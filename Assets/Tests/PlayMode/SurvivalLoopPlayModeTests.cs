@@ -9,8 +9,8 @@ namespace FarHorizon.PlayTests
     /// <summary>
     /// U2-7 (ticket 86ca8bdhy) — the M-U2 EXIT coverage: the FULL survival cycle driven END-TO-END
     /// in ONE PlayMode sequence on ONE shared rig (Inventory + WarmthNeed + Player), the DELTA the
-    /// per-ticket suites do NOT cover. WarmthNeedPlayModeTests / CraftSpotPlayModeTests /
-    /// ChopTreePlayModeTests / CampfirePlayModeTests each prove a single BEAT in isolation with their
+    /// per-ticket suites do NOT cover. WarmthNeedPlayModeTests / ChopTreePlayModeTests /
+    /// CampfirePlayModeTests each prove a single BEAT in isolation with their
     /// OWN throwaway rig; none threads the whole spine through a single play session, so a regression
     /// in the HAND-OFF between beats (the chopped wood reaching the placement gate; the lit fire
     /// reaching the SAME warmth instance the decay drained) could pass every isolated suite and still
@@ -27,10 +27,9 @@ namespace FarHorizon.PlayTests
     /// </summary>
     public class SurvivalLoopPlayModeTests
     {
-        private GameObject _invGo, _warmthGo, _playerGo, _spotGo, _treeGo, _fireGo, _spawnerGo, _looterGo;
+        private GameObject _invGo, _warmthGo, _playerGo, _treeGo, _fireGo, _spawnerGo, _looterGo;
         private Inventory _inv;
         private WarmthNeed _warmth;
-        private CraftSpot _spot;
         private ChopTree _tree;
         private Campfire _fire;
         private CampfirePlacement _place;
@@ -76,13 +75,10 @@ namespace FarHorizon.PlayTests
             _playerGo = new GameObject("Player");
             _playerGo.transform.position = FarAway;
 
-            // Craft spot.
-            _spotGo = new GameObject("CraftSpot");
-            _spotGo.transform.position = CraftPos;
-            _spot = _spotGo.AddComponent<CraftSpot>();
-            _spot.inventory = _inv;
-            _spot.player = _playerGo.transform;
-            _spot.craftRadius = 2.0f;
+            // 86camz9uz ① — the free auto-craft CraftSpot is RETIRED. Beat 1 now acquires the (stone) chopping
+            // axe via the SAME Inventory.PickUpAxe seam the world AxePickup uses (the loop's real spine is the
+            // WARMTH closure: chop → wood → fire → warmth; the crafting-table place-to-build system has its own
+            // dedicated CraftingMenuPlayModeTests). No CraftSpot rig.
 
             // REWORK 86caf9u5t — the felled tree no longer banks wood per chop; it drops a lootable LogPile
             // holding the WHOLE yield, looted with E via the shared PickableLooter. The pre-rework loop modelled
@@ -138,7 +134,6 @@ namespace FarHorizon.PlayTests
             Object.Destroy(_invGo);
             Object.Destroy(_warmthGo);
             Object.Destroy(_playerGo);
-            Object.Destroy(_spotGo);
             Object.Destroy(_treeGo);
             Object.Destroy(_fireGo);
             if (_spawnerGo != null) Object.Destroy(_spawnerGo);
@@ -176,10 +171,11 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_inv.HasAxe, "Beat 0: start with no axe");
             Assert.AreEqual(0, _inv.WoodCount, "Beat 0: start with no wood");
 
-            // --- Beat 1: CRAFT. Reach the craft spot -> the single recipe fires -> axe in hand. ---
-            yield return GoTo(CraftPos, 0.3f);
-            Assert.IsTrue(_inv.HasAxe, "Beat 1: reaching the craft spot crafts the axe (the loop's entry)");
-            Assert.IsTrue(_spot.HasCrafted, "Beat 1: CraftSpot latched");
+            // --- Beat 1: ACQUIRE. Pick up the (stone) chopping axe -> axe in hand (the loop's entry). ---
+            // 86camz9uz ① — the free auto-craft stump is retired; the stone axe comes from the world pickup
+            // (Inventory.PickUpAxe, the seam AxePickup drives). The chop gate needs the STONE "axe" selected.
+            Assert.IsTrue(_inv.PickUpAxe(), "Beat 1: picking up the axe places it on the belt (the loop's entry)");
+            Assert.IsTrue(_inv.HasAxe, "Beat 1: the castaway now holds the axe");
 
             // --- Beat 2: CHOP. Carry the axe to the tree -> LEFT-CLICK to chop -> wood ticks up -> the tree
             //     fells. --- This is the load-bearing HAND-OFF #1: the axe crafted in Beat 1 is what unlocks the
