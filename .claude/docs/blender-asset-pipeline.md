@@ -25,6 +25,7 @@ Every new asset must:
 - **Character reference:** 1.8m cube in the scene at all times — all weapon proportions scale against it. Hafts read "chunky" at ~0.08m diameter vs 1.8m height.
 - **Collections:** `Blockout` / `LowPoly` / `Export`. Keep finished weapons in `Export` collection for FBX selection.
 - **Naming convention:** `wpn_axe_01`, `wpn_knife_01`, `wpn_sword_01`, `wpn_spear_01`, `prop_crate_wood_01`, `env_rock_03`. Consistent prefix (`wpn_` / `prop_` / `env_`) + material + index. Unity mirrors the filename as the asset name.
+- **Tier-row convention in `weapons_reauthor.blend`** (wood-tier weapon burst, 2026-07-08): tiers are laid out by Y-row — iron at `y=0.6`, stone at `y=0.0`, wood at `y=-0.6`. `ref_character_18m` is the permanent scale-reference object (the 1.8m character-reference cube from the bullet above) — **never delete it**; reference it by name (`bpy.data.objects['ref_character_18m']`) when scaling new assets against it.
 
 ---
 
@@ -74,6 +75,10 @@ When creating/editing a palette PNG via `bpy` (MCP `execute_blender_code` or a h
 
 **Net effect if you skip these:** a byte-correct palette (or a logically-correct posterize) on disk can still fail every Blender-side visual check (wrong hue / washed out / hue-shifted regions / still the old colors). Verify the actual PNG bytes before concluding the color logic is broken.
 
+### Palette-plus-face-patch hybrid: color dots PLUS one painted detail region on the SAME texture (castaway v4, 2026-07-18)
+
+The shared-palette convention above (every UV island scaled to zero and parked on a flat color dot) does not preclude ONE spatially-varying painted detail region on the same texture. Castaway v4's palette PNG (still a single 128×128 image) carries the usual color-dot blocks on one region PLUS a painted 64×64 face patch (brows/eyes/smile/stubble) elsewhere on the same PNG. Every mesh face's UV stays parked on a color dot as usual EXCEPT the head-front quad, which is instead **planar-mapped** into the face-patch region (local mesh-space x→u, z→v, with a small ~1.5px inset to avoid bleeding into the color-dot region) — so ONE face gets a real unwrap while every other face on the model stays a zero-area dot. Keep the shared material's Image Texture node interpolation set to **Closest** (not the default Linear) so both the flat color dots and the painted patch stay crisp with no bleed/blur at their boundary — the face patch is drawn as **pixel rects, not curves** (e.g. 10×12px eyes with a 3×3 white highlight, a brow bar, a 2px smile line, a stubble band), and Linear interpolation would blur those edges into noise at gameplay distance. The sRGB-passthrough / Standard-view-transform / `update_tag()` rules above (color-pipeline gotchas 1–3) apply unchanged to this combined texture. Applies to any future asset needing ONE readable painted detail (a face, a label, a decal) while keeping the rest of the shared-palette convention intact. Full worked example: `art-src/castaway-v4-README.md` + `art-src/castaway_v4_palette.png`.
+
 ---
 
 ## 3. Modeling — Silhouette First, Details Never
@@ -102,6 +107,12 @@ No Sub-D modifiers. No Bevel modifier. No Subdivision Surface. These are hard po
 ### Family-extension route: duplicate an approved sibling instead of reblocking from scratch (pickaxe burst, ticket `86cakkmmz`, pending I-1 harvest PR)
 
 The "start with a Plane/Cube" rule above is for the FIRST asset in a family. When adding a new same-tier tool that shares its handle family with an approved sibling (e.g. a new stone/iron tool alongside the approved axes): **duplicate the approved sibling object, delete ONLY its head mesh-island, keep the haft/grip/pommel islands verbatim** — their exact geometry AND palette UVs carry forward untouched. Guarantees family consistency (identical handles across the tier) and zero re-UV work; only the new head gets modeled fresh. Before deleting, verify island identity by vertex-count + z-range (§12 item 5) — never infer membership from position/z-order. Precedent: `wpn_pickaxe_stone_01` (88 tris) / `wpn_pickaxe_iron_01` (154 tris) built from the approved axe siblings' 32-vert / 22-vert head-island deletions (`art-src/weapons_reauthor.blend`).
+
+### Closed-shell heads (knife/sword) can't be extruded from a ring after deletion — build a fresh shell instead (wood-tier weapon burst, 2026-07-08)
+
+The family-extension route above (duplicate sibling, delete only the head island) assumes the remaining haft/grip stump has an open ring to extrude a new head from. That holds for **spear / axe / pickaxe** — their heads are open-ended where they meet the haft, so deleting the head leaves a clean boundary ring to extrude the replacement head from.
+
+**Knife and sword are different: the handle is a CLOSED shell and the blade is a SEPARATE closed shell** (not one continuous mesh with an open junction). Deleting the blade's faces leaves **no boundary ring at all** — there is nothing to extrude from, and an extrude-from-selection op against the empty face-loop fails (empty-selection divide-by-zero). **Fix:** don't try to extrude a new blade from the handle stump. Build the new blade as its own fresh closed shell (rings of 4 verts stepping down the blade profile, closed with an apex vert at the tip) and `Join` it to the handle shell, the same way the original asset was built. Spear/axe/pickaxe stay extrude-from-ring; knife/sword are build-fresh-shell-and-join.
 
 ### Crosswise-mounted heads (pickaxe / hammer / mattock class) need a BOX-section eye, not a diamond/lens section (ticket `86cakkmmz`, pending I-1 harvest PR)
 
@@ -135,6 +146,24 @@ The biface diamond/lens cross-section used for in-line blade heads (axe/knife/sw
 5. To assign a different colour to specific faces: select those faces in Edit Mode, then in the UV Editor move just those UV islands to a different palette block.
 
 **Gotcha:** if faces share the same UV island and need different colours, you must separate them first (in Edit Mode, select → `P > Separate by Selection` or manually split the island). Plan colour regions before unwrapping.
+
+### Palette-tile coordinates + UV-cluster face selection (wood-tier weapon burst, 2026-07-08)
+
+The durable rule is the **tier split by tile U-coordinate: faces with UV `u > 0.4` are stone/iron tones; faces with `u ≤ 0.4` are wood/leather tones.** This lets you select faces by their UV-cluster position (script a `u` test against each face's UV island) rather than hand-picking in the viewport or trusting object/material naming — useful when a single mesh mixes tiers (e.g. an iron head on a shared haft) or when auditing an existing asset's tier assignment.
+
+Measured tile centers (a snapshot of the CURRENT `weapon_palette.png` — the u>0.4 split is the rule to trust long-term; these coordinates are an empirical reading of today's palette layout and must be **re-verified if the palette is ever repainted**):
+
+| Tile | UV center (u, v) |
+|---|---|
+| Haft brown | (0.05, 0.05) |
+| Dark brown | (0.145, 0.05) |
+| Leather reds | ~(0.24–0.33, 0.05) |
+| Iron blue-grey | ~(0.42, 0.05) |
+| White | (0.515, 0.05) |
+| Tan | (0.617, 0.05) |
+| Stone grey | (0.805, 0.05) |
+| Dark grey | (0.90, 0.05) |
+| 2nd-row iron | y ≈ 0.15+ |
 
 ---
 
@@ -289,6 +318,10 @@ bpy.ops.render.render(write_still=True)
 
 **Prefer this render-to-file method over `get_viewport_screenshot` by default** for any Blender judging step — not only after hitting the black-screen symptom — whenever the Blender window's draw state is uncertain (minimized, backgrounded, long-running MCP session with focus elsewhere).
 
+### A pure 90° profile render of a box-built/segmented character is illegible — bias the side camera ~12° off-axis (castaway v4, 2026-07-18)
+
+A dead-on profile shot of a faceted/chamfered-block character (built from flat box segments, not an organic Rodin mesh) puts one flat plane square to the camera, so the render reads as a featureless silhouette regardless of lighting — no shading gradient to read form from. Bias the side/profile judge camera ~12° off the true profile axis so a sliver of the front plane catches distinct light and the shot reads as a form, not a flat card. Applies to the render-to-file judging method above for any faceted/chamfered-block asset shot from a directly-orthogonal angle, not just characters.
+
 ### `bpy.ops.import_scene.fbx` fails "Context missing active object" on armature-bearing FBX (castaway v3, `86cak41d4`)
 
 Importing a plain-mesh FBX via `execute_blender_code` works fine, but an FBX carrying an **armature** (e.g. a Mixamo-rigged export) fails with `RuntimeError: Operator bpy.ops.object.mode_set.poll() Context missing active object` — the importer's armature-build step enters Edit Mode, which needs a real 3D-viewport context the MCP bridge's synthetic call doesn't provide.
@@ -305,6 +338,28 @@ with bpy.context.temp_override(window=window, area=area, region=region):
 ```
 
 Plain-mesh (non-armature) FBX imports do NOT need this — a mesh-only import succeeding earlier in the session won't reveal the gap, so apply the override proactively whenever the FBX carries a rig.
+
+### `scene.camera` is UNBOUND after `bpy.ops.wm.open_mainfile` — rebind before rendering (wood-tier weapon burst, 2026-07-08)
+
+Opening a different `.blend` via `bpy.ops.wm.open_mainfile(filepath=...)` does not carry over `scene.camera` even when the target file has a camera object in it — the next render call fails with "no camera" (`bpy.ops.render.render` raises because `scene.camera` is `None`). This bites every time a script opens a fresh `.blend` and then tries to render/judge in the same pass (e.g. the §10 render-to-file judging method above, run right after switching source files).
+
+**Fix:** rebind the camera immediately after every `open_mainfile` call, before any render op:
+
+```python
+bpy.ops.wm.open_mainfile(filepath=r"<path to .blend>")
+bpy.context.scene.camera = bpy.data.objects['Camera']  # rebind — open_mainfile does not restore scene.camera
+```
+
+If the file's camera object has a different name, look it up by type (`next(o for o in bpy.data.objects if o.type == 'CAMERA')`) rather than assuming `'Camera'`.
+
+### `matrix_world` is STALE immediately after creating/linking objects or setting `rotation_euler` — call `view_layer.update()` before measuring (castaway v4, 2026-07-18)
+
+Blender does not recompute the dependency graph synchronously on every `bpy.data.objects.new(...)` + link, or on every `rotation_euler` assignment — it happens on the next depsgraph evaluation, which does NOT occur automatically between consecutive statements in an `execute_blender_code` / headless script. Reading `obj.matrix_world` (or any world-space/camera-relative value derived from it — bounding-box union across parts, camera-relative aim vectors, cross-object distances) immediately after either op returns a STALE value (identity for a freshly linked object, or the pre-assignment value after a rotation write) — not what the object's current transform/parenting implies. This bit the same session twice, silently (no exception raised, just a wrong number):
+
+1. **World-space measurement lied.** A 40-part, 1.90m-tall character measured `height=0.62` immediately after every part was created and linked — every part's `matrix_world` was still identity, so only the largest single part's LOCAL extent got measured, not the assembled whole.
+2. **Camera-relative computation used a stale orientation.** A sun-light aim computed from `cam.matrix_world` right after repositioning the camera for a new shot used the PREVIOUS shot's orientation (the rotation assignment hadn't propagated yet) — produced a washed-out, unreadable render.
+
+**Fix:** call `bpy.context.view_layer.update()` immediately after any object creation/linking, parenting change, or `rotation_euler`/`location`/`matrix_world` assignment, and BEFORE reading any world-space or camera-relative value off it. Cheap to call defensively — call it before every measurement or camera-aim step in a script, not just after a symptom shows up.
 
 ---
 
@@ -368,6 +423,8 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | Tune the current shipped axe as the style reference | The shipped axe is a placeholder — use `21h08_08` as the target |
 | Reblock a new same-tier tool from scratch | Duplicate the approved sibling, delete only its head island (verify identity via §12 item 5 first), keep haft/grip/pommel verbatim |
 | Use a diamond/lens eye section on a crosswise-mounted head (pickaxe/hammer/mattock) | Use a BOX-section eye wide enough to enclose the haft; taper to diamond only on the arms |
+| Extrude a new knife/sword blade from the handle stump after deleting the old one | Build a fresh closed shell (rings + apex) and `Join` it — knife/sword blades are a separate closed shell, not an open ring |
+| Render or screenshot right after `bpy.ops.wm.open_mainfile` | Rebind `scene.camera = bpy.data.objects['Camera']` first — `open_mainfile` leaves it unbound |
 
 ---
 

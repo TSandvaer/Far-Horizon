@@ -43,6 +43,8 @@ for "source a purpose-built base" on the hero-prop side.)
 
 > **Sharpened precedent (castaway v2, 2026-07-05):** seven procedural Blender attempts at a hero-character rebuild each failed the Sponsor's bar on GESTALT — the whole didn't land — not on any itemized/fixable defect; switching to the Character route (concept→web-Rodin→Mixamo) succeeded in under an hour. This refines the "2+ attempts fail" rule above: **a GESTALT failure (no punch-list, just "doesn't look right") is a switch-route signal on its own** — when a round clears every itemized defect and still doesn't land, switch immediately rather than running a further round. Full account: `character-pipeline.md`'s route-ratification note.
 
+> **Scope refinement (castaway v4, 2026-07-18):** the gestalt-failure precedent above is scoped to ORGANIC-fidelity hero rebuilds — it does not mean hand/procedural modeling is closed for every character-shaped asset. A deliberately GEOMETRIC/segmented target (chamfered-blocky "wooden toy" style, 40 segmented boxes) passed the Sponsor's look-dev gate first-try via hand-modeled Blender/Blender MCP — a different problem class from the organic-humanoid rebuild that failed seven times (`character-pipeline.md`'s scope-nuance note). It has NOT yet cleared rig/soak, so it does not reopen the Character-route default for organic humanoids. Route on the TARGET STYLE, not the asset class alone: organic/realistic silhouette → stay on Hyper3D Rodin (Character route); geometric/stylized/toy-like silhouette → hand-modeled Blender is a viable candidate route worth considering, not automatically ruled out.
+
 ---
 
 ## Cross-cutting rules that apply across ALL routes
