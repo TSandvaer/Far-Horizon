@@ -84,22 +84,36 @@ the watchdog as **you** (interactive logon), at logon, repeating every 5 minutes
 indefinitely, via **`pwsh.exe`** (PowerShell 7). Edit the two paths in the first
 two lines if your clone differs.
 
-> The action uses `pwsh.exe`. The script's BOM + ASCII-only encoding also lets
-> `powershell.exe` (Windows PowerShell 5.1) parse it, so swap to `'powershell.exe'`
-> if you'd rather not depend on PowerShell 7 — either works.
+> **Use `powershell.exe`, not bare `pwsh.exe`, unless PowerShell 7 was installed
+> machine-wide (MSI).** On this machine pwsh is the **Microsoft Store user-scoped
+> install** (`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`), which Task
+> Scheduler cannot resolve from a bare `pwsh.exe` action — every run then fails
+> with `Last Result 0x80070002` (file not found) **silently**: the task looks
+> Enabled/Ready and fires on schedule, but the script never starts and the
+> watchdog log stays empty (verified on this machine 2026-07-18; the task ran
+> broken for 10 days). The script's BOM + ASCII-only encoding parses cleanly
+> under `powershell.exe` (5.1), so that is the safe default.
+>
+> Also note: fixing a mis-registered action afterwards needs an **elevated**
+> `Set-ScheduledTask` — non-elevated `schtasks /change` prompts for the run-as
+> password and is denied.
 
 ```powershell
 $Script   = 'C:\Trunk\PRIVATE\Far-Horizon\tools\ops\runner-disconnect-watchdog.ps1'
 $TaskName = 'FarHorizon-RunnerDisconnectWatchdog'
 
-$action  = New-ScheduledTaskAction -Execute 'pwsh.exe' `
+$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
              -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Once"
 
-# Trigger: at logon, then repeat every 5 minutes for ever.
+# Trigger: at logon, then repeat every 5 minutes (10-year duration ≈ forever).
+# NOTE: do NOT use [TimeSpan]::MaxValue here — on Windows 10/11 it serializes
+# into the task XML as P99999999DT23H59M59S, which Task Scheduler rejects with
+# "The task XML contains a value which is incorrectly formatted or out of range"
+# (verified on this machine 2026-07-08). A finite long duration works.
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
              -RepetitionInterval (New-TimeSpan -Minutes 5) `
-             -RepetitionDuration ([TimeSpan]::MaxValue)).Repetition
+             -RepetitionDuration (New-TimeSpan -Days 3650)).Repetition
 
 # Run as the INTERACTIVE logged-in user (preserves the Unity Hub license).
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
@@ -146,6 +160,12 @@ Unregister-ScheduledTask -TaskName 'FarHorizon-RunnerDisconnectWatchdog' -Confir
 - **Idempotent + safe to run repeatedly.** Each pass acts at most once; a
   10-minute relaunch **cooldown** stops a relaunch storm while GitHub's status
   catches up to a fresh re-register (~10-30s after relaunch).
+- **Startup grace (default 300s).** A listener that started less than
+  `-StartupGraceSeconds` ago is never killed, even if GitHub says offline —
+  GitHub's status lags a reboot/logon, and killing the healthy just-started
+  listener orphans its session so the relaunch loops on red "A session for
+  this runner already exists" conflicts until the orphan expires (observed
+  2026-07-18 after a driver-update reboot; self-healed in ~2 min).
 - **Single-runner scoped.** The watchdog matches `far-horizon-local` by name and
   scopes the listener kill to `C:\actions-runner-farhorizon\bin\`. It will not
   touch `far-horizon-local-2` (`C:\actions-runner-2\`), which Far Horizon keeps
