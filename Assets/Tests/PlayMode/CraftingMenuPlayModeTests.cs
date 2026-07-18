@@ -130,18 +130,80 @@ namespace FarHorizon.PlayTests
         }
 
         [UnityTest]
-        public IEnumerator PlaceTable_ShortMats_NoBuild_NoDebit()
+        public IEnumerator PlaceTable_ShortMats_EntersButInvalid_NoBuild_NoDebit()
         {
             yield return null;
             _inv.AddWood(4); // short — the table needs 5 wood
             _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.StoneId), 3);
 
             Assert.IsFalse(_place.CanAffordTable(), "4 wood < 5 → can't afford the table");
+
+            // F4: entering placement is NO LONGER gated on affordability — you enter empty-handed to SEE the
+            // "need materials" red cue. The ghost reads INVALID and confirm is refused (no build, no debit).
             _place.EnterPlacement();
-            Assert.IsFalse(_place.IsPlacing, "placement refuses to start when the table is unaffordable");
+            yield return null;
+            Assert.IsTrue(_place.IsPlacing, "placement STARTS even when short (so the red 'need materials' cue shows)");
+            Assert.IsFalse(_place.IsCurrentPlacementValid,
+                "F4: with materials short the ghost reads INVALID (red / 'need N wood + M stone')");
+
+            Assert.IsFalse(_place.TryConfirm(), "confirm is REFUSED while unaffordable");
             Assert.IsFalse(_table.IsBuilt, "no table built");
             Assert.AreEqual(4, _inv.WoodCount, "no wood debited (all-or-nothing)");
             Assert.AreEqual(3, _inv.StoneCount, "no stone debited");
+
+            _place.Cancel(); // release the modal gate deterministically
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "cancel releases the placement gate");
+        }
+
+        [UnityTest]
+        public IEnumerator UseTable_ViaE_OpensMenu_NearestInteractableWins()
+        {
+            yield return null;
+
+            // Build the table (it lands ~2.5u in front of the player on the no-camera fallback).
+            _inv.AddWood(10);
+            _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.StoneId), 3);
+            _place.EnterPlacement();
+            yield return null;
+            Assert.IsTrue(_place.TryConfirm(), "table built");
+            Assert.IsTrue(_table.IsBuilt);
+            _menu.Close(); // start from the closed built-table state (the modal gate released)
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "gate clean after closing the opened menu");
+
+            // F5: the built table is USED with E via the player-side PickableLooter (nearest-interactable). The
+            // menu is an IPickable ("use" verb) — no C-reopen.
+            Assert.IsTrue(((IPickable)_menu).CanLoot, "built + closed → the table is E-usable");
+            Assert.AreEqual("crafting table", ((IPickable)_menu).DisplayName);
+            Assert.AreEqual("use", ((IPickable)_menu).GatherVerb, "the prompt reads 'Press E to use crafting table'");
+
+            var looterGo = new GameObject("PickableLooter");
+            var looter = looterGo.AddComponent<PickableLooter>();
+            looter.inventory = _inv;
+            looter.player = _playerGo.transform; // at origin; table ~2.5u out, within openRadius (2.5)
+            looter.DiscoverPickables();
+
+            Assert.AreSame(_menu, looter.ResolveNearestPickable(_playerGo.transform.position),
+                "the table is the only in-range interactable → it is the nearest");
+            Assert.IsTrue(looter.TryLootNearest(), "E on the table opens the menu");
+            Assert.IsTrue(_menu.IsOpen, "the menu opened via the E-interact arbiter");
+            _menu.Close();
+
+            // Now put a loose STONE CLOSER than the table — the nearer interactable must win (precedence).
+            var stoneGo = new GameObject("Stone");
+            stoneGo.transform.position = new Vector3(0f, 0f, 1f); // 1u from player < the table's ~2.5u
+            var stone = stoneGo.AddComponent<StoneProp>();
+            stone.inventory = _inv;
+            looter.DiscoverPickables();
+
+            Assert.AreSame(stone, looter.ResolveNearestPickable(_playerGo.transform.position),
+                "the nearer stone wins over the table (nearest-interactable precedence)");
+            int stoneBefore = _inv.StoneCount;
+            Assert.IsTrue(looter.TryLootNearest(), "E loots the nearer stone (NOT the table)");
+            Assert.IsFalse(_menu.IsOpen, "the table menu did NOT open — the stone was nearer");
+            Assert.AreEqual(stoneBefore + 1, _inv.StoneCount, "the stone was looted");
+
+            Object.Destroy(looterGo);
+            Object.Destroy(stoneGo);
         }
     }
 }

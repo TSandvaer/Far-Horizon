@@ -133,6 +133,26 @@ namespace FarHorizon.EditTests
                 "unlocked + short = Unaffordable");
         }
 
+        // === F6 row-visibility truth-table (unlocked-only by default + show-locked toggle) ===
+
+        [Test]
+        public void IsRowVisible_UnlockedOnly_ByDefault_ShowLockedReveals()
+        {
+            // Default (toggle OFF): Craftable + Unaffordable (both UNLOCKED) show; Locked hides.
+            Assert.IsTrue(CraftingMenuUI.IsRowVisible(RecipeRowState.Craftable, showLocked: false),
+                "a craftable row is always visible");
+            Assert.IsTrue(CraftingMenuUI.IsRowVisible(RecipeRowState.Unaffordable, showLocked: false),
+                "an unlocked-but-short row still shows (it's unlocked)");
+            Assert.IsFalse(CraftingMenuUI.IsRowVisible(RecipeRowState.Locked, showLocked: false),
+                "F6: Locked placeholder rows are HIDDEN by default (not a wall of greyed rows)");
+
+            // Toggle ON: everything shows (the ladder is discoverable on demand).
+            Assert.IsTrue(CraftingMenuUI.IsRowVisible(RecipeRowState.Locked, showLocked: true),
+                "'Show locked' reveals the Locked ladder");
+            Assert.IsTrue(CraftingMenuUI.IsRowVisible(RecipeRowState.Craftable, showLocked: true));
+            Assert.IsTrue(CraftingMenuUI.IsRowVisible(RecipeRowState.Unaffordable, showLocked: true));
+        }
+
         // === Tier-unlock truth-table (spec §7-C) ===
 
         [Test]

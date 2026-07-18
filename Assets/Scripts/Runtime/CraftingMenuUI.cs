@@ -18,11 +18,22 @@ namespace FarHorizon
     /// POPs it. This is the strongest form of the spec §3 "the click-guard invariant" and mirrors how the
     /// settings panel gates focused input.
     ///
-    /// === Opened by the placement (explicit handoff), re-opened by proximity + key ===
+    /// === Opened by the placement (explicit handoff), re-opened via the E-interact arbiter (soak fix F5) ===
     /// <see cref="CraftingTablePlacement"/> calls <see cref="Open"/> right after it reveals the table (so the
-    /// open never races the confirm-frame key). Afterwards, while the built table is near + the menu is
-    /// closed, the build/interact key re-opens it; Escape (or the ✕ button) closes. 🎚️ open-mechanic default —
-    /// Sponsor-soak tunes.
+    /// open never races the confirm-frame key). Afterwards the built table is USED with the universal E key:
+    /// this menu is an <see cref="IPickable"/> ("use" verb, DisplayName "crafting table") so the player-side
+    /// <see cref="PickableLooter"/> resolves the NEAREST in-range interactable and opens the menu on E — which
+    /// gives, for FREE, the nearest-interactable PRECEDENCE the Sponsor asked for (E near a loose stone AND
+    /// the table loots the nearer one; the shipped C-reopen is RETIRED — the general "C = build menu" is a
+    /// follow-up, 86catpvpa). The <see cref="LootPrompt"/> then reads "Press E to use crafting table" with no
+    /// per-item branch. Escape (or the ✕ button) closes. IPickable is the E-INTERACT surface here (the pond
+    /// already stretched it past "pick up" with a custom verb); "using" the table adds nothing to the pack, so
+    /// <see cref="TryLoot"/> opens the menu and returns true to consume the E press.
+    ///
+    /// === F6 — unlocked-only by default + a "show locked" toggle ===
+    /// The menu shows only the tiers/rows the player can actually work with (WOOD live in ①); the STONE/IRON
+    /// Locked placeholders are HIDDEN by default and revealed by a "Show locked" button, so the menu isn't a
+    /// wall of greyed rows on the first table (the Sponsor's soak). The ladder is still discoverable on demand.
     ///
     /// === Robust headless (logic ≠ layout) + serialization ===
     /// The Open/Close/CraftRecipe LOGIC does not depend on a laid-out panel (a missing/unresolved UIDocument
@@ -31,7 +42,7 @@ namespace FarHorizon
     /// refs serialize into Boot.unity (MovementCameraScene) — NOT an Awake build. NO mutable statics.
     /// </summary>
     [RequireComponent(typeof(UIDocument))]
-    public class CraftingMenuUI : MonoBehaviour
+    public class CraftingMenuUI : MonoBehaviour, IPickable
     {
         [Header("Wiring (serialized editor-time)")]
         [Tooltip("The UIDocument hosting the menu. Auto-resolved from this GameObject if unset.")]
@@ -44,10 +55,9 @@ namespace FarHorizon
         public Transform player;
 
         [Header("Interaction")]
-        [Tooltip("Planar (XZ) distance within which the built table's menu can be (re)opened with the build key.")]
+        [Tooltip("Planar (XZ) distance within which the built table is USABLE — the E-interact reach (this is " +
+                 "the menu's IPickable.LootRange the PickableLooter resolves against). C-reopen is RETIRED (F5).")]
         public float openRadius = 2.5f;
-        [Tooltip("Key to re-open the menu when near the built table (mirrors the placement build key, C).")]
-        public KeyCode reopenKey = KeyCode.C;
         [Tooltip("Key to close the menu.")]
         public KeyCode closeKey = KeyCode.Escape;
 
@@ -58,9 +68,14 @@ namespace FarHorizon
         // Row view caches, parallel to _recipes (index-aligned) so RefreshAll repaints in place.
         private readonly List<VisualElement> _rows = new List<VisualElement>();
         private readonly List<Label> _rowState = new List<Label>();
+        // Per-tier section headers (F6 — hidden when the tier has no visible rows).
+        private readonly List<CraftTier> _headerTiers = new List<CraftTier>();
+        private readonly List<Label> _headers = new List<Label>();
 
         private VisualElement _scrim;
         private VisualElement _panel;
+        private Button _showLockedButton;
+        private bool _showLocked;   // F6 — Locked placeholder rows hidden by default; toggled by the button
         private bool _built;
         private bool _gateTracked;
 
@@ -102,14 +117,9 @@ namespace FarHorizon
 
         void Update()
         {
-            if (IsOpen)
-            {
-                if (Input.GetKeyDown(closeKey)) Close();
-                return;
-            }
-            // Re-open with the build key while the built table is near (the placement opens it the first time).
-            if (table != null && table.IsBuilt && Input.GetKeyDown(reopenKey) && PlayerInRange())
-                Open();
+            if (IsOpen && Input.GetKeyDown(closeKey)) Close();
+            // Re-open is handled by the E-interact arbiter (this menu is an IPickable; the PickableLooter opens
+            // it on E, nearest-interactable wins — F5). No per-frame key poll for opening here anymore.
         }
 
         /// <summary>True iff the player is within <see cref="openRadius"/> (planar) of the built table.</summary>
@@ -119,6 +129,44 @@ namespace FarHorizon
             Vector2 t = new Vector2(table.transform.position.x, table.transform.position.z);
             Vector2 p = new Vector2(player.position.x, player.position.z);
             return Vector2.Distance(t, p) <= openRadius;
+        }
+
+        // ============================================================================================
+        // IPickable — the E-INTERACT surface (soak fix F5). The built table is "used" (menu opens) with the
+        // universal E key via the player-side PickableLooter's nearest-in-range resolve — so E near a loose
+        // stone AND the table acts on the NEARER one (the precedence the Sponsor asked for), and the LootPrompt
+        // shows "Press E to use crafting table". "Using" the table adds nothing to the pack; TryLoot opens the
+        // menu and returns true to consume the E press. (IPickable is already the generic E-interact surface —
+        // the pond stretched it past "pick up" with its own verb; this adds a "use" verb, no interface change.)
+        // ============================================================================================
+
+        /// <summary>IPickable: the table is USABLE while it is BUILT, the menu is CLOSED, and an inventory is
+        /// wired. Closed-menu-only so E doesn't re-trigger while the menu owns the screen (the modal gate also
+        /// blocks E, this is belt-and-braces). Unbuilt (invisible-until-placed) → not usable.</summary>
+        public bool CanLoot => table != null && table.IsBuilt && !IsOpen && inventory != null;
+
+        /// <summary>IPickable: the table's world position — the looter measures planar XZ distance to this for
+        /// the nearest-interactable resolve (same idiom as every pickable).</summary>
+        public Vector3 LootPosition => table != null ? table.transform.position : transform.position;
+
+        /// <summary>IPickable: the table's interact reach — its <see cref="openRadius"/>. The looter uses THIS
+        /// per-item radius in the nearest-in-range resolve, so a nearer stone/bush still wins over the table.</summary>
+        public float LootRange => openRadius;
+
+        /// <summary>IPickable: the generic prompt name — the table reads "Press E to use crafting table".</summary>
+        public string DisplayName => "crafting table";
+
+        /// <summary>IPickable: the gather verb — "use" (not "pick up") so the prompt fits the action (F5).</summary>
+        public string GatherVerb => "use";
+
+        /// <summary>IPickable.TryLoot — the E-interact for the built table: OPEN the recipe menu and return true
+        /// to consume the E press (nothing is added to <paramref name="inv"/>). Returns false when not usable
+        /// (unbuilt / already open) so the looter moves past to any other in-range pickable.</summary>
+        public bool TryLoot(Inventory inv)
+        {
+            if (!CanLoot) return false;
+            Open();
+            return true;
         }
 
         /// <summary>Open the menu: push the world-input gate (modal), show, repaint. Idempotent.</summary>
@@ -182,6 +230,8 @@ namespace FarHorizon
             rootVisual.Clear();
             _rows.Clear();
             _rowState.Clear();
+            _headerTiers.Clear();
+            _headers.Clear();
 
             _scrim = new VisualElement { name = "craft-scrim" };
             _scrim.style.position = Position.Absolute;
@@ -208,10 +258,23 @@ namespace FarHorizon
             title.style.color = Ember; title.style.fontSize = 20;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             titleRow.Add(title);
+
+            var titleButtons = new VisualElement();
+            titleButtons.style.flexDirection = FlexDirection.Row;
+            titleButtons.style.alignItems = Align.Center;
+
+            // F6 — the "Show locked" toggle. Locked placeholder rows (STONE/IRON in ①) are hidden by default;
+            // this reveals the ladder on demand so the first table isn't a wall of greyed rows.
+            _showLockedButton = new Button(ToggleShowLocked) { text = ShowLockedLabel() };
+            _showLockedButton.style.color = Cream; _showLockedButton.style.backgroundColor = RowBg;
+            _showLockedButton.style.height = 26; _showLockedButton.style.marginRight = 8;
+            titleButtons.Add(_showLockedButton);
+
             var close = new Button(Close) { text = "X" };
             close.style.color = Cream; close.style.backgroundColor = RowBg;
             close.style.width = 30; close.style.height = 26;
-            titleRow.Add(close);
+            titleButtons.Add(close);
+            titleRow.Add(titleButtons);
             _panel.Add(titleRow);
 
             // Group rows by tier, in tier order, so the ladder reads WOOD → STONE → IRON.
@@ -223,6 +286,8 @@ namespace FarHorizon
                 header.style.marginTop = 8; header.style.marginBottom = 3;
                 header.style.opacity = 0.85f;
                 _panel.Add(header);
+                _headerTiers.Add(tier);
+                _headers.Add(header);
 
                 for (int i = 0; i < _recipes.Count; i++)
                 {
@@ -280,11 +345,43 @@ namespace FarHorizon
                 if (recipe == null) continue;
                 PaintRow(_rows[r], _rowState[r], recipe);
             }
+            // F6 — hide a tier header when the toggle leaves it with no visible rows (an all-Locked tier
+            // collapses entirely by default, so the first table shows only the live WOOD tier).
+            for (int h = 0; h < _headers.Count; h++)
+                _headers[h].style.display = TierHasVisibleRow(_headerTiers[h]) ? DisplayStyle.Flex : DisplayStyle.None;
         }
+
+        /// <summary>F6 — is a row VISIBLE given the show-locked toggle? Locked rows show only when the toggle is
+        /// on; unlocked (Craftable/Unaffordable) rows always show. Pure so the EditMode guard pins the truth-table.</summary>
+        public static bool IsRowVisible(RecipeRowState state, bool showLocked)
+            => state != RecipeRowState.Locked || showLocked;
+
+        private bool TierHasVisibleRow(CraftTier tier)
+        {
+            for (int i = 0; i < _recipes.Count; i++)
+            {
+                if (_recipes[i].Tier != tier) continue;
+                if (IsRowVisible(RowStateOf(_recipes[i]), _showLocked)) return true;
+            }
+            return false;
+        }
+
+        private void ToggleShowLocked()
+        {
+            _showLocked = !_showLocked;
+            if (_showLockedButton != null) _showLockedButton.text = ShowLockedLabel();
+            RefreshAll();
+        }
+
+        private string ShowLockedLabel() => _showLocked ? "Hide locked" : "Show locked";
 
         private void PaintRow(VisualElement row, Label right, Recipe recipe)
         {
             RecipeRowState state = RowStateOf(recipe);
+
+            // F6 — Locked placeholder rows are hidden unless the "Show locked" toggle is on.
+            row.style.display = IsRowVisible(state, _showLocked) ? DisplayStyle.Flex : DisplayStyle.None;
+
             switch (state)
             {
                 case RecipeRowState.Craftable:
