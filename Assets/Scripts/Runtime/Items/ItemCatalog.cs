@@ -77,6 +77,17 @@ namespace FarHorizon
         /// <summary>Wood sword id (①). A belt-eligible Tool.</summary>
         public const string SwordWoodId = "sword_wood";
 
+        // === STONE-tier NEW tool ids (ticket 86camz9v7 / crafting-redesign ② — §6b). ② flips the STONE tier
+        // LIVE; the shipped stone ids ("axe"/"spear"/"pickaxe_stone") stay STABLE (§6b — do NOT migrate), so the
+        // ONLY new STONE cells are dagger + sword (no prior ItemDef/WeaponDef existed — they were debug-mesh-only).
+        // Minted here as belt-eligible Tools (holdable, cap 1) so the STONE recipe grant (AddToolToBelt) can land
+        // them. "dagger" per §6a. Icons null → letter-chip fallback (a distinct held mesh is a follow-up; the wood
+        // tier ships the same way). ===
+        /// <summary>Stone dagger id (② — the STONE tier goes live). A belt-eligible Tool.</summary>
+        public const string DaggerStoneId = "dagger_stone";
+        /// <summary>Stone sword id (② — the STONE tier goes live). A belt-eligible Tool.</summary>
+        public const string SwordStoneId = "sword_stone";
+
         [SerializeField,
          Tooltip("The canonical item defs (axe / wood / stone / berry). Authored at bootstrap; the world-" +
                  "resource tickets look these up by id, never mint their own.")]
@@ -191,9 +202,18 @@ namespace FarHorizon
             var swordWood = CreateInstance<ItemDef>(); swordWood.name = "sword_wood";
             swordWood.Init(SwordWoodId, "Wood Sword", ItemKind.Tool, null);
 
+            // STONE tier (ticket 86camz9v7 ②) — the 2 NEW stone cells (dagger/sword). axe/spear/pickaxe_stone
+            // already ship (§6b — stable ids). Belt-eligible Tools so the STONE recipe grant lands them; icons
+            // null → letter-chip fallback (a distinct held mesh is a follow-up, like the wood tier). "dagger" §6a.
+            var daggerStone = CreateInstance<ItemDef>(); daggerStone.name = "dagger_stone";
+            daggerStone.Init(DaggerStoneId, "Stone Dagger", ItemKind.Tool, null);
+            var swordStone = CreateInstance<ItemDef>(); swordStone.name = "sword_stone";
+            swordStone.Init(SwordStoneId, "Stone Sword", ItemKind.Tool, null);
+
             SetAll(new[] { axe, wood, stone, berry, water, spear,
                            ironOre, ironIngot, pickaxeStone, pickaxeIron,
-                           axeWood, pickaxeWood, spearWood, daggerWood, swordWood });
+                           axeWood, pickaxeWood, spearWood, daggerWood, swordWood,
+                           daggerStone, swordStone });
         }
     }
 }

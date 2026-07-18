@@ -134,7 +134,7 @@ namespace FarHorizon
         public const int WoodDaggerWood = 2;
         public const int WoodSwordWood = 4;
 
-        // === STONE-tier tool costs (§5) — DISPLAY only in ① (Locked placeholders); ② wires them live. ===
+        // === STONE-tier tool costs (§5) — LIVE in ② (ticket 86camz9v7). 🎚️ default — Sponsor-soak tunes. ===
         public const int StoneAxeWood = 3, StoneAxeStone = 3;
         public const int StonePickaxeWood = 3, StonePickaxeStone = 3;
         public const int StoneSpearWood = 2, StoneSpearStone = 2;
@@ -156,9 +156,8 @@ namespace FarHorizon
 
         /// <summary>
         /// The 15 recipes, tier-grouped (WOOD → STONE → IRON), tool-ordered (axe/pickaxe/spear/dagger/sword).
-        /// WOOD rows are LIVE (real ItemCatalog wood ids, Placeholder=false); STONE/IRON rows are Placeholder=true
-        /// (their intended future ids are recorded for ②/③ but never crafted in ①). "Dagger"/"Sword" display
-        /// naming per §6a.
+        /// WOOD + STONE rows are LIVE (Placeholder=false — ① shipped WOOD, ② ticket 86camz9v7 flips STONE); IRON
+        /// rows are Placeholder=true (③ wires them live once iron ingots exist). "Dagger"/"Sword" display per §6a.
         /// </summary>
         public static List<Recipe> BuildDefaults()
         {
@@ -171,13 +170,16 @@ namespace FarHorizon
                 new Recipe(CraftTier.Wood, CraftTool.Dagger,  ItemCatalog.DaggerWoodId,  "Wood Dagger",  Wood(WoodDaggerWood),  false),
                 new Recipe(CraftTier.Wood, CraftTool.Sword,   ItemCatalog.SwordWoodId,   "Wood Sword",   Wood(WoodSwordWood),   false),
 
-                // STONE tier — Locked placeholders (②). Future ids per §6b: shipped "axe"/"spear"/"pickaxe_stone"
-                // stay stable; dagger_stone/sword_stone are minted by ② when these go live.
-                new Recipe(CraftTier.Stone, CraftTool.Axe,     ItemCatalog.AxeId,          "Stone Axe",     WoodStone(StoneAxeWood, StoneAxeStone),         true),
-                new Recipe(CraftTier.Stone, CraftTool.Pickaxe, ItemCatalog.PickaxeStoneId, "Stone Pickaxe", WoodStone(StonePickaxeWood, StonePickaxeStone), true),
-                new Recipe(CraftTier.Stone, CraftTool.Spear,   ItemCatalog.SpearId,        "Stone Spear",   WoodStone(StoneSpearWood, StoneSpearStone),     true),
-                new Recipe(CraftTier.Stone, CraftTool.Dagger,  "dagger_stone",             "Stone Dagger",  WoodStone(StoneDaggerWood, StoneDaggerStone),   true),
-                new Recipe(CraftTier.Stone, CraftTool.Sword,   "sword_stone",              "Stone Sword",   WoodStone(StoneSwordWood, StoneSwordStone),     true),
+                // STONE tier — LIVE (② — ticket 86camz9v7). Placeholder=false: boulder-stone mining (② new) is
+                // the volume stone source, so these are now craftable. Shipped "axe"/"spear"/"pickaxe_stone" ids
+                // stay STABLE (§6b — do NOT migrate); dagger_stone/sword_stone are the 2 NEW cells minted by ②.
+                // The tier still gates on §7-C (STONE unlocks on first-wood-pickaxe-owned) via IsTierUnlocked —
+                // Placeholder=false makes the row LIVE once the tier unlocks + is affordable (the menu paints it).
+                new Recipe(CraftTier.Stone, CraftTool.Axe,     ItemCatalog.AxeId,          "Stone Axe",     WoodStone(StoneAxeWood, StoneAxeStone),         false),
+                new Recipe(CraftTier.Stone, CraftTool.Pickaxe, ItemCatalog.PickaxeStoneId, "Stone Pickaxe", WoodStone(StonePickaxeWood, StonePickaxeStone), false),
+                new Recipe(CraftTier.Stone, CraftTool.Spear,   ItemCatalog.SpearId,        "Stone Spear",   WoodStone(StoneSpearWood, StoneSpearStone),     false),
+                new Recipe(CraftTier.Stone, CraftTool.Dagger,  ItemCatalog.DaggerStoneId,  "Stone Dagger",  WoodStone(StoneDaggerWood, StoneDaggerStone),   false),
+                new Recipe(CraftTier.Stone, CraftTool.Sword,   ItemCatalog.SwordStoneId,   "Stone Sword",   WoodStone(StoneSwordWood, StoneSwordStone),     false),
 
                 // IRON tier — Locked placeholders (③). Future ids per §6b: pickaxe_iron exists; axe_iron/spear_iron/
                 // dagger_iron/sword_iron are minted by ③.

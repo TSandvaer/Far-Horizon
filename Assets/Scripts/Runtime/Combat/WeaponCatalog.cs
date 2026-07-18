@@ -40,6 +40,13 @@ namespace FarHorizon.Combat
         public const string DaggerWoodId = "dagger_wood";
         public const string SwordWoodId = "sword_wood";
 
+        // === STONE-tier NEW weapon ids (ticket 86camz9v7 / crafting-redesign ② — §6b). Only dagger + sword are
+        // new stone cells (axe/spear/pickaxe_stone already ship). Match the ItemCatalog stone ids so the
+        // belt-item → WeaponDef lookup binds. Combat WIRING for these is OOS here (combat balance is OOS on ②);
+        // the defs exist so the ids resolve in BOTH catalogs (the ② success test mirrors ①'s). ===
+        public const string DaggerStoneId = "dagger_stone";
+        public const string SwordStoneId = "sword_stone";
+
         // === Named default attributes (the single source AC4/AC10 read; NOT magic literals) ===
         // AXE — Slash, medium reach, hits harder up close, faster cadence, a light bleed on hit.
         public const float AxeDamage = 14f;
@@ -81,6 +88,16 @@ namespace FarHorizon.Combat
         public const float SwordWoodDamage = 12f;    // reach + heft (no stone baseline)
         public const float SwordWoodReach = 2.4f;
         public const float SwordWoodAttackSpeed = 1.15f;
+        // STONE tier (ticket 86camz9v7 ②) — the STONE dagger/sword are the baseline the wood tier was ~0.7× of;
+        // seed them at ~wood/0.7 (a rung above wood). Combat with these is OOS on ② (combat balance OOS), so these
+        // do not yet drive gameplay — ALL 🎚️ default — Sponsor-soak tunes. No on-hit status (bleed is the forged
+        // stone-AXE's edge, per the existing axe def). Opaque animationIds name a future swing (unwired).
+        public const float DaggerStoneDamage = 8f;    // ~dagger_wood/0.7
+        public const float DaggerStoneReach = 1.6f;
+        public const float DaggerStoneAttackSpeed = 1.8f;
+        public const float SwordStoneDamage = 16f;    // ~sword_wood/0.7
+        public const float SwordStoneReach = 2.4f;
+        public const float SwordStoneAttackSpeed = 1.15f;
 
         [SerializeField] private List<WeaponDef> _all = new List<WeaponDef>();
         private Dictionary<string, WeaponDef> _byId;
@@ -158,8 +175,19 @@ namespace FarHorizon.Combat
                 SwordWoodDamage, SwordWoodReach, SwordWoodAttackSpeed, DamageType.Slash,
                 StatusEffectSpec.None, "sword_slash");
 
+            // STONE tier (ticket 86camz9v7 ②) — mint the 2 new stone weapon defs so the stone dagger/sword ids
+            // resolve in the weapon lane too (the ② "ids resolve in both catalogs" success test). Ids match the
+            // ItemCatalog stone ids. No on-hit status. Combat is OOS on ②; these exist for id resolution + future.
+            var daggerStone = WeaponDef.Create(DaggerStoneId, "Stone Dagger",
+                DaggerStoneDamage, DaggerStoneReach, DaggerStoneAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "dagger_stab");
+            var swordStone = WeaponDef.Create(SwordStoneId, "Stone Sword",
+                SwordStoneDamage, SwordStoneReach, SwordStoneAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "sword_slash");
+
             SetAll(new[] { axe, spear, pickaxeStone, pickaxeIron,
-                           axeWood, pickaxeWood, spearWood, daggerWood, swordWood });
+                           axeWood, pickaxeWood, spearWood, daggerWood, swordWood,
+                           daggerStone, swordStone });
         }
     }
 }

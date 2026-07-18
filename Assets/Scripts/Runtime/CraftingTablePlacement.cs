@@ -100,6 +100,12 @@ namespace FarHorizon
         private Camera _cam;
         private bool _gatePlacing;   // tracks our UiInputGate push so it can never stick open
 
+        // FOLDED NIT (② — Drew's PR #294 review, comment 4919859554): the three OnGUI prompt lines depend ONLY on
+        // woodCost/stoneCost/cancelKey (fixed for a placement session), so BUILD them ONCE on EnterPlacement and
+        // CACHE them — OnGUI (which runs multiple times per frame while placing) then just SELECTS one, instead of
+        // concatenating fresh strings every OnGUI call (unity6-mastery §5 no per-frame GC.Alloc).
+        private string _promptReady, _promptBadGround, _promptNeedMats;
+
         // Dual-channel valid/invalid colours (hue channel; the WORD cue is the colour-independent channel).
         private static readonly Color GhostValid = new Color(0.35f, 0.85f, 0.40f, 0.45f);
         private static readonly Color GhostInvalid = new Color(0.90f, 0.30f, 0.25f, 0.45f);
@@ -175,6 +181,7 @@ namespace FarHorizon
             if (table != null && table.IsBuilt) return;
             _placing = true;
             _ghostYaw = player != null ? player.eulerAngles.y : 0f; // seed from the player's facing
+            BuildPromptLines();                                      // cache the OnGUI prompt strings (NIT — no per-frame alloc)
             UiInputGate.SetPanelOpen(true, ref _gatePlacing);        // MODAL — swallow world verbs + camera zoom
             SetGhostShown(true);
             UpdateGhostPose();
@@ -329,6 +336,16 @@ namespace FarHorizon
             return true;
         }
 
+        // NIT (② — no per-frame alloc): compose the three OnGUI prompt lines ONCE (they depend only on
+        // woodCost/stoneCost/cancelKey, fixed for a placement session). OnGUI selects one; it never concatenates.
+        private void BuildPromptLines()
+        {
+            string tail = "     [LMB] build   [scroll] rotate   [" + cancelKey + "] cancel";
+            _promptReady     = "PLACING crafting table   [OK] READY to build" + tail;
+            _promptBadGround = "PLACING crafting table   [X] BLOCKED — move to flat open ground" + tail;
+            _promptNeedMats  = "PLACING crafting table   [X] NEED " + woodCost + " wood + " + stoneCost + " stone" + tail;
+        }
+
         private void SetGhostShown(bool on)
         {
             if (_ghostRenderers == null && ghost != null) _ghostRenderers = ghost.GetComponentsInChildren<Renderer>(true);
@@ -361,14 +378,9 @@ namespace FarHorizon
 
             // DUAL-CHANNEL cue (Uma NIT-2): a WORD + [OK]/[X] marker independent of the ghost's green/red tint.
             // The block reason is SPECIFIC (bad ground vs missing materials) so the colour-blind/kid read is
-            // unambiguous (F4).
-            string status;
-            if (_valid) status = "[OK] READY to build";
-            else if (!_groundValid) status = "[X] BLOCKED — move to flat open ground";
-            else status = "[X] NEED " + woodCost + " wood + " + stoneCost + " stone";
-
-            string line = "PLACING crafting table   " + status +
-                          "     [LMB] build   [scroll] rotate   [" + cancelKey + "] cancel";
+            // unambiguous (F4). NIT: SELECT a pre-built cached line (no per-OnGUI string concat).
+            if (_promptReady == null) BuildPromptLines(); // lazy guard (OnGUI can't run before EnterPlacement, but be safe)
+            string line = _valid ? _promptReady : (!_groundValid ? _promptBadGround : _promptNeedMats);
 
             const float w = 660f, h = 34f;
             float x = (Screen.width - w) * 0.5f;

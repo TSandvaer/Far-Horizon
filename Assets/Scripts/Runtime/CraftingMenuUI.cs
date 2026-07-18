@@ -88,6 +88,11 @@ namespace FarHorizon
         /// <summary>The recipe set the menu shows (read-only; test seam).</summary>
         public IReadOnlyList<Recipe> Recipes => _recipes;
 
+        // FOLDED NIT (② — Drew's PR #294 review, comment 4919859554): tier ORDER is a fixed constant — cache it as
+        // a static readonly array so RecipeForRowIndex (called once per row per RefreshAll) + BuildView do NOT
+        // allocate a fresh `new[]` every RefreshAll (unity6-mastery §5 no per-frame GC.Alloc).
+        private static readonly CraftTier[] TierOrder = { CraftTier.Wood, CraftTier.Stone, CraftTier.Iron };
+
         void Awake()
         {
             if (document == null) document = GetComponent<UIDocument>();
@@ -278,7 +283,7 @@ namespace FarHorizon
             _panel.Add(titleRow);
 
             // Group rows by tier, in tier order, so the ladder reads WOOD → STONE → IRON.
-            foreach (CraftTier tier in new[] { CraftTier.Wood, CraftTier.Stone, CraftTier.Iron })
+            foreach (CraftTier tier in TierOrder)
             {
                 var header = new Label(tier.ToString().ToUpperInvariant() + " TIER");
                 header.style.color = Cream; header.style.fontSize = 13;
@@ -410,7 +415,7 @@ namespace FarHorizon
         private Recipe RecipeForRowIndex(int rowIndex)
         {
             int r = 0;
-            foreach (CraftTier tier in new[] { CraftTier.Wood, CraftTier.Stone, CraftTier.Iron })
+            foreach (CraftTier tier in TierOrder)
                 for (int i = 0; i < _recipes.Count; i++)
                 {
                     if (_recipes[i].Tier != tier) continue;
