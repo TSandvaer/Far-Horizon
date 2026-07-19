@@ -106,17 +106,83 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void Facade_TryCraft_PlaceholderRecipe_IsRefused()
+        public void Facade_TryCraft_SyntheticPlaceholder_IsRefused()
         {
+            // ③ flips IRON live, so no BUILT-IN placeholder rows remain — but the craft seam must STILL refuse a
+            // Placeholder recipe (the guard that a future tier's Locked row can never mint a tool). Construct one.
             var go = new GameObject("Inv");
             var inv = go.AddComponent<Inventory>();
             inv.AddWood(99);
-            // ② flipped STONE live; IRON is the remaining Locked placeholder tier (③ wires it).
-            var ironAxe = FindRecipe(CraftTier.Iron, CraftTool.Axe);
-            Assert.IsTrue(ironAxe.Placeholder, "the IRON axe row is a placeholder until ③");
-            Assert.IsFalse(inv.CanAfford(ironAxe), "a placeholder is never affordable-to-craft");
-            Assert.IsFalse(inv.TryCraft(ironAxe), "a placeholder recipe never crafts (③ wires IRON live)");
+            var placeholder = new Recipe(CraftTier.Iron, CraftTool.Axe, ItemCatalog.AxeWoodId, "Locked",
+                new[] { new RecipeCost(ItemCatalog.WoodId, 1) }, placeholder: true);
+            Assert.IsFalse(inv.CanAfford(placeholder), "a placeholder is never affordable-to-craft");
+            Assert.IsFalse(inv.TryCraft(placeholder), "the craft seam refuses a Placeholder recipe");
+            Assert.IsFalse(inv.Model.OwnsItem(ItemCatalog.AxeWoodId), "no output granted on a refused placeholder");
             Object.DestroyImmediate(go);
+        }
+
+        // === IRON tier LIVE (③ — ticket 86camz9vh): the strip-test — craft an iron axe/sword from ingots ===
+
+        [Test]
+        public void Facade_TryCraft_IronAxe_LiveWithWoodAndIngots_DebitsAndGrants()
+        {
+            var go = new GameObject("Inv");
+            var inv = go.AddComponent<Inventory>();
+            inv.AddWood(10);
+            inv.Model.AddItem(inv.Catalog.ById(ItemCatalog.IronIngotId), 10); // smelted at the forge (#292); seed directly
+            var recipe = FindRecipe(CraftTier.Iron, CraftTool.Axe);
+            Assert.IsFalse(recipe.Placeholder, "③ flips the IRON axe row LIVE (Placeholder=false)");
+            Assert.AreEqual(ItemCatalog.AxeIronId, recipe.OutputItemId, "the iron axe mints the NEW axe_iron id");
+
+            Assert.IsTrue(inv.CanAfford(recipe), "10 wood + 10 ingots affords the iron axe");
+            Assert.IsTrue(inv.TryCraft(recipe), "the façade resolves the iron-axe output id + crafts it");
+            Assert.AreEqual(10 - CraftingRecipeBook.IronAxeWood, inv.WoodCount, "wood debited by the recipe cost");
+            Assert.AreEqual(10 - CraftingRecipeBook.IronAxeIngot, inv.Model.CountItem(ItemCatalog.IronIngotId),
+                "iron ingots debited by the recipe cost (all-or-nothing)");
+            Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.AxeIronId), "the iron axe (axe_iron) is granted to the belt");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void Facade_TryCraft_IronDaggerSpearSword_NewIds_DebitAndGrant()
+        {
+            var go = new GameObject("Inv");
+            var inv = go.AddComponent<Inventory>();
+            inv.AddWood(20); inv.Model.AddItem(inv.Catalog.ById(ItemCatalog.IronIngotId), 20);
+
+            var dagger = FindRecipe(CraftTier.Iron, CraftTool.Dagger);
+            Assert.AreEqual(ItemCatalog.DaggerIronId, dagger.OutputItemId, "the iron dagger mints the NEW dagger_iron id");
+            Assert.IsTrue(inv.TryCraft(dagger), "the iron dagger crafts"); Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.DaggerIronId));
+
+            var spear = FindRecipe(CraftTier.Iron, CraftTool.Spear);
+            Assert.AreEqual(ItemCatalog.SpearIronId, spear.OutputItemId, "the iron spear mints the NEW spear_iron id");
+            Assert.IsTrue(inv.TryCraft(spear), "the iron spear crafts"); Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.SpearIronId));
+
+            var sword = FindRecipe(CraftTier.Iron, CraftTool.Sword);
+            Assert.AreEqual(ItemCatalog.SwordIronId, sword.OutputItemId, "the iron sword mints the NEW sword_iron id");
+            Assert.IsTrue(inv.TryCraft(sword), "the iron sword crafts"); Assert.IsTrue(inv.Model.OwnsItem(ItemCatalog.SwordIronId));
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void IronTierNewIds_ResolveInBothCatalogs_AsTools_StrongerThanStone()
+        {
+            var weap = ScriptableObject.CreateInstance<WeaponCatalog>();
+            weap.BuildDefaults();
+            // The 4 NEW iron cells (pickaxe_iron already shipped I-0) resolve in BOTH catalogs as belt Tools.
+            foreach (var id in new[] { ItemCatalog.AxeIronId, ItemCatalog.SpearIronId, ItemCatalog.DaggerIronId, ItemCatalog.SwordIronId })
+            {
+                var item = _cat.ById(id);
+                Assert.IsNotNull(item, $"'{id}' must resolve in ItemCatalog");
+                Assert.AreEqual(ItemKind.Tool, item.Kind, $"'{id}' is a belt-eligible Tool");
+                Assert.IsNotNull(weap.ById(id), $"'{id}' must resolve in WeaponCatalog (both lanes share the id)");
+            }
+            // Iron is the forged UPGRADE — monotonically stronger than the stone tier (§7-B, a soakable read).
+            Assert.Greater(weap.ById(ItemCatalog.AxeIronId).Damage, weap.ById(WeaponCatalog.AxeId).Damage,
+                "iron axe out-damages the stone axe (the forged upgrade)");
+            Assert.Greater(weap.ById(ItemCatalog.SwordIronId).Damage, weap.ById(WeaponCatalog.SwordStoneId).Damage,
+                "iron sword out-damages the stone sword");
+            Object.DestroyImmediate(weap);
         }
 
         // === STONE tier LIVE (② — ticket 86camz9v7): the strip-test — craft a stone axe at the table ===
@@ -288,30 +354,26 @@ namespace FarHorizon.EditTests
         // === Recipe book shape ===
 
         [Test]
-        public void RecipeBook_Has15Rows_10Live_5IronPlaceholder_LiveOutputsResolve()
+        public void RecipeBook_Has15Rows_AllLive_OutputsResolveInBothCatalogs()
         {
-            // ① shipped WOOD live; ② (ticket 86camz9v7) flips STONE live → 10 live (wood + stone), 5 IRON placeholders.
+            // ① shipped WOOD live; ② flipped STONE live; ③ (ticket 86camz9vh) flips IRON live → ALL 15 live, 0 placeholders.
+            var weap = ScriptableObject.CreateInstance<WeaponCatalog>();
+            weap.BuildDefaults();
             var book = CraftingRecipeBook.BuildDefaults();
             Assert.AreEqual(15, book.Count, "3 tiers × 5 tools");
-            int live = 0, placeholders = 0;
+            int live = 0;
             foreach (var r in book)
             {
-                if (r.Tier == CraftTier.Iron)
-                {
-                    Assert.IsTrue(r.Placeholder, "IRON rows are Locked placeholders until ③");
-                    placeholders++;
-                }
-                else
-                {
-                    live++;
-                    Assert.IsFalse(r.Placeholder, "WOOD + STONE rows are LIVE (① + ②)");
-                    Assert.IsNotNull(_cat.ById(r.OutputItemId),
-                        $"a live {r.Tier} recipe output '{r.OutputItemId}' must resolve in the catalog");
-                    Assert.Greater(r.Costs.Length, 0, "a live recipe has a cost");
-                }
+                Assert.IsFalse(r.Placeholder, $"③ leaves NO placeholder rows — {r.Tier} {r.Tool} must be LIVE");
+                live++;
+                Assert.IsNotNull(_cat.ById(r.OutputItemId),
+                    $"a live {r.Tier} recipe output '{r.OutputItemId}' must resolve in the ItemCatalog");
+                Assert.IsNotNull(weap.ById(r.OutputItemId),
+                    $"a live {r.Tier} recipe output '{r.OutputItemId}' must resolve in the WeaponCatalog (both lanes)");
+                Assert.Greater(r.Costs.Length, 0, "a live recipe has a cost");
             }
-            Assert.AreEqual(10, live, "10 LIVE rows (5 WOOD + 5 STONE)");
-            Assert.AreEqual(5, placeholders, "5 IRON placeholder rows");
+            Assert.AreEqual(15, live, "all 15 rows LIVE (5 WOOD + 5 STONE + 5 IRON)");
+            Object.DestroyImmediate(weap);
         }
 
         // === REGRESSION GUARD: CraftAxe retirement must NOT strand a caller (chop/held-axe stay green) ===

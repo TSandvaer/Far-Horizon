@@ -74,6 +74,15 @@ namespace FarHorizon
                  "bootstrap; a null is tolerated.")]
         public Light forgeLight;
 
+        [Tooltip("The forge's visual root (the stone-furnace mesh). Its renderers ship DISABLED (invisible-until-" +
+                 "placed, spec §2) — the place-to-build flow reveals them on Build. Falls back to this transform.")]
+        public Transform visual;
+
+        [Tooltip("The no-build zone this forge projects ONCE BUILT (the #302 PlacementObstacle seam) so a later " +
+                 "table/forge placement ghost reads RED over it. Authored disabled; Build() enables it. Optional " +
+                 "(null → the forge simply doesn't self-register).")]
+        public PlacementObstacle placementObstacle;
+
         [Header("Interaction")]
         [Tooltip("Planar (XZ) distance within which the castaway is 'at' the forge and (built + with mats) begins a " +
                  "smelt. Mirrors CampfirePlacement/ChopTree radii.")]
@@ -126,10 +135,36 @@ namespace FarHorizon
             }
         }
 
+        // CACHED CurrentRecipe (folded NIT 86camw8rm — Forge.CurrentRecipe was `new SmeltRecipe(...)` EVERY
+        // access, and Update() reads it per-frame (HasSmeltMats(CurrentRecipe)) → a per-frame GC.Alloc
+        // (unity6-mastery §5 no per-frame alloc). Cache one instance + rebuild it ONLY when a dial value
+        // actually changes. The rebuild is driven by comparing the cached dial values against the live fields
+        // (a few int/float compares, no alloc) — correct whether a dial moved via a setter, the inspector, or
+        // the scene author, without relying on a setter-only dirty flag. Stable dials → zero per-frame alloc.
+        private SmeltRecipe _cachedRecipe;
+        private int _cachedOre = int.MinValue, _cachedFuel = int.MinValue;
+        private float _cachedSeconds = float.NaN;
+
         /// <summary>The live smelt recipe assembled FROM the three smelt-cost dials — ore→ingot at the current
-        /// fuel + seconds. The loop and the dials share this ONE source so they never disagree.</summary>
-        public SmeltRecipe CurrentRecipe => new SmeltRecipe(
-            ItemCatalog.IronOreId, orePerIngot, ItemCatalog.IronIngotId, 1, fuelPerSmelt, smeltSeconds);
+        /// fuel + seconds. The loop and the dials share this ONE source so they never disagree. CACHED: a fresh
+        /// <see cref="SmeltRecipe"/> is built only when a dial value changes, so per-frame reads do not allocate
+        /// (86camw8rm).</summary>
+        public SmeltRecipe CurrentRecipe
+        {
+            get
+            {
+                if (_cachedRecipe == null || _cachedOre != orePerIngot || _cachedFuel != fuelPerSmelt ||
+                    _cachedSeconds != smeltSeconds)
+                {
+                    _cachedOre = orePerIngot;
+                    _cachedFuel = fuelPerSmelt;
+                    _cachedSeconds = smeltSeconds;
+                    _cachedRecipe = new SmeltRecipe(
+                        ItemCatalog.IronOreId, orePerIngot, ItemCatalog.IronIngotId, 1, fuelPerSmelt, smeltSeconds);
+                }
+                return _cachedRecipe;
+            }
+        }
 
         void Awake()
         {
@@ -140,9 +175,28 @@ namespace FarHorizon
                 var ctm = FindObjectOfType<ClickToMove>();
                 if (ctm != null) player = ctm.transform;
             }
+            if (visual == null) visual = transform;
+            // Ship INVISIBLE (invisible-until-placed, spec §2) — re-assert hidden at Awake so a stale/edited
+            // scene can never spawn a pre-visible forge (the Sponsor rejected a pre-visible forge, 86camyvzw).
+            if (!_built) SetVisualEnabled(false);
             // Ship cold: the glow does not show until the forge is actively smelting. Defensive — the authored
             // scene already serializes them off, but never assume (the editor-vs-runtime trap).
             ApplySmeltVisuals();
+        }
+
+        // Enable/disable the forge structure's renderers (invisible-until-placed). Excludes the glow child — the
+        // glow is toggled independently by the smelt state (ApplySmeltVisuals), so hiding the structure must not
+        // fight it. The glow ships OFF anyway (a cold forge doesn't glow), and Build() reveals the structure only.
+        private void SetVisualEnabled(bool on)
+        {
+            var root = visual != null ? visual : transform;
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                // Never force-show the glow block here — it is smelt-state-driven (ApplySmeltVisuals).
+                if (glowVisual != null && r.transform.IsChildOf(glowVisual.transform)) continue;
+                r.enabled = on;
+            }
         }
 
         // Seed the dials from the Medium preset unless a test/inspector already set them (>= 0). The scene author
@@ -158,16 +212,31 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// Build (raise) the forge — <see cref="ForgePlacement"/> calls this once the wood + stone are paid.
-        /// Idempotent (building an already-built forge is a no-op). A built forge can then smelt.
+        /// Build (raise) the forge IN PLACE — reveals the (previously invisible) furnace structure, self-registers
+        /// its no-build zone (the #302 PlacementObstacle seam), and arms smelting. <see cref="ForgePlacement"/>
+        /// calls this once the wood + stone are paid. Idempotent (building an already-built forge is a no-op).
         /// </summary>
         public void Build()
         {
             if (_built) return;
             _built = true;
+            SetVisualEnabled(true);                                  // reveal the furnace (invisible-until-placed)
+            if (placementObstacle != null) placementObstacle.enabled = true; // self-register as a no-build zone (#302)
             ApplySmeltVisuals();
             Debug.Log("[Forge] BUILT — smelting armed (orePerIngot=" + orePerIngot + " fuelPerSmelt=" +
                       fuelPerSmelt + " smeltSeconds=" + smeltSeconds + ")");
+        }
+
+        /// <summary>
+        /// Place-to-build entry (unified place-to-build flow, spec §2): MOVE the invisible forge to the confirmed
+        /// ghost pose, then <see cref="Build"/> it there. <see cref="ForgePlacement"/> calls this after the
+        /// all-or-nothing material debit succeeds. Idempotent via Build's built-latch.
+        /// </summary>
+        public void Build(Vector3 position, Quaternion rotation)
+        {
+            if (_built) return;
+            transform.SetPositionAndRotation(position, rotation);
+            Build();
         }
 
         void Update()

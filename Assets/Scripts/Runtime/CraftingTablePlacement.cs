@@ -119,10 +119,6 @@ namespace FarHorizon
                  "flat ground (distance ~0) stays valid. Soak-tune. Default 0.35.")]
         public float offNavMeshTolerance = 0.35f;
 
-        // Planar no-build radii for the discrete collider-free pools discovered each placement session.
-        private const float OreNodeObstacleRadius = 0.6f;   // an ore node's rough footprint
-        private const float StructureObstacleRadius = 0.9f; // a lit campfire / built forge
-
         private bool _placing;
         private Vector3 _ghostPos;
         private float _ghostYaw;
@@ -143,11 +139,13 @@ namespace FarHorizon
         // line (_promptObstructed) is the 86catqxm0 object-overlap status (merged from main's #302).
         private string _promptReady, _promptBadGround, _promptObstructed, _promptNeedMats;
 
-        // Object-overlap (86catqxm0): the discrete collider-free interactable instances discovered at
-        // EnterPlacement (active ore nodes + a lit campfire / built forge). Rebuilt each placement session
-        // (not per frame). ②'s boulders come via PlacementObstacleRegistry, not this list.
-        private struct ObstacleRef { public Transform t; public float radius; }
-        private readonly List<ObstacleRef> _sessionObstacles = new List<ObstacleRef>(32);
+        // Object-overlap (86catqxm0): the discrete NON-self-registering interactable instances discovered at
+        // EnterPlacement (active ore nodes + a lit campfire). Rebuilt each placement session (not per frame) via
+        // the shared PlacementObstacleRegistry.CollectSessionObstacles scan (③ reconciliation). A placed table /
+        // built forge is NOT in this list — they SELF-REGISTER via PlacementObstacle (their Reveal/Build enables
+        // it) and are caught by IsFootprintBlocked. ②'s boulders likewise come via PlacementObstacleRegistry.
+        private readonly List<PlacementObstacleRegistry.SessionObstacle> _sessionObstacles =
+            new List<PlacementObstacleRegistry.SessionObstacle>(32);
         private bool _navMeshAvailable;   // is a navmesh baked? (false headless → navmesh check is inert/deterministic)
         private bool _hasForcedAim;       // capture/test seam: ghost pose forced (AimGhostAt), cursor ignored
         private Vector3 _forcedAimPos;
@@ -354,26 +352,14 @@ namespace FarHorizon
         }
 
         // Rebuild the per-session obstruction sources (once, at EnterPlacement — NOT per frame): whether a navmesh
-        // is baked (the tree-carve signal) + the discrete collider-free interactable pool (active ore nodes + a
-        // lit campfire / built forge). ②'s minable boulders arrive via PlacementObstacleRegistry, not here.
+        // is baked (the tree-carve signal) + the discrete NON-self-registering interactable pool (active ore
+        // nodes + a lit campfire) via the shared registry scan. A placed table / built forge SELF-REGISTERS via
+        // PlacementObstacle and is caught by IsFootprintBlocked (③ reconciliation — no longer scanned here). ②'s
+        // minable boulders likewise arrive via PlacementObstacleRegistry.
         private void RefreshObstacleSources()
         {
             _navMeshAvailable = ComputeNavMeshAvailable();
-            _sessionObstacles.Clear();
-
-            foreach (var mine in FindObjectsByType<MineOre>(FindObjectsSortMode.None))
-            {
-                if (mine == null || mine.nodeRoot == null) continue;
-                foreach (Transform node in mine.nodeRoot)
-                    if (node != null && node.name == MineOre.OreNodeName && node.gameObject.activeInHierarchy)
-                        _sessionObstacles.Add(new ObstacleRef { t = node, radius = OreNodeObstacleRadius });
-            }
-            foreach (var fire in FindObjectsByType<Campfire>(FindObjectsSortMode.None))
-                if (fire != null && fire.IsLit)
-                    _sessionObstacles.Add(new ObstacleRef { t = fire.transform, radius = StructureObstacleRadius });
-            foreach (var forge in FindObjectsByType<Forge>(FindObjectsSortMode.None))
-                if (forge != null && forge.IsBuilt)
-                    _sessionObstacles.Add(new ObstacleRef { t = forge.transform, radius = StructureObstacleRadius });
+            PlacementObstacleRegistry.CollectSessionObstacles(_sessionObstacles);
         }
 
         // Object-overlap truth (86catqxm0): (1) the footprint is OFF the walkable navmesh (trees carve it), OR

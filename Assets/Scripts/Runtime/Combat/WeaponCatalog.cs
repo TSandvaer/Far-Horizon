@@ -47,6 +47,16 @@ namespace FarHorizon.Combat
         public const string DaggerStoneId = "dagger_stone";
         public const string SwordStoneId = "sword_stone";
 
+        // === IRON-tier NEW weapon ids (ticket 86camz9vh / crafting-redesign ③ — §6b). pickaxe_iron already
+        // ships (I-0); the ONLY new IRON cells are axe/spear/dagger/sword. Match the ItemCatalog iron ids so
+        // the belt-item → WeaponDef lookup binds (the axe/spear precedent). Combat WIRING for these is OOS on
+        // ③ (peaceful; combat balance stays OOS); the defs exist so the ids resolve in BOTH catalogs (the ③
+        // "ids resolve in both catalogs" success test mirrors ①/②'s) + future held-tool/verb resolution. ===
+        public const string AxeIronId = "axe_iron";
+        public const string SpearIronId = "spear_iron";
+        public const string DaggerIronId = "dagger_iron";
+        public const string SwordIronId = "sword_iron";
+
         // === Named default attributes (the single source AC4/AC10 read; NOT magic literals) ===
         // AXE — Slash, medium reach, hits harder up close, faster cadence, a light bleed on hit.
         public const float AxeDamage = 14f;
@@ -98,6 +108,25 @@ namespace FarHorizon.Combat
         public const float SwordStoneDamage = 16f;    // ~sword_wood/0.7
         public const float SwordStoneReach = 2.4f;
         public const float SwordStoneAttackSpeed = 1.15f;
+        // IRON tier (ticket 86camz9vh ③) — the forged upgrade, ~1.3× the stone-tier damage (§7-B). Reach is a
+        // physical length (unscaled by tier); attackSpeed is marginally faster (a keener edge). The iron AXE
+        // carries the forged bleed (a stronger edge than the stone axe — the only on-hit status, mirroring the
+        // stone axe's bleed). Combat with these is OOS on ③ (peaceful), so they do not yet drive gameplay —
+        // ALL 🎚️ default — Sponsor-soak tunes. Stone baselines: axe 14 / spear 9 / dagger_stone 8 / sword_stone 16.
+        public const float AxeIronDamage = 18f;       // ~1.3×14
+        public const float AxeIronReach = 2.0f;
+        public const float AxeIronAttackSpeed = 1.5f;
+        public const float AxeIronBleedDps = 3f;      // forged edge — stronger than the stone axe's 2 dps
+        public const float AxeIronBleedDuration = 3f;
+        public const float SpearIronDamage = 12f;     // ~1.3×9
+        public const float SpearIronReach = 3.6f;
+        public const float SpearIronAttackSpeed = 1.0f;
+        public const float DaggerIronDamage = 10f;    // ~1.3×8
+        public const float DaggerIronReach = 1.6f;
+        public const float DaggerIronAttackSpeed = 1.9f;
+        public const float SwordIronDamage = 21f;     // ~1.3×16
+        public const float SwordIronReach = 2.4f;
+        public const float SwordIronAttackSpeed = 1.25f;
 
         [SerializeField] private List<WeaponDef> _all = new List<WeaponDef>();
         private Dictionary<string, WeaponDef> _byId;
@@ -185,9 +214,27 @@ namespace FarHorizon.Combat
                 SwordStoneDamage, SwordStoneReach, SwordStoneAttackSpeed, DamageType.Slash,
                 StatusEffectSpec.None, "sword_slash");
 
+            // IRON tier (ticket 86camz9vh ③) — mint the 4 new iron weapon defs so the iron axe/spear/dagger/
+            // sword ids resolve in the weapon lane too (the ③ "ids resolve in both catalogs" success test).
+            // Ids match the ItemCatalog iron ids. The iron AXE carries the forged bleed (the only on-hit
+            // status). Combat is OOS on ③; these exist for id resolution + the wielded upgrade + future.
+            var axeIron = WeaponDef.Create(AxeIronId, "Iron Axe",
+                AxeIronDamage, AxeIronReach, AxeIronAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.MakeBleed(AxeIronBleedDps, AxeIronBleedDuration), "axe_chop");
+            var spearIron = WeaponDef.Create(SpearIronId, "Iron Spear",
+                SpearIronDamage, SpearIronReach, SpearIronAttackSpeed, DamageType.Pierce,
+                StatusEffectSpec.None, "spear_thrust");
+            var daggerIron = WeaponDef.Create(DaggerIronId, "Iron Dagger",
+                DaggerIronDamage, DaggerIronReach, DaggerIronAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "dagger_stab");
+            var swordIron = WeaponDef.Create(SwordIronId, "Iron Sword",
+                SwordIronDamage, SwordIronReach, SwordIronAttackSpeed, DamageType.Slash,
+                StatusEffectSpec.None, "sword_slash");
+
             SetAll(new[] { axe, spear, pickaxeStone, pickaxeIron,
                            axeWood, pickaxeWood, spearWood, daggerWood, swordWood,
-                           daggerStone, swordStone });
+                           daggerStone, swordStone,
+                           axeIron, spearIron, daggerIron, swordIron });
         }
     }
 }

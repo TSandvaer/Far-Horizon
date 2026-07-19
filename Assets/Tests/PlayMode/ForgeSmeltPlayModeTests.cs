@@ -10,8 +10,8 @@ namespace FarHorizon.PlayTests
     /// PlayMode coverage for the I-3 FORGE build + SMELT loop (ticket 86cakkmvc), driving the Inventory/Forge/
     /// ForgePlacement seams directly (no scene, no input injection) to isolate the mechanic:
     ///
-    ///   • BUILD gate (ForgePlacement.TryBuild) — enough wood+stone → the forge builds + debits BOTH; too few of
-    ///     EITHER → no build, NO debit (the load-bearing "not enough mats → no furnace" negative case).
+    ///   • BUILD gate (ForgePlacement place-to-build confirm, 86camz9vh ③) — enough wood+stone → the forge builds
+    ///     + debits BOTH; too few of EITHER → no build, NO debit (the load-bearing "not enough mats → no furnace").
     ///   • SMELT over a TIMER — a built forge with the player in range + ore + fuel begins a smelt, and after the
     ///     smelt SECONDS elapse yields ONE iron-ingot (ore + fuel debited up front). The timer is proven against
     ///     SIMULATED time — the assertion that it does NOT complete before the seconds elapse is the timer's teeth.
@@ -152,7 +152,10 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(2, Count(ItemCatalog.IronOreId), "unbuilt → ore untouched");
         }
 
-        // === the BUILD gate (ForgePlacement.TryBuild) — all-or-nothing across wood+stone ===
+        // === the BUILD gate (ForgePlacement place-to-build, 86camz9vh ③) — all-or-nothing across wood+stone ===
+        // Drives the place-to-build confirm seam (RequestBuildAt = EnterPlacement + AimGhostAt + TryConfirm) at a
+        // known off-self pose; groundMask=0 (a bare rig) so the navmesh obstruction gate is INERT and this test
+        // isolates the AFFORDABILITY gate (the load-bearing "not enough mats → no furnace, no debit" negative case).
         [UnityTest]
         public IEnumerator ForgePlacement_BuildGate_IsAllOrNothing_NoMatsNoBuildNoDebit()
         {
@@ -163,26 +166,59 @@ namespace FarHorizon.PlayTests
             place.player = _playerGo.transform;
             place.woodCost = 4;
             place.stoneCost = 5;
+            // groundMask stays 0 (bare rig) → the navmesh obstruction gate is inert; AimGhostAt forces a valid pose.
             yield return null;
+            Vector3 spot = _playerGo.transform.position + new Vector3(0f, 0f, 2.5f); // off-self, on the flat rig ground
 
             // Too little STONE (enough wood) → NO build, NO debit.
             GrantResource(ItemCatalog.WoodId, 4);
             GrantResource(ItemCatalog.StoneId, 3); // one short
-            Assert.IsFalse(place.TryBuild(), "1 stone short → build must fail");
+            Assert.IsFalse(place.RequestBuildAt(spot), "1 stone short → confirm must fail (can't afford)");
             Assert.IsFalse(place.HasBuilt, "failed build → forge NOT built");
             Assert.IsFalse(_forge.IsBuilt, "failed build → Forge stays unbuilt");
             Assert.AreEqual(4, Count(ItemCatalog.WoodId), "failed build → NO wood debited (all-or-nothing)");
             Assert.AreEqual(3, Count(ItemCatalog.StoneId), "failed build → NO stone debited");
 
-            // Top up the stone → now affordable → builds + debits BOTH.
+            // Top up the stone → now affordable → the SAME pose confirms → builds + debits BOTH.
             GrantResource(ItemCatalog.StoneId, 2); // now 5
-            Assert.IsTrue(place.TryBuild(), "enough of both → build succeeds");
+            Assert.IsTrue(place.RequestBuildAt(spot), "enough of both → confirm succeeds");
             Assert.IsTrue(place.HasBuilt, "built");
             Assert.IsTrue(_forge.IsBuilt, "the Forge is now built");
             Assert.AreEqual(0, Count(ItemCatalog.WoodId), "wood debited on build");
             Assert.AreEqual(0, Count(ItemCatalog.StoneId), "stone debited on build");
 
             Object.Destroy(placeGo);
+        }
+
+        // === #302 self-register end-to-end (86camz9vh ③): the BUILT forge registers a no-build zone so a later
+        // placement ghost reads RED over it. Proves the OnEnable→Register lifecycle (EditMode can't fire it). ===
+        [UnityTest]
+        public IEnumerator BuiltForge_SelfRegisters_BlocksAFootprintAtItsPose()
+        {
+            var pos = new Vector3(37f, 0f, 37f); // far from any other test's objects → hermetic
+            var go = new GameObject("ForgeSelfReg");
+            go.transform.position = pos;
+            var obstacle = go.AddComponent<PlacementObstacle>();
+            obstacle.footprintRadius = 0.9f;
+            obstacle.enabled = false;              // authored disabled — an unbuilt forge does NOT block
+            var forge = go.AddComponent<Forge>();
+            forge.placementObstacle = obstacle;
+            yield return null;                     // let the disable settle (OnDisable → Unregister)
+
+            Assert.IsFalse(PlacementObstacleRegistry.IsFootprintBlocked(pos, 0.55f),
+                "an unbuilt/invisible forge does NOT block placement (obstacle disabled → not registered)");
+
+            forge.Build();
+            yield return null;                     // enabling the disabled component fires OnEnable → Register
+
+            Assert.IsTrue(PlacementObstacleRegistry.IsFootprintBlocked(pos, 0.55f),
+                "the BUILT forge self-registers → a footprint at its pose reads BLOCKED (#302 seam)");
+
+            Object.Destroy(go);
+            yield return null;                     // OnDisable → Unregister
+
+            Assert.IsFalse(PlacementObstacleRegistry.IsFootprintBlocked(pos, 0.55f),
+                "destroying the forge unregisters its no-build zone (keeps the static registry hermetic)");
         }
 
         // === Inventory.SpendStone — the forge-build debit seam (all-or-nothing, the SpendWood sibling) ===
