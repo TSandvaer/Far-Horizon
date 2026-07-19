@@ -342,6 +342,54 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void R5_UrpLitAndUnlit_NotPinnedAlwaysIncluded_FourFarHorizonShadersRemain()
+        {
+            // R5 UNPIN REGRESSION GUARD (86cahne3d) — the INVERSE of the magenta-strip guard above. URP/Lit +
+            // URP/Unlit must NOT be in AlwaysIncludedShaders: pinning them force-compiled their FULL addressable
+            // variant space on every build (the build-time / player-size cost R5 removes). They still SHIP — via
+            // the many serialized material references in Boot.unity — so the look is unchanged; URP's own stripper
+            // now keeps only the variants those materials actually use. The FOUR FarHorizon shaders MUST stay
+            // pinned (they are Shader.Find-by-name-reached at runtime as the fallback SOURCE, so a strip = magenta).
+            // If a future authoring change re-adds an EnsureShaderAlwaysIncluded(litShader/unlitShader) call, the
+            // next bootstrap regen re-pins one of these two and this test goes RED — the "ships nothing" / cost-
+            // creep regression this whole ticket exists to lock down. Reads the COMMITTED GraphicsSettings.asset
+            // (CI re-bakes it fresh before EditMode, so this asserts the shipped state, not a tautology).
+            var gs = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("ProjectSettings/GraphicsSettings.asset");
+            var so = new SerializedObject(gs);
+            var arr = so.FindProperty("m_AlwaysIncludedShaders");
+            Assert.IsNotNull(arr, "GraphicsSettings must expose m_AlwaysIncludedShaders");
+
+            // URP/Lit + URP/Unlit — ABSENT (the R5 unpin).
+            AssertAlwaysIncluded(arr, "Universal Render Pipeline/Lit", false);
+            AssertAlwaysIncluded(arr, "Universal Render Pipeline/Unlit", false);
+
+            // The four FarHorizon shaders — STILL pinned (runtime Shader.Find-reached; magenta-strip guard).
+            AssertAlwaysIncluded(arr, "FarHorizon/LowPolyVertexColor", true);
+            AssertAlwaysIncluded(arr, "FarHorizon/LowPolyWater", true);
+            AssertAlwaysIncluded(arr, "FarHorizon/GradientSkybox", true);
+            AssertAlwaysIncluded(arr, "FarHorizon/BlobShadowVertexColor", true);
+        }
+
+        // Assert a shader's presence/absence in an m_AlwaysIncludedShaders SerializedProperty array. Resolving
+        // the shader is a hard precondition — a null resolve in the editor means URP/the shader set is broken,
+        // which would break the whole build, so failing loud here is correct (mirrors the vc-resolve assert above).
+        private static void AssertAlwaysIncluded(SerializedProperty arr, string shaderName, bool expectedPinned)
+        {
+            var shader = Shader.Find(shaderName);
+            Assert.IsNotNull(shader, shaderName + " must resolve in the editor (test precondition)");
+            bool registered = false;
+            for (int i = 0; i < arr.arraySize; i++)
+                if (arr.GetArrayElementAtIndex(i).objectReferenceValue == shader) { registered = true; break; }
+            if (expectedPinned)
+                Assert.IsTrue(registered, shaderName +
+                    " must be in AlwaysIncludedShaders (Shader.Find-reached at runtime — the magenta-strip guard)");
+            else
+                Assert.IsFalse(registered, shaderName +
+                    " must NOT be in AlwaysIncludedShaders post-R5 (86cahne3d) — pinning force-compiles its full " +
+                    "variant space; it ships via serialized material references, not a build-time pin");
+        }
+
+        [Test]
         public void Shadows_BandGoneViaSoftFade_AndFlickerKilledBySoftFilterPlusDensity()
         {
             // GREEN-LINE FIX (86ca9qwr3 / 86caarn6y) + FLICKER FIX (86caayvfz, 2nd pass), guarded as ONE

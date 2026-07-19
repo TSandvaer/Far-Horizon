@@ -66,12 +66,58 @@ namespace FarHorizon.EditorTools
             BuildSummary summary = report.summary;
             Debug.Log($"[FarHorizonBuilder] result={summary.result} size={summary.totalSize} bytes " +
                       $"time={summary.totalTime} development={development} -> {exe}");
+            // R5 (86cahne3d) — informational strip report riding build.log (no new CI step; the shader-variant
+            // detail Unity emits inline as "Compiling shader ... N variants"). BuildReport.strippingInfo lists
+            // the engine modules kept + why; logging it gives a before/after artifact for the unpin's effect on
+            // build content. Null on some build shapes (guarded) — informational only, never asserted.
+            LogStrippingInfo(report);
             if (summary.result != BuildResult.Succeeded)
             {
                 Debug.LogError("[FarHorizonBuilder] BUILD FAILED");
                 EditorApplication.Exit(2);
             }
             EditorApplication.Exit(0);
+        }
+
+        /// <summary>
+        /// R5 (86cahne3d) — log the build's StrippingInfo (engine modules kept + inclusion reasons) into
+        /// build.log. Informational: it is the cheap artifact for confirming the AlwaysIncludedShaders unpin
+        /// changed what the build carries, alongside the size=/time= line above and Unity's own inline
+        /// "Compiling shader ... N variants" lines. strippingInfo can be null (non-IL2CPP / some shapes) —
+        /// guarded so a null never faults the build. Never asserted; a diff of two build logs is the signal.
+        /// </summary>
+        private static void LogStrippingInfo(BuildReport report)
+        {
+            // Wholly defensive: this is informational logging that runs AFTER a successful build, so an
+            // uncaught throw here would fail the batchmode -executeMethod step despite a good build. Guard
+            // everything (null report / null strippingInfo / null modules) + swallow any exception.
+            try
+            {
+                var info = report != null ? report.strippingInfo : null;
+                if (info == null)
+                {
+                    Debug.Log("[FarHorizonBuilder] strippingInfo: none reported (build shape does not expose it)");
+                    return;
+                }
+                var modules = info.includedModules;
+                if (modules == null)
+                {
+                    Debug.Log("[FarHorizonBuilder] strippingInfo: present but includedModules is null");
+                    return;
+                }
+                int count = 0;
+                var sb = new System.Text.StringBuilder();
+                foreach (var m in modules)
+                {
+                    count++;
+                    sb.Append(m).Append("; ");
+                }
+                Debug.Log($"[FarHorizonBuilder] strippingInfo: {count} included module(s): {sb}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.Log("[FarHorizonBuilder] strippingInfo: skipped (informational; " + e.GetType().Name + ")");
+            }
         }
 
         /// <summary>

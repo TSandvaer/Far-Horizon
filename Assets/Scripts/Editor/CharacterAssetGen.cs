@@ -796,7 +796,9 @@ namespace FarHorizon.EditorTools
                 }
             }
 
-            EnsureShaderAlwaysIncluded(litShader);
+            // R5 (86cahne3d): URP/Lit is no longer pinned into AlwaysIncludedShaders — CastawayMat is a
+            // serialized material reference in Boot.unity, so URP/Lit ships via that ref (URP's stripper keeps
+            // the used variants); pinning force-compiled its full variant space every build.
             AssetDatabase.CreateAsset(mat, MaterialPath);
             AssetDatabase.SaveAssets();
             Debug.Log("[CharacterAssetGen] de-lit URP/Lit material built from texture_diffuse -> " + MaterialPath);
@@ -833,7 +835,8 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
             }
 
-            EnsureShaderAlwaysIncluded(shader);
+            // R5 (86cahne3d): the URP/Lit-or-Unlit pin is removed — CastawayMat ships as a serialized material
+            // reference, so its shader ships via that ref; pinning force-compiled the full variant space.
             AssetDatabase.CreateAsset(mat, MaterialPath);
             AssetDatabase.SaveAssets();
             Debug.Log($"[CharacterAssetGen] v3 material built: shader={shaderName} (posterized diffuse Base Map, " +
@@ -868,7 +871,7 @@ namespace FarHorizon.EditorTools
             if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
             if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
 
-            EnsureShaderAlwaysIncluded(litShader);
+            // R5 (86cahne3d): URP/Lit pin removed — CastawayMat ships as a serialized material reference.
             AssetDatabase.CreateAsset(mat, MaterialPath);
             AssetDatabase.SaveAssets();
             Debug.Log("[CharacterAssetGen] v4 material built: URP/Lit matte (palette Base Map, point-filtered, " +
