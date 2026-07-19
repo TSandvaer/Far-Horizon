@@ -8,15 +8,25 @@ namespace FarHorizon
     /// the milestone's heart — warmth decays (U2-1) -> craft axe (U2-2) -> chop tree for wood (U2-3) ->
     /// BUILD + LIGHT this campfire -> warm again.
     ///
-    /// === Two-stage state: built, then lit ===
-    /// The campfire ships UNBUILT/UNLIT (CampfirePlacement, gated on wood, builds + lights it; success
-    /// test "no wood -> no campfire"). This component owns the LIT state + the warmth restore:
-    ///   bool IsLit  : true once lit. While lit AND the player is within warmRadius, warmth is restored.
-    ///   Light(WarmthNeed) : lights the fire and binds the need it warms. Idempotent.
-    /// The flame visual + the warm point Light are toggled with the lit state (a campfire only glows when
-    /// lit). Both are already-serialized children (authored editor-time, MovementCameraScene.BuildCampfire)
-    /// — runtime only flips their .enabled/.SetActive, never builds hierarchy at Awake (the editor-vs-runtime
-    /// serialization trap, unity-conventions.md: an Awake-built flame/light could ship mangled/absent).
+    /// === Invisible-until-placed → placed (revealed + lit) — the unified place-to-build flow (⑤ 86camz9w7) ===
+    /// The campfire is now one of the THREE invisible-until-placed structures (Sponsor-locked, spec §0.1 —
+    /// like the ① table + ③ forge). It ships INVISIBLE + UNLIT: there is NO pre-visible fire pit. The
+    /// castaway gathers the wood+stone, PLACES the campfire via <see cref="CampfirePlacement"/>'s ghost +
+    /// left-click confirm (the ① placement system VERBATIM), and the confirm REVEALS the structure AND
+    /// LIGHTS it in one beat (<see cref="Build"/>) — the mats are paid for a lit fire. This component owns:
+    ///   bool IsPlaced : true once the structure is revealed at the placed pose (the invisible-until-placed latch).
+    ///   bool IsLit    : true once lit. While lit AND the player is within warmRadius, warmth is restored.
+    ///   Build(pose, need) : place at the confirmed ghost pose — reveal the structure, self-register the
+    ///                       no-build zone (#302), and Light it (binds the need). Idempotent.
+    ///   Light(WarmthNeed) : lights the fire + binds the need it warms (the SHIPPED warmth seam, unchanged —
+    ///                       spec §2 regression boundary). Idempotent.
+    /// The structure visual (stone ring + logs) ships with its renderers DISABLED; Build reveals them. The
+    /// flame visual + the warm point Light are toggled with the LIT state (a campfire only glows when lit) —
+    /// the flame is excluded from the structure-reveal toggle (like the forge's smelt-glow), staying
+    /// lit-state-driven. All are already-serialized children (authored editor-time,
+    /// MovementCameraScene.BuildCampfire) — runtime only flips their .enabled/.SetActive, never builds
+    /// hierarchy at Awake (the editor-vs-runtime serialization trap, unity-conventions.md: an Awake-built
+    /// flame/light could ship mangled/absent — the legs-up class).
     ///
     /// === Warmth restore — proximity, same idiom as CraftSpot/ChopTree ===
     /// We REUSE the proven planar-XZ-proximity seam (poll distance to the player root each Update), NOT a
@@ -41,12 +51,22 @@ namespace FarHorizon
                  "falls back to the ClickToMove root, then a scene search.")]
         public Transform player;
 
+        [Tooltip("The structure visual root (the stone ring + logs). Its renderers ship DISABLED (invisible-" +
+                 "until-placed, spec §0.1) — the place-to-build flow reveals them on Build. Excludes the flame " +
+                 "child (lit-state-driven). Falls back to this transform.")]
+        public Transform visual;
+
         [Tooltip("The flame visual root, shown only when the fire is lit. Wired at bootstrap.")]
         public GameObject flameVisual;
 
         [Tooltip("The warm point Light, enabled only when the fire is lit (the glow into the Zone-D dusk). " +
                  "Wired at bootstrap.")]
         public Light fireLight;
+
+        [Tooltip("The no-build zone this campfire projects ONCE PLACED (the #302 PlacementObstacle seam) so a " +
+                 "later table/forge/campfire placement ghost reads RED over it. Authored disabled; Build() " +
+                 "enables it. Optional (null → the campfire simply doesn't self-register).")]
+        public PlacementObstacle placementObstacle;
 
         [Header("Warmth restore")]
         [Tooltip("Planar (XZ) distance within which a LIT campfire warms the castaway. Generous so " +
@@ -58,9 +78,14 @@ namespace FarHorizon
         public float restoreRate = 14f;
 
         // Runtime state.
+        private bool _placed;   // the structure has been revealed at the placed pose (invisible-until-placed latch)
         private bool _lit;
         private float _lastTickTime;
         private bool _ticking;
+
+        /// <summary>True once the campfire structure has been placed + revealed in the world. Ships false
+        /// (invisible until placed); scene-presence tests assert the structure renderers ship disabled.</summary>
+        public bool IsPlaced => _placed;
 
         /// <summary>True once the fire has been lit. While lit + the player is near, warmth restores.</summary>
         public bool IsLit => _lit;
@@ -73,9 +98,33 @@ namespace FarHorizon
                 var ctm = FindAnyObjectByType<ClickToMove>();
                 if (ctm != null) player = ctm.transform;
             }
+            if (visual == null) visual = transform;
+            // Ship INVISIBLE (invisible-until-placed, spec §0.1) — re-assert the structure hidden at Awake so a
+            // stale/edited scene can never spawn a pre-visible campfire (the Sponsor-locked no-pre-visible rule).
+            if (!_placed) SetVisualEnabled(false);
             // Ship dark: the fire does not glow until lit. Defensive — the authored scene already
             // serializes them off, but never assume (a re-enabled-in-editor flame must still ship dark).
             ApplyLitVisuals();
+        }
+
+        /// <summary>
+        /// Place the campfire at <paramref name="position"/>/<paramref name="rotation"/> (the placement's
+        /// confirmed ghost pose) — move this transform there, REVEAL the structure (stone ring + logs),
+        /// self-register the no-build zone (#302 seam), and LIGHT it (binds <paramref name="need"/>).
+        /// <see cref="CampfirePlacement.TryConfirm"/> calls this after the all-or-nothing wood+stone debit
+        /// succeeds. Idempotent (placing an already-placed campfire re-
+        /// binds the need via Light but does not re-reveal). Placing == lighting: the mats buy a LIT fire.
+        /// </summary>
+        public void Build(Vector3 position, Quaternion rotation, WarmthNeed need = null)
+        {
+            if (!_placed)
+            {
+                transform.SetPositionAndRotation(position, rotation);
+                _placed = true;
+                SetVisualEnabled(true);                                          // reveal the structure
+                if (placementObstacle != null) placementObstacle.enabled = true; // self-register the no-build zone (#302)
+            }
+            Light(need); // the shipped warmth seam — lights + binds the need, shows the flame + glow
         }
 
         /// <summary>
@@ -123,6 +172,21 @@ namespace FarHorizon
             // Integrate restore over REAL elapsed time (not per-frame deltaTime — headless Time.deltaTime~=0,
             // unity-conventions.md §headless time). WarmthNeed.AddWarmth clamps at max.
             if (dt > 0f) warmth.AddWarmth(restoreRate * dt);
+        }
+
+        // Enable/disable the structure's renderers (invisible-until-placed). EXCLUDES the flame child — the
+        // flame is toggled independently by the LIT state (ApplyLitVisuals via SetActive), so revealing the
+        // structure must not fight it (mirrors Forge.SetVisualEnabled excluding the smelt glow). The fire
+        // Light lives on the pit ROOT (not under visual), so it is likewise untouched here — lit-state-driven.
+        private void SetVisualEnabled(bool on)
+        {
+            var root = visual != null ? visual : transform;
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (flameVisual != null && r.transform.IsChildOf(flameVisual.transform)) continue; // lit-driven
+                r.enabled = on;
+            }
         }
 
         // Show the flame + enable the glow only when lit; both are pre-serialized children (no Awake-built

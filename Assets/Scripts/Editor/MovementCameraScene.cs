@@ -790,12 +790,16 @@ namespace FarHorizon.EditorTools
         {
             var tablePlacement = Object.FindObjectOfType<CraftingTablePlacement>();
             var forgePlacement = Object.FindObjectOfType<ForgePlacement>();
+            var campfirePlacement = Object.FindObjectOfType<CampfirePlacement>();
             if (tablePlacement == null)
                 Debug.LogError("[MovementCameraScene] BuildBuildMenu found no CraftingTablePlacement — " +
                                "BuildCraftingTable must run before BuildBuildMenu (the table build-menu row).");
             if (forgePlacement == null)
                 Debug.LogError("[MovementCameraScene] BuildBuildMenu found no ForgePlacement — " +
                                "BuildForge must run before BuildBuildMenu (the forge build-menu row).");
+            if (campfirePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildBuildMenu found no CampfirePlacement — " +
+                               "BuildCampfire must run before BuildBuildMenu (the campfire build-menu row, ⑤).");
 
             var menuGo = new GameObject(BuildMenuObjectName);
             var doc = menuGo.AddComponent<UIDocument>();
@@ -803,16 +807,19 @@ namespace FarHorizon.EditorTools
             doc.sortingOrder = 96f; // above the recipe menu (95), below the dev settings panel (100)
             var menu = menuGo.AddComponent<BuildMenuUI>();
             menu.document = doc;
-            // The editor-authored rows: crafting table + forge (③/⑤ append campfire here later — one line).
-            var sources = new System.Collections.Generic.List<MonoBehaviour>(2);
+            // The editor-authored rows: crafting table + forge + campfire (⑤ — the campfire is now a build-menu row,
+            // the ONE build entry point; no parallel flow). Each is an IBuildPlaceable.
+            var sources = new System.Collections.Generic.List<MonoBehaviour>(3);
             if (tablePlacement != null) sources.Add(tablePlacement);
             if (forgePlacement != null) sources.Add(forgePlacement);
+            if (campfirePlacement != null) sources.Add(campfirePlacement);
             menu.placeableSources = sources.ToArray();
 
             EditorUtility.SetDirty(menuGo);
             Debug.Log("[MovementCameraScene] authored build menu (C, sortingOrder 96) with " +
                       sources.Count + " placeable rows (table wired: " + (tablePlacement != null) +
-                      ", forge wired: " + (forgePlacement != null) + ")");
+                      ", forge wired: " + (forgePlacement != null) +
+                      ", campfire wired: " + (campfirePlacement != null) + ")");
 
             WireBuildMenuVerifyCapture(menu, tablePlacement);
         }
@@ -3336,32 +3343,92 @@ namespace FarHorizon.EditorTools
             fireLight.shadows = LightShadows.None; // thin: no shadow cost on the placeholder
             fireLight.enabled = false; // ships off — Campfire enables it on Light()
 
-            // The Campfire component owns the lit state + warmth restore.
+            // INVISIBLE-UNTIL-PLACED (⑤ 86camz9w7, spec §0.1): disable the campfire STRUCTURE renderers (stones +
+            // logs) so there is NO pre-visible fire pit. Exclude the flame child (SetActive-driven by the lit state,
+            // already off). Campfire.Build reveals them at the confirmed ghost pose.
+            foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (r.transform.IsChildOf(flameGo.transform)) continue; // flame toggled by the lit state
+                r.enabled = false;
+            }
+
+            // The no-build zone the campfire self-registers ONCE PLACED (#302 seam) so a later table/forge/campfire
+            // placement ghost reads RED over it. Authored DISABLED — Campfire.Build enables it (OnEnable → Register).
+            var obstacle = pit.AddComponent<PlacementObstacle>();
+            obstacle.footprintRadius = 0.7f; // the fire-stone ring
+            obstacle.enabled = false;
+
+            // The Campfire component owns the placed + lit state + warmth restore.
             var fire = pit.AddComponent<Campfire>();
             fire.warmth = Object.FindObjectOfType<WarmthNeed>();
             fire.player = player.transform;
+            fire.visual = visual.transform;
             fire.flameVisual = flameGo;
             fire.fireLight = fireLight;
+            fire.placementObstacle = obstacle;
             if (fire.warmth == null)
                 Debug.LogError("[MovementCameraScene] no WarmthNeed in scene to wire Campfire to — " +
                                "BootstrapProject must add the Survival WarmthNeed before MovementCameraScene.Author");
 
-            // The CampfirePlacement component: the wood-gated build interaction.
+            // The placement GHOST — a translucent stone-ring + crossed-logs silhouette (reads footprint + facing),
+            // a SEPARATE root the placement moves under the cursor. Hidden until the player enters placement.
+            var ghostGo = new GameObject("CampfireGhost");
+            ghostGo.transform.position = FirePitPosition;
+            var ghostMat = EnsureCraftingGhostMat(); // the shared translucent unlit ghost material (tinted per-frame)
+            for (int i = 0; i < stoneCount; i++)
+            {
+                float a = i / (float)stoneCount * Mathf.PI * 2f;
+                var pos = new Vector3(Mathf.Cos(a) * ringR, 0.10f, Mathf.Sin(a) * ringR);
+                AddCampfireGhostPart(ghostGo.transform, "GhostStone" + i,
+                    LowPolyMeshes.FacetedSphere(0.20f + (i % 2) * 0.04f, 0, 0.35f, 4100 + i), pos, Quaternion.identity, ghostMat);
+            }
+            AddCampfireGhostPart(ghostGo.transform, "GhostLogA", LowPolyMeshes.TaperedCylinder(0.07f, 0.05f, 0.9f, 6),
+                new Vector3(0f, 0.16f, 0f), Quaternion.Euler(0f, 0f, 90f) * Quaternion.Euler(25f, 0f, 0f), ghostMat);
+            AddCampfireGhostPart(ghostGo.transform, "GhostLogB", LowPolyMeshes.TaperedCylinder(0.07f, 0.05f, 0.9f, 6),
+                new Vector3(0f, 0.18f, 0f), Quaternion.Euler(0f, 90f, 90f) * Quaternion.Euler(-25f, 0f, 0f), ghostMat);
+            foreach (var r in ghostGo.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false; // shown only while placing
+
+            // The rewritten CampfirePlacement: the wood+STONE place-to-build driver (⑤ — reuses the ① ghost flow).
+            // Costs default 3 wood + 2 stone (NIT-3 — the vision's "stone AND wood"). groundMask = the world's Ground
+            // layer so the cursor ray hits ground + the navmesh-availability gate is ON in the shipped world.
             var place = pit.AddComponent<CampfirePlacement>();
             place.inventory = Object.FindObjectOfType<Inventory>();
             place.campfire = fire;
             place.player = player.transform;
             place.warmth = fire.warmth;
+            place.ghost = ghostGo.transform;
+            place.groundMask = 1 << groundLayer;
+            place.woodCost = CampfirePlacement.CampfireWoodCostDefault;   // 3
+            place.stoneCost = CampfirePlacement.CampfireStoneCostDefault; // 2
             if (place.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire CampfirePlacement to");
 
-            // Wire the verification-only shipped-build LOOP capture (-verifyLoop drives the FULL cycle:
-            // decay -> craft -> chop -> build fire -> warmth restored) onto the Boot object.
+            // Wire the verification-only shipped-build capture (-verifyLoop drives: grant mats -> PLACE the campfire
+            // -> lit + warmth restored) onto the Boot object.
             WireCampfireVerifyCapture(player);
 
-            Debug.Log("[MovementCameraScene] authored Campfire at " + FirePitPosition +
-                      " (ships unlit; warmth wired: " + (fire.warmth != null) +
+            EditorUtility.SetDirty(pit); EditorUtility.SetDirty(ghostGo);
+            Debug.Log("[MovementCameraScene] authored Campfire (invisible-until-placed) + ghost + placement (" +
+                      place.woodCost + "w+" + place.stoneCost + "s) at park " + FirePitPosition +
+                      " (ships unlit + hidden; warmth wired: " + (fire.warmth != null) +
                       ", inventory wired: " + (place.inventory != null) + ")");
+        }
+
+        // One translucent campfire-ghost part (a ring stone / a crossed log): a MeshFilter+MeshRenderer with the
+        // shared ghost material (the placement tints it green/red per-frame via a MaterialPropertyBlock). Sibling of
+        // AddForgeGhostPart, +local rotation for the crossed logs. Collider-free set-dressing.
+        private static void AddCampfireGhostPart(Transform parent, string name, Mesh mesh, Vector3 localPos,
+            Quaternion localRot, Material ghostMat)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = localRot;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (ghostMat != null) mr.sharedMaterial = ghostMat;
         }
 
         // One log of the campfire: a tapered cylinder laid down (rotated) + tilted, warm bark inline material.
@@ -3752,11 +3819,9 @@ namespace FarHorizon.EditorTools
             cap.inventory = Object.FindObjectOfType<Inventory>();
             cap.warmth = Object.FindObjectOfType<WarmthNeed>();
             cap.campfire = Object.FindObjectOfType<Campfire>();
-            cap.craftSpot = CraftSpotPosition;
-            cap.treeSpot = ChopTreePosition;
-            cap.firePit = FirePitPosition;
+            cap.placement = Object.FindObjectOfType<CampfirePlacement>();
             // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1) on a dropped -verifyLoop dep rather than
-            // letting the Awake FindAnyObjectByType fallback mask it into the 20-min full-loop capture gate.
+            // letting the Awake FindAnyObjectByType fallback mask it into the capture gate.
             if (cap.player == null)
                 Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.player wiring is null — the player " +
                                "has no ClickToMove (BuildPlayer must run before WireCampfireVerifyCapture)");
@@ -3769,8 +3834,9 @@ namespace FarHorizon.EditorTools
             if (cap.campfire == null)
                 Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.campfire wiring is null — the lit " +
                                "campfire the -verifyLoop close-of-loop proof stands at was not authored");
-            var place = Object.FindObjectOfType<CampfirePlacement>();
-            if (place != null) cap.woodCost = place.woodCost; // the loop must carry enough wood to the pit
+            if (cap.placement == null)
+                Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.placement wiring is null — the " +
+                               "CampfirePlacement the -verifyLoop place-to-build proof drives was not authored (⑤)");
             EditorUtility.SetDirty(bootGo);
         }
 
