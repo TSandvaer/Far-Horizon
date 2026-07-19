@@ -111,9 +111,21 @@ namespace FarHorizon
         /// regression so it can assert the gate flips with HasAxe.</summary>
         public bool IsGripping => _gripping;
 
+        /// <summary>Whether the curl is ACTUALLY applied this frame — gripping (belt selection) OR forced via
+        /// alwaysCurl (the F9 GRIP-CURL dial). The dial surfaces this so a no-visible-effect state is
+        /// distinguishable from a broken handler (86catvb6u; the applied-readout rule from
+        /// procedural-animation-verbs.md's run-lower-engagement sibling).</summary>
+        public bool IsApplied => _gripping || alwaysCurl;
+
         void LateUpdate()
         {
-            if (!_gripping) return; // empty hand keeps the natural open clip pose
+            // 86catvb6u — check alwaysCurl LIVE too (not only via the ApplyGate-cached _gripping): the F9 GRIP-CURL
+            // dial sets alwaysCurl=true at runtime WITHOUT an Inventory.Changed event, so the curl must engage the
+            // SAME frame the Sponsor forces it — else the dial writes fingerCurlDeg but the hand never changes (the
+            // "wired but conditionally inert" trap this doc's run-lower-engagement sibling warns about; the Sponsor
+            // saw exactly this — fingerCurlDeg=390 on the HUD, zero visible effect, because the belt axe was not
+            // SELECTED [B]-cycling a wood axe does not set the belt selection so _gripping stayed false).
+            if (!_gripping && !alwaysCurl) return; // empty hand keeps the natural open clip pose
             if (fingerBones != null)
                 foreach (var b in fingerBones)
                     if (b != null) b.localRotation = b.localRotation * _fingerOffset;

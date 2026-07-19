@@ -64,6 +64,13 @@ namespace FarHorizon.EditorTools
             // hand's inward count vs its rest AND vs the left, the curl FOLDS/INVERTS v4's thumb geometry. ----
             ReportHandGrip(sb, CharacterAssetGen.V4RiggedFbxPath);
 
+            // ---- DEFECT 3 (core): the RIGHT hand is ROLLED (palm-back) vs the LEFT, unarmed, no F9. Suspect the
+            // v3-dialed CastawayArmPose right-arm offset (-4,-50,-3) over-rolling v4's differently-framed arm bone
+            // (left is -5,22,0). Idle-tick the LIVE Animator, apply candidate right-arm eulers, and measure the
+            // right-hand rotation vs the MIRRORED left-hand (X-plane) — the candidate that minimizes the mismatch
+            // is the v4 symmetric default. Validates the mirror on the arm-pose-OFF (clip-only) idle pose. ----
+            ReportArmRoll(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
+
             sb.AppendLine("[v4-diag] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
@@ -288,6 +295,52 @@ namespace FarHorizon.EditorTools
             }
             Object.DestroyImmediate(baked);
             return (inward, idx.Length, c);
+        }
+
+        // DEFECT 3 — idle-tick the live Animator, then apply candidate right-arm eulers + measure the right-hand
+        // world rotation vs the MIRRORED left-hand (X-plane). The v3 arm-pose ships left=(-5,22,0), right=(-4,-50,-3).
+        private static void ReportArmRoll(StringBuilder sb, string path, RuntimeAnimatorController ctrl)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (fbx == null || ctrl == null) { sb.AppendLine("[v4-diag] arm-roll: fbx/ctrl missing"); return; }
+            Avatar avatar = null;
+            foreach (var o in AssetDatabase.LoadAllAssetsAtPath(path)) if (o is Avatar a) avatar = a;
+            var go = Object.Instantiate(fbx);
+            var anim = go.GetComponent<Animator>() ?? go.AddComponent<Animator>();
+            anim.runtimeAnimatorController = ctrl; if (avatar != null) anim.avatar = avatar;
+            anim.applyRootMotion = false; anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            var rArm = FindBone(go.transform, "rightarm"); var lArm = FindBone(go.transform, "leftarm");
+            var rHand = FindBone(go.transform, "righthand"); var lHand = FindBone(go.transform, "lefthand");
+            if (rArm == null || lArm == null || rHand == null || lHand == null)
+            { sb.AppendLine("[v4-diag] arm-roll: arm/hand bones missing"); Object.DestroyImmediate(go); return; }
+
+            // Settle the IDLE state (Moving=false, Speed=0), then snapshot each arm bone's ticked clip pose.
+            void TickIdle() { anim.Rebind(); anim.Play("Idle", 0, 0f); anim.SetBool("Moving", false); anim.SetBool("Grounded", true); anim.SetFloat("Speed", 0f); for (int i = 0; i < 12; i++) anim.Update(0.1f); }
+            TickIdle();
+            Vector3 leftOff = new Vector3(-5f, 22f, 0f); // == CastawayArmPose.leftArmEuler (v3 ship)
+            var candidates = new (string name, Vector3 rEuler)[] {
+                ("clip-only(no arm-pose)", Vector3.positiveInfinity),
+                ("current v3 right(-4,-50,-3)", new Vector3(-4f, -50f, -3f)),
+                ("mirror-left(-5,-22,0)", new Vector3(-5f, -22f, 0f)),
+                ("same-as-left(-5,22,0)", new Vector3(-5f, 22f, 0f)),
+                ("spread-only(-5,0,0)", new Vector3(-5f, 0f, 0f)),
+            };
+            foreach (var (name, rE) in candidates)
+            {
+                TickIdle();
+                bool armPoseOn = !float.IsInfinity(rE.x);
+                if (armPoseOn)
+                {
+                    lArm.localRotation = lArm.localRotation * Quaternion.Euler(leftOff);
+                    rArm.localRotation = rArm.localRotation * Quaternion.Euler(rE);
+                }
+                // Mirror the left-hand WORLD rotation across the X-plane (negate y,z of the quaternion) — the
+                // expected right if perfectly symmetric — and measure the mismatch to the actual right hand.
+                Quaternion lq = lHand.rotation, mir = new Quaternion(lq.x, -lq.y, -lq.z, lq.w);
+                float mismatch = Quaternion.Angle(rHand.rotation, mir);
+                sb.AppendLine($"[v4-diag] arm-roll [{name}]: right-vs-mirrored-left mismatch = {mismatch:F1}deg  (lower = more symmetric; clip-only ~ the rig's inherent asymmetry)");
+            }
+            Object.DestroyImmediate(go);
         }
 
         // ---- shared ----

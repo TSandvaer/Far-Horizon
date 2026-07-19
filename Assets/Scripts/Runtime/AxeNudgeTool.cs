@@ -78,9 +78,9 @@ namespace FarHorizon
     /// the axe head is AUTHORED Blender geometry now (wpn_axe_stone_01), so runtime vertex-scaling it distorts
     /// the knapped biface (the rejected "chipping") — head SIZE is a Blender re-author, not a runtime dial.
     /// Overall held-scale is dialed on the HELD target (HeldWeaponCycleDebug's O/I Danish-safe letter keys) +
-    /// the settings-console HeldScale row. TargetCount is 5 (held/stump/arm/GROUND-Y/RUN). A NOT-ENGAGED signpost
-    /// (absorbs 86caju055) shows when the debug-overlay layer is up but F9 is asleep, so the Sponsor doesn't
-    /// nudge into the void.
+    /// the settings-console HeldScale row. TargetCount is 7 (held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL — the
+    /// last two added 86catvb6u for the v4-activation defect round). A NOT-ENGAGED signpost (absorbs 86caju055)
+    /// shows when the debug-overlay layer is up but F9 is asleep, so the Sponsor doesn't nudge into the void.
     ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
@@ -184,7 +184,13 @@ namespace FarHorizon
         /// Force this panel OFF (called by the sibling WorldLookNudgeTool when ITS panel toggles on, so only
         /// one nudge panel is ever active and their shared cycle/adjust keys can never cross-fire). Idempotent.
         /// </summary>
-        public void Deactivate() => _active = false;
+        public void Deactivate()
+        {
+            _active = false;
+            // 86catvb6u — release the GRIP-CURL force so the curl reverts to its normal gate (belt-selection) in
+            // play; else leaving the F9 tool would strand the right hand curled with no weapon held.
+            if (_fingerCurl != null) _fingerCurl.alwaysCurl = false;
+        }
 
         /// <summary>
         /// Turn this panel ON (the toggle path). MUTUAL EXCLUSION (key-split fix): activating THIS panel forces
@@ -228,6 +234,12 @@ namespace FarHorizon
                 Debug.Log("[AxeNudgeTool] target = " + TargetName());
                 LogCurrent();
             }
+
+            // 86catvb6u — FORCE the finger-curl to APPLY while the GRIP-CURL target is selected, so the Sponsor
+            // SEES the curl at the dialed angle even with an unequipped/[B]-displayed weapon (the belt-selection
+            // gate would otherwise leave it inert — the "no effect at 390°" report). Cleared off-target here +
+            // in Deactivate, so normal play keeps the belt-gated curl.
+            if (_fingerCurl != null) _fingerCurl.alwaysCurl = (_target == 6);
 
             // On the ARM target, [N] switches which arm is dialed (right <-> left). [N] (was [B]) so it never
             // cross-fires with the always-on weapon-cycle [B] (86cabh907 soak round 2 [B]-conflict fix).
@@ -349,11 +361,12 @@ namespace FarHorizon
                 else if (_target == 6)
                 {
                     // GRIP-CURL (86catvb6u — soften v4's chunky-hand grip that reads dark/segmented when gripping).
-                    // T/G dials the right-hand finger-curl degrees (clamped >= 0) + RebuildCached so it shows this
-                    // frame. Bake the dialed value into CastawayFingerCurl.fingerCurlDeg.
+                    // T/G dials the right-hand finger-curl degrees, CLAMPED to [0,90] (the unclamped write ran to
+                    // 390° = a wrapped ~30° that looked like "no effect" — the Sponsor's report). RebuildCached so
+                    // it shows this frame (with the force above, on any weapon). Bake into CastawayFingerCurl.fingerCurlDeg.
                     if (_fingerCurl != null)
                     {
-                        _fingerCurl.fingerCurlDeg = Mathf.Max(0f, _fingerCurl.fingerCurlDeg + dr.x);
+                        _fingerCurl.fingerCurlDeg = Mathf.Clamp(_fingerCurl.fingerCurlDeg + dr.x, 0f, 90f);
                         _fingerCurl.RebuildCached();
                     }
                 }
@@ -600,9 +613,12 @@ namespace FarHorizon
             }
             else if (_target == 6 && _fingerCurl != null)
             {
-                // 86catvb6u — soften v4's chunky-hand grip fold (dark/segmented right hand when gripping). T/G dials.
-                posLine = $"fingerCurlDeg={_fingerCurl.fingerCurlDeg:F1}   (T/G = more/less curl; lower = less dark fold)";
-                eulerLine = "hold the axe to judge — dial until the right hand reads as clean as the left, then bake";
+                // 86catvb6u — soften v4's chunky-hand grip fold (dark/segmented right hand when gripping). T/G dials
+                // [0,90]. The APPLIED readout (per the doc rule) proves the write reaches the pose — the curl is
+                // FORCED on while this target is selected, so it shows on any weapon, not only a belt-selected axe.
+                posLine = $"fingerCurlDeg={_fingerCurl.fingerCurlDeg:F1}   (T/G = more/less curl [0-90]; lower = less dark fold)";
+                eulerLine = (_fingerCurl.IsApplied ? "APPLIED ✓ (forced on for dialing)" : "NOT applied")
+                          + " — dial until the right hand reads as clean as the left, then bake fingerCurlDeg";
             }
             else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)"
                             : _target == 5 ? "(foot-yaw not found)" : _target == 6 ? "(finger-curl not found)" : "(arm pose not found)"; eulerLine = ""; }

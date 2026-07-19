@@ -266,6 +266,18 @@ namespace FarHorizon.EditorTools
         // here (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools). Signed: + = outward.
         public const float CastawayV4FootYawDeg = 11f;
 
+        // ===== CASTAWAY v4 ARM-POSE eulers (86catvb6u — the Sponsor's "right hand is TURNED / palm faces backward"
+        // defect). The shipped arm-pose offsets (CastawayArmPose.rightArmEuler=(-4,-50,-3) / leftArmEuler=(-5,22,0))
+        // were F9-DIALED on v3; the right arm's -50° Y-twist (the v3 weapon-carry) over-ROLLS v4's differently-
+        // framed RightArm bone → the right hand supinates (palm-back), UNARMED + always-on. MEASURED
+        // (CastawayV4DefectDiag arm-roll): right-vs-mirrored-left mismatch = 33.0° at (-4,-50,-3) vs 18.1° at the
+        // MIRROR of the left (-5,-22,0) — which == the clip-only 18.5° baseline (the arm-pose then adds ZERO extra
+        // asymmetry). So v4 ships the MIRROR-of-left right-arm euler; the left is unchanged (it read fine). Applied
+        // ONLY for v4 (AddArmPose); v3/v2/old keep the component-default dialed eulers (byte-unchanged). The
+        // Sponsor F9-dials the arm-pose target for any residual taste, then bakes into these v4 constants.
+        public static readonly Vector3 CastawayV4RightArmEuler = new Vector3(-5f, -22f, 0f); // mirror-of-left (measured symmetric)
+        public static readonly Vector3 CastawayV4LeftArmEuler = new Vector3(-5f, 22f, 0f);   // == the v3 left (read fine)
+
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
         /// scene. The caller (BootstrapProject.BuildBootScene) has already created the scene with
@@ -1394,12 +1406,24 @@ namespace FarHorizon.EditorTools
             // byte-unchanged); the Sponsor dials runLowerEuler on the F9 RUN target while running, then bakes it.
             pose.character = castaway;
             pose.runLowerEuler = ArmRunLowerEuler;
+            // 86catvb6u — v4 gets MIRROR-of-left arm eulers (the v3-dialed right (-4,-50,-3) over-rolls v4's arm
+            // bone → palm-back; MEASURED symmetric = mirror-left). seedEulersFromDegFields stays FALSE so
+            // RebuildCached composes these verbatim. v3/v2/old keep the component-default dialed eulers (the arm
+            // read fine there) — byte-unchanged rollback path. The Sponsor F9-dials the arm-pose target for
+            // residual taste on v4, then bakes into CastawayV4RightArmEuler/CastawayV4LeftArmEuler.
+            if (CharacterAssetGen.UseCastawayV4)
+            {
+                pose.seedEulersFromDegFields = false;
+                pose.rightArmEuler = CastawayV4RightArmEuler;
+                pose.leftArmEuler = CastawayV4LeftArmEuler;
+            }
             pose.RebuildCached();
             Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
                       (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
                       (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") +
-                      "', character='" + (pose.character != null ? pose.character.name : "<null>") +
-                      "', runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
+                      "', rightArmEuler=" + pose.rightArmEuler.ToString("F1") +
+                      (CharacterAssetGen.UseCastawayV4 ? " [v4 mirror-of-left — un-rolled]" : " [v3/rollback dialed]") +
+                      ", runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
 
             // CHOP SWING (86caa4c5c change-(b)) — the swing is now the Mixamo melee Animator Attack state
             // (CastawayCharacter.TriggerChop), NOT a procedural bone offset. The rejected ChopPoseDriver and its

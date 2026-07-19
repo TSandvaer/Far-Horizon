@@ -368,10 +368,17 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(pose.seedEulersFromDegFields,
                 "the shipped arm pose must NOT re-seed from the deg fields (else a RebuildCached clobbers the " +
                 "Sponsor's baked F9 dial — re-soak #1)");
-            Assert.That(pose.rightArmEuler, Is.EqualTo(new Vector3(-4.0f, -50.0f, -3.0f)),
-                "the RIGHT arm euler must ship the Sponsor's dialed value (-4,-50,-3)");
-            Assert.That(pose.leftArmEuler, Is.EqualTo(new Vector3(-5.0f, 22.0f, 0.0f)),
-                "the LEFT arm euler must ship the Sponsor's dialed value (-5,22,0)");
+            // 86catvb6u — v4-AWARE: under v4 the baked eulers are the MEASURED mirror-of-left un-roll (AddArmPose
+            // overrides the v3 dial because -50° Y over-rolled v4's arm bone → palm-back); under v3/rollback they
+            // stay the Sponsor's v3-dialed values. Pin the CONFIGURED hero's expected bake either way.
+            Vector3 expectedRight = CharacterAssetGen.UseCastawayV4
+                ? MovementCameraScene.CastawayV4RightArmEuler : new Vector3(-4.0f, -50.0f, -3.0f);
+            Vector3 expectedLeft = CharacterAssetGen.UseCastawayV4
+                ? MovementCameraScene.CastawayV4LeftArmEuler : new Vector3(-5.0f, 22.0f, 0.0f);
+            Assert.That(pose.rightArmEuler, Is.EqualTo(expectedRight),
+                "the RIGHT arm euler must ship the configured hero's value (v4 = mirror-of-left un-roll -5,-22,0; v3 = the dialed -4,-50,-3)");
+            Assert.That(pose.leftArmEuler, Is.EqualTo(expectedLeft),
+                "the LEFT arm euler must ship the configured hero's value");
         }
 
         // RE-SOAK #2 contact-shadow wiring guard (86ca8rdkp re-soak — 'he STILL seems elevated'): the foot-
@@ -599,6 +606,43 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(expected, yaw.footYawDeg, 1e-4f,
                 "footYawDeg must default to the measured bind-delta for v4 (" + MovementCameraScene.CastawayV4FootYawDeg +
                 "), 0 for a rollback hero (feet byte-unchanged — the additive offset early-returns at 0)");
+        }
+
+        // 86catvb6u — the v4 ARM-POSE un-roll (the Sponsor's "right hand turned / palm-back" fix). The right-arm
+        // euler ships the MEASURED mirror-of-left (CastawayV4DefectDiag arm-roll: mirror-left 18.1° == the clip-only
+        // 18.5° baseline; the v3-dialed (-4,-50,-3) over-rolled at 33.0°). Pin it so a drift back toward the v3
+        // over-roll reds in CI.
+        [Test]
+        public void CastawayV4ArmEuler_ShipsTheMeasuredMirrorLeftDefault_86catvb6u()
+        {
+            Assert.AreEqual(new Vector3(-5f, -22f, 0f), MovementCameraScene.CastawayV4RightArmEuler,
+                "v4 right-arm euler must ship the measured mirror-of-left (-5,-22,0) — un-rolled so the right hand mirrors the left");
+            Assert.AreEqual(new Vector3(-5f, 22f, 0f), MovementCameraScene.CastawayV4LeftArmEuler,
+                "v4 left-arm euler must match the v3 left (-5,22,0) — it read fine");
+            // The right MUST differ from the v3-dialed over-roll (the whole point of the fix).
+            Assert.AreNotEqual(new Vector3(-4f, -50f, -3f), MovementCameraScene.CastawayV4RightArmEuler,
+                "v4 right-arm euler must NOT be the v3 over-roll (-4,-50,-3) that supinated the hand palm-back");
+        }
+
+        // 86catvb6u — the Boot scene must bake the v4 arm eulers under v4 (AddArmPose branch). Bake-path guard:
+        // dropping the v4 branch would re-ship the v3 over-roll. CI re-bakes Boot before EditMode (committed Boot
+        // may be stale locally — CI is truth).
+        [Test]
+        public void Boot_SerializedArmPose_UsesV4EulersUnderV4()
+        {
+            OpenBootAndFindPlayer();
+            var pose = _player.GetComponentInChildren<CastawayArmPose>(true);
+            Assert.IsNotNull(pose, "Boot must carry CastawayArmPose");
+            Vector3 expectedRight = CharacterAssetGen.UseCastawayV4
+                ? MovementCameraScene.CastawayV4RightArmEuler : pose.rightArmEuler; // non-v4: whatever was baked (dialed)
+            if (CharacterAssetGen.UseCastawayV4)
+            {
+                Assert.That((pose.rightArmEuler - expectedRight).magnitude, Is.LessThan(1e-2f),
+                    $"under v4 the baked right-arm euler must be the mirror-of-left {expectedRight:F1} (un-rolled), " +
+                    $"not the v3 over-roll — serialized {pose.rightArmEuler:F1}");
+                Assert.That((pose.leftArmEuler - MovementCameraScene.CastawayV4LeftArmEuler).magnitude, Is.LessThan(1e-2f),
+                    "under v4 the baked left-arm euler must be the v4 left constant");
+            }
         }
 
         // (86cakbe2v item 4 — RETIRED) The old IDENTITY-RECOLOR guard `Diffuse_ShirtWarmedToTan_...` was removed
