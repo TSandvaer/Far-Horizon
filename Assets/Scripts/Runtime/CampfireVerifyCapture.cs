@@ -67,13 +67,16 @@ namespace FarHorizon
             bool onMesh = player != null && player.Agent != null && player.Agent.isOnNavMesh;
             Debug.Log("[CampfireVerifyCapture] agent on NavMesh: " + onMesh + " after " + t.ToString("0.00") + "s");
 
-            // Let warmth decay a while at spawn so the 'cold' shot reads as real pressure. The campfire ships
-            // INVISIBLE (invisible-until-placed, ⑤) — nothing to see at the old fire-pit spot.
-            float decayStart = Time.time;
-            while (Time.time - decayStart < 3f) yield return null;
+            // SEED the castaway COLD so the restore has visible headroom to climb into (the shipped warmth
+            // decays at only 0.55/100·s — ~182s to empty — so a short capture window can't drain enough to
+            // show a rise; the runtime restore is proven, we just need a low starting point). Drain warmth to
+            // ~10% via the AddWarmth(-) seam (Satisfy clamps to [0,max]). The campfire ships INVISIBLE
+            // (invisible-until-placed, ⑤) — nothing to see at the old fire-pit spot in the 'cold' shot.
+            for (int i = 0; i < 3; i++) yield return null; // let WarmthNeed.Start seed _current=max first
+            if (warmth != null) warmth.AddWarmth(0.10f * warmth.Max - warmth.Current); // → ~10%
             float coldWarmth = warmth != null ? warmth.Current01 : -1f;
             bool preVisible = campfire != null && campfire.IsPlaced;
-            Debug.Log("[CampfireVerifyCapture] cold: warmth01=" + coldWarmth.ToString("0.00") +
+            Debug.Log("[CampfireVerifyCapture] cold (seeded): warmth01=" + coldWarmth.ToString("0.00") +
                       " campfirePlaced(should be false)=" + preVisible);
             ShotTo(Path.Combine(dir, "loop_cold.png"));
             yield return null;
