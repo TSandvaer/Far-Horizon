@@ -512,11 +512,11 @@ jobs:
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
-                ci-out/verify-weaponset.log ci-out/verify-mine.log
+                ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
-                 ci-out/weaponset-caps ci-out/mine-caps
+                 ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -765,6 +765,42 @@ jobs:
           path: |
             ci-out/chop-caps/*.png
             ci-out/verify-chop.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 11b. Placement OBJECT-OVERLAP shipped-build capture gate (ticket 86catr49m — the wiring follow-up to
+      #      PR #302, Tess PASS_WITH_NOTES). PlacementVerifyCapture shipped INERT in #302 (never authored into
+      #      Boot.unity, never CI-wired), so the "ghost tints RED over an obstacle" AC had NO automated evidence
+      #      path AND an unwired -verifyPlacement verb would NO-OP + HANG the exe. This PR authors the harness
+      #      into Boot.unity (WirePlacementVerifyCapture + a Boot re-bake) and adds this gate. It launches the
+      #      SAME built exe -batchmode with -verifyPlacement, driving PlacementVerifyCapture to prove GREEN on
+      #      clear ground, RED over a real seed-42 scatter TREE (navmesh-carve branch), and RED over a registered
+      #      BOULDER (the PlacementObstacleRegistry branch — boulders are collider-free + do NOT carve navmesh, so
+      #      the registry is the ONLY thing that makes them RED; 86catr49m wires MineBoulder to register them off
+      #      IsMineable). SELF-ASSERTS clearOk && treeObstructed && boulderObstructed; Quit(1) on any failure (or
+      #      missing wiring), so the exe's exit code IS the gate verdict; frame_check.py is a swapchain-content
+      #      backstop. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
+      - name: Placement capture gate (ghost RED over tree + registered boulder, GREEN on clear ground)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_placement_gate.sh
+            .github/workflows/scripts/verify_placement_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/placement-caps ci-out/verify-placement.log
+          else
+            echo "[verify-placement] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload placement frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-placement-caps-${{ github.sha }}
+          path: |
+            ci-out/placement-caps/*.png
+            ci-out/verify-placement.log
           if-no-files-found: warn
           retention-days: 3
 

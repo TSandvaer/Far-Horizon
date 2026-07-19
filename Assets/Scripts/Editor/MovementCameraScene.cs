@@ -374,6 +374,13 @@ namespace FarHorizon.EditorTools
             // so its deps (looter + MineBoulder) exist. Inert unless launched with -verifyBoulder.
             WireBoulderVerifyCapture(player);
 
+            // 86catr49m: the shipped-build PLACEMENT-obstacle capture gate — authored AFTER BuildCraftingTable
+            // (the CraftingTablePlacement driver) + BuildBoulders (so a registered boulder exists to prove
+            // RED-over-boulder). Inert unless launched with -verifyPlacement. #302 shipped this harness INERT
+            // (never scene-authored → the -verifyPlacement verb NO-OP'd + would HANG the capture exe); this wire
+            // + a Boot re-bake is exactly the fix (unity-conventions §CI: an UNWIRED -verifyX verb hangs the exe).
+            WirePlacementVerifyCapture(player);
+
             // 86caamkv7: a wired FRESHWATER POND inland near the loop centre — the thirst source for the merged
             // survival loop. The castaway walks up (no tool) and DRINKS FROM HAND — a small per-scoop restore,
             // repeatable, NOT an inventory item (distinct from the berry harvest). The pond water rides the
@@ -2772,6 +2779,39 @@ namespace FarHorizon.EditorTools
             if (cap.mine == null)
                 Debug.LogError("[MovementCameraScene] BoulderVerifyCapture.mine wiring is null — BuildBoulders must " +
                                "author the MineBoulder before WireBoulderVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the shipped-build PLACEMENT-obstacle capture (86catr49m) onto the Boot object — sibling of
+        // WireBoulderVerifyCapture / WireChopVerifyCapture. Inert unless launched with -verifyPlacement, which
+        // drives PlacementVerifyCapture: GREEN on clear ground, RED over a real seed-42 scatter TREE (navmesh
+        // carve), and RED over a registered BOULDER (86catr49m the fix). Authored editor-time so the harness +
+        // its serialized deps SHIP in Boot.unity — a component-in-source-but-not-in-scene harness NO-OPs the
+        // -verifyPlacement verb AND HANGS the capture exe (the #302 inert-harness lesson).
+        private static void WirePlacementVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host PlacementVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<PlacementVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<PlacementVerifyCapture>();
+            cap.placement = Object.FindObjectOfType<CraftingTablePlacement>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            // Fail LOUD at bootstrap (CI step 1) on a dropped capture-gate dep rather than letting the Start
+            // FindAnyObjectByType fallback mask it into the -verifyPlacement capture gate (the #162 masking class).
+            if (cap.placement == null)
+                Debug.LogError("[MovementCameraScene] PlacementVerifyCapture.placement wiring is null — " +
+                               "BuildCraftingTable must author the CraftingTablePlacement before WirePlacementVerifyCapture");
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] PlacementVerifyCapture.player wiring is null — the player has " +
+                               "no ClickToMove (BuildPlayer must run before WirePlacementVerifyCapture)");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] PlacementVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
             EditorUtility.SetDirty(bootGo);
         }
 
