@@ -483,6 +483,47 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void HeldWeaponCycleDebug_WoodTier_CompletesThe15SeatGrid_86catvb6u()
+        {
+            // 86catvb6u §3 regression guard (the 15-seat F9-dial contract — the whole point of the v4 activation's
+            // dial session). The Sponsor must be able to nudge ALL 15 held seats (wood/stone/iron × axe/pickaxe/
+            // knife/sword/spear). #304 imported the wood FBX + laid them into the lineup prefab but DEFERRED adding
+            // them to the [B] picker to "the seating scope" — this ticket. Pin the full tier grid so a future edit
+            // that drops/misindexes a wood entry (⇒ the Sponsor can't dial that seat) reds here.
+            Assert.AreEqual(15, HeldWeaponCycleDebug.WeaponNodeNames.Length,
+                "the [B]/F9 cycle must carry all 15 held seats (wood/stone/iron × 5 tools) so the dial session reaches each");
+
+            // The 5 wood family indices (append-only at 10-14; stone 0-4 + iron 5-9 BYTE-UNTOUCHED) resolve their
+            // wood node names — the [B] cycle + the belt-sync contract indices stay stable.
+            Assert.AreEqual("wpn_axe_wood_01",     HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.AxeWoodFamilyIndex]);
+            Assert.AreEqual("wpn_knife_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.DaggerWoodFamilyIndex]);
+            Assert.AreEqual("wpn_sword_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SwordWoodFamilyIndex]);
+            Assert.AreEqual("wpn_spear_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SpearWoodFamilyIndex]);
+            Assert.AreEqual("wpn_pickaxe_wood_01", HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.PickaxeWoodFamilyIndex]);
+
+            // Each wood seat STARTS from its stone counterpart (shared family haft/grip → same seat; the Sponsor
+            // micro-dials each at the F9 session). axe_wood←axe(0), knife_wood←knife(1), sword_wood←sword(2),
+            // spear_wood←spear(3), pickaxe_wood←pickaxe_stone(4).
+            AssertWoodMirrorsStone(HeldWeaponCycleDebug.AxeWoodFamilyIndex, 0);
+            AssertWoodMirrorsStone(HeldWeaponCycleDebug.DaggerWoodFamilyIndex, 1);
+            AssertWoodMirrorsStone(HeldWeaponCycleDebug.SwordWoodFamilyIndex, 2);
+            AssertWoodMirrorsStone(HeldWeaponCycleDebug.SpearWoodFamilyIndex, 3);
+            AssertWoodMirrorsStone(HeldWeaponCycleDebug.PickaxeWoodFamilyIndex, 4);
+        }
+
+        // Assert a wood seat's baked starting values mirror its stone counterpart (shared family grip; 86catvb6u §3).
+        private static void AssertWoodMirrorsStone(int woodIdx, int stoneIdx)
+        {
+            string w = HeldWeaponCycleDebug.WeaponLabels[woodIdx];
+            Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshScale[stoneIdx], HeldWeaponCycleDebug.WeaponMeshScale[woodIdx], 1e-4f,
+                $"{w} held scale must start from its stone counterpart (shared family grip; 86catvb6u §3)");
+            Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalOffset[stoneIdx], HeldWeaponCycleDebug.WeaponMeshLocalOffset[woodIdx],
+                $"{w} held offset must start from its stone counterpart (shared family grip; 86catvb6u §3)");
+            Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalEuler[stoneIdx], HeldWeaponCycleDebug.WeaponMeshLocalEuler[woodIdx],
+                $"{w} held euler must start from its stone counterpart (shared family grip; 86catvb6u §3)");
+        }
+
+        [Test]
         public void HeldAxeV3Seat_ShipsTheSponsorDialedValues_86cakkfz9()
         {
             // 86cakkfz9 v3 DIAL-IN BAKE regression guard for the AXE seat (dial exe stamp d306552). The axe seat

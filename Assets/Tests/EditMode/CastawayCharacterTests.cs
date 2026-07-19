@@ -517,15 +517,15 @@ namespace FarHorizon.EditTests
                 "verts/heads-tall/diffuse-substring guards pass for BOTH heroes");
         }
 
-        // V3-ACTIVATION HELD-AXE SEAT-SELECTION guard (86cakbe2v item 2 — Tess PR #264 coverage note 2). The
-        // held-axe seat is chosen by a per-hero ternary in MovementCameraScene.BuildModel
-        // (UseCastawayV3 ? HeldAxeV3* : UseCastawayV2 ? HeldAxeV2* : HeldAxe*). HeldToolRigTests /
-        // HeldAxeSeatFacingIndependentTests pin the OLD-rig constants (rollback guards that hold regardless of the
-        // live hero), so DROPPING the v3 ternary branch (falling to the v2/old seat) passes every EditMode test AND
-        // the held-belt capture gate (which asserts axe SHOWN + is-axe, not the specific offset). This asserts the
-        // SERIALIZED Boot HeldAxeRig carries the seat the CONFIGURED-DEFAULT hero selects: under v3, BuildModel must
-        // have baked HeldAxeV3* into the rig. Drop the v3 branch → the rig bakes v2/old values → RED. Mirrors the
-        // source precedence so a rollback (env v2/old) build stays guarded too. The axe is hand-parented + active
+        // HELD-AXE SEAT-SELECTION guard (86cakbe2v item 2 — Tess PR #264 coverage note 2; extended to v4-first for
+        // the 86catvb6u activation). The held-axe seat is chosen by a per-hero ternary in MovementCameraScene.
+        // BuildModel (UseCastawayV4 ? HeldAxeV4* : UseCastawayV3 ? HeldAxeV3* : UseCastawayV2 ? HeldAxeV2* :
+        // HeldAxe*). HeldToolRigTests / HeldAxeSeatFacingIndependentTests pin the OLD-rig constants (rollback
+        // guards that hold regardless of the live hero), so DROPPING the v4 ternary branch (falling to the v3/v2/old
+        // seat) passes every EditMode test AND the held-belt capture gate (which asserts axe SHOWN + is-axe, not the
+        // specific offset). This asserts the SERIALIZED Boot HeldAxeRig carries the seat the CONFIGURED-DEFAULT hero
+        // selects: under v4, BuildModel must have baked HeldAxeV4* into the rig. Drop the v4 branch → the rig bakes
+        // v3/v2/old values → RED. Mirrors the source precedence so a rollback build stays guarded too. Hand-parented + active
         // (visibility is gated by HeldAxe on renderer.enabled, not GameObject active), so it deserializes here.
         [Test]
         public void Boot_SerializedHeldAxeSeat_MatchesConfiguredDefaultHeroSeat()
@@ -536,14 +536,17 @@ namespace FarHorizon.EditTests
                 "visibility-gated on HasAxe — the GameObject is present + active, only its renderers are disabled)");
 
             Vector3 expectedOffset =
+                CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.HeldAxeV4LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV3 ? MovementCameraScene.HeldAxeV3LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV2 ? MovementCameraScene.HeldAxeV2LocalOffsetFromHand :
                                                   MovementCameraScene.HeldAxeLocalOffsetFromHand;
             Vector3 expectedEuler =
+                CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.HeldAxeV4RelEuler :
                 CharacterAssetGen.UseCastawayV3 ? MovementCameraScene.HeldAxeV3RelEuler :
                 CharacterAssetGen.UseCastawayV2 ? MovementCameraScene.HeldAxeV2RelEuler :
                                                   MovementCameraScene.HeldAxeRelEuler;
-            string hero = CharacterAssetGen.UseCastawayV3 ? "v3" : CharacterAssetGen.UseCastawayV2 ? "v2" : "old";
+            string hero = CharacterAssetGen.UseCastawayV4 ? "v4" : CharacterAssetGen.UseCastawayV3 ? "v3"
+                        : CharacterAssetGen.UseCastawayV2 ? "v2" : "old";
 
             Assert.That((rig.worldOffsetFromHand - expectedOffset).magnitude, Is.LessThan(1e-3f),
                 $"under the configured-default hero ({hero}) BuildModel must seat the axe with THAT hero's HAND-LOCAL " +

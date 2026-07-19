@@ -8,9 +8,9 @@ namespace FarHorizon.EditTests
 {
     /// <summary>
     /// EditMode regression guards for the CASTAWAY v4 (chamfered-blocky "wooden toy" hand-model — ticket
-    /// 86catpwc4, phase C). This is the DORMANT staged-rollout integration: v3 stays the LIVE hero; v4 activates
-    /// only under FARHORIZON_CASTAWAY_V4=1 (default OFF). These assert the v4 base FBX import CONFIG + the
-    /// DORMANT toggle so the bug CLASSES can't recur silently:
+    /// 86catpwc4 dormant integration, ACTIVATED 86catvb6u). v4 is now the LIVE default hero; v3 is the ROLLBACK
+    /// target (its default stays ON — a one-line flip re-selects it). These assert the v4 base FBX import CONFIG +
+    /// the ACTIVATION toggle so the bug CLASSES can't recur silently:
     ///
     ///   1. v4 base imports GENERIC + CreateFromThisModel — the anti-Humanoid gate (Humanoid muscle-space
     ///      retarget CONE-EXPLODES the skinned mesh at runtime; 86ca8rdkp). THE regression guard: a future edit
@@ -19,13 +19,13 @@ namespace FarHorizon.EditTests
     ///      stray empty `Armature` node did NOT break avatar construction.
     ///   3. v4 base height-normalizes toward ~1u (the un-normalized-giant guard).
     ///   4. v4's skeleton carries the CORE mixamorig bones the 18 existing clips drive — the CLIP-CARRY guard.
-    ///   5. THE DORMANT-TOGGLE guard: the rollout toggle DEFAULTS OFF (v3 stays the LIVE hero until the Sponsor
-    ///      soaks v4). With the default off + no env override, FbxPath resolves to v3, BYTE-UNCHANGED — the
-    ///      dormant-safe property the reviewer verifies (adding the v4 branch must not shift the live hero).
+    ///   5. THE ACTIVATION-TOGGLE guard (86catvb6u): the rollout toggle DEFAULTS ON — v4 is the live hero. DIRECT
+    ///      coverage (the #307 NIT): FbxPath resolves to v4 (not merely 'not v3'); v3's default stays ON so a
+    ///      one-line flip rolls back to v3. A future edit that flips the default off (rollback) reds this.
     ///   6. v4's flat palette (the URP/Lit Base Map) is importable.
     ///
     /// v4 is configured on EVERY bootstrap (CharacterAssetGen.ConfigureV4BaseFbx) so these import guards run
-    /// against a real import even though the toggle is OFF.
+    /// against a real import regardless of the toggle state (they held while v4 was dormant; they hold now it is live).
     /// </summary>
     public class CastawayV4BaseTests
     {
@@ -123,29 +123,33 @@ namespace FarHorizon.EditTests
                 "(righthand is also the held-axe seat bone.)");
         }
 
-        // (5) DORMANT toggle (86catpwc4 phase C) — v3 stays the LIVE default; v4 is default-OFF (activates only
-        // under FARHORIZON_CASTAWAY_V4=1, the env-var soak build). THE dormant-safe guard: with the v4 default OFF
-        // and no env override, FbxPath must still resolve to the v3 rigged base BYTE-UNCHANGED — i.e. adding the
-        // v4-first branch to FbxPath's ternary did NOT shift the live hero. A future edit that flips
-        // UseCastawayV4Default true (the ACTIVATION, a SEPARATE ticket) reds this until the activation reconciles
-        // the capture gates + bakes the measured v4 seat.
+        // (5) ACTIVATION toggle (86catvb6u — the v4 DEFAULT FLIP). v4 is now the LIVE default hero; v3 is the
+        // ROLLBACK target. THE activation guard, with DIRECT coverage (86catvb6u NIT #307 — the dormant-phase test
+        // gave only TRANSITIVE coverage of the resolved hero via the "stays v3" ternary; this asserts the RESOLVED
+        // path IS v4 directly): (a) UseCastawayV4Default is true; (b) UseCastawayV4 resolves true; (c) FbxPath IS
+        // the v4 rigged base (v4-first ternary now steals the path — the whole point of activation); (d) v3's
+        // default STAYS true so a one-line rollback (flip UseCastawayV4Default back to false) cleanly re-selects v3.
         [Test]
-        public void CastawayV4_Toggle_DefaultsOff_And_FbxPathStaysV3()
+        public void CastawayV4_Toggle_Activated_And_FbxPathResolvesToV4()
         {
-            Assert.IsFalse(CharacterAssetGen.UseCastawayV4Default,
-                "v4 is a DORMANT integration — it MUST default OFF so this PR merges dormant-safe (v3 stays the " +
-                "LIVE hero until the Sponsor soaks v4). Flipping this true is the ACTIVATION ticket, not phase C.");
+            Assert.IsTrue(CharacterAssetGen.UseCastawayV4Default,
+                "v4 is ACTIVATED (86catvb6u) — the default MUST be ON so v4 is the shipped hero. A revert to false " +
+                "is the explicit ROLLBACK to v3, not the shipped state.");
 
-            // With the v4 default OFF and (in the EditMode process) no FARHORIZON_CASTAWAY_V4 override, UseCastawayV4
-            // is false, so FbxPath resolves past the v4 branch to v3 — the byte-unchanged live hero. This is the
-            // no-regression guard: the v4-first ternary must not steal the live path while dormant.
-            Assert.IsFalse(CharacterAssetGen.UseCastawayV4,
-                "v4 default OFF ⇒ UseCastawayV4 false in the EditMode process (no FARHORIZON_CASTAWAY_V4 override)");
-            Assert.AreEqual(CharacterAssetGen.V3RiggedFbxPath, CharacterAssetGen.FbxPath,
-                "with v4 DORMANT (default OFF), FbxPath must still resolve to the v3 rigged base — the live hero " +
-                "is byte-unchanged; adding the v4-first branch must not shift it");
-            Assert.AreNotEqual(CharacterAssetGen.V4RiggedFbxPath, CharacterAssetGen.FbxPath,
-                "FbxPath must NOT resolve to v4 while the toggle is dormant");
+            // DIRECT coverage of the resolved hero (the NIT): assert FbxPath IS v4, not merely 'not v3'.
+            Assert.IsTrue(CharacterAssetGen.UseCastawayV4,
+                "v4 default ON ⇒ UseCastawayV4 true regardless of the FARHORIZON_CASTAWAY_V4 env override");
+            Assert.AreEqual(CharacterAssetGen.V4RiggedFbxPath, CharacterAssetGen.FbxPath,
+                "with v4 ACTIVATED, FbxPath must resolve to the v4 rigged base — v4 is the live hero; the v4-first " +
+                "ternary branch now owns the path");
+            Assert.AreNotEqual(CharacterAssetGen.V3RiggedFbxPath, CharacterAssetGen.FbxPath,
+                "FbxPath must NOT resolve to v3 now that v4 is live (v3 is the rollback target, not the resolved path)");
+
+            // ROLLBACK reachability (direct): v3's own default stays ON, so flipping UseCastawayV4Default back to
+            // false makes UseCastawayV3 (still true) re-select the v3 base — a one-line rollback, no other edit.
+            Assert.IsTrue(CharacterAssetGen.UseCastawayV3Default,
+                "v3 must stay reachable as the ROLLBACK target — its default stays ON so a single flip of " +
+                "UseCastawayV4Default back to false re-selects v3 (mirrors how #264 kept v2 behind the v3 toggle)");
         }
 
         // (6) v4 material source — the flat palette the v4 URP/Lit CastawayMat binds must be importable.
