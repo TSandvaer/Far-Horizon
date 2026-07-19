@@ -6,10 +6,11 @@ using UnityEngine.Rendering.Universal;
 namespace FarHorizon
 {
     /// <summary>
-    /// Shipped-build capture of the in-house weapon SET (ticket 86cabh907, Route A) — the re-made
-    /// knapped-flint axe + knife + sword + spear lined up, all on the shared Mat_WeaponPalette. Sibling
+    /// Shipped-build capture of the in-house weapon SET (ticket 86cabh907, Route A) — the 3-tier
+    /// 15-node weapon set (wood/stone/iron tiers x axe/pickaxe/knife/sword/spear) lined up, all on the
+    /// shared Mat_WeaponPalette. Sibling
     /// of AxeVerifyCapture — standalone: it does NOT touch the held-tool rig. It loads a self-contained
-    /// "WeaponSetLineup" prefab from Resources (the four weapons in a row, shared material), parks a
+    /// "WeaponSetLineup" prefab from Resources (the 3-tier 15-node set in wood/stone/iron rows, shared material), parks a
     /// post-enabled capture camera framing the whole family via the deterministic VerifyCaptureFraming
     /// math, and captures weapon_set.png from the BUILT exe.
     ///
@@ -69,7 +70,7 @@ namespace FarHorizon
                 Application.Quit(1); yield break;
             }
 
-            // Three-quarter front view so all four silhouettes + the faceted shading + the edge-bevel
+            // Three-quarter front view so all the tier-row silhouettes + the faceted shading + the edge-bevel
             // + flint reads sit in one frame. Fixed viewDir (deterministic).
             Vector3 viewDir = new Vector3(-0.30f, 0.32f, -1.0f);
             float aspect = Screen.width > 0 && Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
