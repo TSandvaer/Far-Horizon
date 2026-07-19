@@ -58,6 +58,12 @@ namespace FarHorizon.EditorTools
                 ("v3", CharacterAssetGen.V3RiggedFbxPath), ("v4", CharacterAssetGen.V4RiggedFbxPath) })
                 LiveWalkTick(sb, label, path, ctrl);
 
+            // ---- DEFECT 2 (revised): RIGHT hand reads BLACK/segmented at the thumb WHEN GRIPPING; LEFT (never
+            // curled) is clean. Bake the skinned mesh at REST vs GRIPPED + count INWARD-facing normals (a normal
+            // pointing back at the hand centroid renders dark/black under URP/Lit). If gripping spikes the RIGHT
+            // hand's inward count vs its rest AND vs the left, the curl FOLDS/INVERTS v4's thumb geometry. ----
+            ReportHandGrip(sb, CharacterAssetGen.V4RiggedFbxPath);
+
             sb.AppendLine("[v4-diag] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
@@ -212,6 +218,76 @@ namespace FarHorizon.EditorTools
             sb.AppendLine($"[v4-diag] hand-region bind extent (world): {(mx - mn).ToString("F3")} " +
                           "(mitten should be small/compact; a huge extent = exploded/mangled geometry)");
             sb.AppendLine($"[v4-diag] TOTAL mesh verts: {verts.Length}, unweighted(tot<0.5): {CountUnweighted(bw)}");
+        }
+
+        // DEFECT 2 (revised) — bake REST vs GRIPPED + count inward-facing (dark-rendering) normals per hand.
+        private static void ReportHandGrip(StringBuilder sb, string path)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (fbx == null) { sb.AppendLine("[v4-diag] hand-grip: v4 fbx missing"); return; }
+            var go = Object.Instantiate(fbx);
+            var smr = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            var rHand = FindBone(go.transform, "righthand");
+            var lHand = FindBone(go.transform, "lefthand");
+            if (smr == null || rHand == null) { sb.AppendLine("[v4-diag] hand-grip: smr/righthand missing"); Object.DestroyImmediate(go); return; }
+            int[] rIdx = SubtreeVertIdx(smr, rHand);
+            int[] lIdx = lHand != null ? SubtreeVertIdx(smr, lHand) : new int[0];
+
+            var (rRestIn, rTot, rRestC) = InwardCount(smr, rIdx);
+            var (lRestIn, lTot, _) = InwardCount(smr, lIdx);
+
+            // Apply the grip curl (== CastawayFingerCurl: +26deg local-X on right index 1..3).
+            var curl = Quaternion.Euler(26f, 0f, 0f);
+            foreach (var t in new[] { "righthandindex1", "righthandindex2", "righthandindex3" })
+            { var b = FindBone(go.transform, t); if (b != null) b.localRotation = b.localRotation * curl; }
+
+            var (rGripIn, _, rGripC) = InwardCount(smr, rIdx);
+            sb.AppendLine($"[v4-diag] HAND inward-normal count (verts facing INWARD = render dark/black): " +
+                          $"RIGHT rest={rRestIn}/{rTot}  RIGHT gripped={rGripIn}/{rTot}  LEFT rest={lRestIn}/{lTot}");
+            sb.AppendLine($"[v4-diag]   (a jump RIGHT rest->gripped = the curl folds/inverts geometry -> the black read; " +
+                          $"RIGHT gripped >> LEFT rest = the L/R asymmetry the Sponsor sees)");
+            // Handle intersection: gripped right-hand verts near the axe seat (hand-local offset) = thumb-in-handle.
+            Vector3 seat = MovementCameraScene.HeldAxeV4LocalOffsetFromHand;
+            int nearSeat = 0; var bw = smr.sharedMesh.boneWeights;
+            var baked = new Mesh(); smr.BakeMesh(baked, true); var bv = baked.vertices;
+            Matrix4x4 handInv = rHand.worldToLocalMatrix, l2w = smr.transform.localToWorldMatrix;
+            foreach (int vi in rIdx)
+            { Vector3 hl = handInv.MultiplyPoint3x4(l2w.MultiplyPoint3x4(bv[vi])); if ((hl - seat).magnitude < 0.06f) nearSeat++; }
+            Object.DestroyImmediate(baked);
+            sb.AppendLine($"[v4-diag]   gripped right-hand verts within 6cm of the axe seat {seat:F3}: {nearSeat} " +
+                          $"(>0 = thumb/hand geometry INSIDE the handle -> dark wood shows through)");
+            Object.DestroyImmediate(go);
+        }
+
+        private static int[] SubtreeVertIdx(SkinnedMeshRenderer smr, Transform handRoot)
+        {
+            var bones = smr.bones; var bw = smr.sharedMesh.boneWeights;
+            var sub = new HashSet<int>();
+            for (int i = 0; i < bones.Length; i++)
+                if (bones[i] != null && (bones[i] == handRoot || bones[i].IsChildOf(handRoot))) sub.Add(i);
+            var idx = new List<int>();
+            for (int v = 0; v < bw.Length; v++) if (sub.Contains(bw[v].boneIndex0)) idx.Add(v);
+            return idx.ToArray();
+        }
+
+        // Bake the current pose; count verts (of idx) whose WORLD normal points INWARD (back toward the vert
+        // cluster's centroid) — those render dark/black under URP/Lit. Returns (inwardCount, total, centroid).
+        private static (int, int, Vector3) InwardCount(SkinnedMeshRenderer smr, int[] idx)
+        {
+            if (idx.Length == 0) return (0, 0, Vector3.zero);
+            var baked = new Mesh(); smr.BakeMesh(baked, true);
+            var bv = baked.vertices; var bn = baked.normals;
+            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+            Vector3 c = Vector3.zero; foreach (int vi in idx) c += l2w.MultiplyPoint3x4(bv[vi]); c /= idx.Length;
+            int inward = 0;
+            foreach (int vi in idx)
+            {
+                Vector3 wp = l2w.MultiplyPoint3x4(bv[vi]);
+                Vector3 wn = l2w.MultiplyVector(bn[vi]).normalized;
+                if (Vector3.Dot(wn, (wp - c).normalized) < -0.1f) inward++;
+            }
+            Object.DestroyImmediate(baked);
+            return (inward, idx.Length, c);
         }
 
         // ---- shared ----

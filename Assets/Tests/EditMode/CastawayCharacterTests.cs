@@ -571,6 +571,36 @@ namespace FarHorizon.EditTests
                 "ternary branch bakes the v2/old euler here");
         }
 
+        // 86catvb6u — the v4 FOOT-YAW counter-rotate (the Sponsor's chosen pigeon-toe fix) default + bake path.
+        [Test]
+        public void CastawayV4FootYawDeg_ShipsTheMeasuredBindDeltaDefault_86catvb6u()
+        {
+            // The default is the MEASURED v4-vs-v3 bind splay delta (CastawayV4DefectDiag: v4 foot bind yaw ±16.5°
+            // vs v3 ±5.0° → ~11°), so the exe starts near-straight; the Sponsor F9-dials the exact angle then bakes
+            // it here. Pin the constant so a drift/accidental-zero (which would re-ship the pigeon-toe) reds in CI.
+            Assert.AreEqual(11f, MovementCameraScene.CastawayV4FootYawDeg, 1e-4f,
+                "the v4 foot-yaw default must ship the measured bind-delta best-guess (~11°); the Sponsor F9-dials the final");
+        }
+
+        // 86catvb6u — the Boot scene must carry CastawayFootYaw wired: foot bones resolved + footYawDeg defaulting
+        // per hero (v4 = the measured bind-delta; every rollback hero = 0 → feet byte-unchanged). This is the
+        // bake-path guard: BuildModel.AddFootYaw must serialize the component + a NON-zero v4 default so the fix
+        // actually ships (a dropped AddFootYaw call, or a wrong-hero default, reds here). CI re-bakes Boot before
+        // EditMode, so this asserts the CONFIGURED-hero wiring (the committed Boot may be stale locally — CI is truth).
+        [Test]
+        public void Boot_SerializedCastawayFootYaw_WiredForConfiguredHero()
+        {
+            OpenBootAndFindPlayer();
+            var yaw = _player.GetComponentInChildren<CastawayFootYaw>(true);
+            Assert.IsNotNull(yaw, "Boot must carry CastawayFootYaw (the v4 pigeon-toe counter-rotate, wired by AddFootYaw)");
+            Assert.IsNotNull(yaw.leftFoot, "CastawayFootYaw must resolve the LEFT foot bone (else the fix is inert)");
+            Assert.IsNotNull(yaw.rightFoot, "CastawayFootYaw must resolve the RIGHT foot bone (else the fix is inert)");
+            float expected = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4FootYawDeg : 0f;
+            Assert.AreEqual(expected, yaw.footYawDeg, 1e-4f,
+                "footYawDeg must default to the measured bind-delta for v4 (" + MovementCameraScene.CastawayV4FootYawDeg +
+                "), 0 for a rollback hero (feet byte-unchanged — the additive offset early-returns at 0)");
+        }
+
         // (86cakbe2v item 4 — RETIRED) The old IDENTITY-RECOLOR guard `Diffuse_ShirtWarmedToTan_...` was removed
         // here. It read CharacterAssetGen.DiffusePngPath (the OLD base's texture_diffuse.png) off disk directly and
         // asserted the mustard-yellow shirt was warmed to tan — a v1/OLD-base operation. The live hero is now v3

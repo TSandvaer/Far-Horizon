@@ -258,6 +258,14 @@ namespace FarHorizon.EditorTools
         // nudge" screenshot) and asked to bake it as the shipped default: (-10,12,-42). SUPERSEDES (0,0,-22).
         public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
 
+        // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
+        // defect). A per-foot OUTWARD yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4
+        // (0 for v3/v2/old → their feet are byte-unchanged). DEFAULT = the MEASURED v4-vs-v3 bind splay delta
+        // (CastawayV4DefectDiag: v4 foot bind yaw ±16.5° vs v3 ±5.0° → ~11° delta) so it starts near-straight;
+        // the Sponsor F9-dials the exact angle (FOOT-YAW nudge target), then a follow-up bakes his dialed value
+        // here (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools). Signed: + = outward.
+        public const float CastawayV4FootYawDeg = 11f;
+
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
         /// scene. The caller (BootstrapProject.BuildBootScene) has already created the scene with
@@ -1477,6 +1485,33 @@ namespace FarHorizon.EditorTools
                 Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
                           thumbs.Count + " thumb bones, HasAxe-gated" +
                           (fistHandVariant ? "; fist-hand-variant index" + (thumbs.Count > 0 ? "+thumb" : " (no thumb)") + " only" : "") + ")");
+        }
+
+        // The foot bone tokens (colon-stripped mixamorig names) the FOOT-YAW counter-rotate drives (86catvb6u).
+        public const string LeftFootToken = "leftfoot";
+        public const string RightFootToken = "rightfoot";
+
+        // Wire the per-foot YAW counter-rotate (86catvb6u — the Sponsor's chosen v4 pigeon-toe fix) onto the
+        // avatar. Resolves both foot bones from the SMR bone array + serializes the component + bone refs into
+        // Boot.unity (editor-vs-runtime trap, same as AddArmPose/AddFingerCurl). The offset is applied ONLY for v4
+        // (footYawDeg = CastawayV4FootYawDeg); v3/v2/old ship 0 → their feet are byte-unchanged (LateUpdate
+        // early-returns at 0). The Sponsor F9-dials footYawDeg (FOOT-YAW target) live, then a follow-up bakes it.
+        private static void AddFootYaw(CastawayCharacter castaway)
+        {
+            var yaw = castaway.GetComponent<CastawayFootYaw>();
+            if (yaw == null) yaw = castaway.gameObject.AddComponent<CastawayFootYaw>();
+            yaw.leftFoot = FindBoneByExactToken(castaway.transform, LeftFootToken);
+            yaw.rightFoot = FindBoneByExactToken(castaway.transform, RightFootToken);
+            // v4 gets the measured bind-delta default (starts near-straight); every other hero ships 0 (feet
+            // untouched — the rollback path stays byte-identical). The Sponsor dials the exact angle at the soak.
+            yaw.footYawDeg = CharacterAssetGen.UseCastawayV4 ? CastawayV4FootYawDeg : 0f;
+            if (yaw.leftFoot == null || yaw.rightFoot == null)
+                Debug.LogError("[MovementCameraScene] could not resolve foot bones for CastawayFootYaw (left='" +
+                               LeftFootToken + "' found=" + (yaw.leftFoot != null) + ", right='" + RightFootToken +
+                               "' found=" + (yaw.rightFoot != null) + ") — the v4 foot-yaw fix will be inert.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayFootYaw wired (footYawDeg=" + yaw.footYawDeg.ToString("F1") +
+                          (CharacterAssetGen.UseCastawayV4 ? " [v4 — measured bind-delta default; Sponsor F9-finalizes]" : " [non-v4 — 0, feet byte-unchanged]") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -3936,6 +3971,11 @@ namespace FarHorizon.EditorTools
             // (gated on HasAxe so the empty hand stays open). Resolved from the SMR bone array + serialized.
             // AFTER BuildInEditor (the finger bones must exist).
             AddFingerCurl(castaway);
+
+            // FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen v4 pigeon-toe fix). Additive LateUpdate
+            // per-foot outward yaw; v4 defaults to the measured bind-delta (~11°), non-v4 ships 0 (feet unchanged).
+            // AFTER BuildInEditor (the foot bones must exist); F9-dialable (FOOT-YAW target).
+            AddFootYaw(castaway);
 
             // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
             // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.

@@ -119,13 +119,16 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0 = held, 1 = stump, 2 = arm pose, 3 = GROUND-Y offset, 4 = RUN dial
-        // 86cakkfz9: the 6th target (AXE HEAD size) + its mouse slider are REMOVED — head SIZE is authored
-        // Blender geometry now, not a runtime dial (see HeldWeaponCycleDebug's O/I key note). Overall held-scale
-        // is dialed on the HELD target (O/I keys) + the settings-console HeldScale row.
-        private const int TargetCount = 5;
+        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL
+        // 86cakkfz9: the old AXE-HEAD-size target + its mouse slider are REMOVED — head SIZE is authored Blender
+        // geometry now, not a runtime dial. 86catvb6u: TWO targets ADDED for the v4-activation defect round —
+        // FOOT-YAW (dials CastawayFootYaw.footYawDeg, the v4 pigeon-toe counter-rotate; Y/H) + GRIP-CURL (dials
+        // CastawayFingerCurl.fingerCurlDeg so the Sponsor softens v4's chunky-hand grip fold until clean; T/G).
+        private const int TargetCount = 7;
         private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
+        private CastawayFootYaw _footYaw;      // 86catvb6u — FOOT-YAW target dials its footYawDeg (v4 pigeon-toe fix)
+        private CastawayFingerCurl _fingerCurl; // 86catvb6u — GRIP-CURL target dials its fingerCurlDeg (v4 grip fold)
         // 86cabh907 soak round 2 — the HELD target is GENERALIZED to whatever weapon [B] has selected. For the
         // AXE the tool nudges the shared-seat _heldRig (the locked axe baseline); for knife/sword/spear it
         // routes the nudge into this component's per-weapon offset/euler/scale arrays so each weapon is
@@ -241,7 +244,9 @@ namespace FarHorizon
                             : _target == 1 ? _stump != null
                             : _target == 2 ? _armPose != null
                             : _target == 3 ? _castaway != null
-                            : _armPose != null; // target 4 = RUN arm-lower
+                            : _target == 4 ? _armPose != null        // RUN arm-lower
+                            : _target == 5 ? _footYaw != null        // FOOT-YAW (v4 pigeon-toe counter-rotate)
+                            : _fingerCurl != null;                   // GRIP-CURL (v4 grip fold)
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -322,7 +327,7 @@ namespace FarHorizon
                     // are inert on this target (one scalar channel).
                     _castaway.groundYOffset += dp.y;
                 }
-                else if (_armPose != null)
+                else if (_target == 4)
                 {
                     // RUN dial (86caa83wn soak #2 — 'when i run the axe is no longer in the hand'). The detaching
                     // axe-side clamp is GONE; the run into-head is now fixed by LOWERING the right arm while
@@ -332,7 +337,25 @@ namespace FarHorizon
                     // pitch/X, Y/H = yaw/Y for fine-tuning. The lower is INERT at walk/idle (run weight 0 — the
                     // locked WALK pose untouched), so the Sponsor tunes it by RUNNING (the panel shows the run
                     // weight; judge while running). Position keys are inert (arms have no position channel).
-                    _armPose.runLowerEuler += dr;
+                    if (_armPose != null) _armPose.runLowerEuler += dr;
+                }
+                else if (_target == 5)
+                {
+                    // FOOT-YAW (86catvb6u — the v4 pigeon-toe counter-rotate). Y/H dials the per-foot OUTWARD yaw
+                    // (mirrored L/R) until the toes read straight; the rest of the keys are inert (one scalar
+                    // channel). Bake the dialed value into MovementCameraScene.CastawayV4FootYawDeg.
+                    if (_footYaw != null) _footYaw.footYawDeg += dr.y;
+                }
+                else if (_target == 6)
+                {
+                    // GRIP-CURL (86catvb6u — soften v4's chunky-hand grip that reads dark/segmented when gripping).
+                    // T/G dials the right-hand finger-curl degrees (clamped >= 0) + RebuildCached so it shows this
+                    // frame. Bake the dialed value into CastawayFingerCurl.fingerCurlDeg.
+                    if (_fingerCurl != null)
+                    {
+                        _fingerCurl.fingerCurlDeg = Mathf.Max(0f, _fingerCurl.fingerCurlDeg + dr.x);
+                        _fingerCurl.RebuildCached();
+                    }
                 }
                 changed = true;
             }
@@ -362,6 +385,9 @@ namespace FarHorizon
             _stump = FindByName(StumpAxeName);
             _armPose = Object.FindAnyObjectByType<CastawayArmPose>(FindObjectsInactive.Include);
             _castaway = Object.FindAnyObjectByType<CastawayCharacter>(FindObjectsInactive.Include);
+            // 86catvb6u — the FOOT-YAW + GRIP-CURL targets (the v4-activation defect fixes).
+            _footYaw = Object.FindAnyObjectByType<CastawayFootYaw>(FindObjectsInactive.Include);
+            _fingerCurl = Object.FindAnyObjectByType<CastawayFingerCurl>(FindObjectsInactive.Include);
             if (held == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName + "' not found");
             else if (_heldRig == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName +
                 "' has no HeldAxeRig — cannot nudge its world-offset/relEuler (soakfix9 driver missing)");
@@ -373,7 +399,8 @@ namespace FarHorizon
         private string TargetName() =>
             _target == 0 ? "HELD weapon (" + HeldWeaponLabel() + ")" : _target == 1 ? "STUMP axe"
             : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")"
-            : _target == 3 ? "GROUND-Y offset" : "RUN arm-lower";
+            : _target == 3 ? "GROUND-Y offset" : _target == 4 ? "RUN arm-lower"
+            : _target == 5 ? "FOOT-YAW (v4 pigeon-toe)" : "GRIP-CURL (v4 hand)";
 
         // The currently-held weapon's label (AXE/KNIFE/SWORD/SPEAR) for the generalized HELD target panel.
         private string HeldWeaponLabel() => _weaponCycle != null ? _weaponCycle.CurrentLabel : "AXE";
@@ -440,6 +467,12 @@ namespace FarHorizon
                 Debug.Log($"[AxeNudgeTool] RUN  RunLowerEuler=({rl.x:F1}f,{rl.y:F1}f,{rl.z:F1}f)  " +
                           $"(runWeight={_armPose.RunWeight:F2})");
             }
+            else if (_target == 5 && _footYaw != null)
+                // 86catvb6u — bake into MovementCameraScene.CastawayV4FootYawDeg (the v4 pigeon-toe counter-rotate).
+                Debug.Log($"[AxeNudgeTool] FOOT-YAW  CastawayV4FootYawDeg={_footYaw.footYawDeg:F1}f  (+ = toes outward)");
+            else if (_target == 6 && _fingerCurl != null)
+                // 86catvb6u — bake into CastawayFingerCurl.fingerCurlDeg (soften v4's chunky-hand grip fold).
+                Debug.Log($"[AxeNudgeTool] GRIP-CURL  fingerCurlDeg={_fingerCurl.fingerCurlDeg:F1}f  (lower = less fold/dark)");
         }
 
         private static float Norm(float a) { a %= 360f; if (a > 180f) a -= 360f; return a; }
@@ -496,7 +529,11 @@ namespace FarHorizon
                 ? "ARM pose — " + (_armSel == 0 ? "RIGHT arm" : "LEFT arm") + " ([N] switch arm; rotation only)"
                 : _target == 3
                 ? "GROUND-Y offset (feet-on-ground — PgUp/PgDn; affects rest AND walk)"
-                : "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)";
+                : _target == 4
+                ? "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)"
+                : _target == 5
+                ? "FOOT-YAW (v4 pigeon-toe — Y/H yaws both toes outward until straight)"
+                : "GRIP-CURL (v4 hand — T/G softens the grip fold; lower = less dark/segmented)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -555,7 +592,20 @@ namespace FarHorizon
                     ? $"RUN ENGAGED ✓ weight={_armPose.RunWeight:F2} (judge now; dial Z MORE negative to lower the arm)"
                     : $"run weight={_armPose.RunWeight:F2} — RUN (Shift) to engage + judge; walk/idle untouched";
             }
-            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)" : "(arm pose not found)"; eulerLine = ""; }
+            else if (_target == 5 && _footYaw != null)
+            {
+                // 86catvb6u — the v4 pigeon-toe counter-rotate. One scalar (both feet mirror); Y/H dials it.
+                posLine = $"CastawayV4FootYawDeg={_footYaw.footYawDeg:F1}   (Y/H = toes outward/inward; both feet mirror)";
+                eulerLine = "walk to judge — dial until both toes read straight, then bake into CastawayV4FootYawDeg";
+            }
+            else if (_target == 6 && _fingerCurl != null)
+            {
+                // 86catvb6u — soften v4's chunky-hand grip fold (dark/segmented right hand when gripping). T/G dials.
+                posLine = $"fingerCurlDeg={_fingerCurl.fingerCurlDeg:F1}   (T/G = more/less curl; lower = less dark fold)";
+                eulerLine = "hold the axe to judge — dial until the right hand reads as clean as the left, then bake";
+            }
+            else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)"
+                            : _target == 5 ? "(foot-yaw not found)" : _target == 6 ? "(finger-curl not found)" : "(arm pose not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -569,7 +619,7 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held weapon / stump / arm / GROUND-Y / RUN    [N] right<->left arm", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held / stump / arm / GROUND-Y / RUN / FOOT-YAW / GRIP-CURL    [N] right<->left arm", _hintStyle);
             GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
             GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
