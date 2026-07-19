@@ -165,12 +165,54 @@ namespace FarHorizon.EditorTools
         public static bool UseCastawayV3LitMaterial =>
             System.Environment.GetEnvironmentVariable(CastawayV3LitEnvVar) == "1";
 
+        // ===== CASTAWAY v4 (chamfered-blocky "wooden toy" hand-model — ticket 86catpwc4). A NEW hero base:
+        // the SAME castaway IDENTITY as v3 (friendly, teal torn shirt, brown rolled pants, rope belt, barefoot,
+        // stubble) RESTYLED as a deliberate GEOMETRIC/segmented "wooden toy" (40 rigid blocks per limb segment,
+        // ~3.9 heads tall, mitten+thumb hands, painted face + geometry nose). Hand-modeled in Blender (Fable
+        // exception session, Sponsor-approved at look-dev 2026-07-18); NOT the Rodin route — the gestalt-failure
+        // ruling that closed hand-modeling for ORGANIC heroes does NOT apply to a geometric/toy target
+        // (character-pipeline.md §Scope nuance 2026-07-18). Spec: art-src/castaway-v4-README.md.
+        //
+        // The v4 rig is a FRESH Mixamo Standard auto-rig off our OWN Blender export (the FIRST character through
+        // our exporter; phase B re-uploaded castaway_v4_apose_rawfix.fbx with the Blender-FBX-DEFAULT axis recipe
+        // — character-pipeline.md §Step 3 — so it loads face-forward). Phase-B verified PASS 6/6 (ticket comment):
+        // root mixamorig:Hips, 33 bones (v3=41; delta = finger geometry — v4 has ONLY the Index chain per hand +
+        // NO thumb bones), 0 unweighted verts (960 verts, max 5 influences), single skinned mesh CastawayV4
+        // (1760 tris), material CastawayV4Palette, 251-frame idle take, raw axes Up=+Y/Front=+Z/Coord=+X (== v3).
+        // Imported GENERIC + CreateFromThisModel (the anti-Humanoid recipe, 86ca8rdkp; Humanoid cone-explodes the
+        // skinned mesh at runtime). The core mixamorig bones the 18 WITHOUT-skin clips drive by transform path
+        // ARE ALL present (hips/spine*/neck/head, both up-leg/leg/foot/toebase, both shoulder/arm/forearm/hand),
+        // so the existing clip set binds onto v4's mesh with NO retarget — same as v2/v3.
+        //
+        // DORMANT INTEGRATION (mirrors the v2/v3 staged-toggle EXACTLY): v3 STAYS the LIVE default; v4 activates
+        // ONLY under FARHORIZON_CASTAWAY_V4=1 (default OFF), so THIS PR merges dormant-safe (toggle OFF ⇒ v3
+        // byte-unchanged, every consumer gated). Soak (env-var build, sponsor-judged) + the FINAL default-flip /
+        // held-prop re-seat / capture-gate reconciliation are the ACTIVATION ticket (OOS here — v3-activation
+        // precedent 86cak9kau). Source-of-truth export: art-src/castaway-v4-export/; the integration-consumed
+        // subset (rigged mesh + flat palette) is committed under v4/ so the .meta is deterministic.
+        public const string V4Dir = CharDir + "/v4";
+        public const string V4RiggedFbxPath = V4Dir + "/castaway_v4_rigged.fbx"; // WITH skin (Mixamo Idle.fbx: mesh+rig; idle take unused)
+        public const string V4PalettePngPath = V4Dir + "/castaway_v4_palette.png"; // shared flat palette (URP/Lit _BaseMap)
+
+        // v4 STAGED-ROLLOUT TOGGLE (86catpwc4 phase C) — DORMANT: DEFAULT OFF. v3 stays the LIVE hero until the
+        // Sponsor soaks v4 in a shipped build and approves the flip (a SEPARATE activation ticket, per the
+        // v2→v3 precedent 86cak9kau). Resolved at BOOTSTRAP time (CI re-runs BootstrapProject.Run before every
+        // build), so the toggle is honored WITHOUT committing a regenerated Boot.unity. FARHORIZON_CASTAWAY_V4=1
+        // overrides for the env-var SOAK build (character-pipeline.md §Rolling out step 2). With the default OFF,
+        // UseCastawayV4 is false unless the env override is set ⇒ the default build renders v3, byte-unchanged.
+        public const bool UseCastawayV4Default = false;
+        public const string CastawayV4EnvVar = "FARHORIZON_CASTAWAY_V4";
+        public static bool UseCastawayV4 =>
+            System.Environment.GetEnvironmentVariable(CastawayV4EnvVar) == "1" || UseCastawayV4Default;
+
         // The model prefab MovementCameraScene instantiates IS the with-skin mesh FBX (it carries the skin +
-        // rig). Toggle-aware: resolves to the v3 rigged base when UseCastawayV3, else the v2 rigged base when
-        // UseCastawayV2, else the old Idle.fbx. Callers (MovementCameraScene.BuildModel, diagnostics) read
-        // CharacterAssetGen.FbxPath unchanged — the SAME accessor now returns the toggle-selected mesh. v3
-        // default OFF ⇒ with no env override this still returns V2RiggedFbxPath (v2 byte-unchanged).
+        // rig). Toggle-aware, HIGHEST-VERSION-FIRST: v4 when UseCastawayV4 (env override, DORMANT default OFF),
+        // else v3 when UseCastawayV3 (the LIVE default), else v2, else the old Idle.fbx. Callers
+        // (MovementCameraScene.BuildModel, diagnostics) read CharacterAssetGen.FbxPath unchanged — the SAME
+        // accessor now returns the toggle-selected mesh. v4 default OFF ⇒ with no env override this still returns
+        // V3RiggedFbxPath (v3 byte-unchanged — the dormant-safe guard, CastawayV4BaseTests test 5).
         public static string FbxPath =>
+            UseCastawayV4 ? V4RiggedFbxPath :
             UseCastawayV3 ? V3RiggedFbxPath :
             UseCastawayV2 ? V2RiggedFbxPath : IdleFbxPath;
 
@@ -303,6 +345,12 @@ namespace FarHorizon.EditorTools
             // WIRING (which mesh → Boot.unity, which diffuse → CastawayMat) is what UseCastawayV3 gates below —
             // importing the base is cheap + side-effect-free on the v2/old path.
             ConfigureV3BaseFbx();
+            // CASTAWAY v4 (86catpwc4) — ALWAYS configure the v4 base FBX importer (Generic + CreateFromThisModel
+            // + height-normalize), even when the DORMANT toggle is OFF, so its .meta is deterministic + the
+            // EditMode import guards (CastawayV4BaseTests) always have a real import to assert. Same rationale as
+            // v2/v3: the WIRING (which mesh → Boot.unity, which palette → CastawayMat) is what UseCastawayV4 gates;
+            // importing the base is cheap + side-effect-free on the v3/v2/old path.
+            ConfigureV4BaseFbx();
             ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize (the WITH-skin mesh/rig)
             // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle STATE plays. WITHOUT-skin Generic,
             // binds by transform path onto Idle's mesh (the Walk/Run idiom). LOOP (a sustained breathing cycle).
@@ -478,6 +526,70 @@ namespace FarHorizon.EditorTools
                           (UseCastawayV3 ? " [WIRED — UseCastawayV3 ON]" : " [imported only — toggle OFF, v2 castaway live]"));
         }
 
+        // CASTAWAY v4 base (86catpwc4) — the chamfered-blocky hand-model rigged mesh FBX (Mixamo Idle.fbx, WITH
+        // skin: mesh + mixamorig skeleton + an unused idle take). Import config is IDENTICAL to ConfigureV3BaseFbx:
+        // GENERIC + CreateFromThisModel (its OWN avatar from its OWN mixamorig skeleton — the anti-Humanoid recipe;
+        // 86ca8rdkp Humanoid cone-explodes the mesh at runtime) + height-normalize to TargetImportHeightU. The 18
+        // existing WITHOUT-skin clips bind onto THIS mesh by transform path (matching mixamorig bone names) with
+        // NO retarget. importAnimation=false: v4's own idle take is unused (the controller drives BreathingIdle/
+        // Walk/Run/… from the clip FBX). materialImportMode=None: the shared CastawayMat is authored by
+        // BuildMaterial + bound editor-time by MovementCameraScene (no stray FBX mat).
+        //
+        // FBX-7700 STRAY NODE (as with v3): the Mixamo export carries a stray empty `Armature` node; harmless —
+        // CreateFromThisModel builds the avatar from the mixamorig:* skeleton and the empty node becomes inert;
+        // the avatar-valid assert below still guards clip binding. Configured on EVERY bootstrap (toggle-
+        // independent) so the .meta is deterministic + the EditMode import guards always assert a real import;
+        // only the SCENE WIRING is gated on UseCastawayV4.
+        private static void ConfigureV4BaseFbx()
+        {
+            var importer = AssetImporter.GetAtPath(V4RiggedFbxPath) as ModelImporter;
+            if (importer == null)
+            {
+                Debug.LogError("[CharacterAssetGen] castaway v4 base FBX not found at " + V4RiggedFbxPath +
+                               " — v4 integration (86catpwc4) cannot import; v3/v2/old castaway is unaffected");
+                return;
+            }
+
+            importer.animationType = ModelImporterAnimationType.Generic; // NOT Humanoid (86ca8rdkp runtime-explosion)
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = false; // mesh+rig only — clips come from the WITHOUT-skin clip FBX by transform path
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            // HEIGHT NORMALIZE the intrinsic import to ~1u (v4's mesh node carries the Mixamo 100× scale; the raw
+            // mesh is 1.90 m tall). Self-correcting: reads the current globalScale, measures at that scale,
+            // re-scales to hit target — convergent regardless of the committed .meta's starting globalScale (the
+            // old Idle path idiom, shared with ConfigureV2/V3BaseFbx).
+            float measured = MeasureHeight(V4RiggedFbxPath);
+            if (measured > 0.01f)
+            {
+                float factor = importer.globalScale * (TargetImportHeightU / measured);
+                importer.globalScale = factor;
+                Debug.Log($"[CharacterAssetGen] v4 base height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                          $"(target {TargetImportHeightU}u)");
+            }
+            else
+            {
+                Debug.LogWarning("[CharacterAssetGen] could not measure v4 base height — skipping normalize");
+            }
+
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+
+            var avatar = LoadAvatar(V4RiggedFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] castaway v4 base did NOT produce a VALID avatar (avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               ") — clips will not bind (the T-pose class)");
+            else
+                Debug.Log("[CharacterAssetGen] castaway v4 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
+                          (UseCastawayV4 ? " [WIRED — UseCastawayV4 ON]" : " [imported only — DORMANT toggle OFF, v3 castaway live]"));
+        }
+
         // Idle.fbx carries the skin (mesh+rig) + the Idle clip. Humanoid rig, avatar created from THIS model
         // (CreateFromThisModel) — the Mixamo Standard-65 skeleton maps to the Humanoid avatar so the clips
         // bind. Loop the Idle clip; height-normalize the mesh to ~1u.
@@ -623,6 +735,19 @@ namespace FarHorizon.EditorTools
         // MovementCameraScene binds this onto the avatar's SkinnedMeshRenderer(s) editor-time.
         private static void BuildMaterial()
         {
+            // CASTAWAY v4 (86catpwc4) — the chamfered-blocky toy authored a single Blender Principled material
+            // (CastawayV4Palette, Roughness 1, "Closest" interpolation) over a flat 128px palette (color blocks +
+            // a painted face patch). URP equivalent = URP/Lit MATTE (smoothness ~0, NO metallic, NO normal) with
+            // the palette as Base Map + POINT filtering (committed in the palette .meta, mirroring the weapon-
+            // palette import convention). Lit-matte (not Unlit) matches the authored Principled intent so the toy
+            // takes the warm scene key/fog like the rest of the world. Built to the SAME CastawayMat.mat path so
+            // MovementCameraScene.BindCastawayMaterial binds it unchanged; only the shader + source texture switch.
+            if (UseCastawayV4)
+            {
+                BuildV4Material();
+                return;
+            }
+
             // CASTAWAY v3 (86cak41d4) — v3 adopts the WEAPON-FAMILY material contract (86cak3r3k): URP/Unlit +
             // the POSTERIZED diffuse as Base Map, NO normal, NO metallic/roughness (v2's URP/Lit+normal-map was a
             // diagnosed style-mismatch cause). Built to the SAME CastawayMat.mat path so MovementCameraScene's
@@ -713,6 +838,41 @@ namespace FarHorizon.EditorTools
             AssetDatabase.SaveAssets();
             Debug.Log($"[CharacterAssetGen] v3 material built: shader={shaderName} (posterized diffuse Base Map, " +
                       $"no normal/metallic) -> {MaterialPath}" + (lit ? " [LIT A/B variant]" : " [UNLIT primary]"));
+        }
+
+        // CASTAWAY v4 material (86catpwc4) — URP/Lit MATTE over the flat palette (color blocks + painted face
+        // patch), matching the Blender Principled/Roughness-1 authored look: smoothness ~0 (no gloss), NO metallic,
+        // NO specular, NO normal map (the palette carries the flat toy read; a normal/gloss would fight it). Base
+        // Map = castaway_v4_palette.png (POINT-filtered, mips off — committed in the palette .meta so the flat
+        // color dots stay crisp and don't bleed). Written to CastawayMat.mat (bound unchanged by
+        // MovementCameraScene.BindCastawayMaterial). If it reads flat/pasted-in against the lit terrain at the
+        // soak, an Unlit A/B (mirroring the v3 FARHORIZON_CASTAWAY_V3_LIT lever) is a quick follow-up — the
+        // Sponsor rules at soak.
+        private static void BuildV4Material()
+        {
+            var palette = AssetDatabase.LoadAssetAtPath<Texture2D>(V4PalettePngPath);
+            if (palette == null)
+            {
+                Debug.LogError("[CharacterAssetGen] v4 palette not found at " + V4PalettePngPath +
+                               " — v4 material cannot build");
+                return;
+            }
+
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader == null) { Debug.LogError("[CharacterAssetGen] URP/Lit shader not found"); return; }
+
+            var mat = new Material(litShader) { name = "CastawayMat" };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", palette);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.03f); // matte/toy — no gloss
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+            if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+
+            EnsureShaderAlwaysIncluded(litShader);
+            AssetDatabase.CreateAsset(mat, MaterialPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[CharacterAssetGen] v4 material built: URP/Lit matte (palette Base Map, point-filtered, " +
+                      "no normal/metallic) -> " + MaterialPath);
         }
 
         // IDENTITY RECOLOR (86ca8rdkp AC4) — warm the saturated-yellow SHIRT region of texture_diffuse toward
@@ -2057,6 +2217,78 @@ namespace FarHorizon.EditorTools
             if (v2Go) Object.DestroyImmediate(v2Go);
             Object.DestroyImmediate(v3Go);
             sb.AppendLine("[v3-seat] ===== END =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CASTAWAY v4 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86catpwc4 — the v4 ACTIVATION re-seat) =====
+        // The v4 sibling of CastawayV2/V3HandAxisTrace. THIS is the "fresh bone-axis measure" the phase-C import
+        // flags call for — but it is run at ACTIVATION (a live editor), NOT baked in the dormant phase-C PR (the
+        // FINAL re-seat + F9 dial are the activation ticket, per character-pipeline.md §Rolling out step 3). It
+        // dumps, in ONE headless run, every number the v4 activation needs so the re-seat + finger-curl
+        // reconciliation are MEASURED, not guessed:
+        //   (1) v4's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
+        //       held-axe seat re-measure. v4 is a FRESH Mixamo Standard rig off OUR Blender export whose hand-bone
+        //       bind orientation differs from v3's, so v3's seat does NOT carry 1:1 (the placeholder below is v3's,
+        //       explicitly UNMEASURED, pending THIS trace).
+        //   (2) A MEASURED first-pass v4 seat = the Sponsor-APPROVED v3 LIVE world carry TRANSFERRED onto v4's hand
+        //       frame (the axe MESH is identical, so matching its WORLD orientation reproduces the live-approved
+        //       look — v3's seat IS the current live-approved carry):
+        //         relEuler_v4 = eulerAngles( Inv(R_v4hand) * R_v3hand * Euler(HeldAxeV3RelEuler) )
+        //         offset_v4   = Inv(R_v4hand) * ( R_v3hand * HeldAxeV3LocalOffsetFromHand )
+        //       computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses, printed
+        //       ready-to-bake into MovementCameraScene.HeldAxeV4*; the Sponsor F9-finalizes the exact grip in the
+        //       soak (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools).
+        //   (3) v4's right-hand FINGER/THUMB resolution (the finger-curl floor reconciliation — v4 is the 33-bone
+        //       rig with ONLY the Index chain + NO thumb bones, so it resolves index 1-3 = 3 curl bones, exactly
+        //       the fist-hand floor) + the heads-tall proportion fingerprint.
+        // Run headless (at ACTIVATION — needs a live editor + a free build lane):
+        //   Unity … -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV4HandAxisTrace
+        public static void CastawayV4HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v4-seat] ===== CASTAWAY v4 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86catpwc4) =====");
+
+            var v3Go = InstantiateBareForTrace(V3RiggedFbxPath, sb, "v3");
+            var v4Go = InstantiateBareForTrace(V4RiggedFbxPath, sb, "v4");
+            if (v4Go == null)
+            {
+                if (v3Go) Object.DestroyImmediate(v3Go);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            Transform v3Hand = v3Go != null ? FindBoneExactForTrace(v3Go.transform, "righthand") : null;
+            Transform v4Hand = FindBoneExactForTrace(v4Go.transform, "righthand");
+            sb.AppendLine($"[v4-seat] RightHand found: v3={(v3Hand != null)} v4={(v4Hand != null)}");
+            if (v3Hand != null) LogFrameForTrace(sb, "v3 -RightHand", v3Hand);
+            if (v4Hand != null) LogFrameForTrace(sb, "v4 -RightHand", v4Hand);
+
+            if (v3Hand != null && v4Hand != null)
+            {
+                Quaternion rV3 = v3Hand.rotation, rV4 = v4Hand.rotation;
+                // (2) WORLD-TRANSFER: reproduce the approved v3 LIVE world carry on v4's hand frame.
+                Quaternion axeWorld = rV3 * Quaternion.Euler(MovementCameraScene.HeldAxeV3RelEuler);
+                Vector3 relV4 = NormEuler((Quaternion.Inverse(rV4) * axeWorld).eulerAngles);
+                Vector3 worldOff = rV3 * MovementCameraScene.HeldAxeV3LocalOffsetFromHand;
+                Vector3 offV4 = Quaternion.Inverse(rV4) * worldOff;
+                sb.AppendLine("[v4-seat] --- MEASURED first-pass seat (WORLD-TRANSFER of the approved v3 live carry) ---");
+                sb.AppendLine($"[v4-seat]   HeldAxeV4RelEuler            = new Vector3({relV4.x:F1}f, {relV4.y:F1}f, {relV4.z:F1}f);");
+                sb.AppendLine($"[v4-seat]   HeldAxeV4LocalOffsetFromHand = new Vector3({offV4.x:F4}f, {offV4.y:F4}f, {offV4.z:F4}f);");
+                // Fallback: axe long axis (+Y) -> world UP (head straight up) — a facing-agnostic sanity option.
+                Vector3 relUp = NormEuler(Quaternion.Inverse(rV4).eulerAngles);
+                sb.AppendLine($"[v4-seat]   [ALT world-up head-up] HeldAxeV4RelEuler = new Vector3({relUp.x:F1}f, {relUp.y:F1}f, {relUp.z:F1}f);");
+            }
+
+            // (3a) FINGER-CURL reconciliation: which of the curl/thumb tokens exist on v4's rig? (index 1-3, no thumb)
+            LogFingerResolutionForTrace(sb, v4Go.transform);
+            // (3b) CHUNKY-band reconciliation: v4's heads-tall proportion fingerprint.
+            LogHeadsTallForTrace(sb, v4Go.transform);
+
+            if (v3Go) Object.DestroyImmediate(v3Go);
+            Object.DestroyImmediate(v4Go);
+            sb.AppendLine("[v4-seat] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
