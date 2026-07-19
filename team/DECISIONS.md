@@ -17,6 +17,22 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 
 ---
 
+## 2026-07-19 — Combat cluster: SPEC PREP starts now; implementation gated on #317 (v4 activation) merge
+
+- Decided by: Sponsor (orchestrator popup, 2026-07-19)
+- Decision: Combat-cluster **spec prep begins immediately** (AC-flesh, design brief, sequencing) while `#317` (castaway v4 activation) finishes; **implementation of every combat ticket still waits for `#317`'s merge**. The six cluster tickets — swings `86caffwv5`, boar `86cah7ydt`, find-in-world weapons `86cah7y5b`, weapon-roster expansion `86cah7ym9`, additional status effects `86cah7yuh`, HP-HUD polish + heal sources `86cah7z2q` — stay `to do` (prep ≠ implementation) and each carries a `#317-merge` implementation gate.
+- Why: v4 is the live hero the combat verbs animate on (swings play on the castaway animator); prepping specs in parallel keeps the non-build lane full without dispatching impl against a hero that is mid-activation. Splitting prep from impl lets the design settle before code starts.
+- Reversibility: reversible (prep is docs/ACs only; no code committed until #317 merges)
+- Affects: combat cluster (6 tickets), Devon + Drew + Uma + Tess; sequencing per the sibling decision below
+
+## 2026-07-19 — Combat cluster order: SWINGS first, boar second
+
+- Decided by: Sponsor (orchestrator popup, 2026-07-19)
+- Decision: The combat cluster is sequenced **swings first** (`86caffwv5` — attack animation per weapon: a Mixamo clip per weapon class, one-click-one-strike active input) **then the wild boar** (`86cah7ydt` — 2nd enemy + weapon-vs-mob matchup proof). Recorded on both tickets.
+- Why: a weapon that reads as a real attack is the foundation the enemy matchup builds on — the boar's "spear beats boar via reach + weak-to-pierce" proof only lands once the swings feel like real attacks. Sponsor-picked order.
+- Reversibility: reversible (sequencing only)
+- Affects: combat cluster dispatch order, Drew + Devon
+
 ## 2026-07-08 — Crafting system redesigned: placed recipe-menu table + 3 tiers + unified place-to-build
 
 - Decided by: Sponsor + orchestrator (grill-resolved, ticket `86camz6n0`, 2026-07-08; grounded on the forge-soak feedback in `86camyvzw`/`86camyvwn`)
