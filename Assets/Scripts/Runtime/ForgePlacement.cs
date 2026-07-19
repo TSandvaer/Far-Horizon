@@ -42,7 +42,7 @@ namespace FarHorizon
     /// editor-time into Boot.unity (MovementCameraScene.BuildForge), NOT at Awake. NO mutable statics. The camera
     /// is resolved via the MainCamera tag (cached, never per-frame).
     /// </summary>
-    public class ForgePlacement : MonoBehaviour
+    public class ForgePlacement : MonoBehaviour, IBuildPlaceable
     {
         [Header("Wiring (serialized editor-time)")]
         [Tooltip("The ledger the wood + stone forge cost is debited from. Wired at bootstrap; scene-found fallback.")]
@@ -67,10 +67,9 @@ namespace FarHorizon
         public int stoneCost = ForgeStoneCostDefault;
 
         [Header("Placement")]
-        [Tooltip("Key to ENTER forge placement (when no forge is built yet). V — a Danish-safe letter, free of the " +
-                 "gameplay keys (C is the table). INTERIM: the general 'build menu of placeables' is a follow-up " +
-                 "ticket (86catpvpa); this direct key stands in until then. Confirm/cancel are mouse+Escape.")]
-        public KeyCode buildKey = KeyCode.V;
+        // The interim V-direct-placement build key is RETIRED (86catpvpa): the Sponsor's first soak was
+        // confused by it ("'C' should open a crafting menu allowing me to build the forge also"). The
+        // BuildMenuUI (C) is now the SINGLE build entry point and calls EnterPlacement() on the forge row.
         [Tooltip("Key to cancel placement (exit with no debit).")]
         public KeyCode cancelKey = KeyCode.Escape;
         [Tooltip("Degrees the ghost yaw rotates per scroll notch (the scroll wheel rotates the ghost while placing; " +
@@ -179,8 +178,9 @@ namespace FarHorizon
 
             if (!_placing)
             {
-                // Entering is NOT gated on affordability — enter empty-handed to SEE the "need materials" red cue.
-                if (Input.GetKeyDown(buildKey)) EnterPlacement();
+                // The BUILD MENU (BuildMenuUI, C) is the SINGLE build entry point (86catpvpa) — it calls
+                // EnterPlacement() when the forge row is selected. No self-poll build key here (the interim
+                // V-direct-placement is RETIRED). Placement owns Escape/scroll/LMB once active.
                 return;
             }
 
@@ -198,6 +198,24 @@ namespace FarHorizon
         /// <summary>True iff the pack can afford the forge (both mats). Read-only.</summary>
         public bool CanAffordForge()
             => inventory != null && CanAfford(inventory.WoodCount, inventory.StoneCount, woodCost, stoneCost);
+
+        // ============================================================================================
+        // IBuildPlaceable — the shared build-menu seam (86catpvpa). BuildMenuUI lists this as a row and,
+        // on an affordable selection, calls BeginBuildPlacement() → the ① ghost flow (EnterPlacement).
+        // ============================================================================================
+
+        /// <summary>IBuildPlaceable: the row label + per-structure identifier.</summary>
+        public string BuildDisplayName => "Forge";
+        /// <summary>IBuildPlaceable: wood cost (spec §5 default; soak-tunable).</summary>
+        public int BuildWoodCost => woodCost;
+        /// <summary>IBuildPlaceable: stone cost (spec §5 default — a stone furnace; soak-tunable).</summary>
+        public int BuildStoneCost => stoneCost;
+        /// <summary>IBuildPlaceable: affordable iff the pack can afford the forge (both mats).</summary>
+        public bool CanAffordBuild => CanAffordForge();
+        /// <summary>IBuildPlaceable: built once the forge is placed (one forge in ③).</summary>
+        public bool IsBuildComplete => HasBuilt;
+        /// <summary>IBuildPlaceable: enter the ① free-cursor ghost-placement flow (== EnterPlacement).</summary>
+        public void BeginBuildPlacement() => EnterPlacement();
 
         /// <summary>
         /// Enter placement mode (show the ghost). No-op if already placing / no forge left to place. NOT gated on

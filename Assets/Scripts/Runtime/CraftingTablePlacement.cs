@@ -21,7 +21,8 @@ namespace FarHorizon
     /// left-click can NEVER leak to a world verb (chop/mine/attack), and (b) the scroll wheel never zooms the
     /// camera (the OrbitCamera swallows scroll while <see cref="UiInputGate.CaptureWorldInput"/> is set — the
     /// F3 "UiInputGate pattern"). Placement reads its OWN Input.* directly, so the gate never blocks it.
-    /// A full free-cursor build MENU per structure is the ②/③ generalisation (`86catpvpa`).
+    /// The free-cursor build MENU per structure now fronts this flow (<see cref="BuildMenuUI"/>, 86catpvpa):
+    /// the interim C-direct-placement key is RETIRED; the menu calls <see cref="EnterPlacement"/> on select.
     ///
     /// === Reuses the proven debit seam (spec §2 regression boundary) ===
     /// The confirm ends in the SAME all-or-nothing <see cref="Inventory.SpendWood"/> / <see cref="Inventory.SpendStone"/>
@@ -57,7 +58,7 @@ namespace FarHorizon
     /// authored editor-time into Boot.unity (MovementCameraScene), NOT at Awake. NO mutable statics. The camera
     /// is resolved via the MainCamera tag (cached, never per-frame — unity6-mastery §5).
     /// </summary>
-    public class CraftingTablePlacement : MonoBehaviour
+    public class CraftingTablePlacement : MonoBehaviour, IBuildPlaceable
     {
         [Header("Wiring (serialized editor-time)")]
         [Tooltip("The ledger the wood + stone table cost is debited from. Wired at bootstrap; scene-found fallback.")]
@@ -84,10 +85,8 @@ namespace FarHorizon
         public int stoneCost = CraftingRecipeBook.TableStoneCost;
 
         [Header("Placement")]
-        [Tooltip("Key to ENTER placement (when no table is built yet). C — a Danish-safe letter, free of the " +
-                 "gameplay keys. INTERIM: the general 'build menu of placeables' (also C) is a follow-up " +
-                 "ticket (86catpvpa); this direct key stands in until then. Confirm/cancel are mouse+Escape (F2).")]
-        public KeyCode buildKey = KeyCode.C;
+        // The interim C-direct-placement build key is RETIRED (86catpvpa): the BuildMenuUI (C) is now the
+        // SINGLE build entry point and calls EnterPlacement() when the crafting-table row is selected.
         [Tooltip("Key to cancel placement (exit with no debit).")]
         public KeyCode cancelKey = KeyCode.Escape;
         [Tooltip("Degrees the ghost yaw rotates per scroll notch (F3 — the scroll wheel rotates the ghost while " +
@@ -195,9 +194,9 @@ namespace FarHorizon
 
             if (!_placing)
             {
-                // F4: entering is NOT gated on affordability — enter empty-handed to SEE the "need materials"
-                // red cue. Confirm is what enforces the cost.
-                if (Input.GetKeyDown(buildKey)) EnterPlacement();
+                // The BUILD MENU (BuildMenuUI, C) is the SINGLE build entry point (86catpvpa) — it calls
+                // EnterPlacement() when the crafting-table row is selected. No self-poll build key here (the
+                // interim C-direct-placement is RETIRED). Placement owns Escape/scroll/LMB once active.
                 return;
             }
 
@@ -215,6 +214,24 @@ namespace FarHorizon
         public bool CanAffordTable()
             => inventory != null &&
                ForgePlacement.CanAfford(inventory.WoodCount, inventory.StoneCount, woodCost, stoneCost);
+
+        // ============================================================================================
+        // IBuildPlaceable — the shared build-menu seam (86catpvpa). BuildMenuUI lists this as a row and,
+        // on an affordable selection, calls BeginBuildPlacement() → the ① ghost flow (EnterPlacement).
+        // ============================================================================================
+
+        /// <summary>IBuildPlaceable: the row label + per-structure identifier.</summary>
+        public string BuildDisplayName => "Crafting Table";
+        /// <summary>IBuildPlaceable: wood cost (the §5 default; soak-tunable).</summary>
+        public int BuildWoodCost => woodCost;
+        /// <summary>IBuildPlaceable: stone cost (the §5 default; soak-tunable).</summary>
+        public int BuildStoneCost => stoneCost;
+        /// <summary>IBuildPlaceable: affordable iff the pack can afford the table (both mats).</summary>
+        public bool CanAffordBuild => CanAffordTable();
+        /// <summary>IBuildPlaceable: built once the table is placed (one table in ①).</summary>
+        public bool IsBuildComplete => table != null && table.IsBuilt;
+        /// <summary>IBuildPlaceable: enter the ① free-cursor ghost-placement flow (== EnterPlacement).</summary>
+        public void BeginBuildPlacement() => EnterPlacement();
 
         /// <summary>
         /// Enter placement mode (show the ghost). No-op if already placing / no table left to place. NOT gated
