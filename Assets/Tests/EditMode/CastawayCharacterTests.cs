@@ -205,20 +205,33 @@ namespace FarHorizon.EditTests
                 $"the feet must sit near the model origin (feetY={feetY:F3}) so localPosition zero grounds them");
         }
 
-        // The DE-LIT MATERIAL guard: the authored CastawayMat must bind texture_diffuse on _BaseMap. The
-        // flat toon look (de-lit albedo) must ship — a missing-texture grey is a silent identity loss. The
-        // shirt recolor repaints THIS diffuse, so the binding must survive.
+        // The MATERIAL-IDENTITY guard (86catvb6u — made IDENTITY-SPECIFIC for the v4 activation). The authored
+        // CastawayMat must bind the ACTIVE hero's _BaseMap source — a missing/wrong binding is a silent identity
+        // loss (ships grey or the wrong base). This gate IS identity-specific: BuildMaterial picks the source PER
+        // hero (v4-first) — v4 → the flat palette (castaway_v4_palette), v3 → the posterized diffuse, v2 → its
+        // de-lit diffuse, old → the recolored texture_diffuse. The prior check `tex.name.Contains("texture_diffuse")`
+        // silently mis-passed for v2/v3 (both source names contain "texture_diffuse") and RED for v4 (whose palette
+        // does not) — so it asserted the OLD identity, not the live one. Assert the bound _BaseMap resolves to the
+        // CONFIGURED hero's exact source PNG so it holds across every activation AND rollback.
         [Test]
         public void Material_BindsTheDiffuseToonAtlas()
         {
             var mat = AssetDatabase.LoadAssetAtPath<Material>(CharacterAssetGen.MaterialPath);
-            Assert.IsNotNull(mat, "the de-lit CastawayMat must exist at " + CharacterAssetGen.MaterialPath);
+            Assert.IsNotNull(mat, "the CastawayMat must exist at " + CharacterAssetGen.MaterialPath);
             Assert.IsTrue(mat.HasProperty("_BaseMap"), "the material must have a _BaseMap");
             var tex = mat.GetTexture("_BaseMap");
-            Assert.IsNotNull(tex, "the material must bind a diffuse texture on _BaseMap (else it ships grey)");
-            Assert.IsTrue(tex.name.Contains(CharacterAssetGen.DiffuseTextureName),
-                "the bound _BaseMap must be the toon diffuse '" + CharacterAssetGen.DiffuseTextureName +
-                "' — else the flat toon look ships as grey/wrong");
+            Assert.IsNotNull(tex, "the material must bind a _BaseMap texture (else it ships grey)");
+
+            // The expected _BaseMap source PNG for the CONFIGURED-default hero (mirrors BuildMaterial's per-hero
+            // selection, v4-first). The bound texture IS the asset loaded from that path, so its asset path must equal it.
+            string expectedSource =
+                CharacterAssetGen.UseCastawayV4 ? CharacterAssetGen.V4PalettePngPath :
+                CharacterAssetGen.UseCastawayV3 ? CharacterAssetGen.V3DiffusePosterizedPngPath :
+                CharacterAssetGen.UseCastawayV2 ? CharacterAssetGen.V2DiffusePngPath :
+                                                  CharacterAssetGen.DiffusePngPath;
+            Assert.AreEqual(expectedSource, AssetDatabase.GetAssetPath(tex),
+                "the bound _BaseMap must be the ACTIVE hero's source PNG (" + expectedSource + ") — under v4 this " +
+                "is the flat palette, not the v3/old texture_diffuse atlas; a wrong binding ships grey or the wrong identity");
         }
 
         // The CHUNKY guard: the shipped scene's castaway must read in the toy proportion band. This catches a

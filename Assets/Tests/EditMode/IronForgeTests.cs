@@ -145,7 +145,9 @@ namespace FarHorizon.EditTests
         public void HeldWeaponPicker_AppendsFourIron_ArraysConsistent_StoneTierUnchanged()
         {
             int n = HeldWeaponCycleDebug.WeaponNodeNames.Length;
-            Assert.AreEqual(10, n, "the picker has 6 stone-era nodes + 4 appended iron weapons (③)");
+            Assert.Greater(n, HeldWeaponCycleDebug.SpearIronFamilyIndex,
+                "the picker must carry the full appended iron tier (through SpearIronFamilyIndex) — pin the iron " +
+                "contract by INDEX, not a fixed total, because later tiers append (wood added 5 more, 86catvb6u §3) (③)");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponLabels.Length, "labels array length matches");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "scale seat array length matches");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "offset seat array length matches");
