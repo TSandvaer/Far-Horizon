@@ -646,6 +646,33 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // 86catvb6u round-5 — the v4 RIGHT-WRIST un-roll (the DIRECT-KNOB fix after the mirror-left arm euler
+        // missed). The auto-rig gave the right hand bone a rolled bind frame; the bone-local correction makes it
+        // render-mirror the left. Pin the measured seed + guard it's non-zero (a zero re-ships the turned hand).
+        [Test]
+        public void CastawayV4RightWristEuler_ShipsTheMeasuredRenderMirrorCorrection_86catvb6u()
+        {
+            Assert.AreEqual(new Vector3(17.7f, -3.5f, -0.9f), MovementCameraScene.CastawayV4RightWristEuler,
+                "the v4 right-wrist correction must ship the measured render-mirror seed (17.7,-3.5,-0.9); Sponsor F9-dials from here");
+            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
+                "the v4 right-wrist correction must be NON-zero (a zero re-ships the un-mirrored right hand — the defect)");
+        }
+
+        // 86catvb6u round-5 — the Boot scene must carry CastawayRightWristPose wired: hand bone resolved +
+        // wristEuler defaulting per hero (v4 = the measured correction; rollback = 0 → right hand byte-unchanged).
+        // Bake-path guard: a dropped AddRightWristPose call, or a wrong-hero default, reds here. CI re-bakes Boot.
+        [Test]
+        public void Boot_SerializedRightWristPose_WiredForConfiguredHero()
+        {
+            OpenBootAndFindPlayer();
+            var wrist = _player.GetComponentInChildren<CastawayRightWristPose>(true);
+            Assert.IsNotNull(wrist, "Boot must carry CastawayRightWristPose (the v4 right-hand un-roll, wired by AddRightWristPose)");
+            Assert.IsNotNull(wrist.rightHand, "CastawayRightWristPose must resolve the right hand bone (else the fix is inert)");
+            Vector3 expected = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4RightWristEuler : Vector3.zero;
+            Assert.That((wrist.wristEuler - expected).magnitude, Is.LessThan(1e-2f),
+                "wristEuler must default to the measured correction for v4, 0 for a rollback hero (right hand byte-unchanged)");
+        }
+
         // (86cakbe2v item 4 — RETIRED) The old IDENTITY-RECOLOR guard `Diffuse_ShirtWarmedToTan_...` was removed
         // here. It read CharacterAssetGen.DiffusePngPath (the OLD base's texture_diffuse.png) off disk directly and
         // asserted the mustard-yellow shirt was warmed to tan — a v1/OLD-base operation. The live hero is now v3

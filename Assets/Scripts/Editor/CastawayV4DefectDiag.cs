@@ -71,6 +71,12 @@ namespace FarHorizon.EditorTools
             // is the v4 symmetric default. Validates the mirror on the arm-pose-OFF (clip-only) idle pose. ----
             ReportArmRoll(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
 
+            // ---- DEFECT 3 (round-5, DIRECT-KNOB): the mirror-left ARM euler did NOT fix the right hand — the
+            // auto-rig gave the right HAND BONE a differently-ROLLED bind frame than the left, so a mirrored
+            // upper-arm OFFSET can't mirror the hand RESULT. Measure the L/R hand-BONE bind frames + derive the
+            // right-WRIST correction (bone-local) that makes the rendered right hand == mirror(left) at idle. ----
+            ReportWristCorrection(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
+
             sb.AppendLine("[v4-diag] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
@@ -340,6 +346,53 @@ namespace FarHorizon.EditorTools
                 float mismatch = Quaternion.Angle(rHand.rotation, mir);
                 sb.AppendLine($"[v4-diag] arm-roll [{name}]: right-vs-mirrored-left mismatch = {mismatch:F1}deg  (lower = more symmetric; clip-only ~ the rig's inherent asymmetry)");
             }
+            Object.DestroyImmediate(go);
+        }
+
+        // DEFECT 3 round-5 — measure the L/R hand-BONE bind frames + derive the right-WRIST bone-local correction
+        // that makes the rendered right hand == mirror(left) at idle (the seed for the F9 WRIST knob).
+        private static void ReportWristCorrection(StringBuilder sb, string path, RuntimeAnimatorController ctrl)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (fbx == null || ctrl == null) { sb.AppendLine("[v4-diag] wrist: fbx/ctrl missing"); return; }
+            Avatar avatar = null;
+            foreach (var o in AssetDatabase.LoadAllAssetsAtPath(path)) if (o is Avatar a) avatar = a;
+            var go = Object.Instantiate(fbx);
+            var rHand = FindBone(go.transform, "righthand"); var lHand = FindBone(go.transform, "lefthand");
+            var rArm = FindBone(go.transform, "rightarm"); var lArm = FindBone(go.transform, "leftarm");
+            if (rHand == null || lHand == null) { sb.AppendLine("[v4-diag] wrist: hand bones missing"); Object.DestroyImmediate(go); return; }
+
+            // (1) BIND frames (at instantiate, no tick = rest pose). Mirror = negate y,z of the quaternion
+            // (reflection across the X-plane, axis-angle-derived). Validate the mirror on the UPPER ARMS (an
+            // A-pose is ~symmetric → small delta EXPECTED); a LARGE hand delta = the auto-rig's rolled hand frame.
+            Quaternion Mir(Quaternion q) => new Quaternion(q.x, -q.y, -q.z, q.w);
+            void LogFrame(string lbl, Transform t) => sb.AppendLine(
+                $"[v4-diag] {lbl}: localEuler=({N(t.localEulerAngles.x):F1},{N(t.localEulerAngles.y):F1},{N(t.localEulerAngles.z):F1}) " +
+                $"+X=({t.right.x:F2},{t.right.y:F2},{t.right.z:F2}) +Y=({t.up.x:F2},{t.up.y:F2},{t.up.z:F2}) +Z=({t.forward.x:F2},{t.forward.y:F2},{t.forward.z:F2})");
+            LogFrame("v4 BIND leftHand ", lHand);
+            LogFrame("v4 BIND rightHand", rHand);
+            if (rArm != null && lArm != null)
+                sb.AppendLine($"[v4-diag] BIND upper-ARM mirror delta (validate the mirror; small=OK): {Quaternion.Angle(rArm.rotation, Mir(lArm.rotation)):F1}deg");
+            sb.AppendLine($"[v4-diag] BIND HAND mirror delta (right vs mirrored-left) = {Quaternion.Angle(rHand.rotation, Mir(lHand.rotation)):F1}deg  (large = the rolled right-hand bind frame the auto-rig gave)");
+
+            // (2) LIVE idle + the SHIPPED v4 arm-pose (right (-5,-22,0), left (-5,22,0)) — the dial-4 state the
+            // Sponsor sees. Derive the bone-local WRIST correction: corr = Inv(R_right) * mirror(R_left), so
+            // rightHand.local *= corr => rightHand.world == mirror(leftHand.world) == the rendered mirror.
+            var anim = go.GetComponent<Animator>() ?? go.AddComponent<Animator>();
+            anim.runtimeAnimatorController = ctrl; if (avatar != null) anim.avatar = avatar;
+            anim.applyRootMotion = false; anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            anim.Rebind(); anim.Play("Idle", 0, 0f); anim.SetBool("Moving", false); anim.SetBool("Grounded", true); anim.SetFloat("Speed", 0f);
+            for (int i = 0; i < 12; i++) anim.Update(0.1f);
+            if (lArm != null) lArm.localRotation = lArm.localRotation * Quaternion.Euler(-5f, 22f, 0f);
+            if (rArm != null) rArm.localRotation = rArm.localRotation * Quaternion.Euler(-5f, -22f, 0f);
+            Quaternion RL = lHand.rotation, RR = rHand.rotation, mirL = Mir(RL);
+            sb.AppendLine($"[v4-diag] LIVE idle HAND mirror delta (pre-correction) = {Quaternion.Angle(RR, mirL):F1}deg");
+            Quaternion corr = Quaternion.Inverse(RR) * mirL;
+            Vector3 corrE = new Vector3(N(corr.eulerAngles.x), N(corr.eulerAngles.y), N(corr.eulerAngles.z));
+            sb.AppendLine($"[v4-diag] --- SEED: CastawayV4RightWristEuler = new Vector3({corrE.x:F1}f, {corrE.y:F1}f, {corrE.z:F1}f);");
+            // Verify: apply the correction bone-local + re-measure (should be ~0).
+            rHand.localRotation = rHand.localRotation * corr;
+            sb.AppendLine($"[v4-diag] POST-correction HAND mirror delta = {Quaternion.Angle(rHand.rotation, mirL):F1}deg (expect ~0 — the seed makes the right hand render-mirror the left)");
             Object.DestroyImmediate(go);
         }
 

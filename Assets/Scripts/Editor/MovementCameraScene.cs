@@ -280,6 +280,16 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 CastawayV4RightArmEuler = new Vector3(-5f, -22f, 0f); // mirror-of-left (measured symmetric)
         public static readonly Vector3 CastawayV4LeftArmEuler = new Vector3(-5f, 22f, 0f);   // == the v3 left (read fine)
 
+        // ===== CASTAWAY v4 RIGHT-WRIST correction (86catvb6u round-5 — the DIRECT-KNOB fix after the mirror-left
+        // ARM euler MISSED). The arm-pose repositions the UPPER ARM; it cannot correct the right HAND BONE's own
+        // rolled bind frame. MEASURED (CastawayV4DefectDiag round-5): the v4 auto-rig gave the right hand a bind
+        // frame rolled 11.7° off the mirrored left (18.1° live) — the palm reads turned. This bone-local hand
+        // offset (CastawayRightWristPose, order 65) rotates the hand directly to render-mirror the left. Default =
+        // the derived correction Inv(R_right)·mirror(R_left) at idle (POST-correction mismatch verified 0.0°); the
+        // Sponsor F9-dials the exact grip by eye (WRIST target — his eye is the A/B). Applied ONLY for v4 (0 for
+        // v3/v2/old → their right hand reads fine, byte-unchanged).
+        public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(17.7f, -3.5f, -0.9f); // measured render-mirror correction
+
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
         /// scene. The caller (BootstrapProject.BuildBootScene) has already created the scene with
@@ -1537,7 +1547,29 @@ namespace FarHorizon.EditorTools
                                "' found=" + (yaw.rightFoot != null) + ") — the v4 foot-yaw fix will be inert.");
             else
                 Debug.Log("[MovementCameraScene] CastawayFootYaw wired (footYawDeg=" + yaw.footYawDeg.ToString("F1") +
-                          (CharacterAssetGen.UseCastawayV4 ? " [v4 — measured bind-delta default; Sponsor F9-finalizes]" : " [non-v4 — 0, feet byte-unchanged]") + ")");
+                          (CharacterAssetGen.UseCastawayV4 ? " [v4 — Sponsor-dialed -15]" : " [non-v4 — 0, feet byte-unchanged]") + ")");
+        }
+
+        // The right HAND bone token the WRIST correction drives (86catvb6u round-5).
+        public const string RightHandToken = "righthand";
+
+        // Wire the right-WRIST correction (86catvb6u round-5 — the DIRECT-KNOB fix for the "right hand doesn't
+        // mirror the left" defect after the mirror-left arm euler missed). Resolves the right hand bone from the
+        // SMR bone array + serializes the component + bone ref into Boot.unity. Applied ONLY for v4 (wristEuler =
+        // the MEASURED render-mirror correction CastawayV4RightWristEuler); v3/v2/old ship 0 → their right hand is
+        // byte-unchanged (LateUpdate early-returns at 0). The Sponsor F9-dials wristEuler (WRIST target) by eye.
+        private static void AddRightWristPose(CastawayCharacter castaway)
+        {
+            var wrist = castaway.GetComponent<CastawayRightWristPose>();
+            if (wrist == null) wrist = castaway.gameObject.AddComponent<CastawayRightWristPose>();
+            wrist.rightHand = FindBoneByExactToken(castaway.transform, RightHandToken);
+            wrist.wristEuler = CharacterAssetGen.UseCastawayV4 ? CastawayV4RightWristEuler : Vector3.zero;
+            if (wrist.rightHand == null)
+                Debug.LogError("[MovementCameraScene] could not resolve the right hand bone ('" + RightHandToken +
+                               "') for CastawayRightWristPose — the v4 right-hand mirror fix will be inert.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayRightWristPose wired (wristEuler=" + wrist.wristEuler.ToString("F1") +
+                          (CharacterAssetGen.UseCastawayV4 ? " [v4 — measured render-mirror correction; Sponsor F9-finalizes]" : " [non-v4 — 0, right hand byte-unchanged]") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -4002,6 +4034,11 @@ namespace FarHorizon.EditorTools
             // per-foot outward yaw; v4 defaults to the measured bind-delta (~11°), non-v4 ships 0 (feet unchanged).
             // AFTER BuildInEditor (the foot bones must exist); F9-dialable (FOOT-YAW target).
             AddFootYaw(castaway);
+
+            // RIGHT-WRIST correction (86catvb6u round-5 — the DIRECT-KNOB fix for "right hand doesn't mirror the
+            // left"). Additive LateUpdate hand-bone offset (order 65, before HeldAxeRig); v4 defaults to the
+            // measured render-mirror correction, non-v4 ships 0. F9-dialable (WRIST target).
+            AddRightWristPose(castaway);
 
             // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
             // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.
