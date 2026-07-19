@@ -821,7 +821,7 @@ echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ===
 # wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
 # the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
 # its aggregate fail path, so the grep needle is uniform too.
-for g in settings loot water chop sky heldbelt invdragghostpos placement; do
+for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu; do
   G="$SCRIPTS/verify_${g}_gate.sh"
   make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
   assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
@@ -860,10 +860,10 @@ assert_launch_windowed() { # <script-name>
     bad "launch-mode: $1 MUST keep -screen-fullscreen 0 (its IMGUI/UI-Toolkit overlay is dead headless)"
   fi
 }
-for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh verify_placement_gate.sh; do
+for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh verify_placement_gate.sh verify_mine_gate.sh verify_boulder_gate.sh; do
   assert_launch_headless "$s"
 done
-for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh; do
+for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh verify_buildmenu_gate.sh; do
   assert_launch_windowed "$s"
 done
 
