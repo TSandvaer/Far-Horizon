@@ -159,10 +159,11 @@ namespace FarHorizon.EditorTools
         //      WorldBootstrap's look setup WITHOUT calling WorldBootstrap (which rebuilds the start island). ----
         static void BuildPocLook(GameObject envRoot, Camera mainCam)
         {
-            // Register the shared shaders as always-included so the standalone build does not strip them to
-            // magenta (the spike lesson) — BEFORE the materials key off them.
-            foreach (var name in new[] { "FarHorizon/LowPolyVertexColor", "FarHorizon/LowPolyWater",
-                                          "Universal Render Pipeline/Lit" })
+            // Register the shared FarHorizon shaders as always-included so the standalone build does not strip
+            // them to magenta (the spike lesson) — BEFORE the materials key off them. R5 (86cahne3d): URP/Lit is
+            // NO LONGER pinned here (it ships via serialized material refs; pinning force-compiled its full
+            // variant space) — matching the main-bootstrap unpin so the POC path can't re-introduce the pin.
+            foreach (var name in new[] { "FarHorizon/LowPolyVertexColor", "FarHorizon/LowPolyWater" })
             {
                 var sh = Shader.Find(name);
                 if (sh != null) EnsureShaderAlwaysIncluded(sh);

@@ -122,9 +122,11 @@ namespace FarHorizon.EditorTools
             var waterShader = Shader.Find("FarHorizon/LowPolyWater");
             if (waterShader != null) EnsureShaderAlwaysIncluded(waterShader);
             else Debug.LogWarning("[WorldBootstrap] LowPolyWater shader not found at bootstrap");
-            // URP/Lit (used by the flat-color scatter materials) — also pin it so scatter never strips.
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            // R5 (86cahne3d): URP/Lit is NO LONGER pinned into AlwaysIncludedShaders. It ships anyway via the
+            // serialized scatter/terrain material references in Boot.unity — pinning it force-compiled its FULL
+            // variant space every build (the build-time/size cost R5 strips). URP's own stripper now keeps only
+            // the variants the shipped materials use. The four FarHorizon shaders above STAY pinned (they are
+            // Shader.Find-reached at runtime as the fallback source, not the target).
 
             // Clear any prior environment root so re-running rebuilds deterministically.
             var existing = GameObject.Find(EnvRootName);

@@ -571,7 +571,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
                 AssetDatabase.CreateAsset(mat, SettingsDir + "/TestGroundMat.mat");
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
             }
 
             // The slab is a COLLISION/NAVMESH proxy only — the sandy Zone-D terrain is the visible ground.
@@ -604,7 +603,6 @@ namespace FarHorizon.EditorTools
                 mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
                 AssetDatabase.CreateAsset(mat, SettingsDir + "/ClickMarkerMat.mat");
                 root.GetComponent<MeshRenderer>().sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(unlit);
             }
 
             root.AddComponent<ClickMarker>();
@@ -735,7 +733,6 @@ namespace FarHorizon.EditorTools
             if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.48f, 0.34f, 0.21f)); // warm timber
             if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
             AssetDatabase.CreateAsset(mat, CraftingTableMatPath);
-            EnsureShaderAlwaysIncluded(lit);
             return mat;
         }
 
@@ -758,7 +755,6 @@ namespace FarHorizon.EditorTools
             mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.35f, 0.85f, 0.40f, 0.45f));
             AssetDatabase.CreateAsset(mat, CraftingGhostMatPath);
-            EnsureShaderAlwaysIncluded(unlit);
             return mat;
         }
 
@@ -1084,9 +1080,8 @@ namespace FarHorizon.EditorTools
             // BEFORE BuildSettingsPanel in Author, so the panel doesn't exist yet. BuildSettingsPanel does the
             // cross-wire (it runs after the player/axe exist), the same ordering the orbit/wasd binds rely on.
 
-            // URP/Unlit (the shared weapon palette material) must survive the stripped build.
-            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
+            // R5 (86cahne3d): the URP/Unlit pin is removed — the shared Mat_WeaponPalette ships as a serialized
+            // material reference (its shader ships with it); pinning force-compiled URP/Unlit's full variant space.
 
             // Wire the verification-only shipped-build AXE CLOSE-UP capture onto the Boot object — sibling
             // of the craft/chop/movement verify captures. Inert unless launched with -verifyAxe. It frames
@@ -1294,8 +1289,6 @@ namespace FarHorizon.EditorTools
                 mesh.transform.localScale = Vector3.one * 1.0f;
                 visual = mesh.transform;
                 ApplyWeaponPaletteMaterial(mesh);
-                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
             }
             else
             {
@@ -1347,8 +1340,8 @@ namespace FarHorizon.EditorTools
                 smr.sharedMaterials = mats;
                 bound++;
             }
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
+            // R5 (86cahne3d): URP/Lit pin removed — CastawayMat is a serialized material reference, so its
+            // shader ships via that ref (pinning force-compiled URP/Lit's full variant space).
             Debug.Log("[MovementCameraScene] bound de-lit CastawayMat onto " + bound + " SkinnedMeshRenderer(s)");
         }
 
@@ -2000,7 +1993,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", ChopCanopyBody);
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
                 Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; chop canopy flat-green fallback");
             }
         }
@@ -2039,7 +2031,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
                 mr.sharedMaterial = mat; // inline -> serializes into the scene, no asset churn
-                EnsureShaderAlwaysIncluded(litShader);
             }
         }
 
@@ -2310,7 +2301,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", SnakeRust);
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
                 Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; snake flat-rust fallback");
             }
             return go;
@@ -2354,8 +2344,6 @@ namespace FarHorizon.EditorTools
                 mesh.transform.localPosition = new Vector3(0f, 0.12f, 0f);
                 mesh.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean (matches the old proxy)
                 ApplyWeaponPaletteMaterial(mesh);
-                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
             }
             else
             {
@@ -2936,8 +2924,6 @@ namespace FarHorizon.EditorTools
                 mesh.transform.localPosition = new Vector3(0f, 0.12f, 0f);
                 mesh.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean (matches the spear pickup)
                 ApplyWeaponPaletteMaterial(mesh);
-                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
             }
             else
             {
@@ -3450,7 +3436,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
             }
         }
 
@@ -3481,7 +3466,6 @@ namespace FarHorizon.EditorTools
                         mat.SetColor("_EmissionColor", color * 1.15f); // warm glow, trimmed so bloom doesn't blow out
                 }
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
             }
         }
 
@@ -3665,7 +3649,6 @@ namespace FarHorizon.EditorTools
                     if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", color * 1.4f);
                 }
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
             }
         }
 
@@ -3785,7 +3768,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", DebrisWoodWorn);
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
             }
         }
 
@@ -3801,7 +3783,6 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.05f);
                 mr.sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
             }
         }
 
@@ -3870,13 +3851,13 @@ namespace FarHorizon.EditorTools
             // on-screen height; the FBX origin is at the feet (localPosition zero -> grounded feet on
             // the agent's ground point). Built editor-time (BuildInEditor) so the SkinnedMeshRenderer +
             // bones + controller reference SERIALIZE into Boot.unity (the editor-vs-runtime
-            // serialization lesson — no Awake-assembled hierarchy to ship mangled). Ensure URP/Lit is
-            // always-included so the toon materials don't strip to magenta in the stripped player.
+            // serialization lesson — no Awake-assembled hierarchy to ship mangled).
+            // R5 (86cahne3d): URP/Lit is NO LONGER pinned into AlwaysIncludedShaders here — the CastawayMat toon
+            // material is a serialized reference in Boot.unity, so URP/Lit ships via that ref (URP keeps the used
+            // variants); pinning force-compiled its full variant space every build.
             //
             // NO bone-scale dials: the chibi's big-head toy proportions are INTRINSIC to the mesh (the
             // PR #25 head/limb-scale path is dropped for this base — the mesh ships chunky as imported).
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null) EnsureShaderAlwaysIncluded(litShader);
 
             var avatarGo = new GameObject("CastawayAvatar");
             avatarGo.transform.SetParent(player.transform, false);
@@ -4067,7 +4048,6 @@ namespace FarHorizon.EditorTools
                     if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f); // Transparent
                     mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
                     mr.sharedMaterial = mat;
-                    EnsureShaderAlwaysIncluded(unlit);
                 }
                 Debug.LogWarning("[MovementCameraScene] blob-shadow vertex-color shader not found; flat-disc fallback");
             }
