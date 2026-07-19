@@ -222,6 +222,22 @@ namespace FarHorizon.EditorTools
         // settings HeldScale row, NOT the nudge (ticket: axe scale LOCKED). F9 still drives these fields.
         public static readonly Vector3 HeldAxeV3RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
         public static readonly Vector3 HeldAxeV3LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
+        // ===== CASTAWAY v4 held-axe seat (86catpwc4 phase C — DORMANT default-OFF integration). v4 is a FRESH
+        // Mixamo Standard rig off OUR Blender export; its mixamorig:RightHand LOCAL FRAME differs from v3's, so
+        // v3's seat does NOT carry 1:1. This value is only exercised under FARHORIZON_CASTAWAY_V4=1 (the env-var
+        // SOAK build) — with the toggle OFF (default) the v3 seat above is byte-unchanged.
+        //
+        // ⚠ UNMEASURED FIRST-PASS PLACEHOLDER (= v3's seat, verbatim). The MEASURED re-seat is deliberately
+        // DEFERRED to ACTIVATION (OOS here) because it requires a LIVE editor run of
+        // CharacterAssetGen.CastawayV4HandAxisTrace (WORLD-transfer of v3's approved carry onto v4's hand frame),
+        // which this dormant PR does not bake — the FINAL held-prop re-seat + F9 dial happen at the v4 soak/
+        // activation per character-pipeline.md §Rolling out step 3. Marked UNMEASURED on purpose (not claimed as
+        // measured): reusing v3's numbers gets the axe roughly into v4's hand for the soak's first look; the
+        // Sponsor F9-dials the grip, then the activation ticket bakes his dialed numbers here + runs the trace.
+        // Used ONLY when CharacterAssetGen.UseCastawayV4; every lower-priority seat is byte-unchanged when the
+        // toggle is OFF (the dormant / rollback path).
+        public static readonly Vector3 HeldAxeV4RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
+        public static readonly Vector3 HeldAxeV4LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -876,13 +892,18 @@ namespace FarHorizon.EditorTools
             // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
             // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
             // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
-            // 86cajwp23 AC2 / 86cak9kau AC2 — each hero base rides its OWN re-measured seat prior (its
-            // mixamorig:RightHand local frame differs); v3 takes precedence when live, then v2, then the old rig.
-            // The lower-priority seats are byte-unchanged when their toggle is OFF (the rollback path).
+            // 86cajwp23 AC2 / 86cak9kau AC2 / 86catpwc4 phase C — each hero base rides its OWN re-measured seat
+            // prior (its mixamorig:RightHand local frame differs); HIGHEST-VERSION-FIRST: v4 (DORMANT, env-only)
+            // takes precedence when active, then v3 (the LIVE default), then v2, then the old rig. The lower-
+            // priority seats are byte-unchanged when their toggle is OFF (the dormant / rollback path). NOTE: the
+            // v4 seat is an UNMEASURED first-pass (= v3's, verbatim) — the measured re-seat is activation work
+            // (CharacterAssetGen.CastawayV4HandAxisTrace + Sponsor F9 dial); see the HeldAxeV4* constants.
             Vector3 handLocalOffset =
+                CharacterAssetGen.UseCastawayV4 ? HeldAxeV4LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV3 ? HeldAxeV3LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV2 ? HeldAxeV2LocalOffsetFromHand : HeldAxeLocalOffsetFromHand;
             Vector3 relEuler =
+                CharacterAssetGen.UseCastawayV4 ? HeldAxeV4RelEuler :
                 CharacterAssetGen.UseCastawayV3 ? HeldAxeV3RelEuler :
                 CharacterAssetGen.UseCastawayV2 ? HeldAxeV2RelEuler : HeldAxeRelEuler;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
@@ -916,7 +937,8 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
                       handLocalOffset.ToString("F4") +
                       " relEuler=" + relEuler.ToString("F1") +
-                      (CharacterAssetGen.UseCastawayV3 ? " [v3 seat prior]" :
+                      (CharacterAssetGen.UseCastawayV4 ? " [v4 seat prior — UNMEASURED first-pass]" :
+                       CharacterAssetGen.UseCastawayV3 ? " [v3 seat prior]" :
                        CharacterAssetGen.UseCastawayV2 ? " [v2 seat prior]" : "") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
@@ -1320,17 +1342,21 @@ namespace FarHorizon.EditorTools
             // chains the curl fails to resolve) lives in the TEST, CastawayCharacterTests
             // .Avatar_HasSerializedFingerCurl_WithRightHandFingerBones, which derives the floor from the rig's
             // actual curl-token bone count. If a future rig gains separated middle/ring chains, raise this baseline.
-            bool fistHandVariant = CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
+            // 86catpwc4 — v4 is a THIRD fist-hand variant: the 33-bone rig resolves ONLY the Index chain (index
+            // 1-3 = 3 curl bones) + NO thumb bones (thumbs.Count=0), which is exactly the fist-hand floor of 3.
+            // So v4 fits the SAME floor as v2/v3 (the LogError won't fire spuriously). v4's zero thumbs is fine —
+            // the floor only gates fingers.Count; the HasAxe-gated grip curls the index fingers into the haft.
+            bool fistHandVariant = CharacterAssetGen.UseCastawayV4 || CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
             int expectedFingerFloor = fistHandVariant ? 3 : 6;
             if (fingers.Count < expectedFingerFloor)
                 Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
                                " right-hand finger bones (expected >= " + expectedFingerFloor +
-                               (fistHandVariant ? " for v2/v3: Index 1-3" : ": Index/Middle/Ring 1-3") +
+                               (fistHandVariant ? " for v2/v3/v4: Index 1-3" : ": Index/Middle/Ring 1-3") +
                                ") — the grip curl will be partial/unwired. Re-run CharacterAssetGen.CastawayV3HandAxisTrace to dump the rig.");
             else
                 Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
                           thumbs.Count + " thumb bones, HasAxe-gated" +
-                          (fistHandVariant ? "; v2/v3 index+thumb only" : "") + ")");
+                          (fistHandVariant ? "; v2/v3/v4 index" + (thumbs.Count > 0 ? "+thumb" : " (v4: no thumb)") + " only" : "") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
