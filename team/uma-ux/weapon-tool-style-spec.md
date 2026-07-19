@@ -11,9 +11,32 @@ materials/shaders — not decided in the abstract.
 > metal head reads forged, fighting the hand-whittled anchor). The head maps to
 > `flint-grey #8E8A82` + `dark-flint #5C5853` (the value already used in the built axe), and
 > its surface PATTERN is **knapped flake-scar facets modeled into the geometry** — NOT a
-> detail-texture / normal-map (preserves the shared ~1-draw-call palette material). The red
-> `grip-wrap-red #7E3A3A` LASHING (the cord wrap that binds head to haft) STAYS red — that's
-> rope, not the head.
+> detail-texture / normal-map (preserves the shared ~1-draw-call palette material). **⚠ The red-lashing note that followed here is SUPERSEDED by Correction 2026-07-19
+> below** — the Sponsor removed ALL red ("remove the red things"); there is NO red lashing on
+> any shipped tier (the stone-tier axe head binds with no red cord).
+
+> **Correction 2026-07-19 (LIVE 3-tier reality + red removed + per-weapon swing clips —
+> SUPERSEDES every `grip-wrap-red` reference below).** Two Sponsor decisions post-date this
+> spec's 2026-06-19 finalize; where the body below disagrees, the live reality here wins.
+>
+> **(1) The family ships in THREE Sponsor-approved tiers — WOOD / STONE / IRON.** Verified from
+> the shipped set `Assets/Art/Props/WeaponPack/wpn_{axe,knife,pickaxe,spear,sword}_{wood,stone,iron}_01.fbx`
+> (memory `weapon-two-tier-style-stone-iron`; WOOD-tier add per DECISIONS.md "2026-07-18 — Wood-tier
+> weapon set PASSED", PR #304). **The red `grip-wrap-red #7E3A3A` LASHING / grip-wrap is REMOVED**
+> — the Sponsor said "remove the red things." Corrected grip recipes: **wood** = whittled
+> haft-brown + tan cut facets + fire-hardened tip; **stone** = straight wood haft +
+> `haft-wood-shadow`-dark (W2) grip band, NO lashing; **iron** = iron handle + segmented LEATHER
+> grip (dark-brown, the `#5A3B22` W2 block repurposed as leather per the two-tier memory; no wood
+> on iron). NO red on any tier — the shipped axe reads "dark leather-wrapped grip / do NOT recolor
+> to barn-red" (gameplay-ui-direction.md, shipped-axe icon row). **§2 slot W8 `grip-wrap-red` is
+> RETIRED from the weapon set** (it survives only as a `style-guide-v2 §3/§6` UI-era anchor; no
+> shipped weapon uses it).
+>
+> **(2) Attack swings use a SEPARATE Mixamo clip per weapon class** (Sponsor, 2026-07-19).
+> DECISIONS.md "2026-07-19 — Combat cluster order: SWINGS first, boar second" locks "a Mixamo clip
+> per weapon class," recorded on ticket `86caffwv5`; axe / pickaxe / knife / sword / spear each
+> get their OWN Sponsor-provided clip. The earlier "axe + pickaxe share ONE overhead clip" economy
+> proposal (combat-cluster-design-brief.md, PR #320) is **RESOLVED-REJECTED.**
 
 **Tonal anchor.** *The whole tool family reads as if the castaway whittled them himself,
 from the same wood and the same will, on the same beach.* Every item is hand-carved,
@@ -98,11 +121,11 @@ palette from PR #83). The weapon set reuses the world's own colors so it reads o
 | W5 | `blade-steel` | `#8C93A8` | 0.55, 0.58, 0.66 | sword/curved-blade refs `21h07_20`/`21h07_42` (cool slate-steel body) | **Sword + knife blade body** — the cool slate of the ref blades |
 | W6 | `edge-bevel` | `#E4E2DC` | 0.89, 0.89, 0.86 | `style-guide-v2 §3/§6` tool edge bevel | **The signature near-white chamfer plane** on every hero edge (axe bit, sword/knife edge). Sub-1.0 — does NOT bloom. The identity detail of the whole family. |
 | W7 | `bone-fitting` | `#CFC6AD` | 0.81, 0.78, 0.68 | `style-guide-v2 §3/§6` pommel/crossguard bone | Crossguard, pommel, bone spear-tip alternate (see Q1), bindings — off-white bone family |
-| W8 | `grip-wrap-red` | `#7E3A3A` | 0.49, 0.23, 0.23 | `style-guide-v2 §3/§6` grip wrap | Segmented grip wrapping (sword/curved blade) **+ the axe-head LASHING** (the red cord that binds head to haft) — dark desat red, chunky segments. This is rope, NOT the head. |
+| W8 | `grip-wrap-red` | `#7E3A3A` | 0.49, 0.23, 0.23 | `style-guide-v2 §3/§6` grip wrap | **RETIRED from the weapon set — Correction 2026-07-19 ("remove the red things").** No shipped weapon uses red: stone-tier grip = `haft-wood-shadow`-dark band (W2), iron-tier grip = segmented LEATHER (the W2 `#5A3B22` block). Survives only as a style-guide UI-era anchor. |
 | W9 | `dark-flint` | `#5C5853` | 0.36, 0.35, 0.33 | knapped working-flint dark; value already in the built axe | The deepest knapped-flint facets on the axe head (struck flake hollows) + the darkest stone-tip facets — the working-flint dark that makes the flake-scar read |
 
 **Total: 9 slots** — base anchors (`haft-wood` W1, `flint-grey` W3, `blade-steel` W5,
-`edge-bevel` W6, `bone-fitting` W7, `grip-wrap-red` W8) + derived shade-step (`haft-wood-shadow`
+`edge-bevel` W6, `bone-fitting` W7; `grip-wrap-red` W8 **RETIRED — see Correction 2026-07-19**) + derived shade-step (`haft-wood-shadow`
 W2, which the faceted shade-read needs) + the knapped-flint pair (`flint-grey` W3 body /
 `dark-flint` W9 dark, with W4 carrying the same dark-flint `#5C5853` as the axe-head shadow
 step). A 128×128 grid holds these in generous 16-px blocks with room to extend without
@@ -150,9 +173,9 @@ axe-head shadow facet, W9 is the deep stone-tip facet; both are the same struck-
 
 | Item | Read | Palette mapping | Notes |
 |---|---|---|---|
-| **Axe** | wedge head on a stout bent handle | head=`flint-grey` W3 (+W4/W9 `dark-flint` flake-scar shadows), bit=`edge-bevel` W6, haft=`haft-wood` W1 (+W2), lashing=`grip-wrap-red` W8 | Re-make of the hero axe; the family's scale + grip reference. Head is **knapped FLINT** (warm-grey stone), its flake-scar pattern **modeled as facets** (not a texture). White chamfer bit, bent brown haft, **red cord lashing** binding head to haft. Match the built axe's flint head (`#8E8A82`/`#5C5853`), not a metal head. |
+| **Axe** | wedge head on a stout bent handle | head=`flint-grey` W3 (+W4/W9 `dark-flint` flake-scar shadows), bit=`edge-bevel` W6, haft=`haft-wood` W1 (+W2 dark grip band); **NO lashing — red removed, Correction 2026-07-19** | Re-make of the hero axe; the family's scale + grip reference. Row describes the STONE tier. Head is **knapped FLINT** (warm-grey stone), its flake-scar pattern **modeled as facets** (not a texture). White chamfer bit, bent brown haft, **no red cord lashing** (removed 2026-07-19). Match the built axe's flint head (`#8E8A82`/`#5C5853`), not a metal head. |
 | **Knife** | short single blade, stubby grip | blade=`blade-steel` W5, edge=`edge-bevel` W6, grip=`haft-wood` W1 (+W2 wrap) | Shortest grip, smallest silhouette. Edge-bevel along the cutting edge. |
-| **Sword** | long blade + crossguard + wrapped grip | blade=`blade-steel` W5, edge=`edge-bevel` W6 (see Q2), guard/pommel=`bone-fitting` W7, grip=`grip-wrap-red` W8 (+W2) | Longest blade; crossguard is the family's only "extra" detail beat. Build to `21h07_20`. |
+| **Sword** | long blade + crossguard + wrapped grip | blade=`blade-steel` W5, edge=`edge-bevel` W6 (see Q2), guard/pommel=`bone-fitting` W7, grip = segmented LEATHER (iron tier, W2 `#5A3B22`) / wood-dark band (stone tier) — **NO red, Correction 2026-07-19** | Longest blade; crossguard is the family's only "extra" detail beat. Build to `21h07_20`. |
 | **Spear** | long shaft + compact point | shaft=`haft-wood` W1 (+W2), point=see **Q1** | Longest overall; thin-but-NOT-spindly shaft (chunky rule holds). No board ref exists — see Q1. |
 
 ## 5. Production / rig notes (for Devon — defer to Erik's note for full steps)
@@ -166,6 +189,11 @@ axe-head shadow facet, W9 is the deep stone-tip facet; both are the same struck-
   license file once the in-house axe ships.
 - **Generalize** `HeldAxe.cs` / `HeldAxeRig.cs` → a `HeldTool` rig (the held-axe soak-tuning
   already solved the hard part — don't redo it per item).
+- **Attack swings = a SEPARATE Sponsor-provided Mixamo clip per weapon class** (Sponsor 2026-07-19;
+  DECISIONS.md "2026-07-19 — Combat cluster order," ticket `86caffwv5`) — axe / pickaxe / knife /
+  sword / spear each get their OWN clip. Do **NOT** share the axe clip for the pickaxe (the earlier
+  economy proposal is resolved-rejected). Wire per the shipped chop pattern
+  (`CastawayCharacter.TriggerChop`, `swingImpactDelaySeconds`) — animator-driven, not procedural.
 - **1 Unity-build slot** (single-runner cap) — this is the Unity-heavy lane; sequence it
   (`single-unity-build-slot-serializes-orchestration`). The Blender/spec work is the
   non-Unity lane and fans out.
@@ -237,3 +265,7 @@ These three are flagged for the Sponsor. Uma's recommendation on each:
 - [`.claude/docs/art-direction.md`](../../.claude/docs/art-direction.md) — the board; tools
   family `21h06_54`/`21h07_20`/`21h07_42`/`21h08_08`.
 - DECISIONS.md + memory `weapon-tool-unified-style-inhouse-blender-set` — the Route A lock.
+- **DECISIONS.md 2026-07-18 (Wood-tier PASSED) + 2026-07-19 (SWINGS-first cluster order) + memory
+  `weapon-two-tier-style-stone-iron` + ticket `86caffwv5`** — the live 3-tier reality, red removal,
+  and per-weapon swing-clip decision (Corrections 2026-07-19 at the top of this spec).
+  Combat FEEL detail: `combat-cluster-design-brief.md` (PR #320).
