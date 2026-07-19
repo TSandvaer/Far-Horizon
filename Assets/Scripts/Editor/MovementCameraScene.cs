@@ -222,24 +222,26 @@ namespace FarHorizon.EditorTools
         // settings HeldScale row, NOT the nudge (ticket: axe scale LOCKED). F9 still drives these fields.
         public static readonly Vector3 HeldAxeV3RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
         public static readonly Vector3 HeldAxeV3LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
-        // ===== CASTAWAY v4 held-axe seat (86catpwc4 dormant integration; ACTIVATED 86catvb6u). v4 is a FRESH
-        // Mixamo Standard rig off OUR Blender export; its mixamorig:RightHand LOCAL FRAME is asserted to differ
-        // from v3's (#307), so v3's seat may not carry 1:1. v4 is now the LIVE hero, so THIS seat is the one
-        // BuildModel bakes (the HeldAxeV4* branch, v4-first); the v3/v2/old seats above are the rollback path.
+        // ===== CASTAWAY v4 held-axe seat (86catpwc4 dormant integration; ACTIVATED 86catvb6u — MEASURED re-seat).
+        // v4 is a FRESH Mixamo Standard rig off OUR Blender export; the trace CONFIRMED its mixamorig:RightHand
+        // LOCAL FRAME differs MATERIALLY from v3's — v3 +Y=(0.165,-0.957,0.240) points ~straight down, v4
+        // +Y=(0.694,-0.694,0.192) tilts ~45° outward — so v3's seat did NOT carry 1:1 (the earlier v3-verbatim
+        // placeholder was genuinely wrong, not a coincidence: diagnose-via-trace overturned the "close enough"
+        // assumption). v4 is the LIVE hero, so THIS seat is the one BuildModel bakes (the HeldAxeV4* branch,
+        // v4-first); the v3/v2/old seats above are the rollback path.
         //
-        // ⚠ TRANSFER FIRST-PASS (= v3's dialed seat, verbatim — the DIAL STARTING POINT, NOT yet trace-measured).
-        // The MEASURED re-seat is CharacterAssetGen.CastawayV4HandAxisTrace (a WORLD-transfer of v3's approved
-        // carry onto v4's hand frame: relEuler_v4 = eulerAngles(Inv(R_v4hand)·R_v3hand·Euler(HeldAxeV3RelEuler));
-        // offset_v4 = Inv(R_v4hand)·(R_v3hand·HeldAxeV3LocalOffsetFromHand)). That trace needs a LIVE editor + a
-        // FREE Unity build lane (its own header) — it FOLDS INTO THE DIAL-BUILD CUT the orchestrator runs once
-        // machine gates are green (86catvb6u §3, DIAL-STAGED): that build re-runs the trace (logs the measured
-        // baseline) AND opens the Sponsor F9 session across all 15 held seats; his dialed numbers then bake here.
-        // Deliberately NOT relabeled "measured" — reusing v3's dialed numbers gets the axe roughly into v4's hand
-        // for the dial session's first look (per [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] /
-        // [[verify-soak-builds-or-bake-and-judge]]); the Sponsor F9-finalizes the grip, then the values below are
-        // replaced with his dialed bake. Used when CharacterAssetGen.UseCastawayV4 (now the default-ON live hero).
-        public static readonly Vector3 HeldAxeV4RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
-        public static readonly Vector3 HeldAxeV4LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
+        // MEASURED first-pass — CharacterAssetGen.CastawayV4HandAxisTrace (run in a live editor 2026-07-19 at the
+        // dial-cut) WORLD-TRANSFERS v3's Sponsor-approved live carry onto v4's hand frame (the axe MESH is
+        // identical, so matching its WORLD orientation reproduces the approved look):
+        //   HeldAxeV4RelEuler            = eulerAngles( Inv(R_v4hand) · R_v3hand · Euler(HeldAxeV3RelEuler) )
+        //   HeldAxeV4LocalOffsetFromHand = Inv(R_v4hand) · ( R_v3hand · HeldAxeV3LocalOffsetFromHand )
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. This gets the
+        // axe into v4's hand for the dial session's first look; the Sponsor F9-finalizes the grip across all 15
+        // held seats (DIAL-STAGED), then a follow-up bakes his dialed numbers here ([[verify-soak-builds-or-bake-
+        // and-judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used when UseCastawayV4 (the
+        // default-ON live hero). SUPERSEDES the v3-verbatim placeholder (-152.5,-5.9,108.9)/(0.0071,0.0599,0.0288).
+        public static readonly Vector3 HeldAxeV4RelEuler = new Vector3(-48.9f, -125.0f, -106.3f);
+        public static readonly Vector3 HeldAxeV4LocalOffsetFromHand = new Vector3(0.0182f, 0.0415f, 0.0492f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -1005,12 +1007,12 @@ namespace FarHorizon.EditorTools
             // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
             // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
             // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
-            // 86cajwp23 AC2 / 86cak9kau AC2 / 86catpwc4 phase C — each hero base rides its OWN re-measured seat
-            // prior (its mixamorig:RightHand local frame differs); HIGHEST-VERSION-FIRST: v4 (DORMANT, env-only)
-            // takes precedence when active, then v3 (the LIVE default), then v2, then the old rig. The lower-
-            // priority seats are byte-unchanged when their toggle is OFF (the dormant / rollback path). NOTE: the
-            // v4 seat is an UNMEASURED first-pass (= v3's, verbatim) — the measured re-seat is activation work
-            // (CharacterAssetGen.CastawayV4HandAxisTrace + Sponsor F9 dial); see the HeldAxeV4* constants.
+            // 86cajwp23 AC2 / 86cak9kau AC2 / 86catvb6u — each hero base rides its OWN re-measured seat prior (its
+            // mixamorig:RightHand local frame differs); HIGHEST-VERSION-FIRST: v4 (the LIVE default) takes
+            // precedence, then v3, then v2, then the old rig. The lower-priority seats are byte-unchanged when
+            // their toggle is OFF (the rollback path). NOTE: the v4 seat is the MEASURED first-pass (trace
+            // WORLD-TRANSFER of v3's approved carry onto v4's materially-different hand frame — CharacterAssetGen.
+            // CastawayV4HandAxisTrace); the Sponsor F9-finalizes it across all 15 held seats. See HeldAxeV4*.
             Vector3 handLocalOffset =
                 CharacterAssetGen.UseCastawayV4 ? HeldAxeV4LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV3 ? HeldAxeV3LocalOffsetFromHand :
@@ -1050,7 +1052,7 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
                       handLocalOffset.ToString("F4") +
                       " relEuler=" + relEuler.ToString("F1") +
-                      (CharacterAssetGen.UseCastawayV4 ? " [v4 seat prior — UNMEASURED first-pass]" :
+                      (CharacterAssetGen.UseCastawayV4 ? " [v4 seat — MEASURED trace baseline, Sponsor F9-finalizes]" :
                        CharacterAssetGen.UseCastawayV3 ? " [v3 seat prior]" :
                        CharacterAssetGen.UseCastawayV2 ? " [v2 seat prior]" : "") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +

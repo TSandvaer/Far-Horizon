@@ -539,6 +539,25 @@ namespace FarHorizon.EditTests
                 "HeldAxeV3RelEuler must ship the Sponsor's 86cakkfz9 v3-dialed euler (-152.5,-5.9,108.9).");
         }
 
+        [Test]
+        public void HeldAxeV4Seat_ShipsTheMeasuredTraceValues_86catvb6u()
+        {
+            // 86catvb6u v4 ACTIVATION MEASURED re-seat regression guard. v4 is the live hero; the shared-seat
+            // HeldAxeRig baseline is seeded from these v4 constants (BuildModel's v4-first ternary). Unlike v3's
+            // Sponsor-DIALED bake, this is the TRACE-MEASURED first-pass — CharacterAssetGen.CastawayV4HandAxisTrace
+            // WORLD-TRANSFERS v3's approved carry onto v4's materially-different RightHand frame (v3 +Y ~straight
+            // down, v4 +Y ~45° outward). Pin the measured values so a future edit that reverts them to the
+            // v3-verbatim placeholder (-152.5,-5.9,108.9)/(0.0071,0.0599,0.0288) — the exact bug diagnose-via-trace
+            // overturned — reds in CI. The Sponsor F9-finalizes at the dial session; when his dialed numbers bake,
+            // update these expected values with them (SCALE is not pinned — held scale is the settings row, LOCKED).
+            Assert.AreEqual(new Vector3(0.0182f, 0.0415f, 0.0492f), MovementCameraScene.HeldAxeV4LocalOffsetFromHand,
+                "HeldAxeV4LocalOffsetFromHand must ship the trace-measured offset (0.0182,0.0415,0.0492), not the v3-verbatim placeholder.");
+            Assert.AreEqual(new Vector3(-48.9f, -125.0f, -106.3f), MovementCameraScene.HeldAxeV4RelEuler,
+                "HeldAxeV4RelEuler must ship the trace-measured euler (-48.9,-125.0,-106.3), not the v3-verbatim placeholder.");
+            Assert.AreNotEqual(MovementCameraScene.HeldAxeV3RelEuler, MovementCameraScene.HeldAxeV4RelEuler,
+                "the measured v4 seat must DIFFER from v3's — v4's RightHand bind frame is materially different (the trace confirmed it).");
+        }
+
         // Equality-assert one weapon's baked seat (offset + euler + scale) against the Sponsor-dialed value.
         private static void AssertSeat(int i, Vector3 offset, Vector3 euler, float scale)
         {
