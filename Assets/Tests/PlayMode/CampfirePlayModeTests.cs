@@ -7,17 +7,17 @@ using FarHorizon;
 namespace FarHorizon.PlayTests
 {
     /// <summary>
-    /// PlayMode coverage for the U2-4 campfire (ticket 86ca8bdep) — the loop's CLOSE.
-    ///
-    /// Proves the load-bearing seams actually FIRE through Update over a REAL Time.time window
-    /// (headless Time.deltaTime~=0, unity-conventions.md §headless time):
-    ///   - the WOOD GATE (negative case): reaching the pit WITHOUT enough wood does NOT build the fire,
-    ///     and spends no wood (the ticket's "no wood -> no campfire");
-    ///   - the positive build: reaching the pit WITH wood builds + lights the fire and debits the cost;
-    ///   - the warmth RESTORE: a lit fire with the player in range makes warmth measurably CLIMB
-    ///     (the loop closes); leaving the radius stops the restore.
-    /// We drive the player transform directly, isolating the proximity + gate logic from pathfinding
-    /// (NavMesh/click-move is covered by CampfireVerifyCapture in the shipped exe).
+    /// PlayMode coverage for the ⑤ campfire PLACE-TO-BUILD flow (ticket 86camz9w7 — REWRITE of the U2-4
+    /// proximity fire-pit, 86ca8bdep). Proves the load-bearing seams fire through the production placement path
+    /// over a REAL Time.time window (headless Time.deltaTime~=0, unity-conventions.md §headless time):
+    ///   - the ALL-OR-NOTHING mats gate (negative): confirming WITHOUT enough wood OR stone does NOT build the
+    ///     fire and spends nothing (the vision's "stone AND wood" — short of EITHER mat refuses);
+    ///   - the positive build: with wood+stone, confirming PLACES + LIGHTS the fire and debits both mats;
+    ///   - the warmth RESTORE (the SHIPPED runtime — spec §2 regression boundary): a lit fire with the player in
+    ///     range makes warmth measurably CLIMB (the loop closes); leaving the radius stops the restore.
+    /// We drive the placement's input-independent RequestBuildAt seam (enter → aim → confirm), isolating the
+    /// place-to-build + gate logic from the cursor/camera (the shipped exe drives it under the mouse — proven by
+    /// CampfireVerifyCapture). groundMask=0 selects the headless flat-ground fallback (the pure validity truth-table).
     /// </summary>
     public class CampfirePlayModeTests
     {
@@ -41,7 +41,7 @@ namespace FarHorizon.PlayTests
             _warmth.startFull = false; // start cold so a restore has headroom to climb into
 
             _playerGo = new GameObject("Player");
-            _playerGo.transform.position = new Vector3(20f, 0f, 20f); // far from the fire
+            _playerGo.transform.position = new Vector3(2f, 0f, 0f); // >= minDistFromPlayer from the origin build spot
 
             _fireGo = new GameObject("Campfire");
             _fireGo.transform.position = Vector3.zero;
@@ -56,77 +56,92 @@ namespace FarHorizon.PlayTests
             _place.campfire = _fire;
             _place.player = _playerGo.transform;
             _place.warmth = _warmth;
-            _place.woodCost = 3;
-            _place.buildRadius = 2.2f;
+            _place.ghost = null;                 // no ghost in the bare rig (SetGhostShown/TintGhost no-op)
+            _place.groundMask = default;         // 0 → the headless flat-ground fallback (valid ground)
+            _place.woodCost = CampfirePlacement.CampfireWoodCostDefault;   // 3
+            _place.stoneCost = CampfirePlacement.CampfireStoneCostDefault; // 2
         }
 
         [TearDown]
         public void TearDown()
         {
+            if (_place != null) _place.Cancel(); // release the modal UiInputGate if a test left placement active
             Object.Destroy(_invGo);
             Object.Destroy(_warmthGo);
             Object.Destroy(_playerGo);
             Object.Destroy(_fireGo);
         }
 
-        // === THE WOOD GATE (negative case) — "no wood -> no campfire" ===
+        // Grant stone into the pack (Inventory has AddWood but no AddStone — stone routes through the model, the
+        // proven CraftingMenuPlayModeTests idiom). Call AFTER Awake settles (Model/Catalog are ready).
+        private void GrantStone(int n) => _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.StoneId), n);
+
+        // === THE MATS GATE (negative case) — "no mats -> no campfire" ===
         [UnityTest]
-        public IEnumerator AtPitWithoutWood_DoesNotBuild_SpendsNothing()
+        public IEnumerator PlaceWithoutMats_DoesNotBuild_SpendsNothing()
         {
+            yield return null; // let Awake settle
             Assert.AreEqual(0, _inv.WoodCount, "precondition: no wood");
+            Assert.AreEqual(0, _inv.StoneCount, "precondition: no stone");
 
-            // Stand the wood-less player ON the pit; let frames + wall-clock pass.
-            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
-            float start = Time.time;
-            while (Time.time - start < 0.5f) yield return null;
+            bool built = _place.RequestBuildAt(Vector3.zero);
 
-            Assert.IsFalse(_place.HasBuilt, "no wood -> the fire is never built");
-            Assert.IsFalse(_fire.IsLit, "no wood -> the fire stays unlit");
-            Assert.AreEqual(0, _inv.WoodCount, "no wood was spent on a failed build");
+            Assert.IsFalse(built, "no mats -> the confirm is refused");
+            Assert.IsFalse(_place.HasBuilt, "no mats -> the campfire is never built");
+            Assert.IsFalse(_fire.IsPlaced, "no mats -> the campfire stays invisible (unplaced)");
+            Assert.IsFalse(_fire.IsLit, "no mats -> the fire stays unlit");
+            Assert.AreEqual(0, _inv.WoodCount, "no wood was spent on a refused build");
+            Assert.AreEqual(0, _inv.StoneCount, "no stone was spent on a refused build");
         }
 
-        // === Not-quite-enough wood is still the gate (all-or-nothing) ===
+        // === Short of EITHER mat is still the gate (all-or-nothing — the "stone AND wood" NIT-3) ===
         [UnityTest]
-        public IEnumerator AtPitWithTooLittleWood_DoesNotBuild_KeepsWood()
+        public IEnumerator PlaceWithTooLittleStone_DoesNotBuild_KeepsMats()
         {
-            _inv.AddWood(2); // cost is 3
-            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
-            float start = Time.time;
-            while (Time.time - start < 0.5f) yield return null;
+            yield return null; // let Awake settle (Model/Catalog ready)
+            _inv.AddWood(3);   // enough wood
+            GrantStone(1);     // stone cost is 2 -> short
 
-            Assert.IsFalse(_fire.IsLit, "2 wood < cost 3 -> no fire");
-            Assert.AreEqual(2, _inv.WoodCount, "an unaffordable build spends NOTHING (wood preserved)");
+            bool built = _place.RequestBuildAt(Vector3.zero);
+
+            Assert.IsFalse(built, "3 wood but only 1 stone (< cost 2) -> no fire (all-or-nothing)");
+            Assert.IsFalse(_fire.IsLit, "short stone -> the fire stays unlit");
+            Assert.AreEqual(3, _inv.WoodCount, "an unaffordable build spends NOTHING (wood preserved)");
+            Assert.AreEqual(1, _inv.StoneCount, "an unaffordable build spends NOTHING (stone preserved)");
         }
 
-        // === Positive build: with wood, reaching the pit builds + lights the fire and pays the cost ===
+        // === Positive build: with wood+stone, confirming places + lights the fire and pays BOTH mats ===
         [UnityTest]
-        public IEnumerator AtPitWithWood_BuildsLightsAndPays()
+        public IEnumerator PlaceWithMats_BuildsLightsAndPaysBoth()
         {
-            _inv.AddWood(4); // cost is 3 -> 1 left after
-            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
+            yield return null; // let Awake settle (Model/Catalog ready)
+            _inv.AddWood(4);   // cost 3 -> 1 left
+            GrantStone(3);     // cost 2 -> 1 left
 
-            float start = Time.time;
-            while (Time.time - start < 1f && !_fire.IsLit) yield return null;
+            bool built = _place.RequestBuildAt(Vector3.zero);
 
-            Assert.IsTrue(_place.HasBuilt, "with enough wood, reaching the pit builds the fire");
-            Assert.IsTrue(_fire.IsLit, "the built fire is lit");
-            Assert.AreEqual(1, _inv.WoodCount, "the wood cost (3) was debited from the ledger (4 -> 1)");
+            Assert.IsTrue(built, "with enough wood+stone, confirming builds the fire");
+            Assert.IsTrue(_place.HasBuilt, "the placement latches built");
+            Assert.IsTrue(_fire.IsPlaced, "the campfire is revealed at the placed pose (invisible-until-placed lifted)");
+            Assert.IsTrue(_fire.IsLit, "the placed fire is lit (placing == lighting — the mats buy a lit fire)");
+            Assert.AreEqual(1, _inv.WoodCount, "the wood cost (3) was debited (4 -> 1)");
+            Assert.AreEqual(1, _inv.StoneCount, "the stone cost (2) was debited (3 -> 1)");
         }
 
-        // === The loop CLOSES: a lit fire with the player near makes warmth measurably RISE ===
+        // === The loop CLOSES: a lit fire with the player near makes warmth measurably RISE (shipped runtime) ===
         [UnityTest]
         public IEnumerator LitFire_RestoresWarmth_WhenPlayerNear()
         {
-            _inv.AddWood(3);
-            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f); // at the pit -> builds + lights
-            float start = Time.time;
-            while (Time.time - start < 1f && !_fire.IsLit) yield return null;
+            yield return null;
+            _inv.AddWood(3); GrantStone(2);
+            Assert.IsTrue(_place.RequestBuildAt(Vector3.zero), "placed + lit");
             Assert.IsTrue(_fire.IsLit, "fire lit");
 
+            // Stand the player AT the fire (within warmRadius 3) so the restore ticks.
+            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
             float before = _warmth.Current01;
-            // Stand by the lit fire — restoreRate (30) >> decay (2) so warmth net-climbs.
-            start = Time.time;
-            while (Time.time - start < 1.5f) yield return null;
+            float start = Time.time;
+            while (Time.time - start < 1.5f) yield return null; // restoreRate (30) >> decay (2) -> warmth climbs
             float after = _warmth.Current01;
 
             Assert.Greater(after, before + 0.02f,
@@ -137,14 +152,13 @@ namespace FarHorizon.PlayTests
         [UnityTest]
         public IEnumerator LeavingLitFire_StopsRestore_WarmthDecaysAgain()
         {
-            // Build + light, climb a bit, then walk away.
-            _inv.AddWood(3);
-            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
-            float start = Time.time;
-            while (Time.time - start < 1f && !_fire.IsLit) yield return null;
+            yield return null;
+            _inv.AddWood(3); GrantStone(2);
+            Assert.IsTrue(_place.RequestBuildAt(Vector3.zero), "placed + lit");
             Assert.IsTrue(_fire.IsLit, "fire lit");
 
-            start = Time.time;
+            _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f); // at the fire -> climb a bit
+            float start = Time.time;
             while (Time.time - start < 0.8f) yield return null;
             float warmAtFire = _warmth.Current01;
 

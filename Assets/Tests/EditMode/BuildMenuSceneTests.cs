@@ -10,8 +10,8 @@ namespace FarHorizon.EditTests
     /// EditMode guard that the BUILD MENU (ticket 86catpvpa) is SERIALIZED into Boot.unity (unity-conventions.md
     /// §editor-vs-runtime — not an Awake build; the component-in-source-but-not-in-scene trap). Asserts: the
     /// BuildMenuUI ships wired to a UIDocument on a resolving-theme PanelSettings; C is its open key (the SINGLE
-    /// build entry point); the editor-authored placeable rows include BOTH a CraftingTablePlacement AND a
-    /// ForgePlacement (each an IBuildPlaceable); and the -verifyBuildMenu shipped-build capture is serialized.
+    /// build entry point); the editor-authored placeable rows include a CraftingTablePlacement, a ForgePlacement,
+    /// AND a CampfirePlacement (each an IBuildPlaceable); and the -verifyBuildMenu shipped-build capture is serialized.
     /// </summary>
     public class BuildMenuSceneTests
     {
@@ -31,25 +31,28 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void BootScene_BuildMenu_ListsTableAndForgeRows()
+        public void BootScene_BuildMenu_ListsTableForgeAndCampfireRows()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
             var menu = FindInScene<BuildMenuUI>(scene);
             Assert.IsNotNull(menu, "the Boot scene must carry the BuildMenuUI");
             Assert.IsNotNull(menu.placeableSources, "menu.placeableSources must be wired editor-time (the rows)");
-            Assert.GreaterOrEqual(menu.placeableSources.Length, 2,
-                "the menu must list at least the crafting table + forge rows");
+            Assert.GreaterOrEqual(menu.placeableSources.Length, 3,
+                "the menu must list at least the crafting table + forge + campfire rows");
 
-            bool hasTable = false, hasForge = false;
+            bool hasTable = false, hasForge = false, hasCampfire = false;
             foreach (var src in menu.placeableSources)
             {
                 Assert.IsInstanceOf<IBuildPlaceable>(src,
                     "every placeableSources element must implement IBuildPlaceable (the shared build-menu seam)");
                 if (src is CraftingTablePlacement) hasTable = true;
                 if (src is ForgePlacement) hasForge = true;
+                if (src is CampfirePlacement) hasCampfire = true;
             }
             Assert.IsTrue(hasTable, "the build menu must register the CraftingTablePlacement row (① table)");
             Assert.IsTrue(hasForge, "the build menu must register the ForgePlacement row (③ forge)");
+            Assert.IsTrue(hasCampfire,
+                "the build menu must register the CampfirePlacement row (⑤ campfire — the ONE build entry point)");
         }
 
         [Test]

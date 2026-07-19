@@ -84,7 +84,7 @@ namespace FarHorizon.EditTests
                 "exactly this tree — a wrong-instance ref drives a chop the gate camera never frames)");
         }
 
-        // === CampfireVerifyCapture (-verifyLoop): player + inventory + warmth + campfire ===
+        // === CampfireVerifyCapture (-verifyLoop): player + inventory + warmth + campfire + placement (⑤) ===
         [Test]
         public void BootScene_CampfireVerifyCapture_HasWiredLoopDeps_BoundToSceneInstances()
         {
@@ -95,24 +95,28 @@ namespace FarHorizon.EditTests
                 "component-not-serialized trap)");
 
             Assert.IsNotNull(cap.player,
-                "CampfireVerifyCapture.player must be wired editor-time (the ClickToMove the loop drives spawn → " +
-                "craft → tree → fire)");
+                "CampfireVerifyCapture.player must be wired editor-time (the ClickToMove the loop teleports to place)");
             Assert.IsNotNull(cap.inventory,
-                "CampfireVerifyCapture.inventory must be wired editor-time (the loop reads HasAxe/WoodCount)");
+                "CampfireVerifyCapture.inventory must be wired editor-time (the loop grants + spends the build mats)");
             Assert.IsNotNull(cap.warmth,
                 "CampfireVerifyCapture.warmth must be wired editor-time (the loop asserts warmth RESTORES at the " +
                 "lit fire — the whole 'loop closes' proof rides on this ref)");
             Assert.IsNotNull(cap.campfire,
                 "CampfireVerifyCapture.campfire must be wired editor-time (the lit fire the loop stands at)");
+            Assert.IsNotNull(cap.placement,
+                "CampfireVerifyCapture.placement must be wired editor-time (the ⑤ place-to-build driver the loop " +
+                "RequestBuildAt-drives — the place-to-build proof rides on this ref)");
 
             var ctm = FindInScene<ClickToMove>(scene);
             var inv = FindInScene<Inventory>(scene);
             var warmth = FindInScene<WarmthNeed>(scene);
             var fire = FindInScene<Campfire>(scene);
+            var place = FindInScene<CampfirePlacement>(scene);
             Assert.AreSame(ctm, cap.player, "CampfireVerifyCapture.player must be THE scene's ClickToMove (binding-identity)");
             Assert.AreSame(inv, cap.inventory, "CampfireVerifyCapture.inventory must be THE scene's Inventory (binding-identity)");
             Assert.AreSame(warmth, cap.warmth, "CampfireVerifyCapture.warmth must be THE scene's WarmthNeed (binding-identity)");
             Assert.AreSame(fire, cap.campfire, "CampfireVerifyCapture.campfire must be THE scene's Campfire (binding-identity)");
+            Assert.AreSame(place, cap.placement, "CampfireVerifyCapture.placement must be THE scene's CampfirePlacement (binding-identity)");
         }
 
         // === PickableLooter (the #162-saga component): inventory + player, bound to the scene instances ===

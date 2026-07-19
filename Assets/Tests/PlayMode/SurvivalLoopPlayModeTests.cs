@@ -124,13 +124,16 @@ namespace FarHorizon.PlayTests
             _place.campfire = _fire;
             _place.player = _playerGo.transform;
             _place.warmth = _warmth;
+            _place.ghost = null;           // no ghost in the bare rig (SetGhostShown/TintGhost no-op)
+            _place.groundMask = default;   // 0 → the headless flat-ground fallback (valid ground)
             _place.woodCost = 3;           // == one felled tree's yield (chopsToFell*woodPerChop)
-            _place.buildRadius = 2.2f;
+            _place.stoneCost = 2;          // ⑤ NIT-3 — the vision's "branches/stones"; hand-gathered in Beat 3
         }
 
         [TearDown]
         public void TearDown()
         {
+            if (_place != null) _place.Cancel(); // release the modal UiInputGate if a test left placement active (⑤)
             Object.Destroy(_invGo);
             Object.Destroy(_warmthGo);
             Object.Destroy(_playerGo);
@@ -211,15 +214,28 @@ namespace FarHorizon.PlayTests
                 "one chop session — the chop→pile→loot hand-off, not the pre-rework per-chop bank)");
             int woodBeforeBuild = _inv.WoodCount;
 
-            // --- Beat 3: PLACE + LIGHT. Carry the wood to the pit -> the wood gate is paid -> fire lit. ---
-            // Hand-off #2: the wood chopped in Beat 2 is what the placement gate spends here (same _inv).
+            // ⑤ 86camz9w7 — the campfire is now WOOD + STONE (the vision's "branches/stones"). Hand-gather the
+            // stones (pebbles are early-available, the same source the ① table's stone comes from) so the loop
+            // affords the fire. The wood→fire hand-off (the point of this test) is unchanged.
+            _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.StoneId), _place.stoneCost);
+            int stoneBeforeBuild = _inv.StoneCount;
+
+            // --- Beat 3: PLACE + LIGHT. The campfire is invisible-until-placed now (⑤) — PLACE it via the ①
+            //     ghost+confirm flow (RequestBuildAt) at a flat spot beside the player -> the wood+stone gate is
+            //     paid -> revealed + lit. --- Hand-off #2: the wood chopped in Beat 2 is what the placement gate
+            // spends here (same _inv). Build 2u from the player (off-self) but within warmRadius for Beat 4.
             _playerGo.transform.position = FirePos;
-            float buildStart = Time.time;
-            while (Time.time - buildStart < 2f && !_fire.IsLit) yield return null;
-            Assert.IsTrue(_place.HasBuilt, "Beat 3: reaching the pit WITH wood builds the fire");
-            Assert.IsTrue(_fire.IsLit, "Beat 3: the built fire is lit");
+            yield return null;
+            Vector3 buildSpot = FirePos + new Vector3(2f, 0f, 0f); // off-self (>= minDistFromPlayer), within warmRadius
+            bool built = _place.RequestBuildAt(buildSpot);
+            Assert.IsTrue(built, "Beat 3: confirming the placement WITH wood+stone builds the fire");
+            Assert.IsTrue(_place.HasBuilt, "Beat 3: the placement latches built");
+            Assert.IsTrue(_fire.IsPlaced, "Beat 3: the campfire is revealed at the placed pose (invisible-until-placed lifted)");
+            Assert.IsTrue(_fire.IsLit, "Beat 3: the placed fire is lit (placing == lighting)");
             Assert.AreEqual(woodBeforeBuild - _place.woodCost, _inv.WoodCount,
                 "Beat 3: the wood gate debited exactly woodCost from the SAME ledger the chop filled");
+            Assert.AreEqual(stoneBeforeBuild - _place.stoneCost, _inv.StoneCount,
+                "Beat 3: the stone gate debited exactly stoneCost (the vision's 'stone AND wood')");
 
             // --- Beat 4: RESTORE — THE LOOP CLOSES. Stand at the lit fire -> warmth measurably RISES. ---
             // Hand-off #3 (the success-test catch): the fire restores the SAME _warmth instance Beat 0
