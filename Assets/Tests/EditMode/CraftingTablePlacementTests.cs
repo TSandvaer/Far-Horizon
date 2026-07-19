@@ -192,6 +192,51 @@ namespace FarHorizon.EditTests
                 "planar distance 1.0 == radii sum 1.0 → boundary treated as clear (strict less-than)");
         }
 
+        // ---- 86catr49m: ComputeObstruction's navmesh branch (FootprintOffNavMesh domain seam) ----
+
+        private const float OffNavTol = 0.5f;
+
+        [Test]
+        public void OffNavMesh_NoNavmeshBaked_Inert()
+        {
+            Assert.IsFalse(CraftingTablePlacement.IsOffNavMesh(
+                navMeshAvailable: false, sampled: false, sampledDistance: float.PositiveInfinity, OffNavTol),
+                "no navmesh context (headless / synthetic rig) → walkability check is INERT (never off-navmesh)");
+        }
+
+        [Test]
+        public void OffNavMesh_Baked_ButNoWalkableSurfaceNear_Blocked()
+        {
+            Assert.IsTrue(CraftingTablePlacement.IsOffNavMesh(
+                navMeshAvailable: true, sampled: false, sampledDistance: float.PositiveInfinity, OffNavTol),
+                "navmesh baked but the sample MISSED (no walkable surface within range) → OFF-navmesh (RED)");
+        }
+
+        [Test]
+        public void OffNavMesh_Baked_NearestWalkableWithinTolerance_Clear()
+        {
+            Assert.IsFalse(CraftingTablePlacement.IsOffNavMesh(
+                navMeshAvailable: true, sampled: true, sampledDistance: 0.20f, OffNavTol),
+                "nearest walkable surface is 0.20 (< 0.5 tol) → ON the navmesh (GREEN, buildable)");
+        }
+
+        [Test]
+        public void OffNavMesh_Baked_NearestWalkableTooFar_Blocked()
+        {
+            Assert.IsTrue(CraftingTablePlacement.IsOffNavMesh(
+                navMeshAvailable: true, sampled: true, sampledDistance: 1.20f, OffNavTol),
+                "nearest walkable is 1.20 (> 0.5 tol) → the footprint centre sits inside a tree's carve / off the " +
+                "island edge → OFF-navmesh (RED)");
+        }
+
+        [Test]
+        public void OffNavMesh_Baked_ExactlyAtTolerance_Clear()
+        {
+            Assert.IsFalse(CraftingTablePlacement.IsOffNavMesh(
+                navMeshAvailable: true, sampled: true, sampledDistance: OffNavTol, OffNavTol),
+                "distance == tolerance is treated as ON the navmesh (strict greater-than) — the boundary is clear");
+        }
+
         // ---- 86catqxm0: the registration seam (② boulders adopt this) ----
 
         [Test]

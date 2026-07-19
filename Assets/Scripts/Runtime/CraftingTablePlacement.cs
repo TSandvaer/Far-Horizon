@@ -385,9 +385,26 @@ namespace FarHorizon
         private bool FootprintOffNavMesh(Vector3 pos)
         {
             if (!_navMeshAvailable) return false;
-            if (NavMesh.SamplePosition(pos, out NavMeshHit hit, navSampleMaxDist, NavMesh.AllAreas))
-                return hit.distance > offNavMeshTolerance;
-            return true;
+            bool sampled = NavMesh.SamplePosition(pos, out NavMeshHit hit, navSampleMaxDist, NavMesh.AllAreas);
+            return IsOffNavMesh(_navMeshAvailable, sampled, sampled ? hit.distance : float.PositiveInfinity,
+                                offNavMeshTolerance);
+        }
+
+        /// <summary>
+        /// PURE navmesh-obstruction truth-table (the domain seam behind <see cref="FootprintOffNavMesh"/> — one
+        /// of the two <c>ComputeObstruction</c> branches, unit-testable without a baked navmesh; 86catr49m): a
+        /// footprint is OFF the walkable navmesh iff a navmesh IS available AND EITHER the sample missed (no
+        /// walkable surface within <c>navSampleMaxDist</c>) OR the nearest walkable surface is farther than
+        /// <paramref name="tolerance"/> (the footprint centre sits inside a tree's carve / off the island edge).
+        /// When no navmesh is baked (headless / synthetic rig, <paramref name="navMeshAvailable"/> false) it is
+        /// INERT (never off-navmesh) so the fallback path stays deterministic — the pure IsValidPlacement seam
+        /// carries the tested truth-table. Static + dependency-free so the EditMode guard pins every cell.
+        /// </summary>
+        public static bool IsOffNavMesh(bool navMeshAvailable, bool sampled, float sampledDistance, float tolerance)
+        {
+            if (!navMeshAvailable) return false; // no navmesh context (headless/synthetic rig) → walkability inert
+            if (!sampled) return true;           // navmesh baked but NO walkable surface near → off-navmesh (blocked)
+            return sampledDistance > tolerance;  // nearest walkable is too far → inside a carve / off the edge
         }
 
         // FIXTURE-SAFE navmesh-availability gate (fix for the PROCESS-GLOBAL CalculateTriangulation trap —

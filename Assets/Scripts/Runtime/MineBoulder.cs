@@ -92,6 +92,14 @@ namespace FarHorizon
                  "mines it. Slightly larger than the ore radius (a boulder is bigger).")]
         public float mineRadius = 2.4f;
 
+        [Tooltip("86catr49m — planar (XZ) no-build radius each STANDING boulder projects into " +
+                 "PlacementObstacleRegistry so a crafting-table ghost reads RED over it (a boulder is bigger " +
+                 "than an ore node's 0.6). The zone is registered while the boulder is MINEABLE (standing), " +
+                 "UNREGISTERED on break / mined-away, and RE-registered on regrow (keyed on IsMineable — NOT a " +
+                 "PlacementObstacle component, whose OnEnable/OnDisable never fires across the break→regrow " +
+                 "cycle; Drew's #303 trace). Soak-tune (a boulder's rough footprint).")]
+        public float placementObstacleRadius = 1.2f;
+
         [Tooltip("Strikes needed to break a boulder (default 4, range 1–10). After this many it breaks + drops its " +
                  "stone pile, then regrows. Shared across every boulder. default 4 — Sponsor-soak tunes.")]
         public int strikesToBreak = StrikesToBreakDefault;
@@ -138,6 +146,16 @@ namespace FarHorizon
         // The per-boulder mineable instances (the whole authored pool). REUSES MineableNodeState (MineOre.cs) — the
         // break/fade/regrow lifecycle is generic, not ore-specific.
         private readonly List<MineableNodeState> _nodes = new List<MineableNodeState>();
+
+        // 86catr49m — per-boulder PLACEMENT-obstacle bookkeeping, kept in lock-step (same index) with _nodes:
+        // each boulder's visual transform + whether its no-build zone is CURRENTLY registered in
+        // PlacementObstacleRegistry. SyncPlacementObstacles() drives register/unregister off each node's
+        // IsMineable so a mined-away boulder stops blocking placement (Drew's #303 trace: the break→fade→regrow
+        // cycle never toggles GameObject.SetActive, so a PlacementObstacle-component OnEnable/OnDisable would
+        // wrongly keep the empty spot blocked until regrow). No RNG draws — the seed-42/boulder scatter stream
+        // is untouched (world seed LOCKED, 86catr49m constraint 3).
+        private readonly List<Transform> _nodeVisuals = new List<Transform>();
+        private readonly List<bool> _nodeRegistered = new List<bool>();
 
         // Programmatic LEFT-CLICK latch (the input-independent seam, the analog of MineOre.RequestMineClick).
         private bool _mineClickRequested;
@@ -243,10 +261,14 @@ namespace FarHorizon
             if (stonePileSpawner == null) stonePileSpawner = FindObjectOfType<StonePileSpawner>();
         }
 
-        void Start()
+        void Start() => DiscoverAndStartPool();
+
+        // Discover the authored boulder pool (READ-only — the boulders are editor-authored into Boot.unity). Run
+        // in Start (not Awake) so the serialized pool is fully present. Each boulder is its own MineableNodeState.
+        // Split out of Start so an EditMode test can drive the pool + registration lifecycle synchronously (no
+        // MonoBehaviour Start fires in edit mode) via InitializePoolForTest.
+        private void DiscoverAndStartPool()
         {
-            // Discover the authored boulder pool (READ-only — the boulders are editor-authored into Boot.unity). Run
-            // in Start (not Awake) so the serialized pool is fully present. Each boulder is its own MineableNodeState.
             Transform root = boulderRoot;
             if (root == null)
             {
@@ -254,6 +276,8 @@ namespace FarHorizon
                 if (found != null) root = found.transform;
             }
             _nodes.Clear();
+            _nodeVisuals.Clear();
+            _nodeRegistered.Clear();
             if (root != null)
             {
                 int idx = 0;
@@ -261,8 +285,16 @@ namespace FarHorizon
             }
             _startedPool = true;
             ApplyActiveCount();
+            SyncPlacementObstacles(); // register the STANDING pool immediately (before the first player placement)
             BoulderTrace("resolver tracking " + _nodes.Count + " boulders; active=" + ActiveNodeCount);
         }
+
+#if UNITY_INCLUDE_TESTS
+        /// <summary>TEST-ONLY (STRIPPED from ship builds via UNITY_INCLUDE_TESTS): run the Start-time pool
+        /// discovery + initial registration synchronously so an EditMode test — where Start never auto-fires —
+        /// can exercise the boulder placement-obstacle register/unregister/re-register lifecycle (86catr49m).</summary>
+        public void InitializePoolForTest() => DiscoverAndStartPool();
+#endif
 
         private void CollectBoulders(Transform root, ref int idx)
         {
@@ -272,6 +304,8 @@ namespace FarHorizon
                 if (child.name == BoulderNodeName)
                 {
                     _nodes.Add(NewNodeState(child, DeriveSeed(idx)));
+                    _nodeVisuals.Add(child);   // 86catr49m — lock-step with _nodes for placement-obstacle sync
+                    _nodeRegistered.Add(false);
                     idx++;
                 }
                 else if (child.childCount > 0)
@@ -313,6 +347,8 @@ namespace FarHorizon
         {
             for (int i = 0; i < _nodes.Count; i++)
                 _nodes[i].Tick();
+
+            SyncPlacementObstacles(); // 86catr49m — reflect this frame's break/regrow transitions into the registry
 
             if (_impactPending && Now >= _impactAt)
             {
@@ -501,6 +537,59 @@ namespace FarHorizon
             if (broke)
                 BoulderTrace("boulder BROKEN after " + target.Strikes + " strikes; regrow in " +
                              (target.RegrowAt - Now).ToString("F0") + "s");
+        }
+
+        /// <summary>
+        /// 86catr49m — sync each boulder's PlacementObstacleRegistry membership to its CURRENT mineability so a
+        /// crafting-table ghost reads RED over a STANDING boulder and GREEN where one has been mined away: a
+        /// MINEABLE (standing) boulder registers a circular no-build zone; a broken / mid-tween / mined-away one
+        /// UNREGISTERS; a regrown one RE-registers. Only acts on a transition (idempotent + allocation-free), so
+        /// it is cheap to call every frame. Called from Update AND directly by EditMode tests (no MonoBehaviour
+        /// lifecycle needed).
+        ///
+        /// WHY key on IsMineable and NOT a PlacementObstacle component (the ticket's "e.g." + #302's registry
+        /// seam): Drew's #303 trace proved a boulder's break→fade→regrow cycle NEVER toggles GameObject.SetActive
+        /// (MineOre.cs SetEnabled fires only from the never-used pool dial), so a PlacementObstacle's OnEnable/
+        /// OnDisable would register ONCE and never unregister a mined-away boulder → it would wrongly keep
+        /// blocking placement at that empty spot until regrow. IsMineable is the correct transition signal.
+        /// </summary>
+        public void SyncPlacementObstacles()
+        {
+            float radius = Mathf.Max(0f, placementObstacleRadius);
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                Transform v = i < _nodeVisuals.Count ? _nodeVisuals[i] : null;
+                bool registered = i < _nodeRegistered.Count && _nodeRegistered[i];
+                if (v == null)
+                {
+                    if (registered) _nodeRegistered[i] = false; // visual gone — drop the stale flag (auto-pruned by the registry)
+                    continue;
+                }
+                bool mineable = _nodes[i].IsMineable;
+                if (mineable && !registered)
+                {
+                    PlacementObstacleRegistry.Register(v, radius);
+                    _nodeRegistered[i] = true;
+                }
+                else if (!mineable && registered)
+                {
+                    PlacementObstacleRegistry.Unregister(v);
+                    _nodeRegistered[i] = false;
+                }
+            }
+        }
+
+        void OnDisable()
+        {
+            // 86catr49m — release every no-build zone this pool projected so a disabled / torn-down MineBoulder
+            // never leaves stale placement blockers in the STATIC registry (editor play-mode re-entry + hermetic
+            // EditMode tests, where no [RuntimeInitializeOnLoadMethod] reset fires).
+            for (int i = 0; i < _nodeVisuals.Count; i++)
+            {
+                if (i < _nodeRegistered.Count && _nodeRegistered[i] && _nodeVisuals[i] != null)
+                    PlacementObstacleRegistry.Unregister(_nodeVisuals[i]);
+                if (i < _nodeRegistered.Count) _nodeRegistered[i] = false;
+            }
         }
 
         // [boulder-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call + its

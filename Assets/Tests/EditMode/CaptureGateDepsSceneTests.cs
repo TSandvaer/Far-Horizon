@@ -168,6 +168,64 @@ namespace FarHorizon.EditTests
                 "ref registers the pile into a looter the player isn't driving, so E never loots the pile (#165)");
         }
 
+        // === PlacementVerifyCapture (-verifyPlacement, 86catr49m): placement + player + inventory ===
+        // #302 shipped PlacementVerifyCapture INERT (in source, never authored into Boot.unity) — so the verb
+        // NO-OP'd AND an unwired -verifyPlacement HANGS the capture exe. This guard asserts the harness IS
+        // serialized into Boot.unity (the fix — WirePlacementVerifyCapture + a Boot re-bake) with its deps bound
+        // to the scene instances. Drop the scene-author wire and this reds in EditMode (CI step 2), long before
+        // the capture gate hangs to timeout.
+        [Test]
+        public void BootScene_PlacementVerifyCapture_HasWiredDeps_BoundToSceneInstances()
+        {
+            var scene = OpenBoot();
+            var cap = FindInScene<PlacementVerifyCapture>(scene);
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry PlacementVerifyCapture serialized (the -verifyPlacement shipped-build " +
+                "gate). #302 left it in source but NOT scene-authored → the verb NO-OP'd + HUNG the exe; this " +
+                "wire is the 86catr49m fix");
+
+            Assert.IsNotNull(cap.placement,
+                "PlacementVerifyCapture.placement must be wired editor-time (the CraftingTablePlacement the harness " +
+                "drives EnterPlacement + AimGhostAt on)");
+            Assert.IsNotNull(cap.player,
+                "PlacementVerifyCapture.player must be wired editor-time (the ClickToMove the harness teleports)");
+            Assert.IsNotNull(cap.inventory,
+                "PlacementVerifyCapture.inventory must be wired editor-time");
+
+            var placement = FindInScene<CraftingTablePlacement>(scene);
+            var ctm = FindInScene<ClickToMove>(scene);
+            var inv = FindInScene<Inventory>(scene);
+            Assert.AreSame(placement, cap.placement,
+                "PlacementVerifyCapture.placement must be THE scene's CraftingTablePlacement (binding-identity)");
+            Assert.AreSame(ctm, cap.player, "PlacementVerifyCapture.player must be THE scene's ClickToMove (binding-identity)");
+            Assert.AreSame(inv, cap.inventory, "PlacementVerifyCapture.inventory must be THE scene's Inventory (binding-identity)");
+        }
+
+        // === MineBoulder placement-obstacle wiring (86catr49m): the boulder pool must ship registrable ===
+        // Boulders are collider-free + do NOT carve the navmesh, so a crafting-table ghost can only read RED over
+        // one via PlacementObstacleRegistry (MineBoulder.SyncPlacementObstacles, keyed on IsMineable). This is the
+        // SCENE-side half of the boulder-registered guard (the runtime register/unregister/re-register lifecycle
+        // is pinned by MineBoulderPlacementObstacleTests): assert MineBoulder ships with a positive
+        // placementObstacleRadius AND a non-empty boulder pool, so the registration has something to project. A
+        // dropped pool / zeroed radius reds HERE, not silently in a soak (the table clips into a boulder).
+        [Test]
+        public void BootScene_MineBoulder_ShipsWithBoulderPool_AndPositivePlacementObstacleRadius()
+        {
+            var scene = OpenBoot();
+            var mine = FindInScene<MineBoulder>(scene);
+            Assert.IsNotNull(mine, "the Boot scene must carry MineBoulder (the boulder-mine + placement-obstacle host)");
+            Assert.Greater(mine.placementObstacleRadius, 0f,
+                "MineBoulder.placementObstacleRadius must be positive so each STANDING boulder projects a no-build " +
+                "zone — a zeroed radius means a table can be placed clipping into a boulder (86catr49m)");
+
+            var boulders = scene.GetRootGameObjects()
+                .SelectMany(r => r.GetComponentsInChildren<Transform>(true))
+                .Count(t => t.name == MineBoulder.BoulderNodeName);
+            Assert.Greater(boulders, 0,
+                "the Boot scene must author a boulder pool (Boulder nodes) for MineBoulder to register as " +
+                "placement obstacles — an empty pool means the fix has nothing to guard");
+        }
+
         // === LootPrompt (rides the looter's single source of truth) ===
         [Test]
         public void BootScene_LootPrompt_WiredToTheSameLooter()
