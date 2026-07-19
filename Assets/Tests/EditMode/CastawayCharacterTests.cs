@@ -578,15 +578,16 @@ namespace FarHorizon.EditTests
                 "ternary branch bakes the v2/old euler here");
         }
 
-        // 86catvb6u — the v4 FOOT-YAW counter-rotate (the Sponsor's chosen pigeon-toe fix) default + bake path.
+        // 86catvb6u — the v4 FOOT-YAW counter-rotate (the Sponsor's chosen pigeon-toe fix): the Sponsor-DIALED bake.
         [Test]
-        public void CastawayV4FootYawDeg_ShipsTheMeasuredBindDeltaDefault_86catvb6u()
+        public void CastawayV4FootYawDeg_ShipsTheSponsorDialedDefault_86catvb6u()
         {
-            // The default is the MEASURED v4-vs-v3 bind splay delta (CastawayV4DefectDiag: v4 foot bind yaw ±16.5°
-            // vs v3 ±5.0° → ~11°), so the exe starts near-straight; the Sponsor F9-dials the exact angle then bakes
-            // it here. Pin the constant so a drift/accidental-zero (which would re-ship the pigeon-toe) reds in CI.
-            Assert.AreEqual(11f, MovementCameraScene.CastawayV4FootYawDeg, 1e-4f,
-                "the v4 foot-yaw default must ship the measured bind-delta best-guess (~11°); the Sponsor F9-dials the final");
+            // The default is the Sponsor's F9-DIALED −15.0 (soak-v4-dial-2 / 0e9ec3e session; banked Player-prev.log
+            // trail 11→9→…→−15.0, matching his straight-feet screenshot), BAKED AS-DIALED on the same applied-sign
+            // code path he judged. NEGATIVE = toes outward (un-pigeon). Pin the value so a drift / accidental-zero
+            // (which would re-ship the pigeon-toe) OR a sign-flip (which would double the pigeon) reds in CI.
+            Assert.AreEqual(-15f, MovementCameraScene.CastawayV4FootYawDeg, 1e-4f,
+                "the v4 foot-yaw default must ship the Sponsor's dialed −15.0 (as-dialed, same code path he judged straight)");
         }
 
         // 86catvb6u — the Boot scene must carry CastawayFootYaw wired: foot bones resolved + footYawDeg defaulting

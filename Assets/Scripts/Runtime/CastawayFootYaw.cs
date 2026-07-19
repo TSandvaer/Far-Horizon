@@ -36,10 +36,10 @@ namespace FarHorizon
         public Transform leftFoot;
         public Transform rightFoot;
 
-        [Tooltip("Per-foot OUTWARD yaw (deg) about the character-vertical, MIRRORED L/R (left toe swings the " +
-                 "character's left, right toe the character's right). Positive = outward (un-pigeons the toes); " +
-                 "negative = inward. 0 = feet byte-unchanged. Default = the measured v4-vs-v3 bind splay delta so " +
-                 "it starts near-straight; the Sponsor F9-dials the exact angle (FOOT-YAW target), then it bakes.")]
+        [Tooltip("Per-foot yaw (deg) about the character-vertical, MIRRORED L/R. SIGN (truthful, as the Sponsor " +
+                 "judged it): NEGATIVE = toes OUTWARD (un-pigeons the toes — the direction his dialed −15 " +
+                 "straightened them); POSITIVE = toes inward. 0 = feet byte-unchanged. Default = the Sponsor's " +
+                 "F9-dialed −15.0 (FOOT-YAW target), baked as-dialed so the shipped visual == what he settled on.")]
         public float footYawDeg;
 
         void LateUpdate()

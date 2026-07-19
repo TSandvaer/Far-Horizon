@@ -259,12 +259,14 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
 
         // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
-        // defect). A per-foot OUTWARD yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4
-        // (0 for v3/v2/old → their feet are byte-unchanged). DEFAULT = the MEASURED v4-vs-v3 bind splay delta
-        // (CastawayV4DefectDiag: v4 foot bind yaw ±16.5° vs v3 ±5.0° → ~11° delta) so it starts near-straight;
-        // the Sponsor F9-dials the exact angle (FOOT-YAW nudge target), then a follow-up bakes his dialed value
-        // here (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools). Signed: + = outward.
-        public const float CastawayV4FootYawDeg = 11f;
+        // defect). A per-foot yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4 (0 for
+        // v3/v2/old → their feet are byte-unchanged). DEFAULT = the Sponsor's DIALED −15.0, BAKED AS-DIALED: he
+        // F9-dialed the FOOT-YAW target on 0e9ec3e (trail 11→9→…→−15.0, banked Player-prev.log + his screenshot)
+        // and settled on −15.0 as the straight-feet visual. Baking −15.0 on the SAME applied-sign code path he
+        // judged reproduces that exact visual. SIGN (truthful): −  = toes OUTWARD (un-pigeons; the direction his
+        // −15 straightened them), + = toes inward. He may re-dial via F9. (The earlier +11 "measured bind-delta"
+        // was only a first-pass starting guess; his dialed −15 supersedes it, opposite sign confirmed at bake.)
+        public const float CastawayV4FootYawDeg = -15f;
 
         // ===== CASTAWAY v4 ARM-POSE eulers (86catvb6u — the Sponsor's "right hand is TURNED / palm faces backward"
         // defect). The shipped arm-pose offsets (CastawayArmPose.rightArmEuler=(-4,-50,-3) / leftArmEuler=(-5,22,0))

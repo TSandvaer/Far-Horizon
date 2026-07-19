@@ -482,7 +482,7 @@ namespace FarHorizon
             }
             else if (_target == 5 && _footYaw != null)
                 // 86catvb6u — bake into MovementCameraScene.CastawayV4FootYawDeg (the v4 pigeon-toe counter-rotate).
-                Debug.Log($"[AxeNudgeTool] FOOT-YAW  CastawayV4FootYawDeg={_footYaw.footYawDeg:F1}f  (+ = toes outward)");
+                Debug.Log($"[AxeNudgeTool] FOOT-YAW  CastawayV4FootYawDeg={_footYaw.footYawDeg:F1}f  (NEGATIVE = toes outward/un-pigeon — his straight-feet value was -15)");
             else if (_target == 6 && _fingerCurl != null)
                 // 86catvb6u — bake into CastawayFingerCurl.fingerCurlDeg (soften v4's chunky-hand grip fold).
                 Debug.Log($"[AxeNudgeTool] GRIP-CURL  fingerCurlDeg={_fingerCurl.fingerCurlDeg:F1}f  (lower = less fold/dark)");
@@ -545,7 +545,7 @@ namespace FarHorizon
                 : _target == 4
                 ? "RUN arm-lower (axe in hand, calmer run swing — U/J=lower/raise; RUN to judge)"
                 : _target == 5
-                ? "FOOT-YAW (v4 pigeon-toe — Y/H yaws both toes outward until straight)"
+                ? "FOOT-YAW (v4 pigeon-toe — H=toes outward / Y=inward; dial to straight, default -15)"
                 : "GRIP-CURL (v4 hand — T/G softens the grip fold; lower = less dark/segmented)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
@@ -608,8 +608,8 @@ namespace FarHorizon
             else if (_target == 5 && _footYaw != null)
             {
                 // 86catvb6u — the v4 pigeon-toe counter-rotate. One scalar (both feet mirror); Y/H dials it.
-                posLine = $"CastawayV4FootYawDeg={_footYaw.footYawDeg:F1}   (Y/H = toes outward/inward; both feet mirror)";
-                eulerLine = "walk to judge — dial until both toes read straight, then bake into CastawayV4FootYawDeg";
+                posLine = $"CastawayV4FootYawDeg={_footYaw.footYawDeg:F1}   (H = toes OUTWARD / Y = inward; both feet mirror)";
+                eulerLine = "walk to judge — NEGATIVE un-pigeons (default -15); dial to straight, then bake CastawayV4FootYawDeg";
             }
             else if (_target == 6 && _fingerCurl != null)
             {
