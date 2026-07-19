@@ -512,11 +512,13 @@ jobs:
           rm -f ci-out/verify-pond.log ci-out/verify-settings.log ci-out/verify-loot.log \
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
-                ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log
+                ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
+                ci-out/verify-boulder.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
-                 ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps
+                 ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
+                 ci-out/boulder-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -996,6 +998,47 @@ jobs:
           path: |
             ci-out/mine-caps/*.png
             ci-out/verify-mine.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 17. Boulder-mine-loop (select wood pickaxe → strike boulder → break → E-loot → stone) shipped-build
+      #     capture gate (ticket 86catr79g — the CI-wiring follow-up Tess flagged on PR #303/②, the same pattern
+      #     #299 wired -verifyMine; QA PASS verbatim: "-verifyBoulder ships with ② and passes on the shipped exe
+      #     ... but is NOT CI-wired — boulder-mining regressions otherwise uncaught, exactly the -verifyMine gap
+      #     class"). -verifyBoulder (BoulderVerifyCapture.cs) has PASSED manually since ② but was NEVER a CI gate
+      #     (grep -rn verifyBoulder .github/workflows/ → zero hits before this), so a real break in the boulder
+      #     loop would slip straight through GREEN CI exactly like the #165 chop / -verifyMine class — the generic
+      #     -captureGate (step 7) only shoots the default spawn frame (no pickaxe selected, no boulder in range),
+      #     so nothing about the boulder loop is exercised. This launches the SAME built exe with -verifyBoulder,
+      #     driving BoulderVerifyCapture: GRANT + SELECT a wood pickaxe, teleport to a runtime-discovered reachable
+      #     boulder, drive the real MineBoulder.RequestMineClick + PickableLooter.RequestLoot path until the
+      #     boulder BREAKS + the stone pile is looted, and SELF-ASSERT haveBoulder && gotStone (stone count rose).
+      #     The component Quit(1)s on any failure (or missing wiring from Boot.unity), so the exe's exit code IS
+      #     the gate verdict; frame_check.py is a swapchain-content backstop. HEADLESS via RT-readback (86cag93zb,
+      #     same as mine/chop/held-belt): the gate SCRIPT launches -batchmode (no -nographics, no window), so this
+      #     step invocation is the same shape as its siblings. Runs only when the build produced an exe; frames +
+      #     log upload AFTER (if: always()) so the boulder evidence survives a fail.
+      - name: Boulder capture gate (select wood pickaxe → strike → break → E-loot → stone)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_boulder_gate.sh
+            .github/workflows/scripts/verify_boulder_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/boulder-caps ci-out/verify-boulder.log
+          else
+            echo "[verify-boulder] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload boulder frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-boulder-caps-${{ github.sha }}
+          path: |
+            ci-out/boulder-caps/*.png
+            ci-out/verify-boulder.log
           if-no-files-found: warn
           retention-days: 3
 
