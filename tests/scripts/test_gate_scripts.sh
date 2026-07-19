@@ -867,6 +867,53 @@ for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify
   assert_launch_windowed "$s"
 done
 
+echo "=== parse_test_results.py skip-handling (86camz787 — PlayMode advisory→required) ==="
+# THE bug class this guards: the shared NUnit result gate must treat SKIPPED/IGNORED
+# tests as PASS on the PlayMode job (--allow-skips) while STILL reddening on a real
+# failure — AND that skip-tolerance must NOT leak into the strict EditMode (required)
+# gate. Unity rolls a run carrying [Ignore]-skips up to a compound run-level
+# result="Skipped:Ignored"; the strict result==Passed check reds it even at failed==0
+# (proven live: main run 29683732044). Zero Unity dependency — synthetic <test-run> XMLs.
+PARSE="$SCRIPTS/parse_test_results.py"
+# mk_testrun_xml <file> <result> <total> <passed> <failed> <inconclusive> <skipped>
+mk_testrun_xml() {
+  printf '<?xml version="1.0" encoding="utf-8"?>\n<test-run id="2" testcasecount="%s" result="%s" total="%s" passed="%s" failed="%s" inconclusive="%s" skipped="%s"><test-suite type="TestSuite" result="%s"><test-case name="t1" result="Passed"/></test-suite></test-run>\n' \
+    "$3" "$2" "$3" "$4" "$5" "$6" "$7" "$2" > "$1"
+}
+PT="$TMP/pt"; mkdir -p "$PT"
+# The core fix: --allow-skips greens a Skipped:Ignored run at failed==0.
+mk_testrun_xml "$PT/skips.xml" "Skipped:Ignored" 302 289 0 0 13
+assert_rc_and_grep 0 "TEST GATE PASSED" \
+  "parse --allow-skips: Skipped:Ignored + failed=0 → GREEN" \
+  -- python3 "$PARSE" --allow-skips "$PT/skips.xml" PlayMode
+# Regression guard #1: --allow-skips must NOT hide a real failure.
+mk_testrun_xml "$PT/fail.xml" "Failed:Child" 302 286 3 0 13
+assert_rc_and_grep 1 "TEST GATE FAILED" \
+  "parse --allow-skips: failed>0 → still RED" \
+  -- python3 "$PARSE" --allow-skips "$PT/fail.xml" PlayMode
+# Regression guard #2: inconclusive still reds under --allow-skips (Assert.Inconclusive == hard red).
+mk_testrun_xml "$PT/inconc.xml" "Inconclusive" 302 289 0 2 11
+assert_rc_and_grep 1 "TEST GATE FAILED" \
+  "parse --allow-skips: inconclusive>0 → still RED" \
+  -- python3 "$PARSE" --allow-skips "$PT/inconc.xml" PlayMode
+# Regression guard #3: an empty run (asmdef didn't load) still reds even with --allow-skips.
+mk_testrun_xml "$PT/empty.xml" "Skipped" 0 0 0 0 0
+assert_rc 1 "parse --allow-skips: total=0 empty run → still RED" \
+  -- python3 "$PARSE" --allow-skips "$PT/empty.xml" PlayMode
+# A normal all-pass run is green with the flag too.
+mk_testrun_xml "$PT/pass.xml" "Passed" 302 302 0 0 0
+assert_rc_and_grep 0 "TEST GATE PASSED" \
+  "parse --allow-skips: all-Passed → GREEN" \
+  -- python3 "$PARSE" --allow-skips "$PT/pass.xml" PlayMode
+# EditMode (required) gate contract UNCHANGED: WITHOUT the flag a skip-run stays RED,
+# so the fix cannot silently relax the required gate.
+assert_rc_and_grep 1 "TEST GATE FAILED" \
+  "parse strict (no flag): Skipped:Ignored → still RED (EditMode required gate unchanged)" \
+  -- python3 "$PARSE" "$PT/skips.xml" EditMode
+assert_rc_and_grep 0 "TEST GATE PASSED" \
+  "parse strict (no flag): all-Passed → GREEN (EditMode normal path unchanged)" \
+  -- python3 "$PARSE" "$PT/pass.xml" EditMode
+
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || { echo "GATE-SCRIPT TESTS FAILED"; exit 1; }

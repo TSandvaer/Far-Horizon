@@ -1202,6 +1202,19 @@ jobs:
 
       # Advisory result gate — reports PlayMode pass/fail for SIGNAL. The job-level
       # continue-on-error keeps a red here from ever blocking a merge.
+      #
+      # --allow-skips (86camz787): the suite carries 13 pre-existing [Ignore]/quarantine
+      # skips, which roll the run-level result up to "Skipped:Ignored" (a compound
+      # Status:Label). WITHOUT the flag the strict result==Passed check reds the job even
+      # though failed==0 (proven: main run 29683732044). --allow-skips makes the gate GREEN
+      # when failed==0 + inconclusive==0 + total>0 + status in {Passed,Skipped}; any REAL
+      # failure (failed>0 / inconclusive>0 / Failed-status / empty run) still reds, and a
+      # timeout/hang writes no XML → the no-XML branch below reds first. The EditMode
+      # (required) gate does NOT pass the flag, so its strict behavior is unchanged.
+      #
+      # THE FLIP to REQUIRED is the Sponsor's one-liner (do NOT apply here — see PR body):
+      # delete `continue-on-error: true` at the `playmode:` job level. With this skip
+      # handling in place, a healthy skip-run then reports the job conclusion `success`.
       - name: PlayMode result gate (advisory)
         if: always()
         shell: bash
@@ -1210,4 +1223,4 @@ jobs:
             echo "[PlayMode] no result XML — PlayMode likely hung on play-mode-ENTER (env-deadlock) and was killed by the job timeout. ADVISORY only; does not block merge. Tracked: 86caapwmt." >&2
             exit 1
           fi
-          python3 .github/workflows/scripts/parse_test_results.py ci-out/test-results-playmode.xml PlayMode
+          python3 .github/workflows/scripts/parse_test_results.py --allow-skips ci-out/test-results-playmode.xml PlayMode
