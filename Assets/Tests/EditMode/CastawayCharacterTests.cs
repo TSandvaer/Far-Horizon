@@ -646,16 +646,17 @@ namespace FarHorizon.EditTests
             }
         }
 
-        // 86catvb6u round-5 — the v4 RIGHT-WRIST un-roll (the DIRECT-KNOB fix after the mirror-left arm euler
-        // missed). The auto-rig gave the right hand bone a rolled bind frame; the bone-local correction makes it
-        // render-mirror the left. Pin the measured seed + guard it's non-zero (a zero re-ships the turned hand).
+        // 86catvb6u round-7 — the v4 RIGHT-WRIST offset is ZEROED after the Mixamo RE-RIG. Round-6 proved the
+        // right-hand asymmetry was the OLD armature's per-side bone rolls (geometry mirror-perfect, weights inert);
+        // the Sponsor re-rigged (fresh Mixamo, symmetric arms 1.2°), so the hand renders mirrored with NO
+        // compensation — the round-5 17.7° seed was OLD-rig-specific + is now stale. Default 0; the knob stays as
+        // the Sponsor's F9 taste-dial. Pin 0 so a stale non-zero compensation can't creep back onto the new rig.
         [Test]
-        public void CastawayV4RightWristEuler_ShipsTheMeasuredRenderMirrorCorrection_86catvb6u()
+        public void CastawayV4RightWristEuler_ZeroedForTheReRig_86catvb6u()
         {
-            Assert.AreEqual(new Vector3(17.7f, -3.5f, -0.9f), MovementCameraScene.CastawayV4RightWristEuler,
-                "the v4 right-wrist correction must ship the measured render-mirror seed (17.7,-3.5,-0.9); Sponsor F9-dials from here");
-            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
-                "the v4 right-wrist correction must be NON-zero (a zero re-ships the un-mirrored right hand — the defect)");
+            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
+                "post-re-rig the v4 right-wrist offset must DEFAULT 0 (the re-rig fixes the hand; the WRIST knob is " +
+                "the Sponsor's taste-dial). A stale non-zero (e.g. the round-5 17.7° OLD-rig seed) would rotate a now-correct hand.");
         }
 
         // 86catvb6u round-5 — the Boot scene must carry CastawayRightWristPose wired: hand bone resolved +

@@ -280,15 +280,15 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 CastawayV4RightArmEuler = new Vector3(-5f, -22f, 0f); // mirror-of-left (measured symmetric)
         public static readonly Vector3 CastawayV4LeftArmEuler = new Vector3(-5f, 22f, 0f);   // == the v3 left (read fine)
 
-        // ===== CASTAWAY v4 RIGHT-WRIST correction (86catvb6u round-5 — the DIRECT-KNOB fix after the mirror-left
-        // ARM euler MISSED). The arm-pose repositions the UPPER ARM; it cannot correct the right HAND BONE's own
-        // rolled bind frame. MEASURED (CastawayV4DefectDiag round-5): the v4 auto-rig gave the right hand a bind
-        // frame rolled 11.7° off the mirrored left (18.1° live) — the palm reads turned. This bone-local hand
-        // offset (CastawayRightWristPose, order 65) rotates the hand directly to render-mirror the left. Default =
-        // the derived correction Inv(R_right)·mirror(R_left) at idle (POST-correction mismatch verified 0.0°); the
-        // Sponsor F9-dials the exact grip by eye (WRIST target — his eye is the A/B). Applied ONLY for v4 (0 for
-        // v3/v2/old → their right hand reads fine, byte-unchanged).
-        public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(17.7f, -3.5f, -0.9f); // measured render-mirror correction
+        // ===== CASTAWAY v4 RIGHT-WRIST offset (86catvb6u round-5 knob; ZEROED round-7 for the Mixamo RE-RIG). The
+        // right-hand asymmetry was in the OLD auto-rig's armature (per-side bone rolls) — round-6 proved geometry
+        // mirror-perfect + weights inert, so the Sponsor RE-RIGGED (fresh Mixamo, T-pose, Use-Symmetry). The new
+        // 41-bone rig's arms measure 1.2° symmetric (< v3's 10.2°); the rig is meant to render the hands as mirrors
+        // with NO compensation. So the WRIST default is now ZERO (the round-5 17.7° was a compensation for the OLD
+        // rig's roll — stale on the new rig; leaving it would rotate a now-correct hand). CastawayRightWristPose
+        // (order 65) drives ONLY the hand bone; it stays as the Sponsor's F9 taste-dial (WRIST target). Applied
+        // ONLY for v4; 0 for v3/v2/old (byte-unchanged). The Sponsor dials any residual on the dial-6 soak.
+        public static readonly Vector3 CastawayV4RightWristEuler = Vector3.zero; // re-rig fixes the hand; knob = taste-dial (default 0)
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open

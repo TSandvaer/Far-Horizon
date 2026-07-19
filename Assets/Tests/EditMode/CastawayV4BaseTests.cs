@@ -83,8 +83,10 @@ namespace FarHorizon.EditTests
 
         // (4) CLIP-CARRY guard — v4's skeleton must carry the CORE mixamorig bones the 18 existing clips drive
         // by transform path. Reds if a future v4 re-export drops a core bone (that limb then can't animate).
-        // v4 is the 33-bone rig (Index-chain fingers only, NO thumb bones) but ALL core locomotion/arm/toe bones
-        // are present (phase-B raw parse), so the WITHOUT-skin clip set binds with no retarget — same as v2/v3.
+        // v4 is now the 41-bone Mixamo RE-RIG (86catvb6u round-7 — T-pose upload, Use-Symmetry; Index+Thumb chains
+        // restored, arms measured 1.2° L/R-symmetric). ALL core locomotion/arm/toe bones present (gate raw-parse:
+        // missing=NONE), so the WITHOUT-skin clip set binds with no retarget — same as v2/v3. (Was 33-bone/no-thumb
+        // pre-re-rig; the re-rig fixed the OLD armature's per-side hand-bone-roll asymmetry — round-6 elimination.)
         [Test]
         public void V4Base_Skeleton_CarriesCoreMixamorigBones_ForClipTransformPathBinding()
         {
