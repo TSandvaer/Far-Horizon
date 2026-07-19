@@ -526,8 +526,27 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Reversibility: reversible — Sponsor revokes with a word; falls back to one-click staging.
 - Affects: orchestrator merge flow, away-queue format (one-click class retired), all personas' merge expectations
 
+## 2026-07-08 — Sponsor NEVER performs git/CLI operations (hard rule; supersedes all "you run this" handoffs)
+- Decided by: Sponsor (verbatim, /drain-and-save popup: "I NEVER WANT TO COMMIT, PUSH OR ANYTHING YOU SHOULD DO IT")
+- Decision: the Sponsor is never handed git/gh commands to run — no merges, commits, pushes, worktree cleanups, or label commands. The orchestrator/team performs ALL mechanical operations; where the classifier gates an action, the orchestrator obtains the Sponsor's in-context approval via popup and then executes it ITSELF. The Sponsor's role is verdicts and approvals only (soaks, dials, priorities, popup clicks).
+- Why: repeated friction handing the Sponsor one-click commands (away-queue one-clicks, fh-261-fold cleanup, the #287 merge suggestion). Pairs with the 2026-07-08 STANDING AUTO-MERGE grant.
+- Reversibility: reversible on the Sponsor's word
+- Affects: orchestrator merge/cleanup flows, away-queue format (no command handoffs — approval-only items), memory [[explain-why-before-handing-sponsor-commands]]
+
+## 2026-07-08 — Rule clarified: GitHub UI clicks count as commands too (Sponsor scope-check)
+- Decided by: Sponsor (verbatim: "clicking in gh should count as command also then")
+- Decision: the never-runs-commands rule includes GitHub's web UI — no browser merges, no UI operations. The Sponsor's surface is IN-CHAT ONLY (popups, soak verdicts, priorities) plus physical machine actions the orchestrator's sandbox genuinely cannot perform (e.g. launching the interactive runner window — attempted twice, OS-denied). Consequence: the browser-merge class is RETIRED — even .github workflow-file PRs are merged by the orchestrator via direct `gh pr merge --admin` after in-chat approval (proven live on PR #287, 2026-07-08 16:03Z; the workflow-token wall only constrains the Action's token, not the orchestrator's gh auth). The scoped-PAT ticket 86cafhehe is downgraded to optional (label-path completeness, no longer required for any merge).
+- Reversibility: reversible on the Sponsor's word
+- Affects: merge flows for .github PRs, away-queue item format, ticket 86cafhehe priority
+
 ## 2026-07-18 — Wood-tier weapon set PASSED (Sponsor walkthrough verdict)
 
 - **Decision:** Sponsor PASSED all 5 wood-tier pieces as-is (axe/pickaxe/spear/knife/sword; whittled-wood, existing palette tones, 28-41 tris) from the 13 staged renders in art-src/wood-burst-renders/ — "PASS — export FBXs, integrate" via /sponsor-questions-walkthrough popup.
 - **Consequence:** FBXs export from art-src/weapons_reauthor.blend (wood row y=-0.6) to Assets/Art/Props/WeaponPack/ and integration proceeds (ids *_wood already live in #294 catalogs; in-hand seating + verbs remain ②/art-burst scope per the #294 deferred flags).
 - **Source:** away-queue item 0b (staged 2026-07-08) → resolved 2026-07-18.
+
+## 2026-07-19 — Crafting redesign wave ①-④ CLOSED on sponsor soak PASS; C build menu is the single build entry point
+
+- **④ chain soak = SPONSOR PASS** (walkthrough popup, "chain works, forge reads right"; soak-crafting-4 @ 75a9725): `86camz9uz` ① (shipped 07-18) · `86camz9v7` ② · `86camz9vh` ③ · `86camz9vq` ④ · ghost-obstruction fix `86catqxm0` — all complete. The Sponsor-locked wood→stone→iron progression from the 2026-07-08 grill is live end-to-end.
+- **Sponsor design confirmation (mid-soak verbatim, ticket 86catpvpa comment 90150243183538):** C = build MENU for all placeable structures; the placed crafting TABLE's menu is ITEMS-only (tools/weapons); the interim forge key V retires. Shipped same-day as PR #311 (`IBuildPlaceable`/`BuildMenuUI.RegisterPlaceable` seam — ⑤ campfire and future placeables register rows, never fork a menu).
+- **Merge-path policy shift (sponsor verbatim in-walkthrough: "Why do i have to merge anything? you can do it. yes merge now"):** fully-gated workflow-file PRs are orch-DIRECT-merged via `gh pr merge --admin` when the sponsor is present/delegating — the browser-click ritual was classifier-convention only, never token-required for the CLI (#299 `d757c2e`, #308 `fdb81df`, #309 `9a8687b`). Away-mode staging unchanged.
