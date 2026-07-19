@@ -409,6 +409,16 @@ namespace FarHorizon.EditorTools
             // iron) and BEFORE the NavMesh bake (collider-free — the player walks up to it).
             BuildForge(player, groundLayer);
 
+            // 86catpvpa: the BUILD MENU (C) — the SINGLE build entry point fronting the ① free-cursor ghost-
+            // placement flow for ALL placeable structures (crafting table + forge today; ⑤ appends the
+            // campfire once it converts to the ghost flow). Authored AFTER BuildCraftingTable + BuildForge so
+            // both placement drivers (the IBuildPlaceable rows) exist to register. Retires the interim table-C
+            // / forge-V direct build keys — the menu is the ONLY build entry point now (the Sponsor's
+            // mid-soak confusion fix). The menu's UIDocument + PanelSettings + placeableSources refs SERIALIZE
+            // into Boot.unity (editor-vs-runtime trap). Also wires the -verifyBuildMenu shipped-build capture
+            // (inert unless launched with that verb). BuildMenuSceneTests guards the serialized presence.
+            BuildBuildMenu(player);
+
             // 86caa4bya: the INVENTORY pack (Tab) + BELT hotbar UI (UI Toolkit) + a pickable world axe.
             // The InventoryUI's UIDocument + UXML/USS + the Inventory reference SERIALIZE into Boot.unity
             // (editor-vs-runtime trap). The pickable axe is the AC3 PoC pickup (auto-places in belt slot 1).
@@ -619,6 +629,10 @@ namespace FarHorizon.EditorTools
         public const string CraftingTableMatPath = SettingsDir + "/CraftingTableMat.mat";
         public const string CraftingGhostMatPath = SettingsDir + "/CraftingGhostMat.mat";
 
+        // 86catpvpa — the BUILD MENU (C) objects.
+        public const string BuildMenuObjectName = "BuildMenuUI";
+        public const string BuildMenuPanelSettingsAssetPath = SettingsDir + "/BuildMenuPanelSettings.asset";
+
         // The crafting TABLE + recipe MENU + place-to-build flow (86camz9uz ① — replaces CraftSpot). Authors,
         // all editor-time so they SERIALIZE into Boot.unity (editor-vs-runtime trap): (a) the REAL table (a
         // flat-work-surface-on-legs low-poly mesh — Bar 4 anchor), renderers DISABLED = invisible until placed
@@ -762,6 +776,89 @@ namespace FarHorizon.EditorTools
             AssetDatabase.CreateAsset(ps, CraftingMenuPanelSettingsAssetPath);
             AssetDatabase.SaveAssets();
             return ps;
+        }
+
+        // 86catpvpa — the BUILD MENU (C): the SINGLE build entry point fronting the ① ghost-placement flow for
+        // ALL placeable structures. Authors, all editor-time so they SERIALIZE into Boot.unity (editor-vs-
+        // runtime trap): (a) the menu UIDocument (modal, its own PanelSettings on the shared resolving runtime
+        // theme, sortingOrder 96 — above the recipe menu at 95, below the dev settings panel at 100); (b) the
+        // BuildMenuUI wired with the placeableSources = [CraftingTablePlacement, ForgePlacement] (each an
+        // IBuildPlaceable row). Retires the interim table-C / forge-V direct build keys (removed from those
+        // components). Also wires the -verifyBuildMenu shipped-build capture onto Boot. MUST run AFTER
+        // BuildCraftingTable + BuildForge (the placement drivers must exist to register).
+        private static void BuildBuildMenu(GameObject player)
+        {
+            var tablePlacement = Object.FindObjectOfType<CraftingTablePlacement>();
+            var forgePlacement = Object.FindObjectOfType<ForgePlacement>();
+            if (tablePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildBuildMenu found no CraftingTablePlacement — " +
+                               "BuildCraftingTable must run before BuildBuildMenu (the table build-menu row).");
+            if (forgePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildBuildMenu found no ForgePlacement — " +
+                               "BuildForge must run before BuildBuildMenu (the forge build-menu row).");
+
+            var menuGo = new GameObject(BuildMenuObjectName);
+            var doc = menuGo.AddComponent<UIDocument>();
+            doc.panelSettings = EnsureBuildMenuPanelSettings();
+            doc.sortingOrder = 96f; // above the recipe menu (95), below the dev settings panel (100)
+            var menu = menuGo.AddComponent<BuildMenuUI>();
+            menu.document = doc;
+            // The editor-authored rows: crafting table + forge (③/⑤ append campfire here later — one line).
+            var sources = new System.Collections.Generic.List<MonoBehaviour>(2);
+            if (tablePlacement != null) sources.Add(tablePlacement);
+            if (forgePlacement != null) sources.Add(forgePlacement);
+            menu.placeableSources = sources.ToArray();
+
+            EditorUtility.SetDirty(menuGo);
+            Debug.Log("[MovementCameraScene] authored build menu (C, sortingOrder 96) with " +
+                      sources.Count + " placeable rows (table wired: " + (tablePlacement != null) +
+                      ", forge wired: " + (forgePlacement != null) + ")");
+
+            WireBuildMenuVerifyCapture(menu, tablePlacement);
+        }
+
+        // Own PanelSettings for the build-menu UIDocument (mirrors EnsureCraftingMenuPanelSettings) — the
+        // shared EnsureRuntimeTheme resolves a USABLE runtime theme (a base-less theme hangs the exe at 0 frames).
+        private static PanelSettings EnsureBuildMenuPanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(BuildMenuPanelSettingsAssetPath);
+            if (existing != null) return existing;
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            ps.themeStyleSheet = EnsureRuntimeTheme();
+            AssetDatabase.CreateAsset(ps, BuildMenuPanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
+        }
+
+        // 86catpvpa: the shipped-build BUILD-MENU capture gate (-verifyBuildMenu), attached to Boot so it SHIPS
+        // in Boot.unity — an UNWIRED -verifyX verb NO-OPs the capture AND HANGS the exe (the #302 inert-harness
+        // lesson). Fails LOUD at bootstrap on a dropped dep rather than letting Start's find-fallback mask it.
+        private static void WireBuildMenuVerifyCapture(BuildMenuUI menu, CraftingTablePlacement tablePlacement)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host BuildMenuVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<BuildMenuVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<BuildMenuVerifyCapture>();
+            cap.menu = menu;
+            cap.tablePlacement = tablePlacement;
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            if (cap.menu == null)
+                Debug.LogError("[MovementCameraScene] BuildMenuVerifyCapture.menu wiring is null — " +
+                               "BuildBuildMenu must author the BuildMenuUI before WireBuildMenuVerifyCapture");
+            if (cap.tablePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildMenuVerifyCapture.tablePlacement wiring is null — " +
+                               "BuildCraftingTable must author the CraftingTablePlacement before this gate");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] BuildMenuVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            EditorUtility.SetDirty(bootGo);
         }
 
         // Attach the IN-HOUSE hero axe (ticket 86cabh907 — Route A weapon SET) to the chibi's RIGHT HAND bone

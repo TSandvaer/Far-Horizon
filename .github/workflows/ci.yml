@@ -513,12 +513,12 @@ jobs:
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
                 ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
-                ci-out/verify-boulder.log
+                ci-out/verify-boulder.log ci-out/verify-buildmenu.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
                  ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
-                 ci-out/boulder-caps
+                 ci-out/boulder-caps ci-out/buildmenu-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -608,6 +608,38 @@ jobs:
           path: |
             ci-out/settings-caps/*.png
             ci-out/verify-settings.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 8b. Build-menu shipped-build capture gate (ticket 86catpvpa) — the panel-specific sibling of the
+      #     settings gate (both are UI-Toolkit modal panels). The generic -captureGate renders a closed-world
+      #     gameplay frame with NO menu, so it can't prove the build menu ships, that a greyed row is
+      #     non-interactive, or that selecting a row enters the ① ghost placement flow. This launches the SAME
+      #     built exe windowed with -verifyBuildMenu, driving BuildMenuVerifyCapture to open the menu, prove the
+      #     unaffordable row is non-interactive, grant the table's mats, and select the row. It asserts: frames
+      #     rendered (frame_check), the regression guard `selectedEnteredGhost=True`, the non-interactive/modal
+      #     ground truth, and the menu is VISIBLE (open != closed). Runs only when the build produced an exe.
+      - name: Build-menu capture gate (menu opens + select enters ghost flow)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_buildmenu_gate.sh
+            .github/workflows/scripts/verify_buildmenu_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/buildmenu-caps ci-out/verify-buildmenu.log
+          else
+            echo "[verify-buildmenu] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload build-menu frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-buildmenu-caps-${{ github.sha }}
+          path: |
+            ci-out/buildmenu-caps/*.png
+            ci-out/verify-buildmenu.log
           if-no-files-found: warn
           retention-days: 3
 
