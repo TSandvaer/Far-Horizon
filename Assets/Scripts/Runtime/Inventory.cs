@@ -199,6 +199,25 @@ namespace FarHorizon
         /// of <see cref="IsPickaxeStoneSelectedInBelt"/>).</summary>
         public bool IsPickaxeIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
 
+        // === WOOD-tier held-visual selection predicates (86caffwuz / 86caffwv5 soak-3 fix) ===
+        // The soak-3 blocker: the Sponsor crafted a WOOD axe, selected it in the belt, and NOTHING showed in the
+        // hand. Root cause (Drew's trace): the crafted wood tools carry the wood ItemCatalog ids (axe_wood /
+        // dagger_wood / sword_wood / spear_wood / pickaxe_wood), but EVERY held-visual predicate + the belt→held
+        // mesh sync (HeldWeaponCycleDebug.SelectionIndexFor) + the visibility gate (HeldAxe.ShouldShow) recognized
+        // only the stone/iron ids → SelectionIndexFor returned -1 → the seat stayed hidden. These 5 predicates are
+        // the wood siblings of IsAxeSelectedInBelt / IsPickaxe*SelectedInBelt so the gate + sync can map the wood
+        // tier to its held mesh (indices 10-14; seats already mirror the stone tier — the Sponsor F9-dials after).
+        /// <summary>True when the WOOD axe is the SELECTED belt item (the wood sibling of <see cref="IsAxeSelectedInBelt"/>).</summary>
+        public bool IsAxeWoodSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.AxeWoodId);
+        /// <summary>True when the WOOD dagger is the SELECTED belt item (the wpn_knife_wood_01 mesh — "dagger" per §6a).</summary>
+        public bool IsDaggerWoodSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.DaggerWoodId);
+        /// <summary>True when the WOOD sword is the SELECTED belt item.</summary>
+        public bool IsSwordWoodSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SwordWoodId);
+        /// <summary>True when the WOOD spear is the SELECTED belt item.</summary>
+        public bool IsSpearWoodSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SpearWoodId);
+        /// <summary>True when the WOOD pickaxe is the SELECTED belt item.</summary>
+        public bool IsPickaxeWoodSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeWoodId);
+
         // ============================================================================================
         // LEGACY ledger surface — preserved VERBATIM (contract §7). Every caller stays green.
         // ============================================================================================

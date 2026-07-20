@@ -268,19 +268,24 @@ namespace FarHorizon
         public const int WeaponClassSpear = 3;   // spear_thrust
         public const int WeaponClassSword = 4;   // sword_slash (the sword LIGHT attack)
 
-        // Per-class swing PLAYBACK-SPEED multiplier (86caffwv5 soak-2 — Sponsor: spear + pickaxe "look a little too
-        // slow"). Corrects the AUTHORED clip cadence per class; composed ON TOP of the tool-use-speed (the speed
-        // passed to TriggerAttack). Applies to the ANIMATOR playback ONLY (ChopSpeed param) — NOT the chop/mine
-        // hold-cadence (those read chopSpeed), so a faster swing just reads snappier. Soak-tunable defaults;
-        // axe/dagger/sword read "okay" at 1.0, spear + pickaxe get +20% (soak-2 verdict). STATED in the PR.
+        // Per-class swing PLAYBACK-SPEED multiplier (86caffwv5 soak-2/soak-3 — Sponsor: spear + pickaxe "too slow").
+        // Corrects the AUTHORED clip cadence per class; composed ON TOP of the tool-use-speed (the speed passed to
+        // TriggerAttack). Drives the ANIMATOR playback (ChopSpeed param). Soak-tunable defaults; axe/dagger/sword read
+        // "okay" at 1.0. STATED in the PR.
+        // soak-3 (this fix): the Sponsor judged pickaxe "STILL too slow" at soak-2's 1.2× AND reported "a long waiting
+        // from idle to next swing when holding the left mouse" — the mine HOLD-cadence had NOT been sped up with the
+        // swing (it divided the clip by chopSpeed ONLY, ignoring this multiplier), so the sped-up pickaxe swing finished
+        // then sat IDLE until the un-sped clip length elapsed. So (a) pickaxe playback is raised to 1.5× (a further
+        // bump over soak-2's 1.2×), and (b) the mine hold-cadence now divides by the EFFECTIVE playback (see
+        // CurrentSwingPlaybackSpeed) so the next hold-swing begins when the FAST swing visually completes — no idle gap.
         public const float SwingSpeedAxe = 1.0f;
-        public const float SwingSpeedPickaxe = 1.2f; // +20% (soak-2: pickaxe mine swing too slow)
+        public const float SwingSpeedPickaxe = 1.5f; // soak-3: pickaxe mine swing STILL too slow at 1.2 → 1.5× (+25% over soak-2)
         public const float SwingSpeedDagger = 1.0f;
-        public const float SwingSpeedSpear = 1.2f;   // +20% (soak-2: spear thrust too slow)
+        public const float SwingSpeedSpear = 1.2f;   // +20% (soak-2: spear thrust too slow — Sponsor: spear now "ok")
         public const float SwingSpeedSword = 1.0f;
 
-        /// <summary>The per-class swing playback multiplier for a WeaponClass (86caffwv5 soak-2) — composed on top
-        /// of the tool-use speed passed to <see cref="TriggerAttack"/>. Unknown class → 1.0 (no correction).</summary>
+        /// <summary>The per-class swing playback multiplier for a WeaponClass (86caffwv5 soak-2/soak-3) — composed on
+        /// top of the tool-use speed passed to <see cref="TriggerAttack"/>. Unknown class → 1.0 (no correction).</summary>
         public static float SwingSpeedForClass(int weaponClass)
         {
             switch (weaponClass)
@@ -292,6 +297,17 @@ namespace FarHorizon
                 default:                 return SwingSpeedAxe; // axe + any unknown
             }
         }
+
+        /// <summary>
+        /// 86caffwv5 soak-3 — the EFFECTIVE swing playback speed for a tool-use speed × a weapon class: the rate the
+        /// Animator ACTUALLY plays that class's swing (<see cref="TriggerAttack"/> pushes exactly this to the ChopSpeed
+        /// param), clamped to the ChopSpeed band. PURE + static so an EditMode test pins the composition. The mine
+        /// HOLD-cadence (MineOre/MineBoulder.ComputeSwingDuration) divides the clip by THIS — not raw tool-use speed —
+        /// so the next hold-swing starts when the sped-up swing visually completes (soak-3 idle-gap fix). For the axe
+        /// class this equals the tool-use speed (SwingSpeedAxe=1.0), so tree-chop cadence is unchanged.
+        /// </summary>
+        public static float EffectiveSwingPlaybackSpeed(float toolUseSpeed, int weaponClass)
+            => Mathf.Clamp(toolUseSpeed * SwingSpeedForClass(weaponClass), ChopSpeedMin, ChopSpeedMax);
 
         // Per-class swing CLIP NAMES (mirror CharacterAssetGen.*Swing/*Stab/*Thrust/*Slash — renamed-on-import). The
         // live hold-cadence source (MeleeClipLength) reads the clip for the LAST-triggered WeaponClass by these names,
@@ -612,6 +628,18 @@ namespace FarHorizon
                 return 0f;
             }
         }
+
+        /// <summary>
+        /// 86caffwv5 soak-3 — the EFFECTIVE swing playback speed of the CURRENT swing (the LAST-triggered class at the
+        /// current <see cref="chopSpeed"/>) — the rate the Animator plays the swing right now. The mine HOLD-cadence
+        /// (MineOre/MineBoulder.ComputeSwingDuration) divides <see cref="MeleeClipLength"/> by THIS so the next hold
+        /// swing begins when the sped-up swing visually COMPLETES, not when the un-sped authored length elapses (the
+        /// soak-3 "long waiting from idle to next swing" fix — the pickaxe swing plays at 1.5× but the cadence used to
+        /// wait the full 1.0× length). For the mine verbs <see cref="TriggerMine"/> sets the class to pickaxe before
+        /// the cadence is read, so this is chopSpeed × <see cref="SwingSpeedPickaxe"/> there; for tree-chop the axe
+        /// class (SwingSpeedAxe=1.0) leaves the cadence == chopSpeed (unchanged).
+        /// </summary>
+        public float CurrentSwingPlaybackSpeed => EffectiveSwingPlaybackSpeed(chopSpeed, _lastWeaponClass);
 
         // ===== ANIMATOR-STATE TRACE (86caa3kur re-soak — the sneak-walk LOOP-HITCH instrument). The Sponsor's
         // re-soak refined the symptom: the crouch sneak-walk "lags between each walk animation — two steps

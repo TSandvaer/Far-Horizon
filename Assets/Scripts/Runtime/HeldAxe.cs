@@ -49,11 +49,16 @@ namespace FarHorizon
         // held-seat isolation: rendererEnabled=False, holderMesh=wpn_axe_stone_01). The mesh half is fixed in
         // HeldWeaponCycleDebug.SelectionIndexFor (now maps the pickaxe tiers). The defensive no-inventory case
         // (default VISIBLE so a wiring regression fails loud) is handled by the base.
+        // 86caffwv5 soak-3 — the WOOD tier is added the SAME way I-2 added the pickaxe: the soak-3 blocker was
+        // exactly this omission (a crafted wood weapon selected satisfied NEITHER the axe/spear NOR the pickaxe
+        // predicates → ShouldShow returned false → EMPTY hands). WoodSelectionIndexFor(inventory) >= 0 is the wood
+        // sibling; the mesh half is HeldWeaponCycleDebug.SyncHeldVisualToSelection's wood fallback (indices 10-14).
         protected override bool ShouldShow()
             => inventory.IsAxeSelectedInBelt
                || inventory.IsSpearSelectedInBelt
                || inventory.IsPickaxeStoneSelectedInBelt
                || inventory.IsPickaxeIronSelectedInBelt
+               || HeldWeaponCycleDebug.WoodSelectionIndexFor(inventory) >= 0
                || (_cycle != null && _cycle.DebugViewActive);
     }
 }

@@ -316,5 +316,42 @@ namespace FarHorizon.EditTests
             Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassPickaxe), axe,
                 "pickaxe swing must be FASTER than the axe baseline (soak-2: pickaxe too slow)");
         }
+
+        // 9 — CADENCE VALUE GUARD (soak-3 fix #3/#4): the Sponsor judged pickaxe "STILL too slow" at soak-2's 1.2×,
+        // so the pickaxe swing playback is raised to 1.5× (a further bump). Pin the exact value so a regression that
+        // drops it back reds here.
+        [Test]
+        public void SwingSpeedPickaxe_IsRaisedToOnePointFive_Soak3()
+        {
+            Assert.AreEqual(1.5f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassPickaxe), 1e-4f,
+                "soak-3: the pickaxe swing plays at 1.5× (raised from soak-2's 1.2× — Sponsor: pickaxe STILL too slow)");
+            Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassPickaxe), 1.2f,
+                "the pickaxe playback must be a FURTHER bump over soak-2's 1.2×");
+            // The spear stays at soak-2's 1.2 (Sponsor: "spear is ok") — the soak-3 bump is pickaxe-only.
+            Assert.AreEqual(1.2f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSpear), 1e-4f,
+                "spear stays at 1.2× (Sponsor accepted the spear timing at soak-3 — do NOT change it)");
+        }
+
+        // 9b — the EFFECTIVE swing-playback composition the mine HOLD-cadence divides by (soak-3 idle-gap fix). The
+        // mine cadence now divides the clip by chopSpeed × the pickaxe multiplier (not raw chopSpeed), so the next
+        // hold-swing begins when the sped-up swing visually completes. The axe class stays == chopSpeed (chop cadence
+        // unchanged); the band clamp holds at the extremes.
+        [Test]
+        public void EffectiveSwingPlaybackSpeed_ComposesToolUseSpeedAndClassMultiplier_Clamped()
+        {
+            // Pickaxe at 1× tool-use speed = 1.5× effective (the mine cadence divides the clip by THIS — no idle gap).
+            Assert.AreEqual(1.5f, CastawayCharacter.EffectiveSwingPlaybackSpeed(1f, CastawayCharacter.WeaponClassPickaxe), 1e-4f,
+                "pickaxe effective playback at chopSpeed=1 is 1.5× (= SwingSpeedPickaxe) — the mine hold-cadence divisor");
+            // Axe at 1× = 1.0× effective → tree-chop cadence is UNCHANGED (the soak-3 fix is pickaxe-only).
+            Assert.AreEqual(1.0f, CastawayCharacter.EffectiveSwingPlaybackSpeed(1f, CastawayCharacter.WeaponClassAxe), 1e-4f,
+                "axe effective playback == chopSpeed (SwingSpeedAxe=1.0) — tree-chop cadence must NOT change");
+            // Tool-use speed composes multiplicatively (2× tool-use × 1.5 pickaxe would be 3.0, at the band ceiling).
+            Assert.AreEqual(CastawayCharacter.ChopSpeedMax,
+                CastawayCharacter.EffectiveSwingPlaybackSpeed(2f, CastawayCharacter.WeaponClassPickaxe), 1e-4f,
+                "chopSpeed 2 × pickaxe 1.5 = 3.0 clamps to ChopSpeedMax (the same clamp TriggerAttack applies)");
+            Assert.AreEqual(CastawayCharacter.ChopSpeedMin,
+                CastawayCharacter.EffectiveSwingPlaybackSpeed(0.05f, CastawayCharacter.WeaponClassAxe), 1e-4f,
+                "a tiny tool-use speed clamps up to ChopSpeedMin (never a stalled/zero playback)");
+        }
     }
 }

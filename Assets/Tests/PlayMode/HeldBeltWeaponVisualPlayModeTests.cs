@@ -173,6 +173,37 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_renderer.enabled, "deselecting the pickaxe -> EMPTY hands again (owned != selected)");
         }
 
+        // 86caffwv5 soak-3 — the WOOD tier: a crafted WOOD weapon selected in the belt must SHOW in-hand at its wood
+        // family index. The defect (Sponsor soak-3): a crafted wooden axe showed NOTHING in the hand — the wood ids
+        // satisfied NEITHER HeldAxe.ShouldShow (axe/spear/pickaxe only) NOR the SelectionIndexFor mesh sync (-1) → the
+        // seat renderer stayed DISABLED. Asserts the SHOW + the wood INDEX (the gate + sync seam this fix wired). The
+        // WOOD MESH IDENTITY is intentionally NOT asserted here: the committed lineup prefab drifted stale (missing the
+        // wood nodes — separate ticket 86catwzhy; CI's bootstrap re-bakes it), so in a no-bootstrap run the holder
+        // falls back to the axe mesh while the INDEX + VISIBILITY (the fix's contract) are correct regardless.
+        // The Sponsor's LITERAL soak-3 case ("if I craft a wooden axe ... nothing is in the hand when its selected").
+        // A single wood tool on the belt keeps a KNOWN-empty slot for the deselect step (the all-5 table is the
+        // EditMode HeldBeltVisualSyncTests.WoodTierSelected_SelectionTable_MapsToTheWoodMesh_NotEmptyHands guard).
+        [UnityTest]
+        public IEnumerator WoodAxeSelected_ShowsInHand_AtTheWoodAxeIndex()
+        {
+            yield return null; // OnEnable wiring
+            Assert.IsFalse(_renderer.enabled, "spawn: nothing owned -> hidden");
+
+            var slot = _inv.Model.AddToolToBelt(_inv.Catalog.ById(ItemCatalog.AxeWoodId));
+            Assert.IsTrue(slot.HasValue, "wood axe acquired onto the belt (a belt-eligible Tool)");
+            _inv.Model.SelectBelt(slot.Value.Index);
+            yield return null;
+
+            Assert.IsTrue(_renderer.enabled,
+                "soak-3 FIX: the crafted WOOD axe selected -> seat SHOWN (used to be EMPTY hands — the gate omitted the wood tier)");
+            Assert.AreEqual(HeldWeaponCycleDebug.AxeWoodFamilyIndex, _cycle.CurrentIndex,
+                "wood axe selected -> the WOOD-axe family index is displayed (the belt→held sync now maps the wood tier)");
+
+            _inv.Model.SelectBelt((slot.Value.Index + 1) % _inv.BeltSlotCount); // a known-empty slot (only one tool held)
+            yield return null;
+            Assert.IsFalse(_renderer.enabled, "wood axe deselected -> EMPTY hands again (owned != selected)");
+        }
+
         // The [B] debug-cycle landmine: with a weapon selected the cycle REFUSES (it could otherwise
         // re-create the exact soak-224 crossed state in one keypress); empty-handed it still works as the
         // knife/sword look-soak aid, and ANY selection change re-asserts the selection over the debug view.

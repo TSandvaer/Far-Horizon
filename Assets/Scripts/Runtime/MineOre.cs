@@ -526,9 +526,12 @@ namespace FarHorizon
 
         private float ComputeSwingDuration()
         {
-            float speed = character != null
-                ? Mathf.Clamp(character.chopSpeed, CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax)
-                : 1f;
+            // 86caffwv5 soak-3 — divide the clip by the pickaxe swing's EFFECTIVE playback speed (chopSpeed ×
+            // SwingSpeedPickaxe), NOT raw chopSpeed. TriggerMine (called in BeginMineSwing before this) sets the
+            // class to pickaxe, so CurrentSwingPlaybackSpeed here reflects the sped-up 1.5× pickaxe swing. Before this
+            // fix the cadence divided by chopSpeed only, so the sped-up swing finished then sat IDLE until the full
+            // un-sped clip length elapsed — the Sponsor's "long waiting from idle to next swing when holding" (soak-3).
+            float speed = character != null ? character.CurrentSwingPlaybackSpeed : 1f;
             float liveLen = character != null ? character.MeleeClipLength : 0f;
             float authored = liveLen > 0f ? liveLen : Mathf.Max(SwingClipLengthFloor, swingClipLengthSeconds);
             return authored / Mathf.Max(0.0001f, speed);

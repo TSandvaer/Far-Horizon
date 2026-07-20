@@ -184,6 +184,36 @@ namespace FarHorizon
              : pickaxeIronSelected ? PickaxeIronFamilyIndex
              : -1;
 
+        /// <summary>
+        /// 86caffwuz / 86caffwv5 soak-3 — the WOOD-tier selection → family-index map (the ADDITIVE wood sibling of
+        /// <see cref="SelectionIndexFor"/>). The soak-3 blocker: a crafted WOOD weapon selected in the belt showed
+        /// NOTHING in the hand because <see cref="SelectionIndexFor"/> knows only the stone/iron ids (returned -1).
+        /// This maps the 5 wood ids to their family mesh indices (10-14 — appended by 86catvb6u; the seats already
+        /// mirror the stone tier). Kept SEPARATE from <see cref="SelectionIndexFor"/> so the soaked stone/iron/pickaxe
+        /// decision table is BYTE-UNCHANGED (no regression); the belt sync + gate compose it as a FALLBACK (stone/iron
+        /// first, then wood). Only one belt slot is selected in play, so at most one flag is true; the tie-break order
+        /// (axe > dagger > sword > spear > pickaxe) is pinned for the contract test. -1 = no wood weapon selected.
+        /// </summary>
+        public static int WoodSelectionIndexFor(bool axeWoodSelected, bool daggerWoodSelected,
+                                                bool swordWoodSelected, bool spearWoodSelected,
+                                                bool pickaxeWoodSelected)
+            => axeWoodSelected ? AxeWoodFamilyIndex
+             : daggerWoodSelected ? DaggerWoodFamilyIndex
+             : swordWoodSelected ? SwordWoodFamilyIndex
+             : spearWoodSelected ? SpearWoodFamilyIndex
+             : pickaxeWoodSelected ? PickaxeWoodFamilyIndex
+             : -1;
+
+        /// <summary>86caffwv5 soak-3 — the wood-tier selection → family-index map read straight off an
+        /// <see cref="Inventory"/> (the belt sync + the [B]-refusal both need it). Composes
+        /// <see cref="WoodSelectionIndexFor"/> from the inventory's 5 wood selection predicates. -1 if the
+        /// inventory is null or no wood weapon is selected.</summary>
+        public static int WoodSelectionIndexFor(Inventory inv)
+            => inv == null ? -1
+             : WoodSelectionIndexFor(inv.IsAxeWoodSelectedInBelt, inv.IsDaggerWoodSelectedInBelt,
+                                     inv.IsSwordWoodSelectedInBelt, inv.IsSpearWoodSelectedInBelt,
+                                     inv.IsPickaxeWoodSelectedInBelt);
+
         // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
         // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
         // seat is Sponsor-LOCKED and is restored to its captured original.
@@ -518,6 +548,10 @@ namespace FarHorizon
 
             int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
                                             inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt);
+            // 86caffwv5 soak-3 — ADDITIVE wood fallback: a crafted WOOD weapon selected in the belt used to return
+            // -1 here (SelectionIndexFor knows only stone/iron) → the seat stayed EMPTY (the Sponsor's blocker). The
+            // stone/iron path above is byte-unchanged; wood only fills the previously-empty case.
+            if (desired < 0) desired = WoodSelectionIndexFor(inv);
             if (desired >= 0)
             {
                 _debugView = false; // selection owns the held visual
@@ -553,8 +587,9 @@ namespace FarHorizon
         {
             if (_meshHolder == null) return false; // Awake found no MeshFilter — nothing to cycle
             var inv = ResolveInventory();
-            if (inv != null && SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
-                                                 inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0)
+            if (inv != null && (SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                                  inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0
+                                || WoodSelectionIndexFor(inv) >= 0)) // 86caffwv5 soak-3 — wood selection owns the visual too
             {
                 Debug.Log("[HeldWeaponCycleDebug] [" + cycleKey + "] cycle REFUSED — the selected belt weapon " +
                           "owns the held visual (86cahngdg). Select an empty/non-weapon belt slot to use the " +

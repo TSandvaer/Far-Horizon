@@ -264,7 +264,10 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(1, _mine.StrikesOn(0), "the regrown boulder is mineable again");
         }
 
-        // === STAY-LIVE GUARD — the next held swing waits for the CLIP to finish (a machine-gun regression REDS) ===
+        // === STAY-LIVE GUARD — the next held swing waits for the CLIP to finish (a machine-gun regression REDS).
+        //     86caffwv5 soak-3: the cadence tracks the clip at the pickaxe's EFFECTIVE playback (clip ÷ chopSpeed×
+        //     SwingSpeedPickaxe) — the sped-up 1.5× swing finishes sooner, closing the idle-to-next-swing gap (mirrors
+        //     MineOre; the boulder mine is the pickaxe sibling verb). ===
         [UnityTest]
         public IEnumerator HoldChain_NextStrikeWaitsForClipToFinish_NotImpactDelay()
         {
@@ -272,7 +275,13 @@ namespace FarHorizon.PlayTests
             SelectWoodPickaxe();
             _mine.strikesToBreak = 10;
             _mine.swingImpactDelaySeconds = 0.1f;
-            _mine.swingClipLengthSeconds = 0.5f;
+            _mine.swingClipLengthSeconds = 0.6f;
+
+            float effPlayback = CastawayCharacter.EffectiveSwingPlaybackSpeed(_character.chopSpeed, CastawayCharacter.WeaponClassPickaxe);
+            float effCadence = _mine.swingClipLengthSeconds / effPlayback; // 0.6 / 1.5 = 0.4s
+            Assert.Less(effCadence, _mine.swingClipLengthSeconds / _character.chopSpeed,
+                "soak-3 IDLE-GAP FIX: the effective boulder-mine cadence (clip ÷ chopSpeed×SwingSpeedPickaxe) is SHORTER " +
+                "than the raw-clip cadence — the pickaxe speed-up closes the idle-to-next-swing gap while holding");
 
             UiInputGate.SetPanelOpen(false, ref _gateTracked);
             _mine.SetMineHeld(true);
@@ -284,14 +293,15 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(1, _mine.StrikesOn(0), "the first completed swing landed exactly one strike");
             Assert.IsTrue(_mine.SwingInProgress, "the clip is still playing after its impact");
 
-            yield return StepFrames(20); // 0.2s: past the 0.1s impact but inside the 0.5s clip
+            yield return StepFrames(20); // 0.2s: past the 0.1s impact but inside the 0.4s effective clip
             Assert.AreEqual(1, _mine.StrikesOn(0), "NO 2nd strike within the impact-delay window — the next swing waits for the CLIP");
 
             yield return StepUntil(() => _mine.StrikesOn(0) >= 2);
             float secondStrikeAt = _now;
             Assert.AreEqual(2, _mine.StrikesOn(0), "after the clip FINISHED, exactly ONE more strike landed");
-            Assert.GreaterOrEqual(secondStrikeAt - firstStrikeAt, _mine.swingClipLengthSeconds - 0.05f,
-                "the 2nd strike lands ≥ one CLIP length after the 1st — cadence tracks clip completion, not impact delay");
+            Assert.GreaterOrEqual(secondStrikeAt - firstStrikeAt, effCadence - 0.05f,
+                "the 2nd strike lands ≥ one EFFECTIVE clip length (clip ÷ chopSpeed×SwingSpeedPickaxe) after the 1st — " +
+                "cadence tracks the sped-up pickaxe swing completion (soak-3), not the raw clip length");
 
             _mine.SetMineHeld(false);
             yield return Step();
