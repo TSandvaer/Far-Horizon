@@ -280,15 +280,23 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 CastawayV4RightArmEuler = new Vector3(-5f, -22f, 0f); // mirror-of-left (measured symmetric)
         public static readonly Vector3 CastawayV4LeftArmEuler = new Vector3(-5f, 22f, 0f);   // == the v3 left (read fine)
 
-        // ===== CASTAWAY v4 RIGHT-WRIST offset (86catvb6u round-5 knob; ZEROED round-7 for the Mixamo RE-RIG). The
-        // right-hand asymmetry was in the OLD auto-rig's armature (per-side bone rolls) — round-6 proved geometry
-        // mirror-perfect + weights inert, so the Sponsor RE-RIGGED (fresh Mixamo, T-pose, Use-Symmetry). The new
-        // 41-bone rig's arms measure 1.2° symmetric (< v3's 10.2°); the rig is meant to render the hands as mirrors
-        // with NO compensation. So the WRIST default is now ZERO (the round-5 17.7° was a compensation for the OLD
-        // rig's roll — stale on the new rig; leaving it would rotate a now-correct hand). CastawayRightWristPose
-        // (order 65) drives ONLY the hand bone; it stays as the Sponsor's F9 taste-dial (WRIST target). Applied
-        // ONLY for v4; 0 for v3/v2/old (byte-unchanged). The Sponsor dials any residual on the dial-6 soak.
-        public static readonly Vector3 CastawayV4RightWristEuler = Vector3.zero; // re-rig fixes the hand; knob = taste-dial (default 0)
+        // ===== CASTAWAY v4 HAND offsets (86catvb6u round-8 — the Mixamo RE-RIG both-arms-twist fix). Round-7 ZEROED
+        // the wrist on the assumption that the re-rig's 1.2° symmetric ARMS meant the hands render as mirrors with
+        // NO compensation. MEASUREMENT (CastawayV4DefectDiag round-8, ci-out/v4diag-round8.log) REFUTED that: the
+        // re-rig's right HAND BIND FRAME is rolled 176.4° off-mirror; the idle clips re-pose both hands to within
+        // 18.1° of each other BUT at an orientation ~120° from natural — so BOTH hands ship TWISTED (mirrors of each
+        // other yet both wrong). The mirror-of-left approach (round-5) can't fix it because the LEFT is ALSO wrong.
+        //
+        // Round-8 anchors on the Sponsor-VERIFIED absolute right: via the F9 WRIST dial he reached a CORRECT right
+        // arm at (10,-120,-20). The LEFT is its MEASURED render-mirror (diag: anchored on the Sponsor-correct right,
+        // corrL = Inv(R_left)·mirror(R_right_corrected) → (18.2,112.6,3.7); POST-both-corrections mirror delta 0.0°).
+        // The THUMB (HAND-knob) eulers ship 0 — the Sponsor taste-dials thumb orientation independently of the wrist
+        // (his residual: "the only way to point the thumb towards the body is to twist the wrist and arm also").
+        // All FOUR applied ONLY for v4 (CastawayHandPose, order 65); 0 for v3/v2/old (byte-unchanged rollback).
+        public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(10.0f, -120.0f, -20.0f); // Sponsor F9-dialed CORRECT right
+        public static readonly Vector3 CastawayV4LeftWristEuler = new Vector3(18.2f, 112.6f, 3.7f);      // measured render-mirror of the correct right
+        public static readonly Vector3 CastawayV4RightThumbEuler = Vector3.zero; // HAND knob — Sponsor taste-dials (thumb orientation)
+        public static readonly Vector3 CastawayV4LeftThumbEuler = Vector3.zero;  // HAND knob — Sponsor taste-dials (thumb orientation)
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -1550,26 +1558,47 @@ namespace FarHorizon.EditorTools
                           (CharacterAssetGen.UseCastawayV4 ? " [v4 — Sponsor-dialed -15]" : " [non-v4 — 0, feet byte-unchanged]") + ")");
         }
 
-        // The right HAND bone token the WRIST correction drives (86catvb6u round-5).
+        // The HAND + THUMB bone tokens the hand-pose offsets drive (86catvb6u round-8).
         public const string RightHandToken = "righthand";
+        public const string LeftHandToken = "lefthand";
+        public const string RightThumbToken = "righthandthumb1";
+        public const string LeftThumbToken = "lefthandthumb1";
 
-        // Wire the right-WRIST correction (86catvb6u round-5 — the DIRECT-KNOB fix for the "right hand doesn't
-        // mirror the left" defect after the mirror-left arm euler missed). Resolves the right hand bone from the
-        // SMR bone array + serializes the component + bone ref into Boot.unity. Applied ONLY for v4 (wristEuler =
-        // the MEASURED render-mirror correction CastawayV4RightWristEuler); v3/v2/old ship 0 → their right hand is
-        // byte-unchanged (LateUpdate early-returns at 0). The Sponsor F9-dials wristEuler (WRIST target) by eye.
-        private static void AddRightWristPose(CastawayCharacter castaway)
+        // Wire the HAND-POSE offsets (86catvb6u round-8 — the Mixamo RE-RIG both-arms-twist fix). Resolves both
+        // hand bones + both thumb-base bones from the SMR bone array + serializes the component + bone refs into
+        // Boot.unity. Applied ONLY for v4 (the two WRIST eulers = the Sponsor-correct right + its measured mirror;
+        // the two THUMB eulers ship 0 for the Sponsor to F9-dial); v3/v2/old ship 0 for all four → their hands are
+        // byte-unchanged (LateUpdate skips a zero euler). The Sponsor F9-dials WRIST (L/R) + HAND (L/R) by eye.
+        private static void AddHandPose(CastawayCharacter castaway)
         {
-            var wrist = castaway.GetComponent<CastawayRightWristPose>();
-            if (wrist == null) wrist = castaway.gameObject.AddComponent<CastawayRightWristPose>();
-            wrist.rightHand = FindBoneByExactToken(castaway.transform, RightHandToken);
-            wrist.wristEuler = CharacterAssetGen.UseCastawayV4 ? CastawayV4RightWristEuler : Vector3.zero;
-            if (wrist.rightHand == null)
-                Debug.LogError("[MovementCameraScene] could not resolve the right hand bone ('" + RightHandToken +
-                               "') for CastawayRightWristPose — the v4 right-hand mirror fix will be inert.");
+            var hand = castaway.GetComponent<CastawayHandPose>();
+            if (hand == null) hand = castaway.gameObject.AddComponent<CastawayHandPose>();
+            hand.rightHand = FindBoneByExactToken(castaway.transform, RightHandToken);
+            hand.leftHand = FindBoneByExactToken(castaway.transform, LeftHandToken);
+            hand.rightThumb = FindBoneByExactToken(castaway.transform, RightThumbToken);
+            hand.leftThumb = FindBoneByExactToken(castaway.transform, LeftThumbToken);
+            bool v4 = CharacterAssetGen.UseCastawayV4;
+            hand.rightWristEuler = v4 ? CastawayV4RightWristEuler : Vector3.zero;
+            hand.leftWristEuler = v4 ? CastawayV4LeftWristEuler : Vector3.zero;
+            hand.rightThumbEuler = v4 ? CastawayV4RightThumbEuler : Vector3.zero;
+            hand.leftThumbEuler = v4 ? CastawayV4LeftThumbEuler : Vector3.zero;
+            // The WRIST fix is the load-bearing one (the twist); a missing hand bone makes it inert → LogError (also
+            // reds the EditMode rebuild test via LogAssert). The thumb is the Sponsor's taste-dial (ships 0) → a
+            // missing thumb bone only forfeits the HAND knob, so it warns rather than errors.
+            if (hand.rightHand == null || hand.leftHand == null)
+                Debug.LogError("[MovementCameraScene] could not resolve hand bones for CastawayHandPose (right='" +
+                               RightHandToken + "' found=" + (hand.rightHand != null) + ", left='" + LeftHandToken +
+                               "' found=" + (hand.leftHand != null) + ") — the v4 both-hand un-twist will be inert.");
+            else if (v4 && (hand.rightThumb == null || hand.leftThumb == null))
+                Debug.LogWarning("[MovementCameraScene] CastawayHandPose resolved the hand bones but NOT both thumb " +
+                                 "bases (right='" + RightThumbToken + "' found=" + (hand.rightThumb != null) + ", left='" +
+                                 LeftThumbToken + "' found=" + (hand.leftThumb != null) + ") — the F9 HAND (thumb) knob " +
+                                 "will be inert on the missing side, but the WRIST un-twist still applies.");
             else
-                Debug.Log("[MovementCameraScene] CastawayRightWristPose wired (wristEuler=" + wrist.wristEuler.ToString("F1") +
-                          (CharacterAssetGen.UseCastawayV4 ? " [v4 — measured render-mirror correction; Sponsor F9-finalizes]" : " [non-v4 — 0, right hand byte-unchanged]") + ")");
+                Debug.Log("[MovementCameraScene] CastawayHandPose wired (rightWrist=" + hand.rightWristEuler.ToString("F1") +
+                          ", leftWrist=" + hand.leftWristEuler.ToString("F1") +
+                          (v4 ? " [v4 — Sponsor-correct right + measured mirror left; thumb 0 = F9 taste-dial]"
+                              : " [non-v4 — 0, hands byte-unchanged]") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -4035,10 +4064,11 @@ namespace FarHorizon.EditorTools
             // AFTER BuildInEditor (the foot bones must exist); F9-dialable (FOOT-YAW target).
             AddFootYaw(castaway);
 
-            // RIGHT-WRIST correction (86catvb6u round-5 — the DIRECT-KNOB fix for "right hand doesn't mirror the
-            // left"). Additive LateUpdate hand-bone offset (order 65, before HeldAxeRig); v4 defaults to the
-            // measured render-mirror correction, non-v4 ships 0. F9-dialable (WRIST target).
-            AddRightWristPose(castaway);
+            // HAND-POSE offsets (86catvb6u round-8 — the Mixamo RE-RIG both-arms-twist fix). Additive LateUpdate
+            // hand-bone + thumb-bone offsets (order 65, before HeldAxeRig); v4 defaults the WRIST eulers to the
+            // Sponsor-correct right + its measured mirror, THUMB eulers to 0, non-v4 ships 0. F9-dialable (WRIST +
+            // HAND targets, L/R).
+            AddHandPose(castaway);
 
             // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
             // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.

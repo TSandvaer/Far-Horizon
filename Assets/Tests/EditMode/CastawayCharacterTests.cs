@@ -646,32 +646,53 @@ namespace FarHorizon.EditTests
             }
         }
 
-        // 86catvb6u round-7 — the v4 RIGHT-WRIST offset is ZEROED after the Mixamo RE-RIG. Round-6 proved the
-        // right-hand asymmetry was the OLD armature's per-side bone rolls (geometry mirror-perfect, weights inert);
-        // the Sponsor re-rigged (fresh Mixamo, symmetric arms 1.2°), so the hand renders mirrored with NO
-        // compensation — the round-5 17.7° seed was OLD-rig-specific + is now stale. Default 0; the knob stays as
-        // the Sponsor's F9 taste-dial. Pin 0 so a stale non-zero compensation can't creep back onto the new rig.
+        // 86catvb6u round-8 — the v4 HAND offsets after the Mixamo RE-RIG both-arms-twist fix. Round-7 zeroed the
+        // wrist on the false "symmetric arms ⇒ correct hands" assumption; MEASUREMENT (CastawayV4DefectDiag round-8,
+        // ci-out/v4diag-round8.log) showed the right HAND bind frame rolled 176.4° off-mirror → BOTH hands ship
+        // twisted (mirrors of each other yet both wrong). The Sponsor F9-dialed a CORRECT right at (10,-120,-20); the
+        // left is its measured render-mirror (18.2,112.6,3.7); the thumbs ship 0 (the F9 HAND taste-dial). Pin so a
+        // regression back to the round-7 zeros (both hands twisted) reds in CI.
         [Test]
-        public void CastawayV4RightWristEuler_ZeroedForTheReRig_86catvb6u()
+        public void CastawayV4HandEulers_ShipSponsorCorrectWristPlusMeasuredMirror_86catvb6u()
         {
-            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
-                "post-re-rig the v4 right-wrist offset must DEFAULT 0 (the re-rig fixes the hand; the WRIST knob is " +
-                "the Sponsor's taste-dial). A stale non-zero (e.g. the round-5 17.7° OLD-rig seed) would rotate a now-correct hand.");
+            Assert.AreEqual(new Vector3(10f, -120f, -20f), MovementCameraScene.CastawayV4RightWristEuler,
+                "v4 right-wrist must ship the Sponsor F9-dialed CORRECT right (10,-120,-20)");
+            Assert.AreEqual(new Vector3(18.2f, 112.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
+                "v4 left-wrist must ship the measured render-mirror of the Sponsor-correct right (CastawayV4DefectDiag round-8)");
+            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightThumbEuler,
+                "v4 right-thumb (HAND knob) ships 0 — the Sponsor taste-dials thumb orientation");
+            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4LeftThumbEuler,
+                "v4 left-thumb (HAND knob) ships 0 — the Sponsor taste-dials thumb orientation");
+            // The right MUST differ from the round-7 zero (the whole point of the fix — a zero re-ships the twist).
+            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
+                "v4 right-wrist must NOT be the round-7 zero that left both hands twisted");
         }
 
-        // 86catvb6u round-5 — the Boot scene must carry CastawayRightWristPose wired: hand bone resolved +
-        // wristEuler defaulting per hero (v4 = the measured correction; rollback = 0 → right hand byte-unchanged).
-        // Bake-path guard: a dropped AddRightWristPose call, or a wrong-hero default, reds here. CI re-bakes Boot.
+        // 86catvb6u round-8 — the Boot scene must carry CastawayHandPose wired: BOTH hand bones + BOTH thumb bases
+        // resolved + the per-side eulers defaulting per hero (v4 = the Sponsor-correct right + measured mirror left,
+        // thumbs 0; rollback = 0 → hands byte-unchanged). Bake-path guard: a dropped AddHandPose call, a wrong-hero
+        // default, or an unresolved bone reds here. CI re-bakes Boot before EditMode (committed Boot may be stale).
         [Test]
-        public void Boot_SerializedRightWristPose_WiredForConfiguredHero()
+        public void Boot_SerializedHandPose_WiredForConfiguredHero()
         {
             OpenBootAndFindPlayer();
-            var wrist = _player.GetComponentInChildren<CastawayRightWristPose>(true);
-            Assert.IsNotNull(wrist, "Boot must carry CastawayRightWristPose (the v4 right-hand un-roll, wired by AddRightWristPose)");
-            Assert.IsNotNull(wrist.rightHand, "CastawayRightWristPose must resolve the right hand bone (else the fix is inert)");
-            Vector3 expected = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4RightWristEuler : Vector3.zero;
-            Assert.That((wrist.wristEuler - expected).magnitude, Is.LessThan(1e-2f),
-                "wristEuler must default to the measured correction for v4, 0 for a rollback hero (right hand byte-unchanged)");
+            var hand = _player.GetComponentInChildren<CastawayHandPose>(true);
+            Assert.IsNotNull(hand, "Boot must carry CastawayHandPose (the v4 both-hand un-twist, wired by AddHandPose)");
+            Assert.IsNotNull(hand.rightHand, "CastawayHandPose must resolve the RIGHT hand bone (else the un-twist is inert)");
+            Assert.IsNotNull(hand.leftHand, "CastawayHandPose must resolve the LEFT hand bone (else the left un-twist is inert)");
+            Vector3 expR = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4RightWristEuler : Vector3.zero;
+            Vector3 expL = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4LeftWristEuler : Vector3.zero;
+            Assert.That((hand.rightWristEuler - expR).magnitude, Is.LessThan(1e-2f),
+                "rightWristEuler must default to the Sponsor-correct right for v4, 0 for a rollback hero (byte-unchanged)");
+            Assert.That((hand.leftWristEuler - expL).magnitude, Is.LessThan(1e-2f),
+                "leftWristEuler must default to the measured mirror for v4, 0 for a rollback hero (byte-unchanged)");
+            if (CharacterAssetGen.UseCastawayV4)
+            {
+                Assert.IsNotNull(hand.rightThumb, "under v4 CastawayHandPose must resolve the RIGHT thumb base (the F9 HAND knob)");
+                Assert.IsNotNull(hand.leftThumb, "under v4 CastawayHandPose must resolve the LEFT thumb base (the F9 HAND knob)");
+                Assert.AreEqual(Vector3.zero, hand.rightThumbEuler, "the right thumb (HAND knob) ships 0 — F9 taste-dial");
+                Assert.AreEqual(Vector3.zero, hand.leftThumbEuler, "the left thumb (HAND knob) ships 0 — F9 taste-dial");
+            }
         }
 
         // (86cakbe2v item 4 — RETIRED) The old IDENTITY-RECOLOR guard `Diffuse_ShirtWarmedToTan_...` was removed

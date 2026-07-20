@@ -78,9 +78,11 @@ namespace FarHorizon
     /// the axe head is AUTHORED Blender geometry now (wpn_axe_stone_01), so runtime vertex-scaling it distorts
     /// the knapped biface (the rejected "chipping") — head SIZE is a Blender re-author, not a runtime dial.
     /// Overall held-scale is dialed on the HELD target (HeldWeaponCycleDebug's O/I Danish-safe letter keys) +
-    /// the settings-console HeldScale row. TargetCount is 7 (held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL — the
-    /// last two added 86catvb6u for the v4-activation defect round). A NOT-ENGAGED signpost (absorbs 86caju055)
-    /// shows when the debug-overlay layer is up but F9 is asleep, so the Sponsor doesn't nudge into the void.
+    /// the settings-console HeldScale row. TargetCount is 9 (held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/
+    /// HAND — FOOT-YAW..GRIP-CURL added 86catvb6u for the v4-activation defect round; WRIST is now L/R-switchable
+    /// ([N]) and drives BOTH hand bones, HAND (round-8) is a per-side THUMB knob so the Sponsor can orient the
+    /// thumb independently of the wrist). A NOT-ENGAGED signpost (absorbs 86caju055) shows when the debug-overlay
+    /// layer is up but F9 is asleep, so the Sponsor doesn't nudge into the void.
     ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
@@ -119,18 +121,18 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL,7=WRIST
+        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL,7=WRIST(L/R),8=HAND(thumb,L/R)
         // 86cakkfz9: the old AXE-HEAD-size target + its mouse slider are REMOVED — head SIZE is authored Blender
-        // geometry now, not a runtime dial. 86catvb6u: THREE targets ADDED for the v4-activation defect round —
-        // FOOT-YAW (CastawayFootYaw.footYawDeg, the v4 pigeon-toe counter-rotate; Y/H), GRIP-CURL (CastawayFinger
-        // Curl.fingerCurlDeg, softens the chunky-hand grip fold; T/G), and WRIST (CastawayRightWristPose.wristEuler,
-        // the direct-knob right-hand un-roll so the palm mirrors the left; T/G/Y/H/U/J = all 3 axes).
-        private const int TargetCount = 8;
-        private int _armSel;            // on the arm target: 0 = right arm, 1 = left arm
+        // geometry now, not a runtime dial. 86catvb6u: FOOT-YAW (CastawayFootYaw.footYawDeg, the v4 pigeon-toe
+        // counter-rotate; Y/H) + GRIP-CURL (CastawayFingerCurl.fingerCurlDeg, softens the chunky-hand grip fold;
+        // T/G) added. Round-8: WRIST now dials CastawayHandPose's per-side WRIST euler (both hand bones, [N]-switch
+        // L/R) + HAND dials its per-side THUMB euler (orient the thumb below the wrist) — T/G/Y/H/U/J = all 3 axes.
+        private const int TargetCount = 9;
+        private int _armSel;            // shared L/R side selector for the ARM(2)/WRIST(7)/HAND(8) targets: 0=right, 1=left
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         private CastawayFootYaw _footYaw;      // 86catvb6u — FOOT-YAW target dials its footYawDeg (v4 pigeon-toe fix)
         private CastawayFingerCurl _fingerCurl; // 86catvb6u — GRIP-CURL target dials its fingerCurlDeg (v4 grip fold)
-        private CastawayRightWristPose _wrist;  // 86catvb6u — WRIST target dials its wristEuler (v4 right-hand un-roll)
+        private CastawayHandPose _hand;  // 86catvb6u round-8 — WRIST + HAND(thumb) targets dial its per-side eulers
         // 86cabh907 soak round 2 — the HELD target is GENERALIZED to whatever weapon [B] has selected. For the
         // AXE the tool nudges the shared-seat _heldRig (the locked axe baseline); for knife/sword/spear it
         // routes the nudge into this component's per-weapon offset/euler/scale arrays so each weapon is
@@ -243,12 +245,12 @@ namespace FarHorizon
             // in Deactivate, so normal play keeps the belt-gated curl.
             if (_fingerCurl != null) _fingerCurl.alwaysCurl = (_target == 6);
 
-            // On the ARM target, [N] switches which arm is dialed (right <-> left). [N] (was [B]) so it never
-            // cross-fires with the always-on weapon-cycle [B] (86cabh907 soak round 2 [B]-conflict fix).
-            if (_target == 2 && Input.GetKeyDown(armSwitchKey))
+            // On the ARM(2) / WRIST(7) / HAND(8) targets, [N] switches which SIDE is dialed (right <-> left). [N]
+            // (was [B]) so it never cross-fires with the always-on weapon-cycle [B] (86cabh907 soak round 2 fix).
+            if ((_target == 2 || _target == 7 || _target == 8) && Input.GetKeyDown(armSwitchKey))
             {
                 _armSel = 1 - _armSel;
-                Debug.Log("[AxeNudgeTool] arm = " + (_armSel == 0 ? "RIGHT" : "LEFT"));
+                Debug.Log("[AxeNudgeTool] side = " + (_armSel == 0 ? "RIGHT" : "LEFT"));
                 LogCurrent();
             }
 
@@ -261,7 +263,8 @@ namespace FarHorizon
                             : _target == 4 ? _armPose != null        // RUN arm-lower
                             : _target == 5 ? _footYaw != null        // FOOT-YAW (v4 pigeon-toe counter-rotate)
                             : _target == 6 ? _fingerCurl != null     // GRIP-CURL (v4 grip fold)
-                            : _wrist != null;                        // WRIST (v4 right-hand un-roll)
+                            : _target == 7 ? _hand != null           // WRIST (both hand bones, L/R)
+                            : _hand != null;                         // HAND (thumb, L/R)
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -375,10 +378,25 @@ namespace FarHorizon
                 }
                 else if (_target == 7)
                 {
-                    // WRIST (86catvb6u round-5 — the direct-knob right-hand un-roll). All 3 axes: T/G = X, Y/H = Y,
-                    // U/J = Z, added to the right hand-bone offset (rotation only; position keys inert). Bake into
-                    // MovementCameraScene.CastawayV4RightWristEuler. Dial until the right hand mirrors the left.
-                    if (_wrist != null) _wrist.wristEuler += dr;
+                    // WRIST (86catvb6u round-8 — the both-hand un-twist). All 3 axes (T/G=X, Y/H=Y, U/J=Z) added to
+                    // the SELECTED hand bone's offset ([N] switches R/L; rotation only, position keys inert). Bake
+                    // into MovementCameraScene.CastawayV4RightWristEuler / CastawayV4LeftWristEuler.
+                    if (_hand != null)
+                    {
+                        if (_armSel == 0) _hand.rightWristEuler += dr;
+                        else _hand.leftWristEuler += dr;
+                    }
+                }
+                else if (_target == 8)
+                {
+                    // HAND (86catvb6u round-8 — the thumb-segment knob: orient the thumb BELOW the wrist, without
+                    // twisting the wrist/arm — the Sponsor's residual). All 3 axes on the SELECTED thumb base bone
+                    // ([N] switches R/L). Bake into MovementCameraScene.CastawayV4RightThumbEuler / ...LeftThumbEuler.
+                    if (_hand != null)
+                    {
+                        if (_armSel == 0) _hand.rightThumbEuler += dr;
+                        else _hand.leftThumbEuler += dr;
+                    }
                 }
                 changed = true;
             }
@@ -411,7 +429,7 @@ namespace FarHorizon
             // 86catvb6u — the FOOT-YAW + GRIP-CURL + WRIST targets (the v4-activation defect fixes).
             _footYaw = Object.FindAnyObjectByType<CastawayFootYaw>(FindObjectsInactive.Include);
             _fingerCurl = Object.FindAnyObjectByType<CastawayFingerCurl>(FindObjectsInactive.Include);
-            _wrist = Object.FindAnyObjectByType<CastawayRightWristPose>(FindObjectsInactive.Include);
+            _hand = Object.FindAnyObjectByType<CastawayHandPose>(FindObjectsInactive.Include);
             if (held == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName + "' not found");
             else if (_heldRig == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName +
                 "' has no HeldAxeRig — cannot nudge its world-offset/relEuler (soakfix9 driver missing)");
@@ -422,10 +440,14 @@ namespace FarHorizon
 
         private string TargetName() =>
             _target == 0 ? "HELD weapon (" + HeldWeaponLabel() + ")" : _target == 1 ? "STUMP axe"
-            : _target == 2 ? "ARM pose (" + (_armSel == 0 ? "RIGHT" : "LEFT") + ")"
+            : _target == 2 ? "ARM pose (" + Side() + ")"
             : _target == 3 ? "GROUND-Y offset" : _target == 4 ? "RUN arm-lower"
             : _target == 5 ? "FOOT-YAW (v4 pigeon-toe)" : _target == 6 ? "GRIP-CURL (v4 hand)"
-            : "WRIST (v4 right-hand un-roll)";
+            : _target == 7 ? "WRIST (v4 hand un-twist, " + Side() + ")"
+            : "HAND (v4 thumb, " + Side() + ")";
+
+        // Shared L/R label for the ARM/WRIST/HAND targets ([N] toggles _armSel).
+        private string Side() => _armSel == 0 ? "RIGHT" : "LEFT";
 
         // The currently-held weapon's label (AXE/KNIFE/SWORD/SPEAR) for the generalized HELD target panel.
         private string HeldWeaponLabel() => _weaponCycle != null ? _weaponCycle.CurrentLabel : "AXE";
@@ -498,9 +520,20 @@ namespace FarHorizon
             else if (_target == 6 && _fingerCurl != null)
                 // 86catvb6u — bake into CastawayFingerCurl.fingerCurlDeg (soften v4's chunky-hand grip fold).
                 Debug.Log($"[AxeNudgeTool] GRIP-CURL  fingerCurlDeg={_fingerCurl.fingerCurlDeg:F1}f  (lower = less fold/dark)");
-            else if (_target == 7 && _wrist != null)
-                // 86catvb6u round-5 — bake into CastawayV4RightWristEuler (the right-hand un-roll so it mirrors the left).
-                Debug.Log($"[AxeNudgeTool] WRIST  CastawayV4RightWristEuler=({_wrist.wristEuler.x:F1}f,{_wrist.wristEuler.y:F1}f,{_wrist.wristEuler.z:F1}f)  (dial until the right hand mirrors the left)");
+            else if (_target == 7 && _hand != null)
+            {
+                // 86catvb6u round-8 — bake into CastawayV4RightWristEuler / CastawayV4LeftWristEuler (both hand bones).
+                Vector3 r = _hand.rightWristEuler, l = _hand.leftWristEuler;
+                Debug.Log($"[AxeNudgeTool] WRIST ({Side()} selected)  CastawayV4RightWristEuler=({r.x:F1}f,{r.y:F1}f,{r.z:F1}f)  " +
+                          $"CastawayV4LeftWristEuler=({l.x:F1}f,{l.y:F1}f,{l.z:F1}f)  ([N] switch side; dial until both hands mirror)");
+            }
+            else if (_target == 8 && _hand != null)
+            {
+                // 86catvb6u round-8 — bake into CastawayV4RightThumbEuler / CastawayV4LeftThumbEuler (thumb below the wrist).
+                Vector3 r = _hand.rightThumbEuler, l = _hand.leftThumbEuler;
+                Debug.Log($"[AxeNudgeTool] HAND ({Side()} selected)  CastawayV4RightThumbEuler=({r.x:F1}f,{r.y:F1}f,{r.z:F1}f)  " +
+                          $"CastawayV4LeftThumbEuler=({l.x:F1}f,{l.y:F1}f,{l.z:F1}f)  ([N] switch side; orient the thumb, wrist unaffected)");
+            }
         }
 
         private static float Norm(float a) { a %= 360f; if (a > 180f) a -= 360f; return a; }
@@ -563,7 +596,9 @@ namespace FarHorizon
                 ? "FOOT-YAW (v4 pigeon-toe — H=toes outward / Y=inward; dial to straight, default -15)"
                 : _target == 6
                 ? "GRIP-CURL (v4 hand — T/G softens the grip fold; lower = less dark/segmented)"
-                : "WRIST (v4 right-hand un-roll — T/G/Y/H/U/J all 3 axes; dial until it mirrors the left)";
+                : _target == 7
+                ? "WRIST — " + (_armSel == 0 ? "RIGHT hand" : "LEFT hand") + " un-twist ([N] switch; T/G/Y/H/U/J all 3 axes)"
+                : "HAND (thumb) — " + (_armSel == 0 ? "RIGHT" : "LEFT") + " ([N] switch; orient the thumb below the wrist)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -637,17 +672,27 @@ namespace FarHorizon
                 eulerLine = (_fingerCurl.IsApplied ? "APPLIED ✓ (forced on for dialing)" : "NOT applied")
                           + " — dial until the right hand reads as clean as the left, then bake fingerCurlDeg";
             }
-            else if (_target == 7 && _wrist != null)
+            else if (_target == 7 && _hand != null)
             {
-                // 86catvb6u round-5 — the right-hand un-roll. All 3 axes (T/G=X, Y/H=Y, U/J=Z). Front view,
-                // empty-handed, idle: dial until the right hand mirrors the left, then bake CastawayV4RightWristEuler.
-                Vector3 we = _wrist.wristEuler;
-                posLine = $"CastawayV4RightWristEuler=({we.x:F1}, {we.y:F1}, {we.z:F1})   (T/G=X  Y/H=Y  U/J=Z)";
-                eulerLine = "front view, empty hand — dial until the right hand mirrors the left, then bake";
+                // 86catvb6u round-8 — the both-hand un-twist. All 3 axes (T/G=X, Y/H=Y, U/J=Z) on the SELECTED hand
+                // ([N] switch). Front view, empty-handed, idle: dial each hand natural, then bake the two constants.
+                Vector3 we = _armSel == 0 ? _hand.rightWristEuler : _hand.leftWristEuler;
+                Vector3 oth = _armSel == 0 ? _hand.leftWristEuler : _hand.rightWristEuler;
+                posLine = $"{(_armSel == 0 ? "RightWristEuler" : "LeftWristEuler")}=({we.x:F1}, {we.y:F1}, {we.z:F1})   (T/G=X  Y/H=Y  U/J=Z)";
+                eulerLine = $"other {(_armSel == 0 ? "LeftWristEuler" : "RightWristEuler")}=({oth.x:F1}, {oth.y:F1}, {oth.z:F1})  — dial each hand natural, then bake both";
+            }
+            else if (_target == 8 && _hand != null)
+            {
+                // 86catvb6u round-8 — the THUMB knob (orient the thumb below the wrist, wrist unaffected). SELECTED
+                // side ([N] switch); ships 0. Dial the thumb toward/away the body, then bake the two thumb constants.
+                Vector3 te = _armSel == 0 ? _hand.rightThumbEuler : _hand.leftThumbEuler;
+                Vector3 oth = _armSel == 0 ? _hand.leftThumbEuler : _hand.rightThumbEuler;
+                posLine = $"{(_armSel == 0 ? "RightThumbEuler" : "LeftThumbEuler")}=({te.x:F1}, {te.y:F1}, {te.z:F1})   (T/G=X  Y/H=Y  U/J=Z; wrist unaffected)";
+                eulerLine = $"other {(_armSel == 0 ? "LeftThumbEuler" : "RightThumbEuler")}=({oth.x:F1}, {oth.y:F1}, {oth.z:F1})  — point the thumb toward the body, then bake";
             }
             else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)"
                             : _target == 5 ? "(foot-yaw not found)" : _target == 6 ? "(finger-curl not found)"
-                            : _target == 7 ? "(right-wrist not found)" : "(arm pose not found)"; eulerLine = ""; }
+                            : (_target == 7 || _target == 8) ? "(hand pose not found)" : "(arm pose not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -661,7 +706,7 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held / stump / arm / GROUND-Y / RUN / FOOT-YAW / GRIP-CURL / WRIST    [N] right<->left arm", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND    [N] right<->left (arm/wrist/hand)", _hintStyle);
             GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
             GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);

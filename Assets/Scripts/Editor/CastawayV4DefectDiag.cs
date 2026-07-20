@@ -77,6 +77,12 @@ namespace FarHorizon.EditorTools
             // right-WRIST correction (bone-local) that makes the rendered right hand == mirror(left) at idle. ----
             ReportWristCorrection(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
 
+            // DEFECT 3 ROUND-8 (the Mixamo RE-RIG) — the Sponsor sees BOTH arms twisted at the round-7 defaults
+            // (arm eulers (-5,±22,0), wrist 0); via the F9 WRIST dial he reached a CORRECT right arm at
+            // CastawayV4RightWristEuler=(10,-120,-20). Root-cause the both-arms twist on the LIVE re-rig skeleton +
+            // derive the LEFT-hand mirror correction anchored on the Sponsor-correct right + dump the thumb bones.
+            ReportRound8(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
+
             sb.AppendLine("[v4-diag] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
@@ -393,6 +399,96 @@ namespace FarHorizon.EditorTools
             // Verify: apply the correction bone-local + re-measure (should be ~0).
             rHand.localRotation = rHand.localRotation * corr;
             sb.AppendLine($"[v4-diag] POST-correction HAND mirror delta = {Quaternion.Angle(rHand.rotation, mirL):F1}deg (expect ~0 — the seed makes the right hand render-mirror the left)");
+            Object.DestroyImmediate(go);
+        }
+
+        // DEFECT 3 ROUND-8 — root-cause the BOTH-arms twist on the LIVE re-rig + derive the LEFT-hand correction
+        // anchored on the Sponsor-verified right (wrist (10,-120,-20)) + dump the L/R thumb bones for the HAND knob.
+        private static void ReportRound8(StringBuilder sb, string path, RuntimeAnimatorController ctrl)
+        {
+            sb.AppendLine("[v4-diag] ===== ROUND-8 (Mixamo RE-RIG: both-arms twist root-cause + left-hand mirror) =====");
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (fbx == null || ctrl == null) { sb.AppendLine("[v4-diag] round8: fbx/ctrl missing"); return; }
+            Avatar avatar = null;
+            foreach (var o in AssetDatabase.LoadAllAssetsAtPath(path)) if (o is Avatar a) avatar = a;
+            var go = Object.Instantiate(fbx);
+            var lArm = FindBone(go.transform, "leftarm"); var rArm = FindBone(go.transform, "rightarm");
+            var lHand = FindBone(go.transform, "lefthand"); var rHand = FindBone(go.transform, "righthand");
+            var lThumb = FindBone(go.transform, "lefthandthumb1"); var rThumb = FindBone(go.transform, "righthandthumb1");
+            if (lHand == null || rHand == null || lArm == null || rArm == null)
+            { sb.AppendLine("[v4-diag] round8: arm/hand bones missing"); Object.DestroyImmediate(go); return; }
+
+            // (0) BONE INVENTORY — the HAND knob needs a real thumb bone on BOTH sides (the OLD v4 rig had ZERO
+            // thumb bones; the round-6 comment claims the re-rig has "real hand+thumb bones" — VERIFY on the live rig).
+            sb.AppendLine($"[v4-diag] round8 THUMB bones present: left='lefthandthumb1'={lThumb != null}  right='righthandthumb1'={rThumb != null}");
+            void DumpSub(string lbl, Transform hand)
+            {
+                if (hand == null) { sb.AppendLine($"[v4-diag] round8 {lbl}: MISSING"); return; }
+                var names = new List<string>();
+                foreach (var t in hand.GetComponentsInChildren<Transform>(true)) names.Add(Tok(t.name));
+                sb.AppendLine($"[v4-diag] round8 {lbl} subtree ({names.Count}): " + string.Join(",", names));
+            }
+            DumpSub("LEFT hand", lHand); DumpSub("RIGHT hand", rHand);
+
+            Quaternion Mir(Quaternion q) => new Quaternion(q.x, -q.y, -q.z, q.w);
+            var anim = go.GetComponent<Animator>() ?? go.AddComponent<Animator>();
+            anim.runtimeAnimatorController = ctrl; if (avatar != null) anim.avatar = avatar;
+            anim.applyRootMotion = false; anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+            // The round-7 SHIPPED defaults the Sponsor judged: arm eulers (-5,±22,0), wrist 0. Front view, idle.
+            Vector3 leftArmE = new Vector3(-5f, 22f, 0f), rightArmE = new Vector3(-5f, -22f, 0f);
+            Vector3 sponsorRightWrist = new Vector3(10f, -120f, -20f); // the Sponsor F9-dialed CORRECT right (round-8)
+
+            // Tick idle to the shipped clip pose, then apply the shipped arm eulers to the UPPER ARMS.
+            void TickIdleAndArmPose()
+            {
+                anim.Rebind(); anim.Play("Idle", 0, 0f); anim.SetBool("Moving", false); anim.SetBool("Grounded", true); anim.SetFloat("Speed", 0f);
+                for (int i = 0; i < 12; i++) anim.Update(0.1f);
+                lArm.localRotation = lArm.localRotation * Quaternion.Euler(leftArmE);
+                rArm.localRotation = rArm.localRotation * Quaternion.Euler(rightArmE);
+            }
+
+            // (1) BASELINE at the shipped defaults (wrist 0). Is the twist SYMMETRIC (both wrong the same way ->
+            // small mismatch) or ASYMMETRIC (right rolled off the mirrored left -> large mismatch)? Also validate
+            // the mirror operator on the upper arms (an A/T-pose is ~symmetric -> small delta EXPECTED).
+            TickIdleAndArmPose();
+            float armMirror = Quaternion.Angle(rArm.rotation, Mir(lArm.rotation));
+            float handMirror0 = Quaternion.Angle(rHand.rotation, Mir(lHand.rotation));
+            sb.AppendLine($"[v4-diag] round8 [defaults: armEuler+wrist0] upper-ARM mirror delta = {armMirror:F1}deg (small = the mirror operator is valid on this rig)");
+            sb.AppendLine($"[v4-diag] round8 [defaults: armEuler+wrist0] HAND mirror delta (right vs mirrored-left) = {handMirror0:F1}deg " +
+                          "(this is the both-hands asymmetry the Sponsor sees at the round-7 defaults; wrist 0 provides NO correction)");
+
+            // (2) Apply the Sponsor's CORRECT right wrist (10,-120,-20) to the RIGHT HAND bone. The right hand is
+            // now Sponsor-verified-correct; capture its world rotation as the mirror ANCHOR for the left.
+            TickIdleAndArmPose();
+            rHand.localRotation = rHand.localRotation * Quaternion.Euler(sponsorRightWrist);
+            Quaternion Rright = rHand.rotation, Rleft = lHand.rotation;
+            float postRightVsMirL = Quaternion.Angle(Rright, Mir(Rleft));
+            sb.AppendLine($"[v4-diag] round8 [right wrist (10,-120,-20), left uncorrected] right vs mirrored-left = {postRightVsMirL:F1}deg " +
+                          "(LARGE is EXPECTED + CONFIRMS the left needs its OWN mirror correction — the round-7 'symmetric rig needs no compensation' assumption is REFUTED)");
+
+            // (3) Derive the LEFT-hand bone-local correction so the LEFT hand renders == mirror(Sponsor-correct right):
+            // world' = Rleft * corrL == mirror(Rright)  ->  corrL = Inv(Rleft) * mirror(Rright).
+            Quaternion corrL = Quaternion.Inverse(Rleft) * Mir(Rright);
+            Vector3 corrLE = new Vector3(N(corrL.eulerAngles.x), N(corrL.eulerAngles.y), N(corrL.eulerAngles.z));
+            sb.AppendLine($"[v4-diag] --- SEED: CastawayV4LeftWristEuler = new Vector3({corrLE.x:F1}f, {corrLE.y:F1}f, {corrLE.z:F1}f);  (mirror of the Sponsor-correct right)");
+            sb.AppendLine($"[v4-diag] round8 (sanity: the naive local mirror of (10,-120,-20) = (10,120,20); compare to the DERIVED seed above)");
+
+            // (4) VERIFY: apply the derived left correction bone-local + re-measure right-vs-mirrored-left (expect ~0).
+            lHand.localRotation = lHand.localRotation * corrL;
+            float verify = Quaternion.Angle(rHand.rotation, Mir(lHand.rotation));
+            sb.AppendLine($"[v4-diag] round8 POST both-hand corrections: right vs mirrored-left = {verify:F1}deg (expect ~0 -> both hands render as mirrors)");
+
+            // (5) THUMB bind frames (for the HAND knob seed). Report L/R thumb1 local frames + mirror delta.
+            if (lThumb != null && rThumb != null)
+            {
+                TickIdleAndArmPose();
+                float thumbMirror = Quaternion.Angle(rThumb.rotation, Mir(lThumb.rotation));
+                sb.AppendLine($"[v4-diag] round8 THUMB1 mirror delta (right vs mirrored-left, at defaults) = {thumbMirror:F1}deg " +
+                              "(the HAND/thumb knob defaults 0 — the Sponsor taste-dials thumb orientation; this is informational)");
+            }
+            else sb.AppendLine("[v4-diag] round8 THUMB: no thumb1 bone on one/both sides -> the HAND knob cannot rotate a thumb chain (fall back to hand-bone only)");
+
             Object.DestroyImmediate(go);
         }
 
