@@ -16,16 +16,18 @@ verified rig, not the ticket's framing.
 
 ## 0. TL;DR for the Sponsor
 
-You source **4 NEW Mixamo attack clips** (axe, pickaxe, knife/dagger, spear). The **sword reuses the
-existing clip** already in-repo (`Melee_Attack.fbx`). Per your decision on the ticket (comment
-`90150243232739`) — per-class distinctiveness over sourcing economy; Uma's "axe+pickaxe share one clip"
-economy is rejected. Download each new clip **Without Skin, FBX-for-Unity, 30 FPS, Keyframe Reduction
-None** and drop the 4 FBXs into `Assets/Art/Character/Castaway/` with the filenames in §3. Then Phase 2
-(a separate dispatch) wires them.
+You source **5 NEW Mixamo attack clips** (axe, pickaxe, knife/dagger, spear, sword-slash). Per your
+decisions on the ticket (comment `90150243232739` + the 2026-07-20 popup) — per-class distinctiveness
+over sourcing economy; Uma's "axe+pickaxe share one clip" economy is rejected. Download each new clip
+**Without Skin, FBX-for-Unity, 30 FPS, Keyframe Reduction None** and drop the 5 FBXs into
+`Assets/Art/Character/Castaway/` with the filenames in §3. Then Phase 2 (a separate dispatch) wires them.
 
-**⚠ One thing to confirm before Phase-2 dispatch** — the existing clip you'd assign to the *sword* is a
-downward **OVERHEAD** ("Standing Melee Attack Downward"), but the sword's data id is `sword_slash` and
-Uma's brief §1.1 specs the sword as a horizontal **slash**. See §5 — pick option A or B.
+**Sword decision (RESOLVED 2026-07-20, Sponsor verbatim):** *"sword should have a real slash (sideways
+swing) it should also have heavy attack (swing from above)."* → The sword's **LIGHT (left-click) attack
+is a NEW slash clip** (included in the 5). The existing overhead clip (`Melee_Attack.fbx` / CastawayMelee)
+is **RESERVED for the future sword HEAVY attack** — that mechanic (a second input + its own damage/timing)
+is **OUT OF SCOPE for `86caffwv5`**; a separate follow-up ticket owns it. Phase 2 must NOT repurpose the
+overhead clip elsewhere. See §5.
 
 ---
 
@@ -94,10 +96,11 @@ the regenerated `.controller` + the new clip `.fbx`+`.meta`** (the build ships t
 
 ---
 
-## 2. The 4 proposed Mixamo clips (per-class distinctiveness)
+## 2. The 5 proposed Mixamo clips (per-class distinctiveness)
 
-Motion signatures are Uma's (`combat-cluster-design-brief.md` §1.1). Sword is included for completeness
-(reuses existing). The data layer already names the swing per class via `WeaponDef.AnimationId` —
+Motion signatures are Uma's (`combat-cluster-design-brief.md` §1.1). All 5 are NEW downloads; the sword's
+LIGHT attack is a new slash (the existing overhead is reserved for the future sword HEAVY attack — §5).
+The data layer already names the swing per class via `WeaponDef.AnimationId` —
 verified in `Assets/Scripts/Runtime/Combat/WeaponCatalog.cs`: **5 opaque ids** `axe_chop`,
 `pickaxe_mine`, `dagger_stab`, `sword_slash`, `spear_thrust` (shared across wood/stone/iron tiers — the
 material tier does NOT change the motion, only weight/sound flavor).
@@ -107,11 +110,12 @@ material tier does NOT change the motion, only weight/sound flavor).
 
 | Class | `AnimationId` | New clip? | Motion signature (Uma §1.1) | Mixamo search terms | Candidate clips (verify in library) | `swingImpactDelaySeconds` start |
 |---|---|---|---|---|---|---|
-| **Axe** | `axe_chop` | **NEW** | Heavy vertical/diagonal overhead chop, whole-body commit, long follow-through | `axe`, `chop`, `great sword slash`, `melee attack downward` | a two-handed/diagonal power chop **distinct from the sword's existing vertical overhead** | **~0.40s** |
+| **Axe** | `axe_chop` | **NEW** | Heavy vertical/diagonal overhead chop, whole-body commit, long follow-through | `axe`, `chop`, `great sword slash`, `melee attack downward` | a two-handed/diagonal power chop **distinct from the reserved overhead** | **~0.40s** |
 | **Pickaxe** | `pickaxe_mine` | **NEW** | Overhead pick strike, pointed downward drive (a mining swing, not a slash) | `mining`, `pickaxe`, `axe`, `swing` | a downward pick/mining strike | **~0.40s** |
 | **Knife / Dagger** | `dagger_stab` | **NEW** | Short forward stab/jab, elbow-driven, minimal body rotation, fastest cadence | `stab`, `knife attack`, `dagger`, `jab` | a quick forward knife stab | **~0.18s** |
 | **Spear** | `spear_thrust` | **NEW** | Forward linear lunge, both hands behind the point, longest reach; impact at full extension | `spear`, `thrust`, `stab`, `lunge` | a two-handed spear thrust | **~0.34s** |
-| **Sword** | `sword_slash` | **REUSE** existing `CastawayMelee` | Uma specs a wide diagonal/horizontal **slash**; existing clip is a downward **overhead** — see ⚠ §5 | (existing `Melee_Attack.fbx`) | — | **~0.28s** |
+| **Sword (light)** | `sword_slash` | **NEW** | Wide diagonal/horizontal **slash** (sideways swing), hips leading, arcing follow-through | `sword slash`, `sword and shield slash`, `stable sword outward slash` | a horizontal/diagonal one-handed sword slash | **~0.28s** |
+| _Sword (heavy) — OOS_ | _(future)_ | reserve existing `CastawayMelee` | Overhead swing-from-above (the existing `Melee_Attack.fbx`) — **future sword HEAVY attack, separate ticket; do NOT wire or repurpose here** | (existing, in-repo) | — | — |
 
 **Selection criteria to hand the Sponsor per clip** (Uma §1.1, distilled):
 1. Reads as **Generic** in Unity (do NOT check Humanoid) — bone-path binding onto v4.
@@ -140,7 +144,7 @@ rigged v4 from). So:
   (markers on chin / both wrists / both elbows / both knees / groin; Use Symmetry ON; Skeleton LOD =
   Standard). Then apply animations to it.
 
-**Step B — for EACH of the 4 clips (axe, pickaxe, knife/dagger, spear):**
+**Step B — for EACH of the 5 clips (axe, pickaxe, knife/dagger, spear, sword-slash):**
 1. Search Mixamo using the §2 search terms; pick a clip matching that class's motion signature +
    the 6 selection criteria (§2). Preview it on the castaway — watch the shoulders/elbows for pinch.
 2. Click **Download** with these settings (identical to how the existing clips were sourced):
@@ -158,14 +162,15 @@ rigged v4 from). So:
 | Pickaxe | `Attack_Pickaxe.fbx` | `CastawayPickaxeSwing` |
 | Knife / Dagger | `Attack_Dagger.fbx` | `CastawayDaggerStab` |
 | Spear | `Attack_Spear.fbx` | `CastawaySpearThrust` |
+| Sword (light slash) | `Attack_Sword.fbx` | `CastawaySwordSlash` |
 
 **Sanity check per file:** a Without-Skin FBX is small (**hundreds of KB**, no mesh). If it's multi-MB
 you accidentally downloaded With-Skin — re-download Without Skin.
 
-**Sword:** no download — it reuses the existing `Melee_Attack.fbx` already in-repo (pending the ⚠ §5
-confirm).
+**Sword HEAVY attack:** no download this ticket — the existing `Melee_Attack.fbx` (overhead) is reserved
+for it and stays in-repo untouched; the heavy-attack mechanic is a separate follow-up ticket (§5).
 
-**Handoff:** drop the 4 FBXs in the folder and tell the orchestrator "swing clips are in." Phase 2
+**Handoff:** drop the 5 FBXs in the folder and tell the orchestrator "swing clips are in." Phase 2
 (a separate dispatch) imports + wires them. Do NOT open Unity or edit anything — Phase 2 owns the import
 settings + controller wiring.
 
@@ -190,10 +195,16 @@ returns to `Locomotion`/`Idle` (the `Attack`/`Jump` overlay idiom). All keep `m_
 | `1` pickaxe | `CastawayPickaxeSwing` (`Attack_Pickaxe.fbx`) | `AttackPickaxe` (new) | `pickaxe_mine` |
 | `2` dagger | `CastawayDaggerStab` (`Attack_Dagger.fbx`) | `AttackDagger` (new) | `dagger_stab` |
 | `3` spear | `CastawaySpearThrust` (`Attack_Spear.fbx`) | `AttackSpear` (new) | `spear_thrust` |
-| `4` sword | `CastawayMelee` (existing `Melee_Attack.fbx`) | reuse existing `Attack` | `sword_slash` |
+| `4` sword (light) | `CastawaySwordSlash` (`Attack_Sword.fbx`) | `AttackSword` (new) | `sword_slash` |
+
+**Reserved (do NOT wire this ticket):** the existing `Attack` state + `CastawayMelee` (`Melee_Attack.fbx`)
+overhead is KEPT in the controller but left unwired from the new selector — it is the future **sword
+HEAVY attack** clip (a separate follow-up ticket owns the second-input mechanic + damage/timing). Phase 2
+must not delete, remap, or repurpose it. (Tree-chop moves onto `AttackAxe`; the old `Attack` state no
+longer drives any current light-attack trigger — it simply waits for the heavy-attack ticket.)
 
 Authored by extending `CharacterAssetGen.cs` (`AddState`+`AddParameter`+transitions), regenerate,
-**commit** the `.controller` + the 4 new `.fbx`+`.meta`. Import each new FBX as **Generic** (mirror
+**commit** the `.controller` + the 5 new `.fbx`+`.meta`. Import each new FBX as **Generic** (mirror
 `Melee_Attack.fbx.meta` — `animationType:2`, non-looping, root XZ locked). Add a `WeaponClassParam`
 mirror const to both `CastawayCharacter.cs` and `CharacterAssetGen.cs` (the ControllerParamNamesMatch
 contract).
@@ -259,37 +270,34 @@ imports with a wrong avatar or slides the feet, re-check Without-Skin + In-Place
   impact early ~0.18s; noticeably the fastest cadence in the set; single-flight holds."
 - **Spear:** "Left-click with the spear plays a two-handed forward thrust once and returns to idle;
   impact at full extension ~0.34s; longest visible reach; single-flight holds."
-- **Sword (existing clip):** "Left-click with the sword plays the existing `CastawayMelee` swing once
-  and returns to idle; impact ~0.28s; single-flight holds." *(⚠ reads as an OVERHEAD, not a slash — §5.)*
+- **Sword (light slash):** "Left-click with the sword plays a sideways/diagonal slash once and returns
+  to idle; impact ~0.28s mid-sweep; reads as a wide horizontal cut (not an overhead); single-flight holds."
 
 ---
 
-## 5. ⚠ Design tension to confirm BEFORE Phase-2 dispatch (not a Phase-1 blocker)
+## 5. Sword resolution — RESOLVED 2026-07-20 (Sponsor popup)
 
-Your decision (comment `90150243232739`): *"sword per existing"* — the sword reuses the existing clip.
-**But** the existing `Melee_Attack.fbx` / `CastawayMelee` is a downward **OVERHEAD** ("Standing Melee
-Attack Downward"), whereas:
-- the sword's data id is **`sword_slash`** (`WeaponCatalog.cs`), and
-- Uma §1.1 specs the sword as a wide diagonal/horizontal **slash**.
+The earlier tension (existing clip is an OVERHEAD, but the sword's id `sword_slash` + Uma §1.1 want a
+slash) is settled. **Sponsor verbatim:** *"sword should have a real slash (sideways swing) it should also
+have heavy attack (swing from above)."*
 
-So "sword rides the existing overhead" would make the sword read as an overhead chop, not a slash — and
-the existing overhead is the *natural axe* motion (it's literally what chop plays today).
+**Applied:**
+- **Sword LIGHT attack (left-click) = a NEW slash clip** (`Attack_Sword.fbx` → `CastawaySwordSlash`,
+  `sword_slash`). Included in the 5 downloads (§2/§3) and wired as state `AttackSword` (§4.1). This is
+  what `86caffwv5` delivers for the sword.
+- **Sword HEAVY attack (swing-from-above) = the existing overhead** (`Melee_Attack.fbx` / `CastawayMelee`),
+  **RESERVED** — kept in-repo + in the controller, unwired. **OUT OF SCOPE for `86caffwv5`:** the heavy
+  attack is a distinct mechanic (a second input + its own damage/timing) that needs its own ticket.
+  Phase 2 must not repurpose the overhead clip for anything else.
 
-**Two clean resolutions — your call at Phase-2 dispatch:**
-- **Option A (literal — 4 new clips):** sword uses the existing overhead as-is. Axe gets a NEW overhead
-  distinct from it (e.g. a two-handed/diagonal power chop so they don't look identical). Cheapest.
-- **Option B (feel-true — 5 new clips):** source a real **slash** for the sword too, and let the axe
-  keep the existing overhead (`axe_chop`→`CastawayMelee`, which is already how chop works). One extra
-  clip; every weapon reads true to its id + Uma's spec.
+**Follow-up ticket to file (Priya):** *"Sword HEAVY attack — second-input overhead swing"*: wire the
+reserved `CastawayMelee` overhead to a heavy-attack input, with its own damage/impact-timing/cooldown;
+depends on `86caffwv5` (the sword light-slash + attack-state scaffolding) landing first.
 
-The plan above is written for **Option A** (honoring your literal decision); switching to B is a
-one-row change (move `CastawayMelee` to `axe_chop`, add a 5th download for the sword). Flagging, not
-deciding — this is a look/feel call, which is yours.
-
-**Decision draft (for Priya's weekly DECISIONS batch):** "Weapon swing clips: sword reuses the existing
-`CastawayMelee` overhead (Option A) — accept the sword-reads-as-overhead; axe sources a new distinct
-overhead. [OR Option B if the Sponsor wants a true slash for the sword → 5 new clips.] Confirm at
-`86caffwv5` Phase-2 dispatch."
+**Decision draft (for Priya's weekly DECISIONS batch):** "Weapon swing clips (`86caffwv5`): sword gets a
+NEW light slash clip (sideways swing); the existing `CastawayMelee` overhead is reserved for a future
+sword HEAVY attack (swing-from-above), which is a separate follow-up ticket (OOS here). Total = 5 new
+Mixamo clips (axe, pickaxe, dagger, spear, sword-slash). Sponsor-decided 2026-07-20."
 
 ---
 
@@ -306,7 +314,8 @@ overhead. [OR Option B if the Sponsor wants a true slash for the sword → 5 new
   (`[[unity-procedural-committed-assets-go-stale]]`) — the build ships the committed snapshot.
 
 ## References
-- Ticket `86caffwv5` body + comments (esp. `90150243232739` sword/4-clip decision).
+- Ticket `86caffwv5` body + comments (`90150243232739` per-class-clips decision; 2026-07-20 popup:
+  sword light-slash + reserved-overhead heavy — §5).
 - `team/uma-ux/combat-cluster-design-brief.md` §1 (motion signatures, impact timing).
 - `team/uma-ux/weapon-tool-style-spec.md` §Correction-2026-07-19 (3-tier + per-class swing clips).
 - `.claude/docs/procedural-animation-verbs.md` (overlay-state idiom; chop→Mixamo-clip ruling).
