@@ -140,9 +140,15 @@ rigged v4 from). So:
 - **PREFERRED:** open **My Assets** and select the castaway character you already uploaded/rigged (the
   one used for the v4/v3 hero). Apply animations to it.
 - **FALLBACK (only if that character is gone from your library):** click **Upload Character** and
-  upload `Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx` from the repo; run the Auto-Rigger
+  upload an **UN-RIGGED / base** castaway mesh, then run the Auto-Rigger
   (markers on chin / both wrists / both elbows / both knees / groin; Use Symmetry ON; Skeleton LOD =
   Standard). Then apply animations to it.
+  > ⚠ **Devon NIT #2 (2026-07-20):** do NOT upload the already-rigged `…/v4/castaway_v4_rigged.fbx` to
+  > the Auto-Rigger — Mixamo's Auto-Rigger expects an UN-rigged mesh and can produce a doubled/renamed
+  > skeleton on an already-skinned FBX (breaking the `mixamorig:*` transform-path bind our Generic clips
+  > rely on). Use the base/un-rigged castaway mesh (the pre-Mixamo Rodin/Blender export). This only
+  > matters if the PREFERRED path (the existing library character) is truly gone — which is unlikely
+  > (v3/v4 both came through Mixamo), so the preferred path avoids the trap entirely.
 
 **Step B — for EACH of the 5 clips (axe, pickaxe, knife/dagger, spear, sword-slash):**
 1. Search Mixamo using the §2 search terms; pick a clip matching that class's motion signature +
@@ -202,6 +208,22 @@ overhead is KEPT in the controller but left unwired from the new selector — it
 HEAVY attack** clip (a separate follow-up ticket owns the second-input mechanic + damage/timing). Phase 2
 must not delete, remap, or repurpose it. (Tree-chop moves onto `AttackAxe`; the old `Attack` state no
 longer drives any current light-attack trigger — it simply waits for the heavy-attack ticket.)
+
+> ⚠ **Devon NIT #1 (2026-07-20) — the load-bearing mechanical step, now explicit:** keeping the reserved
+> `Attack` state REQUIRES Phase 2 to **REMOVE the existing `AnyState→Attack`-on-`Chop` transition**. Tree-chop
+> now routes to `AttackAxe` (`Chop` AND `WeaponClass==0`). If the old *ungated* `AnyState→Attack`-on-`Chop`
+> transition survived alongside it, firing `Chop` with `WeaponClass==0` would DOUBLE-match (the reserved
+> overhead `Attack` **and** `AttackAxe`) → a double-fire. So the reserved `Attack` state is kept but made
+> **unreachable by `Chop`** (no incoming AnyState transition; it waits for the heavy-attack input). A
+> controller test asserts **exactly one `Chop`-reachable state per `WeaponClass` value** (no ungated
+> `Chop` transition survives) so the double-fire can't silently ship.
+
+> **PHASE 2 STATUS (2026-07-20 — this PR):** the wiring below is IMPLEMENTED. 5 FBXs imported Generic +
+> renamed (`ConfigureGenericClipFbx`), 5 `AttackX` states + a `WeaponClass` int selector added to
+> `CharacterAssetGen`, the ungated `AnyState→Attack`-on-`Chop` REMOVED (reserved `Attack` kept unwired),
+> `CastawayCharacter.TriggerAttack(int,float)` added (`TriggerChop`=axe, new `TriggerMine`=pickaxe),
+> `MeleeAttack` routes `AnimationId`→`WeaponClass` via `WeaponCatalog.WeaponClassForAnimationId`, and the
+> tree-chop/mine hold-cadence source (`MeleeClipLength`) now reads the LAST-triggered class's clip.
 
 Authored by extending `CharacterAssetGen.cs` (`AddState`+`AddParameter`+transitions), regenerate,
 **commit** the `.controller` + the 5 new `.fbx`+`.meta`. Import each new FBX as **Generic** (mirror

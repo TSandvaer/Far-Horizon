@@ -10,16 +10,16 @@ namespace FarHorizon.Combat
     /// apply the weapon's on-hit status (AC6). The selected weapon is resolved from the selected belt item
     /// (axe / spear) — the SAME selection surface the chop uses (Inventory.IsAxeSelectedInBelt sibling).
     ///
-    /// === The swing (AC5) — PLACEHOLDER pending the Sponsor's procedural-vs-Mixamo call ===
-    /// ⚠ SCOPE QUESTION (raised in the dispatch): [[chop-swing-mixamo-clip-not-procedural]] says the Sponsor
-    /// wants a proper MIXAMO attack clip; procedural-animation-verbs.md says NO new Animator clip. These
-    /// CONFLICT for the per-weapon swing. Until the Sponsor rules, this POC reuses the EXISTING chop swing
-    /// (<see cref="CastawayCharacter.TriggerChop"/> — the already-wired Mixamo melee Attack state) as the
-    /// PLACEHOLDER swing for BOTH weapons, scaled by the weapon's attackSpeed via the existing ChopSpeed
-    /// param. This proves the reach/damage/status SYSTEM (the POC's job) without committing the swing art:
-    /// the per-weapon DISTINCT swing (axe_chop vs spear_thrust) is deferred to the AC5 decision — the driver
-    /// maps <see cref="WeaponDef.AnimationId"/> to a swing there. NO new Animator clip/state/layer is added
-    /// here (procedural-animation-verbs.md rule respected); the placeholder rides the existing state.
+    /// === The swing (AC5) — PER-CLASS Mixamo swing (86caffwv5 — RESOLVED) ===
+    /// The Combat-POC placeholder (all weapons rode the single chop Attack state) is REPLACED: each weapon now
+    /// plays its OWN Mixamo swing. <see cref="PerformAttack"/> maps the weapon's <see cref="WeaponDef.AnimationId"/>
+    /// through <see cref="WeaponCatalog.WeaponClassForAnimationId"/> to a WeaponClass and fires
+    /// <see cref="CastawayCharacter.TriggerAttack"/>, which sets the Animator's WeaponClass int + ChopSpeed then
+    /// pulses the shared Chop trigger → the controller plays the per-class AttackX state (axe_chop→AttackAxe …
+    /// sword_slash→AttackSword). This is the Sponsor-ruled animator-driven-Mixamo approach
+    /// (<see cref="WeaponClassForSwing"/> is the pure, testable map). No new INPUT path — the guard truth-table +
+    /// single-flight below are unchanged; only the swing FIRED is now per-class (the shared Animator → CastawayArmPose
+    /// (order 50) → HeldAxeRig (order 100) chain is intact — the swing moves the arm, HeldAxeRig follows the hand).
     ///
     /// === Guards (mirror ChopTree — the click must only attack in the game world) ===
     /// The pure <see cref="ShouldAttackOnClick"/> mirrors ChopTree.ShouldChopOnClick: a weapon must be
@@ -167,15 +167,18 @@ namespace FarHorizon.Combat
             SwingsFired++;
             LastWeaponId = weapon.Id;
 
-            // SWING the arm — the PLACEHOLDER swing (existing chop Attack state) scaled by attackSpeed. Face
-            // the target so the strike reads as hitting it. NO new Animator clip/state (AC5 scope question):
-            // the per-weapon distinct swing (axe_chop vs spear_thrust) is deferred to the Sponsor's ruling.
+            // SWING the arm — the PER-CLASS swing (86caffwv5: the placeholder is RESOLVED). Map the weapon's
+            // AnimationId → its WeaponClass and fire that class's Mixamo swing state (axe_chop→AttackAxe,
+            // spear_thrust→AttackSpear, sword_slash→AttackSword, …), scaled by attackSpeed via ChopSpeed. Face the
+            // target so the strike reads as hitting it. An UNMAPPED id (WeaponClassForAnimationId == -1) defensively
+            // falls back to the axe class rather than firing a silent wrong swing (WeaponSetTests forbids orphans).
             if (character != null)
             {
                 if (target != null) character.FaceWorldTarget(target.transform.position);
                 character.chopSpeed = Mathf.Clamp(weapon.AttackSpeed,
                     CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax);
-                character.TriggerChop(); // placeholder swing — rides the existing Mixamo melee Attack state
+                int weaponClass = WeaponClassForSwing(weapon);
+                character.TriggerAttack(weaponClass, weapon.AttackSpeed);
             }
 
             if (target == null || target.IsDead) return;
@@ -193,6 +196,16 @@ namespace FarHorizon.Combat
                 var sec = target.GetComponent<StatusEffectController>();
                 if (sec != null) sec.Apply(weapon.OnHitStatus);
             }
+        }
+
+        /// <summary>The WeaponClass swing for a weapon (86caffwv5) — its AnimationId mapped through the single
+        /// selection seam (<see cref="WeaponCatalog.WeaponClassForAnimationId"/>). An unmapped id (-1) falls back to
+        /// the axe class (never a silent wrong swing). Pure + static so an EditMode test asserts the whole mapping.</summary>
+        public static int WeaponClassForSwing(WeaponDef weapon)
+        {
+            if (weapon == null) return CastawayCharacter.WeaponClassAxe;
+            int cls = WeaponCatalog.WeaponClassForAnimationId(weapon.AnimationId);
+            return cls >= 0 ? cls : CastawayCharacter.WeaponClassAxe;
         }
 
         // Resolve the nearest ALIVE enemy Health within `reach` of the player (planar XZ, height-robust —

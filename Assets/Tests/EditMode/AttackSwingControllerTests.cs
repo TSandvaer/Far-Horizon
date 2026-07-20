@@ -1,0 +1,275 @@
+using System.Collections.Generic;
+using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.Animations;
+using UnityEngine;
+using FarHorizon;
+using FarHorizon.Combat;
+using FarHorizon.EditorTools;
+
+namespace FarHorizon.EditTests
+{
+    /// <summary>
+    /// PER-CLASS WEAPON SWING asset/controller guards (ticket 86caffwv5 — attack animation per weapon). Pins the
+    /// contract the runtime swing (CastawayCharacter.TriggerAttack + MeleeAttack) relies on so the bug CLASSES can't
+    /// recur silently in headless CI:
+    ///
+    ///   1. Each of the 5 swing FBXs imports GENERIC (CreateFromThisModel — NOT Humanoid, the 86ca8rdkp cone trap)
+    ///      with its renamed NON-looping clip (a swing is a one-shot strike).
+    ///   2. The controller carries a WeaponClass INT selector + one AttackX state per class, each motion'd to its
+    ///      clip, speed-driven by ChopSpeed, reached by AnyState→AttackX on (Chop && WeaponClass==N), returning to
+    ///      Locomotion(Moving)/Idle(!Moving).
+    ///   3. DOUBLE-FIRE GUARD (Devon-NIT #1): firing Chop with a given WeaponClass matches EXACTLY ONE state — the
+    ///      reserved overhead 'Attack' state is NOT reachable by Chop (its ungated transition was removed), and no
+    ///      two Chop-reachable states share a WeaponClass value.
+    ///   4. The reserved overhead 'Attack' state (future sword HEAVY) is KEPT + motion'd to CastawayMelee.
+    ///   5. The runtime↔editor mirrors (WeaponClass ints + per-class clip names) match — a drift would misroute the
+    ///      swing or make MeleeClipLength return 0 (the cadence silently falls back).
+    ///   6. The AnimationId→WeaponClass seam maps EVERY WeaponDef.AnimationId (no orphan swing id).
+    /// </summary>
+    public class AttackSwingControllerTests
+    {
+        // The 5 per-class swings: (FBX path, clip name, WeaponClass int, controller state name).
+        private static readonly (string fbx, string clip, int weaponClass, string state)[] Swings =
+        {
+            (CharacterAssetGen.AttackAxeFbxPath,     CharacterAssetGen.AxeSwingClip,     CharacterAssetGen.WeaponClassAxe,     "AttackAxe"),
+            (CharacterAssetGen.AttackPickaxeFbxPath, CharacterAssetGen.PickaxeSwingClip, CharacterAssetGen.WeaponClassPickaxe, "AttackPickaxe"),
+            (CharacterAssetGen.AttackDaggerFbxPath,  CharacterAssetGen.DaggerStabClip,   CharacterAssetGen.WeaponClassDagger,  "AttackDagger"),
+            (CharacterAssetGen.AttackSpearFbxPath,   CharacterAssetGen.SpearThrustClip,  CharacterAssetGen.WeaponClassSpear,   "AttackSpear"),
+            (CharacterAssetGen.AttackSwordFbxPath,   CharacterAssetGen.SwordSlashClip,   CharacterAssetGen.WeaponClassSword,   "AttackSword"),
+        };
+
+        // 1 — each swing FBX imports GENERIC with its renamed NON-looping clip.
+        [Test]
+        public void EverySwingFbx_ImportsGeneric_WithANonLoopingClip()
+        {
+            foreach (var (fbx, clip, _, _) in Swings)
+            {
+                var importer = AssetImporter.GetAtPath(fbx) as ModelImporter;
+                Assert.IsNotNull(importer, fbx + " must be importable");
+                Assert.AreEqual(ModelImporterAnimationType.Generic, importer.animationType,
+                    fbx + " must import GENERIC (binds by transform path onto the live mesh — NOT Humanoid, the " +
+                    "cone-explosion trap 86ca8rdkp)");
+                Assert.AreEqual(ModelImporterAvatarSetup.CreateFromThisModel, importer.avatarSetup,
+                    fbx + " must create its own avatar (the Generic transform-path bind)");
+
+                AnimationClip found = null;
+                foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbx))
+                    if (obj is AnimationClip c && !c.name.StartsWith("__preview__") && c.name.Contains(clip)) found = c;
+                Assert.IsNotNull(found, fbx + " must contain a clip matching '" + clip +
+                    "' (the Mixamo 'mixamo.com' take renamed on import)");
+                Assert.IsFalse(found.isLooping, clip + " must NOT loop — a swing is a one-shot strike");
+                Assert.Greater(found.length, 0f, clip + " must have a positive authored length");
+            }
+        }
+
+        // 2 — controller has the WeaponClass int + one AttackX state per class (clip + speed + gated transition + return).
+        [Test]
+        public void Controller_HasWeaponClassSelector_AndOneAttackStatePerClass()
+        {
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(CharacterAssetGen.ControllerPath);
+            Assert.IsNotNull(controller, "the CastawayAnimator controller must exist at " + CharacterAssetGen.ControllerPath);
+
+            bool hasWeaponClassInt = false;
+            foreach (var p in controller.parameters)
+                if (p.name == CharacterAssetGen.WeaponClassParam && p.type == AnimatorControllerParameterType.Int)
+                    hasWeaponClassInt = true;
+            Assert.IsTrue(hasWeaponClassInt, "the controller must have a WeaponClass INT param (the per-class selector)");
+
+            var sm = controller.layers[0].stateMachine;
+            AnimatorState idleState = null, locoState = null;
+            var byName = new Dictionary<string, AnimatorState>();
+            foreach (var cs in sm.states)
+            {
+                byName[cs.state.name] = cs.state;
+                if (cs.state.name == "Idle") idleState = cs.state;
+                if (cs.state.motion is BlendTree) locoState = cs.state;
+            }
+            Assert.IsNotNull(idleState, "Idle state must exist");
+            Assert.IsNotNull(locoState, "Locomotion (blend-tree) state must exist");
+
+            foreach (var (_, clip, weaponClass, stateName) in Swings)
+            {
+                Assert.IsTrue(byName.TryGetValue(stateName, out var state), "state '" + stateName + "' must exist");
+
+                var motion = state.motion as AnimationClip;
+                Assert.IsNotNull(motion, stateName + "'s motion must be an AnimationClip");
+                Assert.IsTrue(motion.name.Contains(clip),
+                    stateName + " must be motion'd to '" + clip + "' (got '" + motion.name + "')");
+                Assert.IsTrue(state.speedParameterActive, stateName + "'s speed must be parameter-driven (tool-use speed)");
+                Assert.AreEqual(CastawayCharacter.ChopSpeedParam, state.speedParameter,
+                    stateName + "'s speedParameter must be ChopSpeed");
+
+                // AnyState→state gated on (Chop AND WeaponClass==weaponClass).
+                bool gated = false;
+                foreach (var t in sm.anyStateTransitions)
+                {
+                    if (t.destinationState != state) continue;
+                    bool onChop = false, onClass = false;
+                    foreach (var c in t.conditions)
+                    {
+                        if (c.parameter == CastawayCharacter.ChopParam) onChop = true;
+                        if (c.parameter == CastawayCharacter.WeaponClassParam &&
+                            c.mode == AnimatorConditionMode.Equals &&
+                            Mathf.RoundToInt(c.threshold) == weaponClass) onClass = true;
+                    }
+                    if (onChop && onClass) gated = true;
+                }
+                Assert.IsTrue(gated, "there must be an AnyState→" + stateName +
+                    " gated on (Chop AND WeaponClass==" + weaponClass + ")");
+
+                // Returns to Locomotion(Moving) AND Idle(!Moving) — the no-stall lesson.
+                bool toLoco = false, toIdle = false;
+                foreach (var t in state.transitions)
+                {
+                    bool movingIf = false, movingIfNot = false;
+                    foreach (var c in t.conditions)
+                    {
+                        if (c.parameter == "Moving" && c.mode == AnimatorConditionMode.If) movingIf = true;
+                        if (c.parameter == "Moving" && c.mode == AnimatorConditionMode.IfNot) movingIfNot = true;
+                    }
+                    if (t.destinationState == locoState && movingIf) toLoco = true;
+                    if (t.destinationState == idleState && movingIfNot) toIdle = true;
+                }
+                Assert.IsTrue(toLoco, stateName + " must return to Locomotion on (Moving)");
+                Assert.IsTrue(toIdle, stateName + " must return to Idle on (!Moving)");
+            }
+        }
+
+        // 3 — DOUBLE-FIRE GUARD (Devon-NIT #1): firing Chop with any WeaponClass value matches EXACTLY ONE state.
+        [Test]
+        public void ChopTrigger_MatchesExactlyOneStatePerWeaponClass_NoDoubleFire()
+        {
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(CharacterAssetGen.ControllerPath);
+            Assert.IsNotNull(controller, "the CastawayAnimator controller must exist");
+            var sm = controller.layers[0].stateMachine;
+
+            // For each Chop-reachable AnyState transition, record which WeaponClass value(s) it fires on. A transition
+            // gated ONLY on Chop (no WeaponClass Equals condition) fires for ALL classes — the ungated double-fire the
+            // reserved Attack state used to have. Each WeaponClass value 0..4 must be claimed by EXACTLY ONE state.
+            var claimants = new Dictionary<int, List<string>>();
+            for (int i = 0; i <= 4; i++) claimants[i] = new List<string>();
+
+            foreach (var t in sm.anyStateTransitions)
+            {
+                bool onChop = false;
+                int? equalsClass = null;
+                foreach (var c in t.conditions)
+                {
+                    if (c.parameter == CastawayCharacter.ChopParam) onChop = true;
+                    if (c.parameter == CastawayCharacter.WeaponClassParam && c.mode == AnimatorConditionMode.Equals)
+                        equalsClass = Mathf.RoundToInt(c.threshold);
+                }
+                if (!onChop) continue;
+                string dest = t.destinationState != null ? t.destinationState.name : "<null>";
+                if (equalsClass.HasValue)
+                {
+                    if (claimants.ContainsKey(equalsClass.Value)) claimants[equalsClass.Value].Add(dest);
+                }
+                else
+                {
+                    // Ungated Chop transition — fires for every class (the double-fire regression). Fail loud.
+                    Assert.Fail("An AnyState→" + dest + " transition is gated ONLY on Chop (no WeaponClass Equals) — " +
+                        "it fires for EVERY WeaponClass and double-matches the per-class swings (86caffwv5 Devon-NIT #1). " +
+                        "The reserved overhead Attack state's ungated Chop transition must be REMOVED.");
+                }
+            }
+
+            for (int cls = 0; cls <= 4; cls++)
+                Assert.AreEqual(1, claimants[cls].Count,
+                    "WeaponClass==" + cls + " must be claimed by EXACTLY ONE Chop-reachable state (got [" +
+                    string.Join(", ", claimants[cls]) + "]) — else firing Chop with that class double-fires");
+        }
+
+        // 4 — the reserved overhead 'Attack' state is kept + motion'd to CastawayMelee (future sword HEAVY).
+        [Test]
+        public void ReservedOverheadAttackState_IsKept_MotionedToCastawayMelee()
+        {
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(CharacterAssetGen.ControllerPath);
+            Assert.IsNotNull(controller, "the CastawayAnimator controller must exist");
+            AnimatorState reserved = null;
+            foreach (var cs in controller.layers[0].stateMachine.states)
+                if (cs.state.name == "Attack") reserved = cs.state;
+            Assert.IsNotNull(reserved, "the reserved overhead 'Attack' state must be KEPT (future sword HEAVY, 86caffwv5 §5)");
+            var motion = reserved.motion as AnimationClip;
+            Assert.IsNotNull(motion, "the reserved Attack state must still be motion'd to a clip");
+            Assert.IsTrue(motion.name.Contains(CharacterAssetGen.MeleeClip),
+                "the reserved Attack state must keep the CastawayMelee overhead clip (got '" + motion.name + "')");
+        }
+
+        // 5 — runtime↔editor mirrors (WeaponClass ints + per-class clip names) match.
+        [Test]
+        public void RuntimeAndEditorMirrors_Match_ForWeaponClassAndClipNames()
+        {
+            Assert.AreEqual(CharacterAssetGen.WeaponClassParam, CastawayCharacter.WeaponClassParam, "WeaponClass param name");
+            Assert.AreEqual(CharacterAssetGen.WeaponClassAxe, CastawayCharacter.WeaponClassAxe, "WeaponClassAxe");
+            Assert.AreEqual(CharacterAssetGen.WeaponClassPickaxe, CastawayCharacter.WeaponClassPickaxe, "WeaponClassPickaxe");
+            Assert.AreEqual(CharacterAssetGen.WeaponClassDagger, CastawayCharacter.WeaponClassDagger, "WeaponClassDagger");
+            Assert.AreEqual(CharacterAssetGen.WeaponClassSpear, CastawayCharacter.WeaponClassSpear, "WeaponClassSpear");
+            Assert.AreEqual(CharacterAssetGen.WeaponClassSword, CastawayCharacter.WeaponClassSword, "WeaponClassSword");
+
+            Assert.AreEqual(CharacterAssetGen.AxeSwingClip, CastawayCharacter.AxeSwingClipName, "axe swing clip name");
+            Assert.AreEqual(CharacterAssetGen.PickaxeSwingClip, CastawayCharacter.PickaxeSwingClipName, "pickaxe swing clip name");
+            Assert.AreEqual(CharacterAssetGen.DaggerStabClip, CastawayCharacter.DaggerStabClipName, "dagger stab clip name");
+            Assert.AreEqual(CharacterAssetGen.SpearThrustClip, CastawayCharacter.SpearThrustClipName, "spear thrust clip name");
+            Assert.AreEqual(CharacterAssetGen.SwordSlashClip, CastawayCharacter.SwordSlashClipName, "sword slash clip name");
+        }
+
+        // 5b — the cadence source (MeleeClipLength via AttackClipNameForClass) maps each class to its clip name.
+        [Test]
+        public void AttackClipNameForClass_MapsEachWeaponClassToItsSwingClip()
+        {
+            Assert.AreEqual(CastawayCharacter.AxeSwingClipName, CastawayCharacter.AttackClipNameForClass(CastawayCharacter.WeaponClassAxe));
+            Assert.AreEqual(CastawayCharacter.PickaxeSwingClipName, CastawayCharacter.AttackClipNameForClass(CastawayCharacter.WeaponClassPickaxe));
+            Assert.AreEqual(CastawayCharacter.DaggerStabClipName, CastawayCharacter.AttackClipNameForClass(CastawayCharacter.WeaponClassDagger));
+            Assert.AreEqual(CastawayCharacter.SpearThrustClipName, CastawayCharacter.AttackClipNameForClass(CastawayCharacter.WeaponClassSpear));
+            Assert.AreEqual(CastawayCharacter.SwordSlashClipName, CastawayCharacter.AttackClipNameForClass(CastawayCharacter.WeaponClassSword));
+        }
+
+        // 6 — the AnimationId→WeaponClass seam maps EVERY WeaponDef.AnimationId (no orphan swing id).
+        [Test]
+        public void EveryWeaponDefAnimationId_MapsToADefinedWeaponClass_NoOrphan()
+        {
+            var catalog = ScriptableObject.CreateInstance<WeaponCatalog>();
+            catalog.BuildDefaults();
+            Assert.Greater(catalog.All.Count, 0, "the catalog must mint the weapon defs");
+            foreach (var def in catalog.All)
+            {
+                int cls = WeaponCatalog.WeaponClassForAnimationId(def.AnimationId);
+                Assert.That(cls, Is.InRange(0, 4),
+                    "WeaponDef '" + def.Id + "' AnimationId '" + def.AnimationId + "' must map to a defined WeaponClass " +
+                    "(0..4) — an unmapped swing id means a weapon with no per-class swing");
+            }
+            Object.DestroyImmediate(catalog);
+        }
+
+        // 6b — the specific AnimationId→WeaponClass mappings (the 5 opaque ids).
+        [Test]
+        public void WeaponClassForAnimationId_MapsEachSwingId()
+        {
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, WeaponCatalog.WeaponClassForAnimationId(WeaponCatalog.AnimIdAxeChop));
+            Assert.AreEqual(CastawayCharacter.WeaponClassPickaxe, WeaponCatalog.WeaponClassForAnimationId(WeaponCatalog.AnimIdPickaxeMine));
+            Assert.AreEqual(CastawayCharacter.WeaponClassDagger, WeaponCatalog.WeaponClassForAnimationId(WeaponCatalog.AnimIdDaggerStab));
+            Assert.AreEqual(CastawayCharacter.WeaponClassSpear, WeaponCatalog.WeaponClassForAnimationId(WeaponCatalog.AnimIdSpearThrust));
+            Assert.AreEqual(CastawayCharacter.WeaponClassSword, WeaponCatalog.WeaponClassForAnimationId(WeaponCatalog.AnimIdSwordSlash));
+            Assert.AreEqual(-1, WeaponCatalog.WeaponClassForAnimationId("nonexistent_swing"),
+                "an unknown AnimationId must map to -1 (caller falls back to axe)");
+        }
+
+        // 6c — MeleeAttack.WeaponClassForSwing routes each weapon to its class (and an orphan/null → axe fallback).
+        [Test]
+        public void MeleeAttackWeaponClassForSwing_RoutesEachWeaponToItsClass()
+        {
+            var catalog = ScriptableObject.CreateInstance<WeaponCatalog>();
+            catalog.BuildDefaults();
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.AxeId)), "axe");
+            Assert.AreEqual(CastawayCharacter.WeaponClassSpear, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.SpearId)), "spear");
+            Assert.AreEqual(CastawayCharacter.WeaponClassPickaxe, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.PickaxeStoneId)), "pickaxe");
+            Assert.AreEqual(CastawayCharacter.WeaponClassDagger, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.DaggerStoneId)), "dagger");
+            Assert.AreEqual(CastawayCharacter.WeaponClassSword, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.SwordStoneId)), "sword");
+            // A null weapon defensively falls back to the axe class (never a silent wrong swing).
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, MeleeAttack.WeaponClassForSwing(null), "null → axe fallback");
+            Object.DestroyImmediate(catalog);
+        }
+    }
+}

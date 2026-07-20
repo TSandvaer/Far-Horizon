@@ -4348,6 +4348,11 @@ namespace FarHorizon.EditorTools
             // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
             WireHitReactVerifyCapture(player);
 
+            // Wire the PER-CLASS WEAPON SWING shipped-build capture (86caffwv5) — fires each of the 5 per-class
+            // swings on the live Animator via CastawayCharacter.TriggerAttack + captures each mid-swing from the
+            // gameplay orbit cam, with the same cone-explosion guard. Inert unless -verifySwings.
+            WireSwingVerifyCapture(player);
+
             // Wire the REAL-SNAKE shipped-build capture (86caaz4vn AC6/AC7) — walks the player at the snake
             // through the movement seam, proves aggro→telegraph→lunge→bite live + kills it with the real axe
             // WeaponDef, shooting gameplay-cam + side-profile frames. Inert unless -verifySnake.
@@ -4536,6 +4541,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<LocomotionHitReactVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<LocomotionHitReactVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the PER-CLASS WEAPON SWING shipped-build verify capture (86caffwv5) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifySwings. Sibling of WireHitReactVerifyCapture.
+        private static void WireSwingVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SwingVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SwingVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SwingVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }

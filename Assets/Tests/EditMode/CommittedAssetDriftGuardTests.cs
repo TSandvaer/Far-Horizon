@@ -68,6 +68,37 @@ namespace FarHorizon.EditTests
                 "loopTime=false — a chop is a single strike, not a loop)");
         }
 
+        // ===== Per-class weapon SWING FBX metas (86caffwv5 — same drift class as Melee_Attack.fbx) =====
+
+        [Test]
+        public void CommittedSwingFbxMetas_CarryRenamedNonLoopingClips_NoDrift()
+        {
+            // CharacterAssetGen.ConfigureGenericClipFbx -> RenameNonLooping renames each swing FBX's Mixamo source
+            // take to its per-class clip name (CastawayAxeSwing / …) as a NON-looping one-shot, written into the
+            // committed .fbx.meta clipAnimations. The SAME drift class as Melee_Attack.fbx (clipAnimations went []):
+            // if a committed swing meta loses its renamed clip, the AttackX state ships a T-pose. Reds on that drift.
+            var expected = new (string fbxPath, string clip)[]
+            {
+                (CharacterAssetGen.AttackAxeFbxPath,     CharacterAssetGen.AxeSwingClip),
+                (CharacterAssetGen.AttackPickaxeFbxPath, CharacterAssetGen.PickaxeSwingClip),
+                (CharacterAssetGen.AttackDaggerFbxPath,  CharacterAssetGen.DaggerStabClip),
+                (CharacterAssetGen.AttackSpearFbxPath,   CharacterAssetGen.SpearThrustClip),
+                (CharacterAssetGen.AttackSwordFbxPath,   CharacterAssetGen.SwordSlashClip),
+            };
+            foreach (var (fbxPath, clip) in expected)
+            {
+                var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+                Assert.IsNotNull(importer, fbxPath + " must be importable as a ModelImporter");
+                bool found = false, loops = true;
+                foreach (var c in importer.clipAnimations)
+                    if (c.name == clip) { found = true; loops = c.loopTime; break; }
+                Assert.IsTrue(found, $"committed {fbxPath}.meta must carry the generator-renamed '{clip}' clip " +
+                    "(CharacterAssetGen.ConfigureGenericClipFbx). An empty clipAnimations here IS the drift class the " +
+                    "Melee_Attack.fbx meta hit (#315) — the committed meta lost the renamed clip, shipping a T-pose state.");
+                Assert.IsFalse(loops, $"committed '{clip}' must be a NON-looping one-shot (a swing is a single strike)");
+            }
+        }
+
         // ===== Post-profile: ZoneD_PostProfile.asset (the ticket's 2nd named drift target) =====
 
         [Test]

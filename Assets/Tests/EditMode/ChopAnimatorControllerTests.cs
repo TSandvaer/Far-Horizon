@@ -53,16 +53,18 @@ namespace FarHorizon.EditTests
                 "(a looping swing replays the strike forever)");
         }
 
-        // AC controller guard — Chop TRIGGER + ChopSpeed float, an 'Attack' state on the melee clip with its
-        // speedParameter = ChopSpeed, AnyState→Attack on the trigger, and Attack→{Locomotion if Moving | Idle}.
+        // AC controller guard (86caffwv5 — tree-chop's swing is now the per-class AXE swing state) — Chop TRIGGER +
+        // ChopSpeed float, an 'AttackAxe' state on the CastawayAxeSwing clip with speedParameter = ChopSpeed,
+        // AnyState→AttackAxe on (Chop && WeaponClass==0), and AttackAxe→{Locomotion if Moving | Idle}. ALSO pins the
+        // RESERVED overhead 'Attack' state is NO LONGER reachable by Chop (Devon-NIT #1 double-fire guard).
         [Test]
-        public void Controller_HasAttackState_ChopTriggerAndSpeedParam_ReturnsToLocomotion()
+        public void Controller_HasAxeSwingState_ChopTriggerAndSpeedParam_ReturnsToLocomotion()
         {
             var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(CharacterAssetGen.ControllerPath);
             Assert.IsNotNull(controller, "the CastawayAnimator controller must exist at " + CharacterAssetGen.ControllerPath);
 
             // The Chop TRIGGER + the ChopSpeed float (alongside the kept Moving/Speed/Jump/Grounded params).
-            bool hasChopTrigger = false, hasChopSpeed = false;
+            bool hasChopTrigger = false, hasChopSpeed = false, hasWeaponClass = false;
             float chopSpeedDefault = -1f;
             foreach (var p in controller.parameters)
             {
@@ -70,48 +72,72 @@ namespace FarHorizon.EditTests
                     hasChopTrigger = true;
                 if (p.name == CastawayCharacter.ChopSpeedParam && p.type == AnimatorControllerParameterType.Float)
                 { hasChopSpeed = true; chopSpeedDefault = p.defaultFloat; }
+                if (p.name == CastawayCharacter.WeaponClassParam && p.type == AnimatorControllerParameterType.Int)
+                    hasWeaponClass = true;
             }
-            Assert.IsTrue(hasChopTrigger, "the controller must have a Chop TRIGGER param (the one-shot chop swing fire)");
-            Assert.IsTrue(hasChopSpeed, "the controller must have a ChopSpeed FLOAT param (the Attack-state speed " +
-                "multiplier — tool-use speed scales the swing playback rate via it)");
+            Assert.IsTrue(hasChopTrigger, "the controller must have a Chop TRIGGER param (the one-shot swing fire)");
+            Assert.IsTrue(hasChopSpeed, "the controller must have a ChopSpeed FLOAT param (the swing-state speed multiplier)");
+            Assert.IsTrue(hasWeaponClass, "the controller must have a WeaponClass INT param (the per-class swing selector, 86caffwv5)");
             Assert.AreEqual(1f, chopSpeedDefault, 1e-4f,
-                "ChopSpeed must default to 1 (the authored melee clip speed) — a 0 default would FREEZE the swing");
+                "ChopSpeed must default to 1 (the authored clip speed) — a 0 default would FREEZE the swing");
 
             var sm = controller.layers[0].stateMachine;
-            AnimatorState attack = null, idleState = null, locoState = null;
+            AnimatorState attackAxe = null, reservedAttack = null, idleState = null, locoState = null;
             foreach (var cs in sm.states)
             {
-                if (cs.state.name == "Attack") attack = cs.state;
+                if (cs.state.name == "AttackAxe") attackAxe = cs.state;
+                if (cs.state.name == "Attack") reservedAttack = cs.state;
                 if (cs.state.name == "Idle") idleState = cs.state;
                 if (cs.state.motion is BlendTree) locoState = cs.state;
             }
-            Assert.IsNotNull(attack, "the controller must have an 'Attack' state (the chop melee swing)");
+            Assert.IsNotNull(attackAxe, "the controller must have an 'AttackAxe' state (the tree-chop's per-class swing)");
+            Assert.IsNotNull(reservedAttack, "the RESERVED overhead 'Attack' state must still exist (future sword HEAVY)");
             Assert.IsNotNull(idleState, "the controller must still have an 'Idle' state");
             Assert.IsNotNull(locoState, "the controller must have a Locomotion (blend-tree) state");
 
-            // The Attack state is motion'd to the melee clip and its speed is driven by the ChopSpeed param.
-            var meleeMotion = attack.motion as AnimationClip;
-            Assert.IsNotNull(meleeMotion, "Attack's motion must be an AnimationClip (the melee swing)");
-            Assert.IsTrue(meleeMotion.name.Contains(CharacterAssetGen.MeleeClip),
-                "Attack must be motion'd to the CastawayMelee clip (got '" + meleeMotion.name + "')");
-            Assert.IsTrue(attack.speedParameterActive, "Attack's speed must be parameter-driven (tool-use speed)");
-            Assert.AreEqual(CastawayCharacter.ChopSpeedParam, attack.speedParameter,
-                "Attack's speedParameter must be ChopSpeed (so tool-use speed scales the swing playback rate live)");
+            // AttackAxe is motion'd to the AXE swing clip and its speed is driven by the ChopSpeed param.
+            var axeMotion = attackAxe.motion as AnimationClip;
+            Assert.IsNotNull(axeMotion, "AttackAxe's motion must be an AnimationClip (the axe swing)");
+            Assert.IsTrue(axeMotion.name.Contains(CharacterAssetGen.AxeSwingClip),
+                "AttackAxe must be motion'd to the CastawayAxeSwing clip (got '" + axeMotion.name + "')");
+            Assert.IsTrue(attackAxe.speedParameterActive, "AttackAxe's speed must be parameter-driven (tool-use speed)");
+            Assert.AreEqual(CastawayCharacter.ChopSpeedParam, attackAxe.speedParameter,
+                "AttackAxe's speedParameter must be ChopSpeed (so tool-use speed scales the swing playback rate live)");
 
-            // AnyState→Attack gated on the Chop trigger (a chop can fire from Idle OR mid-locomotion).
-            bool anyToAttackOnChop = false;
+            // AnyState→AttackAxe gated on the Chop trigger AND WeaponClass==Axe(0).
+            bool anyToAxeOnChopAndClass = false;
             foreach (var t in sm.anyStateTransitions)
             {
-                if (t.destinationState != attack) continue;
+                if (t.destinationState != attackAxe) continue;
+                bool onChop = false, onAxeClass = false;
                 foreach (var c in t.conditions)
-                    if (c.parameter == CastawayCharacter.ChopParam) anyToAttackOnChop = true;
+                {
+                    if (c.parameter == CastawayCharacter.ChopParam) onChop = true;
+                    if (c.parameter == CastawayCharacter.WeaponClassParam &&
+                        c.mode == AnimatorConditionMode.Equals &&
+                        Mathf.RoundToInt(c.threshold) == CastawayCharacter.WeaponClassAxe) onAxeClass = true;
+                }
+                if (onChop && onAxeClass) anyToAxeOnChopAndClass = true;
             }
-            Assert.IsTrue(anyToAttackOnChop, "there must be an AnyState→Attack transition gated on the Chop trigger");
+            Assert.IsTrue(anyToAxeOnChopAndClass,
+                "there must be an AnyState→AttackAxe transition gated on (Chop AND WeaponClass==0)");
 
-            // Attack returns to Locomotion (Moving) AND to Idle (!Moving) — so a held-movement chop resumes
-            // locomotion on the swing's end (NOT stranded in the finished pose while translating).
+            // DOUBLE-FIRE GUARD (Devon-NIT #1) — the RESERVED overhead 'Attack' state must have NO AnyState→Attack
+            // transition on the Chop trigger (else Chop with WeaponClass==0 double-matches Attack + AttackAxe).
+            bool reservedReachableByChop = false;
+            foreach (var t in sm.anyStateTransitions)
+            {
+                if (t.destinationState != reservedAttack) continue;
+                foreach (var c in t.conditions)
+                    if (c.parameter == CastawayCharacter.ChopParam) reservedReachableByChop = true;
+            }
+            Assert.IsFalse(reservedReachableByChop, "the RESERVED overhead 'Attack' state must NOT be reachable by an " +
+                "AnyState→Attack-on-Chop transition — its ungated Chop transition was REMOVED so a class swing and " +
+                "the legacy chop can never double-fire (86caffwv5 Devon-NIT #1); it is reserved for the sword HEAVY");
+
+            // AttackAxe returns to Locomotion (Moving) AND to Idle (!Moving) — held-movement swing resumes locomotion.
             bool toLocoOnMoving = false, toIdleOnNotMoving = false;
-            foreach (var t in attack.transitions)
+            foreach (var t in attackAxe.transitions)
             {
                 bool movingIf = false, movingIfNot = false;
                 foreach (var c in t.conditions)
@@ -122,9 +148,9 @@ namespace FarHorizon.EditTests
                 if (t.destinationState == locoState && movingIf) toLocoOnMoving = true;
                 if (t.destinationState == idleState && movingIfNot) toIdleOnNotMoving = true;
             }
-            Assert.IsTrue(toLocoOnMoving, "Attack must transition to Locomotion on (Moving) — a chop while walking " +
-                "resumes Walk/Run when the swing ends, NOT stall in the finished-swing pose (no-stall lesson)");
-            Assert.IsTrue(toIdleOnNotMoving, "Attack must transition to Idle on (!Moving) — a standing chop returns to idle");
+            Assert.IsTrue(toLocoOnMoving, "AttackAxe must transition to Locomotion on (Moving) — a swing while walking " +
+                "resumes Walk/Run when it ends, NOT stall in the finished-swing pose (no-stall lesson)");
+            Assert.IsTrue(toIdleOnNotMoving, "AttackAxe must transition to Idle on (!Moving) — a standing swing returns to idle");
         }
 
         // 86caf7a0p RE-ITER — the CLIP-COMPLETION CADENCE contract (the Sponsor soak-reject fix). The hold-chop
@@ -134,37 +160,42 @@ namespace FarHorizon.EditTests
         // toward the impact delay and the over-pacing soak bug would return. This pins the asset-side assumption
         // the runtime cadence (ChopTree.ComputeSwingDuration / CastawayCharacter.MeleeClipLength) relies on.
         [Test]
-        public void MeleeClip_HasPositiveLength_LongerThanTheImpactDownStroke()
+        public void AxeSwingClip_HasPositiveLength_LongerThanTheImpactDownStroke()
         {
-            AnimationClip melee = null;
-            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.MeleeFbxPath))
+            // 86caffwv5 — the tree-chop hold cadence now reads the AXE SWING clip (CastawayCharacter.MeleeClipLength
+            // resolves the clip for WeaponClass==Axe), NOT the reserved overhead. Pin the axe swing (the live
+            // cadence source) has a positive length longer than the impact down-stroke, exactly as the chop cadence
+            // contract requires (the Sponsor soak-reject: 'the animation is not allowed to finish').
+            AnimationClip axe = null;
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(CharacterAssetGen.AttackAxeFbxPath))
                 if (obj is AnimationClip c && !c.name.StartsWith("__preview__") &&
-                    c.name.Contains(CharacterAssetGen.MeleeClip)) melee = c;
-            Assert.IsNotNull(melee, "the CastawayMelee clip must exist (the cadence source)");
+                    c.name.Contains(CharacterAssetGen.AxeSwingClip)) axe = c;
+            Assert.IsNotNull(axe, "the CastawayAxeSwing clip must exist (the tree-chop cadence source)");
 
-            Assert.Greater(melee.length, 0f,
-                "the melee clip must have a POSITIVE authored length — the hold-chop cadence gates the next swing " +
+            Assert.Greater(axe.length, 0f,
+                "the axe swing clip must have a POSITIVE authored length — the hold-chop cadence gates the next swing " +
                 "on this clip finishing; a zero length would collapse the cadence to the impact delay (over-pacing)");
 
             // The runtime impact down-stroke default (ChopTree.swingImpactDelaySeconds = 0.4s) lands MID-clip; the
             // clip must be longer so 'wait for the clip to finish' is a STRICTER gate than 'wait for impact'.
             const float DefaultImpactDelay = 0.4f;
-            Assert.Greater(melee.length, DefaultImpactDelay,
-                "the melee clip must be LONGER than the impact down-stroke (~0.4s) — the clip-completion cadence " +
+            Assert.Greater(axe.length, DefaultImpactDelay,
+                "the axe swing clip must be LONGER than the impact down-stroke (~0.4s) — the clip-completion cadence " +
                 "must be a stricter gate than the impact delay, else the swing animation would be cut off (the " +
                 "Sponsor soak-reject: 'the animation is not allowed to finish ... 1 hit is not = on finished animation')");
         }
 
-        // 86caf7a0p RE-ITER — the runtime name constant CastawayCharacter.MeleeClipName (the live cadence source
-        // reads the controller's clip by this name) must MATCH the editor-side CharacterAssetGen.MeleeClip the FBX
-        // is renamed to on import — else MeleeClipLength silently returns 0 and the cadence falls back forever.
+        // 86caf7a0p / 86caffwv5 — the runtime CastawayCharacter.MeleeClipName (the RESERVED overhead clip name, now
+        // the future sword-HEAVY clip) must MATCH the editor-side CharacterAssetGen.MeleeClip the FBX is renamed to
+        // on import. (The live tree-chop cadence source moved to the per-class swing names in 86caffwv5 — those
+        // runtime↔editor mirrors are pinned in AttackSwingControllerTests; this pins the reserved-clip name match.)
         [Test]
         public void RuntimeMeleeClipName_MatchesTheImportedClipName()
         {
             Assert.AreEqual(CharacterAssetGen.MeleeClip, CastawayCharacter.MeleeClipName,
-                "CastawayCharacter.MeleeClipName (the runtime cadence reads the live clip by this name) must equal " +
-                "CharacterAssetGen.MeleeClip (what the FBX clip is renamed to on import); a mismatch makes " +
-                "MeleeClipLength always 0 → the hold cadence silently uses the serialized fallback in the build");
+                "CastawayCharacter.MeleeClipName (the reserved overhead clip name) must equal " +
+                "CharacterAssetGen.MeleeClip (what the FBX clip is renamed to on import); kept in sync so the " +
+                "reserved state's clip resolves when the future sword-HEAVY ticket wires it");
         }
 
         // AC5 REGRESSION (OOS protection) — the melee clip must NOT be folded into the Walk<->Run blend tree

@@ -125,6 +125,53 @@ namespace FarHorizon.PlayTests
             Object.Destroy(snakeGo);
         }
 
+        // 86caffwv5 — PerformAttack routes the PER-CLASS swing to the character (WeaponClass by AnimationId). Asserted
+        // via CastawayCharacter.LastWeaponClass, the headless-observable latch (the Animator can't be ticked headlessly,
+        // deltaTime≈0). Proves each weapon fires ITS class's swing, not a shared placeholder.
+        [UnityTest]
+        public IEnumerator MeleeAttack_PerformAttack_RoutesPerClassSwing_ToTheCharacter()
+        {
+            _go = new GameObject("swingRig");
+            var character = _go.AddComponent<CastawayCharacter>();
+            var attack = _go.AddComponent<MeleeAttack>();
+            attack.player = _go.transform; attack.character = character;
+
+            var catalog = ScriptableObject.CreateInstance<WeaponCatalog>();
+            catalog.BuildDefaults();
+
+            yield return null; // Awake/Start
+
+            // PerformAttack(weapon, null) swings without a target (a miss) — the swing still routes to the class.
+            attack.PerformAttack(catalog.ById(WeaponCatalog.AxeId), null);
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, character.LastWeaponClass, "axe routes WeaponClass=0");
+            attack.PerformAttack(catalog.ById(WeaponCatalog.PickaxeStoneId), null);
+            Assert.AreEqual(CastawayCharacter.WeaponClassPickaxe, character.LastWeaponClass, "pickaxe routes WeaponClass=1");
+            attack.PerformAttack(catalog.ById(WeaponCatalog.DaggerStoneId), null);
+            Assert.AreEqual(CastawayCharacter.WeaponClassDagger, character.LastWeaponClass, "dagger routes WeaponClass=2");
+            attack.PerformAttack(catalog.ById(WeaponCatalog.SpearId), null);
+            Assert.AreEqual(CastawayCharacter.WeaponClassSpear, character.LastWeaponClass, "spear routes WeaponClass=3");
+            attack.PerformAttack(catalog.ById(WeaponCatalog.SwordStoneId), null);
+            Assert.AreEqual(CastawayCharacter.WeaponClassSword, character.LastWeaponClass, "sword routes WeaponClass=4");
+
+            Object.DestroyImmediate(catalog);
+            yield return null;
+        }
+
+        // 86caffwv5 — TriggerChop keeps routing the AXE class (tree-chop's swing) and TriggerMine routes the PICKAXE
+        // class (the mine verb's swing) — the resource verbs' unchanged public seams still play the right per-class clip.
+        [UnityTest]
+        public IEnumerator TriggerChopAndTriggerMine_RouteAxeAndPickaxeClasses()
+        {
+            _go = new GameObject("verbRig");
+            var character = _go.AddComponent<CastawayCharacter>();
+            yield return null;
+
+            character.TriggerChop();
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, character.LastWeaponClass, "TriggerChop → axe class (tree-chop)");
+            character.TriggerMine();
+            Assert.AreEqual(CastawayCharacter.WeaponClassPickaxe, character.LastWeaponClass, "TriggerMine → pickaxe class (mine)");
+        }
+
         // AC9 — the HP HUD band mapping (heart-red healthy / wound-orange hurt / dark-blood critical).
         [Test]
         public void SurvivalHud_HpBandColor_MapsHealthyHurtCritical()

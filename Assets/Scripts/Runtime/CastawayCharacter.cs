@@ -229,9 +229,9 @@ namespace FarHorizon
         // Mirrors CharacterAssetGen.GroundedParam.
         public const string GroundedParam = "Grounded";
 
-        // The one-shot CHOP TRIGGER (86caa4c5c change-(b)) — pulsed by TriggerChop() on each landed chop so the
-        // Animator plays the Attack (Mixamo melee swing) state ONCE (AnyState→Attack) and returns to locomotion.
-        // REPLACES the rejected procedural ChopPoseDriver swing. Mirrors CharacterAssetGen.ChopParam.
+        // The one-shot SWING TRIGGER (86caa4c5c change-(b); 86caffwv5 per-class) — pulsed by TriggerAttack() so the
+        // Animator plays the per-class AttackX swing state ONCE (AnyState→AttackX on Chop && WeaponClass==N) and
+        // returns to locomotion. REPLACES the rejected procedural ChopPoseDriver swing. Mirrors CharacterAssetGen.ChopParam.
         public const string ChopParam = "Chop";
         // The Attack-state SPEED MULTIPLIER float (86caa4c5c AC1 — tool-use speed). The Attack state's
         // speedParameter reads it, so SetFloat scales the melee clip's PLAYBACK RATE (a fast/slow chop). The
@@ -255,6 +255,27 @@ namespace FarHorizon
         // kept in sync). MeleeClipLength queries the live controller's clips by this name so the hold-chop cadence
         // (86caf7a0p) ties to the ACTUAL authored clip length, not a magic number.
         public const string MeleeClipName = "CastawayMelee";
+
+        // ===== PER-CLASS WEAPON SWING selector (86caffwv5 — attack animation per weapon). The WeaponClass int the
+        // shared Chop trigger reads to pick WHICH per-class attack state fires (the HitRegion int-selector idiom).
+        // Mirror CharacterAssetGen.WeaponClass* (kept in sync — the runtime asmdef can't reference the editor
+        // asmdef; a ControllerParamNamesMatch-style test pins the duplication). TriggerAttack(class,speed) sets this
+        // int + ChopSpeed then fires Chop; the controller routes AnyState→AttackX on (Chop && WeaponClass==class).
+        public const string WeaponClassParam = "WeaponClass";
+        public const int WeaponClassAxe = 0;     // axe_chop  — ALSO the tree-chop verb's swing (TriggerChop)
+        public const int WeaponClassPickaxe = 1; // pickaxe_mine — ALSO the mine verb's swing (TriggerMine)
+        public const int WeaponClassDagger = 2;  // dagger_stab
+        public const int WeaponClassSpear = 3;   // spear_thrust
+        public const int WeaponClassSword = 4;   // sword_slash (the sword LIGHT attack)
+
+        // Per-class swing CLIP NAMES (mirror CharacterAssetGen.*Swing/*Stab/*Thrust/*Slash — renamed-on-import). The
+        // live hold-cadence source (MeleeClipLength) reads the clip for the LAST-triggered WeaponClass by these names,
+        // so a mismatch would make MeleeClipLength return 0 → the cadence silently falls back. Pinned by an EditMode test.
+        public const string AxeSwingClipName = "CastawayAxeSwing";
+        public const string PickaxeSwingClipName = "CastawayPickaxeSwing";
+        public const string DaggerStabClipName = "CastawayDaggerStab";
+        public const string SpearThrustClipName = "CastawaySpearThrust";
+        public const string SwordSlashClipName = "CastawaySwordSlash";
 
         // ===== CROUCH + HIT-REACT animator params (86cackb3j — locomotion/hit-react clip integration) =====
         // These mirror the CharacterAssetGen.* param names the controller is built with, so the runtime/editor
@@ -294,6 +315,31 @@ namespace FarHorizon
         public bool ChopTriggered => _chopTriggered;
         /// <summary>Read-and-clear the chop-triggered latch (so a test can assert one chop fired one trigger).</summary>
         public bool ConsumeChopTriggered() { bool v = _chopTriggered; _chopTriggered = false; return v; }
+
+        // The WeaponClass the LAST TriggerAttack/TriggerChop/TriggerMine set (86caffwv5). Latched even with a null
+        // Animator (a bare headless test rig) so a PlayMode/EditMode test can prove per-weapon routing without the
+        // Animator ticking (deltaTime≈0). Also drives MeleeClipLength → the hold-cadence reads the clip THIS class
+        // plays. Instance state (NOT static — no StaticStateResetTests reset needed). Defaults to axe (the tree-chop
+        // class, the original TriggerChop behavior) so the cadence source is sane before any swing fires.
+        private int _lastWeaponClass = WeaponClassAxe;
+        /// <summary>The WeaponClass the last swing used (axe=0..sword=4) — the headless-readable proof of per-weapon
+        /// swing routing (the Animator can't be observed headlessly). Set by TriggerAttack even with a null Animator.</summary>
+        public int LastWeaponClass => _lastWeaponClass;
+
+        /// <summary>The per-class swing CLIP NAME for a WeaponClass value (the name the imported clip carries). The
+        /// cadence source (<see cref="MeleeClipLength"/>) reads the live clip by this name for the last-set class, so
+        /// tree-chop reads the axe swing length and mine reads the pickaxe swing length. Unknown → the axe swing.</summary>
+        public static string AttackClipNameForClass(int weaponClass)
+        {
+            switch (weaponClass)
+            {
+                case WeaponClassPickaxe: return PickaxeSwingClipName;
+                case WeaponClassDagger:  return DaggerStabClipName;
+                case WeaponClassSpear:   return SpearThrustClipName;
+                case WeaponClassSword:   return SwordSlashClipName;
+                default:                 return AxeSwingClipName; // WeaponClassAxe + any unknown
+            }
+        }
 
         private NavMeshAgent _agent;
         private Animator _animator;
@@ -477,15 +523,36 @@ namespace FarHorizon
         /// always latches <see cref="ChopTriggered"/> so a headless test can prove the chop was requested
         /// (the Animator can't be observed headlessly — deltaTime≈0).
         /// </summary>
-        public void TriggerChop()
+        public void TriggerChop() => TriggerAttack(WeaponClassAxe, chopSpeed);
+
+        /// <summary>
+        /// Fire ONE per-class weapon swing (86caffwv5) — set the <see cref="WeaponClassParam"/> int + the
+        /// <see cref="ChopSpeedParam"/> playback multiplier, then pulse the shared <see cref="ChopParam"/> trigger,
+        /// so the controller plays the per-class AttackX state ONCE (AnyState→AttackX on (Chop &amp;&amp;
+        /// WeaponClass==weaponClass)) and returns to locomotion on the swing's exit. This is the SINGLE swing entry
+        /// for combat (MeleeAttack maps the weapon's AnimationId → a WeaponClass) AND the resource verbs (TriggerChop
+        /// = axe, TriggerMine = pickaxe). Null-Animator-safe (a bare test rig still latches the trace); always latches
+        /// <see cref="ChopTriggered"/> + <see cref="LastWeaponClass"/> so a headless test proves the swing was
+        /// requested for the right class (the Animator can't be observed headlessly — deltaTime≈0).
+        /// </summary>
+        /// <param name="weaponClass">Which per-class swing (axe=0..sword=4 — the WeaponClass* consts).</param>
+        /// <param name="speed">Tool-use speed multiplier for the swing playback (clamped to the ChopSpeed band).</param>
+        public void TriggerAttack(int weaponClass, float speed)
         {
             _chopTriggered = true;
+            _lastWeaponClass = weaponClass;
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
-                _animator.SetFloat(ChopSpeedParam, Mathf.Clamp(chopSpeed, ChopSpeedMin, ChopSpeedMax));
-                _animator.SetTrigger(ChopParam); // fire the one-shot Attack state (AnyState→Attack on the trigger)
+                _animator.SetInteger(WeaponClassParam, weaponClass);
+                _animator.SetFloat(ChopSpeedParam, Mathf.Clamp(speed, ChopSpeedMin, ChopSpeedMax));
+                _animator.SetTrigger(ChopParam); // fire the one-shot AttackX state (AnyState→AttackX on Chop && WeaponClass)
             }
         }
+
+        /// <summary>Fire the PICKAXE MINE swing (86caffwv5) — the mine-verb entry (MineBoulder/MineOre), the pickaxe
+        /// sibling of <see cref="TriggerChop"/>. Sets WeaponClass=pickaxe so the mine strike plays the pickaxe swing
+        /// (not the axe chop) and the hold-cadence reads the pickaxe clip length.</summary>
+        public void TriggerMine() => TriggerAttack(WeaponClassPickaxe, chopSpeed);
 
         /// <summary>
         /// HOLD-TO-CHOP cadence source (86caf7a0p) — the AUTHORED length (seconds, at 1× speed) of the chop swing
@@ -504,10 +571,15 @@ namespace FarHorizon
                 if (_animator == null || _animator.runtimeAnimatorController == null) return 0f;
                 var clips = _animator.runtimeAnimatorController.animationClips;
                 if (clips == null) return 0f;
+                // 86caffwv5 — the cadence source is now the clip for the LAST-triggered WeaponClass (tree-chop reads
+                // the axe swing, mine reads the pickaxe swing), NOT the reserved overhead CastawayMelee. Each verb
+                // sets its class immediately before firing + reading, so this returns the length of the clip that is
+                // actually about to play. Unknown class → the axe swing (AttackClipNameForClass default).
+                string clipName = AttackClipNameForClass(_lastWeaponClass);
                 for (int i = 0; i < clips.Length; i++)
                 {
                     var c = clips[i];
-                    if (c != null && c.name == MeleeClipName) return c.length;
+                    if (c != null && c.name == clipName) return c.length;
                 }
                 return 0f;
             }

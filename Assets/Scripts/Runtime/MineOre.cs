@@ -489,7 +489,7 @@ namespace FarHorizon
         {
             MineableNodeState target = FirstMineable();
             if (target == null) return;
-            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerChop(); }
+            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerMine(); } // 86caffwv5 — pickaxe swing
             ApplyStrikeEffect(target);
         }
 
@@ -510,7 +510,7 @@ namespace FarHorizon
             if (character != null)
             {
                 character.FaceWorldTarget(target.Position);
-                character.TriggerChop();
+                character.TriggerMine(); // 86caffwv5 — the mine strike plays the PICKAXE swing (WeaponClass=pickaxe)
             }
 
             float speed = character != null

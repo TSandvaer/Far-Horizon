@@ -128,6 +128,35 @@ namespace FarHorizon.Combat
         public const float SwordIronReach = 2.4f;
         public const float SwordIronAttackSpeed = 1.25f;
 
+        // === Swing ANIMATION ids (86caffwv5) — the opaque WeaponDef.AnimationId values, ONE per weapon class
+        // (shared across wood/stone/iron — the material tier does NOT change the motion). The single source the
+        // BuildDefaults defs + the AnimationId→WeaponClass map read (no magic strings scattered at call sites). ===
+        public const string AnimIdAxeChop = "axe_chop";
+        public const string AnimIdPickaxeMine = "pickaxe_mine";
+        public const string AnimIdDaggerStab = "dagger_stab";
+        public const string AnimIdSpearThrust = "spear_thrust";
+        public const string AnimIdSwordSlash = "sword_slash";
+
+        /// <summary>
+        /// The SINGLE swing-selection seam (86caffwv5 §4.2) — map a <see cref="WeaponDef.AnimationId"/> to the
+        /// Animator <c>WeaponClass</c> int the shared Chop trigger reads (axe_chop→0 … sword_slash→4). MeleeAttack
+        /// calls this to pick the per-class swing on a left-click; the WeaponSetTests assert EVERY def's AnimationId
+        /// maps to a defined class (no orphan id → no weapon with an unmapped swing). Unknown id → -1 (caller treats
+        /// as "no per-class swing" — defensively falls back to the axe class rather than a silent wrong swing).
+        /// </summary>
+        public static int WeaponClassForAnimationId(string animationId)
+        {
+            switch (animationId)
+            {
+                case AnimIdAxeChop:      return CastawayCharacter.WeaponClassAxe;
+                case AnimIdPickaxeMine:  return CastawayCharacter.WeaponClassPickaxe;
+                case AnimIdDaggerStab:   return CastawayCharacter.WeaponClassDagger;
+                case AnimIdSpearThrust:  return CastawayCharacter.WeaponClassSpear;
+                case AnimIdSwordSlash:   return CastawayCharacter.WeaponClassSword;
+                default:                 return -1; // unmapped — caller decides the fallback
+            }
+        }
+
         [SerializeField] private List<WeaponDef> _all = new List<WeaponDef>();
         private Dictionary<string, WeaponDef> _byId;
 
