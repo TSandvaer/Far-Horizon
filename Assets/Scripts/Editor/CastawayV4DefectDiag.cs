@@ -83,6 +83,19 @@ namespace FarHorizon.EditorTools
             // derive the LEFT-hand mirror correction anchored on the Sponsor-correct right + dump the thumb bones.
             ReportRound8(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
 
+            // DEFECT 4 ROUND-9 (the SKIN-WEIGHT layer — the one rung of the layer-elimination ladder
+            // (clip → live pose → bind frames → WEIGHTS → geometry) never measured on the RE-RIG).
+            // Sponsor on the dial-7 build: "its not a fist, its a block" / "its a block with a thumb" /
+            // right thumb when dialed "moves a little / hard to tell", while a logged sweep drove
+            // RightThumbEuler X=1448, Y=90→130 with no visible form change. That combination — huge
+            // commanded rotation, barely-perceptible deformation — is the signature of WEAK PARTIAL
+            // weights (thumb verts mostly bound to the palm/hand bone, small residual thumb-chain
+            // influence), NOT zero weights (would be perfectly frozen) and NOT correct weights.
+            // Hence the probe measures MAGNITUDE, not presence: identical test angle per side, then
+            // report moved-vert COUNT + MEAN + MAX displacement in mm. A binary moved/didn't check
+            // would read "both moved" and wrongly refute the hypothesis.
+            ReportRound9(sb, CharacterAssetGen.V4RiggedFbxPath);
+
             sb.AppendLine("[v4-diag] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
@@ -490,6 +503,254 @@ namespace FarHorizon.EditorTools
             else sb.AppendLine("[v4-diag] round8 THUMB: no thumb1 bone on one/both sides -> the HAND knob cannot rotate a thumb chain (fall back to hand-bone only)");
 
             Object.DestroyImmediate(go);
+        }
+
+        // ================= ROUND-9: SKIN-WEIGHT / ARTICULATION MEASUREMENT =================
+        // Three independent measurements, each reported per SIDE so left (Sponsor-ACCEPTED, reads as an
+        // articulated hand) is the control and right (the defect, reads as "a block with a thumb") is the test:
+        //   (A) PER-BONE INFLUENCE CENSUS — for every bone in each hand subtree: how many verts it influences at
+        //       ALL (any of the 4 weight slots > 0.001) and its summed weight MASS. If the right thumb/finger
+        //       bones carry near-zero mass while the left's carry real mass, the right hand's articulation was
+        //       never wired and every rotation fix since round 3 was correcting a hand that cannot deform.
+        //   (B) THE DECISIVE PROBE — rotate one bone by an IDENTICAL test angle per side, re-bake the skinned
+        //       mesh, and diff vertex positions: moved-count + MEAN + MAX displacement in mm. This is the only
+        //       measurement that sees what the RENDERER sees (weights × bone transform), and magnitude is the
+        //       load-bearing number (weak-partial weights move verts a little; the eye reads that as "a block").
+        //   (C) PER-SIDE FINGER GEOMETRY — vert/tri counts + region extent for each hand, plus a mirror-compare
+        //       of right-hand verts against mirrored-left. Answers the alternative reading of "block": that the
+        //       left's finger SEPARATION comes from geometry the right lacks. (Round-6 measured a perfect vertex
+        //       mirror — but on the OLD rig/mesh; re-measure here rather than inherit that result.)
+        private static void ReportRound9(StringBuilder sb, string path)
+        {
+            sb.AppendLine("[v4-diag] ===== ROUND-9 (SKIN WEIGHTS + ARTICULATION: 'its a block with a thumb') =====");
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (fbx == null) { sb.AppendLine("[v4-diag] round9: v4 fbx missing"); return; }
+            var go = Object.Instantiate(fbx);
+            go.transform.position = Vector3.zero; go.transform.rotation = Quaternion.identity;
+            var smr = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null || smr.sharedMesh == null)
+            { sb.AppendLine("[v4-diag] round9: no SMR/mesh"); Object.DestroyImmediate(go); return; }
+
+            var lHand = FindBone(go.transform, "lefthand");
+            var rHand = FindBone(go.transform, "righthand");
+            if (lHand == null || rHand == null)
+            { sb.AppendLine("[v4-diag] round9: hand bones missing"); Object.DestroyImmediate(go); return; }
+
+            // ---------- (A) PER-BONE INFLUENCE CENSUS ----------
+            sb.AppendLine("[v4-diag] round9 (A) PER-BONE INFLUENCE CENSUS — verts influenced (any weight>0.001) + summed weight mass");
+            InfluenceCensus(sb, smr, lHand, "LEFT ");
+            InfluenceCensus(sb, smr, rHand, "RIGHT");
+
+            // ---------- (B) THE DECISIVE PROBE: rotate-and-diff, magnitude in mm ----------
+            // Identical test angle both sides. 40deg is large enough that CORRECT weights produce an unmistakable
+            // displacement, while weak-partial weights produce a small-but-nonzero one (the Sponsor's "moves a
+            // little / hard to tell"). Applied bone-LOCAL so each side's own frame is respected — we are measuring
+            // whether the SKIN follows the bone at all, not whether the bone points the right way.
+            sb.AppendLine("[v4-diag] round9 (B) DECISIVE PROBE — rotate bone 40deg (local X, then local Y), re-bake, diff verts");
+            sb.AppendLine("[v4-diag]   compare LEFT (Sponsor-accepted, articulated) vs RIGHT (the 'block'); RIGHT << LEFT displacement = weights confirmed");
+            foreach (var (boneTok, label) in new[] {
+                ("thumb1", "THUMB1"), ("thumb2", "THUMB2"),
+                ("index1", "INDEX1"), ("middle1", "MIDDLE1"), ("hand", "HAND(control)") })
+            {
+                foreach (var axis in new[] { 'X', 'Y' })
+                {
+                    var lRes = RotateAndDiff(smr, go.transform, "left", boneTok, axis, 40f);
+                    var rRes = RotateAndDiff(smr, go.transform, "right", boneTok, axis, 40f);
+                    sb.AppendLine($"[v4-diag]   {label} +40deg local-{axis}: " +
+                        $"LEFT moved={lRes.moved} mean={lRes.meanMm:F2}mm max={lRes.maxMm:F2}mm | " +
+                        $"RIGHT moved={rRes.moved} mean={rRes.meanMm:F2}mm max={rRes.maxMm:F2}mm | " +
+                        $"ratio(R/L) mean={Ratio(rRes.meanMm, lRes.meanMm)} max={Ratio(rRes.maxMm, lRes.maxMm)}");
+                }
+            }
+            sb.AppendLine("[v4-diag]   INTERPRETATION: ratio ~1.0 = both sides skinned equally (weights hypothesis REFUTED); " +
+                          "ratio ~0.0 = right bone has no skin influence (frozen); 0 < ratio << 1 = WEAK PARTIAL weights " +
+                          "(the 'moves a little / hard to tell' signature) — right thumb/finger verts mostly bound to the palm.");
+
+            // ---------- (C) PER-SIDE FINGER GEOMETRY ----------
+            sb.AppendLine("[v4-diag] round9 (C) PER-SIDE HAND GEOMETRY — is the right hand missing finger separation as GEOMETRY?");
+            HandGeometryCensus(sb, smr, lHand, "LEFT ");
+            HandGeometryCensus(sb, smr, rHand, "RIGHT");
+            MirrorCompareHands(sb, smr, lHand, rHand);
+
+            // ---------- (D) MECHANISM: what actually drives the RIGHT thumb's geometry? ----------
+            // (A)+(B) show the right thumb chain carries little mass and barely deforms — but "bound to the palm"
+            // is an ASSUMPTION until measured. (C) proves the two hands are the same geometry, so the LEFT thumb's
+            // verts identify exactly which verts form the thumb. Mirror those to the right side, find the matching
+            // right verts, and report which bone actually DOMINATES them. That names the mis-binding directly.
+            ThumbAttribution(sb, smr, lHand, rHand);
+
+            Object.DestroyImmediate(go);
+        }
+
+        // (A) For each bone in the hand subtree: vert count influenced through ANY of the 4 weight slots + the
+        // summed weight mass. Dominant-bone-only counting (the round-8 helper) HIDES weak partial influence —
+        // exactly the signal this round is hunting — so this walks all four slots.
+        private static void InfluenceCensus(StringBuilder sb, SkinnedMeshRenderer smr, Transform handRoot, string side)
+        {
+            var bones = smr.bones; var bw = smr.sharedMesh.boneWeights;
+            var idxToName = new Dictionary<int, string>();
+            for (int i = 0; i < bones.Length; i++)
+                if (bones[i] != null && (bones[i] == handRoot || bones[i].IsChildOf(handRoot)))
+                    idxToName[i] = Tok(bones[i].name);
+            if (idxToName.Count == 0) { sb.AppendLine($"[v4-diag]   {side}: no bones under hand root"); return; }
+
+            var count = new Dictionary<int, int>();
+            var mass = new Dictionary<int, float>();
+            foreach (var k in idxToName.Keys) { count[k] = 0; mass[k] = 0f; }
+            foreach (var w in bw)
+            {
+                Accum(count, mass, w.boneIndex0, w.weight0);
+                Accum(count, mass, w.boneIndex1, w.weight1);
+                Accum(count, mass, w.boneIndex2, w.weight2);
+                Accum(count, mass, w.boneIndex3, w.weight3);
+            }
+            var parts = new List<string>();
+            foreach (var kv in idxToName)
+                parts.Add($"{kv.Value}[verts={count[kv.Key]} mass={mass[kv.Key]:F2}]");
+            sb.AppendLine($"[v4-diag]   {side} hand subtree ({idxToName.Count} bones): " + string.Join(" ", parts));
+
+            void Accum(Dictionary<int, int> c, Dictionary<int, float> m, int bi, float w)
+            {
+                if (w <= 0.001f || !c.ContainsKey(bi)) return;
+                c[bi]++; m[bi] += w;
+            }
+        }
+
+        // (B) Bake the skinned mesh, rotate ONE bone by a fixed angle, re-bake, and diff. Returns moved-vert count
+        // (>0.05mm, i.e. above float noise) plus mean/max displacement in MILLIMETRES over the moved set. Restores
+        // the bone afterwards so probes don't contaminate each other.
+        private static (int moved, float meanMm, float maxMm) RotateAndDiff(
+            SkinnedMeshRenderer smr, Transform root, string sidePrefix, string boneTok, char axis, float deg)
+        {
+            var bone = FindBone(root, sidePrefix + "hand" + (boneTok == "hand" ? "" : boneTok));
+            if (bone == null) bone = FindBone(root, sidePrefix + boneTok);
+            if (bone == null) return (-1, 0f, 0f);
+
+            var before = new Mesh(); smr.BakeMesh(before, true);
+            var bv = before.vertices;
+            Quaternion saved = bone.localRotation;
+            Vector3 e = axis == 'X' ? new Vector3(deg, 0f, 0f)
+                      : axis == 'Y' ? new Vector3(0f, deg, 0f) : new Vector3(0f, 0f, deg);
+            bone.localRotation = saved * Quaternion.Euler(e);
+
+            var after = new Mesh(); smr.BakeMesh(after, true);
+            var av = after.vertices;
+            bone.localRotation = saved;
+
+            int moved = 0; float sum = 0f, max = 0f;
+            int n = Mathf.Min(bv.Length, av.Length);
+            // BakeMesh returns RENDERER-LOCAL vertices, and this FBX imports at a small local scale (the hand
+            // region measures ~0.001 in local units), so raw deltas are NOT physical. Push the delta through the
+            // renderer's localToWorld to get real-world millimetres. 0.05mm threshold rejects float noise.
+            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+            for (int i = 0; i < n; i++)
+            {
+                float d = l2w.MultiplyVector(av[i] - bv[i]).magnitude * 1000f;
+                if (d > 0.05f) { moved++; sum += d; if (d > max) max = d; }
+            }
+            Object.DestroyImmediate(before); Object.DestroyImmediate(after);
+            return (moved, moved > 0 ? sum / moved : 0f, max);
+        }
+
+        private static string Ratio(float r, float l) => l > 0.0001f ? (r / l).ToString("F3") : "n/a";
+
+        // (C) Vert/tri census + region extent for one hand, counting verts by DOMINANT bone so the numbers are
+        // comparable to the round-6 geometry measurement.
+        private static void HandGeometryCensus(StringBuilder sb, SkinnedMeshRenderer smr, Transform handRoot, string side)
+        {
+            int[] idx = SubtreeVertIdx(smr, handRoot);
+            var mesh = smr.sharedMesh; var verts = mesh.vertices;
+            if (idx.Length == 0) { sb.AppendLine($"[v4-diag]   {side}: 0 hand-region verts"); return; }
+            Vector3 mn = Vector3.positiveInfinity, mx = Vector3.negativeInfinity;
+            foreach (int v in idx) { mn = Vector3.Min(mn, verts[v]); mx = Vector3.Max(mx, verts[v]); }
+            var set = new HashSet<int>(idx);
+            var tris = mesh.triangles; int triCount = 0;
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+                if (set.Contains(tris[t]) || set.Contains(tris[t + 1]) || set.Contains(tris[t + 2])) triCount++;
+            sb.AppendLine($"[v4-diag]   {side} hand region: verts={idx.Length} tris={triCount} extent={(mx - mn).ToString("F4")}m " +
+                          "(a hand with modelled finger separation carries MORE verts/tris than an undifferentiated block)");
+        }
+
+        // (C cont.) Mirror the LEFT hand verts across the X-plane and nearest-neighbour match them to the RIGHT
+        // hand verts. Near-zero distances = the two hands are the same GEOMETRY (so 'block vs articulated' cannot
+        // be a modelling difference, and the defect must live in the weights/pose layers).
+        private static void MirrorCompareHands(StringBuilder sb, SkinnedMeshRenderer smr, Transform lHand, Transform rHand)
+        {
+            int[] lIdx = SubtreeVertIdx(smr, lHand), rIdx = SubtreeVertIdx(smr, rHand);
+            if (lIdx.Length == 0 || rIdx.Length == 0) { sb.AppendLine("[v4-diag]   mirror-compare: a hand region is empty"); return; }
+            var verts = smr.sharedMesh.vertices;
+            // Mirror plane = the mesh's own X centre (the model is authored symmetric about local X=0).
+            float sum = 0f, max = 0f;
+            foreach (int r in rIdx)
+            {
+                Vector3 p = verts[r]; Vector3 m = new Vector3(-p.x, p.y, p.z);
+                float best = float.MaxValue;
+                foreach (int l in lIdx) { float d = (verts[l] - m).sqrMagnitude; if (d < best) best = d; }
+                float mm = Mathf.Sqrt(best) * 1000f;
+                sum += mm; if (mm > max) max = mm;
+            }
+            sb.AppendLine($"[v4-diag]   mirror-compare RIGHT vs mirrored-LEFT: verts R={rIdx.Length} L={lIdx.Length} " +
+                          $"meanNearest={sum / rIdx.Length:F3}mm maxNearest={max:F3}mm " +
+                          "(~0 = identical geometry both sides -> 'block' is NOT a modelling difference)");
+        }
+
+        // (D) Identify the thumb verts via the LEFT (correct) side, mirror them onto the RIGHT, and report which
+        // bone dominates the corresponding right verts + how much thumb-chain weight they actually carry.
+        private static void ThumbAttribution(StringBuilder sb, SkinnedMeshRenderer smr, Transform lHand, Transform rHand)
+        {
+            var bones = smr.bones; var bw = smr.sharedMesh.boneWeights; var verts = smr.sharedMesh.vertices;
+            string NameOf(int i) => i >= 0 && i < bones.Length && bones[i] != null ? Tok(bones[i].name) : "?";
+
+            // Left thumb verts = dominant bone name contains "thumb" and sits under the LEFT hand.
+            var leftThumbVerts = new List<int>();
+            for (int v = 0; v < bw.Length; v++)
+            {
+                int d = bw[v].boneIndex0;
+                if (d < bones.Length && bones[d] != null && bones[d].IsChildOf(lHand) && Tok(bones[d].name).Contains("thumb"))
+                    leftThumbVerts.Add(v);
+            }
+            // Candidate right verts = anything under the right hand subtree (dominant-bone based).
+            int[] rIdx = SubtreeVertIdx(smr, rHand);
+            if (leftThumbVerts.Count == 0 || rIdx.Length == 0)
+            { sb.AppendLine("[v4-diag] round9 (D) thumb-attribution: insufficient verts"); return; }
+
+            var domCount = new Dictionary<string, int>();
+            float thumbMassSum = 0f; int matched = 0;
+            foreach (int lv in leftThumbVerts)
+            {
+                Vector3 m = new Vector3(-verts[lv].x, verts[lv].y, verts[lv].z);
+                int best = -1; float bestD = float.MaxValue;
+                foreach (int rv in rIdx)
+                { float d = (verts[rv] - m).sqrMagnitude; if (d < bestD) { bestD = d; best = rv; } }
+                if (best < 0 || Mathf.Sqrt(bestD) * 1000f > 1f) continue; // require a real mirror match
+                matched++;
+                var w = bw[best];
+                string dn = NameOf(w.boneIndex0);
+                domCount.TryGetValue(dn, out int c); domCount[dn] = c + 1;
+                // How much of this vert's weight actually belongs to the right THUMB chain?
+                float tm = 0f;
+                if (NameOf(w.boneIndex0).Contains("thumb")) tm += w.weight0;
+                if (NameOf(w.boneIndex1).Contains("thumb")) tm += w.weight1;
+                if (NameOf(w.boneIndex2).Contains("thumb")) tm += w.weight2;
+                if (NameOf(w.boneIndex3).Contains("thumb")) tm += w.weight3;
+                thumbMassSum += tm;
+            }
+            sb.AppendLine($"[v4-diag] round9 (D) THUMB ATTRIBUTION — {leftThumbVerts.Count} left-thumb verts, {matched} mirror-matched on the right");
+            sb.AppendLine($"[v4-diag]   the RIGHT verts occupying the THUMB's geometry are dominated by: " + string.Join(", ", DictStr(domCount)));
+            sb.AppendLine($"[v4-diag]   mean THUMB-CHAIN weight on those right verts = {(matched > 0 ? thumbMassSum / matched : 0f):F3} " +
+                          "(1.0 = fully thumb-driven like the left; ~0 = the thumb geometry is driven by another bone entirely)");
+            // The same attribution on the LEFT, as the control.
+            float lMass = 0f;
+            foreach (int lv in leftThumbVerts)
+            {
+                var w = bw[lv]; float tm = 0f;
+                if (NameOf(w.boneIndex0).Contains("thumb")) tm += w.weight0;
+                if (NameOf(w.boneIndex1).Contains("thumb")) tm += w.weight1;
+                if (NameOf(w.boneIndex2).Contains("thumb")) tm += w.weight2;
+                if (NameOf(w.boneIndex3).Contains("thumb")) tm += w.weight3;
+                lMass += tm;
+            }
+            sb.AppendLine($"[v4-diag]   CONTROL: mean thumb-chain weight on the LEFT thumb verts = {lMass / leftThumbVerts.Count:F3}");
         }
 
         // ---- shared ----

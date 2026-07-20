@@ -646,26 +646,31 @@ namespace FarHorizon.EditTests
             }
         }
 
-        // 86catvb6u round-8 — the v4 HAND offsets after the Mixamo RE-RIG both-arms-twist fix. Round-7 zeroed the
-        // wrist on the false "symmetric arms ⇒ correct hands" assumption; MEASUREMENT (CastawayV4DefectDiag round-8,
-        // ci-out/v4diag-round8.log) showed the right HAND bind frame rolled 176.4° off-mirror → BOTH hands ship
-        // twisted (mirrors of each other yet both wrong). The Sponsor F9-dialed a CORRECT right at (10,-120,-20); the
-        // left is its measured render-mirror (18.2,112.6,3.7); the thumbs ship 0 (the F9 HAND taste-dial). Pin so a
-        // regression back to the round-7 zeros (both hands twisted) reds in CI.
+        // 86catvb6u round-9 — the v4 HAND offsets the Sponsor dialed and ACCEPTED on the dial-7 soak (stamp
+        // 95f516e). Values verified against the harvested log Build/soak-v4-dial-7/sponsor-dial7-Player.log by
+        // occurrence count (LeftThumb 1357 settled samples, LeftWrist 187, RightWrist 10 = his last dialed right).
+        // Kept RAW/unnormalised on purpose — these are the exact numbers he judged; Quaternion.Euler wraps them.
+        // The RIGHT THUMB stays 0 for a MEASURED reason, not taste: round-9 (ci-out/v4diag-round9.log) found the
+        // right hand's thumb GEOMETRY skinned to the INDEX chain (all 48 mirror-matched thumb verts dominated by
+        // righthandindex1/2/3, mean thumb-chain weight 0.000 vs 0.919 on the left), so a right-thumb euler moves
+        // almost nothing. Pin so nobody "fixes" the right thumb with another runtime euler — the fix is source-side.
         [Test]
-        public void CastawayV4HandEulers_ShipSponsorCorrectWristPlusMeasuredMirror_86catvb6u()
+        public void CastawayV4HandEulers_ShipSponsorAcceptedDial7Values_86catvb6u()
         {
-            Assert.AreEqual(new Vector3(10f, -120f, -20f), MovementCameraScene.CastawayV4RightWristEuler,
-                "v4 right-wrist must ship the Sponsor F9-dialed CORRECT right (10,-120,-20)");
-            Assert.AreEqual(new Vector3(18.2f, 112.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
-                "v4 left-wrist must ship the measured render-mirror of the Sponsor-correct right (CastawayV4DefectDiag round-8)");
+            Assert.AreEqual(new Vector3(-22.0f, 250.0f, -30.0f), MovementCameraScene.CastawayV4RightWristEuler,
+                "v4 right-wrist must ship the Sponsor's dial-7 right wrist (-22,250,-30)");
+            Assert.AreEqual(new Vector3(-21.8f, 282.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
+                "v4 left-wrist must ship the Sponsor-ACCEPTED dial-7 left wrist (-21.8,282.6,3.7)");
+            Assert.AreEqual(new Vector3(-502.0f, -890.0f, -6.0f), MovementCameraScene.CastawayV4LeftThumbEuler,
+                "v4 left-thumb must ship the Sponsor-ACCEPTED dial-7 left thumb (-502,-890,-6)");
             Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightThumbEuler,
-                "v4 right-thumb (HAND knob) ships 0 — the Sponsor taste-dials thumb orientation");
-            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4LeftThumbEuler,
-                "v4 left-thumb (HAND knob) ships 0 — the Sponsor taste-dials thumb orientation");
-            // The right MUST differ from the round-7 zero (the whole point of the fix — a zero re-ships the twist).
+                "v4 right-thumb must stay 0 — round-9 measured its geometry skinned to the INDEX chain " +
+                "(thumb-chain weight 0.000), so an euler here is inert; the fix is a source-side re-weight");
+            // The wrists MUST differ from the round-7 zeros (a zero re-ships the both-hands twist).
             Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
                 "v4 right-wrist must NOT be the round-7 zero that left both hands twisted");
+            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4LeftWristEuler,
+                "v4 left-wrist must NOT be the round-7 zero that left both hands twisted");
         }
 
         // 86catvb6u round-8 — the Boot scene must carry CastawayHandPose wired: BOTH hand bones + BOTH thumb bases
@@ -690,8 +695,10 @@ namespace FarHorizon.EditTests
             {
                 Assert.IsNotNull(hand.rightThumb, "under v4 CastawayHandPose must resolve the RIGHT thumb base (the F9 HAND knob)");
                 Assert.IsNotNull(hand.leftThumb, "under v4 CastawayHandPose must resolve the LEFT thumb base (the F9 HAND knob)");
-                Assert.AreEqual(Vector3.zero, hand.rightThumbEuler, "the right thumb (HAND knob) ships 0 — F9 taste-dial");
-                Assert.AreEqual(Vector3.zero, hand.leftThumbEuler, "the left thumb (HAND knob) ships 0 — F9 taste-dial");
+                Assert.AreEqual(MovementCameraScene.CastawayV4RightThumbEuler, hand.rightThumbEuler,
+                    "the right thumb ships 0 — round-9 measured it inert (geometry skinned to the INDEX chain)");
+                Assert.AreEqual(MovementCameraScene.CastawayV4LeftThumbEuler, hand.leftThumbEuler,
+                    "the left thumb must bake the Sponsor-ACCEPTED dial-7 value (-502,-890,-6)");
             }
         }
 
