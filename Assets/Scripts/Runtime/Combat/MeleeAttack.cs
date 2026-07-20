@@ -21,11 +21,13 @@ namespace FarHorizon.Combat
     /// single-flight below are unchanged; only the swing FIRED is now per-class (the shared Animator → CastawayArmPose
     /// (order 50) → HeldAxeRig (order 100) chain is intact — the swing moves the arm, HeldAxeRig follows the hand).
     ///
-    /// === Guards (mirror ChopTree — the click must only attack in the game world) ===
-    /// The pure <see cref="ShouldAttackOnClick"/> mirrors ChopTree.ShouldChopOnClick: a weapon must be
-    /// selected + a target in reach + no modal panel open + not over the inventory/belt UI + RMB not held
-    /// (a camera-orbit drag). <see cref="RequestAttackClick"/> is the input-independent latch (the analog of
-    /// ChopTree.RequestChopClick) so headless PlayMode + the shipped capture exercise the SAME attack path.
+    /// === Guards (the click must only swing in the game world) ===
+    /// The pure <see cref="ShouldSwingOnClick"/>: a weapon must be selected + no modal panel open + not over the
+    /// inventory/belt UI + RMB not held (a camera-orbit drag). A valid TARGET is NOT required — one click = one
+    /// swing of the equipped weapon, TARGET OR NOT (the active-input AC; soak-2 fix 86caffwv5). A click at empty
+    /// air WHIFFS: the swing plays and lands nothing; DAMAGE stays gated on a target actually being in reach.
+    /// <see cref="RequestAttackClick"/> is the input-independent latch (the analog of ChopTree.RequestChopClick)
+    /// so headless PlayMode + the shipped capture exercise the SAME attack path.
     ///
     /// NO MUTABLE STATICS (instance state only) — StaticStateResetTests needs no reset here.
     /// </summary>
@@ -112,14 +114,15 @@ namespace FarHorizon.Combat
         }
 
         /// <summary>
-        /// PURE attack-on-a-left-click decision (the unit-testable guard truth-table, mirrors
-        /// ChopTree.ShouldChopOnClick): all of — a weapon is selected, a target is in reach, no modal panel
-        /// owns the screen, the click is NOT over the inventory/belt UI, the RMB is NOT held (no orbit drag).
+        /// PURE swing-on-a-left-click decision (the unit-testable guard truth-table). One click = one swing of the
+        /// equipped weapon, TARGET OR NOT (soak-2 fix 86caffwv5 — a click at empty air WHIFFS). All of: a weapon is
+        /// selected, no modal panel owns the screen, the click is NOT over the inventory/belt UI, the RMB is NOT
+        /// held (no orbit drag). NO target-in-reach requirement — DAMAGE (not the swing) is what a target gates.
         /// Static + dependency-free so the EditMode guard asserts the whole table with no scene/Input/UI rig.
         /// </summary>
-        public static bool ShouldAttackOnClick(bool weaponSelected, bool targetInReach,
-                                               bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
-            => weaponSelected && targetInReach && !uiPanelOpen && !pointerOverUI && !rmbHeld;
+        public static bool ShouldSwingOnClick(bool weaponSelected,
+                                              bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
+            => weaponSelected && !uiPanelOpen && !pointerOverUI && !rmbHeld;
 
         /// <summary>Request ONE attack swing programmatically — the input-independent analog of a left-click
         /// (mirrors ChopTree.RequestChopClick). Latched + consumed on the next Update so headless PlayMode +
@@ -135,27 +138,28 @@ namespace FarHorizon.Combat
             WeaponDef weapon = SelectedWeapon;
             bool weaponSelected = weapon != null;
 
-            // Resolve the nearest enemy in this weapon's reach (null if none / no weapon).
-            Health target = weaponSelected ? ResolveNearestTarget(weapon.Reach) : null;
-
             bool overUI = inventoryUI != null && inventoryUI.IsPointerOverUI(Input.mousePosition);
             bool rmbHeld = Input.GetMouseButton(1);
 
-            if (!ShouldAttackOnClick(weaponSelected, target != null,
-                                     UiInputGate.CaptureWorldInput, overUI, rmbHeld))
+            // One click = one swing of the equipped weapon, TARGET OR NOT (whiff-allowed — soak-2 fix). The gate
+            // does NOT require a target; a target only gates the DAMAGE below.
+            if (!ShouldSwingOnClick(weaponSelected, UiInputGate.CaptureWorldInput, overUI, rmbHeld))
                 return;
 
             // Attack cooldown, scaled down by the weapon's attackSpeed (a faster weapon swings sooner).
             float cooldown = baseAttackCooldown / Mathf.Max(0.01f, weapon.AttackSpeed);
             if (Time.time - _lastAttackAt < Mathf.Max(0f, cooldown)) return;
 
+            // Resolve the nearest enemy in this weapon's reach for the DAMAGE (null → a whiff: the swing plays,
+            // lands nothing). Only computed once the swing is going to fire (a cold path, no per-frame alloc).
+            Health target = ResolveNearestTarget(weapon.Reach);
             PerformAttack(weapon, target);
         }
 
         /// <summary>
         /// Perform ONE attack with <paramref name="weapon"/> against <paramref name="target"/> (public so
-        /// PlayMode/EditMode drive it deterministically). Swings the PLACEHOLDER arm (existing chop Attack
-        /// state, attackSpeed-scaled), deals weapon.Damage through the shared <see cref="Health.ApplyDamage"/>
+        /// PlayMode/EditMode drive it deterministically). Swings the weapon's PER-CLASS arm swing
+        /// (attackSpeed-scaled), deals weapon.Damage through the shared <see cref="Health.ApplyDamage"/>
         /// seam with the weapon's <see cref="DamageType"/> (so the target's resistance + tier modulate it —
         /// AC8), and applies the weapon's on-hit status (AC6). Records the observable outcome. A null target
         /// still SWINGS (a miss) but lands no damage. A null weapon is a no-op.
@@ -167,16 +171,15 @@ namespace FarHorizon.Combat
             SwingsFired++;
             LastWeaponId = weapon.Id;
 
-            // SWING the arm — the PER-CLASS swing (86caffwv5: the placeholder is RESOLVED). Map the weapon's
-            // AnimationId → its WeaponClass and fire that class's Mixamo swing state (axe_chop→AttackAxe,
-            // spear_thrust→AttackSpear, sword_slash→AttackSword, …), scaled by attackSpeed via ChopSpeed. Face the
-            // target so the strike reads as hitting it. An UNMAPPED id (WeaponClassForAnimationId == -1) defensively
-            // falls back to the axe class rather than firing a silent wrong swing (WeaponSetTests forbids orphans).
+            // SWING the arm — the PER-CLASS swing (86caffwv5). Map the weapon's AnimationId → its WeaponClass and
+            // fire that class's Mixamo swing state (axe_chop→AttackAxe, spear_thrust→AttackSpear, …). The swing
+            // playback speed is passed DIRECTLY to TriggerAttack as the weapon's attackSpeed — we do NOT mutate
+            // character.chopSpeed here (that is the GLOBAL tool-use-speed dial the tree-chop/mine verbs read;
+            // clobbering it on a combat swing would leak this weapon's cadence into those verbs — soak-2 cleanup).
+            // Face the target so the strike reads as hitting it. An UNMAPPED id defensively falls back to axe.
             if (character != null)
             {
                 if (target != null) character.FaceWorldTarget(target.transform.position);
-                character.chopSpeed = Mathf.Clamp(weapon.AttackSpeed,
-                    CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax);
                 int weaponClass = WeaponClassForSwing(weapon);
                 character.TriggerAttack(weaponClass, weapon.AttackSpeed);
             }

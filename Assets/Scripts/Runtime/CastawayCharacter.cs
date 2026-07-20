@@ -268,6 +268,31 @@ namespace FarHorizon
         public const int WeaponClassSpear = 3;   // spear_thrust
         public const int WeaponClassSword = 4;   // sword_slash (the sword LIGHT attack)
 
+        // Per-class swing PLAYBACK-SPEED multiplier (86caffwv5 soak-2 — Sponsor: spear + pickaxe "look a little too
+        // slow"). Corrects the AUTHORED clip cadence per class; composed ON TOP of the tool-use-speed (the speed
+        // passed to TriggerAttack). Applies to the ANIMATOR playback ONLY (ChopSpeed param) — NOT the chop/mine
+        // hold-cadence (those read chopSpeed), so a faster swing just reads snappier. Soak-tunable defaults;
+        // axe/dagger/sword read "okay" at 1.0, spear + pickaxe get +20% (soak-2 verdict). STATED in the PR.
+        public const float SwingSpeedAxe = 1.0f;
+        public const float SwingSpeedPickaxe = 1.2f; // +20% (soak-2: pickaxe mine swing too slow)
+        public const float SwingSpeedDagger = 1.0f;
+        public const float SwingSpeedSpear = 1.2f;   // +20% (soak-2: spear thrust too slow)
+        public const float SwingSpeedSword = 1.0f;
+
+        /// <summary>The per-class swing playback multiplier for a WeaponClass (86caffwv5 soak-2) — composed on top
+        /// of the tool-use speed passed to <see cref="TriggerAttack"/>. Unknown class → 1.0 (no correction).</summary>
+        public static float SwingSpeedForClass(int weaponClass)
+        {
+            switch (weaponClass)
+            {
+                case WeaponClassPickaxe: return SwingSpeedPickaxe;
+                case WeaponClassSpear:   return SwingSpeedSpear;
+                case WeaponClassDagger:  return SwingSpeedDagger;
+                case WeaponClassSword:   return SwingSpeedSword;
+                default:                 return SwingSpeedAxe; // axe + any unknown
+            }
+        }
+
         // Per-class swing CLIP NAMES (mirror CharacterAssetGen.*Swing/*Stab/*Thrust/*Slash — renamed-on-import). The
         // live hold-cadence source (MeleeClipLength) reads the clip for the LAST-triggered WeaponClass by these names,
         // so a mismatch would make MeleeClipLength return 0 → the cadence silently falls back. Pinned by an EditMode test.
@@ -543,8 +568,11 @@ namespace FarHorizon
             _lastWeaponClass = weaponClass;
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
+                // The animator playback = tool-use speed × the per-class swing multiplier (soak-2: spear + pickaxe
+                // read too slow → +20% each). Clamped to the sane band so the compose can't stall/blur the swing.
+                float playback = Mathf.Clamp(speed * SwingSpeedForClass(weaponClass), ChopSpeedMin, ChopSpeedMax);
                 _animator.SetInteger(WeaponClassParam, weaponClass);
-                _animator.SetFloat(ChopSpeedParam, Mathf.Clamp(speed, ChopSpeedMin, ChopSpeedMax));
+                _animator.SetFloat(ChopSpeedParam, playback);
                 _animator.SetTrigger(ChopParam); // fire the one-shot AttackX state (AnyState→AttackX on Chop && WeaponClass)
             }
         }

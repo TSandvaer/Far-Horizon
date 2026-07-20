@@ -271,5 +271,50 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(CastawayCharacter.WeaponClassAxe, MeleeAttack.WeaponClassForSwing(null), "null → axe fallback");
             Object.DestroyImmediate(catalog);
         }
+
+        // 6d — WOOD-tier weapons route to their class (soak-2 fix #3: the Sponsor's crafted wooden-axe case).
+        // Tiers share an AnimationId, so wood routes exactly like stone/iron — a whiff swing plays on left-click.
+        [Test]
+        public void WoodTierWeapons_RouteToTheirClass_LikeOtherTiers()
+        {
+            var catalog = ScriptableObject.CreateInstance<WeaponCatalog>();
+            catalog.BuildDefaults();
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.AxeWoodId)), "wood axe → axe");
+            Assert.AreEqual(CastawayCharacter.WeaponClassPickaxe, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.PickaxeWoodId)), "wood pickaxe");
+            Assert.AreEqual(CastawayCharacter.WeaponClassSpear, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.SpearWoodId)), "wood spear");
+            Assert.AreEqual(CastawayCharacter.WeaponClassDagger, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.DaggerWoodId)), "wood dagger");
+            Assert.AreEqual(CastawayCharacter.WeaponClassSword, MeleeAttack.WeaponClassForSwing(catalog.ById(WeaponCatalog.SwordWoodId)), "wood sword");
+            Object.DestroyImmediate(catalog);
+        }
+
+        // 7 — WHIFF GATE (soak-2 fix #1): ShouldSwingOnClick fires the swing with a weapon equipped even with NO
+        // target (target-in-reach is NOT a condition); the UI-open / over-UI / RMB-drag guards + weapon-required stay.
+        [Test]
+        public void ShouldSwingOnClick_TruthTable_WhiffAllowed_GuardsHold()
+        {
+            // Weapon equipped, no modal panel, not over UI, no orbit drag → SWINGS (whiff — the soak-2 fix).
+            Assert.IsTrue(MeleeAttack.ShouldSwingOnClick(weaponSelected: true, uiPanelOpen: false, pointerOverUI: false, rmbHeld: false),
+                "a weapon equipped + guards clear must swing even with NO target (one click = one swing, whiff-allowed)");
+            // No weapon → no swing.
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(false, false, false, false), "no weapon equipped → no swing");
+            // Each guard independently blocks.
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, true, false, false), "a modal panel open blocks the swing");
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, true, false), "a click over the belt/inventory UI blocks the swing");
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, false, true), "RMB held (camera-orbit drag) blocks the swing");
+        }
+
+        // 8 — per-class swing PLAYBACK speed (soak-2 fix #2): spear + pickaxe are faster than axe/dagger/sword.
+        [Test]
+        public void SwingSpeedForClass_SpearAndPickaxe_FasterThanBaseline()
+        {
+            float axe = CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassAxe);
+            Assert.AreEqual(1.0f, axe, 1e-4f, "axe stays at authored cadence (Sponsor: chop looked okay)");
+            Assert.AreEqual(1.0f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassDagger), 1e-4f, "dagger 1.0");
+            Assert.AreEqual(1.0f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSword), 1e-4f, "sword 1.0");
+            Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSpear), axe,
+                "spear swing must be FASTER than the axe baseline (soak-2: spear too slow)");
+            Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassPickaxe), axe,
+                "pickaxe swing must be FASTER than the axe baseline (soak-2: pickaxe too slow)");
+        }
     }
 }

@@ -172,6 +172,33 @@ namespace FarHorizon.PlayTests
             Assert.AreEqual(CastawayCharacter.WeaponClassPickaxe, character.LastWeaponClass, "TriggerMine → pickaxe class (mine)");
         }
 
+        // 86caffwv5 soak-2 fix #1 — a left-click with a weapon equipped and NO target in reach still SWINGS (whiff),
+        // routing the class swing, and lands NO damage. The Sponsor's "nothing happens when i left click in nothing"
+        // was the target-gated bug; this proves the whiff path through the real Update click seam.
+        [UnityTest]
+        public IEnumerator MeleeAttack_ClickAtEmptyAir_WhiffSwings_NoTargetNoDamage()
+        {
+            _go = new GameObject("whiffRig");
+            _go.transform.position = Vector3.zero;
+            var inv = _go.AddComponent<Inventory>();
+            inv.PickUpAxe(); // axe equipped + auto-selected
+
+            var character = _go.AddComponent<CastawayCharacter>();
+            var attack = _go.AddComponent<MeleeAttack>();
+            attack.player = _go.transform; attack.inventory = inv; attack.character = character;
+            // NO enemy Health anywhere → the swing must still fire (whiff).
+
+            yield return null; // Awake/Start
+
+            Assert.AreEqual(0, attack.SwingsFired, "no swing before the click");
+            attack.RequestAttackClick();
+            yield return null; // Update consumes the click through ShouldSwingOnClick
+
+            Assert.Greater(attack.SwingsFired, 0, "a left-click with a weapon equipped WHIFF-swings even with no target");
+            Assert.AreEqual(0, attack.HitsLanded, "a whiff lands NO damage (no target in reach)");
+            Assert.AreEqual(CastawayCharacter.WeaponClassAxe, character.LastWeaponClass, "the whiff routed the axe swing");
+        }
+
         // AC9 — the HP HUD band mapping (heart-red healthy / wound-orange hurt / dark-blood critical).
         [Test]
         public void SurvivalHud_HpBandColor_MapsHealthyHurtCritical()
