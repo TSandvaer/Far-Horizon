@@ -194,13 +194,17 @@ namespace FarHorizon.EditorTools
         public const string V4RiggedFbxPath = V4Dir + "/castaway_v4_rigged.fbx"; // WITH skin (Mixamo Idle.fbx: mesh+rig; idle take unused)
         public const string V4PalettePngPath = V4Dir + "/castaway_v4_palette.png"; // shared flat palette (URP/Lit _BaseMap)
 
-        // v4 STAGED-ROLLOUT TOGGLE (86catpwc4 phase C) — DORMANT: DEFAULT OFF. v3 stays the LIVE hero until the
-        // Sponsor soaks v4 in a shipped build and approves the flip (a SEPARATE activation ticket, per the
-        // v2→v3 precedent 86cak9kau). Resolved at BOOTSTRAP time (CI re-runs BootstrapProject.Run before every
-        // build), so the toggle is honored WITHOUT committing a regenerated Boot.unity. FARHORIZON_CASTAWAY_V4=1
-        // overrides for the env-var SOAK build (character-pipeline.md §Rolling out step 2). With the default OFF,
-        // UseCastawayV4 is false unless the env override is set ⇒ the default build renders v3, byte-unchanged.
-        public const bool UseCastawayV4Default = false;
+        // v4 STAGED-ROLLOUT TOGGLE (86catpwc4 phase C dormant integration; ACTIVATED 86catvb6u — DEFAULT FLIPPED
+        // TO true 2026-07-19 after the Sponsor soaked v4 in a shipped build [Build\soak-v4\, toggle baked ON] and
+        // APPROVED the identity/animation read, making it LIVE). v4 (the chamfered-blocky "wooden toy" hand-model)
+        // is now the DEFAULT hero character. v3 is NOT deleted — it stays reachable as the ROLLBACK target:
+        // flipping this const back to false selects v3 (UseCastawayV3 stays true), a one-line rollback, mirroring
+        // how #264 kept v2 behind the v3 toggle. Resolved at BOOTSTRAP time (CI re-runs BootstrapProject.Run before
+        // every build), so the toggle is honored WITHOUT committing a regenerated Boot.unity. FARHORIZON_CASTAWAY_V4=1
+        // stays as an override handle; with the default now true the toggle is ON regardless (env=0 does NOT force it
+        // off — an explicit rollback flips this const). The FINAL held-prop re-seat across all 15 weapon seats is the
+        // Sponsor F9 dial session the orchestrator cuts once machine gates are green (86catvb6u §3, DIAL-STAGED).
+        public const bool UseCastawayV4Default = true;
         public const string CastawayV4EnvVar = "FARHORIZON_CASTAWAY_V4";
         public static bool UseCastawayV4 =>
             System.Environment.GetEnvironmentVariable(CastawayV4EnvVar) == "1" || UseCastawayV4Default;

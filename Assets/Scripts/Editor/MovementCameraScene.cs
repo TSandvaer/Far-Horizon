@@ -222,22 +222,26 @@ namespace FarHorizon.EditorTools
         // settings HeldScale row, NOT the nudge (ticket: axe scale LOCKED). F9 still drives these fields.
         public static readonly Vector3 HeldAxeV3RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
         public static readonly Vector3 HeldAxeV3LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
-        // ===== CASTAWAY v4 held-axe seat (86catpwc4 phase C — DORMANT default-OFF integration). v4 is a FRESH
-        // Mixamo Standard rig off OUR Blender export; its mixamorig:RightHand LOCAL FRAME differs from v3's, so
-        // v3's seat does NOT carry 1:1. This value is only exercised under FARHORIZON_CASTAWAY_V4=1 (the env-var
-        // SOAK build) — with the toggle OFF (default) the v3 seat above is byte-unchanged.
+        // ===== CASTAWAY v4 held-axe seat (86catpwc4 dormant integration; ACTIVATED 86catvb6u — MEASURED re-seat).
+        // v4 is a FRESH Mixamo Standard rig off OUR Blender export; the trace CONFIRMED its mixamorig:RightHand
+        // LOCAL FRAME differs MATERIALLY from v3's — v3 +Y=(0.165,-0.957,0.240) points ~straight down, v4
+        // +Y=(0.694,-0.694,0.192) tilts ~45° outward — so v3's seat did NOT carry 1:1 (the earlier v3-verbatim
+        // placeholder was genuinely wrong, not a coincidence: diagnose-via-trace overturned the "close enough"
+        // assumption). v4 is the LIVE hero, so THIS seat is the one BuildModel bakes (the HeldAxeV4* branch,
+        // v4-first); the v3/v2/old seats above are the rollback path.
         //
-        // ⚠ UNMEASURED FIRST-PASS PLACEHOLDER (= v3's seat, verbatim). The MEASURED re-seat is deliberately
-        // DEFERRED to ACTIVATION (OOS here) because it requires a LIVE editor run of
-        // CharacterAssetGen.CastawayV4HandAxisTrace (WORLD-transfer of v3's approved carry onto v4's hand frame),
-        // which this dormant PR does not bake — the FINAL held-prop re-seat + F9 dial happen at the v4 soak/
-        // activation per character-pipeline.md §Rolling out step 3. Marked UNMEASURED on purpose (not claimed as
-        // measured): reusing v3's numbers gets the axe roughly into v4's hand for the soak's first look; the
-        // Sponsor F9-dials the grip, then the activation ticket bakes his dialed numbers here + runs the trace.
-        // Used ONLY when CharacterAssetGen.UseCastawayV4; every lower-priority seat is byte-unchanged when the
-        // toggle is OFF (the dormant / rollback path).
-        public static readonly Vector3 HeldAxeV4RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
-        public static readonly Vector3 HeldAxeV4LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
+        // MEASURED first-pass — CharacterAssetGen.CastawayV4HandAxisTrace (run in a live editor 2026-07-19 at the
+        // dial-cut) WORLD-TRANSFERS v3's Sponsor-approved live carry onto v4's hand frame (the axe MESH is
+        // identical, so matching its WORLD orientation reproduces the approved look):
+        //   HeldAxeV4RelEuler            = eulerAngles( Inv(R_v4hand) · R_v3hand · Euler(HeldAxeV3RelEuler) )
+        //   HeldAxeV4LocalOffsetFromHand = Inv(R_v4hand) · ( R_v3hand · HeldAxeV3LocalOffsetFromHand )
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. This gets the
+        // axe into v4's hand for the dial session's first look; the Sponsor F9-finalizes the grip across all 15
+        // held seats (DIAL-STAGED), then a follow-up bakes his dialed numbers here ([[verify-soak-builds-or-bake-
+        // and-judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used when UseCastawayV4 (the
+        // default-ON live hero). SUPERSEDES the v3-verbatim placeholder (-152.5,-5.9,108.9)/(0.0071,0.0599,0.0288).
+        public static readonly Vector3 HeldAxeV4RelEuler = new Vector3(-48.9f, -125.0f, -106.3f);
+        public static readonly Vector3 HeldAxeV4LocalOffsetFromHand = new Vector3(0.0182f, 0.0415f, 0.0492f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -253,6 +257,66 @@ namespace FarHorizon.EditorTools
         // 86caa83wn soak #3 (build 2993c1c, 2026-06-18): the Sponsor F9-dialed the run arm-lower ("the perfect
         // nudge" screenshot) and asked to bake it as the shipped default: (-10,12,-42). SUPERSEDES (0,0,-22).
         public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
+
+        // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
+        // defect). A per-foot yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4 (0 for
+        // v3/v2/old → their feet are byte-unchanged). DEFAULT = the Sponsor's DIALED −15.0, BAKED AS-DIALED: he
+        // F9-dialed the FOOT-YAW target on 0e9ec3e (trail 11→9→…→−15.0, banked Player-prev.log + his screenshot)
+        // and settled on −15.0 as the straight-feet visual. Baking −15.0 on the SAME applied-sign code path he
+        // judged reproduces that exact visual. SIGN (truthful): −  = toes OUTWARD (un-pigeons; the direction his
+        // −15 straightened them), + = toes inward. He may re-dial via F9. (The earlier +11 "measured bind-delta"
+        // was only a first-pass starting guess; his dialed −15 supersedes it, opposite sign confirmed at bake.)
+        public const float CastawayV4FootYawDeg = -15f;
+
+        // ===== CASTAWAY v4 ARM-POSE eulers (86catvb6u — the Sponsor's "right hand is TURNED / palm faces backward"
+        // defect). The shipped arm-pose offsets (CastawayArmPose.rightArmEuler=(-4,-50,-3) / leftArmEuler=(-5,22,0))
+        // were F9-DIALED on v3; the right arm's -50° Y-twist (the v3 weapon-carry) over-ROLLS v4's differently-
+        // framed RightArm bone → the right hand supinates (palm-back), UNARMED + always-on. MEASURED
+        // (CastawayV4DefectDiag arm-roll): right-vs-mirrored-left mismatch = 33.0° at (-4,-50,-3) vs 18.1° at the
+        // MIRROR of the left (-5,-22,0) — which == the clip-only 18.5° baseline (the arm-pose then adds ZERO extra
+        // asymmetry). So v4 ships the MIRROR-of-left right-arm euler; the left is unchanged (it read fine). Applied
+        // ONLY for v4 (AddArmPose); v3/v2/old keep the component-default dialed eulers (byte-unchanged). The
+        // Sponsor F9-dials the arm-pose target for any residual taste, then bakes into these v4 constants.
+        public static readonly Vector3 CastawayV4RightArmEuler = new Vector3(-5f, -22f, 0f); // mirror-of-left (measured symmetric)
+        public static readonly Vector3 CastawayV4LeftArmEuler = new Vector3(-5f, 22f, 0f);   // == the v3 left (read fine)
+
+        // ===== CASTAWAY v4 HAND offsets (86catvb6u round-8 — the Mixamo RE-RIG both-arms-twist fix). Round-7 ZEROED
+        // the wrist on the assumption that the re-rig's 1.2° symmetric ARMS meant the hands render as mirrors with
+        // NO compensation. MEASUREMENT (CastawayV4DefectDiag round-8, ci-out/v4diag-round8.log) REFUTED that: the
+        // re-rig's right HAND BIND FRAME is rolled 176.4° off-mirror; the idle clips re-pose both hands to within
+        // 18.1° of each other BUT at an orientation ~120° from natural — so BOTH hands ship TWISTED (mirrors of each
+        // other yet both wrong). The mirror-of-left approach (round-5) can't fix it because the LEFT is ALSO wrong.
+        //
+        // Round-8 anchors on the Sponsor-VERIFIED absolute right: via the F9 WRIST dial he reached a CORRECT right
+        // arm at (10,-120,-20). The LEFT is its MEASURED render-mirror (diag: anchored on the Sponsor-correct right,
+        // corrL = Inv(R_left)·mirror(R_right_corrected) → (18.2,112.6,3.7); POST-both-corrections mirror delta 0.0°).
+        // The THUMB (HAND-knob) eulers shipped 0 for the dial-7 build — the Sponsor taste-dials thumb orientation
+        // independently of the wrist (his residual: "the only way to point the thumb towards the body is to twist
+        // the wrist and arm also"). [SUPERSEDED by the round-9 bake below: he dialed and ACCEPTED the LEFT thumb;
+        // the right thumb turned out to be un-dialable for a measured reason — read the round-9 block.]
+        // All FOUR applied ONLY for v4 (CastawayHandPose, order 65); 0 for v3/v2/old (byte-unchanged rollback).
+        //
+        // ROUND-9 BAKE (dial-7 soak, stamp 95f516e). The Sponsor dialed these on the shipped build and ACCEPTED
+        // the LEFT hand ("the left reads as an actual hand"); values verified against the harvested log
+        // Build/soak-v4-dial-7/sponsor-dial7-Player.log by occurrence count (LeftThumb 1357 samples settled,
+        // LeftWrist 187, RightWrist 10 = his last dialed right). Dial values are RAW accumulated knob output and
+        // are deliberately NOT normalised to ±180 — these are the exact numbers he judged; Quaternion.Euler wraps
+        // them identically (282.6°≡-77.4°, -890°≡-170°).
+        //
+        // RIGHT THUMB stays ZERO on purpose. The Sponsor swept RightThumbEuler across a huge range (logged up to
+        // X=1448, Y=90→130) with no visible form change — "its a block with a thumb", "moves a little / hard to
+        // tell". Round-9 measurement (CastawayV4DefectDiag.ReportRound9, ci-out/v4diag-round9.log) found the cause
+        // and it is NOT dialable: the right hand's THUMB GEOMETRY is skinned to the INDEX chain, not the thumb
+        // chain. All 48 right-side thumb verts (perfect mirror-matches of the left's) are dominated by
+        // righthandindex1/2/3 and carry mean thumb-chain weight 0.000, versus 0.919 on the left. So the right
+        // thumb bones drive almost nothing (rotate-and-diff: right 3.7mm mean vs left 15.3mm at an identical 40°),
+        // and the thumb rides the index chain rigidly => it reads as an undifferentiated block. Baking any
+        // right-thumb euler would encode a number the eye cannot see. The fix is SOURCE-SIDE (re-weight/re-rig);
+        // do NOT add another runtime euler here. See PR #317 round-9 comment + ticket 86catvb6u.
+        public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(-22.0f, 250.0f, -30.0f); // Sponsor-dialed right wrist (dial-7)
+        public static readonly Vector3 CastawayV4LeftWristEuler = new Vector3(-21.8f, 282.6f, 3.7f);    // Sponsor-ACCEPTED left wrist (dial-7)
+        public static readonly Vector3 CastawayV4RightThumbEuler = Vector3.zero;                        // inert until the right hand is re-weighted (see above)
+        public static readonly Vector3 CastawayV4LeftThumbEuler = new Vector3(-502.0f, -890.0f, -6.0f); // Sponsor-ACCEPTED left thumb (dial-7)
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -999,12 +1063,12 @@ namespace FarHorizon.EditorTools
             // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
             // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
             // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
-            // 86cajwp23 AC2 / 86cak9kau AC2 / 86catpwc4 phase C — each hero base rides its OWN re-measured seat
-            // prior (its mixamorig:RightHand local frame differs); HIGHEST-VERSION-FIRST: v4 (DORMANT, env-only)
-            // takes precedence when active, then v3 (the LIVE default), then v2, then the old rig. The lower-
-            // priority seats are byte-unchanged when their toggle is OFF (the dormant / rollback path). NOTE: the
-            // v4 seat is an UNMEASURED first-pass (= v3's, verbatim) — the measured re-seat is activation work
-            // (CharacterAssetGen.CastawayV4HandAxisTrace + Sponsor F9 dial); see the HeldAxeV4* constants.
+            // 86cajwp23 AC2 / 86cak9kau AC2 / 86catvb6u — each hero base rides its OWN re-measured seat prior (its
+            // mixamorig:RightHand local frame differs); HIGHEST-VERSION-FIRST: v4 (the LIVE default) takes
+            // precedence, then v3, then v2, then the old rig. The lower-priority seats are byte-unchanged when
+            // their toggle is OFF (the rollback path). NOTE: the v4 seat is the MEASURED first-pass (trace
+            // WORLD-TRANSFER of v3's approved carry onto v4's materially-different hand frame — CharacterAssetGen.
+            // CastawayV4HandAxisTrace); the Sponsor F9-finalizes it across all 15 held seats. See HeldAxeV4*.
             Vector3 handLocalOffset =
                 CharacterAssetGen.UseCastawayV4 ? HeldAxeV4LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV3 ? HeldAxeV3LocalOffsetFromHand :
@@ -1044,7 +1108,7 @@ namespace FarHorizon.EditorTools
             Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
                       handLocalOffset.ToString("F4") +
                       " relEuler=" + relEuler.ToString("F1") +
-                      (CharacterAssetGen.UseCastawayV4 ? " [v4 seat prior — UNMEASURED first-pass]" :
+                      (CharacterAssetGen.UseCastawayV4 ? " [v4 seat — MEASURED trace baseline, Sponsor F9-finalizes]" :
                        CharacterAssetGen.UseCastawayV3 ? " [v3 seat prior]" :
                        CharacterAssetGen.UseCastawayV2 ? " [v2 seat prior]" : "") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
@@ -1375,12 +1439,24 @@ namespace FarHorizon.EditorTools
             // byte-unchanged); the Sponsor dials runLowerEuler on the F9 RUN target while running, then bakes it.
             pose.character = castaway;
             pose.runLowerEuler = ArmRunLowerEuler;
+            // 86catvb6u — v4 gets MIRROR-of-left arm eulers (the v3-dialed right (-4,-50,-3) over-rolls v4's arm
+            // bone → palm-back; MEASURED symmetric = mirror-left). seedEulersFromDegFields stays FALSE so
+            // RebuildCached composes these verbatim. v3/v2/old keep the component-default dialed eulers (the arm
+            // read fine there) — byte-unchanged rollback path. The Sponsor F9-dials the arm-pose target for
+            // residual taste on v4, then bakes into CastawayV4RightArmEuler/CastawayV4LeftArmEuler.
+            if (CharacterAssetGen.UseCastawayV4)
+            {
+                pose.seedEulersFromDegFields = false;
+                pose.rightArmEuler = CastawayV4RightArmEuler;
+                pose.leftArmEuler = CastawayV4LeftArmEuler;
+            }
             pose.RebuildCached();
             Debug.Log("[MovementCameraScene] CastawayArmPose wired (rightArm='" +
                       (pose.rightUpperArm != null ? pose.rightUpperArm.name : "<null>") + "', leftArm='" +
                       (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") +
-                      "', character='" + (pose.character != null ? pose.character.name : "<null>") +
-                      "', runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
+                      "', rightArmEuler=" + pose.rightArmEuler.ToString("F1") +
+                      (CharacterAssetGen.UseCastawayV4 ? " [v4 mirror-of-left — un-rolled]" : " [v3/rollback dialed]") +
+                      ", runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
 
             // CHOP SWING (86caa4c5c change-(b)) — the swing is now the Mixamo melee Animator Attack state
             // (CastawayCharacter.TriggerChop), NOT a procedural bone offset. The rejected ChopPoseDriver and its
@@ -1452,15 +1528,93 @@ namespace FarHorizon.EditorTools
             // the floor only gates fingers.Count; the HasAxe-gated grip curls the index fingers into the haft.
             bool fistHandVariant = CharacterAssetGen.UseCastawayV4 || CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
             int expectedFingerFloor = fistHandVariant ? 3 : 6;
+            // 86catvb6u NIT (#307): the log wording is VERSION-AGNOSTIC — it reads "a fist-hand variant" +
+            // derives the thumb clause from thumbs.Count, instead of hardcoding "v2/v3/v4" (which goes stale the
+            // moment a v5 lands). fingers.Count / thumbs.Count already carry the actual rig facts; the string
+            // describes what was resolved, not which named version is live.
             if (fingers.Count < expectedFingerFloor)
                 Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
                                " right-hand finger bones (expected >= " + expectedFingerFloor +
-                               (fistHandVariant ? " for v2/v3/v4: Index 1-3" : ": Index/Middle/Ring 1-3") +
-                               ") — the grip curl will be partial/unwired. Re-run CharacterAssetGen.CastawayV3HandAxisTrace to dump the rig.");
+                               (fistHandVariant ? " for a fist-hand variant: Index 1-3" : ": Index/Middle/Ring 1-3") +
+                               ") — the grip curl will be partial/unwired. Re-run the active hero's " +
+                               "CharacterAssetGen.Castaway*HandAxisTrace to dump the rig.");
             else
                 Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
                           thumbs.Count + " thumb bones, HasAxe-gated" +
-                          (fistHandVariant ? "; v2/v3/v4 index" + (thumbs.Count > 0 ? "+thumb" : " (v4: no thumb)") + " only" : "") + ")");
+                          (fistHandVariant ? "; fist-hand-variant index" + (thumbs.Count > 0 ? "+thumb" : " (no thumb)") + " only" : "") + ")");
+        }
+
+        // The foot bone tokens (colon-stripped mixamorig names) the FOOT-YAW counter-rotate drives (86catvb6u).
+        public const string LeftFootToken = "leftfoot";
+        public const string RightFootToken = "rightfoot";
+
+        // Wire the per-foot YAW counter-rotate (86catvb6u — the Sponsor's chosen v4 pigeon-toe fix) onto the
+        // avatar. Resolves both foot bones from the SMR bone array + serializes the component + bone refs into
+        // Boot.unity (editor-vs-runtime trap, same as AddArmPose/AddFingerCurl). The offset is applied ONLY for v4
+        // (footYawDeg = CastawayV4FootYawDeg); v3/v2/old ship 0 → their feet are byte-unchanged (LateUpdate
+        // early-returns at 0). The Sponsor F9-dials footYawDeg (FOOT-YAW target) live, then a follow-up bakes it.
+        private static void AddFootYaw(CastawayCharacter castaway)
+        {
+            var yaw = castaway.GetComponent<CastawayFootYaw>();
+            if (yaw == null) yaw = castaway.gameObject.AddComponent<CastawayFootYaw>();
+            yaw.leftFoot = FindBoneByExactToken(castaway.transform, LeftFootToken);
+            yaw.rightFoot = FindBoneByExactToken(castaway.transform, RightFootToken);
+            // v4 gets the measured bind-delta default (starts near-straight); every other hero ships 0 (feet
+            // untouched — the rollback path stays byte-identical). The Sponsor dials the exact angle at the soak.
+            yaw.footYawDeg = CharacterAssetGen.UseCastawayV4 ? CastawayV4FootYawDeg : 0f;
+            if (yaw.leftFoot == null || yaw.rightFoot == null)
+                Debug.LogError("[MovementCameraScene] could not resolve foot bones for CastawayFootYaw (left='" +
+                               LeftFootToken + "' found=" + (yaw.leftFoot != null) + ", right='" + RightFootToken +
+                               "' found=" + (yaw.rightFoot != null) + ") — the v4 foot-yaw fix will be inert.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayFootYaw wired (footYawDeg=" + yaw.footYawDeg.ToString("F1") +
+                          (CharacterAssetGen.UseCastawayV4 ? " [v4 — Sponsor-dialed -15]" : " [non-v4 — 0, feet byte-unchanged]") + ")");
+        }
+
+        // The HAND + THUMB bone tokens the hand-pose offsets drive (86catvb6u round-8).
+        public const string RightHandToken = "righthand";
+        public const string LeftHandToken = "lefthand";
+        public const string RightThumbToken = "righthandthumb1";
+        public const string LeftThumbToken = "lefthandthumb1";
+
+        // Wire the HAND-POSE offsets (86catvb6u round-8 — the Mixamo RE-RIG both-arms-twist fix). Resolves both
+        // hand bones + both thumb-base bones from the SMR bone array + serializes the component + bone refs into
+        // Boot.unity. Applied ONLY for v4 (the two WRIST eulers = the Sponsor-correct right + its measured mirror;
+        // the two THUMB eulers ship 0 for the Sponsor to F9-dial); v3/v2/old ship 0 for all four → their hands are
+        // byte-unchanged (LateUpdate skips a zero euler). The Sponsor F9-dials WRIST (L/R) + HAND (L/R) by eye.
+        private static void AddHandPose(CastawayCharacter castaway)
+        {
+            var hand = castaway.GetComponent<CastawayHandPose>();
+            if (hand == null) hand = castaway.gameObject.AddComponent<CastawayHandPose>();
+            hand.rightHand = FindBoneByExactToken(castaway.transform, RightHandToken);
+            hand.leftHand = FindBoneByExactToken(castaway.transform, LeftHandToken);
+            hand.rightThumb = FindBoneByExactToken(castaway.transform, RightThumbToken);
+            hand.leftThumb = FindBoneByExactToken(castaway.transform, LeftThumbToken);
+            bool v4 = CharacterAssetGen.UseCastawayV4;
+            hand.rightWristEuler = v4 ? CastawayV4RightWristEuler : Vector3.zero;
+            hand.leftWristEuler = v4 ? CastawayV4LeftWristEuler : Vector3.zero;
+            hand.rightThumbEuler = v4 ? CastawayV4RightThumbEuler : Vector3.zero;
+            hand.leftThumbEuler = v4 ? CastawayV4LeftThumbEuler : Vector3.zero;
+            // The WRIST fix is the load-bearing one (the twist); a missing hand bone makes it inert → LogError (also
+            // reds the EditMode rebuild test via LogAssert). The thumb is the Sponsor's taste-dial (ships 0) → a
+            // missing thumb bone only forfeits the HAND knob, so it warns rather than errors.
+            if (hand.rightHand == null || hand.leftHand == null)
+                Debug.LogError("[MovementCameraScene] could not resolve hand bones for CastawayHandPose (right='" +
+                               RightHandToken + "' found=" + (hand.rightHand != null) + ", left='" + LeftHandToken +
+                               "' found=" + (hand.leftHand != null) + ") — the v4 both-hand un-twist will be inert.");
+            else if (v4 && (hand.rightThumb == null || hand.leftThumb == null))
+                Debug.LogWarning("[MovementCameraScene] CastawayHandPose resolved the hand bones but NOT both thumb " +
+                                 "bases (right='" + RightThumbToken + "' found=" + (hand.rightThumb != null) + ", left='" +
+                                 LeftThumbToken + "' found=" + (hand.leftThumb != null) + ") — the F9 HAND (thumb) knob " +
+                                 "will be inert on the missing side, but the WRIST un-twist still applies.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayHandPose wired (rightWrist=" + hand.rightWristEuler.ToString("F1") +
+                          ", leftWrist=" + hand.leftWristEuler.ToString("F1") +
+                          ", rightThumb=" + hand.rightThumbEuler.ToString("F1") +
+                          ", leftThumb=" + hand.leftThumbEuler.ToString("F1") +
+                          (v4 ? " [v4 — Sponsor-ACCEPTED dial-7 left (wrist+thumb) + his dialed right wrist; " +
+                                "right thumb 0 = MEASURED inert, its geometry is skinned to the index chain (round-9)]"
+                              : " [non-v4 — 0, hands byte-unchanged]") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -3908,6 +4062,17 @@ namespace FarHorizon.EditorTools
             // (gated on HasAxe so the empty hand stays open). Resolved from the SMR bone array + serialized.
             // AFTER BuildInEditor (the finger bones must exist).
             AddFingerCurl(castaway);
+
+            // FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen v4 pigeon-toe fix). Additive LateUpdate
+            // per-foot outward yaw; v4 defaults to the measured bind-delta (~11°), non-v4 ships 0 (feet unchanged).
+            // AFTER BuildInEditor (the foot bones must exist); F9-dialable (FOOT-YAW target).
+            AddFootYaw(castaway);
+
+            // HAND-POSE offsets (86catvb6u round-8 — the Mixamo RE-RIG both-arms-twist fix). Additive LateUpdate
+            // hand-bone + thumb-bone offsets (order 65, before HeldAxeRig); v4 defaults the WRIST eulers to the
+            // Sponsor-correct right + its measured mirror, THUMB eulers to 0, non-v4 ships 0. F9-dialable (WRIST +
+            // HAND targets, L/R).
+            AddHandPose(castaway);
 
             // Bind the flat DE-LIT material (CastawayMat — texture_diffuse toon albedo, warm-tan recolored
             // shirt) onto the avatar's SkinnedMeshRenderer(s) editor-time so it SERIALIZES into Boot.unity.

@@ -205,20 +205,33 @@ namespace FarHorizon.EditTests
                 $"the feet must sit near the model origin (feetY={feetY:F3}) so localPosition zero grounds them");
         }
 
-        // The DE-LIT MATERIAL guard: the authored CastawayMat must bind texture_diffuse on _BaseMap. The
-        // flat toon look (de-lit albedo) must ship — a missing-texture grey is a silent identity loss. The
-        // shirt recolor repaints THIS diffuse, so the binding must survive.
+        // The MATERIAL-IDENTITY guard (86catvb6u — made IDENTITY-SPECIFIC for the v4 activation). The authored
+        // CastawayMat must bind the ACTIVE hero's _BaseMap source — a missing/wrong binding is a silent identity
+        // loss (ships grey or the wrong base). This gate IS identity-specific: BuildMaterial picks the source PER
+        // hero (v4-first) — v4 → the flat palette (castaway_v4_palette), v3 → the posterized diffuse, v2 → its
+        // de-lit diffuse, old → the recolored texture_diffuse. The prior check `tex.name.Contains("texture_diffuse")`
+        // silently mis-passed for v2/v3 (both source names contain "texture_diffuse") and RED for v4 (whose palette
+        // does not) — so it asserted the OLD identity, not the live one. Assert the bound _BaseMap resolves to the
+        // CONFIGURED hero's exact source PNG so it holds across every activation AND rollback.
         [Test]
         public void Material_BindsTheDiffuseToonAtlas()
         {
             var mat = AssetDatabase.LoadAssetAtPath<Material>(CharacterAssetGen.MaterialPath);
-            Assert.IsNotNull(mat, "the de-lit CastawayMat must exist at " + CharacterAssetGen.MaterialPath);
+            Assert.IsNotNull(mat, "the CastawayMat must exist at " + CharacterAssetGen.MaterialPath);
             Assert.IsTrue(mat.HasProperty("_BaseMap"), "the material must have a _BaseMap");
             var tex = mat.GetTexture("_BaseMap");
-            Assert.IsNotNull(tex, "the material must bind a diffuse texture on _BaseMap (else it ships grey)");
-            Assert.IsTrue(tex.name.Contains(CharacterAssetGen.DiffuseTextureName),
-                "the bound _BaseMap must be the toon diffuse '" + CharacterAssetGen.DiffuseTextureName +
-                "' — else the flat toon look ships as grey/wrong");
+            Assert.IsNotNull(tex, "the material must bind a _BaseMap texture (else it ships grey)");
+
+            // The expected _BaseMap source PNG for the CONFIGURED-default hero (mirrors BuildMaterial's per-hero
+            // selection, v4-first). The bound texture IS the asset loaded from that path, so its asset path must equal it.
+            string expectedSource =
+                CharacterAssetGen.UseCastawayV4 ? CharacterAssetGen.V4PalettePngPath :
+                CharacterAssetGen.UseCastawayV3 ? CharacterAssetGen.V3DiffusePosterizedPngPath :
+                CharacterAssetGen.UseCastawayV2 ? CharacterAssetGen.V2DiffusePngPath :
+                                                  CharacterAssetGen.DiffusePngPath;
+            Assert.AreEqual(expectedSource, AssetDatabase.GetAssetPath(tex),
+                "the bound _BaseMap must be the ACTIVE hero's source PNG (" + expectedSource + ") — under v4 this " +
+                "is the flat palette, not the v3/old texture_diffuse atlas; a wrong binding ships grey or the wrong identity");
         }
 
         // The CHUNKY guard: the shipped scene's castaway must read in the toy proportion band. This catches a
@@ -355,10 +368,17 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(pose.seedEulersFromDegFields,
                 "the shipped arm pose must NOT re-seed from the deg fields (else a RebuildCached clobbers the " +
                 "Sponsor's baked F9 dial — re-soak #1)");
-            Assert.That(pose.rightArmEuler, Is.EqualTo(new Vector3(-4.0f, -50.0f, -3.0f)),
-                "the RIGHT arm euler must ship the Sponsor's dialed value (-4,-50,-3)");
-            Assert.That(pose.leftArmEuler, Is.EqualTo(new Vector3(-5.0f, 22.0f, 0.0f)),
-                "the LEFT arm euler must ship the Sponsor's dialed value (-5,22,0)");
+            // 86catvb6u — v4-AWARE: under v4 the baked eulers are the MEASURED mirror-of-left un-roll (AddArmPose
+            // overrides the v3 dial because -50° Y over-rolled v4's arm bone → palm-back); under v3/rollback they
+            // stay the Sponsor's v3-dialed values. Pin the CONFIGURED hero's expected bake either way.
+            Vector3 expectedRight = CharacterAssetGen.UseCastawayV4
+                ? MovementCameraScene.CastawayV4RightArmEuler : new Vector3(-4.0f, -50.0f, -3.0f);
+            Vector3 expectedLeft = CharacterAssetGen.UseCastawayV4
+                ? MovementCameraScene.CastawayV4LeftArmEuler : new Vector3(-5.0f, 22.0f, 0.0f);
+            Assert.That(pose.rightArmEuler, Is.EqualTo(expectedRight),
+                "the RIGHT arm euler must ship the configured hero's value (v4 = mirror-of-left un-roll -5,-22,0; v3 = the dialed -4,-50,-3)");
+            Assert.That(pose.leftArmEuler, Is.EqualTo(expectedLeft),
+                "the LEFT arm euler must ship the configured hero's value");
         }
 
         // RE-SOAK #2 contact-shadow wiring guard (86ca8rdkp re-soak — 'he STILL seems elevated'): the foot-
@@ -517,15 +537,15 @@ namespace FarHorizon.EditTests
                 "verts/heads-tall/diffuse-substring guards pass for BOTH heroes");
         }
 
-        // V3-ACTIVATION HELD-AXE SEAT-SELECTION guard (86cakbe2v item 2 — Tess PR #264 coverage note 2). The
-        // held-axe seat is chosen by a per-hero ternary in MovementCameraScene.BuildModel
-        // (UseCastawayV3 ? HeldAxeV3* : UseCastawayV2 ? HeldAxeV2* : HeldAxe*). HeldToolRigTests /
-        // HeldAxeSeatFacingIndependentTests pin the OLD-rig constants (rollback guards that hold regardless of the
-        // live hero), so DROPPING the v3 ternary branch (falling to the v2/old seat) passes every EditMode test AND
-        // the held-belt capture gate (which asserts axe SHOWN + is-axe, not the specific offset). This asserts the
-        // SERIALIZED Boot HeldAxeRig carries the seat the CONFIGURED-DEFAULT hero selects: under v3, BuildModel must
-        // have baked HeldAxeV3* into the rig. Drop the v3 branch → the rig bakes v2/old values → RED. Mirrors the
-        // source precedence so a rollback (env v2/old) build stays guarded too. The axe is hand-parented + active
+        // HELD-AXE SEAT-SELECTION guard (86cakbe2v item 2 — Tess PR #264 coverage note 2; extended to v4-first for
+        // the 86catvb6u activation). The held-axe seat is chosen by a per-hero ternary in MovementCameraScene.
+        // BuildModel (UseCastawayV4 ? HeldAxeV4* : UseCastawayV3 ? HeldAxeV3* : UseCastawayV2 ? HeldAxeV2* :
+        // HeldAxe*). HeldToolRigTests / HeldAxeSeatFacingIndependentTests pin the OLD-rig constants (rollback
+        // guards that hold regardless of the live hero), so DROPPING the v4 ternary branch (falling to the v3/v2/old
+        // seat) passes every EditMode test AND the held-belt capture gate (which asserts axe SHOWN + is-axe, not the
+        // specific offset). This asserts the SERIALIZED Boot HeldAxeRig carries the seat the CONFIGURED-DEFAULT hero
+        // selects: under v4, BuildModel must have baked HeldAxeV4* into the rig. Drop the v4 branch → the rig bakes
+        // v3/v2/old values → RED. Mirrors the source precedence so a rollback build stays guarded too. Hand-parented + active
         // (visibility is gated by HeldAxe on renderer.enabled, not GameObject active), so it deserializes here.
         [Test]
         public void Boot_SerializedHeldAxeSeat_MatchesConfiguredDefaultHeroSeat()
@@ -536,14 +556,17 @@ namespace FarHorizon.EditTests
                 "visibility-gated on HasAxe — the GameObject is present + active, only its renderers are disabled)");
 
             Vector3 expectedOffset =
+                CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.HeldAxeV4LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV3 ? MovementCameraScene.HeldAxeV3LocalOffsetFromHand :
                 CharacterAssetGen.UseCastawayV2 ? MovementCameraScene.HeldAxeV2LocalOffsetFromHand :
                                                   MovementCameraScene.HeldAxeLocalOffsetFromHand;
             Vector3 expectedEuler =
+                CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.HeldAxeV4RelEuler :
                 CharacterAssetGen.UseCastawayV3 ? MovementCameraScene.HeldAxeV3RelEuler :
                 CharacterAssetGen.UseCastawayV2 ? MovementCameraScene.HeldAxeV2RelEuler :
                                                   MovementCameraScene.HeldAxeRelEuler;
-            string hero = CharacterAssetGen.UseCastawayV3 ? "v3" : CharacterAssetGen.UseCastawayV2 ? "v2" : "old";
+            string hero = CharacterAssetGen.UseCastawayV4 ? "v4" : CharacterAssetGen.UseCastawayV3 ? "v3"
+                        : CharacterAssetGen.UseCastawayV2 ? "v2" : "old";
 
             Assert.That((rig.worldOffsetFromHand - expectedOffset).magnitude, Is.LessThan(1e-3f),
                 $"under the configured-default hero ({hero}) BuildModel must seat the axe with THAT hero's HAND-LOCAL " +
@@ -553,6 +576,130 @@ namespace FarHorizon.EditTests
                 $"under the configured-default hero ({hero}) BuildModel must seat the axe with THAT hero's " +
                 $"hand-relative euler (expected {expectedEuler:F1}, serialized {rig.relEuler:F1}) — dropping the v3 " +
                 "ternary branch bakes the v2/old euler here");
+        }
+
+        // 86catvb6u — the v4 FOOT-YAW counter-rotate (the Sponsor's chosen pigeon-toe fix): the Sponsor-DIALED bake.
+        [Test]
+        public void CastawayV4FootYawDeg_ShipsTheSponsorDialedDefault_86catvb6u()
+        {
+            // The default is the Sponsor's F9-DIALED −15.0 (soak-v4-dial-2 / 0e9ec3e session; banked Player-prev.log
+            // trail 11→9→…→−15.0, matching his straight-feet screenshot), BAKED AS-DIALED on the same applied-sign
+            // code path he judged. NEGATIVE = toes outward (un-pigeon). Pin the value so a drift / accidental-zero
+            // (which would re-ship the pigeon-toe) OR a sign-flip (which would double the pigeon) reds in CI.
+            Assert.AreEqual(-15f, MovementCameraScene.CastawayV4FootYawDeg, 1e-4f,
+                "the v4 foot-yaw default must ship the Sponsor's dialed −15.0 (as-dialed, same code path he judged straight)");
+        }
+
+        // 86catvb6u — the Boot scene must carry CastawayFootYaw wired: foot bones resolved + footYawDeg defaulting
+        // per hero (v4 = the measured bind-delta; every rollback hero = 0 → feet byte-unchanged). This is the
+        // bake-path guard: BuildModel.AddFootYaw must serialize the component + a NON-zero v4 default so the fix
+        // actually ships (a dropped AddFootYaw call, or a wrong-hero default, reds here). CI re-bakes Boot before
+        // EditMode, so this asserts the CONFIGURED-hero wiring (the committed Boot may be stale locally — CI is truth).
+        [Test]
+        public void Boot_SerializedCastawayFootYaw_WiredForConfiguredHero()
+        {
+            OpenBootAndFindPlayer();
+            var yaw = _player.GetComponentInChildren<CastawayFootYaw>(true);
+            Assert.IsNotNull(yaw, "Boot must carry CastawayFootYaw (the v4 pigeon-toe counter-rotate, wired by AddFootYaw)");
+            Assert.IsNotNull(yaw.leftFoot, "CastawayFootYaw must resolve the LEFT foot bone (else the fix is inert)");
+            Assert.IsNotNull(yaw.rightFoot, "CastawayFootYaw must resolve the RIGHT foot bone (else the fix is inert)");
+            float expected = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4FootYawDeg : 0f;
+            Assert.AreEqual(expected, yaw.footYawDeg, 1e-4f,
+                "footYawDeg must default to the measured bind-delta for v4 (" + MovementCameraScene.CastawayV4FootYawDeg +
+                "), 0 for a rollback hero (feet byte-unchanged — the additive offset early-returns at 0)");
+        }
+
+        // 86catvb6u — the v4 ARM-POSE un-roll (the Sponsor's "right hand turned / palm-back" fix). The right-arm
+        // euler ships the MEASURED mirror-of-left (CastawayV4DefectDiag arm-roll: mirror-left 18.1° == the clip-only
+        // 18.5° baseline; the v3-dialed (-4,-50,-3) over-rolled at 33.0°). Pin it so a drift back toward the v3
+        // over-roll reds in CI.
+        [Test]
+        public void CastawayV4ArmEuler_ShipsTheMeasuredMirrorLeftDefault_86catvb6u()
+        {
+            Assert.AreEqual(new Vector3(-5f, -22f, 0f), MovementCameraScene.CastawayV4RightArmEuler,
+                "v4 right-arm euler must ship the measured mirror-of-left (-5,-22,0) — un-rolled so the right hand mirrors the left");
+            Assert.AreEqual(new Vector3(-5f, 22f, 0f), MovementCameraScene.CastawayV4LeftArmEuler,
+                "v4 left-arm euler must match the v3 left (-5,22,0) — it read fine");
+            // The right MUST differ from the v3-dialed over-roll (the whole point of the fix).
+            Assert.AreNotEqual(new Vector3(-4f, -50f, -3f), MovementCameraScene.CastawayV4RightArmEuler,
+                "v4 right-arm euler must NOT be the v3 over-roll (-4,-50,-3) that supinated the hand palm-back");
+        }
+
+        // 86catvb6u — the Boot scene must bake the v4 arm eulers under v4 (AddArmPose branch). Bake-path guard:
+        // dropping the v4 branch would re-ship the v3 over-roll. CI re-bakes Boot before EditMode (committed Boot
+        // may be stale locally — CI is truth).
+        [Test]
+        public void Boot_SerializedArmPose_UsesV4EulersUnderV4()
+        {
+            OpenBootAndFindPlayer();
+            var pose = _player.GetComponentInChildren<CastawayArmPose>(true);
+            Assert.IsNotNull(pose, "Boot must carry CastawayArmPose");
+            Vector3 expectedRight = CharacterAssetGen.UseCastawayV4
+                ? MovementCameraScene.CastawayV4RightArmEuler : pose.rightArmEuler; // non-v4: whatever was baked (dialed)
+            if (CharacterAssetGen.UseCastawayV4)
+            {
+                Assert.That((pose.rightArmEuler - expectedRight).magnitude, Is.LessThan(1e-2f),
+                    $"under v4 the baked right-arm euler must be the mirror-of-left {expectedRight:F1} (un-rolled), " +
+                    $"not the v3 over-roll — serialized {pose.rightArmEuler:F1}");
+                Assert.That((pose.leftArmEuler - MovementCameraScene.CastawayV4LeftArmEuler).magnitude, Is.LessThan(1e-2f),
+                    "under v4 the baked left-arm euler must be the v4 left constant");
+            }
+        }
+
+        // 86catvb6u round-9 — the v4 HAND offsets the Sponsor dialed and ACCEPTED on the dial-7 soak (stamp
+        // 95f516e). Values verified against the harvested log Build/soak-v4-dial-7/sponsor-dial7-Player.log by
+        // occurrence count (LeftThumb 1357 settled samples, LeftWrist 187, RightWrist 10 = his last dialed right).
+        // Kept RAW/unnormalised on purpose — these are the exact numbers he judged; Quaternion.Euler wraps them.
+        // The RIGHT THUMB stays 0 for a MEASURED reason, not taste: round-9 (ci-out/v4diag-round9.log) found the
+        // right hand's thumb GEOMETRY skinned to the INDEX chain (all 48 mirror-matched thumb verts dominated by
+        // righthandindex1/2/3, mean thumb-chain weight 0.000 vs 0.919 on the left), so a right-thumb euler moves
+        // almost nothing. Pin so nobody "fixes" the right thumb with another runtime euler — the fix is source-side.
+        [Test]
+        public void CastawayV4HandEulers_ShipSponsorAcceptedDial7Values_86catvb6u()
+        {
+            Assert.AreEqual(new Vector3(-22.0f, 250.0f, -30.0f), MovementCameraScene.CastawayV4RightWristEuler,
+                "v4 right-wrist must ship the Sponsor's dial-7 right wrist (-22,250,-30)");
+            Assert.AreEqual(new Vector3(-21.8f, 282.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
+                "v4 left-wrist must ship the Sponsor-ACCEPTED dial-7 left wrist (-21.8,282.6,3.7)");
+            Assert.AreEqual(new Vector3(-502.0f, -890.0f, -6.0f), MovementCameraScene.CastawayV4LeftThumbEuler,
+                "v4 left-thumb must ship the Sponsor-ACCEPTED dial-7 left thumb (-502,-890,-6)");
+            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightThumbEuler,
+                "v4 right-thumb must stay 0 — round-9 measured its geometry skinned to the INDEX chain " +
+                "(thumb-chain weight 0.000), so an euler here is inert; the fix is a source-side re-weight");
+            // The wrists MUST differ from the round-7 zeros (a zero re-ships the both-hands twist).
+            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
+                "v4 right-wrist must NOT be the round-7 zero that left both hands twisted");
+            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4LeftWristEuler,
+                "v4 left-wrist must NOT be the round-7 zero that left both hands twisted");
+        }
+
+        // 86catvb6u round-8 — the Boot scene must carry CastawayHandPose wired: BOTH hand bones + BOTH thumb bases
+        // resolved + the per-side eulers defaulting per hero (v4 = the Sponsor-correct right + measured mirror left,
+        // thumbs 0; rollback = 0 → hands byte-unchanged). Bake-path guard: a dropped AddHandPose call, a wrong-hero
+        // default, or an unresolved bone reds here. CI re-bakes Boot before EditMode (committed Boot may be stale).
+        [Test]
+        public void Boot_SerializedHandPose_WiredForConfiguredHero()
+        {
+            OpenBootAndFindPlayer();
+            var hand = _player.GetComponentInChildren<CastawayHandPose>(true);
+            Assert.IsNotNull(hand, "Boot must carry CastawayHandPose (the v4 both-hand un-twist, wired by AddHandPose)");
+            Assert.IsNotNull(hand.rightHand, "CastawayHandPose must resolve the RIGHT hand bone (else the un-twist is inert)");
+            Assert.IsNotNull(hand.leftHand, "CastawayHandPose must resolve the LEFT hand bone (else the left un-twist is inert)");
+            Vector3 expR = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4RightWristEuler : Vector3.zero;
+            Vector3 expL = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4LeftWristEuler : Vector3.zero;
+            Assert.That((hand.rightWristEuler - expR).magnitude, Is.LessThan(1e-2f),
+                "rightWristEuler must default to the Sponsor-correct right for v4, 0 for a rollback hero (byte-unchanged)");
+            Assert.That((hand.leftWristEuler - expL).magnitude, Is.LessThan(1e-2f),
+                "leftWristEuler must default to the measured mirror for v4, 0 for a rollback hero (byte-unchanged)");
+            if (CharacterAssetGen.UseCastawayV4)
+            {
+                Assert.IsNotNull(hand.rightThumb, "under v4 CastawayHandPose must resolve the RIGHT thumb base (the F9 HAND knob)");
+                Assert.IsNotNull(hand.leftThumb, "under v4 CastawayHandPose must resolve the LEFT thumb base (the F9 HAND knob)");
+                Assert.AreEqual(MovementCameraScene.CastawayV4RightThumbEuler, hand.rightThumbEuler,
+                    "the right thumb ships 0 — round-9 measured it inert (geometry skinned to the INDEX chain)");
+                Assert.AreEqual(MovementCameraScene.CastawayV4LeftThumbEuler, hand.leftThumbEuler,
+                    "the left thumb must bake the Sponsor-ACCEPTED dial-7 value (-502,-890,-6)");
+            }
         }
 
         // (86cakbe2v item 4 — RETIRED) The old IDENTITY-RECOLOR guard `Diffuse_ShirtWarmedToTan_...` was removed
