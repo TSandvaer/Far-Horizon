@@ -162,9 +162,29 @@ namespace FarHorizon
             return _model.AddToolToBelt(axe).HasValue;
         }
 
-        /// <summary>AC4 — the held-axe show/hide query: true when the axe IS the SELECTED belt item (not
-        /// merely owned). HeldAxe gates its renderer on this; CastawayFingerCurl gates its grip on it.</summary>
+        /// <summary>AC4 — the held-axe show/hide query: true when the STONE axe IS the SELECTED belt item (not
+        /// merely owned). HeldAxe gates its renderer on this; CastawayFingerCurl gates its grip on it. STONE-ONLY
+        /// by design — the held-visual for the wood/iron axes is gated by their own predicates
+        /// (<see cref="IsAxeWoodSelectedInBelt"/> etc.). The CHOP verb must NOT use this (it would miss the wood/
+        /// iron tiers) — it uses <see cref="IsAnyAxeSelectedInBelt"/> (round-4 86caffwv5).</summary>
         public bool IsAxeSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.AxeId);
+
+        /// <summary>
+        /// The CHOP verb's tool-select gate (round-4 regression fix, 86caffwv5): true when ANY axe TIER — wood,
+        /// stone, OR iron — is the SELECTED belt item. The mining analog is <see cref="MineBoulder.IsBoulderPickaxeSelected"/>
+        /// (all-tier). ChopTree gates on THIS, not the stone-only <see cref="IsAxeSelectedInBelt"/>.
+        ///
+        /// THE BUG THIS FIXES: round-3 (86caffwuz soak-3) added the wood axe to the belt + held-visual, but the
+        /// chop gate still read the stone-only <see cref="IsAxeSelectedInBelt"/> (= <c>IsSelectedBeltItem("axe")</c>),
+        /// so selecting a WOOD axe (id "axe_wood") failed the chop gate → the tree would not chop while MeleeAttack's
+        /// round-2 whiff swing still played (the Sponsor's "I cannot chop a tree" soak-4 report; he tested WOOD first).
+        /// Widened to all three axe ids so every axe tier chops. Kept a SEPARATE property (not a change to
+        /// <see cref="IsAxeSelectedInBelt"/>) so the stone-only held-visual callers stay byte-unchanged.
+        /// </summary>
+        public bool IsAnyAxeSelectedInBelt =>
+            Model.IsSelectedBeltItem(ItemCatalog.AxeWoodId)
+            || Model.IsSelectedBeltItem(ItemCatalog.AxeId)
+            || Model.IsSelectedBeltItem(ItemCatalog.AxeIronId);
 
         /// <summary>
         /// Combat POC 86cah7xxp AC4 — acquire the SPEAR (the second contrasting craftable weapon). Adds the

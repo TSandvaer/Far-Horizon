@@ -289,18 +289,44 @@ namespace FarHorizon.EditTests
 
         // 7 — WHIFF GATE (soak-2 fix #1): ShouldSwingOnClick fires the swing with a weapon equipped even with NO
         // target (target-in-reach is NOT a condition); the UI-open / over-UI / RMB-drag guards + weapon-required stay.
+        // ShouldSwingOnClick(weaponSelected, verbClaimedClick, uiPanelOpen, pointerOverUI, rmbHeld).
         [Test]
         public void ShouldSwingOnClick_TruthTable_WhiffAllowed_GuardsHold()
         {
-            // Weapon equipped, no modal panel, not over UI, no orbit drag → SWINGS (whiff — the soak-2 fix).
-            Assert.IsTrue(MeleeAttack.ShouldSwingOnClick(weaponSelected: true, uiPanelOpen: false, pointerOverUI: false, rmbHeld: false),
-                "a weapon equipped + guards clear must swing even with NO target (one click = one swing, whiff-allowed)");
+            // Weapon equipped, NO verb claimed, no modal panel, not over UI, no orbit drag → SWINGS (whiff — soak-2).
+            Assert.IsTrue(MeleeAttack.ShouldSwingOnClick(weaponSelected: true, verbClaimedClick: false, uiPanelOpen: false, pointerOverUI: false, rmbHeld: false),
+                "a weapon equipped + no verb claim + guards clear must swing even with NO target (one click = one swing, whiff-allowed)");
             // No weapon → no swing.
-            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(false, false, false, false), "no weapon equipped → no swing");
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(false, false, false, false, false), "no weapon equipped → no swing");
             // Each guard independently blocks.
-            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, true, false, false), "a modal panel open blocks the swing");
-            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, true, false), "a click over the belt/inventory UI blocks the swing");
-            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, false, true), "RMB held (camera-orbit drag) blocks the swing");
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, true, false, false), "a modal panel open blocks the swing");
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, false, true, false), "a click over the belt/inventory UI blocks the swing");
+            Assert.IsFalse(MeleeAttack.ShouldSwingOnClick(true, false, false, false, true), "RMB held (camera-orbit drag) blocks the swing");
+        }
+
+        // 7b — VERB-WINS-OVER-WHIFF arbitration truth-table (round-4 regression fix 86caffwv5, AC6). When a verb
+        // consumer (chop / boulder-mine / ore-mine) owns the click (its tool selected + a target in range), the
+        // VERB swings — MeleeAttack must NOT also fire a whiff on top (the soak-4 "cannot chop, only whiffs"
+        // double-consumer regression). The whiff fires ONLY when nothing claimed the click.
+        [Test]
+        public void ShouldSwingOnClick_VerbClaimedClick_SuppressesTheWhiff()
+        {
+            // A verb owns the click (e.g. axe selected + a tree in chop range) → NO whiff swing, even with a weapon
+            // selected + all world-click guards clear. THE round-4 fix: the chop owns the click, not a spurious swing.
+            Assert.IsFalse(
+                MeleeAttack.ShouldSwingOnClick(weaponSelected: true, verbClaimedClick: true,
+                                               uiPanelOpen: false, pointerOverUI: false, rmbHeld: false),
+                "a verb (chop/mine) that owns the click SUPPRESSES the attack whiff (verb-wins-over-whiff)");
+
+            // Nothing claims the click (no tree/rock in range) → the whiff/attack DOES fire (AC3 air whiff preserved).
+            Assert.IsTrue(
+                MeleeAttack.ShouldSwingOnClick(true, verbClaimedClick: false, uiPanelOpen: false, pointerOverUI: false, rmbHeld: false),
+                "with NO verb claiming the click, the attack swings (empty air whiffs / an enemy in reach is hit) — soak-2 kept");
+
+            // A verb claim + a guard both blocking is still no swing (the verb-claim never RE-enables a guarded click).
+            Assert.IsFalse(
+                MeleeAttack.ShouldSwingOnClick(true, verbClaimedClick: true, uiPanelOpen: true, pointerOverUI: false, rmbHeld: false),
+                "verb-claim AND a modal panel open → still no swing");
         }
 
         // 8 — per-class swing PLAYBACK speed (soak-2 fix #2): spear + pickaxe are faster than axe/dagger/sword.

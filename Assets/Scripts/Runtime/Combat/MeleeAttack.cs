@@ -55,6 +55,21 @@ namespace FarHorizon.Combat
                  "attack). Wired at bootstrap; null → the over-UI guard is skipped (a bare rig).")]
         public InventoryUI inventoryUI;
 
+        [Header("Verb arbitration (round-4 86caffwv5 — verb-wins-over-whiff)")]
+        [Tooltip("The chop verb. When an axe is selected AND a tree is in chop range, the CHOP owns the left-click " +
+                 "and this attack must NOT also fire a whiff swing (the double-consumer regression). Queried via " +
+                 "ChopTree.WouldClaimClick(). Wired at bootstrap; Awake scene-search fallback. Null → the chop " +
+                 "never claims (a bare rig / no chop in the scene).")]
+        public ChopTree chopTree;
+
+        [Tooltip("The boulder-mine verb — same arbitration: a pickaxe selected + a boulder in range means MINING " +
+                 "owns the click (no whiff). Queried via MineBoulder.WouldClaimClick(). Bootstrap-wired; Awake fallback.")]
+        public MineBoulder mineBoulder;
+
+        [Tooltip("The ore-mine verb — same arbitration (stone/iron pickaxe + an ore node in range owns the click). " +
+                 "Queried via MineOre.WouldClaimClick(). Bootstrap-wired; Awake fallback.")]
+        public MineOre mineOre;
+
         [Header("Interaction")]
         [Tooltip("Minimum seconds between landed attacks. The attack is per LEFT-CLICK; this is a small " +
                  "cooldown so a stray double-edge can't out-pace the swing read. Also scaled DOWN by the " +
@@ -82,6 +97,11 @@ namespace FarHorizon.Combat
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
             if (character == null) character = FindObjectOfType<CastawayCharacter>();
             if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
+            // Verb arbitration refs (round-4) — the shipped scene has one of each; the Awake scene-search is the
+            // reliable resolve (all verb components exist by Awake, regardless of bootstrap-wiring order). Null-safe.
+            if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
+            if (mineBoulder == null) mineBoulder = FindObjectOfType<MineBoulder>();
+            if (mineOre == null) mineOre = FindObjectOfType<MineOre>();
             EnsureCatalog();
         }
 
@@ -116,13 +136,24 @@ namespace FarHorizon.Combat
         /// <summary>
         /// PURE swing-on-a-left-click decision (the unit-testable guard truth-table). One click = one swing of the
         /// equipped weapon, TARGET OR NOT (soak-2 fix 86caffwv5 — a click at empty air WHIFFS). All of: a weapon is
-        /// selected, no modal panel owns the screen, the click is NOT over the inventory/belt UI, the RMB is NOT
-        /// held (no orbit drag). NO target-in-reach requirement — DAMAGE (not the swing) is what a target gates.
+        /// selected, NO verb claimed the click, no modal panel owns the screen, the click is NOT over the
+        /// inventory/belt UI, the RMB is NOT held (no orbit drag). NO target-in-reach requirement — DAMAGE (not the
+        /// swing) is what a target gates.
+        ///
+        /// === VERB-WINS-OVER-WHIFF arbitration (round-4 regression fix, 86caffwv5) ===
+        /// <paramref name="verbClaimedClick"/> is true when a VERB consumer (chop / boulder-mine / ore-mine) OWNS
+        /// this click — its matching tool is selected AND a valid target is in that verb's range (computed by the
+        /// caller from <see cref="ChopTree.WouldClaimClick"/> / <see cref="MineBoulder.WouldClaimClick"/> /
+        /// <see cref="MineOre.WouldClaimClick"/>). When a verb claims the click the attack does NOT swing — the verb
+        /// (chop/mine) owns the turn + its own swing; a spurious combat whiff on top is the soak-4 double-consumer
+        /// regression this suppresses. When NOTHING claims the click, the attack swings (enemy in reach → lands
+        /// damage; empty air → whiffs — AC3, the soak-2 behavior is preserved). AMBIGUITY (an enemy AND a verb
+        /// target both in reach): the VERB wins (conservative / pre-round-2 behavior) — see the PR body.
         /// Static + dependency-free so the EditMode guard asserts the whole table with no scene/Input/UI rig.
         /// </summary>
-        public static bool ShouldSwingOnClick(bool weaponSelected,
+        public static bool ShouldSwingOnClick(bool weaponSelected, bool verbClaimedClick,
                                               bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
-            => weaponSelected && !uiPanelOpen && !pointerOverUI && !rmbHeld;
+            => weaponSelected && !verbClaimedClick && !uiPanelOpen && !pointerOverUI && !rmbHeld;
 
         /// <summary>Request ONE attack swing programmatically — the input-independent analog of a left-click
         /// (mirrors ChopTree.RequestChopClick). Latched + consumed on the next Update so headless PlayMode +
@@ -141,9 +172,15 @@ namespace FarHorizon.Combat
             bool overUI = inventoryUI != null && inventoryUI.IsPointerOverUI(Input.mousePosition);
             bool rmbHeld = Input.GetMouseButton(1);
 
-            // One click = one swing of the equipped weapon, TARGET OR NOT (whiff-allowed — soak-2 fix). The gate
-            // does NOT require a target; a target only gates the DAMAGE below.
-            if (!ShouldSwingOnClick(weaponSelected, UiInputGate.CaptureWorldInput, overUI, rmbHeld))
+            // VERB-WINS-OVER-WHIFF (round-4): if a verb (chop / boulder-mine / ore-mine) owns this click — its tool
+            // is selected AND its target is in range — the verb swings + turns + damages; the attack must NOT also
+            // fire a whiff on top (the soak-4 "cannot chop, only whiffs" double-consumer regression). Only queried
+            // when a weapon is selected (else no swing regardless); a stateless recompute per click (a cold path).
+            bool verbClaimed = weaponSelected && VerbClaimsClick();
+
+            // One click = one swing of the equipped weapon, TARGET OR NOT (whiff-allowed — soak-2 fix), UNLESS a
+            // verb claimed the click. The gate does NOT require an enemy target; a target only gates the DAMAGE below.
+            if (!ShouldSwingOnClick(weaponSelected, verbClaimed, UiInputGate.CaptureWorldInput, overUI, rmbHeld))
                 return;
 
             // Attack cooldown, scaled down by the weapon's attackSpeed (a faster weapon swings sooner).
@@ -209,6 +246,20 @@ namespace FarHorizon.Combat
             if (weapon == null) return CastawayCharacter.WeaponClassAxe;
             int cls = WeaponCatalog.WeaponClassForAnimationId(weapon.AnimationId);
             return cls >= 0 ? cls : CastawayCharacter.WeaponClassAxe;
+        }
+
+        /// <summary>VERB-WINS-OVER-WHIFF (round-4 86caffwv5) — true when a verb consumer (chop / boulder-mine /
+        /// ore-mine) OWNS the current left-click: its matching tool is selected AND a valid target is in that verb's
+        /// range. A STATELESS query (each verb recomputes its own range), so it does NOT depend on Update execution
+        /// order between MeleeAttack and the verbs. When true, MeleeAttack suppresses its whiff swing (the verb owns
+        /// the swing + turn + damage). Null verb refs never claim (a bare rig). Called only on a click edge with a
+        /// weapon selected — a cold path (no per-frame alloc; unity6 §5).</summary>
+        private bool VerbClaimsClick()
+        {
+            if (chopTree != null && chopTree.WouldClaimClick()) return true;
+            if (mineBoulder != null && mineBoulder.WouldClaimClick()) return true;
+            if (mineOre != null && mineOre.WouldClaimClick()) return true;
+            return false;
         }
 
         // Resolve the nearest ALIVE enemy Health within `reach` of the player (planar XZ, height-robust —

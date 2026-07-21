@@ -2311,6 +2311,13 @@ namespace FarHorizon.EditorTools
             attack.inventory = Object.FindObjectOfType<Inventory>();
             attack.character = Object.FindObjectOfType<CastawayCharacter>();
             attack.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+            // Verb arbitration refs (round-4 86caffwv5 — verb-wins-over-whiff). BuildChopTree/BuildOreNodes/
+            // BuildBoulders all run before BuildCombat, so these resolve non-null here; MeleeAttack.Awake also
+            // scene-searches as the runtime backstop. When a chop/mine owns the click, MeleeAttack suppresses its
+            // whiff swing (no more spurious combat swing on top of a valid chop/mine).
+            attack.chopTree = Object.FindObjectOfType<ChopTree>();
+            attack.mineBoulder = Object.FindObjectOfType<MineBoulder>();
+            attack.mineOre = Object.FindObjectOfType<MineOre>();
 
             // --- THE SNAKE — the REAL serpent (86caaz4vn): findable banded body + wander/aggro AI +
             //     telegraphed lunge bite, on the 86cah7xxp shared Health surface. ---

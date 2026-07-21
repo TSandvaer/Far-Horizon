@@ -636,7 +636,7 @@ namespace FarHorizon
                          ? _chainTarget : null;
             bool inRange = target != null;
 
-            if (!ShouldChopOnClick(inRange, inventory.IsAxeSelectedInBelt,
+            if (!ShouldChopOnClick(inRange, inventory.IsAnyAxeSelectedInBelt,
                                    UiInputGate.CaptureWorldInput, overUI, rmbHeld))
             {
                 _chainTarget = null; // a failed gate (panel open / over UI / RMB / out of range) pauses the chain
@@ -708,6 +708,24 @@ namespace FarHorizon
         public static bool ShouldChopOnClick(bool inRange, bool axeSelected,
                                              bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
             => inRange && axeSelected && !uiPanelOpen && !pointerOverUI && !rmbHeld;
+
+        /// <summary>
+        /// ARBITRATION (round-4, 86caffwv5) — true when THIS chop verb OWNS the current left-click: an axe (ANY
+        /// tier — wood/stone/iron) is the selected belt item AND a standing tree is within chop range of the
+        /// player. <see cref="FarHorizon.Combat.MeleeAttack"/> queries this (a STATELESS recompute — no shared
+        /// mutable flag, so it is execution-order-independent between the two Updates) to SUPPRESS its whiff swing
+        /// when the chop claims the click (the verb-wins-over-whiff rule). Deliberately does NOT re-apply the
+        /// world-click guards (panel/UI/RMB) — MeleeAttack applies the SAME guards in its own
+        /// <see cref="FarHorizon.Combat.MeleeAttack.ShouldSwingOnClick"/>, so a guarded click fires NEITHER the chop
+        /// nor the whiff. Also independent of the hold-chain cadence state (SwingInProgress / cooldown / pending
+        /// impact): while the player is positioned to chop, the chop owns the click even between swings — a whiff
+        /// mid-chop would be wrong. Null inventory/player → false (a bare rig never claims).
+        /// </summary>
+        public bool WouldClaimClick()
+        {
+            if (inventory == null || player == null) return false;
+            return inventory.IsAnyAxeSelectedInBelt && ResolveNearestChoppable(player.position) != null;
+        }
 
         /// <summary>
         /// Request ONE chop strike programmatically — the input-independent analog of a left-click (CHANGE 1).

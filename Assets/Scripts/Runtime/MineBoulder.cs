@@ -430,6 +430,19 @@ namespace FarHorizon
                 || model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
         }
 
+        /// <summary>
+        /// ARBITRATION (round-4, 86caffwv5) — true when THIS boulder-mine verb OWNS the current left-click: a
+        /// pickaxe (any tier) is the selected belt item AND a mineable boulder is within range. The chop-sibling of
+        /// <see cref="ChopTree.WouldClaimClick"/>; <see cref="FarHorizon.Combat.MeleeAttack"/> queries it (a stateless,
+        /// order-independent recompute) to SUPPRESS its whiff swing when mining claims the click. Guards (panel/UI/RMB)
+        /// are applied by MeleeAttack's own gate, so a guarded click fires neither. Null inventory/player → false.
+        /// </summary>
+        public bool WouldClaimClick()
+        {
+            if (inventory == null || player == null) return false;
+            return IsBoulderPickaxeSelected(inventory) && ResolveNearestMineable(player.position) != null;
+        }
+
         private bool IsInRange(Vector3 from, MineableNodeState n)
         {
             if (n == null) return false;
