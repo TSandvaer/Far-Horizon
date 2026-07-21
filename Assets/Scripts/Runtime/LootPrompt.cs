@@ -3,41 +3,46 @@ using UnityEngine;
 namespace FarHorizon
 {
     /// <summary>
-    /// The on-screen LOOT PROXIMITY PROMPT (ticket 86cafc6ud AC2/AC3) — a small "Press E to pick up {name}"
-    /// tooltip that appears when the player is within loot range of a pickable and HIDES when nothing is in
-    /// range. It makes the (now tightened — 86cafc6ud AC1) loot range LEGIBLE: the player sees the prompt
-    /// exactly when E would loot, and sees it vanish when they step out of reach.
+    /// The single on-screen INTERACTION PROMPT — a small dark pill anchored ABOVE THE CHARACTER'S HEAD that names
+    /// the one thing the player can do RIGHT NOW (ticket 86cafc6ud loot prompt, EXPANDED for 86caffwv5 round-7,
+    /// TASK 3). Originally a bottom-center "Press E to pick up {name}" loot tooltip; the Sponsor found the
+    /// bottom-center location hard to see (it sat on top of the belt strip), so ALL contextual prompts now render
+    /// at ONE predictable world-anchored location above the head — no belt overlap, one place to look.
     ///
-    /// === SINGLE SOURCE OF TRUTH (AC3 — the prompt and the actual loot MUST agree) ===
-    /// The prompt does NOT run its own proximity scan. Each frame it asks the wired
-    /// <see cref="PickableLooter"/> for <see cref="PickableLooter.NearestInRange"/> — the SAME
-    /// <c>ResolveNearestPickable(player.position)</c> the E press uses, against the SAME player position. So
-    /// the prompt can NEVER name a pickable the looter wouldn't actually loot (or hide while one is reachable):
-    /// one resolve, two readers. If the prompt says "Press E to pick up berries", pressing E loots THAT bush.
+    /// === What it shows (priority order — the pure static <see cref="ResolveInteractionPrompt"/>) ===
+    ///   1. "Mine stone"          — within mine range of a boulder with ANY pickaxe belt-selected;
+    ///   2. "Mine iron"           — within range of iron ore with a STONE or IRON pickaxe selected;
+    ///   3. "Needs stone pickaxe" — within range of iron ore with a WOOD pickaxe selected (the refusal cue the
+    ///                              Sponsor approved — a wood pickaxe mines boulders→stone but NOT ore, spec §5);
+    ///   4. "Chop"                — within chop range of a tree with any axe selected (falls out of the same seam);
+    ///   5. "Press E to pick up {name}" — the existing loot prompt (nearest in-range pickable), UNCHANGED copy.
+    /// The verb prompts (1-4) are LEFT-CLICK actions the player is tool-ready for; the loot prompt (5) is the E
+    /// action. When more than one applies, the tool verb the player is holding a tool for wins over loot.
     ///
-    /// === GENERIC item name (AC3 — water/wood slot in with ZERO rework) ===
-    /// The name comes from the resolved pickable's own <see cref="IPickable.DisplayName"/> — the prompt knows
-    /// NOTHING about berries vs sticks vs stones. When the pond (86cafc6vx) and the tree-chop log-pile
-    /// (86caf9u5t) become IPickables, their DisplayName ("water" / "wood") flows through this prompt with no
-    /// change here — the load-bearing genericity the ticket requires.
+    /// === SINGLE SOURCE OF TRUTH (the prompt and the action MUST agree) ===
+    /// Every sub-prompt reads the SAME ground truth the action itself uses: the loot from
+    /// <see cref="PickableLooter.NearestInRange"/> (the SAME resolve the E press uses), and mine/chop from each
+    /// verb's own <see cref="MineBoulder.ClickGateDiag"/> / <see cref="MineOre.ClickGateDiag"/> /
+    /// <see cref="ChopTree.ClickGateDiag"/> (each verb's OWN resolver — no duplicated distance math), so the prompt
+    /// can never name an action the verb wouldn't actually take. The ore tier split reuses the verb's own
+    /// tool-selected gate (stone/iron) + <see cref="Inventory.IsPickaxeWoodSelectedInBelt"/> for the wood-refusal.
     ///
-    /// === Build-safe IMGUI (AC2 — no new shader/mesh) ===
-    /// Pure IMGUI flat-rect + label, the SAME technique BootHud / SurvivalHud use (GUI.DrawTexture with
-    /// Texture2D.whiteTexture for the plate + GUI.Label for the text). Never strips to magenta in the IL2CPP
-    /// release build (no shader/material). Centred low on the screen (clear of the bottom-left need bars + the
-    /// top stamp/title plates). The "E" key label is the LITERAL letter (layout-agnostic — a letter is safe on
-    /// the Sponsor's Danish keyboard, [[sponsor-danish-keyboard-layout]]).
+    /// === Above-head world anchor, screen-CLAMPED (Sponsor-decided placement) ===
+    /// The pill is drawn at <see cref="Camera"/>.WorldToScreenPoint of the player's head (root + a head-height
+    /// offset), then CLAMPED to the screen with a margin so it never slides off-frame at close zoom (the Sponsor's
+    /// requirement). Hidden while the head projects behind the camera. Pure IMGUI dark plate + label (the same
+    /// BootHud/SurvivalHud idiom — never strips to magenta in the IL2CPP release, no shader/material).
     ///
     /// === Cheap (unity6-mastery §5/§6 — no per-frame Find) ===
-    /// OnGUI can fire multiple times per frame (layout + repaint), so the resolve is done ONCE in Update and
-    /// cached; OnGUI only reads the cached label. The resolve itself is the looter's one cached-list pass (no
-    /// allocation, no FindObjectsOfType). The per-frame label string is built only when the target CHANGES
-    /// (cached), so a steady prompt allocates nothing.
+    /// The sources are resolved ONCE in Awake (serialized looter ref + one-shot scene finds for the verbs/camera —
+    /// NOT a per-frame Find). Update does one resolve per source per frame (the verbs' cold-path distance scan +
+    /// the looter's cached-list pass) and caches the label; OnGUI only reads the cached label + re-projects the head.
     ///
     /// === Serialization (unity-conventions.md §editor-vs-runtime) ===
     /// Authored editor-time onto the player GameObject next to the PickableLooter (MovementCameraScene.
-    /// BuildPickableLooter), its looter ref SERIALIZED — NOT an Awake add (the component-in-source-but-not-in-
-    /// scene trap). LootPromptSceneTests guards the serialized presence + wiring.
+    /// BuildPickableLooter), its looter ref SERIALIZED. The verb/camera refs are resolved by a one-shot Awake
+    /// scene-find (scene singletons; NOT new serialized wiring, so the committed Boot.unity needs NO regen —
+    /// [[unity-procedural-committed-assets-go-stale]]). LootPromptSceneTests guards the serialized presence + wiring.
     /// </summary>
     public class LootPrompt : MonoBehaviour
     {
@@ -51,18 +56,36 @@ namespace FarHorizon
                  "so it is layout-agnostic on the Sponsor's Danish keyboard. Kept in sync from the looter in Awake.")]
         public KeyCode lootKey = KeyCode.E;
 
+        [Header("Above-head anchor (86caffwv5 round-7, TASK 3)")]
+        [Tooltip("Metres above the player ROOT to anchor the prompt (≈ above the ~1.8m castaway's head). The pill " +
+                 "is drawn at the camera projection of (player root + this up-offset), then screen-clamped.")]
+        public float headAnchorHeight = 2.2f;
+
         // Plate alpha — the BootHud/SurvivalHud stamp-plate family (0.55).
         private const float PlateAlpha = 0.55f;
         // Warm-cream prompt ink (matches SurvivalHud's ledger Cream so the HUD reads as one family).
         private static readonly Color Cream = new Color(0.92f, 0.85f, 0.72f);
+        // Screen-clamp margin (px) + gap above the head projection + horizontal text padding.
+        private const float ScreenMargin = 8f;
+        private const float HeadGapPx = 6f;
+        private const float PadX = 14f;
+        private const float PillH = 30f;
 
         private GUIStyle _promptStyle;
 
-        // The resolved prompt label this frame ("" = nothing in range -> hidden). Resolved once in Update,
-        // read by OnGUI (which can fire several times per frame). Cached target + label so a steady prompt
-        // rebuilds the string only when the nearest pickable CHANGES (no per-frame alloc).
+        // The resolved prompt label this frame ("" = nothing actionable -> hidden). Resolved once in Update,
+        // read by OnGUI (which can fire several times per frame). Cached so a steady prompt rebuilds nothing.
         private string _label = "";
-        private IPickable _lastTarget;
+        private IPickable _lastLootTarget;
+        private string _lootLabel = "";
+
+        // Sources resolved ONCE in Awake (scene singletons; not per-frame Find).
+        private Transform _playerT;
+        private Camera _cam;
+        private MineBoulder _mineBoulder;
+        private MineOre _mineOre;
+        private ChopTree _chopTree;
+        private Inventory _inventory;
 
         void Awake()
         {
@@ -74,24 +97,57 @@ namespace FarHorizon
             if (looter == null) looter = GetComponent<PickableLooter>();
             if (looter == null) looter = FindObjectOfType<PickableLooter>();
             if (looter != null) lootKey = looter.lootKey; // name the same key the looter actually loots on
+
+            // The player transform to anchor above (the wired looter's player, else this GameObject — LootPrompt is
+            // authored ON the player). One-shot resolve; cached.
+            _playerT = looter != null && looter.player != null ? looter.player : transform;
+
+            // Verb sources for the mine/chop prompts + inventory for the ore tier split. One-shot scene finds
+            // (scene singletons; NOT new serialized wiring → the committed Boot.unity needs no regen). Any may be
+            // null on a bare rig — the prompt logic treats a null source as "no such prompt".
+            _mineBoulder = FindObjectOfType<MineBoulder>();
+            _mineOre = FindObjectOfType<MineOre>();
+            _chopTree = FindObjectOfType<ChopTree>();
+            _inventory = FindObjectOfType<Inventory>();
+            _cam = Camera.main;
         }
 
         void Update()
         {
-            // ONE resolve per frame against the looter's single source of truth (NearestInRange uses the same
-            // ResolveNearestPickable + player position the E press uses). OnGUI then only reads _label.
-            IPickable target = looter != null ? looter.NearestInRange() : null;
-
-            if (!ReferenceEquals(target, _lastTarget))
+            // Rebuild the LOOT label only when the nearest pickable CHANGES (no per-frame alloc for a steady prompt).
+            IPickable lootTarget = looter != null ? looter.NearestInRange() : null;
+            if (!ReferenceEquals(lootTarget, _lastLootTarget))
             {
-                _lastTarget = target;
-                _label = BuildLabel(target, lootKey); // rebuild only when the target changes
+                _lastLootTarget = lootTarget;
+                _lootLabel = BuildLabel(lootTarget, lootKey);
             }
+
+            // Resolve the mine/chop readiness from each verb's OWN ground truth (its ClickGateDiag), + the ore tier
+            // split (stone/iron mine vs wood refusal) from the ore verb's tool gate + the wood-pickaxe selection.
+            bool boulderMineReady = _mineBoulder != null && _mineBoulder.ClickGateDiag().WouldClaim;
+
+            bool oreMineReady = false, oreNeedsBetterPick = false;
+            if (_mineOre != null)
+            {
+                var oreDiag = _mineOre.ClickGateDiag();       // ToolSelected = STONE/IRON pickaxe only
+                if (oreDiag.TargetInRange)
+                {
+                    if (oreDiag.ToolSelected) oreMineReady = true;                       // stone/iron → "Mine iron"
+                    else if (_inventory != null && _inventory.IsPickaxeWoodSelectedInBelt)
+                        oreNeedsBetterPick = true;                                       // wood → refusal cue
+                }
+            }
+
+            bool chopReady = _chopTree != null && _chopTree.ClickGateDiag().WouldClaim;
+
+            _label = ResolveInteractionPrompt(boulderMineReady, oreMineReady, oreNeedsBetterPick, chopReady, _lootLabel);
         }
 
         void OnGUI()
         {
-            if (string.IsNullOrEmpty(_label)) return; // nothing in range -> the prompt is HIDDEN (AC2)
+            if (string.IsNullOrEmpty(_label)) return;      // nothing actionable -> the prompt is HIDDEN
+            if (_playerT == null) return;
+            if (_cam == null) { _cam = Camera.main; if (_cam == null) return; }
 
             if (_promptStyle == null)
             {
@@ -104,30 +160,59 @@ namespace FarHorizon
                 _promptStyle.normal.textColor = Cream;
             }
 
-            // Centred low (clear of the bottom-left need bars + the top stamp/title plates). A low-alpha dark
-            // plate behind the text, same idiom as BootHud's title/stamp plates.
-            const float w = 360f, h = 34f;
-            float x = (Screen.width - w) * 0.5f;
-            float y = Screen.height - 96f;
+            // Project the player's HEAD to screen space. WorldToScreenPoint: origin BOTTOM-left, z = distance in
+            // front of the camera. Hide when the head is behind the camera (z <= 0).
+            Vector3 headWorld = _playerT.position + Vector3.up * headAnchorHeight;
+            Vector3 sp = _cam.WorldToScreenPoint(headWorld);
+            if (sp.z <= 0f) return;
+
+            // Snug pill sized to the text; dark plate (match the existing HUD panel style) + cream label.
+            float pillW = _promptStyle.CalcSize(new GUIContent(_label)).x + PadX * 2f;
+            float bottomGui = (Screen.height - sp.y) - HeadGapPx;   // just above the head projection (GUI y is top-down)
+            float topGui = bottomGui - PillH;
+
+            // Screen-CLAMP so the pill never slides off-frame at close zoom (the Sponsor's requirement).
+            float x = Mathf.Clamp(sp.x - pillW * 0.5f, ScreenMargin, Screen.width - ScreenMargin - pillW);
+            float y = Mathf.Clamp(topGui, ScreenMargin, Screen.height - ScreenMargin - PillH);
 
             GUI.color = new Color(0f, 0f, 0f, PlateAlpha);
-            GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(x, y, pillW, PillH), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(x, y + 5f, w, h - 8f), _label, _promptStyle);
+            GUI.Label(new Rect(x, y + 5f, pillW, PillH - 8f), _label, _promptStyle);
         }
 
         /// <summary>
-        /// PURE prompt-text resolution (the unit-testable seam — sibling of <see cref="PickableLooter.ShouldLootOnKey"/>):
-        /// given the nearest in-range pickable (or null) and the loot key, return the prompt label, or "" when
-        /// there is NOTHING to prompt for (so OnGUI draws nothing — the HIDE case, AC2). Static + dependency-free
-        /// so the EditMode test asserts the show/hide + the GENERIC naming with no scene/OnGUI rig:
-        ///   • null target            -> "" (prompt hidden — nothing in range);
+        /// PURE interaction-prompt priority (the unit-testable seam — sibling of <see cref="BuildLabel"/>). Given
+        /// the readiness flags for each verb (already resolved against each verb's OWN ground truth) + the loot
+        /// label, return the ONE label to show above the head (or "" to hide). Priority (a tool verb the player is
+        /// tool-ready for wins over loot):
+        ///   • <paramref name="boulderMineReady"/> → "Mine stone";
+        ///   • <paramref name="oreMineReady"/>      → "Mine iron";
+        ///   • <paramref name="oreNeedsBetterPick"/> → "Needs stone pickaxe" (the wood-pickaxe refusal cue);
+        ///   • <paramref name="chopReady"/>         → "Chop";
+        ///   • else the loot label (already "Press E to …" or "").
+        /// Static + dependency-free so the EditMode guard asserts the whole priority table with no scene/OnGUI rig.
+        /// </summary>
+        public static string ResolveInteractionPrompt(bool boulderMineReady, bool oreMineReady,
+                                                      bool oreNeedsBetterPick, bool chopReady, string lootLabel)
+        {
+            if (boulderMineReady) return "Mine stone";
+            if (oreMineReady) return "Mine iron";
+            if (oreNeedsBetterPick) return "Needs stone pickaxe";
+            if (chopReady) return "Chop";
+            return lootLabel ?? "";
+        }
+
+        /// <summary>
+        /// PURE loot prompt-text resolution (the unit-testable seam): given the nearest in-range pickable (or null)
+        /// and the loot key, return the prompt label, or "" when there is NOTHING to prompt for (so the prompt is
+        /// hidden). The verb comes from the pickable's own <see cref="IPickable.GatherVerb"/> (default "pick up";
+        /// the pond overrides to "collect") so the copy fits the action with ZERO per-item branch — the prompt stays
+        /// item-agnostic. The key is the LITERAL letter (E) — layout-agnostic on the Danish keyboard.
+        ///   • null target            -> "" (hidden — nothing in range);
         ///   • target with no name    -> "" (defensive: never a half-built "Press E to pick up ");
-        ///   • target "berries"       -> "Press E to pick up berries" (the default verb flows straight through);
-        ///   • the pond ("water")     -> "Press E to collect water" (its GatherVerb override — 86cafc6vx).
-        /// The verb comes from the pickable's own <see cref="IPickable.GatherVerb"/> (default "pick up"; the pond
-        /// overrides to "collect") so the COPY fits the action with ZERO per-item branch here — the prompt stays
-        /// item-agnostic. The key is rendered as the LITERAL letter (E) — layout-agnostic on the Danish keyboard.
+        ///   • target "berries"       -> "Press E to pick up berries";
+        ///   • the pond ("water")     -> "Press E to collect water" (its GatherVerb override).
         /// </summary>
         public static string BuildLabel(IPickable target, KeyCode lootKey)
         {

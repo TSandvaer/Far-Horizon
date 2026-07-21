@@ -206,10 +206,12 @@ namespace FarHorizon.EditTests
         }
 
         // === MineBoulder placement-obstacle wiring (86catr49m): the boulder pool must ship registrable ===
-        // Boulders are collider-free + do NOT carve the navmesh, so a crafting-table ghost can only read RED over
-        // one via PlacementObstacleRegistry (MineBoulder.SyncPlacementObstacles, keyed on IsMineable). This is the
-        // SCENE-side half of the boulder-registered guard (the runtime register/unregister/re-register lifecycle
-        // is pinned by MineBoulderPlacementObstacleTests): assert MineBoulder ships with a positive
+        // Boulders carry no AUTHORED collider; a crafting-table ghost reads RED over one via PlacementObstacleRegistry
+        // (MineBoulder.SyncPlacementObstacles, keyed on IsMineable) — the SCENE-side placement half. (86caffwv5
+        // round-7 additionally gives each boulder a RUNTIME carving NavMeshObstacle for MOVEMENT blocking, added by
+        // MineableNodeState at Start — orthogonal to placement; the registry stays the placement source of truth.)
+        // This is the SCENE-side half of the boulder-registered guard (the runtime register/unregister/re-register
+        // lifecycle is pinned by MineBoulderPlacementObstacleTests): assert MineBoulder ships with a positive
         // placementObstacleRadius AND a non-empty boulder pool, so the registration has something to project. A
         // dropped pool / zeroed radius reds HERE, not silently in a soak (the table clips into a boulder).
         [Test]

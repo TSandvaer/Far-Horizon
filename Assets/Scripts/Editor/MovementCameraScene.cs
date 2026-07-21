@@ -2902,7 +2902,9 @@ namespace FarHorizon.EditorTools
         // StonePileSpawner mints a StonePile per broken boulder. Authored editor-time so the pool + MineBoulder/
         // StonePileSpawner refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A DISCRETE scene-author ADD
         // OUTSIDE the seeded LowPolyZoneGen scatter stream — it provably cannot perturb the seed-42 island/scatter
-        // ([[world-is-big-round-island]]). Collider-free — the player walks up to mine; no NavMesh/raycast impact.
+        // ([[world-is-big-round-island]]). No COLLIDER is authored here; the boulder BLOCKS the NavMeshAgent player
+        // via a RUNTIME carving NavMeshObstacle added by MineableNodeState (86caffwv5 round-7, TASK 2 — like trees),
+        // which carves the BAKED navmesh at runtime (non-destructive to the bake, so seed-42 NavMesh is untouched).
         private static void BuildBoulders(GameObject player, int groundLayer)
         {
             // Shared material for the whole pool (ONE instance of the LowPolyVertexColor shader → SRP-batched).
@@ -3004,7 +3006,8 @@ namespace FarHorizon.EditorTools
         // One boulder visual: a LARGE chunky faceted STONE lump resting ON the ground (half-embedded so it reads as
         // a boulder sitting on the surface — a bump UP, not a floating rock or a hole). Named MineBoulder.BoulderNodeName
         // under the pool root; MineBoulder discovers + drives it. The body mesh is named "BoulderMesh" (NOT "RockMesh")
-        // so the scatter-rock guards (RockBoulderSceneTests) don't pick it up. Collider-free.
+        // so the scatter-rock guards (RockBoulderSceneTests) don't pick it up. No collider authored; the movement
+        // block is a RUNTIME carving NavMeshObstacle added by MineableNodeState (86caffwv5 round-7, TASK 2).
         private static void BuildBoulderVisual(Transform parent, Vector3 groundPos, int seed, Material boulderMat)
         {
             var node = new GameObject(MineBoulder.BoulderNodeName);

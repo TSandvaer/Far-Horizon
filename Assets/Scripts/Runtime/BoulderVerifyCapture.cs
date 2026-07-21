@@ -24,8 +24,10 @@ namespace FarHorizon
     /// Inert unless launched with -verifyBoulder. HEADLESS via RT-readback (86cag93zb): captures render a camera into
     /// an offscreen RT, so it runs under -batchmode (no window). Self-asserts are LOGIC (stone count).
     ///   FarHorizon.exe -batchmode -verifyBoulder -captureDir &lt;dir&gt;
-    /// Captures: boulder_before.png (at spawn, no stone), boulder_side.png (a boulder side-profile, Bar 4), and
-    /// boulder_after.png (at the boulder, stone in the inventory), then quits non-zero if the mine→break→loot proof failed.
+    /// Captures: boulder_before.png (at spawn, no stone), boulder_side.png (a boulder side-profile, Bar 4),
+    /// boulder_blocked.png (86caffwv5 round-7 TASK 2 — the player BLOCKED at the boulder surface by the runtime
+    /// carve, informational), and boulder_after.png (at the boulder, stone in the inventory), then quits non-zero
+    /// if the mine→break→loot proof failed.
     /// </summary>
     public class BoulderVerifyCapture : MonoBehaviour
     {
@@ -97,6 +99,22 @@ namespace FarHorizon
             {
                 bool setNode = TeleportPlayer(boulderPos);
                 Debug.Log("[BoulderVerifyCapture] teleport to boulder set: " + setNode + " target=" + boulderPos);
+
+                // 86caffwv5 round-7 (TASK 2) — COLLISION EVIDENCE: with the runtime carving NavMeshObstacle, warping
+                // toward the boulder CENTRE snaps the agent to the nearest walkable navmesh = the boulder SURFACE (the
+                // carve removed the centre from the navmesh), so the player is BLOCKED at the surface, ~carveRadius
+                // from centre — pre-carve this landed at ~0u (the centre was walkable). Log the stand-off + capture the
+                // blocked-at-surface frame. Informational (PASS stays the mine→loot logic); the reviewer/Sponsor
+                // eyeballs boulder_blocked.png + confirms the player can still MINE from here (distToCenter < mineRadius).
+                float distToCenter = player != null ? PlanarDist(player.transform.position, boulderPos) : -1f;
+                Debug.Log("[BoulderVerifyCapture] BLOCKED-AT-SURFACE: warp-toward-centre landed the player at planarDist=" +
+                          distToCenter.ToString("F2") + "u from the boulder centre (the carve blocks entry; pre-carve ~0u); " +
+                          "mineRadius=" + (mine != null ? mine.mineRadius : 2.4f).ToString("F2") +
+                          " -> mineable-from-surface=" + (distToCenter >= 0f && distToCenter <= (mine != null ? mine.mineRadius : 2.4f)));
+                for (int i = 0; i < 6; i++) yield return null; // let the orbit cam settle on the player at the surface
+                ShotMain(Path.Combine(dir, "boulder_blocked.png"));
+                yield return null;
+
                 float start = Time.time;
                 while (Time.time - start < 25f)
                 {

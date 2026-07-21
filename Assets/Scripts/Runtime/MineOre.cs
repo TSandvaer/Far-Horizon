@@ -657,6 +657,20 @@ namespace FarHorizon
         private float _shakeT;
         private float _shakeDeg;
 
+        // 86caffwv5 round-7 (TASK 2 — "block movement like trees do") — the MOVEMENT carve. The world is
+        // DELIBERATELY collider-free and the player is a NavMeshAgent, so a physics COLLIDER would NOT stop the
+        // player (a NavMeshAgent walks the baked navmesh, ignoring colliders — PlacementObstacleRegistry.cs
+        // documents the collider-free world). Trees block by CARVING the navmesh with a NavMeshObstacle
+        // (LowPolyZoneGen.BuildTree); boulders + ore nodes did NOT, so the player could walk INSIDE the big
+        // minable boulders (the Sponsor's screenshot). This carve is the SAME mechanism trees use — a snug capsule
+        // hugging the visual footprint so the player is blocked at the surface yet can still stand within mine
+        // range (carve + agentRadius << mineRadius). It is toggled OFF while the node is broken/removed/regrowing
+        // so a mined-away spot is never an invisible wall (a rarity-disabled node's GameObject is inactive, so its
+        // obstacle is inert automatically). RUNTIME carve: no re-bake, no committed-scene change — carving cuts the
+        // baked navmesh at runtime exactly like trees.
+        private UnityEngine.AI.NavMeshObstacle _carve;
+        private bool _carveOn;
+
         // 86camf3xe — this Tick's tween STEP delta (set at the top of Tick). Time.unscaledDeltaTime in the shipped
         // build (production unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected
         // test clock's per-frame advance under a PlayMode test, so the break/fade/regrow tweens complete in a
@@ -705,8 +719,59 @@ namespace FarHorizon
                 _standRot = _visual.rotation;
                 _standScale = _visual.localScale;
                 _renderers = _visual.GetComponentsInChildren<Renderer>(true);
+                BuildMovementCarve(); // 86caffwv5 round-7 — block the NavMeshAgent player like trees do (TASK 2)
             }
             _rng = new System.Random(seed != 0 ? seed : Environment.TickCount);
+        }
+
+        // 86caffwv5 round-7 (TASK 2) — add the carving NavMeshObstacle that blocks the NavMeshAgent player from
+        // walking into the mineable, sized to the visual's actual planar footprint (measured from the combined
+        // renderer bounds) so it hugs the rock. Radius/center/height are LOCAL values (NavMeshObstacle scales them
+        // by the visual's lossyScale), so the world footprint is divided out of the transform scale — a snug collar
+        // at any scale (the same fix trees use, LowPolyZoneGen.TrunkObstacleLocalRadius). Null-safe: a bare rig with
+        // no renderer gets no carve (harmless). The carve starts ON iff the node is currently mineable (standing).
+        private void BuildMovementCarve()
+        {
+            if (_visual == null || _renderers == null || _renderers.Length == 0) return;
+            if (!TryPlanarFootprint(out Vector3 worldCenter, out float planarRadius, out float height)) return;
+            if (planarRadius <= 1e-3f) return;
+
+            var carve = _visual.GetComponent<UnityEngine.AI.NavMeshObstacle>();
+            if (carve == null) carve = _visual.gameObject.AddComponent<UnityEngine.AI.NavMeshObstacle>();
+
+            Vector3 ls = _visual.lossyScale;
+            float sxz = Mathf.Max(1e-4f, Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)));
+            float sy = Mathf.Max(1e-4f, Mathf.Abs(ls.y));
+
+            carve.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
+            carve.center = _visual.InverseTransformPoint(worldCenter);
+            carve.radius = planarRadius / sxz;                          // LOCAL; world footprint == planarRadius
+            carve.height = Mathf.Max(height, planarRadius * 2f) / sy;   // span the vertical extent (reaches the navmesh)
+            carve.carving = true;
+            carve.enabled = IsMineable;   // standing → carve on; Tick keeps it in lock-step with mineability
+            _carve = carve;
+            _carveOn = carve.enabled;
+        }
+
+        // Combined WORLD planar footprint of this node's renderers (the carve size source). Returns false if the
+        // node has no valid renderer bounds (a bare rig). planarRadius = the larger of the XZ half-extents so the
+        // carve circle circumscribes the widest silhouette; height = the full vertical extent.
+        private bool TryPlanarFootprint(out Vector3 worldCenter, out float planarRadius, out float height)
+        {
+            worldCenter = Vector3.zero; planarRadius = 0f; height = 0f;
+            bool any = false;
+            Bounds b = default;
+            for (int i = 0; i < _renderers.Length; i++)
+            {
+                if (_renderers[i] == null) continue;
+                if (!any) { b = _renderers[i].bounds; any = true; }
+                else b.Encapsulate(_renderers[i].bounds);
+            }
+            if (!any) return false;
+            worldCenter = b.center;
+            planarRadius = Mathf.Max(b.extents.x, b.extents.z);
+            height = b.size.y;
+            return true;
         }
 
         public int Strikes => _strikes;
@@ -714,6 +779,19 @@ namespace FarHorizon
         public bool Enabled => _enabled;
         public float RegrowAt => _regrowAt;
         public Vector3 Position => _visual != null ? _visual.position : Vector3.zero;
+
+        /// <summary>86caffwv5 round-7 (TASK 2) — true once this node carries a movement-blocking NavMeshObstacle
+        /// carve (a bare rig with no renderer has none). For the EditMode carve guard.</summary>
+        public bool HasMovementCarve => _carve != null;
+
+        /// <summary>86caffwv5 round-7 (TASK 2) — true while this node's movement carve is actively blocking the
+        /// player (enabled + carving). Follows mineability: on while standing, off while broken/removed/regrowing.
+        /// For the EditMode carve-lifecycle guard.</summary>
+        public bool MovementCarveActive => _carve != null && _carve.enabled && _carve.carving;
+
+        /// <summary>86caffwv5 round-7 (TASK 2) — the movement carve's LOCAL radius (0 if none). For the EditMode
+        /// guard that pins the carve is sized to the footprint (so mine range still reaches over it).</summary>
+        public float MovementCarveRadius => _carve != null ? _carve.radius : 0f;
 
         /// <summary>True only when this node is ENABLED and STANDING (not broken, not mid-tween) → strike-eligible.</summary>
         public bool IsMineable => _enabled && !_broken && !_breaking && !_fadingOut && !_removed && !_regrowing;
@@ -775,6 +853,16 @@ namespace FarHorizon
                 _prevNowSet = true;
             }
 #endif
+
+            // 86caffwv5 round-7 (TASK 2) — keep the movement carve in lock-step with mineability so a broken /
+            // removed / regrowing node stops blocking the player at an empty spot (and a regrown one blocks again).
+            // Cheap: writes only on a transition. Runs even while disabled (IsMineable is false then → carve off),
+            // but a rarity-disabled node's GameObject is inactive so its obstacle is inert regardless.
+            if (_carve != null && _carveOn != IsMineable)
+            {
+                _carveOn = IsMineable;
+                _carve.enabled = _carveOn;
+            }
 
             if (!_enabled) return;
             if (_breaking) { StepBreaking(); return; }

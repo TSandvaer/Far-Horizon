@@ -208,10 +208,14 @@ namespace FarHorizon
             ShotTo(Path.Combine(dir, "loot_prompt.png"));
             yield return new WaitForEndOfFrame();
 
-            // SELF-ASSERT 2 — PROMPT RENDERED (the frame): the centred-low prompt band reads DISTINCT from a
-            // control band just above it. A correctly-painted dark plate + cream text differs measurably from
-            // the terrain/sky above; an IMGUI that silently failed to render leaves the band == the control.
-            bool promptRendered = CheckPromptBandRendered(out float bandLuma, out float ctrlLuma,
+            // SELF-ASSERT 2 — PROMPT RENDERED (the frame): the ABOVE-HEAD prompt band (86caffwv5 round-7, TASK 3 —
+            // the prompt moved from bottom-center to a world-anchored pill above the player's head) reads DISTINCT
+            // from a control band just above it. The band is located at the SAME head projection LootPrompt.OnGUI
+            // uses (Camera.main.WorldToScreenPoint(player + up*headAnchorHeight)); a correctly-painted dark plate +
+            // cream text differs measurably from the sky/terrain above, while an IMGUI that failed to render leaves
+            // the band == the control.
+            bool promptRendered = CheckPromptBandRendered(player, cam, prompt.headAnchorHeight,
+                                                          out float bandLuma, out float ctrlLuma,
                                                           out float bandVar, out float deltaLuma, out float darkFrac);
             Debug.Log("[LootPromptVerifyCapture] RENDER: prompt-band luma=" + bandLuma.ToString("F3") +
                       " control-band luma=" + ctrlLuma.ToString("F3") + " |delta|=" + deltaLuma.ToString("F3") +
@@ -263,10 +267,11 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// Read back the SHOW frame and assert the LootPrompt's IMGUI band actually RENDERED. The prompt draws a
-        /// w=360 h=34 plate centred horizontally at y = Screen.height - 96 (LootPrompt.OnGUI), with a low-alpha
-        /// DARK plate (PlateAlpha 0.55 black over the scene) + CREAM bold text. We sample that band (in
-        /// ReadPixels bottom-left coords, so the band is near the BOTTOM of the buffer) and a CONTROL band the
+        /// Read back the SHOW frame and assert the LootPrompt's IMGUI band actually RENDERED. As of 86caffwv5
+        /// round-7 (TASK 3) the prompt draws an ABOVE-HEAD pill (text-sized width, height 30) centred at the head
+        /// projection Camera.main.WorldToScreenPoint(player + up*headAnchorHeight), with a low-alpha DARK plate
+        /// (PlateAlpha 0.55 black over the scene) + CREAM bold text. We sample a band at that projection (in
+        /// ReadPixels bottom-left coords — WorldToScreenPoint is already BL-origin) and a CONTROL band the
         /// same size just ABOVE it (clear of the plate). A painted prompt makes the band read measurably DIFFERENT
         /// from the control: the 0.55-alpha black plate drags the band's luma down vs the bare scene just above
         /// it, and the cream text adds bright neutral pixels → higher variance. Returns true when the band reads
@@ -289,7 +294,8 @@ namespace FarHorizon
         /// nearly as dark as the plate (small delta). An empty/blank band fails BOTH terms → still a REAL render
         /// proof, not a rubber-stamp.
         /// </summary>
-        private bool CheckPromptBandRendered(out float bandLuma, out float controlLuma, out float bandVariance,
+        private bool CheckPromptBandRendered(Transform player, Camera cam, float headAnchorHeight,
+                                             out float bandLuma, out float controlLuma, out float bandVariance,
                                              out float deltaLuma, out float darkPlateFrac)
         {
             int w = Screen.width, h = Screen.height;
@@ -297,20 +303,23 @@ namespace FarHorizon
             tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
             tex.Apply();
 
-            // OnGUI rect (top-left origin): x = (w-360)/2, y_topleft = h - 96, height 34. Convert to ReadPixels
-            // bottom-left coords: yBL = h - (y_topleft + height) = h - (h - 96 + 34) = 96 - 34 = 62 from the
-            // bottom. Sample a band a touch INSIDE the plate so anti-aliased edges don't dilute the read.
-            const float plateW = 360f, plateH = 34f;
-            int bx0 = Mathf.Clamp((int)((w - plateW) * 0.5f) + 6, 0, w - 1);
-            int bx1 = Mathf.Clamp((int)((w + plateW) * 0.5f) - 6, 0, w);
-            // y_topleft of the plate top = h - 96; plate bottom (top-left) = h - 96 + 34 = h - 62.
-            // bottom-left band: from yBL = 62 + 4 up to yBL = 62 + 34 - 4.
-            int byBLbottom = 62;
-            int by0 = Mathf.Clamp(byBLbottom + 4, 0, h - 1);
-            int by1 = Mathf.Clamp(byBLbottom + (int)plateH - 4, 0, h);
-            // Control band: same x, an equal-height band ABOVE the plate (further from the bottom), clear of it.
-            int cy0 = Mathf.Clamp(byBLbottom + (int)plateH + 24, 0, h - 1);
-            int cy1 = Mathf.Clamp(cy0 + ((int)plateH - 8), 0, h);
+            // 86caffwv5 round-7 (TASK 3): the prompt is now an ABOVE-HEAD pill at the SAME projection LootPrompt.OnGUI
+            // uses — Camera.main.WorldToScreenPoint(player + up*headAnchorHeight). The pill is centred at sp.x with
+            // its bottom HeadGapPx above the head projection. WorldToScreenPoint is bottom-left origin (matching
+            // ReadPixels), so the pill occupies BL-y ∈ [sp.y + HeadGapPx, sp.y + HeadGapPx + PillH]. The pill width
+            // is text-sized (~260px for the loot label); read a snug ~120px band centred at sp.x (well inside the
+            // plate). Control = an equal band a little ABOVE the pill (bare sky/scene, clear of the plate).
+            const float pillH = 30f, headGap = 6f, sampleHalfW = 60f;
+            Vector3 sp = cam.WorldToScreenPoint(player.position + Vector3.up * headAnchorHeight);
+            int cx = Mathf.Clamp(Mathf.RoundToInt(sp.x), 0, w - 1);
+            int bx0 = Mathf.Clamp(cx - (int)sampleHalfW, 0, w - 1);
+            int bx1 = Mathf.Clamp(cx + (int)sampleHalfW, 0, w);
+            int pillBLbottom = Mathf.RoundToInt(sp.y + headGap);
+            int by0 = Mathf.Clamp(pillBLbottom + 4, 0, h - 1);
+            int by1 = Mathf.Clamp(pillBLbottom + (int)pillH - 4, 0, h);
+            // Control band: same x, an equal-height band ABOVE the pill (further from the head), clear of the plate.
+            int cy0 = Mathf.Clamp(pillBLbottom + (int)pillH + 24, 0, h - 1);
+            int cy1 = Mathf.Clamp(cy0 + ((int)pillH - 8), 0, h);
 
             double bandSum = 0, bandSum2 = 0; int bandN = 0; int dark = 0;
             for (int y = by0; y < by1; y++)
