@@ -1824,6 +1824,24 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the LEFT-CLICK VERB-GATE DIAGNOSTIC (86caffwv5 / PR #327 — the [[soak-fail-test-pass-instrument-runtime]]
+        // instrument for the live mine failure). Serializes onto Boot so the [ClickGateDiag] line ships in the soak
+        // (the component-in-source-but-not-in-scene trap); its refs self-resolve in Awake (FindObjectOfType — the
+        // project idiom). Reads-only — NOT a mine fix. The [ClickGateDiag] Player.log line fires on every left-click;
+        // the overlay draw rides the F10 DebugOverlays master. Sibling of WireDebugOverlayMaster / WireFloatDiagnostic.
+        private static void WireClickGateDiagnostic()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host ClickGateDiagnostic");
+                return;
+            }
+            if (bootGo.GetComponent<ClickGateDiagnostic>() == null)
+                bootGo.AddComponent<ClickGateDiagnostic>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
         // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
         private static void WireWalkGroundingVerifyCapture()
@@ -4114,6 +4132,11 @@ namespace FarHorizon.EditorTools
             // behind the F1 dev-overlay master gate, default = shipped crouch behavior. The Sponsor sneaks, flips
             // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
             WireDebugOverlayMaster();
+
+            // Wire the LEFT-CLICK VERB-GATE DIAGNOSTIC (86caffwv5 / PR #327 — the live-mine instrument). Serializes
+            // onto Boot so the [ClickGateDiag] line ships in the soak; it dumps which consumer claimed each left-click
+            // + every non-claiming verb's first failing guard with values, behind the F10 overlay master. Reads-only.
+            WireClickGateDiagnostic();
 
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the

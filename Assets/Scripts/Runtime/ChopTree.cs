@@ -727,6 +727,35 @@ namespace FarHorizon
             return inventory.IsAnyAxeSelectedInBelt && ResolveNearestChoppable(player.position) != null;
         }
 
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): this
+        /// verb's left-click gate ground truth — the axe-selected gate + the planar-XZ distance to the NEAREST
+        /// standing tree (ignoring range, so a "just out of reach" case is legible) vs <see cref="chopRadius"/>.
+        /// Uses this verb's OWN state (no duplicated resolver). Null inventory/player → tool unselected + no target.</summary>
+        public VerbGateDiag ClickGateDiag()
+        {
+            var d = new VerbGateDiag { Range = chopRadius, NearestDist = -1f };
+            d.ToolSelected = inventory != null && inventory.IsAnyAxeSelectedInBelt;
+            if (player != null) d.NearestDist = NearestChoppableDistance(player.position);
+            return d;
+        }
+
+        // Planar (XZ) distance to the nearest STANDING choppable tree, ignoring chopRadius (so the diagnostic can
+        // show "in range" vs "just out of reach"). -1 if no choppable tree exists. A read-only cold-path scan.
+        private float NearestChoppableDistance(Vector3 from)
+        {
+            float best = -1f;
+            Vector2 here = new Vector2(from.x, from.z);
+            for (int i = 0; i < _instances.Count; i++)
+            {
+                ChoppableTreeState s = _instances[i];
+                if (!s.IsChoppable) continue;
+                Vector3 p = s.Position;
+                float dist = (here - new Vector2(p.x, p.z)).magnitude;
+                if (best < 0f || dist < best) best = dist;
+            }
+            return best;
+        }
+
         /// <summary>
         /// Request ONE chop strike programmatically — the input-independent analog of a left-click (CHANGE 1).
         /// Latched + consumed on the next Update (mirrors the mouse's rising edge — one chop per call), so a

@@ -447,6 +447,35 @@ namespace FarHorizon
             return IsPickaxeSelected(inventory) && ResolveNearestMineable(player.position) != null;
         }
 
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): this
+        /// verb's left-click gate ground truth — the pickaxe-selected gate (STONE/IRON only — a wood pickaxe does NOT
+        /// mine ore) + the planar-XZ distance to the NEAREST mineable ore node (ignoring range) vs
+        /// <see cref="mineRadius"/>. Uses this verb's OWN state. Null inventory/player → tool unselected + no target.</summary>
+        public VerbGateDiag ClickGateDiag()
+        {
+            var d = new VerbGateDiag { Range = mineRadius, NearestDist = -1f };
+            d.ToolSelected = IsPickaxeSelected(inventory);
+            if (player != null) d.NearestDist = NearestMineableDistance(player.position);
+            return d;
+        }
+
+        // Planar (XZ) distance to the nearest mineable ENABLED ore node, ignoring mineRadius (so the diagnostic shows
+        // "in range" vs "just out of reach"). -1 if none mineable. A read-only cold-path scan.
+        private float NearestMineableDistance(Vector3 from)
+        {
+            float best = -1f;
+            Vector2 here = new Vector2(from.x, from.z);
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                MineableNodeState s = _nodes[i];
+                if (!s.IsMineable) continue;
+                Vector3 p = s.Position;
+                float dist = (here - new Vector2(p.x, p.z)).magnitude;
+                if (best < 0f || dist < best) best = dist;
+            }
+            return best;
+        }
+
         /// <summary>Planar (XZ) range check between a position and a tracked node (mirrors ResolveNearestMineable).</summary>
         private bool IsInRange(Vector3 from, MineableNodeState n)
         {

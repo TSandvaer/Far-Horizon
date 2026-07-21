@@ -262,6 +262,23 @@ namespace FarHorizon.Combat
             return false;
         }
 
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): the
+        /// melee gate ground truth — the SELECTED weapon (its id; null = the selected belt item is not a weapon /
+        /// nothing selected) + whether an enemy is in reach (a whiff vs a landed swing). Uses the SAME SelectedWeapon
+        /// + ResolveNearestTarget the live swing reads. A cold-path read (called only on a click by the diagnostic).</summary>
+        public MeleeGateDiag ClickGateDiag()
+        {
+            WeaponDef w = SelectedWeapon;
+            var d = new MeleeGateDiag
+            {
+                WeaponSelected = w != null,
+                WeaponId = w != null ? w.Id : null,
+                Reach = w != null ? w.Reach : 0f,
+            };
+            if (w != null) d.HasTarget = ResolveNearestTarget(w.Reach) != null;
+            return d;
+        }
+
         // Resolve the nearest ALIVE enemy Health within `reach` of the player (planar XZ, height-robust —
         // the same metric ChopTree/CraftSpot use). Skips the player's OWN Health (an attack never hits self).
         // Uses FindObjectsOfType only on a click (NOT per-frame) — a cold path, no per-frame alloc (unity6 §5).
