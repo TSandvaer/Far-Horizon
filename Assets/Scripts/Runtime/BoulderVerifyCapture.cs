@@ -26,8 +26,10 @@ namespace FarHorizon
     ///   FarHorizon.exe -batchmode -verifyBoulder -captureDir &lt;dir&gt;
     /// Captures: boulder_before.png (at spawn, no stone), boulder_side.png (a boulder side-profile, Bar 4),
     /// boulder_blocked.png (86caffwv5 round-7 TASK 2 — the player BLOCKED at the boulder surface by the runtime
-    /// carve, informational), and boulder_after.png (at the boulder, stone in the inventory), then quits non-zero
-    /// if the mine→break→loot proof failed.
+    /// carve, informational), boulder_blocked_side.png (86caffwv5 round-8 — a SIDE-PROFILE of the player blocked at
+    /// the boulder so the horizontal gap reads as TOUCHING, the Sponsor's soak-7 fix evidence), and
+    /// boulder_after.png (at the boulder, stone in the inventory), then quits non-zero if the mine→break→loot proof
+    /// failed.
     /// </summary>
     public class BoulderVerifyCapture : MonoBehaviour
     {
@@ -110,9 +112,16 @@ namespace FarHorizon
                 Debug.Log("[BoulderVerifyCapture] BLOCKED-AT-SURFACE: warp-toward-centre landed the player at planarDist=" +
                           distToCenter.ToString("F2") + "u from the boulder centre (the carve blocks entry; pre-carve ~0u); " +
                           "mineRadius=" + (mine != null ? mine.mineRadius : 2.4f).ToString("F2") +
-                          " -> mineable-from-surface=" + (distToCenter >= 0f && distToCenter <= (mine != null ? mine.mineRadius : 2.4f)));
+                          " -> mineable-from-surface=" + (distToCenter >= 0f && distToCenter <= (mine != null ? mine.mineRadius : 2.4f)) +
+                          // 86caffwv5 round-8 — the carve-vs-visual interplay: prove blocked planarDist ≈ the visual
+                          // edge (min/max XZ half-extent), NOT a body-length beyond it (the Sponsor's soak-7 gap).
+                          " " + DescribeBoulderCarve(boulderPos));
                 for (int i = 0; i < 6; i++) yield return null; // let the orbit cam settle on the player at the surface
                 ShotMain(Path.Combine(dir, "boulder_blocked.png"));
+                // 86caffwv5 round-8 — a SIDE-PROFILE of the player blocked at the boulder: a horizontal gap is
+                // invisible from the orbit/top view but obvious side-on. The Sponsor's soak-7 verdict was that the
+                // gap must read as TOUCHING — this shot is the eyeball evidence for that.
+                if (player != null) ShotBlockedSideProfile(player.transform.position, boulderPos, Path.Combine(dir, "boulder_blocked_side.png"));
                 yield return null;
 
                 // Mine from the carve-blocked SURFACE until the boulder breaks + drops its stone pile at the
@@ -293,6 +302,84 @@ namespace FarHorizon
             if (tex != null) Object.Destroy(tex);
             Object.Destroy(camGo);
             Debug.Log("[BoulderVerifyCapture] wrote side-profile " + file);
+        }
+
+        // 86caffwv5 round-8 — SIDE-PROFILE of the player BLOCKED at the boulder (Sponsor soak-7: the gap must read as
+        // TOUCHING, not a body-length). A camera PERPENDICULAR to the player->boulder approach line, at ~chest
+        // height, frames BOTH the castaway and the rock so the horizontal gap between them is eyeball-able side-on
+        // (the orbit / top view hides a horizontal gap; side-on shows it). Rides the gameplay render path, then is
+        // destroyed.
+        private void ShotBlockedSideProfile(Vector3 playerPos, Vector3 boulderPos, string file)
+        {
+            var main = Camera.main;
+            var camGo = new GameObject("BoulderBlockedSideCam");
+            var cam = camGo.AddComponent<Camera>();
+            if (main != null)
+            {
+                cam.clearFlags = main.clearFlags;
+                cam.backgroundColor = main.backgroundColor;
+                cam.fieldOfView = main.fieldOfView;
+            }
+            Vector3 mid = (playerPos + boulderPos) * 0.5f;
+            Vector3 approach = playerPos - boulderPos; approach.y = 0f;
+            if (approach.sqrMagnitude < 1e-4f) approach = Vector3.forward;
+            approach.Normalize();
+            Vector3 side = Vector3.Cross(Vector3.up, approach).normalized; // perpendicular to the approach line
+            cam.transform.position = mid + side * 4.5f + Vector3.up * 1.2f;
+            cam.transform.LookAt(mid + Vector3.up * 0.6f);
+            Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
+            if (tex != null) Object.Destroy(tex);
+            Object.Destroy(camGo);
+            Debug.Log("[BoulderVerifyCapture] wrote blocked side-profile " + file);
+        }
+
+        // 86caffwv5 round-8 — describe the chosen boulder's runtime carve vs its visual bounds, so the
+        // BLOCKED-AT-SURFACE log proves blocked planarDist ≈ the visual edge (min/max XZ half-extent), not a
+        // body-length beyond it. Reads the actual NavMeshObstacle.radius (× lossyScale = world) + the combined
+        // renderer bounds on the boulder node the harness picked.
+        private string DescribeBoulderCarve(Vector3 boulderCenter)
+        {
+            Transform root = mine != null ? mine.boulderRoot : null;
+            if (root == null) { var f = GameObject.Find("Boulders"); if (f != null) root = f.transform; }
+            if (root == null) return "carve=?(no boulder root)";
+            Transform node = FindBoulderNode(root, boulderCenter);
+            if (node == null) return "carve=?(node not found)";
+
+            var obst = node.GetComponentInChildren<UnityEngine.AI.NavMeshObstacle>();
+            float carveWorld = obst != null
+                ? obst.radius * Mathf.Max(Mathf.Abs(node.lossyScale.x), Mathf.Abs(node.lossyScale.z))
+                : -1f;
+
+            var rends = node.GetComponentsInChildren<Renderer>();
+            float minE = -1f, maxE = -1f;
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                minE = Mathf.Min(b.extents.x, b.extents.z);
+                maxE = Mathf.Max(b.extents.x, b.extents.z);
+            }
+            return "carveWorldR=" + carveWorld.ToString("F2") +
+                   " visualEdge[min=" + minE.ToString("F2") + " max=" + maxE.ToString("F2") + "]" +
+                   " (blocked should sit ~min..max, not beyond)";
+        }
+
+        private static Transform FindBoulderNode(Transform root, Vector3 center)
+        {
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform c = root.GetChild(i);
+                if (c.name == MineBoulder.BoulderNodeName)
+                {
+                    if ((c.position - center).sqrMagnitude < 0.01f) return c;
+                }
+                else if (c.childCount > 0)
+                {
+                    var found = FindBoulderNode(c, center);
+                    if (found != null) return found;
+                }
+            }
+            return null;
         }
 
         private string ResolveDir()

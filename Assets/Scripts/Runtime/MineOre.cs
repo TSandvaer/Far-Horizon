@@ -670,6 +670,36 @@ namespace FarHorizon
         // baked navmesh at runtime exactly like trees.
         private UnityEngine.AI.NavMeshObstacle _carve;
         private bool _carveOn;
+        private float _carveFootprint;   // 86caffwv5 round-8 — the measured world planar footprint the carve was sized from (guard/log)
+        private float _carveMaxExtent;   // 86caffwv5 round-8 — the circumscribing (max) world half-extent (guard/log)
+
+        // 86caffwv5 round-8 (TASK 2 fix — the Sponsor's soak-7 verdict: "im blocked but already at this distance in
+        // the screenshot, not at the edge of the boulder" — blocked ~a body-length OUT, invisible-wall feel). The
+        // round-7 carve used the CIRCUMSCRIBING world-AABB half-extent (Mathf.Max(extents.x, extents.z)); for a lumpy
+        // FacetedRock that captures the widest facet SPIKE, so the carve blocked at the spike radius while the visual
+        // surface undulates well inside it. Worse, the baked navmesh erodes the walkable boundary by ~the agent
+        // radius AROUND a carve (documented in LowPolyZoneGen's tree-barrier fix 86caa4c5c: "the NavMesh bake erodes
+        // the walkable boundary by the agent radius (0.4u)"), so the player STANDS ~agentRadius BEYOND the carve
+        // boundary. Trees get away with that standoff because the trunk is thin (nothing big sits in the gap); a BIG
+        // boulder turns the same standoff into a visible ground gap that reads as an invisible wall. FIX: size the
+        // carve so the player's STAND position (carve + agentRadius) lands at the boulder's visual surface + a small
+        // clearance — carve = footprint + clearance − agentStandoff — using the SNUG (min) planar half-extent so a
+        // circle carve hugs the narrow silhouette (a circle cannot hug tighter without a gap on that axis; on the
+        // wider axis the player just touches / lightly overlaps, which reads as touching — the Sponsor's accepted
+        // direction). Because the +agentRadius the player picks up at stand-time CANCELS the −agentStandoff here, the
+        // blocked distance ≈ footprint + clearance regardless of the exact erosion, so the formula is robust to an
+        // imperfect standoff estimate. Same MineableNodeState path → applies to boulders AND ore nodes.
+        public const float CarveClearance = 0.15f;      // small hug past the visual surface (the tree idiom, LowPolyZoneGen.TrunkObstacleClearance)
+        public const float CarveAgentStandoff = 0.40f;  // the navmesh erodes ~the agent radius (0.4u, MovementCameraScene) around a carve — subtract it so the player stands AT the surface, not agentRadius out
+        public const float CarveFloorRadius = 0.20f;    // never degenerate: a small node's carve still reliably cuts the 0.16u-voxel navmesh
+
+        /// <summary>86caffwv5 round-8 (TASK 2 fix) — PURE snug-carve WORLD radius from a node's planar footprint
+        /// half-extent: <c>footprint + clearance − agentStandoff</c>, floored so it never degenerates. Static +
+        /// dependency-free so the EditMode guard asserts the tighten invariant (carve &lt; footprint; carve grows
+        /// with the footprint; blocked = carve + agentStandoff ≈ footprint + clearance) with no scene rig — the
+        /// boulder sibling of <c>LowPolyZoneGen.TrunkObstacleLocalRadius</c>.</summary>
+        public static float MovementCarveWorldRadius(float footprintRadius) =>
+            Mathf.Max(CarveFloorRadius, footprintRadius + CarveClearance - CarveAgentStandoff);
 
         // 86camf3xe — this Tick's tween STEP delta (set at the top of Tick). Time.unscaledDeltaTime in the shipped
         // build (production unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected
@@ -733,8 +763,8 @@ namespace FarHorizon
         private void BuildMovementCarve()
         {
             if (_visual == null || _renderers == null || _renderers.Length == 0) return;
-            if (!TryPlanarFootprint(out Vector3 worldCenter, out float planarRadius, out float height)) return;
-            if (planarRadius <= 1e-3f) return;
+            if (!TryPlanarFootprint(out Vector3 worldCenter, out float footprintRadius, out float maxExtent, out float height)) return;
+            if (footprintRadius <= 1e-3f) return;
 
             var carve = _visual.GetComponent<UnityEngine.AI.NavMeshObstacle>();
             if (carve == null) carve = _visual.gameObject.AddComponent<UnityEngine.AI.NavMeshObstacle>();
@@ -743,22 +773,35 @@ namespace FarHorizon
             float sxz = Mathf.Max(1e-4f, Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)));
             float sy = Mathf.Max(1e-4f, Mathf.Abs(ls.y));
 
+            // 86caffwv5 round-8 — the SNUG world carve (footprint + clearance − agentStandoff; see the constants +
+            // MovementCarveWorldRadius above). The player stands at carve + agentRadius ≈ footprint + clearance = the
+            // visual surface + a hair, so the block reads as touching (not the round-7 body-length gap).
+            float worldCarve = MovementCarveWorldRadius(footprintRadius);
+
             carve.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
             carve.center = _visual.InverseTransformPoint(worldCenter);
-            carve.radius = planarRadius / sxz;                          // LOCAL; world footprint == planarRadius
-            carve.height = Mathf.Max(height, planarRadius * 2f) / sy;   // span the vertical extent (reaches the navmesh)
+            carve.radius = worldCarve / sxz;                          // LOCAL; world footprint == worldCarve (snug)
+            carve.height = Mathf.Max(height, worldCarve * 2f) / sy;   // span the vertical extent (reaches the navmesh)
             carve.carving = true;
             carve.enabled = IsMineable;   // standing → carve on; Tick keeps it in lock-step with mineability
             _carve = carve;
             _carveOn = carve.enabled;
+            _carveFootprint = footprintRadius; // 86caffwv5 round-8 — remember the measured footprint for the guard/log
+            _carveMaxExtent = maxExtent;
         }
 
         // Combined WORLD planar footprint of this node's renderers (the carve size source). Returns false if the
-        // node has no valid renderer bounds (a bare rig). planarRadius = the larger of the XZ half-extents so the
-        // carve circle circumscribes the widest silhouette; height = the full vertical extent.
-        private bool TryPlanarFootprint(out Vector3 worldCenter, out float planarRadius, out float height)
+        // node has no valid renderer bounds (a bare rig).
+        //   footprintRadius = the SMALLER (snug) XZ half-extent — a circle carve hugs the narrow silhouette; the
+        //     wider axis just touches / lightly overlaps (reads as touching). 86caffwv5 round-8: this replaced the
+        //     round-7 Mathf.MAX (circumscribing) footprint that blocked at the widest facet spike → the Sponsor's
+        //     "a body-length from the visual edge" gap.
+        //   maxExtent = the LARGER XZ half-extent (the circumscribing spike) — kept for the carve-tracks-bounds
+        //     EditMode guard + the BLOCKED-AT-SURFACE capture log (so the visual-edge interplay is inspectable).
+        //   height    = the full vertical extent.
+        private bool TryPlanarFootprint(out Vector3 worldCenter, out float footprintRadius, out float maxExtent, out float height)
         {
-            worldCenter = Vector3.zero; planarRadius = 0f; height = 0f;
+            worldCenter = Vector3.zero; footprintRadius = 0f; maxExtent = 0f; height = 0f;
             bool any = false;
             Bounds b = default;
             for (int i = 0; i < _renderers.Length; i++)
@@ -769,7 +812,8 @@ namespace FarHorizon
             }
             if (!any) return false;
             worldCenter = b.center;
-            planarRadius = Mathf.Max(b.extents.x, b.extents.z);
+            footprintRadius = Mathf.Min(b.extents.x, b.extents.z);
+            maxExtent = Mathf.Max(b.extents.x, b.extents.z);
             height = b.size.y;
             return true;
         }
@@ -790,8 +834,17 @@ namespace FarHorizon
         public bool MovementCarveActive => _carve != null && _carve.enabled && _carve.carving;
 
         /// <summary>86caffwv5 round-7 (TASK 2) — the movement carve's LOCAL radius (0 if none). For the EditMode
-        /// guard that pins the carve is sized to the footprint (so mine range still reaches over it).</summary>
+        /// guard that pins the carve is sized to the footprint (so mine range still reaches over it). NOTE: at
+        /// localScale 1 (the authored boulders/ore nodes) LOCAL == WORLD radius.</summary>
         public float MovementCarveRadius => _carve != null ? _carve.radius : 0f;
+
+        /// <summary>86caffwv5 round-8 (TASK 2 fix) — the SNUG world planar half-extent the carve was sized from
+        /// (min of the XZ bounds extents), 0 if no carve. For the carve-tracks-bounds guard.</summary>
+        public float MovementCarveFootprint => _carveFootprint;
+
+        /// <summary>86caffwv5 round-8 (TASK 2 fix) — the circumscribing (max) world planar half-extent = the visual
+        /// spike the round-7 carve used, 0 if no carve. For the guard proving the carve is now TIGHTER than this.</summary>
+        public float MovementCarveMaxExtent => _carveMaxExtent;
 
         /// <summary>True only when this node is ENABLED and STANDING (not broken, not mid-tween) → strike-eligible.</summary>
         public bool IsMineable => _enabled && !_broken && !_breaking && !_fadingOut && !_removed && !_regrowing;
