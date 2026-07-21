@@ -115,12 +115,42 @@ namespace FarHorizon
                 ShotMain(Path.Combine(dir, "boulder_blocked.png"));
                 yield return null;
 
+                // Mine from the carve-blocked SURFACE until the boulder breaks + drops its stone pile at the
+                // (formerly boulder) centre. 86caffwv5 round-7 (TASK 2): the carve holds the player ~carveRadius
+                // from the centre — beyond the pile's 1.4u loot range — so once the boulder breaks (IsMineable=false
+                // → the carve toggles OFF → the centre becomes walkable), the player WALKS IN to loot. The capture
+                // bypasses the NavMeshAgent for the walk-in (an agent.Warp snaps to the nearest navmesh, which the
+                // carve has NOT yet healed the frame after the break → it lands back at the surface): DISABLE the
+                // agent + raw-place the player ON the pile (loot is a PLANAR-distance test, no navmesh needed).
+                // CRUCIALLY, do NOT loot DURING mining — the mining spot is now near scatter pickables (berry/stick/
+                // stone) that a per-frame loot would grab + REGROW + re-grab, filling the 20-slot pack so the stone
+                // can't be added on break (diagnosed via a packFree=0/20 trace). Loot ONLY after the walk-in.
                 float start = Time.time;
+                bool walkedToPile = false;
                 while (Time.time - start < 25f)
                 {
                     if (StoneCount() > stoneBefore) break;
-                    if (mine != null) mine.RequestMineClick();
-                    if (looter != null) looter.RequestLoot();
+                    if (!walkedToPile)
+                    {
+                        var pile = Object.FindAnyObjectByType<StonePile>();
+                        if (pile != null)
+                        {
+                            var ag = player != null ? player.Agent : null;
+                            if (ag != null && ag.enabled) ag.enabled = false; // stop the agent re-snapping us off the pile
+                            if (player != null) player.transform.position = pile.transform.position;
+                            if (looter != null && looter.player != null) looter.player.position = pile.transform.position;
+                            walkedToPile = true;
+                            Debug.Log("[BoulderVerifyCapture] boulder BROKE -> stone pile at " +
+                                      pile.transform.position.ToString("F2") + "; carve now off -> walked onto the pile to loot");
+                        }
+                        else if (mine != null) mine.RequestMineClick(); // still standing -> MINE ONLY (no loot -> keep the pack empty for the stone)
+                    }
+                    else if (looter != null)
+                    {
+                        // AFTER the walk-in: E-loot the stone pile (the DIRECT TryLootNearest = the same resolve+
+                        // TryLoot the E press drives; deterministic per frame, no latch/Update dependency).
+                        looter.TryLootNearest();
+                    }
                     yield return null;
                 }
                 gotStone = StoneCount() > stoneBefore;
