@@ -300,22 +300,30 @@ namespace FarHorizon
                     // weapon-cycle), nudge the shared-seat rig as before (the axe IS the locked baseline).
                     if (_weaponCycle != null && _weaponCycle.CurrentIndex != 0)
                     {
-                        _weaponCycle.NudgeCurrentWeapon(dp, dr, 1f);
+                        // POSITION: additive offset (unchanged). ROTATION: compose dr in the weapon's LOCAL frame
+                        // via QUATERNIONS (soak-5 round-5 GIMBAL fix). Euler-COMPONENT addition (the old `_liveEuler
+                        // += dr`) is DEGENERATE near ±90° pitch — the Sponsor's pickaxe -362° yaw HUNT: at pitch
+                        // ~-70..-80 the yaw component stopped mapping to the rotation he wanted, so orientations were
+                        // UNREACHABLE. ComposeLocalRot right-multiplies the delta about the weapon's own axes, making
+                        // EVERY orientation reachable. The seat APPLICATION is unchanged (Quaternion.Euler(stored)),
+                        // and Quaternion.Euler(result) == the composed rotation, so committed/baked eulers are exact.
+                        Vector3 targetEuler = ComposeLocalRot(_weaponCycle.CurrentEuler, dr);
+                        _weaponCycle.NudgeCurrentWeapon(dp, targetEuler - _weaponCycle.CurrentEuler, 1f);
                         changed = true;
                     }
                     else if (_heldRig != null)
                     {
                         // 86caa83wn soak #4 — the HELD axe is nudged via its RIG, NOT its transform, in the
                         // HAND-LOCAL frame END TO END (the seat-doesn't-stick fix). POSITION moves the rig's
-                        // hand-local offset DIRECTLY (no hand.rotation conversion); ROTATION moves the hand-
-                        // relative relEuler (the haft keeps turning with the hand WHILE dialed). Dialing in the
-                        // hand-local frame means what the Sponsor dials == what bakes == what the rig applies,
-                        // with NO hand.rotation injected at dial time — so the seat is FACING-INDEPENDENT (it
-                        // reproduces at every facing AND after a pickup, the soak-#4 bug). The previous tool
-                        // converted a WORLD-frame nudge via Inverse(hand.rotation), which is exactly what made
-                        // the dialed seat facing-specific.
+                        // hand-local offset DIRECTLY (no hand.rotation conversion); ROTATION composes the hand-
+                        // relative relEuler in the weapon's LOCAL frame (soak-5 gimbal fix, same as the non-axe
+                        // path above — the axe's low pitch never hit gimbal, but keep both seat paths consistent so
+                        // a future high-pitch axe dial is reachable too). Dialing in the hand-local frame means
+                        // what the Sponsor dials == what bakes == what the rig applies, with NO hand.rotation
+                        // injected at dial time — so the seat is FACING-INDEPENDENT (it reproduces at every facing
+                        // AND after a pickup, the soak-#4 bug).
                         _heldRig.worldOffsetFromHand += dp;
-                        _heldRig.relEuler += dr;
+                        _heldRig.relEuler = ComposeLocalRot(_heldRig.relEuler, dr);
                     }
                 }
                 else if (_target == 1)
@@ -537,6 +545,28 @@ namespace FarHorizon
         }
 
         private static float Norm(float a) { a %= 360f; if (a > 180f) a -= 360f; return a; }
+
+        /// <summary>
+        /// soak-5 round-5 — compose a ROTATION nudge <paramref name="deltaEuler"/> onto a current euler in the
+        /// weapon's LOCAL frame via QUATERNIONS, returning the resulting euler (each component normalised to
+        /// [-180,180]). This fixes the F9 GIMBAL DEAD ZONE: adding a delta to a single euler COMPONENT (the old
+        /// `relEuler += dr` / `_liveEuler += dr`) is degenerate near ±90° pitch — at the pickaxe's ~-70..-80 pitch
+        /// the yaw component no longer maps to the rotation the Sponsor wants, so orientations were UNREACHABLE
+        /// (his -362° yaw hunt through a full circle without ever landing). Right-multiplying Quaternion.Euler(delta)
+        /// applies the nudge about the weapon's OWN axes, so EVERY orientation is reachable. The result is EXACT for
+        /// baking: Quaternion.Euler(result) equals the composed rotation, and the seat application is unchanged
+        /// (Quaternion.Euler(storedEuler)) — so committed/baked eulers keep their meaning. Near gimbal the euler
+        /// TRIPLE may re-decompose (the display can jump to an equivalent form), but the ROTATION + the bake are
+        /// exact and reachable. A zero delta returns the input untouched (a pure position nudge never round-trips).
+        /// Pure + static so an EditMode test can pin reachability without a live panel.
+        /// </summary>
+        public static Vector3 ComposeLocalRot(Vector3 currentEuler, Vector3 deltaEuler)
+        {
+            if (deltaEuler == Vector3.zero) return currentEuler;
+            Quaternion q = Quaternion.Euler(currentEuler) * Quaternion.Euler(deltaEuler);
+            Vector3 e = q.eulerAngles;
+            return new Vector3(Norm(e.x), Norm(e.y), Norm(e.z));
+        }
 
         /// <summary>
         /// 86caju055 — true when the dev-overlay layer is revealed (F10 master ON) but THIS F9 dial tool is NOT

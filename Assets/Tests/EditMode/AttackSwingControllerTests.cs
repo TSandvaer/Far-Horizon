@@ -329,18 +329,21 @@ namespace FarHorizon.EditTests
                 "verb-claim AND a modal panel open → still no swing");
         }
 
-        // 8 — per-class swing PLAYBACK speed (soak-2 fix #2): spear + pickaxe are faster than axe/dagger/sword.
+        // 8 — per-class swing PLAYBACK speed: axe/dagger stay at authored cadence; spear/pickaxe/sword are faster
+        // (soak-2 spear/pickaxe + soak-5 sword — the Sponsor "sword swing is way too slow, dagger works fine").
         [Test]
         public void SwingSpeedForClass_SpearAndPickaxe_FasterThanBaseline()
         {
             float axe = CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassAxe);
             Assert.AreEqual(1.0f, axe, 1e-4f, "axe stays at authored cadence (Sponsor: chop looked okay)");
-            Assert.AreEqual(1.0f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassDagger), 1e-4f, "dagger 1.0");
-            Assert.AreEqual(1.0f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSword), 1e-4f, "sword 1.0");
+            Assert.AreEqual(1.0f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassDagger), 1e-4f, "dagger 1.0 (Sponsor: 'dagger works fine and is fast enough')");
+            Assert.AreEqual(1.5f, CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSword), 1e-4f, "sword 1.5 (soak-5: 'sword swing is way too slow' at 1.0 → bumped, mirrors the pickaxe soak-3 seam)");
             Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSpear), axe,
                 "spear swing must be FASTER than the axe baseline (soak-2: spear too slow)");
             Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassPickaxe), axe,
                 "pickaxe swing must be FASTER than the axe baseline (soak-2: pickaxe too slow)");
+            Assert.Greater(CastawayCharacter.SwingSpeedForClass(CastawayCharacter.WeaponClassSword), axe,
+                "sword swing must be FASTER than the axe baseline (soak-5: sword too slow at 1.0)");
         }
 
         // 9 — CADENCE VALUE GUARD (soak-3 fix #3/#4): the Sponsor judged pickaxe "STILL too slow" at soak-2's 1.2×,

@@ -248,7 +248,9 @@ namespace FarHorizon
         // so it seats identically. axe_wood←axe(1.0), knife_wood←knife(0.85), sword_wood←sword(0.95),
         // spear_wood←spear(0.90), pickaxe_wood←pickaxe(1.0). The Sponsor micro-dials each in-hand at the F9 dial session.
         public static readonly float[] WeaponMeshScale =
-            { 1f, 0.85f, 0.95f, 0.90f, 1f, 1f, 1f, 0.85f, 0.95f, 0.90f, 1f, 0.85f, 0.95f, 0.90f, 1f };
+            { 1f, 0.85f, 0.95f, 0.90f, 1f, 1f, 1f, 0.85f, 0.95f, 0.90f, 1f, 0.771f, 0.95f, 0.90f, 1f };
+        // [11] dagger wood 0.85→0.771 + [12] sword wood 0.950 (unchanged) — 86caffwv5 soak-5 Sponsor-dialed
+        // held scales (PROVISIONAL — re-dialed after the item-3 gimbal fix). Other indices unchanged.
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
         // 86caffwuz BAKE (build 5caf1be): these are the Sponsor's DIALED in-hand offsets — he soaked + nudged
@@ -282,10 +284,10 @@ namespace FarHorizon
             // 86catvb6u §3: wood axe/knife/sword/spear/pickaxe (idx 10-14) START from their STONE counterpart's
             // soaked held offset (same family grip origin → same seat). Sponsor micro-dials each at the F9 dial session.
             Vector3.zero,                            // axe wood     ← axe   (LOCKED-family seat, no compensation)
-            new Vector3(-0.020f, 0.020f, 0.000f),    // dagger wood  ← knife
-            new Vector3(-0.020f, 0.040f, 0.000f),    // sword wood   ← sword
+            new Vector3(-0.020f, -0.020f, 0.080f),   // dagger wood  (86caffwv5 soak-5 Sponsor-dialed, PROVISIONAL — re-dial after the item-3 gimbal fix)
+            new Vector3(-0.040f, -0.020f, 0.040f),   // sword wood   (86caffwv5 soak-5 Sponsor-dialed, PROVISIONAL)
             new Vector3(-0.020f, 0.560f, 0.000f),    // spear wood   ← spear
-            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe wood ← pickaxe (crosswise head — same family haft)
+            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe wood ← pickaxe (crosswise head — same family haft; euler UNSATISFIED, see WeaponMeshLocalEuler)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
@@ -311,10 +313,14 @@ namespace FarHorizon
             // 86catvb6u §3: wood axe/knife/sword/spear share the shared-seat baseline (zero); wood pickaxe shares
             // the stone pickaxe's crosswise-head euler (8,10,0). Sponsor micro-dials each at the F9 dial session.
             Vector3.zero,                      // axe wood
-            Vector3.zero,                      // dagger wood
-            Vector3.zero,                      // sword wood
+            new Vector3(-70.0f, 20.0f, 0.0f),  // dagger wood (86caffwv5 soak-5 Sponsor-dialed, PROVISIONAL — carries over UNCHANGED: the seat application is Quaternion.Euler(storedEuler), unaffected by the item-3 F9-nudge-composition change, so this euler reproduces exactly what he dialed)
+            new Vector3(-60.0f, 32.0f, 6.0f),  // sword wood  (86caffwv5 soak-5 Sponsor-dialed, PROVISIONAL)
             Vector3.zero,                      // spear wood
-            new Vector3(8.0f, 10.0f, 0.0f),    // pickaxe wood (crosswise head — mirrors the stone pickaxe euler)
+            // pickaxe wood: soak-5 dial euler (-68,-362,34) was NOT baked — the -362° yaw is the Sponsor's FAILED
+            // gimbal HUNT (unsatisfied; he could not reach the handle-line he wanted before the item-3 F9 fix), NOT
+            // an approval. Keep the previously-approved crosswise-head seat (8,10,0) as the STARTING point; he
+            // re-dials from here now that the F9 rotation is gimbal-free (reachable at high pitch). See PR body §item-3/4.
+            new Vector3(8.0f, 10.0f, 0.0f),    // pickaxe wood (crosswise head — mirrors the stone pickaxe euler; soak-5 dial UNSATISFIED, not baked)
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)

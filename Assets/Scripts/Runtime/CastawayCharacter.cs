@@ -282,7 +282,12 @@ namespace FarHorizon
         public const float SwingSpeedPickaxe = 1.5f; // soak-3: pickaxe mine swing STILL too slow at 1.2 → 1.5× (+25% over soak-2)
         public const float SwingSpeedDagger = 1.0f;
         public const float SwingSpeedSpear = 1.2f;   // +20% (soak-2: spear thrust too slow — Sponsor: spear now "ok")
-        public const float SwingSpeedSword = 1.0f;
+        // soak-5 (round-5): Sponsor "sword swing is way too slow, dagger works fine and is fast enough". The dagger
+        // reads fast because its weapon attackSpeed is high (1.8) at SwingSpeed 1.0 → 1.8× effective; the sword's
+        // attackSpeed is only 1.15, so at 1.0 it played at 1.15× and dragged. Raise the sword CLASS multiplier to
+        // 1.5× (the same seam + magnitude as the soak-3 pickaxe fix) → wood-sword effective playback = 1.15 × 1.5 =
+        // 1.725× (stone 1.725×, iron 1.875×), close to the dagger's 1.8× — snappy, no drag. Clamped ≤ ChopSpeedMax(3).
+        public const float SwingSpeedSword = 1.5f;   // soak-5: sword slash "way too slow" at 1.0 → 1.5× (mirrors the pickaxe soak-3 bump)
 
         /// <summary>The per-class swing playback multiplier for a WeaponClass (86caffwv5 soak-2/soak-3) — composed on
         /// top of the tool-use speed passed to <see cref="TriggerAttack"/>. Unknown class → 1.0 (no correction).</summary>

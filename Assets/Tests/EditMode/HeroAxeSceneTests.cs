@@ -501,14 +501,18 @@ namespace FarHorizon.EditTests
             Assert.AreEqual("wpn_spear_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SpearWoodFamilyIndex]);
             Assert.AreEqual("wpn_pickaxe_wood_01", HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.PickaxeWoodFamilyIndex]);
 
-            // Each wood seat STARTS from its stone counterpart (shared family haft/grip → same seat; the Sponsor
-            // micro-dials each at the F9 session). axe_wood←axe(0), knife_wood←knife(1), sword_wood←sword(2),
-            // spear_wood←spear(3), pickaxe_wood←pickaxe_stone(4).
+            // axe_wood(10)←axe(0), spear_wood(13)←spear(3), pickaxe_wood(14)←pickaxe_stone(4) still START from their
+            // stone counterpart (shared family haft/grip → same seat; the Sponsor micro-dials at the F9 session).
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.AxeWoodFamilyIndex, 0);
-            AssertWoodMirrorsStone(HeldWeaponCycleDebug.DaggerWoodFamilyIndex, 1);
-            AssertWoodMirrorsStone(HeldWeaponCycleDebug.SwordWoodFamilyIndex, 2);
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.SpearWoodFamilyIndex, 3);
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.PickaxeWoodFamilyIndex, 4);
+
+            // 86caffwv5 soak-5: DAGGER + SWORD wood seats are now Sponsor-DIALED (PROVISIONAL — he re-dials after the
+            // item-3 F9 gimbal fix), so they no longer mirror their stone counterpart. Pin the baked dialed values so
+            // a drift reds in CI. These carry over UNCHANGED from what he dialed: the seat application is
+            // Quaternion.Euler(storedEuler), unaffected by the item-3 F9-nudge-composition change.
+            AssertSeat(HeldWeaponCycleDebug.DaggerWoodFamilyIndex, new Vector3(-0.020f, -0.020f, 0.080f), new Vector3(-70.0f, 20.0f, 0.0f), 0.771f);
+            AssertSeat(HeldWeaponCycleDebug.SwordWoodFamilyIndex,  new Vector3(-0.040f, -0.020f, 0.040f), new Vector3(-60.0f, 32.0f, 6.0f), 0.950f);
         }
 
         // Assert a wood seat's baked starting values mirror its stone counterpart (shared family grip; 86catvb6u §3).
