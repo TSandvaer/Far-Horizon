@@ -526,3 +526,8 @@ main = 3fb5965. THIS SESSION MERGED: #203 CI-split, #194 sun, #197 crouch (8-soa
 - Context: spike 86cavcy4u verdict INFEASIBLE (PR #331; identity round-trip through the Python FBX re-serializer fails Unity import — one-way tool; right hand also lacks the thumb skin-cluster structurally). Remaining routes for 86cau4za2: **Option B** (Mixamo re-rig — discards the accepted left-hand dial, re-rolls the auto-rig lottery, full re-seat after) or **SHIP-AS-IS** (defect is cosmetic, already twice-deferred).
 - Orch recommendation: SHIP-AS-IS for now; revisit Option B only when the character next needs a rig change anyway (bundle the risk once). No dependency gates on this — nothing is blocked either way.
 - Ask via /sponsor-questions-walkthrough or whenever convenient.
+
+## 2026-07-22 ~14:3xZ — Sponsor question (non-urgent, mechanical default available): ClickGateDiag keep-vs-strip
+- Context: ticket `86cav8y1u` (register [ClickGateDiag] in tools/debug/REGISTRY.md) carries a decision AC: keep the instrument standing vs strip before 1.0 — specifically whether to gate its RELEASE-build `Debug.Log` on every LMB click (ClickGateDiagnostic.cs:153, deliberate per instrument convention, cold-path).
+- Orch/ticket recommendation: **KEEP** as standing instrument until the live mine failure (Drew r5 item 1 on 86caffwv5) is diagnosed + fixed, THEN re-evaluate gating the release log. The registry ENTRY itself is mechanical and dispatches regardless; only the keep/strip call is yours.
+- Ask via /sponsor-questions-walkthrough or whenever convenient.
