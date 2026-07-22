@@ -1,5 +1,7 @@
 # Ticket drafts — MCP backfill 2026-07-21
 
+> **PROMOTED to ClickUp 2026-07-22** (MCP restored): a→`86cav8xg9` · b→`86cav8xu8` (+ Devon r7 NITs 1-3 folded) · c→`86cav8y1u` · d→`86cav8y74` · e→`86cav8ybj` (+ Devon #328 Sponsor-confirm-direction note) · f (NEW — Tess r7 soak spot-checks, not one of these 5 drafts)→`86cav8yjv`. Boar `86cah7ydt` full ACs fleshed the same pass. **This file is now HISTORY — the ClickUp tickets are authoritative.**
+
 ClickUp MCP was DOWN when these were authored (2026-07-21). Each section below is paste-ready:
 title (conventional-commit) · source · priority suggestion · description · acceptance criteria
 (Commander's-Intent 3-bucket: 🎯 Destination / 🔒 Constraints / 🎚️ Defaults) · out-of-scope · cross-refs.

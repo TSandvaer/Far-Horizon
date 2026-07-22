@@ -17,6 +17,14 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 
 ---
 
+## 2026-07-22 — Weapon held-seat: ONE dial per weapon class across all tiers (stone-axe zero-lock RETIRED)
+
+- Decided by: Sponsor (verbatim "use the same dial for rock and metal", soak-swings-6 final F9 dial; baked by Drew in PR #327 round 7)
+- Decision: Each weapon CLASS (axe / pickaxe / spear / sword / dagger) uses ONE dialed held-seat (offset/euler/scale) applied identically to its wood/stone/iron tiers — per-tier seat divergence is retired. The original stone axe's zero-locked index-0 seat (ApplyCurrent restored the captured baseline byte-unchanged) is RETIRED: `HeldWeaponCycleDebug.ApplyCurrent` now composes index-0's array seat like every other weapon (backward-compatible with the old zero array), and `Awake` seats the equipped chop axe at spawn. The axe SCALE stays 1.0 (the held-scale dial still refuses the axe); `HeldAxeV3/V4` rig constants are UNTOUCHED (the class euler composes on the approved rig baseline).
+- Why: the Sponsor wanted all material tiers of a weapon to read IDENTICALLY in-hand; one per-class seat is simpler + drift-guarded, and the equipped stone chop-axe now matches the approved wood-axe look.
+- Reversibility: reversible (seat constants + the ApplyCurrent composition are code; drift-guarded by `HeroAxeSceneTests._SameDialAcrossTiers_86caffwv5` + per-tier equality pins + the axe scale-1.0 guard)
+- Affects: `HeldWeaponCycleDebug` / `HeroAxeSceneTests`, held-weapon visual seating; Drew + Devon + Tess. Source: PR #327 (86caffwv5) r7, comment 5034253841.
+
 ## 2026-07-19 — Combat cluster: SPEC PREP starts now; implementation gated on #317 (v4 activation) merge
 
 - Decided by: Sponsor (orchestrator popup, 2026-07-19)
