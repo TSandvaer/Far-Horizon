@@ -673,6 +673,52 @@ namespace FarHorizon.EditTests
                 "v4 left-wrist must NOT be the round-7 zero that left both hands twisted");
         }
 
+        // 86cau4za2 (PR #330 round-2) — REGRESSION GUARD for the "helicopter" full-rig retarget break.
+        // PR #330 round-1 tried to fix the right hand by re-exporting the Mixamo-rigged castaway_v4_rigged.fbx
+        // through BLENDER's FBX exporter ("Option A, no re-rig"). A raw io_scene_fbx.parse_fbx diff (NO importer —
+        // the importer axis-COMPENSATES and reads a false 0.000° rest delta, the exact trap character-pipeline.md
+        // §Step 3 warns about) proved the round-trip re-derived the rest orientation of 33 of 42 bones (leftshoulder
+        // 111.5°, rightshoulder 130.4°, both feet ±58.9° X, both uplegs ±179.9° Z, ...) — DESTROYING the Mixamo
+        // zero-rest-rotation convention the 18 without-skin clips (which keyframe absolute local rotations, bound by
+        // transform path) rely on. In the shipped exe the character stood in a T-pose while the limbs spun about
+        // their own axes; torso/head read normal because spine/neck moved <2.6°.
+        // CANARY: a genuine Mixamo / FBX-SDK export is FBX BINARY version 7700; Blender's exporter downgrades to
+        // 7400. So any rigged castaway FBX reading 7400 has been round-tripped through Blender and its bone rest
+        // orientations can no longer be trusted against the shared clip set. Fix = re-rig via Mixamo, NEVER
+        // re-export a rigged character from Blender. Guards all three live rigs (v2/v3/v4).
+        [Test]
+        public void RiggedCastawayFbx_IsGenuineMixamoExport_NotBlenderRoundTrip_86cau4za2()
+        {
+            foreach (var rel in new[]
+            {
+                "Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx",
+                "Assets/Art/Character/Castaway/v3/castaway_v3_rigged.fbx",
+                "Assets/Art/Character/Castaway/v2/castaway_rigged_tpose.fbx",
+            })
+            {
+                string abs = System.IO.Path.GetFullPath(rel);
+                Assert.IsTrue(System.IO.File.Exists(abs), $"rigged castaway FBX missing: {rel}");
+                byte[] head;
+                using (var fs = System.IO.File.OpenRead(abs))
+                {
+                    head = new byte[27];
+                    int read = 0;
+                    while (read < head.Length) { int r = fs.Read(head, read, head.Length - read); if (r <= 0) break; read += r; }
+                }
+                // Binary FBX header: "Kaydara FBX Binary  " (20 bytes) + 0x00 0x1A 0x00, then uint32 version @ offset 23.
+                string magic = System.Text.Encoding.ASCII.GetString(head, 0, 20);
+                Assert.AreEqual("Kaydara FBX Binary  ", magic,
+                    $"{rel} is not a binary FBX (magic mismatch) — cannot verify the Mixamo export convention");
+                uint version = System.BitConverter.ToUInt32(head, 23);
+                Assert.AreEqual(7700u, version,
+                    $"{rel} FBX binary version is {version}, expected 7700 (genuine Mixamo/FBX-SDK export). A 7400 " +
+                    "version means the rig was round-tripped through Blender's FBX exporter, which re-derives ALL " +
+                    "bone rest orientations and destroys the Mixamo zero-rest convention the shared clip set binds " +
+                    "against — the PR #330 helicopter regression. Re-rig via Mixamo, do NOT re-export a rigged " +
+                    "character from Blender.");
+            }
+        }
+
         // 86catvb6u round-8 — the Boot scene must carry CastawayHandPose wired: BOTH hand bones + BOTH thumb bases
         // resolved + the per-side eulers defaulting per hero (v4 = the Sponsor-correct right + measured mirror left,
         // thumbs 0; rollback = 0 → hands byte-unchanged). Bake-path guard: a dropped AddHandPose call, a wrong-hero
