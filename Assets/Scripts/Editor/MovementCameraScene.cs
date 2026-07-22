@@ -2279,6 +2279,33 @@ namespace FarHorizon.EditorTools
         private const float SnakeTailRadius = 0.045f;   // last link half-extent (the taper target)
         private const float SnakeHeadLength = 0.26f;    // nose-to-neck
 
+        // World position of the wired BOAR enemy (ticket 86cah7ydt — the SECOND enemy proving the matchup).
+        // On the OPPOSITE side of the loop from the snake (5,4) so the two enemies never overlap; far enough
+        // from the player spawn (0,6) that its aggroRadius (5.5) does NOT insta-aggro — approach triggers it.
+        // A DETERMINISTIC scene-author ADD OUTSIDE the seeded LowPolyZoneGen stream (the seed-42 lock honoured
+        // by construction — same as the snake).
+        public static readonly Vector3 BoarPosition = new Vector3(-6f, 0f, 2f); // ~7.2u from spawn (>5.5 aggro)
+
+        // THE BOAR's warm bristly-BROWN palette (AC5 — findable, material-honest earthy hide; CONTRASTS both
+        // the green bushes AND the snake's rust so it never reads as either). Warm ramp (R>G>B) so the
+        // anti-bush-green vertex-colour pin holds; saturated enough to clear the near-neutral pink quantizer.
+        private static readonly Color BoarBrown = new Color(0.42f, 0.32f, 0.22f); // bristly body brown
+        private static readonly Color BoarSnout = new Color(0.52f, 0.42f, 0.34f); // paler warm snout/nose
+        private static readonly Color BoarTusk  = new Color(0.90f, 0.88f, 0.78f); // cream ivory tusks
+        private static readonly Color BoarEye   = new Color(0.06f, 0.05f, 0.04f); // near-black eye facets
+        private static readonly Color BoarLegCol = new Color(0.36f, 0.27f, 0.19f); // legs a touch darker (shadowed)
+        private static readonly Color BoarHoof  = new Color(0.14f, 0.11f, 0.09f); // dark hoof tips
+
+        // The boar's build dimensions (AC5: a chunky quadruped, humped shoulders, ~1.4m body + snout + tusks).
+        private const float BoarBodyLength = 1.1f;   // torso length (Z)
+        private const float BoarBodyRadius = 0.28f;  // mid-back half-extent
+        private const float BoarHeadLength = 0.42f;  // snout-to-neck
+        private const float BoarHeadNeckR  = 0.22f;  // head neck half-extent (matches the body neck join)
+        private const float BoarLegLength  = 0.44f;  // stubby stocky legs
+        private const float BoarLegTopR    = 0.075f; // leg top half-extent
+        private const float BoarLegBotR    = 0.05f;  // leg bottom (hoof) half-extent
+        private const float BoarGroundClearance = 0.62f; // root pivot above the ground (belly-y + leg drop)
+
         // The FIRST combat build (Combat POC 86cah7xxp): player HP + needs-gated regen + tiered death + the
         // left-click melee attack on the player root, and ONE damageable snake. Wires the HUD HP bar (AC9) +
         // the SettingsPanel per-tier combat rows (AC8b). Authored editor-time so it all SERIALIZES into
@@ -2341,6 +2368,12 @@ namespace FarHorizon.EditorTools
             //     telegraphed lunge bite, on the 86cah7xxp shared Health surface. ---
             BuildSnake(player, groundLayer);
 
+            // --- THE BOAR — the SECOND enemy (86cah7ydt): a charging wild boar on the SAME shared Health
+            //     surface, weak-to-PIERCE (the systemic matchup) + a gore that applies bleed (the 2nd status
+            //     consumer). Its charge is what makes the spear's reach matter — "spear beats boar" EMERGES
+            //     from reach + the pierce tag, NEVER a matchup table. ---
+            var boar = BuildBoar(player, groundLayer);
+
             // --- THE SPEAR PICKUP (AC4) — the second contrasting craftable weapon's acquisition. The player
             //     walks up to acquire the spear onto the belt, then cycles-selects it to feel the long-reach
             //     pierce contrast vs the axe's medium-reach slash. ---
@@ -2357,10 +2390,11 @@ namespace FarHorizon.EditorTools
                 panel.combatHealth = health;
                 panel.combatRegen = regen;
                 panel.combatDeath = death;
+                panel.combatBoar = boar; // AC6 — the per-tier boar HP/gore/charge rows bind to this BoarEnemy
             }
 
             Debug.Log("[MovementCameraScene] authored Combat POC (player HP + regen + tiered death + melee " +
-                      "attack + 1 snake; HUD HP wired=" + (hud != null) + ", panel wired=" + (panel != null) + ")");
+                      "attack + 1 snake + 1 boar; HUD HP wired=" + (hud != null) + ", panel wired=" + (panel != null) + ")");
         }
 
         // A wired damageable SNAKE (AC7): a low-poly coiled body proxy (a placeholder for the snake POC
@@ -2481,6 +2515,131 @@ namespace FarHorizon.EditorTools
                 if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
                 mr.sharedMaterial = mat;
                 Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; snake flat-rust fallback");
+            }
+            return go;
+        }
+
+        // A wired damageable BOAR (ticket 86cah7ydt): a chunky low-poly quadruped (humped torso + snouted head
+        // with cream tusks + 4 stubby legs + tail) on the SAME shared 86cah7xxp Health surface as the snake —
+        // weak-to-PIERCE + slash-resistant (the systemic matchup tag), a charge behaviour, and a gore that
+        // applies bleed (the 2nd status consumer). Editor-baked children SERIALIZE into Boot.unity (the
+        // Awake-built-hierarchies-don't-serialize trap); BoarBodyRig only POSES them at runtime. Collider-free
+        // (MeleeAttack targets by Health distance; the rig raycasts only the Ground mask; the NavMesh bake
+        // never sees the boar). Returns the BoarEnemy so BuildCombat can wire it into the SettingsPanel (AC6).
+        private static FarHorizon.Combat.BoarEnemy BuildBoar(GameObject player, int groundLayer)
+        {
+            var boar = new GameObject("Boar");
+            boar.transform.position = BoarPosition;
+            // Face roughly along the loop (reads as an animal mid-roam, not a sentry staring at spawn).
+            boar.transform.rotation = Quaternion.LookRotation(new Vector3(0.8f, 0f, 0.3f), Vector3.up);
+
+            // === THE BOAR BODY (AC5) — authored in the BoarBodyRig part-index order (0 body, 1 head,
+            //     2..5 legs FL/FR/BL/BR, 6 tail). Each is a baked-mesh child; the rig poses them. ===
+            var parts = new Transform[FarHorizon.Combat.BoarBodyRig.PartCount];
+
+            parts[FarHorizon.Combat.BoarBodyRig.BodyIndex] = BuildBoarPart(boar, "BoarBody",
+                LowPolyMeshes.BoarBody(BoarBodyLength, BoarBodyRadius, BoarBrown, 74110), Vector3.zero).transform;
+
+            parts[FarHorizon.Combat.BoarBodyRig.HeadIndex] = BuildBoarPart(boar, "BoarHead",
+                LowPolyMeshes.BoarHead(BoarHeadNeckR, BoarHeadLength, BoarBrown, BoarSnout, BoarTusk, BoarEye, 74111),
+                new Vector3(0f, 0.02f, 0.72f)).transform;
+
+            const float legTopY = -0.18f; // the belly line the legs hang from
+            parts[FarHorizon.Combat.BoarBodyRig.LegFrontL] = BuildBoarPart(boar, "BoarLegFL",
+                LowPolyMeshes.BoarLeg(BoarLegTopR, BoarLegBotR, BoarLegLength, BoarLegCol, BoarHoof, 74112),
+                new Vector3(-0.16f, legTopY, 0.28f)).transform;
+            parts[FarHorizon.Combat.BoarBodyRig.LegFrontR] = BuildBoarPart(boar, "BoarLegFR",
+                LowPolyMeshes.BoarLeg(BoarLegTopR, BoarLegBotR, BoarLegLength, BoarLegCol, BoarHoof, 74113),
+                new Vector3(0.16f, legTopY, 0.28f)).transform;
+            parts[FarHorizon.Combat.BoarBodyRig.LegBackL] = BuildBoarPart(boar, "BoarLegBL",
+                LowPolyMeshes.BoarLeg(BoarLegTopR, BoarLegBotR, BoarLegLength, BoarLegCol, BoarHoof, 74114),
+                new Vector3(-0.16f, legTopY, -0.30f)).transform;
+            parts[FarHorizon.Combat.BoarBodyRig.LegBackR] = BuildBoarPart(boar, "BoarLegBR",
+                LowPolyMeshes.BoarLeg(BoarLegTopR, BoarLegBotR, BoarLegLength, BoarLegCol, BoarHoof, 74115),
+                new Vector3(0.16f, legTopY, -0.30f)).transform;
+
+            parts[FarHorizon.Combat.BoarBodyRig.TailIndex] = BuildBoarPart(boar, "BoarTail",
+                LowPolyMeshes.BoarTail(0.22f, 0.03f, BoarBrown, 74116),
+                new Vector3(0f, 0.14f, -0.58f)).transform;
+
+            // === The shared 86cah7xxp combat surface (AC1 — the SAME Health/resistance/status seam). ===
+            var health = boar.AddComponent<FarHorizon.Combat.Health>();
+            health.max = FarHorizon.Combat.BoarEnemy.BoarMedMaxHp;
+            health.startFull = true;
+            // Weak-to-PIERCE + slash-RESISTANT (AC1/AC3 — the per-target TAG the matchup emerges from).
+            health.resistance = FarHorizon.Combat.BoarEnemy.BoarResistance;
+
+            var status = boar.AddComponent<FarHorizon.Combat.StatusEffectController>();
+            status.health = health;
+
+            var enemy = boar.AddComponent<FarHorizon.Combat.BoarEnemy>();
+            enemy.goreBleed = FarHorizon.Combat.StatusEffectSpec.MakeBleed(2f, 3f); // gore→player bleed (AC4)
+            enemy.easyMaxHp = FarHorizon.Combat.BoarEnemy.BoarEasyMaxHp;   // AC6 per-tier HP map
+            enemy.medMaxHp = FarHorizon.Combat.BoarEnemy.BoarMedMaxHp;
+            enemy.hardMaxHp = FarHorizon.Combat.BoarEnemy.BoarHardMaxHp;
+            enemy.easyGoreDamage = FarHorizon.Combat.BoarEnemy.BoarEasyGoreDamage; // AC6 per-tier gore map
+            enemy.medGoreDamage = FarHorizon.Combat.BoarEnemy.BoarMedGoreDamage;
+            enemy.hardGoreDamage = FarHorizon.Combat.BoarEnemy.BoarHardGoreDamage;
+
+            // === NavMesh movement (AC2 — the island NavMesh; WorldBootstrap.BakeNavMesh covers it). ===
+            var agent = boar.AddComponent<UnityEngine.AI.NavMeshAgent>();
+            agent.radius = 0.4f;              // bulkier than the snake
+            agent.height = 0.7f;
+            agent.speed = 3.2f;               // BoarAI drives per-state speed
+            agent.acceleration = 12f;
+            agent.angularSpeed = 720f;
+            agent.stoppingDistance = 0.2f;
+            agent.autoBraking = true;
+            agent.baseOffset = 0f;            // the VISUAL grounds via the rig's terrain snap, not the agent Y
+
+            // === The AI + body rig (AC2/AC5) — the boar's OWN drivers; the player's Animator →
+            //     CastawayArmPose → HeldAxeRig chain is untouched by construction. ===
+            var ai = boar.AddComponent<FarHorizon.Combat.BoarAI>();
+            ai.player = player.transform;
+            ai.playerHealth = player.GetComponent<FarHorizon.Combat.Health>();
+            ai.deathHandler = player.GetComponent<FarHorizon.Combat.DeathHandler>(); // the live tier surface (AC6)
+
+            var rig = boar.AddComponent<FarHorizon.Combat.BoarBodyRig>();
+            rig.ai = ai;
+            rig.parts = parts;
+            rig.groundClearance = BoarGroundClearance;
+            rig.groundMask = 1 << groundLayer; // the SAME Ground layer the player's own snap raycasts
+
+            Debug.Log("[MovementCameraScene] authored WILD BOAR (86cah7ydt) at " + BoarPosition +
+                      ": humped body + snout/tusks + 4 legs, wander/aggro AI + telegraphed CHARGE, weak-to-pierce " +
+                      "(pierceMul=" + FarHorizon.Combat.BoarEnemy.BoarPierceWeakness + " slashMul=" +
+                      FarHorizon.Combat.BoarEnemy.BoarSlashResist + ") HP=" + health.max);
+            return enemy;
+        }
+
+        // One boar part child: baked mesh + MeshRenderer with the inline vertex-colour material (serializes
+        // into the scene — the BuildSnakePart idiom, boar-named for the Frame Debugger trace). Collider-free.
+        private static GameObject BuildBoarPart(GameObject parent, string name, Mesh mesh, Vector3 localPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var mat = new Material(vc) { name = "BoarMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+                mr.sharedMaterial = mat; // inline -> serializes into the scene (no .mat churn)
+                EnsureShaderAlwaysIncluded(vc);
+            }
+            else
+            {
+                var litShader = Shader.Find("Universal Render Pipeline/Lit");
+                var mat = new Material(litShader) { name = "BoarMat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", BoarBrown);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
+                mr.sharedMaterial = mat;
+                Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; boar flat-brown fallback");
             }
             return go;
         }
@@ -4391,6 +4550,11 @@ namespace FarHorizon.EditorTools
             // WeaponDef, shooting gameplay-cam + side-profile frames. Inert unless -verifySnake.
             WireSnakeVerifyCapture(player);
 
+            // Wire the WILD-BOAR shipped-build capture (86cah7ydt AC2/AC3/AC5) — walks the player at the boar,
+            // proves aggro→windup→CHARGE→gore live + the SPEAR-out-damages-AXE matchup + kills it with the real
+            // spear, shooting gameplay-cam + side-profile frames. Inert unless -verifyBoar.
+            WireBoarVerifyCapture(player);
+
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
         }
@@ -4608,6 +4772,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<SnakeVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<SnakeVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the WILD-BOAR shipped-build verify capture (86cah7ydt) onto the Boot object so it SERIALIZES
+        // into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifyBoar. Sibling of WireSnakeVerifyCapture.
+        private static void WireBoarVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host BoarVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<BoarVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<BoarVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }

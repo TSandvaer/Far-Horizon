@@ -1468,6 +1468,253 @@ namespace FarHorizon.EditorTools
             EmitFlatTriRaw(verts, normals, cols, apex, b0, b3, eye, center);
         }
 
+        // ============================ THE WILD BOAR (ticket 86cah7ydt AC5) ============================
+        // A findable low-poly BOAR — the SECOND enemy (mirror of the snake's C#-editor-baked-mesh + procedural
+        // pose approach; NO rig / NO Animator / NO FBX, so the charge is posed by BoarBodyRig, sidestepping the
+        // rigged-Mixamo-FBX-round-trip helicopter class the v7700 canary guards). Warm bristly BROWN (R>G>B —
+        // never bush-green, never snake-rust; the anti-lookalike contrast). Local convention: the long axis is
+        // +Z = head-forward (BoarBodyRig orients the root with LookRotation, so +Z = travel/charge direction).
+        // FLAT-SHADED per face (the SnakeLink/FacetedRock idiom: unwelded verts + explicit face normals +
+        // per-face value step) with OUTWARD winding enforced per face about each part's OWN local centre
+        // (lowpoly-quality §1: inward winding → Cull Back culls the mesh → an unfindable boar).
+
+        /// <summary>
+        /// The boar's humped TORSO: a faceted 6-sided lofted tube along +Z, belly-flattened (a boar stands on
+        /// its belly-line over 4 legs), TALLEST at the shoulders (the signature boar hump) sloping down to a
+        /// narrow rump. Built centred on its own origin so the outward-winding ref is Vector3.zero.
+        ///   length — nose-toward-tail torso length (Z)
+        ///   radius — the mid-back half-extent (the hump/rump scale off this)
+        ///   body   — the bristly-brown band colour
+        /// </summary>
+        public static Mesh BoarBody(float length, float radius, Color body, int seed)
+        {
+            var rnd = new System.Random(seed);
+            const int sides = 6;
+            float halfL = length * 0.5f;
+
+            // Lofted cross-section rings rump(-Z)→shoulders(+Z): (zFrac -1..1, widthMul, heightMul, centreYMul).
+            // heightMul peaks at the shoulders = the boar hump; the rump is narrow + low. centreY lifts the
+            // top toward the shoulders so the back-line rises to the hump (the unmistakable boar silhouette).
+            float[][] rings =
+            {
+                new[] { -1.00f, 0.52f, 0.55f, 0.00f }, // rump (narrow, low)
+                new[] { -0.55f, 0.88f, 0.82f, 0.04f }, // hindquarters
+                new[] {  0.00f, 1.00f, 1.00f, 0.08f }, // mid-back
+                new[] {  0.45f, 1.06f, 1.18f, 0.16f }, // SHOULDERS — the hump (tallest, widest, highest)
+                new[] {  0.90f, 0.78f, 0.86f, 0.12f }, // neck (narrows toward the head join)
+            };
+            var ringVerts = new Vector3[rings.Length][];
+            for (int r = 0; r < rings.Length; r++)
+            {
+                ringVerts[r] = new Vector3[sides];
+                for (int i = 0; i < sides; i++)
+                {
+                    float a = (i + 0.5f) / sides * Mathf.PI * 2f; // offset so a FLAT face sits on the belly
+                    float jx = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.10f;
+                    float jy = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.10f;
+                    // belly-flatten: the LOWER verts (sin<0) squash toward the belly line (× 0.7).
+                    float baseY = Mathf.Sin(a);
+                    float y = baseY * radius * rings[r][2] * jy * (baseY < 0f ? 0.72f : 1.0f)
+                              + radius * rings[r][3];
+                    ringVerts[r][i] = new Vector3(Mathf.Cos(a) * radius * rings[r][1] * jx, y, rings[r][0] * halfL);
+                }
+            }
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            for (int r = 0; r < rings.Length - 1; r++)
+                for (int i = 0; i < sides; i++)
+                {
+                    int ni = (i + 1) % sides;
+                    EmitFlatTri(verts, normals, cols, ringVerts[r][i], ringVerts[r][ni], ringVerts[r + 1][ni], body, Vector3.zero, rnd);
+                    EmitFlatTri(verts, normals, cols, ringVerts[r][i], ringVerts[r + 1][ni], ringVerts[r + 1][i], body, Vector3.zero, rnd);
+                }
+            // Close the rump (back cap) + the neck (front cap) so an exposed end never reads see-through.
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFlatTri(verts, normals, cols, new Vector3(0, radius * rings[0][3], -halfL), ringVerts[0][ni], ringVerts[0][i], body, Vector3.zero, rnd);
+                EmitFlatTri(verts, normals, cols, new Vector3(0, radius * rings[4][3], halfL), ringVerts[4][i], ringVerts[4][ni], body, Vector3.zero, rnd);
+            }
+            return FinishFlat(verts, normals, cols, "LP_BoarBody");
+        }
+
+        /// <summary>
+        /// The boar's HEAD — a blunt faceted WEDGE along +Z (neck → broad cheeks → tapering SNOUT), flattened
+        /// low, with two upward CREAM TUSKS at the snout, two small dark EYES on the skull, and two small EARS
+        /// on top. Wider-cheeked + snouted so the silhouette says "boar", not "another body segment".
+        ///   neckR — the neck half-extent (match the body's neck for a continuous join)
+        ///   length — snout-to-neck length
+        /// </summary>
+        public static Mesh BoarHead(float neckR, float length, Color head, Color snout, Color tusk, Color eye, int seed)
+        {
+            var rnd = new System.Random(seed);
+            const int sides = 6;
+            float halfL = length * 0.5f;
+
+            // rings neck(-Z)→snout(+Z): (zFrac, widthMul, heightMul). Broad cheeks then a tapering snout.
+            float[][] rings =
+            {
+                new[] { -1.00f, 1.00f, 0.90f }, // neck (joins the body)
+                new[] { -0.35f, 1.25f, 1.00f }, // broad cheeks / jowl (the widest point)
+                new[] {  0.35f, 0.72f, 0.62f }, // snout base taper
+                new[] {  1.00f, 0.46f, 0.42f }, // blunt snout tip
+            };
+            var ringVerts = new Vector3[rings.Length][];
+            for (int r = 0; r < rings.Length; r++)
+            {
+                ringVerts[r] = new Vector3[sides];
+                for (int i = 0; i < sides; i++)
+                {
+                    float a = (i + 0.5f) / sides * Mathf.PI * 2f;
+                    float jx = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.08f;
+                    float jy = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.08f;
+                    float baseY = Mathf.Sin(a);
+                    float y = baseY * neckR * rings[r][2] * jy * (baseY < 0f ? 0.78f : 1.0f);
+                    ringVerts[r][i] = new Vector3(Mathf.Cos(a) * neckR * rings[r][1] * jx, y, rings[r][0] * halfL);
+                }
+            }
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            for (int r = 0; r < rings.Length - 1; r++)
+                for (int i = 0; i < sides; i++)
+                {
+                    int ni = (i + 1) % sides;
+                    // The snout rings (r>=2) read a touch lighter (the pale snout/nose) — else the body brown.
+                    Color c = r >= 2 ? snout : head;
+                    EmitFlatTri(verts, normals, cols, ringVerts[r][i], ringVerts[r][ni], ringVerts[r + 1][ni], c, Vector3.zero, rnd);
+                    EmitFlatTri(verts, normals, cols, ringVerts[r][i], ringVerts[r + 1][ni], ringVerts[r + 1][i], c, Vector3.zero, rnd);
+                }
+            // Close the neck (back cap) + the flat snout disc (front cap = the nose).
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, -halfL), ringVerts[0][ni], ringVerts[0][i], head, Vector3.zero, rnd);
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, halfL), ringVerts[3][i], ringVerts[3][ni], snout, Vector3.zero, rnd);
+            }
+
+            // Two upward CREAM tusks at the lower snout — the unmistakable boar read (a tall narrow pyramid
+            // tilted up-and-forward). Wound outward about the tusk's OWN base centre.
+            float snoutZ = halfL * 0.65f;
+            float tuskBaseY = -neckR * 0.35f;
+            float tuskX = neckR * 0.42f;
+            EmitBoarTusk(verts, normals, cols, new Vector3(-tuskX, tuskBaseY, snoutZ), neckR * 0.20f, neckR * 0.62f, tusk);
+            EmitBoarTusk(verts, normals, cols, new Vector3(tuskX, tuskBaseY, snoutZ), neckR * 0.20f, neckR * 0.62f, tusk);
+
+            // Two dark EYES on the upper cheeks (the SnakeHead eye-bump idiom).
+            float eyeR = neckR * 0.20f;
+            EmitEyeBump(verts, normals, cols, new Vector3(-neckR * 0.85f, neckR * 0.55f, -halfL * 0.30f), eyeR, eye);
+            EmitEyeBump(verts, normals, cols, new Vector3(neckR * 0.85f, neckR * 0.55f, -halfL * 0.30f), eyeR, eye);
+
+            // Two small pointed EARS on top of the skull (brown pyramids, apex up-and-back).
+            EmitBoarEar(verts, normals, cols, new Vector3(-neckR * 0.62f, neckR * 0.82f, -halfL * 0.75f), neckR * 0.26f, head);
+            EmitBoarEar(verts, normals, cols, new Vector3(neckR * 0.62f, neckR * 0.82f, -halfL * 0.75f), neckR * 0.26f, head);
+
+            return FinishFlat(verts, normals, cols, "LP_BoarHead");
+        }
+
+        /// <summary>
+        /// One stubby boar LEG: a short 5-sided tapered prism along -Y (top at y=0, hoof at y=-length), with a
+        /// dark HOOF tip ring. Built so the top ring sits at the origin (the bootstrap parents it under the body
+        /// and it hangs down to the ground). Chunky + short — a boar's legs are stocky.
+        /// </summary>
+        public static Mesh BoarLeg(float rTop, float rBot, float length, Color leg, Color hoof, int seed)
+        {
+            var rnd = new System.Random(seed);
+            const int sides = 5;
+            Vector3[] top = new Vector3[sides];
+            Vector3[] bot = new Vector3[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = (i + 0.5f) / sides * Mathf.PI * 2f;
+                float jx = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.08f;
+                top[i] = new Vector3(Mathf.Cos(a) * rTop * jx, 0f, Mathf.Sin(a) * rTop * jx);
+                bot[i] = new Vector3(Mathf.Cos(a) * rBot, -length, Mathf.Sin(a) * rBot);
+            }
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            Vector3 centre = new Vector3(0f, -length * 0.5f, 0f);
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                // Upper shank = leg colour; the very bottom face reads as the dark hoof.
+                EmitFlatTri(verts, normals, cols, top[i], top[ni], bot[ni], leg, centre, rnd);
+                EmitFlatTri(verts, normals, cols, top[i], bot[ni], bot[i], leg, centre, rnd);
+            }
+            // Top cap (leg) + hoof cap (dark) so the ends are closed.
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, 0), top[i], top[ni], leg, centre, rnd);
+                EmitFlatTri(verts, normals, cols, new Vector3(0, -length, 0), bot[ni], bot[i], hoof, centre, rnd);
+            }
+            return FinishFlat(verts, normals, cols, "LP_BoarLeg");
+        }
+
+        /// <summary>A tiny boar TAIL — a short thin taper along -Z, built centred on its own origin.</summary>
+        public static Mesh BoarTail(float length, float radius, Color tail, int seed)
+        {
+            var rnd = new System.Random(seed);
+            const int sides = 4;
+            Vector3[] baseR = new Vector3[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = (i + 0.5f) / sides * Mathf.PI * 2f;
+                baseR[i] = new Vector3(Mathf.Cos(a) * radius, Mathf.Sin(a) * radius, 0f);
+            }
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+            Vector3 tip = new Vector3(0f, -radius * 0.6f, -length); // droops slightly
+            Vector3 centre = new Vector3(0f, 0f, -length * 0.4f);
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFlatTri(verts, normals, cols, baseR[i], baseR[ni], tip, tail, centre, rnd);
+            }
+            for (int i = 0; i < sides; i++) // base cap
+            {
+                int ni = (i + 1) % sides;
+                EmitFlatTri(verts, normals, cols, Vector3.zero, baseR[ni], baseR[i], tail, centre, rnd);
+            }
+            return FinishFlat(verts, normals, cols, "LP_BoarTail");
+        }
+
+        // A cream boar TUSK: a slim pyramid whose apex tilts up-and-forward (+Y,+Z) from a small base at
+        // `baseCentre`. Wound outward about its own base centre (flat cream, no value step — reads as a bright
+        // ivory point).
+        static void EmitBoarTusk(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
+                                 Vector3 baseCentre, float r, float height, Color tuskCol)
+        {
+            Vector3 apex = baseCentre + new Vector3(0f, height, height * 0.35f); // curves up + a touch forward
+            Vector3 b0 = baseCentre + new Vector3(-r, 0, -r);
+            Vector3 b1 = baseCentre + new Vector3(r, 0, -r);
+            Vector3 b2 = baseCentre + new Vector3(r, 0, r);
+            Vector3 b3 = baseCentre + new Vector3(-r, 0, r);
+            EmitFlatTriRaw(verts, normals, cols, apex, b1, b0, tuskCol, baseCentre);
+            EmitFlatTriRaw(verts, normals, cols, apex, b2, b1, tuskCol, baseCentre);
+            EmitFlatTriRaw(verts, normals, cols, apex, b3, b2, tuskCol, baseCentre);
+            EmitFlatTriRaw(verts, normals, cols, apex, b0, b3, tuskCol, baseCentre);
+        }
+
+        // A small pointed boar EAR: a 3-face flat triangle-ish pyramid, apex up-and-back (+Y,-Z), wound about
+        // its own base centre.
+        static void EmitBoarEar(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
+                                Vector3 baseCentre, float r, Color earCol)
+        {
+            Vector3 apex = baseCentre + new Vector3(0f, r * 1.4f, -r * 0.5f);
+            Vector3 b0 = baseCentre + new Vector3(-r * 0.7f, 0, -r * 0.5f);
+            Vector3 b1 = baseCentre + new Vector3(r * 0.7f, 0, -r * 0.5f);
+            Vector3 b2 = baseCentre + new Vector3(0f, 0, r * 0.6f);
+            EmitFlatTriRaw(verts, normals, cols, apex, b1, b0, earCol, baseCentre);
+            EmitFlatTriRaw(verts, normals, cols, apex, b2, b1, earCol, baseCentre);
+            EmitFlatTriRaw(verts, normals, cols, apex, b0, b2, earCol, baseCentre);
+        }
+
         // FLAT-SHADED face emit with the FacetedRock outward-enforcement + per-face value step:
         // the face gets its OWN 3 verts + face normal; winding is FLIPPED whenever the normal points
         // toward `outwardRef` (the mesh-local centre) so URP Cull Back never culls a wound-inward face;
