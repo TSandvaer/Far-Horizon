@@ -521,3 +521,8 @@ main = 3fb5965. THIS SESSION MERGED: #203 CI-split, #194 sun, #197 crouch (8-soa
 - **#214** docs (procedural-animation-verbs.md live-skeleton anim-diagnosis) — CLEAN, docs-only → one-click auto-merge label (or a quick review first).
 
 **NEXT-SESSION DISPATCH (post-merge; runner-2 now parallelizes builds):** ci.yml cluster STRICTLY SERIAL per Priya's plan (above ↻↻▶▶▶▶▶▶▶): 86cafhgun → 86cag1xn0 → 86cagr0zu → 86cafzaeb → 86cabfa21 → 86cag93zb. Plus dev-console per-need entries 86cabeqwf (after #218 merges) + 86cabe3e5 (#83 capture sub-gate, off-ci.yml-lane). Closed-moot this session: 86cagqhez (verifySneak stripped), 86cagmwg9 (loopPose exonerated), 86cah17eq (capture-concurrency = manual-cancel artifact).
+
+## 2026-07-22 ~13:5xZ — Sponsor question (non-urgent): v4 right-hand fix route after Option-C kill
+- Context: spike 86cavcy4u verdict INFEASIBLE (PR #331; identity round-trip through the Python FBX re-serializer fails Unity import — one-way tool; right hand also lacks the thumb skin-cluster structurally). Remaining routes for 86cau4za2: **Option B** (Mixamo re-rig — discards the accepted left-hand dial, re-rolls the auto-rig lottery, full re-seat after) or **SHIP-AS-IS** (defect is cosmetic, already twice-deferred).
+- Orch recommendation: SHIP-AS-IS for now; revisit Option B only when the character next needs a rig change anyway (bundle the risk once). No dependency gates on this — nothing is blocked either way.
+- Ask via /sponsor-questions-walkthrough or whenever convenient.

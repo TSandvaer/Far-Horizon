@@ -566,3 +566,19 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Why: The r8 carve-tighten resolved the only soak-7 reject (blocked a body-length out); all machine gates were already green (CI green after capture-job rerun — the 2026-07-21 failure was a runner shutdown signal mid-job, not code; Devon APPROVE_WITH_NITS r7; Tess QA PASS + SERVE GO incl. the r8 played-check, comment 5042990009).
 - Reversibility: reversible (revert PR #327)
 - Affects: Drew/Devon/Tess (swings surface); board (cluster #2 boar unblocked; round-9 right-hand investigation done — fix pending Sponsor sequencing)
+
+## 2026-07-22 — v4 right-hand fix: defer again + Option-C feasibility spike; never Blender-re-export the rigged character
+
+- Decided by: Sponsor (popup, 2026-07-22 midday)
+- Decision: (1) PR #330 merges as a safety PR (byte-revert + FBX v7700 canary + raw-parse instrument) on Devon's byte-identity verification — no re-soak needed at net-zero visual diff. (2) The right-hand defect stays DEFERRED (second deferral); a research-lane spike proves/kills Option C (raw-FBX binary weight edit, no hierarchy re-export) before any fix route is chosen; Option B (Mixamo re-rig) explicitly not chosen now. (3) Standing engineering rule from the incident: NEVER re-export an already-rigged Mixamo character through Blender's FBX exporter — it rebakes rest orientations on most bones (33/42 measured) and helicopters all zero-rest Generic clips; clip-layer bpy edits remain OK; enforcement = the v7700 canary test.
+- Why: Option A proved structurally impossible (PR #330 comment 5044931437); Option B discards the accepted left-hand dial and re-rolls the defect-producing auto-rig; the defect is cosmetic and already Sponsor-accepted once ("ill fix the hands later", 2026-07-20). Evidence-first spike beats gambling the build lane.
+- Reversibility: reversible (spike is throwaway; routes stay open)
+- Affects: Drew/Devon (character pipeline), 86cau4za2 (back to `to do` post-merge), boar sequencing (unblocked — build lane frees at #330 merge)
+
+## 2026-07-22 — Boar soak PASS → PR #332 merged; 2nd-enemy mesh route ratified (snake-style C#-baked)
+
+- Decided by: Sponsor (soak popup, 2026-07-22 afternoon)
+- Decision: Boar soak on `soak-boar-1` (stamp `9f76ec7`) PASSED in full — charge feel, emergent spear-beats-boar matchup legibility, AND the look; #332 merged as `0dc4844`, ticket 86cah7ydt complete. The AC5 route deviation is RATIFIED: 2nd-enemy meshes follow the snake's C#-editor-baked + procedurally-posed route (no rig — sidesteps the FBX-helicopter class); Blender-authored silhouettes remain optional swap-tickets (the swap-hatch is Devon-verified drop-in).
+- Why: the systemic matchup proof (spear 18.0/hit vs axe 10.5/hit purely from reach + pierce-tag composition, zero table — guard test deletes the tag and the bonus vanishes) is the locked-decision-5 payoff; the route deviation is precedent-consistent (snake) and avoids the just-proven Blender round-trip trap. Sponsor's eye confirmed what the metrics could not (matchup LEGIBILITY).
+- Reversibility: reversible (mesh swap-hatch; dials all per-tier tunable)
+- Affects: combat cluster (3rd-enemy tickets inherit the route), asset-routing doc (creature-route footnote → Priya batch), quality-bars.md (matchup-legibility bar → Priya appends)
