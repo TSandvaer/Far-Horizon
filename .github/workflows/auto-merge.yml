@@ -12,10 +12,22 @@ name: Auto-merge on label
 #     (`far-horizon-local`). This job must not touch the single Unity build slot
 #     ([[single-unity-build-slot-serializes-orchestration]]); it does no Unity work.
 #   - Merges via `gh pr merge --squash --delete-branch`, authenticated with the
-#     default `GITHUB_TOKEN`. `main` is NOT GitHub-protected (private repo on the
+#     Sponsor's fine-grained PAT stored as repo secret `AUTO_MERGE_PAT` (Contents
+#     RW + Pull requests RW + Workflows RW, repo-scoped; ticket 86cafhehe), with a
+#     `|| secrets.GITHUB_TOKEN` fallback so the Action stays functional (reverting to
+#     the old behavior below) if the secret is ever removed or expires.
+#   - Why the PAT: the default `GITHUB_TOKEN` CANNOT merge a PR that touches
+#     `.github/workflows/**` — GitHub hard-restricts it from the `workflows`
+#     permission, so such a merge fails with a refusal error (failure class:
+#     PR #171, run 28336244533). The PAT carries `Workflows RW`, so workflow-file
+#     PRs can label-merge. `main` is NOT GitHub-protected (private repo on the
 #     FREE plan — `gh api .../branches/main/protection` returns 403 "Upgrade to
-#     Pro"), so there is NO required-review gate the token must satisfy; the token's
-#     `contents: write` is sufficient to merge directly.
+#     Pro"), so there is NO required-review gate either token must satisfy; the
+#     token's `contents: write` is sufficient to merge non-workflow PRs directly.
+#   - PAT-EXPIRY FAILURE SIGNATURE: on PAT expiry the `|| secrets.GITHUB_TOKEN`
+#     fallback silently reverts to the default token, so ordinary PRs keep merging
+#     but workflow-touching PRs (only) start failing again with the old refusal
+#     error. A workflow-file PR that suddenly won't label-merge = re-check the PAT.
 #
 # Trigger choice — `pull_request` (NOT `pull_request_target`):
 #   All Far Horizon PRs are SAME-REPO persona branches (no fork PRs). A same-repo
@@ -49,7 +61,7 @@ jobs:
     steps:
       - name: Merge the labelled PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_PAT || secrets.GITHUB_TOKEN }}
         run: |
           gh pr merge "${{ github.event.pull_request.number }}" \
             --squash \
