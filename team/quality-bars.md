@@ -29,6 +29,7 @@ referenced by `team/TESTING_BAR.md` § Predict-Before-Soak.
 | 6 | The art-direction **board is a GUIDE, not a contract** — a divergence the Sponsor has already praised (e.g. the rustic axe) is NOT a defect to "fix" back to the board. | all visual work | `[[sponsor-taste-overrides-art-direction-board]]` |
 | 7 | Every system is designed with **3 difficulty tiers** (easy / medium / hard), kid-friendly → adult-challenging. | needs, enemies, combat, survival | `[[difficulty-settings-easy-medium-hard]]` |
 | 8 | When a spatial/visual tweak stalls (~2 soak-rejects), give the Sponsor a **direct-tweak instrument** (nudge tool / slider / discrete picker) so he dials it himself, then bake the values — don't grind blind iterations. | any fiddly placement/sizing | `[[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]`, composes with `/unstick` |
+| 9 | A weapon-vs-mob matchup reads as **EMERGENT, not scripted** — the "right tool" (e.g. spear-beats-boar) is LEGIBLE to the player from two independent systemic facts (the weapon's REACH + the mob's damage-type WEAKNESS tag), with NO hardcoded weapon×mob matchup table; the weaker tool stays usable (worse, not blocked). Confirmed emergently at the boar soak (reach + pierce-tag, zero table). | enemies, weapons, combat matchups | boar soak PASS 2026-07-22 (`86cah7ydt` AC8b, PR #332, DECISIONS 2026-07-22) |
 
 ## Open / unconfirmed (drop new inferences here for the next `/name-the-bar` pass)
 
