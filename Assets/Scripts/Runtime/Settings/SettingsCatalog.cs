@@ -174,6 +174,16 @@ namespace FarHorizon.Settings
         public const string HpRegenRateId    = "hp_regen_rate";
         public const string DeathBehaviorId  = "death_behavior_tier";
 
+        // Wild-boar per-tier difficulty tweakables (ticket 86cah7ydt AC6). Registered by PopulateBoar, bound to
+        // the scene BoarEnemy + its Health + BoarAI — the SAME pattern + naming as the Combat POC rows above
+        // (each feature adds its OWN Populate method; never grows the base Populate signature). Each slider
+        // writes BOTH the active field AND the ACTIVE difficulty tier's per-tier map entry, so a live dial is
+        // NOT clobbered by BoarEnemy.ApplyDifficulty-on-gore (the dead-knob class) and the dialed value BAKES
+        // into that tier's preset ([[verify-soak-builds-or-bake-and-judge]]). Ids are stable (PlayerPrefs keys).
+        public const string BoarHpMaxId       = "boar_hp_max";
+        public const string BoarGoreDamageId  = "boar_gore_damage";
+        public const string BoarChargeSpeedId = "boar_charge_speed";
+
         // FPS counter visibility (ticket 86cahmxmt — Sponsor #226 walk-soak item 3: "We need to introduce a
         // FPS counter to be displayed"). A BOOL row driving the FpsCounterHud component's enabled flag
         // (disabled = no Update, no OnGUI = zero cost). DEFAULT ON in this first build so the Sponsor sees it
@@ -279,6 +289,12 @@ namespace FarHorizon.Settings
         public const float DamageTakenMulMin = 0.1f, DamageTakenMulMax = 3f; // incoming-damage multiplier band
         public const float HpRegenRateMin = 0f, HpRegenRateMax = 20f;        // HP/sec regen band (0 = no regen)
         public const int DeathBehaviorMin = 0, DeathBehaviorMax = 2;         // tier stepper: 0=Easy 1=Medium 2=Hard
+        // Wild-boar per-tier difficulty bands (ticket 86cah7ydt AC6). Generous around the boar tier defaults
+        // (HP 32/40/50, gore 10/18/26, chaseSpeed 3.2) so the Sponsor can soak a gentle OR a punishing boar,
+        // bounded so a dial can't zero the boar or make the charge un-outrunnable.
+        public const float BoarHpMaxMin = 15f, BoarHpMaxMax = 120f;          // boar HP-max band (around 32/40/50)
+        public const float BoarGoreMin = 2f, BoarGoreMax = 50f;              // gore damage band (around 10/18/26)
+        public const float BoarChargeSpeedMin = 1f, BoarChargeSpeedMax = 12f; // pursuit/charge speed band (around 3.2)
 
         // Console UI scale band (86cabeqj9 soak NIT). 0.5x (half-size, for a Sponsor who finds the panel huge) ..
         // 1.5x (larger). Default 1.0x = the shipped panel, byte-identical untouched (the differs-badge stays off).
@@ -1038,6 +1054,74 @@ namespace FarHorizon.Settings
                     v => death.tier = (FarHorizon.SurvivalNeed.DifficultyTier)Mathf.Clamp(v, DeathBehaviorMin, DeathBehaviorMax),
                     DeathBehaviorMin, DeathBehaviorMax, unit: "");
             }
+        }
+
+        /// <summary>
+        /// Register the WILD-BOAR per-tier difficulty tweakables (ticket 86cah7ydt AC6) into the registry,
+        /// LIVE-bound to the scene <paramref name="boar"/> (+ its sibling Health / BoarAI): `Boar HP max`
+        /// (drives Health.max), `Boar gore damage` (drives BoarEnemy.goreDamage), `Boar charge speed` (drives
+        /// BoarAI.chaseSpeed). Mirrors PopulateCombat + the per-need de-collision precedent (each feature adds
+        /// its OWN Populate method; called from SettingsPanel.Start, NOT part of the Build overload chain).
+        ///
+        /// EACH slider writes BOTH the active field AND the ACTIVE difficulty tier's per-tier MAP entry so the
+        /// dial is NOT clobbered by <see cref="FarHorizon.Combat.BoarEnemy.ApplyDifficulty"/> (which runs on
+        /// every gore reading the map) — the dead-knob guard — and the dialed value BAKES into that tier's
+        /// preset. A null boar (or a boar without a Health) registers NOTHING (the catalog never null-refs), so
+        /// a boar-less rig / bare test is unaffected.
+        /// </summary>
+        public static void PopulateBoar(SettingsRegistry reg, FarHorizon.Combat.BoarEnemy boar)
+        {
+            if (reg == null || boar == null) return;
+            var health = boar.GetComponent<FarHorizon.Combat.Health>();
+            var ai = boar.GetComponent<FarHorizon.Combat.BoarAI>();
+
+            // The ACTIVE difficulty tier — read live from the AI's DeathHandler surface (Medium if unwired) so a
+            // slider write also updates the RIGHT tier's per-tier map entry.
+            FarHorizon.SurvivalNeed.DifficultyTier Tier() =>
+                ai != null ? ai.ActiveTier : FarHorizon.SurvivalNeed.DifficultyTier.Medium;
+
+            // BOAR HP MAX (live) — drives the boar's Health.max + the active tier's per-tier HP map (AC6).
+            if (health != null)
+            {
+                reg.AddFloat(BoarHpMaxId, "Boar HP max",
+                    () => health.max,
+                    v =>
+                    {
+                        float c = Mathf.Clamp(v, BoarHpMaxMin, BoarHpMaxMax);
+                        health.max = c;
+                        switch (Tier())
+                        {
+                            case FarHorizon.SurvivalNeed.DifficultyTier.Easy: boar.easyMaxHp = c; break;
+                            case FarHorizon.SurvivalNeed.DifficultyTier.Hard: boar.hardMaxHp = c; break;
+                            default: boar.medMaxHp = c; break;
+                        }
+                    },
+                    BoarHpMaxMin, BoarHpMaxMax, unit: "");
+            }
+
+            // BOAR GORE DAMAGE (live) — drives the active BoarEnemy.goreDamage + the active tier's gore map so
+            // ApplyDifficulty-on-gore reads back the dialed value (not the baked default) — no dead knob.
+            reg.AddFloat(BoarGoreDamageId, "Boar gore damage",
+                () => boar.goreDamage,
+                v =>
+                {
+                    float c = Mathf.Clamp(v, BoarGoreMin, BoarGoreMax);
+                    boar.goreDamage = c;
+                    switch (Tier())
+                    {
+                        case FarHorizon.SurvivalNeed.DifficultyTier.Easy: boar.easyGoreDamage = c; break;
+                        case FarHorizon.SurvivalNeed.DifficultyTier.Hard: boar.hardGoreDamage = c; break;
+                        default: boar.medGoreDamage = c; break;
+                    }
+                },
+                BoarGoreMin, BoarGoreMax, unit: "");
+
+            // BOAR CHARGE SPEED (live) — drives BoarAI.chaseSpeed (the pursuit rush the Sponsor feels). Not
+            // per-tier on the AI, so a plain live dial (no map write / no clobber). Null AI skips this row.
+            if (ai != null)
+                reg.AddFloat(BoarChargeSpeedId, "Boar charge speed",
+                    () => ai.chaseSpeed, v => ai.chaseSpeed = Mathf.Clamp(v, BoarChargeSpeedMin, BoarChargeSpeedMax),
+                    BoarChargeSpeedMin, BoarChargeSpeedMax, unit: "u/s");
         }
 
         /// <summary>

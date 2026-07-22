@@ -120,6 +120,11 @@ namespace FarHorizon
         public FarHorizon.Combat.HealthRegen combatRegen;
         public FarHorizon.Combat.DeathHandler combatDeath;
 
+        [Tooltip("Wild-boar 86cah7ydt AC6 — the scene BoarEnemy the per-tier boar rows (Boar HP max / gore " +
+                 "damage / charge speed) bind to. Wired editor-time; null skips only its rows (PopulateBoar " +
+                 "null-refs safely).")]
+        public FarHorizon.Combat.BoarEnemy combatBoar;
+
         [Tooltip("The FPS counter HUD (86cahmxmt) — the `FPS counter` on/off row drives its enabled flag " +
                  "(OFF = no Update, no OnGUI = zero cost). Wired editor-time (the Boot object carries it next " +
                  "to BootHud); the Awake FindObjectOfType stays the bare-scene safety net. May be null; the " +
@@ -243,6 +248,9 @@ namespace FarHorizon
             if (combatHealth == null) combatHealth = FindObjectOfType<FarHorizon.Combat.Health>();
             if (combatRegen == null) combatRegen = FindObjectOfType<FarHorizon.Combat.HealthRegen>();
             if (combatDeath == null) combatDeath = FindObjectOfType<FarHorizon.Combat.DeathHandler>();
+            // Wild boar 86cah7ydt AC6 — the per-tier boar rows' target. Unambiguous (only the boar has a
+            // BoarEnemy). Serialized editor-time; this Awake fallback is the build-safety net.
+            if (combatBoar == null) combatBoar = FindObjectOfType<FarHorizon.Combat.BoarEnemy>();
             // FPS counter (86cahmxmt) — build-safety fallback (the ship path wires it editor-time). Finds a
             // DISABLED component too (FindObjectOfType filters by GameObject activeness, not component enabled
             // state), so a persisted OFF pref still re-binds + re-applies on the next launch.
@@ -269,6 +277,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateArmAndGround(Registry, chopCharacter, armPose); // F9 → ground-Y + arm pose (AC1)
             SettingsCatalog.PopulateWorldLook(Registry, worldLook);          // F10 → sky/fog/cloud/mountain/sun (AC2)
             SettingsCatalog.PopulateCombat(Registry, combatHealth, combatRegen, combatDeath); // Combat POC → per-tier HP/damage/regen/death (AC8b)
+            SettingsCatalog.PopulateBoar(Registry, combatBoar);              // Wild boar → per-tier HP / gore / charge speed (86cah7ydt AC6)
             SettingsCatalog.PopulateFps(Registry, fpsHud);                   // FPS counter on/off (86cahmxmt — default ON, Sponsor-soak tunes)
             SettingsCatalog.PopulateIron(Registry);                          // iron-progression dials (86cakkmgw — extension hooks; I-2/I-3 flip live)
             SettingsCatalog.PopulateIronLive(Registry, mineOre);             // I-2 (86cakkmr0): flip `iron ore rarity` LIVE → MineOre.ActiveNodeCount
