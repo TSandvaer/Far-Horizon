@@ -216,6 +216,20 @@ namespace FarHorizon
                                      inv.IsSwordWoodSelectedInBelt, inv.IsSpearWoodSelectedInBelt,
                                      inv.IsPickaxeWoodSelectedInBelt);
 
+        /// <summary>
+        /// 86cav8xu8 — TRUE when the SELECTED belt item owns a held-visual weapon mesh (any tier that
+        /// <see cref="SyncHeldVisualToSelection"/> maps to a family index): the stone/spear/pickaxe set
+        /// (<see cref="SelectionIndexFor"/> ≥ 0) OR any wood tier (<see cref="WoodSelectionIndexFor"/> ≥ 0). This is
+        /// the SINGLE source of truth for "a haft is shown in the hand" — <see cref="HeldAxe.ShouldShow"/> (the mesh
+        /// visibility gate) AND <see cref="CastawayFingerCurl"/> (the grip that closes around the haft) both read it,
+        /// so the finger-curl can never drift from the mesh it wraps. Widens the finger-curl past the old stone-axe/
+        /// spear-only read (the wood/iron/pickaxe held-visual then read as an OPEN 'mangled' hand around the haft).</summary>
+        public static bool IsHeldVisualWeaponSelected(Inventory inv)
+            => inv != null
+               && (SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                     inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0
+                   || WoodSelectionIndexFor(inv) >= 0);
+
         // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
         // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
         // seat is Sponsor-LOCKED and is restored to its captured original.
@@ -420,7 +434,9 @@ namespace FarHorizon
             useGUILayout = false;
 
             // Seed the LIVE scale/offset/euler from the baked defaults (copy — never mutate the static arrays).
-            // The dials edit these per-weapon; index 0 (axe) stays at the locked defaults.
+            // The dials edit these per-weapon; index 0 (axe) is seeded like every other class from its baked
+            // defaults — the round-7 "same dial for rock and metal" bake RETIRED the axe zero-lock, so index 0 now
+            // carries a real dialed axe-class seat (86cav8xu8 r7 NIT 3; DECISIONS 2026-07-22 one-dial-per-class).
             _liveScale = (float[])WeaponMeshScale.Clone();
             _liveOffset = (Vector3[])WeaponMeshLocalOffset.Clone();
             _liveEuler = (Vector3[])WeaponMeshLocalEuler.Clone();
@@ -715,8 +731,10 @@ namespace FarHorizon
             }
         }
 
-        // Swap the displayed mesh + apply the per-weapon mesh-holder compensation. The axe (index 0)
-        // RESTORES the captured original local TRS so its Sponsor-locked seat is byte-unchanged.
+        // Swap the displayed mesh + apply the per-weapon mesh-holder compensation. The axe (index 0) restores the
+        // captured original axe MESH, then COMPOSES the axe-class seat (WeaponMeshLocalOffset/Euler/Scale[0]) on it —
+        // the SAME composition every other weapon uses (the round-7 "same dial for rock and metal" bake retired the
+        // axe zero-lock, so index 0 is a real dialed seat, no longer byte-unchanged — 86cav8xu8 r7 NIT 3).
         private void ApplyCurrent()
         {
             Mesh m = (_meshes != null && _index < _meshes.Length) ? _meshes[_index] : null;

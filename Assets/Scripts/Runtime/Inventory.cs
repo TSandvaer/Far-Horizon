@@ -181,10 +181,24 @@ namespace FarHorizon
         /// Widened to all three axe ids so every axe tier chops. Kept a SEPARATE property (not a change to
         /// <see cref="IsAxeSelectedInBelt"/>) so the stone-only held-visual callers stay byte-unchanged.
         /// </summary>
-        public bool IsAnyAxeSelectedInBelt =>
-            Model.IsSelectedBeltItem(ItemCatalog.AxeWoodId)
-            || Model.IsSelectedBeltItem(ItemCatalog.AxeId)
-            || Model.IsSelectedBeltItem(ItemCatalog.AxeIronId);
+        public bool IsAnyAxeSelectedInBelt => SelectedBeltWeaponClass == CastawayCharacter.WeaponClassAxe;
+
+        /// <summary>
+        /// The WeaponClass of the currently-selected belt item (86cav8xu8) — <c>-1</c> when the selection is empty or
+        /// a non-weapon item (wood / berry / stone / water). Derived via <see cref="Combat.WeaponCatalog.WeaponClassForItemId"/>
+        /// so the tool-select gates (<see cref="IsAnyAxeSelectedInBelt"/>, <see cref="MineBoulder.IsBoulderPickaxeSelected"/>)
+        /// categorize a tier BY CONSTRUCTION — a future 4th axe/pickaxe tier is covered with NO gate edit, closing the
+        /// soak-4 hand-enumerated fall-through class.
+        /// </summary>
+        private int SelectedBeltWeaponClass
+        {
+            get
+            {
+                var sel = Model.SelectedBeltStack;
+                if (sel.IsEmpty || sel.Def == null) return -1;
+                return Combat.WeaponCatalog.WeaponClassForItemId(sel.Def.Id);
+            }
+        }
 
         /// <summary>
         /// Combat POC 86cah7xxp AC4 — acquire the SPEAR (the second contrasting craftable weapon). Adds the

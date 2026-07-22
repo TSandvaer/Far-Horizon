@@ -53,12 +53,12 @@ namespace FarHorizon
         // exactly this omission (a crafted wood weapon selected satisfied NEITHER the axe/spear NOR the pickaxe
         // predicates → ShouldShow returned false → EMPTY hands). WoodSelectionIndexFor(inventory) >= 0 is the wood
         // sibling; the mesh half is HeldWeaponCycleDebug.SyncHeldVisualToSelection's wood fallback (indices 10-14).
+        // 86cav8xu8 — the selection half is now the SHARED HeldWeaponCycleDebug.IsHeldVisualWeaponSelected predicate
+        // (byte-identical to the previous 4-way OR + wood-fallback: SelectionIndexFor(axe/spear/pickaxe-stone/iron) >= 0
+        // || WoodSelectionIndexFor >= 0). CastawayFingerCurl reads the SAME predicate, so the grip can never drift
+        // from the mesh this gate shows. The debug-view OR is retained (the empty-handed [B] look-soak view).
         protected override bool ShouldShow()
-            => inventory.IsAxeSelectedInBelt
-               || inventory.IsSpearSelectedInBelt
-               || inventory.IsPickaxeStoneSelectedInBelt
-               || inventory.IsPickaxeIronSelectedInBelt
-               || HeldWeaponCycleDebug.WoodSelectionIndexFor(inventory) >= 0
+            => HeldWeaponCycleDebug.IsHeldVisualWeaponSelected(inventory)
                || (_cycle != null && _cycle.DebugViewActive);
     }
 }

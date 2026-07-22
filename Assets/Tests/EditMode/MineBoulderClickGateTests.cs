@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using UnityEngine;
 using FarHorizon;
+using FarHorizon.Combat;
 
 namespace FarHorizon.EditTests
 {
@@ -90,6 +91,48 @@ namespace FarHorizon.EditTests
             finally
             {
                 Object.DestroyImmediate(invGo);
+            }
+        }
+
+        // === 86cav8xu8 — the fall-through-by-CONSTRUCTION guard (pickaxe sibling of the axe derivation guard) ===
+        // IsBoulderPickaxeSelected is now WeaponClass-DERIVED (WeaponCatalog.WeaponClassForItemId == WeaponClassPickaxe),
+        // NOT a hardcoded {pickaxe_wood, pickaxe_stone, pickaxe_iron} list. Asserts the EQUIVALENCE across the whole
+        // weapon catalog: the boulder gate is true for a selected item IFF its derived WeaponClass is the pickaxe
+        // class. A future 4th pickaxe tier in BuildDefaults is covered here + in the gate by construction.
+        [Test]
+        public void IsBoulderPickaxeSelected_IsWeaponClassDerived_AcrossTheWholeCatalog()
+        {
+            var catalog = ScriptableObject.CreateInstance<WeaponCatalog>();
+            catalog.BuildDefaults();
+            try
+            {
+                int pickTiersSeen = 0, nonPickSeen = 0;
+                foreach (var def in catalog.All)
+                {
+                    if (def == null || string.IsNullOrEmpty(def.Id)) continue;
+                    var go = new GameObject("InvDerive");
+                    try
+                    {
+                        var inv = go.AddComponent<Inventory>();
+                        var item = inv.Catalog.ById(def.Id);
+                        if (item == null) continue;                       // no inventory ItemDef → not belt-selectable
+                        var placed = inv.Model.AddToolToBelt(item);
+                        if (!placed.HasValue) continue;                   // not a belt-eligible Tool
+                        inv.Model.SelectBelt(placed.Value.Index);
+                        bool expectPick = WeaponCatalog.WeaponClassForItemId(def.Id) == CastawayCharacter.WeaponClassPickaxe;
+                        Assert.AreEqual(expectPick, MineBoulder.IsBoulderPickaxeSelected(inv),
+                            "IsBoulderPickaxeSelected for '" + def.Id + "' must equal (derived WeaponClass == pickaxe class)");
+                        if (expectPick) pickTiersSeen++; else nonPickSeen++;
+                    }
+                    finally { Object.DestroyImmediate(go); }
+                }
+                Assert.GreaterOrEqual(pickTiersSeen, 3, "every current pickaxe tier (wood/stone/iron) must be exercised");
+                Assert.Greater(nonPickSeen, 0, "and at least one non-pickaxe weapon must be exercised (the false case)");
+            }
+            finally
+            {
+                foreach (var d in catalog.All) if (d != null) Object.DestroyImmediate(d);
+                Object.DestroyImmediate(catalog);
             }
         }
 

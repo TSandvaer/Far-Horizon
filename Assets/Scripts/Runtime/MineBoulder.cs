@@ -425,9 +425,13 @@ namespace FarHorizon
             if (inv == null) return false;
             var model = inv.Model;
             if (model == null) return false;
-            return model.IsSelectedBeltItem(ItemCatalog.PickaxeWoodId)
-                || model.IsSelectedBeltItem(ItemCatalog.PickaxeStoneId)
-                || model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
+            // 86cav8xu8 — WeaponClass-DERIVE the pickaxe category (kills the hand-enumerated wood/stone/iron tier
+            // list: a future 4th pickaxe tier added to WeaponCatalog.BuildDefaults with the pickaxe_mine AnimationId
+            // is covered BY CONSTRUCTION, no gate edit). Byte-identical to the old enumeration for today's three
+            // tiers (all pickaxe ids map to WeaponClassPickaxe). Selection, not ownership: the SELECTED belt item.
+            var sel = model.SelectedBeltStack;
+            if (sel.IsEmpty || sel.Def == null) return false;
+            return Combat.WeaponCatalog.WeaponClassForItemId(sel.Def.Id) == CastawayCharacter.WeaponClassPickaxe;
         }
 
         /// <summary>

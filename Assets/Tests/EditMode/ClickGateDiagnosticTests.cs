@@ -3,6 +3,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using FarHorizon;
+using FarHorizon.Combat;
 
 namespace FarHorizon.EditTests
 {
@@ -111,6 +112,140 @@ namespace FarHorizon.EditTests
             var wrongTool = new VerbGateDiag { ToolSelected = false, NearestDist = 1.0f, Range = 2.4f };
             Assert.IsTrue(wrongTool.TargetInRange, "a boulder is reachable");
             Assert.IsFalse(wrongTool.WouldClaim, "…but the pickaxe is not selected → no claim");
+        }
+
+        // 86cav8xu8 — CROSS-CHECK ClassifyClick against the REAL MeleeAttack arbitration, not itself. ClassifyClick
+        // RE-IMPLEMENTS the click precedence; if it drifts from MeleeAttack's actual rule the instrument LIES (the
+        // soak-fail-test-pass-instrument trap). Over the full 256-combo guard×claim×weapon×target truth-table, the
+        // diagnostic's "a verb won" is pinned to MeleeAttack.AnyVerbClaims (under the shared guards) and its "melee
+        // won" to MeleeAttack.ShouldSwingOnClick — both PRODUCTION statics the live Update chain uses, so a change to
+        // the real suppression rule (incl. the chop→boulder→ore verb order) reds here instead of silently mis-labeling.
+        [Test]
+        public void ClassifyClick_CrossChecksTheRealMeleeAttackArbitration_NotItself()
+        {
+            for (int mask = 0; mask < 256; mask++)
+            {
+                bool chop   = (mask & 1) != 0, boulder = (mask & 2) != 0, ore = (mask & 4) != 0;
+                bool weapon = (mask & 8) != 0, tgt = (mask & 16) != 0;
+                bool panel  = (mask & 32) != 0, overUI = (mask & 64) != 0, rmb = (mask & 128) != 0;
+
+                var win = ClickGateDiagnostic.ClassifyClick(chop, boulder, ore, weapon, tgt, panel, overUI, rmb);
+                bool guarded = panel || overUI || rmb;
+                bool anyVerb = MeleeAttack.AnyVerbClaims(chop, boulder, ore); // the REAL suppression predicate
+                bool diagVerbWon  = win == Consumer.ChopTree || win == Consumer.MineBoulder || win == Consumer.MineOre;
+                bool diagMeleeWon = win == Consumer.MeleeAttackTarget || win == Consumer.MeleeAttackWhiff;
+
+                Assert.AreEqual(!guarded && anyVerb, diagVerbWon,
+                    "verb-win must match MeleeAttack.AnyVerbClaims under the shared guards (mask " + mask + ")");
+                Assert.AreEqual(MeleeAttack.ShouldSwingOnClick(weapon, anyVerb, panel, overUI, rmb), diagMeleeWon,
+                    "melee-win must match the REAL MeleeAttack.ShouldSwingOnClick gate (mask " + mask + ")");
+            }
+        }
+
+        // ===================================================================================================
+        // 1b — 86cav8xu8: the ACCESSOR-vs-RESOLVER equivalence guard (instrument-of-record integrity)
+        // ===================================================================================================
+        // Each verb's ClickGateDiag() reports TargetInRange from its distance ACCESSOR (NearestXDistance ≤ Range);
+        // the live click consumes via its RESOLVER (ResolveNearestX WITHIN Range). If the two drift (magnitude↔
+        // sqrMagnitude, ≤↔<, a different node filter) the diagnostic lies about reachability — the soak-fail trap.
+        // With the matching tool SELECTED, WouldClaimClick() == (ResolveNearest != null), so asserting
+        // WouldClaimClick() == ClickGateDiag().TargetInRange across the range boundary pins the equivalence against
+        // the verb's OWN resolver (ChopTree.cs / MineBoulder.cs / MineOre.cs NearestXDistance).
+
+        // Move the player to inside / just-outside / far of a node at the origin and assert the diagnostic's
+        // TargetInRange tracks the verb's real resolver (WouldClaimClick, tool selected) at every distance.
+        private static void AssertDiagTargetInRangeTracksResolver(float range, Transform node, Transform player,
+            System.Func<bool> wouldClaim, System.Func<bool> diagInRange, string label)
+        {
+            node.position = Vector3.zero;
+
+            player.position = new Vector3(range * 0.5f, 0f, 0f);   // comfortably inside
+            Assert.IsTrue(diagInRange(), label + ": a node at 0.5×range must read IN range");
+            Assert.AreEqual(wouldClaim(), diagInRange(), label + ": inside — diag TargetInRange must match the resolver");
+
+            player.position = new Vector3(range * 1.25f, 0f, 0f);  // just outside
+            Assert.IsFalse(diagInRange(), label + ": a node at 1.25×range must read OUT of range");
+            Assert.AreEqual(wouldClaim(), diagInRange(), label + ": outside — diag must match the resolver");
+
+            player.position = new Vector3(range * 6f, 0f, 0f);     // far
+            Assert.AreEqual(wouldClaim(), diagInRange(), label + ": far — diag must match the resolver");
+        }
+
+        [Test]
+        public void MineBoulder_DiagTargetInRange_MatchesResolver_AcrossRangeBoundary()
+        {
+            var invGo = new GameObject("Inv"); var playerGo = new GameObject("Player");
+            var rootGo = new GameObject("Boulders"); var mineGo = new GameObject("MineBoulder");
+            try
+            {
+                var inv = invGo.AddComponent<Inventory>();
+                var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(ItemCatalog.PickaxeWoodId));
+                inv.Model.SelectBelt(slot.Value.Index);
+                var node = new GameObject(MineBoulder.BoulderNodeName);
+                node.transform.SetParent(rootGo.transform, false);
+                var mine = mineGo.AddComponent<MineBoulder>();
+                mine.inventory = inv; mine.player = playerGo.transform; mine.boulderRoot = rootGo.transform;
+                mine.mineRadius = 2.4f;
+                mine.InitializePoolForTest();
+                AssertDiagTargetInRangeTracksResolver(mine.mineRadius, node.transform, playerGo.transform,
+                    () => mine.WouldClaimClick(), () => mine.ClickGateDiag().TargetInRange, "boulder");
+            }
+            finally
+            {
+                Object.DestroyImmediate(mineGo); Object.DestroyImmediate(rootGo);
+                Object.DestroyImmediate(playerGo); Object.DestroyImmediate(invGo);
+            }
+        }
+
+        [Test]
+        public void MineOre_DiagTargetInRange_MatchesResolver_AcrossRangeBoundary()
+        {
+            var invGo = new GameObject("Inv"); var playerGo = new GameObject("Player");
+            var rootGo = new GameObject("OreNodes"); var mineGo = new GameObject("MineOre");
+            try
+            {
+                var inv = invGo.AddComponent<Inventory>();
+                var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(ItemCatalog.PickaxeStoneId)); // ore needs stone/iron
+                inv.Model.SelectBelt(slot.Value.Index);
+                var node = new GameObject(MineOre.OreNodeName);
+                node.transform.SetParent(rootGo.transform, false);
+                var mine = mineGo.AddComponent<MineOre>();
+                mine.inventory = inv; mine.player = playerGo.transform; mine.nodeRoot = rootGo.transform;
+                mine.activeNodeCount = 1; // enable the one node (Awake's preset-seed never fires in EditMode)
+                mine.InitializePoolForTest();
+                AssertDiagTargetInRangeTracksResolver(mine.mineRadius, node.transform, playerGo.transform,
+                    () => mine.WouldClaimClick(), () => mine.ClickGateDiag().TargetInRange, "ore");
+            }
+            finally
+            {
+                Object.DestroyImmediate(mineGo); Object.DestroyImmediate(rootGo);
+                Object.DestroyImmediate(playerGo); Object.DestroyImmediate(invGo);
+            }
+        }
+
+        [Test]
+        public void ChopTree_DiagTargetInRange_MatchesResolver_AcrossRangeBoundary()
+        {
+            var invGo = new GameObject("Inv"); var playerGo = new GameObject("Player");
+            var treeGo = new GameObject("DemoTree"); var chopGo = new GameObject("ChopTree");
+            try
+            {
+                var inv = invGo.AddComponent<Inventory>();
+                var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(ItemCatalog.AxeId));
+                inv.Model.SelectBelt(slot.Value.Index);
+                var chop = chopGo.AddComponent<ChopTree>();
+                chop.inventory = inv; chop.player = playerGo.transform;
+                chop.visual = treeGo.transform;          // instance-0 (demo tree) is the visual's position
+                chop.chopRadius = 2.2f;
+                chop.RegisterDemoTreeForTest();
+                AssertDiagTargetInRangeTracksResolver(chop.chopRadius, treeGo.transform, playerGo.transform,
+                    () => chop.WouldClaimClick(), () => chop.ClickGateDiag().TargetInRange, "chop");
+            }
+            finally
+            {
+                Object.DestroyImmediate(chopGo); Object.DestroyImmediate(treeGo);
+                Object.DestroyImmediate(playerGo); Object.DestroyImmediate(invGo);
+            }
         }
 
         // ===================================================================================================

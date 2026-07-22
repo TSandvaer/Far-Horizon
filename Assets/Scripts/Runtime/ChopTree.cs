@@ -448,6 +448,19 @@ namespace FarHorizon
             return s;
         }
 
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86cav8xu8 — TEST-ONLY (STRIPPED via UNITY_INCLUDE_TESTS): register instance-0 (the demo tree)
+        /// from the current <see cref="visual"/> the way Awake does, so an EditMode test — where Awake never
+        /// auto-fires — can rig one choppable tree for the resolver-vs-diagnostic equivalence guard. Mirrors the
+        /// Awake demo-tree registration (the MineBoulder.InitializePoolForTest sibling).</summary>
+        public void RegisterDemoTreeForTest()
+        {
+            if (visual == null) visual = transform;
+            _instances.Clear();
+            _instances.Add(NewState(visual, DeriveSeed(0)));
+        }
+#endif
+
         void Awake()
         {
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
