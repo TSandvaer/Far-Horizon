@@ -84,6 +84,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - File name MUST match class name or the component shows "Missing".
 - Prefer `[SerializeField] private` over `public` for Inspector fields. Inspector-serialized value overrides the code initializer at runtime.
 - Never lerp Euler angles across the 0/360 wrap. Use `Quaternion.Slerp`.
+- Never accumulate a rotation dial by adding a delta to one Euler COMPONENT at a time (`relEuler.y += dr`) — near ±90° pitch this is gimbal-locked and some orientations become UNREACHABLE (a full 360° yaw hunt that never lands). Compose as a quaternion RIGHT-multiplied in the object's own local frame instead: `Quaternion.Euler(currentEuler) * Quaternion.Euler(deltaEuler)`, reading back `.eulerAngles` for display/baking — every orientation is reachable this way (the displayed triple may re-decompose differently near gimbal; the composed rotation itself is exact). Fixed in `AxeNudgeTool.ComposeLocalRot` (`Assets/Scripts/Runtime/AxeNudgeTool.cs:563`), replacing F9 per-component accumulation after the pickaxe's ~−70°..−80° pitch made some yaws unreachable (`86caffwv5`, PR #327 @ `250e4e6`); guarded by `Assets/Tests/EditMode/SwingsRound5Tests.cs` (`ComposeLocalRot_ReachesEveryOrientation_AtHighPitch_NoGimbalDeadZone`).
 - Multiply ALL per-frame movement/rotation by `Time.deltaTime`.
 - Enter Play Mode Options: enable for iteration speed. **Audit all statics** — they don't reset on domain reload unless you add a `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]` reset.
 
@@ -187,6 +188,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 | Animate `width`/`height` in UI | Animate `translate`/`scale` + set `DynamicTransform` hint |
 | Hide a UI element with `opacity = 0` | Use `style.display = DisplayStyle.None` |
 | Run ForceInput Euler-lerp across 360° | Use `Quaternion.Slerp` |
+| Add a delta to one Euler component per nudge step (a rotation dial) | Right-multiply `Quaternion.Euler(delta)` in local space (`AxeNudgeTool.ComposeLocalRot`) |
 | Profile in the editor and trust the numbers | Profile on a development build of `FarHorizon.exe` |
 
 ---
