@@ -646,32 +646,77 @@ namespace FarHorizon.EditTests
             }
         }
 
-        // 86cau4za2 — the v4 RIGHT hand/thumb defaults RE-DERIVED after the source re-weight + bone-roll fix.
-        // The LEFT stays the Sponsor-ACCEPTED dial-7 values (byte-unchanged — AC4). The RIGHT was re-derived as the
-        // render-MIRROR of the accepted left FINAL pose (CastawayV4DefectDiag.ReportRound10) because the source fix
-        // made the right hand subtree an EXACT mirror of the left (bind roll 176.4°→0.0°; thumb-chain weight
-        // 0.000→0.919). The OLD right defaults were STALE compensations for the BROKEN rig — RightWrist=(-22,250,-30)
-        // fought the 176° bind flip; RightThumb=0 because the right thumb geometry was skinned to the INDEX chain
-        // (an euler there was inert). Both are now SEEDS the Sponsor re-dials by eye (AC7). Pinned so a regression to
-        // the stale flip-compensation values reds here.
+        // 86catvb6u round-9 — the v4 HAND offsets the Sponsor dialed and ACCEPTED on the dial-7 soak (stamp
+        // 95f516e). Values verified against the harvested log Build/soak-v4-dial-7/sponsor-dial7-Player.log by
+        // occurrence count (LeftThumb 1357 settled samples, LeftWrist 187, RightWrist 10 = his last dialed right).
+        // Kept RAW/unnormalised on purpose — these are the exact numbers he judged; Quaternion.Euler wraps them.
+        // The RIGHT THUMB stays 0 for a MEASURED reason, not taste: round-9 (ci-out/v4diag-round9.log) found the
+        // right hand's thumb GEOMETRY skinned to the INDEX chain (all 48 mirror-matched thumb verts dominated by
+        // righthandindex1/2/3, mean thumb-chain weight 0.000 vs 0.919 on the left), so a right-thumb euler moves
+        // almost nothing. Pin so nobody "fixes" the right thumb with another runtime euler — the fix is source-side.
         [Test]
-        public void CastawayV4HandEulers_ShipReDerivedMirrorSeeds_86cau4za2()
+        public void CastawayV4HandEulers_ShipSponsorAcceptedDial7Values_86catvb6u()
         {
-            Assert.AreEqual(new Vector3(-15.7f, 72.9f, 10.6f), MovementCameraScene.CastawayV4RightWristEuler,
-                "v4 right-wrist must ship the 86cau4za2 re-derived mirror seed (-15.7,72.9,10.6), NOT the stale " +
-                "flip-compensation (-22,250,-30)");
+            Assert.AreEqual(new Vector3(-22.0f, 250.0f, -30.0f), MovementCameraScene.CastawayV4RightWristEuler,
+                "v4 right-wrist must ship the Sponsor's dial-7 right wrist (-22,250,-30)");
             Assert.AreEqual(new Vector3(-21.8f, 282.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
-                "v4 left-wrist must ship the Sponsor-ACCEPTED dial-7 left wrist (-21.8,282.6,3.7) — UNCHANGED (AC4)");
+                "v4 left-wrist must ship the Sponsor-ACCEPTED dial-7 left wrist (-21.8,282.6,3.7)");
             Assert.AreEqual(new Vector3(-502.0f, -890.0f, -6.0f), MovementCameraScene.CastawayV4LeftThumbEuler,
-                "v4 left-thumb must ship the Sponsor-ACCEPTED dial-7 left thumb (-502,-890,-6) — UNCHANGED (AC4)");
-            Assert.AreEqual(new Vector3(-18.8f, -69.3f, -70.8f), MovementCameraScene.CastawayV4RightThumbEuler,
-                "v4 right-thumb is now the re-derived mirror seed (-18.8,-69.3,-70.8) — the re-weight ACTIVATED it " +
-                "(pre-fix it was 0/inert: the thumb geometry was skinned to the INDEX chain)");
-            // The right wrist MUST no longer carry the ~250° Y roll-compensation of the broken-rig default.
-            Assert.Less(Mathf.Abs(Mathf.DeltaAngle(0f, MovementCameraScene.CastawayV4RightWristEuler.y)), 120f,
-                "v4 right-wrist Y must no longer carry the ~250° roll-compensation for the (now-fixed) bind flip");
+                "v4 left-thumb must ship the Sponsor-ACCEPTED dial-7 left thumb (-502,-890,-6)");
+            Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightThumbEuler,
+                "v4 right-thumb must stay 0 — round-9 measured its geometry skinned to the INDEX chain " +
+                "(thumb-chain weight 0.000), so an euler here is inert; the fix is a source-side re-weight");
+            // The wrists MUST differ from the round-7 zeros (a zero re-ships the both-hands twist).
             Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4RightWristEuler,
-                "v4 right-wrist must NOT be zero (a zero re-ships an un-mirrored right hand)");
+                "v4 right-wrist must NOT be the round-7 zero that left both hands twisted");
+            Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4LeftWristEuler,
+                "v4 left-wrist must NOT be the round-7 zero that left both hands twisted");
+        }
+
+        // 86cau4za2 (PR #330 round-2) — REGRESSION GUARD for the "helicopter" full-rig retarget break.
+        // PR #330 round-1 tried to fix the right hand by re-exporting the Mixamo-rigged castaway_v4_rigged.fbx
+        // through BLENDER's FBX exporter ("Option A, no re-rig"). A raw io_scene_fbx.parse_fbx diff (NO importer —
+        // the importer axis-COMPENSATES and reads a false 0.000° rest delta, the exact trap character-pipeline.md
+        // §Step 3 warns about) proved the round-trip re-derived the rest orientation of 33 of 42 bones (leftshoulder
+        // 111.5°, rightshoulder 130.4°, both feet ±58.9° X, both uplegs ±179.9° Z, ...) — DESTROYING the Mixamo
+        // zero-rest-rotation convention the 18 without-skin clips (which keyframe absolute local rotations, bound by
+        // transform path) rely on. In the shipped exe the character stood in a T-pose while the limbs spun about
+        // their own axes; torso/head read normal because spine/neck moved <2.6°.
+        // CANARY: a genuine Mixamo / FBX-SDK export is FBX BINARY version 7700; Blender's exporter downgrades to
+        // 7400. So any rigged castaway FBX reading 7400 has been round-tripped through Blender and its bone rest
+        // orientations can no longer be trusted against the shared clip set. Fix = re-rig via Mixamo, NEVER
+        // re-export a rigged character from Blender. Guards all three live rigs (v2/v3/v4).
+        [Test]
+        public void RiggedCastawayFbx_IsGenuineMixamoExport_NotBlenderRoundTrip_86cau4za2()
+        {
+            foreach (var rel in new[]
+            {
+                "Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx",
+                "Assets/Art/Character/Castaway/v3/castaway_v3_rigged.fbx",
+                "Assets/Art/Character/Castaway/v2/castaway_rigged_tpose.fbx",
+            })
+            {
+                string abs = System.IO.Path.GetFullPath(rel);
+                Assert.IsTrue(System.IO.File.Exists(abs), $"rigged castaway FBX missing: {rel}");
+                byte[] head;
+                using (var fs = System.IO.File.OpenRead(abs))
+                {
+                    head = new byte[27];
+                    int read = 0;
+                    while (read < head.Length) { int r = fs.Read(head, read, head.Length - read); if (r <= 0) break; read += r; }
+                }
+                // Binary FBX header: "Kaydara FBX Binary  " (20 bytes) + 0x00 0x1A 0x00, then uint32 version @ offset 23.
+                string magic = System.Text.Encoding.ASCII.GetString(head, 0, 20);
+                Assert.AreEqual("Kaydara FBX Binary  ", magic,
+                    $"{rel} is not a binary FBX (magic mismatch) — cannot verify the Mixamo export convention");
+                uint version = System.BitConverter.ToUInt32(head, 23);
+                Assert.AreEqual(7700u, version,
+                    $"{rel} FBX binary version is {version}, expected 7700 (genuine Mixamo/FBX-SDK export). A 7400 " +
+                    "version means the rig was round-tripped through Blender's FBX exporter, which re-derives ALL " +
+                    "bone rest orientations and destroys the Mixamo zero-rest convention the shared clip set binds " +
+                    "against — the PR #330 helicopter regression. Re-rig via Mixamo, do NOT re-export a rigged " +
+                    "character from Blender.");
+            }
         }
 
         // 86catvb6u round-8 — the Boot scene must carry CastawayHandPose wired: BOTH hand bones + BOTH thumb bases
@@ -697,7 +742,7 @@ namespace FarHorizon.EditTests
                 Assert.IsNotNull(hand.rightThumb, "under v4 CastawayHandPose must resolve the RIGHT thumb base (the F9 HAND knob)");
                 Assert.IsNotNull(hand.leftThumb, "under v4 CastawayHandPose must resolve the LEFT thumb base (the F9 HAND knob)");
                 Assert.AreEqual(MovementCameraScene.CastawayV4RightThumbEuler, hand.rightThumbEuler,
-                    "the right thumb must bake the 86cau4za2 re-derived mirror seed (activated by the re-weight)");
+                    "the right thumb ships 0 — round-9 measured it inert (geometry skinned to the INDEX chain)");
                 Assert.AreEqual(MovementCameraScene.CastawayV4LeftThumbEuler, hand.leftThumbEuler,
                     "the left thumb must bake the Sponsor-ACCEPTED dial-7 value (-502,-890,-6)");
             }
