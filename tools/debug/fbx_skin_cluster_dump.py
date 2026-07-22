@@ -19,11 +19,17 @@
 # Example (the 86cau4za2 right-thumb defect):
 #   ... fbx_skin_cluster_dump.py -- castaway_v4_rigged.fbx righthandthumb righthandindex
 #
+# NOTE ON SCOPE: this tool enumerates skin CLUSTER deformers only. It can prove a cluster is
+# ABSENT, but it says NOTHING about the bone hierarchy — a zero-weight bone has no cluster yet
+# still exists. Never read a missing cluster as a missing bone (the 86cavcy4u/86cau4za2 trap).
+#
 # Empirical precedent 86cavcy4u (Option-C FBX binary weight-edit spike): named the v4 right
-# hand as STRUCTURALLY asymmetric — right thumb has only thumb1+thumb2 clusters (NO
-# righthandthumb3 cluster/bone), all 18 right-thumb verts co-owned by the right index chain,
-# right index1 carrying 56 verts vs the left's 14. That asymmetry is why the fix needs a
-# cluster-MEMBERSHIP change, not a weight-VALUE overwrite.
+# hand's SKIN as structurally asymmetric — right thumb has only thumb1+thumb2 clusters (NO
+# righthandthumb3 CLUSTER; the thumb3 BONE exists on both sides with zero skin influence on the
+# right — per 86cau4za2 QA-verified correction, comment 90150243345817), all 18 right-thumb
+# verts co-owned by the right index chain, right index1 carrying 56 verts vs the left's 14
+# (+42 index-only). That SKIN asymmetry is why the fix needs a cluster-MEMBERSHIP change, not a
+# weight-VALUE overwrite.
 import sys
 try:
     import io_scene_fbx.parse_fbx as pf

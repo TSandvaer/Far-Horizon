@@ -18,24 +18,29 @@ changes. Source FBX: `Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx` (
 
 ---
 
-## 1. Ground truth — the right hand is STRUCTURALLY asymmetric, not just mis-weighted
+## 1. Ground truth — the right hand's SKIN is structurally asymmetric (cluster membership), not just mis-weighted
 
-RAW-parse (`tools/debug/fbx_skin_cluster_dump.py`, no importer) of the shipped v4 rigged FBX:
+RAW-parse (`tools/debug/fbx_skin_cluster_dump.py`, no importer) of the shipped v4 rigged FBX. The tool
+enumerates skin **Cluster** deformers, so it measures the SKIN structure — it can prove a cluster is
+ABSENT, but it says nothing about the bone hierarchy (a zero-weight bone has no cluster yet still exists):
 
 - 1 Skin deformer, **32 Cluster** deformers (41-bone rig; 9 bones drive no verts).
 - RIGHT thumb chain: `righthandthumb1` (18 verts) + `righthandthumb2` (1 vert) — **NO `righthandthumb3`
-  cluster, and no `righthandthumb3` bone at all** (matches 86cau4za2's measurement).
-- LEFT thumb chain: `lefthandthumb1` (26) + `lefthandthumb2` (6) + `lefthandthumb3` (3) — HAS thumb3.
-- RIGHT index chain: index1 **56** / index2 18 / index3 10 — vs LEFT index 14 / 8 / 6. The right index
-  chain absorbed +46 verts (the thumb geometry).
+  CLUSTER.** The `righthandthumb3` BONE itself EXISTS on both sides and carries ZERO skin influence on the
+  right — per 86cau4za2's QA-verified correction (comment 90150243345817: "the skeleton was never missing
+  anything"). So the gap is a missing skin cluster/deformer, NOT a missing bone.
+- LEFT thumb chain: `lefthandthumb1` (26) + `lefthandthumb2` (6) + `lefthandthumb3` (3) — HAS a thumb3 cluster.
+- RIGHT index chain: index1 **56** / index2 18 / index3 10 — vs LEFT index 14 / 8 / 6. Right `index1` alone
+  carries **+42** verts vs the left (56 − 14) — the mis-bound thumb geometry.
 - Overlap: all **18** right-thumb verts are ALSO owned by the right index clusters; **42** verts are
   right-index-only (the mis-bound thumb geometry — the ticket's "48" in file/control-point space).
 
 **Consequence for any edit:** "mirror the left" cannot be a weight-VALUE overwrite. The mis-bound verts
 must MOVE from the index clusters (currently listing them) INTO the thumb clusters (currently NOT listing
 most of them) → cluster vertex-MEMBERSHIP changes → **array LENGTHS change**. A pure length-preserving
-in-place value patch is structurally incapable of this fix. (And there is no `righthandthumb3` to mirror
-into — at best an approximate thumb1/thumb2 distribution.)
+in-place value patch is structurally incapable of this fix. (And there is no `righthandthumb3` CLUSTER to
+mirror into — the bone is present, so a full left-mirror would have to CREATE a thumb3 cluster + its
+bone connection, not merely move verts; short of that, only an approximate thumb1/thumb2 distribution.)
 
 ## 2. The re-serialize mechanism preserves the rig at the PARSE level — but that is not enough
 
@@ -90,7 +95,10 @@ footer — is the one path that keeps the byte structure the SDK accepts. But:
    value-overwrite case; it needs the full offset-chain rewrite = a bespoke targeted FBX binary writer.
 2. Several `Weights` arrays are **zlib-compressed** (encoding=1 in the raw scan), so even value-only
    edits would force recompression → different lengths → the same offset-rewrite machinery.
-3. There is **no `righthandthumb3`** on the right → only an APPROXIMATE mirror is possible.
+3. There is **no `righthandthumb3` CLUSTER** on the right (the thumb3 BONE exists on both sides with zero
+   skin influence — 86cau4za2 comment 90150243345817), so a full left-mirror would have to CREATE a thumb3
+   cluster + its bone connection, not merely re-assign existing verts → only an APPROXIMATE thumb1/thumb2
+   mirror is cheaply possible.
 4. It must STILL clear the Sponsor-eye soak that defeated 9 prior rounds (metrics proved insufficient).
 
 Net effort/risk of the surgical patcher **meets or exceeds Option B (a targeted Mixamo re-rig)** — without
