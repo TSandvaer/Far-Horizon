@@ -25,6 +25,57 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Reversibility: reversible (seat constants + the ApplyCurrent composition are code; drift-guarded by `HeroAxeSceneTests._SameDialAcrossTiers_86caffwv5` + per-tier equality pins + the axe scale-1.0 guard)
 - Affects: `HeldWeaponCycleDebug` / `HeroAxeSceneTests`, held-weapon visual seating; Drew + Devon + Tess. Source: PR #327 (86caffwv5) r7, comment 5034253841.
 
+## 2026-07-22 — Boar soak PASS → PR #332 merged; 2nd-enemy mesh route ratified (snake-style C#-baked)
+
+- Decided by: Sponsor (soak popup, 2026-07-22 afternoon)
+- Decision: Boar soak on `soak-boar-1` (stamp `9f76ec7`) PASSED in full — charge feel, emergent spear-beats-boar matchup legibility, AND the look; #332 merged as `0dc4844`, ticket 86cah7ydt complete. The AC5 route deviation is RATIFIED: 2nd-enemy meshes follow the snake's C#-editor-baked + procedurally-posed route (no rig — sidesteps the FBX-helicopter class); Blender-authored silhouettes remain optional swap-tickets (the swap-hatch is Devon-verified drop-in).
+- Why: the systemic matchup proof (spear 18.0/hit vs axe 10.5/hit purely from reach + pierce-tag composition, zero table — guard test deletes the tag and the bonus vanishes) is the locked-decision-5 payoff; the route deviation is precedent-consistent (snake) and avoids the just-proven Blender round-trip trap. Sponsor's eye confirmed what the metrics could not (matchup LEGIBILITY).
+- Reversibility: reversible (mesh swap-hatch; dials all per-tier tunable)
+- Affects: combat cluster (3rd-enemy tickets inherit the route), asset-routing doc (creature-route footnote → Priya batch), quality-bars.md (matchup-legibility bar → Priya appends)
+
+## 2026-07-22 — v4 right-hand fix: defer again + Option-C feasibility spike; never Blender-re-export the rigged character
+
+- Decided by: Sponsor (popup, 2026-07-22 midday)
+- Decision: (1) PR #330 merges as a safety PR (byte-revert + FBX v7700 canary + raw-parse instrument) on Devon's byte-identity verification — no re-soak needed at net-zero visual diff. (2) The right-hand defect stays DEFERRED (second deferral); a research-lane spike proves/kills Option C (raw-FBX binary weight edit, no hierarchy re-export) before any fix route is chosen; Option B (Mixamo re-rig) explicitly not chosen now. (3) Standing engineering rule from the incident: NEVER re-export an already-rigged Mixamo character through Blender's FBX exporter — it rebakes rest orientations on most bones (33/42 measured) and helicopters all zero-rest Generic clips; clip-layer bpy edits remain OK; enforcement = the v7700 canary test.
+- Why: Option A proved structurally impossible (PR #330 comment 5044931437); Option B discards the accepted left-hand dial and re-rolls the defect-producing auto-rig; the defect is cosmetic and already Sponsor-accepted once ("ill fix the hands later", 2026-07-20). Evidence-first spike beats gambling the build lane.
+- Reversibility: reversible (spike is throwaway; routes stay open)
+- Affects: Drew/Devon (character pipeline), 86cau4za2 (back to `to do` post-merge), boar sequencing (unblocked — build lane frees at #330 merge)
+
+## 2026-07-22 — Swings cluster ships: mini-soak-8 PASS → PR #327 merged (re-appended after the 08:09 revert)
+
+- Decided by: Sponsor
+- Decision: Mini-soak of `Build/soak-swings-8` (stamp `58ae23d`) PASSED — walk-into-boulder blocks at touching distance and click-mine fires from the blocked spot; #327 merged as `250e4e6`; tickets 86caffwv5 + 86caffwuz complete.
+- Why: The r8 carve-tighten resolved the only soak-7 reject (blocked a body-length out); all machine gates were already green (CI green after capture-job rerun — the 2026-07-21 failure was a runner shutdown signal mid-job, not code; Devon APPROVE_WITH_NITS r7; Tess QA PASS + SERVE GO incl. the r8 played-check, comment 5042990009).
+- Reversibility: reversible (revert PR #327)
+- Affects: Drew/Devon/Tess (swings surface); board (cluster #2 boar unblocked; round-9 right-hand investigation done — fix pending Sponsor sequencing)
+
+## 2026-07-21 — Erik Rigify verdict accepted: STAY Mixamo (reconstructed 2026-07-22)
+
+- Decided by: Sponsor (implicit accept — no pushback on the served verdict)
+- Decision: stay on the Mixamo pipeline; bad clips get clip-layer bpy repair (à la SneakGaitCurveFix); Rigify re-enters only if a human animator ever joins (open question to Sponsor, unanswered).
+- Why: Rigify is a control rig with zero clips; game-export friction + re-rig blast radius (Generic bindings, Animator, all 15 seats) = Very High for zero gain. Research note: team/erik-consult/rigify-vs-mixamo-research.md (merged #328).
+- Reversibility: reversible (future re-evaluation)
+- Affects: animation asset routing
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert wiped the original uncommitted entry; sources = 2026-07-21 session save + PR #327 trail.
+
+## 2026-07-21 — Loot prompt anchor: above the character's head (reconstructed 2026-07-22)
+
+- Decided by: Sponsor (confirmed the orchestrator's delegated recommendation)
+- Decision: interaction/loot prompts render above the castaway's head (tier-aware ore text; the belt-overlapping prompt relocated).
+- Why: readability at gameplay framing; the old anchor collided with the belt UI.
+- Reversibility: reversible
+- Affects: LootPrompt / HUD
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert; sources = 2026-07-21 session save + PR #327 trail.
+
+## 2026-07-21 — Ore spec KEPT: wood pickaxe mines boulders only (reconstructed 2026-07-22)
+
+- Decided by: Sponsor ("Keep spec" popup, 2026-07-21)
+- Decision: wood pickaxe mines BOULDERS only; iron ore requires a stone/iron pickaxe; the tier-aware tooltip "Needs stone pickaxe" is the UX cue.
+- Why: progression legibility — the tooltip carries the teaching; the shipped spec matched his intent.
+- Reversibility: reversible (spec/dial change)
+- Affects: mining progression, LootPrompt copy
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert wiped the original uncommitted entry; sources = 2026-07-21 session save + PR #327 trail.
+
 ## 2026-07-19 — Combat cluster: SPEC PREP starts now; implementation gated on #317 (v4 activation) merge
 
 - Decided by: Sponsor (orchestrator popup, 2026-07-19)

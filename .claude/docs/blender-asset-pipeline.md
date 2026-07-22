@@ -198,6 +198,8 @@ Run these IN ORDER before File > Export > FBX:
 
 ## 8. FBX Export Settings — Exact Values
 
+> ⚠ **SCOPE: props/weapons/env ONLY — and characters only on their FIRST trip TO Mixamo (with Blender FBX *defaults*, not this section's settings).** An ALREADY-RIGGED Mixamo character must NEVER be re-exported through Blender's FBX exporter under ANY settings — the exporter rebuilds the armature and rebakes every bone's rest orientation (33/42 bones measured), which helicopters all Generic clips; a Blender re-import will falsely report zero delta. Full rule + verification (raw parse via `tools/debug/fbx_rest_convention_diff.py`, FBX v7700 canary test): `character-pipeline.md` §Step 3 (castaway v4, `86cau4za2`, PR #330 round-2).
+
 **File > Export > FBX (.fbx)**
 
 | Setting | Value | Why |
