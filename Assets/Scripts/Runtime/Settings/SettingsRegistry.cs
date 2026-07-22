@@ -62,8 +62,8 @@ namespace FarHorizon.Settings
         // --- Convenience registration helpers (the "a few lines" surface the ACs ask for) ---
 
         public FloatSettingEntry AddFloat(string id, string label, Func<float> get, Action<float> set,
-            float min, float max, bool available = true, string unit = "")
-            => Register(new FloatSettingEntry(id, label, get, set, min, max, available, unit));
+            float min, float max, bool available = true, string unit = "", bool persist = true)
+            => Register(new FloatSettingEntry(id, label, get, set, min, max, available, unit, persist));
 
         public RangeSettingEntry AddRange(string id, string label,
             Func<float> getMin, Action<float> setMin, Func<float> getMax, Action<float> setMax,
@@ -73,6 +73,12 @@ namespace FarHorizon.Settings
         public IntSettingEntry AddInt(string id, string label, Func<int> get, Action<int> set,
             int min, int max, int step = 1, bool available = true, string unit = "")
             => Register(new IntSettingEntry(id, label, get, set, min, max, step, available, unit));
+
+        /// <summary>Register a BOOL flag (86cabeqj9 AC7) — an on/off toggle row. The per-need on/off (ticket
+        /// b) + future flags slot in with this one line, like the float/range/int helpers above.</summary>
+        public BoolSettingEntry AddBool(string id, string label, Func<bool> get, Action<bool> set,
+            bool available = true, string unit = "")
+            => Register(new BoolSettingEntry(id, label, get, set, available, unit));
 
         /// <summary>
         /// Remove a registered entry by id (no-op + false if not present). Used to REPLACE a greyed

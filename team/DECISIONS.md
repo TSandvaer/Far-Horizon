@@ -17,6 +17,16 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 
 ---
 
+## 2026-07-08 — Crafting system redesigned: placed recipe-menu table + 3 tiers + unified place-to-build
+
+- Decided by: Sponsor + orchestrator (grill-resolved, ticket `86camz6n0`, 2026-07-08; grounded on the forge-soak feedback in `86camyvzw`/`86camyvwn`)
+- Decision: The crafting surface is redesigned. (1) **Unified place-to-build**: the crafting table (wood+stone), forge (much more stone), and campfire are all placed by the player and are **INVISIBLE until placed** (retires the pre-visible fixed spots). (2) **Crafting table = a recipe MENU** — recipes grouped by tier, greyed until the tier is unlocked AND affordable, click-to-craft; RETIRES the `CraftSpot` auto-craft stump + the free-mint `CraftAxe` path. (3) **Three tiers WOOD→STONE→IRON**, each with axe/pickaxe/spear/dagger/sword (~15 recipes) crafted via a **material-cost seam** (`InventoryModel.RemoveItem` all-or-nothing → `AddToolToBelt`). (4) **Tier-gated loop**: hand-gather sticks+pebbles → table → wood tools → wood-pick mines STONE from boulders (NEW) → stone tools → stone-pick mines IRON-ORE (shipped #287) → forge smelts → BARS (shipped #292) → iron tools. Re-scoped into 4 build-lane tickets (① table foundation + wood tier, ② boulder-mining + stone tier, ③ forge place-to-build rework + iron tier, ④ full-chain soak). Absorbs I-4 `86cakkmy2` + forge-vis `86camyvzw` + NIT `86camw8rm` (→③) and I-5 `86cakkn15` (→④); icons `86camyvwn` stays a separate fable session. Full spec: `team/priya-pl/crafting-system-spec.md`.
+- Why: The Sponsor's forge-soak (2026-07-08, build `4cb464b`) rejected pre-visible/auto-built structures ("must NOT be visible before it is built — the player builds it by gathering the ingredients and PLACING it"); the grill generalised that to every structure + turned the thin one-recipe stump into a real tiered recipe menu, giving the survival arc its full gather→craft→upgrade spine. Model-A's shipped mine/smelt mechanics are reused; its "extend the thin CraftSpot bench" assumption is superseded.
+- Reversibility: reversible per ticket (each of ①–④ is a discrete PR); the design direction is Sponsor-locked
+- Affects: crafting/inventory/structures/UI, Devon + Drew + Tess + Uma; supersedes `iron-model-a-spec.md` on the crafting-table question
+
+---
+
 ## 2026-06-12 — Project founded: Far Horizon (Sponsor-directed)
 
 - Decided by: Sponsor (sequence of popup decisions, recorded verbatim on RandomGame ClickUp ticket 86ca85ttd)
@@ -399,3 +409,160 @@ Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame 
 - Why: the round-5 residual ring resisted effect-side fixes (bloom/sea-plane) because the cause was geometric, not shader/post; the prover isolated it definitively once foam was already ruled out (and fixed) in the prior round. Encoding "flush feature → flat painted ring, not a raised mesh" as a decision prevents the next ground-water feature from re-introducing the same raised-collar white-ring class. Coheres with the existing low-poly vertex-color inline-materials pattern (DECISIONS 2026-06-12) and the "physical features: anchor real-world + side-profile capture, fix the cause not the metric" discipline.
 - Reversibility: reversible (a per-feature mesh-vs-painted-ring choice; revert in ≤1 PR) — but re-introducing a raised collar reopens the proven white-ring class. Note #130 is still in review; if its round-6 rework changes the approach materially, revisit this entry.
 - Affects: the freshwater pond + any future flush ground-water feature, world-gen ground/terrain vertex-color painting, Devon + Drew (visual/mesh work) + Tess (shipped-build capture gate on the shoreline read).
+
+## 2026-07-01 — Combat / HP / Death system LOCKED (grill-first, 9 Sponsor decisions)
+
+- Decided by: Sponsor (via /grill-me, 9 branches all Sponsor-picked; design ticket `86cabcdpn`)
+- Decision: The combat/HP/death model is locked across 9 decisions: **(1)** HP is a **dedicated `Health` component, SEPARATE from `SurvivalNeed`** (needs rest at a floor and never hit zero; HP takes ACUTE damage and 0 HP = death — a different shape, do NOT fold into SurvivalNeed). **(2)** Death consequence is **tiered by difficulty — the 3 death behaviors ARE the 3 tiers:** Easy = faint & recover in place (no setback, enemy disengages, low damage, fast regen); Medium = respawn at last campfire (start beach if none), inventory KEPT, moderate; Hard = respawn at camp + inventory DROPS at the death spot (reclaimable), high damage, slow regen. **(3)** HP regen is **NEEDS-GATED** — regenerates only while warmth/hunger/thirst are above threshold; a critical need STALLS regen (or slow-drains HP), reading the SurvivalNeed surface (`Current01`/`IsCritical`) without adding a new need. **(4)** Fighting back is a **WEAPON SYSTEM** (not axe-only): a weapon carries damage/reach/attack-speed/own-animation/damage-type (pierce/slash/blunt)/optional on-hit-status; identity = type × material tier; reuses the left-click swing; acquisition = BOTH craft-at-station (wood→stone→bone/metal) AND find-in-world. **(5)** Weapon-vs-mob effectiveness is **HYBRID** — weapon attributes + a damage-TYPE tag vs mob size/behavior + resistances/weaknesses ("spear beats boar" emerges from long reach + boar weak-to-pierce); systemic + designer-tunable via type↔resistance tags, NO full O(weapon×mob) table. **(6)** Status effects are a **GENERAL data-driven framework (DoT/stun/slow-capable), shipping BLEED first**; works both ways (mobs→player and player→mobs). **(7)** Enemies have HP + resistances + behavior and die at 0 HP (mirror of the player HP model). **(8)** Difficulty exposure — HP-max/damage-taken/regen-rate/death-behavior are per-tier, dialed in the dev-tweak console (same pattern as per-need decay `86cabeqwf`) and baked into the difficulty presets. **(9)** All of the above compose into ONE integrated system, which the POC proves. **Broken into impl tickets:** POC `86cah7xxp` (lean vertical slice — player HP + tiered death + needs-gated regen + snake-as-damageable + axe-vs-spear + bleed + damage-type↔resistance + HP readout) and phased follow-ups `86cah7y5b` (find-in-world acquisition), `86cah7ydt` (wild boar 2nd enemy + matchup proof), `86cah7ym9` (weapon-roster expansion), `86cah7yuh` (poison/stun/slow), `86cah7z2q` (HP HUD polish + heal sources). Design ticket `86cabcdpn` is design-complete (records the design + spawns the impl tickets).
+- Why: the game had no health/damage/death (SurvivalNeed has only a cosmetic critical flag + a no-fail floor; WarmthNeed explicitly scoped death OUT) and the snake POC (`86caaz4vn`) shipped a bite with no effect. The Sponsor directed (2026-06-19) "introduce a real HP/death system but grill me about it first"; the grill resolved every branch. Keeping HP separate from needs, gating regen ON needs, and making enemies damageable ties combat into the existing survival loop as one system rather than a bolt-on. The tiered-death-as-difficulty-tiers choice makes the game kid-friendly on easy and consequential on hard per the standing difficulty-settings directive (quality-bar #7).
+- Reversibility: reversible in principle (each system is new code addable/removable in bounded PRs) — but the model is Sponsor-locked and unblocks the whole combat roadmap, so treat as directionally committed. The enemy-HP surface is SHARED with the snake POC `86caaz4vn` (whichever lands the enemy `Health` first OWNS it; the other extends it — per the parallel-shared-concept naming discipline).
+- Affects: a new `Health` component + weapon system + status-effect framework + enemy-HP surface; the SurvivalNeed framework (regen reads its surface), the dev-tweak console + difficulty presets, the unified-weapon Blender set + procedural-animation-verbs (per-weapon swings), the snake POC `86caaz4vn`; Drew (POC owner) + Devon (reviewer / systems follow-ups) + Uma (HP HUD) + Tess (QA + shipped-build capture + soak).
+
+## 2026-06-30 — Next-island/boat POC: DESTINATION-FIRST — prove the big-island terrain-gen now; boat/journey deferred
+
+- Decided by: Sponsor (2026-06-30 `/grill-me` on the next-island/boat prompt; ticket `86caa9zpp`)
+- Decision: The next-island/boat prompt is **split into two halves and sequenced destination-first**. **Half 1 — DESTINATION (ticket `86caa9zpp`):** the POC proves the **big-island terrain-gen** and is **build-ready now** (grill done, design locked). The locked design: (Q1 scope) destination-first — the POC proves the terrain-gen; the boat/journey is a separate follow-up half. (Q2 size+perf) a *feels-big* island, **~2-3 min to cross**, holding **60fps** on the EXISTING low-poly + GPU-Resident-Drawer approach **scaled up** — scale toward the eventual ~10-min target ONLY if perf holds; the **#1 POC finding is the PERF VERDICT** (single scaled mesh + LOD vs needing chunked/streamed terrain). (Q3 mountain) ONE dominant **snow-cap peak** = the island's hero landmark + future sea-beacon, snow rendered as a **height-threshold white material** on the faceted low-poly mesh (no snow texture). Shape: organic / non-round, like the seed-42 start island. (Q4 success bar) walkable + feels-big + organic + one snow-cap peak + 60fps, judged in the **shipped build** via a **Sponsor walk-soak**. The Sponsor **declined a separate Erik perf-benchmark — the build itself is the perf test.** **OOS of this POC:** the boat/sail + journey/reveal; survival systems on the new island; props/decoration/content; wiring to the seed-42 start island (the POC island loads **STAND-ALONE** for the soak). **Half 2 — JOURNEY (ticket `86caa9zju`, the boat):** **DEFERRED** — it gets its OWN `/grill-me` only AFTER the destination POC lands + soaks; kept `to do` + a `sponsor-gate`/grill-first note; the boat design is unsettled.
+- Why: the "sail to a much-bigger island, walk ~10 min across it" vision only works if the terrain-gen scales without breaking framerate, so the Sponsor chose to answer the perf go/no-go on the big island BEFORE any boat work — the journey only matters if the destination is feasible. Trying the existing gen scaled (rather than a new gen or a separate benchmark) keeps the POC's question precise: does the *existing* approach scale? Sequencing destination-first also keeps the boat grill honest — it gets designed against a known-feasible island, not a hypothetical one.
+- Reversibility: reversible (POC on an independent branch; the start island is untouched; the split + sequence are board state, re-editable in ≤1 PR). The perf VERDICT it produces is a finding, not a config.
+- Affects: world-gen (a new stand-alone big-island POC scene + scaled terrain + height-threshold snow material), the next-island POC `86caa9zpp` (build-ready) + the deferred boat/journey `86caa9zju`, Devon/Drew (owner+reviewer) + Tess (shipped-build capture gate + side-profile silhouette) + the Sponsor (walk-soak), quality-bars Bar 1 (organic) + Bar 4 (real-world feature + side-profile), the single Unity-build slot.
+
+## 2026-06-30 — Open-horizon = full open ocean (Option A); next-island reveal via natural fog-haze
+
+- Decided by: Sponsor (2026-06-30 walkthrough on the open-horizon spec `86cafffe8` / PR #199)
+- Decision: The horizon look is **Option A — full open ocean**: REMOVE the distant horizon mountains so the start island reads as "a little island lost in a huge ocean", open blue water dissolving into warm sky a full 360° around the player. **Option B (a faint rim hint on the horizon) is the pre-planned soak fallback** — adopt it only if an empty horizon reads cheap/flat in the soak. The future next-island reveal (the journey POC `86caa9zpp` follow-up) uses a **natural fog-haze reveal (Approach 1)** — the next island fades up out of the haze as the player nears it — NOT a scripted/authored cinematic reveal moment. Impl ticket: **`86cagfn8h`** (open-horizon look); soak-gated.
+- Why: Sponsor vision call (subjective-feel, his domain). A full open ocean strengthens the big-endless-world / small-player north-star — the lone little island in a vast sea reads as the start of a real journey, and a natural haze-reveal keeps the eventual next-island moment diegetic rather than staged.
+- Reversibility: reversible (the mountains are removable/re-addable world-gen state; Option B is the staged fallback if the soak rejects the empty horizon; revert in ≤1 PR).
+- Affects: world-gen / skybox / horizon look (`86cagfn8h`), the next-island reveal approach for the journey POC follow-up, quality-bars (big-endless-world north-star), Devon/Drew (author) + Tess (shipped-build capture gate) + the Sponsor (soak).
+
+## 2026-07-01 — Settings-panel SPLIT: player-facing Settings (F1) vs dev debug console (new key) — supersedes the unified-panel direction
+
+- Decided by: Sponsor (2026-07-01 soak of the #218 F-key migration — "that was not the intention")
+- Decision: The single unified settings/dev-tweak panel is **SPLIT into two panels**: **(a) a PLAYER-FACING Settings panel on F1** (the existing open key) carrying only the rows a player should touch — belt slots, inventory stack size, difficulty tier (if/when a row exists), and the three survival-need on/off toggles + decay-rate sliders (warmth/hunger/thirst) — WITH a conditional-visibility rule that shows a need's decay-rate slider ONLY when that need's decay toggle is ON; and **(b) a SEPARATE DEV DEBUG CONSOLE on a NEW key (proposed F3 — layout-agnostic function key, verified unused; F2 = legacy IMGUI overlays, F5/F6 = SneakIsolationTool)** carrying every dev-only visual/positional tuning row migrated in #218 (world-look sun/fog/clouds/mountains, arm-pose R/L, run-lower, cam-follow lerp/vertical/airborne/lead, held-weapon placement, ground-Y, air-control accel, tree/stone/berry/log timers + yields, plus the panel-chrome Console UI scale / UI text scale). This **REVERSES** the earlier "one unified panel that absorbs all F-key handles" direction (memory `[[sponsor-wants-unified-dev-tweak-console]]`, DECISIONS/dev-tweak-console-spec lineage) — the unification is retained ONLY within the dev console; the player must never see the dev nudges. Impl ticket: `86cah8ukr` (`feat/refactor`, Unity-build lane, Devon owner / Drew reviewer, `needs-soak`). #220 (`86cabeqwf`, the per-need on/off + decay-rate work) is **SUPERSEDED / folded into** the split ticket — its need rows land in the PLAYER panel with the new conditional-visibility fix rather than as unconditional rows on the unified panel.
+- Why: The #218 migration correctly consolidated the standalone F7/F9/F10 dev nudges into the console, but it put them alongside genuine player settings, and the Sponsor's soak surfaced that a player opening Settings must NOT see arm-pose eulers / fog channels / follow-gains. The split keeps the dev-tuning unification (one console, all nudges) while giving the shipping player a clean, minimal Settings panel. The conditional-visibility fix (#220) removes the meaningless decay slider for a disabled need.
+- Reversibility: reversible (a UI routing/key split + a per-need slider visibility rule; the underlying registry + bindings are unchanged, so revert is ≤1 PR — re-point both panels at one registry view + one key).
+- Affects: `SettingsPanel` / `SettingsCatalog` / the panel scene wiring (`MovementCameraScene`/`Boot.unity`), the two open keys (F1 player + proposed F3 dev), the superseded #220 per-need work (`86cabeqwf`), memory `[[sponsor-wants-unified-dev-tweak-console]]` (now scoped to the dev console only), Devon (author) + Drew (reviewer) + Tess (shipped-build capture gate) + the Sponsor (soak).
+
+## 2026-07-05 — Castaway v2 identity: bearded, rugged, friendly-neutral adult survivor
+- Decided by: Sponsor
+- Decision: The hero castaway's identity becomes a **bearded, rugged, friendly-neutral adult survivor**, deliberately REVERSING the earlier "young + happy" lock. (Sponsor chose the "Full reference look" against `inspiration/2026-06-12_21h00_32.png`, then iterated the concept to a friendly-neutral expression.)
+- Why: Sponsor's direct in-session art call on the Castaway v2 concept — the full-reference rugged look reads as the intended hero over the earlier young+happy design sheet.
+- Reversibility: reversible (asset/identity choice; the old castaway stays live until v2 passes the soak)
+- Affects: character art, CLAUDE.md character identity, the Castaway v2 integration, downstream gear/customization
+
+## 2026-07-05 — Hero-character route ratified: concept → Rodin → Mixamo
+- Decided by: Sponsor
+- Decision: The hero-character production route is ratified as **AI concept image (openai-image gpt-image-1, image-to-image from the inspiration board) → Hyper3D Rodin (web UI, Gen-2.5/High, de-light ON, Quad ~8000) → Mixamo auto-rig → Unity Humanoid**, proven end-to-end by shipping Castaway v2 through it (harvest PR #260).
+- Why: proven in-session end-to-end (concept → Rodin → Mixamo → Blender-verified 41-bone rig); extends the existing character-pipeline.md route; the Rodin base is welded, so customization = gear modules + texture recolors (deeper hair/beard modularity = phase 2).
+- Reversibility: reversible in principle (route choice); one-way in practice for v2
+- Affects: character pipeline, character-pipeline.md, all future hero-character work, gear-module strategy
+
+## 2026-07-06 — Sponsor walkthrough: #261 fold+merge, axe redo iter-1 approved, v2 owns grip, combined re-seat
+- **#261 docs:** fold the 2 stale CLAUDE.md lines (line-3 identity, doc-index Humanoid->Generic; + the hero-route/v2-LIVE line, same error class) then auto-merge label. Folded as `d697960`.
+- **Stone-axe redo (86cajkk7h):** Sponsor approved iteration 1 on the A/B — haft radial x0.70 (0.051–0.064 m), head uniform x0.88 about the mount point (X-width 0.312->0.2746 m). Baked to FBX + blend saved. Original rejected FBX preserved in session scratchpad only.
+- **PR #239 / 86cahnmjv:** closed superseded-by-v2-rig; the combined v2 re-seat pass owns thumb/grip on the new hand; fresh fix only if v2 reproduces the defect.
+- **Re-seat sequencing:** ONE combined Devon pass (new axe integration + all-4 stone weapons on the v2 hand) instead of two passes/two soaks.
+- **Auto-status:** stays OFF during the interactive session; re-arm when dispatchable work exists.
+
+## 2026-07-06 — Hero-character low-poly direction re-opened (Sponsor, feedback-driven)
+Sponsor received feedback that the Hyper3D/Rodin castaway is "not low poly like the rest of the game" and wants to revisit the in-house low-poly path. Route decision deferred to evidence: Erik consult dispatched FIRST (ticket 86cak3r3k, note → team/erik-consult/lowpoly-hero-conversion-research.md) evaluating (1) low-polyfy the existing v2 mesh, (2) fresh hand-model burst (context: 7 bpy hero fails 2026-07-05), (3) Rodin re-gen from low-poly concept, (4) shader-only faceting. Castaway v2 STAYS the live default until a replacement passes the full soak gate — this decision re-opens direction, it does not revert #262.
+
+## 2026-07-06 — Castaway v3 identity: hopeful-but-SCARED young adventurer (reverses the v2 bearded-rugged lock)
+Sponsor (verbatim, route-pick popup): "I dont actually like the current v2. he is too strong and too happy. I would like another go at a hopeful but scared young man prepared for adventure." So the 2026-07-05 bearded-rugged-friendly identity is REJECTED for the next hero, partially returning to the original young+hopeful direction with a scared/brave nuance. Erik's Route-1 conversion mechanics (retopo ~1,500–3,000 tris + flat-shade + palette re-texture + Mixamo Generic; 86cak3r3k) are ADOPTED but applied to a NEW base mesh: concept → WEB-Rodin → retopo/low-polyfy → Mixamo → Unity Generic, staged v3 toggle. v2 stays the LIVE default until v3 passes the full soak gate. CLAUDE.md's character line stays describing the LIVE v2 (#261 unchanged); it flips when v3 activates.
+
+## 2026-07-06 — Castaway v3 concept LOCKED (variant E)
+Sponsor picked concept E after 2 rounds (5 candidates): man in his mid-30s, light stubble (adult, NOT v2-rugged), lean ordinary-guy build, scared-but-going-anyway expression (wide worried eyes, set mouth), torn-sleeve teal shirt, rope belt, rolled grey-brown trousers, barefoot, A-pose. Locked file: art-src/castaway_v3_concept_apose.png. Round-1 direction note: "torn shirt, but not a boy, a man in his 30s" (rejected the young-boy reads A/B/C). Next: Sponsor runs WEB-Rodin image-to-3D on the locked concept (ticket 86cak41d4).
+
+## 2026-07-06 — Castaway v3 concept RE-LOCKED: variant G supersedes E (expression dialed back)
+Sponsor re-judged after locking E: "he looks too scared" → "should be more neutral" → picked G from the F/G/H expression round: mid-30s, light stubble, lean, head-on gentle friendly smile (not scared, not neutral-blank), torn teal shirt, rope belt, rolled trousers, barefoot, A-pose. art-src/castaway_v3_concept_apose.png now = G (E superseded, kept in session scratchpad only). Identity nuance final: the "scared" part of the original brief is carried by ANIMATION/posture, not the sculpt — the face bakes a mild friendly-neutral read.
+
+## 2026-07-06 — Castaway v3 facet density LOCKED: 3.0k tris (QuadriFlow 1509 quads)
+Sponsor picked the 3.0k-tri conversion from the facet A/B (raw-Rodin vs 3.0k vs 2.1k): clearly faceted, keeps hands/belt/silhouette, better rig deformation headroom; top of Erik's 1,500-3,000 band. Source of truth: art-src/castaway_v3_lowpoly.blend (raw 8,370-quad Rodin import + the chosen v3_lp_2800tri mesh). Remaining before Mixamo: region-color cleanup (border noise), painted/geometry face features, final palette texture + UV placement.
+
+## 2026-07-06 — Castaway v3 Route-1 conversion GESTALT-REJECTED ("no its terrible" — the whole converted character)
+The retopo conversion (QuadriFlow 3.0k + flat semantic regions + geometry face decals) cleared every itemized defect (density Sponsor-picked from A/B, regions cleaned, face positions verified against the sculpt's measured sockets) and still failed the Sponsor's bar as a WHOLE. Per character-pipeline.md's ratified gestalt diagnostic: route switched, not iterated. Work preserved in art-src/castaway_v3_lowpoly.blend for reference. v2 stays LIVE. Next: Sponsor picks among remaining routes (Rodin Smart-Low-poly re-gen probe / Quaternius-class low-poly base customization toward concept G / exaggerated-chunky concept re-draw / pause).
+
+## 2026-07-06 — v3 route after gestalt-fail: Rodin Smart-Low-poly(BETA) re-gen probe
+Sponsor picked the probe: re-run locked concept G through Rodin choosing Smart-Low-poly topology at Confirm (instead of Quad-8000). Framed explicitly as a PROBE (Erik grade: unproven, vendor-claimed) — fallbacks remain low-poly-base customization (Quaternius-class, v1 precedent) and exaggerated-chunky concept re-draw. Export lands in a SEPARATE folder (art-src/castaway-v3-rodin-export-lowpoly/); the first Quad-8000 export stays untouched.
+
+## 2026-07-06 — v3 hero route LOCKED: Rodin Smart-Low-poly + HSV-posterized diffuse
+The Smart-Low-poly(BETA) probe SUCCEEDED where the retopo conversion gestalt-failed: Rodin re-gen of locked concept G with Smart-Low-poly topology (Quad type, Low density) produced REAL facet geometry at 3,605 quads / 7.4k tri-equiv (~half of Quad-8000's 16.7k), keeping the concept's painted cartoon face. Sponsor picked the HSV-POSTERIZED diffuse treatment (V 5-steps / S 4-steps, hue untouched — flattens cloth/skin shading to steps, keeps the face) over painted-as-is. Erik's 1.5–3k band is superseded by Sponsor verdict at 7.4k. Export: art-src/castaway-v3-rodin-export-lowpoly/ + texture_diffuse_posterized.png. Next: Mixamo auto-rig (A-pose ok) → Unity GENERIC → staged v3 toggle + capture-gate reconcile + held-weapon re-seat.
+
+## 2026-07-06 — Double soak-PASS: v3 identity + #254 weapons; activation ordered
+Sponsor (verbatim): "soak v3 identity approved. soak 254 approved lets move on with v3 char and dial in the weapons with that char."
+- v3 identity soak (Build\soak-v3\, stamp bb715b1) PASSED -> activation ticket 86cak9kau un-gates (default flip + capture-gate reconcile + ALL-4-weapon re-seat on the v3 hand + finger-curl + Drew's #263 NIT).
+- #254 weapons soak (Build\soak-254-v2\, stamp 10b8195) PASSED -> auto-merge labeled (MERGEABLE, sequenced after #263's 11:46Z merge). 86cajkk7h complete on merge; 86cahnmjv closed (thumb defect not reproduced; v3 grip owned by 86cak9kau item 4).
+- Weapon "dial-in" on the v3 char = 86cak9kau scope items 3-4, dispatching once #254 lands on main (re-seat then covers all 4 stone weapons).
+
+## 2026-07-06 — v3-live soak PASS (with follow-up): v3 activation ships
+Sponsor (verbatim, walkthrough): "pass but weapons etc. need to be dialed in for the new v3 character." #264 auto-merge-labeled; 86cak9kau completes on merge; v3 = the shipped default hero. Follow-up: a weapon DIAL-IN pass on v3 (seat/scale/pose fine-tuning, Sponsor-driven) — per [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]], route through the F9 nudge handle (fix its broken head-resize keys 86cajuuz0 where still relevant) -> Sponsor dials -> bake. Ticket to be filed this walkthrough round.
+
+## 2026-07-06 — Walkthrough Q2+Q3: #265 Sponsor-browser-merging now; island lane GREEN-LIT
+- #265 (weaponset CI gate): Sponsor merging in browser now; orch flips 86caju052 complete on observed merge.
+- Island lane: GO — dispatch C2 (86cakk4w8) when the build slot frees post-#264-merge; C2->C3->C4 serial; the v3 weapon dial-in follow-up runs in the non-build lane in parallel.
+
+## 2026-07-06 — Iron progression Q1: MODEL A locked (mine ore + smelter)
+Sponsor picked Model A over Erik's D recommendation: full mining chain — ore nodes, pickaxe (new 5th tool type per tier), smelter. Richest survival build, scope L. Consequences: pickaxe extends the Sponsor-locked weapon set (Blender burst needed for wpn_pickaxe_{stone,iron}_01); 86cah7y5b (find-in-world) stays standalone (not absorbed). Q2-Q5 refine the model below.
+
+## 2026-07-06 — Iron progression Q2+Q3: WORK-LED earn feel; NEW forge/furnace structure
+Q2: work-led — the crafting/smelting grind is the point (ore findable without heavy exploration; effort = mining volume + fuel + smelt time). Q3: a NEW buildable forge/furnace structure (distinct from the bonfire; extends the survival arc shipwreck->...->furnace->iron; crafting-table-class buildable).
+
+## 2026-07-06 — Iron progression Q4+Q5: PEACEFUL gather/craft; BOTH difficulty dials
+Q4: NO combat guard — mining is peaceful; the iron chain ships fully independent of the combat cluster (no hard dep). Q5: BOTH dials exposed — ore rarity + smelt cost (fuel/time/material), per-tier easy/med/hard presets, registered in SettingsCatalog per the existing tweakable pattern.
+
+## 2026-07-06 — Iron progression BONUS: PICKAXE approved as the 5th tool type (both tiers)
+wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knapped stone / forged iron recipes per [[weapon-two-tier-style-stone-iron]]); authored via an interactive Sponsor-judged Blender burst (schedulable). IRON DESIGN NOW FULLY LOCKED: Model A (mine ore + smelter) · work-led · new forge/furnace buildable · peaceful (no combat dep) · both difficulty dials (ore rarity + smelt cost) · pickaxe 5th type. Erik's note must be committed to main before/with the citing implementation spec.
+
+## 2026-07-07 — Fable = advisor-only; opus implements everything (supersedes the design-lane fable exception)
+- Decided by: Sponsor
+- Decision: Fable (the orchestrator session) only analyzes tasks, authors the plan/brief, and gives advisement; ALL implementation — including the creative/Blender/design-build lane — runs on opus agents; an agent that is unsure or hits a plan gap STOPS (commit+push WIP) and asks fable for advisement (`ADVISEMENT NEEDED:` report → SendMessage answer) instead of improvising.
+- Why: fable token conservation (Sponsor verbatim 2026-07-07: "stop burning fable tokens and begin using fable only as an advisor…"). Supersedes the 2026-07-03 per-dispatch `model:"fable"` design-lane upgrade.
+- Reversibility: reversible (re-enable per-dispatch upgrades on the Sponsor's word)
+- Affects: orchestrator dispatch policy, all personas, R&D/creative lane, dispatch-template (new Advisor-escalation block)
+
+## 2026-07-08 — STANDING AUTO-MERGE authorization (supersedes per-PR merge approval for the non-soak class)
+- Decided by: Sponsor (popup, 2026-07-08 morning)
+- Decision: the orchestrator auto-labels ANY PR for merge — present or away, no per-PR ask — once ALL machine gates are green (required CI SUCCESS + peer APPROVE verdict + Tess QA where the class requires it + Self-Test Report where UX-visible) AND the PR has no soak surface. Soak-surface (feel/visual) PRs still gate on the Sponsor's soak verdict. Workflow-file (.github) PRs remain manual until the scoped-PAT fix (86cafhehe) lands.
+- Why: Sponsor verbatim: "look into why i have to do any manual merges, I want to avoid this." Investigation: the label path was already mechanical; only the per-PR-approval policy forced manual steps. The one-click staging class is retired.
+- Reversibility: reversible — Sponsor revokes with a word; falls back to one-click staging.
+- Affects: orchestrator merge flow, away-queue format (one-click class retired), all personas' merge expectations
+
+## 2026-07-18 — Wood-tier weapon set PASSED (Sponsor walkthrough verdict)
+
+- **Decision:** Sponsor PASSED all 5 wood-tier pieces as-is (axe/pickaxe/spear/knife/sword; whittled-wood, existing palette tones, 28-41 tris) from the 13 staged renders in art-src/wood-burst-renders/ — "PASS — export FBXs, integrate" via /sponsor-questions-walkthrough popup.
+- **Consequence:** FBXs export from art-src/weapons_reauthor.blend (wood row y=-0.6) to Assets/Art/Props/WeaponPack/ and integration proceeds (ids *_wood already live in #294 catalogs; in-hand seating + verbs remain ②/art-burst scope per the #294 deferred flags).
+- **Source:** away-queue item 0b (staged 2026-07-08) → resolved 2026-07-18.
+
+## 2026-07-21 — Ore spec KEPT: wood pickaxe mines boulders only (reconstructed 2026-07-22)
+
+- Decided by: Sponsor ("Keep spec" popup, 2026-07-21)
+- Decision: wood pickaxe mines BOULDERS only; iron ore requires a stone/iron pickaxe; the tier-aware tooltip "Needs stone pickaxe" is the UX cue.
+- Why: progression legibility — the tooltip carries the teaching; the shipped spec matched his intent.
+- Reversibility: reversible (spec/dial change)
+- Affects: mining progression, LootPrompt copy
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert wiped the original uncommitted entry; sources = 2026-07-21 session save + PR #327 trail.
+
+## 2026-07-21 — Loot prompt anchor: above the character's head (reconstructed 2026-07-22)
+
+- Decided by: Sponsor (confirmed the orchestrator's delegated recommendation)
+- Decision: interaction/loot prompts render above the castaway's head (tier-aware ore text; the belt-overlapping prompt relocated).
+- Why: readability at gameplay framing; the old anchor collided with the belt UI.
+- Reversibility: reversible
+- Affects: LootPrompt / HUD
+- Provenance: as above.
+
+## 2026-07-21 — Erik Rigify verdict accepted: STAY Mixamo (reconstructed 2026-07-22)
+
+- Decided by: Sponsor (implicit accept — no pushback on the served verdict)
+- Decision: stay on the Mixamo pipeline; bad clips get clip-layer bpy repair (à la SneakGaitCurveFix); Rigify re-enters only if a human animator ever joins (open question to Sponsor, unanswered).
+- Why: Rigify is a control rig with zero clips; game-export friction + re-rig blast radius (Generic bindings, Animator, all 15 seats) = Very High for zero gain. Research note: team/erik-consult/rigify-vs-mixamo-research.md (merged #328).
+- Reversibility: reversible (future re-evaluation)
+- Affects: animation asset routing
+- Provenance: as above.
+
+## 2026-07-22 — Swings cluster ships: mini-soak-8 PASS → PR #327 merged (re-appended after the 08:09 revert)
+
+- Decided by: Sponsor
+- Decision: Mini-soak of `Build/soak-swings-8` (stamp `58ae23d`) PASSED — walk-into-boulder blocks at touching distance and click-mine fires from the blocked spot; #327 merged as `250e4e6`; tickets 86caffwv5 + 86caffwuz complete.
+- Why: The r8 carve-tighten resolved the only soak-7 reject (blocked a body-length out); all machine gates were already green (CI green after capture-job rerun — the 2026-07-21 failure was a runner shutdown signal mid-job, not code; Devon APPROVE_WITH_NITS r7; Tess QA PASS + SERVE GO incl. the r8 played-check, comment 5042990009).
+- Reversibility: reversible (revert PR #327)
+- Affects: Drew/Devon/Tess (swings surface); board (cluster #2 boar unblocked; round-9 right-hand investigation done — fix pending Sponsor sequencing)

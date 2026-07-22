@@ -5,7 +5,7 @@ namespace FarHorizon
     /// <summary>
     /// POND RECESS + FOAM LIVE NUDGE HANDLE (ticket 86cadj4g7 — Sponsor #130 re-soak of d6bf755: rejected
     /// 3 issues + chose the "live nudge handle" path so HE dials the final look and we bake his values).
-    /// CLONES the PROVEN discrete-picker pattern of <see cref="HeldAxeLengthPicker"/> (the on-screen
+    /// CLONES the PROVEN discrete-picker pattern of the (now-retired, 86cajkk7h) HeldAxeLengthPicker (the on-screen
     /// "AXE SHAFT LENGTH" control): an on-screen label + value readout + a one-shot log line per step,
     /// LAYOUT-AGNOSTIC keys, NO continuous runtime dial (the #100 axe-head dial failed because it deformed
     /// mesh verts at runtime + silently no-opped — discrete picker steps are the mechanism that always worked).
@@ -29,13 +29,13 @@ namespace FarHorizon
     ///
     /// KEYS — LAYOUT-AGNOSTIC ONLY ([[sponsor-danish-keyboard-layout]]): PageUp/PageDown. NEVER US-position
     /// punctuation ([ ] ; ' - =) — they shift on the Sponsor's Danish laptop. This handle is ALWAYS-LIVE (like
-    /// the axe LENGTH picker), but the F-key NUDGE TOOLS (AxeNudgeTool F9 / WorldLookNudgeTool F10 /
+    /// the retired axe LENGTH picker), but the F-key NUDGE TOOLS (AxeNudgeTool F9 / WorldLookNudgeTool F10 /
     /// CameraFollowNudgeTool F7) ALSO bind PgUp/PgDn. To stop a single press driving BOTH (ticket 86cafjrxk —
     /// Sponsor #176: "pond were manipulated because the pg up and down conflicts" while dialing the weapon),
     /// this handle YIELDS PgUp/PgDn whenever ANY of those nudge panels is toggled ON — the active panel owns the
     /// key. A normal pond soak (no F-key tool open) is unchanged. See <see cref="AnyNudgePanelActive"/>.
     ///
-    /// ALWAYS-LIVE (like HeldAxeLengthPicker, NOT toggle-gated like the F9/F10 nudge tools): the panel shows
+    /// ALWAYS-LIVE (like the retired HeldAxeLengthPicker was, NOT toggle-gated like the F9/F10 nudge tools): the panel shows
     /// the current recess value the whole soak so the Sponsor reads it off-screen to report for baking. It
     /// starts at the SHIPPED default (DEEPER recess) so a soak that never presses a key sees exactly the
     /// shipped pond; pressing a key enters the recess step cycle.
@@ -56,7 +56,7 @@ namespace FarHorizon
         public KeyCode recessShallowerKey = KeyCode.PageDown;
 
         // ---- RECESS STEPS (how far the WATER SURFACE sits BELOW the surrounding GROUND LEVEL) ----
-        // PUBLIC + static so the EditMode guard reads the contract directly (mirrors HeldAxeLengthPicker).
+        // PUBLIC + static so the EditMode guard reads the contract directly (mirrored the retired HeldAxeLengthPicker, 86cajkk7h).
         public static readonly string[] RecessStepNames = { "FLUSH", "SHIPPED", "DEEPER" };
         // The recess (below-plateau drop of the water surface) for each step, in cycle order. ROUND 9: the baked
         // recess dropped 0.75 → 0.30 (LowPolyZoneGen.PondRecessKneeDeep — so the dry shore lip rising the recess
@@ -88,6 +88,9 @@ namespace FarHorizon
 
         private void Awake()
         {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
+
             // Resolve in Awake is NOT safe — the pond root is grounded by WorldBootstrap.GroundPondInBowl at
             // bootstrap (editor-time) but the runtime scene-find must run after the pond's own Awake. Resolve
             // lazily on first use instead (a soak that never presses a key pays nothing + never re-bases off a
@@ -134,21 +137,27 @@ namespace FarHorizon
         }
 
         /// <summary>
-        /// True if ANY of the F-key NUDGE TOOL panels (AxeNudgeTool / WorldLookNudgeTool / CameraFollowNudgeTool)
-        /// is currently toggled ON. While one is, it OWNS PgUp/PgDn and this always-live pond handle must not
-        /// also consume the same press (ticket 86cafjrxk deconflict). Only called on a PgUp/PgDn frame, so the
-        /// Find* scan never runs per-frame. Includes inactive objects so a serialized-but-disabled tool counts.
+        /// True if ANY debug NUDGE-PANEL tool (<see cref="INudgePanel"/>) is currently toggled ON. While one
+        /// is, it OWNS PgUp/PgDn and this always-live pond handle must not also consume the same press (ticket
+        /// 86cafjrxk deconflict). REFACTORED (86cafz9jr, #187 follow-up): the gate used to name the three
+        /// concrete tool types (AxeNudgeTool / WorldLookNudgeTool / CameraFollowNudgeTool) one-by-one, which
+        /// meant a 4th panel had to be remembered into a hand-maintained list — a missed edit silently
+        /// re-introduced the collision class #187 fixed. Now it discovers active panels THROUGH the interface
+        /// (a MonoBehaviour scene scan filtered by `is INudgePanel`), so the deconflict stays correct
+        /// automatically as nudge panels are added/removed — any new INudgePanel is covered with no edit here.
+        ///
+        /// Only called on a PgUp/PgDn frame, so the Find* scan never runs per-frame. Includes inactive objects
+        /// (FindObjectsInactive.Include) so a serialized-but-disabled tool still counts — identical to the
+        /// behavior #187 shipped (an INudgePanel on a disabled GameObject is still discovered). Interfaces
+        /// can't be passed to FindObjectsByType<T> (T must be Component-derived), so the scan is over
+        /// MonoBehaviour + an `is INudgePanel` filter — the canonical Unity idiom for interface discovery.
         /// PUBLIC so the deconflict contract is testable without synthesizing a legacy-Input PgUp key-down
         /// (mirrors AxeNudgeTool.Activate/IsActive being public for the same reason).
         /// </summary>
         public static bool AnyNudgePanelActive()
         {
-            foreach (var t in Object.FindObjectsByType<AxeNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (t.IsActive) return true;
-            foreach (var t in Object.FindObjectsByType<WorldLookNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (t.IsActive) return true;
-            foreach (var t in Object.FindObjectsByType<CameraFollowNudgeTool>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (t.IsActive) return true;
+            foreach (var mb in Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (mb is INudgePanel panel && panel.IsActive) return true;
             return false;
         }
 
@@ -198,8 +207,8 @@ namespace FarHorizon
 
         private void OnGUI()
         {
-            // F1 master gate (86cafd6d6): the dev/debug overlay layer is HIDDEN by default (clean screen for
-            // normal play / soak / CI captures). F1 (DebugOverlayToggle) reveals it.
+            // Overlay master gate (86cafd6d6): the dev/debug overlay layer is HIDDEN by default (clean screen for
+            // normal play / soak / CI captures). F10 (DebugOverlayMaster, the single overlay master) reveals it.
             if (!DebugOverlays.Visible) return;
 
             if (_labelStyle == null)
@@ -210,7 +219,7 @@ namespace FarHorizon
                 _keyStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
             }
 
-            // Top-CENTER, just BELOW where HeldAxeLengthPicker draws (y=10, h=44) so the two never overlap.
+            // Top-CENTER at y=60 (historically placed just below the retired HeldAxeLengthPicker's y=10/h=44 panel, 86cajkk7h).
             float w = 540f, h = 44f;
             float x = Mathf.Max(8f, (Screen.width - w) * 0.5f);
             float y = 60f;

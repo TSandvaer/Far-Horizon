@@ -102,28 +102,10 @@ namespace FarHorizon.EditTests
                 "the build is the component-not-serialized trap this guards");
         }
 
-        [Test]
-        public void BootScene_HeldAxe_CarriesTheShaftLengthPicker_AndItsCycleComponent()
-        {
-            // 86cabh907 SHAFT-LENGTH PICKER scene-presence guard. The HeldAxeLengthPicker (the unstick
-            // instrument) must be SERIALIZED on the held axe alongside the HeldWeaponCycleDebug whose mesh
-            // holder it shares — else the Sponsor's soak build has no [L] length picker (the component-not-
-            // serialized trap, unity-conventions.md editor-vs-runtime). Drop the picker authoring and this reds.
-            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-            var axe = FindHeroAxe();
-            Assert.IsNotNull(axe, "hero axe must be present (see BootScene_CarriesHeroAxe_HeldUnderTheRightHandBone)");
-
-            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
-            Assert.IsNotNull(cycle, "the held axe must carry HeldWeaponCycleDebug (the picker shares its mesh holder)");
-            var picker = axe.GetComponent<HeldAxeLengthPicker>();
-            Assert.IsNotNull(picker,
-                "the held axe must carry the HeldAxeLengthPicker (the 86cabh907 in-hand shaft-length picker) — " +
-                "serialized into the scene so the Sponsor's soak build has the [L] length cycle");
-            // The picker's cycle key must be a layout-safe LETTER (Danish-keyboard-safe — [[sponsor-danish-
-            // keyboard-layout]]); a regression to US-position punctuation reds here.
-            Assert.IsTrue(picker.lengthCycleKey >= KeyCode.A && picker.lengthCycleKey <= KeyCode.Z,
-                "the picker's length-cycle key must be a layout-safe LETTER (got " + picker.lengthCycleKey + ")");
-        }
+        // 86cajkk7h: BootScene_HeldAxe_CarriesTheShaftLengthPicker RETIRED — the HeldAxeLengthPicker + its
+        // wpn_axe_01_len11..14 variants are removed. The STONE axe (wpn_axe_stone_01) is the Sponsor-approved
+        // authored mesh; there is no shaft length to pick, so the picker no longer ships. The [B] weapon-cycle
+        // (HeldWeaponCycleDebug) presence is still guarded by BootScene_CarriesHeldWeaponCycleDebug_OnTheHeroAxe.
 
         [Test]
         public void BootScene_HeldAxe_PosedHandLocal_SoRotationTracksTheBone()
@@ -186,19 +168,12 @@ namespace FarHorizon.EditTests
             Bounds b = mr.bounds;
             float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
             // Floor catches a regression to the 0.43u sliver; upper guard catches the 267×-bone GIANT trap.
-            // #100 calibration: the in-house wpn_axe_01 (86cabh907) is height-normalized to 1.0u longest-axis
-            // at IMPORT (WeaponPackAssetGen.HeroAxeTargetHeadHeightU) and held at HeldAxeLocalScaleUniform
-            // 0.45 under the hand bone → a stable measured world extent of ~0.68u (deterministic across
-            // bootstraps; the new axe reads SMALLER than the retired CC-BY hatchet that set the old 0.7 floor).
-            // 0.68u is a clearly-visible hero axe, NOT the 0.43u sliver the floor guards against. Lower the
-            // floor to 0.6 (still well above the sliver) so the floor tracks the in-house axe; the band still
-            // reds on a sliver (<0.6) OR a giant (>3.0).
-            // 86cabh907 FINAL (the Sponsor's [L]=1.1x pick): the in-house wpn_axe_01 is HEAD-height-normalized
-            // (the byte-locked 0.65× head holds its size while the 1.1× straight haft sets the total to ~1.08u
-            // longest) and held at HeldAxeLocalScaleUniform 0.45 → ~0.49u longest world extent. Still a clearly-
-            // visible hero axe, NOT the 0.43u sliver the floor guards against. Band [0.4, 3.0]: floor 0.4 stays
-            // above the sliver (and below the new ~0.49u so float jitter never reds it), ceiling 3.0 catches the
-            // 267×-bone giant.
+            // 86cajkk7h calibration: the in-house STONE axe (wpn_axe_stone_01) is FAMILY-normalized so its
+            // imported longest-axis == the retired axe's ~1.08u (WeaponPackAssetGen.NewFamilyAxeTargetLongestU),
+            // a DROP-IN for the unchanged held scale — held at HeldAxeLocalScaleUniform 0.45 under the hand bone
+            // → ~0.49u longest world extent, the SAME in-hand size as the approved axe. Still a clearly-visible
+            // hero axe, NOT the 0.43u sliver the floor guards against. Band [0.4, 3.0]: floor 0.4 stays above the
+            // sliver (and below the ~0.49u so float jitter never reds it), ceiling 3.0 catches the 267×-bone giant.
             Assert.That(longest, Is.InRange(0.4f, 3.0f),
                 $"held axe longest world extent must read at gameplay distance (got {longest:F2}u); " +
                 "<0.5 = the invisible-sliver soak regression, >3.0 = the 267x-bone giant trap");
@@ -320,38 +295,10 @@ namespace FarHorizon.EditTests
                 "HeldAxeRig.clampCeilingAboveShoulder must be removed (the detaching world-Y clamp is reverted).");
         }
 
-        [Test]
-        public void BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated()
-        {
-            // SOAKFIX2: the Sponsor's literal "stump is there but no axe" — an axe must be PLANTED in the
-            // chopping-block stump and visible FROM SPAWN (the always-on-screen hero axe + the walk-here
-            // cue). It is gated as the INVERSE of HasAxe (StumpAxe): shown at spawn, hidden once crafted.
-            // Drop the plant or its wiring and this reds in CI rather than re-shipping the empty stump.
-            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
-            var stumpAxe = FindByNameInScene(MovementCameraScene.StumpAxeObjectName);
-            Assert.IsNotNull(stumpAxe,
-                $"the Boot scene must carry the '{MovementCameraScene.StumpAxeObjectName}' GameObject — the " +
-                "axe planted in the stump, visible from spawn (the Sponsor's 'stump is there but no axe')");
-
-            var mf = stumpAxe.GetComponentInChildren<MeshFilter>(true);
-            Assert.IsNotNull(mf, "the stump axe must carry a MeshFilter (the sourced hatchet mesh)");
-            Assert.IsNotNull(mf.sharedMesh, "the stump axe's mesh must be serialized into the scene");
-            Assert.Greater(mf.sharedMesh.vertexCount, 20,
-                "the stump axe must be the real sourced hatchet mesh, not a placeholder primitive");
-
-            // The INVERSE gate must be wired editor-time (serialized), so the stump axe shows at spawn and
-            // hides on craft without an Awake-time scene search in the build.
-            var stump = stumpAxe.GetComponent<StumpAxe>();
-            Assert.IsNotNull(stump, "the stump axe must carry the StumpAxe component (inverse-HasAxe gate)");
-            Assert.IsNotNull(stump.inventory,
-                "StumpAxe.inventory must be wired editor-time (serialized) — the component-not-serialized trap");
-
-            // It must be parented under the CraftSpot (rides the stump), not free-floating.
-            bool underCraftSpot = false;
-            Transform t = stumpAxe.transform;
-            while (t != null) { if (t.GetComponent<CraftSpot>() != null) { underCraftSpot = true; break; } t = t.parent; }
-            Assert.IsTrue(underCraftSpot, "the stump axe must be parented under the CraftSpot (planted in the stump)");
-        }
+        // 86camz9uz ① — BootScene_CarriesStumpAxe_VisibleFromSpawn_InverseGated is REMOVED: the CraftSpot
+        // stump + its planted always-visible axe are RETIRED (replaced by the place-to-build crafting table +
+        // the now-active world AxePickup as the single visible spawn axe). The held HeroAxe (the tests above/
+        // below) is unchanged. The visible spawn axe is now guarded by InventorySceneTests (AxePickup active).
 
         [Test]
         public void BootScene_CarriesAxeVerifyCapture_OnTheBootObject()
@@ -467,7 +414,7 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalEuler.Length, "WeaponMeshLocalEuler must align with WeaponNodeNames.");
-            Assert.AreEqual("wpn_axe_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the axe must be cycle index 0 (the locked default).");
+            Assert.AreEqual("wpn_axe_stone_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the STONE axe must be cycle index 0 (the locked default; 86cajkk7h).");
             Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
                 "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
             Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0],
@@ -504,39 +451,62 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void HeldWeaponCycleDebug_PerWeaponSeats_AreTheSponsorDialedBakedValues_86caffwuz()
+        public void HeldWeaponCycleDebug_PerWeaponSeats_AreTheSponsorDialedBakedValues_86cakkfz9()
         {
-            // 86caffwuz BAKE regression guard (build 5caf1be). The Sponsor soaked the held weapons and DIALED
-            // each in-hand seat via the unified settings console's 7 held-weapon rows; those committed numbers
-            // ARE his approval ([[verify-soak-builds-or-bake-and-judge]] — bake the dialed values + assert the
-            // COMMITTED on-disk constant, not just regen-code [[unity-procedural-committed-assets-go-stale]]).
-            // Equality-pin EVERY per-weapon baked value to the dialed numbers so any future edit that drifts a
-            // seat reds here in CI — the bug class is "a later tweak silently moves a Sponsor-approved seat".
-            // The earlier guard only floored/ceilinged the scales + pinned index-0 identity; it did NOT pin the
-            // exact offset/euler the Sponsor dialed — this does.
+            // 86cakkfz9 v3 DIAL-IN BAKE regression guard (dial exe stamp d306552). The Sponsor F9-dialed each
+            // non-axe weapon's in-hand seat on the v3 build; the committed numbers ARE his approval
+            // ([[verify-soak-builds-or-bake-and-judge]] — bake the dialed values + assert the COMMITTED on-disk
+            // constant, not just regen-code [[unity-procedural-committed-assets-go-stale]]). Cross-checked against
+            // Player-prev.log final resting lines + the ticket screenshot table (identical). Equality-pin EVERY
+            // per-weapon baked value so any future edit that drifts a seat reds here in CI — the bug class is
+            // "a later tweak silently moves a Sponsor-approved seat". This round re-positioned only the OFFSETS;
+            // the held SCALES + zero eulers carry unchanged from the 86caffwuz bake (the Sponsor left them).
 
             // AXE (index 0) — Sponsor-LOCKED: zero offset/euler, unit scale (byte-unchanged seat, bar #6).
             Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0], "AXE offset must stay zero (LOCKED).");
             Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalEuler[0], "AXE euler must stay zero (LOCKED).");
             Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0], 1e-4f, "AXE scale must stay 1.0 (LOCKED).");
 
-            // KNIFE (index 1) — Sponsor-dialed.
-            AssertSeat(1, new Vector3(0.000f, -0.100f, -0.020f), Vector3.zero, 0.85f);
-            // SWORD (index 2) — Sponsor-dialed.
-            AssertSeat(2, new Vector3(-0.020f, -0.120f, 0.000f), Vector3.zero, 0.95f);
-            // SPEAR (index 3) — Sponsor-dialed.
-            AssertSeat(3, new Vector3(-0.020f, -0.120f, 0.000f), Vector3.zero, 0.90f);
+            // KNIFE (index 1) — Sponsor-dialed d306552.
+            AssertSeat(1, new Vector3(-0.020f, 0.020f, 0.000f), Vector3.zero, 0.85f);
+            // SWORD (index 2) — Sponsor-dialed d306552.
+            AssertSeat(2, new Vector3(-0.020f, 0.040f, 0.000f), Vector3.zero, 0.95f);
+            // SPEAR (index 3) — Sponsor-dialed d306552.
+            AssertSeat(3, new Vector3(-0.020f, 0.560f, 0.000f), Vector3.zero, 0.90f);
+            // PICKAXE STONE (index 4) — Sponsor-dialed, build d699c81 (86cakkmr0 final round). Cross-checked
+            // against Player.log final resting line (Danish-locale) + the nudge-panel screenshot (identical).
+            AssertSeat(4, new Vector3(-0.040f, 0.000f, 0.020f), new Vector3(8.0f, 10.0f, 0.0f), 1f);
+            // PICKAXE IRON (index 5) — SHARES the stone pickaxe seat: both tiers share the family haft/grip +
+            // head geometry by construction (the family-extension route kept the stone-axe haft verbatim), so
+            // one dial covers both. If the iron tier ever gets a distinct baseline, re-dial + re-pin here.
+            AssertSeat(5, new Vector3(-0.040f, 0.000f, 0.020f), new Vector3(8.0f, 10.0f, 0.0f), 1f);
+        }
+
+        [Test]
+        public void HeldAxeV3Seat_ShipsTheSponsorDialedValues_86cakkfz9()
+        {
+            // 86cakkfz9 v3 DIAL-IN BAKE regression guard for the AXE seat (dial exe stamp d306552). The axe seat
+            // is NOT in the HeldWeaponCycleDebug arrays — it is the shared-seat HeldAxeRig baseline, seeded by
+            // MovementCameraScene.AttachHeroAxeToHand from the v3 constants (v3 is the live hero; the F9 tool
+            // nudges rig.worldOffsetFromHand / rig.relEuler which are seeded from these). The Sponsor F9-dialed
+            // the FINAL v3 held-axe seat; recovered from Player-prev.log + the ticket table (identical). Pin the
+            // v3 constants so a future edit that drifts the seat reds in CI. SCALE is intentionally NOT pinned
+            // here — the axe's held scale comes from the settings HeldScale row, not the nudge (ticket: LOCKED).
+            Assert.AreEqual(new Vector3(0.0071f, 0.0599f, 0.0288f), MovementCameraScene.HeldAxeV3LocalOffsetFromHand,
+                "HeldAxeV3LocalOffsetFromHand must ship the Sponsor's 86cakkfz9 v3-dialed offset (0.0071,0.0599,0.0288).");
+            Assert.AreEqual(new Vector3(-152.5f, -5.9f, 108.9f), MovementCameraScene.HeldAxeV3RelEuler,
+                "HeldAxeV3RelEuler must ship the Sponsor's 86cakkfz9 v3-dialed euler (-152.5,-5.9,108.9).");
         }
 
         // Equality-assert one weapon's baked seat (offset + euler + scale) against the Sponsor-dialed value.
         private static void AssertSeat(int i, Vector3 offset, Vector3 euler, float scale)
         {
             string w = HeldWeaponCycleDebug.WeaponLabels[i];
-            Assert.AreEqual(offset.x, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].x, 1e-4f, $"{w} baked offset.x drifted from the Sponsor-dialed value (86caffwuz).");
-            Assert.AreEqual(offset.y, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].y, 1e-4f, $"{w} baked offset.y drifted from the Sponsor-dialed value (86caffwuz).");
-            Assert.AreEqual(offset.z, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].z, 1e-4f, $"{w} baked offset.z drifted from the Sponsor-dialed value (86caffwuz).");
-            Assert.AreEqual(euler, HeldWeaponCycleDebug.WeaponMeshLocalEuler[i], $"{w} baked euler drifted from the Sponsor-dialed value (86caffwuz).");
-            Assert.AreEqual(scale, HeldWeaponCycleDebug.WeaponMeshScale[i], 1e-4f, $"{w} baked scale drifted from the Sponsor-dialed value (86caffwuz).");
+            Assert.AreEqual(offset.x, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].x, 1e-4f, $"{w} baked offset.x drifted from the Sponsor-dialed value (86cakkfz9).");
+            Assert.AreEqual(offset.y, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].y, 1e-4f, $"{w} baked offset.y drifted from the Sponsor-dialed value (86cakkfz9).");
+            Assert.AreEqual(offset.z, HeldWeaponCycleDebug.WeaponMeshLocalOffset[i].z, 1e-4f, $"{w} baked offset.z drifted from the Sponsor-dialed value (86cakkfz9).");
+            Assert.AreEqual(euler, HeldWeaponCycleDebug.WeaponMeshLocalEuler[i], $"{w} baked euler drifted from the Sponsor-dialed value (86cakkfz9).");
+            Assert.AreEqual(scale, HeldWeaponCycleDebug.WeaponMeshScale[i], 1e-4f, $"{w} baked scale drifted from the Sponsor-dialed value (86cakkfz9).");
         }
 
         [Test]

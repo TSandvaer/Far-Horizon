@@ -34,9 +34,32 @@ artifacts=$(git ls-files \
 # `<platform>-results.xml` shape (e.g. editmode-results.xml / playmode-results.xml).
 # Both are throwaway verification output, never committed.
 logs=$(git ls-files | grep -E '(\.log$|(^|/)test-results.*\.xml$|(^|/)[A-Za-z0-9_-]*-results\.xml$)' || true)
-if [ -n "$artifacts$logs" ]; then
+
+# NUnit result XML by CONTENT, not just by filename (ticket 86cafk5vb).
+# The filename-suffix gate above (`-results.xml` / `test-results*.xml`) MISSED a
+# stray dump named `editmode-bake176.xml` in PR #177 — it lacked the `-results`
+# suffix, so neither this gate nor .gitignore caught it; only human review did.
+# Close the class: any ROOT-LEVEL `*.xml` whose head contains the NUnit `<test-run`
+# root element is a local `-runTests` dump (its defining marker — see the real
+# editmode-results.xml header), throwaway, never committed, REGARDLESS of filename.
+# Root-scoped on purpose: ci-out/ + Captures/ are already gitignored + caught by the
+# artifacts dir check above, and a genuine project XML (e.g. mono's <mconfig> config.xml)
+# lives under a subdir and does not carry the <test-run marker — so this stays
+# false-positive-free (the script's design contract).
+nunit_xml=""
+while IFS= read -r xml; do
+  [ -z "$xml" ] && continue
+  case "$xml" in */*) continue ;; esac          # root level only (no slash in path)
+  [ -f "$xml" ] || continue                       # only inspect files present in the worktree
+  if head -c 4096 "$xml" 2>/dev/null | grep -q '<test-run'; then
+    nunit_xml="${nunit_xml}${xml}
+"
+  fi
+done < <(git ls-files '*.xml')
+
+if [ -n "$artifacts$logs$nunit_xml" ]; then
   bad "Unity-generated artifacts are committed:"
-  printf '%s\n' "$artifacts" "$logs" | grep -v '^$' | sed 's/^/       /'
+  printf '%s\n' "$artifacts" "$logs" "$nunit_xml" | grep -v '^$' | sed 's/^/       /'
 else
   ok "no Unity-generated artifacts in the index"
 fi
@@ -120,6 +143,101 @@ if grep -qF "m_EditorVersion: ${EXPECTED_UNITY}" ProjectSettings/ProjectVersion.
   ok "ProjectVersion pinned to ${EXPECTED_UNITY}"
 else
   bad "ProjectVersion.txt does not pin ${EXPECTED_UNITY} (self-hosted runner image must match)"
+fi
+
+# ---------------------------------------------------------------------------
+# 6. CI concurrency invariants (ticket 86caammpq — the merged-branch orphan-hold
+#    fix). The single self-hosted runner is orphan-HELD by a merged/superseded
+#    branch's run if the runner-contending jobs are ref-scoped: a merge-to-main run
+#    is a DIFFERENT ref/group, so it never supersedes/serializes behind the stale
+#    PR-branch run, which holds the runner to timeout / forces a manual gh run
+#    cancel. The fix: the runner-contending JOBS (build/capture/playmode) use
+#    REPO-WIDE QUEUE groups (absolute name, NO `${{ github.ref }}` suffix,
+#    cancel-in-progress: false) so all runs across all refs serialize into one
+#    bounded queue, no verdict dropped. The TOP-LEVEL group stays REF-SCOPED — it
+#    is the same-ref supersede mechanism and holds no runner. Pin the shape here so
+#    a future edit can't silently revert it (the "fix it back to ref-scoped" trap
+#    the ci.yml comments warn against). Uses Python's YAML if available, else a
+#    literal-grep fallback (both license-free on hosted ubuntu).
+# ---------------------------------------------------------------------------
+CI_YML=".github/workflows/ci.yml"
+if [ ! -f "$CI_YML" ]; then
+  bad "ci.yml not found at $CI_YML (concurrency-invariant check cannot run)"
+elif python3 -c "import yaml" 2>/dev/null; then
+  conc_check=$(python3 - "$CI_YML" <<'PYEOF'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+# NB: PyYAML maps the YAML key `on:` to the Python bool True; `concurrency` is fine.
+top = d.get("concurrency", {})
+jobs = d.get("jobs", {})
+errs = []
+# Top level: MUST stay ref-scoped + cancel-in-progress (same-ref supersede).
+if "${{ github.ref }}" not in str(top.get("group", "")):
+    errs.append("top-level concurrency.group must be ref-scoped (same-ref supersede); got %r" % top.get("group"))
+if top.get("cancel-in-progress") is not True:
+    errs.append("top-level cancel-in-progress must be true (same-ref supersede); got %r" % top.get("cancel-in-progress"))
+# Runner-contending jobs: MUST be repo-wide queue (no ref suffix, cancel:false).
+for jn in ("build", "capture", "playmode"):
+    jc = jobs.get(jn, {}).get("concurrency")
+    if not jc:
+        errs.append("job %r missing a concurrency group (must be a repo-wide queue — 86caammpq)" % jn)
+        continue
+    g = str(jc.get("group", ""))
+    if "${{ github.ref }}" in g or "github.ref" in g:
+        errs.append("job %r concurrency.group must be REPO-WIDE (no github.ref suffix — orphan-hold, 86caammpq); got %r" % (jn, g))
+    if jc.get("cancel-in-progress") is not False:
+        errs.append("job %r cancel-in-progress must be false (queue, never drop a verdict — 86cah17eq); got %r" % (jn, jc.get("cancel-in-progress")))
+if errs:
+    print("\n".join(errs)); sys.exit(1)
+sys.exit(0)
+PYEOF
+) && ci_rc=0 || ci_rc=1
+  if [ "$ci_rc" -eq 0 ]; then
+    ok "ci.yml concurrency invariants hold (top-level ref-scoped supersede; build/capture/playmode repo-wide queue — 86caammpq)"
+  else
+    bad "ci.yml concurrency invariants BROKEN (86caammpq orphan-hold guard):"
+    printf '%s\n' "$conc_check" | grep -v '^$' | sed 's/^/       /'
+  fi
+else
+  # Fallback: literal grep for the required group tokens (PyYAML unavailable).
+  ci_fail=0
+  grep -qE 'group:[[:space:]]*ci-\$\{\{[[:space:]]*github\.ref' "$CI_YML" || { note "top-level ci-\${{ github.ref }} group not found"; ci_fail=1; }
+  grep -qE '^[[:space:]]+group:[[:space:]]*unity-build[[:space:]]*$' "$CI_YML" || { note "build job repo-wide 'unity-build' group not found (still ref-scoped?)"; ci_fail=1; }
+  grep -qE '^[[:space:]]+group:[[:space:]]*unity-capture[[:space:]]*$' "$CI_YML" || { note "capture/playmode 'unity-capture' group not found"; ci_fail=1; }
+  if [ "$ci_fail" -eq 0 ]; then
+    ok "ci.yml concurrency invariants hold (grep fallback — 86caammpq)"
+  else
+    bad "ci.yml concurrency invariants BROKEN (86caammpq orphan-hold guard, grep fallback)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Corrupt-build canary wiring invariant (ticket 86cagr0zu). The warm (clean:false)
+#    runner intermittently ships a CORRUPT exe (stale Library/ScriptAssemblies →
+#    serialization-mismatch / missing-script / inert WASD+NavMesh). EditMode + review
+#    PASS on it (editor, fresh domain) and the console-error gate deliberately does not
+#    scan serialization warnings, so check_corrupt_build.sh is the ONLY signal that names
+#    it. Pin its wiring so a future ci.yml edit can't silently drop the canary and re-open
+#    the "dismissed as a launch flake" gap. A license-free literal grep on ci.yml text.
+# ---------------------------------------------------------------------------
+if [ ! -f "$CI_YML" ]; then
+  bad "ci.yml not found at $CI_YML (corrupt-build canary wiring check cannot run)"
+else
+  canary_fail=0
+  # BUILD job (build-time logs) + CAPTURE job (runtime log) both invoke the canary; the
+  # BUILD job also invokes the targeted heal. Require both references present. A pure ci.yml
+  # text grep (fixture-friendly, license-free) — same shape as check #6. If ci.yml references
+  # a script that does not exist the CI step fails loud at runtime, and the gate-script unit
+  # tests import both scripts by path, so their existence is guarded there, not here.
+  grep -qF 'check_corrupt_build.sh' "$CI_YML" \
+    || { note "ci.yml does not invoke check_corrupt_build.sh (corrupt-build canary dropped — 86cagr0zu)"; canary_fail=1; }
+  grep -qF 'clean_scriptassemblies.sh' "$CI_YML" \
+    || { note "ci.yml does not invoke clean_scriptassemblies.sh (corrupt-build heal dropped — 86cagr0zu)"; canary_fail=1; }
+  if [ "$canary_fail" -eq 0 ]; then
+    ok "corrupt-build canary wired into ci.yml (check_corrupt_build.sh + clean_scriptassemblies.sh — 86cagr0zu)"
+  else
+    bad "corrupt-build canary wiring BROKEN (86cagr0zu — warm-runner corrupt build would go undetected)"
+  fi
 fi
 
 echo "==================================="

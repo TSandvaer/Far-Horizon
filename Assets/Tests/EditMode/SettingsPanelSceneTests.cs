@@ -93,6 +93,82 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void BootScene_SettingsPanel_FKeyMigrationSeams_WiredEditorTime_Serialized()
+        {
+            // 86caber95 — the F9 arm-pose rows + the F10 world-look rows must be wired EDITOR-TIME (serialized by
+            // MovementCameraScene.BuildSettingsPanel (armPose) + WireWorldLookConsole (worldLook, post-environment))
+            // rather than left to the runtime Awake FindObjectOfType fallback — the same editor-vs-runtime ship-path
+            // discipline the orbit/wasd/berry targets follow (the stone-respawner runtime-Find that went DEAD is the
+            // cautionary precedent). Drop either wire and this goes red. (The F7 camera-follow rows bind to
+            // panel.orbit — already asserted above; ground-Y binds to panel.chopCharacter — wired by WireChopTree.)
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            Assert.IsNotNull(panel.armPose,
+                "SettingsPanel.armPose must be wired editor-time (the F9 arm-pose + run-lower rows bind to " +
+                "CastawayArmPose — 86caber95 AC1); an unwired ref would force a runtime FindObjectOfType");
+            Assert.IsNotNull(panel.worldLook,
+                "SettingsPanel.worldLook must be wired editor-time (the F10 fog/sky/cloud/mountain/sun rows bind " +
+                "to the WorldLookTunables seam — 86caber95 AC2; WireWorldLookConsole serializes it post-environment)");
+        }
+
+        [Test]
+        public void BootScene_CarriesWorldLookTunablesSeam_Serialized()
+        {
+            // 86caber95 AC2 — the WorldLookTunables seam (the F10 migration's binding surface) must ship in
+            // Boot.unity (the component-in-source-but-not-in-scene trap). BootstrapProject adds it to hudGo during
+            // BuildEnvironment. Drop that AddComponent and the F10 world-look rows go dead in the build → red here.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            WorldLookTunables seam = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                seam = root.GetComponentInChildren<WorldLookTunables>(true);
+                if (seam != null) break;
+            }
+            BootstrapPrecondition.Require(seam, "WorldLookTunables seam in Boot.unity");
+            Assert.IsNotNull(seam,
+                "the Boot scene must carry a WorldLookTunables seam serialized (else the F10-migrated world-look " +
+                "console rows have no binding target in the shipped build — 86caber95 AC2)");
+        }
+
+        [Test]
+        public void BootScene_SettingsPanel_WarmthWiredAndSplitKeys_Serialized()
+        {
+            // 86cah8ukr (F1/F3 split) — the split's editor-time wiring must reach the shipped Boot.unity (the
+            // stale-committed-scene trap; unity-procedural-committed-assets-go-stale memory): (1) the WARMTH
+            // target — the player-facing F1 warmth on/off toggle + warmth decay-rate slider bind to it — must be
+            // serialized, not left to the runtime Awake FindObjectOfType fallback (the ship-path discipline the
+            // orbit/wasd/berry/armPose/worldLook targets follow); (2) F1 opens the PLAYER Settings drawer and
+            // F3 the DEV console (Sponsor-confirmed 2026-07-03), both wired editor-time. Drop the panel.warmth
+            // wire or the toggle-key assignments in MovementCameraScene.BuildSettingsPanel and this goes red —
+            // the guard that keeps the committed Boot.unity from silently regressing to a pre-split snapshot.
+            //
+            // KEY-ASSIGNMENT GENUINENESS (adversarial-review fix): SettingsPanel.toggleKey/devToggleKey now DEFAULT
+            // to KeyCode.None — the shipped F1/F3 can ONLY originate from BuildSettingsPanel's editor-time
+            // assignment (lines panel.toggleKey = F1 / devToggleKey = F3). Previously the fields defaulted to F1/F3
+            // in C#, so these AreEqual asserts passed for ANY bake whether or not the wiring ran (tautological —
+            // dropping the assignment left the code default and the test stayed green). With a None default, the CI
+            // re-bake of a wiring-dropped panel serializes None → this goes genuinely RED.
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            var panel = FindPanel(scene);
+            BootstrapPrecondition.Require(panel, "SettingsPanel in Boot.unity");
+            Assert.IsNotNull(panel, "SettingsPanel must be present");
+
+            Assert.IsNotNull(panel.warmth,
+                "SettingsPanel.warmth must be wired editor-time (the player-facing F1 warmth on/off + decay-rate " +
+                "rows bind to it — 86cah8ukr); an unwired ref would force a runtime FindObjectOfType (ship-path).");
+            Assert.AreEqual(KeyCode.F1, panel.toggleKey,
+                "F1 opens the PLAYER Settings drawer (86cah8ukr split), serialized editor-time from " +
+                "BuildSettingsPanel's panel.toggleKey=F1 assignment (the field default is KeyCode.None, so this " +
+                "AreEqual is genuine — drop that assignment and the CI re-bake serializes None → RED).");
+            Assert.AreEqual(KeyCode.F3, panel.devToggleKey,
+                "F3 opens the DEV console (Sponsor-confirmed 2026-07-03), serialized editor-time from " +
+                "BuildSettingsPanel's panel.devToggleKey=F3 assignment (the field default is KeyCode.None).");
+        }
+
+        [Test]
         public void BootScene_SettingsPanel_HasUIAssetsSerialized()
         {
             var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);

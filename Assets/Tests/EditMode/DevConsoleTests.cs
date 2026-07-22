@@ -1,0 +1,733 @@
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.UIElements;
+using FarHorizon;
+using FarHorizon.Settings;
+
+namespace FarHorizon.EditTests
+{
+    /// <summary>
+    /// AC11 regression guard for the DEV TWEAK CONSOLE FOUNDATION (ticket 86cabeqj9). The console's behaviour
+    /// is layered on the pure-C# registry + entries (no scene, no Update, no UIDocument render loop — the
+    /// headless-time trap, unity-conventions.md), so the bug CLASSES the foundation introduces are pinned
+    /// here directly:
+    ///   • AC5 — a TYPED value applies + clamps (the panel's typed field drives the SAME entry.SetValue path);
+    ///   • AC6 — a NUDGE step (with Shift=5x / Ctrl=0.2x) applies the right delta (the nudge math is the
+    ///           SettingsPanel step formula, replicated here so a regression in either fails);
+    ///   • AC7 — a Bool entry binds + drives its flag (the new archetype is not a silent no-op);
+    ///   • AC9/AC10 — DiffersFromDefault flips when dialed off default AND CLEARS on ResetToDefault().
+    ///
+    /// The world-input-passthrough rule (AC3) is a SettingsPanel focus-gate (UiInputGate driven by typed-field
+    /// FocusIn/FocusOut, not by the open panel) — pinned here at the UiInputGate level: the open console alone
+    /// must NOT gate (only a focused field does). The full focus-event path is a UI Toolkit interaction,
+    /// covered by the shipped-build capture + Sponsor soak (UIDocument focus is unreliable in EditMode).
+    /// </summary>
+    public class DevConsoleTests
+    {
+        [SetUp]
+        public void ClearPrefs()
+        {
+            PlayerPrefs.DeleteKey("fh.settings.con_walk");
+            PlayerPrefs.DeleteKey("fh.settings.con_zoom.min");
+            PlayerPrefs.DeleteKey("fh.settings.con_zoom.max");
+            PlayerPrefs.DeleteKey("fh.settings.con_int");
+            PlayerPrefs.DeleteKey("fh.settings.con_bool");
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ConsoleUiScaleId);
+            PlayerPrefs.DeleteKey("fh.settings." + SettingsCatalog.ConsoleTextScaleId);
+        }
+
+        // ===== AC5 — typed value applies + clamps (the panel's FloatField commit drives entry.SetValue) =====
+
+        [Test]
+        public void TypedValue_AppliesLive_AndClampsToBand()
+        {
+            float param = 5.5f; // stand-in for WasdMovement.moveSpeed
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f);
+
+            // A typed-then-committed value goes through the same single-write authority the field calls.
+            float applied = e.SetValue(8.3f);
+            Assert.AreEqual(8.3f, applied, 1e-4f, "a typed value applies live (AC5)");
+            Assert.AreEqual(8.3f, param, 1e-4f, "the BOUND param actually changed (not a no-op)");
+
+            Assert.AreEqual(12f, e.SetValue(999f), 1e-4f, "a typed value above the band clamps to Max (AC5)");
+            Assert.AreEqual(1f, e.SetValue(-999f), 1e-4f, "a typed value below the band clamps to Min (AC5)");
+        }
+
+        // ===== AC6 — nudge with Shift(5x) / Ctrl(0.2x) applies the scaled step =====
+        //
+        // The nudge step is SettingsPanel's formula: base = 1% of the dialable band, scaled by the modifier.
+        // 86cagpk72 NIT — the base-step formula is now the SHARED FarHorizon.Settings.NudgeStep helper the panel
+        // itself calls (was a private duplicate here, so a drift in the 0.01f constant wouldn't red a test). We
+        // call NudgeStep.ForSlider directly so the asserted step IS the shipped step; the modifier multiply
+        // (5f/0.2f) is passed explicitly — those constants live in SettingsPanel.NudgeStepMul (reads live Input,
+        // not headless-testable) and are asserted directly here.
+
+        [Test]
+        public void Nudge_BaseStep_MovesByOnePercentOfBand()
+        {
+            float param = 5f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f); // band 11 → step 0.11
+
+            float step = NudgeStep.ForSlider(e);         // 0.11 (SHARED formula, not a local copy)
+            e.SetValue(e.Value + 1 * step * 1f);         // one nudge up, no modifier
+            Assert.AreEqual(5.11f, param, 1e-4f, "an unmodified nudge moves by 1% of the band (AC6)");
+        }
+
+        [Test]
+        public void Nudge_ShiftIsFiveX_CtrlIsFifthX()
+        {
+            float param = 5f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f); // step 0.11
+            float step = NudgeStep.ForSlider(e);
+
+            e.SetValue(e.Value + 1 * step * 5f);         // Shift = 5x → +0.55
+            Assert.AreEqual(5.55f, param, 1e-4f, "Shift applies a 5x nudge step (AC6)");
+
+            param = 5f;
+            e.SetValue(e.Value + 1 * step * 0.2f);       // Ctrl = 0.2x → +0.022
+            Assert.AreEqual(5.022f, param, 1e-4f, "Ctrl applies a 0.2x nudge step (AC6)");
+        }
+
+        [Test]
+        public void Nudge_RespectsClamp_AtBandEdge()
+        {
+            float param = 11.95f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f);
+            float step = NudgeStep.ForSlider(e); // 0.11
+
+            e.SetValue(e.Value + 1 * step * 1f);         // 11.95 + 0.11 = 12.06 → clamps to 12
+            Assert.AreEqual(12f, param, 1e-4f, "a nudge past the ceiling clamps to Max (AC6 + the entry clamp)");
+        }
+
+        // 86cagpk72 NIT — pin the SHARED step formulas directly (so a change to the 0.01f base constant OR the
+        // per-axis band reds here, not just as an indirect side-effect). This is the coverage gap the NIT named.
+        [Test]
+        public void NudgeStep_SharedFormula_MatchesOnePercentOfBand()
+        {
+            var reg = new SettingsRegistry();
+            float f = 5f;
+            var slider = reg.AddFloat("con_walk", "Walk", () => f, v => f = v, 1f, 12f); // band 11
+            Assert.AreEqual(0.11f, NudgeStep.ForSlider(slider), 1e-5f, "slider base step = 1% of the (Max-Min) band");
+
+            float lo = 6f, hi = 26f;
+            var range = reg.AddRange("con_zoom", "Zoom", () => lo, v => lo = v, () => hi, v => hi = v, 2f, 40f); // span 38
+            Assert.AreEqual(0.38f, NudgeStep.ForRange(range), 1e-5f, "range base step = 1% of the (Upper-Lower) span");
+
+            int n = 5;
+            var stepper = reg.AddInt("con_int", "Slots", () => n, v => n = v, 1, 60, step: 1);
+            Assert.AreEqual(1, NudgeStep.ForStepper(stepper, 1f), "int base step = the entry step");
+            Assert.AreEqual(5, NudgeStep.ForStepper(stepper, 5f), "Shift scales the int step to 5x");
+            Assert.AreEqual(1, NudgeStep.ForStepper(stepper, 0.2f), "Ctrl floors the int step at 1 (never 0)");
+        }
+
+        // ===== AC7 — a Bool entry binds + drives its flag (the new archetype) =====
+
+        [Test]
+        public void BoolEntry_DrivesBoundFlag_OnSetValue()
+        {
+            bool flag = false; // stand-in for a per-need on/off
+            var reg = new SettingsRegistry();
+            var e = reg.AddBool("con_bool", "Hunger on", () => flag, v => flag = v);
+
+            Assert.AreEqual(SettingEntry.Archetype.Toggle, e.Kind, "a bool entry renders as the Toggle archetype (AC7)");
+
+            e.SetValue(true);
+            Assert.IsTrue(flag, "the BOUND flag actually changed (the bool binding is not a no-op — AC7)");
+            Assert.IsTrue(e.Value, "the entry reads the live flag back");
+
+            e.Toggle();
+            Assert.IsFalse(flag, "Toggle flips the flag");
+        }
+
+        [Test]
+        public void BoolEntry_NumericBridge_DrivesViaTypeAndNudge()
+        {
+            // AC5/AC6 reach a bool through the 0/1 numeric bridge (so type/nudge are generic across archetypes).
+            bool flag = false;
+            var reg = new SettingsRegistry();
+            var e = reg.AddBool("con_bool", "Hunger on", () => flag, v => flag = v);
+
+            e.SetFromNumeric(1f);
+            Assert.IsTrue(flag, "numeric 1 (typed or nudge-up) sets the flag true");
+            Assert.AreEqual(1f, e.NumericValue, 1e-4f, "NumericValue reads back 1 when on (the type/nudge readout bridge)");
+            e.SetFromNumeric(0f);
+            Assert.IsFalse(flag, "numeric 0 (typed or nudge-down) sets the flag false");
+            Assert.AreEqual(0f, e.NumericValue, 1e-4f, "NumericValue reads back 0 when off");
+            e.SetFromNumeric(0.7f);
+            Assert.IsTrue(flag, "numeric ≥ 0.5 rounds to true (the 0/1 threshold)");
+        }
+
+        [Test]
+        public void BoolEntry_PersistsAndReloads_FromPlayerPrefs()
+        {
+            bool flag = false;
+            var reg = new SettingsRegistry();
+            var e = reg.AddBool("con_bool", "Hunger on", () => flag, v => flag = v);
+            e.SetValue(true); // writes PlayerPrefs 1 (AC5)
+
+            bool flag2 = false;
+            var reg2 = new SettingsRegistry();
+            var e2 = reg2.AddBool("con_bool", "Hunger on", () => flag2, v => flag2 = v);
+            e2.LoadFromPrefs();
+
+            Assert.IsTrue(flag2, "the persisted bool survives a relaunch (AC5)");
+        }
+
+        [Test]
+        public void BoolEntry_ExtensionHook_NeverDrivesFlag_AC3()
+        {
+            bool flag = false;
+            var reg = new SettingsRegistry();
+            var e = reg.AddBool("con_bool", "Future flag", () => flag, v => flag = v, available: false);
+
+            e.SetValue(true);
+            Assert.IsFalse(e.Available, "the hook is marked unavailable");
+            Assert.IsFalse(flag, "an unavailable bool hook NEVER drives its flag (AC3)");
+            Assert.IsFalse(e.DiffersFromDefault, "an unavailable hook never differs (no false badge)");
+        }
+
+        // ===== AC9 / AC10 — differs-from-default flips when dialed off default AND clears on reset =====
+
+        [Test]
+        public void Float_DiffersFromDefault_FlipsAndClearsOnReset()
+        {
+            float param = 5.5f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat("con_walk", "Walk speed", () => param, v => param = v, 1f, 12f);
+
+            Assert.IsFalse(e.DiffersFromDefault, "an untouched entry does not differ (no badge — AC9)");
+            e.SetValue(9f);
+            Assert.IsTrue(e.DiffersFromDefault, "a dialed-off-default entry differs (badge shows — AC9)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset restores the default AND clears the differs flag (AC10)");
+            Assert.AreEqual(5.5f, param, 1e-4f, "reset restored the registration-time value (AC10)");
+        }
+
+        [Test]
+        public void Range_DiffersFromDefault_OnEitherEnd_ClearsOnReset()
+        {
+            float min = 6f, max = 26f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddRange("con_zoom", "Zoom range",
+                () => min, v => min = v, () => max, v => max = v, 2f, 40f);
+
+            Assert.IsFalse(e.DiffersFromDefault, "untouched range does not differ");
+            e.SetMax(30f);
+            Assert.IsTrue(e.DiffersFromDefault, "a moved MAX end differs (AC9)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the differs flag on both ends (AC10)");
+
+            e.SetMin(10f);
+            Assert.IsTrue(e.DiffersFromDefault, "a moved MIN end differs (AC9)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears it again (AC10)");
+        }
+
+        [Test]
+        public void Int_DiffersFromDefault_FlipsAndClearsOnReset()
+        {
+            int param = 5;
+            var reg = new SettingsRegistry();
+            var e = reg.AddInt("con_int", "Belt slots", () => param, v => param = v, 1, 9);
+
+            Assert.IsFalse(e.DiffersFromDefault, "untouched int does not differ");
+            e.SetValue(8);
+            Assert.IsTrue(e.DiffersFromDefault, "a dialed int differs (AC9)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the flag (AC10)");
+        }
+
+        [Test]
+        public void Bool_DiffersFromDefault_FlipsAndClearsOnReset()
+        {
+            bool flag = false;
+            var reg = new SettingsRegistry();
+            var e = reg.AddBool("con_bool", "Hunger on", () => flag, v => flag = v);
+
+            Assert.IsFalse(e.DiffersFromDefault, "untouched bool does not differ");
+            e.SetValue(true);
+            Assert.IsTrue(e.DiffersFromDefault, "a flipped bool differs (AC9)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the flag (AC10)");
+            Assert.IsFalse(flag, "reset restored the registration-time flag (AC10)");
+        }
+
+        [Test]
+        public void ResetAll_ClearsEveryDiffersFlag()
+        {
+            float a = 3f; int b = 5; bool c = false;
+            var reg = new SettingsRegistry();
+            var ea = reg.AddFloat("con_walk", "A", () => a, v => a = v, 0f, 10f);
+            var eb = reg.AddInt("con_int", "B", () => b, v => b = v, 1, 9);
+            var ec = reg.AddBool("con_bool", "C", () => c, v => c = v);
+            ea.SetValue(9f); eb.SetValue(8); ec.SetValue(true);
+            Assert.IsTrue(ea.DiffersFromDefault && eb.DiffersFromDefault && ec.DiffersFromDefault);
+
+            reg.ResetAll();
+
+            Assert.IsFalse(ea.DiffersFromDefault, "ResetAll cleared the float badge (AC10)");
+            Assert.IsFalse(eb.DiffersFromDefault, "ResetAll cleared the int badge (AC10)");
+            Assert.IsFalse(ec.DiffersFromDefault, "ResetAll cleared the bool badge (AC10)");
+        }
+
+        // ===== 86cabeqj9 soak NIT — CONSOLE UI SCALE (the panel/text read very large at the Sponsor's res) =====
+        //
+        // The scale row is a FloatSettingEntry the PANEL registers, bound to its own _uiScale field + an apply.
+        // It flows through the SAME registry machinery as every other entry, so the bug CLASS (the knob drives a
+        // value, clamps to [0.5,1.5], persists, badge clears on reset) is pinned here with a stand-in field — the
+        // exact bind shape SettingsPanel.Start uses. (The visible transform.scale application is a UI Toolkit
+        // render concern, covered by the shipped-build capture + Sponsor played-verification.)
+
+        [Test]
+        public void ConsoleUiScale_DrivesValue_AndClampsToBand()
+        {
+            float uiScale = 1f; // stand-in for SettingsPanel._uiScale (default 1.0x = untouched shipped panel)
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale, v => uiScale = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+
+            Assert.AreEqual(SettingEntry.Archetype.Slider, e.Kind, "the UI-scale row is a slider archetype");
+            Assert.AreEqual(0.5f, e.Min, 1e-4f, "the scale floor is 0.5x");
+            Assert.AreEqual(1.5f, e.Max, 1e-4f, "the scale ceiling is 1.5x");
+
+            float applied = e.SetValue(0.75f);
+            Assert.AreEqual(0.75f, applied, 1e-4f, "a dialed scale applies live");
+            Assert.AreEqual(0.75f, uiScale, 1e-4f, "the BOUND scale field actually changed (not a no-op)");
+
+            Assert.AreEqual(1.5f, e.SetValue(9f), 1e-4f, "a scale above the band clamps to 1.5x");
+            Assert.AreEqual(0.5f, e.SetValue(0.01f), 1e-4f, "a scale below the band clamps to 0.5x");
+        }
+
+        [Test]
+        public void ConsoleUiScale_DefaultsToOne_DiffersFlipsAndClearsOnReset()
+        {
+            float uiScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale, v => uiScale = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+
+            Assert.AreEqual(1f, e.Default, 1e-4f, "the captured default is 1.0x (untouched = byte-identical panel)");
+            Assert.IsFalse(e.DiffersFromDefault, "an untouched scale does not differ (badge off — 1.0x is shipped)");
+            e.SetValue(0.6f);
+            Assert.IsTrue(e.DiffersFromDefault, "a dialed scale differs (badge shows)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the differs flag");
+            Assert.AreEqual(1f, uiScale, 1e-4f, "reset restored the 1.0x default scale");
+        }
+
+        [Test]
+        public void ConsoleUiScale_PersistsAndReloads_FromPlayerPrefs()
+        {
+            float uiScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale, v => uiScale = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+            e.SetValue(0.8f); // writes PlayerPrefs (the single persist authority) — survives a relaunch
+
+            // A fresh registry+entry on relaunch loads the persisted scale + drives the field (the
+            // SettingsPanel.Start LoadAll path, so the Sponsor's dialed scale survives a soak relaunch).
+            float uiScale2 = 1f;
+            var reg2 = new SettingsRegistry();
+            var e2 = reg2.AddFloat(SettingsCatalog.ConsoleUiScaleId, "Console UI scale",
+                () => uiScale2, v => uiScale2 = v,
+                SettingsCatalog.ConsoleUiScaleMin, SettingsCatalog.ConsoleUiScaleMax, unit: "x");
+            e2.LoadFromPrefs();
+
+            Assert.AreEqual(0.8f, uiScale2, 1e-4f, "the persisted UI scale survives a relaunch (86cabeqj9 NIT)");
+        }
+
+        // ===== AC3 — the OPEN console alone does NOT gate world input (only a focused field does) =====
+
+        [Test]
+        public void UiInputGate_OpenConsoleAlone_DoesNotSwallowWorldInput_AC3()
+        {
+            // The console is NON-MODAL (AC2): opening it must NOT push the gate. Only a focused typed-field
+            // does (the SettingsPanel WireFieldFocus path). Pin the contract at the gate level: a fresh gate
+            // reads false, and the focus-gate ref-count composes (two fields → still gated until both blur).
+            UiInputGate.PopPanel(); UiInputGate.PopPanel(); // drain any residue from another test (clamped at 0)
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "no panel/field gating → world input passes (AC2/AC3)");
+
+            bool tracked = false;
+            UiInputGate.SetPanelOpen(true, ref tracked);   // simulate ONE field focus-in
+            Assert.IsTrue(UiInputGate.CaptureWorldInput, "a focused field swallows world input (AC3)");
+            UiInputGate.SetPanelOpen(false, ref tracked);  // field blur
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "world input passes again once the field blurs (AC3)");
+        }
+
+        // ===== 86cah8ukr FIX — TWO-DRAWER input-gate interleaving (adversarial review of PR #247) =====
+        //
+        // The split gave F1 (player) + F3 (dev) INDEPENDENT open/close but ONE SHARED input-gate counter. The old
+        // OpenDrawer close-path force-clear zeroed that shared counter on ANY drawer close, so: open F1, click a
+        // numeric field (world input swallowed so a typed digit isn't ALSO read as movement), open F3 then close
+        // F3 → the force-clear released the gate while the F1 field was STILL focused → digits/arrows typed into
+        // F1 ALSO drove movement/orbit. The fix tracks focus PER DRAWER + re-derives the gate from which drawers
+        // are still open (RefreshInputGate). These guards pin the LOGIC via the UNITY_INCLUDE_TESTS focus seam —
+        // UI Toolkit focus EVENTS are unreliable in EditMode (see the class docstring), but SetOpen/SetPlayerOpen
+        // run their full gate logic before bailing on the (unbuilt) view, so the interleaving is testable here.
+
+        private static void DrainGate()
+        {
+            for (int i = 0; i < 8 && UiInputGate.CaptureWorldInput; i++) UiInputGate.PopPanel();
+            UiInputGate.SetPointerOverConsole(false);
+        }
+
+        [Test]
+        public void InputGate_ClosingOneDrawer_DoesNotReleaseGateHeldByOtherDrawersFocusedField_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-gate-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F1 (player) + focus a player field → world input swallowed (AC3).
+                panel.SetPlayerOpen(true);
+                panel.SimulateFieldFocusForTest(isDev: false, focusIn: true);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput,
+                    "a focused F1 field swallows world input so a typed digit isn't ALSO read as movement (AC3)");
+
+                // Open F3 (dev) then CLOSE it — F1 is still open and its field is still focused.
+                panel.SetOpen(true);
+                panel.SetOpen(false);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput,
+                    "closing F3 must NOT release the gate the still-focused F1 field owns — the shared-single-counter " +
+                    "bug: the old force-clear zeroed BOTH drawers' focus on any close, un-swallowing world input " +
+                    "mid-type while the F1 field kept focus (digits/arrows then also drove movement/orbit)");
+
+                // True all-closed path: blur the F1 field + close F1 → gate releases (never leave locomotion
+                // swallowed — the erring-toward-release safety for the genuine close case).
+                panel.SimulateFieldFocusForTest(isDev: false, focusIn: false);
+                panel.SetPlayerOpen(false);
+                Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                    "every drawer closed + every field blurred → the gate releases (world input never left swallowed)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        [Test]
+        public void InputGate_ClosingADrawer_ClearsItsOwnFocusedFieldGate_ErrsTowardRelease_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-gate-test-2");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F3 (dev) + focus a dev field → gate held.
+                panel.SetOpen(true);
+                panel.SimulateFieldFocusForTest(isDev: true, focusIn: true);
+                Assert.IsTrue(UiInputGate.CaptureWorldInput, "a focused F3 field swallows world input (AC3)");
+
+                // Close F3 WITHOUT blurring the field first (the display:None stale-focus case UI Toolkit does not
+                // reliably fire FocusOut for) → the close clears the closing drawer's own count AND the re-derive
+                // sees F3 no longer open, so the gate releases either way (belt + suspenders; never left swallowed).
+                panel.SetOpen(false);
+                Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                    "closing a drawer releases the gate its OWN (possibly stale-focused) field held — the safety " +
+                    "direction: a hidden drawer can't keep swallowing locomotion input");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        // ===== 86cah8ukr FIX4 — TWO-DRAWER SCROLL-ZOOM POINTER gate interleaving (adversarial #247 verify) =====
+        //
+        // Same bug CLASS as the focus-gate interleaving above, applied to the OTHER shared gate: PointerOverConsole
+        // was a bare shared bool that OpenDrawer force-cleared UNCONDITIONALLY on any drawer close. So: open F1+F3,
+        // cursor over the overlapping region (both rects hovered), close F3 → the flag cleared while F1 stayed open
+        // under the cursor, and UI Toolkit does NOT re-fire PointerEnter for a pointer already inside → the wheel
+        // zoomed the OrbitCamera THROUGH the open F1 panel until a leave+re-enter. FIX4 tracks pointer-over PER DRAWER
+        // + re-derives (RefreshPointerGate). Pinned via the UNITY_INCLUDE_TESTS pointer seam (UI Toolkit pointer
+        // EVENTS are unreliable in EditMode, but SetOpen/SetPlayerOpen + Simulate*ForTest run the full gate logic
+        // before bailing on the unbuilt view). Mirrors the two focus-gate interleaving guards above.
+
+        [Test]
+        public void PointerGate_ClosingOneDrawer_DoesNotReleaseGateHeldByOtherDrawersHoveredRect_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-pointer-gate-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open BOTH drawers; the cursor is over the overlapping region so BOTH rects report pointer-over
+                // (UI Toolkit fires PointerEnter on each). The scroll-zoom gate is held.
+                panel.SetPlayerOpen(true);
+                panel.SetOpen(true);
+                panel.SimulatePointerOverForTest(isDev: false, over: true);
+                panel.SimulatePointerOverForTest(isDev: true, over: true);
+                Assert.IsTrue(UiInputGate.PointerOverConsole,
+                    "pointer over an open drawer swallows the wheel so the console isn't scrolled AND the camera zoomed at once");
+
+                // Close F3 while the cursor is STILL over the open F1 panel. The old bare force-clear zeroed the
+                // shared pointer bool here → the wheel started zooming the OrbitCamera THROUGH the open F1 panel until
+                // a leave+re-enter (UI Toolkit never re-fires PointerEnter for a pointer already inside). FIX4:
+                // re-derive from per-drawer state → F1 still open + hovered keeps the gate held.
+                panel.SetOpen(false);
+                Assert.IsTrue(UiInputGate.PointerOverConsole,
+                    "closing F3 must NOT release the scroll-zoom gate the still-open, still-hovered F1 panel owns — the " +
+                    "shared-single-bool bug: the old force-clear zeroed BOTH drawers' pointer-over on any close, so the " +
+                    "wheel zoomed the camera through the open F1 panel until the cursor left and re-entered");
+
+                // True all-unhovered/closed path: leave F1 + close F1 → gate releases (the wheel zooms the world again).
+                panel.SimulatePointerOverForTest(isDev: false, over: false);
+                panel.SetPlayerOpen(false);
+                Assert.IsFalse(UiInputGate.PointerOverConsole,
+                    "every drawer closed + pointer off → the scroll-zoom gate releases (the wheel zooms the camera again)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        [Test]
+        public void PointerGate_ClosingAHoveredDrawer_ClearsItsOwnGate_ErrsTowardRelease_86cah8ukr()
+        {
+            DrainGate();
+            var go = new GameObject("settings-panel-pointer-gate-test-2");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+
+                // Open F3 + pointer over it → gate held.
+                panel.SetOpen(true);
+                panel.SimulatePointerOverForTest(isDev: true, over: true);
+                Assert.IsTrue(UiInputGate.PointerOverConsole, "pointer over the open dev console swallows the wheel");
+
+                // Close F3 WITHOUT a leave first (the display:None stale-hover case UI Toolkit does not reliably fire
+                // PointerLeave for) → the close clears the closing drawer's own flag AND the re-derive sees F3 no
+                // longer open, so the gate releases either way (belt + suspenders; a hidden panel can't swallow the wheel).
+                panel.SetOpen(false);
+                Assert.IsFalse(UiInputGate.PointerOverConsole,
+                    "closing a drawer releases the scroll-zoom gate its OWN (possibly stale-hovered) rect held — a " +
+                    "hidden panel can't keep swallowing the wheel");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+                DrainGate();
+            }
+        }
+
+        // ===== 86cak0uq6 — the THIRD shared single-state of the FIX1 focus / FIX4 pointer class: the NUDGE
+        //       selection (_active, the PageUp/PageDown target). It was cleared ONLY on a full BuildRows, never on
+        //       drawer close — so selecting a row in one drawer, closing it, then opening the other left PageUp/
+        //       PageDown nudging the now-hidden entry (and its --active outline stuck on the closed row). Fixed
+        //       per-drawer like the two gates: closing a drawer clears _active ONLY if it lived in that drawer.
+
+        [Test]
+        public void NudgeSelection_ClosingTheOwningDrawer_ClearsActive_86cak0uq6()
+        {
+            var go = new GameObject("settings-panel-active-clear-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+                var reg = new SettingsRegistry();
+                var devEntry = reg.AddFloat("con_walk", "Walk speed", () => 5.5f, _ => { }, 1f, 12f); // dev id → F3
+
+                // Select a DEV row as the nudge target, F3 open.
+                panel.SetOpen(true);
+                panel.SimulateSetActiveForTest(devEntry);
+                Assert.AreSame(devEntry, panel.ActiveEntryForTest, "clicking a dev row makes it the nudge target");
+
+                // Close F3 → its own nudge target must clear (a display:None row can't be the visible nudge target,
+                // and PageUp/PageDown must not drive a hidden dev entry once the drawer is gone).
+                panel.SetOpen(false);
+                Assert.IsNull(panel.ActiveEntryForTest,
+                    "closing the DEV drawer must clear the nudge selection that lived in it — the shared-single-state " +
+                    "bug: _active was cleared only on BuildRows, so a stale dev entry stayed the PageUp/PageDown target");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        [Test]
+        public void NudgeSelection_ClosingTheOtherDrawer_PreservesActive_86cak0uq6()
+        {
+            var go = new GameObject("settings-panel-active-preserve-test");
+            try
+            {
+                var panel = go.AddComponent<SettingsPanel>();
+                var reg = new SettingsRegistry();
+                var playerEntry = reg.AddInt(SettingsCatalog.BeltSlotsId, "Belt slots", () => 5, _ => { }, 1, 9); // player id → F1
+
+                // Select a PLAYER row as the nudge target with BOTH drawers open.
+                panel.SetPlayerOpen(true);
+                panel.SetOpen(true);
+                panel.SimulateSetActiveForTest(playerEntry);
+                Assert.AreSame(playerEntry, panel.ActiveEntryForTest, "clicking a player row makes it the nudge target");
+
+                // Close the DEV drawer → the PLAYER drawer is still open and owns the selection, so it must SURVIVE
+                // (per-drawer discipline: closing one drawer must not drop the other still-open drawer's nudge target).
+                panel.SetOpen(false);
+                Assert.AreSame(playerEntry, panel.ActiveEntryForTest,
+                    "closing the DEV drawer must NOT clear a PLAYER-drawer nudge target while F1 stays open");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        // ===== 86cabeqj9 soak NIT — SCROLL-over-panel gate (fix 1): the wheel is swallowed while the pointer
+        //       hovers the NON-MODAL console, but ONLY scroll (WASD/orbit stay live). Pinned at the gate level;
+        //       the OrbitCamera reads (CaptureWorldInput || PointerOverConsole) to decide whether to zoom. The
+        //       full PointerEnter/Leave event path is a UI Toolkit interaction covered by the shipped-build
+        //       capture + Sponsor soak (UIDocument pointer events are unreliable in EditMode). =====
+
+        [Test]
+        public void PointerOverConsole_GatesScrollOnly_AndIsSeparateFromCaptureWorldInput()
+        {
+            UiInputGate.SetPointerOverConsole(false);
+            UiInputGate.PopPanel(); UiInputGate.PopPanel(); // drain any residue (clamped at 0)
+
+            Assert.IsFalse(UiInputGate.PointerOverConsole, "fresh: pointer not over the console");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput, "fresh: no field-focus gate");
+
+            // Pointer enters the panel rect → scroll must be swallowed, but the WASD/orbit gate stays OFF
+            // (the console is non-modal — the whole point of the passthrough the Sponsor confirmed works).
+            UiInputGate.SetPointerOverConsole(true);
+            Assert.IsTrue(UiInputGate.PointerOverConsole, "pointer-over swallows the wheel (scroll no longer zooms)");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput,
+                "pointer-over does NOT gate WASD/orbit — only the scroll gate flips (the non-modal passthrough)");
+
+            // The OrbitCamera scroll decision is (CaptureWorldInput || PointerOverConsole): true here → zoom off.
+            bool scrollGated = UiInputGate.CaptureWorldInput || UiInputGate.PointerOverConsole;
+            Assert.IsTrue(scrollGated, "the camera swallows the wheel while the pointer is over the console");
+
+            UiInputGate.SetPointerOverConsole(false);
+            Assert.IsFalse(UiInputGate.PointerOverConsole, "pointer leaves → the wheel zooms the camera again");
+            Assert.IsFalse(UiInputGate.CaptureWorldInput || UiInputGate.PointerOverConsole,
+                "pointer-off + no field-focus → the camera zoom is live again");
+        }
+
+        // ===== 86cabeqj9 soak NIT — UI TEXT SCALE (fix 3): a DISTINCT font-scale setting, separate from the
+        //       chrome-scaling Console UI scale. It flows through the SAME registry machinery, so the bug CLASS
+        //       (drives a value, clamps to [0.6,2.0], persists, badge clears on reset, DISTINCT id) is pinned
+        //       here with a stand-in field — the exact bind shape SettingsPanel.Start uses. The visible
+        //       fontSize application is a UI Toolkit render concern, covered by the shipped-build capture. =====
+
+        [Test]
+        public void UiTextScale_DrivesValue_AndClampsToBand()
+        {
+            float textScale = 1f; // stand-in for SettingsPanel._textScale
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale, v => textScale = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+
+            Assert.AreEqual(SettingEntry.Archetype.Slider, e.Kind, "the text-scale row is a slider archetype");
+            Assert.AreEqual(0.6f, e.Min, 1e-4f, "the text-scale floor is 0.6x");
+            Assert.AreEqual(2.0f, e.Max, 1e-4f, "the text-scale ceiling is 2.0x");
+
+            float applied = e.SetValue(1.5f);
+            Assert.AreEqual(1.5f, applied, 1e-4f, "a dialed text scale applies live");
+            Assert.AreEqual(1.5f, textScale, 1e-4f, "the BOUND text-scale field actually changed (not a no-op)");
+
+            Assert.AreEqual(2.0f, e.SetValue(9f), 1e-4f, "a text scale above the band clamps to 2.0x");
+            Assert.AreEqual(0.6f, e.SetValue(0.01f), 1e-4f, "a text scale below the band clamps to 0.6x");
+        }
+
+        [Test]
+        public void UiTextScale_IsDistinctFrom_ConsoleUiScale()
+        {
+            Assert.AreNotEqual(SettingsCatalog.ConsoleUiScaleId, SettingsCatalog.ConsoleTextScaleId,
+                "the text scale is a SEPARATE setting from the chrome UI scale (distinct ids → distinct rows + prefs)");
+        }
+
+        [Test]
+        public void UiTextScale_DefaultsToOne_DiffersFlipsAndClearsOnReset()
+        {
+            float textScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale, v => textScale = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+
+            Assert.AreEqual(1f, e.Default, 1e-4f, "the captured default is 1.0x (untouched = shipped fonts)");
+            Assert.IsFalse(e.DiffersFromDefault, "an untouched text scale does not differ (badge off)");
+            e.SetValue(1.4f);
+            Assert.IsTrue(e.DiffersFromDefault, "a dialed text scale differs (badge shows)");
+            e.ResetToDefault();
+            Assert.IsFalse(e.DiffersFromDefault, "reset clears the differs flag");
+            Assert.AreEqual(1f, textScale, 1e-4f, "reset restored the 1.0x default text scale");
+        }
+
+        [Test]
+        public void UiTextScale_PersistsAndReloads_FromPlayerPrefs()
+        {
+            float textScale = 1f;
+            var reg = new SettingsRegistry();
+            var e = reg.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale, v => textScale = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+            e.SetValue(1.7f); // writes PlayerPrefs (survives a relaunch)
+
+            float textScale2 = 1f;
+            var reg2 = new SettingsRegistry();
+            var e2 = reg2.AddFloat(SettingsCatalog.ConsoleTextScaleId, "UI text scale",
+                () => textScale2, v => textScale2 = v,
+                SettingsCatalog.ConsoleTextScaleMin, SettingsCatalog.ConsoleTextScaleMax, unit: "x");
+            e2.LoadFromPrefs();
+
+            Assert.AreEqual(1.7f, textScale2, 1e-4f, "the persisted UI text scale survives a relaunch (86cabeqj9 NIT)");
+        }
+
+        // ===== #247 EMPTY-DRAWERS layout guard (86cah8ukr fix cycle) =====
+        //
+        // The two-drawer split wraps each SettingsPanel shell clone in a scoped container (so the duplicate
+        // element names resolve per-drawer). A PLAIN VisualElement container has auto height 0 — its only child,
+        // the position:absolute scrim, is out of flow → zero in-flow content → height 0. The scrim's inset-0 +
+        // the panel's percentage max-height then resolve against a zero-height block, collapsing the flex-grow
+        // rows ScrollView to ZERO: both drawers rendered header + footer but NO rows (registry/handles/live-drive
+        // were all fine — 70 settings built + the walk tweak drove live; only the VISUAL layer collapsed). The
+        // Sponsor soak on build 61a6a9d caught it; the green capture gate had ALSO shown empty drawers (its
+        // frame_check reads the whole frame, never the panel region). MakeDrawerOverlay restores root's own
+        // full-screen box (absolute, inset-0) so the scrim/panel/ScrollView resolve exactly as pre-split.
+        //
+        // UI Toolkit LAYOUT geometry is unreliable in EditMode (no panel/layout pass — see this class's summary),
+        // so the visible-rows PROOF lives in the shipped-build capture gate (verify_settings_gate.sh Check 4 +
+        // SettingsPanel.VisibleRowCount). This EditMode test guards the STRUCTURAL invariant that FIXES the bug —
+        // the container carries the full-screen-overlay styling — which IS readable off a bare VisualElement's
+        // inline style with NO render loop. Revert MakeDrawerOverlay to a plain container and this goes red.
+
+        [Test]
+        public void DrawerOverlay_FillsRootAsAbsoluteInsetZero_SoTheRowsScrollViewCanResolveHeight()
+        {
+            var container = new VisualElement();
+            SettingsPanel.MakeDrawerOverlay(container);
+
+            Assert.AreEqual(Position.Absolute, container.style.position.value,
+                "the drawer container must be position:absolute so it establishes a definite full-screen " +
+                "containing block for the scrim — a plain (relative, auto-height) container collapses the " +
+                "flex-grow rows ScrollView to zero (the #247 empty-drawers bug)");
+            Assert.AreEqual(0f, container.style.left.value.value, 1e-4f, "inset left must be 0 (fill root width)");
+            Assert.AreEqual(0f, container.style.top.value.value, 1e-4f, "inset top must be 0 (fill root height)");
+            Assert.AreEqual(0f, container.style.right.value.value, 1e-4f, "inset right must be 0 (fill root width)");
+            Assert.AreEqual(0f, container.style.bottom.value.value, 1e-4f, "inset bottom must be 0 (fill root height)");
+            Assert.AreEqual(PickingMode.Ignore, container.pickingMode,
+                "the always-present full-screen overlay must be pickingMode:Ignore so it never eats gameplay " +
+                "mouse input while its scrim is display:None — picking still descends to the scrim's children " +
+                "when the drawer IS open, so open/dim/scroll-gate behaviour is byte-identical to pre-split");
+        }
+
+        [Test]
+        public void DrawerOverlay_IsNullSafe()
+        {
+            Assert.DoesNotThrow(() => SettingsPanel.MakeDrawerOverlay(null),
+                "MakeDrawerOverlay must be null-safe (mirrors the panel's other null-guarded helpers)");
+        }
+    }
+}

@@ -348,7 +348,7 @@ namespace FarHorizon
         /// (the impact lands mid-clip; the clip keeps playing until completion), which is exactly why the cadence
         /// is now ≥ clip length, not the shorter impact delay. Exposed so a PlayMode test can assert the next swing
         /// is gated on clip completion (no mid-clip restart).</summary>
-        public bool SwingInProgress => Time.time < _swingEndsAt;
+        public bool SwingInProgress => Now < _swingEndsAt;
 
         /// <summary>HOLD-TO-CHOP cadence (86caf7a0p re-iter) — the effective per-swing CLIP DURATION (seconds) the
         /// repeat gate uses for the GIVEN tool-use speed: the live clip length (CastawayCharacter.MeleeClipLength)
@@ -397,6 +397,57 @@ namespace FarHorizon
         public bool IsFelledOn(int index) =>
             index >= 0 && index < _instances.Count && _instances[index].Felled;
 
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86camdk1h — TEST-ONLY deterministic clock (public seam, STRIPPED from ship builds via
+        /// UNITY_INCLUDE_TESTS; the project has no InternalsVisibleTo, so the codebase's "public for tests" seam
+        /// convention applies — mirrors NextIslandPocScatter.BuildTreeForTest / SettingsPanel's focus seams).
+        /// Headless <c>-batchmode</c> PlayMode does NOT honor <c>Time.captureDeltaTime</c> (empirically — see the
+        /// PR body: the #255 pin is present at HEAD yet the chop cadence tests still over-count in CI), so a
+        /// PlayMode test injects this fake clock and advances it a fixed step per frame — a WORKING
+        /// captureDeltaTime — making the <c>Time.time</c>-based cadence gates (impact / clip-completion / cooldown)
+        /// AND each tree's fade/regrow timers deterministic and clock-INDEPENDENT while keeping the SAME shipped
+        /// gate logic LIVE (a real machine-gun / double-apply / too-fast-regrow regression still reds the tests).
+        /// Setting it propagates to every already-created <see cref="ChoppableTreeState"/> so the demo tree (built
+        /// in Awake, before a test can set this) and the scatter trees (built in Start) all read one clock. Null →
+        /// <c>Time.time</c> (the default), so even in a test build an unset clock is production-identical.</summary>
+        public System.Func<float> TestClock
+        {
+            get => _testClock;
+            set
+            {
+                _testClock = value;
+                for (int i = 0; i < _instances.Count; i++) _instances[i].TestClock = value;
+            }
+        }
+        private System.Func<float> _testClock;
+#endif
+
+        /// <summary>The scheduling/cadence clock the gates read. <c>Time.time</c> in the shipped IL2CPP build (the
+        /// TestClock seam above is compiled out, so this is a plain <c>Time.time</c> read — production
+        /// byte-identical); a PlayMode test may override it deterministically (86camdk1h).</summary>
+        private float Now
+        {
+            get
+            {
+#if UNITY_INCLUDE_TESTS
+                if (_testClock != null) return _testClock();
+#endif
+                return Time.time;
+            }
+        }
+
+        // Create a per-tree state, propagating the test clock (86camdk1h) so scatter trees discovered in Start
+        // (after a PlayMode test injects TestClock) read the SAME deterministic clock as the demo tree. In the
+        // shipped build this is a plain `new ChoppableTreeState(...)` (the propagation strips out).
+        private ChoppableTreeState NewState(Transform visual, int seed)
+        {
+            var s = new ChoppableTreeState(visual, seed);
+#if UNITY_INCLUDE_TESTS
+            s.TestClock = _testClock;
+#endif
+            return s;
+        }
+
         void Awake()
         {
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
@@ -418,7 +469,7 @@ namespace FarHorizon
             // (the tree ships standing). Its derived sub-seed is the raw regrowSeed so the demo tree's regrow
             // roll is byte-identical to the pre-CHANGE-(a) single-tree behaviour (existing tests unchanged).
             _instances.Clear();
-            _instances.Add(new ChoppableTreeState(visual, DeriveSeed(0)));
+            _instances.Add(NewState(visual, DeriveSeed(0)));
         }
 
         void Start()
@@ -450,7 +501,7 @@ namespace FarHorizon
                 Transform child = root.GetChild(i);
                 if (child.name == ScatterTreeName)
                 {
-                    _instances.Add(new ChoppableTreeState(child, DeriveSeed(idx)));
+                    _instances.Add(NewState(child, DeriveSeed(idx)));
                     idx++;
                 }
                 else if (child.childCount > 0)
@@ -487,7 +538,7 @@ namespace FarHorizon
             // lands at the swing's down-stroke, NOT on the click frame). Done BEFORE reading new input so the
             // input read below can immediately begin the NEXT swing of a held chain (HOLD-TO-CHOP) in the same
             // frame the impact resolves — no dead frame (the inter-swing cadence is the chopInterval cooldown, 0.25s).
-            if (_impactPending && Time.time >= _impactAt)
+            if (_impactPending && Now >= _impactAt)
             {
                 _impactPending = false;
                 ChoppableTreeState t = _pendingTarget;
@@ -596,8 +647,8 @@ namespace FarHorizon
             // chop. The default 0.25s inserts a small rhythmic gap between swings (the "rhythmic chopping, NOT
             // machine-gun" cadence bar); 0 would be back-to-back, driven purely by the swing/impact clip. It also
             // still guards a stray double-edge from out-pacing the swing read. (Sponsor-tunable per the DEFAULTS block.)
-            if (Time.time - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
-            _lastChopAt = Time.time;
+            if (Now - _lastChopAt < Mathf.Max(0f, chopInterval)) return;
+            _lastChopAt = Now;
 
             // LOCK the target for the chain + fire the SWING + FACE-TURN NOW, scheduling the EFFECT for the swing's
             // IMPACT frame (refinement 3). Next frame, with the button still held + the impact resolved, the chain
@@ -720,7 +771,7 @@ namespace FarHorizon
                 : 1f;
             float delay = Mathf.Max(0f, swingImpactDelaySeconds) / Mathf.Max(0.0001f, speed);
             _pendingTarget = target;
-            _impactAt = Time.time + delay;
+            _impactAt = Now + delay;
             _impactPending = true;
 
             // 86caf7a0p RE-ITER — mark when this swing's CLIP FINISHES (the repeat-cadence gate). The next held
@@ -728,7 +779,7 @@ namespace FarHorizon
             // next one starts — ONE completed swing = ONE chop. ComputeSwingDuration already speed-scales the clip
             // length (live MeleeClipLength preferred; serialized fallback), so this rides tool-use speed exactly
             // like the impact delay. Clamped ≥ the impact delay so the clip never "finishes" before its own impact.
-            _swingEndsAt = Time.time + Mathf.Max(delay, ComputeSwingDuration());
+            _swingEndsAt = Now + Mathf.Max(delay, ComputeSwingDuration());
         }
 
         /// <summary>
@@ -793,7 +844,7 @@ namespace FarHorizon
             }
             if (felled)
                 ChopTrace("tree FELLED after " + target.Chops + " chops; regrow in " +
-                          (target.RegrowAt - Time.time).ToString("F0") + "s");
+                          (target.RegrowAt - Now).ToString("F0") + "s");
         }
 
         // [chop-trace] diagnostic logging — EDITOR/dev-only. [Conditional("UNITY_EDITOR")] strips the call
@@ -849,6 +900,36 @@ namespace FarHorizon
         private float _shakeT;
         private float _shakeDeg;
 
+        // 86camdk1h — this Tick's tween STEP delta (set at the top of Tick). Time.unscaledDeltaTime in the shipped
+        // build (production unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected
+        // test clock's per-frame advance under a PlayMode test, so the fell/fade/regrow tweens complete in a
+        // DETERMINISTIC fixed-step frame count instead of riding the coarse (un-honored-captureDeltaTime) headless
+        // wall-clock. The tween Step* methods read this field, never Time.unscaledDeltaTime directly.
+        private float _dt;
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86camdk1h — TEST-ONLY deterministic clock (STRIPPED from ship builds via UNITY_INCLUDE_TESTS),
+        /// set by the owning <see cref="ChopTree"/> to its injected fake clock so a PlayMode test's fixed-step
+        /// clock drives this tree's fell/fade/regrow SCHEDULING deterministically (headless <c>-batchmode</c> does
+        /// NOT honor <c>Time.captureDeltaTime</c>). Null → <c>Time.time</c> (production-identical).</summary>
+        public System.Func<float> TestClock;
+        private float _prevNow;      // previous Tick's clock sample (to derive the fixed-step tween delta)
+        private bool _prevNowSet;
+#endif
+
+        /// <summary>The SCHEDULING clock this tree's fell/fade/regrow timers read. <c>Time.time</c> in the shipped
+        /// build (the TestClock seam is compiled out → a plain <c>Time.time</c> read, production byte-identical);
+        /// a test clock when the owning ChopTree injects one (86camdk1h). Tween STEPPING rides <see cref="_dt"/>.</summary>
+        private float Now
+        {
+            get
+            {
+#if UNITY_INCLUDE_TESTS
+                if (TestClock != null) return TestClock();
+#endif
+                return Time.time;
+            }
+        }
+
         private const float FellDuration = 0.5f;
         private const float FadeOutDuration = 0.8f;   // the scale-down-to-nothing tween length
         private const float RegrowRiseDuration = 0.6f;
@@ -901,13 +982,29 @@ namespace FarHorizon
         // Advance this tree's one-shot tweens + fade/regrow timers one frame. Called every Update by ChopTree.
         public void Tick()
         {
+            // 86camdk1h — this frame's tween step delta. Time.unscaledDeltaTime in the shipped build (production
+            // unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected test clock's
+            // per-frame advance under a PlayMode test, so the tweens complete in a DETERMINISTIC frame count
+            // headlessly. Computed EVERY Tick (even standing) so a tween that starts later has a consistent step
+            // (no accumulated gap from Ticks that ran no Step*).
+            _dt = Time.unscaledDeltaTime;
+#if UNITY_INCLUDE_TESTS
+            if (TestClock != null)
+            {
+                float now = TestClock();
+                _dt = _prevNowSet ? now - _prevNow : 0f;
+                _prevNow = now;
+                _prevNowSet = true;
+            }
+#endif
+
             if (_felling) { StepFelling(); return; }
             if (_fadingOut) { StepFadeOut(); return; }
             if (_regrowing) { StepRegrow(); return; }
             if (_removed)
             {
                 // Ground is empty (faded out). Regrow at _regrowAt → re-enable renderers + scale back up.
-                if (Time.time >= _regrowAt) BeginRegrow();
+                if (Now >= _regrowAt) BeginRegrow();
                 return;
             }
             // Felled + resting (post-fell tween, pre-fade): begin the fade-out once the delay elapses. (A regrow
@@ -915,8 +1012,8 @@ namespace FarHorizon
             // so the tree never gets stuck mid-cycle; the normal ~10s fade ≪ ~10min regrow.)
             if (_felled)
             {
-                if (Time.time >= _regrowAt) { BeginRegrow(); return; }
-                if (Time.time >= _fadeAt) BeginFadeOut();
+                if (Now >= _regrowAt) { BeginRegrow(); return; }
+                if (Now >= _fadeAt) BeginFadeOut();
                 return;
             }
             // AC6 — a STANDING tree's per-chop shake/recoil (a brief tip-impulse that eases back). Only runs while
@@ -940,7 +1037,7 @@ namespace FarHorizon
                 _felled = true;
                 _shaking = false; // the fell tween owns the transform now; cancel any in-flight shake
                 BeginFelling();
-                _fadeAt = Time.time + Mathf.Max(0f, fadeOutDelaySeconds);
+                _fadeAt = Now + Mathf.Max(0f, fadeOutDelaySeconds);
                 ScheduleRegrow(regrowthMinSeconds, regrowthMaxSeconds);
                 return true;
             }
@@ -973,7 +1070,7 @@ namespace FarHorizon
         private void StepShake()
         {
             if (_visual == null) { _shaking = false; return; }
-            _shakeT += Time.unscaledDeltaTime;
+            _shakeT += _dt;
             float k = Mathf.Clamp01(_shakeT / ShakeDuration);
             // Half-sine: rises to the peak at k=0.5, back to 0 at k=1 — a clean recoil-and-settle.
             float tip = Mathf.Sin(k * Mathf.PI) * _shakeDeg;
@@ -1004,7 +1101,7 @@ namespace FarHorizon
             float min = Mathf.Max(0f, regrowthMinSeconds);
             float max = Mathf.Max(min, regrowthMaxSeconds);
             float delay = min + (float)_rng.NextDouble() * (max - min);
-            _regrowAt = Time.time + delay;
+            _regrowAt = Now + delay;
         }
 
         // Start the thin-but-felt felling tween: capture the standing pose so StepFelling can sink+tip.
@@ -1022,7 +1119,7 @@ namespace FarHorizon
         private void StepFelling()
         {
             if (_visual == null) { _felling = false; return; }
-            _tweenT += Time.unscaledDeltaTime;
+            _tweenT += _dt;
             float k = Mathf.Clamp01(_tweenT / FellDuration);
             float ease = k * k * (3f - 2f * k); // smoothstep
             _visual.position = _standPos + StumpDrop * ease;
@@ -1043,7 +1140,7 @@ namespace FarHorizon
         private void StepFadeOut()
         {
             if (_visual == null) { _fadingOut = false; _removed = true; return; }
-            _tweenT += Time.unscaledDeltaTime;
+            _tweenT += _dt;
             float k = Mathf.Clamp01(_tweenT / FadeOutDuration);
             float ease = k * k * (3f - 2f * k); // smoothstep
             _visual.localScale = _standScale * (1f - ease);
@@ -1077,7 +1174,7 @@ namespace FarHorizon
         private void StepRegrow()
         {
             if (_visual == null) { _regrowing = false; _felled = false; _chops = 0; return; }
-            _tweenT += Time.unscaledDeltaTime;
+            _tweenT += _dt;
             float k = Mathf.Clamp01(_tweenT / RegrowRiseDuration);
             float ease = k * k * (3f - 2f * k); // smoothstep
             _visual.localScale = _standScale * Mathf.Max(0.001f, ease);

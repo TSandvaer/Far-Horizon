@@ -47,7 +47,7 @@ namespace FarHorizon.EditorTools
         // ---- Hero axe (ticket 86ca8ce6y — RE-DONE; re-pointed for the Hyper3D castaway, 86ca8rdkp;
         // re-made IN-HOUSE under 86cabh907 — Route A weapon SET). The procedural HeroAxeMesh wedge AND the
         // earlier CC-BY sourced hatchet are both RETIRED; the axe is the in-house faceted flat-shaded
-        // wpn_axe_01 (WeaponPackAssetGen.HeroAxeFbxPath, shared palette material). It is ATTACHED to the
+        // wpn_axe_stone_01 (WeaponPackAssetGen.HeroAxeFbxPath, shared palette material). It is ATTACHED to the
         // castaway's RIGHT HAND bone (mixamorig:RightHand — probe-verified by
         // CharacterAssetGen.CharacterDiagnoseTrace, 2026-06-15) so the castaway HOLDS it, and is shown only
         // once crafted (HeldAxe gates on Inventory.HasAxe). Name kept "HeroAxe" so the verify-capture +
@@ -118,34 +118,24 @@ namespace FarHorizon.EditorTools
         // (WORLD units) + relEuler (hand-relative) — so dial == baked == in-motion, in SENSIBLE world units.
         // HELD-AXE SCALE (86ca8rdkp — RE-DERIVED for the Hyper3D rig). The OLD 0.0040 was for the chibi's
         // 267× lossy hand bone; THIS rig's bones read lossyScale (1,1,1) (probe-verified), and the axe sits
-        // under the avatar root scaled PlayerVisualHeight (1.8). The axe FBX is HEAD-height-normalized so the
-        // byte-locked 0.65× head keeps its approved size while the 1.1× straight haft sets the total to ~1.08u
-        // longest (WeaponPackAssetGen.HeroAxeTargetHeadHeightU; 86cabh907 FINAL — the Sponsor's [L]=1.1x pick).
+        // under the avatar root scaled PlayerVisualHeight (1.8). The STONE axe FBX is FAMILY-normalized so its
+        // imported longest-axis == the retired axe's ~1.08u (WeaponPackAssetGen.NewFamilyAxeTargetLongestU;
+        // 86cajkk7h — a drop-in for THIS locked held scale, so the in-hand size is unchanged from the approved axe).
         // Effective world length ≈ localScale × 1.8 (root) × 1.08 (axe). localScale 0.45 → ~0.49u longest extent
         // — a believable kid-sized hatchet that clears the gameplay-visibility floor (the invisible-sliver soak
         // guard). REASONABLE default — the exact Sponsor F9 dial is a FOLLOW-UP (drives the HeldAxeRig fields).
         public static readonly float HeldAxeLocalScaleUniform = 0.45f;
-        // GRIP-POINT SHIFT (86cabh907 FINAL bake — the longer STRAIGHT haft re-seats the grip). The axe FBX origin
-        // is (0,0,0) — preserved (the §6 grip-point semantics). On the original short haft that origin sat ~mid-
-        // axe; the 2.0× haft moves the origin to ~65% UP the total length (near the head), so seating the FBX
-        // origin at the hand would grip near the HEAD. To grip the LOWER-THIRD of the handle (head up top, like
-        // the board axe 21h08_08), we slide the DISPLAYED MESH up its long axis toward the HEAD via the
-        // WeaponMeshHolder so the hand lands on the lower-third grip point.
-        //
-        // AXIS (diagnose-via-trace, AxeSeatProbe — the §FBX bakeAxisConversion trap): after import the axe's long
-        // axis is UNITY +Y (NOT Z), HEAD at +Y, grip-end at −Y (Blender +Z → Unity +Y). A first pass shifted +Z
-        // (off-axis) → the held capture showed the hand still at the HEAD (the shift went sideways, not down the
-        // handle). The shift MUST be along +Y toward the head. Magnitude: lower-third = grip_end_Y + handleLen/3.
-        // 86cabh907 FINAL (PR #100, the Sponsor's [L]=1.1x pick — "not wasting more time on the axe"): the haft
-        // shortened 1.5x->1.1x, so the grip RE-SEATS to the shorter handle. Re-derived from ground truth (bl_20,
-        // the canonical now = the coaxial 1.1x len11 mesh, globalScale 1.05680): grip_end_Y=−0.52551,
-        // head_base_Y=+0.02396 → handleLen(Unity)=0.54947 → lower_third_Y = grip_end_Y + handleLen/3 = −0.34235.
-        // Shifting the mesh +0.34235 Y brings that point to the root origin (the hand seat) → head UP, grip-end
-        // DOWN. The hand (Y=0) then sits at GRIP_FRACTION 0.3333 of the graspable handle = the lower-third grip.
-        // (Was 0.47181 for the 1.5x handle, 0.6427 for 2.0x.) Authored on the WeaponMeshHolder at EDIT-TIME so it
-        // serializes into Boot.unity (static EditMode bounds == runtime). The F9 held target + the soak let the
-        // Sponsor micro-dial; this is the lower-third default for the FINAL 1.1x axe.
-        public static readonly float HeldAxeGripShiftY = 0.34235f;
+        // GRIP-POINT SHIFT (86cajkk7h — the STONE axe honors the §6 grip origin, so the shift is ZERO).
+        // The retired flint axe had its FBX origin at the weapon MIDPOINT (~49% up the long axis), so a large
+        // +0.34235 Y mesh shift was needed to slide the grip down to the hand. The new Sponsor-approved STONE
+        // axe (wpn_axe_stone_01) is authored per pipeline §6 — the FBX origin IS the grip (measured at ~24% up
+        // the long axis = the lower-haft grip point), blade up +Z (→ Unity +Y after Bake Axis Conversion). So
+        // seating the FBX origin at the hand ALREADY grips the lower haft with the head UP TOP (the board-axe
+        // read), with NO mesh shift. The WeaponMeshHolder child is still authored (at zero offset) because the
+        // single-node FBX collapses its MeshFilter onto the rig-driven root and the rig would stomp a per-weapon
+        // TRS on it (#100 BUG-2) — the holder is the rig-untouched home the [B] cycle + belt-sync drive. The F9
+        // held target + the soak let the Sponsor micro-dial the grip; 0 is the §6-correct starting point.
+        public static readonly float HeldAxeGripShiftY = 0f;
         // HELD-AXE baked defaults consumed by HeldAxeRig + AttachHeroAxeToHand (86ca8rdkp — RE-DERIVED; the
         // OLD chibi-rig values are INVALID on the new skeleton):
         //   - POSITION: a WORLD-space offset from the wrist bone seating the haft in the grip. With no 267×
@@ -192,6 +182,62 @@ namespace FarHorizon.EditorTools
         // — NOT a final bake (he re-confirms + may micro-dial; a later pass bakes). F9 still drives it.
         // SUPERSEDES (0.1312,0.1409,0.0593).
         public static readonly Vector3 HeldAxeLocalOffsetFromHand = new Vector3(0.1712f, 0.1209f, -0.0007f);
+        // ===== CASTAWAY v2 held-axe seat (86cajx050 AC2 — the MEASURED re-seat; supersedes the 86cajwp23 blind
+        // old-rig copy). v2 is a fresh Mixamo Standard A-pose rig; the trace CONFIRMED its mixamorig:RightHand
+        // LOCAL FRAME differs materially from the old rig's (old +Y≈(0.05,-1.00,0.06) points ~straight down; v2
+        // +Y≈(0.00,-0.88,0.48) tilts ~28° forward), so the old seat did NOT carry 1:1. These values are a
+        // MEASURED first-pass derived by CharacterAssetGen.CastawayV2HandAxisTrace: it TRANSFERS the Sponsor-
+        // APPROVED old-rig WORLD carry onto v2's hand frame (the axe MESH is identical, so matching its WORLD
+        // orientation reproduces the approved look) —
+        //   HeldAxeV2RelEuler = eulerAngles( Inv(R_v2hand) * R_oldhand * Euler(HeldAxeRelEuler) )
+        //   HeldAxeV2LocalOffsetFromHand = Inv(R_v2hand) * ( R_oldhand * HeldAxeLocalOffsetFromHand )
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. The measured
+        // first-pass (20.9,-16.1,74.9)/(0.1819,0.0435,0.0946) got the axe roughly into v2's hand; the Sponsor then
+        // F9-DIALED the final seat live in soak-v2-live @ stamp 1ff2f9d and APPROVED the result (axe reads seated in
+        // v2's hand) — the values below are those BAKED Sponsor-dialed numbers (per [[verify-soak-builds-or-bake-and-
+        // judge]] / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used ONLY when
+        // CharacterAssetGen.UseCastawayV2; the old seat above is byte-unchanged when the toggle is OFF (rollback path).
+        public static readonly Vector3 HeldAxeV2RelEuler = new Vector3(20.0f, -16.1f, 74.9f);
+        public static readonly Vector3 HeldAxeV2LocalOffsetFromHand = new Vector3(0.0619f, 0.1235f, 0.0454f);
+        // ===== CASTAWAY v3 held-axe seat (86cak9kau AC2 — the v3-activation MEASURED re-seat). v3 is a FRESH
+        // Mixamo Standard rig (Rodin Smart-Low-poly mesh) whose mixamorig:RightHand LOCAL FRAME differs from BOTH
+        // the old rig's AND v2's (trace: v2 +Y≈(0.00,-0.88,0.48), v3 +Y≈(0.17,-0.96,0.24) — v3's hand bone tilts
+        // less-forward + more-inward), so neither prior seat carries 1:1. These are a MEASURED first-pass derived
+        // by CharacterAssetGen.CastawayV3HandAxisTrace, which TRANSFERS the Sponsor-APPROVED v2 LIVE world carry
+        // onto v3's hand frame (the axe MESH is identical, so matching its WORLD orientation reproduces the live-
+        // approved look) —
+        //   HeldAxeV3RelEuler            = eulerAngles( Inv(R_v3hand) * R_v2hand * Euler(HeldAxeV2RelEuler) )
+        //   HeldAxeV3LocalOffsetFromHand = Inv(R_v3hand) * ( R_v2hand * HeldAxeV2LocalOffsetFromHand )
+        // computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses. This first
+        // pass gets the axe into v3's hand (held-belt capture-verified); the Sponsor F9-finalizes the exact grip
+        // in the v3 soak, then a follow-up bakes the dialed numbers here ([[verify-soak-builds-or-bake-and-judge]]
+        // / [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]). Used when CharacterAssetGen.UseCastawayV3;
+        // the v2 + old seats above are byte-unchanged when the toggle is OFF (the rollback path).
+        // 86cakkfz9 v3 DIAL-IN BAKE (dial exe stamp d306552, F9 WEAPON NUDGE TOOL): the Sponsor F9-dialed the
+        // FINAL v3 held-axe seat in the shipped build and asked to bake it as the shipped default (applies with
+        // NO F9). Recovered from Player-prev.log (the dial session; Danish-locale decimals — final resting line
+        // "HeldAxeLocalOffsetFromHand=(0,0071f,0,0599f,0,0288f) HeldAxeRelEuler=(-152,5f,-5,9f,108,9f)") and
+        // cross-checked against the ticket screenshot table (identical). SUPERSEDES the measured first-pass
+        // (17.5,-5.9,92.9)/(0.0271,0.1399,0.0288). SCALE is UNTOUCHED — the axe's held scale comes from the
+        // settings HeldScale row, NOT the nudge (ticket: axe scale LOCKED). F9 still drives these fields.
+        public static readonly Vector3 HeldAxeV3RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
+        public static readonly Vector3 HeldAxeV3LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
+        // ===== CASTAWAY v4 held-axe seat (86catpwc4 phase C — DORMANT default-OFF integration). v4 is a FRESH
+        // Mixamo Standard rig off OUR Blender export; its mixamorig:RightHand LOCAL FRAME differs from v3's, so
+        // v3's seat does NOT carry 1:1. This value is only exercised under FARHORIZON_CASTAWAY_V4=1 (the env-var
+        // SOAK build) — with the toggle OFF (default) the v3 seat above is byte-unchanged.
+        //
+        // ⚠ UNMEASURED FIRST-PASS PLACEHOLDER (= v3's seat, verbatim). The MEASURED re-seat is deliberately
+        // DEFERRED to ACTIVATION (OOS here) because it requires a LIVE editor run of
+        // CharacterAssetGen.CastawayV4HandAxisTrace (WORLD-transfer of v3's approved carry onto v4's hand frame),
+        // which this dormant PR does not bake — the FINAL held-prop re-seat + F9 dial happen at the v4 soak/
+        // activation per character-pipeline.md §Rolling out step 3. Marked UNMEASURED on purpose (not claimed as
+        // measured): reusing v3's numbers gets the axe roughly into v4's hand for the soak's first look; the
+        // Sponsor F9-dials the grip, then the activation ticket bakes his dialed numbers here + runs the trace.
+        // Used ONLY when CharacterAssetGen.UseCastawayV4; every lower-priority seat is byte-unchanged when the
+        // toggle is OFF (the dormant / rollback path).
+        public static readonly Vector3 HeldAxeV4RelEuler = new Vector3(-152.5f, -5.9f, 108.9f);
+        public static readonly Vector3 HeldAxeV4LocalOffsetFromHand = new Vector3(0.0071f, 0.0599f, 0.0288f);
         // 86ca9zcjn AC2 — OPTIONAL light damp to de-jitter the follow WITHOUT re-locking the swing. Default 0
         // (pure raw-hand follow → the per-step arm-swing is fully visible, the Sponsor's choice). Raise to a
         // SMALL value only if the next soak reads jittery — never enough to re-lock ("damp it, don't lock it").
@@ -247,12 +293,13 @@ namespace FarHorizon.EditorTools
             // (the component-in-source-but-not-in-scene + asset-not-serialized traps). Esc toggles it in play.
             BuildSettingsPanel(camGo, player);
 
-            // U2-2 (86ca8bdaq): the craft spot — the entry to the survival loop. A world marker the
-            // castaway click-moves to; reaching it crafts the axe (one recipe, no UI tree). Authored
-            // editor-time so the spot mesh + CraftSpot's Inventory/player references SERIALIZE into
-            // Boot.unity (editor-vs-runtime trap). The Inventory + InventoryReadout live on the
-            // Survival object (added by BootstrapProject before this runs); we find + wire them here.
-            BuildCraftSpot(player, groundLayer);
+            // 86camz9uz (crafting-redesign ①): the PLACE-TO-BUILD crafting table + recipe MENU + material-cost
+            // craft seam — RETIRES the U2-2 auto-craft stump (CraftSpot). The table ships INVISIBLE (no pre-
+            // placed marker — spec §2); the castaway gathers wood+stone, PLACES it (ghost + confirm), then
+            // walks up to open a recipe MENU and crafts WOOD-tier tools by SPENDING materials. Authored editor-
+            // time so the (hidden) table + ghost + the menu UIDocument + the placement's Inventory/player refs
+            // SERIALIZE into Boot.unity (editor-vs-runtime trap). CraftingTableSceneTests guards the presence.
+            BuildCraftingTable(player, groundLayer);
 
             // U2-3 (86ca8bdd8): the choppable tree — the "do work in the world" beat. A Zone-D low-poly
             // tree the castaway click-moves to; reaching it WITH the axe (U2-2) chops it for wood. Authored
@@ -290,6 +337,26 @@ namespace FarHorizon.EditorTools
             // up to loot. Built BEFORE the looter so the looter discovers it (it discovers IPickables anyway).
             BuildWiredStone(player, groundLayer);
 
+            // 86cakkmr0 (I-2 of the iron chain): iron-ore rock NODES + the active-left-click MINE verb + the
+            // OrePileSpawner. The castaway finds ore nodes, mines them WITH A PICKAXE SELECTED by left-clicking
+            // (the chop-verb sibling), breaks them for a lootable iron-ore pile, then the node regrows. Built
+            // BEFORE BuildPickableLooter so the OrePileSpawner exists when the looter back-wires it (mirrors the
+            // LogPileSpawner back-wire). Authored editor-time so the node pool + MineOre/OrePileSpawner refs
+            // SERIALIZE into Boot.unity (editor-vs-runtime trap). Collider-free — no NavMesh/raycast impact.
+            BuildOreNodes(player, groundLayer);
+
+            // 86cakkmr0 (I-2 soak-enabler): a wired stone-PICKAXE pickup so the mine loop is live-triggerable in the
+            // soak (the mine gate needs a pickaxe SELECTED). The axe/spear pickup idiom; the real pickaxe mesh
+            // (I-1/#283). Placed CLEAR of spawn (> pickupRadius) so it can't auto-grab belt slot 0 (the PR #224 class).
+            BuildPickaxePickup(player);
+
+            // 86camz9v7 (crafting-redesign ②): LARGER BOULDERS — the VOLUME stone source. With a WOOD pickaxe
+            // selected the castaway mines stone from boulders (the MineOre sibling), breaks them for a lootable
+            // stone pile, then the boulder regrows. A DISCRETE mineable pool authored editor-time (distinct from
+            // the decorative scatter rocks + the ore nodes). Built BEFORE BuildPickableLooter so the StonePileSpawner
+            // exists when the looter back-wires it (mirrors the OrePileSpawner back-wire). Collider-free.
+            BuildBoulders(player, groundLayer);
+
             // 86caf7a6q: the E-LOOT interactor — the PLAYER side of the shared E-loot surface. Pressing E
             // loots the nearest in-range IPickable (the berry bush above; sticks 86caa96rd + stones
             // 86caa4c96 build on the SAME surface) into the inventory. Wired AFTER the bush so the loop reads
@@ -298,6 +365,21 @@ namespace FarHorizon.EditorTools
             // serialized. The looter discovers IPickables at runtime (Awake), so this can run before/after any
             // pickable author. PickableLooterSceneTests guards the serialized presence + wiring.
             BuildPickableLooter(player);
+
+            // 86cakkmr0 (I-2): the shipped-build MINE capture gate — wired AFTER BuildPickableLooter + the pickaxe
+            // pickup so all its deps (looter + pickaxe pickup + MineOre) exist. Inert unless launched with -verifyMine.
+            WireMineVerifyCapture(player);
+
+            // 86camz9v7 (②): the shipped-build BOULDER capture gate — wired AFTER BuildPickableLooter + BuildBoulders
+            // so its deps (looter + MineBoulder) exist. Inert unless launched with -verifyBoulder.
+            WireBoulderVerifyCapture(player);
+
+            // 86catr49m: the shipped-build PLACEMENT-obstacle capture gate — authored AFTER BuildCraftingTable
+            // (the CraftingTablePlacement driver) + BuildBoulders (so a registered boulder exists to prove
+            // RED-over-boulder). Inert unless launched with -verifyPlacement. #302 shipped this harness INERT
+            // (never scene-authored → the -verifyPlacement verb NO-OP'd + would HANG the capture exe); this wire
+            // + a Boot re-bake is exactly the fix (unity-conventions §CI: an UNWIRED -verifyX verb hangs the exe).
+            WirePlacementVerifyCapture(player);
 
             // 86caamkv7: a wired FRESHWATER POND inland near the loop centre — the thirst source for the merged
             // survival loop. The castaway walks up (no tool) and DRINKS FROM HAND — a small per-scoop restore,
@@ -319,6 +401,24 @@ namespace FarHorizon.EditorTools
             // the NavMesh bake (the fire-pit has no collider — the player walks up to it).
             BuildCampfire(player, groundLayer);
 
+            // 86cakkmvc (I-3 of the iron chain): the FORGE/FURNACE — a NEW buildable DISTINCT from the campfire
+            // (Sponsor Q3). A stone furnace the castaway builds from wood + stone (the ForgePlacement wood+stone
+            // gate), then SMELTS iron-ore into iron ingots over a timer (the work-led earn). Authored editor-time
+            // so the furnace mesh + glow/Light + Forge/ForgePlacement refs SERIALIZE into Boot.unity (editor-vs-
+            // runtime trap). Built AFTER the campfire (the survival arc reads shipwreck -> ... -> fire -> FURNACE ->
+            // iron) and BEFORE the NavMesh bake (collider-free — the player walks up to it).
+            BuildForge(player, groundLayer);
+
+            // 86catpvpa: the BUILD MENU (C) — the SINGLE build entry point fronting the ① free-cursor ghost-
+            // placement flow for ALL placeable structures (crafting table + forge today; ⑤ appends the
+            // campfire once it converts to the ghost flow). Authored AFTER BuildCraftingTable + BuildForge so
+            // both placement drivers (the IBuildPlaceable rows) exist to register. Retires the interim table-C
+            // / forge-V direct build keys — the menu is the ONLY build entry point now (the Sponsor's
+            // mid-soak confusion fix). The menu's UIDocument + PanelSettings + placeableSources refs SERIALIZE
+            // into Boot.unity (editor-vs-runtime trap). Also wires the -verifyBuildMenu shipped-build capture
+            // (inert unless launched with that verb). BuildMenuSceneTests guards the serialized presence.
+            BuildBuildMenu(player);
+
             // 86caa4bya: the INVENTORY pack (Tab) + BELT hotbar UI (UI Toolkit) + a pickable world axe.
             // The InventoryUI's UIDocument + UXML/USS + the Inventory reference SERIALIZE into Boot.unity
             // (editor-vs-runtime trap). The pickable axe is the AC3 PoC pickup (auto-places in belt slot 1).
@@ -326,6 +426,16 @@ namespace FarHorizon.EditorTools
             // so the loop reads spawn -> pick up axe -> craft/chop/build with the belt+pack in play.
             BuildInventoryUI(player);
             BuildAxePickup(player, groundLayer);
+
+            // Combat POC (86cah7xxp): the FIRST combat build — player HP (Health) + needs-gated regen
+            // (HealthRegen, AC3) + tiered death (DeathHandler, AC2) on the player root, the left-click melee
+            // ATTACK (MeleeAttack, AC5) that swings the selected weapon (axe/spear) at the nearest in-reach
+            // enemy, and ONE damageable snake (SnakeEnemy, AC7 — the shared Health surface + a pierce-weak
+            // profile). Authored editor-time so the Health/regen/death/attack + snake SERIALIZE into Boot.unity
+            // (editor-vs-runtime trap). Wires the SurvivalHud's HP bar (AC9) + the SettingsPanel's per-tier
+            // combat rows (AC8b). Built AFTER the inventory (the attack reads the selected belt weapon) and
+            // BEFORE the bake (the snake is a collider-free marker — no NavMesh/raycast impact).
+            BuildCombat(player, groundLayer);
 
             // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
             // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
@@ -368,6 +478,14 @@ namespace FarHorizon.EditorTools
             // grounding gate, memory verify-grounding-soaks-by-gameplay-cam-visual). Inert unless launched
             // with -verifyPond. Sibling of WireRockVerifyCapture / WireSeaVerifyCapture.
             WireFreshwaterPondVerifyCapture();
+
+            // Wire the verification-only shipped-build SKY-FACING capture (86cabc743 — the SUN-DISK POC,
+            // Erik low-poly-sky research). The gameplay OrbitCamera clamps pitch to <=70 and frames the
+            // player from above; it cannot tilt up to the Sun (elevation ~48deg), so this parks a dedicated
+            // sky camera (Skybox clear + Zone-D post) aimed at the live Sun direction (sun_disk) + up into
+            // the cloud band (cloud-vs-sky contrast). Inert unless launched with -verifySky. Sibling of
+            // WireFreshwaterPondVerifyCapture / WireWorldLookVerifyCapture.
+            WireSkyVerifyCapture();
 
             Debug.Log("[MovementCameraScene] authored player + orbit camera + flat ground + NavMesh");
         }
@@ -496,100 +614,264 @@ namespace FarHorizon.EditorTools
             return prefab != null ? prefab.GetComponent<ClickMarker>() : null;
         }
 
-        // World position of the craft spot on the flat test ground. Distinct from spawn (origin) so the
-        // craft is a real click-move journey, comfortably inside the GroundHalf=30 walkable extent, and
-        // on the NavMesh. CraftVerifyCapture drives the player here to prove the craft in the shipped exe.
+        // Legacy world position (8,6) on the flat test ground — formerly the auto-craft stump spot (retired
+        // with CraftSpot in 86camz9uz ①). KEPT because it is still a shared WAYPOINT the Chop/Campfire verify
+        // captures route the player through + an organic-scatter landmark-avoidance point for the ore nodes.
+        // The crafting table is now INVISIBLE until the player places it (no fixed spawn spot), so this is no
+        // longer a craft location — just a stable named landmark. Do not repurpose without checking those uses.
         public static readonly Vector3 CraftSpotPosition = new Vector3(8f, 0f, 6f);
 
-        // Name of the serialized axe-on-the-stump GameObject (SOAKFIX2). Distinct from HeroAxeObjectName so
-        // the -verifyAxe HeroAxe search + the held-axe scene guard never resolve the stump one by mistake.
-        public const string StumpAxeObjectName = "StumpAxe";
+        public const string CraftingTableObjectName = "CraftingTable";
+        public const string CraftingTableGhostObjectName = "CraftingTableGhost";
+        public const string CraftingMenuObjectName = "CraftingMenuUI";
+        public const string CraftingTablePlacementObjectName = "CraftingTablePlacement";
+        public const string CraftingMenuPanelSettingsAssetPath = SettingsDir + "/CraftingMenuPanelSettings.asset";
+        public const string CraftingTableMatPath = SettingsDir + "/CraftingTableMat.mat";
+        public const string CraftingGhostMatPath = SettingsDir + "/CraftingGhostMat.mat";
 
-        // The axe-on-the-stump's pose, in CraftSpot-LOCAL space (the CraftSpot is unscaled at world 1u, so
-        // these are intuitive world units — NO 267× bone trap here, unlike the held axe). The stump top sits
-        // at world-y ≈ 0.70 (cylinder localScale.y 0.35 → 0.70 tall; PoseTrace: CraftStump TOP.y 0.700).
-        //
-        // SOAKFIX4 (the Sponsor's "head BURIED in the block, only the handle pokes out"): the prior pose
-        // (localPos.y 1.15, scale 1.4, near-vertical) put the axe HEAD — which is the LOW half of the mesh
-        // (PoseTrace: longAxis Y, the wide steel end is local-Y -0.974..-0.474) — DOWN at world min.y -0.266,
-        // i.e. BELOW the ground and buried inside the block; only the thin haft (the HIGH half) rose above the
-        // 0.700 stump top. FIX: pose it as an axe STUCK IN the block — the HEAD's blade edge bites at/into the
-        // TOP of the block (~0.70) and the HAFT angles UP-and-out so the whole handle reads above the block.
-        // Done by (a) RAISING localPos.y so the head sits at the top not the bottom, (b) LEANING the axe ~26°
-        // off vertical (a lodged-in-the-block axe leans, it does not stand to attention), (c) trimming the
-        // scale 1.4 -> 1.1 so the head doesn't overhang the small block. Re-measured by PoseTrace post-change
-        // (head bottom at ~block-top, handle top ~1.4 clearly visible from spawn). Final read is the SHIPPED
-        // build (editor RT is framing/size-only, not colour — unity-conventions.md).
-        // SOAKFIX7 (86ca8ce6y — the stump axe BAKED at the Sponsor's dialed-in pose). The Sponsor finalized
-        // the in-block transform IN-GAME via the build-gated AxeNudgeTool (F9: cycles held/stump target,
-        // nudges XYZ + pitch/yaw/roll, reads the live values off the HUD) and confirmed it "perfect"; these
-        // are his last reported nudge-panel values, baked as the stump DEFAULT (replacing the soakfix5
-        // placeholder). The axe reads as stuck SQUARELY in the block — head biting the top, haft angled
-        // up-and-out. The F9 AxeNudgeTool stays build-gated/inert for any future re-tune. Sponsor-reported
-        // values (European decimal commas -> dot-decimal here). Scale unchanged (1.1u reads at spawn).
-        public static readonly Vector3 StumpAxeLocalPos = new Vector3(-0.210f, 1.540f, 0.430f);
-        public static readonly Vector3 StumpAxeLocalEuler = new Vector3(12.0f, 53.0f, 48.0f);
-        public static readonly float StumpAxeLocalScaleUniform = 1.1f;
+        // 86catpvpa — the BUILD MENU (C) objects.
+        public const string BuildMenuObjectName = "BuildMenuUI";
+        public const string BuildMenuPanelSettingsAssetPath = SettingsDir + "/BuildMenuPanelSettings.asset";
 
-        // The craft spot (U2-2, 86ca8bdaq): a low-poly marker the castaway click-moves to; reaching it
-        // crafts the axe. A small chopping-block stump the castaway walks ONTO. NO collider so it never
-        // blocks the ground raycast or the NavMesh. The stump mesh + CraftSpot's Inventory/player refs are
-        // authored editor-time so they serialize into Boot.unity (editor-vs-runtime trap — an Awake-built
-        // prop ships mangled, the "legs-up" class).
-        //
-        // SOAKFIX2 (the Sponsor's "stump is there but no axe"): an axe is PLANTED in the stump and visible
-        // FROM SPAWN (StumpAxe component, the inverse gate of HeldAxe). It is the always-on-screen hero axe +
-        // the diegetic "walk here" cue. On reaching the spot the craft fires: the stump-axe HIDES and the
-        // HELD axe APPEARS (AttachHeroAxeToHand) — reading as "the kid picks it up".
-        private static void BuildCraftSpot(GameObject player, int groundLayer)
+        // The crafting TABLE + recipe MENU + place-to-build flow (86camz9uz ① — replaces CraftSpot). Authors,
+        // all editor-time so they SERIALIZE into Boot.unity (editor-vs-runtime trap): (a) the REAL table (a
+        // flat-work-surface-on-legs low-poly mesh — Bar 4 anchor), renderers DISABLED = invisible until placed
+        // (spec §2); (b) a translucent GHOST (same mesh) hidden until placement; (c) the recipe-menu UIDocument
+        // (modal, its own PanelSettings on the shared runtime theme); (d) the CraftingTablePlacement driver
+        // wiring them + the Inventory/player refs. Collider-free (cubes' box colliders stripped) so nothing
+        // blocks the ground raycast / NavMesh. CraftingTableSceneTests guards the serialized presence + wiring.
+        private static void BuildCraftingTable(GameObject player, int groundLayer)
         {
-            var spot = new GameObject("CraftSpot");
-            spot.transform.position = CraftSpotPosition;
-
-            // A small low cylinder as the "chopping block" the player walks toward. Primitive cylinder,
-            // collider stripped. The hero axe is planted in it (below).
-            var visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            visual.name = "CraftStump";
-            Object.DestroyImmediate(visual.GetComponent<Collider>()); // no block on raycast / NavMesh
-            visual.transform.SetParent(spot.transform, false);
-            visual.transform.localScale = new Vector3(0.7f, 0.35f, 0.7f); // squat stump
-            visual.transform.localPosition = new Vector3(0f, 0.35f, 0f);  // sit on the ground
-
-            var litShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (litShader != null)
-            {
-                var mat = new Material(litShader);
-                if (mat.HasProperty("_BaseColor"))
-                    mat.SetColor("_BaseColor", new Color(0.45f, 0.32f, 0.20f)); // warm timber brown
-                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
-                AssetDatabase.CreateAsset(mat, SettingsDir + "/CraftStumpMat.mat");
-                visual.GetComponent<MeshRenderer>().sharedMaterial = mat;
-                EnsureShaderAlwaysIncluded(litShader);
-            }
-
-            // SOAKFIX2: plant the always-visible-from-spawn axe in the stump (the Sponsor's literal ask).
-            AttachStumpAxe(spot);
-
-            var craft = spot.AddComponent<CraftSpot>();
-            craft.player = player.transform;
-            craft.inventory = Object.FindObjectOfType<Inventory>();
-            if (craft.inventory == null)
-                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire CraftSpot to — " +
+            var inv = Object.FindObjectOfType<Inventory>();
+            if (inv == null)
+                Debug.LogError("[MovementCameraScene] no Inventory to wire the crafting table to — " +
                                "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
 
-            // Wire the verification-only shipped-build CRAFT capture (drives the player to the spot,
-            // proves the axe is crafted in the BUILT exe) onto the Boot object — sibling of the
-            // movement-verify capture. Inert unless launched with -verifyCraft.
-            WireCraftVerifyCapture(player);
+            // (a) the REAL table — parked at the legacy landmark until placed; invisible (renderers off).
+            var tableGo = new GameObject(CraftingTableObjectName);
+            tableGo.transform.position = CraftSpotPosition;
+            var tableVisual = MakeCraftingTableMesh("TableVisual", EnsureCraftingTableMat());
+            tableVisual.SetParent(tableGo.transform, false);
+            var table = tableGo.AddComponent<CraftingTable>();
+            table.visual = tableVisual;
+            foreach (var r in tableVisual.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false; // invisible-until-placed (serialized hidden; Awake re-asserts)
 
-            Debug.Log("[MovementCameraScene] authored CraftSpot at " + CraftSpotPosition +
-                      " (inventory wired: " + (craft.inventory != null) + ")");
+            // The no-build zone the table self-registers ONCE PLACED (#302 seam, ③ reconciliation) so a later
+            // forge/table placement ghost reads RED over it. Authored DISABLED — CraftingTable.Reveal enables it.
+            var tableObstacle = tableGo.AddComponent<PlacementObstacle>();
+            tableObstacle.footprintRadius = 0.6f; // ~half the 1.1×0.8 table top
+            tableObstacle.enabled = false;
+            table.placementObstacle = tableObstacle;
+
+            // (b) the placement GHOST — translucent, hidden until the player enters placement mode.
+            var ghostGo = new GameObject(CraftingTableGhostObjectName);
+            ghostGo.transform.position = CraftSpotPosition;
+            var ghostVisual = MakeCraftingTableMesh("GhostVisual", EnsureCraftingGhostMat());
+            ghostVisual.SetParent(ghostGo.transform, false);
+            foreach (var r in ghostVisual.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false;
+
+            // (c) the recipe MENU (UI Toolkit, modal). Own PanelSettings on the shared resolving runtime theme
+            // (a base-less theme HANGS the windowed exe at 0 frames — EnsureRuntimeTheme is the proven fix).
+            var menuGo = new GameObject(CraftingMenuObjectName);
+            var doc = menuGo.AddComponent<UIDocument>();
+            doc.panelSettings = EnsureCraftingMenuPanelSettings();
+            doc.sortingOrder = 95f; // above the inventory belt (90), below the dev settings panel (100)
+            var menu = menuGo.AddComponent<CraftingMenuUI>();
+            menu.document = doc;
+            menu.inventory = inv;
+            menu.table = table;
+            menu.player = player != null ? player.transform : null;
+
+            // (d) the PLACEMENT driver.
+            var placeGo = new GameObject(CraftingTablePlacementObjectName);
+            var placement = placeGo.AddComponent<CraftingTablePlacement>();
+            placement.inventory = inv;
+            placement.player = player != null ? player.transform : null;
+            placement.table = table;
+            placement.ghost = ghostGo.transform;
+            placement.menu = menu;
+            placement.groundMask = 1 << groundLayer;
+
+            EditorUtility.SetDirty(tableGo); EditorUtility.SetDirty(ghostGo);
+            EditorUtility.SetDirty(menuGo); EditorUtility.SetDirty(placeGo);
+            Debug.Log("[MovementCameraScene] authored crafting table (invisible-until-placed) + ghost + recipe " +
+                      "menu (sortingOrder 95) + placement (inventory wired: " + (inv != null) + ")");
+        }
+
+        // Build the low-poly crafting-table mesh — a flat work SURFACE on 4 LEGS standing ON the ground (the
+        // Bar 4 anchor: "a crafting table is a flat work surface on legs standing on the ground"). Faceted
+        // cube parts (box colliders stripped). Shared by the real table + the translucent ghost (same mesh).
+        private static Transform MakeCraftingTableMesh(string name, Material mat)
+        {
+            var root = new GameObject(name);
+            AddTablePart(root.transform, "Top",   new Vector3(1.10f, 0.14f, 0.80f), new Vector3(0f, 0.78f, 0f), mat);
+            AddTablePart(root.transform, "LegNE", new Vector3(0.14f, 0.72f, 0.14f), new Vector3( 0.46f, 0.36f,  0.32f), mat);
+            AddTablePart(root.transform, "LegNW", new Vector3(0.14f, 0.72f, 0.14f), new Vector3(-0.46f, 0.36f,  0.32f), mat);
+            AddTablePart(root.transform, "LegSE", new Vector3(0.14f, 0.72f, 0.14f), new Vector3( 0.46f, 0.36f, -0.32f), mat);
+            AddTablePart(root.transform, "LegSW", new Vector3(0.14f, 0.72f, 0.14f), new Vector3(-0.46f, 0.36f, -0.32f), mat);
+            return root.transform;
+        }
+
+        private static void AddTablePart(Transform parent, string name, Vector3 scale, Vector3 localPos, Material mat)
+        {
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = name;
+            Object.DestroyImmediate(cube.GetComponent<Collider>()); // no NavMesh / raycast block
+            cube.transform.SetParent(parent, false);
+            cube.transform.localScale = scale;
+            cube.transform.localPosition = localPos;
+            var mr = cube.GetComponent<MeshRenderer>();
+            if (mr != null && mat != null) mr.sharedMaterial = mat;
+        }
+
+        private static Material EnsureCraftingTableMat()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(CraftingTableMatPath);
+            if (existing != null) return existing;
+            var lit = Shader.Find("Universal Render Pipeline/Lit");
+            var mat = new Material(lit);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.48f, 0.34f, 0.21f)); // warm timber
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.1f);
+            AssetDatabase.CreateAsset(mat, CraftingTableMatPath);
+            EnsureShaderAlwaysIncluded(lit);
+            return mat;
+        }
+
+        // Translucent URP/Unlit for the placement ghost (the standard headless transparent recipe). The
+        // placement tints it green/red per-frame via a MaterialPropertyBlock (_BaseColor) — the hue channel
+        // of the dual-channel valid/invalid cue (the WORD cue is the colour-independent channel).
+        private static Material EnsureCraftingGhostMat()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(CraftingGhostMatPath);
+            if (existing != null) return existing;
+            var unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            var mat = new Material(unlit);
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);   // Transparent
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);       // Alpha
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.35f, 0.85f, 0.40f, 0.45f));
+            AssetDatabase.CreateAsset(mat, CraftingGhostMatPath);
+            EnsureShaderAlwaysIncluded(unlit);
+            return mat;
+        }
+
+        // Own PanelSettings for the crafting-menu UIDocument (mirrors EnsureInventoryPanelSettings) — the
+        // shared EnsureRuntimeTheme resolves a USABLE runtime theme (a base-less theme hangs the exe at 0 frames).
+        private static PanelSettings EnsureCraftingMenuPanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(CraftingMenuPanelSettingsAssetPath);
+            if (existing != null) return existing;
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            ps.themeStyleSheet = EnsureRuntimeTheme();
+            AssetDatabase.CreateAsset(ps, CraftingMenuPanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
+        }
+
+        // 86catpvpa — the BUILD MENU (C): the SINGLE build entry point fronting the ① ghost-placement flow for
+        // ALL placeable structures. Authors, all editor-time so they SERIALIZE into Boot.unity (editor-vs-
+        // runtime trap): (a) the menu UIDocument (modal, its own PanelSettings on the shared resolving runtime
+        // theme, sortingOrder 96 — above the recipe menu at 95, below the dev settings panel at 100); (b) the
+        // BuildMenuUI wired with the placeableSources = [CraftingTablePlacement, ForgePlacement] (each an
+        // IBuildPlaceable row). Retires the interim table-C / forge-V direct build keys (removed from those
+        // components). Also wires the -verifyBuildMenu shipped-build capture onto Boot. MUST run AFTER
+        // BuildCraftingTable + BuildForge (the placement drivers must exist to register).
+        private static void BuildBuildMenu(GameObject player)
+        {
+            var tablePlacement = Object.FindObjectOfType<CraftingTablePlacement>();
+            var forgePlacement = Object.FindObjectOfType<ForgePlacement>();
+            var campfirePlacement = Object.FindObjectOfType<CampfirePlacement>();
+            if (tablePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildBuildMenu found no CraftingTablePlacement — " +
+                               "BuildCraftingTable must run before BuildBuildMenu (the table build-menu row).");
+            if (forgePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildBuildMenu found no ForgePlacement — " +
+                               "BuildForge must run before BuildBuildMenu (the forge build-menu row).");
+            if (campfirePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildBuildMenu found no CampfirePlacement — " +
+                               "BuildCampfire must run before BuildBuildMenu (the campfire build-menu row, ⑤).");
+
+            var menuGo = new GameObject(BuildMenuObjectName);
+            var doc = menuGo.AddComponent<UIDocument>();
+            doc.panelSettings = EnsureBuildMenuPanelSettings();
+            doc.sortingOrder = 96f; // above the recipe menu (95), below the dev settings panel (100)
+            var menu = menuGo.AddComponent<BuildMenuUI>();
+            menu.document = doc;
+            // The editor-authored rows: crafting table + forge + campfire (⑤ — the campfire is now a build-menu row,
+            // the ONE build entry point; no parallel flow). Each is an IBuildPlaceable.
+            var sources = new System.Collections.Generic.List<MonoBehaviour>(3);
+            if (tablePlacement != null) sources.Add(tablePlacement);
+            if (forgePlacement != null) sources.Add(forgePlacement);
+            if (campfirePlacement != null) sources.Add(campfirePlacement);
+            menu.placeableSources = sources.ToArray();
+
+            EditorUtility.SetDirty(menuGo);
+            Debug.Log("[MovementCameraScene] authored build menu (C, sortingOrder 96) with " +
+                      sources.Count + " placeable rows (table wired: " + (tablePlacement != null) +
+                      ", forge wired: " + (forgePlacement != null) +
+                      ", campfire wired: " + (campfirePlacement != null) + ")");
+
+            WireBuildMenuVerifyCapture(menu, tablePlacement);
+        }
+
+        // Own PanelSettings for the build-menu UIDocument (mirrors EnsureCraftingMenuPanelSettings) — the
+        // shared EnsureRuntimeTheme resolves a USABLE runtime theme (a base-less theme hangs the exe at 0 frames).
+        private static PanelSettings EnsureBuildMenuPanelSettings()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<PanelSettings>(BuildMenuPanelSettingsAssetPath);
+            if (existing != null) return existing;
+            var ps = ScriptableObject.CreateInstance<PanelSettings>();
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.match = 0.5f;
+            ps.themeStyleSheet = EnsureRuntimeTheme();
+            AssetDatabase.CreateAsset(ps, BuildMenuPanelSettingsAssetPath);
+            AssetDatabase.SaveAssets();
+            return ps;
+        }
+
+        // 86catpvpa: the shipped-build BUILD-MENU capture gate (-verifyBuildMenu), attached to Boot so it SHIPS
+        // in Boot.unity — an UNWIRED -verifyX verb NO-OPs the capture AND HANGS the exe (the #302 inert-harness
+        // lesson). Fails LOUD at bootstrap on a dropped dep rather than letting Start's find-fallback mask it.
+        private static void WireBuildMenuVerifyCapture(BuildMenuUI menu, CraftingTablePlacement tablePlacement)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host BuildMenuVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<BuildMenuVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<BuildMenuVerifyCapture>();
+            cap.menu = menu;
+            cap.tablePlacement = tablePlacement;
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            if (cap.menu == null)
+                Debug.LogError("[MovementCameraScene] BuildMenuVerifyCapture.menu wiring is null — " +
+                               "BuildBuildMenu must author the BuildMenuUI before WireBuildMenuVerifyCapture");
+            if (cap.tablePlacement == null)
+                Debug.LogError("[MovementCameraScene] BuildMenuVerifyCapture.tablePlacement wiring is null — " +
+                               "BuildCraftingTable must author the CraftingTablePlacement before this gate");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] BuildMenuVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            EditorUtility.SetDirty(bootGo);
         }
 
         // Attach the IN-HOUSE hero axe (ticket 86cabh907 — Route A weapon SET) to the chibi's RIGHT HAND bone
         // so the castaway HOLDS the axe. The procedural HeroAxeMesh wedge AND the earlier CC-BY sourced
         // hatchet are both RETIRED. The imported FBX (WeaponPackAssetGen.HeroAxeFbxPath — faceted flat-shaded
-        // wpn_axe_01, shared palette material) is instantiated as a child of the right-hand bone
+        // wpn_axe_stone_01, shared palette material) is instantiated as a child of the right-hand bone
         // (probe-verified) so it RIDES the hand's animated transform every frame; the attach-local pose puts
         // the handle in the palm + the blade forward, and the attach-local scale brings the normalized prop
         // to a believable axe size.
@@ -721,9 +1003,22 @@ namespace FarHorizon.EditorTools
             // leaked into X/Z → the axe sat wrong after a pickup at a different facing). Now the rig applies
             // axe.position = hand.position + hand.rotation * offset every frame, so the SAME hand-local field
             // seats the axe IDENTICALLY at every facing AND for every acquire path (spawn-in-hand == picked-up).
-            Vector3 handLocalOffset = HeldAxeLocalOffsetFromHand;
+            // 86cajwp23 AC2 / 86cak9kau AC2 / 86catpwc4 phase C — each hero base rides its OWN re-measured seat
+            // prior (its mixamorig:RightHand local frame differs); HIGHEST-VERSION-FIRST: v4 (DORMANT, env-only)
+            // takes precedence when active, then v3 (the LIVE default), then v2, then the old rig. The lower-
+            // priority seats are byte-unchanged when their toggle is OFF (the dormant / rollback path). NOTE: the
+            // v4 seat is an UNMEASURED first-pass (= v3's, verbatim) — the measured re-seat is activation work
+            // (CharacterAssetGen.CastawayV4HandAxisTrace + Sponsor F9 dial); see the HeldAxeV4* constants.
+            Vector3 handLocalOffset =
+                CharacterAssetGen.UseCastawayV4 ? HeldAxeV4LocalOffsetFromHand :
+                CharacterAssetGen.UseCastawayV3 ? HeldAxeV3LocalOffsetFromHand :
+                CharacterAssetGen.UseCastawayV2 ? HeldAxeV2LocalOffsetFromHand : HeldAxeLocalOffsetFromHand;
+            Vector3 relEuler =
+                CharacterAssetGen.UseCastawayV4 ? HeldAxeV4RelEuler :
+                CharacterAssetGen.UseCastawayV3 ? HeldAxeV3RelEuler :
+                CharacterAssetGen.UseCastawayV2 ? HeldAxeV2RelEuler : HeldAxeRelEuler;
             rig.worldOffsetFromHand = handLocalOffset; // HAND-LOCAL units (field name kept for serialization/F9)
-            rig.relEuler = HeldAxeRelEuler;            // hand-relative — turns with the hand
+            rig.relEuler = relEuler;                   // hand-relative — turns with the hand
             // 86ca9zcjn (Sponsor design choice, soak 6bcc1bc) — the held axe now FOLLOWS the right arm's
             // natural swing during locomotion: it rides the RAW hand bone. The prior swing-stabilizer /
             // grip-anchor (86ca8rdkp) + the vertical-decouple bounce/ratchet fix (86ca9ykp0) are REMOVED
@@ -747,12 +1042,15 @@ namespace FarHorizon.EditorTools
             // hand-local field is facing-invariant, so this static pose == the runtime pose at EVERY facing
             // (re-expressed per facing). localRot = Euler(relEuler) (hand-relative).
             Vector3 seatedWorldPos = hand.position + hand.rotation * handLocalOffset;
-            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(HeldAxeRelEuler);
+            Quaternion seatedWorldRot = hand.rotation * Quaternion.Euler(relEuler);
             axe.transform.localPosition = hand.InverseTransformPoint(seatedWorldPos);
             axe.transform.localRotation = Quaternion.Inverse(hand.rotation) * seatedWorldRot;
             Debug.Log("[MovementCameraScene] held axe 86caa83wn hand-local pose: handLocalOffset=" +
                       handLocalOffset.ToString("F4") +
-                      " relEuler=" + HeldAxeRelEuler.ToString("F1") +
+                      " relEuler=" + relEuler.ToString("F1") +
+                      (CharacterAssetGen.UseCastawayV4 ? " [v4 seat prior — UNMEASURED first-pass]" :
+                       CharacterAssetGen.UseCastawayV3 ? " [v3 seat prior]" :
+                       CharacterAssetGen.UseCastawayV2 ? " [v2 seat prior]" : "") +
                       " (static-baked localPos=" + axe.transform.localPosition.ToString("F4") +
                       " localEuler=" + axe.transform.localEulerAngles.ToString("F1") + ")");
 
@@ -767,12 +1065,10 @@ namespace FarHorizon.EditorTools
             // offset) and starts on the LOCKED axe, so a soak that never presses [B] sees the shipped axe.
             if (axe.GetComponent<HeldWeaponCycleDebug>() == null) axe.AddComponent<HeldWeaponCycleDebug>();
 
-            // SHAFT-LENGTH PICKER (86cabh907 — the unstick instrument): cycle the held axe through 4 pre-baked
-            // length variants (1.1x->1.4x, head LOCKED + coaxial) with [L] so the Sponsor PICKS the haft length
-            // in-hand instead of us guessing (he rejected 2.0x + 1.5x as too long). Shares the cycle's mesh
-            // holder; only acts while the axe is held. Starts UNSELECTED (shipped length) so a soak that never
-            // presses [L] sees the shipped axe. Authored after the cycle so its Awake finds the cycle component.
-            if (axe.GetComponent<HeldAxeLengthPicker>() == null) axe.AddComponent<HeldAxeLengthPicker>();
+            // SHAFT-LENGTH PICKER RETIRED (86cajkk7h): the [L] length picker + its wpn_axe_01_len11..14 variants
+            // were the unstick instrument that let the Sponsor pick the retired flint axe's haft length. The
+            // STONE axe (wpn_axe_stone_01) is the Sponsor-approved authored mesh — there is no length to pick —
+            // so the picker, its AxeLengthVariants prefab, and the len11..14 FBXs are all removed.
 
             // HELD-WEAPON PLACEMENT SEAM (86caffwuz) — the single binding surface the unified settings console's
             // 7 held-weapon rows (pos X/Y/Z, rot pitch/yaw/roll, scale) drive. Lives on THIS seat object so it
@@ -802,47 +1098,14 @@ namespace FarHorizon.EditorTools
             WireAxeNudgeTool();
 
             int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
-            Debug.Log("[MovementCameraScene] attached HeroAxe (in-house wpn_axe_01) to bone '" + hand.name +
+            Debug.Log("[MovementCameraScene] attached HeroAxe (in-house wpn_axe_stone_01) to bone '" + hand.name +
                       "' (renderers=" + rendCount + ", HasAxe-gated)");
         }
 
-        // SOAKFIX2: plant the SOURCED hatchet in the chopping-block stump so an axe is VISIBLE FROM SPAWN
-        // (the Sponsor's literal "stump is there but no axe"). Same sourced FBX as the held axe — one asset,
-        // identical read. Parented to the CraftSpot (unscaled world-1u, so NO 267× bone trap — the local
-        // pose is intuitive). A StumpAxe component gates it as the INVERSE of HasAxe: shown at spawn, HIDDEN
-        // once crafted (the held axe appears at the same instant → "the kid picks it up"). Editor-time so
-        // the axe mesh + StumpAxe wiring SERIALIZE into Boot.unity (the editor-vs-runtime trap).
-        private static void AttachStumpAxe(GameObject craftSpot)
-        {
-            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.HeroAxeFbxPath);
-            if (fbx == null)
-            {
-                Debug.LogError("[MovementCameraScene] in-house flint axe FBX not found at " +
-                               WeaponPackAssetGen.HeroAxeFbxPath +
-                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no stump axe planted");
-                return;
-            }
-
-            var axe = Object.Instantiate(fbx);
-            axe.name = StumpAxeObjectName;
-            axe.transform.SetParent(craftSpot.transform, false);
-            axe.transform.localPosition = StumpAxeLocalPos;
-            axe.transform.localRotation = Quaternion.Euler(StumpAxeLocalEuler);
-            axe.transform.localScale = Vector3.one * StumpAxeLocalScaleUniform;
-            ApplyWeaponPaletteMaterial(axe);
-
-            // Gate visibility as the INVERSE of HasAxe: shown at spawn, hidden once crafted.
-            var stump = axe.GetComponent<StumpAxe>();
-            if (stump == null) stump = axe.AddComponent<StumpAxe>();
-            stump.inventory = Object.FindObjectOfType<Inventory>();
-
-            var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
-
-            int rendCount = axe.GetComponentsInChildren<MeshRenderer>(true).Length;
-            Debug.Log("[MovementCameraScene] planted StumpAxe in the chopping block (renderers=" + rendCount +
-                      ", inverse-HasAxe-gated, visible from spawn)");
-        }
+        // (86camz9uz ①) AttachStumpAxe is RETIRED with the CraftSpot stump — the free auto-craft stump +
+        // its planted always-visible axe are replaced by the place-to-build table + AxePickup (now the single
+        // visible spawn axe). The StumpAxe.cs component is retained (a reusable inverse-HasAxe visibility gate)
+        // but is no longer authored into the scene.
 
         // === 86caa4bya — INVENTORY pack + BELT hotbar UI (UI Toolkit) ============================
         public const string InventoryPanelSettingsAssetPath = SettingsDir + "/InventoryPanelSettings.asset";
@@ -1045,20 +1308,20 @@ namespace FarHorizon.EditorTools
             pickup.inventory = Object.FindObjectOfType<Inventory>();
             pickup.player = player != null ? player.transform : null;
             pickup.visual = visual;
-            // #100 BUG-1 (the axe-in-two-places fix): the StumpAxe craft block is the SINGLE visible spawn axe
-            // for the dial-tool soak. This AC3 PoC pickup is authored INACTIVE so it doesn't render a SECOND
-            // world axe (the Sponsor's "axe in two places" / "pick up one, both disappear" report). The
-            // component + Inventory/player wiring still serialize, so the AC3 PoC + its EditMode presence guard
-            // (InventorySceneTests.BootScene_CarriesAxePickup_WiredToInventoryAndPlayer) carry forward unchanged
-            // — only the spawn visual + proximity pickup stand down. Flip activeAtSpawn true to re-enable the PoC.
-            pickup.activeAtSpawn = false;
+            // 86camz9uz (crafting-redesign ①): the AxePickup is now the SINGLE visible spawn axe → authored
+            // ACTIVE. The #100 "axe in two places" concern is GONE (the StumpAxe/CraftSpot stump that was the
+            // other visible axe is RETIRED this ticket), so re-activating the one remaining pickup keeps the
+            // #100 intent (ONE clear acquisition axe) AND keeps the stone "axe" obtainable in ① — so chop +
+            // held-axe stay LIVE-triggerable in the shipped build (the stone axe becomes a STONE-tier table
+            // recipe in ②, which reworks/retires this world pickup; it is the ①-interim source).
+            pickup.activeAtSpawn = true;
             if (visual != null)
                 foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
-                    if (r != null) r.enabled = false; // serialize the hidden state into Boot.unity (static load too)
+                    if (r != null) r.enabled = true; // visible in Boot.unity (the single spawn axe)
 
             EditorUtility.SetDirty(go);
             Debug.Log("[MovementCameraScene] authored AxePickup at " + AxePickupPosition +
-                      " (auto-belt-slot-1 PoC; #100 spawn-inactive — StumpAxe is the single visible spawn axe)");
+                      " (auto-belt-slot-1; ① spawn-ACTIVE — the single visible spawn axe; stump retired)");
         }
 
         // Bind the flat DE-LIT material (CastawayMat) onto the avatar's SkinnedMeshRenderer(s) editor-time
@@ -1173,13 +1436,38 @@ namespace FarHorizon.EditorTools
             curl.inventory = Object.FindObjectOfType<Inventory>();
             curl.RebuildCached();
 
-            if (fingers.Count < 6)
+            // v2 (86cajx050) AND v3 (86cak9kau) are both 41-bone Mixamo variants whose RIGHT hand resolves ONLY
+            // index 1-3 + thumb 1-3 — no middle/ring/pinky. EMPIRICAL (CastawayV2HandAxisTrace / CastawayV3HandAxisTrace:
+            // index/middle/ring=3/9, thumb=3/3, pinky=0/3 for BOTH). v3's advertised "16 finger bones" do NOT
+            // surface as separated mixamorig middle/ring/pinky curl targets — v3's curl resolution is IDENTICAL to
+            // v2's (index+thumb), so the Sponsor-approved v2 grip idiom carries over unchanged (86cak9kau AC4:
+            // premise overturned by trace — no new curl pass needed). So the OLD "expected 9, floor 6" bar is WRONG
+            // for the fist-hand variants (they physically cannot resolve middle/ring). The real regression this
+            // guards is a resolution FAILURE (the curl wired to fewer bones than the rig actually provides), so the
+            // floor is per-rig: fist-hand variant (v2/v3)=3 (index 1-3, all they have), old=6 (a partial old
+            // resolve still ships an incomplete grip). A LogError here also reds the EditMode rebuild test via LogAssert.
+            // 86cakbe2v item 3: this build-time floor stays a HARDCODED baseline on PURPOSE — deriving it from the
+            // rig here would be tautological (fingers.Count IS "the curl tokens the rig provides", so a rig-derived
+            // floor could never fire). It catches a rig that provides FEWER than a known-good baseline (e.g. a swap
+            // that drops the index chain). The RE-TIGHTENING guard (reds if a future re-export adds middle/ring
+            // chains the curl fails to resolve) lives in the TEST, CastawayCharacterTests
+            // .Avatar_HasSerializedFingerCurl_WithRightHandFingerBones, which derives the floor from the rig's
+            // actual curl-token bone count. If a future rig gains separated middle/ring chains, raise this baseline.
+            // 86catpwc4 — v4 is a THIRD fist-hand variant: the 33-bone rig resolves ONLY the Index chain (index
+            // 1-3 = 3 curl bones) + NO thumb bones (thumbs.Count=0), which is exactly the fist-hand floor of 3.
+            // So v4 fits the SAME floor as v2/v3 (the LogError won't fire spuriously). v4's zero thumbs is fine —
+            // the floor only gates fingers.Count; the HasAxe-gated grip curls the index fingers into the haft.
+            bool fistHandVariant = CharacterAssetGen.UseCastawayV4 || CharacterAssetGen.UseCastawayV3 || CharacterAssetGen.UseCastawayV2;
+            int expectedFingerFloor = fistHandVariant ? 3 : 6;
+            if (fingers.Count < expectedFingerFloor)
                 Debug.LogError("[MovementCameraScene] CastawayFingerCurl resolved only " + fingers.Count +
-                               " finger bones (expected 9: Index/Middle/Ring 1-3) — the grip curl will be " +
-                               "partial. Re-run CharacterAssetGen.CharacterDiagnoseTrace to dump the rig.");
+                               " right-hand finger bones (expected >= " + expectedFingerFloor +
+                               (fistHandVariant ? " for v2/v3/v4: Index 1-3" : ": Index/Middle/Ring 1-3") +
+                               ") — the grip curl will be partial/unwired. Re-run CharacterAssetGen.CastawayV3HandAxisTrace to dump the rig.");
             else
                 Debug.Log("[MovementCameraScene] CastawayFingerCurl wired (" + fingers.Count + " finger + " +
-                          thumbs.Count + " thumb bones, HasAxe-gated)");
+                          thumbs.Count + " thumb bones, HasAxe-gated" +
+                          (fistHandVariant ? "; v2/v3/v4 index" + (thumbs.Count > 0 ? "+thumb" : " (v4: no thumb)") + " only" : "") + ")");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -1302,6 +1590,19 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        private static void WireHandsVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host HandsVerifyCapture");
+                return;
+            }
+            if (bootGo.GetComponent<HandsVerifyCapture>() == null)
+                bootGo.AddComponent<HandsVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the BUILD-GATED held-axe WALK-BOUNCE/RATCHET trace (86ca9ykp0) onto the Boot object so it
         // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
         // otherwise). INERT in normal play; on -axeWalkTrace it drives a scripted walk + dumps every Y-reference
@@ -1349,6 +1650,33 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument) onto
+        // Boot so it SERIALIZES into Boot.unity (the editor-vs-runtime serialization trap — it would ship inert
+        // otherwise). F10 flips the shared DebugOverlays.Visible master so every dev overlay reveals together;
+        // default state = clean screen (master hidden). Sibling of WireFloatDiagnostic. (86caju054 — re-homed off
+        // the RETIRED SneakIsolationTool: the sneak readout + its F5/F6 handles are gone, F10 stays the master.)
+        private static void WireDebugOverlayMaster()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host DebugOverlayMaster");
+                return;
+            }
+            var tool = bootGo.GetComponent<DebugOverlayMaster>();
+            if (tool == null)
+                tool = bootGo.AddComponent<DebugOverlayMaster>();
+            // EXPLICITLY re-assert the toggle key every bootstrap — a bare AddComponent leaves a stale SERIALIZED
+            // KeyCode value in the committed binary Boot.unity when the component already exists, so a code-only
+            // default change would NEVER reach the shipped exe (editor-vs-runtime serialization trap +
+            // [[unity-procedural-committed-assets-go-stale]]). Setting the field makes the baked scene
+            // authoritative-from-code. F10 = the SINGLE debug-overlay master (86cah90cp; the legacy F2 master was
+            // removed round-3) — flips DebugOverlays.Visible so F10 reveals the WorldLookNudgeTool + nudge panels
+            // together; F1 stays the console, F2 is UNBOUND.
+            tool.overlayToggleKey = KeyCode.F10;
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
         // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
         private static void WireWalkGroundingVerifyCapture()
@@ -1364,28 +1692,9 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
-        private static void WireCraftVerifyCapture(GameObject player)
-        {
-            var bootGo = GameObject.Find("Boot");
-            if (bootGo == null)
-            {
-                Debug.LogWarning("[MovementCameraScene] no Boot object found to host CraftVerifyCapture");
-                return;
-            }
-            var cap = bootGo.GetComponent<CraftVerifyCapture>();
-            if (cap == null) cap = bootGo.AddComponent<CraftVerifyCapture>();
-            cap.player = player.GetComponent<ClickToMove>();
-            cap.inventory = Object.FindObjectOfType<Inventory>();
-            cap.craftSpot = CraftSpotPosition;
-            // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1 console-error gate) if a capture-gate dep
-            // dropped, rather than letting the Awake FindObjectByType fallback mask it into the 20-min gate.
-            if (cap.player == null)
-                Debug.LogError("[MovementCameraScene] CraftVerifyCapture.player wiring is null — the player has " +
-                               "no ClickToMove (BuildPlayer must run before WireCraftVerifyCapture)");
-            if (cap.inventory == null)
-                Debug.LogError("[MovementCameraScene] CraftVerifyCapture.inventory wiring is null — " +
-                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
-        }
+        // (86camz9uz ①) WireCraftVerifyCapture is RETIRED with CraftSpot — CraftVerifyCapture.cs is deleted
+        // (it drove the player to the stump + asserted the free craft, a flow that no longer exists). The
+        // place-to-build table's visual proof is the CraftingTable side-profile capture + the PlayMode gate.
 
         // World position of the choppable tree on the flat test ground (U2-3, 86ca8bdd8). Distinct from
         // spawn (origin) and the craft spot (8,6) so the loop is a real journey: spawn -> craft axe ->
@@ -1623,6 +1932,37 @@ namespace FarHorizon.EditorTools
                       "ALL of them in the shipped build — Devon NIT #1, editor-time ship-path not the Awake fallback)");
         }
 
+        // 86caber95 AC2 — back-wire SettingsPanel.worldLook to the WorldLookTunables seam EDITOR-TIME (serialized
+        // into Boot.unity), NOT just via the runtime Awake FindObjectOfType fallback. POST-environment, mirroring
+        // WireStoneScatterRoot/WireBerryBushes: BuildSettingsPanel runs at BuildBootScene (BEFORE
+        // WorldBootstrap.BuildEnvironment adds the WorldLookTunables seam onto hudGo), so at panel-build time the
+        // seam does not exist to serialize. This step runs AFTER BuildEnvironment (from BootstrapProject), when the
+        // seam exists, and serializes the ref so the F10-migrated fog/sky/cloud/mountain/sun rows ship LIVE without
+        // a runtime Find (the editor-vs-runtime ship-path discipline the stone-respawner dead-knob taught). The
+        // Awake FindObjectOfType<WorldLookTunables> stays the bare-scene safety net. READ/wire-only — the seam
+        // resolves its own live handles lazily at runtime, so nothing here depends on the world being built yet.
+        public static void WireWorldLookConsole()
+        {
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireWorldLookConsole: no SettingsPanel in scene to wire " +
+                                 "worldLook onto (the runtime Awake FindObjectOfType fallback still resolves it)");
+                return;
+            }
+            var seam = Object.FindObjectOfType<WorldLookTunables>();
+            if (seam == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] WireWorldLookConsole: no WorldLookTunables seam in scene — " +
+                                 "the F10-migrated world-look rows will not appear (check BootstrapProject added it to hudGo)");
+                return;
+            }
+            settingsPanel.worldLook = seam;
+            EditorUtility.SetDirty(settingsPanel);
+            Debug.Log("[MovementCameraScene] WireWorldLookConsole: serialized WorldLookTunables onto " +
+                      "SettingsPanel.worldLook editor-time (the F10 fog/sky/cloud/mountain/sun rows ship live)");
+        }
+
         // Blob-canopy greens for the choppable tree (board v2, 86ca8ce7j) — same 3-value palette family
         // as LowPolyZoneGen's scatter canopies (style-guide-v2 §6), so the choppable tree matches the
         // world's trees. Multi-value greens are baked into the mesh's vertex color by BlobCanopy.
@@ -1751,6 +2091,289 @@ namespace FarHorizon.EditorTools
         private static readonly Color BushTop    = new Color(0.44f, 0.70f, 0.30f);
         private static readonly Color BushShadow = new Color(0.15f, 0.35f, 0.15f);
         private static readonly Color BerryRed   = new Color(0.78f, 0.16f, 0.22f);
+
+        // World position of the wired SNAKE enemy (Combat POC 86cah7xxp). Near the loop centre, clear of the
+        // craft spot (8,6), axe (3,2), chop tree (-9,-7), berry bush (-6,7), pond (7,-3), stick (-3,-4) — a
+        // deterministic combat target the PlayMode/shipped-build capture walks up to. A DETERMINISTIC scene-
+        // author ADD on the flat player-loop ground — OUTSIDE the seeded LowPolyZoneGen stream, so it provably
+        // cannot perturb the seed-42 island/scatter/NavMesh (the seed lock is honoured by construction).
+        public static readonly Vector3 SnakePosition = new Vector3(5f, 0f, 4f);
+
+        // THE REAL SNAKE's warm banded palette (86caaz4vn AC1 — the findable serpent; the #224 green
+        // bush-blob placeholder is retired). CONTRASTING warm rust + dark bands vs the green bushes/grass,
+        // material-honest (a banded warm-brown serpent, not an arbitrary tint); saturated (chroma > 0.1 —
+        // clear of the near-neutral pink-cast quantizer class, and these are direct colours anyway).
+        private static readonly Color SnakeRust = new Color(0.78f, 0.38f, 0.16f); // warm rust-orange band
+        private static readonly Color SnakeDark = new Color(0.34f, 0.18f, 0.10f); // dark brown band
+        private static readonly Color SnakeHeadCol = new Color(0.85f, 0.45f, 0.18f); // head: a touch brighter
+        private static readonly Color SnakeEye = new Color(0.06f, 0.05f, 0.04f);  // near-black eye facets
+
+        // The serpent's build dimensions (AC1: ~1.5–2m nose-to-tail, distinct head + segmented body).
+        private const int SnakeBodyLinks = 12;          // body links behind the head
+        private const float SnakeLinkLength = 0.16f;    // baked link length (overlaps spacing → continuous)
+        private const float SnakeLinkSpacing = 0.14f;   // chain arc spacing (SnakeBodyChain.segmentSpacing)
+        private const float SnakeNeckRadius = 0.115f;   // first link half-extent (head neck matches)
+        private const float SnakeTailRadius = 0.045f;   // last link half-extent (the taper target)
+        private const float SnakeHeadLength = 0.26f;    // nose-to-neck
+
+        // The FIRST combat build (Combat POC 86cah7xxp): player HP + needs-gated regen + tiered death + the
+        // left-click melee attack on the player root, and ONE damageable snake. Wires the HUD HP bar (AC9) +
+        // the SettingsPanel per-tier combat rows (AC8b). Authored editor-time so it all SERIALIZES into
+        // Boot.unity (editor-vs-runtime trap). The snake is a collider-free marker (no NavMesh/raycast impact).
+        private static void BuildCombat(GameObject player, int groundLayer)
+        {
+            // --- PLAYER HP (AC1) on the player ROOT (the transform carrying the NavMeshAgent — DeathHandler
+            //     warps it on respawn). Per-tier maxes/damage default to Medium; the difficulty preset drives
+            //     the active tier via ApplyDifficulty / the settings rows. ---
+            var health = player.GetComponent<FarHorizon.Combat.Health>();
+            if (health == null) health = player.AddComponent<FarHorizon.Combat.Health>();
+            health.max = 100f;
+            health.startFull = true;
+            health.resistance = FarHorizon.Combat.ResistanceProfile.Neutral; // the player has no type weakness
+
+            // The player's own status controller (AC6 — an enemy bite's bleed applies here; bleed works both ways).
+            var playerStatus = player.GetComponent<FarHorizon.Combat.StatusEffectController>();
+            if (playerStatus == null) playerStatus = player.AddComponent<FarHorizon.Combat.StatusEffectController>();
+            playerStatus.health = health;
+
+            // --- NEEDS-GATED REGEN (AC3) — reads warmth/hunger/thirst (never writes), heals HP while satisfied. ---
+            var regen = player.GetComponent<FarHorizon.Combat.HealthRegen>();
+            if (regen == null) regen = player.AddComponent<FarHorizon.Combat.HealthRegen>();
+            regen.health = health;
+            regen.warmth = Object.FindObjectOfType<WarmthNeed>();
+            regen.hunger = Object.FindObjectOfType<HungerNeed>();
+            regen.thirst = Object.FindObjectOfType<ThirstNeed>();
+            if (regen.warmth == null || regen.hunger == null || regen.thirst == null)
+                Debug.LogWarning("[MovementCameraScene] BuildCombat: a need is unwired on HealthRegen (warmth=" +
+                    (regen.warmth != null) + " hunger=" + (regen.hunger != null) + " thirst=" + (regen.thirst != null) +
+                    ") — BootstrapProject must add the Survival needs before MovementCameraScene.Author");
+
+            // --- TIERED DEATH (AC2) — reuse the campfire as respawn + the Inventory for the hard-tier drop. ---
+            var death = player.GetComponent<FarHorizon.Combat.DeathHandler>();
+            if (death == null) death = player.AddComponent<FarHorizon.Combat.DeathHandler>();
+            death.health = health;
+            death.playerRoot = player.transform;
+            death.campfire = Object.FindObjectOfType<Campfire>();   // reuse the campfire as respawn (no checkpoint)
+            death.inventory = Object.FindObjectOfType<Inventory>(); // reuse the inventory for the drop
+            death.tier = SurvivalNeed.DifficultyTier.Medium;        // default tier; the preset/settings drive it
+
+            // --- LEFT-CLICK MELEE ATTACK (AC5) — swings the SELECTED belt weapon (axe/spear) at the nearest
+            //     in-reach enemy. The swing is the PLACEHOLDER (existing chop Attack state) pending the AC5
+            //     procedural-vs-Mixamo Sponsor decision. ---
+            var attack = player.GetComponent<FarHorizon.Combat.MeleeAttack>();
+            if (attack == null) attack = player.AddComponent<FarHorizon.Combat.MeleeAttack>();
+            attack.player = player.transform;
+            attack.inventory = Object.FindObjectOfType<Inventory>();
+            attack.character = Object.FindObjectOfType<CastawayCharacter>();
+            attack.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+
+            // --- THE SNAKE — the REAL serpent (86caaz4vn): findable banded body + wander/aggro AI +
+            //     telegraphed lunge bite, on the 86cah7xxp shared Health surface. ---
+            BuildSnake(player, groundLayer);
+
+            // --- THE SPEAR PICKUP (AC4) — the second contrasting craftable weapon's acquisition. The player
+            //     walks up to acquire the spear onto the belt, then cycles-selects it to feel the long-reach
+            //     pierce contrast vs the axe's medium-reach slash. ---
+            BuildSpearPickup(player);
+
+            // --- Wire the HP bar (AC9) onto the SurvivalHud + the per-tier combat rows (AC8b) onto the panel. ---
+            var hud = Object.FindObjectOfType<SurvivalHud>();
+            if (hud != null) hud.health = health;
+            else Debug.LogWarning("[MovementCameraScene] BuildCombat: no SurvivalHud to wire the HP bar (AC9)");
+
+            var panel = Object.FindObjectOfType<SettingsPanel>();
+            if (panel != null)
+            {
+                panel.combatHealth = health;
+                panel.combatRegen = regen;
+                panel.combatDeath = death;
+            }
+
+            Debug.Log("[MovementCameraScene] authored Combat POC (player HP + regen + tiered death + melee " +
+                      "attack + 1 snake; HUD HP wired=" + (hud != null) + ", panel wired=" + (panel != null) + ")");
+        }
+
+        // A wired damageable SNAKE (AC7): a low-poly coiled body proxy (a placeholder for the snake POC
+        // 86caaz4vn art) + Health + a pierce-weak ResistanceProfile + a StatusEffectController (so a weapon's
+        // bleed applies to it). Collider-free — the player walks up + left-clicks to attack; never blocks the
+        // ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
+        private static void BuildSnake(GameObject player, int groundLayer)
+        {
+            var snake = new GameObject("Snake");
+            snake.transform.position = SnakePosition;
+            // Face AWAY from the player spawn (0,0,6) initially so the authored layout reads as an animal
+            // mid-patrol, not a sentry staring at spawn. The chain re-lays the body at runtime.
+            snake.transform.rotation = Quaternion.LookRotation(new Vector3(0.6f, 0f, -0.8f), Vector3.up);
+
+            // === THE SERPENT BODY (86caaz4vn AC1 — head + tapered banded links, ~1.9m nose-to-tail). ===
+            // Segments are CHILDREN with editor-baked meshes (they serialize into Boot.unity — the
+            // Awake-built-hierarchies-don't-serialize trap); SnakeBodyChain only MOVES them at runtime.
+            // Laid out along local -Z behind the head so the SAVED scene already reads as a full snake.
+            var segs = new System.Collections.Generic.List<Transform>();
+
+            var headGo = BuildSnakePart(snake, "SnakeHead",
+                LowPolyMeshes.SnakeHead(SnakeNeckRadius, SnakeHeadLength, SnakeHeadCol, SnakeEye, 61404),
+                Vector3.zero);
+            segs.Add(headGo.transform);
+
+            for (int i = 0; i < SnakeBodyLinks; i++)
+            {
+                float t0 = i / (float)SnakeBodyLinks;
+                float t1 = (i + 1) / (float)SnakeBodyLinks;
+                float rBack = Mathf.Lerp(SnakeNeckRadius, SnakeTailRadius, t1); // toward the tail
+                float rFront = Mathf.Lerp(SnakeNeckRadius, SnakeTailRadius, t0);
+                // ALTERNATING warm bands — the banded contrast read (rust / dark / rust / ...).
+                Color band = (i % 2 == 0) ? SnakeRust : SnakeDark;
+                var link = BuildSnakePart(snake, "SnakeLink" + i.ToString("00"),
+                    LowPolyMeshes.SnakeLink(rBack, rFront, SnakeLinkLength, band, 61410 + i),
+                    new Vector3(0f, 0f, -SnakeLinkSpacing * (i + 1)));
+                segs.Add(link.transform);
+            }
+
+            // === The 86cah7xxp shared combat surface (UNCHANGED — this ticket builds ON it, AC4/AC5). ===
+            var health = snake.AddComponent<FarHorizon.Combat.Health>();
+            health.max = FarHorizon.Combat.SnakeEnemy.SnakeMaxHp;
+            health.startFull = true;
+            // The pierce-WEAK profile (AC8a) — a spear beats the soft-bodied snake; neutral to slash/blunt.
+            health.resistance = new FarHorizon.Combat.ResistanceProfile
+            {
+                slashMul = 1f,
+                pierceMul = FarHorizon.Combat.SnakeEnemy.SnakePierceWeakness,
+                bluntMul = 1f,
+            };
+
+            var status = snake.AddComponent<FarHorizon.Combat.StatusEffectController>();
+            status.health = health;
+
+            var enemy = snake.AddComponent<FarHorizon.Combat.SnakeEnemy>();
+            enemy.biteBleed = FarHorizon.Combat.StatusEffectSpec.MakeBleed(1.5f, 3f); // a light enemy→player bleed
+            enemy.easyBiteDamage = FarHorizon.Combat.SnakeEnemy.SnakeEasyBiteDamage;   // AC4 per-tier map
+            enemy.medBiteDamage = FarHorizon.Combat.SnakeEnemy.SnakeMedBiteDamage;
+            enemy.hardBiteDamage = FarHorizon.Combat.SnakeEnemy.SnakeHardBiteDamage;
+
+            // === NavMesh movement (AC2 — the island NavMesh; WorldBootstrap.BakeNavMesh covers it). ===
+            var agent = snake.AddComponent<UnityEngine.AI.NavMeshAgent>();
+            agent.radius = 0.25f;
+            agent.height = 0.4f;
+            agent.speed = 0.9f;               // SnakeAI drives per-state speed
+            agent.acceleration = 8f;
+            agent.angularSpeed = 720f;
+            agent.stoppingDistance = 0.15f;
+            agent.autoBraking = true;
+            agent.baseOffset = 0f;            // the VISUAL grounds via the chain's terrain snap, not the agent Y
+
+            // === The AI + the body chain (AC2/AC3) — the snake's OWN drivers; the player's Animator →
+            //     CastawayArmPose → HeldAxeRig chain is untouched by construction. ===
+            var ai = snake.AddComponent<FarHorizon.Combat.SnakeAI>();
+            ai.player = player.transform;
+            ai.playerHealth = player.GetComponent<FarHorizon.Combat.Health>();
+            ai.deathHandler = player.GetComponent<FarHorizon.Combat.DeathHandler>(); // the live tier surface (AC4)
+
+            var chain = snake.AddComponent<FarHorizon.Combat.SnakeBodyChain>();
+            chain.ai = ai;
+            chain.segments = segs.ToArray();
+            chain.segmentSpacing = SnakeLinkSpacing;
+            chain.groundMask = 1 << groundLayer; // the SAME Ground layer the player's own snap raycasts
+
+            Debug.Log("[MovementCameraScene] authored REAL Snake (86caaz4vn) at " + SnakePosition +
+                      ": head+" + SnakeBodyLinks + " banded links (~" +
+                      (SnakeHeadLength + SnakeLinkSpacing * SnakeBodyLinks).ToString("0.00") +
+                      "m), wander/aggro AI + telegraphed lunge, pierce-weak HP=" + health.max);
+        }
+
+        // One snake segment child: baked mesh + MeshRenderer with the inline vertex-colour material
+        // (serializes into the scene — the BuildBlobCanopyPart idiom, snake-named so the material trace
+        // reads correctly in the Frame Debugger). Collider-free: MeleeAttack targets by Health distance,
+        // the chain raycasts only the Ground mask, and the NavMesh bake never sees the snake.
+        private static GameObject BuildSnakePart(GameObject parent, string name, Mesh mesh, Vector3 localPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            if (vc != null)
+            {
+                var mat = new Material(vc) { name = "SnakeMat" };
+                if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+                mr.sharedMaterial = mat; // inline -> serializes into the scene (no .mat churn)
+                EnsureShaderAlwaysIncluded(vc);
+            }
+            else
+            {
+                var litShader = Shader.Find("Universal Render Pipeline/Lit");
+                var mat = new Material(litShader) { name = "SnakeMat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", SnakeRust);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.06f);
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+                Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; snake flat-rust fallback");
+            }
+            return go;
+        }
+
+        // World position of the wired SPEAR pickup (Combat POC 86cah7xxp AC4). A DETERMINISTIC scene-author ADD
+        // OUTSIDE the seeded LowPolyZoneGen stream.
+        //
+        // REGRESSION FIX (PR #224 review — the chop-capture-gate red on run 28539711263): the ORIGINAL (2,0,6)
+        // sat EXACTLY pickupRadius (2.0u planar) from the player spawn (0,0,6) — Vector2.Distance = 2.0, and
+        // SpearPickup.Update's guard is `> pickupRadius` (2.0 > 2.0 = false), so the PROXIMITY-AUTO pickup fired
+        // on frame 1 at spawn. That landed the spear in belt slot 0 (AddToolToBelt → first free slot) — which is
+        // the DEFAULT-SELECTED slot (_selectedBelt=0). The later axe craft then landed in slot 1, so the SELECTED
+        // slot held the SPEAR → Inventory.IsAxeSelectedInBelt was FALSE → the chop gate (ShouldChopOnClick needs
+        // axeSelected) never passed → no chop → no fell → no wood → the chop-capture gate failed. Chopping code
+        // is byte-identical to main; ONLY the scene author changed. Fix: place the spear CLEAR of the spawn (≥5u,
+        // mirroring AxePickup at (3,0,2) = 5.0u from spawn) so slot 0 is free when the axe crafts → the axe lands
+        // in slot 0 = the selected slot → IsAxeSelectedInBelt holds → chop works. (4,0,9): 5.0u from spawn (0,6)
+        // AND from craft (8,6), 5.1u from the snake (5,4), ≥7u from every other loop spot — within GroundHalf=30.
+        public static readonly Vector3 SpearPickupPosition = new Vector3(4f, 0f, 9f);
+
+        // A wired SPEAR pickup (AC4). 86cajkk7h: the polished in-house STONE spear (wpn_spear_stone_01) now
+        // EXISTS, so the world pickup is the REAL weapon mesh (shared Mat_WeaponPalette) — matching the world
+        // axe pickup (both real FBXs), retiring the old shaft+tip primitive proxy. Laid near-horizontal on the
+        // ground so it reads as a dropped spear; the player walks up to acquire it onto the belt. Collider-free
+        // — never blocks the ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
+        private static void BuildSpearPickup(GameObject player)
+        {
+            var spear = new GameObject("SpearPickup");
+            spear.transform.position = SpearPickupPosition;
+
+            // The in-house stone spear FBX (family-normalized, blade up +Z → Unity +Y). Instantiate under the
+            // pickup root and lay it near-horizontal (rotate the +Y long axis toward the ground) so it reads as
+            // a spear resting on the beach, then apply the shared palette material.
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.SpearFbxPath);
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "SpearMesh";
+                mesh.transform.SetParent(spear.transform, false);
+                mesh.transform.localPosition = new Vector3(0f, 0.12f, 0f);
+                mesh.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean (matches the old proxy)
+                ApplyWeaponPaletteMaterial(mesh);
+                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] stone spear FBX not found at " + WeaponPackAssetGen.SpearFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no spear pickup mesh");
+            }
+
+            var pickup = spear.AddComponent<FarHorizon.Combat.SpearPickup>();
+            pickup.inventory = Object.FindObjectOfType<Inventory>();
+            pickup.player = player.transform;
+            pickup.visual = spear.transform;
+            if (pickup.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory to wire SpearPickup to — BootstrapProject " +
+                               "must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored SpearPickup at " + SpearPickupPosition +
+                      " (inventory wired: " + (pickup.inventory != null) + ")");
+        }
 
         // A wired BERRY BUSH (86caa5zz3): a squat leafy blob dome (BushBlob) with a child "Berries" mesh
         // (small red faceted spheres) + a BerryBush component (harvest+regrow+eat-bridge) wired to the
@@ -1906,6 +2529,460 @@ namespace FarHorizon.EditorTools
                       "WireStoneScatterRoot, yields " + StoneProp.StonePerPickupDefault + " stone on E)");
         }
 
+        // ============================================================================================
+        // 86cakkmr0 (I-2 of the iron chain) — iron-ore NODES + the active-left-click MINE verb.
+        // ============================================================================================
+
+        // The world position of the stone-PICKAXE pickup (I-2 soak-enabler). On the way from spawn toward the ore
+        // field; CLEAR of spawn (0,6) by MORE than pickupRadius (2.0u) so it can NEVER auto-grab belt slot 0 at
+        // spawn (the PR #224 chop-capture regression class — guarded by MineSceneTests). Clear of the axe (3,2)
+        // + craft (8,6) too. A DETERMINISTIC scene-author ADD — outside the seeded LowPolyZoneGen stream.
+        public static readonly Vector3 PickaxePickupPosition = new Vector3(6f, 0f, 2f);
+
+        // The authored ore-node POOL size = the Easy preset's node count (24 — the largest preset), so the
+        // ore-rarity dial can enable up to Easy-many live; Medium (14, the default) + Hard (8) enable fewer.
+        // A named source (not a magic literal) mirroring the difficulty-preset data.
+        private static int OreNodePoolSize => IronDifficultyPresets.Easy.OreNodeCount;
+
+        // Ore-node materials (shared across the whole pool — 2 material instances of ONE shader = SRP-batched,
+        // unity6-mastery §2). GREY faceted rock body + a RUSTY iron-ore vein (pattern via geometry, NOT texture —
+        // Bar 3 [[weapon-asset-material-honest-pattern-via-geometry]]). default rusty tint — Sponsor-soak tunes.
+        private static readonly Color OreRockGrey = new Color(0.50f, 0.48f, 0.45f); // warm stone grey
+        private static readonly Color OreVeinRust = new Color(0.44f, 0.25f, 0.18f); // rusty iron-ore red-brown
+
+        // Author the iron-ore node POOL (I-2). REAL-WORLD ANCHOR: an iron-ore node is a chunky ROCK OUTCROP rising
+        // UP out of the ground with rusty ore veins in it (a bump UP, not a hole) — the side-profile capture must
+        // read as an outcrop sticking up. A deterministic SEEDED scatter places OreNodePoolSize nodes organically
+        // (Bar 1 — no grid) in an annulus around the loop, avoiding the landmarks. The MineOre manager reads the
+        // pool + enables the first ActiveNodeCount (the ore-rarity dial). The OrePileSpawner mints an OrePile per
+        // broken node. Authored editor-time so the pool + MineOre/OrePileSpawner refs SERIALIZE into Boot.unity
+        // (editor-vs-runtime trap). Collider-free — the player walks up to mine; no NavMesh/raycast impact.
+        private static void BuildOreNodes(GameObject player, int groundLayer)
+        {
+            // Shared materials for the whole pool (2 instances of the LowPolyVertexColor shader → SRP-batched).
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material rockMat = null, veinMat = null;
+            if (vc != null)
+            {
+                rockMat = new Material(vc) { name = "OreRockMat" };
+                if (rockMat.HasProperty("_Tint")) rockMat.SetColor("_Tint", OreRockGrey);
+                veinMat = new Material(vc) { name = "OreVeinMat" };
+                if (veinMat.HasProperty("_Tint")) veinMat.SetColor("_Tint", OreVeinRust);
+            }
+
+            // The pool root — MineOre.nodeRoot points here; the OreNode children are the pool.
+            var root = new GameObject("OreNodes");
+            root.transform.position = Vector3.zero;
+
+            // Deterministic seeded organic placement (Bar 1). An annulus band around the loop centre, rejecting
+            // positions too close to a landmark or another node. OUTSIDE the seeded LowPolyZoneGen stream (a scene-
+            // author ADD, like the pond/stick/stone) so it provably cannot perturb the seed-42 island/scatter.
+            var landmarks = new Vector3[]
+            {
+                new Vector3(0f, 0f, 6f),   // spawn
+                CraftSpotPosition,          // craft (8,6)
+                ChopTreePosition,           // tree (-9,-7)
+                BerryBushPosition,          // bush (-6,7)
+                WiredStickPosition,         // stick (-3,-4)
+                WiredStonePosition,         // stone (0,-5)
+                PondPosition,               // pond (7,-3)
+                new Vector3(4f, 0f, -8f),   // campfire
+                new Vector3(3f, 0f, 2f),    // axe pickup
+                PickaxePickupPosition,      // pickaxe pickup (6,2)
+                ForgeSpotPosition,          // forge/furnace build spot (I-3) — keep ore nodes off the furnace
+            };
+            var placed = new System.Collections.Generic.List<Vector3>();
+            var rng = new System.Random(86201); // deterministic — the pool is byte-identical every bootstrap
+            int target = OreNodePoolSize;
+            int guard = 0;
+            while (placed.Count < target && guard < 8000)
+            {
+                guard++;
+                // Annulus 9..17u from origin — findable without heavy exploration (Q2), and inside the PROVEN-
+                // walkable loop zone (the campfire r≈9, craft r≈10, chop tree r≈11.4 are all reachable on the
+                // NavMesh, per ChopVerifyCapture), so the nodes land on walkable ground for the mine soak + capture.
+                double ang = rng.NextDouble() * System.Math.PI * 2.0;
+                double rad = 9.0 + rng.NextDouble() * 8.0;
+                float x = (float)(System.Math.Cos(ang) * rad);
+                float z = (float)(System.Math.Sin(ang) * rad);
+                var p = new Vector3(x, 0f, z);
+                bool tooClose = false;
+                foreach (var lm in landmarks)
+                    if (PlanarDistXZ(p, lm) < 3.5f) { tooClose = true; break; }
+                if (!tooClose)
+                    foreach (var q in placed)
+                        if (PlanarDistXZ(p, q) < 3.0f) { tooClose = true; break; } // spaced apart (organic, not clumped)
+                if (tooClose) continue;
+                placed.Add(p);
+            }
+
+            for (int i = 0; i < placed.Count; i++)
+                BuildOreNodeVisual(root.transform, placed[i], 86300 + i * 17, rockMat, veinMat);
+
+            // The OrePileSpawner (the ore-drop factory + the `ore yield` / `ore-pile despawn` host). Its looter ref
+            // is back-wired LATER in BuildPickableLooter (the looter doesn't exist yet). oreMaterial = the shared
+            // rock material so a spawned pile reads as the same ore.
+            var spawnerGo = new GameObject("OrePileSpawner");
+            var orePileSpawner = spawnerGo.AddComponent<OrePileSpawner>();
+            if (rockMat != null) orePileSpawner.oreMaterial = rockMat;
+
+            // The MineOre manager (the mine verb + node resolver). Wired to the inventory/player/character/UI/
+            // spawner/nodeRoot editor-time so it ships in Boot.unity (the Awake FindObjectOfType is the fallback).
+            var mineGo = new GameObject("MineOre");
+            var mine = mineGo.AddComponent<MineOre>();
+            mine.player = player.transform;
+            mine.inventory = Object.FindObjectOfType<Inventory>();
+            mine.character = Object.FindObjectOfType<CastawayCharacter>();
+            mine.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+            mine.orePileSpawner = orePileSpawner;
+            mine.nodeRoot = root.transform;
+            mine.strikesToBreak = MineOre.StrikesToBreakDefault;
+            mine.mineRadius = 2.2f;
+            mine.activeNodeCount = IronDifficultyPresets.Medium.OreNodeCount; // the Medium default (14 of the 24 pool)
+            mine.regrowSeed = 86311; // deterministic regrow rolls for headless/capture stability
+            if (mine.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire MineOre to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            if (mine.character == null)
+                Debug.LogWarning("[MovementCameraScene] no CastawayCharacter to wire MineOre.character to — " +
+                                 "the mine will land strikes but the arm won't swing (BuildPlayer before BuildOreNodes)");
+
+            EditorUtility.SetDirty(mineGo);
+            EditorUtility.SetDirty(spawnerGo);
+            EditorUtility.SetDirty(root);
+
+            // Wire the SETTINGS PANEL's mineOre ref now that MineOre exists (BuildSettingsPanel ran before this, so
+            // its serialized ref was not yet resolvable). `iron ore rarity` flips LIVE bound to MineOre.ActiveNodeCount.
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.mineOre = mine;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
+            Debug.Log("[MovementCameraScene] authored " + placed.Count + " ore nodes (pool=" + OreNodePoolSize +
+                      ", active=" + mine.activeNodeCount + "; inventory wired: " + (mine.inventory != null) + ")");
+        }
+
+        // One ore-node visual: a chunky GREY faceted ROCK outcrop rising UP from the ground (half-embedded so it
+        // reads as an outcrop, not a floating boulder) with a couple of RUSTY ore-vein facets clustered on its
+        // upper surface (pattern via geometry — Bar 3). Each is a GameObject named MineOre.OreNodeName under the
+        // pool root; MineOre discovers + drives it. Collider-free.
+        private static void BuildOreNodeVisual(Transform parent, Vector3 groundPos, int seed,
+                                               Material rockMat, Material veinMat)
+        {
+            var node = new GameObject(MineOre.OreNodeName);
+            node.transform.SetParent(parent, false);
+            // A small deterministic yaw so the pool doesn't read as identical rocks (organic — Bar 1).
+            var rng = new System.Random(seed);
+            float yaw = (float)(rng.NextDouble() * 360.0);
+            const float rockRadius = 0.58f;
+            // Lift so the rock base sits at ~ground and the outcrop rises UP (half-embedded — a bump UP, not a hole).
+            node.transform.position = groundPos + Vector3.up * (rockRadius * 0.55f);
+            node.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // Rock body — a chunky faceted boulder (grey), flat-shaded via the shared LowPolyVertexColor material.
+            var body = new GameObject("OreRock");
+            body.transform.SetParent(node.transform, false);
+            var bmf = body.AddComponent<MeshFilter>();
+            bmf.sharedMesh = LowPolyMeshes.FacetedRock(rockRadius, 0.42f, seed);
+            var bmr = body.AddComponent<MeshRenderer>();
+            if (rockMat != null) bmr.sharedMaterial = rockMat;
+
+            // Ore veins — 3 small rusty faceted lumps clustered on the upper surface (partially embedded), so the
+            // node reads as iron ORE in rock (Bar 3). Deterministic positions per node seed.
+            var veins = new GameObject("OreVeins");
+            veins.transform.SetParent(node.transform, false);
+            int veinCount = 3;
+            for (int v = 0; v < veinCount; v++)
+            {
+                float va = (float)(rng.NextDouble() * System.Math.PI * 2.0);
+                float vr = rockRadius * 0.55f;
+                var vpos = new Vector3(Mathf.Cos(va) * vr, rockRadius * (0.35f + 0.35f * (float)rng.NextDouble()),
+                                       Mathf.Sin(va) * vr);
+                var vein = new GameObject("Vein" + v);
+                vein.transform.SetParent(veins.transform, false);
+                vein.transform.localPosition = vpos;
+                var vmf = vein.AddComponent<MeshFilter>();
+                vmf.sharedMesh = LowPolyMeshes.FacetedRock(0.15f + 0.05f * (float)rng.NextDouble(), 0.5f, seed + 991 + v);
+                var vmr = vein.AddComponent<MeshRenderer>();
+                if (veinMat != null) vmr.sharedMaterial = veinMat;
+            }
+        }
+
+        private static float PlanarDistXZ(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
+        // === BOULDER pool (ticket 86camz9v7 / crafting-redesign ② — boulder mining) ===
+
+        // The authored boulder POOL size — a modest DISCRETE pool of the VOLUME stone source (each yields ~5 stone +
+        // regrows), NOT a rarity-dialed cloud like the ore nodes. A named source (not a magic literal).
+        private const int BoulderPoolSize = 7;
+
+        // Boulder material — the PROVEN warm-light STONE grey (matches the shipped scatter-rock RockCol
+        // 0.62/0.60/0.555, LowPolyZoneGen.cs:92) so the boulder reads as the SAME warm-light stone family + does NOT
+        // silhouette dark/cool under the Zone-D fog (the 86ca8m5zu dark-rock reject lesson — a side-profile capture at
+        // 0.52 read too dark). The FacetedRock vertex-value contrast multiplies onto this _Tint. default — Sponsor-soak tunes.
+        private static readonly Color BoulderStoneGrey = new Color(0.62f, 0.60f, 0.555f);
+
+        // Author the boulder POOL (②). REAL-WORLD ANCHOR: a boulder is a LARGE chunky ROCK resting ON the ground —
+        // a bump UP, half-embedded (you can walk up to it), NOT a hole. A deterministic SEEDED scatter places
+        // BoulderPoolSize boulders organically (Bar 1 — no grid) in the walkable loop annulus, avoiding the
+        // landmarks AND the ore nodes (so the two mineable pools read distinct). MineBoulder reads the pool; the
+        // StonePileSpawner mints a StonePile per broken boulder. Authored editor-time so the pool + MineBoulder/
+        // StonePileSpawner refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A DISCRETE scene-author ADD
+        // OUTSIDE the seeded LowPolyZoneGen scatter stream — it provably cannot perturb the seed-42 island/scatter
+        // ([[world-is-big-round-island]]). Collider-free — the player walks up to mine; no NavMesh/raycast impact.
+        private static void BuildBoulders(GameObject player, int groundLayer)
+        {
+            // Shared material for the whole pool (ONE instance of the LowPolyVertexColor shader → SRP-batched).
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material boulderMat = null;
+            if (vc != null)
+            {
+                boulderMat = new Material(vc) { name = "BoulderStoneMat" };
+                if (boulderMat.HasProperty("_Tint")) boulderMat.SetColor("_Tint", BoulderStoneGrey);
+            }
+
+            // The pool root — MineBoulder.boulderRoot points here; the Boulder children are the pool.
+            var root = new GameObject("Boulders");
+            root.transform.position = Vector3.zero;
+
+            // Landmarks + the ore nodes to avoid (boulders are a DISTINCT mineable pool from the ore nodes).
+            var landmarks = new System.Collections.Generic.List<Vector3>
+            {
+                new Vector3(0f, 0f, 6f),   // spawn
+                CraftSpotPosition,          // craft
+                ChopTreePosition,           // tree
+                BerryBushPosition,          // bush
+                WiredStickPosition,         // stick
+                WiredStonePosition,         // stone
+                PondPosition,               // pond
+                new Vector3(4f, 0f, -8f),   // campfire
+                AxePickupPosition,          // axe pickup
+                PickaxePickupPosition,      // pickaxe pickup
+                ForgeSpotPosition,          // forge/furnace build spot
+            };
+            // Avoid the ore nodes too (they were authored just before us into "OreNodes").
+            var oreRoot = GameObject.Find("OreNodes");
+            if (oreRoot != null)
+                foreach (var t in oreRoot.GetComponentsInChildren<Transform>(true))
+                    if (t.name == MineOre.OreNodeName) landmarks.Add(t.position);
+
+            var placed = new System.Collections.Generic.List<Vector3>();
+            var rng = new System.Random(91442); // deterministic — the pool is byte-identical every bootstrap
+            int guard = 0;
+            while (placed.Count < BoulderPoolSize && guard < 12000)
+            {
+                guard++;
+                // Same walkable loop annulus (9..17u) the ore nodes use — findable without heavy exploration and on
+                // the proven-walkable NavMesh loop (for the mine soak + capture).
+                double ang = rng.NextDouble() * System.Math.PI * 2.0;
+                double rad = 9.0 + rng.NextDouble() * 8.0;
+                float x = (float)(System.Math.Cos(ang) * rad);
+                float z = (float)(System.Math.Sin(ang) * rad);
+                var p = new Vector3(x, 0f, z);
+                bool tooClose = false;
+                foreach (var lm in landmarks)
+                    if (PlanarDistXZ(p, lm) < 4.0f) { tooClose = true; break; } // a boulder is big — keep clearance
+                if (!tooClose)
+                    foreach (var q in placed)
+                        if (PlanarDistXZ(p, q) < 4.5f) { tooClose = true; break; } // spaced apart (organic, not clumped)
+                if (tooClose) continue;
+                placed.Add(p);
+            }
+
+            for (int i = 0; i < placed.Count; i++)
+                BuildBoulderVisual(root.transform, placed[i], 91500 + i * 23, boulderMat);
+
+            // The StonePileSpawner (the stone-drop factory + the `stone yield` / `stone-pile despawn` host). Its
+            // looter ref is back-wired LATER in BuildPickableLooter (the looter doesn't exist yet). stoneMaterial =
+            // the shared boulder material so a spawned pile reads as the same stone.
+            var spawnerGo = new GameObject("StonePileSpawner");
+            var stonePileSpawner = spawnerGo.AddComponent<StonePileSpawner>();
+            if (boulderMat != null) stonePileSpawner.stoneMaterial = boulderMat;
+
+            // The MineBoulder manager (the boulder-mine verb + resolver). Wired editor-time so it ships in Boot.unity
+            // (the Awake FindObjectOfType is the fallback).
+            var mineGo = new GameObject("MineBoulder");
+            var mine = mineGo.AddComponent<MineBoulder>();
+            mine.player = player.transform;
+            mine.inventory = Object.FindObjectOfType<Inventory>();
+            mine.character = Object.FindObjectOfType<CastawayCharacter>();
+            mine.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+            mine.stonePileSpawner = stonePileSpawner;
+            mine.boulderRoot = root.transform;
+            mine.strikesToBreak = MineBoulder.StrikesToBreakDefault;
+            mine.mineRadius = 2.4f;
+            mine.activeNodeCount = -1;   // ALL boulders active (a fixed discrete pool, no rarity dial)
+            mine.regrowSeed = 91577;     // deterministic regrow rolls for headless/capture stability
+            if (mine.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire MineBoulder to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            if (mine.character == null)
+                Debug.LogWarning("[MovementCameraScene] no CastawayCharacter to wire MineBoulder.character to — " +
+                                 "the mine will land strikes but the arm won't swing (BuildPlayer before BuildBoulders)");
+
+            EditorUtility.SetDirty(mineGo);
+            EditorUtility.SetDirty(spawnerGo);
+            EditorUtility.SetDirty(root);
+
+            Debug.Log("[MovementCameraScene] authored " + placed.Count + " boulders (pool=" + BoulderPoolSize +
+                      "; inventory wired: " + (mine.inventory != null) + ")");
+        }
+
+        // One boulder visual: a LARGE chunky faceted STONE lump resting ON the ground (half-embedded so it reads as
+        // a boulder sitting on the surface — a bump UP, not a floating rock or a hole). Named MineBoulder.BoulderNodeName
+        // under the pool root; MineBoulder discovers + drives it. The body mesh is named "BoulderMesh" (NOT "RockMesh")
+        // so the scatter-rock guards (RockBoulderSceneTests) don't pick it up. Collider-free.
+        private static void BuildBoulderVisual(Transform parent, Vector3 groundPos, int seed, Material boulderMat)
+        {
+            var node = new GameObject(MineBoulder.BoulderNodeName);
+            node.transform.SetParent(parent, false);
+            var rng = new System.Random(seed);
+            float yaw = (float)(rng.NextDouble() * 360.0);
+            // A big boulder (radius ~1.05–1.35u — clearly larger than the 0.58u ore outcrops), half-embedded so the
+            // base sits at ~ground and the chunk rises UP.
+            float radius = 1.05f + 0.30f * (float)rng.NextDouble();
+            node.transform.position = groundPos + Vector3.up * (radius * 0.45f);
+            node.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            var body = new GameObject("BoulderMesh");
+            body.transform.SetParent(node.transform, false);
+            var bmf = body.AddComponent<MeshFilter>();
+            // FacetedRock — flat-shaded angular stone (per-face normals + baked value contrast) — the "reads as stone"
+            // percept RockBoulderSceneTests guards; a bigger, chunkier jitter for a boulder read.
+            bmf.sharedMesh = LowPolyMeshes.FacetedRock(radius, 0.40f, seed);
+            var bmr = body.AddComponent<MeshRenderer>();
+            if (boulderMat != null) bmr.sharedMaterial = boulderMat;
+        }
+
+        // Wire the shipped-build boulder-mine capture (drives wood-pick → boulder → break → stone pile → E-loot,
+        // + a side-profile boulder shot) onto the Boot object — sibling of WireMineVerifyCapture. Inert unless
+        // launched with -verifyBoulder.
+        private static void WireBoulderVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host BoulderVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<BoulderVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<BoulderVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.mine = Object.FindObjectOfType<MineBoulder>();
+            cap.looter = Object.FindObjectOfType<PickableLooter>();
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] BoulderVerifyCapture.player wiring is null — the player has no " +
+                               "ClickToMove (BuildPlayer must run before WireBoulderVerifyCapture)");
+            if (cap.mine == null)
+                Debug.LogError("[MovementCameraScene] BoulderVerifyCapture.mine wiring is null — BuildBoulders must " +
+                               "author the MineBoulder before WireBoulderVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the shipped-build PLACEMENT-obstacle capture (86catr49m) onto the Boot object — sibling of
+        // WireBoulderVerifyCapture / WireChopVerifyCapture. Inert unless launched with -verifyPlacement, which
+        // drives PlacementVerifyCapture: GREEN on clear ground, RED over a real seed-42 scatter TREE (navmesh
+        // carve), and RED over a registered BOULDER (86catr49m the fix). Authored editor-time so the harness +
+        // its serialized deps SHIP in Boot.unity — a component-in-source-but-not-in-scene harness NO-OPs the
+        // -verifyPlacement verb AND HANGS the capture exe (the #302 inert-harness lesson).
+        private static void WirePlacementVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host PlacementVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<PlacementVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<PlacementVerifyCapture>();
+            cap.placement = Object.FindObjectOfType<CraftingTablePlacement>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            // Fail LOUD at bootstrap (CI step 1) on a dropped capture-gate dep rather than letting the Start
+            // FindAnyObjectByType fallback mask it into the -verifyPlacement capture gate (the #162 masking class).
+            if (cap.placement == null)
+                Debug.LogError("[MovementCameraScene] PlacementVerifyCapture.placement wiring is null — " +
+                               "BuildCraftingTable must author the CraftingTablePlacement before WirePlacementVerifyCapture");
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] PlacementVerifyCapture.player wiring is null — the player has " +
+                               "no ClickToMove (BuildPlayer must run before WirePlacementVerifyCapture)");
+            if (cap.inventory == null)
+                Debug.LogError("[MovementCameraScene] PlacementVerifyCapture.inventory wiring is null — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // A wired stone-PICKAXE pickup (I-2 soak-enabler). Mirrors BuildSpearPickup: the real stone-pickaxe FBX
+        // (I-1/#283) on the shared palette, laid on the ground, + a PickaxePickup component (grants pickaxe_stone
+        // to the belt on proximity). Placed CLEAR of spawn so it can't auto-grab slot 0 (the PR #224 class).
+        private static void BuildPickaxePickup(GameObject player)
+        {
+            var pick = new GameObject("PickaxePickup");
+            pick.transform.position = PickaxePickupPosition;
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.PickaxeStoneFbxPath);
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "PickaxeMesh";
+                mesh.transform.SetParent(pick.transform, false);
+                mesh.transform.localPosition = new Vector3(0f, 0.12f, 0f);
+                mesh.transform.localRotation = Quaternion.Euler(0f, 0f, 78f); // near-horizontal lean (matches the spear pickup)
+                ApplyWeaponPaletteMaterial(mesh);
+                var unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (unlitShader != null) EnsureShaderAlwaysIncluded(unlitShader);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] stone pickaxe FBX not found at " + WeaponPackAssetGen.PickaxeStoneFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no pickaxe pickup mesh");
+            }
+
+            var pickup = pick.AddComponent<PickaxePickup>();
+            pickup.inventory = Object.FindObjectOfType<Inventory>();
+            pickup.player = player.transform;
+            pickup.visual = pick.transform;
+            if (pickup.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory to wire PickaxePickup to — BootstrapProject " +
+                               "must add the Survival Inventory before MovementCameraScene.Author");
+
+            Debug.Log("[MovementCameraScene] authored PickaxePickup at " + PickaxePickupPosition +
+                      " (inventory wired: " + (pickup.inventory != null) + ")");
+        }
+
+        // Wire the verification-only shipped-build MINE capture (grants+selects a pickaxe, mines a node, loots the
+        // ore pile) onto the Boot object — sibling of WireChopVerifyCapture. Inert unless launched with -verifyMine.
+        private static void WireMineVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host MineVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<MineVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<MineVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.mine = Object.FindObjectOfType<MineOre>();
+            cap.looter = Object.FindObjectOfType<PickableLooter>();
+            cap.pickaxePickup = Object.FindObjectOfType<PickaxePickup>();
+            if (cap.player == null)
+                Debug.LogError("[MovementCameraScene] MineVerifyCapture.player wiring is null — the player has no " +
+                               "ClickToMove (BuildPlayer must run before WireMineVerifyCapture)");
+            if (cap.mine == null)
+                Debug.LogError("[MovementCameraScene] MineVerifyCapture.mine wiring is null — BuildOreNodes must " +
+                               "author the MineOre before WireMineVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // The E-LOOT interactor (86caf7a6q): the PLAYER side of the shared E-loot surface. Pressing E loots the
         // nearest in-range IPickable (the berry bush; sticks/stones build on the same surface) into the
         // inventory. Authored editor-time onto the PLAYER so the component + its Inventory/player refs SERIALIZE
@@ -1943,6 +3020,38 @@ namespace FarHorizon.EditorTools
                 Debug.LogError("[MovementCameraScene] no LogPileSpawner in scene to back-wire PickableLooter onto — " +
                                "BuildChopTree must author the LogPileSpawner before BuildPickableLooter; a spawned " +
                                "log pile would never be looted (#165)");
+            }
+
+            // 86cakkmr0 (I-2) — SAME #165 back-wire for the OrePileSpawner: every runtime-spawned OrePile must
+            // register with this looter or it is never looted (the live build always has ≥1 serialized pickable).
+            // BuildOreNodes ran BEFORE BuildPickableLooter in Author, so the spawner exists here.
+            var orePileSpawner = Object.FindObjectOfType<OrePileSpawner>();
+            if (orePileSpawner != null)
+            {
+                orePileSpawner.looter = looter;
+                EditorUtility.SetDirty(orePileSpawner);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] no OrePileSpawner in scene to back-wire PickableLooter onto — " +
+                               "BuildOreNodes must author the OrePileSpawner before BuildPickableLooter; a spawned " +
+                               "ore pile would never be looted (#165)");
+            }
+
+            // 86camz9v7 (②) — SAME #165 back-wire for the StonePileSpawner: every runtime-spawned StonePile must
+            // register with this looter or it is never looted. BuildBoulders ran BEFORE BuildPickableLooter, so the
+            // spawner exists here.
+            var stonePileSpawner = Object.FindObjectOfType<StonePileSpawner>();
+            if (stonePileSpawner != null)
+            {
+                stonePileSpawner.looter = looter;
+                EditorUtility.SetDirty(stonePileSpawner);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] no StonePileSpawner in scene to back-wire PickableLooter onto — " +
+                               "BuildBoulders must author the StonePileSpawner before BuildPickableLooter; a spawned " +
+                               "stone pile would never be looted (#165)");
             }
 
             // LOOT PROXIMITY PROMPT (86cafc6ud AC2/AC3): the "Press E to pick up {name}" tooltip, authored on
@@ -2234,32 +3343,92 @@ namespace FarHorizon.EditorTools
             fireLight.shadows = LightShadows.None; // thin: no shadow cost on the placeholder
             fireLight.enabled = false; // ships off — Campfire enables it on Light()
 
-            // The Campfire component owns the lit state + warmth restore.
+            // INVISIBLE-UNTIL-PLACED (⑤ 86camz9w7, spec §0.1): disable the campfire STRUCTURE renderers (stones +
+            // logs) so there is NO pre-visible fire pit. Exclude the flame child (SetActive-driven by the lit state,
+            // already off). Campfire.Build reveals them at the confirmed ghost pose.
+            foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (r.transform.IsChildOf(flameGo.transform)) continue; // flame toggled by the lit state
+                r.enabled = false;
+            }
+
+            // The no-build zone the campfire self-registers ONCE PLACED (#302 seam) so a later table/forge/campfire
+            // placement ghost reads RED over it. Authored DISABLED — Campfire.Build enables it (OnEnable → Register).
+            var obstacle = pit.AddComponent<PlacementObstacle>();
+            obstacle.footprintRadius = 0.7f; // the fire-stone ring
+            obstacle.enabled = false;
+
+            // The Campfire component owns the placed + lit state + warmth restore.
             var fire = pit.AddComponent<Campfire>();
             fire.warmth = Object.FindObjectOfType<WarmthNeed>();
             fire.player = player.transform;
+            fire.visual = visual.transform;
             fire.flameVisual = flameGo;
             fire.fireLight = fireLight;
+            fire.placementObstacle = obstacle;
             if (fire.warmth == null)
                 Debug.LogError("[MovementCameraScene] no WarmthNeed in scene to wire Campfire to — " +
                                "BootstrapProject must add the Survival WarmthNeed before MovementCameraScene.Author");
 
-            // The CampfirePlacement component: the wood-gated build interaction.
+            // The placement GHOST — a translucent stone-ring + crossed-logs silhouette (reads footprint + facing),
+            // a SEPARATE root the placement moves under the cursor. Hidden until the player enters placement.
+            var ghostGo = new GameObject("CampfireGhost");
+            ghostGo.transform.position = FirePitPosition;
+            var ghostMat = EnsureCraftingGhostMat(); // the shared translucent unlit ghost material (tinted per-frame)
+            for (int i = 0; i < stoneCount; i++)
+            {
+                float a = i / (float)stoneCount * Mathf.PI * 2f;
+                var pos = new Vector3(Mathf.Cos(a) * ringR, 0.10f, Mathf.Sin(a) * ringR);
+                AddCampfireGhostPart(ghostGo.transform, "GhostStone" + i,
+                    LowPolyMeshes.FacetedSphere(0.20f + (i % 2) * 0.04f, 0, 0.35f, 4100 + i), pos, Quaternion.identity, ghostMat);
+            }
+            AddCampfireGhostPart(ghostGo.transform, "GhostLogA", LowPolyMeshes.TaperedCylinder(0.07f, 0.05f, 0.9f, 6),
+                new Vector3(0f, 0.16f, 0f), Quaternion.Euler(0f, 0f, 90f) * Quaternion.Euler(25f, 0f, 0f), ghostMat);
+            AddCampfireGhostPart(ghostGo.transform, "GhostLogB", LowPolyMeshes.TaperedCylinder(0.07f, 0.05f, 0.9f, 6),
+                new Vector3(0f, 0.18f, 0f), Quaternion.Euler(0f, 90f, 90f) * Quaternion.Euler(-25f, 0f, 0f), ghostMat);
+            foreach (var r in ghostGo.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false; // shown only while placing
+
+            // The rewritten CampfirePlacement: the wood+STONE place-to-build driver (⑤ — reuses the ① ghost flow).
+            // Costs default 3 wood + 2 stone (NIT-3 — the vision's "stone AND wood"). groundMask = the world's Ground
+            // layer so the cursor ray hits ground + the navmesh-availability gate is ON in the shipped world.
             var place = pit.AddComponent<CampfirePlacement>();
             place.inventory = Object.FindObjectOfType<Inventory>();
             place.campfire = fire;
             place.player = player.transform;
             place.warmth = fire.warmth;
+            place.ghost = ghostGo.transform;
+            place.groundMask = 1 << groundLayer;
+            place.woodCost = CampfirePlacement.CampfireWoodCostDefault;   // 3
+            place.stoneCost = CampfirePlacement.CampfireStoneCostDefault; // 2
             if (place.inventory == null)
                 Debug.LogError("[MovementCameraScene] no Inventory in scene to wire CampfirePlacement to");
 
-            // Wire the verification-only shipped-build LOOP capture (-verifyLoop drives the FULL cycle:
-            // decay -> craft -> chop -> build fire -> warmth restored) onto the Boot object.
+            // Wire the verification-only shipped-build capture (-verifyLoop drives: grant mats -> PLACE the campfire
+            // -> lit + warmth restored) onto the Boot object.
             WireCampfireVerifyCapture(player);
 
-            Debug.Log("[MovementCameraScene] authored Campfire at " + FirePitPosition +
-                      " (ships unlit; warmth wired: " + (fire.warmth != null) +
+            EditorUtility.SetDirty(pit); EditorUtility.SetDirty(ghostGo);
+            Debug.Log("[MovementCameraScene] authored Campfire (invisible-until-placed) + ghost + placement (" +
+                      place.woodCost + "w+" + place.stoneCost + "s) at park " + FirePitPosition +
+                      " (ships unlit + hidden; warmth wired: " + (fire.warmth != null) +
                       ", inventory wired: " + (place.inventory != null) + ")");
+        }
+
+        // One translucent campfire-ghost part (a ring stone / a crossed log): a MeshFilter+MeshRenderer with the
+        // shared ghost material (the placement tints it green/red per-frame via a MaterialPropertyBlock). Sibling of
+        // AddForgeGhostPart, +local rotation for the crossed logs. Collider-free set-dressing.
+        private static void AddCampfireGhostPart(Transform parent, string name, Mesh mesh, Vector3 localPos,
+            Quaternion localRot, Material ghostMat)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = localRot;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (ghostMat != null) mr.sharedMaterial = ghostMat;
         }
 
         // One log of the campfire: a tapered cylinder laid down (rotated) + tilted, warm bark inline material.
@@ -2314,6 +3483,212 @@ namespace FarHorizon.EditorTools
                 mr.sharedMaterial = mat;
                 EnsureShaderAlwaysIncluded(litShader);
             }
+        }
+
+        // ---- 86cakkmvc (I-3): the FORGE / FURNACE — a NEW buildable, DISTINCT from the campfire ----
+        // ANCHOR (the real-world referent this build must satisfy — physical-features rule): a furnace is a
+        // SQUAT STONE CHAMBER standing ON the ground with a dark FIREBOX opening at the front and a VENT on top;
+        // heat + glow come OUT the front opening (and the top vent) when it is working. It is NOT an open campfire
+        // (no exposed flame tongues) — it is a closed masonry block. The build must read that side-on: a chunky
+        // stone body sitting UP on the ground (not sunk), a dark mouth, a chimney above.
+        public static readonly Vector3 ForgeSpotPosition = new Vector3(-7f, 0f, 0f);
+
+        private static readonly Color ForgeStoneGrey  = new Color(0.46f, 0.47f, 0.48f); // cool masonry stone
+        private static readonly Color ForgeStoneDark  = new Color(0.22f, 0.22f, 0.24f); // dark firebox mouth
+        private static readonly Color ForgeGlowOrange = new Color(1.0f, 0.50f, 0.14f);  // warm smelt glow (emissive)
+
+        // The FORGE place-to-build flow (86camz9vh ③ — REWRITE of the shipped fixed-spot proximity build). The
+        // Sponsor rejected a pre-visible forge (86camyvzw), so the forge now uses the SAME invisible-until-placed
+        // place-to-build flow as the ① table (spec §2). Authors, all editor-time so they SERIALIZE into Boot.unity
+        // (editor-vs-runtime trap): (a) the REAL forge (stone-furnace mesh + glow/light), renderers DISABLED =
+        // invisible until placed; (b) a translucent GHOST (body+vent silhouette) hidden until placement; (c) a
+        // PlacementObstacle on the forge (disabled — Build enables it so the placed forge self-registers a no-build
+        // zone, #302 seam); (d) the rewritten ForgePlacement driver wiring them + the Inventory/Forge/player refs.
+        // ForgeSceneTests guards the serialized presence + invisible-until-placed + wiring.
+        private static void BuildForge(GameObject player, int groundLayer)
+        {
+            var forgeGo = new GameObject("Forge");
+            forgeGo.transform.position = ForgeSpotPosition; // parked here, INVISIBLE, until the player places it
+
+            var visual = new GameObject("ForgeVisual");
+            visual.transform.SetParent(forgeGo.transform, false);
+            visual.transform.localPosition = Vector3.zero;
+
+            // --- body: a squat octagonal stone drum standing ON the ground (base at y=0, rises UP) ---
+            BuildCampfirePart(visual, "ForgeBody", LowPolyMeshes.TaperedCylinder(0.74f, 0.60f, 1.05f, 8),
+                ForgeStoneGrey, Vector3.zero, 0.05f, "ForgeBodyMat");
+
+            // --- top vent / chimney: a narrower dark stone stub on top (heat escapes here too) ---
+            BuildCampfirePart(visual, "ForgeVent", LowPolyMeshes.TaperedCylinder(0.24f, 0.17f, 0.46f, 6),
+                new Color(0.34f, 0.34f, 0.35f), new Vector3(0f, 1.05f, 0f), 0.05f, "ForgeVentMat");
+
+            // --- firebox opening: a dark mouth panel PROUD of the +Z front face (the octagon's +Z vertex sits at
+            //     ~0.70u at this height, so the panel front at ~0.75u reads as the cavity, not hidden inside the
+            //     opaque body). Reads side-on as the dark firebox mouth (the anchor). ---
+            BuildForgeBox(visual, "ForgeMouth", ForgeStoneDark,
+                new Vector3(0f, 0.34f, 0.64f), new Vector3(0.42f, 0.36f, 0.22f), 0.02f, emissive: false);
+
+            // --- the smelt GLOW: a warm emissive block over the mouth (front ~0.78u, just proud of the dark
+            //     mouth panel so it reads as "the mouth lights up"), its OWN child so Forge toggles it with the
+            //     smelting state (a furnace glows only while it is working — Bar 2 "life"). Ships OFF. ---
+            var glowGo = new GameObject("ForgeGlow");
+            glowGo.transform.SetParent(visual.transform, false);
+            glowGo.transform.localPosition = Vector3.zero;
+            BuildForgeBox(glowGo, "GlowBlock", ForgeGlowOrange,
+                new Vector3(0f, 0.34f, 0.68f), new Vector3(0.30f, 0.26f, 0.20f), 0f, emissive: true);
+            glowGo.SetActive(false); // ships cold — Forge shows it while smelting
+
+            // INVISIBLE-UNTIL-PLACED (spec §2): disable the forge structure's renderers (NOT the glow — it is
+            // smelt-state-driven + already off). Forge.Build reveals them at the confirmed ghost pose.
+            foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (r.transform.IsChildOf(glowGo.transform)) continue; // glow toggled by the smelt state
+                r.enabled = false;
+            }
+
+            // --- the warm point Light at the mouth (heat glow into the Zone-D look) — disabled until smelting ---
+            var lightGo = new GameObject("ForgeLight");
+            lightGo.transform.SetParent(forgeGo.transform, false);
+            lightGo.transform.localPosition = new Vector3(0f, 0.5f, 0.6f);
+            var forgeLight = lightGo.AddComponent<Light>();
+            forgeLight.type = LightType.Point;
+            forgeLight.color = new Color(1f, 0.6f, 0.28f);
+            forgeLight.intensity = 2.0f;
+            forgeLight.range = 5f;
+            forgeLight.shadows = LightShadows.None; // no shadow cost (unity6-mastery §3 — no shadowed point lights)
+            forgeLight.enabled = false;             // ships off — Forge enables it while smelting
+
+            // (b) the placement GHOST — a translucent body+vent silhouette (enough to read footprint + facing),
+            // a SEPARATE root the placement moves under the cursor. Hidden until the player enters placement.
+            var ghostGo = new GameObject("ForgeGhost");
+            ghostGo.transform.position = ForgeSpotPosition;
+            var ghostMat = EnsureCraftingGhostMat(); // the shared translucent unlit ghost material (tinted per-frame)
+            AddForgeGhostPart(ghostGo.transform, "GhostBody",
+                LowPolyMeshes.TaperedCylinder(0.74f, 0.60f, 1.05f, 8), Vector3.zero, ghostMat);
+            AddForgeGhostPart(ghostGo.transform, "GhostVent",
+                LowPolyMeshes.TaperedCylinder(0.24f, 0.17f, 0.46f, 6), new Vector3(0f, 1.05f, 0f), ghostMat);
+            foreach (var r in ghostGo.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.enabled = false; // shown only while placing
+
+            // (c) the no-build zone the forge self-registers ONCE BUILT (#302 seam). Authored DISABLED — Forge.Build
+            // enables it (OnEnable → Register), so an unbuilt/invisible forge never blocks placement.
+            var obstacle = forgeGo.AddComponent<PlacementObstacle>();
+            obstacle.footprintRadius = 0.9f; // a chunky stone furnace
+            obstacle.enabled = false;
+
+            // The Forge component: the built state + the smelt runtime. Smelt-cost dials seeded from the Medium
+            // preset (the balanced default; the smelt_* settings flip these live via PopulateSmeltLive).
+            var med = IronDifficultyPresets.Medium;
+            var forge = forgeGo.AddComponent<Forge>();
+            forge.inventory = Object.FindObjectOfType<Inventory>();
+            forge.player = player.transform;
+            forge.visual = visual.transform;
+            forge.glowVisual = glowGo;
+            forge.forgeLight = forgeLight;
+            forge.placementObstacle = obstacle;
+            forge.smeltRadius = 3.0f;
+            forge.orePerIngot = med.OrePerIngot;
+            forge.fuelPerSmelt = med.FuelPerSmelt;
+            forge.smeltSeconds = med.SecondsPerSmelt;
+            if (forge.inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire Forge to — BootstrapProject " +
+                               "must add the Survival Inventory before MovementCameraScene.Author");
+
+            // The rewritten ForgePlacement: the wood+STONE place-to-build driver (on the SAME GO as the Forge).
+            // Costs default 6 wood + 12 stone (spec §5 — "forge >> weapons"). groundMask = the world's Ground layer
+            // so the cursor ray hits ground + the navmesh-availability gate is ON in the shipped world.
+            var place = forgeGo.AddComponent<ForgePlacement>();
+            place.inventory = forge.inventory;
+            place.forge = forge;
+            place.player = player.transform;
+            place.ghost = ghostGo.transform;
+            place.groundMask = 1 << groundLayer;
+            place.woodCost = ForgePlacement.ForgeWoodCostDefault;   // 6
+            place.stoneCost = ForgePlacement.ForgeStoneCostDefault; // 12
+
+            // Wire the SETTINGS PANEL's forge ref now that the Forge exists (BuildSettingsPanel ran earlier). The
+            // three `smelt_*` rows flip LIVE bound to the Forge's smelt-cost fields (the second difficulty dial).
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.forge = forge;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
+            // Wire the verification-only shipped-build FORGE capture (-verifyForge drives place → build → smelt →
+            // ingot) onto the Boot object.
+            WireForgeVerifyCapture(player);
+
+            EditorUtility.SetDirty(forgeGo); EditorUtility.SetDirty(ghostGo);
+            Debug.Log("[MovementCameraScene] authored Forge (invisible-until-placed) + ghost + placement (" +
+                      place.woodCost + "w+" + place.stoneCost + "s) at park " + ForgeSpotPosition +
+                      " (ships cold; inventory wired: " + (forge.inventory != null) + "; smelt " + forge.orePerIngot +
+                      " ore + " + forge.fuelPerSmelt + " fuel / " + forge.smeltSeconds.ToString("F0") + "s)");
+        }
+
+        // One translucent forge-ghost part: a MeshFilter+MeshRenderer with the shared ghost material (the
+        // placement tints it green/red per-frame via a MaterialPropertyBlock). Collider-free set-dressing.
+        private static void AddForgeGhostPart(Transform parent, string name, Mesh mesh, Vector3 localPos, Material ghostMat)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (ghostMat != null) mr.sharedMaterial = ghostMat;
+        }
+
+        // A blocky forge part (firebox mouth / glow block): a Cube primitive (collider stripped — set-dressing) with
+        // an inline URP/Lit material, optionally emissive (the smelt glow survives the stripped build — URP/Lit
+        // emission is built-in, no custom shader to strip). Sibling of BuildDebrisPlank's cube idiom.
+        private static void BuildForgeBox(GameObject parent, string name, Color color, Vector3 localPos,
+            Vector3 localScale, float smoothness, bool emissive)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>()); // never blocks raycast/NavMesh
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPos;
+            go.transform.localScale = localScale;
+            var mr = go.GetComponent<MeshRenderer>();
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader != null)
+            {
+                var mat = new Material(litShader) { name = name + "Mat" };
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+                if (emissive)
+                {
+                    mat.EnableKeyword("_EMISSION");
+                    mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                    if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", color * 1.4f);
+                }
+                mr.sharedMaterial = mat;
+                EnsureShaderAlwaysIncluded(litShader);
+            }
+        }
+
+        // Wire the verification-only shipped-build FORGE capture onto the Boot object — sibling of
+        // WireMineVerifyCapture. Inert unless launched with -verifyForge.
+        private static void WireForgeVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host ForgeVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<ForgeVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<ForgeVerifyCapture>();
+            cap.player = player.GetComponent<ClickToMove>();
+            cap.inventory = Object.FindObjectOfType<Inventory>();
+            cap.forge = Object.FindObjectOfType<Forge>();
+            cap.placement = Object.FindObjectOfType<ForgePlacement>();
+            if (cap.forge == null)
+                Debug.LogError("[MovementCameraScene] ForgeVerifyCapture.forge wiring is null — BuildForge must " +
+                               "author the Forge before WireForgeVerifyCapture");
+            EditorUtility.SetDirty(bootGo);
         }
 
         // ---- M-U3-SCENE-4 (86ca8feuf): washed-ashore shipwreck debris ----
@@ -2444,11 +3819,9 @@ namespace FarHorizon.EditorTools
             cap.inventory = Object.FindObjectOfType<Inventory>();
             cap.warmth = Object.FindObjectOfType<WarmthNeed>();
             cap.campfire = Object.FindObjectOfType<Campfire>();
-            cap.craftSpot = CraftSpotPosition;
-            cap.treeSpot = ChopTreePosition;
-            cap.firePit = FirePitPosition;
+            cap.placement = Object.FindObjectOfType<CampfirePlacement>();
             // 86cafdevx AC3 — fail LOUD at bootstrap (CI step 1) on a dropped -verifyLoop dep rather than
-            // letting the Awake FindAnyObjectByType fallback mask it into the 20-min full-loop capture gate.
+            // letting the Awake FindAnyObjectByType fallback mask it into the capture gate.
             if (cap.player == null)
                 Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.player wiring is null — the player " +
                                "has no ClickToMove (BuildPlayer must run before WireCampfireVerifyCapture)");
@@ -2461,8 +3834,9 @@ namespace FarHorizon.EditorTools
             if (cap.campfire == null)
                 Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.campfire wiring is null — the lit " +
                                "campfire the -verifyLoop close-of-loop proof stands at was not authored");
-            var place = Object.FindObjectOfType<CampfirePlacement>();
-            if (place != null) cap.woodCost = place.woodCost; // the loop must carry enough wood to the pit
+            if (cap.placement == null)
+                Debug.LogError("[MovementCameraScene] CampfireVerifyCapture.placement wiring is null — the " +
+                               "CampfirePlacement the -verifyLoop place-to-build proof drives was not authored (⑤)");
             EditorUtility.SetDirty(bootGo);
         }
 
@@ -2568,6 +3942,12 @@ namespace FarHorizon.EditorTools
             // not a throwaway). Inert unless launched with -verifyCastaway. Sibling of AxeVerifyCapture.
             WireCastawayVerifyCapture();
 
+            // Wire the HANDS close-up capture (PR #186 FINGER re-open). The avatar-wide CastawayVerifyCapture
+            // frames the hands too small to judge a finger mangle; this frames EACH hand TIGHTLY (individual
+            // fingers resolvable) while the Breathing Idle plays, so the symptom region the Sponsor saw mangled
+            // is eyeball-judgeable from a SHIPPED frame. Inert unless launched with -verifyHands.
+            WireHandsVerifyCapture();
+
             // Wire the BUILD-GATED LIVE FLOAT-DIAGNOSTIC (86ca8rdkp — the instrument). Serializes onto Boot so
             // the F8 overlay (feet/ground/GAP live) + the ~1Hz [FloatTrace] log ship; inert until F8/-floatTrace.
             // The Sponsor walks the shoreline, SEES the GAP, dials GROUND-Y (F9) to GAP≈0, reports the value.
@@ -2575,6 +3955,12 @@ namespace FarHorizon.EditorTools
             // And its committed shipped-build capture path (proves the overlay renders the live GAP in the exe —
             // the shipped-build visual gate; inert unless -verifyFloatDiag). Sibling of CastawayVerifyCapture.
             WireFloatDiagnosticVerifyCapture();
+
+            // Wire the BUILD-GATED SNEAK-WALK ISOLATION tool (86caa3kur re-soak attempt-3 /unstick instrument).
+            // Serializes onto Boot so the F2 (foot-sync) + F3 (sneak-speed snap) toggles + the live readout ship;
+            // behind the F1 dev-overlay master gate, default = shipped crouch behavior. The Sponsor sneaks, flips
+            // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
+            WireDebugOverlayMaster();
 
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
@@ -2787,7 +4173,11 @@ namespace FarHorizon.EditorTools
             // accel default; the airborne horizontal-speed cap defaults to the WALK speed so a nudge never builds
             // past a walk (a run-jump's carried-in momentum is still preserved — the cap only clamps speed the
             // nudge would PUSH past it). Serialized editor-time (component-in-source-but-not-in-scene trap).
-            wasd.airControlAccel = 8f;
+            // 86caambxh: Sponsor soak 2026-07-01 RAISED airControlAccel 5 → 9 u/s² for a snappier mid-air sideways
+            // air-steer. The upright sideways slide IS the intended feel (no body-tilt/lean; the Sponsor confirmed
+            // he does NOT want one). This is the value that actually SHIPS (the serialized scene-build site, per
+            // [[unity-procedural-committed-assets-go-stale]] — the field default alone never reaches the build).
+            wasd.airControlAccel = 9f;
             wasd.airControlMaxSpeed = wasd.moveSpeed > 0.001f ? wasd.moveSpeed : 5.5f;
             if (wasd.cameraTransform == null)
                 Debug.LogWarning("[MovementCameraScene] WasdMovement camera not wired — WASD will fall back to " +
@@ -2801,6 +4191,22 @@ namespace FarHorizon.EditorTools
             // captures the run cycle from the gameplay cam (walk vs run frames + the grounded-while-running gap).
             // Inert unless -verifyRun. Sibling of WasdVerifyCapture.
             WireRunVerifyCapture(player);
+
+            // Wire the SNEAK-WALK SMOOTHNESS shipped-build capture (86caa3kur re-soak) — holds forward + the
+            // crouch override and MEASURES the per-frame root step (the stutter ground truth: low step-variance =
+            // smooth) + captures the sneak cycle from the gameplay cam. Inert unless -verifySneak. Sibling of
+            // WireRunVerifyCapture.
+            WireSneakVerifyCapture(player);
+
+            // Wire the LOCOMOTION + HIT-REACT shipped-build capture (86cackb3j) — walk→run then fires the Hit
+            // trigger on the live Animator + captures the flinch, with a cone-explosion guard (mesh stays at the
+            // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
+            WireHitReactVerifyCapture(player);
+
+            // Wire the REAL-SNAKE shipped-build capture (86caaz4vn AC6/AC7) — walks the player at the snake
+            // through the movement seam, proves aggro→telegraph→lunge→bite live + kills it with the real axe
+            // WeaponDef, shooting gameplay-cam + side-profile frames. Inert unless -verifySnake.
+            WireSnakeVerifyCapture(player);
 
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
@@ -2829,9 +4235,10 @@ namespace FarHorizon.EditorTools
             var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(SettingsPanelUxmlPath);
             var palette = AssetDatabase.LoadAssetAtPath<StyleSheet>(PaletteUssPath);
             var panelUss = AssetDatabase.LoadAssetAtPath<StyleSheet>(SettingsPanelUssPath);
-            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the SINGLE clone (it CloneTree's
-            // the serialized panelUxml, adds the stylesheets, and re-resolves elements by name; it also carries
-            // the build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
+            // Do NOT assign doc.visualTreeAsset — SettingsPanel.BuildView owns the clone(s) (86cah8ukr: it now
+            // CloneTree's the serialized panelUxml TWICE, once per drawer — F1 player + F3 dev — into two scoped
+            // containers, adds the stylesheets, and re-resolves elements per-container; it also carries the
+            // build-safety-net BuildShellInCode for the asset-not-serialized case). Assigning visualTreeAsset
             // here would make the UIDocument ALSO auto-clone the shell on enable → a duplicate, always-visible
             // orphan settings-scrim laid over the world that Q("settings-scrim") never binds (codereview #83).
 
@@ -2850,11 +4257,44 @@ namespace FarHorizon.EditorTools
             // rows are live in the shipped build without a runtime FindObjectOfType. The Awake fallback stays as
             // the bare-scene safety net. May be null on a bare rig — the rows then simply don't appear.
             panel.hunger = Object.FindObjectOfType<HungerNeed>();
+            // Per-need on/off + warmth decay-rate (86cabeqwf, folded into the F1/F3 split 86cah8ukr) — the
+            // warmth on/off toggle + warmth decay-rate slider bind to the WarmthNeed BootstrapProject added to
+            // the Survival object BEFORE this runs (the hunger/thirst on/off toggles bind to those needs wired
+            // above). Serialized so the PLAYER-facing rows ship live without a runtime FindObjectOfType. May be
+            // null on a bare rig — the warmth rows then simply don't appear.
+            panel.warmth = Object.FindObjectOfType<WarmthNeed>();
+            // 86cah8ukr SPLIT — wire BOTH toggle keys editor-time so they serialize into Boot.unity (the
+            // field-default-not-serialized trap): F1 opens the player Settings drawer, F3 the dev console
+            // (Sponsor-confirmed 2026-07-03). Debug overlays are on F10 (DebugOverlayMaster, the single overlay
+            // master since the legacy F2 DebugOverlayToggle was removed in 86cah90cp round-3; F2 is UNBOUND).
+            panel.toggleKey = KeyCode.F1;
+            panel.devToggleKey = KeyCode.F3;
             // Held-weapon placement seam (86caffwuz) — the 7 held-weapon in-hand rows bind to it. BuildPlayer
             // (which authors the HeroAxe + its HeldWeaponPlacement) runs BEFORE this in Author, so the seam
             // already exists; wire it serialized so the rows never rely on a runtime FindObjectOfType (the
             // editor-vs-runtime ship-path discipline). May be null on a bare rig — the rows then simply don't appear.
             panel.heldWeapon = Object.FindObjectOfType<HeldWeaponPlacement>();
+            // Inventory façade (86cabfa4e) — `inventory slots` + `belt slots` + `inventory stack size` bind through
+            // it. BootstrapProject adds the Inventory to the Survival object BEFORE MovementCameraScene.Author runs
+            // (so CraftSpot can wire it), so it ALREADY exists here — wire it serialized so the rows ship live without
+            // a runtime FindObjectOfType (the editor-vs-runtime ship-path discipline the stone-respawner dead-knob
+            // taught). The Awake FindObjectOfType<Inventory> stays as the bare-scene safety net. May be null on a
+            // bare rig — the inventory rows then simply don't appear.
+            panel.inventory = Object.FindObjectOfType<Inventory>();
+            // F-KEY MIGRATION (86caber95) — the F9 arm-pose rows bind to the castaway's CastawayArmPose. BuildPlayer
+            // (which wires CastawayArmPose onto the castaway) runs BEFORE this in Author, so it already exists —
+            // wire it serialized so the arm-pose + run-lower rows ship live without a runtime FindObjectOfType (the
+            // editor-vs-runtime ship-path discipline). The Awake fallback stays the bare-scene safety net. (The F7
+            // camera-follow rows bind to panel.orbit; ground-Y to panel.chopCharacter — both already wired above/via
+            // Awake. The F10 world-look seam is back-wired post-environment by WireWorldLookConsole.)
+            panel.armPose = Object.FindObjectOfType<CastawayArmPose>();
+            // FPS counter (86cahmxmt) — the `FPS counter` on/off row binds to the FpsCounterHud that
+            // BootstrapProject.BuildBootScene added to the Boot object BEFORE this runs (NextIslandPocScene
+            // likewise authors it before calling Author). Wire it serialized so the row ships live without a
+            // runtime FindObjectOfType (the editor-vs-runtime ship-path discipline the stone-respawner
+            // dead-knob taught). The Awake fallback stays the bare-scene safety net. May be null on a bare
+            // rig — the row then simply doesn't appear.
+            panel.fpsHud = Object.FindObjectOfType<FarHorizon.FpsCounterHud>();
 
             if (uxml == null || palette == null || panelUss == null)
                 Debug.LogWarning("[MovementCameraScene] SettingsPanel UI assets missing (uxml=" + (uxml != null) +
@@ -2913,6 +4353,61 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<RunVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<RunVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the SNEAK-WALK SMOOTHNESS shipped-build verify capture (86caa3kur re-soak) onto the Boot object so
+        // it SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). Inert unless launched with -verifySneak. Sibling of WireRunVerifyCapture.
+        private static void WireSneakVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SneakVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SneakVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SneakVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            // Wire the avatar so the 86caa3kur re-soak ANIMATOR LOOP-HITCH trace reads the LIVE Animator state
+            // (it serializes into Boot.unity — the component-in-source-but-not-in-scene trap). Resolved off the
+            // player's child avatar (the CastawayCharacter lives on a child avatar root under the player).
+            cap.castaway = player.GetComponentInChildren<CastawayCharacter>(true);
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the LOCOMOTION + HIT-REACT shipped-build verify capture (86cackb3j) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifyHitReact. Sibling of WireRunVerifyCapture.
+        private static void WireHitReactVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host LocomotionHitReactVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<LocomotionHitReactVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<LocomotionHitReactVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the REAL-SNAKE shipped-build verify capture (86caaz4vn) onto the Boot object so it SERIALIZES
+        // into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifySnake. Sibling of WireHitReactVerifyCapture.
+        private static void WireSnakeVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SnakeVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SnakeVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SnakeVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }
@@ -3095,6 +4590,25 @@ namespace FarHorizon.EditorTools
             }
             if (bootGo.GetComponent<FreshwaterPondVerifyCapture>() == null)
                 bootGo.AddComponent<FreshwaterPondVerifyCapture>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the verification-only SKY-FACING capture (86cabc743 — the SUN-DISK POC) onto the Boot object
+        // so it SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship
+        // inert otherwise). Inert unless launched with -verifySky; never affects a normal play/boot/soak.
+        // Parks a dedicated sky camera (the orbit cam can't tilt up to the Sun) aimed at the live Sun
+        // direction + the cloud band, and self-asserts sun-visible + cloud-vs-sky contrast from the shipped
+        // frame — the sky capture the generic -captureGate never produces.
+        private static void WireSkyVerifyCapture()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] 'Boot' object not found — sky-verify capture not wired");
+                return;
+            }
+            if (bootGo.GetComponent<SkyVerifyCapture>() == null)
+                bootGo.AddComponent<SkyVerifyCapture>();
             EditorUtility.SetDirty(bootGo);
         }
 

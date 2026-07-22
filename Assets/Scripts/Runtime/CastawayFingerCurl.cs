@@ -26,14 +26,14 @@ namespace FarHorizon
     /// WHY A RELATIVE OFFSET (multiply), not an absolute set: the clip animates the fingers every frame; we
     /// NUDGE that pose by a fixed curl, preserving any clip motion. bone.localRotation = clip * Euler(curl,0,0).
     ///
-    /// GATED ON THE HELD AXE BEING SHOWN: the curl applies ONLY when the axe is the SELECTED belt item
-    /// (Inventory.IsAxeSelectedInBelt — AC4 86caa4bya), coherent with HeldAxe's visibility. Empty-handed
-    /// OR with the axe in a non-selected belt slot / in the pack, the hand keeps its natural open clip
-    /// pose — we only close the hand when a haft is actually shown in it. This SUPERSEDES the old HasAxe
-    /// (ownership) gate (before the belt, owning == holding; now selection is the right signal — item-model
-    /// contract §5). Subscribes to Inventory.Changed + applies on enable, so it is correct at spawn (no
-    /// axe → open hand) and after every selection/move (→ gripping only when the axe is in hand), no
-    /// per-frame polling of the ledger.
+    /// GATED ON A HELD WEAPON BEING SHOWN: the curl applies ONLY when a held-visual weapon (axe OR spear —
+    /// 86cahngdg) is the SELECTED belt item (Inventory.IsAxeSelectedInBelt / IsSpearSelectedInBelt — AC4
+    /// 86caa4bya), coherent with HeldAxe's visibility. Empty-handed OR with the weapon in a non-selected
+    /// belt slot / in the pack, the hand keeps its natural open clip pose — we only close the hand when a
+    /// haft is actually shown in it. This SUPERSEDES the old HasAxe (ownership) gate (before the belt,
+    /// owning == holding; now selection is the right signal — item-model contract §5). Subscribes to
+    /// Inventory.Changed + applies on enable, so it is correct at spawn (no weapon → open hand) and after
+    /// every selection/move (→ gripping only when a weapon is in hand), no per-frame polling of the ledger.
     ///
     /// SERIALIZATION (unity-conventions.md §editor-vs-runtime): authored editor-time by MovementCameraScene
     /// (BuildPlayer → AddFingerCurl) and serialized onto the avatar root with the finger bones resolved from
@@ -95,11 +95,16 @@ namespace FarHorizon
             _thumbOffset = Quaternion.Euler(thumbCurlDeg, 0f, 0f);
         }
 
-        // Gripping = the axe is the SELECTED belt item (shown in hand), or alwaysCurl (AC4). Coherent
-        // with HeldAxe's visibility — the hand only closes around a haft that is actually shown.
+        // Gripping = a held-visual weapon (axe OR spear — 86cahngdg) is the SELECTED belt item (shown in
+        // hand), or alwaysCurl (AC4). Coherent with HeldAxe's visibility — the hand only closes around a
+        // haft that is actually shown. The spear joined the predicate with the soak-224 crossed-visual fix:
+        // the spear's Sponsor-dialed in-hand seat (5caf1be) was dialed WITH the curl active (axe selected
+        // while the spear was [B]-displayed), so gripping the selected spear reproduces the approved read;
+        // an open hand through the spear haft is the documented "mangled finger" percept.
         private void ApplyGate()
         {
-            _gripping = alwaysCurl || (inventory != null && inventory.IsAxeSelectedInBelt);
+            _gripping = alwaysCurl || (inventory != null &&
+                        (inventory.IsAxeSelectedInBelt || inventory.IsSpearSelectedInBelt));
         }
 
         /// <summary>Whether the curl is currently applied (the hand is gripping). Exposed for the PlayMode

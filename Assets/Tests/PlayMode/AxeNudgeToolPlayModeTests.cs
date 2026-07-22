@@ -127,6 +127,42 @@ namespace FarHorizon.PlayTests
             }
         }
 
+        // NOT-ENGAGED INDICATOR (86caju055) — when the debug-overlay layer is revealed (F10 master ON) but the
+        // F9 dial tool is asleep, the tool must signal "NOT ENGAGED" so the Sponsor knows the nudge keys are
+        // inert (he isn't nudging into the void). The show-condition seam (ShowNotEngagedHint) is TRUE only when
+        // the overlay is visible AND the tool is inactive; engaging F9 (Activate) clears it. Pure-condition test
+        // (no render). A regression that shows the hint while engaged, or hides it while asleep+overlay-up, reds.
+        [Test]
+        public void NotEngagedHint_ShowsOnlyWhenOverlayVisibleAndToolInactive()
+        {
+            var tool = _bootGo.GetComponent<AxeNudgeTool>();
+            bool prevVisible = DebugOverlays.Visible;
+            try
+            {
+                DebugOverlays.Hide();
+                Assert.IsFalse(tool.ShowNotEngagedHint,
+                    "with the debug-overlay layer HIDDEN, the not-engaged hint must not show (clean screen)");
+
+                DebugOverlays.Show();
+                Assert.IsTrue(tool.ShowNotEngagedHint,
+                    "with the overlay layer up but F9 asleep, the not-engaged hint MUST show (86caju055)");
+
+                tool.Activate(); // engage the F9 dial
+                Assert.IsTrue(tool.IsActive, "Activate must engage the tool");
+                Assert.IsFalse(tool.ShowNotEngagedHint,
+                    "once F9 is engaged the not-engaged hint must clear (the panel takes over)");
+
+                tool.Deactivate();
+                Assert.IsTrue(tool.ShowNotEngagedHint,
+                    "toggling F9 back off (overlay still up) must re-show the not-engaged hint");
+            }
+            finally
+            {
+                DebugOverlays.Visible = prevVisible;
+                tool.Deactivate();
+            }
+        }
+
         // SOAKFIX10 regression guard ("the nudge-tool BOX cuts off the 3rd rotation value off its right
         // edge — this is the full window"). Two guarantees the fix rests on:
         //   1. The box is WIDE ENOUGH to hold the longest single value line. With position + euler now on

@@ -133,6 +133,13 @@ namespace FarHorizon.EditorTools
             // stones there is no canonicalisation — it only COLLECTS + serializes (READ/wire-only; seed-42 untouched).
             MovementCameraScene.WireBerryBushes();
 
+            // 86caber95 AC2 — back-wire SettingsPanel.worldLook to the WorldLookTunables seam now that BOTH
+            // exist: the panel was authored in BuildBootScene (line ~96, BEFORE the environment), the seam was
+            // added onto hudGo above (during BuildEnvironment). Serializes the ref so the F10-migrated fog/sky/
+            // cloud/mountain/sun rows ship LIVE without a runtime FindObjectOfType (the editor-vs-runtime ship-
+            // path discipline; the Awake fallback stays the bare-scene safety net). Mirrors WireStoneScatterRoot.
+            MovementCameraScene.WireWorldLookConsole();
+
             EditorSceneManager.SaveScene(scene, BootScenePath);
             Debug.Log("[BootstrapProject] Zone-D environment built + boot scene re-saved (full slice: env + castaway player)");
 
@@ -185,7 +192,20 @@ namespace FarHorizon.EditorTools
             // from Create() every run, wiping any committed m_RequireDepthTexture edit — the same
             // "bake reproducibly in bootstrap, not a hand-edit that reverts" pattern as the shadow params below.
             urp.supportsCameraDepthTexture = true;
-            urp.supportsCameraOpaqueTexture = true;
+            // R1 DEAD-COST REMOVAL (ticket 86cahhff6, plan §5 Tier-1 item 3). The full-screen OPAQUE-texture
+            // copy (_CameraOpaqueTexture) is generated + downsampled every shipped frame, but NOTHING samples it:
+            // a repo-wide grep of Assets/ for `_CameraOpaqueTexture` finds only this setter (+ its comment) and
+            // the LowPolyWaterShaderTests pin — LowPolyWater.shader reads only scene DEPTH, no opaque colour /
+            // refraction. So the copy is pure per-frame bandwidth waste. Turn it OFF. Depth Texture stays ON
+            // (foam samples _CameraDepthTexture — the Sponsor-praised depth-fade foam). Set HERE (not on the
+            // committed asset) because bootstrap RE-CREATES FarHorizonURP.asset from Create() each run.
+            urp.supportsCameraOpaqueTexture = false;
+            // S3 (ticket 86cahhff6, plan §5 Tier-1 item 12 hygiene rider). Clear m_UseAdaptivePerformance: the
+            // Adaptive Performance provider is a mobile/thermal-throttling subsystem (URP defaults the flag ON),
+            // a no-op on the Windows desktop target and never wired here — clearing it is intent clarity, not a
+            // behaviour change. Public settable property (UniversalRenderPipelineAsset.useAdaptivePerformance);
+            // set HERE so it bakes into FarHorizonURP.asset reproducibly (a committed-asset edit would revert).
+            urp.useAdaptivePerformance = false;
             // AC0 "LINE THROUGH THE ISLAND" FIX (ticket 86ca9qwr3 — trace-diagnosed). The dead-straight
             // world-fixed dark streak the Sponsor flagged is the URP MAIN-LIGHT REAL-TIME SHADOW-DISTANCE
             // BOUNDARY: directional shadows render only within shadowDistance of the camera, and the hard
@@ -322,14 +342,19 @@ namespace FarHorizon.EditorTools
 
             var hudGo = new GameObject("Boot");
             hudGo.AddComponent<BootHud>();
-            // F1 MASTER on/off for the dev/debug instrument-overlay layer (86cafd6d6). Default HIDDEN — a
-            // normal launch / soak / CI capture shows a CLEAN screen (this un-buries the #158 loot prompt the
-            // always-on "DEBUG — held weapon" overlay was burying); F1 reveals/hides the whole dev layer
-            // (HeldWeaponCycleDebug / HeldAxeLengthPicker / PondNudge + the F7-F10 nudge panels, which each read
-            // DebugOverlays.Visible). Gates ONLY dev overlays — NEVER the build stamp (BootHud) or gameplay UI
-            // (SurvivalHud need bars / inventory / loot prompt). Serialized editor-time (NOT Awake) per the
-            // editor-vs-runtime trap; DebugOverlayToggleSceneTests guards its serialized presence.
-            hudGo.AddComponent<DebugOverlayToggle>();
+            // FPS counter (86cahmxmt — Sponsor #226 walk-soak item 3): "FPS <current> | avg <rolling>" on a
+            // plate directly UNDER the build stamp, so every perf soak has an on-screen ground-truth number in
+            // the same self-identifying corner. Ships ENABLED (default ON — Sponsor-soak tunes via the F1
+            // console's `FPS counter` row, which drives this component's enabled flag; SettingsCatalog
+            // .PopulateFps). Serialized editor-time (NOT Awake) per the editor-vs-runtime trap;
+            // FpsCounterHudSceneTests guards its serialized presence + enabled default.
+            hudGo.AddComponent<FpsCounterHud>();
+            // NOTE — the legacy F2 debug-overlay master (DebugOverlayToggle, #208-era F1→F2 by 86cabeqj9) was
+            // REMOVED in 86cah90cp round-3 (Sponsor-directed 2026-07-03): F10 is now the SINGLE key for the
+            // debug-overlay layer. F10 (DebugOverlayMaster.overlayToggleKey) flips the shared DebugOverlays.Visible,
+            // and the WorldLookNudgeTool also rides F10, so one F10 press reveals BOTH panels together; F1 (dev
+            // console / SettingsPanel) stays untouched. The layer still defaults HIDDEN (clean screen on a normal
+            // launch / soak / CI capture) and still gates ONLY dev overlays — never the build stamp or gameplay UI.
             hudGo.AddComponent<BootScreenshot>();
             // Standard shipped-build capture component (testing-bar capture gate, 86ca86g7k).
             // Serialized into the scene editor-time (NOT Awake) per the editor-vs-runtime
@@ -380,13 +405,21 @@ namespace FarHorizon.EditorTools
             // distance+scale, so the Sponsor finalizes the LOOK himself + reports values to bake (sibling
             // of AxeNudgeTool). Serialized editor-time per the editor-vs-runtime trap; INERT unless F9.
             hudGo.AddComponent<FarHorizon.WorldLookNudgeTool>();
-            // POND RECESS + FOAM live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak: he dials the
-            // final pond recess depth + foam amount IN THE SHIPPED BUILD + reports the values to bake).
-            // ALWAYS-LIVE (like HeldAxeLengthPicker, NOT F-key-toggle-gated) — the on-screen panel shows the
-            // current recess + foam value the whole soak; PgUp/PgDn step the recess (flush->knee-deep->deeper,
-            // default knee-deep), Home/End step the foam (off->light->sea-like, default OFF). LAYOUT-AGNOSTIC
-            // keys (Danish-keyboard-safe). Starts at the shipped defaults so a soak that never presses a key
-            // sees exactly the shipped pond. Serialized editor-time per the editor-vs-runtime trap.
+            // WORLD-LOOK CONSOLE SEAM (86caber95 AC2 — F10 → dev-console rows). The single binding surface the
+            // SettingsPanel's fog/sky/cloud/mountain/sun rows read/write through; it resolves the SAME
+            // RenderSettings/skybox-material/cloud/vista handles the F10 WorldLookNudgeTool dials (lazily, at
+            // runtime — the world exists by then). Serialized editor-time onto hudGo so it ships in Boot.unity;
+            // MovementCameraScene.WireWorldLookConsole back-wires SettingsPanel.worldLook to it (the panel was
+            // built earlier in BuildBootScene, so this post-environment wiring mirrors WireStoneScatterRoot).
+            if (hudGo.GetComponent<FarHorizon.WorldLookTunables>() == null)
+                hudGo.AddComponent<FarHorizon.WorldLookTunables>();
+            // POND RECESS live nudge handle (ticket 86cadj4g7 — Sponsor #130 re-soak: he dials the final pond
+            // recess depth IN THE SHIPPED BUILD + reports the value to bake). ALWAYS-LIVE (unlike the F-key-
+            // toggle-gated nudge tools) — the on-screen panel shows the current recess the whole soak; PgUp/PgDn
+            // step the recess (flush->shipped->deeper, default SHIPPED). The foam dial was DROPPED (#130 third
+            // re-soak — the freshwater pond foam is baked OFF, not a runtime control). LAYOUT-AGNOSTIC keys
+            // (Danish-keyboard-safe). Starts at the shipped default so a soak that never presses a key sees
+            // exactly the shipped pond. Serialized editor-time per the editor-vs-runtime trap.
             hudGo.AddComponent<FarHorizon.PondNudge>();
             // SOAKFIX8 (86ca8ce6y FIX3): force borderless-fullscreen-at-native on a NORMAL launch so the
             // Sponsor's double-click fills his widescreen (the Player Setting alone loses to stale persisted
@@ -405,8 +438,8 @@ namespace FarHorizon.EditorTools
 
             // U2-2 (86ca8bdaq): the inventory seed — the held-resource ledger (HasAxe / WoodCount) the
             // craft step writes and U2-5's HUD reads. SERIALIZED here editor-time (NOT Awake) per the
-            // editor-vs-runtime trap. Added BEFORE MovementCameraScene.Author so CraftSpot (authored
-            // there) finds + wires this Inventory.
+            // editor-vs-runtime trap. Added BEFORE MovementCameraScene.Author so the crafting-table
+            // placement + recipe menu (86camz9uz ①, authored there) find + wire this Inventory.
             var inventory = survivalGo.AddComponent<Inventory>();
 
             // HUNGER (86caamkp8): the second survival need — hunger decays as a SLOWER background

@@ -55,17 +55,7 @@ namespace FarHorizon.PlayTests
         [UnitySetUp]
         public IEnumerator SetUp()
         {
-            var empty = SceneManager.CreateScene("JumpAnim_" + System.Guid.NewGuid().ToString("N"));
-            SceneManager.SetActiveScene(empty);
-            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-            {
-                var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded)
-                {
-                    var op = SceneManager.UnloadSceneAsync(s);
-                    if (op != null) while (!op.isDone) yield return null;
-                }
-            }
+            yield return PlayModeSceneIsolation.IsolateInFreshScene("JumpAnim");
 
             int groundLayer = LayerMask.NameToLayer("Ground");
 

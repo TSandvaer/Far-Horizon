@@ -56,6 +56,48 @@ namespace FarHorizon.EditTests
             Assert.IsTrue(_inv.HasAxe, "...but still owned (HasAxe is ownership, not selection)");
         }
 
+        // REGRESSION GUARD (PR #224 chop-capture-gate red, run 28539711263): a SECOND belt-eligible weapon
+        // (the Combat POC spear) acquired BEFORE the axe steals belt slot 0 — the DEFAULT-SELECTED slot — so
+        // the later-crafted axe lands in slot 1 and IsAxeSelectedInBelt goes FALSE, silently disabling the
+        // chop gate (ShouldChopOnClick needs axeSelected). The scene bug was a proximity-auto SpearPickup ON
+        // the spawn radius firing frame-1 (fixed by relocating SpearPickupPosition clear of spawn). This pins
+        // the underlying model INVARIANT so any future acquisition-ordering change that de-selects the axe
+        // fails HERE (fast) instead of only in the shipped chop-capture gate (slow). See MovementCameraScene
+        // .SpearPickupPosition + SpearPickupClearOfSpawn (ChopSceneTests) for the scene-geometry sibling guard.
+        [Test]
+        public void SpearAcquiredBeforeAxe_StealsSlot0_DeselectsAxe_TheChopRegression()
+        {
+            var spear = _inv.Catalog.ById(ItemCatalog.SpearId);
+            Assert.IsNotNull(spear, "the spear is in the catalog (Combat POC AC4)");
+
+            // Spear first -> lands in belt slot 0 (the default-selected slot). This is the state the scene
+            // bug produced (proximity-auto pickup at spawn).
+            Assert.IsNotNull(_inv.Model.AddToolToBelt(spear), "spear placed in belt slot 0");
+            Assert.IsTrue(_inv.Model.IsSelectedBeltItem(ItemCatalog.SpearId), "spear is the selected item");
+
+            // Then craft the axe -> slot 1, NOT the selected slot 0 -> the chop gate would see axe NOT selected.
+            _inv.CraftAxe();
+            Assert.IsTrue(_inv.HasAxe, "axe owned");
+            Assert.IsFalse(_inv.IsAxeSelectedInBelt,
+                "THE BUG: with the spear in slot 0, the crafted axe lands in slot 1 -> axe is NOT the selected " +
+                "belt item -> the chop gate no-ops -> no wood (the exact chop-capture-gate regression)");
+        }
+
+        // The FIX-side invariant: with slot 0 free at craft time (the shipped ordering after the scene fix —
+        // the player crafts the axe before ever reaching the relocated spear), the axe lands in slot 0 = the
+        // selected slot, so chopping works even once a spear is ALSO acquired later.
+        [Test]
+        public void AxeCraftedBeforeSpear_StaysSelected_SoChopKeepsWorking()
+        {
+            _inv.CraftAxe();                       // slot 0 (selected)
+            Assert.IsTrue(_inv.IsAxeSelectedInBelt, "axe is the selected belt item");
+
+            var spear = _inv.Catalog.ById(ItemCatalog.SpearId);
+            _inv.Model.AddToolToBelt(spear);       // spear -> slot 1 (does NOT change selection)
+            Assert.IsTrue(_inv.IsAxeSelectedInBelt,
+                "acquiring the spear AFTER the axe leaves the axe selected (slot 0) -> chop still works");
+        }
+
         [Test]
         public void WoodCount_SumsAcrossStacks()
         {

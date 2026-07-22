@@ -45,7 +45,7 @@ namespace FarHorizon
             "-verifyAxe", "-verifyAxeFacings", "-verifyCastaway", "-verifyHair", "-verifySea", "-verifyRock",
             // Newer capture/verify launches (must also stay inert so their windowed capture size is preserved).
             "-verifyIsland", "-verifyWorldLook", "-verifyWalkGround", "-verifyFloatDiag",
-            "-verifyPond", "-verifyLoot",
+            "-verifyPond", "-verifyLoot", "-verifySnake",
             // Belt-and-suspenders: if the launch explicitly asked for windowed, honour it.
             "-screen-fullscreen",
         };

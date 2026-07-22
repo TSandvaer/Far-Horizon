@@ -41,6 +41,10 @@ the target style**", `86ca8ca1m`):
 (See `character-pipeline.md` for the same rule from the character side, and `blender-asset-pipeline.md` §3
 for "source a purpose-built base" on the hero-prop side.)
 
+> **Sharpened precedent (castaway v2, 2026-07-05):** seven procedural Blender attempts at a hero-character rebuild each failed the Sponsor's bar on GESTALT — the whole didn't land — not on any itemized/fixable defect; switching to the Character route (concept→web-Rodin→Mixamo) succeeded in under an hour. This refines the "2+ attempts fail" rule above: **a GESTALT failure (no punch-list, just "doesn't look right") is a switch-route signal on its own** — when a round clears every itemized defect and still doesn't land, switch immediately rather than running a further round. Full account: `character-pipeline.md`'s route-ratification note.
+
+> **Scope refinement (castaway v4, 2026-07-18):** the gestalt-failure precedent above is scoped to ORGANIC-fidelity hero rebuilds — it does not mean hand/procedural modeling is closed for every character-shaped asset. A deliberately GEOMETRIC/segmented target (chamfered-blocky "wooden toy" style, 40 segmented boxes) passed the Sponsor's look-dev gate first-try via hand-modeled Blender/Blender MCP — a different problem class from the organic-humanoid rebuild that failed seven times (`character-pipeline.md`'s scope-nuance note). It has NOT yet cleared rig/soak, so it does not reopen the Character-route default for organic humanoids. Route on the TARGET STYLE, not the asset class alone: organic/realistic silhouette → stay on Hyper3D Rodin (Character route); geometric/stylized/toy-like silhouette → hand-modeled Blender is a viable candidate route worth considering, not automatically ruled out.
+
 ---
 
 ## Cross-cutting rules that apply across ALL routes
@@ -54,6 +58,12 @@ detail here; the cited doc owns it):
 - **Committed-asset staleness** — bootstrap-generated `.unity`/`.mat`/`.asset` files are committed; a build ships
   the committed snapshot, so a fix in regen-code alone never reaches the build unless the asset is regenerated +
   committed ([[unity-procedural-committed-assets-go-stale]]).
+- **Inverse of committed-asset staleness: a regen can run correctly and still ship corrupted committed data** if a
+  local EditMode test mutates live global engine state (e.g. `RenderSettings.skybox`) without restoring it between
+  the bake and the commit — CI self-heals (it always re-bakes before build/tests) so every mechanical gate stays
+  green against generator-correct data while the COMMITTED snapshot is wrong; only a reviewer diffing committed
+  values against the generator's source constants catches it. Full mechanism + fix: `unity-conventions.md`
+  §Headless/CLI rituals (PR #231, ticket `86cahvntg`).
 - **Material-honest + pattern-via-geometry** — a surface reads as its material (stone→flint, metal→steel; no
   arbitrary colors); surface pattern is modeled low-poly facets, NOT a detail-texture ([[weapon-asset-material-honest-pattern-via-geometry]]).
 - **Single Unity build slot** — any route that ends in a Unity build is serialized to one at a time; fan out the

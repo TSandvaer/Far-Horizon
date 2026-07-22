@@ -12,6 +12,20 @@ namespace FarHorizon
     {
         private GUIStyle _title, _stamp;
 
+        // The full "BUILD <tag> | <UTC> | <sha>" line, built ONCE (86cahhfp4 C2a). BuildInfo.Stamp itself is
+        // a cached lazy read, but the "BUILD " + concat allocated a fresh string on EVERY OnGUI invocation
+        // (multiple IMGUI events per frame) — the steady per-frame GC drip the poly-style plan §5 item 8 names.
+        // The stamp is immutable for the process lifetime, so one Awake-time build is exact.
+        private string _stampLine;
+
+        void Awake()
+        {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass entirely
+            // (one fewer OnGUI invocation per frame + no layout bookkeeping; 86cahhfp4 C2a).
+            useGUILayout = false;
+            _stampLine = "BUILD " + BuildInfo.Stamp;
+        }
+
         void OnGUI()
         {
             if (_title == null)
@@ -33,7 +47,9 @@ namespace FarHorizon
             GUI.color = new Color(0f, 0f, 0f, 0.55f);
             GUI.DrawTexture(new Rect(Screen.width - w - 8, 8, w, 26), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(Screen.width - w, 11, w - 8, 22), "BUILD " + BuildInfo.Stamp, _stamp);
+            // Cached in Awake — never rebuild the stamp string per IMGUI event (C2a). The ?? covers a
+            // hand-placed HUD whose Awake hasn't run when a first repaint sneaks in (defensive, allocs once).
+            GUI.Label(new Rect(Screen.width - w, 11, w - 8, 22), _stampLine ?? (_stampLine = "BUILD " + BuildInfo.Stamp), _stamp);
         }
     }
 }

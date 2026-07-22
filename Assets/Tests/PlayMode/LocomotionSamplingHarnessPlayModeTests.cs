@@ -84,17 +84,7 @@ namespace FarHorizon.PlayTests
             // fixtures LoadScene("Boot") which carries the REAL renderer-enabled Zone-D Ground_Play terrain; a
             // deferred LoadScene can leave it resident when our snap-raycast fires, polluting the pick. Load a
             // fresh EMPTY scene so OUR synthetic colliders are the ONLY Ground surfaces in play.
-            var empty = SceneManager.CreateScene("LocoHarnessIsolated_" + System.Guid.NewGuid().ToString("N"));
-            SceneManager.SetActiveScene(empty);
-            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-            {
-                var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded)
-                {
-                    var op = SceneManager.UnloadSceneAsync(s);
-                    if (op != null) while (!op.isDone) yield return null;
-                }
-            }
+            yield return PlayModeSceneIsolation.IsolateInFreshScene("LocoHarnessIsolated");
 
             int groundLayer = LayerMask.NameToLayer("Ground");
 

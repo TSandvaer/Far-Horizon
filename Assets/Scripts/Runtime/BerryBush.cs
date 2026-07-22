@@ -166,6 +166,13 @@ namespace FarHorizon
             if (hunger == null) hunger = FindObjectOfType<HungerNeed>();
             _rng = new System.Random(regrowSeed != 0 ? regrowSeed : Environment.TickCount);
             ApplyRipeVisual();
+            // PERF (86cabnjv8 NIT 2): a ripe bush has NOTHING to do per frame — disable Update so the player
+            // loop skips this MonoBehaviour entirely. Across the ~32 scatter berry bushes that is ~32 fewer
+            // per-frame Update dispatches in the common (ripe) steady state. Update is re-enabled ONLY while a
+            // regrow is pending (Harvest -> bare -> SyncRegrowTick), and disables itself again once Regrow
+            // fires. NOTE: this NIT is a shared family pattern (StoneProp/ChopTree poll the same way); this PR
+            // scopes the fix to BerryBush per the ticket — the siblings are a follow-up if measured worth it.
+            SyncRegrowTick();
         }
 
         void Update()
@@ -174,9 +181,22 @@ namespace FarHorizon
             // longer proximity-auto (86caf7a6q AC4 "no proximity-auto"): the player presses E and the
             // PickableLooter calls TryLoot. Walking into range does NOTHING here — there is no proximity
             // distance read at all, which is the structural proof the bush can't auto-harvest.
+            //
+            // PERF: this only runs while a regrow is PENDING (bare). The Harvest path enables the tick; Regrow
+            // disables it (SyncRegrowTick). A ripe bush's Update is disabled, so the timer compare below never
+            // even dispatches in the steady state. The bare/!_ripe guard stays as a correctness belt-and-braces
+            // (re-enable + bare are kept in lockstep, but the guard makes a stray enabled-while-ripe a no-op).
             if (hasBerries && !_ripe && Time.time >= _regrowAt)
                 Regrow();
         }
+
+        /// <summary>
+        /// PERF (86cabnjv8 NIT 2): keep the per-frame Update enabled ONLY while a regrow is pending. A regrow
+        /// is pending exactly when the bush is a berry bush AND currently BARE (!_ripe). A ripe (or plain)
+        /// bush has no per-frame work, so its Update is disabled and the player loop skips it. Idempotent —
+        /// safe to call from Awake (initial sync), Harvest (-&gt; bare, enable), and Regrow (-&gt; ripe, disable).
+        /// </summary>
+        private void SyncRegrowTick() => enabled = hasBerries && !_ripe;
 
         /// <summary>
         /// Harvest the ripe berries: add <see cref="berriesPerHarvest"/> <c>berry</c> resources to the
@@ -199,6 +219,7 @@ namespace FarHorizon
             _ripe = false;
             ApplyRipeVisual();
             ScheduleRegrow();
+            SyncRegrowTick();   // PERF (86cabnjv8 NIT 2): now bare -> a regrow is pending -> enable the Update tick
 
             if (!_tracedFirstHarvest)
             {
@@ -269,6 +290,7 @@ namespace FarHorizon
         {
             _ripe = true;
             ApplyRipeVisual();
+            SyncRegrowTick();   // PERF (86cabnjv8 NIT 2): now ripe -> no regrow pending -> disable the Update tick
             BushTrace("Regrow -> berries RIPE again (bush persisted)");
         }
 

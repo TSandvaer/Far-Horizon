@@ -96,6 +96,12 @@ namespace FarHorizon
         /// default is OFF, and that ShowOverlay flips it on).</summary>
         public bool OverlayActive => _active;
 
+        void Awake()
+        {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
+        }
+
         void Update()
         {
             // Resolve once -floatTrace presence (drives the log-only dump). Cheap; do it lazily so a test that

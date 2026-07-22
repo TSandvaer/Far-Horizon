@@ -111,6 +111,11 @@ namespace FarHorizon.Settings
             SetMin(_defaultMin);
         }
 
+        /// <summary>True when EITHER end has been dialed off its registration-time default (AC9 badge).
+        /// An unavailable hook never drives the system, so it can never differ (no false badge on a greyed row).</summary>
+        public override bool DiffersFromDefault =>
+            Available && (!Mathf.Approximately(MinValue, _defaultMin) || !Mathf.Approximately(MaxValue, _defaultMax));
+
         // min ∈ [LowerLimit, currentMax]  (can't exceed the max thumb, can't drop below the hard floor)
         private float ClampMin(float v, float currentMax)
             => Mathf.Clamp(v, LowerLimit, Mathf.Min(currentMax, UpperLimit));

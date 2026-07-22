@@ -77,11 +77,31 @@ namespace FarHorizon.PlayTests
             Object.Destroy(_pondGo);
         }
 
-        // Move the looted water to a belt slot + select it, so the left-click consume targets it. Water is a
-        // belt-eligible Consumable (#152), so AddItem already fills the belt — but be robust: select the belt
-        // slot that holds water.
+        // Move the looted water to a belt slot + select it, so the left-click consume targets it.
+        //
+        // 86cajk7vb: water is a belt-eligible Consumable (#152), but AddItem/loot fills the INVENTORY first and
+        // only spills belt-eligible OVERFLOW onto the belt (InventoryModel contract §2/§4) — a single looted
+        // scoop lands wholly in the pack, NOT the belt. The old helper assumed "AddItem already fills the belt"
+        // and scanned only the belt → found nothing → returned false. That was a STALE TEST assumption, not a
+        // game bug (the model is inventory-first by design). Model the real flow: drag the water to the hotbar
+        // (explicit inventory→belt TryMove), then select it.
         private bool SelectWaterInBelt()
         {
+            var inv = _inv.Model.InventorySlots;
+            for (int i = 0; i < inv.Count; i++)
+            {
+                if (!inv[i].IsEmpty && inv[i].Def.Id == ItemCatalog.WaterId)
+                {
+                    for (int b = 0; b < _inv.Model.BeltSlots.Count; b++)
+                        if (_inv.Model.BeltSlots[b].IsEmpty)
+                        {
+                            _inv.Model.TryMove(SlotRef.Inventory(i), SlotRef.Belt(b));
+                            break;
+                        }
+                    break;
+                }
+            }
+
             var belt = _inv.Model.BeltSlots;
             for (int i = 0; i < belt.Count; i++)
             {

@@ -85,6 +85,65 @@ namespace FarHorizon
         private void OnModelChanged() => Changed?.Invoke();
 
         // ============================================================================================
+        // SLOT-COUNT authoring surface (ticket 86cabfa4e — the #90 AC1/AC2 settings-registration follow-up).
+        // The slot counts are CONSTRUCTION-TIME inputs to InventoryModel (its grid + belt arrays are readonly,
+        // sized once in the ctor) — NOT live fields. So a dev-console "set the count" must REBUILD the model for
+        // the change to take effect; a bare field write would be a dead knob. The dev-console (settings panel,
+        // 86caa4bqp) is the only caller; this is a dev-tool re-size, NOT a player-facing live resize that
+        // preserves contents. No gameplay-loop change: add/stack/move/select all stay byte-identical.
+        // ============================================================================================
+
+        /// <summary>The authoring inventory-grid slot count (the count the model is built from; default 20). The
+        /// dev-console `inventory slots` setting reads this.</summary>
+        public int InventorySlotCount => _inventorySlots;
+
+        /// <summary>The authoring belt-hotbar slot count (the count the model is built from; default 5). The
+        /// dev-console `belt slots` setting reads this.</summary>
+        public int BeltSlotCount => _beltSlots;
+
+        /// <summary>
+        /// Set the inventory-grid slot count and REBUILD the model so the change takes effect (the model's grid
+        /// array is readonly, sized at construction). Dev-console only (`inventory slots` setting, 86cabfa4e AC1):
+        /// a re-size that does NOT preserve contents — acceptable for a dev tool. A no-op (no rebuild, no Changed)
+        /// when the count is unchanged. Clamps to ≥1 (the model also clamps, but guard here so the authoring field
+        /// is honest).
+        /// </summary>
+        public void SetInventorySlotCount(int count)
+        {
+            count = Mathf.Max(1, count);
+            if (count == _inventorySlots) return;
+            _inventorySlots = count;
+            RebuildModel();
+        }
+
+        /// <summary>
+        /// Set the belt-hotbar slot count and REBUILD the model so the change takes effect (the belt array is
+        /// readonly, sized at construction). Dev-console only (`belt slots` setting, 86cabfa4e AC2). A no-op when
+        /// unchanged. Clamps to ≥1.
+        /// </summary>
+        public void SetBeltSlotCount(int count)
+        {
+            count = Mathf.Max(1, count);
+            if (count == _beltSlots) return;
+            _beltSlots = count;
+            RebuildModel();
+        }
+
+        /// <summary>
+        /// Re-construct the InventoryModel from the current authoring counts (after a dev-console slot-count
+        /// change). Detaches the old model's Changed handler, builds a fresh empty model on the SAME catalog, and
+        /// fires Changed so the UI/HUD rebinds to the new slot grid. Empties the inventory (a dev re-size, not a
+        /// content-preserving live resize — see the section note).
+        /// </summary>
+        private void RebuildModel()
+        {
+            if (_model != null) _model.Changed -= OnModelChanged;
+            _model = new InventoryModel(_inventorySlots, _beltSlots);
+            _model.Changed += OnModelChanged;
+            Changed?.Invoke();
+        }
+
+        // ============================================================================================
         // NEW slot-model surface (AC1-AC7).
         // ============================================================================================
 
@@ -107,6 +166,39 @@ namespace FarHorizon
         /// merely owned). HeldAxe gates its renderer on this; CastawayFingerCurl gates its grip on it.</summary>
         public bool IsAxeSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.AxeId);
 
+        /// <summary>
+        /// Combat POC 86cah7xxp AC4 — acquire the SPEAR (the second contrasting craftable weapon). Adds the
+        /// spear TOOL to the first free belt slot (mirrors <see cref="PickUpAxe"/>). Returns true on the
+        /// transition (the spear was actually placed), false if a spear is already held (idempotent). The
+        /// spear pickup/craft calls this; the melee attack then resolves the spear WeaponDef when it is the
+        /// SELECTED belt item.
+        /// </summary>
+        public bool PickUpSpear()
+        {
+            EnsureModel();
+            if (_model.OwnsItem(ItemCatalog.SpearId)) return false; // already holds a spear — one-shot
+            var spear = _catalog.ById(ItemCatalog.SpearId);
+            if (spear == null) return false;
+            return _model.AddToolToBelt(spear).HasValue;
+        }
+
+        /// <summary>Combat POC 86cah7xxp AC4 — true when the SPEAR is the SELECTED belt item (the melee attack
+        /// reads this to resolve the spear as the active weapon, the axe-sibling query).</summary>
+        public bool IsSpearSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SpearId);
+
+        /// <summary>Combat POC 86cah7xxp — true once the castaway OWNS a spear (in any slot).</summary>
+        public bool HasSpear => Model.OwnsItem(ItemCatalog.SpearId);
+
+        /// <summary>I-2 (86cakkmr0) — true when the STONE pickaxe is the SELECTED belt item. The held-visual gate
+        /// (HeldAxe.ShouldShow) + the mesh sync (HeldWeaponCycleDebug.SelectionIndexFor) read this so the held
+        /// pickaxe SHOWS in-hand when selected — the axe/spear-sibling query. Fixes the soak-fail where selecting
+        /// the pickaxe belt slot showed EMPTY hands (the belt→held coupling omitted the 5th tool type).</summary>
+        public bool IsPickaxeStoneSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeStoneId);
+
+        /// <summary>I-2 (86cakkmr0) — true when the IRON pickaxe is the SELECTED belt item (the iron-tier sibling
+        /// of <see cref="IsPickaxeStoneSelectedInBelt"/>).</summary>
+        public bool IsPickaxeIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
+
         // ============================================================================================
         // LEGACY ledger surface — preserved VERBATIM (contract §7). Every caller stays green.
         // ============================================================================================
@@ -117,6 +209,10 @@ namespace FarHorizon
 
         /// <summary>Live wood tally — summed Count of all "wood" stacks. The HUD reads it.</summary>
         public int WoodCount => Model.CountItem(ItemCatalog.WoodId);
+
+        /// <summary>Live stone tally — summed Count of all "stone" stacks. The forge build gate reads it
+        /// (86cakkmvc / I-3). Sibling of <see cref="WoodCount"/>.</summary>
+        public int StoneCount => Model.CountItem(ItemCatalog.StoneId);
 
         /// <summary>
         /// Craft (== acquire) the axe — the legacy entry to the loop, now placing the axe tool on the
@@ -152,6 +248,58 @@ namespace FarHorizon
             // RemoveItem is itself all-or-nothing: it returns false + debits nothing if fewer than
             // 'amount' are held — the load-bearing "no wood -> no campfire" gate (contract §7).
             return _model.RemoveItem(ItemCatalog.WoodId, amount);
+        }
+
+        /// <summary>
+        /// Spend stone — the forge BUILD seam (86cakkmvc / I-3), the STONE sibling of <see cref="SpendWood"/>.
+        /// ALL-OR-NOTHING: if fewer than <paramref name="amount"/> stone is held, NOTHING is spent and false is
+        /// returned (no partial debit, no Changed) — the load-bearing "not enough mats -> no forge" gate. On
+        /// success debits the stone across stacks, fires Changed, returns true. A zero/negative amount is a no-op
+        /// success (matches SpendWood).
+        /// </summary>
+        public bool SpendStone(int amount)
+        {
+            EnsureModel();
+            if (amount <= 0) return true;
+            return _model.RemoveItem(ItemCatalog.StoneId, amount);
+        }
+
+        // ============================================================================================
+        // MATERIAL-COST CRAFT façade (ticket 86camz9uz / crafting-redesign ① — the recipe seam). Resolves a
+        // Recipe's explicit outputItemId against the catalog + delegates to InventoryModel.TryCraft (the pure
+        // all-or-nothing debit → AddToolToBelt grant). This is the NEW crafting entry — distinct from the
+        // legacy free-mint CraftAxe (which is retained VERBATIM for the legacy callers/tests but is NOT
+        // extended by the new material-cost path, per the ① constraint).
+        // ============================================================================================
+
+        /// <summary>
+        /// Craft <paramref name="recipe"/> — the material-cost table craft. Refuses a null/Placeholder recipe
+        /// (STONE/IRON rows are Locked in ①) and a recipe whose <see cref="Recipe.OutputItemId"/> does not
+        /// resolve in the catalog (both return false, debit nothing). Otherwise resolves the output ItemDef +
+        /// calls <see cref="InventoryModel.TryCraft"/> (all-or-nothing debit across the cost lines → grant the
+        /// tool onto the belt). Returns true iff the craft happened. The menu clicks this; a follow gate check
+        /// (tier unlocked) lives in the menu UI, but the model still enforces affordability + the placeholder
+        /// refusal here so a stray call can never mint a Locked tool for free.
+        /// </summary>
+        public bool TryCraft(Recipe recipe)
+        {
+            EnsureModel();
+            if (recipe == null || recipe.Placeholder) return false; // Locked placeholder → never crafts in ①
+            var output = _catalog.ById(recipe.OutputItemId);
+            if (output == null) return false;                       // unresolved output id → no craft
+            return _model.TryCraft(recipe.Costs, output);
+        }
+
+        /// <summary>
+        /// True iff <paramref name="recipe"/>'s inputs are affordable right now (the menu paints
+        /// Craftable-vs-Unaffordable from this). Forwards to <see cref="InventoryModel.CanAfford"/>; a
+        /// Placeholder recipe is never affordable-to-craft (it is Locked), so returns false. Read-only.
+        /// </summary>
+        public bool CanAfford(Recipe recipe)
+        {
+            EnsureModel();
+            if (recipe == null || recipe.Placeholder) return false;
+            return _model.CanAfford(recipe.Costs);
         }
     }
 }

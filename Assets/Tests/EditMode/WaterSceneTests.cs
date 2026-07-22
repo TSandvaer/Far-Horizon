@@ -309,7 +309,7 @@ namespace FarHorizon.EditTests
             var loopSpots = new (string name, float x, float z)[]
             {
                 ("Spawn",        0f,  6f),
-                ("CraftSpot",    8f,  6f),
+                ("TableLandmark", 8f,  6f),   // legacy craft-spot waypoint (86camz9uz ①: CraftSpot retired; still a dry landmark)
                 ("ChopTree",    -9f, -7f),
                 ("FirePit",      4f, -8f),
                 ("BeachDebris", -3.2f, -3.0f),

@@ -3,11 +3,15 @@
 **MANDATORY pre-work read for all Far Horizon Unity work.**
 This is the concise decision-forcing checklist. Full citations and depth at `team/erik-consult/unity6-mastery-research.md`.
 
+> **maintain-docs append-target:** proactive daily-use Unity 6/URP guardrails — rendering path, batching, lighting, perf/profiling + world-scale, scripting/GC, architecture, version control, texture/mesh import, UI Toolkit, build, input, frame-rate. The numbered sections §1–§12 are cross-referenced BY NUMBER from other docs (game-juice, lowpoly-quality, unity-conventions) — APPEND within an existing numbered section; do NOT renumber, reorder, or delete a section. New empirically-discovered INCIDENT gotchas belong in `unity-conventions.md`, not here.
+
 ---
 
 ## 1. Rendering Path — Set This First, Everything Else Depends on It
 
 - **Universal Renderer → Rendering Path = Forward+.** Required for GPU Resident Drawer and GPU Occlusion Culling. Removes per-object light cap (campfires/torches have no artificial limit). Loss of Reflection Probe Blending is acceptable for the stylized low-poly look.
+  - **Deliberate deviation (do NOT "fix"):** the shipped config runs plain **Forward + GPU Resident Drawer OFF** — at 1 shadowed directional + 1 unshadowed point light Forward+ buys nothing today, and GRD can't instance the world's unique per-instance meshes. Flip both at the **night / torches / many-campfires milestone** (the trigger where clustered lights + GPU-occlusion actually pay). See `team/analysis/2026-07-01-poly-style/consolidated.md` §4 T-H / §5 Tier-3 R6.
+- **Colour space = Gamma is a deliberate LOOK-LOCK (do NOT "fix" to Linear).** Technically wrong for the HDR + bloom + tonemap stack, but every palette constant was soaked against gamma output; a casual flip re-opens the whole colour bar. Revisit ONLY in an explicit look-overhaul milestone (zero desktop perf impact either way). See `team/analysis/2026-07-01-poly-style/consolidated.md` §1 item 5 / §4 T-H.
 - **Render Graph Compatibility Mode = OFF** in `Project Settings > Graphics > URP > Render Graph`. Compatibility Mode is a migration crutch, not a shipping state. GPU Occlusion Culling requires it OFF.
 - Any custom Renderer Feature (Zone-D fog/bloom pass, stylized water) MUST use the **Render Graph two-stage authoring model** (record → execute; system owns resource lifetime). Do NOT allocate/dispose RTs manually inside custom passes.
 
@@ -36,6 +40,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - **Disable shadow casting** per-MeshRenderer on small props and distant foliage that do not need it.
 - **APV (Adaptive Probe Volumes):** volume-based GI; no hand-placed probe grids. Good fit for the big open island with warm gradient lighting. Measure cost before committing to APV in a live scene.
 - **Fog** (URP Volume + camera far-clip-plane): hides the draw-distance edge and contributes to the "world feels BIG" feel. Set the far-clip-plane aggressively; open only as needed.
+- **Skybox / Background-pass shaders do NOT receive the main light.** `GetMainLight()` / `_MainLightPosition` is UNBOUND in the URP skybox (Background) pass — empirically confirmed in the shipped IL2CPP exe (2026-06-29): a sun-disk term reading `GetMainLight()` rendered nothing. To use the sun direction in a skybox shader (sun disk, horizon tint), **bake it into a material/global property** (e.g. `_SunDirection`) from the real directional light at bootstrap (update it if the sun rotates). Also: in a skybox shader compute the view ray in WORLD space (object-space is wrong there), and LERP toward the sun core rather than pure-additive (additive clips the disk to white). (Far Horizon's sky sun-disk, PR #194: `GradientSkybox.shader` + `QualityPassGen.ResolveSunDirection`.)
 
 ---
 
@@ -54,6 +59,8 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 
 **STP Upscaling** (`URP Asset > Quality > Upscaling Filter > STP`): GPU-headroom lever if ever GPU-bound at native resolution. Test against the low-poly look (upscalers can soften hard polygon edges).
 
+**World-scale data point:** a big-island POC (~800u, PR #226, merged 2026-07-02) held 60fps with a single scaled mesh + STATIC batching — see `elite-techniques.md` § "Procedural terrain at scale" for the full figures and a reconciliation flag against §2's Static-Batching/GPU-Resident-Drawer incompatibility before this is carried into production world-gen.
+
 ---
 
 ## 5. Scripting — Rules That Apply to Every PR
@@ -71,11 +78,13 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - `Update` → input, per-frame logic. Multiply by `Time.deltaTime`.
 - `FixedUpdate` → Rigidbody/physics forces only.
 - `LateUpdate` → **orbit camera follow MUST go here.**
+- **Never permanently one-shot-cache a cross-component `GetComponent<T>()` result resolved in `OnEnable`.** `OnEnable` fires SYNCHRONOUSLY during `AddComponent` — if a sibling component is added a moment later (common in test-rig `SetUp` code), the cache can capture and keep a `null` forever even though the sibling exists by the time anything actually uses it. Re-resolve lazily while the reference is still null/missing, rather than caching the miss. Incident + fix: `unity-conventions.md` § Editor-vs-runtime divergence, ticket `86cajt6jz`.
 
 **Fundamentals:**
 - File name MUST match class name or the component shows "Missing".
 - Prefer `[SerializeField] private` over `public` for Inspector fields. Inspector-serialized value overrides the code initializer at runtime.
 - Never lerp Euler angles across the 0/360 wrap. Use `Quaternion.Slerp`.
+- Never accumulate a rotation dial by adding a delta to one Euler COMPONENT at a time (`relEuler.y += dr`) — near ±90° pitch this is gimbal-locked and some orientations become UNREACHABLE (a full 360° yaw hunt that never lands). Compose as a quaternion RIGHT-multiplied in the object's own local frame instead: `Quaternion.Euler(currentEuler) * Quaternion.Euler(deltaEuler)`, reading back `.eulerAngles` for display/baking — every orientation is reachable this way (the displayed triple may re-decompose differently near gimbal; the composed rotation itself is exact). Fixed in `AxeNudgeTool.ComposeLocalRot` (`Assets/Scripts/Runtime/AxeNudgeTool.cs:563`), replacing F9 per-component accumulation after the pickaxe's ~−70°..−80° pitch made some yaws unreachable (`86caffwv5`, PR #327 @ `250e4e6`); guarded by `Assets/Tests/EditMode/SwingsRound5Tests.cs` (`ComposeLocalRot_ReachesEveryOrientation_AtHighPitch_NoGimbalDeadZone`).
 - Multiply ALL per-frame movement/rotation by `Time.deltaTime`.
 - Enter Play Mode Options: enable for iteration speed. **Audit all statics** — they don't reset on domain reload unless you add a `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]` reset.
 
@@ -102,6 +111,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 - **Force Text serialization** (`Edit > Project Settings > Editor > Asset Serialization > Mode = Force Text`) and **Visible Meta Files** (`Version Control > Mode = Visible Meta Files`). Both already implied by the project's `.meta` discipline.
 - **UnityYAMLMerge:** wire into git for semantic scene/prefab merging when multiple personas edit the same file. Tool: `C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Data\Tools\UnityYAMLMerge.exe`. Far Horizon headlessly regenerates `Boot.unity` (sidesteps the merge) — but hand-edited prefabs need this.
 - **`Boot.unity` must be index 0** in Scenes-In-Build (the entry point for the built player).
+- **A local EditMode failure on tests that read `AssetImporter`/`AssetDatabase` import state can be a STALE `Library/` artifact, NOT a real regression.** After a branch switch Unity may serve a stale import (FBX/`.meta` not reimported), so import-state assertions fail locally while the PR's CLEAN CI re-imports → green. If a local run shows EditMode fails on import-reading tests (e.g. `ChopAnimatorControllerTests` reading `Melee_Attack.fbx` import state), do NOT conclude a `main` regression — clear `Library/` (or reimport the asset) and trust the PR's CI EditMode count over the local run. (2026-06-29: a local 743/746 was a stale-Library artifact; #195's clean CI = 746/746, all `ChopAnimatorControllerTests` green.)
 
 ---
 
@@ -155,6 +165,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 ## 10. Build — Windows Desktop Only
 
 - **Scripting backend = IL2CPP** for the Windows player.
+  - **Deliberate deviation (do NOT "fix"):** the shipped config is **Mono, not IL2CPP** — runtime scripts are light so the CPU win is small, while IL2CPP ~doubles build time on the single (scarce) CI runner. Adopt trigger = **a second CI lane / nightly lane** exists to absorb the build-time cost. See `team/analysis/2026-07-01-poly-style/consolidated.md` §4 T-H / §5 Tier-3 S2b.
 - **Enable IL2CPP C# source line numbers** in Player Settings — required for meaningful crash call stacks from the shipped `FarHorizon.exe`.
 - All `Debug.Log` calls stripped from release builds (`[Conditional("DEVELOPMENT_BUILD")]` or disable logger in build pipeline).
 - `Build/`, `Captures/`, `*.log`, `test-results*.xml` are gitignored — **CI must upload these artifacts before cleanup.**
@@ -177,6 +188,7 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 | Animate `width`/`height` in UI | Animate `translate`/`scale` + set `DynamicTransform` hint |
 | Hide a UI element with `opacity = 0` | Use `style.display = DisplayStyle.None` |
 | Run ForceInput Euler-lerp across 360° | Use `Quaternion.Slerp` |
+| Add a delta to one Euler component per nudge step (a rotation dial) | Right-multiply `Quaternion.Euler(delta)` in local space (`AxeNudgeTool.ComposeLocalRot`) |
 | Profile in the editor and trust the numbers | Profile on a development build of `FarHorizon.exe` |
 
 ---

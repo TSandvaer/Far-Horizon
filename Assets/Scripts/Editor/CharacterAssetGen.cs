@@ -56,6 +56,12 @@ namespace FarHorizon.EditorTools
         // PRODUCTION location (NOT _Spike). The two Mixamo FBX + the de-lit material + the controller.
         private const string CharDir = "Assets/Art/Character/Castaway";
         public const string IdleFbxPath = CharDir + "/Idle.fbx";   // WITH skin (mesh+rig+Idle clip)
+        // BREATHING IDLE (86cackb3j re-soak — "calm but clearly alive"). The Sponsor sourced a Mixamo Breathing
+        // Idle clip (WITHOUT skin — gentle chest/shoulder breathing + subtle weight shift) to REPLACE the static
+        // Idle.fbx clip as the at-rest pose. WITHOUT skin → binds by TRANSFORM PATH onto Idle's mesh (same
+        // mixamorig skeleton — the proven Walk/Run idiom). The Idle.fbx still ships the SKIN (mesh+rig+avatar);
+        // only the IDLE STATE's clip is swapped to this breathing take. LOOPING (a sustained at-rest cycle).
+        public const string BreathingIdleFbxPath = CharDir + "/Breathing Idle.fbx"; // WITHOUT skin (breathing idle, LOOP)
         public const string WalkFbxPath = CharDir + "/Walking.fbx"; // WITHOUT skin (Walk clip only)
         public const string RunFbxPath = CharDir + "/Running.fbx";  // WITHOUT skin (Run clip only — 86ca9yq34)
         // TWO jump clips by movement state (86ca9yq3q rework — Sponsor soak): an idle/standing jump and a
@@ -69,15 +75,146 @@ namespace FarHorizon.EditorTools
         // procedural). REPLACES the procedural ChopPoseDriver swing the Sponsor rejected. Imported NON-looping
         // (a one-shot strike), Generic — identical idiom to the jump one-shots.
         public const string MeleeFbxPath = CharDir + "/Melee_Attack.fbx";       // WITH skin (Melee one-shot clip)
+        // ===== CROUCH + HIT-REACT clips (86cackb3j — locomotion/hit-react integration). All WITHOUT skin, GENERIC,
+        // bind by transform path onto Idle's mesh (same mixamorig rig — the proven Walk/Run/jump idiom). Looping
+        // for the sustained states (crouch idle/move, stunned hold), one-shot for the reactions/recovery/interaction.
+        public const string SneakWalkFbxPath = CharDir + "/Sneak Walk.fbx";       // crouch-move (LOOP)
+        public const string CrouchIdleFbxPath = CharDir + "/Crouching Idle.fbx";  // crouch stand (LOOP)
+        public const string GettingUpFbxPath = CharDir + "/Getting Up.fbx";       // stun recovery (one-shot)
+        public const string PickingUpFbxPath = CharDir + "/Picking Up.fbx";       // ground-pick interaction (one-shot)
+        public const string StunnedFbxPath = CharDir + "/Stunned.fbx";            // knocked-down hold (LOOP)
+        public const string HeadHitFbxPath = CharDir + "/Head Hit.fbx";           // hit-react (one-shot)
+        public const string BigStomachHitFbxPath = CharDir + "/Big Stomach Hit.fbx"; // hit-react (one-shot)
+        public const string StomachHitFbxPath = CharDir + "/Stomach Hit.fbx";     // hit-react (one-shot)
+        public const string RibHitFbxPath = CharDir + "/Rib Hit.fbx";             // hit-react (one-shot)
+        public const string HitToBodyFbxPath = CharDir + "/Hit To Body.fbx";      // hit-react (one-shot, default region)
         public const string DiffusePngPath = CharDir + "/texture_diffuse.png";
         public const string NormalPngPath = CharDir + "/texture_normal.png";
         public const string MaterialPath = CharDir + "/CastawayMat.mat";
         public const string ControllerPath = CharDir + "/CastawayAnimator.controller";
 
-        // The model prefab MovementCameraScene instantiates IS the Idle FBX (it carries the skin + rig).
-        // Kept as the canonical "FbxPath" name so existing callers (MovementCameraScene, tests) need no
-        // rename — it now points at the with-skin Idle FBX.
-        public const string FbxPath = IdleFbxPath;
+        // ===== CASTAWAY v2 (Rodin base — ticket 86cajwp23). A NEW hero base (bearded rugged adult survivor,
+        // Sponsor-approved 2026-07-05), generated via the SAME Hyper3D-Rodin → Mixamo → Unity route as the
+        // original castaway (character-pipeline.md). Imported GENERIC + transform-path (CreateFromThisModel),
+        // the SAME shipping recipe as the current castaway — NOT Humanoid, NOT CopyFromOther (Humanoid
+        // cone-explodes the skinned mesh at runtime; 86ca8rdkp / live anti-Humanoid gate). v2's 41 Mixamo
+        // bones are a SUBSET of the clip skeleton (only middle/ring fingers missing), so the existing 18
+        // WITHOUT-skin clips (BreathingIdle/Walk/Run/Jump*/Melee/Crouch*/hit-reacts/Stunned/…) bind onto v2's
+        // mesh by TRANSFORM PATH with NO retarget — the same way they already bind onto the old Idle.fbx mesh.
+        // Source-of-truth files live under art-src/castaway-rodin-export/; the integration-consumed subset
+        // (rigged mesh + de-lit diffuse + normal) is committed here under v2/ so the .meta is deterministic.
+        public const string V2Dir = CharDir + "/v2";
+        public const string V2RiggedFbxPath = V2Dir + "/castaway_rigged_tpose.fbx"; // WITH skin (mesh+rig; T-pose take unused)
+        public const string V2DiffusePngPath = V2Dir + "/texture_diffuse.png"; // de-lit toon albedo (URP _BaseMap; NO shirt-recolor — v2 has no shirt)
+        public const string V2NormalPngPath = V2Dir + "/texture_normal.png";   // normal map (low strength)
+
+        // AC4 STAGED-ROLLOUT TOGGLE (SPONSOR-LOCKED 2026-07-05; DEFAULT FLIPPED TO v2 2026-07-05, ticket
+        // 86cajx050 — the Sponsor soaked v2 in a shipped build and APPROVED making it LIVE). v2 (Rodin base)
+        // is now the DEFAULT hero character; the old base is NOT deleted (it stays reachable so a rollback is
+        // a one-line flip of this const back to false). Resolved at BOOTSTRAP time: CI re-runs
+        // BootstrapProject.Run before EVERY build (ci.yml), so the toggle is honored WITHOUT committing a
+        // regenerated Boot.unity (which is re-authored each bootstrap anyway). The FARHORIZON_CASTAWAY_V2 env
+        // var stays as an override handle (UseCastawayV2 = env==1 OR default); with the default now true the
+        // toggle is ON regardless. When the old base is finally removed in a follow-up, RecolorShirtToTan +
+        // the Shirt* constants + the old-base seat constants get deleted with it.
+        public const bool UseCastawayV2Default = true;
+        public const string CastawayV2EnvVar = "FARHORIZON_CASTAWAY_V2";
+        public static bool UseCastawayV2 =>
+            System.Environment.GetEnvironmentVariable(CastawayV2EnvVar) == "1" || UseCastawayV2Default;
+
+        // ===== CASTAWAY v3 (Rodin Smart-Low-poly base — ticket 86cak41d4). The Sponsor-locked NEXT hero: a
+        // hopeful young-ish mid-30s adventurer (torn teal shirt, warm palette), 7.4k tris of REAL facet
+        // geometry (Rodin Smart-Low-poly route, NOT a decimated high-poly), HSV-POSTERIZED flat diffuse.
+        // Same Hyper3D-Rodin → Mixamo → Unity route as v1/v2 (character-pipeline.md); imported GENERIC +
+        // CreateFromThisModel (the anti-Humanoid recipe, 86ca8rdkp). Mixamo returned 41 bones incl. 16 finger
+        // bones, root mixamorig:Hips, all verts weighted — the existing 18 WITHOUT-skin clips bind onto v3's
+        // mesh by TRANSFORM PATH with NO retarget (same way they bind onto v2's mesh).
+        //
+        // DORMANT INTEGRATION (mirrors the v2 staged-toggle exactly): v2 STAYS the LIVE default; v3 activates
+        // only under FARHORIZON_CASTAWAY_V3=1 (default OFF), so this PR merges dormant-safe (toggle OFF ⇒ v2
+        // byte-unchanged, every consumer gated). Activation is a SEPARATE default-flip + soak PR.
+        //
+        // Source-of-truth export lives under art-src/castaway-v3-rodin-export-lowpoly/; the integration-consumed
+        // subset (the with-skin mixamo/Idle.fbx rigged mesh + the posterized diffuse) is committed here under v3/
+        // so the .meta is deterministic. Material: URP/Unlit + posterized diffuse, NO normal/metallic/roughness
+        // (the weapon-family material contract, 86cak3r3k — v2's URP/Lit+normal was a diagnosed style-mismatch
+        // cause). A URP/Lit-no-normal variant is available behind FARHORIZON_CASTAWAY_V3_LIT=1 for the soak A/B.
+        public const string V3Dir = CharDir + "/v3";
+        public const string V3RiggedFbxPath = V3Dir + "/castaway_v3_rigged.fbx"; // WITH skin (mixamo/Idle.fbx: mesh+rig; Idle take unused)
+        public const string V3DiffusePosterizedPngPath = V3Dir + "/texture_diffuse_posterized.png"; // HSV-posterized flat diffuse (URP _BaseMap)
+
+        // v3 STAGED-ROLLOUT TOGGLE (86cak41d4 dormant integration; ACTIVATED 86cak9kau — DEFAULT FLIPPED TO
+        // true 2026-07-06 after the Sponsor soaked v3 in a shipped build and APPROVED making it LIVE). v3
+        // (Rodin Smart-Low-poly base) is now the DEFAULT hero character. v2 is NOT deleted — it stays reachable
+        // as the ROLLBACK target: flipping this const back to false selects v2 (UseCastawayV2 stays true), a
+        // one-line rollback, mirroring how #262 kept the old base behind the v2 toggle. Resolved at BOOTSTRAP
+        // time (CI re-runs BootstrapProject.Run before every build), so the toggle is honored WITHOUT committing
+        // a regenerated Boot.unity. FARHORIZON_CASTAWAY_V3=1 stays as an override handle; with the default now
+        // true the toggle is ON regardless.
+        public const bool UseCastawayV3Default = true;
+        public const string CastawayV3EnvVar = "FARHORIZON_CASTAWAY_V3";
+        public static bool UseCastawayV3 =>
+            System.Environment.GetEnvironmentVariable(CastawayV3EnvVar) == "1" || UseCastawayV3Default;
+
+        // v3 MATERIAL A/B sub-toggle (86cak41d4) — URP/Unlit is the v3 primary (weapon-family material contract).
+        // If the Unlit v3 reads "pasted-in" against the lit terrain at the soak, FARHORIZON_CASTAWAY_V3_LIT=1
+        // cuts an alternate build binding a URP/Lit-no-normal-map variant material instead (same posterized
+        // diffuse). The Sponsor rules at soak; both are noted in the Self-Test Report. Only meaningful when
+        // UseCastawayV3 is also set.
+        public const string CastawayV3LitEnvVar = "FARHORIZON_CASTAWAY_V3_LIT";
+        public static bool UseCastawayV3LitMaterial =>
+            System.Environment.GetEnvironmentVariable(CastawayV3LitEnvVar) == "1";
+
+        // ===== CASTAWAY v4 (chamfered-blocky "wooden toy" hand-model — ticket 86catpwc4). A NEW hero base:
+        // the SAME castaway IDENTITY as v3 (friendly, teal torn shirt, brown rolled pants, rope belt, barefoot,
+        // stubble) RESTYLED as a deliberate GEOMETRIC/segmented "wooden toy" (40 rigid blocks per limb segment,
+        // ~3.9 heads tall, mitten+thumb hands, painted face + geometry nose). Hand-modeled in Blender (Fable
+        // exception session, Sponsor-approved at look-dev 2026-07-18); NOT the Rodin route — the gestalt-failure
+        // ruling that closed hand-modeling for ORGANIC heroes does NOT apply to a geometric/toy target
+        // (character-pipeline.md §Scope nuance 2026-07-18). Spec: art-src/castaway-v4-README.md.
+        //
+        // The v4 rig is a FRESH Mixamo Standard auto-rig off our OWN Blender export (the FIRST character through
+        // our exporter; phase B re-uploaded castaway_v4_apose_rawfix.fbx with the Blender-FBX-DEFAULT axis recipe
+        // — character-pipeline.md §Step 3 — so it loads face-forward). Phase-B verified PASS 6/6 (ticket comment):
+        // root mixamorig:Hips, 33 bones (v3=41; delta = finger geometry — v4 has ONLY the Index chain per hand +
+        // NO thumb bones), 0 unweighted verts (960 verts, max 5 influences), single skinned mesh CastawayV4
+        // (1760 tris), material CastawayV4Palette, 251-frame idle take, raw axes Up=+Y/Front=+Z/Coord=+X (== v3).
+        // Imported GENERIC + CreateFromThisModel (the anti-Humanoid recipe, 86ca8rdkp; Humanoid cone-explodes the
+        // skinned mesh at runtime). The core mixamorig bones the 18 WITHOUT-skin clips drive by transform path
+        // ARE ALL present (hips/spine*/neck/head, both up-leg/leg/foot/toebase, both shoulder/arm/forearm/hand),
+        // so the existing clip set binds onto v4's mesh with NO retarget — same as v2/v3.
+        //
+        // DORMANT INTEGRATION (mirrors the v2/v3 staged-toggle EXACTLY): v3 STAYS the LIVE default; v4 activates
+        // ONLY under FARHORIZON_CASTAWAY_V4=1 (default OFF), so THIS PR merges dormant-safe (toggle OFF ⇒ v3
+        // byte-unchanged, every consumer gated). Soak (env-var build, sponsor-judged) + the FINAL default-flip /
+        // held-prop re-seat / capture-gate reconciliation are the ACTIVATION ticket (OOS here — v3-activation
+        // precedent 86cak9kau). Source-of-truth export: art-src/castaway-v4-export/; the integration-consumed
+        // subset (rigged mesh + flat palette) is committed under v4/ so the .meta is deterministic.
+        public const string V4Dir = CharDir + "/v4";
+        public const string V4RiggedFbxPath = V4Dir + "/castaway_v4_rigged.fbx"; // WITH skin (Mixamo Idle.fbx: mesh+rig; idle take unused)
+        public const string V4PalettePngPath = V4Dir + "/castaway_v4_palette.png"; // shared flat palette (URP/Lit _BaseMap)
+
+        // v4 STAGED-ROLLOUT TOGGLE (86catpwc4 phase C) — DORMANT: DEFAULT OFF. v3 stays the LIVE hero until the
+        // Sponsor soaks v4 in a shipped build and approves the flip (a SEPARATE activation ticket, per the
+        // v2→v3 precedent 86cak9kau). Resolved at BOOTSTRAP time (CI re-runs BootstrapProject.Run before every
+        // build), so the toggle is honored WITHOUT committing a regenerated Boot.unity. FARHORIZON_CASTAWAY_V4=1
+        // overrides for the env-var SOAK build (character-pipeline.md §Rolling out step 2). With the default OFF,
+        // UseCastawayV4 is false unless the env override is set ⇒ the default build renders v3, byte-unchanged.
+        public const bool UseCastawayV4Default = false;
+        public const string CastawayV4EnvVar = "FARHORIZON_CASTAWAY_V4";
+        public static bool UseCastawayV4 =>
+            System.Environment.GetEnvironmentVariable(CastawayV4EnvVar) == "1" || UseCastawayV4Default;
+
+        // The model prefab MovementCameraScene instantiates IS the with-skin mesh FBX (it carries the skin +
+        // rig). Toggle-aware, HIGHEST-VERSION-FIRST: v4 when UseCastawayV4 (env override, DORMANT default OFF),
+        // else v3 when UseCastawayV3 (the LIVE default), else v2, else the old Idle.fbx. Callers
+        // (MovementCameraScene.BuildModel, diagnostics) read CharacterAssetGen.FbxPath unchanged — the SAME
+        // accessor now returns the toggle-selected mesh. v4 default OFF ⇒ with no env override this still returns
+        // V3RiggedFbxPath (v3 byte-unchanged — the dormant-safe guard, CastawayV4BaseTests test 5).
+        public static string FbxPath =>
+            UseCastawayV4 ? V4RiggedFbxPath :
+            UseCastawayV3 ? V3RiggedFbxPath :
+            UseCastawayV2 ? V2RiggedFbxPath : IdleFbxPath;
 
         // Mixamo clip-take finding (EMPIRICAL, spike Hyper3DSpikeDiag 2026-06-15): BOTH FBX export their
         // single clip as the take name "mixamo.com" (NOT "Idle"/"Walk"). An exact/Contains "Idle"/"Walk"
@@ -85,7 +222,8 @@ namespace FarHorizon.EditorTools
         // the SOURCE take by "mixamo.com" and RENAME it on import to a stable per-FBX name, so the two clips
         // are distinct in the controller.
         public const string SourceTake = "mixamo.com";
-        public const string IdleClip = "CastawayIdle"; // renamed-on-import (the controller binds this)
+        public const string IdleClip = "CastawayIdle"; // renamed-on-import (the with-skin Idle.fbx clip — UNUSED by the controller now; the Idle STATE plays BreathingIdleClip below)
+        public const string BreathingIdleClip = "CastawayBreathingIdle"; // renamed-on-import (86cackb3j — the at-rest IDLE state clip, LOOP)
         public const string WalkClip = "CastawayWalk"; // renamed-on-import
         public const string RunClip = "CastawayRun";   // renamed-on-import (86ca9yq34 — the Run clip)
         // TWO jump clips by movement state (86ca9yq3q rework) — renamed-on-import, distinct in the controller.
@@ -94,6 +232,18 @@ namespace FarHorizon.EditorTools
         // The CHOP swing clip — renamed-on-import (the Mixamo take is "mixamo.com"; an exact "Melee" match loops
         // ZERO clips, the T-pose-mid-swing failure class). Distinct in the controller as the Attack state's clip.
         public const string MeleeClip = "CastawayMelee"; // chop swing (Melee_Attack.fbx, NON-looping one-shot)
+        // CROUCH + HIT-REACT clip names (86cackb3j) — renamed-on-import from the Mixamo "mixamo.com" take (an exact
+        // "Sneak Walk"/"Head Hit"/… match loops/binds ZERO clips, the T-pose class). Distinct per-FBX in the controller.
+        public const string CrouchWalkClip = "CastawayCrouchWalk"; // Sneak Walk.fbx (LOOP)
+        public const string CrouchIdleClip = "CastawayCrouchIdle"; // Crouching Idle.fbx (LOOP)
+        public const string GettingUpClip = "CastawayGettingUp";   // Getting Up.fbx (one-shot recovery)
+        public const string PickingUpClip = "CastawayPickingUp";   // Picking Up.fbx (one-shot interaction)
+        public const string StunnedClip = "CastawayStunned";       // Stunned.fbx (LOOP — knocked-down hold)
+        public const string HeadHitClip = "CastawayHeadHit";       // Head Hit.fbx (one-shot)
+        public const string BigStomachHitClip = "CastawayBigStomachHit"; // Big Stomach Hit.fbx (one-shot)
+        public const string StomachHitClip = "CastawayStomachHit"; // Stomach Hit.fbx (one-shot)
+        public const string RibHitClip = "CastawayRibHit";         // Rib Hit.fbx (one-shot)
+        public const string HitToBodyClip = "CastawayHitToBody";   // Hit To Body.fbx (one-shot, default region)
 
         // The Animator TRIGGER param that fires the one-shot Jump state (86ca9yq3q). CastawayCharacter pulses
         // it on the rising edge of a jump (SetTrigger). The controller routes the trigger to JumpIdle (Moving
@@ -108,6 +258,14 @@ namespace FarHorizon.EditorTools
         // while non-locomotion → the "floating" percept the Sponsor reported).
         public const string GroundedParam = "Grounded";
 
+        // The LOCOMOTION PLAYBACK-SPEED MULTIPLIER float (86cackb3j re-soak Part 2 — FOOT-SYNC). The Locomotion
+        // blend-tree state's speedParameter reads this, so setting it scales the WALK+RUN clip PLAYBACK RATE to
+        // match the actual agent move-speed (the legs cadence tracks translation → feet don't skate). The Sponsor
+        // reported the WALK legs too slow vs move-speed (feet skate). CastawayCharacter computes it per-frame =
+        // currentSpeed / blendedStrideRef (the clip's natural ground speed), clamped, so a faster body strides
+        // faster legs. Default 1 = the authored cadence (an unbound rig / at the reference speed plays unchanged).
+        public const string LocoSpeedMulParam = "LocoSpeedMul";
+
         // The one-shot CHOP TRIGGER (86caa4c5c change-(b)). CastawayCharacter.TriggerChop() pulses it on each
         // landed chop so the Animator plays the Attack (melee swing) state ONCE and returns to locomotion. Mirrors
         // CastawayCharacter.ChopParam (kept in sync). The Attack state is an AnyState→Attack on this trigger so a
@@ -119,6 +277,21 @@ namespace FarHorizon.EditorTools
         // settings-panel `tool-use speed` row drives CastawayCharacter.chopSpeed, which sets this param live (V1).
         // 1x = the authored clip duration. Default 1 so an unbound rig plays the clip at its authored speed.
         public const string ChopSpeedParam = "ChopSpeed";
+
+        // ===== CROUCH + HIT-REACT params (86cackb3j) — mirror CastawayCharacter.* (kept in sync; the runtime can't
+        // reference the editor asmdef, and a ControllerParamNamesMatch test pins the duplication). The GAMEPLAY
+        // systems that DRIVE these are SEPARATE tickets (this ticket's OOS); the controller only WIRES the clips to them.
+        public const string CrouchParam = "Crouch";       // bool — upright<->crouch lane select
+        public const string HitParam = "Hit";             // trigger — fire a body-region hit-react
+        public const string HitRegionParam = "HitRegion"; // int — which region clip (see HitRegion* below)
+        public const string StunnedParam = "Stunned";     // bool — knocked-down hold (loops) -> Getting Up on release
+        public const string PickUpParam = "PickUp";       // trigger — the one-shot ground-pick interaction
+        // HitRegion int values (mirror CastawayCharacter.HitRegion*). 0 = the default Hit To Body reaction.
+        public const int HitRegionBody = 0;
+        public const int HitRegionHead = 1;
+        public const int HitRegionBigStomach = 2;
+        public const int HitRegionStomach = 3;
+        public const int HitRegionRib = 4;
 
         // The 1D Walk<->Run blend-tree thresholds on the Speed param (86ca9yq34). Idle@0, Walk@WalkBlendSpeed,
         // Run@RunBlendSpeed — so the planar agent speed WasdMovement commands (moveSpeed walking, runSpeed
@@ -160,7 +333,28 @@ namespace FarHorizon.EditorTools
 
         public static void PrepareCharacter()
         {
-            ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize
+            // CASTAWAY v2 (86cajwp23) — ALWAYS configure the v2 base FBX importer (Generic + CreateFromThisModel
+            // + height-normalize), even when the toggle is OFF, so its .meta is deterministic + the EditMode
+            // import guards (CastawayV2BaseTests) always have a real import to assert. The WIRING (which mesh →
+            // Boot.unity, which textures → CastawayMat, whether RecolorShirtToTan runs, which axe seat) is what
+            // the UseCastawayV2 toggle gates below — importing the base is cheap + side-effect-free on the old path.
+            ConfigureV2BaseFbx();
+            // CASTAWAY v3 (86cak41d4) — ALWAYS configure the v3 base FBX importer (Generic + CreateFromThisModel
+            // + height-normalize), even when the toggle is OFF, so its .meta is deterministic + the EditMode
+            // import guards (CastawayV3BaseTests) always have a real import to assert. Same rationale as v2: the
+            // WIRING (which mesh → Boot.unity, which diffuse → CastawayMat) is what UseCastawayV3 gates below —
+            // importing the base is cheap + side-effect-free on the v2/old path.
+            ConfigureV3BaseFbx();
+            // CASTAWAY v4 (86catpwc4) — ALWAYS configure the v4 base FBX importer (Generic + CreateFromThisModel
+            // + height-normalize), even when the DORMANT toggle is OFF, so its .meta is deterministic + the
+            // EditMode import guards (CastawayV4BaseTests) always have a real import to assert. Same rationale as
+            // v2/v3: the WIRING (which mesh → Boot.unity, which palette → CastawayMat) is what UseCastawayV4 gates;
+            // importing the base is cheap + side-effect-free on the v3/v2/old path.
+            ConfigureV4BaseFbx();
+            ConfigureIdleFbx();   // Generic CreateFromThisModel + loop+rename Idle + height-normalize (the WITH-skin mesh/rig)
+            // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle STATE plays. WITHOUT-skin Generic,
+            // binds by transform path onto Idle's mesh (the Walk/Run idiom). LOOP (a sustained breathing cycle).
+            ConfigureGenericClipFbx(BreathingIdleFbxPath, BreathingIdleClip, loop: true);
             ConfigureWalkFbx();   // Generic CreateFromThisModel + loop+rename Walk (binds by transform path)
             ConfigureRunFbx();    // Generic CreateFromThisModel + loop+rename Run (binds by transform path; 86ca9yq34)
             // TWO jump clips by movement state (86ca9yq3q rework): idle/standing + walk/run, both NON-looping one-shots.
@@ -169,16 +363,231 @@ namespace FarHorizon.EditorTools
             // CHOP swing clip (86caa4c5c change-(b)) — the Mixamo melee one-shot, Generic + NON-looping; binds by
             // transform path onto Idle's mesh (same mixamorig rig). Replaces the procedural ChopPoseDriver swing.
             ConfigureMeleeFbx();
+            // CROUCH + HIT-REACT clips (86cackb3j) — all WITHOUT-skin Generic, bind by transform path onto Idle's
+            // mesh (the proven Walk/Run/jump idiom). LOOP the sustained states (crouch idle/move, stunned hold);
+            // ONE-SHOT the reactions/recovery/interaction. ConfigureGenericClipFbx is the parameterised import
+            // (same body as ConfigureWalkFbx/ConfigureJumpFbx, differing only in loop + rename target).
+            ConfigureGenericClipFbx(SneakWalkFbxPath, CrouchWalkClip, loop: true);
+            ConfigureGenericClipFbx(CrouchIdleFbxPath, CrouchIdleClip, loop: true);
+            // GAIT-CURVE SMOOTHING (86caa3kur / #197 — the toe-pop fix). Generate an editable smoothed .anim from
+            // the raw Sneak Walk clip with ONLY the mid-cycle foot/toe quaternion spike (LeftToeBase ~80deg/frame @
+            // normT~=0.907, live-probe confirmed) surgically slerp-smoothed; every other curve copied verbatim.
+            // BuildAnimatorController points CrouchWalk at this .anim. Runs AFTER the FBX import (it reads the imported
+            // raw clip) and BEFORE BuildAnimatorController (which binds the smoothed clip). Committed .anim ships it.
+            {
+                var gaitSb = new System.Text.StringBuilder();
+                SneakGaitCurveFix.Generate(gaitSb);
+                Debug.Log(gaitSb.ToString());
+            }
+            ConfigureGenericClipFbx(StunnedFbxPath, StunnedClip, loop: true);   // knocked-down HOLD loops until recovery
+            ConfigureGenericClipFbx(GettingUpFbxPath, GettingUpClip, loop: false);
+            ConfigureGenericClipFbx(PickingUpFbxPath, PickingUpClip, loop: false);
+            ConfigureGenericClipFbx(HeadHitFbxPath, HeadHitClip, loop: false);
+            ConfigureGenericClipFbx(BigStomachHitFbxPath, BigStomachHitClip, loop: false);
+            ConfigureGenericClipFbx(StomachHitFbxPath, StomachHitClip, loop: false);
+            ConfigureGenericClipFbx(RibHitFbxPath, RibHitClip, loop: false);
+            ConfigureGenericClipFbx(HitToBodyFbxPath, HitToBodyClip, loop: false);
             // IDENTITY RECOLOR (86ca8rdkp) — REPRODUCIBLE-FROM-CODE (the project invariant: CI re-runs
             // bootstrap). Repaints the shirt region of texture_diffuse, idempotently. Runs AFTER the FBX
             // import (the material binds the diffuse PNG; repainting it does not need the FBX re-imported).
-            RecolorShirtToTan();
-            BuildMaterial();      // flat de-lit URP/Lit from the (now recolored) texture_diffuse
+            // AC3 (86cajwp23) — RETIRED for v2: the Rodin base has NO shirt, so the yellow→tan shirt remap is
+            // OLD-castaway-only. Gated OFF when UseCastawayV2 (which also swaps BuildMaterial to v2's already-
+            // de-lit textures). When v2 is promoted to the default, RecolorShirtToTan is deleted outright.
+            if (!UseCastawayV2)
+                RecolorShirtToTan();
+            BuildMaterial();      // flat de-lit URP/Lit from texture_diffuse (v2's de-lit albedo, or the old recolored shirt)
             BuildAnimatorController();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[CharacterAssetGen] Hyper3D castaway prepared: " + IdleFbxPath + " + " + WalkFbxPath +
                       " + " + MaterialPath + " + " + ControllerPath);
+        }
+
+        // CASTAWAY v2 base (86cajwp23) — the Rodin rigged mesh FBX (WITH skin: mesh + mixamorig skeleton +
+        // an unused T-pose take). Import config is IDENTICAL to ConfigureIdleFbx's mesh path: GENERIC +
+        // CreateFromThisModel (its OWN avatar from its OWN mixamorig skeleton — the anti-Humanoid recipe;
+        // 86ca8rdkp Humanoid cone-explodes the mesh at runtime) + height-normalize to TargetImportHeightU.
+        // The 18 existing WITHOUT-skin clips bind onto THIS mesh by transform path (matching mixamorig bone
+        // names) with NO retarget — exactly how they already bind onto the old Idle.fbx. importAnimation=false:
+        // v2's own T-pose take is unused (the controller drives BreathingIdle/Walk/Run/… from the clip FBX),
+        // so we import the mesh + rig ONLY (no stray clip). materialImportMode=None: the shared de-lit
+        // CastawayMat is authored by BuildMaterial + bound editor-time by MovementCameraScene (no stray FBX mat).
+        // Configured on EVERY bootstrap (toggle-independent) so the .meta is deterministic + the EditMode import
+        // guards always assert a real import; only the SCENE WIRING is gated on UseCastawayV2.
+        private static void ConfigureV2BaseFbx()
+        {
+            var importer = AssetImporter.GetAtPath(V2RiggedFbxPath) as ModelImporter;
+            if (importer == null)
+            {
+                Debug.LogError("[CharacterAssetGen] castaway v2 base FBX not found at " + V2RiggedFbxPath +
+                               " — v2 integration (86cajwp23) cannot import; the old castaway is unaffected");
+                return;
+            }
+
+            importer.animationType = ModelImporterAnimationType.Generic; // NOT Humanoid (86ca8rdkp runtime-explosion)
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = false; // mesh+rig only — clips come from the WITHOUT-skin clip FBX by transform path
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            // HEIGHT NORMALIZE the intrinsic import to ~1u (v2 imports at ~1.889m; TargetImportHeightU=1.0).
+            // Self-correcting: reads the current globalScale, measures at that scale, re-scales to hit target —
+            // convergent regardless of the committed .meta's starting globalScale (the old Idle path idiom).
+            float measured = MeasureHeight(V2RiggedFbxPath);
+            if (measured > 0.01f)
+            {
+                float factor = importer.globalScale * (TargetImportHeightU / measured);
+                importer.globalScale = factor;
+                Debug.Log($"[CharacterAssetGen] v2 base height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                          $"(target {TargetImportHeightU}u)");
+            }
+            else
+            {
+                Debug.LogWarning("[CharacterAssetGen] could not measure v2 base height — skipping normalize");
+            }
+
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+
+            var avatar = LoadAvatar(V2RiggedFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] castaway v2 base did NOT produce a VALID avatar (avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               ") — clips will not bind (the T-pose class)");
+            else
+                Debug.Log("[CharacterAssetGen] castaway v2 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
+                          (UseCastawayV2 ? " [WIRED — UseCastawayV2 ON]" : " [imported only — toggle OFF, old castaway live]"));
+        }
+
+        // CASTAWAY v3 base (86cak41d4) — the Rodin Smart-Low-poly rigged mesh FBX (mixamo/Idle.fbx, WITH skin:
+        // mesh + mixamorig skeleton + an unused Idle take). Import config is IDENTICAL to ConfigureV2BaseFbx:
+        // GENERIC + CreateFromThisModel (its OWN avatar from its OWN mixamorig skeleton — the anti-Humanoid
+        // recipe; 86ca8rdkp Humanoid cone-explodes the mesh at runtime) + height-normalize to TargetImportHeightU.
+        // The 18 existing WITHOUT-skin clips bind onto THIS mesh by transform path (matching mixamorig bone
+        // names) with NO retarget. importAnimation=false: v3's own Idle take is unused (the controller drives
+        // BreathingIdle/Walk/Run/… from the clip FBX). materialImportMode=None: the shared CastawayMat is
+        // authored by BuildMaterial + bound editor-time by MovementCameraScene (no stray FBX mat).
+        //
+        // FBX-7700 STRAY NODE (86cak41d4): mixamo/Idle.fbx carries a stray empty `Armature` node from the
+        // FBX-7700 export. Harmless — CreateFromThisModel builds the avatar from the mixamorig:* skeleton and the
+        // empty node becomes an inert transform; the avatar-valid assert below still guards clip binding.
+        // Configured on EVERY bootstrap (toggle-independent) so the .meta is deterministic + the EditMode import
+        // guards always assert a real import; only the SCENE WIRING is gated on UseCastawayV3.
+        private static void ConfigureV3BaseFbx()
+        {
+            var importer = AssetImporter.GetAtPath(V3RiggedFbxPath) as ModelImporter;
+            if (importer == null)
+            {
+                Debug.LogError("[CharacterAssetGen] castaway v3 base FBX not found at " + V3RiggedFbxPath +
+                               " — v3 integration (86cak41d4) cannot import; v2/old castaway is unaffected");
+                return;
+            }
+
+            importer.animationType = ModelImporterAnimationType.Generic; // NOT Humanoid (86ca8rdkp runtime-explosion)
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = false; // mesh+rig only — clips come from the WITHOUT-skin clip FBX by transform path
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            // HEIGHT NORMALIZE the intrinsic import to ~1u. Self-correcting: reads the current globalScale,
+            // measures at that scale, re-scales to hit target — convergent regardless of the committed .meta's
+            // starting globalScale (the old Idle path idiom, shared with ConfigureV2BaseFbx).
+            float measured = MeasureHeight(V3RiggedFbxPath);
+            if (measured > 0.01f)
+            {
+                float factor = importer.globalScale * (TargetImportHeightU / measured);
+                importer.globalScale = factor;
+                Debug.Log($"[CharacterAssetGen] v3 base height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                          $"(target {TargetImportHeightU}u)");
+            }
+            else
+            {
+                Debug.LogWarning("[CharacterAssetGen] could not measure v3 base height — skipping normalize");
+            }
+
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+
+            var avatar = LoadAvatar(V3RiggedFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] castaway v3 base did NOT produce a VALID avatar (avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               ") — clips will not bind (the T-pose class)");
+            else
+                Debug.Log("[CharacterAssetGen] castaway v3 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
+                          (UseCastawayV3 ? " [WIRED — UseCastawayV3 ON]" : " [imported only — toggle OFF, v2 castaway live]"));
+        }
+
+        // CASTAWAY v4 base (86catpwc4) — the chamfered-blocky hand-model rigged mesh FBX (Mixamo Idle.fbx, WITH
+        // skin: mesh + mixamorig skeleton + an unused idle take). Import config is IDENTICAL to ConfigureV3BaseFbx:
+        // GENERIC + CreateFromThisModel (its OWN avatar from its OWN mixamorig skeleton — the anti-Humanoid recipe;
+        // 86ca8rdkp Humanoid cone-explodes the mesh at runtime) + height-normalize to TargetImportHeightU. The 18
+        // existing WITHOUT-skin clips bind onto THIS mesh by transform path (matching mixamorig bone names) with
+        // NO retarget. importAnimation=false: v4's own idle take is unused (the controller drives BreathingIdle/
+        // Walk/Run/… from the clip FBX). materialImportMode=None: the shared CastawayMat is authored by
+        // BuildMaterial + bound editor-time by MovementCameraScene (no stray FBX mat).
+        //
+        // FBX-7700 STRAY NODE (as with v3): the Mixamo export carries a stray empty `Armature` node; harmless —
+        // CreateFromThisModel builds the avatar from the mixamorig:* skeleton and the empty node becomes inert;
+        // the avatar-valid assert below still guards clip binding. Configured on EVERY bootstrap (toggle-
+        // independent) so the .meta is deterministic + the EditMode import guards always assert a real import;
+        // only the SCENE WIRING is gated on UseCastawayV4.
+        private static void ConfigureV4BaseFbx()
+        {
+            var importer = AssetImporter.GetAtPath(V4RiggedFbxPath) as ModelImporter;
+            if (importer == null)
+            {
+                Debug.LogError("[CharacterAssetGen] castaway v4 base FBX not found at " + V4RiggedFbxPath +
+                               " — v4 integration (86catpwc4) cannot import; v3/v2/old castaway is unaffected");
+                return;
+            }
+
+            importer.animationType = ModelImporterAnimationType.Generic; // NOT Humanoid (86ca8rdkp runtime-explosion)
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = false; // mesh+rig only — clips come from the WITHOUT-skin clip FBX by transform path
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            // HEIGHT NORMALIZE the intrinsic import to ~1u (v4's mesh node carries the Mixamo 100× scale; the raw
+            // mesh is 1.90 m tall). Self-correcting: reads the current globalScale, measures at that scale,
+            // re-scales to hit target — convergent regardless of the committed .meta's starting globalScale (the
+            // old Idle path idiom, shared with ConfigureV2/V3BaseFbx).
+            float measured = MeasureHeight(V4RiggedFbxPath);
+            if (measured > 0.01f)
+            {
+                float factor = importer.globalScale * (TargetImportHeightU / measured);
+                importer.globalScale = factor;
+                Debug.Log($"[CharacterAssetGen] v4 base height-normalize: measured={measured:F3}u -> globalScale={factor:F5} " +
+                          $"(target {TargetImportHeightU}u)");
+            }
+            else
+            {
+                Debug.LogWarning("[CharacterAssetGen] could not measure v4 base height — skipping normalize");
+            }
+
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+
+            var avatar = LoadAvatar(V4RiggedFbxPath);
+            bool ok = avatar != null && avatar.isValid;
+            if (!ok)
+                Debug.LogError("[CharacterAssetGen] castaway v4 base did NOT produce a VALID avatar (avatar=" +
+                               (avatar != null) + " valid=" + (avatar != null && avatar.isValid) +
+                               ") — clips will not bind (the T-pose class)");
+            else
+                Debug.Log("[CharacterAssetGen] castaway v4 base reimported: rig=Generic CreateFromThisModel, avatar valid" +
+                          (UseCastawayV4 ? " [WIRED — UseCastawayV4 ON]" : " [imported only — DORMANT toggle OFF, v3 castaway live]"));
         }
 
         // Idle.fbx carries the skin (mesh+rig) + the Idle clip. Humanoid rig, avatar created from THIS model
@@ -326,8 +735,39 @@ namespace FarHorizon.EditorTools
         // MovementCameraScene binds this onto the avatar's SkinnedMeshRenderer(s) editor-time.
         private static void BuildMaterial()
         {
-            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(DiffusePngPath);
-            if (diffuse == null) { Debug.LogError("[CharacterAssetGen] texture_diffuse not found at " + DiffusePngPath); return; }
+            // CASTAWAY v4 (86catpwc4) — the chamfered-blocky toy authored a single Blender Principled material
+            // (CastawayV4Palette, Roughness 1, "Closest" interpolation) over a flat 128px palette (color blocks +
+            // a painted face patch). URP equivalent = URP/Lit MATTE (smoothness ~0, NO metallic, NO normal) with
+            // the palette as Base Map + POINT filtering (committed in the palette .meta, mirroring the weapon-
+            // palette import convention). Lit-matte (not Unlit) matches the authored Principled intent so the toy
+            // takes the warm scene key/fog like the rest of the world. Built to the SAME CastawayMat.mat path so
+            // MovementCameraScene.BindCastawayMaterial binds it unchanged; only the shader + source texture switch.
+            if (UseCastawayV4)
+            {
+                BuildV4Material();
+                return;
+            }
+
+            // CASTAWAY v3 (86cak41d4) — v3 adopts the WEAPON-FAMILY material contract (86cak3r3k): URP/Unlit +
+            // the POSTERIZED diffuse as Base Map, NO normal, NO metallic/roughness (v2's URP/Lit+normal-map was a
+            // diagnosed style-mismatch cause). Built to the SAME CastawayMat.mat path so MovementCameraScene's
+            // BindCastawayMaterial binds it unchanged; only the shader + source texture switch. A/B: if the Unlit
+            // v3 reads "pasted-in" against the lit terrain at soak, FARHORIZON_CASTAWAY_V3_LIT=1 builds a
+            // URP/Lit-no-normal variant instead (same posterized diffuse). The Sponsor rules at soak.
+            if (UseCastawayV3)
+            {
+                BuildV3Material();
+                return;
+            }
+
+            // AC1 (86cajwp23) — v2 binds its OWN de-lit diffuse + normal (URP toon albedo, no shirt-recolor);
+            // the old path binds the recolored old texture_diffuse. Same material path (CastawayMat.mat) + same
+            // toon idiom either way, so MovementCameraScene binds it unchanged; only the source textures switch.
+            string diffusePath = UseCastawayV2 ? V2DiffusePngPath : DiffusePngPath;
+            string normalPath = UseCastawayV2 ? V2NormalPngPath : NormalPngPath;
+
+            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(diffusePath);
+            if (diffuse == null) { Debug.LogError("[CharacterAssetGen] texture_diffuse not found at " + diffusePath); return; }
 
             var litShader = Shader.Find("Universal Render Pipeline/Lit");
             if (litShader == null) { Debug.LogError("[CharacterAssetGen] URP/Lit shader not found"); return; }
@@ -339,10 +779,10 @@ namespace FarHorizon.EditorTools
             if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
             if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
 
-            var normalTex = AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPngPath);
+            var normalTex = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
             if (normalTex != null)
             {
-                var ni = AssetImporter.GetAtPath(NormalPngPath) as TextureImporter;
+                var ni = AssetImporter.GetAtPath(normalPath) as TextureImporter;
                 if (ni != null && ni.textureType != TextureImporterType.NormalMap)
                 {
                     ni.textureType = TextureImporterType.NormalMap;
@@ -362,12 +802,91 @@ namespace FarHorizon.EditorTools
             Debug.Log("[CharacterAssetGen] de-lit URP/Lit material built from texture_diffuse -> " + MaterialPath);
         }
 
+        // CASTAWAY v3 material (86cak41d4) — the weapon-family material contract (86cak3r3k): URP/Unlit + the
+        // POSTERIZED diffuse as Base Map, NO normal, NO metallic/roughness. Written to CastawayMat.mat (bound
+        // unchanged by MovementCameraScene.BindCastawayMaterial). A/B: FARHORIZON_CASTAWAY_V3_LIT=1 swaps the
+        // shader to URP/Lit (matte, no normal map) so the Sponsor can compare the Unlit-vs-Lit read at soak.
+        private static void BuildV3Material()
+        {
+            var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(V3DiffusePosterizedPngPath);
+            if (diffuse == null)
+            {
+                Debug.LogError("[CharacterAssetGen] v3 posterized diffuse not found at " + V3DiffusePosterizedPngPath +
+                               " — v3 material cannot build");
+                return;
+            }
+
+            bool lit = UseCastawayV3LitMaterial;
+            string shaderName = lit ? "Universal Render Pipeline/Lit" : "Universal Render Pipeline/Unlit";
+            var shader = Shader.Find(shaderName);
+            if (shader == null) { Debug.LogError("[CharacterAssetGen] shader not found: " + shaderName); return; }
+
+            var mat = new Material(shader) { name = "CastawayMat" };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", diffuse);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+            if (lit)
+            {
+                // URP/Lit A/B variant — matte, NO normal map, NO metallic (the posterized diffuse carries the
+                // flat banded look; a normal map / gloss would fight it — 86cak3r3k).
+                if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.03f);
+                if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+                if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+            }
+
+            EnsureShaderAlwaysIncluded(shader);
+            AssetDatabase.CreateAsset(mat, MaterialPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[CharacterAssetGen] v3 material built: shader={shaderName} (posterized diffuse Base Map, " +
+                      $"no normal/metallic) -> {MaterialPath}" + (lit ? " [LIT A/B variant]" : " [UNLIT primary]"));
+        }
+
+        // CASTAWAY v4 material (86catpwc4) — URP/Lit MATTE over the flat palette (color blocks + painted face
+        // patch), matching the Blender Principled/Roughness-1 authored look: smoothness ~0 (no gloss), NO metallic,
+        // NO specular, NO normal map (the palette carries the flat toy read; a normal/gloss would fight it). Base
+        // Map = castaway_v4_palette.png (POINT-filtered, mips off — committed in the palette .meta so the flat
+        // color dots stay crisp and don't bleed). Written to CastawayMat.mat (bound unchanged by
+        // MovementCameraScene.BindCastawayMaterial). If it reads flat/pasted-in against the lit terrain at the
+        // soak, an Unlit A/B (mirroring the v3 FARHORIZON_CASTAWAY_V3_LIT lever) is a quick follow-up — the
+        // Sponsor rules at soak.
+        private static void BuildV4Material()
+        {
+            var palette = AssetDatabase.LoadAssetAtPath<Texture2D>(V4PalettePngPath);
+            if (palette == null)
+            {
+                Debug.LogError("[CharacterAssetGen] v4 palette not found at " + V4PalettePngPath +
+                               " — v4 material cannot build");
+                return;
+            }
+
+            var litShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (litShader == null) { Debug.LogError("[CharacterAssetGen] URP/Lit shader not found"); return; }
+
+            var mat = new Material(litShader) { name = "CastawayMat" };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", palette);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.03f); // matte/toy — no gloss
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+            if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+
+            EnsureShaderAlwaysIncluded(litShader);
+            AssetDatabase.CreateAsset(mat, MaterialPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[CharacterAssetGen] v4 material built: URP/Lit matte (palette Base Map, point-filtered, " +
+                      "no normal/metallic) -> " + MaterialPath);
+        }
+
         // IDENTITY RECOLOR (86ca8rdkp AC4) — warm the saturated-yellow SHIRT region of texture_diffuse toward
         // TAN, LUMA-PRESERVING (HSV value kept per-pixel so the toon gradient survives — NOT a flat material
         // tint). Reproducible-from-code + IDEMPOTENT: the remap is keyed on the SOURCE yellow band (a hue/sat/
         // value window), and a re-run sees the ALREADY-TANNED pixels OUTSIDE that band (tan hue ~34° is below
         // ShirtHueMin 38°), so a bootstrap re-run does NOT re-shift them — it converges. (Defensive: even if a
         // re-run caught an edge pixel still in-band, the absolute target hue makes it converge, not drift.)
+        //
+        // AC3 (86cajwp23) — OLD-CASTAWAY-ONLY, RETIRED for v2. The Rodin base (v2) has NO shirt, and its albedo
+        // is already de-lit from Rodin's De-light pass, so v2 needs no recolor at all. PrepareCharacter no longer
+        // calls this when UseCastawayV2 (see the gated call). It is kept (not deleted) ONLY because the old base
+        // stays live behind the toggle (AC4); when v2 is promoted to the default this method + its Shirt* constants
+        // are deleted outright.
         public static void RecolorShirtToTan()
         {
             string path = DiffusePngPath;
@@ -441,6 +960,18 @@ namespace FarHorizon.EditorTools
                     cc.name = newName;
                     cc.loopTime = true;
                     cc.loop = true;
+                    // LOOP-POSE blend (86caa3kur — #197 crouch-jerk fix). The C# property `loopPose` serializes
+                    // to the .meta field `loopBlend` (Unity API↔YAML naming differs). With loopBlend=0 the pose
+                    // SNAPS at the frame-N→frame-0 wrap once per clip cycle — for Sneak Walk that's once per
+                    // ~28-frame gait cycle = the Sponsor's "left, right, JERK" (LIVE-CONFIRMED via the v4 F2/F3
+                    // isolation build; foot-sync + speed both exonerated). loopPose=true blends the cycle ends so
+                    // the pose wraps seamlessly. INVISIBLE to a normalizedTime trace: a clean TIME-wrap is not a
+                    // clean POSE-wrap. The orientation/XZ/Y loop-blend fields (loopBlendOrientation:1,
+                    // loopBlendPositionXZ:1, loopBlendPositionY:0) are ALREADY at the desired values via the
+                    // lockRoot*/keepOriginal* lines below — left UNCHANGED (do not touch the spike's pinned
+                    // float-fix values). Net improvement / low risk across ALL looped clips (Idle/Walk/Run/
+                    // CrouchIdle/CrouchWalk/BreathingIdle/Stunned), all of which share loopBlend:0 today.
+                    cc.loopPose = true;
                     // ROOT-TRANSFORM settings matching the spike's known-clean import EXACTLY (the spike's
                     // shipped meta: keepOriginalOrientation=0, keepOriginalPositionY=1, keepOriginalPositionXZ=0).
                     // In-place loco (NavMeshAgent owns world position; applyRootMotion=false).
@@ -537,6 +1068,40 @@ namespace FarHorizon.EditorTools
                       $"renamed {renamed} NON-looping clip(s) -> {MeleeClip} (the chop swing)");
         }
 
+        // CROUCH + HIT-REACT clip import (86cackb3j) — the parameterised WITHOUT-skin Generic import shared by the
+        // crouch (Sneak Walk / Crouching Idle), stun (Stunned / Getting Up), pick-up (Picking Up), and the five
+        // hit-react clips. IDENTICAL import config to ConfigureWalkFbx/ConfigureJumpFbx (GENERIC rig, avatar from its
+        // OWN identical mixamorig skeleton — binds by TRANSFORM PATH onto Idle's mesh, NO Humanoid muscle retarget =
+        // the 86ca8rdkp runtime-explosion cause), differing only in the LOOP flag + rename target:
+        //   loop=true  → LoopAndRename   (crouch idle/move + the stunned HOLD — sustained cyclic states)
+        //   loop=false → RenameNonLooping (hit reactions / Getting Up recovery / Picking Up — ONE-SHOTs)
+        // materialImportMode=None so a with-skin source (none here — all are without-skin) never spills a stray
+        // material; harmless for without-skin. The Mixamo take is "mixamo.com" → renamed to clipName on import (the
+        // clip-take finding the Idle/Walk/Run/Jump/Melee imports honor — an exact name match loops ZERO clips).
+        private static void ConfigureGenericClipFbx(string fbxPath, string clipName, bool loop)
+        {
+            var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+            if (importer == null) { Debug.LogError("[CharacterAssetGen] clip FBX not found at " + fbxPath); return; }
+
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.sourceAvatar = null;
+            importer.importAnimation = true;
+            importer.importBlendShapes = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.useFileUnits = true;
+            importer.useFileScale = true;
+
+            int n;
+            importer.clipAnimations = loop
+                ? LoopAndRename(importer, clipName, out n)
+                : RenameNonLooping(importer, clipName, out n);
+            EditorUtility.SetDirty(importer);
+            importer.SaveAndReimport();
+            Debug.Log($"[CharacterAssetGen] {fbxPath} reimported: rig=Generic CreateFromThisModel, " +
+                      $"{(loop ? "looped" : "renamed NON-looping")} {n} clip(s) -> {clipName}");
+        }
+
         private static Avatar LoadAvatar(string fbxPath)
         {
             foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(fbxPath))
@@ -586,16 +1151,57 @@ namespace FarHorizon.EditorTools
         private static void BuildAnimatorController()
         {
             AnimationClip idle = FindClip(IdleFbxPath, IdleClip);
+            // BREATHING IDLE (86cackb3j re-soak) — the at-rest clip the Idle state + the blend-tree Idle floor play
+            // ("calm but clearly alive"). Falls back to the static Idle clip ONLY if the breathing FBX is missing
+            // (defensive — the controller never silently ships a T-pose; a missing breathing clip degrades to the
+            // prior static idle rather than a broken state).
+            AnimationClip breathingIdle = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            AnimationClip restIdle = breathingIdle != null ? breathingIdle : idle;
             AnimationClip walk = FindClip(WalkFbxPath, WalkClip);
             AnimationClip run = FindClip(RunFbxPath, RunClip);
             AnimationClip jumpIdle = FindClip(JumpIdleFbxPath, JumpIdleClip);
             AnimationClip jumpRunning = FindClip(JumpRunningFbxPath, JumpRunningClip);
             AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the chop swing (86caa4c5c change-(b))
+            // CROUCH + HIT-REACT clips (86cackb3j).
+            // CrouchWalk binds the SMOOTHED .anim (86caa3kur / #197 — the toe-pop fix), falling back to the raw FBX
+            // clip only if the smoothed asset is missing (defensive — never silently ship a T-pose; a missing
+            // smoothed clip degrades to the raw clip's known-visible-pop rather than a broken state).
+            AnimationClip crouchWalkSmoothed = AssetDatabase.LoadAssetAtPath<AnimationClip>(SneakGaitCurveFix.SmoothedClipPath);
+            AnimationClip crouchWalk = crouchWalkSmoothed != null ? crouchWalkSmoothed : FindClip(SneakWalkFbxPath, CrouchWalkClip);
+            if (crouchWalkSmoothed == null)
+                Debug.LogWarning("[CharacterAssetGen] smoothed CrouchWalk .anim NOT found at " +
+                                 SneakGaitCurveFix.SmoothedClipPath + " — falling back to the RAW Sneak Walk clip " +
+                                 "(the #197 toe-pop will be VISIBLE). Re-run PrepareCharacter to regenerate it.");
+            AnimationClip crouchIdle = FindClip(CrouchIdleFbxPath, CrouchIdleClip);
+            AnimationClip stunned = FindClip(StunnedFbxPath, StunnedClip);
+            AnimationClip gettingUp = FindClip(GettingUpFbxPath, GettingUpClip);
+            AnimationClip pickingUp = FindClip(PickingUpFbxPath, PickingUpClip);
+            AnimationClip headHit = FindClip(HeadHitFbxPath, HeadHitClip);
+            AnimationClip bigStomachHit = FindClip(BigStomachHitFbxPath, BigStomachHitClip);
+            AnimationClip stomachHit = FindClip(StomachHitFbxPath, StomachHitClip);
+            AnimationClip ribHit = FindClip(RibHitFbxPath, RibHitClip);
+            AnimationClip hitToBody = FindClip(HitToBodyFbxPath, HitToBodyClip);
             if (idle == null || walk == null || run == null || jumpIdle == null || jumpRunning == null || melee == null)
             {
                 Debug.LogError($"[CharacterAssetGen] missing clips (idle={idle != null}, walk={walk != null}, " +
                                $"run={run != null}, jumpIdle={jumpIdle != null}, jumpRunning={jumpRunning != null}, " +
                                $"melee={melee != null}); controller not built");
+                return;
+            }
+            // BREATHING IDLE absence is a LOUD warning (not fatal — restIdle falls back to the static idle), so a
+            // dropped breathing FBX doesn't silently ship a frozen T-pose AND doesn't block the locomotion fix.
+            if (breathingIdle == null)
+                Debug.LogWarning("[CharacterAssetGen] Breathing Idle clip NOT found at " + BreathingIdleFbxPath +
+                                 " — the Idle state will FALL BACK to the static Idle clip (the 'too static' soak " +
+                                 "complaint returns). Verify the FBX is committed + imports a 'mixamo.com' take.");
+            if (crouchWalk == null || crouchIdle == null || stunned == null || gettingUp == null || pickingUp == null ||
+                headHit == null || bigStomachHit == null || stomachHit == null || ribHit == null || hitToBody == null)
+            {
+                Debug.LogError($"[CharacterAssetGen] missing crouch/hit-react clips (86cackb3j) — crouchWalk=" +
+                               $"{crouchWalk != null}, crouchIdle={crouchIdle != null}, stunned={stunned != null}, " +
+                               $"gettingUp={gettingUp != null}, pickingUp={pickingUp != null}, headHit={headHit != null}, " +
+                               $"bigStomachHit={bigStomachHit != null}, stomachHit={stomachHit != null}, ribHit=" +
+                               $"{ribHit != null}, hitToBody={hitToBody != null}); controller not built");
                 return;
             }
 
@@ -609,10 +1215,25 @@ namespace FarHorizon.EditorTools
             // ChopSpeed default 1 (the authored melee clip speed); the Attack state's speedParameter reads it so
             // tool-use speed scales the swing playback rate live (CastawayCharacter.chopSpeed → SetFloat).
             AddFloatParam(controller, ChopSpeedParam, 1f);
+            // LocoSpeedMul default 1 (86cackb3j re-soak Part 2 — FOOT-SYNC). The Locomotion state's speedParameter
+            // reads it; CastawayCharacter drives it = actualSpeed / strideRef each frame so the legs cadence tracks
+            // move-speed (no foot-skate). Default 1 so an unbound rig plays the authored cadence.
+            AddFloatParam(controller, LocoSpeedMulParam, 1f);
+            // CROUCH + HIT-REACT params (86cackb3j). Crouch (bool) selects the crouch lane; Hit (trigger) + HitRegion
+            // (int) fire a body-region reaction; Stunned (bool) holds the knocked-down loop -> Getting Up on release;
+            // PickUp (trigger) fires the one-shot ground-pick. The gameplay systems driving these are OOS (this ticket
+            // only WIRES the clips); the params exist so the clips are reachable + the contract is test-pinned.
+            controller.AddParameter(CrouchParam, AnimatorControllerParameterType.Bool);
+            controller.AddParameter(HitParam, AnimatorControllerParameterType.Trigger);
+            controller.AddParameter(HitRegionParam, AnimatorControllerParameterType.Int);
+            controller.AddParameter(StunnedParam, AnimatorControllerParameterType.Bool);
+            controller.AddParameter(PickUpParam, AnimatorControllerParameterType.Trigger);
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
-            idleState.motion = idle;
+            // 86cackb3j re-soak — the at-rest Idle state plays the BREATHING idle clip ("calm but clearly alive"),
+            // replacing the static Idle clip. restIdle = breathingIdle (or the static idle as a defensive fallback).
+            idleState.motion = restIdle;
 
             // The Locomotion state = a 1D blend tree on Speed (Idle floor + Walk + Run). CreateBlendTreeInController
             // creates the tree as an asset child of the controller AND the hosting state in one call.
@@ -620,9 +1241,17 @@ namespace FarHorizon.EditorTools
             tree.blendType = BlendTreeType.Simple1D;
             tree.blendParameter = "Speed";
             tree.useAutomaticThresholds = false;
+            // FOOT-SYNC (86cackb3j re-soak Part 2) — the Locomotion state's PLAYBACK speed reads LocoSpeedMul, so
+            // CastawayCharacter scales the walk/run clip cadence to the actual move-speed (no foot-skate). This is
+            // the SAME idiom the Attack state uses for ChopSpeed (speedParameterActive + speedParameter). The Speed
+            // BLEND param (which clip) is untouched; this only scales HOW FAST the chosen blend plays.
+            locoState.speedParameterActive = true;
+            locoState.speedParameter = LocoSpeedMulParam;
             // Idle floor @0 so a tiny residual speed reads as standing (no foot-slide); Walk @WalkBlendSpeed;
             // Run @RunBlendSpeed. The Speed param above WalkBlendSpeed blends Walk->Run; below it blends Walk->Idle.
-            tree.AddChild(idle, IdleBlendSpeed);
+            // 86cackb3j re-soak — the @0 floor uses the BREATHING idle (restIdle) too, so a tiny residual speed at
+            // the edge of motion still reads "alive" rather than the old static idle.
+            tree.AddChild(restIdle, IdleBlendSpeed);
             tree.AddChild(walk, WalkBlendSpeed);
             tree.AddChild(run, RunBlendSpeed);
 
@@ -704,12 +1333,157 @@ namespace FarHorizon.EditorTools
 
             WireAttackReturn(attackState, locoState, idleState);
 
+            // ===== CROUCH LANE (86cackb3j) — a SECOND locomotion lane, NOT folded into the upright Walk<->Run
+            // blend tree (it stays exactly {Idle, Walk, Run} — the Attack/Jump OOS-protection idiom). Two states:
+            //   CrouchIdle = Crouching Idle.fbx (LOOP);  CrouchWalk = Sneak Walk.fbx (LOOP, the crouch-move).
+            // Reached from the upright graph on the Crouch bool, selected by Moving inside the crouch lane, and
+            // released back to the upright graph when Crouch flips false. AnyState→ on (Crouch [&& Moving]) so a
+            // crouch can engage from Idle OR mid-walk; the lane itself flips CrouchIdle<->CrouchWalk on Moving.
+            var crouchIdleState = sm.AddState("CrouchIdle");
+            crouchIdleState.motion = crouchIdle;
+            var crouchWalkState = sm.AddState("CrouchWalk");
+            crouchWalkState.motion = crouchWalk;
+
+            // AnyState → CrouchWalk (Crouch && Moving) ; AnyState → CrouchIdle (Crouch && !Moving). The moving lane
+            // is added first so a moving crouch-engage prefers CrouchWalk. canTransitionToSelf=false so re-evaluating
+            // the same lane doesn't restart the loop from 0.
+            var anyToCrouchWalk = sm.AddAnyStateTransition(crouchWalkState);
+            anyToCrouchWalk.AddCondition(AnimatorConditionMode.If, 0f, CrouchParam);
+            anyToCrouchWalk.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            anyToCrouchWalk.hasExitTime = false;
+            anyToCrouchWalk.duration = 0.18f;
+            anyToCrouchWalk.canTransitionToSelf = false;
+
+            var anyToCrouchIdle = sm.AddAnyStateTransition(crouchIdleState);
+            anyToCrouchIdle.AddCondition(AnimatorConditionMode.If, 0f, CrouchParam);
+            anyToCrouchIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            anyToCrouchIdle.hasExitTime = false;
+            anyToCrouchIdle.duration = 0.18f;
+            anyToCrouchIdle.canTransitionToSelf = false;
+
+            // Release the crouch lane back to the upright graph on (!Crouch): → Locomotion if Moving else Idle (the
+            // no-stall idiom — standing up while still moving resumes Walk/Run on the same frame).
+            WireCrouchRelease(crouchIdleState, locoState, idleState);
+            WireCrouchRelease(crouchWalkState, locoState, idleState);
+
+            // ===== HIT-REACT (86cackb3j) — five body-region reactions fired by the Hit trigger, the clip selected by
+            // the HitRegion int (0=Body default, 1=Head, 2=BigStomach, 3=Stomach, 4=Rib). Each is a ONE-SHOT overlay
+            // state (the Attack idiom): AnyState→<region> on (Hit && HitRegion==value), returning on exit-time to
+            // Locomotion (Moving) / Idle (!Moving) so a hit taken mid-walk resumes locomotion when the flinch ends.
+            // NOT folded into the blend tree. A hit can fire from any state (AnyState) — you can be hit while idle,
+            // walking, running, crouched, or recovering.
+            WireHitReact(sm, "HitToBody", hitToBody, HitRegionBody, locoState, idleState);
+            WireHitReact(sm, "HeadHit", headHit, HitRegionHead, locoState, idleState);
+            WireHitReact(sm, "BigStomachHit", bigStomachHit, HitRegionBigStomach, locoState, idleState);
+            WireHitReact(sm, "StomachHit", stomachHit, HitRegionStomach, locoState, idleState);
+            WireHitReact(sm, "RibHit", ribHit, HitRegionRib, locoState, idleState);
+
+            // ===== STUNNED + recovery (86cackb3j) — Stunned (bool) holds a LOOPING knocked-down state; when it flips
+            // false the character plays the one-shot Getting Up recovery, then returns to Locomotion/Idle. AnyState→
+            // Stunned on (Stunned) so a stun can land from any state. Stunned→GettingUp on (!Stunned). The recovery
+            // is a dedicated transition chain (NOT AnyState) so Getting Up only plays as the END of a stun, never
+            // spuriously. GettingUp returns on exit-time → Locomotion (Moving) / Idle.
+            var stunnedState = sm.AddState("Stunned");
+            stunnedState.motion = stunned;
+            var gettingUpState = sm.AddState("GettingUp");
+            gettingUpState.motion = gettingUp;
+
+            var anyToStunned = sm.AddAnyStateTransition(stunnedState);
+            anyToStunned.AddCondition(AnimatorConditionMode.If, 0f, StunnedParam);
+            anyToStunned.hasExitTime = false;
+            anyToStunned.duration = 0.08f;
+            anyToStunned.canTransitionToSelf = false; // re-asserting Stunned won't restart the knocked-down loop
+
+            // Stunned → GettingUp the moment Stunned releases (the recovery). No exit-time (the stun ends when the
+            // gameplay flag clears, not on a clip cycle).
+            var stunnedToRecover = stunnedState.AddTransition(gettingUpState);
+            stunnedToRecover.AddCondition(AnimatorConditionMode.IfNot, 0f, StunnedParam);
+            stunnedToRecover.hasExitTime = false;
+            stunnedToRecover.duration = 0.12f;
+            stunnedToRecover.hasFixedDuration = true;
+
+            // GettingUp plays once, then returns to Locomotion (Moving) / Idle on its exit-time (the recovery ends).
+            WireOneShotReturn(gettingUpState, locoState, idleState);
+
+            // ===== PICK-UP interaction (86cackb3j) — a ONE-SHOT ground-pick: AnyState→PickingUp on the PickUp trigger,
+            // returning on exit-time to Locomotion (Moving) / Idle (!Moving). The Attack/Getting-Up idiom.
+            var pickingUpState = sm.AddState("PickingUp");
+            pickingUpState.motion = pickingUp;
+            var anyToPickUp = sm.AddAnyStateTransition(pickingUpState);
+            anyToPickUp.AddCondition(AnimatorConditionMode.If, 0f, PickUpParam);
+            anyToPickUp.hasExitTime = false;
+            anyToPickUp.duration = 0.08f;
+            anyToPickUp.canTransitionToSelf = false;
+            WireOneShotReturn(pickingUpState, locoState, idleState);
+
             EditorUtility.SetDirty(controller);
             Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Locomotion(Moving) + Walk<->Run 1D " +
                       $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) + " +
                       $"JumpIdle/JumpRunning one-shots (AnyState on '{JumpParam}'+Moving; return on '{GroundedParam}' " +
                       $"edge → Locomotion if Moving else Idle) + Attack chop swing (AnyState on '{ChopParam}'; speed " +
-                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) -> " + ControllerPath);
+                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) + 86cackb3j: CrouchIdle/" +
+                      $"CrouchWalk lane (AnyState on '{CrouchParam}'[+Moving]; release on !Crouch) + 5 hit-reacts " +
+                      $"(AnyState on '{HitParam}'+'{HitRegionParam}'==0..4) + Stunned loop→GettingUp (on '{StunnedParam}') " +
+                      $"+ PickingUp one-shot (on '{PickUpParam}') -> " + ControllerPath);
+        }
+
+        // (86cackb3j) Release the crouch lane back to the upright graph on (!Crouch): → Locomotion if Moving else
+        // Idle. The no-stall idiom (standing up while moving resumes Walk/Run on the same frame). No exit-time — the
+        // crouch ends when the gameplay flag clears, not on a clip cycle. Moving transition added first.
+        private static void WireCrouchRelease(AnimatorState crouchState, AnimatorState locoState, AnimatorState idleState)
+        {
+            var toLoco = crouchState.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.IfNot, 0f, CrouchParam);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = false;
+            toLoco.duration = 0.18f;
+            toLoco.hasFixedDuration = true;
+
+            var toIdle = crouchState.AddTransition(idleState);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, CrouchParam);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            toIdle.hasExitTime = false;
+            toIdle.duration = 0.18f;
+            toIdle.hasFixedDuration = true;
+        }
+
+        // (86cackb3j) Wire one body-region hit-react: an AnyState→<state> one-shot fired by (Hit && HitRegion==region),
+        // returning on exit-time to Locomotion (Moving) / Idle (!Moving) — the Attack idiom so a mid-walk hit resumes
+        // locomotion when the flinch ends. canTransitionToSelf=true so a rapid repeated hit re-triggers the flinch.
+        private static void WireHitReact(AnimatorStateMachine sm, string stateName, AnimationClip clip, int region,
+                                         AnimatorState locoState, AnimatorState idleState)
+        {
+            var state = sm.AddState(stateName);
+            state.motion = clip;
+
+            var any = sm.AddAnyStateTransition(state);
+            any.AddCondition(AnimatorConditionMode.If, 0f, HitParam);
+            any.AddCondition(AnimatorConditionMode.Equals, region, HitRegionParam);
+            any.hasExitTime = false;
+            any.duration = 0.06f;            // a quick crossfade into the flinch
+            any.canTransitionToSelf = true;  // a rapid repeated hit re-triggers the flinch
+
+            WireOneShotReturn(state, locoState, idleState);
+        }
+
+        // (86cackb3j) Wire a one-shot overlay state's return on its OWN exit-time (the clip's natural end — a flinch /
+        // pick-up / recovery has no physics edge like the jump's landing): → Locomotion if Moving else Idle, so a
+        // held-movement one-shot resumes locomotion on the clip's end (the no-stall lesson, same as WireAttackReturn).
+        private static void WireOneShotReturn(AnimatorState state, AnimatorState locoState, AnimatorState idleState)
+        {
+            var toLoco = state.AddTransition(locoState);
+            toLoco.AddCondition(AnimatorConditionMode.If, 0f, "Moving");
+            toLoco.hasExitTime = true;
+            toLoco.exitTime = 0.9f;        // play ~90% of the clip before returning
+            toLoco.duration = 0.12f;
+            toLoco.hasFixedDuration = true;
+
+            var toIdle = state.AddTransition(idleState);
+            toIdle.AddCondition(AnimatorConditionMode.IfNot, 0f, "Moving");
+            toIdle.hasExitTime = true;
+            toIdle.exitTime = 0.9f;
+            toIdle.duration = 0.12f;
+            toIdle.hasFixedDuration = true;
         }
 
         // (86ca9yq3q rework — THE floating-bug fix) Wire a jump state's return transitions on the GROUNDED edge:
@@ -1034,6 +1808,573 @@ namespace FarHorizon.EditorTools
             foreach (var v in verts) { float y = l2w.MultiplyPoint3x4(v).y; if (y < minY) minY = y; }
             Object.DestroyImmediate(baked);
             return minY;
+        }
+
+        // ===== FINGER-DEFORM TRACE (86cackb3j re-soak Part 4 — "clean in T-pose, mangles UNDER ANIMATION, empty
+        // hands no axe"). DIAGNOSE-VIA-TRACE (diagnostic-traces-before-hypothesized-fixes). The earlier -fingerTrace
+        // measured the BIND-POSE skinning (uniform 1.8 lossy, verts tight) and ruled out a static weight defect —
+        // but the new symptom is UNDER ANIMATION. CastawayFingerCurl early-returns when not gripping (line 111), so
+        // with empty hands it is NOT the cause; the candidates are: (1) a CLIP that poses the finger bones into a
+        // broken shape (POSE artifact — fix in CastawayFingerCurl angles/gating, code-only — though the empty-hand
+        // gate already rules the curl out, so a pose artifact here means the IMPORTED CLIP itself mangles), or
+        // (2) a genuine WEIGHT defect that only SHOWS when bones rotate (a finger vert dominantly weighted to the
+        // WRONG bone STRETCHES as that bone moves). This trace DISCRIMINATES them: it samples the BREATHING-IDLE +
+        // WALK clips across their cycle and, per right-hand finger bone, measures the dominant-weighted verts'
+        // distance-from-bone — a value that BALLOONS across the animation = a weight defect (verts torn off the
+        // bone); a value that stays ~bind-pose-tight while the bone rotates = clean skinning (the clip's bone POSE
+        // is what reads, not torn weights). Run:
+        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.FingerDeformTrace
+        public static void FingerDeformTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[finger-trace] ===== FINGER-DEFORM TRACE (86cackb3j — mangle-under-animation, empty hands) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[finger-trace] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // The right-hand finger bone tokens (mirror MovementCameraScene.RightFingerCurlTokens + thumb).
+            string[] fingerTokens =
+            {
+                "righthandindex1","righthandindex2","righthandindex3",
+                "righthandmiddle1","righthandmiddle2","righthandmiddle3",
+                "righthandring1","righthandring2","righthandring3",
+                "righthandthumb1","righthandthumb2","righthandthumb3",
+            };
+
+            var breathing = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            var walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[finger-trace] breathingIdle={(breathing != null ? breathing.name : "<null>")} " +
+                          $"walk={(walk != null ? walk.name : "<null>")}");
+
+            var model = Object.Instantiate(fbx);
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null || smr.sharedMesh == null)
+            {
+                sb.AppendLine("[finger-trace] no SkinnedMeshRenderer/sharedMesh"); Object.DestroyImmediate(model);
+                Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return;
+            }
+
+            var bones = smr.bones;
+            var mesh = smr.sharedMesh;
+            var boneWeights = mesh.boneWeights;
+            var bindPoses = mesh.bindposes;
+
+            // For each finger bone: the index in the bones[] array + its lossyScale (a degenerate bone tag).
+            var fingerBoneIdx = new System.Collections.Generic.Dictionary<int, string>();
+            for (int b = 0; b < bones.Length; b++)
+            {
+                if (bones[b] == null) continue;
+                string tok = ExactTokenLocal(bones[b].name);
+                foreach (var ft in fingerTokens)
+                    if (tok == ft) { fingerBoneIdx[b] = ft; sb.AppendLine(
+                        $"[finger-trace] bone[{b}]='{bones[b].name}' tok={ft} lossyScale={bones[b].lossyScale}"); }
+            }
+            if (fingerBoneIdx.Count == 0) sb.AppendLine("[finger-trace] WARNING: NO finger bones resolved from the SMR bone array");
+
+            // Per finger bone, collect the vertices whose DOMINANT weight is that bone (the verts the bone owns).
+            var ownedVerts = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<int>>();
+            foreach (var kv in fingerBoneIdx) ownedVerts[kv.Key] = new System.Collections.Generic.List<int>();
+            for (int v = 0; v < boneWeights.Length; v++)
+            {
+                var w = boneWeights[v];
+                int dom = w.boneIndex0; float dw = w.weight0;
+                if (w.weight1 > dw) { dom = w.boneIndex1; dw = w.weight1; }
+                if (w.weight2 > dw) { dom = w.boneIndex2; dw = w.weight2; }
+                if (w.weight3 > dw) { dom = w.boneIndex3; dw = w.weight3; }
+                if (ownedVerts.ContainsKey(dom)) ownedVerts[dom].Add(v);
+            }
+
+            var baked = new Mesh();
+            // Measure, per sampled clip-time, each finger bone's owned-vert MAX distance from the bone origin in
+            // BONE-LOCAL space. A clean skin keeps this ~constant across the animation (verts ride the bone); a
+            // weight defect makes it BALLOON when a different bone rotates (verts torn off the owning bone).
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[finger-trace] {label}: <null clip>"); return; }
+                // bind-pose reference distance per bone (the clean baseline).
+                var maxDistOverClip = new System.Collections.Generic.Dictionary<int, float>();
+                var minDistOverClip = new System.Collections.Generic.Dictionary<int, float>();
+                foreach (var k in ownedVerts.Keys) { maxDistOverClip[k] = 0f; minDistOverClip[k] = float.PositiveInfinity; }
+                int N = 10;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    smr.BakeMesh(baked, false);
+                    var verts = baked.vertices;
+                    foreach (var kv in ownedVerts)
+                    {
+                        int boneI = kv.Key; var bone = bones[boneI];
+                        if (bone == null || kv.Value.Count == 0) continue;
+                        // verts bake in SMR-local space; map to bone-local via the bone's world matrix.
+                        Matrix4x4 w2bone = bone.worldToLocalMatrix * smr.transform.localToWorldMatrix;
+                        float maxD = 0f;
+                        foreach (int vi in kv.Value)
+                        {
+                            float d = w2bone.MultiplyPoint3x4(verts[vi]).magnitude;
+                            if (d > maxD) maxD = d;
+                        }
+                        if (maxD > maxDistOverClip[boneI]) maxDistOverClip[boneI] = maxD;
+                        if (maxD < minDistOverClip[boneI]) minDistOverClip[boneI] = maxD;
+                    }
+                }
+                foreach (var kv in fingerBoneIdx)
+                {
+                    int boneI = kv.Key;
+                    if (!maxDistOverClip.ContainsKey(boneI)) continue;
+                    float mn = minDistOverClip[boneI], mx = maxDistOverClip[boneI];
+                    float ratio = mn > 1e-4f ? mx / mn : float.PositiveInfinity;
+                    string flag = ratio > 1.6f ? "  <== WEIGHT-DEFECT SUSPECT (verts stretch >1.6x under anim)" : "";
+                    sb.AppendLine($"[finger-trace] {label} {kv.Value} owned={ownedVerts[boneI].Count} " +
+                                  $"ownedVertMaxDist min={mn:F4} max={mx:F4} ratio={ratio:F2}{flag}");
+                }
+            }
+
+            SampleClip("BREATHING-IDLE", breathing);
+            SampleClip("WALK", walk);
+            Object.DestroyImmediate(baked);
+            Object.DestroyImmediate(model);
+            sb.AppendLine("[finger-trace] VERDICT GUIDE: every finger bone ratio ~1.0 (verts ride the bone) => CLEAN " +
+                          "skinning; the mangle is the CLIP's finger-bone POSE (fix: CastawayFingerCurl/gating or " +
+                          "import). A bone ratio >1.6 => genuine WEIGHT defect (repaint that finger's weights).");
+            sb.AppendLine("[finger-trace] ===== END FINGER-DEFORM TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        private static string ExactTokenLocal(string boneName)
+        {
+            if (string.IsNullOrEmpty(boneName)) return "";
+            string n = boneName.ToLowerInvariant();
+            int colon = n.LastIndexOf(':');
+            if (colon >= 0) n = n.Substring(colon + 1);
+            return n;
+        }
+
+        // ===== FINGER-POSE ROTATION TRACE (PR #186 FINGER re-open — "MANGLES under the arms-down idle pose").
+        // The stretch-RATIO trace above (FingerDeformTrace) measures owned-vert distance-from-bone; that ONLY
+        // catches a STRETCHED/torn finger (a weight defect) — it CANNOT see a BENT / ROTATED / COLLAPSED finger,
+        // which is exactly what a "mangle" looks like (the verts ride a bone that the clip rotates to a BAD ANGLE,
+        // so distance-from-bone stays ~1.0 = "CLEAN" while the finger visibly bends wrong). So the earlier
+        // "CLEAN SKINNING" verdict was correct-but-irrelevant to a POSE mangle.
+        //
+        // This trace measures the MISSING dimension: each finger bone's LOCAL ROTATION under the BREATHING-IDLE
+        // pose (sampled across the cycle) vs the FBX BIND/REST local rotation, for BOTH hands. A finger bone whose
+        // clip pose rotates it far from its rest angle (esp. a big angle on a non-curl axis, or an asymmetric L-vs-R
+        // delta) is the cause-(a) signature: the imported Breathing-Idle clip poses that finger to a broken angle on
+        // THIS rig. A finger bone that stays near its rest angle under the clip = the clip is NOT mangling it
+        // (look elsewhere — weights / bind orient). Run:
+        //   Unity -batchmode -quit -projectPath . -executeMethod FarHorizon.EditorTools.CharacterAssetGen.FingerPoseRotationTrace
+        public static void FingerPoseRotationTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[finger-pose] ===== FINGER-POSE ROTATION TRACE (PR #186 — mangle under arms-down idle, BOTH hands) =====");
+
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(IdleFbxPath);
+            if (fbx == null) { sb.AppendLine("[finger-pose] FBX NOT FOUND " + IdleFbxPath); Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // BOTH hands' finger + thumb proximal..distal tokens.
+            string[] fingerTokens =
+            {
+                "righthandindex1","righthandindex2","righthandindex3",
+                "righthandmiddle1","righthandmiddle2","righthandmiddle3",
+                "righthandring1","righthandring2","righthandring3",
+                "righthandpinky1","righthandpinky2","righthandpinky3",
+                "righthandthumb1","righthandthumb2","righthandthumb3",
+                "lefthandindex1","lefthandindex2","lefthandindex3",
+                "lefthandmiddle1","lefthandmiddle2","lefthandmiddle3",
+                "lefthandring1","lefthandring2","lefthandring3",
+                "lefthandpinky1","lefthandpinky2","lefthandpinky3",
+                "lefthandthumb1","lefthandthumb2","lefthandthumb3",
+            };
+
+            var breathing = FindClip(BreathingIdleFbxPath, BreathingIdleClip);
+            var walk = FindClip(WalkFbxPath, WalkClip);
+            sb.AppendLine($"[finger-pose] breathingIdle={(breathing != null ? breathing.name : "<null>")} " +
+                          $"walk={(walk != null ? walk.name : "<null>")}");
+
+            var model = Object.Instantiate(fbx);
+            model.transform.localScale = Vector3.one;
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr == null) { sb.AppendLine("[finger-pose] no SkinnedMeshRenderer"); Object.DestroyImmediate(model);
+                Debug.Log(sb.ToString()); if (Application.isBatchMode) EditorApplication.Exit(0); return; }
+
+            // Resolve each finger bone from the SMR bone array (the real skeleton).
+            var fingerBones = new System.Collections.Generic.Dictionary<string, Transform>();
+            foreach (var bone in smr.bones)
+            {
+                if (bone == null) continue;
+                string tok = ExactTokenLocal(bone.name);
+                foreach (var ft in fingerTokens) if (tok == ft) fingerBones[ft] = bone;
+            }
+            sb.AppendLine($"[finger-pose] resolved {fingerBones.Count} finger/thumb bones (of {fingerTokens.Length} tokens)");
+
+            // BIND/REST local rotation: SampleAnimation at clip-time 0 of a clip is the clip's pose, NOT the
+            // bind — so capture the FBX REST pose first (the imported skeleton's default localRotation, before
+            // any clip is sampled). This is the bone's authored rest angle.
+            var restEuler = new System.Collections.Generic.Dictionary<string, Vector3>();
+            foreach (var kv in fingerBones) restEuler[kv.Key] = NormEuler(kv.Value.localRotation.eulerAngles);
+
+            // Per clip, per bone: max angular delta of the bone's LOCAL rotation from its REST rotation across
+            // the cycle (Quaternion.Angle is axis-agnostic — catches a bend on ANY axis), plus the worst-frame
+            // local-Euler so we can read WHICH axis bends.
+            void SampleClip(string label, AnimationClip clip)
+            {
+                if (clip == null) { sb.AppendLine($"[finger-pose] {label}: <null clip>"); return; }
+                sb.AppendLine($"[finger-pose] --- {label} (rest-rel local-rotation delta across {clip.length:F2}s cycle) ---");
+                var worstAng = new System.Collections.Generic.Dictionary<string, float>();
+                var worstEuler = new System.Collections.Generic.Dictionary<string, Vector3>();
+                foreach (var k in fingerBones.Keys) worstAng[k] = 0f;
+                int N = 12;
+                for (int i = 0; i <= N; i++)
+                {
+                    float t = clip.length * i / N;
+                    clip.SampleAnimation(model, t);
+                    foreach (var kv in fingerBones)
+                    {
+                        Quaternion restQ = Quaternion.Euler(restEuler[kv.Key]);
+                        float ang = Quaternion.Angle(restQ, kv.Value.localRotation);
+                        if (ang > worstAng[kv.Key])
+                        {
+                            worstAng[kv.Key] = ang;
+                            worstEuler[kv.Key] = NormEuler(kv.Value.localRotation.eulerAngles);
+                        }
+                    }
+                }
+                // Print in a stable order so L-vs-R asymmetry is eyeball-readable.
+                foreach (var ft in fingerTokens)
+                {
+                    if (!fingerBones.ContainsKey(ft)) continue;
+                    float ang = worstAng[ft];
+                    string flag = ang > 35f ? "  <== LARGE clip-pose rotation (bad-angle SUSPECT)" : "";
+                    sb.AppendLine($"[finger-pose] {label} {ft,-18} restEuler={Fmt(restEuler[ft])} " +
+                                  $"worstDeltaAng={ang,6:F1}deg worstEuler={Fmt(worstEuler[ft])}{flag}");
+                }
+            }
+
+            SampleClip("BREATHING-IDLE", breathing);
+            SampleClip("WALK", walk);
+            Object.DestroyImmediate(model);
+            sb.AppendLine("[finger-pose] VERDICT GUIDE: a finger bone with a small (<35deg) rest-rel delta is NOT " +
+                          "posed wrong by the clip. A LARGE delta (esp. asymmetric L-vs-R, or on a non-curl axis) " +
+                          "= the imported clip poses that finger to a broken angle on THIS rig (cause (a)); the fix " +
+                          "is to MASK/ZERO the finger-bone curves on the idle/locomotion clips so the fingers hold " +
+                          "the rig's relaxed rest pose.");
+            sb.AppendLine("[finger-pose] ===== END FINGER-POSE ROTATION TRACE =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // Normalize Euler components to (-180,180] so a 359deg rest reads as -1, not a fake 359 delta.
+        private static Vector3 NormEuler(Vector3 e)
+        {
+            return new Vector3(NormDeg(e.x), NormDeg(e.y), NormDeg(e.z));
+        }
+        private static float NormDeg(float d)
+        {
+            d %= 360f;
+            if (d > 180f) d -= 360f;
+            if (d <= -180f) d += 360f;
+            return d;
+        }
+        private static string Fmt(Vector3 e) => $"({e.x,6:F1},{e.y,6:F1},{e.z,6:F1})";
+
+        // ===== CASTAWAY v2 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cajx050 AC2 / referenced by 86cajwp23) =====
+        // Diagnose-via-trace for the v2 default flip. Dumps, in ONE headless run, every number the v2
+        // activation needs so the re-seat + the EditMode-guard reconciliation are MEASURED, not guessed:
+        //   (1) v2's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
+        //       held-axe seat re-measure. The OLD-rig seat (dialed on the old hand frame) does NOT carry 1:1:
+        //       v2 is a fresh Mixamo A-pose rig whose hand-bone bind orientation differs from the old rig's.
+        //   (2) A MEASURED first-pass v2 seat = the Sponsor-APPROVED old-rig WORLD carry TRANSFERRED onto v2's
+        //       hand frame (the axe MESH is identical, so matching its WORLD orientation reproduces the approved
+        //       look). relEuler_v2 = Inv(R_v2hand) * R_oldhand * Euler(oldRelEuler); the hand-local offset is
+        //       re-expressed the same way. Both are computed with Unity's own Quaternion math (convention-safe)
+        //       and printed ready-to-bake into MovementCameraScene.HeldAxeV2*; the Sponsor F9-finalizes the exact
+        //       grip in the soak (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools).
+        //   (3) v2's right-hand FINGER/THUMB/PINKY bone resolution (the finger-curl guard reconciliation — v2 is
+        //       the 41-bone fist-hand variant) + the heads-tall proportion fingerprint (the chunky-band guard).
+        // Run headless:
+        //   Unity … -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV2HandAxisTrace
+        public static void CastawayV2HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v2-seat] ===== CASTAWAY v2 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cajx050 AC2) =====");
+
+            var oldGo = InstantiateBareForTrace(IdleFbxPath, sb, "OLD");
+            var v2Go = InstantiateBareForTrace(V2RiggedFbxPath, sb, "v2");
+            if (v2Go == null)
+            {
+                if (oldGo) Object.DestroyImmediate(oldGo);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            Transform oldHand = oldGo != null ? FindBoneExactForTrace(oldGo.transform, "righthand") : null;
+            Transform v2Hand = FindBoneExactForTrace(v2Go.transform, "righthand");
+            sb.AppendLine($"[v2-seat] RightHand found: OLD={(oldHand != null)} v2={(v2Hand != null)}");
+            if (oldHand != null) LogFrameForTrace(sb, "OLD-RightHand", oldHand);
+            if (v2Hand != null) LogFrameForTrace(sb, "v2 -RightHand", v2Hand);
+
+            if (oldHand != null && v2Hand != null)
+            {
+                Quaternion rOld = oldHand.rotation, rV2 = v2Hand.rotation;
+                // (2) WORLD-TRANSFER: reproduce the approved OLD world carry on v2's hand frame.
+                Quaternion axeWorld = rOld * Quaternion.Euler(MovementCameraScene.HeldAxeRelEuler);
+                Vector3 relV2 = NormEuler((Quaternion.Inverse(rV2) * axeWorld).eulerAngles);
+                Vector3 worldOff = rOld * MovementCameraScene.HeldAxeLocalOffsetFromHand;
+                Vector3 offV2 = Quaternion.Inverse(rV2) * worldOff;
+                sb.AppendLine("[v2-seat] --- MEASURED first-pass seat (WORLD-TRANSFER of the approved old carry) ---");
+                sb.AppendLine($"[v2-seat]   HeldAxeV2RelEuler            = new Vector3({relV2.x:F1}f, {relV2.y:F1}f, {relV2.z:F1}f);");
+                sb.AppendLine($"[v2-seat]   HeldAxeV2LocalOffsetFromHand = new Vector3({offV2.x:F4}f, {offV2.y:F4}f, {offV2.z:F4}f);");
+                // Fallback: axe long axis (+Y) -> world UP (head straight up) — a facing-agnostic sanity option.
+                Vector3 relUp = NormEuler(Quaternion.Inverse(rV2).eulerAngles);
+                sb.AppendLine($"[v2-seat]   [ALT world-up head-up] HeldAxeV2RelEuler = new Vector3({relUp.x:F1}f, {relUp.y:F1}f, {relUp.z:F1}f);");
+            }
+
+            // (3a) FINGER-CURL reconciliation: which of the curl/thumb/pinky tokens exist on v2's rig?
+            LogFingerResolutionForTrace(sb, v2Go.transform);
+            // (3b) CHUNKY-band reconciliation: v2's heads-tall proportion fingerprint.
+            LogHeadsTallForTrace(sb, v2Go.transform);
+
+            if (oldGo) Object.DestroyImmediate(oldGo);
+            Object.DestroyImmediate(v2Go);
+            sb.AppendLine("[v2-seat] ===== END =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CASTAWAY v3 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cak9kau — the v3 ACTIVATION re-seat) =====
+        // The v3 sibling of the template CastawayV2HandAxisTrace above. Diagnose-via-trace
+        // for the v3 default flip: dumps, in ONE headless run, every number the v3 activation needs so the
+        // re-seat + the finger-curl reconciliation are MEASURED, not guessed:
+        //   (1) v3's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
+        //       held-axe seat re-measure. v3 is a FRESH Mixamo Standard rig (Smart-Low-poly mesh) whose hand-bone
+        //       bind orientation differs from BOTH the old rig's AND v2's, so neither prior seat carries 1:1.
+        //   (2) A MEASURED first-pass v3 seat = the Sponsor-APPROVED v2 WORLD carry TRANSFERRED onto v3's hand
+        //       frame (the axe MESH is identical, so matching its WORLD orientation reproduces the LIVE-approved
+        //       look — v2's seat IS the current live-approved carry). We transfer from v2 (not old) so the first
+        //       pass lands on the seat the Sponsor most recently blessed:
+        //         relEuler_v3 = eulerAngles( Inv(R_v3hand) * R_v2hand * Euler(HeldAxeV2RelEuler) )
+        //         offset_v3   = Inv(R_v3hand) * ( R_v2hand * HeldAxeV2LocalOffsetFromHand )
+        //       computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses, printed
+        //       ready-to-bake into MovementCameraScene.HeldAxeV3*; the Sponsor F9-finalizes the exact grip in the
+        //       soak (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools).
+        //   (3) v3's right-hand FINGER/THUMB/PINKY bone resolution (the finger-curl floor reconciliation — v3 is
+        //       the 41-bone rig WITH 16 finger bones, unlike v2's index+thumb-only) + the heads-tall fingerprint.
+        // Run headless:
+        //   Unity … -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV3HandAxisTrace
+        public static void CastawayV3HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v3-seat] ===== CASTAWAY v3 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86cak9kau) =====");
+
+            var oldGo = InstantiateBareForTrace(IdleFbxPath, sb, "OLD");
+            var v2Go = InstantiateBareForTrace(V2RiggedFbxPath, sb, "v2");
+            var v3Go = InstantiateBareForTrace(V3RiggedFbxPath, sb, "v3");
+            if (v3Go == null)
+            {
+                if (oldGo) Object.DestroyImmediate(oldGo);
+                if (v2Go) Object.DestroyImmediate(v2Go);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            Transform oldHand = oldGo != null ? FindBoneExactForTrace(oldGo.transform, "righthand") : null;
+            Transform v2Hand = v2Go != null ? FindBoneExactForTrace(v2Go.transform, "righthand") : null;
+            Transform v3Hand = FindBoneExactForTrace(v3Go.transform, "righthand");
+            sb.AppendLine($"[v3-seat] RightHand found: OLD={(oldHand != null)} v2={(v2Hand != null)} v3={(v3Hand != null)}");
+            if (oldHand != null) LogFrameForTrace(sb, "OLD-RightHand", oldHand);
+            if (v2Hand != null) LogFrameForTrace(sb, "v2 -RightHand", v2Hand);
+            if (v3Hand != null) LogFrameForTrace(sb, "v3 -RightHand", v3Hand);
+
+            if (v2Hand != null && v3Hand != null)
+            {
+                Quaternion rV2 = v2Hand.rotation, rV3 = v3Hand.rotation;
+                // (2) WORLD-TRANSFER: reproduce the approved v2 LIVE world carry on v3's hand frame.
+                Quaternion axeWorld = rV2 * Quaternion.Euler(MovementCameraScene.HeldAxeV2RelEuler);
+                Vector3 relV3 = NormEuler((Quaternion.Inverse(rV3) * axeWorld).eulerAngles);
+                Vector3 worldOff = rV2 * MovementCameraScene.HeldAxeV2LocalOffsetFromHand;
+                Vector3 offV3 = Quaternion.Inverse(rV3) * worldOff;
+                sb.AppendLine("[v3-seat] --- MEASURED first-pass seat (WORLD-TRANSFER of the approved v2 live carry) ---");
+                sb.AppendLine($"[v3-seat]   HeldAxeV3RelEuler            = new Vector3({relV3.x:F1}f, {relV3.y:F1}f, {relV3.z:F1}f);");
+                sb.AppendLine($"[v3-seat]   HeldAxeV3LocalOffsetFromHand = new Vector3({offV3.x:F4}f, {offV3.y:F4}f, {offV3.z:F4}f);");
+                // Fallback: axe long axis (+Y) -> world UP (head straight up) — a facing-agnostic sanity option.
+                Vector3 relUp = NormEuler(Quaternion.Inverse(rV3).eulerAngles);
+                sb.AppendLine($"[v3-seat]   [ALT world-up head-up] HeldAxeV3RelEuler = new Vector3({relUp.x:F1}f, {relUp.y:F1}f, {relUp.z:F1}f);");
+            }
+
+            // (3a) FINGER-CURL reconciliation: which of the curl/thumb/pinky tokens exist on v3's rig?
+            LogFingerResolutionForTrace(sb, v3Go.transform);
+            // (3b) CHUNKY-band reconciliation: v3's heads-tall proportion fingerprint.
+            LogHeadsTallForTrace(sb, v3Go.transform);
+
+            if (oldGo) Object.DestroyImmediate(oldGo);
+            if (v2Go) Object.DestroyImmediate(v2Go);
+            Object.DestroyImmediate(v3Go);
+            sb.AppendLine("[v3-seat] ===== END =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        // ===== CASTAWAY v4 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86catpwc4 — the v4 ACTIVATION re-seat) =====
+        // The v4 sibling of CastawayV2/V3HandAxisTrace. THIS is the "fresh bone-axis measure" the phase-C import
+        // flags call for — but it is run at ACTIVATION (a live editor), NOT baked in the dormant phase-C PR (the
+        // FINAL re-seat + F9 dial are the activation ticket, per character-pipeline.md §Rolling out step 3). It
+        // dumps, in ONE headless run, every number the v4 activation needs so the re-seat + finger-curl
+        // reconciliation are MEASURED, not guessed:
+        //   (1) v4's mixamorig:RightHand LOCAL FRAME (world +X/+Y/+Z + localRotation euler + lossyScale) — the
+        //       held-axe seat re-measure. v4 is a FRESH Mixamo Standard rig off OUR Blender export whose hand-bone
+        //       bind orientation differs from v3's, so v3's seat does NOT carry 1:1 (the placeholder below is v3's,
+        //       explicitly UNMEASURED, pending THIS trace).
+        //   (2) A MEASURED first-pass v4 seat = the Sponsor-APPROVED v3 LIVE world carry TRANSFERRED onto v4's hand
+        //       frame (the axe MESH is identical, so matching its WORLD orientation reproduces the live-approved
+        //       look — v3's seat IS the current live-approved carry):
+        //         relEuler_v4 = eulerAngles( Inv(R_v4hand) * R_v3hand * Euler(HeldAxeV3RelEuler) )
+        //         offset_v4   = Inv(R_v4hand) * ( R_v3hand * HeldAxeV3LocalOffsetFromHand )
+        //       computed with Unity's own Quaternion math (convention-safe) at the two rigs' bind poses, printed
+        //       ready-to-bake into MovementCameraScene.HeldAxeV4*; the Sponsor F9-finalizes the exact grip in the
+        //       soak (verify-soak-builds-or-bake-and-judge / sponsor-prefers-direct-tweak-tools).
+        //   (3) v4's right-hand FINGER/THUMB resolution (the finger-curl floor reconciliation — v4 is the 33-bone
+        //       rig with ONLY the Index chain + NO thumb bones, so it resolves index 1-3 = 3 curl bones, exactly
+        //       the fist-hand floor) + the heads-tall proportion fingerprint.
+        // Run headless (at ACTIVATION — needs a live editor + a free build lane):
+        //   Unity … -batchmode -quit -executeMethod FarHorizon.EditorTools.CharacterAssetGen.CastawayV4HandAxisTrace
+        public static void CastawayV4HandAxisTrace()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[v4-seat] ===== CASTAWAY v4 HELD-AXE RE-SEAT + RIG DIAGNOSTIC (86catpwc4) =====");
+
+            var v3Go = InstantiateBareForTrace(V3RiggedFbxPath, sb, "v3");
+            var v4Go = InstantiateBareForTrace(V4RiggedFbxPath, sb, "v4");
+            if (v4Go == null)
+            {
+                if (v3Go) Object.DestroyImmediate(v3Go);
+                Debug.Log(sb.ToString());
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+                return;
+            }
+
+            Transform v3Hand = v3Go != null ? FindBoneExactForTrace(v3Go.transform, "righthand") : null;
+            Transform v4Hand = FindBoneExactForTrace(v4Go.transform, "righthand");
+            sb.AppendLine($"[v4-seat] RightHand found: v3={(v3Hand != null)} v4={(v4Hand != null)}");
+            if (v3Hand != null) LogFrameForTrace(sb, "v3 -RightHand", v3Hand);
+            if (v4Hand != null) LogFrameForTrace(sb, "v4 -RightHand", v4Hand);
+
+            if (v3Hand != null && v4Hand != null)
+            {
+                Quaternion rV3 = v3Hand.rotation, rV4 = v4Hand.rotation;
+                // (2) WORLD-TRANSFER: reproduce the approved v3 LIVE world carry on v4's hand frame.
+                Quaternion axeWorld = rV3 * Quaternion.Euler(MovementCameraScene.HeldAxeV3RelEuler);
+                Vector3 relV4 = NormEuler((Quaternion.Inverse(rV4) * axeWorld).eulerAngles);
+                Vector3 worldOff = rV3 * MovementCameraScene.HeldAxeV3LocalOffsetFromHand;
+                Vector3 offV4 = Quaternion.Inverse(rV4) * worldOff;
+                sb.AppendLine("[v4-seat] --- MEASURED first-pass seat (WORLD-TRANSFER of the approved v3 live carry) ---");
+                sb.AppendLine($"[v4-seat]   HeldAxeV4RelEuler            = new Vector3({relV4.x:F1}f, {relV4.y:F1}f, {relV4.z:F1}f);");
+                sb.AppendLine($"[v4-seat]   HeldAxeV4LocalOffsetFromHand = new Vector3({offV4.x:F4}f, {offV4.y:F4}f, {offV4.z:F4}f);");
+                // Fallback: axe long axis (+Y) -> world UP (head straight up) — a facing-agnostic sanity option.
+                Vector3 relUp = NormEuler(Quaternion.Inverse(rV4).eulerAngles);
+                sb.AppendLine($"[v4-seat]   [ALT world-up head-up] HeldAxeV4RelEuler = new Vector3({relUp.x:F1}f, {relUp.y:F1}f, {relUp.z:F1}f);");
+            }
+
+            // (3a) FINGER-CURL reconciliation: which of the curl/thumb tokens exist on v4's rig? (index 1-3, no thumb)
+            LogFingerResolutionForTrace(sb, v4Go.transform);
+            // (3b) CHUNKY-band reconciliation: v4's heads-tall proportion fingerprint.
+            LogHeadsTallForTrace(sb, v4Go.transform);
+
+            if (v3Go) Object.DestroyImmediate(v3Go);
+            Object.DestroyImmediate(v4Go);
+            sb.AppendLine("[v4-seat] ===== END =====");
+            Debug.Log(sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        private static GameObject InstantiateBareForTrace(string fbxPath, System.Text.StringBuilder sb, string label)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
+            if (fbx == null) { sb.AppendLine($"[v2-seat] {label} FBX NOT FOUND at {fbxPath}"); return null; }
+            var go = Object.Instantiate(fbx);
+            go.transform.position = Vector3.zero;
+            go.transform.rotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+            return go;
+        }
+
+        private static Transform FindBoneExactForTrace(Transform root, string token)
+        {
+            var smr = root.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (smr != null && smr.bones != null)
+                foreach (var b in smr.bones)
+                    if (b != null && TokForTrace(b.name) == token) return b;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (TokForTrace(t.name) == token) return t;
+            return null;
+        }
+
+        private static string TokForTrace(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            string n = name.ToLowerInvariant();
+            int c = n.LastIndexOf(':');
+            if (c >= 0) n = n.Substring(c + 1);
+            return n;
+        }
+
+        private static void LogFrameForTrace(System.Text.StringBuilder sb, string label, Transform t)
+        {
+            Vector3 r = t.right, u = t.up, f = t.forward;
+            Vector3 e = NormEuler(t.localRotation.eulerAngles);
+            sb.AppendLine($"[v2-seat] {label}: localRotEuler=({e.x:F2},{e.y:F2},{e.z:F2}) " +
+                          $"+X=({r.x:F3},{r.y:F3},{r.z:F3}) +Y=({u.x:F3},{u.y:F3},{u.z:F3}) " +
+                          $"+Z=({f.x:F3},{f.y:F3},{f.z:F3}) lossyScale=({t.lossyScale.x:F2},{t.lossyScale.y:F2},{t.lossyScale.z:F2})");
+        }
+
+        private static void LogFingerResolutionForTrace(System.Text.StringBuilder sb, Transform root)
+        {
+            string[] fingerTokens = { "righthandindex1", "righthandindex2", "righthandindex3",
+                "righthandmiddle1", "righthandmiddle2", "righthandmiddle3",
+                "righthandring1", "righthandring2", "righthandring3" };
+            string[] thumbTokens = { "righthandthumb1", "righthandthumb2", "righthandthumb3" };
+            string[] pinkyTokens = { "righthandpinky1", "righthandpinky2", "righthandpinky3" };
+            int nf = 0, nt = 0, np = 0;
+            var got = new System.Collections.Generic.List<string>();
+            foreach (var tk in fingerTokens) if (FindBoneExactForTrace(root, tk) != null) { nf++; got.Add(tk); }
+            foreach (var tk in thumbTokens) if (FindBoneExactForTrace(root, tk) != null) { nt++; got.Add(tk); }
+            foreach (var tk in pinkyTokens) if (FindBoneExactForTrace(root, tk) != null) { np++; got.Add(tk); }
+            sb.AppendLine($"[v2-seat] FINGER-CURL resolution on v2: index/middle/ring={nf}/9, thumb={nt}/3, pinky={np}/3");
+            sb.AppendLine($"[v2-seat]   resolved: {(got.Count > 0 ? string.Join(",", got) : "<NONE — fist hand, no separated fingers>")}");
+        }
+
+        private static void LogHeadsTallForTrace(System.Text.StringBuilder sb, Transform root)
+        {
+            var smr = root.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            var head = FarHorizon.CastawayProportions.FindHeadBone(root);
+            if (smr == null || smr.sharedMesh == null || head == null)
+            {
+                sb.AppendLine($"[v2-seat] HEADS-TALL: cannot measure (smr={(smr != null)} head={(head != null)})");
+                return;
+            }
+            var baked = new Mesh();
+            smr.BakeMesh(baked, true);
+            var verts = baked.vertices;
+            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+            float top = float.NegativeInfinity, bot = float.PositiveInfinity;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                float y = l2w.MultiplyPoint3x4(verts[i]).y;
+                if (y > top) top = y;
+                if (y < bot) bot = y;
+            }
+            Object.DestroyImmediate(baked);
+            float total = top - bot, headH = top - head.position.y;
+            float ratio = (headH > 0.0001f && total > 0.0001f) ? total / headH : float.NaN;
+            sb.AppendLine($"[v2-seat] HEADS-TALL fingerprint: ratio={ratio:F2} (headBone='{head.name}' " +
+                          $"total={total:F3} headSpan={headH:F3}); OLD toy band [" +
+                          $"{FarHorizon.CastawayProportions.MinHeadsTall},{FarHorizon.CastawayProportions.MaxHeadsTall}]");
         }
     }
 }

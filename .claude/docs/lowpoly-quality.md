@@ -5,6 +5,8 @@ This is the concise "adopt these patterns in OUR code" checklist distilled from 
 Full evidence, citations, and per-file sketches: `team/erik-consult/procedural-shadergraph-quality-research.md` (ticket `86ca8x038`).
 Cross-refs: `unity-conventions.md` §Low-poly mesh patterns / §Build stripping & shaders (SRP-Batcher, opaque-water tradeoff) and `unity6-mastery.md` §2 (batching) / §8 (mesh import).
 
+> **maintain-docs append-target:** adoptable procedural-mesh + URP Shader Graph PATTERNS (flat-shading toggles, depth-fade water, Fresnel/rim, vertex-AO, seeded scatter, chamfer highlight, palette quantizers) + the already-correct patterns NOT to regress. A new reusable mesh-gen / shader pattern lands in §2; a shipped-build capture/percept lesson for a physical feature lands in §0. Runtime engine gotchas tied to a specific incident go to `unity-conventions.md` instead.
+
 The Sponsor-approved look is **faceted SMOOTH-shaded low-poly** (chunky polygons, continuous diffuse gradient), warm/lush, with a quality pass (bloom / grading / fog / gradient skybox). These guardrails LEVEL UP that look without changing it.
 
 ---

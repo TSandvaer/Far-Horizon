@@ -32,7 +32,7 @@ namespace FarHorizon.Settings
     /// </summary>
     public abstract class SettingEntry
     {
-        /// <summary>The three row archetypes (Uma §2.2). The panel renders an entry generically off this.</summary>
+        /// <summary>The row archetypes (Uma §2.2). The panel renders an entry generically off this.</summary>
         public enum Archetype
         {
             /// <summary>Single float → a slider + a live numeric readout (walk/run/jump/tool-use speed).</summary>
@@ -41,6 +41,9 @@ namespace FarHorizon.Settings
             Range,
             /// <summary>Int → a [−] value [+] stepper (belt/inventory slots, stack size — downstream tickets).</summary>
             Stepper,
+            /// <summary>Bool → an on/off toggle switch (per-need on/off + future flags — 86cabeqj9 AC7). The
+            /// generic typed-field + nudge affordances treat it as 0/1 so every archetype gets type/nudge.</summary>
+            Toggle,
         }
 
         /// <summary>Stable id (used for the PlayerPrefs key + test lookup). e.g. "walk_speed", "zoom_range".</summary>
@@ -87,5 +90,15 @@ namespace FarHorizon.Settings
 
         /// <summary>Reset this entry to its captured default value and apply it (AC5 reset-to-defaults).</summary>
         public abstract void ResetToDefault();
+
+        /// <summary>
+        /// True when the entry's CURRENT live value differs from its registration-time (baked) default
+        /// (86cabeqj9 AC9 — the "differs-from-baked-defaults" badge). The panel shows a badge on any entry
+        /// where this is true so the Sponsor sees at a glance what he has diverged from; ResetToDefault()
+        /// clears it (AC10). Always false for an unavailable extension hook (it never drives a param, so it
+        /// can never differ — no false badge on a greyed row). Each archetype compares its own value shape
+        /// (float / both range ends / int / bool) against the default it captured at registration.
+        /// </summary>
+        public abstract bool DiffersFromDefault { get; }
     }
 }

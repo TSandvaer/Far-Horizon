@@ -48,31 +48,11 @@ namespace FarHorizon.EditTests
                 .FirstOrDefault();
         }
 
-        // === CraftVerifyCapture (-verifyCraft): player (ClickToMove) + inventory ===
-        [Test]
-        public void BootScene_CraftVerifyCapture_HasWiredPlayerAndInventory_BoundToSceneInstances()
-        {
-            var scene = OpenBoot();
-            var cap = FindInScene<CraftVerifyCapture>(scene);
-            Assert.IsNotNull(cap,
-                "the Boot scene must carry CraftVerifyCapture serialized (the -verifyCraft shipped-build gate; " +
-                "component-not-serialized trap)");
-
-            Assert.IsNotNull(cap.player,
-                "CraftVerifyCapture.player must be wired editor-time (the ClickToMove the harness drives to the " +
-                "craft spot) — an Awake FindObjectByType fallback exists but is the non-ship path; a dropped " +
-                "wiring must fail HERE (CI step 2), not silently re-resolve then mis-resolve in the 20-min gate");
-            Assert.IsNotNull(cap.inventory,
-                "CraftVerifyCapture.inventory must be wired editor-time (the harness reads HasAxe to gate PASS)");
-
-            var ctm = FindInScene<ClickToMove>(scene);
-            var inv = FindInScene<Inventory>(scene);
-            Assert.AreSame(ctm, cap.player,
-                "CraftVerifyCapture.player must be THE scene's ClickToMove (binding-identity: a stale/duplicate " +
-                "ref drives the wrong agent — the #162-class wrong-instance failure the gate exists to prevent)");
-            Assert.AreSame(inv, cap.inventory,
-                "CraftVerifyCapture.inventory must be THE scene's Inventory (binding-identity)");
-        }
+        // === CraftVerifyCapture REMOVED (86camz9uz ①) ===
+        // The -verifyCraft gate + CraftVerifyCapture are retired with the CraftSpot stump (there is no free
+        // craft-on-arrival to prove any more). The place-to-build table's visual proof is the CraftingTable
+        // side-profile capture + the CraftingMenu PlayMode gate; its scene presence is guarded by
+        // CraftingTableSceneTests. The Chop/Campfire capture deps below are unchanged.
 
         // === ChopVerifyCapture (-verifyChop): player (ClickToMove) + inventory + chop (ChopTree) ===
         [Test]
@@ -104,7 +84,7 @@ namespace FarHorizon.EditTests
                 "exactly this tree — a wrong-instance ref drives a chop the gate camera never frames)");
         }
 
-        // === CampfireVerifyCapture (-verifyLoop): player + inventory + warmth + campfire ===
+        // === CampfireVerifyCapture (-verifyLoop): player + inventory + warmth + campfire + placement (⑤) ===
         [Test]
         public void BootScene_CampfireVerifyCapture_HasWiredLoopDeps_BoundToSceneInstances()
         {
@@ -115,24 +95,28 @@ namespace FarHorizon.EditTests
                 "component-not-serialized trap)");
 
             Assert.IsNotNull(cap.player,
-                "CampfireVerifyCapture.player must be wired editor-time (the ClickToMove the loop drives spawn → " +
-                "craft → tree → fire)");
+                "CampfireVerifyCapture.player must be wired editor-time (the ClickToMove the loop teleports to place)");
             Assert.IsNotNull(cap.inventory,
-                "CampfireVerifyCapture.inventory must be wired editor-time (the loop reads HasAxe/WoodCount)");
+                "CampfireVerifyCapture.inventory must be wired editor-time (the loop grants + spends the build mats)");
             Assert.IsNotNull(cap.warmth,
                 "CampfireVerifyCapture.warmth must be wired editor-time (the loop asserts warmth RESTORES at the " +
                 "lit fire — the whole 'loop closes' proof rides on this ref)");
             Assert.IsNotNull(cap.campfire,
                 "CampfireVerifyCapture.campfire must be wired editor-time (the lit fire the loop stands at)");
+            Assert.IsNotNull(cap.placement,
+                "CampfireVerifyCapture.placement must be wired editor-time (the ⑤ place-to-build driver the loop " +
+                "RequestBuildAt-drives — the place-to-build proof rides on this ref)");
 
             var ctm = FindInScene<ClickToMove>(scene);
             var inv = FindInScene<Inventory>(scene);
             var warmth = FindInScene<WarmthNeed>(scene);
             var fire = FindInScene<Campfire>(scene);
+            var place = FindInScene<CampfirePlacement>(scene);
             Assert.AreSame(ctm, cap.player, "CampfireVerifyCapture.player must be THE scene's ClickToMove (binding-identity)");
             Assert.AreSame(inv, cap.inventory, "CampfireVerifyCapture.inventory must be THE scene's Inventory (binding-identity)");
             Assert.AreSame(warmth, cap.warmth, "CampfireVerifyCapture.warmth must be THE scene's WarmthNeed (binding-identity)");
             Assert.AreSame(fire, cap.campfire, "CampfireVerifyCapture.campfire must be THE scene's Campfire (binding-identity)");
+            Assert.AreSame(place, cap.placement, "CampfireVerifyCapture.placement must be THE scene's CampfirePlacement (binding-identity)");
         }
 
         // === PickableLooter (the #162-saga component): inventory + player, bound to the scene instances ===
@@ -186,6 +170,64 @@ namespace FarHorizon.EditTests
             Assert.AreSame(looter, spawner.looter,
                 "LogPileSpawner.looter must be THE scene's PickableLooter (binding-identity) — a stale/duplicate " +
                 "ref registers the pile into a looter the player isn't driving, so E never loots the pile (#165)");
+        }
+
+        // === PlacementVerifyCapture (-verifyPlacement, 86catr49m): placement + player + inventory ===
+        // #302 shipped PlacementVerifyCapture INERT (in source, never authored into Boot.unity) — so the verb
+        // NO-OP'd AND an unwired -verifyPlacement HANGS the capture exe. This guard asserts the harness IS
+        // serialized into Boot.unity (the fix — WirePlacementVerifyCapture + a Boot re-bake) with its deps bound
+        // to the scene instances. Drop the scene-author wire and this reds in EditMode (CI step 2), long before
+        // the capture gate hangs to timeout.
+        [Test]
+        public void BootScene_PlacementVerifyCapture_HasWiredDeps_BoundToSceneInstances()
+        {
+            var scene = OpenBoot();
+            var cap = FindInScene<PlacementVerifyCapture>(scene);
+            Assert.IsNotNull(cap,
+                "the Boot scene must carry PlacementVerifyCapture serialized (the -verifyPlacement shipped-build " +
+                "gate). #302 left it in source but NOT scene-authored → the verb NO-OP'd + HUNG the exe; this " +
+                "wire is the 86catr49m fix");
+
+            Assert.IsNotNull(cap.placement,
+                "PlacementVerifyCapture.placement must be wired editor-time (the CraftingTablePlacement the harness " +
+                "drives EnterPlacement + AimGhostAt on)");
+            Assert.IsNotNull(cap.player,
+                "PlacementVerifyCapture.player must be wired editor-time (the ClickToMove the harness teleports)");
+            Assert.IsNotNull(cap.inventory,
+                "PlacementVerifyCapture.inventory must be wired editor-time");
+
+            var placement = FindInScene<CraftingTablePlacement>(scene);
+            var ctm = FindInScene<ClickToMove>(scene);
+            var inv = FindInScene<Inventory>(scene);
+            Assert.AreSame(placement, cap.placement,
+                "PlacementVerifyCapture.placement must be THE scene's CraftingTablePlacement (binding-identity)");
+            Assert.AreSame(ctm, cap.player, "PlacementVerifyCapture.player must be THE scene's ClickToMove (binding-identity)");
+            Assert.AreSame(inv, cap.inventory, "PlacementVerifyCapture.inventory must be THE scene's Inventory (binding-identity)");
+        }
+
+        // === MineBoulder placement-obstacle wiring (86catr49m): the boulder pool must ship registrable ===
+        // Boulders are collider-free + do NOT carve the navmesh, so a crafting-table ghost can only read RED over
+        // one via PlacementObstacleRegistry (MineBoulder.SyncPlacementObstacles, keyed on IsMineable). This is the
+        // SCENE-side half of the boulder-registered guard (the runtime register/unregister/re-register lifecycle
+        // is pinned by MineBoulderPlacementObstacleTests): assert MineBoulder ships with a positive
+        // placementObstacleRadius AND a non-empty boulder pool, so the registration has something to project. A
+        // dropped pool / zeroed radius reds HERE, not silently in a soak (the table clips into a boulder).
+        [Test]
+        public void BootScene_MineBoulder_ShipsWithBoulderPool_AndPositivePlacementObstacleRadius()
+        {
+            var scene = OpenBoot();
+            var mine = FindInScene<MineBoulder>(scene);
+            Assert.IsNotNull(mine, "the Boot scene must carry MineBoulder (the boulder-mine + placement-obstacle host)");
+            Assert.Greater(mine.placementObstacleRadius, 0f,
+                "MineBoulder.placementObstacleRadius must be positive so each STANDING boulder projects a no-build " +
+                "zone — a zeroed radius means a table can be placed clipping into a boulder (86catr49m)");
+
+            var boulders = scene.GetRootGameObjects()
+                .SelectMany(r => r.GetComponentsInChildren<Transform>(true))
+                .Count(t => t.name == MineBoulder.BoulderNodeName);
+            Assert.Greater(boulders, 0,
+                "the Boot scene must author a boulder pool (Boulder nodes) for MineBoulder to register as " +
+                "placement obstacles — an empty pool means the fix has nothing to guard");
         }
 
         // === LootPrompt (rides the looter's single source of truth) ===

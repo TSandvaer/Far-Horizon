@@ -48,16 +48,68 @@ namespace FarHorizon
                  "Idle<->locomotion blend). Squared internally.")]
         public float walkSpeedThreshold = 0.15f;
 
-        [Header("Locomotion transition smoothing (86caay44r)")]
-        [Tooltip("Damp time (s) for the Speed param fed to the locomotion blend tree. The Sponsor reported " +
-                 "idle<->walk<->run transitions as too ABRUPT — most noticeable stopping a walk (release W), " +
-                 "where the agent velocity drops to 0 in one frame and the blend SNAPS Walk->Idle. Feeding Speed " +
-                 "through Animator.SetFloat(param, value, dampTime, dt) instead of a raw set EASES the parameter " +
-                 "toward its target over ~this many seconds, so starts/stops/speed-changes glide rather than snap. " +
-                 "~0.18s reads smooth without feeling mushy (the Sponsor judges in soak; tunable from the build). " +
-                 "0 = the old raw, instant set. Keeps the Walk<->Run blend (#68) intact — it just eases the SAME " +
-                 "Speed param the blend tree already consumes (a smoother crossfade, never a different clip).")]
+        [Header("Locomotion transition smoothing (86caay44r + 86cackb3j re-soak Part 3 — ASYMMETRIC)")]
+        [Tooltip("Damp time (s) for the Speed param fed to the locomotion blend tree on the RAMP-DOWN (stopping — " +
+                 "release W). The Sponsor reported idle<->walk<->run transitions as too ABRUPT — most noticeable " +
+                 "STOPPING a walk, where the agent velocity drops to 0 in one frame and the blend SNAPS Walk->Idle. " +
+                 "Feeding Speed through Animator.SetFloat(param, value, dampTime, dt) EASES the parameter toward its " +
+                 "target so the STOP glides (the approved smooth-stop / transitions — do NOT regress). 0 = the old " +
+                 "raw instant set. Keeps the Walk<->Run blend (#68) intact — it eases the SAME Speed param. " +
+                 "RE-SOAK Part 3: the damp is now ASYMMETRIC — this is the ramp-DOWN; speedDampTimeUp is the " +
+                 "ramp-UP (kept short so the legs engage instantly on W — the 'body slides before feet engage' fix).")]
         public float speedDampTime = 0.18f;
+
+        [Tooltip("86cackb3j re-soak Part 3 — the RAMP-UP damp time (s) for the Speed param when STARTING/SPEEDING " +
+                 "UP (press W, walk->run). The old symmetric 0.18s ramp-up made the body SLIDE before the feet " +
+                 "engaged (the Speed param eased in slowly, so the blend tree sat near Idle while the agent was " +
+                 "already moving). A SHORT ramp-up (≈0.04s) snaps the legs into the walk/run cadence the instant W " +
+                 "is held = SNAPPY START, while speedDampTime (the longer ramp-DOWN) keeps the approved SMOOTH STOP. " +
+                 "0 = an instant raw set on ramp-up (maximally snappy). Asymmetric by design (start ≠ stop feel).")]
+        public float speedDampTimeUp = 0.04f;
+
+        [Header("Foot-sync — leg cadence tracks move-speed (86cackb3j re-soak Part 2)")]
+        [Tooltip("FOOT-SYNC enable. The Sponsor reported the WALK legs too slow vs move-speed (feet skate). When " +
+                 "ON, the Locomotion clip PLAYBACK rate is scaled to the actual agent speed (LocoSpeedMul param) so " +
+                 "the stride cadence matches translation. OFF = the authored clip cadence (the old skating walk).")]
+        public bool footSync = true;
+        [Tooltip("The WALK clip's natural GROUND speed (u/s) — the move-speed at which the authored Walk clip's " +
+                 "feet plant without sliding. The Sponsor reports the legs too slow at the 5.5 u/s walk speed, so " +
+                 "the authored clip strides for a SLOWER ground speed than 5.5 → the multiplier (walkSpeed/this) " +
+                 "speeds the legs up to plant. Tunable from the build; lower = faster legs at walk.")]
+        public float walkStrideRefSpeed = 3.6f;
+        [Tooltip("The RUN clip's natural GROUND speed (u/s) — the move-speed at which the authored Run clip's feet " +
+                 "plant. Run was APPROVED this soak, so default this to the run speed (9.5) → the foot-sync " +
+                 "multiplier is ≈1 at run (the approved run cadence is UNCHANGED). The foot-sync blends the " +
+                 "reference Walk-ref→Run-ref across the Speed band so walk speeds up while run stays as-approved.")]
+        public float runStrideRefSpeed = 9.5f;
+        [Tooltip("Clamp band for the foot-sync playback multiplier so a velocity spike/dip can't freeze (0) or " +
+                 "blur (huge) the legs. The legs never play below footSyncMulMin× or above footSyncMulMax×.")]
+        public float footSyncMulMin = 0.5f;
+        public float footSyncMulMax = 2.5f;
+
+        /// <summary>The foot-sync playback multiplier pushed to the Locomotion state's LocoSpeedMul param LAST
+        /// frame (86cackb3j Part 2). 1 = authored cadence; &gt;1 = legs sped up to track move-speed. Exposed so the
+        /// PlayMode/EditMode guard can assert a faster move-speed yields a faster (or equal) leg cadence (foot-sync
+        /// engaged) without depending on the Animator physically advancing the clip (headless deltaTime≈0).</summary>
+        public float CurrentLocoSpeedMul { get; private set; } = 1f;
+
+        /// <summary>PURE foot-sync math (the unit-testable core, 86cackb3j Part 2): the clip playback multiplier
+        /// that makes the leg cadence track the actual move-speed. The natural stride reference is blended from
+        /// the WALK ref (at/below walkBlend) to the RUN ref (at/above runBlend) by the current Speed, then the
+        /// multiplier = actualSpeed / blendedRef, clamped. At the run speed (with runRef = runSpeed) the result is
+        /// ≈1 (the approved run cadence is unchanged); at the walk speed (with walkRef &lt; walkSpeed) it is &gt;1
+        /// (the legs speed up to plant). Static + dependency-free so a test exercises the EXACT production math.</summary>
+        public static float ComputeFootSyncMul(float actualSpeed, float walkBlend, float runBlend,
+                                               float walkRef, float runRef, float mulMin, float mulMax)
+        {
+            // Blend the stride reference across the walk->run band by where actualSpeed sits (clamped 0..1).
+            float t = runBlend > walkBlend + 1e-4f
+                ? Mathf.Clamp01((actualSpeed - walkBlend) / (runBlend - walkBlend))
+                : 0f;
+            float strideRef = Mathf.Lerp(walkRef, runRef, t);
+            if (strideRef < 1e-3f) strideRef = 1e-3f;
+            return Mathf.Clamp(actualSpeed / strideRef, mulMin, mulMax);
+        }
 
         [Tooltip("Planar speed (u/s) at/above which the WALK<->RUN blend (86ca9yq34) reads as a full RUN. " +
                  "The blend tree is 1D on the Speed param: <= walk speed plays Walk, >= this plays Run, and " +
@@ -65,6 +117,12 @@ namespace FarHorizon
                  "(WasdMovement.runSpeed) so holding Shift reaches a full run; the WASD walk speed lands in the " +
                  "Walk band. Exposed so the run state (IsRunning) reads consistently with the blend.")]
         public float runSpeedThreshold = 9.5f;
+
+        [Tooltip("Planar speed (u/s) at which the WALK<->RUN blend tree reads as a full WALK (the Walk clip's " +
+                 "blend threshold = CharacterAssetGen.WalkBlendSpeed = the WASD walk speed). Used by FOOT-SYNC " +
+                 "(86cackb3j) to know where the Walk band sits when blending the stride reference Walk->Run. " +
+                 "Mirror of CharacterAssetGen.WalkBlendSpeed (kept in sync; the runtime can't read the editor const).")]
+        public float walkBlendSpeed = 5.5f;
 
         // 86caa83wn fix 2 — IsRunning engages at this FRACTION of runSpeedThreshold (not strictly at it), so a
         // NavMeshAgent simulated velocity that lags/dips just below the COMMANDED run speed still reads running
@@ -153,6 +211,12 @@ namespace FarHorizon
         // SAME agent.velocity magnitude WasdMovement commands (walkSpeed walking, runSpeed sprinting).
         public const string MovingParam = "Moving";
         public const string SpeedParam = "Speed";
+        // FOOT-SYNC (86cackb3j re-soak Part 2) — the Locomotion blend-tree state's speedParameter. Driving it
+        // = actualSpeed / strideRef scales the walk/run clip PLAYBACK RATE so the legs cadence tracks move-speed
+        // (the Sponsor's "walk legs too slow vs move-speed, feet skate" report). Mirrors
+        // CharacterAssetGen.LocoSpeedMulParam (kept in sync — the runtime can't reference the editor asmdef; a
+        // ControllerParamNamesMatch test pins it).
+        public const string LocoSpeedMulParam = "LocoSpeedMul";
         // The one-shot Jump trigger (86ca9yq3q) — pulsed on the rising edge of a jump so the Animator plays a
         // Jump clip once (the AnyState→JumpIdle/JumpRunning transitions the controller wires, selected by the
         // Moving bool) and returns. Mirrors CharacterAssetGen.JumpParam (kept in sync so the trigger fires the
@@ -192,6 +256,33 @@ namespace FarHorizon
         // (86caf7a0p) ties to the ACTUAL authored clip length, not a magic number.
         public const string MeleeClipName = "CastawayMelee";
 
+        // ===== CROUCH + HIT-REACT animator params (86cackb3j — locomotion/hit-react clip integration) =====
+        // These mirror the CharacterAssetGen.* param names the controller is built with, so the runtime/editor
+        // contract stays in sync (the project idiom: every controller param has a CastawayCharacter mirror; a
+        // ControllerParamNamesMatch test pins it). The GAMEPLAY systems that DRIVE these (combat damage events,
+        // crouch input, pick-up interaction) are SEPARATE tickets (this ticket's OOS) — these constants document
+        // the wiring contract + are referenced by the controller-wiring tests; no system sets them yet.
+        //
+        // CROUCH (bool): routes Idle→CrouchIdle (Crouch && !Moving) and Locomotion→CrouchWalk (Crouch && Moving)
+        // — the Crouching Idle + Sneak Walk crouch-move clips. A SECOND locomotion lane, NOT folded into the
+        // upright Walk<->Run blend tree (that stays exactly {Idle, Walk, Run} — the Attack/Jump OOS-protection idiom).
+        public const string CrouchParam = "Crouch";
+        // HIT (trigger) + HITREGION (int): AnyState→a body-region hit-react on the Hit trigger, the clip selected by
+        // HitRegion (0=Body, 1=Head, 2=BigStomach, 3=Stomach, 4=Rib). One-shot; returns to Locomotion(Moving)/Idle —
+        // the Attack idiom. The region values are mirrored as HitRegion* constants below for the (future) damage system.
+        public const string HitParam = "Hit";
+        public const string HitRegionParam = "HitRegion";
+        public const int HitRegionBody = 0;        // Hit To Body (the default / unspecified-region reaction)
+        public const int HitRegionHead = 1;        // Head Hit
+        public const int HitRegionBigStomach = 2;  // Big Stomach Hit (the heavy gut reaction)
+        public const int HitRegionStomach = 3;     // Stomach Hit
+        public const int HitRegionRib = 4;         // Rib Hit
+        // STUNNED (bool): AnyState→Stunned while true (a LOOPING knocked-down hold); Stunned→GettingUp when it flips
+        // false (the one-shot recovery), then GettingUp→Locomotion/Idle on exit. The recovery clip is Getting Up.
+        public const string StunnedParam = "Stunned";
+        // PICKUP (trigger): AnyState→PickingUp (the one-shot ground-pick interaction). Returns to Locomotion/Idle.
+        public const string PickUpParam = "PickUp";
+
         // One-shot CHOP trace flag (the input-independent, headless-readable seam — the Animator does NOT tick
         // headlessly, deltaTime≈0, so a PlayMode test can't observe the Attack state playing; instead it asserts
         // TriggerChop fired the trigger via this flag, mirroring JumpTraceActive's role for the jump). Set true on
@@ -213,6 +304,22 @@ namespace FarHorizon
 
         // Exposed for tests / later systems: current Idle/Walk state read off the agent.
         public bool IsWalking { get; private set; }
+
+        // CROUCH (86caa3kur) — the crouch-stance request set by WasdMovement off the Ctrl-hold. Drives the
+        // controller's Crouch bool each LateUpdate (Idle→CrouchIdle when !Moving, Locomotion→CrouchWalk when
+        // Moving — PR #186's wired crouch lane). NOT a serialized field (a per-frame input mirror); the
+        // StaticStateResetTests audit is unaffected (instance field, not a mutable static).
+        private bool _crouch;
+
+        /// <summary>Request the CROUCH stance (86caa3kur) — WasdMovement calls this each frame off the Ctrl-hold
+        /// (true = crouch, false = stand). Drives the Animator's Crouch bool in <see cref="LateUpdate"/>, which the
+        /// PR #186 crouch lane routes to CrouchIdle (still) / CrouchWalk (moving). Idempotent; the Moving bool
+        /// (driven off agent velocity) selects idle-vs-walk crouch for us. Safe with a null Animator (a bare rig).</summary>
+        public void SetCrouch(bool crouch) => _crouch = crouch;
+
+        /// <summary>Whether the crouch stance is requested this frame (86caa3kur). Exposed so the PlayMode AC7
+        /// regression asserts the Crouch bool flips with Ctrl, and for later systems (stealth detection — OOS here).</summary>
+        public bool IsCrouching => _crouch;
 
         /// <summary>The planar agent speed (u/s) fed to the Walk<->Run blend tree's Speed param LAST frame
         /// (86ca9yq34). Exposed so the PlayMode AC5 regression can assert the run drives a FASTER speed (→ the
@@ -284,6 +391,7 @@ namespace FarHorizon
         private int _jumpTraceFrame;            // frame counter within the current trace window
         private float _jumpTracePostLandT;      // seconds remaining to keep tracing after landing (0 = window closed)
         private bool _jumpTraceActive;          // a trace window is open this jump
+        private bool _jumpTraceEnabled;         // -jumpTrace launch flag (86cahhfp4 C1) — without it no window ever opens
         private Vector3 _jumpTraceLaunchRootXZ; // player-root world XZ captured at lift-off (the pull-back baseline)
         private const float JumpTracePostLandSeconds = 0.5f; // keep tracing 0.5s past touch-down (catch the snap)
 
@@ -305,11 +413,27 @@ namespace FarHorizon
 
         /// <summary>Whether the RUNTIME jump-trace window is OPEN this frame (86caaqhj5 — the "pulled back on
         /// landing" instrument). True from a jump's lift-off until ~0.5s past touch-down, while the per-frame
-        /// [JumpTrace] line auto-logs to Player.log; false otherwise (silent). Exposed READ-ONLY so the EditMode
-        /// guard can assert TryJump OPENS the window (the silent-instrument bug class — a trace that never fires
-        /// is the CaptureGate/FloatTrace silent-killer family, unity-conventions.md §Component-not-serialized).
+        /// [JumpTrace] line logs to Player.log; false otherwise (silent). Since 86cahhfp4 (C1) the window only
+        /// opens when <see cref="JumpTraceEnabled"/> is set (the -jumpTrace launch flag) — the shipped default
+        /// jump is trace-silent. Exposed READ-ONLY so the EditMode guard can assert TryJump OPENS the window
+        /// when enabled (the silent-instrument bug class — a trace that never fires is the CaptureGate/FloatTrace
+        /// silent-killer family, unity-conventions.md §Component-not-serialized) AND stays closed when not.
         /// No PlayMode fixture needed: TryJump (grounded-only) opens the window synchronously.</summary>
         public bool JumpTraceActive => _jumpTraceActive;
+
+        /// <summary>Whether the runtime jump-trace INSTRUMENT is enabled (86cahhfp4 C1 — the -jumpTrace launch
+        /// flag, parsed in Awake via the established HasArg idiom). The instrument is PRESERVED, not deleted:
+        /// launching the build with -jumpTrace restores the exact per-jump [JumpTrace] diagnostics soak debugging
+        /// depends on. Without the flag the trace window never opens, so the shipped default build pays neither
+        /// the ~700-char interpolated Debug.Log string build nor the managed stack capture Debug.Log incurs —
+        /// a per-frame hitch + GC source exactly where frame consistency is felt (poly-style plan §5 item 7).
+        /// SETTABLE so the EditMode guards can exercise both sides without a real command line (Awake does not
+        /// run in EditMode; the property is the test seam, mirroring the groundSnap/footSync access pattern).</summary>
+        public bool JumpTraceEnabled
+        {
+            get => _jumpTraceEnabled;
+            set => _jumpTraceEnabled = value;
+        }
 
         /// <summary>
         /// Begin a jump (ticket 86ca9yq3q) — Space's rising edge calls this (WasdMovement). Imparts the upward
@@ -329,13 +453,18 @@ namespace FarHorizon
             if (_animator != null && _animator.runtimeAnimatorController != null)
                 _animator.SetTrigger(JumpParam);  // fire the one-shot Jump state (AnyState→Jump on the trigger)
 
-            // RUNTIME JUMP-TRACE (86caaqhj5): open the per-jump trace window at lift-off. Capture the player-root
-            // world XZ NOW — the launch→land delta of this baseline is the "pulled back" discriminator.
-            Transform jr = transform.parent != null ? transform.parent : transform;
-            _jumpTraceLaunchRootXZ = new Vector3(jr.position.x, 0f, jr.position.z);
-            _jumpTraceFrame = 0;
-            _jumpTracePostLandT = JumpTracePostLandSeconds;
-            _jumpTraceActive = true;
+            // RUNTIME JUMP-TRACE (86caaqhj5): open the per-jump trace window at lift-off — ONLY under the
+            // -jumpTrace launch flag (86cahhfp4 C1; the shipped default jump is trace-silent, so the per-frame
+            // ~700-char log + stack capture never fires unless the diagnosis is asked for). Capture the
+            // player-root world XZ NOW — the launch→land delta of this baseline is the "pulled back" discriminator.
+            if (_jumpTraceEnabled)
+            {
+                Transform jr = transform.parent != null ? transform.parent : transform;
+                _jumpTraceLaunchRootXZ = new Vector3(jr.position.x, 0f, jr.position.z);
+                _jumpTraceFrame = 0;
+                _jumpTracePostLandT = JumpTracePostLandSeconds;
+                _jumpTraceActive = true;
+            }
             return true;
         }
 
@@ -381,6 +510,116 @@ namespace FarHorizon
                     if (c != null && c.name == MeleeClipName) return c.length;
                 }
                 return 0f;
+            }
+        }
+
+        // ===== ANIMATOR-STATE TRACE (86caa3kur re-soak — the sneak-walk LOOP-HITCH instrument). The Sponsor's
+        // re-soak refined the symptom: the crouch sneak-walk "lags between each walk animation — two steps
+        // repeated, lags between each" → an ANIMATION-LOOP hitch (NOT the movement/position layer Devon's
+        // smooth-direct-drive fixed). EditMode/PlayMode can't observe it (headless deltaTime≈0 stalls the
+        // Animator — unity-conventions §Headless), so SneakVerifyCapture dumps the LIVE per-frame Animator
+        // ground truth from the BUILT exe. These accessors expose the playing state's hash/clip/normalizedTime/
+        // effective-speed of layer 0 so the trace can DISCRIMINATE the three candidate causes:
+        //   #1 clip loop-seam  — normalizedTime wraps cleanly (…0.98→0.0…) but a visible pop each cycle.
+        //   #2 foot-sync stall — the CrouchWalk effective playback speed drives near-zero (RULED OUT in source:
+        //                        CrouchWalk has NO speedParameter, so LocoSpeedMul never scales it — the trace
+        //                        CONFIRMS LocoSpeedMul ≠ the CrouchWalk speed empirically).
+        //   #3 state re-entry  — the state HASH changes / normalizedTime RESETS to ~0 each "two-step" cycle =
+        //                        the AnyState→CrouchWalk/CrouchIdle transition flapping on a Moving flicker.
+        // Read-only; NaN/0 when no Animator (a bare rig). No GC in the getters (no per-frame alloc).
+
+        /// <summary>The layer-0 Animator state's full-path-hash this frame (86caa3kur re-soak trace). 0 when no
+        /// Animator. A CHANGING hash across the sneak hold = the crouch lane re-entering (candidate #3). Read off
+        /// GetCurrentAnimatorStateInfo so it reflects what is ACTUALLY playing, not the requested bool.</summary>
+        public int CurrentStateHash
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return 0;
+                return _animator.GetCurrentAnimatorStateInfo(0).fullPathHash;
+            }
+        }
+
+        /// <summary>The layer-0 state's normalizedTime this frame (86caa3kur re-soak trace) — the looped clip
+        /// PHASE (integer part = completed loops, fractional = current cycle position). A clean LOOP advances the
+        /// fractional part monotonically and wraps 0.99→0.0 (candidate #1 = a seam pop at the wrap); a RESET to
+        /// ~0 with the loop count NOT advancing = the state re-entered (candidate #3). NaN when no Animator.</summary>
+        public float CurrentStateNormalizedTime
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            }
+        }
+
+        /// <summary>The layer-0 state's EFFECTIVE playback speed this frame (86caa3kur re-soak trace) =
+        /// state.speed × state.speedMultiplier. For CrouchWalk this is 1 (no speedParameter wired); for the
+        /// upright Locomotion it is the LocoSpeedMul foot-sync multiplier. A near-zero value during the sneak =
+        /// candidate #2 (the clip stalled). NaN when no Animator.</summary>
+        public float CurrentStateEffectiveSpeed
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                var si = _animator.GetCurrentAnimatorStateInfo(0);
+                return si.speed * si.speedMultiplier;
+            }
+        }
+
+        /// <summary>The name of the FIRST clip currently playing on layer 0 (86caa3kur re-soak trace) — e.g.
+        /// "CastawayCrouchWalk" during the sneak, proving the Sneak Walk clip is the one playing (not a wrong
+        /// state / a T-pose-class empty). null when no Animator / no clip info. Reads GetCurrentAnimatorClipInfo
+        /// — does a small alloc on the FIRST call per state but the trace samples ~1Hz (not per-frame), so the
+        /// GC cost is bounded (and this is a VERIFICATION-only build path — not a shipping hot loop).</summary>
+        public string CurrentClipName
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return null;
+                var infos = _animator.GetCurrentAnimatorClipInfo(0);
+                return (infos != null && infos.Length > 0 && infos[0].clip != null) ? infos[0].clip.name : null;
+            }
+        }
+
+        /// <summary>Whether layer 0 is mid-TRANSITION this frame (86caa3kur re-soak trace). A transition ACTIVE
+        /// every "two-step" cycle during a steady sneak hold = the crouch lane crossfade re-firing (candidate #3);
+        /// a steady CrouchWalk hold should show NO transition once settled. False when no Animator.</summary>
+        public bool IsInTransition
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                return _animator.IsInTransition(0);
+            }
+        }
+
+        /// <summary>The Animator's CURRENT Speed param value this frame (86caa3kur re-soak attempt-3 isolation
+        /// instrument) — the DAMPED blend-tree Speed the LateUpdate SetFloat fed (NOT the raw planar speed
+        /// <see cref="CurrentSpeed"/>). Read off GetFloat so the readout shows what the Walk<->Run blend tree
+        /// actually consumes (it eases toward the raw speed via speedDampTime). NaN when no Animator. Exposed for
+        /// diagnostic readouts of whether the Speed param oscillates per gait cycle (the foot-sync / blend-tree
+        /// suspect) vs holds steady; its former SneakIsolationTool readout consumer was retired in 86caju054.</summary>
+        public float CurrentAnimatorSpeedParam
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.GetFloat(SpeedParam);
+            }
+        }
+
+        /// <summary>The Animator's GLOBAL playback-speed multiplier (<c>animator.speed</c>) this frame
+        /// (86caa3kur re-soak attempt-3 isolation instrument). Normally 1; surfaced so the readout proves the
+        /// global Animator clock is steady (a global speed wobble would jerk EVERY clip, not just the sneak).
+        /// NaN when no Animator. Distinct from the per-state effective speed (<see cref="CurrentStateEffectiveSpeed"/>),
+        /// which is the LocoSpeedMul foot-sync multiplier on the upright Locomotion state.</summary>
+        public float CurrentAnimatorGlobalSpeed
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return float.NaN;
+                return _animator.speed;
             }
         }
 
@@ -460,6 +699,21 @@ namespace FarHorizon
             // re-bind to it rather than re-instantiate. Otherwise build at runtime (defensive fallback).
             if (transform.childCount > 0 && _model == null) RebindFromHierarchy();
             if (!_built) BuildModel();
+
+            // SNEAK-WALK LOOP-HITCH FALLBACK TOGGLE (86caa3kur re-soak — candidate #2 disconfirming control).
+            // -sneakNoFootSync forces footSync OFF at boot so the Sponsor (fallback soak) or the -verifySneak
+            // gate can A/B the sneak WITH vs WITHOUT foot-sync. Foot-sync's LocoSpeedMul does NOT reach the
+            // CrouchWalk state (it has no speedParameter — source-confirmed; the trace re-confirms empirically),
+            // so this toggle is EXPECTED to leave the sneak hitch UNCHANGED = candidate #2 ruled out by control.
+            // A no-op for the upright Walk/Run (their cadence rides LocoSpeedMul) only matters if the Sponsor
+            // happens to walk upright in the fallback build — the trace + sneak are the judged surface.
+            // -jumpTrace (86cahhfp4 C1): opt IN to the per-jump [JumpTrace] runtime diagnostics. Same
+            // GetCommandLineArgs idiom; both flags are independent, so no early break.
+            foreach (string a in System.Environment.GetCommandLineArgs())
+            {
+                if (a == "-sneakNoFootSync") footSync = false;
+                else if (a == "-jumpTrace") _jumpTraceEnabled = true;
+            }
         }
 
         /// <summary>
@@ -1155,16 +1409,32 @@ namespace FarHorizon
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
                 _animator.SetBool(MovingParam, walking);
-                // 86caay44r — DAMP the Speed param so the blend tree EASES rather than snaps on start/stop/
-                // speed-change (the Sponsor's "transitions too abrupt, most on releasing W"). SetFloat's built-in
-                // damp smooths the value toward planarSpeed over ~speedDampTime, frame-rate-independent. A 0
-                // dampTime falls back to a raw instant set (the old behavior) — so the feel is fully tunable from
-                // the build. The Walk<->Run blend (#68) is UNTOUCHED: it still reads this same Speed param; the
-                // damp only makes its crossfade smoother, never selects a different clip.
-                if (speedDampTime > 0.0001f)
-                    _animator.SetFloat(SpeedParam, planarSpeed, speedDampTime, Time.deltaTime);
+                // 86caay44r + 86cackb3j re-soak Part 3 — ASYMMETRIC DAMP the Speed param so the blend tree EASES.
+                // The Sponsor's re-soak: the body SLID before the feet engaged on START (the old symmetric 0.18s
+                // ramp-up eased Speed in slowly → the blend sat near Idle while the agent was already moving). Fix:
+                // a SHORT ramp-UP (speedDampTimeUp ≈ 0.04s) snaps the legs in the instant W is held (SNAPPY START),
+                // while the longer ramp-DOWN (speedDampTime ≈ 0.18s) keeps the approved SMOOTH STOP (release W).
+                // Choose the damp by whether Speed is RISING toward target (start/speed-up) or FALLING (stop).
+                // The Walk<->Run blend (#68) is UNTOUCHED — same Speed param; this only tunes the ease rate.
+                float currentSpeedParam = _animator.GetFloat(SpeedParam);
+                bool rampingUp = planarSpeed >= currentSpeedParam - 1e-4f;
+                float damp = rampingUp ? speedDampTimeUp : speedDampTime;
+                if (damp > 0.0001f)
+                    _animator.SetFloat(SpeedParam, planarSpeed, damp, Time.deltaTime);
                 else
                     _animator.SetFloat(SpeedParam, planarSpeed);
+
+                // FOOT-SYNC (86cackb3j re-soak Part 2) — scale the Locomotion clip PLAYBACK rate to the actual
+                // move-speed so the leg cadence tracks translation (the Sponsor's "walk legs too slow, feet skate").
+                // Computed off the RAW planar agent speed (not the damped param) so the legs cadence answers the
+                // real ground speed immediately. At the run speed (runStrideRef = runSpeed) the multiplier is ≈1 —
+                // the approved run cadence is unchanged (do NOT regress run); at walk it is >1 (legs speed up).
+                float locoMul = footSync
+                    ? ComputeFootSyncMul(planarSpeed, walkBlendSpeed, runSpeedThreshold,
+                                         walkStrideRefSpeed, runStrideRefSpeed, footSyncMulMin, footSyncMulMax)
+                    : 1f;
+                CurrentLocoSpeedMul = locoMul;
+                _animator.SetFloat(LocoSpeedMulParam, locoMul);
                 // GROUNDED (86ca9yq3q rework — THE floating-bug fix). The airborne gate above already updated
                 // _airborne for THIS frame (AdvanceJump flips it false on the landing frame). Driving Grounded =
                 // !_airborne here lets the controller's jump→{Locomotion if Moving | Idle} transition fire on the
@@ -1172,6 +1442,12 @@ namespace FarHorizon
                 // instead of the character stalling in the finished jump pose while still translating (the Sponsor's
                 // "floating" report). Moving (set just above) is current, so a moving landing routes to Locomotion.
                 _animator.SetBool(GroundedParam, !_airborne);
+
+                // CROUCH (86caa3kur) — drive the controller's Crouch bool off the WasdMovement Ctrl-hold request
+                // (SetCrouch). The PR #186 crouch lane reads (Crouch && !Moving)→CrouchIdle, (Crouch && Moving)→
+                // CrouchWalk and releases on !Crouch back to Idle/Locomotion. Moving (set above) selects idle-vs-
+                // walk crouch for us, so this single bool drives the whole lane — no separate crouch-walk flag.
+                _animator.SetBool(CrouchParam, _crouch);
             }
 
             // Yaw the model smoothly toward the travel facing (frame-rate-independent lerp).
@@ -1190,14 +1466,17 @@ namespace FarHorizon
             CancelJumpForwardLunge();
 
             // RUNTIME JUMP-TRACE (86caaqhj5) — emit AFTER this frame's arc/snap + anim update so the trace
-            // reflects the final per-frame positions the player sees. Auto-fires on every jump, silent otherwise.
+            // reflects the final per-frame positions the player sees. Fires only when the -jumpTrace launch
+            // flag opened the window (86cahhfp4 C1); the shipped default jump is trace-silent.
             if (_jumpTraceActive) EmitJumpTrace();
         }
 
         // The per-frame RUNTIME jump-trace line (86caaqhj5 — the "pulled back on landing" RE-DIAGNOSIS). Fires
         // every frame from lift-off (TryJump opened the window) until JumpTracePostLandSeconds past touch-down.
-        // ONE greppable [JumpTrace] Debug.Log per frame inside the window — no toggle, no launch-arg: the Sponsor
-        // just plays + jumps W/A/S/D and the orchestrator reads Player.log. Silent in every non-jump frame.
+        // ONE greppable [JumpTrace] Debug.Log per frame inside the window. Since 86cahhfp4 (C1) the window only
+        // opens under the -jumpTrace launch flag: relaunch the SAME build with -jumpTrace and the Sponsor just
+        // plays + jumps W/A/S/D while the orchestrator reads Player.log — the diagnosis path is preserved, the
+        // shipped default jump no longer pays the per-frame ~700-char log + stack capture. Silent otherwise.
         //
         // The LANDING frame is marked explicitly (LANDED=YES on the touch-down frame). The load-bearing fields:
         //   rootΔXZ      — player-root world XZ moved since lift-off; a NEGATIVE component along travel = the

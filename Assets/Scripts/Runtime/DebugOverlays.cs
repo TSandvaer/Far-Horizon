@@ -9,7 +9,6 @@ namespace FarHorizon
     ///
     /// === What this gates (the dev/debug INSTRUMENT layer) ===
     ///   - HeldWeaponCycleDebug   ("DEBUG — held weapon: …", bottom-center; the #158 loot-prompt-burier)
-    ///   - HeldAxeLengthPicker    ("AXE SHAFT LENGTH: …", top-center)
     ///   - PondNudge              ("POND RECESS / FOAM …", top-center)
     ///   - FloatDiagnostic        (F8 GAP readout)        — F8 stays a SUB-toggle; F1 is the master switch
     ///   - AxeNudgeTool           (F9 nudge panel)        — F9 stays a SUB-toggle
@@ -41,8 +40,10 @@ namespace FarHorizon
     public static class DebugOverlays
     {
         /// <summary>
-        /// Master visibility for the dev/debug instrument-overlay layer. Default HIDDEN (AC2). F1 toggles it
-        /// (<see cref="DebugOverlayToggle"/>); every dev overlay's OnGUI reads it and early-returns when false.
+        /// Master visibility for the dev/debug instrument-overlay layer. Default HIDDEN (AC2). F10 toggles it
+        /// (<see cref="DebugOverlayMaster"/>, the single overlay master since the legacy F2 DebugOverlayToggle
+        /// was removed in 86cah90cp round-3 — re-homed off the retired SneakIsolationTool in 86caju054); every
+        /// dev overlay's OnGUI reads it and early-returns when false.
         /// </summary>
         public static bool Visible;
 

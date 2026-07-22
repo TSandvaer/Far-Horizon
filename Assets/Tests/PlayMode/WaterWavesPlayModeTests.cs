@@ -32,8 +32,13 @@ namespace FarHorizon.PlayTests
 
             var mat = mr.sharedMaterial;
             Assert.IsNotNull(mat, "the ocean must keep its material at runtime");
-            Assert.AreEqual("FarHorizon/LowPolyVertexColor", mat.shader.name,
-                "the ocean must render through FarHorizon/LowPolyVertexColor at runtime (the swell + fog-cap shader)");
+            // 86cajk7vb: the ocean's swell+fog-cap shader was FORKED out of LowPolyVertexColor into a dedicated
+            // FarHorizon/LowPolyWater (Transparent queue + depth-fade foam + _FogCap floor; see
+            // LowPolyZoneGen.MakeWaterMaterial). The runtime material correctly carries LowPolyWater with
+            // _WaveAmp=0.45 / _WaveSpeed=1.1 / _FogCap=0.5 (asserted below); the OLD expected name was STALE
+            // (pre-fork), not a game defect — the opaque LowPolyVertexColor shader stays for the LAND meshes.
+            Assert.AreEqual("FarHorizon/LowPolyWater", mat.shader.name,
+                "the ocean must render through FarHorizon/LowPolyWater at runtime (the swell + fog-cap shader)");
 
             // AC2: the moving swell is live (a visible amplitude + a non-zero speed so it travels — the
             // displacement is keyed off _Time.y in the vertex shader).

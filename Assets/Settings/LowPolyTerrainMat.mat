@@ -28,12 +28,18 @@ Material:
     - _AOStrength: 0
     - _FlatShading: 0
     - _FogCap: 0
+    - _MeadowPatchAmp: 0
     - _RimIntensity: 0
     - _RimPower: 3
+    - _SwayAmp: 0
+    - _SwayLen: 4
+    - _SwaySpeed: 1
     - _WaveAmp: 0
     - _WaveLen: 14
     - _WaveSpeed: 0.9
     m_Colors:
+    - _MeadowDeep: {r: 0.22, g: 0.4, b: 0.17, a: 1}
+    - _MeadowLime: {r: 0.52, g: 0.66, b: 0.28, a: 1}
     - _RimColor: {r: 0.95, g: 0.92, b: 0.85, a: 1}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

@@ -35,7 +35,9 @@ namespace FarHorizon
     /// Exits non-zero if EITHER the demo-tree chop OR the scatter-tree choppability fails to be proven.
     ///
     /// Inert unless launched with -verifyChop (so the normal game / boot capture is unaffected).
-    ///   FarHorizon.exe -screen-fullscreen 0 -verifyChop -captureDir &lt;dir&gt;
+    /// HEADLESS via RT-readback (86cag93zb): captures render Camera.main into an offscreen RT, so it runs
+    /// under -batchmode (no window). Self-asserts are LOGIC (WoodCount / InstanceCount), unaffected.
+    ///   FarHorizon.exe -batchmode -verifyChop -captureDir &lt;dir&gt;
     /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the demo tree, wood in readout)
     /// + chop_scatter.png (at a real scatter tree, MORE wood), then quits non-zero if either proof failed.
     /// </summary>
@@ -48,6 +50,9 @@ namespace FarHorizon
         public Vector3 craftSpot = new Vector3(8f, 0f, 6f);
         public Vector3 treeSpot = new Vector3(-9f, 0f, -7f);
         public string subDir = "Captures";
+        // RT-readback capture resolution (86cag93zb; headless -batchmode, no window).
+        public int captureWidth = 1280;
+        public int captureHeight = 720;
 
         void Start()
         {
@@ -81,32 +86,24 @@ namespace FarHorizon
             Debug.Log("[ChopVerifyCapture] before: HasAxe=" + (inventory != null && inventory.HasAxe) +
                       " wood=" + (inventory != null ? inventory.WoodCount : -1));
             ShotTo(Path.Combine(dir, "chop_before.png"));
-            yield return new WaitForEndOfFrame();
             yield return null;
 
-            // 2. First get the axe — teleport to the craft spot and wait for HasAxe (U2-2's seam).
-            // WHY TELEPORT, NOT MoveTo (the WASD-pivot fix — 86cafecuj CI-gate triage): the live build drives
-            // locomotion via WasdMovement, which HARD-SETS NavMeshAgent.velocity = inputDir*speed EVERY frame
-            // (WasdMovement.cs:259). With no WASD input fed, that velocity is ZERO each frame — clobbering the
-            // path-following velocity ClickToMove.MoveTo→SetDestination would set up, so the agent never moves
-            // and the player freezes at spawn (MoveTo returns true but the agent stays put → axe never crafts →
-            // the whole chop loop cascade-fails). MoveTo is a DEAD seam under WASD locomotion. The deterministic,
-            // NavMesh-safe drive (the SAME pattern the passing LootPromptVerifyCapture gate uses) is to Warp the
-            // agent into range of each target; the chop/loot then fire via the input-independent RequestChopClick/
-            // RequestLoot seams below. We teleport ONTO each target (the craft spot / tree trunk): that is well
-            // within the proximity radii (craftRadius 2.0u / chopRadius 2.2u), so the craft still fires via its
-            // OWN Update proximity poll and the chop via RequestChopClick's own in-range check — we drive the
-            // player into range, we do NOT bypass the gameplay seam. (The crafted axe lands in belt slot 0, which
-            // is the default-selected slot, so IsAxeSelectedInBelt — the chop's select guard — is satisfied.)
-            bool setCraft = TeleportPlayer(craftSpot);
-            Debug.Log("[ChopVerifyCapture] teleport to craft spot set: " + setCraft + " target=" + craftSpot);
+            // 2. First get the axe. 86camz9uz ① — the free auto-craft CraftSpot is RETIRED (this PR deletes
+            // CraftSpot/BuildCraftSpot/AttachStumpAxe). The stone chopping axe now comes from the world
+            // AxePickup (flipped spawn-ACTIVE this PR as the single visible stone-axe source); its acquisition
+            // seam is Inventory.PickUpAxe — the SAME input-independent seam SurvivalLoopPlayModeTests Beat 1
+            // now drives. Acquire the axe through that seam here, consistent with how this capture already
+            // drives EVERY other gameplay action programmatically (RequestChopClick / RequestLoot / agent.Warp),
+            // since the shipped exe can't inject real input into a scripted capture. PickUpAxe lands the axe in
+            // the first free belt slot — slot 0, the default-SELECTED slot on a fresh boot inventory — so
+            // IsAxeSelectedInBelt (the chop's select guard) is satisfied, EXACTLY the end-state the old
+            // CraftSpot → CraftAxe(→ PickUpAxe) path produced. (craftSpot field kept only for the editor-time
+            // MovementCameraScene wiring; it is no longer read here — the axe no longer needs a position.)
+            bool axeAcquired = inventory != null && inventory.PickUpAxe();
+            Debug.Log("[ChopVerifyCapture] axe acquired via PickUpAxe: " + axeAcquired +
+                      " HasAxe=" + (inventory != null && inventory.HasAxe) +
+                      " axeSelected=" + (inventory != null && inventory.IsAxeSelectedInBelt));
             float start = Time.time;
-            while (Time.time - start < 12f)
-            {
-                if (inventory != null && inventory.HasAxe) break;
-                yield return null;
-            }
-            Debug.Log("[ChopVerifyCapture] axe crafted: " + (inventory != null && inventory.HasAxe));
 
             // 3. Now chop the DEMO tree — drive to the tree, then (CHANGE 1) drive LEFT-CLICK chop requests once
             // in range until wood is yielded. The chop is per-click now, so standing at the tree alone does
@@ -137,7 +134,6 @@ namespace FarHorizon
             // Let the camera settle, then capture the 'after' shot with wood in the readout.
             for (int i = 0; i < 8; i++) yield return null;
             ShotTo(Path.Combine(dir, "chop_after.png"));
-            yield return new WaitForEndOfFrame();
             yield return null;
 
             // 4. CHANGE (a) GATE-HARDENING — prove a REAL seed-42 SCATTER tree is choppable in the BUILT scene
@@ -179,7 +175,6 @@ namespace FarHorizon
 
                 for (int i = 0; i < 8; i++) yield return null;
                 ShotTo(Path.Combine(dir, "chop_scatter.png"));
-                yield return new WaitForEndOfFrame();
                 yield return null;
             }
             yield return new WaitForSeconds(0.5f);
@@ -278,9 +273,21 @@ namespace FarHorizon
             return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
+        // HEADLESS RT-readback (86cag93zb): render Camera.main (the gameplay orbit cam) full-pipeline into an
+        // offscreen RT and write the PNG — works under -batchmode (no swapchain), unlike ScreenCapture.
+        // The chop gate's self-asserts are LOGIC (WoodCount / InstanceCount), so no pixel read changes; this
+        // only swaps HOW the diagnostic frame is captured. Camera.main-only means the HUD overlay isn't in
+        // the frame (frame_check gates on scene content — the felled tree / pile / wood scene reads fine).
         private void ShotTo(string file)
         {
-            ScreenCapture.CaptureScreenshot(file, 1);
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[ChopVerifyCapture] no Camera.main — cannot capture " + file);
+                return;
+            }
+            Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
+            if (tex != null) Object.Destroy(tex);
             Debug.Log("[ChopVerifyCapture] wrote " + file);
         }
 

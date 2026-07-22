@@ -16,17 +16,19 @@ namespace FarHorizon
     /// out-of-engine frame_check.py gate then inspects for black/empty frames.
     ///
     /// Inert unless launched with -captureGate (so the normal game / boot launch is unaffected).
-    /// MUST run WINDOWED, not -batchmode: ScreenCapture.CaptureScreenshot returns
-    /// "Failed to capture screen shot" under -batchmode (no swapchain / no real GPU frame) —
-    /// spike iter-4 lesson (FINDINGS.txt). That is exactly the point: a real rendered frame from
-    /// the shipped player is the only evidence the bar trusts.
+    /// HEADLESS via RT-readback (86cag93zb): renders Camera.main full-pipeline into an offscreen
+    /// RenderTexture (RenderTextureCapture.CaptureCameraToTexture → SubmitRenderRequest) and reads
+    /// the pixels back — so it runs under -batchmode with NO window/swapchain. This replaces the old
+    /// ScreenCapture.CaptureScreenshot backbuffer path, which returns "Failed to capture screen shot"
+    /// under -batchmode (empirically re-confirmed 2026-07-03) and thus required a windowed launch.
     ///
-    ///   FarHorizon.exe -screen-fullscreen 0 -captureGate [-captureFrames N] [-captureDir <dir>]
+    ///   FarHorizon.exe -batchmode -captureGate [-captureFrames N] [-captureDir <dir>]
     ///
-    /// Writes capture_00.png .. capture_{N-1}.png (HUD build-stamp visible in each), logs a
-    /// machine-greppable manifest line per frame, then quits. The PASS/FAIL decision is made
-    /// OUT of engine by frame_check.py (a black/empty/all-magenta frame fails) — an in-engine
-    /// self-assert could not prove the swapchain actually rendered, which is the whole gate.
+    /// Writes capture_00.png .. capture_{N-1}.png (the gameplay SCENE frame — an RT captures the
+    /// camera's render only, so the HUD build-stamp OVERLAY is NOT in the frame; the stamp is
+    /// verified separately by verify_build_stamp.py), logs a manifest line per frame, then quits.
+    /// The PASS/FAIL decision is made OUT of engine by frame_check.py (a black/empty/all-magenta
+    /// frame fails) — the editor-vs-runtime backstop the testing bar requires.
     /// </summary>
     public class CaptureGate : MonoBehaviour
     {
@@ -38,6 +40,10 @@ namespace FarHorizon
         public int warmupFrames = 6;
         // Frames to wait between captures so any animation/camera settle advances between shots.
         public int framesBetween = 8;
+        // RT-readback capture resolution (86cag93zb). Fixed for determinism (the old windowed launch used
+        // 1280x720); under -batchmode there is no window whose size to inherit, so the RT size is explicit.
+        public int captureWidth = 1280;
+        public int captureHeight = 720;
 
         void Start()
         {
@@ -51,27 +57,39 @@ namespace FarHorizon
             string dir = ResolveDir();
             Directory.CreateDirectory(dir);
 
-            Debug.Log($"[CaptureGate] start frames={frames} dir={dir} stamp={BuildInfo.Stamp}");
+            Debug.Log($"[CaptureGate] start frames={frames} dir={dir} stamp={BuildInfo.Stamp} " +
+                      $"device={SystemInfo.graphicsDeviceType}");
 
-            // Warm-up so the first shot has real content, not a blank first-frame backbuffer.
+            // Warm-up so the first shot has real content (scene/lighting/clear settled).
             for (int i = 0; i < warmupFrames; i++) yield return null;
+
+            // HEADLESS RT-READBACK (86cag93zb): render Camera.main (the gameplay orbit cam) full-pipeline
+            // into an offscreen RenderTexture and write the PNG. This works under -batchmode (no swapchain),
+            // unlike ScreenCapture.CaptureScreenshot which reads the backbuffer ("Failed to capture screen
+            // shot" headless — empirically confirmed). NOTE: an RT captures ONLY what the CAMERA renders —
+            // the HUD build-stamp (a screen-overlay) is NOT in the frame; frame_check gates on scene CONTENT
+            // (non-black/varied/non-magenta), and the stamp is verified separately (verify_build_stamp.py).
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[CaptureGate] no Camera.main — cannot capture the gameplay frame " +
+                               "(build-side regression: no camera tagged MainCamera in Boot.unity)");
+                Application.Quit(1);
+                yield break;
+            }
 
             for (int n = 0; n < frames; n++)
             {
                 string file = Path.Combine(dir, $"capture_{n:00}.png");
-                ScreenCapture.CaptureScreenshot(file, 1);
-                // The frame_check.py gate greps this exact line to know which files to inspect.
+                Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
+                if (tex != null) Object.Destroy(tex);
+                // The frame_check.py gate scans the dir for these PNGs; the line is a diagnostic trail.
                 Debug.Log($"[CaptureGate] wrote frame {n} -> {file}");
 
-                // Let the capture flush to disk + advance a few frames before the next shot.
-                yield return new WaitForEndOfFrame();
-                yield return null;
+                // Advance a few frames before the next shot so any animation/camera settle advances.
                 for (int i = 0; i < framesBetween; i++) yield return null;
             }
 
-            // Final flush before quit so the last PNG is fully written.
-            yield return new WaitForEndOfFrame();
-            yield return new WaitForSeconds(0.5f);
             Debug.Log($"[CaptureGate] complete frames={frames} -> {dir}");
             Application.Quit();
         }

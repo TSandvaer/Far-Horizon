@@ -48,6 +48,24 @@ namespace FarHorizon
         /// <summary>The per-slot stack cap for a stackable RESOURCE (contract §2: default 20). Tools = 1.</summary>
         public const int DefaultResourceStack = 20;
 
+        /// <summary>
+        /// The CURRENT shared per-slot cap for stackable resources/consumables — the live source <see cref="MaxStack"/>
+        /// reads (ticket 86cabfa4e — the #90 AC7 `inventory stack size` setting binds to THIS). Defaults to
+        /// <see cref="DefaultResourceStack"/> (20), so an untouched build is byte-identical to before this ticket
+        /// (every prior call read the const directly). The dev-console `inventory stack size` slider drives it; the
+        /// NEXT add/merge reads the new cap (no model rebuild needed). Tools are UNAFFECTED — their cap is 1, derived
+        /// from <see cref="ItemKind.Tool"/> in <see cref="MaxStack"/>, never from this field.
+        ///
+        /// MUTABLE STATIC: per unity6-mastery §5 (statics survive domain reload under Enter-Play-Mode-Options), the
+        /// <see cref="ResetStaticState"/> below re-seeds it on every play-enter so the Configurable-Enter-Play-Mode
+        /// static-reset audit (StaticStateResetTests) stays green and a soak-dialed value never leaks into the next
+        /// play session as a phantom default.
+        /// </summary>
+        public static int ResourceStackSize = DefaultResourceStack;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticState() => ResourceStackSize = DefaultResourceStack;
+
         [SerializeField,
          Tooltip("Stable string key, lowercase-kebab. The persistence + lookup key. NEVER reuse/reassign. " +
                  "Canonical ids: axe / wood / stone / berry (contract §3).")]
@@ -79,12 +97,13 @@ namespace FarHorizon
 
         /// <summary>
         /// Per-slot stack cap, DERIVED from <see cref="Kind"/> (contract §1/§2 — NOT free-authored): a Tool
-        /// never stacks (cap 1); a Resource OR Consumable stacks to <see cref="DefaultResourceStack"/> (the
-        /// tweakable resource stack-size, default 20). Consumables stack like resources so a belt slot holds
-        /// a stack of water units / berries (ticket 86caf7g6f DEFAULT — Sponsor-soak-tunable at 86caf7a30).
-        /// Derived so it can NEVER disagree with Kind.
+        /// never stacks (cap 1); a Resource OR Consumable stacks to the live <see cref="ResourceStackSize"/> (the
+        /// tweakable resource stack-size, default-seeded from <see cref="DefaultResourceStack"/> = 20; the #90 AC7
+        /// `inventory stack size` dev-console setting drives it — ticket 86cabfa4e). Consumables stack like
+        /// resources so a belt slot holds a stack of water units / berries (ticket 86caf7g6f DEFAULT —
+        /// Sponsor-soak-tunable at 86caf7a30). Derived so it can NEVER disagree with Kind.
         /// </summary>
-        public int MaxStack => _kind == ItemKind.Tool ? 1 : DefaultResourceStack;
+        public int MaxStack => _kind == ItemKind.Tool ? 1 : ResourceStackSize;
 
         // === The two static guards — ONE definition, used everywhere (UI deny-glow AND data-model
         // move-rejection). Tools/Consumables -> belt-allowed; Resources/Consumables -> stackable.

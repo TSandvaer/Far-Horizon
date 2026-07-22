@@ -40,6 +40,25 @@ namespace FarHorizon.EditorTools
         // LowPolyZoneGen.IslandSeed). 13001 kept as the legacy Zone-D parity seed for the non-island scatter.
         const int ZoneSeed = 13001; // the spike's Zone-D seed, for look parity with the approved pass
 
+        // ---- SUN ORIENTATION (ticket 86cag25az — sun-lower, folded into #194) ----
+        // The warm directional "Sun" key's rotation. Euler X = the sun's ELEVATION above the horizon (the
+        // -35 yaw/azimuth does NOT change elevation). QualityPassGen.ResolveSunDirection reads -light.forward
+        // off this same Sun, so the baked sky-material _SunDirection (the visual disk) and the shading light
+        // stay consistent.
+        // SPONSOR-ACCEPTED BAKE (86cah90cp ROUND-2 dial, 2026-07-02, soak-223 exe stamp b8d6e96): the Sponsor
+        // live-dialed elevation on the F10 WorldLookNudgeTool SUN target IN THE SHIPPED BUILD, looking out
+        // over the OCEAN horizon, and accepted 8° — a low sun sitting near the waterline (Player-prev.log:
+        // "SUN elevation=8,0deg (azimuth 325)"). At the REAL gameplay framing (camera FOV 45, OrbitCamera
+        // minPitch 8° look-down) the visible sky band tops out ~14.5° above the horizon — 8° sits clearly
+        // in-frame; the earlier 18° default was ABOVE the frame top at every playable pitch (the round-1
+        // "i cant see the sun": a STALE persisted fh.settings.sun_elevation=18 PlayerPrefs override stomped
+        // the baked 12° at boot — see FloatSettingEntry.LoadFromPrefs stale-default invalidation).
+        // The dial-from history: 48° (overhead-only, never framed) → 25° → 18° (soak 55bde02) → 12°
+        // (round-1 bake, stomped by the stale pref) → 8° (this bake). The Euler X IS the sun's elevation
+        // above the horizon (the -35 yaw does NOT change elevation — verified).
+        public const float SunElevationDeg = 8f; // Sponsor-accepted (86cah90cp round-2 dial 2026-07-02): low sun near the ocean waterline; deg above horizon
+        public const float SunAzimuthDeg   = -35f; // azimuth/yaw — unchanged (does not affect elevation)
+
         // ---- WORLD-LOOK POLISH palettes (ticket 86ca8t9pq — Uma world-look brief §1/§2) ----
         // CLOUD 3-value cyan (Uma §1 anchor swatches — warm-leaning cyan, NOT cold steel blue; all
         // sub-0.95 HDR-clamp-safe so the reduced-but-present bloom doesn't bloom-clip the bright caps).
@@ -193,8 +212,37 @@ namespace FarHorizon.EditorTools
             // mesh + collider exist to raycast (and the NavMesh has already baked the walkable bowl floor).
             GroundPondInBowl();
 
+            // G6-2 (ticket 86cahhff6, plan §5 Tier-1 item 4): one-line scene-stats trace so a caster/vert/
+            // material regression shows up in the CI bootstrap log (grep `[world-stats]`) instead of only in a
+            // soak. Counts the whole environment (terrain + scatter + clouds + vista + water — all under
+            // envRoot). Casters = renderers whose shadowCastingMode != Off; after R2a the caster count drops
+            // ~530 (grass/sticks/small-stones/berries flipped Off) while total renderers stay the same.
+            LogSceneStats(envRoot);
+
             Debug.Log("[WorldBootstrap] BuildEnvironment complete -> " + zone.ground.name);
             return envRoot;
+        }
+
+        // G6-2 scene-stats trace (ticket 86cahhff6). READ-only walk of the built environment — dumps renderer
+        // count, total mesh vertices, shadow-caster count, and distinct-material count to the bootstrap log so
+        // a perf regression (a new prop class silently casting, a vert-count blowup, a material-count creep) is
+        // visible in CI without a soak. `true` includes inactive renderers (a loot-hidden pickup still ships a
+        // renderer). No scene mutation — purely diagnostic.
+        static void LogSceneStats(GameObject envRoot)
+        {
+            var renderers = envRoot.GetComponentsInChildren<MeshRenderer>(true);
+            long totalVerts = 0;
+            int casters = 0;
+            var mats = new System.Collections.Generic.HashSet<Material>();
+            foreach (var mr in renderers)
+            {
+                if (mr.shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.Off) casters++;
+                foreach (var m in mr.sharedMaterials) if (m != null) mats.Add(m);
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null) totalVerts += mf.sharedMesh.vertexCount;
+            }
+            Debug.Log($"[world-stats] renderers={renderers.Length} verts={totalVerts} " +
+                      $"casters={casters} materials={mats.Count}");
         }
 
         // The KNEE-DEEP wade depth: the water surface sits this far ABOVE the carved BOWL FLOOR, so the player
@@ -268,9 +316,9 @@ namespace FarHorizon.EditorTools
                       $"depth) — the pool sits RECESSED in the bowl; the player wades in knee-deep (ticket 86cadj4g7)");
         }
 
-        // Warm directional key (~48deg) models the sun; cool ambient fill keeps shadowed facets from
-        // going black. The warm-key / cool-fill contrast over the averaged-normal low-poly geometry is
-        // the primary driver of the "smooth-shaded looks good" read. (QualityPassGen.BuildGradientSkybox
+        // Warm directional key (low ~18° sun, Sponsor-accepted) models the sun; cool ambient fill keeps
+        // shadowed facets from going black. The warm-key / cool-fill contrast over the averaged-normal
+        // low-poly geometry is the primary driver of the "smooth-shaded looks good" read. (QualityPassGen.BuildGradientSkybox
         // switches ambientMode to Skybox afterward; this Trilight setup is the fallback base.)
         static void BuildLighting(GameObject parent)
         {
@@ -287,7 +335,20 @@ namespace FarHorizon.EditorTools
             light.type = LightType.Directional;
             light.intensity = 1.25f;
             light.color = new Color(1f, 0.93f, 0.80f);  // warm amber key
-            sunGo.transform.rotation = Quaternion.Euler(48f, -35f, 0f);
+            // SUN-LOWER (ticket 86cag25az → re-lowered by 86cah90cp). The disk was baked at elevation 48°
+            // (Euler X); the gameplay over-shoulder orbit (default pitch 55 looking DOWN, clamped to [8,70])
+            // physically can't tilt up far enough to frame a sun that high — so the Sponsor's first #194 soak
+            // saw the warm-gold disk only in the dedicated -verifySky shot, never in normal play ("baked too
+            // high to see"). LOWER the elevation to the SPONSOR-ACCEPTED 12° (Euler X; yaw/azimuth -35 unchanged;
+            // was 18° on soak 55bde02, dialed lower to 12° on the 2026-07-01 86cah90cp soak) so the disk sits in
+            // the low warm band the orbit frames when the player looks toward the HORIZON over the OCEAN — the
+            // far-horizon north-star framing. The Euler X IS the sun's elevation above the
+            // horizon (the -35 yaw doesn't change elevation — verified). This is the CAUSE-level fix (the disk
+            // was where the LIGHT pointed, just too high): lowering the actual Sun light lowers BOTH the shading
+            // direction AND the baked _SunDirection (QualityPassGen.ResolveSunDirection reads -light.forward off
+            // THIS light), so the visual disk and the light stay consistent — a low warm sun reads as a coherent
+            // late-afternoon key (longer warm shadows), suiting the warm Zone-D palette.
+            sunGo.transform.rotation = Quaternion.Euler(SunElevationDeg, SunAzimuthDeg, 0f);
             light.shadows = LightShadows.Soft;
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
@@ -565,8 +626,14 @@ namespace FarHorizon.EditorTools
             // believable foot, faceted sides down to a sunk rim.
             float top = c.raise;
             float seaSink = -8f; // well below WaterY (-0.20) so the coast is the waterline, no floating gap
+            // VIS-1 (ticket 86cahhfkc): the shelf TOP reads as a forested cap — a muted canopy green LERPED
+            // toward this cluster's grey body (0.45) so the green already carries the cluster's atmospheric
+            // recede before the per-cluster _Tint multiplies on top → the cap fades in LOCKSTEP with the
+            // flanks/peaks (no seam drift). Muted (not the vivid foreground canopy green) because it's a
+            // DISTANT vista cap seen through fog. The faceted FLANKS stay grey rock (c.body).
+            Color capGreen = Color.Lerp(new Color(0.30f, 0.42f, 0.24f), c.body, 0.45f);
             var mesh = LowPolyMeshes.FacetedLandmass(radius, top - seaSink, 9 + rnd.Next(0, 3),
-                c.body, rnd.Next());
+                c.body, capGreen, rnd.Next());
 
             var island = new GameObject("LP_Landmass");
             island.transform.SetParent(clusterRoot.transform, false);

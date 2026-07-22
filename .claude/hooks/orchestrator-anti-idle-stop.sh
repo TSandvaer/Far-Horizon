@@ -12,16 +12,32 @@
 # never re-scanned the board; a full get_tasks showed 33 open "to do" tickets,
 # many non-gated + unrelated (perf, locomotion, refactors, visuals, spikes).
 #
-# What it does — fires ONLY on the precise failure state, no alarm fatigue:
-#   (1) the turn is an ORCHESTRATION TICK (the cron/pulse prompt signature is in
-#       the most-recent real user message), AND
+# Two INDEPENDENT fire branches, each gated on the turn being an ORCHESTRATION
+# TICK (the cron/pulse prompt signature is in the most-recent real user message).
+# Fires ONLY on the precise failure state, no alarm fatigue.
+#
+# BRANCH A — FULL-IDLE GATE (original):
+#   (1) the turn is an orchestration tick, AND
 #   (2) the team is FULLY IDLE — zero in-flight background agents (no dispatched
 #       agentId left unresolved by a probe or a completion), AND
 #   (3) this turn did NEITHER dispatch (no `Agent` tool_use) NOR a fresh
 #       full-board scan (no `mcp__clickup__get_tasks` tool_use).
 #   In that state it BLOCKS the stop and orders a scan + fill (or a per-slot
 #   machine-checkable reason). A busy team (agents in flight) or an engaged tick
-#   (dispatched or scanned this turn) is never flagged.
+#   (dispatched or scanned this turn) is never flagged by this branch.
+#
+# BRANCH B — STALE-SCAN GATE (2026-06-30):
+#   (1) the turn is an orchestration tick, AND
+#   (b) this turn ran NO `mcp__clickup__get_tasks`, AND
+#   (c) no `get_tasks` occurred since the PRIOR orchestration tick (≥1 full tick
+#       interval elapsed with no fresh whole-board scan).
+#   This branch fires REGARDLESS of whether agents are in flight or whether an
+#   `Agent` was dispatched this turn — it closes the hole where the orchestrator
+#   gets absorbed in the build-lane critical path (agents busy → branch A never
+#   fires) while the NON-build lane (Erik/Uma/Priya) starves behind a board that
+#   was last scanned >1 tick ago. A scan THIS turn or since the prior tick is
+#   never flagged (no alarm fatigue). Branch B is checked FIRST: a stale board is
+#   the stronger signal, and a Stop hook can emit only one decision.
 #
 # Timing honesty: a Stop hook fires AFTER the turn's text — it cannot stop the
 # first "quiet" sentence, but it forces a scan + fill before the turn truly ends.
@@ -63,6 +79,58 @@ if ! printf '%s' "$tick_text" | grep -Eq 'orchestration tick|[Oo]rchestration pu
   exit 0
 fi
 
+# The tick signature for the COUNTING grep below — used to find ALL tick line
+# numbers so the PRIOR tick can anchor the staleness window. The bare `never
+# idle` alternative is intentionally OMITTED here (it IS kept in the gate-entry
+# grep above): a real Sponsor message that merely *contains* the phrase
+# `never idle` must not be miscounted as a cron tick and mis-anchor `prior_tick`,
+# which would fire a (self-correcting, but noisy) false STALE-SCAN block. The
+# fuller, cron-prompt-specific anchors stay so genuine ticks still count.
+TICK_SIG='orchestration tick|[Oo]rchestration pulse|scan the board first|team must never idle'
+
+# ---------------------------------------------------------------------------
+# BRANCH B — STALE-SCAN GATE. Fire when the WHOLE board has not been scanned
+# since before the PRIOR orchestration tick — i.e. ≥1 full tick interval has
+# elapsed with no fresh `get_tasks`. This catches the "absorbed in the build
+# lane" hole (agents in flight → branch A's full-idle check exits early) where
+# the non-build personas starve behind a stale board. Checked BEFORE branch A
+# because a Stop hook emits only one decision and a stale board is the stronger
+# signal.
+#
+# Line-number arithmetic (grep -n on user-message lines only, so a tick
+# signature quoted inside an assistant message or a tool_result can't be
+# mistaken for a real tick):
+#   - tick_lines  = every real-user-message line carrying the tick signature.
+#   - prior_tick  = the 2nd-from-last such line (the tick BEFORE this one). If
+#                   only one tick exists in the transcript there is no prior
+#                   interval to be stale across → branch B does not fire.
+#   - last_scan   = the line of the most-recent `get_tasks` tool_use.
+#   FIRE if (no get_tasks at all) OR (last_scan < prior_tick). A get_tasks this
+#   turn (last_scan >= last_user_line) trivially satisfies last_scan >= prior_tick
+#   → no fire, so a scan THIS turn is never flagged.
+tick_lines=$(grep -n '"role":"user"' "$transcript_path" 2>/dev/null \
+  | grep -v '"tool_result"' \
+  | grep -E "$TICK_SIG" \
+  | cut -d: -f1 || true)
+prior_tick=$(printf '%s\n' "$tick_lines" | grep -E '^[0-9]+$' | tail -2 | head -1 || true)
+
+# Only evaluate staleness when a PRIOR tick exists (≥2 ticks in the transcript)
+# AND the prior tick is strictly before this turn's tick (a guard for the
+# single-tick / degenerate case where tail -2|head -1 == the current tick line).
+if [[ -n "${prior_tick:-}" && "$prior_tick" -lt "$last_user_line" ]]; then
+  last_scan=$(grep -nE '"type":"tool_use"' "$transcript_path" 2>/dev/null \
+    | grep -E '"name":"mcp__clickup__get_tasks"' \
+    | tail -1 \
+    | cut -d: -f1 || true)
+  if [[ -z "${last_scan:-}" || "$last_scan" -lt "$prior_tick" ]]; then
+    reasonB="STALE-SCAN GATE: no fresh whole-board scan since before the last tick — idle capacity hides behind a busy critical path. Run mcp__clickup__get_tasks on list 901523878268 (via a subagent — it overflows) and fill-or-justify EVERY non-build persona slot (Erik/Uma/Priya) independent of the single Unity build slot. A prior 'drained' is not current truth."
+    printf '{"decision":"block","reason":"%s"}' "$reasonB"
+    exit 0
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# BRANCH A — FULL-IDLE GATE (original).
 # (3) Did THIS turn dispatch (Agent) OR scan the board (get_tasks)? If so, the
 # orchestrator is engaged — do not flag.
 # Hardened: match `"type":"tool_use"` and the target `"name":...` as two

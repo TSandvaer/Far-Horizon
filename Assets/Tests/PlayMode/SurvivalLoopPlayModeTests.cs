@@ -9,8 +9,8 @@ namespace FarHorizon.PlayTests
     /// <summary>
     /// U2-7 (ticket 86ca8bdhy) — the M-U2 EXIT coverage: the FULL survival cycle driven END-TO-END
     /// in ONE PlayMode sequence on ONE shared rig (Inventory + WarmthNeed + Player), the DELTA the
-    /// per-ticket suites do NOT cover. WarmthNeedPlayModeTests / CraftSpotPlayModeTests /
-    /// ChopTreePlayModeTests / CampfirePlayModeTests each prove a single BEAT in isolation with their
+    /// per-ticket suites do NOT cover. WarmthNeedPlayModeTests / ChopTreePlayModeTests /
+    /// CampfirePlayModeTests each prove a single BEAT in isolation with their
     /// OWN throwaway rig; none threads the whole spine through a single play session, so a regression
     /// in the HAND-OFF between beats (the chopped wood reaching the placement gate; the lit fire
     /// reaching the SAME warmth instance the decay drained) could pass every isolated suite and still
@@ -27,13 +27,19 @@ namespace FarHorizon.PlayTests
     /// </summary>
     public class SurvivalLoopPlayModeTests
     {
-        private GameObject _invGo, _warmthGo, _playerGo, _spotGo, _treeGo, _fireGo;
+        private GameObject _invGo, _warmthGo, _playerGo, _treeGo, _fireGo, _spawnerGo, _looterGo;
         private Inventory _inv;
         private WarmthNeed _warmth;
-        private CraftSpot _spot;
         private ChopTree _tree;
         private Campfire _fire;
         private CampfirePlacement _place;
+        private LogPileSpawner _spawner;
+        private PickableLooter _looter;
+
+        // 86cajt6j8 — STABLE-CLOCK HARNESS (FH-PMTRIAGE-CHOP). Same fixed-virtual-step reasoning as
+        // ChopTreePlayModeTests: the Beat-2 chop loop rides the swing impact cadence, so a coarse headless clock
+        // is pinned to a deterministic step. (SurvivalLoop's actual RED was a STALE contract, fixed below.)
+        private const float StableStepSeconds = 0.01f;
 
         // World layout — distinct spots so moving the single player between them mirrors the real
         // craft-spot / tree / fire-pit triangle. FAR_AWAY parks the player out of every radius.
@@ -45,6 +51,8 @@ namespace FarHorizon.PlayTests
         [SetUp]
         public void SetUp()
         {
+            Time.captureDeltaTime = StableStepSeconds; // fixed virtual clock → deterministic cadence (86cajt6j8)
+
             // ONE inventory + ONE warmth need — the SHARED state every beat reads/writes. This is the
             // whole point of the end-to-end rig: the wood the tree adds is the wood the fire spends; the
             // warmth the campfire restores is the warmth that decayed. Isolated suites never prove this.
@@ -67,13 +75,25 @@ namespace FarHorizon.PlayTests
             _playerGo = new GameObject("Player");
             _playerGo.transform.position = FarAway;
 
-            // Craft spot.
-            _spotGo = new GameObject("CraftSpot");
-            _spotGo.transform.position = CraftPos;
-            _spot = _spotGo.AddComponent<CraftSpot>();
-            _spot.inventory = _inv;
-            _spot.player = _playerGo.transform;
-            _spot.craftRadius = 2.0f;
+            // 86camz9uz ① — the free auto-craft CraftSpot is RETIRED. Beat 1 now acquires the (stone) chopping
+            // axe via the SAME Inventory.PickUpAxe seam the world AxePickup uses (the loop's real spine is the
+            // WARMTH closure: chop → wood → fire → warmth; the crafting-table place-to-build system has its own
+            // dedicated CraftingMenuPlayModeTests). No CraftSpot rig.
+
+            // REWORK 86caf9u5t — the felled tree no longer banks wood per chop; it drops a lootable LogPile
+            // holding the WHOLE yield, looted with E via the shared PickableLooter. The pre-rework loop modelled
+            // wood-per-chop (never updated when the rework landed → Beat 2 saw 0 wood, the 86cajt6j8 stale-test
+            // RED). Wire the SAME pile+looter hand-off the ChopTreePlayModeTests / shipped -verifyChop path use,
+            // so Beat 2 fells the tree → a pile drops → E loots it → the wood reaches the SAME _inv the fire spends.
+            _spawnerGo = new GameObject("LogPileSpawner");
+            _spawner = _spawnerGo.AddComponent<LogPileSpawner>();
+            _spawner.WoodYield = 3;        // == one felled tree's yield == _place.woodCost (the loop closes on one chop session)
+            _spawner.DespawnSeconds = 180f;
+
+            _looterGo = new GameObject("PickableLooter");
+            _looter = _looterGo.AddComponent<PickableLooter>();
+            _looter.inventory = _inv;
+            _looter.player = _playerGo.transform;
 
             // Tree.
             _treeGo = new GameObject("ChopTree");
@@ -82,6 +102,7 @@ namespace FarHorizon.PlayTests
             _tree.inventory = _inv;
             _tree.player = _playerGo.transform;
             _tree.visual = _treeGo.transform;
+            _tree.logPileSpawner = _spawner; // REWORK 86caf9u5t — the felled tree drops its lootable pile here
             _tree.chopRadius = 2.2f;
             _tree.woodPerChop = 1;
             _tree.chopsToFell = 3;
@@ -103,19 +124,27 @@ namespace FarHorizon.PlayTests
             _place.campfire = _fire;
             _place.player = _playerGo.transform;
             _place.warmth = _warmth;
+            _place.ghost = null;           // no ghost in the bare rig (SetGhostShown/TintGhost no-op)
+            _place.groundMask = default;   // 0 → the headless flat-ground fallback (valid ground)
             _place.woodCost = 3;           // == one felled tree's yield (chopsToFell*woodPerChop)
-            _place.buildRadius = 2.2f;
+            _place.stoneCost = 2;          // ⑤ NIT-3 — the vision's "branches/stones"; hand-gathered in Beat 3
         }
 
         [TearDown]
         public void TearDown()
         {
+            if (_place != null) _place.Cancel(); // release the modal UiInputGate if a test left placement active (⑤)
             Object.Destroy(_invGo);
             Object.Destroy(_warmthGo);
             Object.Destroy(_playerGo);
-            Object.Destroy(_spotGo);
             Object.Destroy(_treeGo);
             Object.Destroy(_fireGo);
+            if (_spawnerGo != null) Object.Destroy(_spawnerGo);
+            if (_looterGo != null) Object.Destroy(_looterGo);
+            // Clean up any log piles Beat 2 spawned at runtime (not parented to the rig GOs).
+            foreach (var pile in Object.FindObjectsByType<LogPile>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                Object.Destroy(pile.gameObject);
+            Time.captureDeltaTime = 0f; // restore the normal wall-clock for other test classes (86cajt6j8)
         }
 
         // Move the single player to a world spot and let several real frames pass so the beat's Update
@@ -145,10 +174,11 @@ namespace FarHorizon.PlayTests
             Assert.IsFalse(_inv.HasAxe, "Beat 0: start with no axe");
             Assert.AreEqual(0, _inv.WoodCount, "Beat 0: start with no wood");
 
-            // --- Beat 1: CRAFT. Reach the craft spot -> the single recipe fires -> axe in hand. ---
-            yield return GoTo(CraftPos, 0.3f);
-            Assert.IsTrue(_inv.HasAxe, "Beat 1: reaching the craft spot crafts the axe (the loop's entry)");
-            Assert.IsTrue(_spot.HasCrafted, "Beat 1: CraftSpot latched");
+            // --- Beat 1: ACQUIRE. Pick up the (stone) chopping axe -> axe in hand (the loop's entry). ---
+            // 86camz9uz ① — the free auto-craft stump is retired; the stone axe comes from the world pickup
+            // (Inventory.PickUpAxe, the seam AxePickup drives). The chop gate needs the STONE "axe" selected.
+            Assert.IsTrue(_inv.PickUpAxe(), "Beat 1: picking up the axe places it on the belt (the loop's entry)");
+            Assert.IsTrue(_inv.HasAxe, "Beat 1: the castaway now holds the axe");
 
             // --- Beat 2: CHOP. Carry the axe to the tree -> LEFT-CLICK to chop -> wood ticks up -> the tree
             //     fells. --- This is the load-bearing HAND-OFF #1: the axe crafted in Beat 1 is what unlocks the
@@ -170,19 +200,42 @@ namespace FarHorizon.PlayTests
                 yield return null;                 // one more frame for the impact-resolve Update to apply the effect
             }
             Assert.IsTrue(_tree.IsFelled, "Beat 2: the axe-holding castaway fells the tree by clicking (CHANGE 1)");
+
+            // REWORK 86caf9u5t hand-off — felling drops a lootable LogPile (the wood is NO LONGER banked per chop);
+            // the player loots it with E. This is the real chop→pile→E-loot spine the shipped -verifyChop capture
+            // proves in the exe. Looting is what moves the wood into the SAME _inv the placement gate spends below.
+            Assert.IsNotNull(Object.FindObjectOfType<LogPile>(),
+                "Beat 2: the felled tree dropped a lootable log pile (REWORK AC2 — wood drops on fell, not per chop)");
+            _looter.RequestLoot();
+            yield return null; // the pickable path grabs the pile → the whole yield lands in _inv
+
             Assert.GreaterOrEqual(_inv.WoodCount, _place.woodCost,
-                "Beat 2: one felled tree yields ENOUGH wood to afford the fire (the loop closes from one chop session)");
+                "Beat 2: one felled tree's LOOTED pile yields ENOUGH wood to afford the fire (the loop closes from " +
+                "one chop session — the chop→pile→loot hand-off, not the pre-rework per-chop bank)");
             int woodBeforeBuild = _inv.WoodCount;
 
-            // --- Beat 3: PLACE + LIGHT. Carry the wood to the pit -> the wood gate is paid -> fire lit. ---
-            // Hand-off #2: the wood chopped in Beat 2 is what the placement gate spends here (same _inv).
+            // ⑤ 86camz9w7 — the campfire is now WOOD + STONE (the vision's "branches/stones"). Hand-gather the
+            // stones (pebbles are early-available, the same source the ① table's stone comes from) so the loop
+            // affords the fire. The wood→fire hand-off (the point of this test) is unchanged.
+            _inv.Model.AddItem(_inv.Catalog.ById(ItemCatalog.StoneId), _place.stoneCost);
+            int stoneBeforeBuild = _inv.StoneCount;
+
+            // --- Beat 3: PLACE + LIGHT. The campfire is invisible-until-placed now (⑤) — PLACE it via the ①
+            //     ghost+confirm flow (RequestBuildAt) at a flat spot beside the player -> the wood+stone gate is
+            //     paid -> revealed + lit. --- Hand-off #2: the wood chopped in Beat 2 is what the placement gate
+            // spends here (same _inv). Build 2u from the player (off-self) but within warmRadius for Beat 4.
             _playerGo.transform.position = FirePos;
-            float buildStart = Time.time;
-            while (Time.time - buildStart < 2f && !_fire.IsLit) yield return null;
-            Assert.IsTrue(_place.HasBuilt, "Beat 3: reaching the pit WITH wood builds the fire");
-            Assert.IsTrue(_fire.IsLit, "Beat 3: the built fire is lit");
+            yield return null;
+            Vector3 buildSpot = FirePos + new Vector3(2f, 0f, 0f); // off-self (>= minDistFromPlayer), within warmRadius
+            bool built = _place.RequestBuildAt(buildSpot);
+            Assert.IsTrue(built, "Beat 3: confirming the placement WITH wood+stone builds the fire");
+            Assert.IsTrue(_place.HasBuilt, "Beat 3: the placement latches built");
+            Assert.IsTrue(_fire.IsPlaced, "Beat 3: the campfire is revealed at the placed pose (invisible-until-placed lifted)");
+            Assert.IsTrue(_fire.IsLit, "Beat 3: the placed fire is lit (placing == lighting)");
             Assert.AreEqual(woodBeforeBuild - _place.woodCost, _inv.WoodCount,
                 "Beat 3: the wood gate debited exactly woodCost from the SAME ledger the chop filled");
+            Assert.AreEqual(stoneBeforeBuild - _place.stoneCost, _inv.StoneCount,
+                "Beat 3: the stone gate debited exactly stoneCost (the vision's 'stone AND wood')");
 
             // --- Beat 4: RESTORE — THE LOOP CLOSES. Stand at the lit fire -> warmth measurably RISES. ---
             // Hand-off #3 (the success-test catch): the fire restores the SAME _warmth instance Beat 0

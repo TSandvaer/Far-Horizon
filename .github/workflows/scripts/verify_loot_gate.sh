@@ -41,25 +41,39 @@ mkdir -p "$CAP_DIR"
 ABS_CAP="$(cd "$CAP_DIR" && pwd)"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Clear any stale captures so frame_check only sees THIS run's loot-prompt frames.
-rm -f "$ABS_CAP"/loot_prompt*.png
-rm -f "$LOG_FILE"
+# Wall-clock cap so a hung launch fails instead of blocking CI forever. WEDGE HARDENING
+# (86cafzaeb; adopts #189's capture_gate/pond pattern): 300 (was 120 — no margin), `-k 15`
+# hard-KILLs (SIGKILL) a player that ignores the soft SIGTERM 15s later so a wedged D3D12
+# present-loop process can't linger into the retry / the next gate.
+LAUNCH_TIMEOUT=300
 
-echo "[verify_loot] launching shipped exe windowed (-verifyLoot): $EXE"
-echo "[verify_loot]   captureDir=$ABS_CAP logFile=$LOG_FILE"
+# launch_once — clear stale artifacts, launch the windowed exe under timeout, set exe_rc.
+# Re-clears EVERY attempt so a partial first-attempt capture/log can't mask the retry.
+launch_once() {
+  rm -f "$ABS_CAP"/loot_prompt*.png
+  rm -f "$LOG_FILE"
+  echo "[verify_loot] launching shipped exe windowed (-verifyLoot): $EXE"
+  echo "[verify_loot]   captureDir=$ABS_CAP logFile=$LOG_FILE"
+  # Windowed + small so it never grabs the desktop; -verifyLoot drives LootPromptVerifyCapture;
+  # -logFile redirects the standalone player's Player.log so the SHOW/RENDER verdict lines are
+  # grep-able here. The component calls Application.Quit(0/1) when done.
+  set +e
+  timeout -k 15 "${LAUNCH_TIMEOUT}" "$EXE" \
+    -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
+    -verifyLoot -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
+  exe_rc=$?
+  set -e
+}
 
-# Windowed + small so it never grabs the desktop; -verifyLoot drives LootPromptVerifyCapture;
-# -logFile redirects the standalone player's Player.log so the SHOW/RENDER verdict lines are grep-able
-# here. The component calls Application.Quit(0/1) when done; cap wall-clock so a hung launch fails.
-LAUNCH_TIMEOUT=120
-set +e
-timeout "${LAUNCH_TIMEOUT}" "$EXE" \
-  -screen-fullscreen 0 -screen-width 1280 -screen-height 720 \
-  -verifyLoot -captureDir "$ABS_CAP" -logFile "$LOG_FILE"
-exe_rc=$?
-set -e
+launch_once
+# ONE retry, ONLY on a timeout-hang (rc 124 = the first-frame present-loop wedge). A real non-zero
+# self-assert failure is NOT a wedge — never retry it (it would mask a genuine prompt regression).
 if [ "$exe_rc" -eq 124 ]; then
-  echo "[verify_loot] FAILED — exe did not self-quit within ${LAUNCH_TIMEOUT}s (hung launch)" >&2
+  echo "[verify_loot] WARN — exe did not self-quit within ${LAUNCH_TIMEOUT}s (timeout-hang; likely the present-loop wedge) — retrying ONCE" >&2
+  launch_once
+fi
+if [ "$exe_rc" -eq 124 ]; then
+  echo "[verify_loot] FAILED — exe did not self-quit within ${LAUNCH_TIMEOUT}s (hung launch, including the retry)" >&2
 fi
 
 # Echo the component's ground-truth verdict line(s) for the CI log.

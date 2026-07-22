@@ -707,6 +707,11 @@ namespace FarHorizon.EditorTools
         //   blobs       — how many spheroids cluster (3-6 reads like the board sheet; min 3)
         //   bodyCyan / topCyan / shadowCyan — the 3-value cyan palette (Uma §1 anchor swatches)
         //   seed        — deterministic cluster layout + per-blob jitter (reproducible baked scene)
+        // CLD-1 flat-base floor as a fraction of the cloud radius (the base plane sits at -0.25×radius in
+        // cloud-local space — just below the y=0 blob-centre band, so only the undersides flatten and the
+        // puffy tops read unchanged). Dispatch spec: max(y, -0.25×radius).
+        const float CloudBaseFloorFraction = 0.25f;
+
         public static Mesh CloudBlob(float radius, int blobs, Color bodyCyan, Color topCyan,
             Color shadowCyan, int seed)
         {
@@ -742,9 +747,18 @@ namespace FarHorizon.EditorTools
             var verts = new List<Vector3>();
             var normals = new List<Vector3>();
             var cols = new List<Color>();
+            // FLAT CLOUD BASE (CLD-1, ticket 86cahhfkc — plan §5 Tier-1 item 5). The board clouds
+            // (21h10_44 / 21h16_13) are flat-bottomed CUMULUS toys, not spheroid potatoes: a rounded puffy
+            // top sitting on a near-flat base. Clamp every blob vertex's cloud-local Y up to a single floor
+            // plane at floorY so all blobs share ONE flat bottom (a per-blob floor would step the base). The
+            // floor is a fraction of the cloud radius (below the y=0 blob-centre band, so the puffy tops are
+            // untouched and only the undersides flatten). Same vert budget, clouds stay non-casters (perf
+            // guardrail). Applied AFTER the yScale flatten, INSIDE the flat-shade so the clamped base faces
+            // get their own recomputed near-horizontal face normals for free.
+            float floorY = -CloudBaseFloorFraction * radius;
             for (int b = 0; b < centres.Count; b++)
                 AppendFlatBlob(verts, normals, cols, centres[b], radii[b], subdiv: 1,
-                               jitter: 0.20f, color: blobCols[b], yScale: 0.78f, seed: rnd.Next());
+                               jitter: 0.20f, color: blobCols[b], yScale: 0.78f, floorY: floorY, seed: rnd.Next());
 
             var tris = new List<int>(verts.Count);
             for (int i = 0; i < verts.Count; i++) tris.Add(i); // flat-shaded: every face owns its verts
@@ -768,7 +782,7 @@ namespace FarHorizon.EditorTools
         // wider than tall). Used by CloudBlob; kept distinct from AppendBlob (smooth canopy) so the two
         // idioms don't entangle.
         static void AppendFlatBlob(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
-            Vector3 center, float radius, int subdiv, float jitter, Color color, float yScale, int seed)
+            Vector3 center, float radius, int subdiv, float jitter, Color color, float yScale, float floorY, int seed)
         {
             var baseVerts = new List<Vector3>
             {
@@ -797,13 +811,18 @@ namespace FarHorizon.EditorTools
             }
 
             var rnd = new System.Random(seed);
-            // Displace each base vert radially (lumpy) + flatten in Y, in blob-local space.
+            // Displace each base vert radially (lumpy) + flatten in Y, in blob-local space. Then CLAMP the
+            // final blob-local Y up to floorY (CLD-1) so the cloud's underside reads as a flat cumulus base
+            // instead of a spheroid potato bottom — every blob shares the one cloud floor plane. Verts above
+            // the floor are untouched (the puffy top is unchanged); only the undersides snap up onto the base.
             var displaced = new Vector3[baseVerts.Count];
             for (int i = 0; i < baseVerts.Count; i++)
             {
                 Vector3 n = baseVerts[i].normalized;
                 float r = radius * (1f - jitter * 0.5f + (float)rnd.NextDouble() * jitter);
-                displaced[i] = center + new Vector3(n.x * r, n.y * r * yScale, n.z * r);
+                Vector3 p = center + new Vector3(n.x * r, n.y * r * yScale, n.z * r);
+                p.y = Mathf.Max(p.y, floorY);
+                displaced[i] = p;
             }
 
             // Flat-shade: emit each face with its own 3 verts + outward face normal (winding flipped to
@@ -1027,7 +1046,7 @@ namespace FarHorizon.EditorTools
         // FLAT-shaded per-face (explicit hard normals) with OUTWARD winding enforced (same EmitFace idiom
         // as FacetedMountain) so the island is never backface-culled — the −Z-grid / cull-back class guard.
         public static Mesh FacetedLandmass(float radius, float depth, int sides,
-            Color bodyGrey, int seed)
+            Color bodyGrey, Color capGreen, int seed)
         {
             sides = Mathf.Max(7, sides);
             var rnd = new System.Random(seed);
@@ -1075,10 +1094,16 @@ namespace FarHorizon.EditorTools
                 EmitFace(botRing[i], topRing[ni], topRing[i], bodyGrey);
             }
             // TOP dome: top ring -> apex (so the shelf is gently domed, peaks foot believably).
+            // VIS-1 (ticket 86cahhfkc — plan §5 Tier-1 item 6): tint the top-dome faces a muted canopy GREEN
+            // (a forested shelf cap) instead of bare grey, so the distant isles read as green-topped land,
+            // not a bare "asteroid" rock. Only the SHELF TOP greens — the faceted FLANKS stay grey rock
+            // (bodyGrey above). The caller passes a green already lerped toward the cluster tint, and the
+            // per-cluster atmospheric _Tint multiplies on top, so the cap recedes in LOCKSTEP with its
+            // flanks + peaks (no seam drift — same fade path as the rest of the mass).
             for (int i = 0; i < sides; i++)
             {
                 int ni = (i + 1) % sides;
-                EmitFace(topRing[i], topRing[ni], apexTop, bodyGrey);
+                EmitFace(topRing[i], topRing[ni], apexTop, capGreen);
             }
 
             var tris = new List<int>(verts.Count);
@@ -1294,6 +1319,212 @@ namespace FarHorizon.EditorTools
             var normals = new Vector3[verts.Count];
             for (int i = 0; i < normals.Length; i++) normals[i] = Vector3.up;
             mesh.SetNormals(normals);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        // ============================ THE REAL SNAKE (ticket 86caaz4vn AC1) ============================
+        // A findable low-poly SERPENT: a chain of faceted tapered body LINKS + a distinct wedge HEAD,
+        // warm/banded (contrast vs the green bushes — the #224 "bush-blob lookalike" anti-goal). Local
+        // convention: the long axis is +Z (SnakeBodyChain orients segments with LookRotation, so +Z =
+        // travel direction). FLAT-SHADED per face (unwelded verts + explicit face normals + per-face value
+        // step — the FacetedRock idiom) with OUTWARD winding enforced per face (lowpoly-quality §1: inward
+        // winding → Cull Back culls the mesh; guard SnakeAITests asserts every face points outward).
+
+        /// <summary>
+        /// One tapered snake BODY link: a 6-sided faceted prism along +Z, radius tapering rBack→rFront,
+        /// slightly belly-flattened, per-face value-stepped vertex colour (band colour × up-light value).
+        ///   rBack/rFront — half-extents at the two ends (the body tapers toward the tail)
+        ///   length       — link length along Z (links slightly overlap the chain spacing → continuous body)
+        ///   band         — this link's band colour (alternating warm rust / dark bands = the banded read)
+        ///   seed         — small deterministic per-link facet jitter (reproducible baked scene)
+        /// </summary>
+        public static Mesh SnakeLink(float rBack, float rFront, float length, Color band, int seed)
+        {
+            var rnd = new System.Random(seed);
+            const int sides = 6;
+            float halfL = length * 0.5f;
+
+            // Two hexagonal rings, belly-flattened (a snake cross-section is a squashed hex, belly down).
+            Vector3[] back = new Vector3[sides];
+            Vector3[] front = new Vector3[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = (i + 0.5f) / sides * Mathf.PI * 2f; // offset so a FLAT face sits on the belly
+                float jx = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.10f;
+                float jy = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.10f;
+                back[i] = new Vector3(Mathf.Cos(a) * rBack * jx, Mathf.Sin(a) * rBack * 0.82f * jy, -halfL);
+                front[i] = new Vector3(Mathf.Cos(a) * rFront * jx, Mathf.Sin(a) * rFront * 0.82f * jy, halfL);
+            }
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                // Side quad = 2 flat tris.
+                EmitFlatTri(verts, normals, cols, back[i], back[ni], front[ni], band, Vector3.zero, rnd);
+                EmitFlatTri(verts, normals, cols, back[i], front[ni], front[i], band, Vector3.zero, rnd);
+                // End caps (fans to the ring centres) — closed so an exposed end never reads see-through.
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, -halfL), back[ni], back[i], band, Vector3.zero, rnd);
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, halfL), front[i], front[ni], band, Vector3.zero, rnd);
+            }
+
+            return FinishFlat(verts, normals, cols, "LP_SnakeLink");
+        }
+
+        /// <summary>
+        /// The snake's HEAD (the distinct-from-body read): a faceted viper WEDGE along +Z — neck ring →
+        /// wider skull bulge → tapering blunt snout — flattened low, with two small dark EYE bumps on the
+        /// skull. Wider than the neck so the silhouette says "head", not "another link".
+        ///   neckR — the neck half-extent (match the first body link's rBack for a continuous join)
+        ///   length — nose-to-neck length
+        ///   head — the head colour (slightly brighter than the body bands)
+        ///   eye — the eye colour (near-black facets)
+        ///   seed — deterministic facet jitter
+        /// </summary>
+        public static Mesh SnakeHead(float neckR, float length, Color head, Color eye, int seed)
+        {
+            var rnd = new System.Random(seed);
+            const int sides = 6;
+            float halfL = length * 0.5f;
+
+            // Lofted cross-section rings back(neck)→front(snout): (z, width×, height×) of neckR.
+            // The skull ring is WIDER than the neck — the wedge/arrow silhouette that reads "snake head".
+            float[][] rings =
+            {
+                new[] { -halfL,        1.00f, 0.80f }, // neck (joins the first body link)
+                new[] { -halfL * 0.5f, 1.42f, 0.92f }, // skull bulge (the wedge's widest point)
+                new[] {  halfL * 0.45f, 0.85f, 0.55f }, // pre-snout taper
+                new[] {  halfL,        0.42f, 0.30f }, // blunt snout tip ring
+            };
+            var ringVerts = new Vector3[rings.Length][];
+            for (int r = 0; r < rings.Length; r++)
+            {
+                ringVerts[r] = new Vector3[sides];
+                for (int i = 0; i < sides; i++)
+                {
+                    float a = (i + 0.5f) / sides * Mathf.PI * 2f;
+                    float jx = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.08f;
+                    float jy = 1f + ((float)rnd.NextDouble() - 0.5f) * 0.08f;
+                    ringVerts[r][i] = new Vector3(
+                        Mathf.Cos(a) * neckR * rings[r][1] * jx,
+                        Mathf.Sin(a) * neckR * rings[r][2] * jy,
+                        rings[r][0]);
+                }
+            }
+
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var cols = new List<Color>();
+
+            for (int r = 0; r < rings.Length - 1; r++)
+            {
+                for (int i = 0; i < sides; i++)
+                {
+                    int ni = (i + 1) % sides;
+                    EmitFlatTri(verts, normals, cols, ringVerts[r][i], ringVerts[r][ni], ringVerts[r + 1][ni],
+                                head, Vector3.zero, rnd);
+                    EmitFlatTri(verts, normals, cols, ringVerts[r][i], ringVerts[r + 1][ni], ringVerts[r + 1][i],
+                                head, Vector3.zero, rnd);
+                }
+            }
+            // Close the neck (back cap) + the snout (front cap).
+            for (int i = 0; i < sides; i++)
+            {
+                int ni = (i + 1) % sides;
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, -halfL), ringVerts[0][ni], ringVerts[0][i],
+                            head, Vector3.zero, rnd);
+                EmitFlatTri(verts, normals, cols, new Vector3(0, 0, halfL), ringVerts[3][i],
+                            ringVerts[3][ni], head, Vector3.zero, rnd);
+            }
+
+            // Two small dark EYE bumps on the skull's upper sides — 4-face pyramids, wound outward about
+            // their OWN centre (the outward-vs-origin test is wrong for off-centre geometry).
+            float eyeR = neckR * 0.24f;
+            Vector3 skullTopL = new Vector3(-neckR * 1.42f * 0.55f, neckR * 0.80f, -halfL * 0.42f);
+            Vector3 skullTopR = new Vector3(neckR * 1.42f * 0.55f, neckR * 0.80f, -halfL * 0.42f);
+            EmitEyeBump(verts, normals, cols, skullTopL, eyeR, eye);
+            EmitEyeBump(verts, normals, cols, skullTopR, eyeR, eye);
+
+            return FinishFlat(verts, normals, cols, "LP_SnakeHead");
+        }
+
+        // A tiny 4-face pyramid eye bump at `center`, faces wound outward about the bump's own centre —
+        // flat dark colour (no value step: an eye reads as a dark dot, never a lit facet).
+        static void EmitEyeBump(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
+                                Vector3 center, float r, Color eye)
+        {
+            Vector3 apex = center + new Vector3(0, r * 1.1f, 0);
+            Vector3 b0 = center + new Vector3(-r, 0, -r);
+            Vector3 b1 = center + new Vector3(r, 0, -r);
+            Vector3 b2 = center + new Vector3(r, 0, r);
+            Vector3 b3 = center + new Vector3(-r, 0, r);
+            EmitFlatTriRaw(verts, normals, cols, apex, b1, b0, eye, center);
+            EmitFlatTriRaw(verts, normals, cols, apex, b2, b1, eye, center);
+            EmitFlatTriRaw(verts, normals, cols, apex, b3, b2, eye, center);
+            EmitFlatTriRaw(verts, normals, cols, apex, b0, b3, eye, center);
+        }
+
+        // FLAT-SHADED face emit with the FacetedRock outward-enforcement + per-face value step:
+        // the face gets its OWN 3 verts + face normal; winding is FLIPPED whenever the normal points
+        // toward `outwardRef` (the mesh-local centre) so URP Cull Back never culls a wound-inward face;
+        // the vertex colour = base × a gentle up-light value (light tops, mid sides — never black).
+        static void EmitFlatTri(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
+                                Vector3 v0, Vector3 v1, Vector3 v2, Color baseCol, Vector3 outwardRef,
+                                System.Random rnd)
+        {
+            Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+            if (fn.sqrMagnitude < 1e-12f) return; // degenerate
+            fn.Normalize();
+            Vector3 faceCentre = (v0 + v1 + v2) / 3f;
+            if (Vector3.Dot(fn, faceCentre - outwardRef) < 0f)
+            {
+                fn = -fn;
+                var tmp = v1; v1 = v2; v2 = tmp;
+            }
+            float up = Mathf.Clamp01(fn.y * 0.5f + 0.5f);
+            float val = Mathf.Lerp(0.82f, 1.0f, up);
+            val += ((float)rnd.NextDouble() - 0.5f) * 0.05f;
+            val = Mathf.Clamp(val, 0.76f, 1.04f);
+            Color fc = new Color(Mathf.Clamp01(baseCol.r * val), Mathf.Clamp01(baseCol.g * val),
+                                 Mathf.Clamp01(baseCol.b * val), 1f);
+            verts.Add(v0); verts.Add(v1); verts.Add(v2);
+            normals.Add(fn); normals.Add(fn); normals.Add(fn);
+            cols.Add(fc); cols.Add(fc); cols.Add(fc);
+        }
+
+        // Flat emit with outward-about-a-given-centre winding and NO value step (the eye bumps).
+        static void EmitFlatTriRaw(List<Vector3> verts, List<Vector3> normals, List<Color> cols,
+                                   Vector3 v0, Vector3 v1, Vector3 v2, Color col, Vector3 outwardRef)
+        {
+            Vector3 fn = Vector3.Cross(v1 - v0, v2 - v0);
+            if (fn.sqrMagnitude < 1e-12f) return;
+            fn.Normalize();
+            Vector3 faceCentre = (v0 + v1 + v2) / 3f;
+            if (Vector3.Dot(fn, faceCentre - outwardRef) < 0f)
+            {
+                fn = -fn;
+                var tmp = v1; v1 = v2; v2 = tmp;
+            }
+            verts.Add(v0); verts.Add(v1); verts.Add(v2);
+            normals.Add(fn); normals.Add(fn); normals.Add(fn);
+            cols.Add(col); cols.Add(col); cols.Add(col);
+        }
+
+        // Sequential-index finish for flat-shaded emits (every face owns its verts) — EXPLICIT normals,
+        // never RecalculateNormals (it would re-smooth the facets away — lowpoly-quality §1).
+        static Mesh FinishFlat(List<Vector3> verts, List<Vector3> normals, List<Color> cols, string name)
+        {
+            var tris = new List<int>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tris.Add(i);
+            var mesh = new Mesh { name = name };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals);
+            mesh.SetColors(cols);
+            mesh.SetTriangles(tris, 0);
             mesh.RecalculateBounds();
             return mesh;
         }

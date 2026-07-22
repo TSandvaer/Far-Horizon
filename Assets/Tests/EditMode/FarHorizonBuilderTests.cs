@@ -87,5 +87,54 @@ namespace FarHorizon.EditTests
             Assert.AreEqual(new[] { FarHorizonBuilder.BootScene }, resolved,
                 "null EditorBuildSettings.scenes must fall back, not throw");
         }
+
+        // === -development build shape (86cahhfp4 S2a) ====================================================
+        // The flag turns the SAME entry point into a profiler-connectable Development build routed to a
+        // SEPARATE output dir; without it, the release shape is pinned byte-identical to the pre-S2a
+        // behavior (Build/Windows + BuildOptions.None) — the "no default-build behavior change" constraint.
+
+        [Test]
+        public void DevelopmentFlag_Absent_ReleaseShape_IsUnchanged()
+        {
+            string[] typicalCiArgs =
+            {
+                "Unity.exe", "-batchmode", "-quit", "-projectPath", "X",
+                "-executeMethod", "FarHorizon.EditorTools.FarHorizonBuilder.BuildWindows",
+            };
+
+            Assert.IsFalse(FarHorizonBuilder.ResolveDevelopmentFlag(typicalCiArgs),
+                "without -development the build must stay the release shape (no default-behavior change)");
+            Assert.AreEqual("Build/Windows", FarHorizonBuilder.ResolveOutputDir(false),
+                "the release build must keep landing at the canonical Build/Windows soak/CI artifact path");
+            Assert.AreEqual(BuildOptions.None, FarHorizonBuilder.ResolveBuildOptions(false),
+                "the release build must keep BuildOptions.None — S2a adds a NEW shape, it does not alter the old one");
+        }
+
+        [Test]
+        public void DevelopmentFlag_Present_BuildsDevelopmentShape_InSeparateDir()
+        {
+            string[] args =
+            {
+                "Unity.exe", "-batchmode", "-quit", "-projectPath", "X",
+                "-executeMethod", "FarHorizon.EditorTools.FarHorizonBuilder.BuildWindows",
+                FarHorizonBuilder.DevelopmentArg,
+            };
+
+            Assert.IsTrue(FarHorizonBuilder.ResolveDevelopmentFlag(args),
+                "-development on the command line must select the development build shape");
+            Assert.AreEqual("Build/WindowsDev", FarHorizonBuilder.ResolveOutputDir(true),
+                "the dev build must land in its OWN dir — sharing Build/Windows would let a profiling build " +
+                "silently replace the canonical soak exe (same HUD stamp sha; the stamp ritual cannot tell them apart)");
+            Assert.AreEqual(BuildOptions.Development, FarHorizonBuilder.ResolveBuildOptions(true),
+                "the dev shape adds exactly BuildOptions.Development (profiler-connectable) — no AllowDebugging " +
+                "(script-debugger overhead skews profiles), no ConnectWithProfiler (captures use -profiler-log-file)");
+        }
+
+        [Test]
+        public void DevelopmentFlag_NullArgs_DefaultsToReleaseShape()
+        {
+            Assert.IsFalse(FarHorizonBuilder.ResolveDevelopmentFlag(null),
+                "null args must resolve to the release shape, not throw");
+        }
     }
 }

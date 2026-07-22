@@ -66,6 +66,9 @@ namespace FarHorizon
 
         void Awake()
         {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
+
             // Serialized ref is the source of truth (wired at bootstrap). Build-safety net only: same-GameObject
             // looter, then a scene search — never a per-frame Find (unity6-mastery §6).
             if (looter == null) looter = GetComponent<PickableLooter>();

@@ -31,7 +31,7 @@ namespace FarHorizon
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — OrbitCamera/AxeNudgeTool/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
     /// </summary>
-    public class CameraFollowNudgeTool : MonoBehaviour
+    public class CameraFollowNudgeTool : MonoBehaviour, INudgePanel
     {
         [Tooltip("Debug toggle key. The tool is INERT until pressed — a normal soak never sees it. " +
                  "F7 (FloatDiagnostic F8, AxeNudgeTool F9, WorldLookNudgeTool F10) so the soak panels never collide.")]
@@ -83,6 +83,12 @@ namespace FarHorizon
             _active = true;
             Resolve();
             LogCurrent();
+        }
+
+        void Awake()
+        {
+            // No GUILayout.* in this OnGUI (explicit Rects only) — skip IMGUI's Layout event pass (86cahhfp4 C2a).
+            useGUILayout = false;
         }
 
         void Update()

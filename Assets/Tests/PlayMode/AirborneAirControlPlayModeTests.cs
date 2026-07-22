@@ -49,23 +49,13 @@ namespace FarHorizon.PlayTests
         private const float RunSpeed = 9.5f;
         private const float JumpVelocity = 5.5f;
         private const float JumpGravity = 18f;
-        private const float AirAccel = 8f;     // production default airControlAccel
+        private const float AirAccel = 9f;     // production default airControlAccel (86caambxh: Sponsor soak 2026-07-01 raised 5→9, snappier mid-air sideways air-steer)
         private const float AirCap = 5.5f;     // production default airControlMaxSpeed
 
         [UnitySetUp]
         public IEnumerator SetUp()
         {
-            var empty = SceneManager.CreateScene("AirControlIsolated_" + System.Guid.NewGuid().ToString("N"));
-            SceneManager.SetActiveScene(empty);
-            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-            {
-                var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded)
-                {
-                    var op = SceneManager.UnloadSceneAsync(s);
-                    if (op != null) while (!op.isDone) yield return null;
-                }
-            }
+            yield return PlayModeSceneIsolation.IsolateInFreshScene("AirControlIsolated");
 
             int groundLayer = LayerMask.NameToLayer("Ground");
 

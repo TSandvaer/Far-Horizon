@@ -49,14 +49,8 @@ namespace FarHorizon.PlayTests
         [UnitySetUp]
         public IEnumerator IsolateScene()
         {
-            var empty = SceneManager.CreateScene("GroundSnapIsolated_" + System.Guid.NewGuid().ToString("N"));
-            SceneManager.SetActiveScene(empty);
-            // Unload every OTHER loaded scene (e.g. a leaked Boot) so no foreign Ground collider remains.
-            for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-            {
-                var s = SceneManager.GetSceneAt(i);
-                if (s != empty && s.isLoaded) { var op = SceneManager.UnloadSceneAsync(s); if (op != null) while (!op.isDone) yield return null; }
-            }
+            // Isolate in a fresh empty scene so no foreign Ground collider (e.g. a leaked Boot) remains.
+            yield return PlayModeSceneIsolation.IsolateInFreshScene("GroundSnapIsolated");
             yield return null;
         }
 
