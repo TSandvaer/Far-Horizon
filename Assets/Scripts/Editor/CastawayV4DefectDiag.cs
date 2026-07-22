@@ -96,6 +96,16 @@ namespace FarHorizon.EditorTools
             // would read "both moved" and wrongly refute the hypothesis.
             ReportRound9(sb, CharacterAssetGen.V4RiggedFbxPath);
 
+            // ROUND-10 (POST re-weight + bone-roll fix, ticket 86cau4za2) — re-derive the RIGHT hand/thumb pose
+            // compensation. The bind roll is now corrected (right hand subtree is an exact mirror of the accepted
+            // left — Blender armature-space asym 176.4->0.0deg), so the OLD RightWristEuler=(-22,250,-30) [~250deg
+            // of Y-roll compensation for the FLIP] is stale. Since bind_R == mirror(bind_L) and the LEFT is the
+            // Sponsor-ACCEPTED hand (LeftWristEuler=(-21.8,282.6,3.7), LeftThumbEuler=(-502,-890,-6)), the natural
+            // right defaults are the render-MIRROR of the left FINAL pose. Derive them at the empty-handed idle pose
+            // (AC6), with the shipped arm-pose applied, via the same corr = Inv(R_right)*mirror(R_left) ritual as
+            // round-8. SEEDS for the Sponsor's dial (AC7 — his eye is the final gate; Tess correction #2).
+            ReportRound10(sb, CharacterAssetGen.V4RiggedFbxPath, ctrl);
+
             sb.AppendLine("[v4-diag] ===== END =====");
             Debug.Log(sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
@@ -751,6 +761,61 @@ namespace FarHorizon.EditorTools
                 lMass += tm;
             }
             sb.AppendLine($"[v4-diag]   CONTROL: mean thumb-chain weight on the LEFT thumb verts = {lMass / leftThumbVerts.Count:F3}");
+        }
+
+        // ROUND-10 — re-derive the RIGHT wrist + thumb baked defaults as the render-mirror of the Sponsor-accepted
+        // LEFT FINAL pose, at the empty-handed idle pose, after the 86cau4za2 bone-roll + re-weight fix.
+        private static void ReportRound10(StringBuilder sb, string path, RuntimeAnimatorController ctrl)
+        {
+            sb.AppendLine("[v4-diag] ===== ROUND-10 (POST-FIX right wrist+thumb re-derivation, 86cau4za2) =====");
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (fbx == null || ctrl == null) { sb.AppendLine("[v4-diag] round10: fbx/ctrl missing"); return; }
+            Avatar avatar = null;
+            foreach (var o in AssetDatabase.LoadAllAssetsAtPath(path)) if (o is Avatar a) avatar = a;
+            var go = Object.Instantiate(fbx);
+            var lArm = FindBone(go.transform, "leftarm"); var rArm = FindBone(go.transform, "rightarm");
+            var lHand = FindBone(go.transform, "lefthand"); var rHand = FindBone(go.transform, "righthand");
+            var lThumb = FindBone(go.transform, "lefthandthumb1"); var rThumb = FindBone(go.transform, "righthandthumb1");
+            if (lHand == null || rHand == null || lThumb == null || rThumb == null)
+            { sb.AppendLine("[v4-diag] round10: hand/thumb bones missing"); Object.DestroyImmediate(go); return; }
+
+            Quaternion Mir(Quaternion q) => new Quaternion(q.x, -q.y, -q.z, q.w);
+            var anim = go.GetComponent<Animator>() ?? go.AddComponent<Animator>();
+            anim.runtimeAnimatorController = ctrl; if (avatar != null) anim.avatar = avatar;
+            anim.applyRootMotion = false; anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+            // Shipped v4 arm-pose + the Sponsor-ACCEPTED left offsets (MovementCameraScene constants).
+            Vector3 leftArmE = new Vector3(-5f, 22f, 0f), rightArmE = new Vector3(-5f, -22f, 0f);
+            Vector3 leftWrist = new Vector3(-21.8f, 282.6f, 3.7f), leftThumbE = new Vector3(-502f, -890f, -6f);
+
+            anim.Rebind(); anim.Play("Idle", 0, 0f); anim.SetBool("Moving", false); anim.SetBool("Grounded", true); anim.SetFloat("Speed", 0f);
+            for (int i = 0; i < 12; i++) anim.Update(0.1f);
+            // arm-pose (order 50), then wrist (order 65 hand), then thumb (order 65 thumb) — mirror the runtime order.
+            lArm.localRotation = lArm.localRotation * Quaternion.Euler(leftArmE);
+            rArm.localRotation = rArm.localRotation * Quaternion.Euler(rightArmE);
+            // LEFT FINAL (accepted): apply the left wrist + left thumb offsets.
+            lHand.localRotation = lHand.localRotation * Quaternion.Euler(leftWrist);
+            lThumb.localRotation = lThumb.localRotation * Quaternion.Euler(leftThumbE);
+
+            // WRIST: right (clip pose) -> mirror(left final). corr right-multiplied on the right hand local.
+            float preW = Quaternion.Angle(rHand.rotation, Mir(lHand.rotation));
+            Quaternion corrW = Quaternion.Inverse(rHand.rotation) * Mir(lHand.rotation);
+            Vector3 wSeed = new Vector3(N(corrW.eulerAngles.x), N(corrW.eulerAngles.y), N(corrW.eulerAngles.z));
+            rHand.localRotation = rHand.localRotation * corrW;
+            float postW = Quaternion.Angle(rHand.rotation, Mir(lHand.rotation));
+            // THUMB: now riding the corrected hand, right thumb -> mirror(left thumb final).
+            float preT = Quaternion.Angle(rThumb.rotation, Mir(lThumb.rotation));
+            Quaternion corrT = Quaternion.Inverse(rThumb.rotation) * Mir(lThumb.rotation);
+            Vector3 tSeed = new Vector3(N(corrT.eulerAngles.x), N(corrT.eulerAngles.y), N(corrT.eulerAngles.z));
+            rThumb.localRotation = rThumb.localRotation * corrT;
+            float postT = Quaternion.Angle(rThumb.rotation, Mir(lThumb.rotation));
+
+            sb.AppendLine($"[v4-diag] round10 WRIST mirror delta pre={preW:F1}deg (OLD (-22,250,-30) compensated the flip; now the bind is fixed)");
+            sb.AppendLine($"[v4-diag] --- SEED: CastawayV4RightWristEuler = new Vector3({wSeed.x:F1}f, {wSeed.y:F1}f, {wSeed.z:F1}f);  (render-mirror of accepted left; POST delta {postW:F1}deg)");
+            sb.AppendLine($"[v4-diag] round10 THUMB mirror delta pre={preT:F1}deg (right thumb now carries real weight — the re-weight ACTIVATES this euler)");
+            sb.AppendLine($"[v4-diag] --- SEED: CastawayV4RightThumbEuler = new Vector3({tSeed.x:F1}f, {tSeed.y:F1}f, {tSeed.z:F1}f);  (render-mirror of accepted left thumb; POST delta {postT:F1}deg)");
+            sb.AppendLine("[v4-diag] round10 NOTE: SEEDS ONLY — the Sponsor re-dials WRIST+HAND(thumb) by eye (AC7); these ship the right hand as a mirror of the accepted left at idle.");
+            Object.DestroyImmediate(go);
         }
 
         // ---- shared ----

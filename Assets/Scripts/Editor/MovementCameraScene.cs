@@ -303,20 +303,22 @@ namespace FarHorizon.EditorTools
         // are deliberately NOT normalised to ±180 — these are the exact numbers he judged; Quaternion.Euler wraps
         // them identically (282.6°≡-77.4°, -890°≡-170°).
         //
-        // RIGHT THUMB stays ZERO on purpose. The Sponsor swept RightThumbEuler across a huge range (logged up to
-        // X=1448, Y=90→130) with no visible form change — "its a block with a thumb", "moves a little / hard to
-        // tell". Round-9 measurement (CastawayV4DefectDiag.ReportRound9, ci-out/v4diag-round9.log) found the cause
-        // and it is NOT dialable: the right hand's THUMB GEOMETRY is skinned to the INDEX chain, not the thumb
-        // chain. All 48 right-side thumb verts (perfect mirror-matches of the left's) are dominated by
-        // righthandindex1/2/3 and carry mean thumb-chain weight 0.000, versus 0.919 on the left. So the right
-        // thumb bones drive almost nothing (rotate-and-diff: right 3.7mm mean vs left 15.3mm at an identical 40°),
-        // and the thumb rides the index chain rigidly => it reads as an undifferentiated block. Baking any
-        // right-thumb euler would encode a number the eye cannot see. The fix is SOURCE-SIDE (re-weight/re-rig);
-        // do NOT add another runtime euler here. See PR #317 round-9 comment + ticket 86catvb6u.
-        public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(-22.0f, 250.0f, -30.0f); // Sponsor-dialed right wrist (dial-7)
-        public static readonly Vector3 CastawayV4LeftWristEuler = new Vector3(-21.8f, 282.6f, 3.7f);    // Sponsor-ACCEPTED left wrist (dial-7)
-        public static readonly Vector3 CastawayV4RightThumbEuler = Vector3.zero;                        // inert until the right hand is re-weighted (see above)
-        public static readonly Vector3 CastawayV4LeftThumbEuler = new Vector3(-502.0f, -890.0f, -6.0f); // Sponsor-ACCEPTED left thumb (dial-7)
+        // RIGHT hand/thumb — RE-DERIVED after the 86cau4za2 SOURCE fix (this landed the fix the round-9 note below
+        // pointed to). The old defaults were STALE compensations for a BROKEN rig: RightWristEuler=(-22,250,-30)
+        // carried ~250° of Y-roll to fight a RightHand bind roll-flipped 176.4° off the left's mirror; RightThumb=0
+        // because the right thumb GEOMETRY was skinned to the INDEX chain (mean thumb-chain weight 0.000 vs 0.919
+        // left) so posing the thumb bone did nothing ("its a block with a thumb"). The source fix (Blender edit of
+        // castaway_v4_rigged.fbx): (a) mirrored the RightHand bone subtree roll to a TRUE mirror of the left
+        // (armature-space asym 176.4°→0.0°, twist signs now mirror-opposite — the v3-healthy pattern); (b) mirrored
+        // the accepted left hand's skin weights onto the right (thumb-chain mean now 0.919 = left; rotate-and-diff
+        // R/L ratio 0.24/0.12→~1.0). Because bind_R is now an EXACT mirror of the accepted left, these defaults are
+        // the render-MIRROR of the accepted LEFT FINAL pose at idle, derived by CastawayV4DefectDiag.ReportRound10
+        // (corr = Inv(R_right)·mirror(R_left), POST delta 0.0°). SEEDS ONLY — the Sponsor re-dials WRIST + HAND
+        // (thumb) by eye (AC7; Tess correction #2 on 86cau4za2: the right wrist MUST be re-dialed after the fix).
+        public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(-15.7f, 72.9f, 10.6f);   // 86cau4za2 SEED — render-mirror of accepted left (was (-22,250,-30), stale flip-compensation)
+        public static readonly Vector3 CastawayV4LeftWristEuler = new Vector3(-21.8f, 282.6f, 3.7f);    // Sponsor-ACCEPTED left wrist (dial-7) — UNCHANGED (AC4)
+        public static readonly Vector3 CastawayV4RightThumbEuler = new Vector3(-18.8f, -69.3f, -70.8f); // 86cau4za2 SEED — render-mirror of accepted left thumb (activated by the re-weight; was 0/inert)
+        public static readonly Vector3 CastawayV4LeftThumbEuler = new Vector3(-502.0f, -890.0f, -6.0f); // Sponsor-ACCEPTED left thumb (dial-7) — UNCHANGED (AC4)
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
@@ -1612,8 +1614,8 @@ namespace FarHorizon.EditorTools
                           ", leftWrist=" + hand.leftWristEuler.ToString("F1") +
                           ", rightThumb=" + hand.rightThumbEuler.ToString("F1") +
                           ", leftThumb=" + hand.leftThumbEuler.ToString("F1") +
-                          (v4 ? " [v4 — Sponsor-ACCEPTED dial-7 left (wrist+thumb) + his dialed right wrist; " +
-                                "right thumb 0 = MEASURED inert, its geometry is skinned to the index chain (round-9)]"
+                          (v4 ? " [v4 — Sponsor-ACCEPTED dial-7 left (wrist+thumb) UNCHANGED + 86cau4za2 re-derived " +
+                                "right wrist+thumb mirror seeds (right hand re-weighted + roll-fixed at source; Sponsor re-dials AC7)]"
                               : " [non-v4 — 0, hands byte-unchanged]") + ")");
         }
 
