@@ -255,12 +255,34 @@ namespace FarHorizon.Combat
         /// the swing + turn + damage). Null verb refs never claim (a bare rig). Called only on a click edge with a
         /// weapon selected — a cold path (no per-frame alloc; unity6 §5).</summary>
         private bool VerbClaimsClick()
-        {
-            if (chopTree != null && chopTree.WouldClaimClick()) return true;
-            if (mineBoulder != null && mineBoulder.WouldClaimClick()) return true;
-            if (mineOre != null && mineOre.WouldClaimClick()) return true;
-            return false;
-        }
+            => AnyVerbClaims(VerbClaims(chopTree),
+                             VerbClaims(mineBoulder),
+                             VerbClaims(mineOre));
+
+        /// <summary>PURE verb-suppression predicate (86cav8xu8 — extracted so the ClickGateDiagnostic's ClassifyClick
+        /// precedence can be CROSS-CHECKED against the real MeleeAttack rule instead of asserting against itself). A
+        /// verb owns the click iff ANY verb claims it — chop → boulder → ore (the order is the deterministic tie-break
+        /// the live query short-circuits in; in play only one tool is ever selected, so at most one claims). Static +
+        /// dependency-free.</summary>
+        public static bool AnyVerbClaims(bool chopClaims, bool boulderClaims, bool oreClaims)
+            => chopClaims || boulderClaims || oreClaims;
+
+        // A verb claims the click ONLY when its component is ALIVE (active GameObject + enabled) AND it WouldClaim.
+        // 86cav8xu8 (Devon r4 NIT 4) — the disabled-verb DEAD-CLICK guard: a present-but-DISABLED verb's Update never
+        // runs (so it can never actually chop/mine), yet its pure WouldClaimClick() would still return true → the
+        // attack would suppress its whiff for a verb that never fires → a dead click that neither chops nor whiffs.
+        // Gating on isActiveAndEnabled means an inert verb never suppresses the whiff. (~nil risk in the shipped
+        // scene — all verbs are enabled — but it closes the exact silent-fail class this round guards.)
+        private static bool VerbClaims(ChopTree v)      => v != null && v.isActiveAndEnabled && v.WouldClaimClick();
+        private static bool VerbClaims(MineBoulder v)   => v != null && v.isActiveAndEnabled && v.WouldClaimClick();
+        private static bool VerbClaims(MineOre v)       => v != null && v.isActiveAndEnabled && v.WouldClaimClick();
+
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86cav8xu8 — TEST-ONLY (STRIPPED via UNITY_INCLUDE_TESTS): expose the private verb-claim
+        /// arbitration so an EditMode test can pin the disabled-verb dead-click guard (a disabled verb that WouldClaim
+        /// must NOT be counted). No InternalsVisibleTo → the codebase "public for tests" seam convention.</summary>
+        public bool VerbClaimsClickForTest() => VerbClaimsClick();
+#endif
 
         /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): the
         /// melee gate ground truth — the SELECTED weapon (its id; null = the selected belt item is not a weapon /

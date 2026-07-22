@@ -73,6 +73,15 @@ namespace FarHorizon
 
         private GUIStyle _promptStyle;
 
+        // 86cav8xu8 (r7 NIT 1) — kill the per-OnGUI GUIContent alloc. OnGUI fires ~2×/frame while a prompt is
+        // visible; the old `new GUIContent(_label)` per call was a per-frame GC contra the unity6-mastery §5
+        // no-alloc-in-hot-path rule. Reuse ONE GUIContent + cache the measured pill width, recomputing it ONLY when
+        // _label changes (CalcSize needs the GUIStyle, which is GUI.skin-derived and thus only valid inside OnGUI —
+        // so the recompute is OnGUI-gated-on-change, not in Update). A steady prompt then measures nothing.
+        private readonly GUIContent _pillContent = new GUIContent();
+        private string _pillWidthLabel; // the _label the cached width was measured for (null = not yet measured)
+        private float _pillW;           // cached pill width; recomputed only when _label changes
+
         // The resolved prompt label this frame ("" = nothing actionable -> hidden). Resolved once in Update,
         // read by OnGUI (which can fire several times per frame). Cached so a steady prompt rebuilds nothing.
         private string _label = "";
@@ -166,8 +175,15 @@ namespace FarHorizon
             Vector3 sp = _cam.WorldToScreenPoint(headWorld);
             if (sp.z <= 0f) return;
 
-            // Snug pill sized to the text; dark plate (match the existing HUD panel style) + cream label.
-            float pillW = _promptStyle.CalcSize(new GUIContent(_label)).x + PadX * 2f;
+            // Snug pill sized to the text; dark plate (match the existing HUD panel style) + cream label. Width is
+            // cached + recomputed only when the label CHANGES (r7 NIT 1) — no per-OnGUI GUIContent alloc / CalcSize.
+            if (_pillWidthLabel != _label)
+            {
+                _pillContent.text = _label;
+                _pillW = _promptStyle.CalcSize(_pillContent).x + PadX * 2f;
+                _pillWidthLabel = _label;
+            }
+            float pillW = _pillW;
             float bottomGui = (Screen.height - sp.y) - HeadGapPx;   // just above the head projection (GUI y is top-down)
             float topGui = bottomGui - PillH;
 

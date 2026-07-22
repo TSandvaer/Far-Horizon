@@ -263,10 +263,13 @@ namespace FarHorizon
             if (activeNodeCount < 0) activeNodeCount = IronDifficultyPresets.Medium.OreNodeCount;
         }
 
-        void Start()
+        void Start() => DiscoverAndStartPool();
+
+        // Discover the authored ore-node pool (READ-only — the nodes are editor-authored into Boot.unity). Run in
+        // Start (not Awake) so the serialized pool is fully present. Each node is its own MineableNodeState. Split
+        // out of Start (mirrors MineBoulder.DiscoverAndStartPool) so an EditMode test can drive the pool synchronously.
+        private void DiscoverAndStartPool()
         {
-            // Discover the authored ore-node pool (READ-only — the nodes are editor-authored into Boot.unity). Run
-            // in Start (not Awake) so the serialized pool is fully present. Each node is its own MineableNodeState.
             Transform root = nodeRoot;
             if (root == null)
             {
@@ -283,6 +286,13 @@ namespace FarHorizon
             ApplyActiveCount(); // enable the first ActiveNodeCount pool nodes; disable the rest (the rarity dial)
             MineTrace("resolver tracking " + _nodes.Count + " ore nodes; active=" + activeNodeCount);
         }
+
+#if UNITY_INCLUDE_TESTS
+        /// <summary>86cav8xu8 — TEST-ONLY (STRIPPED via UNITY_INCLUDE_TESTS): run the Start-time pool discovery
+        /// synchronously so an EditMode test — where Start never auto-fires — can rig ore nodes for the
+        /// resolver-vs-diagnostic equivalence guard. Mirrors MineBoulder.InitializePoolForTest.</summary>
+        public void InitializePoolForTest() => DiscoverAndStartPool();
+#endif
 
         // Recursively collect every OreNode under the pool root and register a per-node mine state (READ of the
         // authored hierarchy — no GameObject is created/moved/destroyed here).

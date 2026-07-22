@@ -157,6 +157,66 @@ namespace FarHorizon.Combat
             }
         }
 
+        /// <summary>
+        /// The WeaponClass of an ITEM / belt id (86cav8xu8) — resolves the id to its <see cref="WeaponDef"/> in the
+        /// canonical <see cref="BuildDefaults"/> set, then maps that def's <see cref="WeaponDef.AnimationId"/>
+        /// through <see cref="WeaponClassForAnimationId"/>. Returns <c>-1</c> when the id is not a catalog weapon
+        /// (a non-weapon belt item — wood / berry / stone / water — or an unknown id). Callers compare against the
+        /// SPECIFIC class they gate on (axe / pickaxe), so an unmapped id is correctly NOT that class — there is NO
+        /// axe-fallback here (that fallback is for the SWING in <see cref="MeleeAttack.WeaponClassForSwing"/>, never a
+        /// tool-select gate, where it would silently mis-classify wood/berry as an axe).
+        ///
+        /// WHY (the soak-4 fall-through fix): the chop/mine tool-select gates previously hand-ENUMERATED the known
+        /// tier ids (axe / axe_wood / axe_iron). A future 4th tier added to <see cref="BuildDefaults"/> would fall
+        /// through that list (the exact soak-4 root pattern — a wood axe fell through the enumerated chop gate). This
+        /// map is DERIVED ONCE from BuildDefaults, so a new tier that carries an existing class's AnimationId (e.g.
+        /// axe_chop) joins the map — and every gate that reads it — BY CONSTRUCTION, with no gate edit.
+        /// </summary>
+        public static int WeaponClassForItemId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return -1;
+            return ItemIdToClass.Value.TryGetValue(id, out int cls) ? cls : -1;
+        }
+
+        // The canonical item-id → WeaponClass map, derived ONCE from BuildDefaults (86cav8xu8 — NOT a
+        // hand-enumerated list: a new tier in BuildDefaults joins this map automatically). Built LAZILY on first use,
+        // NOT at type-init: Unity forbids ScriptableObject.CreateInstance from a static/instance field initializer of
+        // a ScriptableObject type ("call it in OnEnable instead"), and BuildDefaults creates WeaponDef SOs — so the
+        // map build must run from a normal call (a gate check), which Lazy defers it to. `static readonly Lazy`
+        // (immutable REFERENCE) is excluded from StaticStateResetTests's mutable-static audit; the map content is
+        // never mutated after construction, and it derives from immutable const attributes so a stale cache across
+        // editor play-entries is byte-identical to a fresh one (the reason readonly/const are exempt).
+        private static readonly System.Lazy<Dictionary<string, int>> ItemIdToClass =
+            new System.Lazy<Dictionary<string, int>>(BuildItemIdToClassMap);
+
+        private static Dictionary<string, int> BuildItemIdToClassMap()
+        {
+            var map = new Dictionary<string, int>();
+            var defaults = CreateInstance<WeaponCatalog>();
+            defaults.BuildDefaults();
+            var all = defaults.All;
+            for (int i = 0; i < all.Count; i++)
+            {
+                var def = all[i];
+                if (def != null && !string.IsNullOrEmpty(def.Id))
+                    map[def.Id] = WeaponClassForAnimationId(def.AnimationId);
+            }
+            // The throwaway defaults catalog + its WeaponDef ScriptableObjects are needed only to READ the
+            // id→animId→class relationship; free them so the one-time static build leaks nothing.
+            for (int i = 0; i < all.Count; i++) DestroyTemp(all[i]);
+            DestroyTemp(defaults);
+            return map;
+        }
+
+        private static void DestroyTemp(Object o)
+        {
+            if (o == null) return;
+#if UNITY_EDITOR
+            if (!Application.isPlaying) { DestroyImmediate(o); return; }
+#endif
+            Destroy(o);
+        }
+
         [SerializeField] private List<WeaponDef> _all = new List<WeaponDef>();
         private Dictionary<string, WeaponDef> _byId;
 

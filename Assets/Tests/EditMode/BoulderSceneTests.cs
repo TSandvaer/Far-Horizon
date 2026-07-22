@@ -134,6 +134,41 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // 86cav8xu8 (r7 NIT 2) — the LARGEST-boulder mine-range SCENE guard (soak-verify converted to a scene-side
+        // guard over the ACTUAL authored boulder sizes, so it needs no mine soak). The round-8 carve tightened the
+        // movement block (carve = footprint + clearance − agentStandoff, from the SNUG/min planar extent). Confirm
+        // the LARGEST authored boulder still leaves the player a reachable stand position INSIDE mineRadius: the
+        // blocked distance (MovementCarveWorldRadius(footprint) + agentStandoff = footprint + clearance) must stay
+        // < mineRadius so the reachable mining band [blocked, mineRadius] is non-empty. This pins the REAL pool
+        // footprints, not the synthetic 1.2u SwingsRound7Tests.Carve_Radius_LeavesMineRangeReachable covers.
+        [Test]
+        public void BootScene_LargestBoulder_StaysMineable_AfterRound8CarveTightening()
+        {
+            var scene = EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            MineBoulder mine = FindInScene<MineBoulder>(scene);
+            Assert.IsNotNull(mine, "the Boot scene must carry the MineBoulder");
+            Assert.IsNotNull(mine.boulderRoot, "MineBoulder.boulderRoot must be wired");
+
+            float mineRadius = mine.mineRadius;
+            float maxFootprint = -1f;
+            foreach (var t in mine.boulderRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name != MineBoulder.BoulderNodeName) continue;
+                var r = t.GetComponentInChildren<MeshRenderer>(true);
+                if (r == null) continue;
+                Vector3 e = r.bounds.extents;            // WORLD AABB — the metric MineableNodeState's carve reads
+                float footprint = Mathf.Min(e.x, e.z);   // the SNUG (min) planar half-extent (round-8)
+                if (footprint > maxFootprint) maxFootprint = footprint;
+            }
+            Assert.Greater(maxFootprint, 0f, "must have measured at least one authored boulder footprint");
+
+            float blocked = MineableNodeState.MovementCarveWorldRadius(maxFootprint) + MineableNodeState.CarveAgentStandoff;
+            Assert.Less(blocked, mineRadius,
+                $"the LARGEST authored boulder (footprint {maxFootprint:F3}u) blocks the player at {blocked:F3}u from " +
+                $"centre; that must stay under mineRadius {mineRadius:F2}u so a reachable mining band remains after " +
+                "the round-8 carve tightening (r7 NIT 2 — real authored sizes, not the synthetic 1.2u footprint)");
+        }
+
         private static MeshFilter[] FindBoulderMeshes()
         {
             return Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None)

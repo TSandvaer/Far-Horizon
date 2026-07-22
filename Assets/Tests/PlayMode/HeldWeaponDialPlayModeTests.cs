@@ -161,6 +161,35 @@ namespace FarHorizon.PlayTests
             Assert.Less(_cycle.CurrentScale, scaleUp, "a -5% scale factor must lower the held scale");
         }
 
+        // (1c) 86cav8xu8 (r5 NIT 3 coverage) — the F9 non-axe ROUND-TRIP. AxeNudgeTool composes a gimbal-free
+        // target euler via ComposeLocalRot (right-multiply in the weapon's own frame), then drives the seat with the
+        // SUBTRACT-then-+= path: NudgeCurrentWeapon(dp, targetEuler − CurrentEuler). Post-nudge CurrentEuler must
+        // REPRODUCE the composed target — exact today via the unclamped += dr, but previously UNCOVERED, so a
+        // clamp/normalize/wrap regression in NudgeCurrentWeapon's euler add would silently break the F9 dial's
+        // reproducibility (the Sponsor dials, bakes CurrentEuler, and the baked value would not match what he saw).
+        [UnityTest]
+        public IEnumerator NonAxeNudge_SubtractThenAdd_ReproducesComposedEuler()
+        {
+            BuildRigDrivenHeroAxe();
+            yield return null; // Awake seeds _liveEuler + re-homes the holder onto a child
+
+            _cycle.ShowWeaponForCaptureDebug(1); // KNIFE (index 1) — force a non-axe index + settle the seat
+
+            Vector3 before = _cycle.CurrentEuler;
+            Vector3 dr = new Vector3(37f, -22f, 15f); // a delta on all three axes (a gimbal-region rotation)
+            Vector3 target = AxeNudgeTool.ComposeLocalRot(before, dr);
+
+            // The F9 tool's exact call (AxeNudgeTool.cs): subtract the current from the composed target, feed the
+            // delta into the += path.
+            bool edited = _cycle.NudgeCurrentWeapon(Vector3.zero, target - before, 1f);
+            Assert.IsTrue(edited, "the non-axe seat euler must be editable (index != 0)");
+
+            Vector3 after = _cycle.CurrentEuler;
+            Assert.Less(Vector3.Distance(after, target), 1e-3f,
+                "post-nudge CurrentEuler must reproduce the ComposeLocalRot target — the subtract-then-+= round-trip " +
+                "is exact (a clamp/normalize/wrap regression in NudgeCurrentWeapon's euler add would break this)");
+        }
+
         // (2b) The HELD nudge is INERT on the axe (index 0) — the axe hold is the shared-seat rig baseline.
         [UnityTest]
         public IEnumerator NudgeCurrentWeapon_OnAxe_IsInert_AxeUsesSharedSeat()

@@ -95,16 +95,17 @@ namespace FarHorizon
             _thumbOffset = Quaternion.Euler(thumbCurlDeg, 0f, 0f);
         }
 
-        // Gripping = a held-visual weapon (axe OR spear — 86cahngdg) is the SELECTED belt item (shown in
-        // hand), or alwaysCurl (AC4). Coherent with HeldAxe's visibility — the hand only closes around a
-        // haft that is actually shown. The spear joined the predicate with the soak-224 crossed-visual fix:
-        // the spear's Sponsor-dialed in-hand seat (5caf1be) was dialed WITH the curl active (axe selected
-        // while the spear was [B]-displayed), so gripping the selected spear reproduces the approved read;
-        // an open hand through the spear haft is the documented "mangled finger" percept.
+        // Gripping = ANY held-visual weapon is the SELECTED belt item (shown in hand), or alwaysCurl (AC4). Reads
+        // the SAME predicate as the mesh-visibility gate (HeldAxe.ShouldShow → HeldWeaponCycleDebug
+        // .IsHeldVisualWeaponSelected), so the hand closes around EXACTLY the haft that is actually shown and the two
+        // can never drift. 86cav8xu8 WIDENING (the held-visual grip sibling, NOT the chop gate): the old read was
+        // stone-axe/spear-ONLY, so selecting a WOOD/IRON axe, a pickaxe, or a wood dagger/sword showed the mesh in
+        // an OPEN splayed hand — the documented "mangled finger" percept, now for every non-stone-axe/spear tier.
+        // Widening to the full held-visual set closes the hand around all of them. (The spear's Sponsor-dialed seat
+        // was dialed WITH the curl active, so gripping the selected weapon reproduces the approved read.)
         private void ApplyGate()
         {
-            _gripping = alwaysCurl || (inventory != null &&
-                        (inventory.IsAxeSelectedInBelt || inventory.IsSpearSelectedInBelt));
+            _gripping = alwaysCurl || HeldWeaponCycleDebug.IsHeldVisualWeaponSelected(inventory);
         }
 
         /// <summary>Whether the curl is currently applied (the hand is gripping). Exposed for the PlayMode

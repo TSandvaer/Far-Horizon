@@ -107,6 +107,56 @@ namespace FarHorizon.EditTests
         // --- MineOre.WouldClaimClick: a WOOD pickaxe does NOT claim ORE (spec §5 — wood mines boulders, not iron
         //     ore). This is the arbitration side of the ADVISEMENT (the Sponsor expected wood to mine ore too). ---
 
+        // --- 86cav8xu8 (Devon r4 NIT 4): the disabled-verb DEAD-CLICK guard. A present-but-DISABLED verb whose pure
+        //     WouldClaimClick() still returns true must NOT suppress the melee whiff — its Update never runs, so it
+        //     can never actually mine; letting it claim would kill the click (neither mine NOR whiff). VerbClaimsClick
+        //     gates each verb on isActiveAndEnabled. ---
+        [Test]
+        public void MeleeAttack_DisabledVerb_DoesNotClaimClick_TheDeadClickGuard()
+        {
+            var invGo = new GameObject("Inventory");
+            var playerGo = new GameObject("Player");
+            var rootGo = new GameObject("Boulders");
+            var mineGo = new GameObject("MineBoulder");
+            var attackGo = new GameObject("MeleeAttack");
+            try
+            {
+                var inv = invGo.AddComponent<Inventory>();
+                var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(ItemCatalog.PickaxeWoodId));
+                inv.Model.SelectBelt(slot.Value.Index);
+
+                var boulder = new GameObject(MineBoulder.BoulderNodeName);
+                boulder.transform.SetParent(rootGo.transform, false);
+                boulder.transform.position = new Vector3(1f, 0f, 0f); // inside the 2.4u mineRadius
+
+                var mine = mineGo.AddComponent<MineBoulder>();
+                mine.inventory = inv; mine.player = playerGo.transform; mine.boulderRoot = rootGo.transform;
+                mine.mineRadius = 2.4f;
+                mine.InitializePoolForTest();
+                Assert.IsTrue(mine.WouldClaimClick(), "precondition: the boulder verb WOULD claim (pickaxe + boulder in range)");
+
+                var attack = attackGo.AddComponent<FarHorizon.Combat.MeleeAttack>();
+                attack.inventory = inv; attack.player = playerGo.transform; attack.mineBoulder = mine;
+                // chopTree/mineOre left null (Awake's scene-search never fires in EditMode) → they never claim.
+
+                Assert.IsTrue(attack.VerbClaimsClickForTest(),
+                    "an ENABLED verb that WouldClaim suppresses the whiff (the arbitration works)");
+
+                mine.enabled = false; // the disabled-verb edge — WouldClaimClick() is still true, but Update never runs
+                Assert.IsTrue(mine.WouldClaimClick(), "the pure predicate is still true when the component is disabled");
+                Assert.IsFalse(attack.VerbClaimsClickForTest(),
+                    "a DISABLED verb must NOT claim the click (else a dead click: it never mines AND the whiff is suppressed)");
+            }
+            finally
+            {
+                Object.DestroyImmediate(attackGo);
+                Object.DestroyImmediate(mineGo);
+                Object.DestroyImmediate(rootGo);
+                Object.DestroyImmediate(playerGo);
+                Object.DestroyImmediate(invGo);
+            }
+        }
+
         [Test]
         public void MineOre_WouldClaimClick_FalseForWoodPickaxe_TrueGateForStoneIron()
         {

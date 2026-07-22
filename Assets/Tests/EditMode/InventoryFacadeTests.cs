@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using UnityEngine;
 using FarHorizon;
+using FarHorizon.Combat;
 
 namespace FarHorizon.EditTests
 {
@@ -130,6 +131,61 @@ namespace FarHorizon.EditTests
             Assert.IsFalse(_inv.IsAnyAxeSelectedInBelt, "a selected spear is not an axe → the chop gate stays closed");
             SelectFreshTool(ItemCatalog.PickaxeWoodId);
             Assert.IsFalse(_inv.IsAnyAxeSelectedInBelt, "a selected pickaxe is not an axe → the chop gate stays closed");
+        }
+
+        // === 86cav8xu8 — the fall-through-by-CONSTRUCTION guard (kills the hand-enumerated tier list) ===
+        // IsAnyAxeSelectedInBelt is now WeaponClass-DERIVED (WeaponCatalog.WeaponClassForItemId == WeaponClassAxe),
+        // NOT a hardcoded {axe, axe_wood, axe_iron} list. This asserts the EQUIVALENCE across the WHOLE weapon
+        // catalog: for EVERY belt-selectable weapon, the gate is true IFF that item's derived WeaponClass is the axe
+        // class. A future 4th axe tier added to BuildDefaults is covered HERE automatically (this iterates the
+        // catalog) AND by the production gate (same derivation) — closing the soak-4 fall-through by construction.
+        // A regression to hand-enumeration that omits a tier (or a derivation drift) breaks this equivalence.
+        [Test]
+        public void IsAnyAxeSelectedInBelt_IsWeaponClassDerived_AcrossTheWholeCatalog()
+        {
+            var catalog = ScriptableObject.CreateInstance<WeaponCatalog>();
+            catalog.BuildDefaults();
+            try
+            {
+                int axeTiersSeen = 0, nonAxeSeen = 0;
+                foreach (var def in catalog.All)
+                {
+                    if (def == null || string.IsNullOrEmpty(def.Id)) continue;
+                    bool gate = SelectFreshBeltWeaponMatchesAxeGate(def.Id, out bool selectable);
+                    if (!selectable) continue; // weapon id with no inventory ItemDef — not belt-selectable, skip
+                    bool expectAxe = WeaponCatalog.WeaponClassForItemId(def.Id) == CastawayCharacter.WeaponClassAxe;
+                    Assert.AreEqual(expectAxe, gate,
+                        "IsAnyAxeSelectedInBelt for '" + def.Id + "' must equal (derived WeaponClass == axe class)");
+                    if (expectAxe) axeTiersSeen++; else nonAxeSeen++;
+                }
+                Assert.GreaterOrEqual(axeTiersSeen, 3, "every current axe tier (wood/stone/iron) must be exercised");
+                Assert.Greater(nonAxeSeen, 0, "and at least one non-axe weapon must be exercised (the false case)");
+            }
+            finally
+            {
+                foreach (var d in catalog.All) if (d != null) Object.DestroyImmediate(d);
+                Object.DestroyImmediate(catalog);
+            }
+        }
+
+        // Rig a FRESH inventory (so belt slot 0 is free — the 5-slot belt can't hold the whole 15-weapon catalog),
+        // place + select the weapon id, and return IsAnyAxeSelectedInBelt. `selectable` is false when the weapon id
+        // has no inventory ItemDef (not belt-eligible → the derivation guard skips it).
+        private bool SelectFreshBeltWeaponMatchesAxeGate(string weaponId, out bool selectable)
+        {
+            var go = new GameObject("InvDerive");
+            try
+            {
+                var inv = go.AddComponent<Inventory>();
+                var item = inv.Catalog.ById(weaponId);
+                if (item == null) { selectable = false; return false; }
+                var placed = inv.Model.AddToolToBelt(item);
+                if (!placed.HasValue) { selectable = false; return false; } // not a belt-eligible Tool
+                selectable = true;
+                inv.Model.SelectBelt(placed.Value.Index);
+                return inv.IsAnyAxeSelectedInBelt;
+            }
+            finally { Object.DestroyImmediate(go); }
         }
 
         // Place a tool on the belt AND select its slot, so IsAnyAxeSelectedInBelt reads the intended selection

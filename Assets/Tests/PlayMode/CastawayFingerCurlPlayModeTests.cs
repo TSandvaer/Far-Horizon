@@ -116,6 +116,28 @@ namespace FarHorizon.PlayTests
             }
         }
 
+        // 86cav8xu8 — the held-visual grip WIDENING. The finger-curl used to grip ONLY for a stone axe / spear;
+        // selecting a WOOD axe, a pickaxe, or a wood dagger/sword showed the held mesh in an OPEN 'mangled' hand.
+        // The gate now reads the SAME held-visual predicate as the mesh (HeldWeaponCycleDebug.IsHeldVisualWeaponSelected),
+        // so the hand grips EVERY shown tier. Pins that a selected wood axe / wood pickaxe / stone pickaxe now grips.
+        [UnityTest]
+        public IEnumerator WoodAndPickaxeSelections_NowGrip_TheHeldVisualWidening()
+        {
+            yield return null;
+            Assert.IsFalse(_curl.IsGripping, "precondition: the empty hand does not grip");
+
+            foreach (var id in new[] { ItemCatalog.AxeWoodId, ItemCatalog.PickaxeWoodId, ItemCatalog.PickaxeStoneId })
+            {
+                var slot = _inv.Model.AddToolToBelt(_inv.Catalog.ById(id)); // 3 tools fit the 5-slot belt
+                Assert.IsTrue(slot.HasValue, id + " placed on the belt");
+                _inv.Model.SelectBelt(slot.Value.Index); // fires Inventory.Changed -> ApplyGate
+                yield return null;
+                Assert.IsTrue(_curl.IsGripping,
+                    "a selected '" + id + "' shows a held mesh, so the hand must grip its haft (the 86cav8xu8 " +
+                    "widening — previously only a stone axe/spear gripped, leaving wood/pickaxe an open 'mangled' hand)");
+            }
+        }
+
         private Vector3[] SampleTips()
         {
             var v = new Vector3[3];
