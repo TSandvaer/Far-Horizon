@@ -433,6 +433,49 @@ namespace FarHorizon
                 || model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
         }
 
+        /// <summary>
+        /// ARBITRATION (round-4, 86caffwv5) — true when THIS ore-mine verb OWNS the current left-click: a stone/iron
+        /// pickaxe is the selected belt item (a WOOD pickaxe does NOT mine ORE — spec §5, so it is intentionally
+        /// excluded here, matching <see cref="IsPickaxeSelected"/>) AND a mineable ore node is within range. The
+        /// chop-sibling of <see cref="ChopTree.WouldClaimClick"/>; <see cref="FarHorizon.Combat.MeleeAttack"/> queries
+        /// it (a stateless, order-independent recompute) to SUPPRESS its whiff swing when ore-mining claims the click.
+        /// Guards (panel/UI/RMB) are applied by MeleeAttack's own gate. Null inventory/player → false.
+        /// </summary>
+        public bool WouldClaimClick()
+        {
+            if (inventory == null || player == null) return false;
+            return IsPickaxeSelected(inventory) && ResolveNearestMineable(player.position) != null;
+        }
+
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): this
+        /// verb's left-click gate ground truth — the pickaxe-selected gate (STONE/IRON only — a wood pickaxe does NOT
+        /// mine ore) + the planar-XZ distance to the NEAREST mineable ore node (ignoring range) vs
+        /// <see cref="mineRadius"/>. Uses this verb's OWN state. Null inventory/player → tool unselected + no target.</summary>
+        public VerbGateDiag ClickGateDiag()
+        {
+            var d = new VerbGateDiag { Range = mineRadius, NearestDist = -1f };
+            d.ToolSelected = IsPickaxeSelected(inventory);
+            if (player != null) d.NearestDist = NearestMineableDistance(player.position);
+            return d;
+        }
+
+        // Planar (XZ) distance to the nearest mineable ENABLED ore node, ignoring mineRadius (so the diagnostic shows
+        // "in range" vs "just out of reach"). -1 if none mineable. A read-only cold-path scan.
+        private float NearestMineableDistance(Vector3 from)
+        {
+            float best = -1f;
+            Vector2 here = new Vector2(from.x, from.z);
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                MineableNodeState s = _nodes[i];
+                if (!s.IsMineable) continue;
+                Vector3 p = s.Position;
+                float dist = (here - new Vector2(p.x, p.z)).magnitude;
+                if (best < 0f || dist < best) best = dist;
+            }
+            return best;
+        }
+
         /// <summary>Planar (XZ) range check between a position and a tracked node (mirrors ResolveNearestMineable).</summary>
         private bool IsInRange(Vector3 from, MineableNodeState n)
         {
@@ -489,7 +532,7 @@ namespace FarHorizon
         {
             MineableNodeState target = FirstMineable();
             if (target == null) return;
-            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerChop(); }
+            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerMine(); } // 86caffwv5 — pickaxe swing
             ApplyStrikeEffect(target);
         }
 
@@ -510,7 +553,7 @@ namespace FarHorizon
             if (character != null)
             {
                 character.FaceWorldTarget(target.Position);
-                character.TriggerChop();
+                character.TriggerMine(); // 86caffwv5 — the mine strike plays the PICKAXE swing (WeaponClass=pickaxe)
             }
 
             float speed = character != null
@@ -526,9 +569,12 @@ namespace FarHorizon
 
         private float ComputeSwingDuration()
         {
-            float speed = character != null
-                ? Mathf.Clamp(character.chopSpeed, CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax)
-                : 1f;
+            // 86caffwv5 soak-3 — divide the clip by the pickaxe swing's EFFECTIVE playback speed (chopSpeed ×
+            // SwingSpeedPickaxe), NOT raw chopSpeed. TriggerMine (called in BeginMineSwing before this) sets the
+            // class to pickaxe, so CurrentSwingPlaybackSpeed here reflects the sped-up 1.5× pickaxe swing. Before this
+            // fix the cadence divided by chopSpeed only, so the sped-up swing finished then sat IDLE until the full
+            // un-sped clip length elapsed — the Sponsor's "long waiting from idle to next swing when holding" (soak-3).
+            float speed = character != null ? character.CurrentSwingPlaybackSpeed : 1f;
             float liveLen = character != null ? character.MeleeClipLength : 0f;
             float authored = liveLen > 0f ? liveLen : Mathf.Max(SwingClipLengthFloor, swingClipLengthSeconds);
             return authored / Mathf.Max(0.0001f, speed);
@@ -611,6 +657,50 @@ namespace FarHorizon
         private float _shakeT;
         private float _shakeDeg;
 
+        // 86caffwv5 round-7 (TASK 2 — "block movement like trees do") — the MOVEMENT carve. The world is
+        // DELIBERATELY collider-free and the player is a NavMeshAgent, so a physics COLLIDER would NOT stop the
+        // player (a NavMeshAgent walks the baked navmesh, ignoring colliders — PlacementObstacleRegistry.cs
+        // documents the collider-free world). Trees block by CARVING the navmesh with a NavMeshObstacle
+        // (LowPolyZoneGen.BuildTree); boulders + ore nodes did NOT, so the player could walk INSIDE the big
+        // minable boulders (the Sponsor's screenshot). This carve is the SAME mechanism trees use — a snug capsule
+        // hugging the visual footprint so the player is blocked at the surface yet can still stand within mine
+        // range (carve + agentRadius << mineRadius). It is toggled OFF while the node is broken/removed/regrowing
+        // so a mined-away spot is never an invisible wall (a rarity-disabled node's GameObject is inactive, so its
+        // obstacle is inert automatically). RUNTIME carve: no re-bake, no committed-scene change — carving cuts the
+        // baked navmesh at runtime exactly like trees.
+        private UnityEngine.AI.NavMeshObstacle _carve;
+        private bool _carveOn;
+        private float _carveFootprint;   // 86caffwv5 round-8 — the measured world planar footprint the carve was sized from (guard/log)
+        private float _carveMaxExtent;   // 86caffwv5 round-8 — the circumscribing (max) world half-extent (guard/log)
+
+        // 86caffwv5 round-8 (TASK 2 fix — the Sponsor's soak-7 verdict: "im blocked but already at this distance in
+        // the screenshot, not at the edge of the boulder" — blocked ~a body-length OUT, invisible-wall feel). The
+        // round-7 carve used the CIRCUMSCRIBING world-AABB half-extent (Mathf.Max(extents.x, extents.z)); for a lumpy
+        // FacetedRock that captures the widest facet SPIKE, so the carve blocked at the spike radius while the visual
+        // surface undulates well inside it. Worse, the baked navmesh erodes the walkable boundary by ~the agent
+        // radius AROUND a carve (documented in LowPolyZoneGen's tree-barrier fix 86caa4c5c: "the NavMesh bake erodes
+        // the walkable boundary by the agent radius (0.4u)"), so the player STANDS ~agentRadius BEYOND the carve
+        // boundary. Trees get away with that standoff because the trunk is thin (nothing big sits in the gap); a BIG
+        // boulder turns the same standoff into a visible ground gap that reads as an invisible wall. FIX: size the
+        // carve so the player's STAND position (carve + agentRadius) lands at the boulder's visual surface + a small
+        // clearance — carve = footprint + clearance − agentStandoff — using the SNUG (min) planar half-extent so a
+        // circle carve hugs the narrow silhouette (a circle cannot hug tighter without a gap on that axis; on the
+        // wider axis the player just touches / lightly overlaps, which reads as touching — the Sponsor's accepted
+        // direction). Because the +agentRadius the player picks up at stand-time CANCELS the −agentStandoff here, the
+        // blocked distance ≈ footprint + clearance regardless of the exact erosion, so the formula is robust to an
+        // imperfect standoff estimate. Same MineableNodeState path → applies to boulders AND ore nodes.
+        public const float CarveClearance = 0.15f;      // small hug past the visual surface (the tree idiom, LowPolyZoneGen.TrunkObstacleClearance)
+        public const float CarveAgentStandoff = 0.40f;  // the navmesh erodes ~the agent radius (0.4u, MovementCameraScene) around a carve — subtract it so the player stands AT the surface, not agentRadius out
+        public const float CarveFloorRadius = 0.20f;    // never degenerate: a small node's carve still reliably cuts the 0.16u-voxel navmesh
+
+        /// <summary>86caffwv5 round-8 (TASK 2 fix) — PURE snug-carve WORLD radius from a node's planar footprint
+        /// half-extent: <c>footprint + clearance − agentStandoff</c>, floored so it never degenerates. Static +
+        /// dependency-free so the EditMode guard asserts the tighten invariant (carve &lt; footprint; carve grows
+        /// with the footprint; blocked = carve + agentStandoff ≈ footprint + clearance) with no scene rig — the
+        /// boulder sibling of <c>LowPolyZoneGen.TrunkObstacleLocalRadius</c>.</summary>
+        public static float MovementCarveWorldRadius(float footprintRadius) =>
+            Mathf.Max(CarveFloorRadius, footprintRadius + CarveClearance - CarveAgentStandoff);
+
         // 86camf3xe — this Tick's tween STEP delta (set at the top of Tick). Time.unscaledDeltaTime in the shipped
         // build (production unchanged — the game never scales Time.timeScale, so unscaled == scaled); the injected
         // test clock's per-frame advance under a PlayMode test, so the break/fade/regrow tweens complete in a
@@ -659,8 +749,73 @@ namespace FarHorizon
                 _standRot = _visual.rotation;
                 _standScale = _visual.localScale;
                 _renderers = _visual.GetComponentsInChildren<Renderer>(true);
+                BuildMovementCarve(); // 86caffwv5 round-7 — block the NavMeshAgent player like trees do (TASK 2)
             }
             _rng = new System.Random(seed != 0 ? seed : Environment.TickCount);
+        }
+
+        // 86caffwv5 round-7 (TASK 2) — add the carving NavMeshObstacle that blocks the NavMeshAgent player from
+        // walking into the mineable, sized to the visual's actual planar footprint (measured from the combined
+        // renderer bounds) so it hugs the rock. Radius/center/height are LOCAL values (NavMeshObstacle scales them
+        // by the visual's lossyScale), so the world footprint is divided out of the transform scale — a snug collar
+        // at any scale (the same fix trees use, LowPolyZoneGen.TrunkObstacleLocalRadius). Null-safe: a bare rig with
+        // no renderer gets no carve (harmless). The carve starts ON iff the node is currently mineable (standing).
+        private void BuildMovementCarve()
+        {
+            if (_visual == null || _renderers == null || _renderers.Length == 0) return;
+            if (!TryPlanarFootprint(out Vector3 worldCenter, out float footprintRadius, out float maxExtent, out float height)) return;
+            if (footprintRadius <= 1e-3f) return;
+
+            var carve = _visual.GetComponent<UnityEngine.AI.NavMeshObstacle>();
+            if (carve == null) carve = _visual.gameObject.AddComponent<UnityEngine.AI.NavMeshObstacle>();
+
+            Vector3 ls = _visual.lossyScale;
+            float sxz = Mathf.Max(1e-4f, Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)));
+            float sy = Mathf.Max(1e-4f, Mathf.Abs(ls.y));
+
+            // 86caffwv5 round-8 — the SNUG world carve (footprint + clearance − agentStandoff; see the constants +
+            // MovementCarveWorldRadius above). The player stands at carve + agentRadius ≈ footprint + clearance = the
+            // visual surface + a hair, so the block reads as touching (not the round-7 body-length gap).
+            float worldCarve = MovementCarveWorldRadius(footprintRadius);
+
+            carve.shape = UnityEngine.AI.NavMeshObstacleShape.Capsule;
+            carve.center = _visual.InverseTransformPoint(worldCenter);
+            carve.radius = worldCarve / sxz;                          // LOCAL; world footprint == worldCarve (snug)
+            carve.height = Mathf.Max(height, worldCarve * 2f) / sy;   // span the vertical extent (reaches the navmesh)
+            carve.carving = true;
+            carve.enabled = IsMineable;   // standing → carve on; Tick keeps it in lock-step with mineability
+            _carve = carve;
+            _carveOn = carve.enabled;
+            _carveFootprint = footprintRadius; // 86caffwv5 round-8 — remember the measured footprint for the guard/log
+            _carveMaxExtent = maxExtent;
+        }
+
+        // Combined WORLD planar footprint of this node's renderers (the carve size source). Returns false if the
+        // node has no valid renderer bounds (a bare rig).
+        //   footprintRadius = the SMALLER (snug) XZ half-extent — a circle carve hugs the narrow silhouette; the
+        //     wider axis just touches / lightly overlaps (reads as touching). 86caffwv5 round-8: this replaced the
+        //     round-7 Mathf.MAX (circumscribing) footprint that blocked at the widest facet spike → the Sponsor's
+        //     "a body-length from the visual edge" gap.
+        //   maxExtent = the LARGER XZ half-extent (the circumscribing spike) — kept for the carve-tracks-bounds
+        //     EditMode guard + the BLOCKED-AT-SURFACE capture log (so the visual-edge interplay is inspectable).
+        //   height    = the full vertical extent.
+        private bool TryPlanarFootprint(out Vector3 worldCenter, out float footprintRadius, out float maxExtent, out float height)
+        {
+            worldCenter = Vector3.zero; footprintRadius = 0f; maxExtent = 0f; height = 0f;
+            bool any = false;
+            Bounds b = default;
+            for (int i = 0; i < _renderers.Length; i++)
+            {
+                if (_renderers[i] == null) continue;
+                if (!any) { b = _renderers[i].bounds; any = true; }
+                else b.Encapsulate(_renderers[i].bounds);
+            }
+            if (!any) return false;
+            worldCenter = b.center;
+            footprintRadius = Mathf.Min(b.extents.x, b.extents.z);
+            maxExtent = Mathf.Max(b.extents.x, b.extents.z);
+            height = b.size.y;
+            return true;
         }
 
         public int Strikes => _strikes;
@@ -668,6 +823,28 @@ namespace FarHorizon
         public bool Enabled => _enabled;
         public float RegrowAt => _regrowAt;
         public Vector3 Position => _visual != null ? _visual.position : Vector3.zero;
+
+        /// <summary>86caffwv5 round-7 (TASK 2) — true once this node carries a movement-blocking NavMeshObstacle
+        /// carve (a bare rig with no renderer has none). For the EditMode carve guard.</summary>
+        public bool HasMovementCarve => _carve != null;
+
+        /// <summary>86caffwv5 round-7 (TASK 2) — true while this node's movement carve is actively blocking the
+        /// player (enabled + carving). Follows mineability: on while standing, off while broken/removed/regrowing.
+        /// For the EditMode carve-lifecycle guard.</summary>
+        public bool MovementCarveActive => _carve != null && _carve.enabled && _carve.carving;
+
+        /// <summary>86caffwv5 round-7 (TASK 2) — the movement carve's LOCAL radius (0 if none). For the EditMode
+        /// guard that pins the carve is sized to the footprint (so mine range still reaches over it). NOTE: at
+        /// localScale 1 (the authored boulders/ore nodes) LOCAL == WORLD radius.</summary>
+        public float MovementCarveRadius => _carve != null ? _carve.radius : 0f;
+
+        /// <summary>86caffwv5 round-8 (TASK 2 fix) — the SNUG world planar half-extent the carve was sized from
+        /// (min of the XZ bounds extents), 0 if no carve. For the carve-tracks-bounds guard.</summary>
+        public float MovementCarveFootprint => _carveFootprint;
+
+        /// <summary>86caffwv5 round-8 (TASK 2 fix) — the circumscribing (max) world planar half-extent = the visual
+        /// spike the round-7 carve used, 0 if no carve. For the guard proving the carve is now TIGHTER than this.</summary>
+        public float MovementCarveMaxExtent => _carveMaxExtent;
 
         /// <summary>True only when this node is ENABLED and STANDING (not broken, not mid-tween) → strike-eligible.</summary>
         public bool IsMineable => _enabled && !_broken && !_breaking && !_fadingOut && !_removed && !_regrowing;
@@ -729,6 +906,16 @@ namespace FarHorizon
                 _prevNowSet = true;
             }
 #endif
+
+            // 86caffwv5 round-7 (TASK 2) — keep the movement carve in lock-step with mineability so a broken /
+            // removed / regrowing node stops blocking the player at an empty spot (and a regrown one blocks again).
+            // Cheap: writes only on a transition. Runs even while disabled (IsMineable is false then → carve off),
+            // but a rarity-disabled node's GameObject is inactive so its obstacle is inert regardless.
+            if (_carve != null && _carveOn != IsMineable)
+            {
+                _carveOn = IsMineable;
+                _carve.enabled = _carveOn;
+            }
 
             if (!_enabled) return;
             if (_breaking) { StepBreaking(); return; }

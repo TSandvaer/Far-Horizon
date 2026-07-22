@@ -401,24 +401,24 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void HeldWeaponCycleDebug_AxeIsTheLockedDefault_NoCompensation()
+        public void HeldWeaponCycleDebug_ArraysAligned_AxeIsIndex0_ScaleStillUnit()
         {
-            // 86cabh907 regression guard (the axe-seat-LOCKED contract). The Sponsor LOCKED the axe seat — the
-            // cycle handle must leave it byte-unchanged. The handle expresses that as: index 0 (axe) gets ZERO
-            // mesh-holder offset and UNIT scale (and restores the captured original TRS). Pin index 0 ==
-            // identity so a future tweak that accidentally compensates the axe (moving the locked seat) reds
-            // here. Also pin the four per-weapon arrays are length-aligned (a misaligned array would apply the
-            // wrong weapon's compensation).
+            // 86caffwv5 round-7 — the axe-seat LOCK is RETIRED. The Sponsor dialed a real axe-class in-hand seat
+            // (see HeldAxeV4Seat_* / the seat arrays) and directed "use the same dial for rock and metal", so the
+            // axe (index 0) is NO LONGER a zero-offset/identity byte-locked seat — it carries the axe-class offset
+            // + euler that ApplyCurrent now composes for index 0. What SURVIVES: (a) the four per-weapon arrays stay
+            // length-aligned (a misaligned array applies the wrong weapon's seat), (b) the STONE axe is still cycle
+            // index 0 (the belt-sync + F9 target index), and (c) the axe SCALE is still 1.0 (the Sponsor left held
+            // scale at unit — only offset/euler were dialed; the scale-dial still REFUSES the axe). The exact axe
+            // offset/euler are pinned in HeldWeaponCycleDebug_PerWeaponSeats_* below.
             int n = HeldWeaponCycleDebug.WeaponNodeNames.Length;
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponLabels.Length, "WeaponLabels must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshScale.Length, "WeaponMeshScale must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalOffset.Length, "WeaponMeshLocalOffset must align with WeaponNodeNames.");
             Assert.AreEqual(n, HeldWeaponCycleDebug.WeaponMeshLocalEuler.Length, "WeaponMeshLocalEuler must align with WeaponNodeNames.");
-            Assert.AreEqual("wpn_axe_stone_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the STONE axe must be cycle index 0 (the locked default; 86cajkk7h).");
-            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0],
-                "the AXE (index 0) must have ZERO mesh-holder offset — its seat is Sponsor-LOCKED and must stay byte-unchanged.");
-            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0],
-                "the AXE (index 0) must have UNIT mesh scale — its seat is Sponsor-LOCKED.");
+            Assert.AreEqual("wpn_axe_stone_01", HeldWeaponCycleDebug.WeaponNodeNames[0], "the STONE axe must be cycle index 0 (the belt-sync + F9 target index; 86cajkk7h).");
+            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0], 1e-4f,
+                "the AXE (index 0) held scale must stay 1.0 — the Sponsor dialed only offset/euler, not scale (the scale-dial still refuses the axe).");
         }
 
         [Test]
@@ -451,35 +451,62 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void HeldWeaponCycleDebug_PerWeaponSeats_AreTheSponsorDialedBakedValues_86cakkfz9()
+        public void HeldWeaponCycleDebug_PerWeaponSeats_AreTheSponsorDialedBakedValues_86caffwv5()
         {
-            // 86cakkfz9 v3 DIAL-IN BAKE regression guard (dial exe stamp d306552). The Sponsor F9-dialed each
-            // non-axe weapon's in-hand seat on the v3 build; the committed numbers ARE his approval
-            // ([[verify-soak-builds-or-bake-and-judge]] — bake the dialed values + assert the COMMITTED on-disk
-            // constant, not just regen-code [[unity-procedural-committed-assets-go-stale]]). Cross-checked against
-            // Player-prev.log final resting lines + the ticket screenshot table (identical). Equality-pin EVERY
-            // per-weapon baked value so any future edit that drifts a seat reds here in CI — the bug class is
-            // "a later tweak silently moves a Sponsor-approved seat". This round re-positioned only the OFFSETS;
-            // the held SCALES + zero eulers carry unchanged from the 86caffwuz bake (the Sponsor left them).
+            // 86caffwv5 round-7 FINAL BAKE + "use the same dial for rock and metal" (Sponsor-directed, verbatim)
+            // regression guard. The Sponsor's round-6 WOOD dial is now the ONE seat per weapon CLASS, applied to
+            // ALL THREE tiers (stone/iron/wood). The committed numbers ARE his approval, harvested from + verified
+            // against Build/soak-swings-6/sponsor-final-dial-Player.log (last-logged nudge line per class,
+            // Danish-locale decimals) — [[verify-soak-builds-or-bake-and-judge]] + assert the COMMITTED on-disk
+            // constant, not just regen ([[unity-procedural-committed-assets-go-stale]]). Equality-pin EVERY baked
+            // value per tier so a later edit that drifts (or re-diverges the tiers) reds here. NOTE the AXE seat is
+            // NO LONGER zero-locked — the Sponsor RETIRED the axe lock this round (PR body seat-replacement flag).
+            var axe     = (new Vector3(-0.020f, 0.000f, 0.000f), new Vector3(-79.4f, 58.6f, -31.3f), 1.00f);
+            var dagger  = (new Vector3(-0.020f, -0.020f, 0.080f), new Vector3(-70.0f, 20.0f, 0.0f), 0.771f);
+            var sword   = (new Vector3(0.020f, -0.040f, 0.080f), new Vector3(-59.5f, 51.9f, -11.3f), 0.95f);
+            var spear   = (new Vector3(-0.140f, 0.100f, -0.220f), new Vector3(-41.6f, -41.9f, 60.8f), 0.90f);
+            var pickaxe = (new Vector3(-0.020f, 0.020f, -0.020f), new Vector3(-62.0f, 50.0f, -30.7f), 1.00f);
 
-            // AXE (index 0) — Sponsor-LOCKED: zero offset/euler, unit scale (byte-unchanged seat, bar #6).
-            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalOffset[0], "AXE offset must stay zero (LOCKED).");
-            Assert.AreEqual(Vector3.zero, HeldWeaponCycleDebug.WeaponMeshLocalEuler[0], "AXE euler must stay zero (LOCKED).");
-            Assert.AreEqual(1f, HeldWeaponCycleDebug.WeaponMeshScale[0], 1e-4f, "AXE scale must stay 1.0 (LOCKED).");
+            // STONE tier (0-4).
+            AssertSeat(0, axe.Item1, axe.Item2, axe.Item3);          // AXE stone
+            AssertSeat(1, dagger.Item1, dagger.Item2, dagger.Item3); // KNIFE/DAGGER stone
+            AssertSeat(2, sword.Item1, sword.Item2, sword.Item3);    // SWORD stone
+            AssertSeat(3, spear.Item1, spear.Item2, spear.Item3);    // SPEAR stone
+            AssertSeat(4, pickaxe.Item1, pickaxe.Item2, pickaxe.Item3); // PICKAXE stone
+            // IRON tier (5-9) — SAME class dial as stone (the Sponsor's "same dial for rock and metal").
+            AssertSeat(5, pickaxe.Item1, pickaxe.Item2, pickaxe.Item3); // PICKAXE iron
+            AssertSeat(6, axe.Item1, axe.Item2, axe.Item3);            // AXE iron
+            AssertSeat(7, dagger.Item1, dagger.Item2, dagger.Item3);   // DAGGER iron
+            AssertSeat(8, sword.Item1, sword.Item2, sword.Item3);      // SWORD iron
+            AssertSeat(9, spear.Item1, spear.Item2, spear.Item3);      // SPEAR iron
+        }
 
-            // KNIFE (index 1) — Sponsor-dialed d306552.
-            AssertSeat(1, new Vector3(-0.020f, 0.020f, 0.000f), Vector3.zero, 0.85f);
-            // SWORD (index 2) — Sponsor-dialed d306552.
-            AssertSeat(2, new Vector3(-0.020f, 0.040f, 0.000f), Vector3.zero, 0.95f);
-            // SPEAR (index 3) — Sponsor-dialed d306552.
-            AssertSeat(3, new Vector3(-0.020f, 0.560f, 0.000f), Vector3.zero, 0.90f);
-            // PICKAXE STONE (index 4) — Sponsor-dialed, build d699c81 (86cakkmr0 final round). Cross-checked
-            // against Player.log final resting line (Danish-locale) + the nudge-panel screenshot (identical).
-            AssertSeat(4, new Vector3(-0.040f, 0.000f, 0.020f), new Vector3(8.0f, 10.0f, 0.0f), 1f);
-            // PICKAXE IRON (index 5) — SHARES the stone pickaxe seat: both tiers share the family haft/grip +
-            // head geometry by construction (the family-extension route kept the stone-axe haft verbatim), so
-            // one dial covers both. If the iron tier ever gets a distinct baseline, re-dial + re-pin here.
-            AssertSeat(5, new Vector3(-0.040f, 0.000f, 0.020f), new Vector3(8.0f, 10.0f, 0.0f), 1f);
+        [Test]
+        public void HeldWeaponCycleDebug_SameDialAcrossTiers_86caffwv5()
+        {
+            // 86caffwv5 round-7 "use the same dial for rock and metal" INVARIANT (the Sponsor's verbatim directive):
+            // every weapon CLASS reads identically in-hand across its three tiers, so a future edit that dials one
+            // tier without the others (re-diverging them) reds here — the bug class is a silent per-tier drift.
+            // Class → (stone, iron, wood) index triples on the current 15-seat grid.
+            (int stone, int iron, int wood)[] classes =
+            {
+                (0, HeldWeaponCycleDebug.AxeIronFamilyIndex, HeldWeaponCycleDebug.AxeWoodFamilyIndex),      // axe
+                (1, HeldWeaponCycleDebug.DaggerIronFamilyIndex, HeldWeaponCycleDebug.DaggerWoodFamilyIndex),// dagger
+                (2, HeldWeaponCycleDebug.SwordIronFamilyIndex, HeldWeaponCycleDebug.SwordWoodFamilyIndex),  // sword
+                (3, HeldWeaponCycleDebug.SpearIronFamilyIndex, HeldWeaponCycleDebug.SpearWoodFamilyIndex),  // spear
+                (HeldWeaponCycleDebug.PickaxeStoneFamilyIndex, HeldWeaponCycleDebug.PickaxeIronFamilyIndex,
+                 HeldWeaponCycleDebug.PickaxeWoodFamilyIndex),                                              // pickaxe
+            };
+            foreach (var c in classes)
+            {
+                string lbl = HeldWeaponCycleDebug.WeaponLabels[c.stone];
+                Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalOffset[c.stone], HeldWeaponCycleDebug.WeaponMeshLocalOffset[c.iron], $"{lbl}: iron offset must equal stone (same dial)");
+                Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalOffset[c.stone], HeldWeaponCycleDebug.WeaponMeshLocalOffset[c.wood], $"{lbl}: wood offset must equal stone (same dial)");
+                Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalEuler[c.stone], HeldWeaponCycleDebug.WeaponMeshLocalEuler[c.iron], $"{lbl}: iron euler must equal stone (same dial)");
+                Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshLocalEuler[c.stone], HeldWeaponCycleDebug.WeaponMeshLocalEuler[c.wood], $"{lbl}: wood euler must equal stone (same dial)");
+                Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshScale[c.stone], HeldWeaponCycleDebug.WeaponMeshScale[c.iron], 1e-4f, $"{lbl}: iron scale must equal stone (same dial)");
+                Assert.AreEqual(HeldWeaponCycleDebug.WeaponMeshScale[c.stone], HeldWeaponCycleDebug.WeaponMeshScale[c.wood], 1e-4f, $"{lbl}: wood scale must equal stone (same dial)");
+            }
         }
 
         [Test]
@@ -501,17 +528,21 @@ namespace FarHorizon.EditTests
             Assert.AreEqual("wpn_spear_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SpearWoodFamilyIndex]);
             Assert.AreEqual("wpn_pickaxe_wood_01", HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.PickaxeWoodFamilyIndex]);
 
-            // Each wood seat STARTS from its stone counterpart (shared family haft/grip → same seat; the Sponsor
-            // micro-dials each at the F9 session). axe_wood←axe(0), knife_wood←knife(1), sword_wood←sword(2),
-            // spear_wood←spear(3), pickaxe_wood←pickaxe_stone(4).
+            // 86caffwv5 round-7 "same dial for rock and metal": every wood seat now EQUALS its stone counterpart
+            // (all three tiers share the ONE class dial). AssertWoodMirrorsStone therefore holds for the whole grid.
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.AxeWoodFamilyIndex, 0);
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.DaggerWoodFamilyIndex, 1);
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.SwordWoodFamilyIndex, 2);
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.SpearWoodFamilyIndex, 3);
             AssertWoodMirrorsStone(HeldWeaponCycleDebug.PickaxeWoodFamilyIndex, 4);
+
+            // 86caffwv5 round-7 FINAL: DAGGER + SWORD wood baked values (the exact class dial; dagger unchanged from
+            // soak-5, sword is the Sponsor's round-6 re-dial). Pin so a drift reds in CI.
+            AssertSeat(HeldWeaponCycleDebug.DaggerWoodFamilyIndex, new Vector3(-0.020f, -0.020f, 0.080f), new Vector3(-70.0f, 20.0f, 0.0f), 0.771f);
+            AssertSeat(HeldWeaponCycleDebug.SwordWoodFamilyIndex,  new Vector3(0.020f, -0.040f, 0.080f), new Vector3(-59.5f, 51.9f, -11.3f), 0.950f);
         }
 
-        // Assert a wood seat's baked starting values mirror its stone counterpart (shared family grip; 86catvb6u §3).
+        // Assert a wood seat's baked values equal its stone counterpart (86caffwv5 round-7 "same dial for rock and metal").
         private static void AssertWoodMirrorsStone(int woodIdx, int stoneIdx)
         {
             string w = HeldWeaponCycleDebug.WeaponLabels[woodIdx];

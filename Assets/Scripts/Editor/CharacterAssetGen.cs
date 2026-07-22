@@ -75,6 +75,16 @@ namespace FarHorizon.EditorTools
         // procedural). REPLACES the procedural ChopPoseDriver swing the Sponsor rejected. Imported NON-looping
         // (a one-shot strike), Generic — identical idiom to the jump one-shots.
         public const string MeleeFbxPath = CharDir + "/Melee_Attack.fbx";       // WITH skin (Melee one-shot clip)
+        // ===== PER-CLASS WEAPON SWING clips (86caffwv5 — attack animation per weapon). 5 NEW Sponsor-sourced
+        // Mixamo clips (WITHOUT skin, 30fps, Keyframe-Reduction none), one per weapon class. All import GENERIC +
+        // NON-looping (a swing is a ONE-SHOT strike — the Melee/jump one-shot idiom) and bind by TRANSFORM PATH onto
+        // the live castaway mesh (same mixamorig skeleton — the proven Walk/Run idiom; character-pipeline.md §1.2).
+        // The material tier does NOT change the motion — one clip per class, shared across wood/stone/iron.
+        public const string AttackAxeFbxPath = CharDir + "/Attack_Axe.fbx";         // WITHOUT skin (axe swing, one-shot)
+        public const string AttackPickaxeFbxPath = CharDir + "/Attack_Pickaxe.fbx"; // WITHOUT skin (pickaxe mine strike, one-shot)
+        public const string AttackDaggerFbxPath = CharDir + "/Attack_Dagger.fbx";   // WITHOUT skin (dagger stab, one-shot)
+        public const string AttackSpearFbxPath = CharDir + "/Attack_Spear.fbx";     // WITHOUT skin (spear thrust, one-shot)
+        public const string AttackSwordFbxPath = CharDir + "/Attack_Sword.fbx";     // WITHOUT skin (sword light slash, one-shot)
         // ===== CROUCH + HIT-REACT clips (86cackb3j — locomotion/hit-react integration). All WITHOUT skin, GENERIC,
         // bind by transform path onto Idle's mesh (same mixamorig rig — the proven Walk/Run/jump idiom). Looping
         // for the sustained states (crouch idle/move, stunned hold), one-shot for the reactions/recovery/interaction.
@@ -236,6 +246,15 @@ namespace FarHorizon.EditorTools
         // The CHOP swing clip — renamed-on-import (the Mixamo take is "mixamo.com"; an exact "Melee" match loops
         // ZERO clips, the T-pose-mid-swing failure class). Distinct in the controller as the Attack state's clip.
         public const string MeleeClip = "CastawayMelee"; // chop swing (Melee_Attack.fbx, NON-looping one-shot)
+        // ===== PER-CLASS WEAPON SWING clip names (86caffwv5) — renamed-on-import from the Mixamo "mixamo.com" take
+        // (an exact name match binds ZERO clips — the T-pose class the other imports honor). Distinct per-FBX in the
+        // controller as each class's attack state's clip. Mirror CastawayCharacter.*SwingClipName (a
+        // ControllerParamNamesMatch-style test pins the duplication — the runtime asmdef can't reference the editor).
+        public const string AxeSwingClip = "CastawayAxeSwing";       // Attack_Axe.fbx (one-shot power chop)
+        public const string PickaxeSwingClip = "CastawayPickaxeSwing"; // Attack_Pickaxe.fbx (one-shot mine strike)
+        public const string DaggerStabClip = "CastawayDaggerStab";   // Attack_Dagger.fbx (one-shot forward stab)
+        public const string SpearThrustClip = "CastawaySpearThrust"; // Attack_Spear.fbx (one-shot lunge thrust)
+        public const string SwordSlashClip = "CastawaySwordSlash";   // Attack_Sword.fbx (one-shot sideways slash)
         // CROUCH + HIT-REACT clip names (86cackb3j) — renamed-on-import from the Mixamo "mixamo.com" take (an exact
         // "Sneak Walk"/"Head Hit"/… match loops/binds ZERO clips, the T-pose class). Distinct per-FBX in the controller.
         public const string CrouchWalkClip = "CastawayCrouchWalk"; // Sneak Walk.fbx (LOOP)
@@ -270,11 +289,11 @@ namespace FarHorizon.EditorTools
         // faster legs. Default 1 = the authored cadence (an unbound rig / at the reference speed plays unchanged).
         public const string LocoSpeedMulParam = "LocoSpeedMul";
 
-        // The one-shot CHOP TRIGGER (86caa4c5c change-(b)). CastawayCharacter.TriggerChop() pulses it on each
-        // landed chop so the Animator plays the Attack (melee swing) state ONCE and returns to locomotion. Mirrors
-        // CastawayCharacter.ChopParam (kept in sync). The Attack state is an AnyState→Attack on this trigger so a
-        // chop can fire from Idle OR mid-locomotion; it returns to Locomotion (Moving) / Idle (!Moving) on exit so
-        // a held-movement chop resumes walking on the clip's end (the no-stall-locomotion lesson, jump rework).
+        // The one-shot SWING TRIGGER (86caa4c5c change-(b); 86caffwv5 per-class). CastawayCharacter.TriggerAttack()
+        // pulses it (with WeaponClass set) so the Animator plays the per-class AttackX swing state ONCE and returns
+        // to locomotion. Mirrors CastawayCharacter.ChopParam (kept in sync). Each AttackX is an AnyState→AttackX on
+        // this trigger AND (WeaponClass==N) so a swing can fire from Idle OR mid-locomotion; it returns to Locomotion
+        // (Moving) / Idle (!Moving) on exit so a held-movement swing resumes walking on the clip's end (no-stall lesson).
         public const string ChopParam = "Chop";
         // The Attack-state SPEED MULTIPLIER float (86caa4c5c AC1 — tool-use speed). The Attack state's
         // speedParameter reads this, so setting it scales the melee clip's PLAYBACK RATE (a fast/slow chop). The
@@ -296,6 +315,19 @@ namespace FarHorizon.EditorTools
         public const int HitRegionBigStomach = 2;
         public const int HitRegionStomach = 3;
         public const int HitRegionRib = 4;
+
+        // ===== PER-CLASS WEAPON SWING selector (86caffwv5) — mirror CastawayCharacter.WeaponClass* (kept in sync;
+        // a ControllerParamNamesMatch-style test pins the duplication). WeaponClass (int) picks WHICH per-class
+        // attack state the shared Chop trigger fires — EXACTLY the HitRegion int-selector idiom: AnyState→AttackX on
+        // (Chop && WeaponClass Equals N). The reserved overhead Attack state (CastawayMelee) is UNWIRED from this
+        // selector (its AnyState→Attack-on-Chop transition is REMOVED — 86caffwv5 Devon-NIT #1: a class swing and the
+        // legacy chop must never double-fire) and kept for the future sword HEAVY attack (a separate ticket).
+        public const string WeaponClassParam = "WeaponClass"; // int — which per-class attack clip the Chop trigger fires
+        public const int WeaponClassAxe = 0;     // Attack_Axe.fbx  — axe_chop (ALSO the tree-chop verb's swing)
+        public const int WeaponClassPickaxe = 1; // Attack_Pickaxe.fbx — pickaxe_mine (ALSO the mine verb's swing)
+        public const int WeaponClassDagger = 2;  // Attack_Dagger.fbx — dagger_stab
+        public const int WeaponClassSpear = 3;   // Attack_Spear.fbx — spear_thrust
+        public const int WeaponClassSword = 4;   // Attack_Sword.fbx — sword_slash (the sword LIGHT attack; the reserved overhead is the future HEAVY)
 
         // The 1D Walk<->Run blend-tree thresholds on the Speed param (86ca9yq34). Idle@0, Walk@WalkBlendSpeed,
         // Run@RunBlendSpeed — so the planar agent speed WasdMovement commands (moveSpeed walking, runSpeed
@@ -367,6 +399,14 @@ namespace FarHorizon.EditorTools
             // CHOP swing clip (86caa4c5c change-(b)) — the Mixamo melee one-shot, Generic + NON-looping; binds by
             // transform path onto Idle's mesh (same mixamorig rig). Replaces the procedural ChopPoseDriver swing.
             ConfigureMeleeFbx();
+            // PER-CLASS WEAPON SWING clips (86caffwv5) — the 5 NEW Sponsor-sourced Mixamo attack clips, all
+            // WITHOUT-skin Generic + NON-looping one-shots, binding by transform path onto the live mesh (the same
+            // idiom as the hit-reacts). ConfigureGenericClipFbx is the parameterised import (loop:false = one-shot).
+            ConfigureGenericClipFbx(AttackAxeFbxPath, AxeSwingClip, loop: false);
+            ConfigureGenericClipFbx(AttackPickaxeFbxPath, PickaxeSwingClip, loop: false);
+            ConfigureGenericClipFbx(AttackDaggerFbxPath, DaggerStabClip, loop: false);
+            ConfigureGenericClipFbx(AttackSpearFbxPath, SpearThrustClip, loop: false);
+            ConfigureGenericClipFbx(AttackSwordFbxPath, SwordSlashClip, loop: false);
             // CROUCH + HIT-REACT clips (86cackb3j) — all WITHOUT-skin Generic, bind by transform path onto Idle's
             // mesh (the proven Walk/Run/jump idiom). LOOP the sustained states (crouch idle/move, stunned hold);
             // ONE-SHOT the reactions/recovery/interaction. ConfigureGenericClipFbx is the parameterised import
@@ -1168,7 +1208,13 @@ namespace FarHorizon.EditorTools
             AnimationClip run = FindClip(RunFbxPath, RunClip);
             AnimationClip jumpIdle = FindClip(JumpIdleFbxPath, JumpIdleClip);
             AnimationClip jumpRunning = FindClip(JumpRunningFbxPath, JumpRunningClip);
-            AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the chop swing (86caa4c5c change-(b))
+            AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the RESERVED overhead (future sword HEAVY, 86caffwv5 §5)
+            // PER-CLASS WEAPON SWING clips (86caffwv5) — the 5 NEW Sponsor Mixamo attack clips, one per weapon class.
+            AnimationClip axeSwing = FindClip(AttackAxeFbxPath, AxeSwingClip);
+            AnimationClip pickaxeSwing = FindClip(AttackPickaxeFbxPath, PickaxeSwingClip);
+            AnimationClip daggerStab = FindClip(AttackDaggerFbxPath, DaggerStabClip);
+            AnimationClip spearThrust = FindClip(AttackSpearFbxPath, SpearThrustClip);
+            AnimationClip swordSlash = FindClip(AttackSwordFbxPath, SwordSlashClip);
             // CROUCH + HIT-REACT clips (86cackb3j).
             // CrouchWalk binds the SMOOTHED .anim (86caa3kur / #197 — the toe-pop fix), falling back to the raw FBX
             // clip only if the smoothed asset is missing (defensive — never silently ship a T-pose; a missing
@@ -1235,6 +1281,9 @@ namespace FarHorizon.EditorTools
             controller.AddParameter(HitRegionParam, AnimatorControllerParameterType.Int);
             controller.AddParameter(StunnedParam, AnimatorControllerParameterType.Bool);
             controller.AddParameter(PickUpParam, AnimatorControllerParameterType.Trigger);
+            // PER-CLASS WEAPON SWING selector (86caffwv5) — the int the shared Chop trigger reads to pick which
+            // per-class attack state fires (the HitRegion int-selector idiom). Default 0 = axe (the tree-chop class).
+            controller.AddParameter(WeaponClassParam, AnimatorControllerParameterType.Int);
 
             var sm = controller.layers[0].stateMachine;
             var idleState = sm.AddState("Idle");
@@ -1321,24 +1370,32 @@ namespace FarHorizon.EditorTools
             WireJumpReturn(jumpIdleState, locoState, idleState);
             WireJumpReturn(jumpRunningState, locoState, idleState);
 
-            // CHOP swing (86caa4c5c change-(b)) — a ONE-SHOT Attack state playing the Mixamo melee clip, replacing
-            // the rejected procedural ChopPoseDriver swing. AnyState→Attack on the Chop trigger (so a chop fires
-            // from Idle OR mid-locomotion — like the jump). The state's speedParameter = ChopSpeed scales the clip
-            // playback rate live (tool-use speed). The clip is non-looping; Attack returns on its OWN exit-time
-            // (the swing's natural end — unlike the jump, whose landing is a physics edge) to Locomotion (Moving)
-            // or Idle (!Moving), so a chop while walking resumes locomotion on the swing's end (no-stall lesson).
+            // RESERVED overhead Attack state (86caffwv5 §5) — the ORIGINAL 86caa4c5c chop Attack state playing the
+            // Mixamo overhead melee (CastawayMelee / Melee_Attack.fbx). As of 86caffwv5 its incoming
+            // AnyState→Attack-on-Chop transition is REMOVED (Devon-NIT #1 — a class swing and this legacy chop must
+            // never double-fire; the shared Chop trigger now routes to a per-class AttackX by WeaponClass below). The
+            // STATE + its clip + its return transitions are KEPT — it is RESERVED for the future sword HEAVY attack
+            // (swing-from-above; a separate follow-up ticket owns the second-input mechanic). It is currently
+            // unreachable (no incoming transition) — dormant until the heavy-attack ticket wires it. Do NOT delete,
+            // remap, or repurpose it. speedParameter kept so the future heavy scales with tool-use speed too.
             var attackState = sm.AddState("Attack");
             attackState.motion = melee;
             attackState.speedParameterActive = true;
             attackState.speedParameter = ChopSpeedParam;
-
-            var anyToAttack = sm.AddAnyStateTransition(attackState);
-            anyToAttack.AddCondition(AnimatorConditionMode.If, 0f, ChopParam);
-            anyToAttack.hasExitTime = false;
-            anyToAttack.duration = 0.06f;            // a quick crossfade into the windup
-            anyToAttack.canTransitionToSelf = true;  // a re-chop mid-swing restarts the strike (mash = repeated chops)
-
             WireAttackReturn(attackState, locoState, idleState);
+
+            // PER-CLASS WEAPON SWINGS (86caffwv5) — one ONE-SHOT attack state per weapon class, all reached by
+            // AnyState→AttackX on the SHARED Chop trigger AND (WeaponClass Equals N) — EXACTLY the HitRegion
+            // int-selector idiom. Each plays its Mixamo swing clip, scales playback by ChopSpeed (tool-use speed
+            // stays free), and returns to Locomotion(Moving)/Idle(!Moving) on the swing's exit (the no-stall lesson).
+            // EXACTLY ONE Chop-reachable state per WeaponClass value → firing Chop with a given WeaponClass matches
+            // exactly one destination (no double-fire — Devon-NIT #1). axe(0) is the tree-chop verb's swing;
+            // pickaxe(1) is the mine verb's; sword(4) is the sword LIGHT slash (the reserved overhead is its HEAVY).
+            WireAttackClass(sm, "AttackAxe", axeSwing, melee, WeaponClassAxe, locoState, idleState);
+            WireAttackClass(sm, "AttackPickaxe", pickaxeSwing, melee, WeaponClassPickaxe, locoState, idleState);
+            WireAttackClass(sm, "AttackDagger", daggerStab, melee, WeaponClassDagger, locoState, idleState);
+            WireAttackClass(sm, "AttackSpear", spearThrust, melee, WeaponClassSpear, locoState, idleState);
+            WireAttackClass(sm, "AttackSword", swordSlash, melee, WeaponClassSword, locoState, idleState);
 
             // ===== CROUCH LANE (86cackb3j) — a SECOND locomotion lane, NOT folded into the upright Walk<->Run
             // blend tree (it stays exactly {Idle, Walk, Run} — the Attack/Jump OOS-protection idiom). Two states:
@@ -1427,8 +1484,10 @@ namespace FarHorizon.EditorTools
             Debug.Log("[CharacterAssetGen] AnimatorController built: Idle<->Locomotion(Moving) + Walk<->Run 1D " +
                       $"blend tree on Speed (Idle@{IdleBlendSpeed} Walk@{WalkBlendSpeed} Run@{RunBlendSpeed}) + " +
                       $"JumpIdle/JumpRunning one-shots (AnyState on '{JumpParam}'+Moving; return on '{GroundedParam}' " +
-                      $"edge → Locomotion if Moving else Idle) + Attack chop swing (AnyState on '{ChopParam}'; speed " +
-                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) + 86cackb3j: CrouchIdle/" +
+                      $"edge → Locomotion if Moving else Idle) + 86caffwv5: 5 per-class swings AttackAxe/Pickaxe/" +
+                      $"Dagger/Spear/Sword (AnyState on '{ChopParam}'+'{WeaponClassParam}'==0..4; speed " +
+                      $"'{ChopSpeedParam}'; return on exit → Locomotion if Moving else Idle) + RESERVED overhead " +
+                      $"Attack state (unwired — future sword HEAVY) + 86cackb3j: CrouchIdle/" +
                       $"CrouchWalk lane (AnyState on '{CrouchParam}'[+Moving]; release on !Crouch) + 5 hit-reacts " +
                       $"(AnyState on '{HitParam}'+'{HitRegionParam}'==0..4) + Stunned loop→GettingUp (on '{StunnedParam}') " +
                       $"+ PickingUp one-shot (on '{PickUpParam}') -> " + ControllerPath);
@@ -1491,6 +1550,35 @@ namespace FarHorizon.EditorTools
             toIdle.exitTime = 0.9f;
             toIdle.duration = 0.12f;
             toIdle.hasFixedDuration = true;
+        }
+
+        // (86caffwv5) Wire ONE per-class weapon-swing state: an AnyState→<state> one-shot fired by
+        // (Chop && WeaponClass==weaponClass), speed-driven by ChopSpeed (tool-use speed scales the swing playback
+        // rate live), returning on its OWN exit-time to Locomotion(Moving)/Idle(!Moving) — the chop Attack idiom so a
+        // mid-walk swing resumes locomotion on the swing's end. canTransitionToSelf=true so a mash re-triggers the
+        // swing. The WeaponClass Equals gate makes each class's state the SOLE Chop destination for its value (no
+        // double-fire — Devon-NIT #1). Uses the reserved overhead clip as a defensive fallback only if the class
+        // clip is missing (never silently ship a T-pose; a missing swing FBX degrades to the known melee).
+        private static void WireAttackClass(AnimatorStateMachine sm, string stateName, AnimationClip clip,
+                                            AnimationClip fallback, int weaponClass,
+                                            AnimatorState locoState, AnimatorState idleState)
+        {
+            var state = sm.AddState(stateName);
+            state.motion = clip != null ? clip : fallback; // defensive — never a null-motion (T-pose) state
+            if (clip == null)
+                Debug.LogWarning($"[CharacterAssetGen] {stateName}: swing clip missing — degrading to the reserved " +
+                                 $"overhead melee (a missing per-class FBX must not ship a T-pose state, 86caffwv5)");
+            state.speedParameterActive = true;
+            state.speedParameter = ChopSpeedParam;
+
+            var any = sm.AddAnyStateTransition(state);
+            any.AddCondition(AnimatorConditionMode.If, 0f, ChopParam);
+            any.AddCondition(AnimatorConditionMode.Equals, weaponClass, WeaponClassParam);
+            any.hasExitTime = false;
+            any.duration = 0.06f;            // a quick crossfade into the windup
+            any.canTransitionToSelf = true;  // a re-swing mid-strike restarts it (mash = repeated swings)
+
+            WireAttackReturn(state, locoState, idleState);
         }
 
         // (86ca9yq3q rework — THE floating-bug fix) Wire a jump state's return transitions on the GROUNDED edge:

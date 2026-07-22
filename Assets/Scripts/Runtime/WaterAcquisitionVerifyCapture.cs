@@ -147,8 +147,11 @@ namespace FarHorizon
             ShotTo(Path.Combine(dir, "water_prompt.png"));
             yield return new WaitForEndOfFrame();
 
-            // SELF-ASSERT 2 — the prompt RENDERED (the centred-low band reads DISTINCT from a control band above).
-            bool promptRendered = CheckPromptBandRendered(out float bandLuma, out float ctrlLuma, out float deltaLuma,
+            // SELF-ASSERT 2 — the prompt RENDERED. 86caffwv5 round-7 (TASK 3): the prompt moved to an ABOVE-HEAD
+            // pill, so the band is read at the head projection (Camera.main.WorldToScreenPoint(player+up*height)),
+            // reading DISTINCT from a control band above it.
+            bool promptRendered = CheckPromptBandRendered(player, cam, prompt.headAnchorHeight,
+                                                          out float bandLuma, out float ctrlLuma, out float deltaLuma,
                                                           out float darkFrac);
             Debug.Log("[WaterAcquisitionVerifyCapture] RENDER: band luma=" + bandLuma.ToString("F3") + " control=" +
                       ctrlLuma.ToString("F3") + " |delta|=" + deltaLuma.ToString("F3") + " darkFrac=" +
@@ -270,13 +273,15 @@ namespace FarHorizon
             camGo.transform.LookAt(look);
         }
 
-        // Read back the SHOW frame + assert the LootPrompt's IMGUI band actually RENDERED (the SAME band geometry
-        // + luma-delta signal as LootPromptVerifyCapture.CheckPromptBandRendered — the prompt draws a w=360 h=34
-        // plate centred horizontally at y = Screen.height - 96, a 0.55-alpha dark plate + cream text). A painted
-        // prompt makes the band read measurably DARKER than a control band just above it (luma delta); an IMGUI
-        // that silently failed to render leaves the band == the control. The luma DELTA is the primary, overlay-
-        // independent signal; the dark-plate FRACTION is a re-calibrated secondary OR-path (PR #162 decoupling).
-        private bool CheckPromptBandRendered(out float bandLuma, out float controlLuma, out float deltaLuma,
+        // Read back the SHOW frame + assert the LootPrompt's IMGUI band actually RENDERED (the SAME band geometry +
+        // luma-delta signal as LootPromptVerifyCapture.CheckPromptBandRendered). 86caffwv5 round-7 (TASK 3): the
+        // prompt moved from a bottom-center plate to an ABOVE-HEAD pill at Camera.main.WorldToScreenPoint(player +
+        // up*headAnchorHeight) (LootPrompt.OnGUI), so the band is read there. A painted prompt makes the band read
+        // measurably DARKER than a control band just above it (luma delta); an IMGUI that silently failed to render
+        // leaves the band == the control. The luma DELTA is the primary, overlay-independent signal; the dark-plate
+        // FRACTION is a re-calibrated secondary OR-path (PR #162 decoupling).
+        private bool CheckPromptBandRendered(Transform player, Camera cam, float headAnchorHeight,
+                                             out float bandLuma, out float controlLuma, out float deltaLuma,
                                              out float darkPlateFrac)
         {
             int w = Screen.width, h = Screen.height;
@@ -284,14 +289,19 @@ namespace FarHorizon
             tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
             tex.Apply();
 
-            const float plateW = 360f, plateH = 34f;
-            int bx0 = Mathf.Clamp((int)((w - plateW) * 0.5f) + 6, 0, w - 1);
-            int bx1 = Mathf.Clamp((int)((w + plateW) * 0.5f) - 6, 0, w);
-            int byBLbottom = 62; // bottom-left y of the prompt band (h - (h-96+34) = 62)
-            int by0 = Mathf.Clamp(byBLbottom + 4, 0, h - 1);
-            int by1 = Mathf.Clamp(byBLbottom + (int)plateH - 4, 0, h);
-            int cy0 = Mathf.Clamp(byBLbottom + (int)plateH + 24, 0, h - 1);
-            int cy1 = Mathf.Clamp(cy0 + ((int)plateH - 8), 0, h);
+            // Above-head pill at the head projection (WorldToScreenPoint is BL-origin, matching ReadPixels): the pill
+            // occupies BL-y ∈ [sp.y + headGap, sp.y + headGap + pillH], centred at sp.x (text-sized width; read a snug
+            // ~120px band well inside it). Control = an equal band a little ABOVE the pill (bare scene, clear of it).
+            const float pillH = 30f, headGap = 6f, sampleHalfW = 60f;
+            Vector3 sp = cam.WorldToScreenPoint(player.position + Vector3.up * headAnchorHeight);
+            int cx = Mathf.Clamp(Mathf.RoundToInt(sp.x), 0, w - 1);
+            int bx0 = Mathf.Clamp(cx - (int)sampleHalfW, 0, w - 1);
+            int bx1 = Mathf.Clamp(cx + (int)sampleHalfW, 0, w);
+            int pillBLbottom = Mathf.RoundToInt(sp.y + headGap);
+            int by0 = Mathf.Clamp(pillBLbottom + 4, 0, h - 1);
+            int by1 = Mathf.Clamp(pillBLbottom + (int)pillH - 4, 0, h);
+            int cy0 = Mathf.Clamp(pillBLbottom + (int)pillH + 24, 0, h - 1);
+            int cy1 = Mathf.Clamp(cy0 + ((int)pillH - 8), 0, h);
 
             double bandSum = 0; int bandN = 0; int dark = 0;
             for (int y = by0; y < by1; y++)

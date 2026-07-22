@@ -98,6 +98,53 @@ namespace FarHorizon.EditTests
                 "acquiring the spear AFTER the axe leaves the axe selected (slot 0) -> chop still works");
         }
 
+        // === ROUND-4 REGRESSION GUARD (86caffwv5 soak-4 "I cannot chop a tree" — the WOOD axe) ===
+        // The chop verb gates on IsAnyAxeSelectedInBelt (round-4), NOT the stone-only IsAxeSelectedInBelt. Round-3
+        // added the wood axe to the belt + held-visual but the chop gate still read the stone-only predicate, so
+        // selecting a WOOD axe failed the chop gate → no chop (while MeleeAttack's whiff still played). These pin
+        // that EVERY axe tier (wood/stone/iron) satisfies the chop's select gate, and that the stone-only predicate
+        // is UNCHANGED (the held-visual callers depend on its stone-only semantics).
+        [Test]
+        public void IsAnyAxeSelectedInBelt_TrueForEveryAxeTier_WoodStoneIron()
+        {
+            // WOOD axe selected — THE Sponsor's soak-4 repro (he tested the wood tier first).
+            SelectFreshTool(ItemCatalog.AxeWoodId);
+            Assert.IsTrue(_inv.IsAnyAxeSelectedInBelt, "a selected WOOD axe satisfies the chop gate (the soak-4 fix)");
+            Assert.IsFalse(_inv.IsAxeSelectedInBelt, "...but the STONE-only predicate stays false for the wood axe (unchanged)");
+
+            // STONE axe (the shipped "axe" id).
+            SelectFreshTool(ItemCatalog.AxeId);
+            Assert.IsTrue(_inv.IsAnyAxeSelectedInBelt, "a selected STONE axe satisfies the chop gate");
+            Assert.IsTrue(_inv.IsAxeSelectedInBelt, "the stone axe still satisfies the stone-only predicate too");
+
+            // IRON axe.
+            SelectFreshTool(ItemCatalog.AxeIronId);
+            Assert.IsTrue(_inv.IsAnyAxeSelectedInBelt, "a selected IRON axe satisfies the chop gate");
+            Assert.IsFalse(_inv.IsAxeSelectedInBelt, "the stone-only predicate stays false for the iron axe");
+        }
+
+        [Test]
+        public void IsAnyAxeSelectedInBelt_FalseForNonAxeSelections()
+        {
+            SelectFreshTool(ItemCatalog.SpearId);
+            Assert.IsFalse(_inv.IsAnyAxeSelectedInBelt, "a selected spear is not an axe → the chop gate stays closed");
+            SelectFreshTool(ItemCatalog.PickaxeWoodId);
+            Assert.IsFalse(_inv.IsAnyAxeSelectedInBelt, "a selected pickaxe is not an axe → the chop gate stays closed");
+        }
+
+        // Place a tool on the belt AND select its slot, so IsAnyAxeSelectedInBelt reads the intended selection
+        // (the belt auto-places into the first free slot; SelectBelt(index) picks it). A fresh Inventory per
+        // [SetUp] means slot 0 is the first free slot for the FIRST call; later calls place into the next slot.
+        private void SelectFreshTool(string id)
+        {
+            var def = _inv.Catalog.ById(id);
+            Assert.IsNotNull(def, "tool id '" + id + "' is in the catalog");
+            var placed = _inv.Model.AddToolToBelt(def);
+            Assert.IsTrue(placed.HasValue, "tool '" + id + "' placed on the belt");
+            _inv.Model.SelectBelt(placed.Value.Index);
+            Assert.IsTrue(_inv.Model.IsSelectedBeltItem(id), "tool '" + id + "' is now the selected belt item");
+        }
+
         [Test]
         public void WoodCount_SumsAcrossStacks()
         {

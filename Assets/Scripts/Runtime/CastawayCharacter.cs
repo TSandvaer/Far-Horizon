@@ -229,9 +229,9 @@ namespace FarHorizon
         // Mirrors CharacterAssetGen.GroundedParam.
         public const string GroundedParam = "Grounded";
 
-        // The one-shot CHOP TRIGGER (86caa4c5c change-(b)) — pulsed by TriggerChop() on each landed chop so the
-        // Animator plays the Attack (Mixamo melee swing) state ONCE (AnyState→Attack) and returns to locomotion.
-        // REPLACES the rejected procedural ChopPoseDriver swing. Mirrors CharacterAssetGen.ChopParam.
+        // The one-shot SWING TRIGGER (86caa4c5c change-(b); 86caffwv5 per-class) — pulsed by TriggerAttack() so the
+        // Animator plays the per-class AttackX swing state ONCE (AnyState→AttackX on Chop && WeaponClass==N) and
+        // returns to locomotion. REPLACES the rejected procedural ChopPoseDriver swing. Mirrors CharacterAssetGen.ChopParam.
         public const string ChopParam = "Chop";
         // The Attack-state SPEED MULTIPLIER float (86caa4c5c AC1 — tool-use speed). The Attack state's
         // speedParameter reads it, so SetFloat scales the melee clip's PLAYBACK RATE (a fast/slow chop). The
@@ -255,6 +255,73 @@ namespace FarHorizon
         // kept in sync). MeleeClipLength queries the live controller's clips by this name so the hold-chop cadence
         // (86caf7a0p) ties to the ACTUAL authored clip length, not a magic number.
         public const string MeleeClipName = "CastawayMelee";
+
+        // ===== PER-CLASS WEAPON SWING selector (86caffwv5 — attack animation per weapon). The WeaponClass int the
+        // shared Chop trigger reads to pick WHICH per-class attack state fires (the HitRegion int-selector idiom).
+        // Mirror CharacterAssetGen.WeaponClass* (kept in sync — the runtime asmdef can't reference the editor
+        // asmdef; a ControllerParamNamesMatch-style test pins the duplication). TriggerAttack(class,speed) sets this
+        // int + ChopSpeed then fires Chop; the controller routes AnyState→AttackX on (Chop && WeaponClass==class).
+        public const string WeaponClassParam = "WeaponClass";
+        public const int WeaponClassAxe = 0;     // axe_chop  — ALSO the tree-chop verb's swing (TriggerChop)
+        public const int WeaponClassPickaxe = 1; // pickaxe_mine — ALSO the mine verb's swing (TriggerMine)
+        public const int WeaponClassDagger = 2;  // dagger_stab
+        public const int WeaponClassSpear = 3;   // spear_thrust
+        public const int WeaponClassSword = 4;   // sword_slash (the sword LIGHT attack)
+
+        // Per-class swing PLAYBACK-SPEED multiplier (86caffwv5 soak-2/soak-3 — Sponsor: spear + pickaxe "too slow").
+        // Corrects the AUTHORED clip cadence per class; composed ON TOP of the tool-use-speed (the speed passed to
+        // TriggerAttack). Drives the ANIMATOR playback (ChopSpeed param). Soak-tunable defaults; axe/dagger/sword read
+        // "okay" at 1.0. STATED in the PR.
+        // soak-3 (this fix): the Sponsor judged pickaxe "STILL too slow" at soak-2's 1.2× AND reported "a long waiting
+        // from idle to next swing when holding the left mouse" — the mine HOLD-cadence had NOT been sped up with the
+        // swing (it divided the clip by chopSpeed ONLY, ignoring this multiplier), so the sped-up pickaxe swing finished
+        // then sat IDLE until the un-sped clip length elapsed. So (a) pickaxe playback is raised to 1.5× (a further
+        // bump over soak-2's 1.2×), and (b) the mine hold-cadence now divides by the EFFECTIVE playback (see
+        // CurrentSwingPlaybackSpeed) so the next hold-swing begins when the FAST swing visually completes — no idle gap.
+        public const float SwingSpeedAxe = 1.0f;
+        public const float SwingSpeedPickaxe = 1.5f; // soak-3: pickaxe mine swing STILL too slow at 1.2 → 1.5× (+25% over soak-2)
+        public const float SwingSpeedDagger = 1.0f;
+        public const float SwingSpeedSpear = 1.2f;   // +20% (soak-2: spear thrust too slow — Sponsor: spear now "ok")
+        // soak-5 (round-5): Sponsor "sword swing is way too slow, dagger works fine and is fast enough". The dagger
+        // reads fast because its weapon attackSpeed is high (1.8) at SwingSpeed 1.0 → 1.8× effective; the sword's
+        // attackSpeed is only 1.15, so at 1.0 it played at 1.15× and dragged. Raise the sword CLASS multiplier to
+        // 1.5× (the same seam + magnitude as the soak-3 pickaxe fix) → wood-sword effective playback = 1.15 × 1.5 =
+        // 1.725× (stone 1.725×, iron 1.875×), close to the dagger's 1.8× — snappy, no drag. Clamped ≤ ChopSpeedMax(3).
+        public const float SwingSpeedSword = 1.5f;   // soak-5: sword slash "way too slow" at 1.0 → 1.5× (mirrors the pickaxe soak-3 bump)
+
+        /// <summary>The per-class swing playback multiplier for a WeaponClass (86caffwv5 soak-2/soak-3) — composed on
+        /// top of the tool-use speed passed to <see cref="TriggerAttack"/>. Unknown class → 1.0 (no correction).</summary>
+        public static float SwingSpeedForClass(int weaponClass)
+        {
+            switch (weaponClass)
+            {
+                case WeaponClassPickaxe: return SwingSpeedPickaxe;
+                case WeaponClassSpear:   return SwingSpeedSpear;
+                case WeaponClassDagger:  return SwingSpeedDagger;
+                case WeaponClassSword:   return SwingSpeedSword;
+                default:                 return SwingSpeedAxe; // axe + any unknown
+            }
+        }
+
+        /// <summary>
+        /// 86caffwv5 soak-3 — the EFFECTIVE swing playback speed for a tool-use speed × a weapon class: the rate the
+        /// Animator ACTUALLY plays that class's swing (<see cref="TriggerAttack"/> pushes exactly this to the ChopSpeed
+        /// param), clamped to the ChopSpeed band. PURE + static so an EditMode test pins the composition. The mine
+        /// HOLD-cadence (MineOre/MineBoulder.ComputeSwingDuration) divides the clip by THIS — not raw tool-use speed —
+        /// so the next hold-swing starts when the sped-up swing visually completes (soak-3 idle-gap fix). For the axe
+        /// class this equals the tool-use speed (SwingSpeedAxe=1.0), so tree-chop cadence is unchanged.
+        /// </summary>
+        public static float EffectiveSwingPlaybackSpeed(float toolUseSpeed, int weaponClass)
+            => Mathf.Clamp(toolUseSpeed * SwingSpeedForClass(weaponClass), ChopSpeedMin, ChopSpeedMax);
+
+        // Per-class swing CLIP NAMES (mirror CharacterAssetGen.*Swing/*Stab/*Thrust/*Slash — renamed-on-import). The
+        // live hold-cadence source (MeleeClipLength) reads the clip for the LAST-triggered WeaponClass by these names,
+        // so a mismatch would make MeleeClipLength return 0 → the cadence silently falls back. Pinned by an EditMode test.
+        public const string AxeSwingClipName = "CastawayAxeSwing";
+        public const string PickaxeSwingClipName = "CastawayPickaxeSwing";
+        public const string DaggerStabClipName = "CastawayDaggerStab";
+        public const string SpearThrustClipName = "CastawaySpearThrust";
+        public const string SwordSlashClipName = "CastawaySwordSlash";
 
         // ===== CROUCH + HIT-REACT animator params (86cackb3j — locomotion/hit-react clip integration) =====
         // These mirror the CharacterAssetGen.* param names the controller is built with, so the runtime/editor
@@ -294,6 +361,31 @@ namespace FarHorizon
         public bool ChopTriggered => _chopTriggered;
         /// <summary>Read-and-clear the chop-triggered latch (so a test can assert one chop fired one trigger).</summary>
         public bool ConsumeChopTriggered() { bool v = _chopTriggered; _chopTriggered = false; return v; }
+
+        // The WeaponClass the LAST TriggerAttack/TriggerChop/TriggerMine set (86caffwv5). Latched even with a null
+        // Animator (a bare headless test rig) so a PlayMode/EditMode test can prove per-weapon routing without the
+        // Animator ticking (deltaTime≈0). Also drives MeleeClipLength → the hold-cadence reads the clip THIS class
+        // plays. Instance state (NOT static — no StaticStateResetTests reset needed). Defaults to axe (the tree-chop
+        // class, the original TriggerChop behavior) so the cadence source is sane before any swing fires.
+        private int _lastWeaponClass = WeaponClassAxe;
+        /// <summary>The WeaponClass the last swing used (axe=0..sword=4) — the headless-readable proof of per-weapon
+        /// swing routing (the Animator can't be observed headlessly). Set by TriggerAttack even with a null Animator.</summary>
+        public int LastWeaponClass => _lastWeaponClass;
+
+        /// <summary>The per-class swing CLIP NAME for a WeaponClass value (the name the imported clip carries). The
+        /// cadence source (<see cref="MeleeClipLength"/>) reads the live clip by this name for the last-set class, so
+        /// tree-chop reads the axe swing length and mine reads the pickaxe swing length. Unknown → the axe swing.</summary>
+        public static string AttackClipNameForClass(int weaponClass)
+        {
+            switch (weaponClass)
+            {
+                case WeaponClassPickaxe: return PickaxeSwingClipName;
+                case WeaponClassDagger:  return DaggerStabClipName;
+                case WeaponClassSpear:   return SpearThrustClipName;
+                case WeaponClassSword:   return SwordSlashClipName;
+                default:                 return AxeSwingClipName; // WeaponClassAxe + any unknown
+            }
+        }
 
         private NavMeshAgent _agent;
         private Animator _animator;
@@ -477,15 +569,39 @@ namespace FarHorizon
         /// always latches <see cref="ChopTriggered"/> so a headless test can prove the chop was requested
         /// (the Animator can't be observed headlessly — deltaTime≈0).
         /// </summary>
-        public void TriggerChop()
+        public void TriggerChop() => TriggerAttack(WeaponClassAxe, chopSpeed);
+
+        /// <summary>
+        /// Fire ONE per-class weapon swing (86caffwv5) — set the <see cref="WeaponClassParam"/> int + the
+        /// <see cref="ChopSpeedParam"/> playback multiplier, then pulse the shared <see cref="ChopParam"/> trigger,
+        /// so the controller plays the per-class AttackX state ONCE (AnyState→AttackX on (Chop &amp;&amp;
+        /// WeaponClass==weaponClass)) and returns to locomotion on the swing's exit. This is the SINGLE swing entry
+        /// for combat (MeleeAttack maps the weapon's AnimationId → a WeaponClass) AND the resource verbs (TriggerChop
+        /// = axe, TriggerMine = pickaxe). Null-Animator-safe (a bare test rig still latches the trace); always latches
+        /// <see cref="ChopTriggered"/> + <see cref="LastWeaponClass"/> so a headless test proves the swing was
+        /// requested for the right class (the Animator can't be observed headlessly — deltaTime≈0).
+        /// </summary>
+        /// <param name="weaponClass">Which per-class swing (axe=0..sword=4 — the WeaponClass* consts).</param>
+        /// <param name="speed">Tool-use speed multiplier for the swing playback (clamped to the ChopSpeed band).</param>
+        public void TriggerAttack(int weaponClass, float speed)
         {
             _chopTriggered = true;
+            _lastWeaponClass = weaponClass;
             if (_animator != null && _animator.runtimeAnimatorController != null)
             {
-                _animator.SetFloat(ChopSpeedParam, Mathf.Clamp(chopSpeed, ChopSpeedMin, ChopSpeedMax));
-                _animator.SetTrigger(ChopParam); // fire the one-shot Attack state (AnyState→Attack on the trigger)
+                // The animator playback = tool-use speed × the per-class swing multiplier (soak-2: spear + pickaxe
+                // read too slow → +20% each). Clamped to the sane band so the compose can't stall/blur the swing.
+                float playback = Mathf.Clamp(speed * SwingSpeedForClass(weaponClass), ChopSpeedMin, ChopSpeedMax);
+                _animator.SetInteger(WeaponClassParam, weaponClass);
+                _animator.SetFloat(ChopSpeedParam, playback);
+                _animator.SetTrigger(ChopParam); // fire the one-shot AttackX state (AnyState→AttackX on Chop && WeaponClass)
             }
         }
+
+        /// <summary>Fire the PICKAXE MINE swing (86caffwv5) — the mine-verb entry (MineBoulder/MineOre), the pickaxe
+        /// sibling of <see cref="TriggerChop"/>. Sets WeaponClass=pickaxe so the mine strike plays the pickaxe swing
+        /// (not the axe chop) and the hold-cadence reads the pickaxe clip length.</summary>
+        public void TriggerMine() => TriggerAttack(WeaponClassPickaxe, chopSpeed);
 
         /// <summary>
         /// HOLD-TO-CHOP cadence source (86caf7a0p) — the AUTHORED length (seconds, at 1× speed) of the chop swing
@@ -504,14 +620,31 @@ namespace FarHorizon
                 if (_animator == null || _animator.runtimeAnimatorController == null) return 0f;
                 var clips = _animator.runtimeAnimatorController.animationClips;
                 if (clips == null) return 0f;
+                // 86caffwv5 — the cadence source is now the clip for the LAST-triggered WeaponClass (tree-chop reads
+                // the axe swing, mine reads the pickaxe swing), NOT the reserved overhead CastawayMelee. Each verb
+                // sets its class immediately before firing + reading, so this returns the length of the clip that is
+                // actually about to play. Unknown class → the axe swing (AttackClipNameForClass default).
+                string clipName = AttackClipNameForClass(_lastWeaponClass);
                 for (int i = 0; i < clips.Length; i++)
                 {
                     var c = clips[i];
-                    if (c != null && c.name == MeleeClipName) return c.length;
+                    if (c != null && c.name == clipName) return c.length;
                 }
                 return 0f;
             }
         }
+
+        /// <summary>
+        /// 86caffwv5 soak-3 — the EFFECTIVE swing playback speed of the CURRENT swing (the LAST-triggered class at the
+        /// current <see cref="chopSpeed"/>) — the rate the Animator plays the swing right now. The mine HOLD-cadence
+        /// (MineOre/MineBoulder.ComputeSwingDuration) divides <see cref="MeleeClipLength"/> by THIS so the next hold
+        /// swing begins when the sped-up swing visually COMPLETES, not when the un-sped authored length elapses (the
+        /// soak-3 "long waiting from idle to next swing" fix — the pickaxe swing plays at 1.5× but the cadence used to
+        /// wait the full 1.0× length). For the mine verbs <see cref="TriggerMine"/> sets the class to pickaxe before
+        /// the cadence is read, so this is chopSpeed × <see cref="SwingSpeedPickaxe"/> there; for tree-chop the axe
+        /// class (SwingSpeedAxe=1.0) leaves the cadence == chopSpeed (unchanged).
+        /// </summary>
+        public float CurrentSwingPlaybackSpeed => EffectiveSwingPlaybackSpeed(chopSpeed, _lastWeaponClass);
 
         // ===== ANIMATOR-STATE TRACE (86caa3kur re-soak — the sneak-walk LOOP-HITCH instrument). The Sponsor's
         // re-soak refined the symptom: the crouch sneak-walk "lags between each walk animation — two steps

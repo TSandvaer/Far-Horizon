@@ -168,6 +168,19 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_inv.IsAxeSelectedInBelt, "precondition: the axe is the SELECTED belt item");
         }
 
+        // Round-4 (86caffwv5) — place the WOOD axe (id "axe_wood") on the belt + select its slot. On a fresh
+        // inventory it lands in belt slot 0 (the default-selected slot), so it becomes the selected belt item.
+        private void SelectWoodAxe()
+        {
+            var def = _inv.Catalog.ById(ItemCatalog.AxeWoodId);
+            Assert.IsNotNull(def, "precondition: the wood axe is in the catalog");
+            var placed = _inv.Model.AddToolToBelt(def);
+            Assert.IsTrue(placed.HasValue, "precondition: the wood axe placed on the belt");
+            _inv.Model.SelectBelt(placed.Value.Index);
+            Assert.IsTrue(_inv.Model.IsSelectedBeltItem(ItemCatalog.AxeWoodId),
+                "precondition: the wood axe is the SELECTED belt item");
+        }
+
         private void StandAtTree() => _playerGo.transform.position = new Vector3(0.5f, 0f, 0.5f);
 
         // 86camdk1h — advance the OWNED clock one fixed StableStep + tick one frame (the deterministic analog of a
@@ -269,6 +282,48 @@ namespace FarHorizon.PlayTests
             yield return null;
             Assert.AreEqual(1, _tree.Chops, "no further chop without a NEW click (one chop per click)");
             Assert.AreEqual(0, _inv.WoodCount, "still no wood — chopping never banks wood (REWORK AC1)");
+        }
+
+        // === ROUND-4 REGRESSION (86caffwv5 soak-4 "I cannot chop a tree") — a WOOD axe selected + a click in range
+        //     lands a chop, EXACTLY like the stone axe. The bug: the chop gated on the stone-only IsAxeSelectedInBelt,
+        //     so a WOOD axe (the Sponsor's first-tier craft) failed the gate → no chop (while MeleeAttack whiffed).
+        //     Now the gate reads IsAnyAxeSelectedInBelt (all tiers). This reproduces the Sponsor's exact scenario. ===
+        [UnityTest]
+        public IEnumerator WoodAxeSelected_ClickInRange_Chops_TheSoak4Regression()
+        {
+            SelectWoodAxe();
+            Assert.IsTrue(_inv.IsAnyAxeSelectedInBelt, "precondition: the WOOD axe satisfies the chop gate (round-4)");
+            Assert.IsFalse(_inv.IsAxeSelectedInBelt, "precondition: the stone-only predicate is false for the wood axe");
+            StandAtTree();
+
+            yield return ClickChop();
+
+            Assert.AreEqual(1, _tree.Chops,
+                "THE soak-4 FIX: a WOOD axe click in range lands a chop (pre-fix this stayed 0 — 'I cannot chop a tree')");
+            Assert.IsFalse(_tree.IsFelled, "one chop of three does not fell the tree");
+        }
+
+        // === ARBITRATION INPUT (86caffwv5 round-4) — ChopTree.WouldClaimClick is the signal MeleeAttack reads to
+        //     suppress its whiff. True ONLY when an axe (any tier) is selected AND a tree is in chop range. This is
+        //     the end-to-end half of the arbitration; the ShouldSwingOnClick truth-table (EditMode) is the other. ===
+        [UnityTest]
+        public IEnumerator WouldClaimClick_TrueOnlyWithAxeSelectedAndTreeInRange()
+        {
+            // No axe selected → the chop never claims the click (MeleeAttack would whiff — correct).
+            StandAtTree();
+            yield return null;
+            Assert.IsFalse(_tree.WouldClaimClick(), "no axe selected → the chop does not own the click");
+
+            // Wood axe selected + standing at the tree (in range) → the chop OWNS the click (MeleeAttack suppresses).
+            SelectWoodAxe();
+            yield return null;
+            Assert.IsTrue(_tree.WouldClaimClick(), "wood axe selected + a tree in range → the chop owns the click");
+
+            // Walk away (out of range) → the chop no longer claims → MeleeAttack whiffs (AC3), the axe still selected.
+            _playerGo.transform.position = new Vector3(40f, 0f, 40f);
+            yield return null;
+            Assert.IsFalse(_tree.WouldClaimClick(),
+                "axe selected but NO tree in range → the chop does NOT claim → the attack whiffs at empty air (AC3)");
         }
 
         // === AC1 negative — NO axe at all + a click at the tree does nothing (the success-test's classic case) ===

@@ -717,6 +717,32 @@ namespace FarHorizon
         }
 
         /// <summary>
+        /// 86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): NAME the
+        /// interactive UI element under the SCREEN-space cursor — "belt-strip[N]" / "pack-inv[N]" / "belt-dock[N]" /
+        /// "pack-chrome", or "-" when the pointer is over none. Mirrors <see cref="IsPointerOverUI"/>'s hit-test EXACTLY
+        /// (same flip-then-ScreenToPanel + same cache order + same open-gate) so the element it names is the same one
+        /// that swallows the world click — the round-5 "over-belt-strip click on a low boulder" tell (hypothesis a).
+        /// </summary>
+        public string DescribeOverUI(Vector2 screenPos)
+        {
+            if (_root == null || _root.panel == null) return "-";
+            Vector2 sp = new Vector2(screenPos.x, Screen.height - screenPos.y);
+            Vector2 panelPos = RuntimePanelUtils.ScreenToPanel(_root.panel, sp);
+
+            int i = HitIndex(_beltStripSlots, panelPos);
+            if (i >= 0) return "belt-strip[" + i + "]";
+            if (IsOpen)
+            {
+                i = HitIndex(_invSlots, panelPos);
+                if (i >= 0) return "pack-inv[" + i + "]";
+                i = HitIndex(_beltDockSlots, panelPos);
+                if (i >= 0) return "belt-dock[" + i + "]";
+                if (_panel != null && _panel.worldBound.Contains(panelPos)) return "pack-chrome";
+            }
+            return "-";
+        }
+
+        /// <summary>
         /// PURE screen-point-over-UI core (the unit-testable seam for <see cref="IsPointerOverUI"/>): given a
         /// SCREEN-space point (Y-up), the screen HEIGHT, the PANEL SCALE, and the panel-space rects of the
         /// interactive UI elements (Y-down), return true iff the converted point lands in ANY rect. This

@@ -24,8 +24,12 @@ namespace FarHorizon
     /// Inert unless launched with -verifyBoulder. HEADLESS via RT-readback (86cag93zb): captures render a camera into
     /// an offscreen RT, so it runs under -batchmode (no window). Self-asserts are LOGIC (stone count).
     ///   FarHorizon.exe -batchmode -verifyBoulder -captureDir &lt;dir&gt;
-    /// Captures: boulder_before.png (at spawn, no stone), boulder_side.png (a boulder side-profile, Bar 4), and
-    /// boulder_after.png (at the boulder, stone in the inventory), then quits non-zero if the mine→break→loot proof failed.
+    /// Captures: boulder_before.png (at spawn, no stone), boulder_side.png (a boulder side-profile, Bar 4),
+    /// boulder_blocked.png (86caffwv5 round-7 TASK 2 — the player BLOCKED at the boulder surface by the runtime
+    /// carve, informational), boulder_blocked_side.png (86caffwv5 round-8 — a SIDE-PROFILE of the player blocked at
+    /// the boulder so the horizontal gap reads as TOUCHING, the Sponsor's soak-7 fix evidence), and
+    /// boulder_after.png (at the boulder, stone in the inventory), then quits non-zero if the mine→break→loot proof
+    /// failed.
     /// </summary>
     public class BoulderVerifyCapture : MonoBehaviour
     {
@@ -97,12 +101,65 @@ namespace FarHorizon
             {
                 bool setNode = TeleportPlayer(boulderPos);
                 Debug.Log("[BoulderVerifyCapture] teleport to boulder set: " + setNode + " target=" + boulderPos);
+
+                // 86caffwv5 round-7 (TASK 2) — COLLISION EVIDENCE: with the runtime carving NavMeshObstacle, warping
+                // toward the boulder CENTRE snaps the agent to the nearest walkable navmesh = the boulder SURFACE (the
+                // carve removed the centre from the navmesh), so the player is BLOCKED at the surface, ~carveRadius
+                // from centre — pre-carve this landed at ~0u (the centre was walkable). Log the stand-off + capture the
+                // blocked-at-surface frame. Informational (PASS stays the mine→loot logic); the reviewer/Sponsor
+                // eyeballs boulder_blocked.png + confirms the player can still MINE from here (distToCenter < mineRadius).
+                float distToCenter = player != null ? PlanarDist(player.transform.position, boulderPos) : -1f;
+                Debug.Log("[BoulderVerifyCapture] BLOCKED-AT-SURFACE: warp-toward-centre landed the player at planarDist=" +
+                          distToCenter.ToString("F2") + "u from the boulder centre (the carve blocks entry; pre-carve ~0u); " +
+                          "mineRadius=" + (mine != null ? mine.mineRadius : 2.4f).ToString("F2") +
+                          " -> mineable-from-surface=" + (distToCenter >= 0f && distToCenter <= (mine != null ? mine.mineRadius : 2.4f)) +
+                          // 86caffwv5 round-8 — the carve-vs-visual interplay: prove blocked planarDist ≈ the visual
+                          // edge (min/max XZ half-extent), NOT a body-length beyond it (the Sponsor's soak-7 gap).
+                          " " + DescribeBoulderCarve(boulderPos));
+                for (int i = 0; i < 6; i++) yield return null; // let the orbit cam settle on the player at the surface
+                ShotMain(Path.Combine(dir, "boulder_blocked.png"));
+                // 86caffwv5 round-8 — a SIDE-PROFILE of the player blocked at the boulder: a horizontal gap is
+                // invisible from the orbit/top view but obvious side-on. The Sponsor's soak-7 verdict was that the
+                // gap must read as TOUCHING — this shot is the eyeball evidence for that.
+                if (player != null) ShotBlockedSideProfile(player.transform.position, boulderPos, Path.Combine(dir, "boulder_blocked_side.png"));
+                yield return null;
+
+                // Mine from the carve-blocked SURFACE until the boulder breaks + drops its stone pile at the
+                // (formerly boulder) centre. 86caffwv5 round-7 (TASK 2): the carve holds the player ~carveRadius
+                // from the centre — beyond the pile's 1.4u loot range — so once the boulder breaks (IsMineable=false
+                // → the carve toggles OFF → the centre becomes walkable), the player WALKS IN to loot. The capture
+                // bypasses the NavMeshAgent for the walk-in (an agent.Warp snaps to the nearest navmesh, which the
+                // carve has NOT yet healed the frame after the break → it lands back at the surface): DISABLE the
+                // agent + raw-place the player ON the pile (loot is a PLANAR-distance test, no navmesh needed).
+                // CRUCIALLY, do NOT loot DURING mining — the mining spot is now near scatter pickables (berry/stick/
+                // stone) that a per-frame loot would grab + REGROW + re-grab, filling the 20-slot pack so the stone
+                // can't be added on break (diagnosed via a packFree=0/20 trace). Loot ONLY after the walk-in.
                 float start = Time.time;
+                bool walkedToPile = false;
                 while (Time.time - start < 25f)
                 {
                     if (StoneCount() > stoneBefore) break;
-                    if (mine != null) mine.RequestMineClick();
-                    if (looter != null) looter.RequestLoot();
+                    if (!walkedToPile)
+                    {
+                        var pile = Object.FindAnyObjectByType<StonePile>();
+                        if (pile != null)
+                        {
+                            var ag = player != null ? player.Agent : null;
+                            if (ag != null && ag.enabled) ag.enabled = false; // stop the agent re-snapping us off the pile
+                            if (player != null) player.transform.position = pile.transform.position;
+                            if (looter != null && looter.player != null) looter.player.position = pile.transform.position;
+                            walkedToPile = true;
+                            Debug.Log("[BoulderVerifyCapture] boulder BROKE -> stone pile at " +
+                                      pile.transform.position.ToString("F2") + "; carve now off -> walked onto the pile to loot");
+                        }
+                        else if (mine != null) mine.RequestMineClick(); // still standing -> MINE ONLY (no loot -> keep the pack empty for the stone)
+                    }
+                    else if (looter != null)
+                    {
+                        // AFTER the walk-in: E-loot the stone pile (the DIRECT TryLootNearest = the same resolve+
+                        // TryLoot the E press drives; deterministic per frame, no latch/Update dependency).
+                        looter.TryLootNearest();
+                    }
                     yield return null;
                 }
                 gotStone = StoneCount() > stoneBefore;
@@ -245,6 +302,84 @@ namespace FarHorizon
             if (tex != null) Object.Destroy(tex);
             Object.Destroy(camGo);
             Debug.Log("[BoulderVerifyCapture] wrote side-profile " + file);
+        }
+
+        // 86caffwv5 round-8 — SIDE-PROFILE of the player BLOCKED at the boulder (Sponsor soak-7: the gap must read as
+        // TOUCHING, not a body-length). A camera PERPENDICULAR to the player->boulder approach line, at ~chest
+        // height, frames BOTH the castaway and the rock so the horizontal gap between them is eyeball-able side-on
+        // (the orbit / top view hides a horizontal gap; side-on shows it). Rides the gameplay render path, then is
+        // destroyed.
+        private void ShotBlockedSideProfile(Vector3 playerPos, Vector3 boulderPos, string file)
+        {
+            var main = Camera.main;
+            var camGo = new GameObject("BoulderBlockedSideCam");
+            var cam = camGo.AddComponent<Camera>();
+            if (main != null)
+            {
+                cam.clearFlags = main.clearFlags;
+                cam.backgroundColor = main.backgroundColor;
+                cam.fieldOfView = main.fieldOfView;
+            }
+            Vector3 mid = (playerPos + boulderPos) * 0.5f;
+            Vector3 approach = playerPos - boulderPos; approach.y = 0f;
+            if (approach.sqrMagnitude < 1e-4f) approach = Vector3.forward;
+            approach.Normalize();
+            Vector3 side = Vector3.Cross(Vector3.up, approach).normalized; // perpendicular to the approach line
+            cam.transform.position = mid + side * 4.5f + Vector3.up * 1.2f;
+            cam.transform.LookAt(mid + Vector3.up * 0.6f);
+            Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
+            if (tex != null) Object.Destroy(tex);
+            Object.Destroy(camGo);
+            Debug.Log("[BoulderVerifyCapture] wrote blocked side-profile " + file);
+        }
+
+        // 86caffwv5 round-8 — describe the chosen boulder's runtime carve vs its visual bounds, so the
+        // BLOCKED-AT-SURFACE log proves blocked planarDist ≈ the visual edge (min/max XZ half-extent), not a
+        // body-length beyond it. Reads the actual NavMeshObstacle.radius (× lossyScale = world) + the combined
+        // renderer bounds on the boulder node the harness picked.
+        private string DescribeBoulderCarve(Vector3 boulderCenter)
+        {
+            Transform root = mine != null ? mine.boulderRoot : null;
+            if (root == null) { var f = GameObject.Find("Boulders"); if (f != null) root = f.transform; }
+            if (root == null) return "carve=?(no boulder root)";
+            Transform node = FindBoulderNode(root, boulderCenter);
+            if (node == null) return "carve=?(node not found)";
+
+            var obst = node.GetComponentInChildren<UnityEngine.AI.NavMeshObstacle>();
+            float carveWorld = obst != null
+                ? obst.radius * Mathf.Max(Mathf.Abs(node.lossyScale.x), Mathf.Abs(node.lossyScale.z))
+                : -1f;
+
+            var rends = node.GetComponentsInChildren<Renderer>();
+            float minE = -1f, maxE = -1f;
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                minE = Mathf.Min(b.extents.x, b.extents.z);
+                maxE = Mathf.Max(b.extents.x, b.extents.z);
+            }
+            return "carveWorldR=" + carveWorld.ToString("F2") +
+                   " visualEdge[min=" + minE.ToString("F2") + " max=" + maxE.ToString("F2") + "]" +
+                   " (blocked should sit ~min..max, not beyond)";
+        }
+
+        private static Transform FindBoulderNode(Transform root, Vector3 center)
+        {
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform c = root.GetChild(i);
+                if (c.name == MineBoulder.BoulderNodeName)
+                {
+                    if ((c.position - center).sqrMagnitude < 0.01f) return c;
+                }
+                else if (c.childCount > 0)
+                {
+                    var found = FindBoulderNode(c, center);
+                    if (found != null) return found;
+                }
+            }
+            return null;
         }
 
         private string ResolveDir()

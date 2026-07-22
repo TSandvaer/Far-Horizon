@@ -33,9 +33,11 @@ namespace FarHorizon
     ///     Scene.AttachHeroAxeToHand). HeroAxe is pose-driven by <see cref="HeldAxeRig"/> and visibility-
     ///     gated by <see cref="HeldAxe"/>; this handle NEVER touches the seat transform, the rig, or the
     ///     visibility gate — it only swaps the MeshFilter.sharedMesh (+ a per-weapon mesh-holder offset).
-    ///   - The AXE (index 0) is the Sponsor-LOCKED default: it applies ZERO compensation and restores the
-    ///     mesh-holder child's ORIGINAL local TRS captured in Awake, so the axe seat is byte-unchanged. The
-    ///     handle starts on the axe — a soak that never presses the key sees exactly the shipped axe.
+    ///   - The AXE (index 0) starts as the shipped default. As of 86caffwv5 round-7 its held seat is NO LONGER
+    ///     zero-locked: the Sponsor RETIRED the axe lock and dialed a real axe-class in-hand seat (the "same dial
+    ///     for rock and metal" directive), so ApplyCurrent composes WeaponMeshLocal*[0] on the captured baseline
+    ///     exactly like the other weapons (the axe SCALE stays 1.0 — only offset/euler were dialed; the scale-dial
+    ///     still refuses the axe). The handle starts on the axe, so a soak that never presses the key sees the axe.
     ///   - knife / sword / spear seat on the SAME shared seat. Their FBX grip-origin is (0,0,0) with the
     ///     blade up +Z (bl_10/bl_11/bl_12), whereas the axe FBX uses a grip-MIDPOINT origin (z=0.45) and is
     ///     height-normalized; they are also un-normalized (taller). So each needs a SMALL per-weapon mesh-
@@ -184,6 +186,36 @@ namespace FarHorizon
              : pickaxeIronSelected ? PickaxeIronFamilyIndex
              : -1;
 
+        /// <summary>
+        /// 86caffwuz / 86caffwv5 soak-3 — the WOOD-tier selection → family-index map (the ADDITIVE wood sibling of
+        /// <see cref="SelectionIndexFor"/>). The soak-3 blocker: a crafted WOOD weapon selected in the belt showed
+        /// NOTHING in the hand because <see cref="SelectionIndexFor"/> knows only the stone/iron ids (returned -1).
+        /// This maps the 5 wood ids to their family mesh indices (10-14 — appended by 86catvb6u; the seats already
+        /// mirror the stone tier). Kept SEPARATE from <see cref="SelectionIndexFor"/> so the soaked stone/iron/pickaxe
+        /// decision table is BYTE-UNCHANGED (no regression); the belt sync + gate compose it as a FALLBACK (stone/iron
+        /// first, then wood). Only one belt slot is selected in play, so at most one flag is true; the tie-break order
+        /// (axe > dagger > sword > spear > pickaxe) is pinned for the contract test. -1 = no wood weapon selected.
+        /// </summary>
+        public static int WoodSelectionIndexFor(bool axeWoodSelected, bool daggerWoodSelected,
+                                                bool swordWoodSelected, bool spearWoodSelected,
+                                                bool pickaxeWoodSelected)
+            => axeWoodSelected ? AxeWoodFamilyIndex
+             : daggerWoodSelected ? DaggerWoodFamilyIndex
+             : swordWoodSelected ? SwordWoodFamilyIndex
+             : spearWoodSelected ? SpearWoodFamilyIndex
+             : pickaxeWoodSelected ? PickaxeWoodFamilyIndex
+             : -1;
+
+        /// <summary>86caffwv5 soak-3 — the wood-tier selection → family-index map read straight off an
+        /// <see cref="Inventory"/> (the belt sync + the [B]-refusal both need it). Composes
+        /// <see cref="WoodSelectionIndexFor"/> from the inventory's 5 wood selection predicates. -1 if the
+        /// inventory is null or no wood weapon is selected.</summary>
+        public static int WoodSelectionIndexFor(Inventory inv)
+            => inv == null ? -1
+             : WoodSelectionIndexFor(inv.IsAxeWoodSelectedInBelt, inv.IsDaggerWoodSelectedInBelt,
+                                     inv.IsSwordWoodSelectedInBelt, inv.IsSpearWoodSelectedInBelt,
+                                     inv.IsPickaxeWoodSelectedInBelt);
+
         // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
         // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
         // seat is Sponsor-LOCKED and is restored to its captured original.
@@ -217,8 +249,16 @@ namespace FarHorizon
         // wood variant shares the same family haft/grip + overall size (blender-asset-pipeline family-extension),
         // so it seats identically. axe_wood←axe(1.0), knife_wood←knife(0.85), sword_wood←sword(0.95),
         // spear_wood←spear(0.90), pickaxe_wood←pickaxe(1.0). The Sponsor micro-dials each in-hand at the F9 dial session.
+        // 86caffwv5 round-7 FINAL BAKE + "use the same dial for rock and metal" (Sponsor-directed, verbatim):
+        // the round-6 wood dial is now the ONE seat per weapon CLASS — each class's WOOD value is applied to its
+        // STONE and IRON tiers too, so all three tiers of a weapon read identically in-hand. This REPLACES every
+        // previously-approved per-tier seat, INCLUDING the original stone axe's (the Sponsor's explicit call; see
+        // the PR body seat-replacement flag). Per class: axe (0/6/10) scale 1.0; dagger/knife (1/7/11) 0.771;
+        // sword (2/8/12) 0.950; spear (3/9/13) 0.900; pickaxe (4/5/14) 1.0. Values harvested from + verified
+        // against Build/soak-swings-6/sponsor-final-dial-Player.log (last-logged nudge line per class, Danish-locale
+        // decimals). DAGGER unchanged (soak-5 provisional IS final — Sponsor left it untouched).
         public static readonly float[] WeaponMeshScale =
-            { 1f, 0.85f, 0.95f, 0.90f, 1f, 1f, 1f, 0.85f, 0.95f, 0.90f, 1f, 0.85f, 0.95f, 0.90f, 1f };
+            { 1f, 0.771f, 0.95f, 0.90f, 1f, 1f, 1f, 0.771f, 0.95f, 0.90f, 1f, 0.771f, 0.95f, 0.90f, 1f };
         // Local-space drop applied to the mesh-holder child for the non-axe weapons (their origin is the grip
         // BASE, so they need pulling back along the blade axis to sit the grip in the palm). Axe = zero.
         // 86caffwuz BAKE (build 5caf1be): these are the Sponsor's DIALED in-hand offsets — he soaked + nudged
@@ -234,28 +274,27 @@ namespace FarHorizon
         // (-0.020,0.560,0.000). Only the OFFSETS changed this round — the held SCALES (0.85/0.95/0.90) + the
         // zero eulers he dialed match the prior 86caffwuz bake, so those are unchanged. SUPERSEDES the 5caf1be
         // offsets ({0,-0.100,-0.020}/{-0.020,-0.120,0}/{-0.020,-0.120,0}). Axe = zero (Sponsor-LOCKED seat).
+        // 86caffwv5 round-7 FINAL BAKE + "same dial for rock and metal": each class's WOOD offset applied to all
+        // three tiers (verified against Build/soak-swings-6/sponsor-final-dial-Player.log). The AXE (0/6/10) is NO
+        // LONGER a zero-locked seat — the Sponsor RETIRED the axe lock and dialed a real in-hand seat for the whole
+        // axe class (see the PR body seat-replacement flag + the ApplyCurrent index-0 change that composes it).
         public static readonly Vector3[] WeaponMeshLocalOffset =
         {
-            Vector3.zero,                            // axe — LOCKED, no compensation
-            new Vector3(-0.020f, 0.020f, 0.000f),    // knife (Sponsor-dialed d306552)
-            new Vector3(-0.020f, 0.040f, 0.000f),    // sword (Sponsor-dialed d306552)
-            new Vector3(-0.020f, 0.560f, 0.000f),    // spear (Sponsor-dialed d306552)
-            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
-            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe iron  (86cakkmr0 — SHARES the stone seat: both tiers
-                                                     //   share the family haft/grip + head geometry by construction)
-            // 86camz9vh (③): iron axe/knife/sword/spear (idx 6-9) START from their STONE counterpart's soaked
-            // held offset (same family grip origin → same seat). Sponsor micro-dials in-hand at the picker soak.
-            Vector3.zero,                            // axe iron   ← axe   (LOCKED seat, no compensation)
-            new Vector3(-0.020f, 0.020f, 0.000f),    // dagger iron ← knife
-            new Vector3(-0.020f, 0.040f, 0.000f),    // sword iron  ← sword
-            new Vector3(-0.020f, 0.560f, 0.000f),    // spear iron  ← spear
-            // 86catvb6u §3: wood axe/knife/sword/spear/pickaxe (idx 10-14) START from their STONE counterpart's
-            // soaked held offset (same family grip origin → same seat). Sponsor micro-dials each at the F9 dial session.
-            Vector3.zero,                            // axe wood     ← axe   (LOCKED-family seat, no compensation)
-            new Vector3(-0.020f, 0.020f, 0.000f),    // dagger wood  ← knife
-            new Vector3(-0.020f, 0.040f, 0.000f),    // sword wood   ← sword
-            new Vector3(-0.020f, 0.560f, 0.000f),    // spear wood   ← spear
-            new Vector3(-0.040f, 0.000f, 0.020f),    // pickaxe wood ← pickaxe (crosswise head — same family haft)
+            new Vector3(-0.020f, 0.000f, 0.000f),    // axe stone     (86caffwv5 final — axe class dial)
+            new Vector3(-0.020f, -0.020f, 0.080f),   // knife/dagger  (86caffwv5 final — dagger class dial)
+            new Vector3(0.020f, -0.040f, 0.080f),    // sword         (86caffwv5 final — sword class dial)
+            new Vector3(-0.140f, 0.100f, -0.220f),   // spear         (86caffwv5 final — spear class dial)
+            new Vector3(-0.020f, 0.020f, -0.020f),   // pickaxe stone (86caffwv5 final — pickaxe class dial)
+            new Vector3(-0.020f, 0.020f, -0.020f),   // pickaxe iron  ← pickaxe (same class dial)
+            new Vector3(-0.020f, 0.000f, 0.000f),    // axe iron      ← axe    (same class dial)
+            new Vector3(-0.020f, -0.020f, 0.080f),   // dagger iron   ← dagger
+            new Vector3(0.020f, -0.040f, 0.080f),    // sword iron    ← sword
+            new Vector3(-0.140f, 0.100f, -0.220f),   // spear iron    ← spear
+            new Vector3(-0.020f, 0.000f, 0.000f),    // axe wood      (Sponsor round-6 dial — the class master)
+            new Vector3(-0.020f, -0.020f, 0.080f),   // dagger wood   (soak-5 provisional IS final — Sponsor left it)
+            new Vector3(0.020f, -0.040f, 0.080f),    // sword wood    (Sponsor round-6 dial)
+            new Vector3(-0.140f, 0.100f, -0.220f),   // spear wood    (Sponsor round-6 dial)
+            new Vector3(-0.020f, 0.020f, -0.020f),   // pickaxe wood  (Sponsor round-6 dial)
         };
         // Per-weapon mesh-holder LOCAL-euler offset (86cabh907 soak round 2 — the F9 nudge tool was AXE-ONLY;
         // the Sponsor could not angle the knife/sword/spear in-hand). The non-axe weapons seat on the SAME
@@ -264,27 +303,28 @@ namespace FarHorizon
         // dialed via the F9 held target's rig fields — not here). First-guess identity for all; the F9 tool's
         // generalized HELD target dials each weapon's offset+euler+scale by eye and the Sponsor reads the
         // values to bake here.
+        // 86caffwv5 round-7 FINAL BAKE + "same dial for rock and metal": each class's WOOD euler applied to all three
+        // tiers (verified against Build/soak-swings-6/sponsor-final-dial-Player.log). The AXE euler is NO LONGER zero
+        // — the Sponsor dialed a real axe-class hold this round; ApplyCurrent now composes index 0's euler too (the
+        // lock is retired). Pickaxe carries the Sponsor's round-6 gimbal-free crosswise-head dial (supersedes the old
+        // 8,10,0 STARTING point).
         public static readonly Vector3[] WeaponMeshLocalEuler =
         {
-            Vector3.zero,   // axe — shared-seat baseline (rig fields), no mesh-holder euler
-            Vector3.zero,   // knife
-            Vector3.zero,   // sword
-            Vector3.zero,   // spear
-            new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe stone (86cakkmr0 Sponsor-dialed, build d699c81)
-            new Vector3(8.0f, 10.0f, 0.0f),   // pickaxe iron  (86cakkmr0 — SHARES the stone seat: same family haft/head)
-            // 86camz9vh (③): iron axe/knife/sword/spear (idx 6-9) share their STONE counterpart's euler (zero — the
-            // non-axe weapons' hold is the shared-seat baseline; Sponsor micro-dials at the picker soak).
-            Vector3.zero,   // axe iron
-            Vector3.zero,   // dagger iron
-            Vector3.zero,   // sword iron
-            Vector3.zero,   // spear iron
-            // 86catvb6u §3: wood axe/knife/sword/spear share the shared-seat baseline (zero); wood pickaxe shares
-            // the stone pickaxe's crosswise-head euler (8,10,0). Sponsor micro-dials each at the F9 dial session.
-            Vector3.zero,                      // axe wood
-            Vector3.zero,                      // dagger wood
-            Vector3.zero,                      // sword wood
-            Vector3.zero,                      // spear wood
-            new Vector3(8.0f, 10.0f, 0.0f),    // pickaxe wood (crosswise head — mirrors the stone pickaxe euler)
+            new Vector3(-79.4f, 58.6f, -31.3f),   // axe stone     (86caffwv5 final — axe class dial)
+            new Vector3(-70.0f, 20.0f, 0.0f),     // knife/dagger  (86caffwv5 final — dagger class dial)
+            new Vector3(-59.5f, 51.9f, -11.3f),   // sword         (86caffwv5 final — sword class dial)
+            new Vector3(-41.6f, -41.9f, 60.8f),   // spear         (86caffwv5 final — spear class dial)
+            new Vector3(-62.0f, 50.0f, -30.7f),   // pickaxe stone (86caffwv5 final — pickaxe class dial)
+            new Vector3(-62.0f, 50.0f, -30.7f),   // pickaxe iron  ← pickaxe
+            new Vector3(-79.4f, 58.6f, -31.3f),   // axe iron      ← axe
+            new Vector3(-70.0f, 20.0f, 0.0f),     // dagger iron   ← dagger
+            new Vector3(-59.5f, 51.9f, -11.3f),   // sword iron    ← sword
+            new Vector3(-41.6f, -41.9f, 60.8f),   // spear iron    ← spear
+            new Vector3(-79.4f, 58.6f, -31.3f),   // axe wood      (Sponsor round-6 dial — the class master)
+            new Vector3(-70.0f, 20.0f, 0.0f),     // dagger wood   (soak-5 provisional IS final — Sponsor left it)
+            new Vector3(-59.5f, 51.9f, -11.3f),   // sword wood    (Sponsor round-6 dial)
+            new Vector3(-41.6f, -41.9f, 60.8f),   // spear wood    (Sponsor round-6 dial — gimbal-free reach)
+            new Vector3(-62.0f, 50.0f, -30.7f),   // pickaxe wood  (Sponsor round-6 dial — gimbal-free crosswise head)
         };
 
         private MeshFilter _meshHolder;     // the child MeshFilter on HeroAxe (the FBX mesh node)
@@ -445,13 +485,22 @@ namespace FarHorizon
                 _meshHolder = fbxMesh;
             }
 
-            // Capture the holder's ORIGINAL local TRS so cycling BACK to the axe restores the Sponsor-locked
-            // seat byte-for-byte (identity for the re-homed-child case; the FBX node's local TRS otherwise).
+            // Capture the holder's ORIGINAL local TRS — the baseline the per-weapon seat (incl. the axe class,
+            // 86caffwv5 round-7) composes ON TOP of (identity for the re-homed-child case; the FBX node's local
+            // TRS otherwise).
             _axeOriginalMesh = _meshHolder.sharedMesh;
             var ht = _meshHolder.transform;
             _holderOrigPos = ht.localPosition;
             _holderOrigRot = ht.localRotation;
             _holderOrigScale = ht.localScale;
+
+            // 86caffwv5 round-7 — SEAT THE AXE (index 0) AT SPAWN so the equipped stone axe reflects the Sponsor's
+            // axe-class dial from the first frame. SyncHeldVisualToSelection skips ApplyCurrent when the selection
+            // already matches _index (desired==0 at spawn), so without this call the array[0] seat would only apply
+            // after cycling away and back. When array[0] is zero/identity/1 (the old locked default) this is a no-op
+            // (byte-identical to the plain baseline). Uses _axeOriginalMesh (already captured) — _meshes is resolved
+            // lazily and the axe never depends on it.
+            ApplyCurrent();
         }
 
         // 86cahngdg — resolve the Inventory WITHOUT a new serialized field (the committed Boot.unity carries
@@ -518,6 +567,10 @@ namespace FarHorizon
 
             int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
                                             inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt);
+            // 86caffwv5 soak-3 — ADDITIVE wood fallback: a crafted WOOD weapon selected in the belt used to return
+            // -1 here (SelectionIndexFor knows only stone/iron) → the seat stayed EMPTY (the Sponsor's blocker). The
+            // stone/iron path above is byte-unchanged; wood only fills the previously-empty case.
+            if (desired < 0) desired = WoodSelectionIndexFor(inv);
             if (desired >= 0)
             {
                 _debugView = false; // selection owns the held visual
@@ -553,8 +606,9 @@ namespace FarHorizon
         {
             if (_meshHolder == null) return false; // Awake found no MeshFilter — nothing to cycle
             var inv = ResolveInventory();
-            if (inv != null && SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
-                                                 inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0)
+            if (inv != null && (SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                                  inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0
+                                || WoodSelectionIndexFor(inv) >= 0)) // 86caffwv5 soak-3 — wood selection owns the visual too
             {
                 Debug.Log("[HeldWeaponCycleDebug] [" + cycleKey + "] cycle REFUSED — the selected belt weapon " +
                           "owns the held visual (86cahngdg). Select an empty/non-weapon belt slot to use the " +
@@ -671,13 +725,16 @@ namespace FarHorizon
             var t = _meshHolder.transform;
             if (_index == 0)
             {
-                // AXE — Sponsor-LOCKED seat: restore the captured original local TRS (byte-unchanged) and the
-                // shipped authored axe mesh. (86cakkfz9: the runtime head-dial clone is gone — head SIZE is
-                // authored Blender geometry now, not a runtime vertex deform.)
+                // AXE (86caffwv5 round-7 — the "same dial for rock and metal" retires the axe LOCK): restore the
+                // shipped authored axe MESH, then COMPOSE the axe-class seat (WeaponMeshLocalOffset/Euler/Scale[0])
+                // on the captured baseline — the SAME composition the other weapons use. Backward-compatible: when
+                // the array[0] was zero/identity/1 (the old locked default) this was byte-identical to the plain
+                // restore; the Sponsor's round-6 axe dial makes it a real seat now. (86cakkfz9: the runtime head-dial
+                // clone is gone — head SIZE is authored Blender geometry now, not a runtime vertex deform.)
                 _meshHolder.sharedMesh = _axeOriginalMesh;
-                t.localPosition = _holderOrigPos;
-                t.localRotation = _holderOrigRot;
-                t.localScale = _holderOrigScale;
+                t.localPosition = _holderOrigPos + _liveOffset[0];
+                t.localRotation = _holderOrigRot * Quaternion.Euler(_liveEuler[0]);
+                t.localScale = _holderOrigScale * _liveScale[0];
             }
             else
             {

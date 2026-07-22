@@ -165,5 +165,86 @@ namespace FarHorizon.EditTests
             }
             finally { Object.DestroyImmediate(go); }
         }
+
+        // ============================================================================================
+        // 86caffwv5 soak-3 — WOOD tier: a crafted WOOD weapon selected in the belt showed NOTHING in the hand.
+        // Root cause (Drew's trace): the wood ids (axe_wood/…) mapped through NEITHER SelectionIndexFor (stone/iron
+        // only, -1) NOR HeldAxe.ShouldShow -> the seat stayed hidden. These pin the ADDITIVE wood decision table +
+        // the belt→held desired index the sync now composes (stone/iron first, then the wood fallback).
+        // ============================================================================================
+
+        // The pure wood-tier selection -> family-index map (the additive wood sibling of SelectionIndexFor).
+        [Test]
+        public void WoodSelectionIndexFor_MapsEachWoodClass_ToItsWoodIndex()
+        {
+            Assert.AreEqual(HeldWeaponCycleDebug.AxeWoodFamilyIndex,
+                HeldWeaponCycleDebug.WoodSelectionIndexFor(true, false, false, false, false), "wood axe");
+            Assert.AreEqual(HeldWeaponCycleDebug.DaggerWoodFamilyIndex,
+                HeldWeaponCycleDebug.WoodSelectionIndexFor(false, true, false, false, false), "wood dagger");
+            Assert.AreEqual(HeldWeaponCycleDebug.SwordWoodFamilyIndex,
+                HeldWeaponCycleDebug.WoodSelectionIndexFor(false, false, true, false, false), "wood sword");
+            Assert.AreEqual(HeldWeaponCycleDebug.SpearWoodFamilyIndex,
+                HeldWeaponCycleDebug.WoodSelectionIndexFor(false, false, false, true, false), "wood spear");
+            Assert.AreEqual(HeldWeaponCycleDebug.PickaxeWoodFamilyIndex,
+                HeldWeaponCycleDebug.WoodSelectionIndexFor(false, false, false, false, true), "wood pickaxe");
+            Assert.AreEqual(-1, HeldWeaponCycleDebug.WoodSelectionIndexFor(false, false, false, false, false),
+                "no wood weapon selected -> -1 (the stone/iron path or the gate hides the seat)");
+        }
+
+        // Each wood family index names its wood node (a reorder would render the WRONG wood weapon for the selection —
+        // the crossed-visual class the spear/pickaxe pins guard, extended to the wood tier).
+        [Test]
+        public void FamilyContract_WoodIndicesNameTheWoodNodes()
+        {
+            Assert.AreEqual("wpn_axe_wood_01",     HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.AxeWoodFamilyIndex]);
+            Assert.AreEqual("wpn_knife_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.DaggerWoodFamilyIndex]);
+            Assert.AreEqual("wpn_sword_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SwordWoodFamilyIndex]);
+            Assert.AreEqual("wpn_spear_wood_01",   HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SpearWoodFamilyIndex]);
+            Assert.AreEqual("wpn_pickaxe_wood_01", HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.PickaxeWoodFamilyIndex]);
+        }
+
+        // The DESIRED index the sync composes: stone/iron table first, then the wood FALLBACK (production order).
+        private static int DesiredIndexWithWood(Inventory inv)
+        {
+            int d = HeldWeaponCycleDebug.SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                                           inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt);
+            return d >= 0 ? d : HeldWeaponCycleDebug.WoodSelectionIndexFor(inv);
+        }
+
+        // THE soak-3 REGRESSION: acquire a WOOD axe, SELECT its belt slot — the sync must map it to the WOOD axe mesh
+        // (the defect returned -1 -> EMPTY hands, so the Sponsor "couldn't test dagger/sword"). All 5 wood classes.
+        [Test]
+        public void WoodTierSelected_SelectionTable_MapsToTheWoodMesh_NotEmptyHands()
+        {
+            var cases = new (string id, int index, string label)[]
+            {
+                (ItemCatalog.AxeWoodId,     HeldWeaponCycleDebug.AxeWoodFamilyIndex,     "wood axe"),
+                (ItemCatalog.DaggerWoodId,  HeldWeaponCycleDebug.DaggerWoodFamilyIndex,  "wood dagger"),
+                (ItemCatalog.SwordWoodId,   HeldWeaponCycleDebug.SwordWoodFamilyIndex,   "wood sword"),
+                (ItemCatalog.SpearWoodId,   HeldWeaponCycleDebug.SpearWoodFamilyIndex,   "wood spear"),
+                (ItemCatalog.PickaxeWoodId, HeldWeaponCycleDebug.PickaxeWoodFamilyIndex, "wood pickaxe"),
+            };
+            foreach (var (id, index, label) in cases)
+            {
+                var inv = NewInventory(out var go);
+                try
+                {
+                    var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(id));
+                    Assert.IsTrue(slot.HasValue, label + " acquired onto the belt (a belt-eligible Tool)");
+                    inv.Model.SelectBelt(slot.Value.Index);
+
+                    // The stone/iron table alone still returns -1 (proving the WOOD FALLBACK is what maps it — the
+                    // soak-3 defect was exactly the missing fallback).
+                    Assert.AreEqual(-1, DesiredIndex(inv),
+                        label + ": the stone/iron SelectionIndexFor alone returns -1 (the pre-fix EMPTY-hands path)");
+                    Assert.AreEqual(index, DesiredIndexWithWood(inv),
+                        label + " selected -> its WOOD mesh index (soak-3: used to be -1 = nothing in hand)");
+
+                    inv.Model.SelectBelt((slot.Value.Index + 1) % inv.BeltSlotCount); // deselect
+                    Assert.AreEqual(-1, DesiredIndexWithWood(inv), label + " owned but NOT selected -> no held mesh");
+                }
+                finally { Object.DestroyImmediate(go); }
+            }
+        }
     }
 }

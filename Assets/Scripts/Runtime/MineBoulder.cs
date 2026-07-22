@@ -430,6 +430,48 @@ namespace FarHorizon
                 || model.IsSelectedBeltItem(ItemCatalog.PickaxeIronId);
         }
 
+        /// <summary>
+        /// ARBITRATION (round-4, 86caffwv5) — true when THIS boulder-mine verb OWNS the current left-click: a
+        /// pickaxe (any tier) is the selected belt item AND a mineable boulder is within range. The chop-sibling of
+        /// <see cref="ChopTree.WouldClaimClick"/>; <see cref="FarHorizon.Combat.MeleeAttack"/> queries it (a stateless,
+        /// order-independent recompute) to SUPPRESS its whiff swing when mining claims the click. Guards (panel/UI/RMB)
+        /// are applied by MeleeAttack's own gate, so a guarded click fires neither. Null inventory/player → false.
+        /// </summary>
+        public bool WouldClaimClick()
+        {
+            if (inventory == null || player == null) return false;
+            return IsBoulderPickaxeSelected(inventory) && ResolveNearestMineable(player.position) != null;
+        }
+
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): this
+        /// verb's left-click gate ground truth — the pickaxe-selected gate (ANY tier — wood entry) + the planar-XZ
+        /// distance to the NEAREST mineable boulder (ignoring range) vs <see cref="mineRadius"/>. Uses this verb's OWN
+        /// state (no duplicated resolver). Null inventory/player → tool unselected + no target.</summary>
+        public VerbGateDiag ClickGateDiag()
+        {
+            var d = new VerbGateDiag { Range = mineRadius, NearestDist = -1f };
+            d.ToolSelected = IsBoulderPickaxeSelected(inventory);
+            if (player != null) d.NearestDist = NearestMineableDistance(player.position);
+            return d;
+        }
+
+        // Planar (XZ) distance to the nearest mineable boulder, ignoring mineRadius (so the diagnostic shows "in
+        // range" vs "just out of reach"). -1 if none mineable. A read-only cold-path scan.
+        private float NearestMineableDistance(Vector3 from)
+        {
+            float best = -1f;
+            Vector2 here = new Vector2(from.x, from.z);
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                MineableNodeState s = _nodes[i];
+                if (!s.IsMineable) continue;
+                Vector3 p = s.Position;
+                float dist = (here - new Vector2(p.x, p.z)).magnitude;
+                if (best < 0f || dist < best) best = dist;
+            }
+            return best;
+        }
+
         private bool IsInRange(Vector3 from, MineableNodeState n)
         {
             if (n == null) return false;
@@ -468,7 +510,7 @@ namespace FarHorizon
         {
             MineableNodeState target = FirstMineable();
             if (target == null) return;
-            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerChop(); }
+            if (character != null) { character.FaceWorldTarget(target.Position); character.TriggerMine(); } // 86caffwv5 — pickaxe swing
             ApplyStrikeEffect(target);
         }
 
@@ -486,7 +528,7 @@ namespace FarHorizon
             if (character != null)
             {
                 character.FaceWorldTarget(target.Position);
-                character.TriggerChop();
+                character.TriggerMine(); // 86caffwv5 — the mine strike plays the PICKAXE swing (WeaponClass=pickaxe)
             }
 
             float speed = character != null
@@ -502,9 +544,11 @@ namespace FarHorizon
 
         private float ComputeSwingDuration()
         {
-            float speed = character != null
-                ? Mathf.Clamp(character.chopSpeed, CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax)
-                : 1f;
+            // 86caffwv5 soak-3 — divide the clip by the pickaxe swing's EFFECTIVE playback speed (chopSpeed ×
+            // SwingSpeedPickaxe), NOT raw chopSpeed, so the next hold-swing begins when the sped-up 1.5× pickaxe swing
+            // visually completes — no idle-to-next-swing gap (soak-3). TriggerMine (in BeginMineSwing, before this)
+            // sets the class to pickaxe so CurrentSwingPlaybackSpeed reflects it. Mirrors MineOre.ComputeSwingDuration.
+            float speed = character != null ? character.CurrentSwingPlaybackSpeed : 1f;
             float liveLen = character != null ? character.MeleeClipLength : 0f;
             float authored = liveLen > 0f ? liveLen : Mathf.Max(SwingClipLengthFloor, swingClipLengthSeconds);
             return authored / Mathf.Max(0.0001f, speed);

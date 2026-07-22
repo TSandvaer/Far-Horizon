@@ -636,7 +636,7 @@ namespace FarHorizon
                          ? _chainTarget : null;
             bool inRange = target != null;
 
-            if (!ShouldChopOnClick(inRange, inventory.IsAxeSelectedInBelt,
+            if (!ShouldChopOnClick(inRange, inventory.IsAnyAxeSelectedInBelt,
                                    UiInputGate.CaptureWorldInput, overUI, rmbHeld))
             {
                 _chainTarget = null; // a failed gate (panel open / over UI / RMB / out of range) pauses the chain
@@ -708,6 +708,53 @@ namespace FarHorizon
         public static bool ShouldChopOnClick(bool inRange, bool axeSelected,
                                              bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
             => inRange && axeSelected && !uiPanelOpen && !pointerOverUI && !rmbHeld;
+
+        /// <summary>
+        /// ARBITRATION (round-4, 86caffwv5) — true when THIS chop verb OWNS the current left-click: an axe (ANY
+        /// tier — wood/stone/iron) is the selected belt item AND a standing tree is within chop range of the
+        /// player. <see cref="FarHorizon.Combat.MeleeAttack"/> queries this (a STATELESS recompute — no shared
+        /// mutable flag, so it is execution-order-independent between the two Updates) to SUPPRESS its whiff swing
+        /// when the chop claims the click (the verb-wins-over-whiff rule). Deliberately does NOT re-apply the
+        /// world-click guards (panel/UI/RMB) — MeleeAttack applies the SAME guards in its own
+        /// <see cref="FarHorizon.Combat.MeleeAttack.ShouldSwingOnClick"/>, so a guarded click fires NEITHER the chop
+        /// nor the whiff. Also independent of the hold-chain cadence state (SwingInProgress / cooldown / pending
+        /// impact): while the player is positioned to chop, the chop owns the click even between swings — a whiff
+        /// mid-chop would be wrong. Null inventory/player → false (a bare rig never claims).
+        /// </summary>
+        public bool WouldClaimClick()
+        {
+            if (inventory == null || player == null) return false;
+            return inventory.IsAnyAxeSelectedInBelt && ResolveNearestChoppable(player.position) != null;
+        }
+
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): this
+        /// verb's left-click gate ground truth — the axe-selected gate + the planar-XZ distance to the NEAREST
+        /// standing tree (ignoring range, so a "just out of reach" case is legible) vs <see cref="chopRadius"/>.
+        /// Uses this verb's OWN state (no duplicated resolver). Null inventory/player → tool unselected + no target.</summary>
+        public VerbGateDiag ClickGateDiag()
+        {
+            var d = new VerbGateDiag { Range = chopRadius, NearestDist = -1f };
+            d.ToolSelected = inventory != null && inventory.IsAnyAxeSelectedInBelt;
+            if (player != null) d.NearestDist = NearestChoppableDistance(player.position);
+            return d;
+        }
+
+        // Planar (XZ) distance to the nearest STANDING choppable tree, ignoring chopRadius (so the diagnostic can
+        // show "in range" vs "just out of reach"). -1 if no choppable tree exists. A read-only cold-path scan.
+        private float NearestChoppableDistance(Vector3 from)
+        {
+            float best = -1f;
+            Vector2 here = new Vector2(from.x, from.z);
+            for (int i = 0; i < _instances.Count; i++)
+            {
+                ChoppableTreeState s = _instances[i];
+                if (!s.IsChoppable) continue;
+                Vector3 p = s.Position;
+                float dist = (here - new Vector2(p.x, p.z)).magnitude;
+                if (best < 0f || dist < best) best = dist;
+            }
+            return best;
+        }
 
         /// <summary>
         /// Request ONE chop strike programmatically — the input-independent analog of a left-click (CHANGE 1).

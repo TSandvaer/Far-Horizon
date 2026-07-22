@@ -1824,6 +1824,24 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the LEFT-CLICK VERB-GATE DIAGNOSTIC (86caffwv5 / PR #327 — the [[soak-fail-test-pass-instrument-runtime]]
+        // instrument for the live mine failure). Serializes onto Boot so the [ClickGateDiag] line ships in the soak
+        // (the component-in-source-but-not-in-scene trap); its refs self-resolve in Awake (FindObjectOfType — the
+        // project idiom). Reads-only — NOT a mine fix. The [ClickGateDiag] Player.log line fires on every left-click;
+        // the overlay draw rides the F10 DebugOverlays master. Sibling of WireDebugOverlayMaster / WireFloatDiagnostic.
+        private static void WireClickGateDiagnostic()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host ClickGateDiagnostic");
+                return;
+            }
+            if (bootGo.GetComponent<ClickGateDiagnostic>() == null)
+                bootGo.AddComponent<ClickGateDiagnostic>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
         // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
         private static void WireWalkGroundingVerifyCapture()
@@ -2311,6 +2329,13 @@ namespace FarHorizon.EditorTools
             attack.inventory = Object.FindObjectOfType<Inventory>();
             attack.character = Object.FindObjectOfType<CastawayCharacter>();
             attack.inventoryUI = Object.FindObjectOfType<InventoryUI>();
+            // Verb arbitration refs (round-4 86caffwv5 — verb-wins-over-whiff). BuildChopTree/BuildOreNodes/
+            // BuildBoulders all run before BuildCombat, so these resolve non-null here; MeleeAttack.Awake also
+            // scene-searches as the runtime backstop. When a chop/mine owns the click, MeleeAttack suppresses its
+            // whiff swing (no more spurious combat swing on top of a valid chop/mine).
+            attack.chopTree = Object.FindObjectOfType<ChopTree>();
+            attack.mineBoulder = Object.FindObjectOfType<MineBoulder>();
+            attack.mineOre = Object.FindObjectOfType<MineOre>();
 
             // --- THE SNAKE — the REAL serpent (86caaz4vn): findable banded body + wander/aggro AI +
             //     telegraphed lunge bite, on the 86cah7xxp shared Health surface. ---
@@ -2877,7 +2902,9 @@ namespace FarHorizon.EditorTools
         // StonePileSpawner mints a StonePile per broken boulder. Authored editor-time so the pool + MineBoulder/
         // StonePileSpawner refs SERIALIZE into Boot.unity (editor-vs-runtime trap). A DISCRETE scene-author ADD
         // OUTSIDE the seeded LowPolyZoneGen scatter stream — it provably cannot perturb the seed-42 island/scatter
-        // ([[world-is-big-round-island]]). Collider-free — the player walks up to mine; no NavMesh/raycast impact.
+        // ([[world-is-big-round-island]]). No COLLIDER is authored here; the boulder BLOCKS the NavMeshAgent player
+        // via a RUNTIME carving NavMeshObstacle added by MineableNodeState (86caffwv5 round-7, TASK 2 — like trees),
+        // which carves the BAKED navmesh at runtime (non-destructive to the bake, so seed-42 NavMesh is untouched).
         private static void BuildBoulders(GameObject player, int groundLayer)
         {
             // Shared material for the whole pool (ONE instance of the LowPolyVertexColor shader → SRP-batched).
@@ -2979,7 +3006,8 @@ namespace FarHorizon.EditorTools
         // One boulder visual: a LARGE chunky faceted STONE lump resting ON the ground (half-embedded so it reads as
         // a boulder sitting on the surface — a bump UP, not a floating rock or a hole). Named MineBoulder.BoulderNodeName
         // under the pool root; MineBoulder discovers + drives it. The body mesh is named "BoulderMesh" (NOT "RockMesh")
-        // so the scatter-rock guards (RockBoulderSceneTests) don't pick it up. Collider-free.
+        // so the scatter-rock guards (RockBoulderSceneTests) don't pick it up. No collider authored; the movement
+        // block is a RUNTIME carving NavMeshObstacle added by MineableNodeState (86caffwv5 round-7, TASK 2).
         private static void BuildBoulderVisual(Transform parent, Vector3 groundPos, int seed, Material boulderMat)
         {
             var node = new GameObject(MineBoulder.BoulderNodeName);
@@ -4108,6 +4136,11 @@ namespace FarHorizon.EditorTools
             // F2 off, and reports whether the per-gait-cycle jerk vanishes — the precision handoff (not a fix).
             WireDebugOverlayMaster();
 
+            // Wire the LEFT-CLICK VERB-GATE DIAGNOSTIC (86caffwv5 / PR #327 — the live-mine instrument). Serializes
+            // onto Boot so the [ClickGateDiag] line ships in the soak; it dumps which consumer claimed each left-click
+            // + every non-claiming verb's first failing guard with values, behind the F10 overlay master. Reads-only.
+            WireClickGateDiagnostic();
+
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
             // OrbitCamera follow gains (horizontal/vertical lerp + lead time) live while jumping W/A/S/D, then
@@ -4348,6 +4381,11 @@ namespace FarHorizon.EditorTools
             // player — the Generic-rig bind). Inert unless -verifyHitReact. Sibling of RunVerifyCapture.
             WireHitReactVerifyCapture(player);
 
+            // Wire the PER-CLASS WEAPON SWING shipped-build capture (86caffwv5) — fires each of the 5 per-class
+            // swings on the live Animator via CastawayCharacter.TriggerAttack + captures each mid-swing from the
+            // gameplay orbit cam, with the same cone-explosion guard. Inert unless -verifySwings.
+            WireSwingVerifyCapture(player);
+
             // Wire the REAL-SNAKE shipped-build capture (86caaz4vn AC6/AC7) — walks the player at the snake
             // through the movement seam, proves aggro→telegraph→lunge→bite live + kills it with the real axe
             // WeaponDef, shooting gameplay-cam + side-profile frames. Inert unless -verifySnake.
@@ -4536,6 +4574,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<LocomotionHitReactVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<LocomotionHitReactVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the PER-CLASS WEAPON SWING shipped-build verify capture (86caffwv5) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert otherwise).
+        // Inert unless launched with -verifySwings. Sibling of WireHitReactVerifyCapture.
+        private static void WireSwingVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SwingVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<SwingVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<SwingVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }

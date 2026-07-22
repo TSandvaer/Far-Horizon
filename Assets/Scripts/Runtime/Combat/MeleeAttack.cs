@@ -10,22 +10,24 @@ namespace FarHorizon.Combat
     /// apply the weapon's on-hit status (AC6). The selected weapon is resolved from the selected belt item
     /// (axe / spear) — the SAME selection surface the chop uses (Inventory.IsAxeSelectedInBelt sibling).
     ///
-    /// === The swing (AC5) — PLACEHOLDER pending the Sponsor's procedural-vs-Mixamo call ===
-    /// ⚠ SCOPE QUESTION (raised in the dispatch): [[chop-swing-mixamo-clip-not-procedural]] says the Sponsor
-    /// wants a proper MIXAMO attack clip; procedural-animation-verbs.md says NO new Animator clip. These
-    /// CONFLICT for the per-weapon swing. Until the Sponsor rules, this POC reuses the EXISTING chop swing
-    /// (<see cref="CastawayCharacter.TriggerChop"/> — the already-wired Mixamo melee Attack state) as the
-    /// PLACEHOLDER swing for BOTH weapons, scaled by the weapon's attackSpeed via the existing ChopSpeed
-    /// param. This proves the reach/damage/status SYSTEM (the POC's job) without committing the swing art:
-    /// the per-weapon DISTINCT swing (axe_chop vs spear_thrust) is deferred to the AC5 decision — the driver
-    /// maps <see cref="WeaponDef.AnimationId"/> to a swing there. NO new Animator clip/state/layer is added
-    /// here (procedural-animation-verbs.md rule respected); the placeholder rides the existing state.
+    /// === The swing (AC5) — PER-CLASS Mixamo swing (86caffwv5 — RESOLVED) ===
+    /// The Combat-POC placeholder (all weapons rode the single chop Attack state) is REPLACED: each weapon now
+    /// plays its OWN Mixamo swing. <see cref="PerformAttack"/> maps the weapon's <see cref="WeaponDef.AnimationId"/>
+    /// through <see cref="WeaponCatalog.WeaponClassForAnimationId"/> to a WeaponClass and fires
+    /// <see cref="CastawayCharacter.TriggerAttack"/>, which sets the Animator's WeaponClass int + ChopSpeed then
+    /// pulses the shared Chop trigger → the controller plays the per-class AttackX state (axe_chop→AttackAxe …
+    /// sword_slash→AttackSword). This is the Sponsor-ruled animator-driven-Mixamo approach
+    /// (<see cref="WeaponClassForSwing"/> is the pure, testable map). No new INPUT path — the guard truth-table +
+    /// single-flight below are unchanged; only the swing FIRED is now per-class (the shared Animator → CastawayArmPose
+    /// (order 50) → HeldAxeRig (order 100) chain is intact — the swing moves the arm, HeldAxeRig follows the hand).
     ///
-    /// === Guards (mirror ChopTree — the click must only attack in the game world) ===
-    /// The pure <see cref="ShouldAttackOnClick"/> mirrors ChopTree.ShouldChopOnClick: a weapon must be
-    /// selected + a target in reach + no modal panel open + not over the inventory/belt UI + RMB not held
-    /// (a camera-orbit drag). <see cref="RequestAttackClick"/> is the input-independent latch (the analog of
-    /// ChopTree.RequestChopClick) so headless PlayMode + the shipped capture exercise the SAME attack path.
+    /// === Guards (the click must only swing in the game world) ===
+    /// The pure <see cref="ShouldSwingOnClick"/>: a weapon must be selected + no modal panel open + not over the
+    /// inventory/belt UI + RMB not held (a camera-orbit drag). A valid TARGET is NOT required — one click = one
+    /// swing of the equipped weapon, TARGET OR NOT (the active-input AC; soak-2 fix 86caffwv5). A click at empty
+    /// air WHIFFS: the swing plays and lands nothing; DAMAGE stays gated on a target actually being in reach.
+    /// <see cref="RequestAttackClick"/> is the input-independent latch (the analog of ChopTree.RequestChopClick)
+    /// so headless PlayMode + the shipped capture exercise the SAME attack path.
     ///
     /// NO MUTABLE STATICS (instance state only) — StaticStateResetTests needs no reset here.
     /// </summary>
@@ -52,6 +54,21 @@ namespace FarHorizon.Combat
         [Tooltip("The inventory/belt UI for the over-UI left-click guard (a click over the belt must NOT " +
                  "attack). Wired at bootstrap; null → the over-UI guard is skipped (a bare rig).")]
         public InventoryUI inventoryUI;
+
+        [Header("Verb arbitration (round-4 86caffwv5 — verb-wins-over-whiff)")]
+        [Tooltip("The chop verb. When an axe is selected AND a tree is in chop range, the CHOP owns the left-click " +
+                 "and this attack must NOT also fire a whiff swing (the double-consumer regression). Queried via " +
+                 "ChopTree.WouldClaimClick(). Wired at bootstrap; Awake scene-search fallback. Null → the chop " +
+                 "never claims (a bare rig / no chop in the scene).")]
+        public ChopTree chopTree;
+
+        [Tooltip("The boulder-mine verb — same arbitration: a pickaxe selected + a boulder in range means MINING " +
+                 "owns the click (no whiff). Queried via MineBoulder.WouldClaimClick(). Bootstrap-wired; Awake fallback.")]
+        public MineBoulder mineBoulder;
+
+        [Tooltip("The ore-mine verb — same arbitration (stone/iron pickaxe + an ore node in range owns the click). " +
+                 "Queried via MineOre.WouldClaimClick(). Bootstrap-wired; Awake fallback.")]
+        public MineOre mineOre;
 
         [Header("Interaction")]
         [Tooltip("Minimum seconds between landed attacks. The attack is per LEFT-CLICK; this is a small " +
@@ -80,6 +97,11 @@ namespace FarHorizon.Combat
             if (inventory == null) inventory = FindObjectOfType<Inventory>();
             if (character == null) character = FindObjectOfType<CastawayCharacter>();
             if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
+            // Verb arbitration refs (round-4) — the shipped scene has one of each; the Awake scene-search is the
+            // reliable resolve (all verb components exist by Awake, regardless of bootstrap-wiring order). Null-safe.
+            if (chopTree == null) chopTree = FindObjectOfType<ChopTree>();
+            if (mineBoulder == null) mineBoulder = FindObjectOfType<MineBoulder>();
+            if (mineOre == null) mineOre = FindObjectOfType<MineOre>();
             EnsureCatalog();
         }
 
@@ -112,14 +134,26 @@ namespace FarHorizon.Combat
         }
 
         /// <summary>
-        /// PURE attack-on-a-left-click decision (the unit-testable guard truth-table, mirrors
-        /// ChopTree.ShouldChopOnClick): all of — a weapon is selected, a target is in reach, no modal panel
-        /// owns the screen, the click is NOT over the inventory/belt UI, the RMB is NOT held (no orbit drag).
+        /// PURE swing-on-a-left-click decision (the unit-testable guard truth-table). One click = one swing of the
+        /// equipped weapon, TARGET OR NOT (soak-2 fix 86caffwv5 — a click at empty air WHIFFS). All of: a weapon is
+        /// selected, NO verb claimed the click, no modal panel owns the screen, the click is NOT over the
+        /// inventory/belt UI, the RMB is NOT held (no orbit drag). NO target-in-reach requirement — DAMAGE (not the
+        /// swing) is what a target gates.
+        ///
+        /// === VERB-WINS-OVER-WHIFF arbitration (round-4 regression fix, 86caffwv5) ===
+        /// <paramref name="verbClaimedClick"/> is true when a VERB consumer (chop / boulder-mine / ore-mine) OWNS
+        /// this click — its matching tool is selected AND a valid target is in that verb's range (computed by the
+        /// caller from <see cref="ChopTree.WouldClaimClick"/> / <see cref="MineBoulder.WouldClaimClick"/> /
+        /// <see cref="MineOre.WouldClaimClick"/>). When a verb claims the click the attack does NOT swing — the verb
+        /// (chop/mine) owns the turn + its own swing; a spurious combat whiff on top is the soak-4 double-consumer
+        /// regression this suppresses. When NOTHING claims the click, the attack swings (enemy in reach → lands
+        /// damage; empty air → whiffs — AC3, the soak-2 behavior is preserved). AMBIGUITY (an enemy AND a verb
+        /// target both in reach): the VERB wins (conservative / pre-round-2 behavior) — see the PR body.
         /// Static + dependency-free so the EditMode guard asserts the whole table with no scene/Input/UI rig.
         /// </summary>
-        public static bool ShouldAttackOnClick(bool weaponSelected, bool targetInReach,
-                                               bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
-            => weaponSelected && targetInReach && !uiPanelOpen && !pointerOverUI && !rmbHeld;
+        public static bool ShouldSwingOnClick(bool weaponSelected, bool verbClaimedClick,
+                                              bool uiPanelOpen, bool pointerOverUI, bool rmbHeld)
+            => weaponSelected && !verbClaimedClick && !uiPanelOpen && !pointerOverUI && !rmbHeld;
 
         /// <summary>Request ONE attack swing programmatically — the input-independent analog of a left-click
         /// (mirrors ChopTree.RequestChopClick). Latched + consumed on the next Update so headless PlayMode +
@@ -135,27 +169,34 @@ namespace FarHorizon.Combat
             WeaponDef weapon = SelectedWeapon;
             bool weaponSelected = weapon != null;
 
-            // Resolve the nearest enemy in this weapon's reach (null if none / no weapon).
-            Health target = weaponSelected ? ResolveNearestTarget(weapon.Reach) : null;
-
             bool overUI = inventoryUI != null && inventoryUI.IsPointerOverUI(Input.mousePosition);
             bool rmbHeld = Input.GetMouseButton(1);
 
-            if (!ShouldAttackOnClick(weaponSelected, target != null,
-                                     UiInputGate.CaptureWorldInput, overUI, rmbHeld))
+            // VERB-WINS-OVER-WHIFF (round-4): if a verb (chop / boulder-mine / ore-mine) owns this click — its tool
+            // is selected AND its target is in range — the verb swings + turns + damages; the attack must NOT also
+            // fire a whiff on top (the soak-4 "cannot chop, only whiffs" double-consumer regression). Only queried
+            // when a weapon is selected (else no swing regardless); a stateless recompute per click (a cold path).
+            bool verbClaimed = weaponSelected && VerbClaimsClick();
+
+            // One click = one swing of the equipped weapon, TARGET OR NOT (whiff-allowed — soak-2 fix), UNLESS a
+            // verb claimed the click. The gate does NOT require an enemy target; a target only gates the DAMAGE below.
+            if (!ShouldSwingOnClick(weaponSelected, verbClaimed, UiInputGate.CaptureWorldInput, overUI, rmbHeld))
                 return;
 
             // Attack cooldown, scaled down by the weapon's attackSpeed (a faster weapon swings sooner).
             float cooldown = baseAttackCooldown / Mathf.Max(0.01f, weapon.AttackSpeed);
             if (Time.time - _lastAttackAt < Mathf.Max(0f, cooldown)) return;
 
+            // Resolve the nearest enemy in this weapon's reach for the DAMAGE (null → a whiff: the swing plays,
+            // lands nothing). Only computed once the swing is going to fire (a cold path, no per-frame alloc).
+            Health target = ResolveNearestTarget(weapon.Reach);
             PerformAttack(weapon, target);
         }
 
         /// <summary>
         /// Perform ONE attack with <paramref name="weapon"/> against <paramref name="target"/> (public so
-        /// PlayMode/EditMode drive it deterministically). Swings the PLACEHOLDER arm (existing chop Attack
-        /// state, attackSpeed-scaled), deals weapon.Damage through the shared <see cref="Health.ApplyDamage"/>
+        /// PlayMode/EditMode drive it deterministically). Swings the weapon's PER-CLASS arm swing
+        /// (attackSpeed-scaled), deals weapon.Damage through the shared <see cref="Health.ApplyDamage"/>
         /// seam with the weapon's <see cref="DamageType"/> (so the target's resistance + tier modulate it —
         /// AC8), and applies the weapon's on-hit status (AC6). Records the observable outcome. A null target
         /// still SWINGS (a miss) but lands no damage. A null weapon is a no-op.
@@ -167,15 +208,17 @@ namespace FarHorizon.Combat
             SwingsFired++;
             LastWeaponId = weapon.Id;
 
-            // SWING the arm — the PLACEHOLDER swing (existing chop Attack state) scaled by attackSpeed. Face
-            // the target so the strike reads as hitting it. NO new Animator clip/state (AC5 scope question):
-            // the per-weapon distinct swing (axe_chop vs spear_thrust) is deferred to the Sponsor's ruling.
+            // SWING the arm — the PER-CLASS swing (86caffwv5). Map the weapon's AnimationId → its WeaponClass and
+            // fire that class's Mixamo swing state (axe_chop→AttackAxe, spear_thrust→AttackSpear, …). The swing
+            // playback speed is passed DIRECTLY to TriggerAttack as the weapon's attackSpeed — we do NOT mutate
+            // character.chopSpeed here (that is the GLOBAL tool-use-speed dial the tree-chop/mine verbs read;
+            // clobbering it on a combat swing would leak this weapon's cadence into those verbs — soak-2 cleanup).
+            // Face the target so the strike reads as hitting it. An UNMAPPED id defensively falls back to axe.
             if (character != null)
             {
                 if (target != null) character.FaceWorldTarget(target.transform.position);
-                character.chopSpeed = Mathf.Clamp(weapon.AttackSpeed,
-                    CastawayCharacter.ChopSpeedMin, CastawayCharacter.ChopSpeedMax);
-                character.TriggerChop(); // placeholder swing — rides the existing Mixamo melee Attack state
+                int weaponClass = WeaponClassForSwing(weapon);
+                character.TriggerAttack(weaponClass, weapon.AttackSpeed);
             }
 
             if (target == null || target.IsDead) return;
@@ -193,6 +236,47 @@ namespace FarHorizon.Combat
                 var sec = target.GetComponent<StatusEffectController>();
                 if (sec != null) sec.Apply(weapon.OnHitStatus);
             }
+        }
+
+        /// <summary>The WeaponClass swing for a weapon (86caffwv5) — its AnimationId mapped through the single
+        /// selection seam (<see cref="WeaponCatalog.WeaponClassForAnimationId"/>). An unmapped id (-1) falls back to
+        /// the axe class (never a silent wrong swing). Pure + static so an EditMode test asserts the whole mapping.</summary>
+        public static int WeaponClassForSwing(WeaponDef weapon)
+        {
+            if (weapon == null) return CastawayCharacter.WeaponClassAxe;
+            int cls = WeaponCatalog.WeaponClassForAnimationId(weapon.AnimationId);
+            return cls >= 0 ? cls : CastawayCharacter.WeaponClassAxe;
+        }
+
+        /// <summary>VERB-WINS-OVER-WHIFF (round-4 86caffwv5) — true when a verb consumer (chop / boulder-mine /
+        /// ore-mine) OWNS the current left-click: its matching tool is selected AND a valid target is in that verb's
+        /// range. A STATELESS query (each verb recomputes its own range), so it does NOT depend on Update execution
+        /// order between MeleeAttack and the verbs. When true, MeleeAttack suppresses its whiff swing (the verb owns
+        /// the swing + turn + damage). Null verb refs never claim (a bare rig). Called only on a click edge with a
+        /// weapon selected — a cold path (no per-frame alloc; unity6 §5).</summary>
+        private bool VerbClaimsClick()
+        {
+            if (chopTree != null && chopTree.WouldClaimClick()) return true;
+            if (mineBoulder != null && mineBoulder.WouldClaimClick()) return true;
+            if (mineOre != null && mineOre.WouldClaimClick()) return true;
+            return false;
+        }
+
+        /// <summary>86caffwv5 diagnostic (PR #327 — the ClickGateDiagnostic instrument, read-only, NOT a fix): the
+        /// melee gate ground truth — the SELECTED weapon (its id; null = the selected belt item is not a weapon /
+        /// nothing selected) + whether an enemy is in reach (a whiff vs a landed swing). Uses the SAME SelectedWeapon
+        /// + ResolveNearestTarget the live swing reads. A cold-path read (called only on a click by the diagnostic).</summary>
+        public MeleeGateDiag ClickGateDiag()
+        {
+            WeaponDef w = SelectedWeapon;
+            var d = new MeleeGateDiag
+            {
+                WeaponSelected = w != null,
+                WeaponId = w != null ? w.Id : null,
+                Reach = w != null ? w.Reach : 0f,
+            };
+            if (w != null) d.HasTarget = ResolveNearestTarget(w.Reach) != null;
+            return d;
         }
 
         // Resolve the nearest ALIVE enemy Health within `reach` of the player (planar XZ, height-robust —
