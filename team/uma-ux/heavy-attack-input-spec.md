@@ -1,5 +1,18 @@
 # Heavy-Attack Second-Input UX Spec — `86cau6prr`
 
+> **Sibling spec (read both):** this doc chooses **WHICH input** (`F`, with the candidate/collision analysis).
+> `team/uma-ux/heavy-attack-input-model-spec.md` (`86caxh64q`) specs **the MODEL behind it** — the input's
+> state contract, the wind-up/cancel/cooldown commitment model, the heavy-vs-light read, the per-tier dials,
+> and the generalization path to the other four swing classes. That doc also **corrects two code citations
+> below** (the live guard is `ShouldSwingOnClick`, five terms; and combat damage is synchronous-on-click today
+> — there is no impact delay on `MeleeAttack`). Carry its §1 corrections forward.
+>
+> **One line in §7 below is also stale:** *"the overhead already plays on v4 today as the chop."* Since
+> `86caffwv5` shipped five per-class swing FBXs, the axe light is `CastawayAxeSwing` ← `Attack_Axe.fbx`, while
+> the reserved heavy `CastawayMelee` ← `Melee_Attack.fbx` sits in a **dormant** Animator state awaiting the
+> heavy ticket (`CharacterAssetGen.cs:77,83,248,253,1373-1385`). The clip is still imported, Generic, and bound
+> to the v4 rig — only its incoming transition was removed. Verified provenance table: model spec §2.
+
 **Author:** Uma (UX / Visual / Audio Direction). **Status:** DECISION-READY spec — the input model is a
 **Sponsor call**; this doc frames 2–3 candidates + a recommendation so the popup is one click. **Doc-only:**
 no code, no build. `86cau6prr` stays `to do` and gated until (a) the Sponsor picks the input via this spec
