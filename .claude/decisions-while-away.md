@@ -507,3 +507,12 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Foundation:** rule-6 NITs-ticket class — reviewer-enumerated with a mutation proof + verified fix; dedupe: no ticket covers test_gate_scripts.sh asserts.
 - **Reversibility:** close the ticket; 1 click.
 - **Status:** pending review
+
+## 2026-07-27 ~22:0xZ — Created a clean worktree for Erik + re-dispatched his research after a stale-tree finding
+
+- **Decided:** created `../Far-Horizon-erik2-wt` (branch `erik/hitflash-research` off `origin/main` @ 993faee), copied Erik's hit-feedback note into it, prepended a DO-NOT-CITE correction banner to the copy in the orch tree, and re-dispatched Erik to re-verify against the current tree.
+- **Foundation:** Erik's report raised two "open questions" (no `BoarEnemy` class; no `combat-cluster-design-brief.md`). Both verified FALSE against `origin/main` by the orchestrator — `git ls-tree -r --name-only origin/main` lists `Assets/Scripts/Runtime/Combat/BoarEnemy.cs`, `BoarAI.cs`, `BoarBodyRig.cs`, `Assets/Scripts/Runtime/BoarVerifyCapture.cs`, `.github/workflows/scripts/verify_boar_gate.sh` and `team/uma-ux/combat-cluster-design-brief.md`. Cause: he had no worktree, defaulted to the orch checkout, whose `Assets/` is a stale pinned snapshot (`git diff --stat origin/main -- Assets/Scripts/Runtime/Combat/` = 8 files / ~1018 deletions) — the documented `orch-coordination-harvest-is-port-not-merge` drift. He has no Bash, so he could not detect it.
+- **Why it mattered enough to act rather than queue:** his FLINCH verdict concluded "enemies have no Animator" from `SnakeAI`/`SnakeBodyChain` alone, with the boar invisible to him — a confident recommendation over a silently-incomplete premise, which is the class of thing a future dev would act on without re-checking.
+- **Alternative:** leave the note as-is with the banner and queue the re-verification for the Sponsor to schedule. Rejected — the body-hit-feedback ticket is being filed right now and would have cited it.
+- **Reversibility:** trivial — `git worktree remove ../Far-Horizon-erik2-wt` and delete branch `erik/hitflash-research`; the note exists in both trees, nothing was deleted or force-pushed.
+- **Status:** pending review
