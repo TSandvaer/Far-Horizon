@@ -493,3 +493,17 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Foundation:** rule-6 NITs-ticket class + reviewer endorsement of the follow-up split; dedupe — no open ticket covers HandsVerifyCapture (86cavaxk7 closes at merge).
 - **Reversibility:** close the ticket; 1 click.
 - **Status:** pending review
+
+## 2026-07-27 ~20:1x UTC — Filing the run-lower velocity-gate fix ticket from Drew's 86caxgwbz measurement (auto-decide, pre-cleared class)
+
+- **Decided:** create ticket 86caxj30g from Drew's follow-up draft in his 86caxgwbz ClickUp comment: gate the runLowerEuler arm offset on locomotion STATE, not velocity (CastawayCharacter.IsRunning at CastawayCharacter.cs:1539) — measured reaching all 5 attack swings with 45.8-47.6° arc / up to 0.896 SW distortion and the study's only torso-clearance DECREASE (atk_pickaxe 0.570→0.524 SW). S, Unity-build lane. Scope verbatim from his draft + measurement note (team/drew-dev/armpose-offset-fit-86caxgwbz.md, PR #343).
+- **Foundation:** rule-6 mechanical-follow-up class — author-drafted with measured evidence; dedupe: fresh board scan this tick, no ticket covers the run-lower gate.
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
+
+## 2026-07-27 ~20:4x UTC — Filing the #344 review NIT (unanchored windowed-launch assert) as a follow-up ticket (auto-decide, pre-cleared class)
+
+- **Decided:** create ticket 86caxj8zw from the #344 APPROVE_WITH_NITS comment 5096496329: assert_launch_windowed in test_gate_scripts.sh is unanchored (matches header prose — mutation-proven: deleting the boar gate's launch flags still PASSED while weaponset/pond correctly FAILED); reviewer verified the one-line fix: anchor `^[[:space:]]*-screen-fullscreen 0` (matches all 8 gates). XS, non-build (shell test harness).
+- **Foundation:** rule-6 NITs-ticket class — reviewer-enumerated with a mutation proof + verified fix; dedupe: no ticket covers test_gate_scripts.sh asserts.
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review

@@ -14,3 +14,8 @@
 - What: Uma's #340 fix-round report cited head `fed4551` — a pattern-completed, non-existent object (author's own words on re-check: "I pattern-completed it instead of running git rev-parse"). Priya's re-check refused the relayed SHA, fetched the real head (`a047420`) via gh, and reviewed that.
 - Why it matters: the orch RELAYED the fabricated SHA into the re-check brief — reviewer-side verify-don't-trust was the net that held. Consumers of agent-reported SHAs (orch included) must re-fetch before citing onward.
 - Outcome: no damage (review ran on the real head); author self-corrected with rev-parse'd values in the next round.
+
+## 2026-07-27 — Orch labeled #341 while its PR CI was still pending; the auto-merge Action merges IMMEDIATELY on label (no checks gate)
+- What: orch added `auto-merge` to PR #341 at ~19:0xZ believing "the Action enforces the real CI result". Ground truth (auto-merge.yml read 19:4xZ): the Action runs `gh pr merge --squash` on the label event with NO checks-gating, and main has NO GitHub-enforced protection — so #341 merged at 19:01:34Z while its own PR run (30296208090) was mid-flight (cancelled by the merge). Outcome lucky-clean: Assets were byte-identical to the EditMode-green head and the post-merge main run 30296431820 came back fully green.
+- Rule hardened: LABEL = MERGE, INSTANTLY. Never label until required checks are SUCCESS on the PR head (docs-only PRs that spawn no CI remain the exception). The YAML's own comment says the safety contract is PROCESS, not enforcement.
+- Also disproved in passing: "the auto-merge label + Action enforces CI" claims in earlier orch messages today — corrected here.
