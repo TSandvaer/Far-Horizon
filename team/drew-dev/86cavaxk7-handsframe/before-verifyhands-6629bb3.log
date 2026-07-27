@@ -1,0 +1,15 @@
+[HandsVerifyCapture] castaway avatar found in scene: True
+[HandsVerifyCapture] rightHand=mixamorig:RightHand leftHand=mixamorig:LeftHand
+[HandsVerifyCapture] hands_right.png: hand bone 'mixamorig:RightHand' at (0.37, 1.14, 6.12) center=(0.37, 1.09, 6.12) camPos=(0.64, 1.22, 6.50) dist=0,485
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before\hands_right.png
+[HandsVerifyCapture] hands_right_tips.png: hand bone 'mixamorig:RightHand' at (0.39, 1.13, 6.11) center=(0.39, 1.08, 6.11) camPos=(0.46, 0.66, 6.34) dist=0,485
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before\hands_right_tips.png
+[HandsVerifyCapture] hands_right_rear.png: hand bone 'mixamorig:RightHand' at (0.42, 1.13, 6.09) center=(0.42, 1.08, 6.09) camPos=(0.58, 1.29, 5.68) dist=0,485
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before\hands_right_rear.png
+[HandsVerifyCapture] hands_left.png: hand bone 'mixamorig:LeftHand' at (-0.34, 1.13, 6.11) center=(-0.34, 1.08, 6.11) camPos=(-0.61, 1.21, 6.49) dist=0,485
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before\hands_left.png
+[HandsVerifyCapture] hands_left_tips.png: hand bone 'mixamorig:LeftHand' at (-0.31, 1.16, 6.11) center=(-0.31, 1.11, 6.11) camPos=(-0.38, 0.69, 6.35) dist=0,485
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before\hands_left_tips.png
+[HandsVerifyCapture] hands_left_rear.png: hand bone 'mixamorig:LeftHand' at (-0.28, 1.18, 6.11) center=(-0.28, 1.13, 6.11) camPos=(-0.44, 1.33, 5.70) dist=0,485
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before\hands_left_rear.png
+[HandsVerifyCapture] verification complete -> C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-before

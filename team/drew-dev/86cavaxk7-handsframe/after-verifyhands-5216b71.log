@@ -1,0 +1,15 @@
+[HandsVerifyCapture] castaway avatar found in scene: True
+[HandsVerifyCapture] rightHand=mixamorig:RightHand leftHand=mixamorig:LeftHand
+[HandsVerifyCapture] hands_right.png: bone 'mixamorig:RightHand' at (0.37, 1.14, 6.12) | MEASURED hand centre=(0.37, 1.05, 6.14) size=(0.14, 0.19, 0.13) verts=224 | legacy anchor=(0.37, 1.09, 6.12) (off by 0,0413u = 21% of the hand extent) | camPos=(0.70, 1.22, 6.62) dist=0,612 fill=0,72
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after\hands_right.png
+[HandsVerifyCapture] hands_right_tips.png: bone 'mixamorig:RightHand' at (0.39, 1.13, 6.11) | MEASURED hand centre=(0.38, 1.04, 6.12) size=(0.14, 0.19, 0.13) verts=224 | legacy anchor=(0.39, 1.08, 6.11) (off by 0,0416u = 22% of the hand extent) | camPos=(0.47, 0.54, 6.40) dist=0,578 fill=0,72
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after\hands_right_tips.png
+[HandsVerifyCapture] hands_right_rear.png: bone 'mixamorig:RightHand' at (0.42, 1.13, 6.09) | MEASURED hand centre=(0.41, 1.05, 6.11) size=(0.14, 0.19, 0.13) verts=224 | legacy anchor=(0.42, 1.08, 6.09) (off by 0,0407u = 21% of the hand extent) | camPos=(0.61, 1.30, 5.61) dist=0,596 fill=0,72
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after\hands_right_rear.png
+[HandsVerifyCapture] hands_left.png: bone 'mixamorig:LeftHand' at (-0.34, 1.13, 6.11) | MEASURED hand centre=(-0.35, 1.08, 6.14) size=(0.14, 0.19, 0.19) verts=232 | legacy anchor=(-0.34, 1.08, 6.11) (off by 0,0356u = 19% of the hand extent) | camPos=(-0.72, 1.27, 6.68) dist=0,683 fill=0,72
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after\hands_left.png
+[HandsVerifyCapture] hands_left_tips.png: bone 'mixamorig:LeftHand' at (-0.31, 1.16, 6.11) | MEASURED hand centre=(-0.32, 1.12, 6.15) size=(0.15, 0.18, 0.19) verts=232 | legacy anchor=(-0.31, 1.11, 6.11) (off by 0,0447u = 23% of the hand extent) | camPos=(-0.41, 0.55, 6.47) dist=0,664 fill=0,72
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after\hands_left_tips.png
+[HandsVerifyCapture] hands_left_rear.png: bone 'mixamorig:LeftHand' at (-0.28, 1.18, 6.11) | MEASURED hand centre=(-0.30, 1.14, 6.15) size=(0.16, 0.17, 0.19) verts=232 | legacy anchor=(-0.28, 1.13, 6.11) (off by 0,0472u = 25% of the hand extent) | camPos=(-0.53, 1.43, 5.57) dist=0,688 fill=0,72
+[HandsVerifyCapture] wrote C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after\hands_left_rear.png
+[HandsVerifyCapture] verification complete -> C:\Users\538252\AppData\Local\Temp\claude\c--Trunk-PRIVATE-Far-Horizon\a14020e5-efb8-4861-9dd4-557295691612\scratchpad\hands-after
