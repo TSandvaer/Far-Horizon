@@ -407,6 +407,23 @@ namespace FarHorizon.EditorTools
             ConfigureGenericClipFbx(AttackDaggerFbxPath, DaggerStabClip, loop: false);
             ConfigureGenericClipFbx(AttackSpearFbxPath, SpearThrustClip, loop: false);
             ConfigureGenericClipFbx(AttackSwordFbxPath, SwordSlashClip, loop: false);
+            // PICKAXE-MINE CONTORTION REPAIR (86cav8xg9). MEASURED cause (AttackClipPoseDiag on the live v4 rig,
+            // all 5 attack clips side by side): the raw CastawayPickaxeSwing hinges the body RIGIDLY AT THE PELVIS
+            // — mixamorig:Hips deviates 104.8deg, bending the torso to 66.3deg off vertical at t~0.564 (siblings
+            // peak: axe 43.3 / spear 27 / sword 25 / dagger 19) while Spine1/Spine2 move <1deg. Reverting Hips
+            // alone drops the tilt to 19.9deg — one bone owns 46.4deg of it. There is NO curve corruption (max
+            // per-authored-frame whole-skeleton step is a smooth 20.8deg peak, so the #197 slerp-resampler no-ops)
+            // and the left arm is the most TUCKED of the five, not flung — both earlier hypotheses are refuted in
+            // PickaxeMineCurveFix's docstring. The fix scales the pelvis hinge toward the clip's own frame-0 anchor
+            // (K=0.45 -> peak tilt inside the unflagged axe-swing band) and EXACTLY compensates both upper legs so
+            // the planted feet do not swing with it; spine/arms/head/root-motion copied verbatim. Runs AFTER the
+            // FBX import (reads the imported clip) and BEFORE BuildAnimatorController (which binds this .anim).
+            // Committed .anim ships it (the FBX/.meta stays Generic/animationType:2, untouched — no re-export).
+            {
+                var pickSb = new System.Text.StringBuilder();
+                PickaxeMineCurveFix.Generate(pickSb);
+                Debug.Log(pickSb.ToString());
+            }
             // CROUCH + HIT-REACT clips (86cackb3j) — all WITHOUT-skin Generic, bind by transform path onto Idle's
             // mesh (the proven Walk/Run/jump idiom). LOOP the sustained states (crouch idle/move, stunned hold);
             // ONE-SHOT the reactions/recovery/interaction. ConfigureGenericClipFbx is the parameterised import
@@ -1211,7 +1228,18 @@ namespace FarHorizon.EditorTools
             AnimationClip melee = FindClip(MeleeFbxPath, MeleeClip); // the RESERVED overhead (future sword HEAVY, 86caffwv5 §5)
             // PER-CLASS WEAPON SWING clips (86caffwv5) — the 5 NEW Sponsor Mixamo attack clips, one per weapon class.
             AnimationClip axeSwing = FindClip(AttackAxeFbxPath, AxeSwingClip);
-            AnimationClip pickaxeSwing = FindClip(AttackPickaxeFbxPath, PickaxeSwingClip);
+            // AttackPickaxe binds the REPAIRED .anim (86cav8xg9 — the pelvis-fold fix), falling back to the raw FBX
+            // clip only if the repaired asset is missing (defensive, mirroring crouchWalkSmoothed below: never
+            // silently ship a T-pose; a missing repaired clip degrades to the raw clip's known-visible contortion
+            // rather than a broken state).
+            AnimationClip pickaxeRepaired = AssetDatabase.LoadAssetAtPath<AnimationClip>(PickaxeMineCurveFix.RepairedClipPath);
+            AnimationClip pickaxeSwing = pickaxeRepaired != null
+                ? pickaxeRepaired
+                : FindClip(AttackPickaxeFbxPath, PickaxeSwingClip);
+            if (pickaxeRepaired == null)
+                Debug.LogWarning("[CharacterAssetGen] repaired pickaxe-mine .anim NOT found at " +
+                                 PickaxeMineCurveFix.RepairedClipPath + " — falling back to the RAW Attack_Pickaxe " +
+                                 "clip (the 66deg pelvis fold will be VISIBLE). Re-run PrepareCharacter to regenerate it.");
             AnimationClip daggerStab = FindClip(AttackDaggerFbxPath, DaggerStabClip);
             AnimationClip spearThrust = FindClip(AttackSpearFbxPath, SpearThrustClip);
             AnimationClip swordSlash = FindClip(AttackSwordFbxPath, SwordSlashClip);
