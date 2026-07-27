@@ -398,7 +398,11 @@ Extend the shipped routing; do not re-architect it (`86caxh64q` constraint):
    (`CharacterAssetGen.cs:1381-1385`) already holds `CastawayMelee` and its return transitions, and is
    `ChopSpeedParam`-driven; it is reserved for exactly this and its comment forbids deleting or repurposing it
    (`:1373-1380`). The wiring is **one incoming `AnyState→Attack` transition on (`Chop` && `WeaponClass == 5`)**
-   — the same `WireAttackClass` idiom the five shipped classes use. *(If the impl prefers renaming that state to
+   — the same transition *shape* the five shipped classes use.
+   **⚠ Do NOT call `WireAttackClass` as-is to do it:** its first line is `sm.AddState(stateName)` (`:1566`), so
+   calling the helper would create a *new* state and strand the reserved one — turning this step's whole
+   advantage back into the regression it avoids. Either add the `AddAnyStateTransition` directly to the existing
+   reserved state, or extend `WireAttackClass` to accept an existing `AnimatorState`. *(If the impl prefers renaming that state to
    `AttackSwordHeavy` for symmetry with `AttackAxe`/`AttackSword`, that is a **rename of the existing state**,
    never a second state — the ticket's vocabulary governs the final name.)* **No new Animator layer, no
    AvatarMask, no second trigger system, no procedural swing**
