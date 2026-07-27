@@ -727,6 +727,86 @@ namespace FarHorizon
             }
         }
 
+        // ===== LOCOMOTION-LANE POSE OWNERSHIP (86caxj30g) — the gate the run-lower needs =====
+        //
+        // WHY THIS EXISTS. CastawayArmPose's run-lower (runLowerEuler, ~43.7 deg on its own / ~47.6 deg composed
+        // with the carry) was dialed against the RUN clip, but it was weighted by IsRunning alone — a VELOCITY read
+        // (LateUpdate below), blind to which Animator state is actually posing the arm. Every one-shot overlay the
+        // controller can reach at run speed therefore inherited the full run-lower: the five per-class attack swings
+        // fire with NO locomotion gate anywhere on their path (ChopTree -> TriggerChop; MineBoulder/MineOre ->
+        // TriggerMine; MeleeAttack -> TriggerAttack), so a moving strike played its authored, soak-approved
+        // silhouette with an unbudgeted ~47 deg / up to 0.896 shoulder-width hand displacement layered on
+        // (measured, 86caxgwbz: team/drew-dev/armpose-offset-fit-86caxgwbz.md Pass 2).
+        //
+        // THE LANE. The run-lower is legitimate ONLY where it was dialed: the locomotion lane, i.e. the states whose
+        // arm pose is the upright Idle/Walk/Run/jump family. Everything else (the attack swings, the crouch lane,
+        // the hit-reacts, stunned/getting-up/picking-up, the reserved overhead Attack) authors its own arm pose and
+        // must be handed back to the clip untouched.
+        public const string IdleState = "Idle";
+        public const string LocomotionState = "Locomotion";
+        public const string JumpIdleState = "JumpIdle";
+        public const string JumpRunningState = "JumpRunning";
+
+        // shortNameHash form of the four lane states (Animator.StringToHash of the state's short name — what
+        // AnimatorStateInfo.shortNameHash carries). static readonly, so no SubsystemRegistration reset is owed
+        // (StaticStateResetTests excludes static readonly); nothing mutates them.
+        private static readonly int IdleStateHash = Animator.StringToHash(IdleState);
+        private static readonly int LocomotionStateHash = Animator.StringToHash(LocomotionState);
+        private static readonly int JumpIdleStateHash = Animator.StringToHash(JumpIdleState);
+        private static readonly int JumpRunningStateHash = Animator.StringToHash(JumpRunningState);
+
+        /// <summary>Is this layer-0 state name part of the LOCOMOTION LANE the run-lower was dialed against
+        /// (Idle / Locomotion / JumpIdle / JumpRunning)? Pure + name-based so the allow-list is exhaustively
+        /// testable in EditMode against the shipped controller's authored state set (86caxj30g).</summary>
+        public static bool IsLocomotionLaneState(string stateName) =>
+            stateName == IdleState || stateName == LocomotionState ||
+            stateName == JumpIdleState || stateName == JumpRunningState;
+
+        /// <summary>hash form of <see cref="IsLocomotionLaneState(string)"/> — takes an
+        /// <c>AnimatorStateInfo.shortNameHash</c>.</summary>
+        public static bool IsLocomotionLaneState(int shortNameHash) =>
+            shortNameHash == IdleStateHash || shortNameHash == LocomotionStateHash ||
+            shortNameHash == JumpIdleStateHash || shortNameHash == JumpRunningStateHash;
+
+        /// <summary>
+        /// THE GATE, as a PURE function of the three layer-0 readings — so the transition semantics are pinned by
+        /// EditMode tests with no Animator rig (86caxj30g).
+        ///
+        /// TRANSITION PAIRING (the load-bearing part). <c>GetCurrentAnimatorStateInfo(0)</c> reports the state being
+        /// transitioned FROM for the whole duration of a transition, and every swing is reached by an
+        /// <c>AnyState -> AttackX</c> transition. A naive current-state-only check therefore still reads
+        /// "Locomotion" through the crossfade INTO the swing and the gate would engage late by the transition
+        /// duration ON TOP OF the weight ease. So the gate requires BOTH endpoints of an in-flight transition to be
+        /// lane states: it closes on the FIRST frame of the crossfade into an overlay, and does not re-open until
+        /// the crossfade back out of the overlay has fully settled (conservative on re-entry by design — the tail of
+        /// a swing must not get the run-lower back).
+        /// </summary>
+        /// <param name="currentShortNameHash">layer-0 <c>GetCurrentAnimatorStateInfo(0).shortNameHash</c>.</param>
+        /// <param name="inTransition">layer-0 <c>IsInTransition(0)</c>.</param>
+        /// <param name="nextShortNameHash">layer-0 <c>GetNextAnimatorStateInfo(0).shortNameHash</c> — read ONLY
+        /// when <paramref name="inTransition"/> (it is meaningless otherwise).</param>
+        public static bool LocomotionLaneOwnsPoseFor(int currentShortNameHash, bool inTransition, int nextShortNameHash)
+        {
+            if (!IsLocomotionLaneState(currentShortNameHash)) return false;
+            return !inTransition || IsLocomotionLaneState(nextShortNameHash);
+        }
+
+        /// <summary>Live layer-0 read of <see cref="LocomotionLaneOwnsPoseFor(int,bool,int)"/> — true while the
+        /// locomotion lane owns the arm pose, false while any one-shot overlay does. FAIL-OPEN with no
+        /// Animator/controller (returns true), so a rig without a controller behaves exactly as it did before
+        /// 86caxj30g: the gate can only ever SUBTRACT run-lower weight, never add it.</summary>
+        public bool LocomotionLaneOwnsPose
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return true;
+                bool inTransition = _animator.IsInTransition(0);
+                int next = inTransition ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                return LocomotionLaneOwnsPoseFor(_animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
+                                                 inTransition, next);
+            }
+        }
+
         /// <summary>The Animator's CURRENT Speed param value this frame (86caa3kur re-soak attempt-3 isolation
         /// instrument) — the DAMPED blend-tree Speed the LateUpdate SetFloat fed (NOT the raw planar speed
         /// <see cref="CurrentSpeed"/>). Read off GetFloat so the readout shows what the Walk<->Run blend tree
