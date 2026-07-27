@@ -671,6 +671,19 @@ namespace FarHorizon.EditTests
                 "v4 right-wrist must NOT be the round-7 zero that left both hands twisted");
             Assert.AreNotEqual(Vector3.zero, MovementCameraScene.CastawayV4LeftWristEuler,
                 "v4 left-wrist must NOT be the round-7 zero that left both hands twisted");
+
+            // 86cavaxk7 (PR #330 NIT 1) — DELIBERATELY NO "the right wrist no longer carries the ~250° roll
+            // compensation" GUARD HERE, and the review's suggested threshold-tightening does NOT apply to main.
+            // PR #330 round-1 (6978ec0) added `Assert.Less(Abs(DeltaAngle(0, RightWristEuler.y)), 120f)` alongside
+            // a re-derived (-15.7, 72.9, 10.6); round-2 (6629bb3) REVERTED both when the soak came back
+            // "helicopter" (the Blender round-trip rebaked 33/42 bone rests). So main ships (-22, 250, -30) ON
+            // PURPOSE — the Sponsor DEFERRED the right-hand fix ("Land it with the V4 as default ill fix the hands
+            // later", 86cau4za2). Excluding 250 here would red the intentionally-shipped value.
+            // IF that guard is re-added when the Mixamo re-rig lands, do NOT use Mathf.DeltaAngle: it normalises to
+            // ±180, folding 250° to −110°, so |DeltaAngle| < 120f PASSES on the stale value it names (the NIT).
+            // These constants are kept RAW/unnormalised on purpose (see the header comment), so assert the RAW
+            // magnitude — `Assert.Less(Mathf.Abs(RightWristEuler.y), 100f)` — which excludes 250 by 150° and
+            // admits the mirror seed 72.9 by 27°.
         }
 
         // 86cau4za2 (PR #330 round-2) — REGRESSION GUARD for the "helicopter" full-rig retarget break.
