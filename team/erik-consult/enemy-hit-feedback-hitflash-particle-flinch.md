@@ -25,9 +25,15 @@ additive-offset chain, or to the castaway's own Animator-clip-based hit-react st
 
 **`_HitFlash` should be a per-instance, per-material `_HitFlashTime` float** — driven by
 `renderer.material.SetFloat(...)` (auto-instantiated unique Material, **never**
-`MaterialPropertyBlock`) — added as a fourth default-0 CBUFFER term on `LowPolyVertexColor.shader`,
-exactly mirroring the three terms (`_RimIntensity`, `_AOStrength`, `_MeadowPatchAmp`) already
-shipped there. This satisfies the letter of the no-MPB rule and matches Uma's own §1.2 prescription
+`MaterialPropertyBlock`) — added as a fourth opt-in CBUFFER term on `LowPolyVertexColor.shader`,
+alongside the three terms (`_RimIntensity`, `_AOStrength`, `_MeadowPatchAmp`) already shipped there.
+**`_HitFlashTime` MUST default to a very-negative value (e.g. `-1000`), never `0`.** It is a
+timestamp, not a magnitude, so unlike `_RimIntensity`/`_AOStrength` — which are genuinely inert at a
+literal default of `0` — a `_HitFlashTime` default of `0` means every material reads as "hit at
+`_Time.y` = 0" and flashes for ~0.08–0.18s the instant the scene loads. The next reader should not
+assume `_HitFlash` follows the same default-0 rule as its precedents just because it mirrors their
+CBUFFER shape; the very-negative default is the one part of the shape that must NOT be copied
+verbatim. This satisfies the letter of the no-MPB rule and matches Uma's own §1.2 prescription
 verbatim (a `_HitFlash` float inside the shader's `CBUFFER_START(UnityPerMaterial)` on a per-enemy
 material instance, not an MPB, not a post-process Volume pulse). **The dust puff should be a
 classic Shuriken `ParticleSystem`** (Mesh render mode, tiny faceted chunk mesh, `Unlit/Particle`-class
@@ -39,8 +45,9 @@ concern entirely (their own renderer path, not `MeshRenderer`).
 `BoarEnemy.cs`/`BoarAI.cs`/`BoarBodyRig.cs` this pass changes the EVIDENCE, not the CONCLUSION: the
 boar is structurally identical to the snake on the one fact that matters — `BoarBodyRig`'s own doc
 comment states *"There is NO Animator, NO rig, NO skinned mesh: the parts are plain baked meshes and
-the pose IS this LateUpdate,"* explicitly calling itself *"a SIBLING idiom to
-CastawayArmPose/HeldAxeRig"* — word-for-word the same framing `SnakeBodyChain` uses. So "enemies have
+the pose IS this LateUpdate,"* and calls itself *"A SIBLING to `SnakeBodyChain` / CastawayArmPose /
+HeldAxeRig"* (`BoarBodyRig.cs:13-15`) — the same self-description framing `SnakeBodyChain` uses of
+itself, *"a SIBLING idiom to CastawayArmPose/HeldAxeRig"* (`SnakeBodyChain.cs:15-17`). So "enemies have
 no Animator" was accidentally correct on the first pass but unsound as reasoned (N=1, boar unseen); it
 is now confirmed on N=2 (both current enemy types), by direct read, not inference. The flinch should
 be a small procedural perturbation added directly into each enemy's own pose method (`SnakeBodyChain.
@@ -228,11 +235,15 @@ verbatim):**
    `_RimIntensity`/`_AOStrength`/`_MeadowPatchAmp`: `_HitFlashColor` (warm-white, matching the
    existing `_RimColor` warm-white convention — Uma's §1.2 also calls for "a brief sub-1.0 warm-white
    tint pulse (~0.08s, eased out)"), `_HitFlashDuration` (~0.08-0.18s), and `_HitFlashTime` (the
-   `_Time.y` timestamp of the last hit; a very-negative default so the term is inert at rest). Frag
-   adds `finalCol = lerp(finalCol, _HitFlashColor.rgb, saturate(1 - (_Time.y - _HitFlashTime) /
-   max(_HitFlashDuration, 0.001)) * _HitFlashIntensity)` right before the return — a pure no-op when
-   `_HitFlashTime` is in the deep past, the established "default-0-or-inert = byte-identical" idiom
-   this shader already uses three times. Keep every channel sub-1.0 per Uma's HDR-clamp rule (§1.2,
+   `_Time.y` timestamp of the last hit; a **very-negative default, never `0`,** so the term is inert
+   at rest — see Bottom line for why `0` is unsafe here even though it's the right default for the
+   other three terms). Frag adds `finalCol = lerp(finalCol, _HitFlashColor.rgb, saturate(1 -
+   (_Time.y - _HitFlashTime) / max(_HitFlashDuration, 0.001)))` right before the return — no fourth
+   `_HitFlashIntensity` term is needed, the `saturate(...)` expression alone is already the 0→1 decay
+   factor. This is a pure no-op when `_HitFlashTime` is at its very-negative default (`_Time.y -
+   _HitFlashTime` is then enormous, so `saturate(1 - huge)` clamps to `0`) — the same "inert-by-default
+   = byte-identical" idiom this shader already uses three times, achieved here via a very-negative
+   default rather than a `0` default. Keep every channel sub-1.0 per Uma's HDR-clamp rule (§1.2,
    `style-guide-v2.md` §5) so the flash doesn't bloom-blow-out.
 2. Wire a small `EnemyHitFlash` MonoBehaviour on each enemy that: caches `GetComponent<Renderer>()` in
    `Awake` (per `unity6-mastery.md` §5), calls `renderer.material` ONCE at init (auto-instantiates the
