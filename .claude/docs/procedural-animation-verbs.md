@@ -75,6 +75,24 @@ Set loop-pose blending on any Mixamo in-place looped clip (locomotion + idle + c
 
 **Siblings (same "wired but conditionally inert" family; the general debug-tool design rule lives in `unity-conventions.md` §Input System):** the axe-head PgUp/PgDn precondition trap (F9 nudge tool — axe-head resize silently no-ops unless the axe is the currently-held weapon) and the weapon-mesh-holder stomp (`unity-conventions.md` §FBX / rigs / characters — a rig-driven transform silently overwrites a debug nudge's per-frame write, so only the `localScale` dial visibly worked). All three are instances of a debug dial whose write SUCCEEDS at the data layer while a downstream gate — animation engagement weight, held-item precondition, or rig `LateUpdate` overwrite — silently discards its visible effect.
 
+## Sizing an additive arm offset: the `|Q|` blast-radius rule (`86caxgwbz`, PR #343)
+
+A fixed additive arm offset's **worst-case arc is capped by its own rotation magnitude `|Q|`**, and the per-clip variation is the fraction of that cap the clip's elbow fold realises. Measured across 22 live clips: `Euler(-5,-22,0)` is ≈22.6°, and observed arcs ran 9.3°→19.9° — **41%→88% of the ceiling**. Idle sits at the low end (elbow ≈149°, near-straight); attack and hit-react clips sit at the high end (elbow 44°–86°).
+
+**The sizing heuristic: dials under ~25° are clip-safe by construction; dials over ~40° need a state gate.** Magnitude alone does NOT tell you about self-intersection — DIRECTION depends on the full pose, so torso/head clearance must be measured separately and is not derivable from `|Q|`.
+
+## An additive offset gated on a GAMEPLAY signal instead of ANIMATION STATE is the trap shape (`86caxj30g`, PR #346 @ `884c611`)
+
+The always-on carry eulers survive precisely *because* they are unconditional and small (22/22 clips fit). The dangerous one is the **conditional** offset — and specifically one whose condition is a gameplay signal (velocity, held item) rather than the animation state. It then leaks into every clip it was never dialed against. Shipped instance: `runLowerEuler(-10,12,-42)` gated on `CastawayCharacter.IsRunning` — a velocity read — reached all 5 attack swings, because the swings carry no locomotion gate. Measured contamination: 45.8–47.6° arc / up to 0.896 SW distortion on every attack clip.
+
+**Rule: a `CastawayArmPose`-family additive offset gated on a gameplay signal must ALSO gate on Animator layer-0 state.**
+
+**And the layer-0 read must be transition-paired.** A gate that reads only `GetCurrentAnimatorStateInfo(0)` is wrong during a crossfade: the shipped controller reports `current=Locomotion, next=AttackAxe` for the *entire* `AnyState→Attack` blend (`CharacterAssetGen.WireAttackClass` sets `any.duration = 0.06f`), so a current-only gate stays "in lane" straight through it. **Pair it with `IsInTransition(0)` + `GetNextAnimatorStateInfo(0)`** — see `CastawayCharacter.LocomotionLaneOwnsPoseFor(currentHash, inTransition, nextHash)` (`CastawayCharacter.cs:788`, live read at `:805`).
+
+**Release must be asymmetric.** Handing the pose back to the clip has to out-run the swing: at the carry blend rate the overlay is still at weight 1.000 when the crossfade ends and only reaches 0.05 at ~0.62 s, against a ~1.05 s fast swing. The shipped fast-out (`CastawayArmPose.runLowerOverlayReleaseRate = 30f`, `:154`; policy in the pure `NextRunWeight(...)`, `:217`) reaches 0.011 by 0.150 s. **Corollary for tests: a regression guard asserting a low arc "while an attack state is active" is unachievable at swing ENTRY** — time-qualify the assert past the ease window.
+
+⚠ **Known residual on the exit side:** there is a ~0.3–0.5 s window after a swing ends where the overlay sits at ~0 while the player is still sprinting (re-exposes `86caa83wn`). A consequence of the fast-out, flagged for soak observation — check the exit direction, not just entry.
+
 ## Held-weapon seat dials are per weapon CLASS, not per material TIER (`86caffwv5`, PR #327 @ `250e4e6`)
 
 The in-hand seat (scale + local offset of the mesh-holder) is a property of the grip/haft GEOMETRY — the weapon CLASS — not the material tier: all three tiers of a class (stone/iron/wood) share the same family haft shape (the `blender-asset-pipeline.md` shared-style contract), so they seat identically. `HeldWeaponCycleDebug.WeaponMeshScale` (`HeldWeaponCycleDebug.cs:260`) and `WeaponMeshLocalOffset` (`HeldWeaponCycleDebug.cs:281`) apply ONE dial per class across all its tiers via shared per-index values: axe (indices 0/6/10) scale 1.0; dagger/knife (1/7/11) 0.771; sword (2/8/12) 0.950; spear (3/9/13) 0.900; pickaxe (4/5/14) 1.0 — harvested from the Sponsor's soak-6 final-dial log (`Build/soak-swings-6/sponsor-final-dial-Player.log`).
