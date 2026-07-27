@@ -132,6 +132,11 @@ namespace FarHorizon.PlayTests
         public IEnumerator MeleeAttack_PerformAttack_RoutesPerClassSwing_ToTheCharacter()
         {
             _go = new GameObject("swingRig");
+            // A BARE CastawayCharacter rig has no modelPrefab, so Awake→BuildModel logs a LogType.Error. UTF
+            // fails ANY test that emits an undeclared error, so declare it (the 9-sibling-file convention —
+            // WasdMovementPlayModeTests:119 et al). Expect (not ignoreFailingMessages) so any OTHER error in
+            // these tests still fails them. 86cavj8pf.
+            LogAssert.Expect(LogType.Error, "[CastawayCharacter] modelPrefab not wired — cannot build avatar");
             var character = _go.AddComponent<CastawayCharacter>();
             var attack = _go.AddComponent<MeleeAttack>();
             attack.player = _go.transform; attack.character = character;
@@ -163,6 +168,7 @@ namespace FarHorizon.PlayTests
         public IEnumerator TriggerChopAndTriggerMine_RouteAxeAndPickaxeClasses()
         {
             _go = new GameObject("verbRig");
+            LogAssert.Expect(LogType.Error, "[CastawayCharacter] modelPrefab not wired — cannot build avatar");
             var character = _go.AddComponent<CastawayCharacter>();
             yield return null;
 
@@ -183,6 +189,7 @@ namespace FarHorizon.PlayTests
             var inv = _go.AddComponent<Inventory>();
             inv.PickUpAxe(); // axe equipped + auto-selected
 
+            LogAssert.Expect(LogType.Error, "[CastawayCharacter] modelPrefab not wired — cannot build avatar");
             var character = _go.AddComponent<CastawayCharacter>();
             var attack = _go.AddComponent<MeleeAttack>();
             attack.player = _go.transform; attack.inventory = inv; attack.character = character;
