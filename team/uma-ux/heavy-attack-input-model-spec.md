@@ -14,6 +14,19 @@ build. Feeds the implementation ticket `86cau6prr`, which may cite these section
 > §1 below restates #326's conclusion in one paragraph and **corrects two of its code citations against live
 > `main`** — do not re-litigate the input choice here; do carry the corrections forward.
 
+> ### 🔒 VOCABULARY AUTHORITY
+> **`86cau6prr`'s pinned contract is authoritative over this spec.** Where the ticket names an identifier,
+> field, test file, or parameter, the ticket's name wins and this doc is what gets corrected — not the other
+> way round. Vocabulary settled in that contract and used verbatim here: `TriggerAttack(class, speed)` ·
+> `Chop` / `WeaponClass` / `ChopSpeed` · `AnyState→AttackX` · `AnimId*` · `WeaponClassForAnimationId` ·
+> `ActionsBlocked` · **`heavyWindupSeconds`** (the NEW field on `MeleeAttack` — *not* the resource verbs'
+> `swingImpactDelaySeconds`) · **`HeavyWindupNormT`** · and the no-orphan-anim-id invariant in
+> **`AttackSwingControllerTests` assertion 6** (*not* `WeaponSetTests`). The last two were corrected in the
+> ticket body on 2026-07-27 during this spec's review round; this doc matches the corrected ticket.
+> Names this spec *introduces* (`ShouldHeavyOnPress`, `RequestHeavyPress`, `WeaponDef.HeavyAnimationId`,
+> `AnimIdSwordHeavyOverhead`, `WeaponClassSwordHeavy`, `heavy_*` ids, `PopulateHeavyAttack`) are **proposals** —
+> if the impl ticket pins different ones, the ticket wins.
+
 ---
 
 ## 0. Tonal anchor — what the heavy should FEEL like
@@ -55,11 +68,13 @@ verb-wins-over-whiff arbitration), which #326 does not mention at all. §3.2 use
 
 **Correction 2 — and this one is load-bearing: THE COMBAT PATH HAS NO IMPACT DELAY TODAY.**
 `MeleeAttack.PerformAttack` fires the swing and calls `target.ApplyDamage(...)` **synchronously, in the same
-frame as the click** (`MeleeAttack.cs:204-238`). `swingImpactDelaySeconds` exists **only on the resource verbs**
+frame as the click** (`PerformAttack` spans `MeleeAttack.cs:204-239`; the `ApplyDamage` call is at **:229**).
+`swingImpactDelaySeconds` exists **only on the resource verbs**
 — `ChopTree.cs:256`, `MineBoulder.cs:127`, `MineOre.cs:122` — never on `MeleeAttack`. So the ticket's default
 *"impact lands at ~0.40 s"* and this spec's entire wind-up model **require a delayed-impact seam that does not
-yet exist in combat**. That is the single largest implementation implication of the commitment model, it is not
-visible in `86cau6prr`'s current body, and §4.4 specs it. It also carries a regression risk the dev must guard:
+yet exist in combat**. That is the single largest implementation implication of the commitment model, and §4.4
+specs it. *(`86cau6prr`'s 🎚️ block now carries this correction — the wind-up default is a new
+**`heavyWindupSeconds`** field on `MeleeAttack`, updated 2026-07-27.)* It also carries a regression risk:
 **the LIGHT path must keep its synchronous, zero-delay damage** — it shipped that way and the Sponsor has
 soaked it.
 
@@ -72,7 +87,7 @@ soaked it.
 | Light input | `Input.GetMouseButtonDown(0)` (+ `RequestAttackClick()` latch for headless/capture) | `MeleeAttack.cs:161,165` |
 | Light guard (pure, static, testable) | `ShouldSwingOnClick(weaponSelected, verbClaimedClick, uiPanelOpen, pointerOverUI, rmbHeld)` | `MeleeAttack.cs:154` |
 | Single-flight | `_lastAttackAt` + `baseAttackCooldown = 0.35 s`, divided by `weapon.AttackSpeed` | `MeleeAttack.cs:77,186-188` |
-| Damage timing | **immediate, same frame as the click** | `MeleeAttack.cs:207-229` |
+| Damage timing | **immediate, same frame as the click** | `PerformAttack` `MeleeAttack.cs:204-239`; `ApplyDamage` at `:229` |
 | Whiff policy | one click = one swing **target or not**; damage alone is target-gated (soak-2 fix) | `MeleeAttack.cs:139-141` |
 | Verb precedence | chop / boulder-mine / ore-mine claim the click when their tool is selected + target in range → the attack suppresses its whiff | `MeleeAttack.cs:251-268` |
 | Swing routing | `TriggerAttack(weaponClass, speed)` → `WeaponClass` int + `ChopSpeed` float + the shared `Chop` trigger → `AnyState→AttackX` | `CastawayCharacter.cs:586` |
@@ -82,11 +97,32 @@ soaked it.
 | Tier surface | `SurvivalNeed.DifficultyTier` (Easy/Medium/Hard); live read = `DeathHandler.tier`; enemies + `Health` already scale per tier | `Health.cs:122`, `BoarEnemy.cs:40-78` |
 | Wind-up precedent (reuse the idiom) | `BoarAI` `Wander→Chase→Windup→Charge→Cooldown`, `windupSeconds = 0.7`, direction commits at the tell's END, `WindupNormT` normalized accessor for headless determinism | `BoarAI.cs:49,90-101,138-140` |
 
-**⚠ One clip, two meanings.** The reserved heavy clip `Melee_Attack.fbx` is the Mixamo overhead — and that
-overhead is *already* the **axe light** swing (`AxeSwingClipName = "CastawayAxeSwing"`,
-`CastawayCharacter.cs:320`). So the sword heavy will play the same motion the axe chop plays. That is
-acceptable (different prop in hand, different cadence, different juice band) but it is a **read hazard**, and
-§5.4 names both the mitigation and the escape route.
+**✅ The heavy has its OWN clip, and its Animator state already exists — dormant.** *(Corrected in review: an
+earlier draft of this spec claimed the reserved heavy and the axe light swing were the same motion. **That was
+wrong** — it inferred the FBX from the runtime const `AxeSwingClipName = "CastawayAxeSwing"`
+(`CastawayCharacter.cs:320`), which does not name its source file, and it predated `86caffwv5` landing five new
+per-class swing FBXs. The editor file that *does* name sources refutes it.)*
+
+| | Source FBX | Clip | Where it plays |
+|---|---|---|---|
+| **Axe LIGHT** | `Attack_Axe.fbx` (`CharacterAssetGen.cs:83`) | `CastawayAxeSwing` (`:253` — *"Attack_Axe.fbx (one-shot power chop)"*) | `AttackAxe` state, wired from `axeSwing = FindClip(AttackAxeFbxPath, AxeSwingClip)` (`:1213`), imported `:405` |
+| **Reserved HEAVY** | `Melee_Attack.fbx` (`:77`) | **`CastawayMelee`** (`:248`), renamed on import by `ConfigureMeleeFbx` (`:1097-1116`) | the **dormant `Attack` state** (`:1381-1385`) |
+
+Two distinct Mixamo takes, two distinct files. The reserved state's own comment (`CharacterAssetGen.cs:1373-1380`)
+is explicit: its incoming `AnyState→Attack` transition was **removed** in `86caffwv5`, but *"the STATE + its clip
++ its return transitions are KEPT — it is RESERVED for the future sword HEAVY attack … dormant until the
+heavy-attack ticket wires it. Do NOT delete, remap, or repurpose it."*
+
+**Two consequences, both good for the impl:**
+1. **The heavy's Animator state does not need to be created — it needs to be RE-WIRED** (§7.2 step 3). That is
+   an even cleaner fit for the ticket's *extends-never-re-architects* constraint than adding a sixth state.
+2. **The heavy is a genuinely different motion from every shipped light**, so the read (§5) rests on real
+   animation difference, not on cadence and juice alone.
+
+The overhead becomes the axe's motion on exactly one path: `WireAttackClass` passes `melee` as a **defensive
+fallback used only if a per-class clip is missing** (`:1560-1570`, `state.motion = clip != null ? clip :
+fallback;` + a `LogWarning`). `Attack_Axe.fbx` is present, so that is a degraded-ship guard, not the shipped
+state.
 
 **⚠ Do not slow the heavy down to sell weight.** `SwingSpeedSword = 1.5` carries the comment *"soak-5: sword
 slash 'way too slow' at 1.0 → 1.5×"* — the Sponsor has already rejected a slow sword once. The heavy plays the
@@ -131,7 +167,7 @@ Pure, static, dependency-free, EditMode-testable with no scene (mirrors the ship
 
 ### 3.3 One press = one heavy — the exclusivity + drop rules
 
-1. **Edge-triggered only** (`Input.GetKeyDown`), plus a `RequestHeavyClick()`-style latch so headless PlayMode
+1. **Edge-triggered only** (`Input.GetKeyDown`), plus a `RequestHeavyPress()`-style latch so headless PlayMode
    and the shipped capture drive the same path (the `RequestAttackClick` precedent, `MeleeAttack.cs:161`).
 2. **Same-frame arbiter, heavy wins:** `if (heavyEdge) PerformHeavy(); else if (lightEdge) PerformAttack();`
    — mutually exclusive by construction, over **one shared `_lastAttackAt`** gate. A light and a heavy can
@@ -180,9 +216,11 @@ on read, which deletes the risk half of risk/reward and makes the tell meaningle
 | **Player death** | Aborts immediately; the death sequence owns the character. |
 | **Target dies / leaves reach mid-wind-up** | The swing **completes and whiffs**. Do NOT re-target mid-flight and do NOT cancel — re-targeting is auto-aim, cancelling is the free option. Target resolution happens **once, at IMPACT** (§4.4). |
 
-**Explicitly NOT interrupts:** taking damage (a flinch that eats your committed swing is the most frustrating
-beat in melee games, and it is exactly wrong for a kid tier); jumping or moving (movement is damped, not
-forbidden); switching belt slots (the swing already fired — let it land; the *next* press reads the new item).
+**Explicitly NOT interrupts:** **taking damage** — a flinch that eats your committed swing is the most
+frustrating beat in melee games and it punishes the kid tier hardest. **This is a soak dial, not an invariant —
+registered as §8.4b**, defaulted NO; a Hard-only `heavy_flinch_cancel` is a defensible tier dial if the Sponsor
+wants it. Also not interrupts: jumping or moving (movement is damped, not forbidden); switching belt slots (the
+swing already fired — let it land; the *next* press reads the new item).
 
 ### 4.3 Cooldown, not stamina
 
@@ -219,10 +257,20 @@ Here, *before* is the important one — it is what makes the commitment fair.
 | **At** (impact) | hit-stop **2 frames**, Impulse ~**0.06 u**, ≤**8** particles, a clean sweeping *cut* | hit-stop **3 frames** (the hard cap), Impulse ~**0.10 u**, ≤**12** particles, a deeper *thud* under the cut |
 | **After** (aftermath) | recovery invisible (0.28 s, reads continuous) | **0.55 s settle** you can see: follow-through past the low point, then rise; movement ramps back |
 
+**The strongest differentiator is one this table understates: the two motions travel on different AXES.** The
+sword light is a sideways slash (`CastawaySwordSlash` ← `Attack_Sword.fbx`); the heavy is a downward overhead
+(`CastawayMelee` ← `Melee_Attack.fbx`, Mixamo *"Standing Melee Attack Downward"*) — two distinct clips (§2).
+That is the Sponsor's own framing of the feature, verbatim: *"sword should have a real slash (sideways swing)
+it should also have heavy attack (swing from above)"* (`86cau6prr` Source). Horizontal-vs-vertical is legible
+at gameplay framing in a single frame, before cadence or juice contributes anything.
+
 Every value above is the **top of the shipped band, not a new band** — `game-juice.md` §1.2 caps hit-stop at 3
-and `combat-cluster-design-brief.md` §1.2 already assigns axe/pickaxe 3 frames and sword/spear 2. The heavy
-takes the axe row because it *is* the axe motion. **Nothing here exceeds a cap; the heavy simply sits at the
-ceiling the light sits below.** That is the whole differentiation budget, and it is enough.
+and `combat-cluster-design-brief.md` §1.2 already assigns axe/pickaxe 3 frames and sword/spear 2. **The heavy
+takes the 3-frame row on its own merits** — it is the weightiest strike in the game, a full-body overhead
+commit, and `86cau6prr` already defaults it to 3. *(An earlier draft justified the 3 by claiming the heavy
+"is the axe motion" — that premise was refuted in review (§2); the value stands, the reasoning is replaced.)*
+**Nothing here exceeds a cap; the heavy simply sits at the ceiling the light sits below.** That is the whole
+differentiation budget, and it is enough.
 
 ### 5.2 The anticipation cue — motion first, one audio layer, nothing else
 
@@ -257,15 +305,25 @@ Fires on the **IMPACT frame** (§4.4), i.e. the delayed frame, not the press fra
 - **Impact audio:** the light's sword bank with a **deeper thud layered under**, ±10 % pitch. Reuse the bank —
   4–6 clips per material is the shipped floor (`combat-cluster-design-brief.md` §1.2). `<deferred — no audio bus>`.
 
-### 5.4 The shared-clip read hazard, and its escape route
+### 5.4 The residual read question — checkable in-editor, before the soak, with no new art
 
-The sword heavy plays the axe's overhead (§2). Differentiation therefore rests on: the prop in hand, playback
-1.0 vs 1.5, the wind-up audio cue, the top-of-band impact band, and the visible 0.55 s settle.
+The heavy has its own clip and its own axis (§2, §5.1), so the light-vs-heavy read is **not** at risk. One
+honest residual remains: `CastawayMelee` (the heavy) and `CastawayAxeSwing` (the axe light) are **both downward
+chop-family takes** — `Attack_Axe.fbx` is commented *"one-shot power chop"* (`CharacterAssetGen.cs:253`) and
+`Melee_Attack.fbx` is Mixamo *"Standing Melee Attack Downward"*. A player who has been chopping trees and then
+throws a sword heavy sees two downward swings. **Do they read as distinctly different motions, or as the same
+swing twice?**
 
-**If at soak the heavy reads as "the axe chop, but holding a sword," the fix is a DEDICATED heavy clip — a new
-Mixamo source for a two-hand overhead or a committed downward cleave — NOT more juice.** Cranking amplitude to
-paper over a motion problem is how a calm game turns loud. Name this in the soak ask so the Sponsor can judge
-the motion, not just the feel. **Sponsor judges at soak.**
+**This needs no new art and no pre-implementation decision.** Both clips are in the tree today. The check is an
+**in-editor A/B: play `CastawayMelee` and `CastawayAxeSwing` back-to-back on the v4 rig and look.** Do it during
+implementation, before the build goes out for soak, and put the answer in the Self-Test Report.
+
+- **If they read distinctly** (the expected outcome — different Mixamo takes, different weapon in hand, 1.0 vs
+  1.0 playback but different arcs): ship as-is, nothing further.
+- **If they read as the same swing:** the *first* lever is the ones already spec'd — the prop, the wind-up cue
+  (§5.2), the top-of-band impact (§5.3), the visible 0.55 s settle (§4.1). **Sourcing a dedicated cleave clip is
+  the post-soak escape route, not a pre-impl step** — and if it is ever reached, the fix is the *motion*, never
+  more amplitude. Cranking juice to paper over a motion problem is how a calm game turns loud.
 
 ---
 
@@ -317,9 +375,9 @@ shipped convention: each feature adds its own `Populate`, never grows the base s
 
 | Class | `WeaponClass` | Light today | Heavy verdict | Motion that would fit | What it needs |
 |---|---|---|---|---|---|
-| **Sword** | 4 | `CastawaySwordSlash` @ 1.5 | **SHIP FIRST** | the reserved overhead @ 1.0 | nothing new — clip is in-repo |
+| **Sword** | 4 | `CastawaySwordSlash` @ 1.5 (sideways) | **SHIP FIRST** | the reserved overhead `CastawayMelee` @ 1.0 (downward) | nothing new — clip **and** its dormant state are already in-repo |
 | **Spear** | 3 | `CastawaySpearThrust` @ 1.2 | **best second candidate** | a committed two-hand lunge — reach + commitment is already the spear's identity, and it is the boar-matchup weapon | one new Mixamo clip |
-| **Axe** | 0 | the overhead @ 1.0 | **deferred — blocked on motion, not on model** | its light *is* the overhead, so a heavy needs a visibly bigger motion (two-hand wind, or a step-through cleave) | one new clip; without it the heavy is invisible |
+| **Axe** | 0 | `CastawayAxeSwing` @ 1.0 (downward power chop) | **deferred — blocked on motion, not on model** | a visibly bigger commit than its light: a two-hand wind or a step-through cleave. Note the axe light is *already* a downward power chop, so an axe heavy has the least motion headroom of the five | one new clip; reusing `CastawayMelee` here would collide with the sword heavy |
 | **Pickaxe** | 1 | `CastawayPickaxeSwing` @ 1.5 | **low priority** | — | it is a tool that can fight, not a fighting tool |
 | **Dagger** | 2 | `CastawayDaggerStab` @ 1.0 | **NO heavy — by design** | — | the dagger's identity is tempo; a heavy dagger is a contradiction, and a "flurry" heavy would breach one-press-one-strike |
 
@@ -331,10 +389,18 @@ Extend the shipped routing; do not re-architect it (`86caxh64q` constraint):
    (§3.2) is exactly `HeavyAnimationId != null`. Sword-first = one non-null row.
 2. **`WeaponCatalog` gains an `AnimId*` const per heavy** (e.g. `AnimIdSwordHeavyOverhead = "sword_heavy_overhead"`)
    and a matching row in `WeaponClassForAnimationId` → a **new `WeaponClass` int (5, then 6…)**. No orphan id
-   may exist — that is the `WeaponSetTests` invariant.
-3. **`CastawayCharacter` gains one `WeaponClassSwordHeavy = 5` const, one clip-name const, one
-   `SwingSpeedForClass` case** (1.0), and the controller gains **one `AnyState→AttackSwordHeavy` state** on
-   (`Chop` && `WeaponClass == 5`). Same pattern as the five shipped classes — **no new Animator layer, no
+   may exist — that invariant lives in **`Assets/Tests/EditMode/AttackSwingControllerTests.cs` assertion 6**
+   (lines 28 / 229 / 248-255), **not** in `WeaponSetTests.cs`, which carries no `AnimationId` assertion.
+   *(Both this spec and `86cau6prr` said `WeaponSetTests` until 2026-07-27; the ticket is corrected and this
+   matches it.)*
+3. **`CastawayCharacter` gains one `WeaponClassSwordHeavy = 5` const and one `SwingSpeedForClass` case** (1.0).
+   **The Animator state already exists — RE-WIRE it, do not add a sixth.** The dormant `Attack` state
+   (`CharacterAssetGen.cs:1381-1385`) already holds `CastawayMelee` and its return transitions, and is
+   `ChopSpeedParam`-driven; it is reserved for exactly this and its comment forbids deleting or repurposing it
+   (`:1373-1380`). The wiring is **one incoming `AnyState→Attack` transition on (`Chop` && `WeaponClass == 5`)**
+   — the same `WireAttackClass` idiom the five shipped classes use. *(If the impl prefers renaming that state to
+   `AttackSwordHeavy` for symmetry with `AttackAxe`/`AttackSword`, that is a **rename of the existing state**,
+   never a second state — the ticket's vocabulary governs the final name.)* **No new Animator layer, no
    AvatarMask, no second trigger system, no procedural swing**
    (`[[chop-swing-mixamo-clip-not-procedural]]`, `procedural-animation-verbs.md`).
 4. **Adding the spear heavy later = one clip + one const + one row + one state.** Zero input changes, zero
@@ -349,10 +415,14 @@ through `ResolveNearestTarget(weapon.Reach)` over `Health` components and never 
 `ChopTree`/`MineBoulder`/`MineOre`.** State this as an explicit non-goal in the impl PR body; it is the kind of
 thing that ships correct and then regresses when the axe heavy lands.
 
-**Rig fact carried forward from `heavy-attack-input-spec.md` §7 — do not chase the ticket's wording:** the live
-v4 rig **and** `Melee_Attack.fbx` are both `animationType: 2` = **GENERIC, not Humanoid**. Do not set the clip
-to Humanoid (the explode-to-a-cone trap on this scaled hierarchy). Retargeting is transform-path bone-name
-binding, and the overhead already plays on v4 today.
+**Rig fact — GENERIC, not Humanoid.** The live v4 rig **and** `Melee_Attack.fbx` are both `animationType: 2` =
+**GENERIC** (`v4/castaway_v4_rigged.fbx.meta:101`, `Melee_Attack.fbx.meta:130`). Do not set the clip to
+Humanoid — that is the explode-to-a-cone trap on this scaled hierarchy (`86ca8rdkp`). `ConfigureMeleeFbx`
+sets Generic + `CreateFromThisModel` deliberately (`CharacterAssetGen.cs:1097-1116`), so binding is by
+transform-path bone name, and the clip is **already imported and bound against the v4 rig today** — what is
+dormant is its Animator state's incoming transition (§2), not the binding. *(`86cau6prr`'s rig constraint said
+"confirm the reserved clip's **Humanoid** avatar" until 2026-07-27; that was backwards and is now corrected in
+the ticket to GENERIC with a grep-it-yourself instruction. Follow the corrected ticket.)*
 
 ---
 
@@ -364,11 +434,19 @@ binding, and the overhead already plays on v4 today.
 | 2 | Commitment weight — total lockout ≈0.95 s vs the light's ≈0.28 s | 0.40 wind-up + 0.55 recovery | §4.1 |
 | 3 | Movement damping during commitment | 0.4× (not rooted) | §4.1 |
 | 4 | Player-cancel | **none** — commitment is the cost | §4.2 |
+| 4b | **Flinch-cancel** — should taking damage mid-wind-up abort the heavy? | **NO** — a committed swing survives being hit | §4.2 |
 | 5 | Does hit-stop 3 read "solid" or "stunned"? | 3 (the cap); drop to 2 if stunned, never 4 | §5.3 |
-| 6 | Does the heavy read distinct from the axe chop, sharing its clip? | ship shared; escape route = a dedicated clip | §5.4 |
+| 6 | Do the two downward takes (`CastawayMelee` heavy vs `CastawayAxeSwing` axe light) read as distinct motions? | ship on the reserved clip; **answer the in-editor A/B during impl, before the soak** — a dedicated cleave is the post-soak escape route only | §5.4 |
 | 7 | Wind-up audio cue character (breath+whoosh, −18 dB) | spec'd, `<deferred — no audio bus>` | §5.2 |
 | 8 | Should easy get a real damage bump, or is enemy HP the right axis? | flat 2.0×; tune enemy HP first | §6 |
 | 9 | Spear second, or roster-wide sooner? | spear second | §7.1 |
+
+**On 4b (flagged in review as decided-by-omission):** flinch-cancel is a standard design axis and the kid tier
+is exactly where it gets argued, so it belongs in this register rather than buried in §4.2's prose. It is
+spec'd **NO** on tonal grounds — losing a committed swing to a hit you could not react to is the most
+frustrating beat in melee, and it punishes the easy tier hardest. Treated as a **soak dial, not an invariant**:
+if the Sponsor wants hard-tier flinch-cancel, that is a defensible tier dial (a `heavy_flinch_cancel` bool,
+Hard-only) and not a redesign.
 
 ---
 
@@ -385,7 +463,9 @@ binding, and the overhead already plays on v4 today.
 7. **Verb isolation** — with an axe selected and a tree in range, a heavy press deals **no** tree damage and
    yields **no** wood.
 8. **Stun drop** (if `86cah7yuh` landed) — heavy press while blocked ⇒ 0 swings, 1 chip-flash event.
-9. **No orphan anim id** — the new heavy `AnimId` maps to a `WeaponClass` (`WeaponSetTests` invariant).
+9. **No orphan anim id** — the new heavy `AnimId` maps to a `WeaponClass`; extend
+   **`AttackSwingControllerTests` assertion 6** (`Assets/Tests/EditMode/AttackSwingControllerTests.cs`,
+   lines 28 / 229 / 248-255), **not** `WeaponSetTests`.
 10. **Tier dial writes both** active field and active-tier map entry (dead-knob guard).
 11. **Hit-stop ceiling** — `heavy_hitstop_frames` cannot be set above 3.
 12. **Shipped-build capture** — the heavy swing + its visible settle captured from the **built exe**, windowed
@@ -422,19 +502,29 @@ meter or stamina system (Q3-A / Q4-A, already answered `A` in `heavy-attack-inpu
 - **Decision draft:** "Heavy-attack commitment model (`86caxh64q`): the heavy is **not player-cancellable** —
   commitment is the entire cost. Four phases (wind-up 0.40 s → impact → recovery 0.55 s → ready ≈0.95 s), vs the
   light sword's ≈0.28 s lockout. Cost is TIME, never stamina and never a gauge. Interrupts limited to stun and
-  death; taking damage does **not** cancel a committed swing (kid-tier frustration)."
+  death; taking damage does **not** cancel a committed swing (kid-tier frustration). **Default pending the
+  Sponsor soak — no-player-cancel is §8.4, no-flinch-cancel is §8.4b, commitment weight is §8.2.**"
 - **Decision draft:** "Heavy-attack requires a **delayed-impact seam on `MeleeAttack`** that does not exist
-  today — combat damage is currently synchronous-on-click (`MeleeAttack.cs:207-229`) and
-  `swingImpactDelaySeconds` lives only on the resource verbs. Target resolution moves to the impact frame **for
-  the heavy only**; the light path keeps synchronous damage (soaked behaviour)."
+  today — combat damage is applied synchronously in the click frame (`PerformAttack` `MeleeAttack.cs:204-239`,
+  `ApplyDamage` at `:229`) and `swingImpactDelaySeconds` lives only on the resource verbs (`ChopTree.cs:256`,
+  `MineBoulder.cs:127`, `MineOre.cs:122`). The new field is **`heavyWindupSeconds`** on `MeleeAttack`; target
+  resolution moves to the impact frame **for the heavy only**; the light path keeps synchronous damage (soaked
+  behaviour). Verified code fact — **no soak qualifier needed.**"
 - **Decision draft:** "Heavy per-tier axis is **recovery length + movement damping**, not damage. The damage
-  multiplier row is exposed but defaulted flat at 2.0× across tiers, because enemy HP and
+  multiplier row is exposed but defaulted flat at 2.0× across tiers, because enemy HP (`BoarEnemy` 32/50) and
   `Health.damageTakenMul` already scale per tier — three multiplicative axes on one number would drift easy to
-  one-shotting."
+  one-shotting. **Default pending the Sponsor soak (§8.8).**"
 - **Decision draft:** "Heavy roster path: **sword first, spear second**; dagger gets **no heavy** by design
   (tempo is its identity); axe/pickaxe heavies are blocked on a new clip, not on the model. Expansion is a
   data row + one Animator state (`WeaponDef.HeavyAnimationId` → new `AnimId` → new `WeaponClass` 5+), never a
-  new input path."
+  new input path. **Default pending the Sponsor soak (§8.9).**"
+- **Decision draft:** "Heavy-attack clip provenance (corrects a refuted claim in this spec's first draft): the
+  reserved heavy is **`CastawayMelee` ← `Melee_Attack.fbx`**, DISTINCT from the axe light
+  **`CastawayAxeSwing` ← `Attack_Axe.fbx`** (`CharacterAssetGen.cs:77,83,248,253,405,1213`). Its Animator state
+  **already exists and is dormant** (`:1373-1385`) — the impl **re-wires** that reserved state with one
+  `AnyState→Attack` transition on (`Chop` && `WeaponClass == 5`) rather than adding a sixth state. The overhead
+  is the axe's motion only via `WireAttackClass`'s missing-clip fallback (`:1560-1570`), which is a
+  degraded-ship guard, not the shipped state. Verified code fact — **no soak qualifier needed.**"
 
 ---
 
@@ -451,7 +541,9 @@ meter or stamina system (Q3-A / Q4-A, already answered `A` in `heavy-attack-inpu
 - **Docs:** `.claude/docs/game-juice.md` §0 / §1.2 / §2 · `.claude/docs/procedural-animation-verbs.md` ·
   `.claude/docs/unity6-mastery.md` §2 (GRD / MPB) · `.claude/docs/vision-far-horizon-game-concept.md` ·
   `team/quality-bars.md` #2 / #3 / #7 · `team/TESTING_BAR.md` (Predict-Before-Soak + bounded convergence).
-- **Code (read-only, cited):** `Assets/Scripts/Runtime/Combat/MeleeAttack.cs` ·
+- **Code (read-only, cited):** `Assets/Scripts/Editor/CharacterAssetGen.cs` (clip provenance §2 + the dormant
+  reserved state + `WireAttackClass`) · `Assets/Tests/EditMode/AttackSwingControllerTests.cs` (assertion 6, the
+  no-orphan-anim-id invariant) · `Assets/Scripts/Runtime/Combat/MeleeAttack.cs` ·
   `Assets/Scripts/Runtime/Combat/WeaponCatalog.cs` · `Assets/Scripts/Runtime/CastawayCharacter.cs` ·
   `Assets/Scripts/Runtime/Combat/Health.cs` · `Assets/Scripts/Runtime/Combat/BoarAI.cs` (wind-up idiom) ·
   `Assets/Scripts/Runtime/Combat/BoarEnemy.cs` · `Assets/Scripts/Runtime/ChopTree.cs` (impact-delay arithmetic) ·
@@ -469,11 +561,18 @@ meter or stamina system (Q3-A / Q4-A, already answered `A` in `heavy-attack-inpu
 
 ## Sponsor-input items (for the popup — decided by the Sponsor, not here)
 
-All nine live in §8 with their spec'd defaults. **None of them block implementation** — every one has a
-defensible default the dev can build against and the soak can then move. The two worth putting in front of him
-first, because they change what gets built rather than what gets tuned:
+All ten live in §8 with their spec'd defaults. **None of them block implementation** — every one has a
+defensible default the dev can build against and the soak can then move.
 
-1. **§8.6 — the shared-clip read.** If he wants the heavy to read unmistakably distinct from the axe chop, a
-   dedicated Mixamo overhead should be sourced *before* the impl dispatch, not after the soak.
-2. **§8.2 — commitment weight.** ≈0.95 s is a real beat of vulnerability. If that reads as too punishing for
-   the kid tier even at easy's 0.40 s recovery, the recovery defaults move before implementation.
+**Exactly ONE is a genuine pre-implementation call:**
+
+1. **§8.2 — commitment weight.** ≈0.95 s total lockout (0.40 wind-up + 0.55 recovery) against the light's
+   ≈0.28 s is a real beat of vulnerability, and it is a **build-shaping number, not a tuning number** — the
+   phase structure in §4.1 is what gets implemented. If ≈0.95 s reads as too punishing for the kid tier even at
+   easy's 0.40 s recovery, the defaults should move *before* the impl dispatch.
+
+**Everything else is a soak dial** — including the read question at §8.6, which an earlier draft wrongly
+elevated to a pre-impl art-sourcing decision on a refuted premise. The heavy has its own clip and its own
+Animator state already in-repo (§2); the residual *"do the two downward takes read distinctly?"* question is
+answered by an **in-editor A/B of two existing clips during implementation** (§5.4), needs no new art, and
+gates nothing. Do not put an asset-sourcing question in front of the Sponsor for it.
