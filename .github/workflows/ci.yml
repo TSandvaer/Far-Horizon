@@ -472,7 +472,9 @@ jobs:
   # STILL WINDOWED (-screen-fullscreen 0) — the OVERLAY gates whose deliverable is an IMGUI / UI-Toolkit
   # SCREEN overlay that never composites into a camera RT (backbuffer ScreenCapture is dead headless —
   # empirically re-confirmed): SETTINGS (UI-Toolkit panel), LOOT + WATER (IMGUI prompt), INV-DRAG-GHOST
-  # (UI-Toolkit) — AND POND (verify_pond_gate.sh: scene-content + convertible, but its 7 finely-tuned
+  # (UI-Toolkit) — PLUS the components that call ScreenCapture.CaptureScreenshot + WaitForEndOfFrame
+  # directly and so cannot convert without a rewrite: WEAPON-SET and BOAR (86cavg2k1 NIT 2) —
+  # AND POND (verify_pond_gate.sh: scene-content + convertible, but its 7 finely-tuned
   # #130-nine-round-soak perceptual gates are deferred to a careful follow-up so a blind convert can't
   # false-green the very percept the pond gate exists to guard). Because those gates still need a window,
   # this whole job STAYS PINNED to runner-1 + SERIAL for now; unpinning is AC4 (86cag93zb), which splits
@@ -513,12 +515,12 @@ jobs:
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
                 ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
-                ci-out/verify-boulder.log ci-out/verify-buildmenu.log
+                ci-out/verify-boulder.log ci-out/verify-buildmenu.log ci-out/verify-boar.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
                  ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
-                 ci-out/boulder-caps ci-out/buildmenu-caps
+                 ci-out/boulder-caps ci-out/buildmenu-caps ci-out/boar-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -1071,6 +1073,53 @@ jobs:
           path: |
             ci-out/boulder-caps/*.png
             ci-out/verify-boulder.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 18. Wild-boar loop (find → aggro → windup → CHARGE → gore → spear-kill → despawn, plus the
+      #     spear-out-damages-axe MATCHUP measurement) shipped-build capture gate (ticket 86cavg2k1 NIT 2 —
+      #     the CI-wiring follow-up from Devon's PR #332 peer-review, review 4754125364, verbatim: "`git grep
+      #     verifyBoar -- .github/workflows/ci.yml` = 0 today; the gate is baked into the committed Boot scene
+      #     (BoarSceneTests.BootScene_CarriesBoarVerifyCapture_Serialized) but never runs in CI, so
+      #     boar-render regressions are ungated"). -verifyBoar (BoarVerifyCapture.cs) has PASSED since #332
+      #     (the 2026-07-22 boar soak) but was NEVER a CI gate, so a real break in the boar loop OR its render
+      #     (body rig / inline BoarMat / charge pose) would slip straight through GREEN CI exactly like the
+      #     #165 chop / -verifyMine / -verifyBoulder class — the generic -captureGate (step 7) only shoots the
+      #     default spawn frame (the boar is un-aggroed and may not even be in frame), so nothing about the
+      #     boar loop is exercised. This launches the SAME built exe WINDOWED with -verifyBoar, driving
+      #     BoarVerifyCapture: yaw the REAL OrbitCamera at the wandering boar + assert IN-FRAME (AC5), shoot a
+      #     LOW SIDE-PROFILE silhouette frame (lowpoly-quality §0 — a 4-legged animal standing ON the ground),
+      #     WALK the real player in through the production WasdMovement override seam until aggro → windup →
+      #     charge → gore land (asserting the gore HP delta equals the tier's expected value through the
+      #     shared seam), MEASURE one axe hit vs one spear hit on the live boar's resistance (the spear must
+      #     out-damage the higher-base axe — EMERGENT, not a table), then spear-kill + despawn. The component
+      #     Quit(1)s on any failure (or missing wiring from Boot.unity), so the exe's exit code IS the gate
+      #     verdict; frame_check.py is a swapchain-content backstop. WINDOWED (-screen-fullscreen 0), NOT
+      #     -batchmode: the component uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame, both dead
+      #     headless — it CANNOT convert to the 86cag93zb RT-readback path without a rewrite (same boundary as
+      #     the weapon-set gate at step 15). Runs only when the build produced an exe; frames + log upload
+      #     AFTER (if: always()) so the boar evidence survives a fail.
+      - name: Boar capture gate (find → aggro → windup → charge → gore → spear-kill → despawn)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_boar_gate.sh
+            .github/workflows/scripts/verify_boar_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/boar-caps ci-out/verify-boar.log
+          else
+            echo "[verify-boar] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload boar frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-boar-caps-${{ github.sha }}
+          path: |
+            ci-out/boar-caps/*.png
+            ci-out/verify-boar.log
           if-no-files-found: warn
           retention-days: 3
 
