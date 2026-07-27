@@ -577,3 +577,14 @@ Sponsor drained the clickable queue in one pass before going away. **Every item 
 - **A. ⭐⭐ PR #337 pickaxe-mine soak** — unchanged, full package at the `⭐⭐ SOAK` block above (exe `C:\Trunk\PRIVATE\Far-Horizon-drew-swings-wt\Build\soak-pickaxe-1\FarHorizon.exe`, stamp `1194927`, TRUE-side-view instruction). Still the ONLY gate on #337.
 - **B. Icon contact-sheet picks** — `C:\Trunk\PRIVATE\Far-Horizon-drew-wt\art-src\iconbaker-proto\contact-sheet.png` (`86camyvwn` in progress; ore S1/S2/S3 + ingot S4 + variant A–D; the ingot has NO real mesh — stand-in, flagged).
 - **C. Branch protection + the `86camz787` merge** — the browser steps are in the `⭐ STAGED 2026-07-27` block above. Now paired: the ci.yml flip PR will ALSO need a browser merge (workflow-perm), and if protection is enabled first its required-check name list must include the renamed playmode job.
+
+## ⭐ NEW 2026-07-27 ~23:1xZ — orch/coordination is 96 commits UNPUSHED (your call: push or leave)
+**Measured, not estimated:** local `orch/coordination` HEAD `1c4b5aa`; `origin/orch/coordination` sits at `7afdb0d` = **96 commits behind**. Tonight's DECISIONS entries return **zero hits** on the remote ref.
+
+**Two consequences:**
+1. **Exposure.** 96 commits of coordination work (every decision logged tonight, all STATE headers, the away-queue, decisions-while-away) exist on ONE disk. This is the same class as the 2026-07-22 incident that cost three weeks of unstaged work — committed is safer than uncommitted, but unpushed is still a single point of failure.
+2. **Nothing can cite them.** A PR, spec or research note that references `team/DECISIONS.md:<line>` hands its reader a dead link — this already produced a REQUEST_CHANGES on PR #348 tonight. Mitigated by a new rule (cite ticket ids + merged SHAs, never coordination-doc lines), but the underlying unreachability stays until a push or a harvest.
+
+**Why I did not just push it:** the repo is PUBLIC (your 2026-07-27 decision), so pushing 96 commits of internal coordination — decision logs, away-queue, orchestrator process notes — is an outward-facing action on a public repo. That is on the never-auto-decide list, so it is your call, not mine.
+
+**Options when you're back:** (a) push it — fastest fix for both problems, but it publishes the coordination trail; (b) leave it and rely on the next harvest PORT to carry the doc-worthy parts to `main` (slower, selective, keeps process notes private); (c) push it to a private mirror instead.
