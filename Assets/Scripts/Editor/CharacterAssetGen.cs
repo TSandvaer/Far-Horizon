@@ -415,9 +415,10 @@ namespace FarHorizon.EditorTools
             // per-authored-frame whole-skeleton step is a smooth 20.8deg peak, so the #197 slerp-resampler no-ops)
             // and the left arm is the most TUCKED of the five, not flung — both earlier hypotheses are refuted in
             // PickaxeMineCurveFix's docstring. The fix scales the pelvis hinge toward the clip's own frame-0 anchor
-            // (K=0.45 -> peak tilt inside the unflagged axe-swing band) and EXACTLY compensates both upper legs so
-            // the planted feet do not swing with it; spine/arms/head/root-motion copied verbatim. Runs AFTER the
-            // FBX import (reads the imported clip) and BEFORE BuildAnimatorController (which binds this .anim).
+            // (HipFoldBlend=0.58 -> peak tilt 42.2deg, inside the unflagged axe swing's 43.3deg band; K=0.45 was an
+            // intermediate calibration step that measured 47.0deg and does NOT ship) and EXACTLY compensates both
+            // upper legs so the planted feet do not swing with it; spine/arms/head/root-motion copied verbatim.
+            // Runs AFTER the FBX import (reads the imported clip) and BEFORE BuildAnimatorController (binds it).
             // Committed .anim ships it (the FBX/.meta stays Generic/animationType:2, untouched — no re-export).
             {
                 var pickSb = new System.Text.StringBuilder();
