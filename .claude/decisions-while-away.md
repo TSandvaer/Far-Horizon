@@ -457,3 +457,25 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Alternative:** queue for the sponsor walkthrough (no decision value — mechanical scope from an author report).
 - **Reversibility:** close the ticket; 1 click.
 - **Status:** pending review
+
+## 2026-07-27 ~17:5x UTC — Filing Devon's #337 guard-sharpening NITs as a follow-up ticket (auto-decide, pre-cleared class)
+
+- **Decided:** create follow-up ticket 86caxgyc4 for Devon's 3 non-blocking guard-sharpening NITs from his PR #337 review (comment 5094420111): (1) whole-skeleton step guard masks edited bones, (2) tilt sweep should sample the 41-frame grid rather than a fixed 41-sample sweep, (3) guard 6 should reuse the production filter. Scope verbatim from the review comment; dev-owned, low; test-only.
+- **Foundation:** user-global orchestrator-autonomy rule 6 "NITs-ticket-creation from APPROVE_WITH_NITS review comments when scope is mechanical" — reviewer-enumerated with file anchors in the PR comment; no new scope added. Dedupe: 2026-07-27 board scan + today's filings — no ticket covers these guards (86caxgwbz is the CastawayArmPose trap, separate scope).
+- **Alternative:** queue for the sponsor walkthrough (no decision value for test-only sharpening).
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
+
+## 2026-07-27 ~19:0x UTC — Absorbed Tess's #337 QA sharpening notes into 86caxgyc4 (auto-decide, pre-cleared absorption class)
+
+- **Decided:** posted Tess's PASS_WITH_NOTES sharpening items (QA comment 5094745288 on PR #337: guard proxy covers the instance not the class — blind to fold direction/twist/spine-shape-at-constant-chord; N3 frame-grid straddle quantified permissive; N5 one reachable false-green on the bone-lookup path; N4 shared-oracle) as a scope-extension comment on 86caxgyc4 — same test file (PickaxeMineClipUprightTests.cs), same NITs class, downstream ticket already filed + dep-sequenced on #337 merge.
+- **Foundation:** user-global rule 6 "NITs-absorption-into-downstream-ticket when files overlap AND downstream is scheduled" — file overlap exact, downstream already queued; scope copied from her comment, none added.
+- **Reversibility:** split back out into a separate ticket; 1 comment.
+- **Status:** pending review
+
+## 2026-07-27 ~19:3x UTC — Filing the missing heavy-attack input-model spec ticket for Uma (auto-decide, pre-cleared class)
+
+- **Decided:** create a design ticket (id backfills) for the Uma heavy-attack INPUT-MODEL spec — Priya's hygiene flag 3: 86cau6prr's only remaining blocker is this spec and it "has no ticket". Scope from her flag verbatim; owner Uma, sequenced AFTER her in-flight combat UX specs PR.
+- **Foundation:** rule-6 mechanical-follow-up + ticket-flesh-out classes; dedupe evidence = Priya's same-day board pass ("has no ticket").
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review

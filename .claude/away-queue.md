@@ -536,3 +536,9 @@ main = 3fb5965. THIS SESSION MERGED: #203 CI-split, #194 sun, #197 crouch (8-soa
 
 ## ⭐ STAGED 2026-07-27 — branch protection on main (Sponsor-DECIDED in walkthrough; orch API write classifier-blocked → browser click)
 Sponsor decision: repo stays PUBLIC + real branch protection. Do in browser: https://github.com/TSandvaer/Far-Horizon/settings/branches → Add classic rule → pattern `main` → tick "Require status checks to pass" (NOT "up to date"), select exactly: `structure (hosted, no license)` + `build (self-hosted, EditMode + build)` + `capture (self-hosted runner-1, windowed gates)` (NOT playmode — advisory, standing reds). Leave "Do not allow bypassing" UNticked (--admin flow + docs-only PRs depend on the admin bypass). Optional: "Require a pull request before merging" with no required approvals. Names verified from main run 29926544074 (2026-07-27).
+
+## ⭐ QUEUED 2026-07-27 — 3 combat-pool design questions (from Priya's AC-flesh; next walkthrough — non-urgent, feature lane frees in days)
+1. **Heal-item fiction** (86cah7z2q body): what heals beyond needs-gated regen — food/bandage/salve class? Kid-tone constraint applies.
+2. **Find-in-world piece + tier** (86cah7y5b body): which weapon piece/tier spawns in-world as the 2nd acquisition route?
+3. **Roster residuals** (86cah7ym9 body, retitled — core roster already shipped): add a BONE tier? any NEW weapon types beyond the shipped 15-id set?
+Exact phrasing + context live in each ticket body (Priya, 2026-07-27). Also noted: she couldn't set tags (deferred/sponsor-gate) — title/body markers carry the semantics instead.

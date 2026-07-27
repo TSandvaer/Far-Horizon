@@ -622,3 +622,11 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Why: every future item inherits a real-prop icon from one system; the pixel-glyph route would keep growing a parallel hand-tuned set.
 - Reversibility: reversible (ItemIconGen glyphs remain the fallback; icon args are per-item)
 - Affects: 86camyvwn (in progress), InventoryUI/ItemCatalog (productionization), Uma's gameplay-UI direction (seeded)
+
+## 2026-07-27 — Next feature wave: COMBAT CLUSTER (pre-ordered while the NITs pool drains the build lane)
+
+- Decided by: Sponsor (popup, 2026-07-27 evening)
+- Decision: the combat cluster fills the feature lane next — ahead of boat POC (86caa9zju) and open-horizon (86cagfn8h). Prework starts immediately: Uma authors the HP-HUD (86cah7z2q) + status-effect readability (86cah7yuh) UX specs; Priya is fleshing the pool's ACs (86cah7y5b find-in-world, 86cah7ym9 roster, 86cah7yuh, 86cah7z2q, 86cau6prr heavy-attack); find-in-world is the likely first dev ticket when the build lane frees. Boat/open-horizon stay queued, not cancelled.
+- Why: combat momentum is fresh (framework + boar shipped, matchup-legibility bar ratified); prework now means zero lane-idle when the NITs pool drains.
+- Reversibility: reversible (specs/ACs keep their value; the Sponsor can reorder the lane at any dispatch boundary)
+- Affects: Uma (specs in flight), Priya (AC-flesh in flight), Drew/Devon (next feature dispatches), Erik (idle-with-reason — no open research question in this wave)
