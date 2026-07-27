@@ -486,3 +486,10 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Foundation:** rule-6 NITs-ticket class — reviewer-enumerated, mechanical, test-only; dedupe: no open ticket covers this guard (created in #338 itself).
 - **Reversibility:** close the ticket; 1 click.
 - **Status:** pending review
+
+## 2026-07-27 ~19:2x UTC — Filing #341 review NITs + endorsed follow-ups as one ticket (auto-decide, pre-cleared class)
+
+- **Decided:** create follow-up ticket 86caxhk6v combining Devon's #341 non-blocking NITs (FitFrameToBox NaN path on the float.MaxValue branch; one-directional fit loop — reviewer recommends bidirectional over a FrameFill bump; test-scene mutation comment; "main build stamp" wording) with the two author-proposed, reviewer-ENDORSED follow-ups (frame-fill/bidirectional fit; CI-wire -verifyHands into the capture job — note the CI-wire piece touches ci.yml = workflow-file lane). Source: review comment 5095516125 + PR #341 body.
+- **Foundation:** rule-6 NITs-ticket class + reviewer endorsement of the follow-up split; dedupe — no open ticket covers HandsVerifyCapture (86cavaxk7 closes at merge).
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
