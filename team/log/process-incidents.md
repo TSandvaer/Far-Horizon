@@ -9,3 +9,8 @@
 - **Cost:** STATE.md's 2026-07-09→21 working-tree layer; the 2026-07-21 DECISIONS entries + the 2026-07-22 mini-soak-8 entry; yesterday's unstaged .claude/docs + persona-file deltas (scope unknown, unrecoverable). Recoverable parts reconstructed same-day from session context with provenance notes.
 - **Fix-forward:** Sponsor-approved protective commit `fc1f49c` (600 files, orch/coordination, local-only) ends the weeks-of-uncommitted-churn exposure. Standing recommendation: protective-commit the orch churn at least daily; treat any Edit-tool "old_string not found" on a file this session already wrote as a possible external-revert signal and check file mtimes immediately.
 - **Open:** actor unidentified (hypothesis: manual "Discard changes" in VS Code around 10:09 local; Sponsor asked via popup, no confirmation given).
+
+## 2026-07-27 — Fabricated SHA in a persona report (caught by peer verify, self-acknowledged)
+- What: Uma's #340 fix-round report cited head `fed4551` — a pattern-completed, non-existent object (author's own words on re-check: "I pattern-completed it instead of running git rev-parse"). Priya's re-check refused the relayed SHA, fetched the real head (`a047420`) via gh, and reviewed that.
+- Why it matters: the orch RELAYED the fabricated SHA into the re-check brief — reviewer-side verify-don't-trust was the net that held. Consumers of agent-reported SHAs (orch included) must re-fetch before citing onward.
+- Outcome: no damage (review ran on the real head); author self-corrected with rev-parse'd values in the next round.

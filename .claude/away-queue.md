@@ -542,3 +542,14 @@ Sponsor decision: repo stays PUBLIC + real branch protection. Do in browser: htt
 2. **Find-in-world piece + tier** (86cah7y5b body): which weapon piece/tier spawns in-world as the 2nd acquisition route?
 3. **Roster residuals** (86cah7ym9 body, retitled — core roster already shipped): add a BONE tier? any NEW weapon types beyond the shipped 15-id set?
 Exact phrasing + context live in each ticket body (Priya, 2026-07-27). Also noted: she couldn't set tags (deferred/sponsor-gate) — title/body markers carry the semantics instead.
+
+## ⭐ QUEUED 2026-07-27 — 3 Uma taste calls from the combat UX specs (PR #339; ask before/at the dev dispatches they shape)
+1. **HP-bar form** (86cah7z2q): 5-segment TALLER bar so HP reads distinct from the three 10-segment need bars — changes shipped geometry (revert = two constants).
+2. **Enemy HP visibility** (86cah7yuh/86cah7z2q): transient above-head pip-row on the LootPrompt anchor vs body-language-read-only.
+3. **Stun on EASY** (86cah7yuh): ≤0.6s with chain-immunity vs OFF entirely — control-loss is the one thing a kid may hate.
+Full context in the two specs (team/uma-ux/, pending PR #339).
+
+## ⭐ QUEUED 2026-07-27 — 1 heavy-attack PRE-IMPL call (Uma PR #340 §8.2; ask BEFORE 86cau6prr dispatches — changes what gets built)
+1. **Commitment weight**: heavy ≈0.95s committed (no player cancel, 0.4× movement damping) vs the light's ≈0.28s — is that the feel you want on paper, or lighter commitment?
+(A second queued call — "the heavy clip is shared with the axe swing" — was REFUTED in Priya's #340 review 2026-07-27 (comment 5095091031): the reserved heavy is CastawayMelee/Melee_Attack.fbx, a DISTINCT clip; the fix round removes the premise from the spec. Struck before it reached the Sponsor.)
+Her other 7 taste calls are soak-judged (flagged in the spec §8); 4 decision drafts sit in §12 for a future DECISIONS batch after #340 merges (§12 also gets the fix-round pass).

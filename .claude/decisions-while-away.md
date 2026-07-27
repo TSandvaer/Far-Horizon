@@ -475,7 +475,14 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 
 ## 2026-07-27 ~19:3x UTC — Filing the missing heavy-attack input-model spec ticket for Uma (auto-decide, pre-cleared class)
 
-- **Decided:** create a design ticket (id backfills) for the Uma heavy-attack INPUT-MODEL spec — Priya's hygiene flag 3: 86cau6prr's only remaining blocker is this spec and it "has no ticket". Scope from her flag verbatim; owner Uma, sequenced AFTER her in-flight combat UX specs PR.
+- **Decided:** create design ticket 86caxh64q for the Uma heavy-attack INPUT-MODEL spec — Priya's hygiene flag 3: 86cau6prr's only remaining blocker is this spec and it "has no ticket". Scope from her flag verbatim; owner Uma, sequenced AFTER her in-flight combat UX specs PR.
 - **Foundation:** rule-6 mechanical-follow-up + ticket-flesh-out classes; dedupe evidence = Priya's same-day board pass ("has no ticket").
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** pending review
+
+## 2026-07-27 ~20:0x UTC — Filing #338 review NITs 2+4 as a guard-hardening follow-up ticket (auto-decide, pre-cleared class)
+
+- **Decided:** create follow-up ticket 86caxh9b5 for the 2 guard-hardening NITs from the #338 review (comment 5094960660): TopDirectoryOnly silently loses future-subfolder coverage in BareCastawayRigLogExpectGuardTests; per-file presence check misses a 4th rig added inside an already-compliant file (count-based check needed). NITs 1+3 (doc wording) are being fixed pre-merge by the author instead.
+- **Foundation:** rule-6 NITs-ticket class — reviewer-enumerated, mechanical, test-only; dedupe: no open ticket covers this guard (created in #338 itself).
 - **Reversibility:** close the ticket; 1 click.
 - **Status:** pending review
