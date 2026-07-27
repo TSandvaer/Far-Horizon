@@ -630,3 +630,67 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Why: combat momentum is fresh (framework + boar shipped, matchup-legibility bar ratified); prework now means zero lane-idle when the NITs pool drains.
 - Reversibility: reversible (specs/ACs keep their value; the Sponsor can reorder the lane at any dispatch boundary)
 - Affects: Uma (specs in flight), Priya (AC-flesh in flight), Drew/Devon (next feature dispatches), Erik (idle-with-reason — no open research question in this wave)
+
+## 2026-07-27 — CI playmode job flips advisory → REQUIRED (86camz787 GO)
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: `86camz787` is GO — the `playmode (self-hosted, advisory — non-blocking)` job in `ci.yml` becomes a REQUIRED merge gate. Dispatch as an S ticket in the `.github` lane; the resulting PR needs the Sponsor's browser merge (the auto-merge token lacks the `workflow` permission — memory `auto-merge-fails-on-workflow-file-prs`). If the gate misbehaves, revert is a one-line `ci.yml` change.
+- Why: the precondition held — since #338 merged, 5 of 5 playmode jobs completed green (main runs 30296431820 + 30303098020, plus 3 feature-branch runs), with no wedge/timeout in that window. The 3 long-standing CombatPlayModeTests reds were #338's own new tests missing `LogAssert.Expect` (zero production defect), fixed and on main. Leaving the only automated interaction coverage non-blocking lets interaction regressions reach `main` between soaks.
+- Reversibility: reversible (one-line `ci.yml` revert; the June wedge-at-play-mode-enter class is the watch item — if it recurs and blocks merges on the single-runner box, revert rather than grind)
+- Affects: `ci.yml` / merge gates (Devon or Drew, S), every subsequent PR's required-check set, memory `advisory-playmode-job-unreliable-soak-is-interaction-gate` (soak remains the *interaction* gate; this adds an automated floor beneath it)
+
+## 2026-07-27 — Heavy-attack commitment weight (§8.2): build the spec'd defaults, judge the weight at soak
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: `86cau6prr` implements Uma's spec'd defaults unchanged — ≈0.95 s total lockout (0.40 s wind-up + 0.55 s recovery), no player cancel, 0.4× movement damping, with the §6 per-tier recovery/damping rows as written (easy 0.40 s / 0.6×, hard 0.75 s / 0.25×). The commitment weight is judged LIVE at the soak via the dev-console dials and the Sponsor's pick is baked. No spec round before dispatch.
+- Why: `heavy_windup`, `heavy_recovery` and `heavy_move_damping` are all registered tweakables in the spec's §6 registry table, so building the defaults locks only the PHASE STRUCTURE (wind-up → delayed impact → recovery, no cancel) — not the numbers. Judging a feel value on paper is strictly worse than judging it in the hand (`[[verify-soak-builds-or-bake-and-judge]]`, `[[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]`). Uma's counter-position is recorded and was surfaced in the popup: she classed it build-shaping rather than tuning, and would rather bad kid-tier defaults never reach a soak.
+- Reversibility: reversible (the dials move at soak; `heavy_enabled` is the one-click revert for the whole mechanic)
+- Affects: `86cau6prr` — **this was the LAST pre-impl gate; the ticket is now dispatchable.** ⤵ (see also the find-in-world entry below) The spec's other gate (item (a), the input pick) dissolved when the merged model spec made `F` the default with `R` offered in the same soak (§3.1 / §8 item 1); item (b), light swings `86caffwv5`, completed 2026-07-22. The soak must offer both keys and carry the commitment dials.
+
+## 2026-07-27 — Find-in-world weapon is `sword_iron`, one per island region (86cah7y5b)
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: the second acquisition route places **one `sword_iron`** per island region on the existing seeded-scatter path — the ticket's default, matching Uma's `combat-cluster-design-brief.md` §3.4 recommendation of an iron-tier piece as the "special" reward. Count and spread remain soak-tunable per AC2/AC5; no second find piece.
+- Why: it gives the strongest "this one is special" read against the crafted wood/stone, and the progression objection does not actually apply — `sword_iron` is weapon-only, while the **axe and pickaxe** are what gate the gather→craft ladder (wood-pick → stone → stone-pick → iron ore → forge). So a found sword hands over early combat power without letting the player skip a single resource tier.
+- Reversibility: reversible (the piece is one const pair — `WeaponCatalog.<X>Id` / `ItemCatalog.<X>Id`; count is a seeded-scatter parameter)
+- Affects: `86cah7y5b` (Drew game-side, Devon reviewer, M, Unity-build + soak-gated) — the ticket's one open question is now closed and it is fully dispatchable
+
+## 2026-07-27 — The heal item is a FORAGED MEDICINAL HERB (86cah7z2q AC4)
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: the single heal item is a **foraged medicinal herb**, picked from an `IPickable` plant on the berry-bush pattern — the ticket's recommended default. Cooked-food and crafted-salve alternatives declined. This sets one new `ItemCatalog` id + one mesh/icon; it does NOT change the campfire half of AC4 (rest at a lit `Campfire`, already settled) and it does NOT re-tune `HealthRegen`.
+- Why: smallest new surface of the three — one id, one mesh, one scatter entry, zero new systems, all through the shipped `EatBerryAction`/`Inventory` consume seam and `Health.Heal(float)`. Cooked food would have required inventing a cooking interaction (scope far beyond AC4) or degrading to "berry heals", which muddies the shipped hunger loop; a crafted salve would put healing behind the crafting table, leaving an early-game player with nothing but regen after a hit. The herb stays kid-legible and fits the island survival arc.
+- Reversibility: reversible (one `ItemCatalog` id + asset; the consume seam is unchanged whichever fiction wins)
+- Affects: `86cah7z2q` AC4 (Drew for the heal sources, either dev for the HUD polish; Devon reviewer). Costs a second forageable plant that must read as clearly distinct from berry bushes at gameplay framing — call that out in the Self-Test Report and the soak. Uma's invariants stand: relief not power-up, exactly ONE heal item, all healing through `Health.Heal(float)`.
+
+## 2026-07-27 — Weapon roster CLOSED: bone tier RETIRED, no sixth weapon type (86cah7ym9 AC2)
+
+- Decided by: Sponsor (walkthrough popups ×2, 2026-07-27 late evening)
+- Decision: both of `86cah7ym9`'s AC2 questions are answered, matching Priya's recommendations. **(1) The bone tier is RETIRED** — the weapon family is three tiers, wood / stone / iron, full stop. The 2026-07-01 lock's "wood→stone→bone/metal" phrasing is superseded; stop citing bone as a live tier. **(2) No sixth weapon TYPE** — the roster is the shipped five (axe, pickaxe, spear, dagger, sword). Blunt (club/mace) and ranged (bow/sling) were surfaced and declined.
+- Why: bone has no crafting-chain hook (the shipped progression is wood-pick → stone → stone-pick → iron ore → forge → iron), no source material in the world, and no Sponsor mention since the original grill; a 4th tier costs 5 meshes + 5 recipes + 5 hand-seats. A sixth type generally needs a new swing class (new Mixamo clip + `AnimId*` + a `WeaponClassForAnimationId` row) — real code and art, not "just data" — and ranged would additionally need a projectile system that does not exist. Keeping either alive as a hedge carries the same recurring "but what if" cost the Sponsor just closed for Rigify.
+- Reversibility: reversible per piece — AC3's per-addition recipe stays as the reusable template, so a single bone piece or a club could return as one M-sized data+asset PR without reopening the design
+- Affects: `86cah7ym9` — AC2 is now CLOSED. What remains is **AC1** (Uma's `weapon-tool-style-spec.md` correction — stale §2/§4, `grip-wrap-red` removal; S, docs-only, non-build lane, **dispatchable now** and the only unowned live work on the ticket) and **AC3** (the reusable per-piece recipe, a template rather than pending work). Also affects `86cau6prr` open question 2 (roster-wide heavies) — the roster it would generalise over is now fixed at five types × three tiers.
+
+## 2026-07-27 — HP bar takes Uma's FORM distinction: 5 chunky segments, taller box, extra gap (86cah7z2q AC1)
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: implement `hp-hud-polish-spec.md` §2.1 **as written** — `HpSegmentCount = 5` (each segment = 20% HP, FLOOR rule kept, no `TopSegmentThreshold` exception), HP box **260 × 34** (`segY = y + 5f`, `segH = h - 10f`), baseline moves `-152` → **`y = Screen.height - 162f`** (a 46 px gap above thirst vs the needs' uniform 36 px pitch), and the inventory ledger moves **`-188` → `-216`** to clear it. Colour band ramp untouched. Alternatives declined: keep-identical-to-needs, taller-but-10-segments, 5-segments-at-current-height.
+- Why: form reads faster than colour at peripheral glance and survives both a colour-blind player and a saturated-green background; five chunky blocks read as "hearts", the universal kid-legible vitality grammar. The Sponsor took the full proposal rather than a partial, accepting the ledger relayout as the price.
+- Reversibility: reversible — `HpSegmentCount` back to `SegmentCount` and `h` back to 28 is a two-constant flip (the spec calls this out explicitly at §2.1)
+- Affects: `86cah7z2q` AC1 (either dev; Devon reviewer). Watch items for the Self-Test Report: (a) the shipped layout **already** overlaps by 1 px (HP plate top 158 vs ledger plate bottom 157) — this ticket incidentally fixes it, so note it or it reads as a new regression; (b) the ledger plate top rises to 219 and must stay ≥16 px clear of the `BootHud` plates — **covering the BUILD stamp is a hard fail, not a NIT**, because every soak verifies the stamp; (c) if the belt/inventory UI has superseded the ledger by implementation time, verify rather than assume.
+
+## 2026-07-27 — Enemy-HP read SEQUENCED: body feedback ships first, the pip-row is judged at that soak (86caxhfg2)
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: do NOT build the above-head enemy-HP pip-row yet. Ship the **body-level hit feedback first** — `_HitFlash` material-instance pulse + flinch/hit-react + the pooled dust puff (`combat-cluster-design-brief.md` §1.2/§2.5) — and decide at THAT soak whether an enemy-HP element is needed at all. `86caxhfg2` (pip-row, `needs-soak`) is deferred behind it, not cancelled. Body-read-only-forever was surfaced and not chosen either; the question stays genuinely open until the body read can be felt.
+- Why: Uma's §6 verified 2026-07-27 that `_HitFlash`, the hit-react and the dust puff appear **only in spec docs — zero occurrences anywhere under `Assets/` on `main`**, and no `ParticleSystem` exists in `Assets/Scripts` at all. The pip-row is specified as the *secondary* read precisely because the body is meant to carry the primary one; shipping it first would make it the ONLY enemy-damage feedback in the game and the soak would judge it in exactly the distorted state it was not designed for. Building the body feedback costs nothing extra — the design brief prescribes it regardless — and it makes the "is it nearly down?" question answerable in the hand. Same principle as the heavy-attack commitment-weight call the same evening.
+- Reversibility: reversible (nothing is built or removed; `86caxhfg2` keeps its spec and its `needs-soak` marker)
+- Affects: `86caxhfg2` → deferred-with-reason behind body feedback. **A body-hit-feedback ticket does not exist yet** — Priya to file it from `combat-cluster-design-brief.md` §1.2/§2.5 (`_HitFlash` + flinch + pooled dust puff; note `game-juice.md`'s no-`MaterialPropertyBlock`-on-juice-VFX rule and the pooled-particle requirement, and that this is the first `ParticleSystem` in the project). Its soak carries the pip-row question as an explicit judgement item.
+
+## 2026-07-27 — Stun EXISTS on the easy tier, at Uma's cap (86cah7yuh §8 Q1)
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
+- Decision: stun is ON at **easy** with the spec's cap — **≤0.6 s duration, ≥3.0 s chain-immunity** — keeping the §7 tier ladder intact (medium ≤1.2 s / ≥1.5 s; hard ≤2.0 s / immunity ≥ duration). Stun-off-on-easy and stun-on-hard-only were surfaced and declined.
+- Why: all three tiers keep the same mechanic with generosity as the only axis — a kid moving up a tier meets a *stronger* effect, never a brand-new one. The control-loss objection is bounded by design: `ActionsBlocked` blocks the **action verbs only, not movement** (ticket AC2 🎚️), so a stunned castaway can always walk out of danger; and 0.6 s against a 3.0 s immunity cannot chain. Uma's intended read stands — see stars, think "I can't swing for a moment", wait it out.
+- Reversibility: reversible (per-tier duration + immunity are dialable; easy-off is a single value)
+- Affects: `86cah7yuh` (Devon systems, Drew reviewer) — §7's tier table ships as written. Reminder for impl: per-tier values must write **both** the active field and the active tier's map entry or `ApplyDifficulty` clobbers the live dial (dead-knob class). Also settles by implication that easy and medium differ only in generosity, which is the standing tier model across snake / boar / heavy-attack.
