@@ -522,12 +522,17 @@ main = 3fb5965. THIS SESSION MERGED: #203 CI-split, #194 sun, #197 crouch (8-soa
 
 **NEXT-SESSION DISPATCH (post-merge; runner-2 now parallelizes builds):** ci.yml cluster STRICTLY SERIAL per Priya's plan (above ↻↻▶▶▶▶▶▶▶): 86cafhgun → 86cag1xn0 → 86cagr0zu → 86cafzaeb → 86cabfa21 → 86cag93zb. Plus dev-console per-need entries 86cabeqwf (after #218 merges) + 86cabe3e5 (#83 capture sub-gate, off-ci.yml-lane). Closed-moot this session: 86cagqhez (verifySneak stripped), 86cagmwg9 (loopPose exonerated), 86cah17eq (capture-concurrency = manual-cancel artifact).
 
-## 2026-07-22 ~13:5xZ — Sponsor question (non-urgent): v4 right-hand fix route after Option-C kill
+## ✅ RESOLVED 2026-07-27 (walkthrough popup): SHIP-AS-IS; Option B (Mixamo re-rig) explicitly deferred and BUNDLED with the next rig change, whenever one is needed anyway. Recorded on 86cau4za2 (comment) + DECISIONS.md. Original: ## 2026-07-22 ~13:5xZ — Sponsor question (non-urgent): v4 right-hand fix route after Option-C kill
 - Context: spike 86cavcy4u verdict INFEASIBLE (PR #331; identity round-trip through the Python FBX re-serializer fails Unity import — one-way tool; right hand also lacks the thumb skin-cluster structurally). Remaining routes for 86cau4za2: **Option B** (Mixamo re-rig — discards the accepted left-hand dial, re-rolls the auto-rig lottery, full re-seat after) or **SHIP-AS-IS** (defect is cosmetic, already twice-deferred).
 - Orch recommendation: SHIP-AS-IS for now; revisit Option B only when the character next needs a rig change anyway (bundle the risk once). No dependency gates on this — nothing is blocked either way.
 - Ask via /sponsor-questions-walkthrough or whenever convenient.
 
-## 2026-07-22 ~14:3xZ — Sponsor question (non-urgent, mechanical default available): ClickGateDiag keep-vs-strip
+## ✅ RESOLVED 2026-07-27 (walkthrough popup): KEEP as standing instrument until the live mine failure (r5 item 1) is diagnosed + fixed, then re-evaluate gating the :153 release log. Recorded on 86cav8y1u (comment) + DECISIONS.md. Original: ## 2026-07-22 ~14:3xZ — Sponsor question (non-urgent, mechanical default available): ClickGateDiag keep-vs-strip
 - Context: ticket `86cav8y1u` (register [ClickGateDiag] in tools/debug/REGISTRY.md) carries a decision AC: keep the instrument standing vs strip before 1.0 — specifically whether to gate its RELEASE-build `Debug.Log` on every LMB click (ClickGateDiagnostic.cs:153, deliberate per instrument convention, cold-path).
 - Orch/ticket recommendation: **KEEP** as standing instrument until the live mine failure (Drew r5 item 1 on 86caffwv5) is diagnosed + fixed, THEN re-evaluate gating the release log. The registry ENTRY itself is mechanical and dispatches regardless; only the keep/strip call is yours.
 - Ask via /sponsor-questions-walkthrough or whenever convenient.
+
+## ✅ 2026-07-27 (walkthrough popup) — icons 86camyvwn UNPARKED: Sponsor chose "do it now, after the walkthrough" — orch R&D burst THIS session (iron-ore vs iron-bar first, Sponsor judges candidates live; closes with harvest PR + productionization ticket per the R&D-lane rule).
+
+## ⭐ STAGED 2026-07-27 — branch protection on main (Sponsor-DECIDED in walkthrough; orch API write classifier-blocked → browser click)
+Sponsor decision: repo stays PUBLIC + real branch protection. Do in browser: https://github.com/TSandvaer/Far-Horizon/settings/branches → Add classic rule → pattern `main` → tick "Require status checks to pass" (NOT "up to date"), select exactly: `structure (hosted, no license)` + `build (self-hosted, EditMode + build)` + `capture (self-hosted runner-1, windowed gates)` (NOT playmode — advisory, standing reds). Leave "Do not allow bypassing" UNticked (--admin flow + docs-only PRs depend on the admin bypass). Optional: "Require a pull request before merging" with no required approvals. Names verified from main run 29926544074 (2026-07-27).

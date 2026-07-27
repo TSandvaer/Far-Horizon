@@ -425,7 +425,7 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Foundation:** [[clickup-task-management-full-autonomy]] + dupe-close is in Priya's standing hygiene mandate (CLAUDE.md "Priya owns the board"); the superseding tickets are complete with merged-PR evidence.
 - **Alternative:** leave 3 dead "to do" placeholders inflating the open board (the noise class behind the 2026-06-28 idle-failure).
 - **Reversibility:** reopen the 3 subtasks; 1 click each.
-- **Status:** pending review
+- **Status:** accepted 2026-07-27 (Sponsor, walkthrough popup batch-accept)
 
 ## 2026-07-07 ~22:5x UTC — Filed PR #281 NIT-1 as follow-up ticket 86cama43f (auto-decide, pre-cleared class)
 
@@ -433,7 +433,7 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Foundation:** user-global orchestrator-autonomy rule 6 "NITs-ticket-creation from APPROVE_WITH_NITS" — doc-only, file-derivable scope, no new scope added.
 - **Alternative:** queue for the sponsor walkthrough (no decision value for a comment-only XS).
 - **Reversibility:** close the ticket; 1 click.
-- **Status:** pending review
+- **Status:** accepted 2026-07-27 (Sponsor, walkthrough popup batch-accept)
 
 ## 2026-07-07 ~23:0x UTC — Filed Tess's playmode changed-behavior note as investigation ticket 86cama53u (auto-decide)
 
@@ -441,11 +441,19 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Foundation:** rule-6 mechanical follow-up class (scope verbatim from a QA note with run-ID evidence) + [[scan-board-before-filing-followups]] dedupe (no existing ticket covers the 10-failure set; 86cajt6k4 covers only the 13 quarantined INVUI tests).
 - **Alternative:** leave the changed CI behavior undocumented until it surprises a merge gate.
 - **Reversibility:** close the ticket; 1 click.
-- **Status:** pending review
+- **Status:** accepted 2026-07-27 (Sponsor, walkthrough popup batch-accept)
 
 ## 2026-07-08 ~09:0x UTC — Filed PR #287 NIT (mine-tests clock inheritance) as ticket 86camf3xe (auto-decide, pre-cleared class)
 
 - **Decided:** created S ticket `86camf3xe` (apply #288's TestClock pattern to MineOrePlayModeTests) verbatim from Devon's APPROVE_WITH_NITS comment 4912697997 on PR #287; sequenced after #287+#288 merge.
 - **Foundation:** rule-6 NITs-ticket class — reviewer-enumerated, XML-evidenced (12-vs-10 delta), scope mechanical (apply an existing merged pattern).
+- **Reversibility:** close the ticket; 1 click.
+- **Status:** accepted 2026-07-27 (Sponsor, walkthrough popup batch-accept)
+
+## 2026-07-27 ~17:0x UTC — Filing Drew's #337 OOS flag as a follow-up ticket (auto-decide, pre-cleared class)
+
+- **Decided:** create follow-up ticket 86caxgwbz for Drew's #337 salvage OOS flag: `CastawayArmPose` applies `leftArmEuler`/`rightArmEuler` unconditionally on EVERY clip frame, dialed against the idle carry — constant across classes so not the #337 defect's cause, but the same per-clip-pose-range trap as the run-jump axe coda. Scope verbatim from his final report; dev-owned, low.
+- **Foundation:** user-global orchestrator-autonomy rule 6 "mechanical follow-up filing" + [[scan-board-before-filing-followups]] dedupe (2026-07-27 board scan: no open ticket covers CastawayArmPose per-clip-pose gating).
+- **Alternative:** queue for the sponsor walkthrough (no decision value — mechanical scope from an author report).
 - **Reversibility:** close the ticket; 1 click.
 - **Status:** pending review

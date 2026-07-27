@@ -582,3 +582,43 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Why: the systemic matchup proof (spear 18.0/hit vs axe 10.5/hit purely from reach + pierce-tag composition, zero table — guard test deletes the tag and the bonus vanishes) is the locked-decision-5 payoff; the route deviation is precedent-consistent (snake) and avoids the just-proven Blender round-trip trap. Sponsor's eye confirmed what the metrics could not (matchup LEGIBILITY).
 - Reversibility: reversible (mesh swap-hatch; dials all per-tier tunable)
 - Affects: combat cluster (3rd-enemy tickets inherit the route), asset-routing doc (creature-route footnote → Priya batch), quality-bars.md (matchup-legibility bar → Priya appends)
+
+## 2026-07-27 — ClickGateDiag keep/strip: KEEP standing until the live mine failure is fixed
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27)
+- Decision: [ClickGateDiag] (ClickGateDiagnostic.cs, PR #327) stays a STANDING instrument with its release-build per-click Debug.Log (:153) ungated, until the live mine-click failure (Drew r5 item 1 on 86caffwv5) is diagnosed + fixed — then re-evaluate gating the release log. Recorded in the tools/debug/REGISTRY.md entry via ticket 86cav8y1u (Devon, in flight 2026-07-27).
+- Why: it is the ground-truth instrument for exactly that open failure; the log is cold-path (per-click edge only). Stripping it before the failure is diagnosed would force a dev-build repro loop.
+- Reversibility: reversible (gate/remove the log in ≤1 PR whenever re-evaluated)
+- Affects: Devon (86cav8y1u registry entry), the future mine-failure diagnosis ticket
+
+## 2026-07-27 — v4 right-hand route: SHIP-AS-IS; Option B bundled with the next rig change
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27)
+- Decision: the castaway v4 right-hand thumb-weight defect (86cau4za2) SHIPS AS-IS (third and final deferral as an active item). Option B (Mixamo re-rig) is not scheduled on its own — it is BUNDLED with the next rig change whenever one is genuinely needed, so the auto-rig lottery + full held-weapon re-seat/re-dial risk is paid once. Options A (Blender rig edit) and C (raw-FBX binary weight edit) remain refuted (PR #330 helicopter incident; spike PR #331 one-way re-serializer + structurally absent thumb skin-cluster).
+- Why: the defect is cosmetic and twice Sponsor-accepted; Option B discards the accepted left-hand dial and re-rolls the defect-producing auto-rig for an uncertain fix.
+- Reversibility: reversible (the ticket re-activates the moment a rig change is scheduled)
+- Affects: 86cau4za2 (leaves the active queue — re-scoped to bundle-with-next-rig-change), character pipeline (no rig work implied), held-weapon seats (untouched)
+
+## 2026-07-27 — Repo visibility: KEEP PUBLIC + enable real branch protection on main
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27)
+- Decision: TSandvaer/Far-Horizon stays PUBLIC (state gh-verified 2026-07-20), and main gets GitHub-ENFORCED branch protection with required status checks (free-tier feature available only while public) — replacing the convention-only "protected main" (classifier + auto-merge Action). Orch stages/executes the exact protection config post-walkthrough: required checks named from a real main run (structure/build/capture class), admin-merge path (--admin) retained so the standing label-merge + docs-only-PR flows keep working.
+- Why: enforced required checks close the gap documented in [[main-has-no-github-enforced-protection]]; the repo is already world-readable, so public costs nothing new.
+- Reversibility: reversible (protection is a settings PUT/delete; visibility can be flipped later at the cost of losing the free protection)
+- Affects: merge flow (non-admin merges now hard-gated), auto-merge Action (PAT/admin unaffected), docs-only PRs (merge via --admin as today)
+
+## 2026-07-27 — Erik's open question CLOSED: no human animator planned; Rigify permanently off the table
+
+- Decided by: Sponsor (walkthrough popup, 2026-07-27)
+- Decision: no human animator is planned for Far Horizon — the door is CLOSED. The Mixamo Generic pipeline + bpy clip-layer repair (SneakGaitCurveFix class) is THE animation route for the project's lifetime; Rigify does not re-enter under any currently-foreseen condition. This answers the open question in the 2026-07-21 Rigify-vs-Mixamo decision (team/erik-consult/rigify-vs-mixamo-research.md).
+- Why: solo-sponsor project; custom hand-authored animation is not on the roadmap; keeping the contingency alive costs a recurring "but what if" in every rig/clip decision.
+- Reversibility: reversible in principle (a future staffing change could reopen it), but treat as settled — stop citing Rigify as a live contingency in research/briefs.
+- Affects: Erik (research framing), Drew/Devon (animation-verb work — no rig-route hedging), procedural-animation-verbs.md consumers
+
+## 2026-07-27 — Inventory-icon route: 3D-rendered IconBaker system (not procedural pixel glyphs)
+
+- Decided by: Sponsor (walkthrough icon-session popup, 2026-07-27)
+- Decision: inventory icons move to a render-the-actual-prop-to-sprite IconBaker (Uma's long-term gameplay-UI direction), starting with iron_ore + iron_ingot (86camyvwn). The quick ItemIconGen pixel-glyph extension and hand-authored PNGs were declined. Prototype (Drew, drew/86camyvwn-iconbaker-proto): mesh inventory + offscreen-RT baker + candidate contact sheet for the Sponsor's live judgment; productionization scope (ItemCatalog wiring, tests, possibly re-baking the existing wood/stone/berry/water pixel icons) follows his pick.
+- Why: every future item inherits a real-prop icon from one system; the pixel-glyph route would keep growing a parallel hand-tuned set.
+- Reversibility: reversible (ItemIconGen glyphs remain the fallback; icon args are per-item)
+- Affects: 86camyvwn (in progress), InventoryUI/ItemCatalog (productionization), Uma's gameplay-UI direction (seeded)
