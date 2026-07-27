@@ -1,5 +1,12 @@
 # Heavy-Attack Second-Input UX Spec — `86cau6prr`
 
+> **Sibling spec (read both):** this doc chooses **WHICH input** (`F`, with the candidate/collision analysis).
+> `team/uma-ux/heavy-attack-input-model-spec.md` (`86caxh64q`) specs **the MODEL behind it** — the input's
+> state contract, the wind-up/cancel/cooldown commitment model, the heavy-vs-light read, the per-tier dials,
+> and the generalization path to the other four swing classes. That doc also **corrects two code citations
+> below** (the live guard is `ShouldSwingOnClick`, five terms; and combat damage is synchronous-on-click today
+> — there is no impact delay on `MeleeAttack`). Carry its §1 corrections forward.
+
 **Author:** Uma (UX / Visual / Audio Direction). **Status:** DECISION-READY spec — the input model is a
 **Sponsor call**; this doc frames 2–3 candidates + a recommendation so the popup is one click. **Doc-only:**
 no code, no build. `86cau6prr` stays `to do` and gated until (a) the Sponsor picks the input via this spec
