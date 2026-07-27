@@ -181,12 +181,15 @@ palette from PR #83). The weapon set reuses the world's own colors so it reads o
 > Where a slot's shipped usage differs from the 2026-06-19 intent, the intent line is struck and the
 > measurement stands.
 >
-> Layout: ten **full-height vertical stripes** (the `u` centre is the addressable coordinate; `v` is
-> free) over a `#7A5230` background fill, plus **two small iron blocks** at the lower left.
+> Layout: **nine** full-height vertical stripes over a `#7A5230` background fill, plus **two small
+> iron blocks** at the lower left. **For a stripe** the `u` centre is the addressable coordinate and
+> `v` is free. **W1 is the background fill, not a stripe** — it has no stripe centre, so it is
+> addressed at a pinned `(u, v)` in the left band; see its row. Note `iron-light` sits *inside* that
+> left band at `v` ≈ 0.109–0.172 (px y 106–113) — the one place the background is interrupted there.
 
 | Slot | Token | Hex | RGB (0–1, sub-1.0) | UV centre | **LIVE USAGE — measured from the 15 shipped FBXs** |
 |---|---|---|---|---|---|
-| W1 | `haft-wood` | `#7A5230` | 0.48, 0.32, 0.19 | background fill (u 0.5000) | **WOOD + STONE hafts/shafts.** Present on all 5 wood and all 5 stone pieces. **Absent from every IRON piece** — confirms "no wood on the iron tier." |
+| W1 | `haft-wood` | `#7A5230` | 0.48, 0.32, 0.19 | **(0.0352, 0.0352)** — left band, px x 0–12. **NOT `u` 0.5000** *(⚠ corrected 2026-07-27: 0.5000 is the centroid of a non-contiguous background, and it samples the white `#E4E2DC` stripe at px x 61–70 — UV'ing a haft there paints it near-white)* | **WOOD + STONE hafts/shafts.** Present on all 5 wood and all 5 stone pieces. **Absent from every IRON piece** — confirms "no wood on the iron tier." Measured addressing: `(0.0352, 0.0352)` on all 10 wood+stone pieces (354 UVs) plus `(0.05, 0.05)` on the wood axe and wood pickaxe (104 UVs). `blender-asset-pipeline.md` §5 lists `Haft brown (0.05, 0.05)` — same band, agrees. |
 | W2 | `haft-wood-shadow` / **`leather`** | `#5A3B22` | 0.35, 0.23, 0.13 | u 0.1406 | **The only block used by all 15.** Three jobs: wood-tier shade facets **and the fire-hardened spear tip**, stone-tier grip band, iron-tier segmented leather grip. |
 | — | *(undocumented red)* | `#A33B30` | 0.64, 0.23, 0.19 | u 0.2344 | **RETIRED — 0 UVs across all 15 meshes.** Never appeared in the 2026-06-19 table; listed here only so it is found already crossed out. Do not use. |
 | — | *(undocumented red)* | `#7E2C24` | 0.49, 0.17, 0.14 | u 0.3281 | **RETIRED — 0 UVs across all 15 meshes.** Same as above. Do not use. |
@@ -243,8 +246,13 @@ CLOSED, so extension is a per-piece exception (`86cah7ym9` AC3), not a standing 
   it** (measured: `#E4E2DC` has zero UVs on all 5 wood meshes). That absence is the point — a
   whittled stick has no honed edge, and *gaining* the white bevel at the stone rung is part of how
   the progression reads as "better gear." See §4.1.
-- **Shared handle/grip motif:** same `haft-wood` + same gentle hand-made bend (2–5°, Erik
-  §E5) + same grip proportion across ALL items — "made by the same castaway."
+- **Shared handle/grip motif:** same `haft-wood` + ~~same gentle hand-made bend (2–5°, Erik
+  §E5)~~ + same grip proportion across ALL items — "made by the same castaway." **⚠ CORRECTED
+  2026-07-27: the 2–5° bend is RETIRED — the whole family has STRAIGHT handles** (Sponsor decision
+  2026-06-23; `blender-asset-pipeline.md` §3 and its §11 checklist both carry it). Measured: haft
+  ring centroids are `cx +0.0000 / cy +0.0000` on every 6-vert ring of `wpn_axe_{wood,stone,iron}_01`
+  — zero drift, dead straight. The hand-made imperfection lives in the head, grip band and facets,
+  **never in a curved haft.** See §4.1.
 - **Mild hand-made asymmetry throughout** — nothing CNC-perfect; the toy is carved.
 - **In-hand scale:** normalized to the castaway's right-hand bone; the current axe sets the
   reference scale — match it.
@@ -288,7 +296,7 @@ class, and that mapping is closed (Correction 2026-07-27 item 2).
 
 | Type | Read | Mesh files | Catalog ids | Swing class |
 |---|---|---|---|---|
-| **Axe** | Wedge head on a stout, slightly bent handle | `wpn_axe_{wood,stone,iron}_01.fbx` | `axe_wood` · **`axe`** *(stone — pre-tier canonical id)* · `axe_iron` | `AnimIdAxeChop` → `WeaponClassAxe` |
+| **Axe** | Wedge head on a stout, **straight** handle | `wpn_axe_{wood,stone,iron}_01.fbx` | `axe_wood` · **`axe`** *(stone — pre-tier canonical id)* · `axe_iron` | `AnimIdAxeChop` → `WeaponClassAxe` |
 | **Pickaxe** | Twin-beak head, symmetric, on a long straight haft | `wpn_pickaxe_{wood,stone,iron}_01.fbx` | `pickaxe_wood` · `pickaxe_stone` · `pickaxe_iron` | `AnimIdPickaxeMine` → `WeaponClassPickaxe` |
 | **Spear** | Longest overall — long shaft, compact point; thin-but-NOT-spindly (the chunky rule holds) | `wpn_spear_{wood,stone,iron}_01.fbx` | `spear_wood` · **`spear`** *(stone — pre-tier canonical id)* · `spear_iron` | `AnimIdSpearThrust` → `WeaponClassSpear` |
 | **Dagger** | Smallest silhouette, shortest grip, single short blade | **`wpn_knife_{wood,stone,iron}_01.fbx`** *(file says knife, code says dagger — see Correction 2026-07-27 item 4; neither is a typo)* | `dagger_wood` · `dagger_stone` · `dagger_iron` | `AnimIdDaggerStab` → `WeaponClassDagger` |
