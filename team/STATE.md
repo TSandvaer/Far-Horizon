@@ -355,3 +355,23 @@ Direct in-turn `get_tasks` (subagent scan would have died on the limit AND loops
 **Dispatchable set is NON-EMPTY** — `86caxjwev`, `86caxjwhh`, `86caxj8zw`, `86cavj6p1`, `86caxhk6v` are all non-build and unblocked. **Capacity is nevertheless ZERO: the session rate limit is exhausted until 03:20 Copenhagen.** A dispatch now dies at step zero — that is exactly what killed Erik, Drew and Priya at ~23:2xZ. Dispatching into a known-exhausted limit does not fill a slot; it strands MORE uncommitted work in MORE worktrees, each one another dirty tree to inventory before anything can resume.
 
 **All six persona slots are justified-idle by that single external constraint** — not by a missed scan, not by a busy critical path. This is the one condition under which idle is correct. Re-arm (`/auto-status away`) after 03:20, or after an account swap ([[sponsor-swaps-two-accounts-for-fresh-window]]); resume order is in `.claude/away-queue.md` under the 🛑🛑 block, and **worktree inventory comes before any git op**.
+
+---
+
+## RESUME NEXT-ACTION — 2026-07-28 ~19:4xZ (DRAIN-AND-SAVE; Sponsor wrapping up)
+**Rate limit RESET and capacity is back** (limit was 03:20 Copenhagen; it is now evening). Cron stays DELETED, `auto-status.state` `enabled=false` — re-arm explicitly if wanted.
+
+**⭐ THE LIVE THREAD — PR #337 soak came back SPLIT.** Torso fold **PASSED** (Sponsor judged the stance directly and said it looked right — the pelvis-hinge fix is DONE, do not rework). **Two separate defects**, verbatim: *"he is swinging like he is handing the axe with both hands, when in reaity the axe stays in the right hand only. the axe is still pivoting and not sitting right during the swing"*. He was **MINING** (belt slot 2 `P`, prompt "Mine stone", boulder in frame) so the clip is the **pickaxe MINE swing**, not the chop — do not chase the wrong clip. "still pivoting" implies the seating defect predates this build.
+**THE ONE OPEN QUESTION THAT ROUTES EVERYTHING:** Drew (`drew-337-soak-triage`, in `drew-swings-wt`) is determining **pre-existing on `origin/main` vs introduced by #337**. Pre-existing → merge #337 on its own bar + file the defects separately. Introduced → fix round, no merge. **He was told to post the verdict as a COMMENT on PR #337 so it survives this session — CHECK THAT COMMENT FIRST on resume.** He was also told to push-or-stay-clean, not leave a dirty tree.
+
+**Sponsor decisions this session:** #337 soak split (above) · **orch/coordination = PUSH IT, he accepted the trail going public** — ⚠ BUT THE PUSH FAILED, see below.
+
+**⚠ THE PUSH IS NOT DONE — it needs a decision he has not made yet.** `origin/orch/coordination` is not merely behind, it has **DIVERGED**: 5 commits from 2026-06-24 that local never had (merge-base `d499f71`; local ahead 99, remote ahead 5). Top remote commit `7afdb0d` is `docs(harvest): ... (cherry-pick to main)` — **unharvested doc work that a force-push would silently destroy.** Options put to him, unanswered: merge-then-push (preserves all, but 99-vs-5 on append-heavy STATE/DECISIONS will conflict badly) · force-push (**destructive, discards those 5 — do NOT do this without explicit say-so**) · **push local to a NEW branch name** (zero risk, gets 96 commits off one disk immediately, old line becomes a cleanup ticket — my recommendation).
+
+**3 STRANDED WORKTREES from the rate-limit deaths — inventory BEFORE any git op, never clean/reset/checkout--/stash drop:** `erik2-wt` (1 file, partial #348 cite fixes — he had my retraction queued but may not have read it) · `drew-wt` (**72 files**, find-in-world `86cah7y5b`, mid-diagnosis of a real `find=False` runtime bug — RESUME not restart) · `priya-wt` (1 file, pre-existing churn; her work was server-side ticket bodies, some possibly half-applied). Plus `tess-wt` 55 dirty files, pre-existing and still unexplained — Sponsor has NOT seen it, I promised not to stash it.
+
+**Open PRs:** #337 (soak-split, triage pending) · #348 (Tess REQUEST_CHANGES; Erik's fix round stranded; shader/GPU claims still need a DEV review) · #349 (Devon APPROVE_WITH_NITS, **HELD** — Bar 10 as worded would not have caught the Fresnel loss; his replacement wording is in his comment).
+
+**Walkthrough left 2 unasked:** Tess's 55-file worktree (stash/investigate/leave) and the icon contact-sheet picks (`Far-Horizon-drew-wt\art-src\iconbaker-proto\contact-sheet.png`). Branch-protection browser click still staged.
+
+**Queued for Priya:** Bar 10 rewording (in-PR on #349) · rename `86camz787` (title is the only stale part) · fold Devon's `86caxjx26` sharpening in · **file the still-unfiled CC-BY ticket** with Devon's re-derived anchors (`:112`–`:116`, `:257`–`:258`, `:332`–`:333`, `:357`, `:140`, `:284`).
