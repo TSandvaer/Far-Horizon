@@ -375,3 +375,14 @@ Direct in-turn `get_tasks` (subagent scan would have died on the limit AND loops
 **Walkthrough left 2 unasked:** Tess's 55-file worktree (stash/investigate/leave) and the icon contact-sheet picks (`Far-Horizon-drew-wt\art-src\iconbaker-proto\contact-sheet.png`). Branch-protection browser click still staged.
 
 **Queued for Priya:** Bar 10 rewording (in-PR on #349) · rename `86camz787` (title is the only stale part) · fold Devon's `86caxjx26` sharpening in · **file the still-unfiled CC-BY ticket** with Devon's re-derived anchors (`:112`–`:116`, `:257`–`:258`, `:332`–`:333`, `:357`, `:140`, `:284`).
+
+## Post-save closure 2026-07-28 ~19:5xZ — #337 MERGED, doc riders applied
+Drew's triage landed after the save. **Verdict: PRE-EXISTING on `origin/main`, NOT introduced by #337** (PR #337 comment 5108924694; evidence: runtime diff is ONE file `SwingVerifyCapture.cs` inert without `-verifySwings`; `PickaxeMineCurveFix.cs:107-108` allowlists Hips+UpLegs only; both defects are relative relationships invariant under a pelvis rotation; clip landed `250e4e6` before merge-base `ddfbaf2`).
+
+**→ #337 MERGED `fee2604`** on its own Sponsor-passed bar — the exact condition he set. `86cav8xg9` **complete**. Playmode was FAILURE but verified as **exactly the 3 known pre-#338 `CombatPlayModeTests`** (313 total / 3 failed) and the branch predates `202a4db`, so main stays green; all 3 REQUIRED checks were SUCCESS before labelling.
+
+**New ticket `86cay4282`** — the two defects, carrying Drew's full triage so nobody re-derives it. Defect A (two-handed read) = the Mixamo clip's authored motion, clip-vs-prop mismatch, not a rig bug. Defect B (pivoting) = layer deliberately UNNAMED; two candidates, one being the **ungated `rightArmEuler(-4,-50,-3)` (`CastawayArmPose.cs:100`, |Q|≈50°, over the 40° threshold — `884c611` gated run-lower but NOT this)**; his decisive test is in the PR comment. Instrument-first, chop-side included, soak-gated.
+
+**Both #337 merge-riders APPLIED** (cites now on main): `unity-conventions.md` — an oblique ~40–50° "side" capture FORESHORTENS lean; posture/silhouette gates must shoot a true 90° sagittal profile off `ModelTransform.right`, and the Sponsor's soak checklist must say so explicitly. `procedural-animation-verbs.md` — diagnose clip-pose defects by limb/torso GEOMETRY in the character's own frame, never per-bone quaternion deviation (that method produced #337's refuted premise), plus the pelvis-invariance corollary that made the triage possible.
+
+**`86caxgyc4` is now UNBLOCKED** (its #337 dep merged).

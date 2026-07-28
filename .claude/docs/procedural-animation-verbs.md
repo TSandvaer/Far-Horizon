@@ -75,6 +75,14 @@ Set loop-pose blending on any Mixamo in-place looped clip (locomotion + idle + c
 
 **Siblings (same "wired but conditionally inert" family; the general debug-tool design rule lives in `unity-conventions.md` §Input System):** the axe-head PgUp/PgDn precondition trap (F9 nudge tool — axe-head resize silently no-ops unless the axe is the currently-held weapon) and the weapon-mesh-holder stomp (`unity-conventions.md` §FBX / rigs / characters — a rig-driven transform silently overwrites a debug nudge's per-frame write, so only the `localScale` dial visibly worked). All three are instances of a debug dial whose write SUCCEEDS at the data layer while a downstream gate — animation engagement weight, held-item precondition, or rig `LateUpdate` overwrite — silently discards its visible effect.
 
+## Diagnose a clip-pose defect by GEOMETRY in the character's own frame, never by per-bone quaternion deviation (`86cav8xg9`, PR #337 @ `fee2604`)
+
+A contorted-looking clip invites a per-bone quaternion diff against a reference pose. **That is the wrong instrument** — it reports large deviations on bones that look fine and small ones on the bone actually causing the read, because a quaternion delta says nothing about where the limb ends up in the body's own frame. #337's ticket premise (curve corruption, found by exactly that method) was **REFUTED**; the real cause was the **Hips hinge owning 46° of a 66° torso fold**, which only surfaces once you measure limb/torso geometry — angles and clearances relative to `ModelTransform` — rather than bone rotations.
+
+**Rule: diagnose clip-pose defects with limb/torso geometry in the character's own frame.** Measure the fold angle, the torso clearance, the elbow angle. Per-bone quaternion deviation is for detecting *curve corruption* (a bone whose curve is genuinely broken), not for locating *a pose that reads wrong*.
+
+**Corollary that fell out of the same PR:** because a pelvis-space fix rotates the whole body, anything expressed as a **relative** relationship is invariant under it — hand-to-hand distance, and a prop seated as `hand.rotation * Euler(relEuler)`. So a pelvis fix **cannot** cause (or cure) a two-handed-looking grip or a prop that pivots relative to the hand. That invariance is what let #337's triage separate its own bar from two unrelated defects (`86cay4282`) with a one-file diff as evidence.
+
 ## Sizing an additive arm offset: the `|Q|` blast-radius rule (`86caxgwbz`, PR #343)
 
 A fixed additive arm offset's **worst-case arc is capped by its own rotation magnitude `|Q|`**, and the per-clip variation is the fraction of that cap the clip's elbow fold realises. Measured across 22 live clips: `Euler(-5,-22,0)` is ≈22.6°, and observed arcs ran 9.3°→19.9° — **41%→88% of the ceiling**. Idle sits at the low end (elbow ≈149°, near-straight); attack and hit-react clips sit at the high end (elbow 44°–86°).
