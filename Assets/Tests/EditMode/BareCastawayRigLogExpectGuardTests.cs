@@ -214,6 +214,12 @@ namespace FarHorizon.EditTests
             // number so legitimately retiring a suite or two does not red the gate. (The earlier form compared
             // RigSites against WithRig, which can never fail: `RigSites += rigs` runs on the same branch as
             // `WithRig++` behind `if (rigs == 0) continue`, so rigs >= 1 always — #345 review NIT 2, 86caxjwev.)
+            // MARGIN 1 on that collapse-detection half: it holds only while withRig < 15, and withRig is 14 —
+            // a single new rig-carrying file lapses it (the collapse would then score 15 >= 15, GREEN). The
+            // UNCONDITIONAL collapse net is Guard_RedsOnASecondBareRig_InAnAlreadyDeclaringFile_CountNotPresence
+            // (its Assert.AreEqual(4, scan.RigSites) over a synthetic 1-file/4-rig tree — the collapse scores
+            // 1 there whatever the real tree measures). Read THIS assert as the staleness floor; read that
+            // control as the collapse guarantee. (#350 review NIT 2, comment 5110025056.)
             Assert.GreaterOrEqual(scan.RigSites, 15,
                 "rig SITE count collapsed to " + scan.RigSites + " (floor 15; the tree measured 19 across 14 " +
                 "files at the merged-#338 head). At or below the file count this is the signature of per-SITE " +
