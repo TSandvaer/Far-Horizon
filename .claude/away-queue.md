@@ -588,3 +588,18 @@ Sponsor drained the clickable queue in one pass before going away. **Every item 
 **Why I did not just push it:** the repo is PUBLIC (your 2026-07-27 decision), so pushing 96 commits of internal coordination — decision logs, away-queue, orchestrator process notes — is an outward-facing action on a public repo. That is on the never-auto-decide list, so it is your call, not mine.
 
 **Options when you're back:** (a) push it — fastest fix for both problems, but it publishes the coordination trail; (b) leave it and rely on the next harvest PORT to carry the doc-worthy parts to `main` (slower, selective, keeps process notes private); (c) push it to a private mirror instead.
+
+## 🛑🛑 2026-07-27 ~23:2xZ — SESSION RATE LIMIT HIT (resets 03:20 Copenhagen). Away loop STOPPED. Read this first.
+**3 agents died mid-work on the limit.** No work is lost, but two worktrees hold UNCOMMITTED edits. **Do NOT run `git clean`, `git reset`, `git checkout --`, or `git stash drop` in any worktree below** ([[background-agent-rate-limit-death-salvage]]).
+
+| Worktree | Branch | Uncommitted | What it was mid-doing |
+|---|---|---|---|
+| `Far-Horizon-erik2-wt` | `erik/hitflash-research` (PR #348, pushed @ `089eace`) | **1 file: `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md`** | Erik's 2nd fix round — Tess's REQUEST_CHANGES cite defects. He died on the Evidence bullet quoting Uma's §2.5. **PARTIAL EDIT — do not commit blind; inventory + finish, then commit.** |
+| `Far-Horizon-drew-wt` | `drew/86cah7y5b-find-in-world` (no PR yet, branch not pushed) | Multiple `Assets/` files (Unity re-serialization churn visible; **full extent NOT enumerated — a `.cs` instrument may be in there**) | Find-in-world impl. Last words: *"`find=False` at runtime though authoring logged 4 seated sites. Not theorising — instrumenting the resolve."* **He was mid-diagnosis of a real runtime bug — that reasoning is the valuable part; resume, do not restart.** |
+| `Far-Horizon-priya-wt` | `priya/hygiene-0727-late` (PR #349, pushed @ `9bed94c`) | only pre-existing `.claude/agents/tess.md` churn | Ticket-BODY edits (server-side, safe). Last words: she confirmed Devon's #349 Finding-1 correction and was fixing it **in the body, not a comment**. Some of the 5 bodies may be half-updated — re-check before trusting them. |
+
+**Also `Far-Horizon-tess-wt` is dirty (53 modified + 2 untracked) — pre-existing, NOT from tonight's review, still awaiting your eyes. Untouched as promised.**
+
+**Loop state:** cron `839dd854` DELETED; `auto-status.state` set `enabled=false`. Nothing will auto-resume — deliberate, so the reset window isn't burned by ticks that can't dispatch. **Re-arm with `/auto-status away` (or `on`) when you're back**, or swap accounts for a fresh window ([[sponsor-swaps-two-accounts-for-fresh-window]]) if you want it moving before 03:20.
+
+**Resume order when capacity returns:** (1) inventory the two dirty worktrees BEFORE any git op; (2) resume Erik's #348 fix round; (3) resume Drew on the `find=False` diagnosis; (4) re-check Priya's 5 ticket bodies for half-applied edits; (5) then the queued items further down this file.
