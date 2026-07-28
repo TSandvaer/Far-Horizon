@@ -346,3 +346,12 @@ Each role updates its own section as it works M-U1 / M-U2 tickets. The orchestra
 **Queued for Priya's next round:** (1) Bar 10 rewording per above, in-PR on #349. (2) Rename `86camz787` — title is the only stale part. (3) Fold Devon's `86caxjx26` sharpening into that ticket. (4) File the still-unfiled CC-BY staleness ticket, re-deriving line anchors from the merged head (`:249`→`:252` already shifted; Devon asked to list the others in his #347 re-review).
 
 **Devon re-dispatched on the #347 re-review** (head `216bab9`) — merge on his verdict.
+
+## Board scan 2026-07-27 ~23:3xZ (post-limit) — 28 open, capacity ZERO
+Direct in-turn `get_tasks` (subagent scan would have died on the limit AND loops the anti-idle gate — [[away-antiidle-gate-direct-gettasks-breaks-loop]]). Output overflowed to a tool-results file; extracted counts are trustworthy, the id↔title pairing in that extract is NOT (nested JSON confused the parse) — re-read titles before dispatching from it.
+
+**28 open: 25 `to do`, 2 `in progress` (`86cah7y5b` Drew's stranded find-in-world, `86camyvwn` icons/Sponsor-gated), 1 `in review` (`86cav8xg9` = PR #337, Sponsor soak).** Priya's 4 new tickets all confirmed present and `to do`: `86caxjwb3` / `86caxjwev` / `86caxjwhh` / `86caxjx26` — her filing landed before she died.
+
+**Dispatchable set is NON-EMPTY** — `86caxjwev`, `86caxjwhh`, `86caxj8zw`, `86cavj6p1`, `86caxhk6v` are all non-build and unblocked. **Capacity is nevertheless ZERO: the session rate limit is exhausted until 03:20 Copenhagen.** A dispatch now dies at step zero — that is exactly what killed Erik, Drew and Priya at ~23:2xZ. Dispatching into a known-exhausted limit does not fill a slot; it strands MORE uncommitted work in MORE worktrees, each one another dirty tree to inventory before anything can resume.
+
+**All six persona slots are justified-idle by that single external constraint** — not by a missed scan, not by a busy critical path. This is the one condition under which idle is correct. Re-arm (`/auto-status away`) after 03:20, or after an account swap ([[sponsor-swaps-two-accounts-for-fresh-window]]); resume order is in `.claude/away-queue.md` under the 🛑🛑 block, and **worktree inventory comes before any git op**.
