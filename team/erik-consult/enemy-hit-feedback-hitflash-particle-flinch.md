@@ -1,5 +1,180 @@
 # Enemy Body-Level Hit Feedback — `_HitFlash`, Pooled Dust-Puff, Flinch
 
+---
+
+# ⚠ CORRECTIONS — read this before anything below it
+
+**Status of this note: every CONCLUSION confirmed, three PRESCRIPTIONS not buildable as typed.**
+A dev factual-check (Devon, 2026-07-28) covered exactly the slice Tess scoped OUT of QA in both her
+rounds — the HLSL formula, the very-negative-default reasoning, and the GPU-Resident-Drawer
+inference — and returned **NO-GO on dispatching a dev against this note verbatim**, with 5 verified
+defects. This block is a transcription of his verdict; it does not re-do the research.
+
+**Full reasoning, all counter-evidence, and the go/no-go live in his comment, not here:**
+[PR #348 comment `5109223633`](https://github.com/TSandvaer/Far-Horizon/pull/348#issuecomment-5109223633).
+He read this note read-only from a `git archive` extract at **`089eace`**, and every piece of
+counter-evidence from `origin/main` @ **`fee2604`**.
+
+> ⚠ **His note-line refs are against `089eace` (312 lines) and do NOT resolve against this file
+> today** — it was 407 lines at `25f34ac`, and adding this block shifted the whole body down again.
+> **Every line number quoted below has been recomputed against this file WITH this block in it**, so
+> they resolve as merged. Anyone who reopens the note must recompute them again.
+
+**Do not implement from the body of this note.** Implement from ticket
+[`86caxjwb3`](https://app.clickup.com/t/86caxjwb3)'s ACs, which already carry all five corrections
+tagged `[DFC-1]`…`[DFC-B]` — verified live on list `901523878268`, 2026-07-28.
+
+---
+
+## C1 — 🔒 BLOCKING, and invisible to every headless test: `Time.time` is the wrong clock
+
+| | |
+|---|---|
+| **This note says** | §Application step 2 (**line 514**): `_mat.SetFloat("_HitFlashTime", Time.time)`, paired with a frag term that reads **`_Time.y`** (**line 502**). |
+| **Actually true** | `_Time.y` is **`Time.timeSinceLevelLoad`**, NOT `Time.time`. URP declares `float4 _Time; // (t/20, t, t*2, t*3)` with *"t = time since current level load"*. |
+| **Proved at** | `Library/PackageCache/com.unity.render-pipelines.universal@d3aed158d698/ShaderLibrary/UnityInput.hlsl:41-42` |
+
+They are different clocks. `Time.time` counts from application start — splash and level load
+included. Let `T0` = seconds elapsed before the level finished loading. At any later moment
+`_Time.y = e` while the written stamp is `T0 + e`, so the numerator is a **constant negative** `-T0`
+and `saturate(1 + T0/duration)` clamps to **1.0 permanently**. **Not a drift — a latch.** Any
+`T0 > 0` — i.e. always, in a built player — gives a **solid-colour enemy from the first hit until
+the process exits.** Fix: write `Time.timeSinceLevelLoad`.
+
+**Why this one is boxed and the other four are not:** an EditMode test asserting *"`SetFloat` was
+called with a rising timestamp"* is **GREEN on this bug**. It is a **shipped-build-only failure** —
+green in the editor, a solid-white enemy in the exe. This is the exact failure family the
+shipped-build capture gate exists for, so the verification must be a built-exe check (hit an enemy,
+confirm the flash **decays** rather than latching), never tests alone.
+
+**Scope guard — do NOT "fix" the flinch's `Time.time`.** C1 is about a C#-written timestamp that the
+**shader** reads back through `_Time.y`. The flinch's `HitReactNormT` (lines 286 / 289 / 559-560)
+normalizes its own timestamp **wholly in C#** and never crosses into HLSL — `Time.time` is correct
+there, and it matches the shipped `WindupNormT`/`ChargeNormT` idiom. Likewise, if the flash ends up
+driven wholly from C# with no shader-side clock, C1 is inert; say which shape shipped in the PR body.
+
+## C2 — the decay is linear where this note's own quoted spec says "eased out", and has no amplitude dial
+
+- **This note says:** line 495 reproduces the design brief §1.2 as *"a brief sub-1.0 warm-white tint
+  pulse (~0.08s, **eased out**)"*, then line 504 argues *"no fourth `_HitFlashIntensity` term is
+  needed"* because the `saturate(...)` expression is already the 0→1 decay factor.
+- **Actually true:** `1 - x` is **linear**, not eased — and "already the decay factor" is true of
+  DECAY only; it fixes **peak amplitude** at a full replacement of the lit colour, tunable solely by
+  dragging `_HitFlashColor` toward each enemy's own base tone, which differs per enemy
+  (`SnakeRust` vs `BoarBrown`). Square it (`t *= t;`, one ALU op) for the snap-then-fade read, and
+  ship an `_HitFlashIntensity`-class dial inert at its default.
+- **Proved at:** `.claude/docs/game-juice.md` §1 must-have #1 (*"Under-applying easing (leaving
+  linear) is the single most common 'feels cheap' defect"*) and §0 (*amplitude is the entire tuning
+  variable*; every juice value is a Sponsor-soak-tunable cap); per-enemy tones at
+  `MovementCameraScene.cs:2292`.
+
+## C3 — GPU Resident Drawer is **Disabled**: the conclusion survives, the premise does not
+
+- **This note says:** the whole per-Renderer-not-per-shared-Material argument is framed in GRD terms
+  (lines 352-366, 520-521), and prescribes verifying it by A/B-ing the Frame Debugger's
+  **GRD merged-draw-call count** before/after (lines 366, 520).
+- **Actually true:** GRD is **off in the shipped config**, so that A/B measures a switched-off
+  subsystem — it returns identical numbers whether the change is correct or catastrophic. The
+  load-bearing mechanism here is the **SRP Batcher**, which IS on. The conclusion (per-instance
+  Material, never MPB) is **confirmed, and for a stronger reason than this note gives**: an MPB
+  breaks **both** the SRP Batcher and GRD, while distinct material instances break **neither**.
+  Replace the verification with an **SRP Batch** Frame-Debugger check — confirm the enemy draws
+  still land under an `SRP Batch` node and no `MaterialPropertyBlock` appears in the enemy path.
+- **Proved at:** `Assets/Settings/FarHorizonURP.asset:86` `m_GPUResidentDrawerMode: 0`
+  (`Disabled = 0`, `com.unity.render-pipelines.core@2e28fe32b230/Runtime/GPUDriven/IGPUResidentRenderPipeline.cs:8-13`);
+  `FarHorizonRenderer.asset:49` `m_RenderingMode: 0` = Forward; SRP Batcher on at
+  `FarHorizonURP.asset:72` `m_UseSRPBatcher: 1`. This is the **documented deliberate deviation** at
+  `.claude/docs/unity6-mastery.md:13`, not an oversight. Replacement check:
+  `.claude/docs/unity-conventions.md:211-213`.
+
+## C4 — three particle defects a dev hits within the hour
+
+- **`Unlit/Particle` does not exist in URP** (this note carries the string at lines 271 / 316 / 533).
+  It is a **built-in-RP** shader name; the URP names are
+  `Universal Render Pipeline/Particles/Unlit` / `.../Particles/Lit` / `.../Particles/Simple Lit`
+  (`com.unity.render-pipelines.universal@d3aed158d698/Shaders`). Wrong name → **magenta**.
+- **A new particle shader must be registered in `AlwaysIncludedShaders`** or the standalone build
+  strips it — the project's documented magenta failure class
+  (`Assets/Shaders/LowPolyVertexColor.shader:12-15`). Route it through
+  `WorldBootstrap.EnsureShaderAlwaysIncluded` (`WorldBootstrap.cs:789`), the way `BuildBoarPart`
+  already does at `MovementCameraScene.cs:2633`. If the stock URP particle shader is used unmodified
+  it *may* survive via URP's own always-included set — **verify in the built exe, do not assume.**
+- **🔒 `LowPolyMeshes.cs` is Editor-only; runtime particle code cannot call it.** Line 534 says to
+  reuse a `FacetedRock`-style tri-chunk from it. It lives at `Assets/Scripts/Editor/LowPolyMeshes.cs`
+  in the `FarHorizon.Editor` asmdef, which declares `"includePlatforms": ["Editor"]` and references
+  `FarHorizon.Runtime` — **not the reverse**. It won't compile and won't exist in the player. Two
+  routes: bake the chunk mesh at scene-author time and serialize it onto the pooled prefab (the idiom
+  every other mesh here uses), or move the small generator into the Runtime asmdef. Pick one in the
+  ticket.
+- Also unstated by this note: `OnParticleSystemStopped` only fires when
+  `main.stopAction = ParticleSystemStopAction.Callback`. Without it the pool never gets its instances
+  back and the "pooled" claim is silently false.
+
+## C5 — 🔒 `GetComponent<Renderer>()` returns **null** on both enemy roots
+
+- **This note says:** line 510 — the `EnemyHitFlash` MonoBehaviour *"caches `GetComponent<Renderer>()`
+  in `Awake`"*.
+- **Actually true:** both enemy roots are bare GameObjects carrying `Health`/`AI`/`BodyRig` only;
+  **every renderer sits on a child part**. So the root `GetComponent<Renderer>()` is `null` — and
+  even a naive **singular** `GetComponentInChildren` would flash **1 of 7** boar parts / **1 of 13**
+  snake parts. Correct shape: cache `GetComponentsInChildren<Renderer>(true)` in `Awake`, call
+  `.material` **once** per renderer into a cached array, cache the property ID via
+  `Shader.PropertyToID` (never the per-frame string overload), and `SetFloat` across all of them on a
+  detected HP drop. Destroy the `.material` clones in `OnDestroy` so respawn doesn't accumulate them.
+- **Proved at:** `MovementCameraScene.cs:2531`/`:2566` (boar root + components),
+  `:2406`/`:2438` (snake root + components); part counts `BoarBodyRig.cs:46` (7) and
+  `MovementCameraScene.cs:2275` (12 links + head = 13).
+- **Consequence for the HP-drop guard:** `Health.Changed` is `public event Action<float>` carrying
+  `Current01` (`Health.cs:80`, `:93`) and fires on **heal / `RestoreFull` / init** as well as damage —
+  so the previous-value guard this note calls for at line 514 is **mandatory, not optional**.
+
+## Bonus — this note's own main perf objection is already void
+
+Both enemies already carry **20 unique inline `new Material(vc)` instances** on `main` — 7 boar
+(`MovementCameraScene.cs:2617-2634` × `BoarBodyRig.PartCount`) + 13 snake
+(`MovementCameraScene.cs:2492-2510` × head + 12 links). A flash write targets materials that are
+**already unique**, so the marginal batching cost is **zero, not "small"**. That is a stronger green
+light than this note claims, and it replaces the hedged
+*"strongly-supported-but-not-yet-measured"* framing at **line 521**. Don't spend implementation or
+PR-body effort hedging a perf objection that does not exist.
+
+## Cross-artifact check — the `_HitFlash` vs `_HitFlashTime` default conflict is **FALSE**, and already reconciled
+
+Tess flagged (consistency lane, explicitly not a merits ruling) that ticket `86caxjwb3` AC2 pinned
+`_HitFlash` *"default 0 must be a pure no-op"* while this note prescribes `_HitFlashTime`
+*"never 0"*. **Checked — these are two different properties carrying two different things, so it is
+a false conflict.** AC2's `_HitFlash` was the **amplitude** float; this note's `_HitFlashTime` is a
+**timestamp**. Both defaults chase the *same* goal — inert at default — and an amplitude float
+reaches it at `0` while a timestamp float reaches it at `-1000`. **Opposite values, identical
+semantics.** Not a contradiction.
+
+It has also since been reconciled in the ticket itself. Verified live on ClickUp `86caxjwb3` (list
+`901523878268`) on 2026-07-28: AC2 no longer carries the *"default 0 must be a pure no-op"* phrasing
+Tess quoted. It now reads **`[DFC-1 / Claim 2 — CONFIRMED, carried verbatim]` — *"the no-op default
+attaches to WHAT THE PROPERTY CARRIES … Do NOT copy it verbatim onto a TIMESTAMP float"***, plus a
+shape-agnostic 🔒 *"default state must be a pure no-op for every OTHER consumer of the shader …
+whichever property shape ships"*, and `[DFC-2]` adds the `_HitFlashIntensity`-class amplitude dial —
+which is precisely the property AC2's original default-0 rule was right about.
+
+Residual and non-blocking: the ticket **title** still says `_HitFlash` while this note's design names
+three properties, none of them called `_HitFlash`. The amended AC2's *"whichever property shape
+ships"* leaves that open deliberately — a naming call for the implementer to state in the PR body,
+not an unresolved contradiction.
+
+---
+
+**One claim needed no correction at all.** Devon confirmed the very-negative `_HitFlashTime` default
+outright (his Claim 2) and called this note's *"do NOT copy the default-0 rule verbatim here"*
+warning **the single most valuable line in the document** — it is carried into the ticket verbatim.
+
+**Regression guard he asked for, because the C1 class is invisible to EditMode by construction:** a
+**PlayMode** assertion that the shader-visible flash factor **returns to 0** within
+`_HitFlashDuration` after a simulated hit (read the stamp back against `Time.timeSinceLevelLoad`, not
+just *"`SetFloat` was called"*), plus a **shipped-exe capture at hit + 0.5 s** showing the enemy back
+at base colour. A "flash fired" assertion passes on the latched-white bug.
+
+---
+
 > **Provenance:** round 1 was re-verified against `origin/main` commit `993faee` (2026-07-27), read
 > from a fresh checkout at `c:/Trunk/PRIVATE/Far-Horizon-erik2-wt`; round 2's citation audit (below)
 > re-checked against `origin/main` @ `fee2604`. The first pass was researched from the
