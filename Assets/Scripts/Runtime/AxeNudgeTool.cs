@@ -121,13 +121,15 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL,7=WRIST(L/R),8=HAND(thumb,L/R)
+        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL,7=WRIST(L/R),8=HAND(thumb,L/R),9=MINE de-grip
         // 86cakkfz9: the old AXE-HEAD-size target + its mouse slider are REMOVED — head SIZE is authored Blender
         // geometry now, not a runtime dial. 86catvb6u: FOOT-YAW (CastawayFootYaw.footYawDeg, the v4 pigeon-toe
         // counter-rotate; Y/H) + GRIP-CURL (CastawayFingerCurl.fingerCurlDeg, softens the chunky-hand grip fold;
         // T/G) added. Round-8: WRIST now dials CastawayHandPose's per-side WRIST euler (both hand bones, [N]-switch
         // L/R) + HAND dials its per-side THUMB euler (orient the thumb below the wrist) — T/G/Y/H/U/J = all 3 axes.
-        private const int TargetCount = 9;
+        // 86cay4282: 9 -> 10, adding 9=MINE (CastawayArmPose.mineDeGripEuler — the left-arm de-grip that breaks the
+        // pickaxe mine clip's phantom two-handed grip). Amplitude is a LOOK call, so it gets a live dial.
+        private const int TargetCount = 10;
         private int _armSel;            // shared L/R side selector for the ARM(2)/WRIST(7)/HAND(8) targets: 0=right, 1=left
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         private CastawayFootYaw _footYaw;      // 86catvb6u — FOOT-YAW target dials its footYawDeg (v4 pigeon-toe fix)
@@ -264,7 +266,8 @@ namespace FarHorizon
                             : _target == 5 ? _footYaw != null        // FOOT-YAW (v4 pigeon-toe counter-rotate)
                             : _target == 6 ? _fingerCurl != null     // GRIP-CURL (v4 grip fold)
                             : _target == 7 ? _hand != null           // WRIST (both hand bones, L/R)
-                            : _hand != null;                         // HAND (thumb, L/R)
+                            : _target == 8 ? _hand != null           // HAND (thumb, L/R)
+                            : _armPose != null;                      // MINE de-grip (86cay4282) — on the arm pose
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -365,6 +368,16 @@ namespace FarHorizon
                     // weight; judge while running). Position keys are inert (arms have no position channel).
                     if (_armPose != null) _armPose.runLowerEuler += dr;
                 }
+                else if (_target == 9)
+                {
+                    // MINE de-grip (86cay4282 — "he is swinging like he is handing the axe with both hands"). Dials
+                    // the LEFT-upper-arm offset that opens the arm off the mine clip's phantom haft. T/G = pitch/X
+                    // is the LOAD-BEARING axis here (MEASURED: on the left arm a NEGATIVE X separates the hands AND
+                    // increases torso clearance; the +X the cheat-sheet calls "outward" pulls them TOGETHER on this
+                    // clip). Rotation only — arms have no position channel. INERT except during the pickaxe swing
+                    // (weight 0 elsewhere), so MINE A BOULDER to judge; the panel shows the live weight.
+                    if (_armPose != null) _armPose.mineDeGripEuler += dr;
+                }
                 else if (_target == 5)
                 {
                     // FOOT-YAW (86catvb6u — the v4 pigeon-toe counter-rotate). Y/H dials the per-foot OUTWARD yaw
@@ -452,7 +465,8 @@ namespace FarHorizon
             : _target == 3 ? "GROUND-Y offset" : _target == 4 ? "RUN arm-lower"
             : _target == 5 ? "FOOT-YAW (v4 pigeon-toe)" : _target == 6 ? "GRIP-CURL (v4 hand)"
             : _target == 7 ? "WRIST (v4 hand un-twist, " + Side() + ")"
-            : "HAND (v4 thumb, " + Side() + ")";
+            : _target == 8 ? "HAND (v4 thumb, " + Side() + ")"
+            : "MINE de-grip (left arm off the phantom haft)";
 
         // Shared L/R label for the ARM/WRIST/HAND targets ([N] toggles _armSel).
         private string Side() => _armSel == 0 ? "RIGHT" : "LEFT";
@@ -521,6 +535,15 @@ namespace FarHorizon
                 Vector3 rl = _armPose.runLowerEuler;
                 Debug.Log($"[AxeNudgeTool] RUN  RunLowerEuler=({rl.x:F1}f,{rl.y:F1}f,{rl.z:F1}f)  " +
                           $"(runWeight={_armPose.RunWeight:F2})");
+            }
+            else if (_target == 9 && _armPose != null)
+            {
+                // 86cay4282 — the Sponsor reads this off the log to bake into MovementCameraScene.ArmMineDeGripEuler.
+                // mineWeight shows whether the de-grip is engaged THIS frame (rises toward 1 only while the
+                // AttackPickaxe swing owns layer 0 — i.e. only while there IS something to judge).
+                Vector3 mg = _armPose.mineDeGripEuler;
+                Debug.Log($"[AxeNudgeTool] MINE  ArmMineDeGripEuler=({mg.x:F1}f,{mg.y:F1}f,{mg.z:F1}f)  " +
+                          $"(mineWeight={_armPose.MineDeGripWeight:F2})");
             }
             else if (_target == 5 && _footYaw != null)
                 // 86catvb6u — bake into MovementCameraScene.CastawayV4FootYawDeg (the v4 pigeon-toe counter-rotate).
@@ -628,7 +651,9 @@ namespace FarHorizon
                 ? "GRIP-CURL (v4 hand — T/G softens the grip fold; lower = less dark/segmented)"
                 : _target == 7
                 ? "WRIST — " + (_armSel == 0 ? "RIGHT hand" : "LEFT hand") + " un-twist ([N] switch; T/G/Y/H/U/J all 3 axes)"
-                : "HAND (thumb) — " + (_armSel == 0 ? "RIGHT" : "LEFT") + " ([N] switch; orient the thumb below the wrist)";
+                : _target == 8
+                ? "HAND (thumb) — " + (_armSel == 0 ? "RIGHT" : "LEFT") + " ([N] switch; orient the thumb below the wrist)"
+                : "MINE de-grip (left arm off the pickaxe clip's phantom haft — T/G; MINE to judge)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             string posLine, eulerLine;
@@ -687,6 +712,18 @@ namespace FarHorizon
                     ? $"RUN ENGAGED ✓ weight={_armPose.RunWeight:F2} (judge now; dial Z MORE negative to lower the arm)"
                     : $"run weight={_armPose.RunWeight:F2} — RUN (Shift) to engage + judge; walk/idle untouched";
             }
+            else if (_target == 9 && _armPose != null)
+            {
+                // 86cay4282 — the MINE de-grip. Surfacing the live WEIGHT is MANDATORY on an engagement-weighted
+                // CastawayArmPose field (procedural-animation-verbs.md §Debug-instrument caveat): without it a dial
+                // that is simply not engaged is indistinguishable from a broken handler — the exact trap that burned
+                // the Sponsor twice on run-lower. T/G = pitch/X is the measured separating axis.
+                Vector3 mg = _armPose.mineDeGripEuler;
+                posLine = $"MineDeGripEuler=({mg.x:F1}, {mg.y:F1}, {mg.z:F1})  (T/G = pitch/X; MORE negative opens the left arm)";
+                eulerLine = _armPose.MineDeGripWeight > 0.5f
+                    ? $"MINE ENGAGED ✓ weight={_armPose.MineDeGripWeight:F2} (judge NOW — mid-swing)"
+                    : $"mine weight={_armPose.MineDeGripWeight:F2} — equip the PICKAXE + click a boulder to engage; every other state untouched";
+            }
             else if (_target == 5 && _footYaw != null)
             {
                 // 86catvb6u — the v4 pigeon-toe counter-rotate. One scalar (both feet mirror); Y/H dials it.
@@ -736,7 +773,7 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND    [N] right<->left (arm/wrist/hand)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE    [N] right<->left (arm/wrist/hand)", _hintStyle);
             GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
             GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
             GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);

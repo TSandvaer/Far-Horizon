@@ -258,6 +258,24 @@ namespace FarHorizon.EditorTools
         // nudge" screenshot) and asked to bake it as the shipped default: (-10,12,-42). SUPERSEDES (0,0,-22).
         public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
 
+        // 86cay4282 — the MINE de-grip: an additive LEFT-upper-arm offset applied only while the AttackPickaxe swing
+        // owns layer 0, breaking the mine clip's phantom two-handed grip. MEASURED, not guessed: the 61-sample sweep
+        // in AttackClipPoseDiag's DE-GRIP SIZING pass scored every candidate on the metric the defect is DEFINED by
+        // (hand separation, shoulder-widths) AND on left-hand clearance to the torso axis, so a candidate that
+        // "fixes" the grip by driving the arm into the body is visible rather than silently picked:
+        //     ( 0,0,  0)  lRHand 1.08-1.30  torsoClear 0.65   <- the defect
+        //     (+40,0, 0)  lRHand 0.61-0.97  torsoClear 0.29   <- the cheat-sheet's "outward" sign: WORSE
+        //     (-25,0, 0)  lRHand 1.23-1.63  torsoClear 0.89
+        //     (-40,0, 0)  lRHand 1.30-1.84  torsoClear 0.94
+        //     (-40,0,20)  lRHand 1.51-1.97  torsoClear 1.06   <- SHIPPED (dominates on all three metrics)
+        //     (-55,0,20)  lRHand 1.56-2.18  torsoClear 1.10
+        //     (  0,0,25)  lRHand 1.24-1.58  torsoClear 0.49   <- +Z ALONE swings the arm across the body
+        // The Sponsor-approved idle carry sits at 1.65-1.89, so the shipped value lifts the swing's TIGHTEST frame
+        // (1.08 -> 1.51) to just under the pose he already accepted, while nearly doubling torso clearance. |Q| =
+        // 44.6deg is in the ">~40deg needs a state gate" band (procedural-animation-verbs.md / 86caxgwbz) — which it
+        // has. Amplitude is a LOOK call: the F9 MINE target dials it live and the Sponsor bakes the value HERE.
+        public static readonly Vector3 ArmMineDeGripEuler = new Vector3(-40f, 0f, 20f);
+
         // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
         // defect). A per-foot yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4 (0 for
         // v3/v2/old → their feet are byte-unchanged). DEFAULT = the Sponsor's DIALED −15.0, BAKED AS-DIALED: he
@@ -1439,6 +1457,10 @@ namespace FarHorizon.EditorTools
             // byte-unchanged); the Sponsor dials runLowerEuler on the F9 RUN target while running, then bakes it.
             pose.character = castaway;
             pose.runLowerEuler = ArmRunLowerEuler;
+            // 86cay4282 — bake the MINE de-grip so it ships in Boot.unity (the component-not-serialized trap; the
+            // runtime field default is only the fallback). Gated on the AttackPickaxe state via pose.character, so
+            // it is INERT in every other state — the Sponsor's locked carry/idle/walk/run left arm is untouched.
+            pose.mineDeGripEuler = ArmMineDeGripEuler;
             // 86catvb6u — v4 gets MIRROR-of-left arm eulers (the v3-dialed right (-4,-50,-3) over-rolls v4's arm
             // bone → palm-back; MEASURED symmetric = mirror-left). seedEulersFromDegFields stays FALSE so
             // RebuildCached composes these verbatim. v3/v2/old keep the component-default dialed eulers (the arm
@@ -1456,7 +1478,8 @@ namespace FarHorizon.EditorTools
                       (pose.leftUpperArm != null ? pose.leftUpperArm.name : "<null>") +
                       "', rightArmEuler=" + pose.rightArmEuler.ToString("F1") +
                       (CharacterAssetGen.UseCastawayV4 ? " [v4 mirror-of-left — un-rolled]" : " [v3/rollback dialed]") +
-                      ", runLowerEuler=" + ArmRunLowerEuler.ToString("F1") + ")");
+                      ", runLowerEuler=" + ArmRunLowerEuler.ToString("F1") +
+                      ", mineDeGripEuler=" + ArmMineDeGripEuler.ToString("F1") + ")");
 
             // CHOP SWING (86caa4c5c change-(b)) — the swing is now the Mixamo melee Animator Attack state
             // (CastawayCharacter.TriggerChop), NOT a procedural bone offset. The rejected ChopPoseDriver and its

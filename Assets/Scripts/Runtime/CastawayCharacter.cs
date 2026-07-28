@@ -755,6 +755,51 @@ namespace FarHorizon
         private static readonly int JumpIdleStateHash = Animator.StringToHash(JumpIdleState);
         private static readonly int JumpRunningStateHash = Animator.StringToHash(JumpRunningState);
 
+        // 86cay4282 — THE MINE-SWING LANE (one state, not a family). The pickaxe MINE clip is authored TWO-HANDED:
+        // measured on the live rig, it holds the two hands 1.09–1.29 shoulder-widths apart across the whole swing
+        // (range 0.20) — CLOSER together and steadier than the character stands at rest (idle carry 1.65–1.89) —
+        // while the axe chop swings them 1.77–2.86 apart (range 1.09). Locked-together hands are the signature of a
+        // shared haft grip, and the real one-handed tool then sits 63.8–89.7 deg off the line through both hands, so
+        // the eye reads a phantom second-hand grip that the tool disagrees with. The de-grip offset that breaks that
+        // read is legitimate ONLY on this one clip, so the gate names the state rather than a lane family: the axe /
+        // dagger / spear / sword swings measure fine and must be handed back to their clips untouched.
+        public const string AttackPickaxeState = "AttackPickaxe";
+        private static readonly int AttackPickaxeStateHash = Animator.StringToHash(AttackPickaxeState);
+
+        /// <summary>
+        /// THE MINE-SWING GATE as a pure function of the three layer-0 readings (86cay4282), so its transition
+        /// semantics are pinned in EditMode with no Animator rig — the same shape as
+        /// <see cref="LocomotionLaneOwnsPoseFor(int,bool,int)"/>, and transition-PAIRED for the same reason: a
+        /// current-state-only read still reports "Locomotion" for the whole <c>AnyState -&gt; AttackPickaxe</c>
+        /// crossfade, so the de-grip would engage a full transition-duration late, after the swing already reads.
+        ///
+        /// The polarity is the MIRROR of the locomotion gate, deliberately: this one is true while the mine swing
+        /// owns the pose. It engages on the FIRST frame of the crossfade IN (current=Locomotion, next=AttackPickaxe)
+        /// and stays engaged through the crossfade OUT (current=AttackPickaxe, next=Locomotion) until layer 0 has
+        /// fully settled back — conservative at BOTH ends, so the offset is never half-applied across a frame the
+        /// swing is visible in.
+        /// </summary>
+        public static bool MineSwingOwnsPoseFor(int currentShortNameHash, bool inTransition, int nextShortNameHash)
+            => currentShortNameHash == AttackPickaxeStateHash ||
+               (inTransition && nextShortNameHash == AttackPickaxeStateHash);
+
+        /// <summary>Live layer-0 read of <see cref="MineSwingOwnsPoseFor(int,bool,int)"/>. FAIL-CLOSED with no
+        /// Animator/controller (returns false) — the OPPOSITE default to the locomotion gate, and for the same
+        /// reason: each gate fails toward LEAVING THE CLIP ALONE. This one can only ever ADD the de-grip, so a rig
+        /// without a controller must never get it; the locomotion gate can only ever SUBTRACT run-lower, so it
+        /// fails open. A missing controller therefore reproduces pre-86cay4282 behaviour exactly.</summary>
+        public bool MineSwingOwnsPose
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                bool inTransition = _animator.IsInTransition(0);
+                int next = inTransition ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                return MineSwingOwnsPoseFor(_animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
+                                            inTransition, next);
+            }
+        }
+
         /// <summary>Is this layer-0 state name part of the LOCOMOTION LANE the run-lower was dialed against
         /// (Idle / Locomotion / JumpIdle / JumpRunning)? Pure + name-based so the allow-list is exhaustively
         /// testable in EditMode against the shipped controller's authored state set (86caxj30g).</summary>

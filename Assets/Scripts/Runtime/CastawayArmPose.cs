@@ -153,6 +153,30 @@ namespace FarHorizon
                  "sprint start/stop inside the lane never uses this rate, so 86caa83wn's feel is byte-unchanged.")]
         public float runLowerOverlayReleaseRate = 30f;
 
+        [Header("MINE de-grip (86cay4282 — break the pickaxe clip's phantom two-handed grip)")]
+        [Tooltip("Additive LOCAL-euler offset (deg) blended onto the LEFT upper arm while the AttackPickaxe swing " +
+                 "owns the pose, on top of the carry. The Mixamo mine take is authored TWO-HANDED — measured on the " +
+                 "live rig it locks the hands 1.09-1.29 shoulder-widths apart for the whole swing (idle carry is " +
+                 "1.65-1.89), so the eye reads a haft between them that the one-handed tool then disagrees with by " +
+                 "63.8-89.7 deg. This opens the LEFT arm off that phantom haft. The axis is MEASURED, not assumed: " +
+                 "on this rig's LEFT upper arm a NEGATIVE local-X separates the hands AND increases torso " +
+                 "clearance, while the +X the shipped cheat-sheet calls 'outward' pulls them TOGETHER here (the " +
+                 "left arm is reaching ACROSS the body in this clip, so 'outward from the torso' is not 'away from " +
+                 "the right hand' — +40 X measures lRHand 0.61-0.97, WORSE than the 1.08-1.30 defect). Sweep at 61 " +
+                 "samples, scored on separation AND left-hand clearance to the torso axis: (0,0,0) 1.08-1.30/0.65; " +
+                 "(-25,0,0) 1.23-1.63/0.89; (-40,0,0) 1.30-1.84/0.94; (-40,0,20) 1.51-1.97/1.06 = SHIPPED. Zero at " +
+                 "rest -> identity -> the locked carry/idle/walk/run pose is byte-unchanged. The F9 AxeNudgeTool " +
+                 "(MINE target) dials it in-game; paste MineDeGripEuler to bake into " +
+                 "MovementCameraScene.ArmMineDeGripEuler (the authoritative ship source).")]
+        public Vector3 mineDeGripEuler = new Vector3(-40f, 0f, 20f);
+
+        [Tooltip("Per-second blend rate for the mine de-grip weight. The swing is reached by a 0.06s " +
+                 "AnyState->AttackPickaxe crossfade, so the arm must be open by the time the strike reads: 12/s is " +
+                 "~0.25s to 95%, which lands inside the clip's wind-up rather than popping on the strike. Both " +
+                 "directions use this rate — unlike run-lower's asymmetry, because this offset is ADDED by an " +
+                 "overlay rather than handed BACK to one, so there is no 'must out-run the swing' release deadline.")]
+        public float mineDeGripBlendRate = 12f;
+
         // (86caa4c5c change-(b)) The chop SWING is now the Mixamo melee Animator Attack state
         // (CastawayCharacter.TriggerChop), NOT an additive bone offset — the rejected procedural ChopPoseDriver +
         // its swingOverrideEuler channel were REMOVED. CastawayArmPose now only owns the idle-relax / held-axe
@@ -168,6 +192,20 @@ namespace FarHorizon
         /// Exposed so the F9 RUN dial surfaces whether the lower is engaged (run to judge) and the regression
         /// can assert it rests at 0 at walk/idle (the locked pose untouched) and rises while running.</summary>
         public float RunWeight => _runWeight;
+
+        // The SMOOTHED mine de-grip weight (0 everywhere except while the AttackPickaxe swing owns layer 0).
+        private float _mineWeight;
+        /// <summary>The current smoothed mine de-grip weight (0 → 1 across the pickaxe swing). Exposed for the
+        /// same reason RunWeight is: this offset is ENGAGEMENT-WEIGHTED, so the F9 dial MUST surface the weight or
+        /// it cannot be told apart from a broken handler (procedural-animation-verbs.md §Debug-instrument caveat —
+        /// the Sponsor was burned by exactly that twice on run-lower). Also the PlayMode regression's read.</summary>
+        public float MineDeGripWeight => _mineWeight;
+
+        /// <summary>The mine de-grip weight policy as a pure function (86cay4282) — symmetric ease toward 1 while
+        /// the AttackPickaxe swing owns layer 0, toward 0 otherwise. LateUpdate calls THIS, so the EditMode ease
+        /// tests drive production math rather than a mirrored copy (the tautological-assert trap).</summary>
+        public static float NextMineDeGripWeight(float current, bool mineOwnsPose, float ratePerSec, float dt)
+            => StepRunWeight(current, mineOwnsPose ? 1f : 0f, ratePerSec, dt);
 
         void Awake()
         {
@@ -246,6 +284,14 @@ namespace FarHorizon
             _runWeight = NextRunWeight(_runWeight, isRunning, laneOwnsPose,
                                        runLowerBlendRate, runLowerOverlayReleaseRate, Time.deltaTime);
 
+            // 86cay4282 — MINE DE-GRIP weight. Gated on the AttackPickaxe state owning layer 0 (transition-paired),
+            // NOT on a gameplay signal: gating an additive offset on a gameplay read instead of the animation state
+            // is the documented trap shape this codebase already paid for once (86caxj30g / 884c611). The live gate
+            // FAILS CLOSED with no character/Animator, so the offset can never engage on a rig that has no
+            // controller — the carry/idle/walk/run pose stays byte-identical to pre-86cay4282 there.
+            bool mineOwnsPose = character != null && character.MineSwingOwnsPose;
+            _mineWeight = NextMineDeGripWeight(_mineWeight, mineOwnsPose, mineDeGripBlendRate, Time.deltaTime);
+
             // Compose the offset ON the clip's animated localRotation for THIS frame (the Animator already
             // ran). bone.localRotation here is the clip pose; right-multiplying by the offset rotates in the
             // bone's local frame, preserving the walk arm-swing while nudging the rest position.
@@ -261,7 +307,13 @@ namespace FarHorizon
                 rightUpperArm.localRotation = rightUpperArm.localRotation * _rightOffsetQ * runLowerQ;
             }
             if (leftUpperArm != null)
-                leftUpperArm.localRotation = leftUpperArm.localRotation * _leftOffsetQ;
+            {
+                // The LEFT arm gets the relax offset PLUS the mine de-grip (scaled by its smoothed weight). At
+                // weight 0 — every state except the pickaxe swing — Euler(zero) is the identity quaternion, so the
+                // Sponsor's locked carry/idle/walk/run left-arm pose is byte-unchanged (zero cost, no branch).
+                Quaternion mineQ = Quaternion.Euler(mineDeGripEuler * _mineWeight);
+                leftUpperArm.localRotation = leftUpperArm.localRotation * _leftOffsetQ * mineQ;
+            }
         }
     }
 }
