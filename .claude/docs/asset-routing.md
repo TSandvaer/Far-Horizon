@@ -70,3 +70,24 @@ detail here; the cited doc owns it):
   arbitrary colors); surface pattern is modeled low-poly facets, NOT a detail-texture ([[weapon-asset-material-honest-pattern-via-geometry]]).
 - **Single Unity build slot** — any route that ends in a Unity build is serialized to one at a time; fan out the
   non-build work (modeling, research, doc) in parallel ([[single-unity-build-slot-serializes-orchestration]]).
+- **Third-party attribution — the RULE lives in `unity-conventions.md` §Asset creation ("3rd-party CC-BY assets
+  carry an in-game ATTRIBUTION obligation until replaced"); this is only the dated CURRENT STATUS**, so a reader
+  can answer "do we owe anyone a credit today?" without a repo dig. **Verified on `origin/main` @ `fee2604`,
+  2026-07-28 (ticket `86cay47zh`):**
+  - **No third-party CC-BY asset ships.** Both assets the rule names as examples are gone from the tree: the
+    Viktor.G "One-handed stylized axe" (`CastawayAxe/`, deleted with its CC-BY license file in
+    PR #100 / `031d43a` / `86cabh907`, 2026-06-23) and the joaobaltieri "Mini Chibi Kid" castaway base
+    (superseded by the Hyper3D castaway line; `git ls-tree -r origin/main | grep -i "chibi\|mini_"` returns
+    nothing). **No `*_License_CC-Attribution.txt` file exists anywhere in the tree.**
+  - **One attribution obligation IS still live, from a different source.**
+    `Assets/Art/Character/Castaway/Castaway_Attribution.txt` is the only attribution/licence file that ships. It
+    is **not** CC-BY: it covers the castaway as Hyper3D Rodin generated content animated with Mixamo clips, and
+    it states *"Retain this attribution in any distribution of the game (an in-game / about-screen credits entry
+    covers it)."* Treat it as live until someone with authority says otherwise — **do not read "no CC-BY debt" as
+    "no attribution debt."**
+  - **Open gap (not fixed here — docs-only ticket):** no in-game / about-screen credits surface was found in
+    `Assets` (`git grep -il "about-screen\|AboutScreen\|CreditsPanel\|CreditsScreen\|ShowCredits\|\"Credits\""
+    origin/main -- Assets` matched only the `.txt` above). If that holds, the retain-attribution line is not met
+    by any rendered surface. That is a CODE change and needs its own ticket.
+  - **When this changes** (a new sourced asset lands, or the credits surface ships), update this bullet's date +
+    facts and the rule in `unity-conventions.md`.

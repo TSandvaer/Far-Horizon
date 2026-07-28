@@ -109,11 +109,16 @@ ONE maker, ONE material, ONE world. Cohesion is the whole point; the silhouette 
 **Route decision (Sponsor-locked 2026-06-19, memory `weapon-tool-unified-style-inhouse-blender-set` + DECISIONS.md).**
 Cohesion is a *style-system* call, not per-asset sourcing. All items (axe, knife, sword,
 spear, …) go through **ONE Blender MCP pipeline** sharing **ONE low-poly palette material**.
-The currently-shipped axe (`Assets/Art/Props/CastawayAxe/` — Viktor.G "One-handed stylized
-axe", Sketchfab **CC-BY**, baked photographic atlas) is the **OUTLIER** vs the flat-faceted
-Zone-D world — it imports its own baked lighting and reads as a foreign, more-detailed object.
-Treat it as a **placeholder to be re-made**, not the anchor. Hold `21h08_08` as the visual
-target. Re-making in-house also retires the CC-BY attribution obligation.
+The axe that prompted this decision (`CastawayAxe/` — Viktor.G "One-handed
+stylized axe", Sketchfab **CC-BY**, baked photographic atlas) was the **OUTLIER** vs the
+flat-faceted Zone-D world — it imported its own baked lighting and read as a foreign,
+more-detailed object. It was a **placeholder, never the anchor**. **The re-make is DONE:**
+PR #100 (`031d43a`, ticket `86cabh907`, 2026-06-23) shipped the in-house SET and **deleted
+that asset folder together with its CC-BY license file**, retiring the attribution obligation.
+`CastawayAxe/` no longer exists — the live family is
+`Assets/Art/Props/WeaponPack/`, hero axe `wpn_axe_stone_01`. Hold `21h08_08` as the visual
+target. The rationale above stays the standing rule: **new items go through the one in-house
+pipeline; never re-source a one-off.**
 
 **Pipeline reference:** Erik's deep-research note
 [`team/erik-consult/blender-weapon-asset-pipeline-research.md`](../erik-consult/blender-weapon-asset-pipeline-research.md)
@@ -254,8 +259,15 @@ CLOSED, so extension is a per-piece exception (`86cah7ym9` AC3), not a standing 
   — zero drift, dead straight. The hand-made imperfection lives in the head, grip band and facets,
   **never in a curved haft.** See §4.1.
 - **Mild hand-made asymmetry throughout** — nothing CNC-perfect; the toy is carved.
-- **In-hand scale:** normalized to the castaway's right-hand bone; the current axe sets the
-  reference scale — match it.
+- **In-hand scale:** normalized to the castaway's right-hand bone; the **shipped in-house stone
+  axe sets the reference scale — match it.** The reference FBX is
+  `Assets/Art/Props/WeaponPack/wpn_axe_stone_01.fbx` (`WeaponPackAssetGen.AxeFbxPath`), seated on
+  `mixamorig:RightHand` by `MovementCameraScene`. **⚠ CORRECTED 2026-07-28: this bullet used to
+  say "the current axe," meaning the CC-BY `CastawayAxe/` FBX — that path was
+  DELETED in PR #100 (`031d43a`) and is not the reference.** Note the two are not
+  interchangeable: the retired FBX had its origin at the weapon MIDPOINT (~49% up the long axis),
+  the shipped stone axe is authored per §6 with the **origin AT the grip** (~24% up), so it seats
+  with zero mesh shift (`MovementCameraScene` grip-point-shift note, `86cajkk7h`).
 - **Consistent grip-point pivot + +Z-forward axis** (Erik §E7): origin at grip midpoint,
   blade pointing +Z in Blender (→ +Y in Unity post axis-conversion), so ONE `HeldTool` rig
   generalizes from today's `HeldAxeRig` and any item slots in WITHOUT per-item offset tuning.
@@ -329,8 +341,12 @@ and deliberate — see Correction 2026-07-27 item 3a and
 - **Shade Smooth + Mark Sharp** per §1; FBX **-Y Forward / Z Up / Normals Only / FBX Unit
   Scale**, Apply All Transforms first (Erik §E4). Unity: Normals=Import, Bake Axis
   Conversion ON, Material Creation Mode=None (assign `Mat_WeaponPalette` manually).
-- **Re-make the hero axe** in this pipeline; retire `CastawayAxe` (Viktor.G CC-BY) + its
-  license file once the in-house axe ships.
+- ~~**Re-make the hero axe** in this pipeline; retire `CastawayAxe` (Viktor.G CC-BY) + its
+  license file once the in-house axe ships.~~ **✅ DONE — PR #100 (`031d43a`, `86cabh907`,
+  2026-06-23):** the hero axe was re-made in this pipeline as `wpn_axe_stone_01`, and
+  `CastawayAxe/` + its CC-BY license file were deleted in the same PR (CC-BY
+  attribution obligation retired). Kept as the record of what the route committed to — it is why
+  a future item gets modelled here rather than sourced.
 - **Generalize** `HeldAxe.cs` / `HeldAxeRig.cs` → a `HeldTool` rig (the held-axe soak-tuning
   already solved the hard part — don't redo it per item).
 - **Attack swings = a SEPARATE Sponsor-provided Mixamo clip per weapon class** (Sponsor 2026-07-19;
@@ -354,7 +370,9 @@ and deliberate — see Correction 2026-07-27 item 3a and
 - Lined up side by side in the gameplay cam, they read as ONE family (faceted shading +
   silhouette + grip motif + edge-bevel consistent).
 - Each held in-hand at correct scale via the shared `HeldTool` rig.
-- Hero axe re-made; Viktor.G CC-BY asset + license retired.
+- ~~Hero axe re-made; Viktor.G CC-BY asset + license retired.~~ **✅ MET — not an open criterion.**
+  PR #100 (`031d43a`, `86cabh907`, 2026-06-23) shipped `wpn_axe_stone_01` and deleted
+  `CastawayAxe/` + its CC-BY license file.
 - Every channel sub-1.0 (HDR-clamp); `edge-bevel` is off-white `#E4E2DC`, never pure white.
 - Shipped-build capture evidence (per the capture gate) before merge.
 

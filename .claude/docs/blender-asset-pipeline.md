@@ -7,14 +7,14 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 
 ## 0. The Style Contract — Read This Before You Open Blender
 
-The weapon/tool/prop family lives in a **single flat-shaded palette world**. The deciding constraint is the shading model: a per-asset baked texture atlas (what the current shipped axe uses) imports its own lighting and reads as a foreign object beside faceted flat geometry. That approach is BANNED for new assets.
+The weapon/tool/prop family lives in a **single flat-shaded palette world**. The deciding constraint is the shading model: a per-asset baked texture atlas (what the RETIRED CC-BY axe used) imports its own lighting and reads as a foreign object beside faceted flat geometry. That approach is BANNED for new assets.
 
 Every new asset must:
 - Use the **shared palette material** (one URP/Unlit mat + one 128×128 `weapon_palette.png`) — never a per-asset texture.
 - Match the inspiration board (`inspiration/21h08_08.png` for axe; `21h06_54`, `21h07_20`, `21h07_42` for the full family). Look at the actual images before modeling anything.
 - Be faceted and chunky, not smooth or machined.
 
-> The current shipped axe (`Assets/Art/Props/CastawayAxe/`) is a **placeholder, NOT the style anchor**. Do not tune its look as if it were final.
+> **History — the warning that produced this contract (RESOLVED 2026-06-23, PR #100).** The axe that shipped *before* this pipeline (`CastawayAxe/` — Viktor.G "One-handed stylized axe", Sketchfab CC-BY, baked photographic atlas) was a **placeholder, NEVER the style anchor**. It is **gone**: PR #100 (`031d43a`, ticket `86cabh907`) shipped the in-house weapon SET and deleted that asset folder together with its CC-BY license file. **Do not go looking for `CastawayAxe/` — the path does not exist.** The live family is `Assets/Art/Props/WeaponPack/` on the shared palette material, and **that** set is the anchor. The lesson survives the asset: a per-asset sourced/atlased one-off is what broke cohesion, so do not re-source one to sidestep this contract.
 
 ---
 
