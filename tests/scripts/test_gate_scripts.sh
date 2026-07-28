@@ -854,10 +854,17 @@ assert_launch_headless() { # <script-name>
 }
 assert_launch_windowed() { # <script-name>
   local s="$SCRIPTS/$1"
-  if grep -q -- '-screen-fullscreen 0' "$s"; then
-    ok "launch-mode: $1 keeps -screen-fullscreen 0 (overlay/soak-fragile gate needs a window)"
+  # ANCHORED (86caxj8zw, #344 NIT): the needle must match a LAUNCH LINE, not header PROSE. An
+  # unanchored `grep -q -- '-screen-fullscreen 0'` false-PASSED verify_boar_gate.sh — the only
+  # windowed gate whose header comment also names the flag (2 hits vs the other seven's 1) — so
+  # deleting its real launch flags left the assert GREEN, exactly the headless conversion this
+  # loop exists to red. `^[[:space:]]*` pins the flag to the start of a continuation line (all 8
+  # windowed gates write it as the first token of the flags line), which a `#`-prefixed comment
+  # can never satisfy. Mirrors the already-anchored '^[[:space:]]*-batchmode' above.
+  if grep -qE '^[[:space:]]*-screen-fullscreen 0' "$s"; then
+    ok "launch-mode: $1 keeps -screen-fullscreen 0 on the launch line (overlay/soak-fragile gate needs a window)"
   else
-    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 (its IMGUI/UI-Toolkit overlay is dead headless)"
+    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 on its LAUNCH LINE (its IMGUI/UI-Toolkit overlay is dead headless; a header-comment mention does not count)"
   fi
 }
 for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh verify_placement_gate.sh verify_mine_gate.sh verify_boulder_gate.sh; do
