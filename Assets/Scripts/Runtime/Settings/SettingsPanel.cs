@@ -125,6 +125,11 @@ namespace FarHorizon
                  "null-refs safely).")]
         public FarHorizon.Combat.BoarEnemy combatBoar;
 
+        [Tooltip("Find-in-world weapon 86cah7y5b AC5 — the scene WeaponFindPool the `Weapon finds` findability " +
+                 "row binds to (how many of the authored seeded find sites hold a weapon). Wired editor-time by " +
+                 "BuildWeaponFinds; null skips only its row (PopulateWeaponFind null-refs safely).")]
+        public FarHorizon.Combat.WeaponFindPool weaponFindPool;
+
         [Tooltip("The FPS counter HUD (86cahmxmt) — the `FPS counter` on/off row drives its enabled flag " +
                  "(OFF = no Update, no OnGUI = zero cost). Wired editor-time (the Boot object carries it next " +
                  "to BootHud); the Awake FindObjectOfType stays the bare-scene safety net. May be null; the " +
@@ -278,6 +283,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateWorldLook(Registry, worldLook);          // F10 → sky/fog/cloud/mountain/sun (AC2)
             SettingsCatalog.PopulateCombat(Registry, combatHealth, combatRegen, combatDeath); // Combat POC → per-tier HP/damage/regen/death (AC8b)
             SettingsCatalog.PopulateBoar(Registry, combatBoar);              // Wild boar → per-tier HP / gore / charge speed (86cah7ydt AC6)
+            SettingsCatalog.PopulateWeaponFind(Registry, weaponFindPool);    // Find-in-world → per-tier weapon findability (86cah7y5b AC5)
             SettingsCatalog.PopulateFps(Registry, fpsHud);                   // FPS counter on/off (86cahmxmt — default ON, Sponsor-soak tunes)
             SettingsCatalog.PopulateIron(Registry);                          // iron-progression dials (86cakkmgw — extension hooks; I-2/I-3 flip live)
             SettingsCatalog.PopulateIronLive(Registry, mineOre);             // I-2 (86cakkmr0): flip `iron ore rarity` LIVE → MineOre.ActiveNodeCount

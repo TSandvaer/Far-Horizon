@@ -252,6 +252,46 @@ namespace FarHorizon
         /// <summary>True when the WOOD pickaxe is the SELECTED belt item.</summary>
         public bool IsPickaxeWoodSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.PickaxeWoodId);
 
+        // === IRON-tier BLADE held-visual selection predicates (86cah7y5b — find-in-world weapon) ===
+        // THE SHIPPED DEFECT THESE CLOSE: the iron BLADES (axe_iron / dagger_iron / sword_iron / spear_iron)
+        // have been craftable since #294 ③, but NO selection predicate existed for them — so
+        // HeldWeaponCycleDebug.SelectionIndexFor (stone/spear/pickaxe only) AND WoodSelectionIndexFor (wood
+        // only) both returned -1 for an iron blade → IsHeldVisualWeaponSelected false → HeldAxe.ShouldShow
+        // false → selecting a CRAFTED iron sword renders EMPTY HANDS in the shipped build today. Same class
+        // as the I-2 pickaxe omission (86cakkmr0) and the soak-3 wood omission (86caffwv5) — third occurrence.
+        // The iron PICKAXE was already covered (it rides SelectionIndexFor); only the four BLADES were dark.
+        // 86cah7y5b's find is sword_iron and cannot satisfy its own AC6 ("after loot it is selectable in the
+        // belt and renders in-hand") without this. Written as ONE map (the WoodSelectionIndexFor shape) rather
+        // than a sword-only special case: the four ids are a single switch, so covering the siblings costs
+        // nothing and avoids knowingly leaving three of them broken.
+        /// <summary>True when the IRON axe is the SELECTED belt item (the iron sibling of <see cref="IsAxeSelectedInBelt"/>).</summary>
+        public bool IsAxeIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.AxeIronId);
+        /// <summary>True when the IRON dagger is the SELECTED belt item (the wpn_knife_iron_01 mesh — "dagger" per §6a).</summary>
+        public bool IsDaggerIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.DaggerIronId);
+        /// <summary>True when the IRON sword is the SELECTED belt item (86cah7y5b — the found weapon).</summary>
+        public bool IsSwordIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SwordIronId);
+        /// <summary>True when the IRON spear is the SELECTED belt item.</summary>
+        public bool IsSpearIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SpearIronId);
+
+        /// <summary>
+        /// 86cah7y5b — acquire an ARBITRARY catalog weapon by its canonical id, belt-first (the DATA-DRIVEN
+        /// generalisation of <see cref="PickUpAxe"/> / <see cref="PickUpSpear"/>, which hard-code one id each).
+        /// The find-in-world route needs this: AC1's constraint is "new weapon = new DATA, not new code", so a
+        /// found `sword_iron` must enter the belt through the SAME <c>AddToolToBelt</c> seam a crafted weapon
+        /// does, with no per-piece method. Returns true on the transition (the weapon was actually placed);
+        /// false when the id is unknown/empty, the weapon is already OWNED (idempotent — a second loot is a
+        /// clean no-op), or neither belt nor pack had room.
+        /// </summary>
+        public bool PickUpWeapon(string itemId)
+        {
+            EnsureModel();
+            if (string.IsNullOrEmpty(itemId)) return false;
+            if (_model.OwnsItem(itemId)) return false;      // already holds this weapon — one-shot
+            var def = _catalog != null ? _catalog.ById(itemId) : null;
+            if (def == null) return false;                  // not a catalog item — never mint a parallel id
+            return _model.AddToolToBelt(def).HasValue;
+        }
+
         // ============================================================================================
         // LEGACY ledger surface — preserved VERBATIM (contract §7). Every caller stays green.
         // ============================================================================================

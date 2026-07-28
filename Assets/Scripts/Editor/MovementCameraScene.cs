@@ -501,6 +501,17 @@ namespace FarHorizon.EditorTools
             // BEFORE the bake (the snake is a collider-free marker — no NavMesh/raycast impact).
             BuildCombat(player, groundLayer);
 
+            // 86cah7y5b: FIND-IN-WORLD weapon acquisition — the SECOND acquisition route beside craft (locked
+            // design 86cabcdpn decision 4). A seeded scatter of weathered stumps with an IRON SWORD driven
+            // point-down into one of them; the castaway comes across it on a walk and presses E — the SHARED
+            // E-loot surface (an IPickable the existing PickableLooter discovers), never a second pickup path
+            // and never proximity-auto. Built AFTER BuildCombat (it wires the DeathHandler for the per-tier
+            // findability dial) and AFTER BuildInventoryUI (it wires the Inventory the loot lands in), and it
+            // back-wires the SettingsPanel's weaponFindPool ref (the BuildOreNodes → settingsPanel.mineOre
+            // precedent). Collider-free — no NavMesh/raycast impact; a DISCRETE scene-author ADD on its OWN
+            // System.Random stream, so seed 42 is provably untouched.
+            BuildWeaponFinds(player, groundLayer);
+
             // M-U3-SCENE-4 (86ca8feuf): shipwreck debris at the landing. A MODEST washed-ashore scatter
             // — a few weathered planks + a half-buried crate + a barrel — on the beach just SEAWARD of the
             // spawn, narrating "the castaway crawled out of that sea" (Sponsor: NARRATE; Uma §3 beat 4).
@@ -2699,6 +2710,329 @@ namespace FarHorizon.EditorTools
 
             Debug.Log("[MovementCameraScene] authored SpearPickup at " + SpearPickupPosition +
                       " (inventory wired: " + (pickup.inventory != null) + ")");
+        }
+
+        // ===================== FIND-IN-WORLD WEAPON (ticket 86cah7y5b — the 2nd acquisition route) ==============
+
+        // REAL-WORLD ANCHOR (lowpoly-quality.md §0 — the plain sentence the build must satisfy): an IRON SWORD
+        // LEFT BEHIND BY SOMEONE WHO CAME BEFORE, driven POINT-DOWN INTO a weathered stump — blade buried in the
+        // wood, grip UP at the top where a hand would close on it. You pull it UP and OUT. It is NOT lying flat
+        // on the grass and NOT hovering above the ground. The attract bob is far smaller than the embed depth, so
+        // the tip NEVER leaves the wood; the stump STAYS after the loot with an empty slot in it. Up-vs-down is
+        // invisible from above and at player-eye and obvious side-on, so the -verifyWeaponFind gate shoots a
+        // SIDE-PROFILE frame and the author eyeballs it before review (the PR #130 pond→mound lesson).
+
+        // The authored candidate SITES. A DISCRETE scene-author ADD placed by a deterministic seeded scatter
+        // OUTSIDE the seeded LowPolyZoneGen stream — exactly the BuildOreNodes / BuildBoulders idiom — so it
+        // provably CANNOT perturb the seed-42 island/scatter/NavMesh ([[world-is-big-round-island]], bar #1).
+        // SEED 42 IS UNTOUCHED by this file: this scatter draws from its OWN System.Random stream (the seed
+        // below), the same way the ore-node pool (86201) and the boulder pool do.
+        private const int WeaponFindScatterSeed = 86711;
+
+        // How many candidate sites the scatter AUTHORS. Only WeaponFindPool.DefaultFindCount of them (1 — the
+        // Sponsor's 2026-07-27 "ONE per island region") actually hold a weapon at boot; the rest exist so the
+        // AC5 findability dial has somewhere to put extra finds when the Sponsor dials it up at soak. Matches
+        // WeaponFindPool.FindCountMax so the console row can never ask for more finds than there are sites.
+        private const int WeaponFindSiteCount = FarHorizon.Combat.WeaponFindPool.FindCountMax;
+
+        // Weathered-stump wood — the warm bark family already in the scene (LowPolyZoneGen.TrunkCol, reused by
+        // the chop tree at line ~1894), nudged greyer so the stump reads WEATHERED / long-abandoned rather than
+        // freshly cut. Material-honest (bar #3): it reads as old wood because of its colour + faceted cut face,
+        // not because of a detail texture ([[weapon-asset-material-honest-pattern-via-geometry]]).
+        private static readonly Color FindStumpBark = new Color(0.38f, 0.28f, 0.19f);
+        private static readonly Color FindStumpTop  = new Color(0.46f, 0.35f, 0.24f); // paler sawn/split top face
+
+        // Stump dimensions + how deep the blade sits in it. EmbedDepth is ~5x the 0.05u bob amplitude, which is
+        // the load-bearing relationship: the tip stays inside the wood at the TOP of every bob.
+        private const float FindStumpHeight = 0.44f;
+        private const float FindStumpRadius = 0.30f;
+        private const float FindStumpTopThickness = 0.035f;
+
+        // How much of the sword stands PROUD of the wood. Two shipped-build captures went into this number:
+        //
+        // Draft 1 seated the PIVOT just above the stump top. But the iron-sword FBX has its origin at the GRIP
+        // BASE with the whole mesh extending +Y, so the point-down flip puts EVERY vertex BELOW the pivot — the
+        // stump swallowed the sword whole. The capture showed a bare stump with nothing in it while the
+        // "is the blade below the stump top?" assert stayed GREEN (a fully-buried sword satisfies it perfectly).
+        // Fix: MEASURE the instantiated mesh and seat it from the TOP down (SeatFindWeaponInStump), and require
+        // BOTH halves of the anchor — blade below AND grip above.
+        //
+        // Draft 2 exposed 0.34u — a realistic hilt-only proportion, and geometrically correct. But at this
+        // scale it read as a dark-brown LUMP on dark-brown wood: no sword silhouette, no metal, indistinguishable
+        // from the rust-capped scatter rocks nearby. Correct by the numbers, wrong as a thing a player would
+        // recognise. So expose the hilt AND a length of bright iron BLADE: the blade then runs through the full
+        // height of the stump with its tip just inside the base (measured: stumpTop 0.475, sword length ~1.09u
+        // -> tip lands ~0.02u above the ground), which is MORE driven-in than draft 2, not less, while the
+        // light-metal blade + crossguard against dark wood is unmistakably a sword. "Driven THROUGH the block."
+        private const float FindGripProudHeight = 0.60f;
+
+        /// <summary>
+        /// Author the FIND-IN-WORLD weapon pool (ticket 86cah7y5b) — the SECOND acquisition route beside craft
+        /// (Combat/HP/Death locked design 86cabcdpn decision 4). A deterministic SEEDED scatter lays
+        /// <see cref="WeaponFindSiteCount"/> candidate sites organically in the walkable loop annulus, clear of
+        /// every landmark; <see cref="FarHorizon.Combat.WeaponFindPool"/> then enables the first N (default ONE
+        /// — the Sponsor's 2026-07-27 decision). Each site is a weathered stump with an iron sword driven
+        /// point-down into it, looted through the SHARED E-loot surface (an <see cref="IPickable"/> the existing
+        /// <see cref="PickableLooter"/> discovers — no second pickup path, no proximity-auto).
+        ///
+        /// Authored EDITOR-TIME so the stump mesh + the sword FBX instance + the WorldWeaponFind/WeaponFindPool
+        /// refs SERIALIZE into Boot.unity (the editor-vs-runtime "legs-up" trap). Collider-free — the player
+        /// walks up to it; no NavMesh/raycast impact, so its position relative to the bake is flexible. Called
+        /// BEFORE BuildPickableLooter is not required (the looter discovers IPickables at runtime), but it IS
+        /// called after BuildInventoryUI so the Inventory exists to wire.
+        /// </summary>
+        private static void BuildWeaponFinds(GameObject player, int groundLayer)
+        {
+            var root = new GameObject("WeaponFinds");
+            root.transform.position = Vector3.zero;
+
+            // Shared stump materials for the whole pool (2 instances of the LowPolyVertexColor shader →
+            // SRP-batched; the shader batches by VARIANT, not by material count — unity6-mastery.md §2).
+            var vc = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Material barkMat = null, topMat = null;
+            if (vc != null)
+            {
+                barkMat = new Material(vc) { name = "FindStumpBarkMat" };
+                if (barkMat.HasProperty("_Tint")) barkMat.SetColor("_Tint", FindStumpBark);
+                topMat = new Material(vc) { name = "FindStumpTopMat" };
+                if (topMat.HasProperty("_Tint")) topMat.SetColor("_Tint", FindStumpTop);
+            }
+
+            // Landmarks to keep clear of — the same avoid-list the ore-node / boulder scatters use, so the find
+            // never lands on top of the craft spot, the pond, a pickup, etc.
+            var landmarks = new Vector3[]
+            {
+                new Vector3(0f, 0f, 6f),   // spawn
+                CraftSpotPosition,          // craft (8,6)
+                ChopTreePosition,           // tree (-9,-7)
+                BerryBushPosition,          // bush (-6,7)
+                WiredStickPosition,         // stick (-3,-4)
+                WiredStonePosition,         // stone (0,-5)
+                PondPosition,               // pond (7,-3)
+                new Vector3(4f, 0f, -8f),   // campfire
+                new Vector3(3f, 0f, 2f),    // axe pickup
+                PickaxePickupPosition,      // pickaxe pickup (6,2)
+                SpearPickupPosition,        // spear pickup (4,9)
+                ForgeSpotPosition,          // forge/furnace build spot
+            };
+
+            var placed = new System.Collections.Generic.List<Vector3>();
+            var rng = new System.Random(WeaponFindScatterSeed); // deterministic — byte-identical every bootstrap
+            int guard = 0;
+            while (placed.Count < WeaponFindSiteCount && guard < 8000)
+            {
+                guard++;
+                // Annulus 10..16u from origin — a real walk from spawn (you COME ACROSS it, AC1's destination),
+                // but inside the PROVEN-walkable loop zone the ore nodes already use, so the find always lands on
+                // NavMesh-reachable ground for the soak + the capture.
+                double ang = rng.NextDouble() * System.Math.PI * 2.0;
+                double rad = 10.0 + rng.NextDouble() * 6.0;
+                var p = new Vector3((float)(System.Math.Cos(ang) * rad), 0f, (float)(System.Math.Sin(ang) * rad));
+                bool tooClose = false;
+                foreach (var lm in landmarks)
+                    if (PlanarDistXZ(p, lm) < 4.0f) { tooClose = true; break; }
+                if (!tooClose)
+                    foreach (var q in placed)
+                        if (PlanarDistXZ(p, q) < 6.0f) { tooClose = true; break; } // finds are SPREAD, never clustered
+                if (tooClose) continue;
+                placed.Add(p);
+            }
+
+            var inventory = Object.FindObjectOfType<Inventory>();
+            if (inventory == null)
+                Debug.LogError("[MovementCameraScene] no Inventory in scene to wire WorldWeaponFind to — " +
+                               "BootstrapProject must add the Survival Inventory before MovementCameraScene.Author");
+
+            for (int i = 0; i < placed.Count; i++)
+                BuildWeaponFindSite(root.transform, placed[i], WeaponFindScatterSeed + i * 31,
+                                    inventory, player, barkMat, topMat);
+
+            // The pool manager (the AC5 findability dial's host). activeFindCount stays -1 so Start seeds it from
+            // the MEDIUM per-tier value (WeaponFindPool.DefaultFindCount = 1) — a bare test can still override first.
+            var poolGo = new GameObject("WeaponFindPool");
+            var pool = poolGo.AddComponent<FarHorizon.Combat.WeaponFindPool>();
+            pool.findRoot = root.transform;
+            pool.deathHandler = Object.FindObjectOfType<FarHorizon.Combat.DeathHandler>();
+
+            // Wire the SETTINGS PANEL's weaponFindPool ref now that the pool exists (BuildSettingsPanel ran
+            // earlier, so its serialized ref was not yet resolvable) — the BuildOreNodes → settingsPanel.mineOre
+            // back-wire precedent. `Weapon finds` binds LIVE to WeaponFindPool.ActiveFindCount.
+            var settingsPanel = Object.FindObjectOfType<SettingsPanel>();
+            if (settingsPanel != null)
+            {
+                settingsPanel.weaponFindPool = pool;
+                EditorUtility.SetDirty(settingsPanel);
+            }
+
+            // The shipped-build FIND capture gate (AC6). Inert unless launched with -verifyWeaponFind. Wired here
+            // (not in a separate Wire* pass) because all its deps — the find pool, the looter, the held seat —
+            // exist by this point. An UNWIRED -verifyX verb NO-OPs and HANGS the capture exe (unity-conventions
+            // §CI; the #302 lesson), so this wire is load-bearing, not optional.
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo != null)
+            {
+                if (bootGo.GetComponent<WeaponFindVerifyCapture>() == null)
+                    bootGo.AddComponent<WeaponFindVerifyCapture>();
+                EditorUtility.SetDirty(bootGo);
+            }
+            else
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host WeaponFindVerifyCapture");
+            }
+
+            EditorUtility.SetDirty(root);
+            EditorUtility.SetDirty(poolGo);
+            Debug.Log("[MovementCameraScene] authored " + placed.Count + " weapon-find site(s) (sites=" +
+                      WeaponFindSiteCount + ", default active=" + FarHorizon.Combat.WeaponFindPool.DefaultFindCount +
+                      ", item=" + ItemCatalog.SwordIronId + "; inventory wired: " + (inventory != null) + ")");
+        }
+
+        // ONE find site: a weathered stump with an iron sword driven POINT-DOWN into its top. The sword is the
+        // shipped in-house iron FBX on the SHARED Mat_WeaponPalette — no new mesh, no new material, no per-asset
+        // atlas (AC1's Blender constraint is satisfied by REUSE: sword_iron already exists with a baked seat).
+        // Collider-free. Named children so the capture gate + tests can find the parts by name.
+        private static void BuildWeaponFindSite(Transform parent, Vector3 groundPos, int seed, Inventory inventory,
+                                                GameObject player, Material barkMat, Material topMat)
+        {
+            var site = new GameObject("WeaponFind");
+            site.transform.SetParent(parent, false);
+            site.transform.position = groundPos;
+
+            // A seeded yaw so several sites never read as the same prop twice (the seeded-rotation scatter
+            // pattern — lowpoly-quality.md §2 Rec 7; extends the per-instance variation the rocks already use).
+            var rng = new System.Random(seed);
+            site.transform.rotation = Quaternion.Euler(0f, (float)(rng.NextDouble() * 360.0), 0f);
+
+            // --- The STUMP host (static — it does NOT bob, and it REMAINS after the loot) ---
+            var stump = new GameObject("FindStump");
+            stump.transform.SetParent(site.transform, false);
+            stump.transform.localPosition = Vector3.zero;
+            var smf = stump.AddComponent<MeshFilter>();
+            // Slightly wider at the base than the top — a real cut stump flares at the root.
+            smf.sharedMesh = LowPolyMeshes.TaperedCylinder(FindStumpRadius * 1.15f, FindStumpRadius,
+                                                           FindStumpHeight, 9);
+            var smr = stump.AddComponent<MeshRenderer>();
+            if (barkMat != null) smr.sharedMaterial = barkMat;
+
+            // A paler, very shallow disc sitting on the stump's top face = the sawn/split face the blade is
+            // driven through. Pattern via GEOMETRY, not a texture (bar #3).
+            var top = new GameObject("FindStumpTop");
+            top.transform.SetParent(stump.transform, false);
+            top.transform.localPosition = new Vector3(0f, FindStumpHeight, 0f);
+            var tmf = top.AddComponent<MeshFilter>();
+            tmf.sharedMesh = LowPolyMeshes.TaperedCylinder(FindStumpRadius * 0.98f, FindStumpRadius * 0.94f,
+                                                           FindStumpTopThickness, 9);
+            var tmr = top.AddComponent<MeshRenderer>();
+            if (topMat != null) tmr.sharedMaterial = topMat;
+
+            // --- The WEAPON (the bobbing child) ---
+            var weapon = new GameObject("FindWeapon");
+            weapon.transform.SetParent(site.transform, false);
+            // The iron-sword FBX is authored grip-origin with the blade up +Y, so a 180-degree X flip points the
+            // blade DOWN. The Y offset is MEASURED below, not guessed — see FindGripProudHeight.
+            weapon.transform.localPosition = Vector3.zero;
+            weapon.transform.localRotation = Quaternion.Euler(180f, 0f, 8f); // point-down, with a slight lean
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(WeaponPackAssetGen.IronSwordFbxPath);
+            if (fbx != null)
+            {
+                var mesh = Object.Instantiate(fbx);
+                mesh.name = "FindWeaponMesh";
+                mesh.transform.SetParent(weapon.transform, false);
+                ApplyWeaponPaletteMaterial(mesh);
+                SeatFindWeaponInStump(site.transform, weapon.transform);
+            }
+            else
+            {
+                Debug.LogError("[MovementCameraScene] iron sword FBX not found at " + WeaponPackAssetGen.IronSwordFbxPath +
+                               " — run WeaponPackAssetGen.PrepareWeaponPack() before authoring the scene; no find mesh");
+            }
+
+            // --- The pickable ---
+            var find = site.AddComponent<FarHorizon.Combat.WorldWeaponFind>();
+
+            find.inventory = inventory;
+            find.player = player != null ? player.transform : null;
+            find.visual = weapon.transform;
+            find.itemId = ItemCatalog.SwordIronId;      // the Sponsor's 2026-07-27 decision — DATA, not a class
+            find.displayName = FarHorizon.Combat.WorldWeaponFind.DefaultDisplayName;
+            find.lootRadius = FarHorizon.Combat.WorldWeaponFind.DefaultLootRadius;
+            // ATTRACT CUE — CH1 float-bob (local Y). A cue must not rest on a SINGLE channel, so CH2 below.
+            find.bobAmplitude = FarHorizon.Combat.WorldWeaponFind.DefaultBobAmplitude;
+            find.bobHz = FarHorizon.Combat.WorldWeaponFind.DefaultBobHz;
+            // CH2 sway (local yaw) — a few degrees of slow play in the split, at a NON-HARMONIC frequency so
+            // the two channels never fuse into one perceived motion. Serialized EXPLICITLY rather than left to
+            // the field initializer, so the shipped scene states the values the -verifyWeaponFind gate samples.
+            find.swayDegrees = FarHorizon.Combat.WorldWeaponFind.DefaultSwayDegrees;
+            find.swayHz = FarHorizon.Combat.WorldWeaponFind.DefaultSwayHz;
+            // PER-INSTANCE SEEDED PHASE (game-juice.md §1.5) shared by BOTH channels, so a pool of finds
+            // never pulses in sync.
+            find.bobPhase = (float)(rng.NextDouble() * System.Math.PI * 2.0);
+        }
+
+        /// <summary>
+        /// Seat the found sword in the stump by MEASUREMENT, not by a guessed offset — the fix for the burial
+        /// defect the first shipped-build capture caught (see <see cref="FindGripProudHeight"/>).
+        ///
+        /// The rule the real-world anchor states: "blade buried, GRIP UP at the top where a hand would close on
+        /// it." That is a statement about the TOP of the mesh, so seat from the top down: read the instantiated
+        /// sword's ACTUAL world-space vertical extent (already reflecting the point-down rotation) and shift it
+        /// so its highest point — the pommel — lands <see cref="FindGripProudHeight"/> above the stump's top
+        /// face. Wherever the blade's own length then puts the tip is where it goes, which for this family is
+        /// well inside the wood and the ground beneath it.
+        ///
+        /// Measuring beats guessing here because the offset depends on the FBX's origin convention AND on the
+        /// family global scale WeaponPackAssetGen computes at import time — two things that can change without
+        /// this file knowing. A hardcoded offset silently re-buries the sword the next time either moves;
+        /// measuring re-derives it every bootstrap. Logs the resulting geometry so the bake is auditable.
+        /// </summary>
+        private static void SeatFindWeaponInStump(Transform site, Transform weapon)
+        {
+            var rends = weapon.GetComponentsInChildren<Renderer>(true);
+            if (rends.Length == 0)
+            {
+                Debug.LogError("[MovementCameraScene] the find's weapon instance has no Renderer — cannot measure " +
+                               "its extent to seat it in the stump; the sword would sit at an arbitrary height");
+                return;
+            }
+
+            Bounds b = rends[0].bounds;
+            for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+
+            // --- PLANAR (XZ) seat — draft 3, and the reason it exists ---
+            // Drafts 1-2 corrected Y ONLY, and the shipped-build side-profile capture showed why that is not
+            // enough: the sword stood POINT-DOWN IN THE BARE GRASS roughly a metre from an EMPTY stump, while
+            // the -verifyWeaponFind gate reported the anchor green. Both of the gate's checks were Y-only
+            // ("blade tip below the stump top", "grip above it"), and a sword at exactly the right HEIGHT but
+            // displaced sideways satisfies both perfectly. A metric can be green on nonsense
+            // (lowpoly-quality.md §0) — only the eyeballed frame caught it.
+            //
+            // The cause is that the weapon child's TRANSFORM sits at the site origin, but the sword's MESH is
+            // not centred on its own FBX origin, and the point-down flip (Euler 180,0,8) mirrors that mesh-space
+            // offset through the pivot — so the visible geometry lands off-axis even though every transform
+            // reads 0. Same lesson as the Y fix: MEASURE THE RENDERED BOUNDS, do not trust the transform.
+            Vector3 sitePos = site.position;
+            float offX = b.center.x - sitePos.x;
+            float offZ = b.center.z - sitePos.z;
+            float planarOff = Mathf.Sqrt(offX * offX + offZ * offZ);
+
+            float stumpTopY = site.position.y + FindStumpHeight + FindStumpTopThickness;
+            float wantTopY = stumpTopY + FindGripProudHeight;
+            float deltaY = wantTopY - b.max.y;
+
+            // One combined move: recentre the MESH on the stump's axis, and drop the pommel to its proud height.
+            weapon.position += new Vector3(-offX, deltaY, -offZ);
+
+            float seatedTop = b.max.y + deltaY;
+            float seatedBottom = b.min.y + deltaY;
+            if (seatedBottom >= stumpTopY)
+                Debug.LogError("[MovementCameraScene] the find's blade does NOT reach into the stump (bottom=" +
+                               seatedBottom.ToString("F3") + " stumpTop=" + stumpTopY.ToString("F3") +
+                               ") — it would read as a sword BALANCED ON the wood, not driven INTO it");
+            Debug.Log("[MovementCameraScene] find sword seated: stumpTop=" + stumpTopY.ToString("F3") +
+                      " gripTop=" + seatedTop.ToString("F3") + " (proud " + FindGripProudHeight.ToString("F2") +
+                      ") bladeTip=" + seatedBottom.ToString("F3") + "; planar mesh offset CORRECTED " +
+                      planarOff.ToString("F3") + "u (dx=" + offX.ToString("F3") + " dz=" + offZ.ToString("F3") +
+                      ") -> the blade now goes INTO the wood, not into the grass beside it");
         }
 
         // A wired BERRY BUSH (86caa5zz3): a squat leafy blob dome (BushBlob) with a child "Berries" mesh
