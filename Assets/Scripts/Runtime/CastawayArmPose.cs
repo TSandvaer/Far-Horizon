@@ -45,6 +45,13 @@ namespace FarHorizon
     /// locked WALK/IDLE arm pose is byte-unchanged. The lower amount is the F9 RUN dial's target — the Sponsor
     /// dials <see cref="runLowerEuler"/> WHILE running and bakes the value (his direct-tweak preference).
     ///
+    /// RUN-LOWER LOCOMOTION-LANE GATE (86caxj30g, 2026-07-27): the run-lower is ALSO gated on the Animator's
+    /// layer-0 state being in the locomotion lane, not on <see cref="CastawayCharacter.IsRunning"/> alone.
+    /// IsRunning is a VELOCITY read; the five per-class attack swings fire with no locomotion gate on their path,
+    /// so a strike thrown while sprinting used to inherit the full run-lower and play a silhouette ~47° off the
+    /// authored, soak-approved one. Outside the lane the weight is released at the fast
+    /// <see cref="runLowerOverlayReleaseRate"/>; inside it, everything is byte-unchanged.
+    ///
     /// DefaultExecutionOrder(50): AFTER CastawayCharacter (order 0, which yaws the model + sets IsRunning) and
     /// the Animator (which writes bone poses in its own update), BEFORE HeldAxeRig (order 100, which reads the
     /// hand world transform) — so the right hand has its final posed position when the axe seats to it.
@@ -136,6 +143,16 @@ namespace FarHorizon
                  "weight rests at 0 until IsRunning, and returns to 0 on stop.")]
         public float runLowerBlendRate = 8f;
 
+        [Tooltip("86caxj30g — the ASYMMETRIC release rate used ONLY when a non-locomotion overlay state (an attack " +
+                 "swing, a hit-react, the crouch lane, pick-up/stunned/getting-up) takes over the pose. The arm " +
+                 "must be handed back to the clip BEFORE the swing reads, and runLowerBlendRate=8 is far too slow " +
+                 "for that (~0.37s to 5% vs a ~1.05s fastest swing = a third of the strike contaminated). 30/s is " +
+                 "~0.10s to 5% residual, which fits inside the AnyState->AttackX 0.06s crossfade plus the first " +
+                 "~10% of the fastest swing, so the hand-back is masked by the Animator's own crossfade instead of " +
+                 "popping. Return to locomotion keeps the slow runLowerBlendRate (the asymmetry) — and a plain " +
+                 "sprint start/stop inside the lane never uses this rate, so 86caa83wn's feel is byte-unchanged.")]
+        public float runLowerOverlayReleaseRate = 30f;
+
         // (86caa4c5c change-(b)) The chop SWING is now the Mixamo melee Animator Attack state
         // (CastawayCharacter.TriggerChop), NOT an additive bone offset — the rejected procedural ChopPoseDriver +
         // its swingOverrideEuler channel were REMOVED. CastawayArmPose now only owns the idle-relax / held-axe
@@ -180,15 +197,54 @@ namespace FarHorizon
             _rightOffsetQ = Quaternion.Euler(rightArmEuler);
         }
 
+        /// <summary>Frame-rate-independent exponential ease of the run-lower weight — the PURE step the
+        /// LateUpdate below runs, extracted so the ease profile (and the 86caxj30g asymmetric release) is
+        /// testable in EditMode without a rig or a clock.</summary>
+        public static float StepRunWeight(float current, float target, float ratePerSec, float dt)
+            => Mathf.Lerp(current, target, 1f - Mathf.Exp(-Mathf.Max(0f, ratePerSec) * Mathf.Max(0f, dt)));
+
+        /// <summary>
+        /// THE WHOLE RUN-WEIGHT POLICY as a pure function (86caxj30g) — target selection + the asymmetric rate +
+        /// the ease, exactly as <c>LateUpdate</c> runs it. LateUpdate calls THIS, so the EditMode ease-profile
+        /// tests drive production math rather than a mirrored copy (the tautological-assert trap,
+        /// unity-conventions.md §Editor-vs-runtime).
+        /// </summary>
+        /// <param name="current">last frame's smoothed weight.</param>
+        /// <param name="isRunning">CastawayCharacter.IsRunning (the velocity read).</param>
+        /// <param name="laneOwnsPose">CastawayCharacter.LocomotionLaneOwnsPose (the animation-state read).</param>
+        /// <param name="inLaneRate">runLowerBlendRate — the locked 86caa83wn sprint ease.</param>
+        /// <param name="overlayReleaseRate">runLowerOverlayReleaseRate — the fast hand-back to the clip.</param>
+        public static float NextRunWeight(float current, bool isRunning, bool laneOwnsPose,
+                                          float inLaneRate, float overlayReleaseRate, float dt)
+        {
+            float target = (isRunning && laneOwnsPose) ? 1f : 0f;
+            // ASYMMETRIC (Devon's #343 review ADJUST 1; same idiom as CastawayCharacter's asymmetric Speed damp):
+            // an overlay seizing the pose releases FAST; every IN-LANE change — sprint start, sprint stop, and the
+            // ease back once the overlay ends — keeps the locked inLaneRate, so 86caa83wn's feel is byte-unchanged.
+            float rate = laneOwnsPose ? inLaneRate : overlayReleaseRate;
+            return StepRunWeight(current, target, rate, dt);
+        }
+
         void LateUpdate()
         {
             // RUN-LOWER weight (86caa83wn soak #2): ease the smoothed run weight toward 1 while IsRunning, back
             // toward 0 otherwise. Frame-rate-independent. At walk/idle the weight rests at 0 → the run-lower
             // offset below is the identity → the Sponsor's locked pose is byte-unchanged. If the character is
             // unresolved (fail-safe), target stays 0 so the arm never lowers at the wrong time.
-            float target = (character != null && character.IsRunning) ? 1f : 0f;
-            float a = 1f - Mathf.Exp(-Mathf.Max(0f, runLowerBlendRate) * Time.deltaTime);
-            _runWeight = Mathf.Lerp(_runWeight, target, a);
+            //
+            // 86caxj30g — THE LOCOMOTION-LANE GATE. IsRunning alone is a VELOCITY read: it knows nothing about
+            // which Animator state is posing the arm, so every one-shot overlay reachable at run speed inherited
+            // the full ~47° composed run-lower — including all five per-class attack swings, which have NO
+            // locomotion gate anywhere on their trigger path (measured: 45.8–47.6° arc / up to 0.896 SW hand
+            // displacement on every swing, team/drew-dev/armpose-offset-fit-86caxgwbz.md §4). So the run-lower now
+            // ALSO requires the locomotion lane to own the pose (Idle / Locomotion / JumpIdle / JumpRunning,
+            // transition-paired — CastawayCharacter.LocomotionLaneOwnsPose). Inside the lane the behaviour is
+            // byte-unchanged; outside it the target is 0 and the weight is released at the FAST asymmetric rate so
+            // the arm is back on the clip before the strike reads.
+            bool laneOwnsPose = character == null || character.LocomotionLaneOwnsPose;
+            bool isRunning = character != null && character.IsRunning;
+            _runWeight = NextRunWeight(_runWeight, isRunning, laneOwnsPose,
+                                       runLowerBlendRate, runLowerOverlayReleaseRate, Time.deltaTime);
 
             // Compose the offset ON the clip's animated localRotation for THIS frame (the Animator already
             // ran). bone.localRotation here is the clip pose; right-multiplying by the offset rotates in the

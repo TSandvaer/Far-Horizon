@@ -28,9 +28,22 @@ namespace FarHorizon
     ///     of the player across every swing (a Humanoid-retarget explosion flings it thousands of units off-spawn).
     /// Fails non-zero if any class failed to route OR the mesh ever exploded.
     ///
+    /// PICKAXE DEEP-FOLD PASS (86cav8xg9). The 5 shots above fire at a fixed 0.28s after TriggerAttack. For the
+    /// pickaxe that is only t≈0.08 of its swing (a 5.20s clip at the 1.5× pickaxe playback ≈ 3.47s), so those shots
+    /// land in the WIND-UP and structurally CANNOT show the mid-swing body fold the Sponsor flagged at soak-5 — a
+    /// green swing_pickaxe.png said nothing about it (the false-green-capture class, unity-conventions.md
+    /// §editor-vs-runtime: here the subject is in frame but at the wrong MOMENT). So after the five, this drives the
+    /// pickaxe swing twice more: pass 1 MEASURES the live composed torso tilt (hips→head vs world up, sampled off
+    /// the real runtime skeleton every frame — so it includes the Animator playback AND the CastawayArmPose
+    /// composition, not just the authored curves) and records when it peaks; pass 2 re-fires and shoots that exact
+    /// moment from BOTH the gameplay orbit cam and a dedicated SIDE-PROFILE cam. The side profile is required
+    /// because an upright-vs-folded-over read is nearly invisible from the player's over-the-shoulder angle and
+    /// obvious side-on (lowpoly-quality.md §0 — the pond lift→mound lesson).
+    ///
     /// Inert unless launched with -verifySwings (the normal game / boot capture is unaffected).
     ///   FarHorizon.exe -screen-fullscreen 0 -verifySwings -captureDir &lt;dir&gt;
-    /// Captures: swing_axe.png, swing_pickaxe.png, swing_dagger.png, swing_spear.png, swing_sword.png.
+    /// Captures: swing_axe.png, swing_pickaxe.png, swing_dagger.png, swing_spear.png, swing_sword.png,
+    ///           swing_pickaxe_fold.png (gameplay cam at the peak fold), swing_pickaxe_fold_side.png (side profile).
     /// </summary>
     public class SwingVerifyCapture : MonoBehaviour
     {
@@ -41,6 +54,18 @@ namespace FarHorizon
         // units of the player root (the castaway is ~1.8u tall). 8u discriminates explosion-vs-clean unambiguously
         // (a cone blows past by thousands). Mirrors LocomotionHitReactVerifyCapture.ConeExplosionRadiusU.
         private const float ConeExplosionRadiusU = 8f;
+
+        // === PICKAXE DEEP-FOLD PASS (86cav8xg9) ===
+        // The pickaxe swing is a 5.20s clip at 1.5x playback ~= 3.47s; the fold peaks around t~0.56 (~1.95s in), so
+        // the measure window must span well past it.
+        private const float FoldWindowSec = 2.6f;
+        // Live composed-pose ceiling for the torso lean off vertical. The authored raw clip measures 66.3deg and the
+        // repaired clip 41deg (AttackClipPoseDiag); the axe swing's unflagged peak is 43.3deg. 50deg sits clear of
+        // the repaired value (so real frame-timing jitter cannot flap the gate) yet far below the raw fold, so this
+        // fires if the build ever plays the RAW clip again.
+        private const float LiveFoldCeilingDeg = 50f;
+        // Side-profile stand-off. The castaway is ~1.8u tall; 3u at 45deg FOV frames the whole body with headroom.
+        private const float SideProfileDistU = 3f;
 
         // The 5 per-class swings, in WeaponClass order (mirror CastawayCharacter.WeaponClass*). Names drive the PNG.
         private static readonly (int weaponClass, string name)[] Swings =
@@ -121,14 +146,103 @@ namespace FarHorizon
                 for (int i = 0; i < 18; i++) yield return null;
             }
 
+            // ===== PICKAXE DEEP-FOLD PASS (86cav8xg9) =====
+            float peakTilt = 0f;
+            bool foldOk = true;
+            if (castaway != null && animator != null)
+            {
+                Transform hips = FindBone(animator.transform, "mixamorig:Hips");
+                Transform head = FindBone(animator.transform, "mixamorig:Head");
+                if (hips == null || head == null)
+                {
+                    Debug.LogWarning("[SwingVerifyCapture] fold pass SKIPPED — mixamorig:Hips/Head not found on the " +
+                                     "live rig; the mine-pose evidence is MISSING from this run (do not read a PASS " +
+                                     "here as proof the fold is fixed).");
+                }
+                else
+                {
+                    // pass 1 — MEASURE. Sample the live composed torso tilt every frame; remember when it peaks.
+                    castaway.TriggerAttack(CastawayCharacter.WeaponClassPickaxe, 1f);
+                    float start = Time.time, peakAt = 0f;
+                    while (Time.time - start < FoldWindowSec)
+                    {
+                        float tilt = Vector3.Angle(head.position - hips.position, Vector3.up);
+                        if (tilt > peakTilt) { peakTilt = tilt; peakAt = Time.time - start; }
+                        worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
+                        yield return null;
+                    }
+                    Debug.Log($"[SwingVerifyCapture] pickaxe fold pass 1: LIVE peak torso tilt {peakTilt:F1}deg off " +
+                              $"vertical at +{peakAt:F2}s (measured on the runtime skeleton, so it includes the " +
+                              "Animator playback AND the CastawayArmPose composition)");
+                    for (int i = 0; i < 18; i++) yield return null;
+
+                    // pass 2 — SHOOT that moment, gameplay cam then side profile.
+                    castaway.TriggerAttack(CastawayCharacter.WeaponClassPickaxe, 1f);
+                    start = Time.time;
+                    while (Time.time - start < peakAt) yield return null;
+                    ShotTo(Path.Combine(dir, "swing_pickaxe_fold.png"));
+                    yield return null;
+                    yield return SideProfileShot(Path.Combine(dir, "swing_pickaxe_fold_side.png"), hips, head,
+                                                castaway.ModelTransform);
+
+                    foldOk = peakTilt <= LiveFoldCeilingDeg;
+                    Debug.Log($"[SwingVerifyCapture] pickaxe fold: peakTilt={peakTilt:F1}deg <= " +
+                              $"{LiveFoldCeilingDeg}deg ceiling => foldOk={foldOk}. The RAW clip measured 66.3deg " +
+                              "(authored) — above the ceiling means the repaired .anim is not the clip being played.");
+                }
+            }
+
             yield return new WaitForSeconds(0.4f);
 
             bool meshStayed = smr != null && worstMeshGap <= ConeExplosionRadiusU;
-            bool pass = allRouted && meshStayed;
+            bool pass = allRouted && meshStayed && foldOk;
             Debug.Log($"[SwingVerifyCapture] verification complete -> {dir} allRouted={allRouted} " +
                       $"worstMeshGap={worstMeshGap:F2}u (<= {ConeExplosionRadiusU} = mesh stayed at the player, NO " +
-                      $"cone-explosion — the Generic-rig bind, 86ca8rdkp) meshStayed={meshStayed} => PASS={pass}");
+                      $"cone-explosion — the Generic-rig bind, 86ca8rdkp) meshStayed={meshStayed} " +
+                      $"pickaxePeakTilt={peakTilt:F1}deg foldOk={foldOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
+        }
+
+        /// <summary>
+        /// One SIDE-PROFILE frame of the current pose — the angle an upright-vs-folded-over read is actually
+        /// visible from (lowpoly-quality.md §0). Follows the #223 camera-race discipline: every other camera is
+        /// disabled, this one takes depth 100, and the whole camera roster is logged — two enabled cameras at equal
+        /// depth have UNDEFINED render order and the capture then intermittently samples the wrong one.
+        /// </summary>
+        private IEnumerator SideProfileShot(string file, Transform hips, Transform head, Transform facing)
+        {
+            var wasEnabled = new System.Collections.Generic.List<Camera>();
+            foreach (var c in Camera.allCameras)
+                if (c.enabled) { wasEnabled.Add(c); Debug.Log($"[swings-cam-roster] {c.name} depth={c.depth}"); }
+
+            var go = new GameObject("__swingSideCam");
+            var cam = go.AddComponent<Camera>();
+            cam.depth = 100f;
+            cam.fieldOfView = 45f;
+            Vector3 centre = (hips.position + head.position) * 0.5f;
+            // Stand off along the character's own RIGHT so the sagittal plane faces the lens (a true side profile),
+            // at chest height and level — a raised/angled shot flattens the fold exactly like a top-down pond shot.
+            // The side axis comes from the FACING-CARRYING model transform (CastawayCharacter yaws the _model child:
+            // "the visual owns facing", unity-conventions.md §FBX/rigs) — NOT from a pelvis BONE axis, whose local
+            // frame on an imported Mixamo rig is arbitrary and would aim the camera at a guessed angle.
+            Vector3 side = facing != null ? facing.right : Vector3.right;
+            side = Vector3.ProjectOnPlane(side, Vector3.up);
+            if (side.sqrMagnitude < 1e-4f) side = Vector3.right;
+            go.transform.position = centre + side.normalized * SideProfileDistU + Vector3.up * 0.1f;
+            go.transform.LookAt(centre);
+            foreach (var c in wasEnabled) c.enabled = false;
+            yield return null;
+            ShotTo(file);
+            yield return null;
+            foreach (var c in wasEnabled) c.enabled = true;
+            Object.Destroy(go);
+        }
+
+        private static Transform FindBone(Transform root, string name)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name == name) return t;
+            return null;
         }
 
         // The skinned mesh's world-bounds center distance from the player root. A clean bind keeps this small; a
