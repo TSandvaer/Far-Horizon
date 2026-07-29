@@ -424,7 +424,7 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | Leave origin at world (0,0,0) | Set origin to grip midpoint before export |
 | Add a MeshCollider in Unity | Add a Box Collider |
 | Let Unity auto-create material stubs | Material Creation Mode = None; assign manually |
-| Tune the current shipped axe as the style reference | The shipped axe is a placeholder — use `21h08_08` as the target |
+| Treat a sourced / atlas-textured one-off axe as the style reference (the pre-#100 placeholder) | That placeholder is GONE — deleted in PR #100 (`031d43a`, `86cabh907`, 2026-06-23; see §0 History). **The shipped in-house set `Assets/Art/Props/WeaponPack/` on the shared palette material IS the anchor** (§0), with `21h08_08` as the board target it was authored against |
 | Reblock a new same-tier tool from scratch | Duplicate the approved sibling, delete only its head island (verify identity via §12 item 5 first), keep haft/grip/pommel verbatim |
 | Use a diamond/lens eye section on a crosswise-mounted head (pickaxe/hammer/mattock) | Use a BOX-section eye wide enough to enclose the haft; taper to diamond only on the arms |
 | Extrude a new knife/sword blade from the handle stump after deleting the old one | Build a fresh closed shell (rings + apex) and `Join` it — knife/sword blades are a separate closed shell, not an open ring |

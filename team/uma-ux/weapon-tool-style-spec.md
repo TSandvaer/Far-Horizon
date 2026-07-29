@@ -169,8 +169,9 @@ shade-steps carry the form. (HDR-clamp discipline carries from `style-guide-v2.m
 **ONE shared 128×128 PNG palette texture + ONE URP/Unlit material** (`Mat_WeaponPalette`)
 for ALL weapons — ~1 draw call across the whole set (Erik §E1/E2, SRP Batcher batches by
 shader variant). UV islands scale to ~0.001 and sit on the palette block for that part
-(Erik §E6). **No per-asset baked atlas** — the atlas is exactly what makes the current axe
-an outlier.
+(Erik §E6). **No per-asset baked atlas** — the atlas is exactly what MADE the retired CC-BY axe
+an outlier (deleted PR #100 / `031d43a`; §1 History). The ban stands as a standing rule; the
+outlier itself no longer ships.
 
 **These hexes are EXTRACTED, not invented** — every one is an existing world/tool anchor
 from Uma's `style-guide-v2.md §3/§6` and `gameplay-ui-direction.md §1` (the carved-wood UI
@@ -261,13 +262,25 @@ CLOSED, so extension is a per-piece exception (`86cah7ym9` AC3), not a standing 
 - **Mild hand-made asymmetry throughout** — nothing CNC-perfect; the toy is carved.
 - **In-hand scale:** normalized to the castaway's right-hand bone; the **shipped in-house stone
   axe sets the reference scale — match it.** The reference FBX is
-  `Assets/Art/Props/WeaponPack/wpn_axe_stone_01.fbx` (`WeaponPackAssetGen.AxeFbxPath`), seated on
-  `mixamorig:RightHand` by `MovementCameraScene`. **⚠ CORRECTED 2026-07-28: this bullet used to
-  say "the current axe," meaning the CC-BY `CastawayAxe/` FBX — that path was
-  DELETED in PR #100 (`031d43a`) and is not the reference.** Note the two are not
-  interchangeable: the retired FBX had its origin at the weapon MIDPOINT (~49% up the long axis),
-  the shipped stone axe is authored per §6 with the **origin AT the grip** (~24% up), so it seats
-  with zero mesh shift (`MovementCameraScene` grip-point-shift note, `86cajkk7h`).
+  `Assets/Art/Props/WeaponPack/wpn_axe_stone_01.fbx` — the symbol at the seating site is
+  `WeaponPackAssetGen.HeroAxeFbxPath` (`= AxeFbxPath`, `WeaponPackAssetGen.cs:103`), loaded and
+  seated on `mixamorig:RightHand` by `MovementCameraScene` (`:1017` held / `:1344` pickup).
+  **⚠ CORRECTED 2026-07-28: this bullet used to say "the current axe," meaning the CC-BY
+  `CastawayAxe/` FBX — that path was DELETED in PR #100 (`031d43a`) and is not the reference.**
+  **⚠ There have been THREE axes and TWO retirements — do not collapse them into one:**
+  1. the **CC-BY Viktor.G axe** (`CastawayAxe/`), deleted with its licence file in PR #100
+     (`031d43a`, `86cabh907`, 2026-06-23). **We hold no origin measurement for it and the FBX is
+     gone — do not assert one.**
+  2. the in-house **flint** axe `wpn_axe_01` that PR #100 shipped as that replacement, itself
+     retired under `86cajkk7h` (with its `wpn_axe_01_len11..14` shaft-length variants and the
+     `[L]` picker). **This is the mesh whose FBX origin sat at the weapon MIDPOINT (~49% up the
+     long axis)**, needing a large `+0.34235` Y mesh shift to slide the grip down into the hand.
+  3. today's `wpn_axe_stone_01`, authored per §6 with the **origin AT the grip** (~24% up the long
+     axis), so it seats with **zero** mesh shift (`HeldAxeGripShiftY = 0f`).
+
+  **Do not carry the flint axe's midpoint offset forward onto a new asset** — author to §6 and the
+  shift stays zero. Source for all three: the grip-point-shift comment block at
+  `Assets/Scripts/Editor/MovementCameraScene.cs:128-139` + `WeaponPackAssetGen.cs:100-103`.
 - **Consistent grip-point pivot + +Z-forward axis** (Erik §E7): origin at grip midpoint,
   blade pointing +Z in Blender (→ +Y in Unity post axis-conversion), so ONE `HeldTool` rig
   generalizes from today's `HeldAxeRig` and any item slots in WITHOUT per-item offset tuning.
