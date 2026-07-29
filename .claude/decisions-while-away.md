@@ -516,3 +516,19 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Alternative:** leave the note as-is with the banner and queue the re-verification for the Sponsor to schedule. Rejected — the body-hit-feedback ticket is being filed right now and would have cited it.
 - **Reversibility:** trivial — `git worktree remove ../Far-Horizon-erik2-wt` and delete branch `erik/hitflash-research`; the note exists in both trees, nothing was deleted or force-pushed.
 - **Status:** pending review
+
+## 2026-07-28 2040 UTC — PR #348 held from staging; correction banner dispatched instead of a full note rewrite
+
+- **Decided:** NOT staging PR #348 for merge despite Tess's APPROVE_WITH_NITS (no merge blockers, citation layer clean at `25f34ac`). Instead dispatched Uma to add an inline CORRECTIONS block to the research note naming each of Devon's 5 verified technical defects with a one-line correction, pointing at his PR comment `5109223633` for detail. Merge staging waits on that block landing.
+- **Foundation:** precedent recorded in `team/STATE.md` 2026-07-27 — Erik's stale-tree research note was bannered `DO-NOT-CITE` and committed (`a3ec66b`) rather than withheld or rewritten, when its content was found unreliable. Same shape here: the note's value is its research; its defect is specific and enumerable; a banner is the documented remedy. Also `.claude/docs/` unmerged-cite discipline — a doc landing on `main` with a known-wrong idiom is a landmine, and Devon's NO-GO was explicit that the note must not be dispatched against verbatim.
+- **Alternative:** stage #348 now on Tess's APPROVE and rely solely on the corrections living in ticket `86caxjwb3`'s ACs (Devon's own suggested routing). Rejected because a reader of the note on `main` has no path to the ticket, and the `Time.time`/`_Time.y` idiom is copy-pasteable.
+- **Reversibility:** ≤1 PR — the block is additive to one file on an open branch; drop the commit or delete the block.
+- **Status:** pending review
+
+## 2026-07-28 2040 UTC — Tess's `_HitFlash` AC conflict NOT relayed mid-task to Priya
+
+- **Decided:** did not SendMessage Priya with Tess's newly-surfaced conflict (ticket `86caxjwb3` AC2 pins `_HitFlash` *"default 0 must be a pure no-op"* while the note prescribes `_HitFlashTime` *"never 0"* — needs an AC amendment before dispatch). Recorded here + in the away-queue for the next tick instead.
+- **Foundation:** memory `liveness-probe-can-halt-a-working-agent` — a message to a healthy in-flight agent ends its turn and yields a PARTIAL report. Priya is mid-task on that exact ticket's ACs; a halt costs more than a second pass.
+- **Alternative:** message her now and risk truncating the corrections fold.
+- **Reversibility:** trivial — if her report doesn't cover it, dispatch an XS follow-up.
+- **Status:** pending review

@@ -603,3 +603,176 @@ Sponsor drained the clickable queue in one pass before going away. **Every item 
 **Loop state:** cron `839dd854` DELETED; `auto-status.state` set `enabled=false`. Nothing will auto-resume — deliberate, so the reset window isn't burned by ticks that can't dispatch. **Re-arm with `/auto-status away` (or `on`) when you're back**, or swap accounts for a fresh window ([[sponsor-swaps-two-accounts-for-fresh-window]]) if you want it moving before 03:20.
 
 **Resume order when capacity returns:** (1) inventory the two dirty worktrees BEFORE any git op; (2) resume Erik's #348 fix round; (3) resume Drew on the `find=False` diagnosis; (4) re-check Priya's 5 ticket bodies for half-applied edits; (5) then the queued items further down this file.
+
+---
+
+## ↻ 2026-07-28 ~20:2xZ — away tick 1 (session resumed, away armed at Sponsor's request)
+
+### ✅ ONE-CLICK MERGE — PR #349 (all gates met)
+```
+gh pr merge 349 --admin --squash --delete-branch
+```
+**Gate evidence:** docs-only (2 files: `team/STATE.md`, `team/quality-bars.md`) so it spawns no CI run; `mergeable=MERGEABLE` at head `2d25340`; Devon peer review **APPROVE_WITH_NITS** (comment on the PR, both load-bearing claims independently re-derived); **all 3 of his NITs now applied** and orch-verified in the diff — NIT 1 took his wording verbatim ("colour ranks LAST of the four, never first"), NIT 2 rewrote Bar 10's lead so the invariant is *single-channel collapse* rather than colour-only (this was the hold — as originally worded the bar would not have caught its own motivating instance), NIT 3 widened the scope column to attract/affordance cues on world objects. `.claude/agents/tess.md` confirmed absent from the diff. No `needs-soak` / `sponsor-gate` marker. On merge: flip the Priya hygiene ticket to complete.
+
+### 🔴 SPONSOR-GATED — carried
+- **Canonical orch branch name (NEW, from tonight).** Your 103 local commits are safe on GitHub at `orch/coordination-2026-07-28` (`b2e355d`), and the old remote line is preserved at `archive/orch-coordination-2026-06-24` (`7afdb0d`). The force-push you approved onto `orch/coordination` was **denied by the repo's own hard deny rule** — orch cannot execute it. To finish it needs a **destructive** step: delete the stale remote `orch/coordination` (content already duplicated on `main` + the archive ref), then push local under the canonical name. **Not auto-decided — needs your explicit go.** Purely cosmetic; nothing is at risk if it never happens.
+- **Icon contact-sheet picks** (`86camyvwn`) — `Far-Horizon-drew-wt/art-src/iconbaker-proto/contact-sheet.png`. Needs you to LOOK at the image; not a popup question.
+- **Branch-protection browser click** — unchanged, staged from earlier.
+- **`86camz787`** — the ci.yml advisory→REQUIRED flip is a `.github` PR and CANNOT be label-merged (token lacks `workflow` perm); needs your browser merge when it opens.
+
+### Tick actions
+- Dispatched: Drew (`86cah7y5b` find-in-world resume, holds the single Unity-build slot) · Devon (PR #348 dev factual-check — **DONE**, verdict below) · Uma (PR #348 citation fix round — **DONE**, `25f34ac`) · Priya (PR #349 + 3 board items — **DONE**) · Tess (PR #348 re-check, in flight).
+- **PR #348 is NOT stageable.** Devon's factual-check returned **NO-GO on dispatching a dev against the note verbatim**, with 5 named corrections. The one that would have shipped a bug: the note's C# pairing writes `Time.time` into a shader that reads `_Time.y` (= `Time.timeSinceLevelLoad`) — constant-negative numerator → **permanently latched full-white enemy**, green in EditMode, broken only in the exe. Also: GPU Resident Drawer is **Disabled** (`FarHorizonURP.asset:86`), so the note's prescribed GRD draw-call A/B measures nothing; `Unlit/Particle` is not a URP shader; `LowPolyMeshes.cs` is Editor-only asmdef; and `GetComponent<Renderer>()` is null on both enemy roots (a blocker for the body-hit-feedback ticket).
+- Doc captures applied to `.claude/docs/` (orch branch, ride the next harvest): the `_Time.y` clock trap · GRD-disabled · the three-different-shader-facts rule ("pinned" ≠ "assigned" ≠ "serialized") · corrected a **stale "ZERO hits" MaterialPropertyBlock claim** in `unity-conventions.md` (actually 5 files on `main`) · flagged the contested Fresnel-rim conclusion in `lowpoly-quality.md`.
+
+### 🔴 NEW SPONSOR ITEMS — PR #351 (find-in-world, `86cah7y5b` → `ready for qa test`)
+Drew shipped it; **soak-gated, NOT staged for merge.** https://github.com/TSandvaer/Far-Horizon/pull/351 (head `259d890`, MERGEABLE).
+1. **A soak is needed** — exact exe path + expected HUD stamp to follow once the build artifact is confirmed. He played all three capture frames himself before serving.
+2. **⚠ It touches `ci.yml`** (wiring `verify_weaponfind_gate.sh`, the only gate script in the repo that was never CI-wired) → auto-merge will fail on the token's missing `workflow` permission. **Expect a browser merge from you**, same as `86camz787`.
+3. **One reviewer call for you or the reviewer, flagged in his PR body:** AC3 says the attract cue is "float-bob **ONLY**", but he added a non-harmonic yaw sway as a second channel under the newer quality-Bar-10 ruling (no cue may rest on a single channel). Read strictly, that is scope creep; read against Bar 10, it is required. One field pair + one `Update` line to strike if you want it literal.
+
+**What he actually found — the ticket's premise was wrong.** `find=False` was not absent wiring: bootstrap authored all 4 sites and they were active. A `-1` sentinel (`WeaponFindPool.activeFindCount`) leaked into the AC5 settings row, `IntSettingEntry` clamped it to `0` and wrote it back, and because both are `Start()` with undefined order the pool skipped its tier seed and disabled every site. He reproduced it RED before fixing. Then eyeballing the frames caught a **second** defect the gate had passed: `PASS=True` on a frame showing the sword point-down in bare grass ~1m from an empty stump — both anchor checks were Y-only. Planar offset measured 1.800u → 0.104u after fixing the seat to measure XZ. **EditMode 1303/1303, PlayMode 7/7, `-verifyWeaponFind` PASS.**
+
+**Deferred doc riders (apply at #351 merge, per the unmerged-cite rule):** `unity-conventions.md` — the "`-1` sentinel + a clamp band whose floor is 0, read across an undefined `Start` order, silently becomes *none*" class · `lowpoly-quality.md` §0 — an anchor/placement check must assert WHERE, not only height.
+
+**Reviewer for #351 is NOT yet dispatched** — every persona is occupied (Devon `86caxjwev` · Uma #348 corrections · Tess `86caxj8zw` · Priya `86cay47zh` · Drew now on `86cay4282`). First free dev takes it; author cannot self-review.
+
+**#348 update (~21:0xZ):** Uma's CORRECTIONS block landed at `b718042` — Devon's 5 defects are now transcribed at the TOP of the note, so it can no longer mislead a reader on `main`. **But it is still not staged:** Tess's APPROVE was against `25f34ac` and the head has moved, so the new block is unreviewed content and the reviewer gate is on the current head. Needs a delta re-check from the first free dev — Tess is occupied and Uma cannot self-review. Two PRs are now queued on that same free-reviewer slot: **#348** (delta re-check) and **#351** (full review).
+
+**Deferred doc rider — apply at #348 merge** (held now per the unmerged-cite rule; the principle is general but its only instance lives on the unmerged branch): *a shader property's "inert at default" value attaches to WHAT THE PROPERTY CARRIES, not to a fixed number.* An amplitude/intensity float is inert at `0` (the shipped `_RimIntensity` / `_AOStrength` / `_MeadowPatchAmp` precedent, `unity-conventions.md:213`); a **timestamp** float is inert at a large negative (`-1000`). Opposite values, identical semantics. A reviewer auditing "does this default to a no-op?" by checking `== 0` will wrongly flag a correct timestamp default — which is exactly what happened on #348, where it read as a spec conflict between two properties that were never in conflict.
+
+**~21:4xZ — PR #352 OPEN** (Priya, `86cay47zh` CC-BY purge, head `c751d43` off `fee2604`, ticket → `in review`). Reviewer Devon (he found the class and re-derived the anchors) — queued behind his #351 review. **7 of 8 files done; the 8th was blocked on me and is now cleared** — I applied her proposed `unity-conventions.md:173` replacement orch-side verbatim (rule unchanged, only its factual claims), so AC2 is satisfied.
+
+**A correction she made to her OWN ticket, worth your eye:** the ticket asserted *"no license file ships"*. That was wrong — its grep pattern missed `Assets/Art/Character/Castaway/Castaway_Attribution.txt`, which has neither a `CC-` prefix nor the word "License". The CC-BY conclusion survives (that file covers Hyper3D-Rodin/Mixamo content, not CC-BY), **but a live retain-in-distribution attribution obligation exists and NO rendered credits surface exists to satisfy it** — her grep for `about-screen|AboutScreen|CreditsPanel|CreditsScreen|ShowCredits` across `Assets` matched only that `.txt`. Nothing stale is being *displayed*, so it is not urgent, but it is a real gap. She is filing two follow-ups: a credits/about surface (code) and the `Castaway_Attribution.txt`-vs-castaway-v4 staleness.
+
+**`86camyvwn` reconciled:** flipped `in progress` → `to do` + **`sponsor-gate` tag added** (orch, via ClickUp REST — the MCP `update_task` has no `tags` param; verified live, tags now `["sponsor-gate","design"]`). Drew's dispatch was *delivered* — the contact sheet is pushed and there is deliberately no PR — so the next actor is YOU. A no-assignee `in progress` was inflating apparent occupancy in the idle-tick scan, which is the exact 2026-06-28 idle-failure shape.
+
+### ✅ ONE-CLICK MERGE — PR #348 (all gates now met, ~22:1xZ)
+```
+gh pr merge 348 --admin --squash --delete-branch
+```
+**Gate evidence** (head `b718042`, `MERGEABLE/CLEAN`, no labels, 2 files: `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md` + `team/uma-ux/combat-cluster-design-brief.md`, docs-only so it spawns no CI run, no `needs-soak`/`sponsor-gate`):
+1. **Tess `APPROVE_WITH_NITS`** on the citation/consistency layer (at `25f34ac`) — all 5 blocking items + 6 NITs cleared, and she independently confirmed the two defects the author had disclosed inside her OWN earlier "verified clean" list.
+2. **Devon dev factual-check** — 5 technical defects found, incl. one that would have shipped (`Time.time` written into a shader reading `_Time.y` → permanently latched full-white enemy, green in EditMode).
+3. **Uma's CORRECTIONS block** (`b718042`) transcribes all 5 at the TOP of the note, so it cannot mislead a reader on `main`.
+4. **Devon delta re-check** of `25f34ac..b718042` — `APPROVE_WITH_NITS`, **nothing mis-transcribed**; he checked all 16 body line-refs (not the sample I asked for) and re-verified Uma's counter-evidence cites on `main` exactly. His words: the note is **safe to merge as a corrected research artifact**.
+
+**Why this took four passes rather than one:** the citation layer and the technical layer were reviewed by different people with explicitly disjoint scopes, and Tess's approval did not cover the shader/GPU claims — she said so twice. A PR can be "approved" and still be a landmine when the approval's scope is narrower than the document. Worth remembering as a review-routing lesson, not just an incident.
+
+**Merge riders to apply at #348 merge (3):** the `_HitFlash`-vs-`_HitFlashTime` inert-default rule (see the deferred-rider note above) · and confirm the two #351 riders stay pending until THAT merges.
+
+**PR #352 — REQUEST_CHANGES (Devon, ~22:2xZ), NOT staged.** Two one-clause blockers, both worth the catch:
+1. `weapon-tool-style-spec.md:268` — the ~49% midpoint-origin fact is attributed to the **CC-BY** axe, but her own cited source (`MovementCameraScene.cs:129`) says the retired **flint** axe = `wpn_axe_01`, the **in-house PR #100** axe, retired later under `86cajkk7h`. **Three axes and two retirements collapsed into one** — on the anchor he ranked first, i.e. the line a future modeller would act on.
+2. `blender-asset-pipeline.md:427` still says "Tune the current shipped axe as the style reference | The shipped axe is a placeholder", contradicting her own `:17` rewrite in the same MANDATORY doc — her own `:10` self-consistency argument applies verbatim.
+
+Everything else confirmed clean: all six anchors held at `fee2604`, the `031d43a` deletion + `#98`-predates-`#100` provenance exact, A2's shipped-asset half fully sourced, all AC2 greps reproduce, and the `:173` text I applied orch-side is sound.
+
+**His gate judgment is the durable part:** her `git grep` guard is **honest, not tuned-to-pass** — but it is a **PATH guard, not a STALENESS guard.** It proves the routable path is gone; it does not prove the stale *claim* is gone. He proved that with 3 live construct-grep misses (`:427`, spec `:172`, erik `:95`), **two of them inside files she had edited.** Same family as the unanchored-needle class captured in `unity-conventions.md` §Process notes.
+
+**Fix round is QUEUED for Priya** — she is mid-task on the attribution follow-ups and `priya-wt` holds this branch, so it waits rather than racing her worktree.
+
+### 🔴 PR #354 — YOUR reported defects are fixed, soak pending (`86cay4282` → ready for qa test)
+https://github.com/TSandvaer/Far-Horizon/pull/354 @ `f243e8a`. **Soak-gated, NOT staged.** Tess is on the QA pass now.
+
+**Both of your complaints were ONE defect, and the ticket's theory was wrong.** You said the swing looked two-handed AND that the tool was still pivoting. Drew instrumented before fixing and found the seat measures **rigid** (`axisSpreadInHand 0.000°`, every clip) — nothing can pivot relative to the hand at any layer. What you were seeing both times is that **the Mixamo mine clip is authored two-handed**: hands locked 1.09–1.29 shoulder-widths apart during the swing, against 1.65–1.89 on the idle carry you approved and 1.77–2.86 on the axe chop, with the tool 63.8–89.7° off the hand line.
+
+**The prime suspect on the ticket — and in my dispatch brief — was wrong.** Both named `rightArmEuler(-4,-50,-3)` (|Q| ≈ 50°, over the study's 40° gate threshold). That is the **v3/rollback default**; `MovementCameraScene.cs:1450` bakes `CastawayV4RightArmEuler(-5,-22,0)` = |Q| 22.6° on the live hero, comfortably inside the clip-safe band. He refuted it with measurement rather than inheriting it — which is the behaviour I want, and a reminder that my briefs carry theories that need testing, not facts.
+
+**Fix:** a state-gated, transition-paired additive **left-arm de-grip** `(-40,0,20)` on the existing order-50 idiom. He measured the axis rather than trusting the doc's cheat-sheet — which turned out to be **inverted for this clip** (the documented `+X`-spreads-outward closes the hands, 1.08→0.86).
+
+**Evidence:** PlayMode 306/306 · shipped-build `-verifySwings PASS=True` · `minHandSep` 1.508 SW vs the sweep's predicted 1.51 · `pickaxePeakTilt=42.2°` so #337's fold is unregressed. EditMode 1280/1285 with 5 reds he attributes to stale generated assets — **Tess is verifying that attribution specifically**, since 5 reds dismissed as environmental is the shape that hides a regression.
+
+**⚠ WHEN YOU SOAK THIS, VIEWING MATTERS:** the gameplay orbit cam **cannot resolve hand separation** — from the normal camera you will not be able to tell. Use **`F9` → `[K]` → MINE** for a live before/after A/B at close/frontal framing. **Exact exe path + expected HUD stamp still to come** — I will not serve this without them (soak-handoff rule).
+
+**Follow-up he flagged:** `-verifySwings` has **zero hits in `.github/`** — both pickaxe gates are manual-only and never run in CI.
+
+### ✅ ONE-CLICK MERGE — PR #353 (~22:5xZ)
+```
+gh pr merge 353 --admin --squash --delete-branch
+```
+**Gate evidence** (head `b5e5724`, `MERGEABLE/CLEAN`, no labels, 1 file `tests/scripts/test_gate_scripts.sh`, shell-only so no Unity CI content gate applies, not soak-gated): **Devon `APPROVE_WITH_NITS`, no blockers** (comment `5109934787`) — and he **re-derived the negative control himself** rather than reading her table: pre-fix on the mutated tree gives `134 passed, 0 failed` exit 0 (the false-PASS reproduced), post-fix gives `133 passed, 1 failed` exit 1. All 8 windowed gates still match anchored, 1 hit each, so no over-tightening. On merge flip `86caxj8zw` → complete.
+
+**Two findings from that review worth more than the PR:**
+1. **Tess's non-blocking item should NOT be "fixed" — Devon proved anchoring it would make things worse.** `assert_launch_headless:849` is a **negated** find (asserts absence), so leaving it unanchored is structurally **false-RED-only**; anchoring it would narrow what counts as a hit and let a real offender slip through — i.e. it would CREATE a false-pass. **Leave it unanchored.** Captured in `unity-conventions.md`: anchor POSITIVE finds, leave NEGATED finds broad.
+2. **A residual hole anchoring does not close (his mutation proof):** `assert_launch_windowed` is **one-sided** — it checks the window flags are present but never that `-batchmode` is absent. Adding `-batchmode` while keeping the window flags still greens the suite at `134 passed, 0 failed`. He offered a two-line fix. **Follow-up ticket wanted** (queued for Priya — she is mid-task, so not dispatched).
+
+**Queued for Priya when she frees (3):** the #352 fix round (2 blockers) · this one-sided-assertion follow-up · a follow-up that `-verifySwings` has **zero hits in `.github/`** (both pickaxe gates are manual-only, never run in CI — flagged by Drew on #354).
+
+**⚠ CORRECTION to my #354 note above — the rigid-seat claim as I wrote it was WRONG.** I told you "the seat measures rigid, nothing can pivot relative to the hand at any layer." Tess's QA shows that overstates it. The `axisSpreadInHand 0.000°` probe is a **tautology**: `HeldToolRig.cs:100` sets `transform.rotation = followRot * Euler(seatEuler)`, so that probe reads 0.000° whether or not a defect exists. The real proof is that formula **plus `followDamp == 0`** (`MovementCameraScene.cs:248`, pinned by `HeldToolRigTests:111` and `HeroAxeSceneTests:229`). At `followDamp > 0` (`HeldToolRig.cs:83-93`) the tool **does** pivot against the hand. **Drew's conclusion stands; his reasoning was conditional, not absolute.** So "the pivot was never a separate defect" is true *for the shipped configuration*, not by construction — and if anyone ever dials `followDamp` above zero, the pivot complaint can return.
+
+**The 5 EditMode reds — attribution VERIFIED, not taken on trust.** Tess pulled the actual CI run: `30400341478`, `head_sha = f243e8a`, job `90413329638` SUCCESS, log `[EditMode] result=Passed total=1285 passed=1285 failed=0`, and the gate is strict (no `--allow-skips`). Same 1285 total as local. The local 5 reds were stale generated assets, as claimed.
+
+**Prime-suspect refutation independently recomputed by her:** shipped `(-5,-22,0)` = |Q| 22.55°; `(-4,-50,-3)` = 50.34° and is rollback-only.
+
+### 🔴 #354 SOAK BRIEF — do not serve until the build exists
+Tess **opened the orbit capture herself** and confirmed my worry: the character renders ~60×100 px, so hand separation is **physically unresolvable** at gameplay framing. Serving this without instructions would waste your time. The soak ask must carry ALL of:
+1. **Zoom in / use a front view** — the orbit cam cannot show it.
+2. **`F9` → `[K]` → MINE** for the live A/B; **`(0,0,0)` is the "before"** state.
+3. **⚠ Expect `weight = 0.00` until you actually swing** — otherwise it looks broken when it is idle-correct.
+
+**BLOCKED ON A BUILD:** no soak exe has been cut for `86cay4282` yet, and `drew-swings-wt` (which holds the #354 branch) is currently occupied by Drew's #350 review. **I will not serve a soak without the exact exe path + expected HUD stamp** — queued to cut once that worktree frees.
+
+Her 3 non-blocking nits are on the PR (unpinned PlayMode literals; mirrored composition; an `Assert.Greater(q,25f)` that would red on a *smaller* post-soak bake — worth knowing before you dial anything down).
+
+**PR #350 — gate-green but HELD one round (~23:1xZ).** Drew's review: **APPROVE_WITH_NITS, no blockers** (comment `5110025056`). All three REQUIRED checks SUCCESS at `a972dfa` (structure / build / capture); the `UNSTABLE` mergeable state is only the advisory `playmode` job showing cancelled — routine, not a red.
+
+**Why it is held rather than staged:** Drew found the AC5 sub-bullet attributes "tree-wide presence" to a guard that was **always per-file** (`202a4db:98/101`) — i.e. **the PR that exists to fix a wrong because-clause introduced a new wrong because-clause**, in the same mandatory doc. He rated it a NIT; I am not shipping it, because a wrong CAUSE is exactly what the next reader re-cites and that is this ticket's whole premise. Devon (the author) is applying the one-clause fix now. **On his push, CI re-runs — re-verify all 3 required checks on the NEW head before staging** (label-after-green rule).
+
+**What Drew CONFIRMED, so nobody re-derives it:** AC1 states his `86cavj8pf` measurement correctly — 10 and 13 are reachable only by excluding `CombatPlayModeTests` (11−1 files, 16−3 sites), and "deliberately SIBLING under a full-set denominator" is what he meant; `2e58edc` is post-fix and `202a4db` added the bullet. The `15` floor is correctly bracketed `withRig=14 < 15 <= rigSites=19`, re-measured at head. AC6's zero-test-delta confirmed twice, including base-main run `30393626628` also reading `1274`.
+
+**One caveat he raised, routed to Devon's judgement:** the floor's collapse-detection has **margin 1** — a 15th rig-carrying file would lapse it; the unconditional net is `Guard_RedsOnASecondBareRig`'s `AreEqual(4, RigSites)`.
+
+**#350 fix LANDED at `e10b153`** (+7/−1). Devon verified Drew's NIT independently at `202a4db` before applying it — and found the guard's REAL holes were **no recursion** (`:59` `TopDirectoryOnly`) and **presence-not-count in-file** (`:101`); "tree-wide presence" named a defect it never had. He also took Drew's margin caveat as warranted and put it in the CODE COMMENT rather than the PR body, on the reasoning that the next reader reads the comment. Both changes trace to Drew's own review items, so no re-review round is needed. **CI at `e10b153`: `structure` SUCCESS, `build` still running, `capture` not reported yet — NOT stageable until all three are SUCCESS on THIS head.** Next tick re-checks and stages.
+
+**#354 soak build DISPATCHED** (Drew, `drew-swings-wt` now free): `Build/soak-degrip-1/`, with instructions to read the HUD stamp out of the built exe rather than quoting a SHA, to PLAY it before reporting, and to confirm-or-correct the four viewing instructions (zoom/front, `F9`→`[K]`→MINE, `(0,0,0)`=before, weight reads 0.00 until he swings) — plus a Danish-layout check on any key binding. I will serve HIS wording, not mine.
+
+---
+
+## 🎯 END-OF-SESSION HANDOFF — 2026-07-29 ~00:0xZ (drain complete, cron killed)
+
+### ⭐ THE SOAK YOU ASKED FOR — #354, ready to play
+**Exe:** `C:\Trunk\PRIVATE\Far-Horizon-drew-swings-wt\Build\soak-degrip-1\FarHorizon.exe`
+**Expected HUD stamp — verify before judging:** `BUILD zoned | 2026-07-28T22:05:21Z | f243e8a`
+(Read out of the built exe by Drew, not computed. He played it: boots windowed 1600×900, 60 FPS, character intact.)
+
+**⚠ MY EARLIER VIEWING INSTRUCTION WAS WRONG — use this one.** I wrote `F9 → [K]`. **F9 alone draws nothing**: the overlay gates on `DebugOverlays.Visible`, which is OFF by default and toggles on **F10**. Drew caught it by actually running the build.
+
+**How to judge it:**
+1. **Zoom in or use a front view** — mouse wheel 14u→6u takes the character from ~55×95 px to ~200×280 px; RMB-drag orbits. At the default camera the hand separation is **physically unresolvable**, so judging from there tells you nothing.
+2. **F10, then F9, then `[K]` ×9** for the live A/B.
+3. **`(0,0,0)` is the "before" state.** Getting there needs two axes: **Shift+T ×4, Shift+J ×2**.
+4. **The weight reads `0,00` until you actually swing** — that is correct, not broken.
+
+Danish layout: all keys safe. Decimals render comma-style.
+
+**What it should look like:** hand separation **1.508 SW** (was 1.08–1.30 pre-fix), peak de-grip weight **1.00**, left arm clearly off the phantom haft. `-verifyMine` also passes end-to-end.
+
+**⚠ Heads-up:** a boar and a snake maul the idle player at spawn. Pre-existing, not from this change — but it WILL interrupt you while you are trying to look at the hands.
+
+### ✅ FOUR ONE-CLICK MERGES (all gate-verified; run in any order)
+```
+gh pr merge 348 --admin --squash --delete-branch
+gh pr merge 349 --admin --squash --delete-branch
+gh pr merge 350 --admin --squash --delete-branch
+gh pr merge 353 --admin --squash --delete-branch
+```
+**#350 went green during the drain** — all four checks SUCCESS at `e10b153` (structure / build / capture / playmode), `MERGEABLE`. Gate evidence for the other three is in the blocks above.
+
+### 🔴 STILL YOURS — nothing here is something I can do
+- **#351** (find-in-world) — Devon `APPROVE_WITH_NITS`, but it **touches `ci.yml`**, so the token cannot merge it: **browser merge**. Also unsoaked.
+- **#352** (CC-BY purge) — Devon `REQUEST_CHANGES`, 2 one-clause blockers. Priya's fix round is queued, not dispatched.
+- **#354** — the soak above.
+- The **canonical orch-branch cleanup** (needs a destructive delete; your 103 commits are already safe on `orch/coordination-2026-07-28` and the old line is archived).
+- **Icon contact-sheet picks** (`86camyvwn`, now correctly `to do` + `sponsor-gate`).
+- **Branch-protection browser click.**
+
+### Corrections I made to my own claims this session (so you can calibrate)
+1. Told you the seat "cannot pivot at any layer" — **overstated**; it holds only because `followDamp == 0`.
+2. Told Drew the Fresnel doubt was live — **the doubt was mine and wrong**; the rim is genuinely unreachable.
+3. Briefed a prime suspect (`rightArmEuler` |Q|≈50°) that turned out to be the **v3 rollback default**, not shipped.
+4. Gave the `F9` instruction above without testing it — **wrong**, it needs F10 first.
+5. Flipped `86cajt6k4` in-progress before reading its body — it is **hard-gated**; reverted.
+6. Briefed Priya that two new tickets were non-build lane — **both are Unity-build lane** (`paths-ignore` covers only markdown/`team/`/`.claude/`).
+
+### Open item worth a `/name-the-bar` pass
+No confirmed quality bar covers **UI-panel visual read** — bars 1-9 are world/prop/motion. Priya flagged it on `86cay4k73` rather than inventing one.
