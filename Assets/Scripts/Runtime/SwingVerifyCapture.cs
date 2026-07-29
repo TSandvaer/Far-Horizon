@@ -57,6 +57,16 @@ namespace FarHorizon
     /// pass 2 re-fires and shoots it from the gameplay cam and a CLOSE frontal cam. Self-asserts BOTH that the
     /// state-gated seat delta actually engaged in the shipped exe and that BOTH hands sit on the haft within the
     /// shared <see cref="TwoHandGripRead"/> caps.
+    ///
+    /// ALONG-HAFT REPORT (86cay4282 round 3 — REPORTED, NOT GATED). Round 2 passed this gate with the left hand
+    /// clamped at the BUTT end of the haft, because <see cref="TwoHandGripRead.Pass"/> scores only each hand's
+    /// PERPENDICULAR distance to the haft line — so a butt-end grip and a mid-haft grip score identically, and the
+    /// Sponsor's soak defect ("how can i dial that the left hand is not on the bottom of the axe") was invisible to
+    /// every gate. <see cref="TwoHandGripRead.Read.leftU"/>/<c>rightU</c> already carried the answer and were printed
+    /// nowhere. They are now logged here (and drawn on the F9 panel), with the 0 = BUTT / 1 = HEAD convention and the
+    /// off-the-end cases named. They are deliberately NOT added to the pass criteria this round, at the Sponsor's
+    /// explicit call: the right window depends on which grip he settles on at the soak, so gating it now would gate
+    /// against an invented threshold.
     /// </summary>
     public class SwingVerifyCapture : MonoBehaviour
     {
@@ -184,6 +194,10 @@ namespace FarHorizon
             bool foldOk = true;
             // 86cay4282 round 2 — the two-hand-grip pass's readings, hoisted so the final verdict line carries them.
             float worstLeftHaft = -1f, worstRightHaft = -1f, minHandSep = float.MaxValue, peakSeatWeight = 0f;
+            // 86cay4282 round 3 — the ALONG-HAFT position of each hand, REPORTED ONLY. See the note at the scoring
+            // loop: this is deliberately NOT part of the pass criteria this round.
+            float minLeftU = float.MaxValue, maxLeftU = float.MinValue;
+            float minRightU = float.MaxValue, maxRightU = float.MinValue;
             bool gripOk = true;
             if (castaway != null && animator != null)
             {
@@ -314,6 +328,17 @@ namespace FarHorizon
                                     else
                                     {
                                         worstRightHaft = Mathf.Max(worstRightHaft, read.rightHaftSW);
+                                        // 86cay4282 ROUND 3 — WHERE ALONG THE HAFT each hand sits, tracked over the
+                                        // whole engaged window. ⚠ REPORT ONLY: deliberately NOT folded into gripOk this
+                                        // round, at the Sponsor's explicit call — the right pass window depends on which
+                                        // grip he settles on at the soak, and a threshold invented for him now would
+                                        // gate the build against a guess. Round 2 shipped the inverse mistake (the
+                                        // quantity computed but never surfaced at all), so it is surfaced everywhere —
+                                        // panel, log, gate — and gated nowhere.
+                                        minLeftU = Mathf.Min(minLeftU, read.leftU);
+                                        maxLeftU = Mathf.Max(maxLeftU, read.leftU);
+                                        minRightU = Mathf.Min(minRightU, read.rightU);
+                                        maxRightU = Mathf.Max(maxRightU, read.rightU);
                                         if (read.leftHaftSW > worstLeftHaft)
                                         {
                                             worstLeftHaft = read.leftHaftSW;
@@ -331,6 +356,22 @@ namespace FarHorizon
                         Debug.Log($"[swing-twohand] scored frames at seat weight >= {EngagedWeightFloor:F2}; " +
                                   $"{easingFrames} frames skipped while the seat eased in (the deliberate hand-over " +
                                   "window — the tool is still at the approved one-handed seat there).");
+                        // 86cay4282 ROUND 3 — the ALONG-HAFT report. Its own line, with the convention spelled out and
+                        // the off-the-end cases called by name, because this is the number the Sponsor's round-2 soak
+                        // defect ("the left hand is on the bottom of the axe") actually lives in — and `Pass()` scores
+                        // only perpendicular distance, so a butt-end grip and a mid-haft grip are identical to it.
+                        string uVerdict =
+                            minLeftU == float.MaxValue ? "no engaged frames — nothing measured"
+                            : minLeftU < 0f ? "LEFT HAND IS OFF THE BUTT END of the haft (u<0)"
+                            : maxRightU > 1f ? "RIGHT HAND IS OFF THE HEAD END of the haft (u>1)"
+                            : minLeftU < 0.10f ? "left hand is CLAMPED AT THE BUTT (u<0.10) — the round-2 soak defect"
+                            : "both hands are ON the haft between its ends";
+                        Debug.Log($"[swing-twohand] ALONG-HAFT (0 = BUTT/grip end, 1 = HEAD end): left hand u " +
+                                  $"{(minLeftU == float.MaxValue ? -9f : minLeftU):F2}..{(maxLeftU == float.MinValue ? -9f : maxLeftU):F2}, " +
+                                  $"right hand u {(minRightU == float.MaxValue ? -9f : minRightU):F2}.." +
+                                  $"{(maxRightU == float.MinValue ? -9f : maxRightU):F2} => {uVerdict}. " +
+                                  "REPORT ONLY — deliberately NOT a pass criterion this round (the Sponsor dials the " +
+                                  "grip first; a window invented before he picks one would gate against a guess).");
                         Debug.Log($"[swing-twohand] pass 1: WORST left-hand-to-haft {worstLeftHaft:F3} SW at " +
                                   $"+{worstAt:F2}s (right hand {rAtWorst:F3} SW there, tool {angAtWorst:F1}deg off " +
                                   $"the hand line, seat weight {weightAtWorst:F2}); worst right-hand-to-haft over " +
@@ -378,6 +419,11 @@ namespace FarHorizon
                       $"pickaxePeakTilt={peakTilt:F1}deg foldOk={foldOk} " +
                       $"worstLeftHaft={worstLeftHaft:F3}SW worstRightHaft={worstRightHaft:F3}SW " +
                       $"minHandSep={(minHandSep == float.MaxValue ? -1f : minHandSep):F3}SW " +
+                      // 86cay4282 round 3 — the along-haft position rides the ONE-LINE verdict too, so a reviewer
+                      // scanning only the summary still sees where on the haft the hands landed. NOT in `pass`.
+                      $"leftU={(minLeftU == float.MaxValue ? -9f : minLeftU):F2}..{(maxLeftU == float.MinValue ? -9f : maxLeftU):F2} " +
+                      $"rightU={(minRightU == float.MaxValue ? -9f : minRightU):F2}..{(maxRightU == float.MinValue ? -9f : maxRightU):F2} " +
+                      $"(u REPORT-ONLY, not gated) " +
                       $"peakSeatWeight={peakSeatWeight:F2} gripOk={gripOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
         }

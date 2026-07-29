@@ -308,7 +308,49 @@ namespace FarHorizon.EditorTools
         // THE RESIDUAL IS THE CLIP'S, not slack in the fix: the hand-line direction itself swings 21.0 deg mean /
         // 36.6 deg max about its own mean in the hand's frame, and ONE constant delta can only match the mean.
         // Removing the rest needs a per-frame solve (IK) — explicitly out of scope on this ticket.
-        // The F9 AxeNudgeTool MINE-SEAT target dials both channels live; the Sponsor bakes his values HERE.
+        // ===== 86cay4282 ROUND 3 — THE VALUES BELOW ARE DELIBERATELY UNCHANGED, and that is a MEASURED result, not
+        // an omission. Read this before "just sliding it up a bit".
+        //
+        // The Sponsor soaked round 2 and reported, verbatim: "how can i dial that the left hand is not on the bottom
+        // of the axe". He is right about what he sees — the round-2 fit lands the left hand at u 0.10..0.30 of the
+        // haft (u: 0 = butt, 1 = head), i.e. clamped near the butt at its worst frame. Round 2 even wrote that down
+        // ("left hand at the butt (u 0.10-0.30)") and called it correct. The gate could not see it either: PASS scores
+        // each hand's PERPENDICULAR distance to the haft LINE, so a butt-end grip and a mid-haft grip are identical
+        // to it.
+        //
+        // WHY THE FIT DOES NOT MOVE (AttackClipPoseDiag [haft-profile] + [choke-up] passes, 361 samples, WRIST-
+        // INCLUSIVE, ci-out/seatfit-r3-trade.log):
+        //   • The pickaxe is 0.8516 m long but only its lower u 0.00-0.80 is BARE HAFT — the head geometry occupies
+        //     u 0.80-1.00 (cross-section radius 0.28-0.34 of the tool length vs the bare haft's 0.053). So there is
+        //     68 cm of grippable stick, not 85.
+        //   • The mine clip locks the hands 0.465-0.610 m apart — 40-60 cm of that 68 cm. THE PAIR FILLS THE STICK.
+        //   • u_right - u_left IS that separation projected onto the haft, over the haft length. So with the haft
+        //     aligned to the hand line (which is what puts both hands ON it) the left hand's position is not a free
+        //     parameter: it is u_right minus a number the CLIP owns. Round 2's u_right = 0.80 sits EXACTLY at the top
+        //     of the bare haft — the right hand is already directly under the head. It is already fully choked up.
+        //   • A truly MID-HAFT left hand (u 0.50) needs the right hand at u 1.20 — 20% PAST the head end of the whole
+        //     tool, palm beyond the pick. Not a fit quality; arithmetic.
+        //   • The only remaining lever is TILTING the haft off the hand line, which shortens the projection at the
+        //     exact cost of the left hand's distance to the haft — the property the two-hand read IS. The measured
+        //     Pareto front is nearly FLAT: lHaft 0.65 -> 1.10 SW (a near-doubling, well past the 0.80 shipped cap)
+        //     buys u_left 0.07 -> 0.15, i.e. ~6 cm of extra haft below the hand for a two-hand read given away. The
+        //     best in-cap candidate the 60k-candidate search found is u_left 0.12 at lHaft 0.790 SW — 1.7 cm bought
+        //     for 99% of the pass cap consumed, so one frame of timing jitter would red the build.
+        //   => Round 2's delta is ON the front at the tight end and is kept. Re-fitting would trade the fix for noise.
+        //
+        // WHAT WOULD ACTUALLY MOVE IT (both OUT OF SCOPE here — filed as follow-ups, do not bundle):
+        //   (a) CLOSE THE HANDS. Round 1's own axis probe measured that +X on the LEFT upper arm pulls the hands
+        //       TOGETHER (separation 1.08 -> 0.86 SW). A narrower pair occupies less haft, which lifts u_left directly.
+        //       The mechanism already ships, parked at weight 0 as an A/B knob (ArmMineDeGripEuler above) — and the F9
+        //       MINE target dials it live, with the panel now drawing u_left/separation so the effect is visible.
+        //   (b) A LONGER BARE HAFT. To leave ~20 cm below the left hand at the WORST frame the bare haft must reach
+        //       ~80 cm (60 cm of hands + 20), i.e. +18% on today's 68 cm. That is a Blender re-author of
+        //       wpn_pickaxe_*_01 (blender-asset-pipeline.md), not a seat delta.
+        //
+        // The F9 AxeNudgeTool MINE-SEAT target dials both channels live; the Sponsor bakes his values HERE. Round 3
+        // adds an ALONG-HAFT slide ([R]/[V]) so the grip position is ONE key pair instead of a three-axis blend, and
+        // draws u_left/u_right on the panel + logs them in the shipped gate, so whatever he picks is judged on the
+        // number the defect actually lives in.
         public static readonly Vector3 HeldToolMineSeatOffsetDelta = new Vector3(-0.2491f, -0.3928f, -0.3109f);
         public static readonly Vector3 HeldToolMineSeatEulerDelta = new Vector3(-24.7f, 70.0f, 23.7f);
 

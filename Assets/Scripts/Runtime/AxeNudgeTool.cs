@@ -87,6 +87,17 @@ namespace FarHorizon
     /// target, update BOTH.)* A NOT-ENGAGED signpost (absorbs 86caju055) shows when the debug-overlay layer is up
     /// but F9 is asleep, so the Sponsor doesn't nudge into the void.
     ///
+    /// 86cay4282 ROUND 3 — the MINE-SEAT target gains an ALONG-HAFT SLIDE ([R] = hands up toward the HEAD, [V] = down
+    /// toward the BUTT) and a THREE-ROW measurement block. The Sponsor, soaking round 2: "how can i dial that the left
+    /// hand is not on the bottom of the axe" — and he could not, for two independent reasons this round fixes together.
+    /// (1) NO AXIS: sliding the grip along the stick is ONE intent, but the dial was hand-local X/Z (arrows) + Y
+    /// (PgUp/PgDn) composed through a ~(-25,70,24) seat rotation, so the one motion he wanted was a three-key blend.
+    /// (2) NO NUMBER: the panel drew each hand's PERPENDICULAR distance to the haft and a PASS verdict, while the
+    /// ALONG-haft position — TwoHandGripRead.Read.leftU/rightU, computed since round 2 — was drawn nowhere, so a
+    /// butt-end grip and a mid-haft grip printed the identical "PASS". That is the same omission as round 1 (hand
+    /// separation: also computed, also undrawn), which is why the fix is to render EVERY judgeable field of the read
+    /// through pure, length-budgeted, test-callable formatters rather than to add one more ad-hoc line.
+    ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
     /// </summary>
@@ -104,6 +115,8 @@ namespace FarHorizon
         // the [B] weapon-cycle, not the [N] arm-switch, not the ]/[ ;/' dials, not the F7-F10 toggles, not the
         // arrows/PgUp-Dn/TGYHUJ nudge keys, not the mouse-wheel zoom). The sibling WorldLookNudgeTool's cycle
         // is rebound to [K] too — the two panels are mutually exclusive, so they can share the cycle key.
+        // ...and [R]/[V] (round 3, the along-haft slide) join that inventory of taken keys — neither was bound
+        // anywhere in the project before, and both are LETTERS (Danish-layout-safe).
         [Tooltip("Cycle the nudge target (held weapon -> stump axe -> arm -> GROUND-Y -> RUN). " +
                  "[K] (was [Tab]; Tab is the inventory toggle, so they no longer conflict).")]
         public KeyCode cycleKey = KeyCode.K;
@@ -113,6 +126,19 @@ namespace FarHorizon
         [Tooltip("On the ARM-POSE target: switch which arm is dialed (right <-> left). [N] (was [B]; [B] now " +
                  "solely cycles the held weapon so the two never cross-fire).")]
         public KeyCode armSwitchKey = KeyCode.N;
+        // 86cay4282 ROUND 3 — the ALONG-HAFT slide keys. The Sponsor, soaking round 2: "how can i dial that the left
+        // hand is not on the bottom of the axe". He could not, because sliding the grip along the stick — ONE physical
+        // intent — was a blend of arrows (X/Z) and PgUp/PgDn (Y) through a ~(-25,70,24) seat rotation. These two keys
+        // are that one intent on one axis (HeldToolRig.TrySlideMineSeatAlongHaft).
+        // KEYS: [R] / [V] — a VERTICAL pair in one physical column (R above F above V), matching the T/G, Y/H, U/J
+        // idiom, and LETTERS, so they are Danish-layout-safe (unity-conventions.md §Input System: never bind a
+        // soak-facing control to punctuation; the alpha block is the same physical position on Danish vs US). Both
+        // were unused anywhere in the project before this change.
+        [Tooltip("On the MINE-SEAT target: slide the grip UP the haft (hands toward the HEAD — choking up). [R]")]
+        public KeyCode haftUpKey = KeyCode.R;
+        [Tooltip("On the MINE-SEAT target: slide the grip DOWN the haft (hands toward the BUTT). [V]")]
+        public KeyCode haftDownKey = KeyCode.V;
+
         [Tooltip("Position nudge step (world units). Hold Shift for 5x; Ctrl for 0.2x.")]
         public float posStep = 0.02f;
         [Tooltip("Rotation nudge step (degrees). Hold Shift for 5x; Ctrl for 0.2x.")]
@@ -154,19 +180,30 @@ namespace FarHorizon
         // panel that printed only the engagement weight while the number the fix is defined by existed solely inside
         // the shipped-build gate — so the Sponsor was sent looking for a value the panel never printed.
         private Transform _lArmBone, _rArmBone, _lHandBone, _rHandBone;
-        private GUIStyle _style, _hintStyle, _titleStyle;
+        private GUIStyle _style, _hintStyle, _titleStyle, _measStyle;
 
         // Panel size (SOAKFIX6 — carries a purpose header + a "what this does" line + the controls).
         // SOAKFIX10 — the offsetFromHand + euler values now live on their OWN lines (no single packed
         // value line that overflows the box), so the panel is WIDER (fits the longest value/hint line with
         // margin) and TALLER (one extra value row). The width still leaves the right-anchored box fully on
         // any screen ≥ the narrowest test size (800px: 532 + 0 margin < 800 → x ≥ 0; PanelRect also clamps).
-        public const float PanelWidth = 532f;
+        // 86cay4282 round 3: 532 -> 616. The measurement block grew from one line to THREE (distance-to-haft,
+        // ALONG-haft position, and the separation/angle context row), and at the 14px bold value style the existing
+        // one-line grip verdict already needed ~680px of the 508px inner width — i.e. it was being CLIPPED on the
+        // Sponsor's own screen, which is a fresh instance of the very failure class this ticket keeps paying for
+        // (a number that exists but is not legible is a number he was never shown). The measurement rows also drop to
+        // their own 12px style. Per-line char budgets are regression-guarded in AxeNudgeToolPlayModeTests.
+        public const float PanelWidth = 616f;
         // 86cay4282 round 2: 236 -> 262 for a THIRD value row. The MINE + MINE-SEAT targets draw a live
         // measurement + PASS/FAIL line under their dial values, so the box needs one more row of height; every
         // other target leaves that row blank. PanelRect keeps the box on-screen + off the hotbar at the new height
         // (guarded by AxeNudgeToolPlayModeTests, which derives from these consts rather than hard-coding them).
-        public const float PanelHeight = 262f;
+        // Round 3: 262 -> 306 for the two ADDITIONAL measurement rows (along-haft position + the context row).
+        public const float PanelHeight = 306f;
+        // The point size the measurement rows are drawn at, and the inner text width available to them — exposed so
+        // the per-line width budget is asserted against the SAME numbers OnGUI uses rather than a copy.
+        public const float MeasFontSize = 12f;
+        public const float LabelInset = 24f;   // OnGUI draws every label at lx = x + 12 with lw = w - 24
 
         /// <summary>
         /// The nudge-panel screen rect for a given screen size — RIGHT-anchored + vertically centred
@@ -307,6 +344,28 @@ namespace FarHorizon
             if (Input.GetKeyDown(KeyCode.H)) dr.y -= rs;
             if (Input.GetKeyDown(KeyCode.U)) dr.z += rs;
             if (Input.GetKeyDown(KeyCode.J)) dr.z -= rs;
+
+            // 86cay4282 ROUND 3 — the ALONG-HAFT slide, MINE-SEAT target only. Handled BEFORE the generic
+            // position/rotation block because it is neither: it is one physical degree of freedom (slide the grip up or
+            // down the stick) that the rig resolves onto the haft's OWN axis, then writes into the hand-local position
+            // delta. Doing it here rather than folding it into `dp` keeps the axis resolution — and its failure mode —
+            // in one place.
+            if (_target == 10 && _heldRig != null)
+            {
+                float slide = 0f;
+                if (Input.GetKeyDown(haftUpKey)) slide += ps;
+                if (Input.GetKeyDown(haftDownKey)) slide -= ps;
+                if (slide != 0f)
+                {
+                    // A refused slide is REPORTED, never silent: an unresolvable haft axis is exactly the case where a
+                    // guessed axis would move the tool somewhere plausible-looking and wrong (the bakeAxisConversion
+                    // trap), and a dial that quietly does nothing is the trap that burned the Sponsor twice already.
+                    if (_heldRig.TrySlideMineSeatAlongHaft(slide)) { changed = true; }
+                    else Debug.LogWarning("[AxeNudgeTool] MINE SEAT along-haft slide REFUSED — the held tool's haft " +
+                                          "axis could not be resolved (no displayed mesh?), so nothing moved. Select " +
+                                          "the pickaxe ([B] / the belt) and try again; the tool will NOT guess an axis.");
+                }
+            }
 
             if (dp != Vector3.zero || dr != Vector3.zero)
             {
@@ -542,12 +601,74 @@ namespace FarHorizon
         /// what sent him hunting).</summary>
         private string GripVerdictLine(float weight)
         {
-            if (!TryGripRead(out TwoHandGripRead.Read r))
-                return "grip read UNAVAILABLE — arm/hand bones or the held mesh not resolved (NOT a pass)";
-            bool pass = TwoHandGripRead.Pass(r);
-            return $"L->haft {r.leftHaftSW:F3} (cap {TwoHandGripRead.LeftHaftPassSW:F2})  " +
-                   $"R->haft {r.rightHaftSW:F3} (cap {TwoHandGripRead.RightHaftPassSW:F2})  SW  " +
-                   (pass ? "PASS ✓" : "FAIL ✗") + $"   [w={weight:F2}]";
+            if (!TryGripRead(out TwoHandGripRead.Read r)) return GripUnavailableLine;
+            return GripDistanceLine(r, weight);
+        }
+
+        // ==============================================================================================================
+        // 86cay4282 ROUND 3 — THE MEASUREMENT ROWS, as PURE formatters.
+        //
+        // WHY THEY ARE PURE + PUBLIC. This ticket has now shipped the SAME defect twice: a quantity that the code had
+        // already computed, that the whole judgement rests on, and that the panel never drew — round 1 it was hand
+        // SEPARATION, round 2 it was the ALONG-HAFT position (`Read.leftU`/`rightU`, computed since round 2 and drawn
+        // nowhere, so a butt-end grip and a mid-haft grip printed identical PASS lines). The Sponsor was twice asked to
+        // judge something the build never showed him. Extracting the rows as pure functions closes the class rather than
+        // the instance: every field of TwoHandGripRead.Read that a human would judge on is now rendered by a function a
+        // test can call, so "computed but undrawn" is a test failure instead of a soak failure.
+        //
+        // They are also LENGTH-BUDGETED (AxeNudgeToolPlayModeTests): an IMGUI label longer than its Rect is CLIPPED, so
+        // a line that overflows is another way to compute a number and not show it — which is what was happening to the
+        // one-line round-2 verdict at 532px.
+        // ==============================================================================================================
+
+        /// <summary>Shown in place of every measurement row when the rig/mesh cannot be measured. "We do not know" must
+        /// never render as "the grip is fine" — the metric-green-on-nonsense guard.</summary>
+        public const string GripUnavailableLine =
+            "grip read UNAVAILABLE — arm/hand bones or mesh unresolved (NOT a pass)";
+
+        /// <summary>Row 1 — each hand's PERPENDICULAR distance to the haft line, against its shipped cap. "Is the one
+        /// stick running through both hands?"</summary>
+        public static string GripDistanceLine(in TwoHandGripRead.Read r, float weight)
+        {
+            if (!r.valid) return GripUnavailableLine;
+            return $"L->haft {r.leftHaftSW:F3} / R->haft {r.rightHaftSW:F3} SW  (caps " +
+                   $"{TwoHandGripRead.LeftHaftPassSW:F2}/{TwoHandGripRead.RightHaftPassSW:F2})  " +
+                   (TwoHandGripRead.Pass(r) ? "PASS ✓" : "FAIL ✗") + $"  w={weight:F2}";
+        }
+
+        /// <summary>Row 2 — WHERE ALONG THE HAFT each hand sits. THE row this round exists for: `Pass()` scores only
+        /// the perpendicular distance, so a hand clamped at the butt end and a hand at mid-haft are indistinguishable
+        /// to it — which is precisely how round 2 shipped a panel reading PASS while the left hand was at the butt.
+        /// The 0 = BUTT / 1 = HEAD legend is IN the line so the number needs no source lookup, and an off-the-end hand
+        /// is flagged loudly rather than left as a quiet negative.</summary>
+        public static string AlongHaftLine(in TwoHandGripRead.Read r)
+        {
+            if (!r.valid) return GripUnavailableLine;
+            return $"ALONG haft 0=BUTT 1=HEAD:  L {AlongTag(r.leftU, true)}  R {AlongTag(r.rightU, false)}";
+        }
+
+        /// <summary>One hand's along-haft position. UNCLAMPED by design (TwoHandGripRead keeps it so), because the
+        /// whole point is that a hand which has slid off an END is VISIBLE. For the LEFT hand the in-range form also
+        /// states how much haft remains BELOW it — the Sponsor's actual judgement quantity ("not on the bottom of the
+        /// axe"), so he never has to convert a fraction in his head.</summary>
+        private static string AlongTag(float u, bool isLeft)
+        {
+            if (u < 0f) return $"{u:F2} !!OFF-BUTT";
+            if (u > 1f) return $"{u:F2} !!OFF-HEAD";
+            if (isLeft) return $"{u:F2} = {u * 100f:F0}% below it";
+            return $"{u:F2}";
+        }
+
+        /// <summary>Row 3 — the remaining computed-but-previously-undrawn fields of the read: hand SEPARATION (round
+        /// 1's metric — no longer a pass criterion after the Sponsor's reversal, but it is what EXPLAINS the residual,
+        /// since a wide pair eats the haft) and the tool's ANGLE off the line through both hands (the dominant percept
+        /// pre-fix at 90 deg). Shoulder width is printed as the normaliser so every SW figure above is convertible to
+        /// something a human can picture.</summary>
+        public static string GripContextLine(in TwoHandGripRead.Read r)
+        {
+            if (!r.valid) return GripUnavailableLine;
+            return $"hands {r.handSepSW:F2} SW apart | tool {r.toolVsHandLineDeg:F1}deg off the hand line | " +
+                   $"1 SW = {r.shoulderWidth:F3}m";
         }
 
         // Shared L/R label for the ARM/WRIST/HAND targets ([N] toggles _armSel).
@@ -627,7 +748,7 @@ namespace FarHorizon
                 Vector3 mg = _armPose.mineDeGripEuler;
                 Debug.Log($"[AxeNudgeTool] MINE  ArmMineDeGripEuler=({mg.x:F1}f,{mg.y:F1}f,{mg.z:F1}f)  " +
                           $"(mineWeight={_armPose.MineDeGripWeight:F2})  " +
-                          GripVerdictLine(_armPose.MineDeGripWeight));
+                          GripVerdictLine(_armPose.MineDeGripWeight) + "  " + GripLogSuffix());
             }
             else if (_target == 10 && _heldRig != null)
             {
@@ -636,7 +757,7 @@ namespace FarHorizon
                 Vector3 o = _heldRig.mineSeatOffsetDelta, e = _heldRig.mineSeatEulerDelta;
                 Debug.Log($"[AxeNudgeTool] MINE SEAT  HeldToolMineSeatOffsetDelta=({o.x:F4}f,{o.y:F4}f,{o.z:F4}f)  " +
                           $"HeldToolMineSeatEulerDelta=({e.x:F1}f,{e.y:F1}f,{e.z:F1}f)  " +
-                          GripVerdictLine(_heldRig.MineSeatWeight));
+                          GripVerdictLine(_heldRig.MineSeatWeight) + "  " + GripLogSuffix());
             }
             else if (_target == 5 && _footYaw != null)
                 // 86catvb6u — bake into MovementCameraScene.CastawayV4FootYawDeg (the v4 pigeon-toe counter-rotate).
@@ -658,6 +779,15 @@ namespace FarHorizon
                 Debug.Log($"[AxeNudgeTool] HAND ({Side()} selected)  CastawayV4RightThumbEuler=({r.x:F1}f,{r.y:F1}f,{r.z:F1}f)  " +
                           $"CastawayV4LeftThumbEuler=({l.x:F1}f,{l.y:F1}f,{l.z:F1}f)  ([N] switch side; orient the thumb, wrist unaffected)");
             }
+        }
+
+        /// <summary>86cay4282 round 3 — the along-haft + context rows appended to the MINE bake log lines, so the
+        /// Player.log the Sponsor reports back carries the SAME numbers the panel drew. A value that lives only on
+        /// screen cannot be quoted in a soak report; a value that lives only in the log cannot be judged live. Both.</summary>
+        private string GripLogSuffix()
+        {
+            if (!TryGripRead(out TwoHandGripRead.Read r)) return "";
+            return AlongHaftLine(r) + "  " + GripContextLine(r);
         }
 
         private static float Norm(float a) { a %= 360f; if (a > 180f) a -= 360f; return a; }
@@ -711,6 +841,11 @@ namespace FarHorizon
                 _hintStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
                 _titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold };
                 _titleStyle.normal.textColor = new Color(1f, 0.85f, 0.45f); // warm-gold header
+                // 86cay4282 round 3 — the MEASUREMENT block gets its own smaller style + its own colour, so three
+                // data rows fit the box legibly and read as measurements rather than as more dial values.
+                _measStyle = new GUIStyle(GUI.skin.label)
+                    { fontSize = (int)MeasFontSize, fontStyle = FontStyle.Bold };
+                _measStyle.normal.textColor = new Color(1f, 1f, 0.72f);
             }
 
             // PANEL PLACEMENT (86ca8ce6y SOAKFIX6 — "the overlay covers the inventory hotbar + its purpose was
@@ -754,7 +889,9 @@ namespace FarHorizon
             // 86cay4282 round 2 — a THIRD value row, used only by the MINE + MINE-SEAT targets, carrying the live
             // two-hand grip MEASUREMENT + an explicit PASS/FAIL against the shipped caps. Blank for every other
             // target (they have nothing measurable to draw).
-            string posLine, eulerLine, gripLine = "";
+            // Round 3: the measurement block is THREE rows — distance-to-haft, ALONG-haft position, and the
+            // separation/angle context. Blank for every target that has nothing measurable to draw.
+            string posLine, eulerLine, gripLine = "", alongLine = "", contextLine = "";
             if (_target == 0)
             {
                 // 86cabh907 soak round 2 — per-weapon. NON-axe weapons show their mesh-holder offset+euler
@@ -823,6 +960,7 @@ namespace FarHorizon
                     ? $"MINE ENGAGED ✓ weight={_armPose.MineDeGripWeight:F2} (judge NOW — mid-swing)"
                     : $"mine weight={_armPose.MineDeGripWeight:F2} — equip the PICKAXE + click a boulder to engage; every other state untouched";
                 gripLine = GripVerdictLine(_armPose.MineDeGripWeight);
+                DrawableGripRows(out alongLine, out contextLine);
             }
             else if (_target == 10 && _heldRig != null)
             {
@@ -831,10 +969,11 @@ namespace FarHorizon
                 // for the same reason as above — and the THIRD row carries the live hand-to-haft measurement plus an
                 // explicit PASS/FAIL against the shipped caps, which is what round 1's panel was missing.
                 Vector3 o = _heldRig.mineSeatOffsetDelta, e = _heldRig.mineSeatEulerDelta;
-                posLine = $"SeatOffsetDelta=({o.x:F3}, {o.y:F3}, {o.z:F3})   (arrows=X/Z  PgUp/PgDn=Y — slide the haft)";
+                posLine = $"SeatOffsetDelta=({o.x:F3}, {o.y:F3}, {o.z:F3})   ([R]/[V] slide ALONG the haft)";
                 eulerLine = $"SeatEulerDelta=({e.x:F1}, {e.y:F1}, {e.z:F1})   (T/G/Y/H/U/J — turn it onto the hand line)" +
                             (_heldRig.MineSeatWeight > 0.5f ? "  ENGAGED ✓" : "  [not engaged — MINE to judge]");
                 gripLine = GripVerdictLine(_heldRig.MineSeatWeight);
+                DrawableGripRows(out alongLine, out contextLine);
             }
             else if (_target == 5 && _footYaw != null)
             {
@@ -886,14 +1025,36 @@ namespace FarHorizon
             // fully visible inside the (now wider) box, on any screen width. Copyable, never cut off.
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
-            // The MEASUREMENT row (MINE / MINE-SEAT only) — the number the fix is defined by, with its threshold.
-            if (gripLine.Length > 0) GUI.Label(new Rect(lx, y + 122f, lw, 22f), gripLine, _style);
+            // The MEASUREMENT block (MINE / MINE-SEAT only) — every field of the grip read a human would judge on.
+            // Row 1 = distance to the haft (is one stick through both hands?), row 2 = ALONG-haft position (is a hand
+            // stuck at an END? — the round-3 defect), row 3 = separation + angle (what EXPLAINS the residual). Drawn in
+            // the smaller _measStyle so all three fit the box; an IMGUI label wider than its Rect is CLIPPED, and a
+            // clipped number is a number the Sponsor was not shown.
+            if (gripLine.Length > 0) GUI.Label(new Rect(lx, y + 122f, lw, 20f), gripLine, _measStyle);
+            if (alongLine.Length > 0) GUI.Label(new Rect(lx, y + 144f, lw, 20f), alongLine, _measStyle);
+            if (contextLine.Length > 0) GUI.Label(new Rect(lx, y + 166f, lw, 20f), contextLine, _measStyle);
 
-            GUI.Label(new Rect(lx, y + 152f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE/MINE-SEAT    [N] right<->left", _hintStyle);
-            GUI.Label(new Rect(lx, y + 172f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y      [F] front-view snap (close-up on the hands)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 192f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 212f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 232f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
+            GUI.Label(new Rect(lx, y + 196f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE/MINE-SEAT    [N] right<->left", _hintStyle);
+            GUI.Label(new Rect(lx, y + 216f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y      [R]/[V] = slide ALONG the haft (MINE SEAT)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 236f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [F] front-view snap   [B] cycle held weapon", _hintStyle);
+            GUI.Label(new Rect(lx, y + 256f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 276f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
+        }
+
+        /// <summary>The two ADDITIONAL measurement rows for the MINE panels, or the unavailable notice for both. Kept
+        /// beside the panel draw (rather than inlined twice) so the MINE de-grip target and the MINE-SEAT target can
+        /// never end up showing different subsets of the same read — which is how the along-haft numbers went undrawn
+        /// in the first place.</summary>
+        private void DrawableGripRows(out string alongLine, out string contextLine)
+        {
+            if (!TryGripRead(out TwoHandGripRead.Read r))
+            {
+                alongLine = GripUnavailableLine;
+                contextLine = "";
+                return;
+            }
+            alongLine = AlongHaftLine(r);
+            contextLine = GripContextLine(r);
         }
 
         // 86caju055 — the "F9 dial: NOT ENGAGED" signpost drawn when the debug-overlay layer is up but this tool

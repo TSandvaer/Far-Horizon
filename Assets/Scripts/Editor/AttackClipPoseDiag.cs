@@ -450,6 +450,13 @@ namespace FarHorizon.EditorTools
             public Transform holder;      // the WeaponMeshHolder child carrying the per-class dial
             public Vector3 gripLocal;     // grip end of the mesh, in the holder's local mesh space
             public Vector3 headLocal;     // working end (head/point) of the mesh, same space
+            // 86cay4282 round 3 — the mesh + its resolved long axis, kept so the HAFT PROFILE pass can ask WHERE
+            // along that axis the bare haft ends and the head geometry begins. Round 2 knew the haft's LENGTH but
+            // nothing about its SHAPE, so "slide the grip up the haft" had no measured ceiling and the fit was free
+            // to park a hand inside the pick head.
+            public Mesh mesh;
+            public int axis;              // 0/1/2 = the mesh-local component the long axis runs along
+            public bool loIsGrip;         // true when the LOW end of that component is the grip (u=0) end
             public string note;
         }
 
@@ -497,6 +504,9 @@ namespace FarHorizon.EditorTools
             rig.headLocal = loIsGrip ? hi : lo;
             rig.root = go.transform;
             rig.holder = holder;
+            rig.mesh = mesh;
+            rig.axis = ax;
+            rig.loIsGrip = loIsGrip;
             rig.note = $"mesh={mesh.name} longAxis={"XYZ"[ax]} len={b.size[ax]:F3} " +
                        $"endA={lo:F3}(|{lo.magnitude:F3}|) endB={hi:F3}(|{hi.magnitude:F3}|) -> grip=end" +
                        (loIsGrip ? "A" : "B");
@@ -595,10 +605,14 @@ namespace FarHorizon.EditorTools
                 {
                     DeGripSweep(sb, clip, model, hips, head, lArm, rArm, lHand, rHand, rFore,
                                 prop, seatOffset, seatEuler, armR, armL);
+                    // 86cay4282 ROUND 3 — WHERE ALONG THE HAFT can a hand actually go? Measured from the mesh
+                    // itself, before any fit uses it, because round 2 chose u_right = 0.80 with no evidence about
+                    // what geometry lives at 0.80 (or at 0.95).
+                    float bareHaftTopU = HaftProfile(sb, prop);
                     // 86cay4282 ROUND 2 — the Sponsor REVERSED the direction ("we need to position the axe for a
                     // two hand grip"), so the clip is right and the TOOL is in the wrong place. Fit the seat.
                     MineSeatFit(sb, clip, model, hips, head, lArm, rArm, lHand, rHand,
-                                prop, seatOffset, seatEuler, armR, armL, wristR, wristL);
+                                prop, seatOffset, seatEuler, armR, armL, wristR, wristL, bareHaftTopU);
                 }
 
                 Object.DestroyImmediate(prop.root.gameObject);
@@ -714,6 +728,112 @@ namespace FarHorizon.EditorTools
         }
 
         /// <summary>
+        /// 86cay4282 ROUND 3 — THE HAFT'S OWN SHAPE ALONG ITS LENGTH, measured from the mesh.
+        ///
+        /// WHY THIS EXISTS. Round 2 fitted the seat with the right hand at u = 0.80 of the haft and the left hand at
+        /// u = 0.10..0.30, then described that as "the grip geometry a real two-handed swing has". The Sponsor soaked
+        /// it and disagreed: "how can i dial that the left hand is not on the bottom of the axe". Sliding the pair UP
+        /// the haft is the fix — but "how far up can they go" is a question about the MESH, and nothing in round 2
+        /// measured it. Without this number a fit is free to park the working hand inside the pick head, which reads
+        /// worse than the defect it replaces.
+        ///
+        /// WHAT IT MEASURES. Every mesh vertex is bucketed by its position along the resolved long axis (u, 0 = butt
+        /// / grip end, 1 = head end — the same convention <see cref="HeldToolRig.TryGetHaftSegment"/> and
+        /// <see cref="TwoHandGripRead"/> use), and each bucket reports its CROSS-SECTION RADIUS: the largest
+        /// perpendicular distance from that slice's own perpendicular centroid, as a fraction of the haft's length so
+        /// the figure is scale-free. A bare wooden haft is a thin near-constant cylinder; the pick head is a wide
+        /// crossing mass. So the head announces itself as a step change in radius, and the top of the BARE haft is the
+        /// last slice before that step.
+        ///
+        /// RETURNS the u of the top of the bare haft — the ceiling any grip-position fit must respect. The whole
+        /// profile table is printed so the number is evidenced rather than asserted.
+        /// </summary>
+        private static float HaftProfile(StringBuilder sb, in PropRig prop)
+        {
+            sb.AppendLine("[haft-profile]   --- HAFT PROFILE ALONG ITS OWN LENGTH (86cay4282 round 3) ---");
+            sb.AppendLine("[haft-profile]   u: 0 = BUTT / grip end, 1 = HEAD end (the TwoHandGripRead convention).");
+            sb.AppendLine("[haft-profile]   r = that slice's cross-section radius as a FRACTION of the haft length");
+            sb.AppendLine("[haft-profile]       (scale-free). A bare haft is thin + near-constant; the head is a step.");
+
+            Vector3[] verts = prop.mesh != null ? prop.mesh.vertices : null;
+            if (verts == null || verts.Length == 0)
+            {
+                sb.AppendLine("[haft-profile]   ABORT — no readable vertices; NO grip-position ceiling measured, so a " +
+                              "fit below must NOT claim one (do not substitute a guess).");
+                return -1f;
+            }
+
+            const int Buckets = 20;
+            int ax = prop.axis;
+            int p1 = (ax + 1) % 3, p2 = (ax + 2) % 3;
+            Bounds b = prop.mesh.bounds;
+            float lo = b.min[ax], span = b.size[ax];
+            if (span < 1e-6f) { sb.AppendLine("[haft-profile]   ABORT — degenerate long axis"); return -1f; }
+
+            var perp = new List<Vector2>[Buckets];
+            for (int i = 0; i < Buckets; i++) perp[i] = new List<Vector2>();
+            foreach (var v in verts)
+            {
+                float f = (v[ax] - lo) / span;                 // 0..1 along the mesh's own low->high axis
+                float u = prop.loIsGrip ? f : 1f - f;          // flip so 0 is always the GRIP/butt end
+                int bi = Mathf.Clamp((int)(u * Buckets), 0, Buckets - 1);
+                perp[bi].Add(new Vector2(v[p1], v[p2]));
+            }
+
+            var radii = new float[Buckets];
+            for (int i = 0; i < Buckets; i++)
+            {
+                if (perp[i].Count == 0) { radii[i] = -1f; continue; }
+                Vector2 c = Vector2.zero;
+                foreach (var q in perp[i]) c += q;
+                c /= perp[i].Count;
+                float rMax = 0f;
+                foreach (var q in perp[i]) rMax = Mathf.Max(rMax, (q - c).magnitude);
+                radii[i] = rMax / span;                        // fraction of the haft length
+            }
+
+            // BASELINE = the median radius of the slices in the LOWER HALF of the haft. The lower half is where the
+            // bare stick lives on every weapon in this family (the grip origin is (0,0,0) by the export contract), and
+            // a MEDIAN is used rather than a mean so a butt flare or one stray vertex cannot set the baseline.
+            var lowHalf = new List<float>();
+            for (int i = 0; i < Buckets / 2; i++) if (radii[i] > 0f) lowHalf.Add(radii[i]);
+            lowHalf.Sort();
+            float baseR = lowHalf.Count > 0 ? lowHalf[lowHalf.Count / 2] : -1f;
+
+            // The head is the first slice, scanning UP from the middle, whose radius exceeds the bare-haft baseline by
+            // this factor. 2.0x is deliberately generous: a subtle taper or a collar must not be mistaken for the
+            // head, while a pick/blade crossing the haft is several times wider than the stick.
+            const float HeadRadiusFactor = 2.0f;
+            int headBucket = -1;
+            if (baseR > 0f)
+                for (int i = Buckets / 2; i < Buckets; i++)
+                    if (radii[i] > baseR * HeadRadiusFactor) { headBucket = i; break; }
+
+            for (int i = 0; i < Buckets; i++)
+            {
+                float u0 = i / (float)Buckets, u1 = (i + 1) / (float)Buckets;
+                string mark = radii[i] < 0f ? "(empty)"
+                            : headBucket >= 0 && i >= headBucket ? "<= HEAD"
+                            : "bare haft";
+                sb.AppendLine($"[haft-profile]   u {u0:F2}-{u1:F2}  n={perp[i].Count,5}  r={radii[i]:F4}  {mark}");
+            }
+
+            if (baseR <= 0f || headBucket < 0)
+            {
+                sb.AppendLine("[haft-profile]   NO head step found (baseline r=" + baseR.ToString("F4") + ") — this " +
+                              "mesh does not separate into haft + head by radius, so NO ceiling is measured here.");
+                return -1f;
+            }
+
+            float bareTopU = headBucket / (float)Buckets;
+            sb.AppendLine($"[haft-profile]   bare-haft radius baseline r={baseR:F4}; head geometry starts at " +
+                          $"u={bareTopU:F2} (first slice above {HeadRadiusFactor:F1}x baseline). => A HAND MUST STAY " +
+                          $"BELOW u={bareTopU:F2}: above it the palm is inside the head mass, which reads worse than " +
+                          "the defect being fixed.");
+            return bareTopU;
+        }
+
+        /// <summary>
         /// 86cay4282 ROUND 2 — MINE-STATE SEAT FIT. The Sponsor reversed the round-1 premise: "we need to position
         /// the axe for a two hand grip". So the two-handed clip is CORRECT and the one-handed SEAT is the defect —
         /// the fix is to move the haft onto the hands, not the hand off the haft.
@@ -744,7 +864,7 @@ namespace FarHorizon.EditorTools
             Transform hips, Transform head, Transform lArm, Transform rArm,
             Transform lHand, Transform rHand,
             in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
-            Vector3 wristR, Vector3 wristL)
+            Vector3 wristR, Vector3 wristL, float bareHaftTopU)
         {
             // DENSE sampling (86cay4282 round 2). 61 samples over a ~5.2 s clip is one every ~0.085 s, and the
             // FINE-window pass measures whole-skeleton steps up to ~20.8 deg per AUTHORED frame — so a coarse grid
@@ -877,6 +997,13 @@ namespace FarHorizon.EditorTools
             // closed-form maths and the real skeleton agree.
             RefineMineSeat(sb, clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
                            seatOffset, seatEuler, armR, armL, wristR, wristL, lhs, sws, gh, hh, dMean, haftLen);
+
+            // ---- ROUND 3: WHERE ON THE HAFT the grip pair sits. Everything above optimises each hand's DISTANCE to
+            // the haft LINE and leaves the along-haft position wherever it falls — which is how round 2 shipped the
+            // left hand at u 0.10..0.30 (the butt) while scoring a clean PASS. This pass adds the missing objective.
+            ChokeUpMineSeat(sb, clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
+                            seatOffset, seatEuler, armR, armL, wristR, wristL, lhs, sws, gh, hh, dMean, haftLen,
+                            bareHaftTopU);
         }
 
         /// <summary>
@@ -957,6 +1084,195 @@ namespace FarHorizon.EditorTools
             Fitted(sb, "REFINED (live re-measure)", clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
                    seatOffset, seatEuler, armR, armL, wristR, wristL, dPos, eEuler, haftLen);
             sb.AppendLine($"[seat-fit]     REFINED BAKE  HeldToolMineSeatOffsetDelta=" +
+                          $"({dPos.x:F4}f,{dPos.y:F4}f,{dPos.z:F4}f)  HeldToolMineSeatEulerDelta=" +
+                          $"({eEuler.x:F1}f,{eEuler.y:F1}f,{eEuler.z:F1}f)");
+        }
+
+        /// <summary>
+        /// 86cay4282 ROUND 3 — FIT THE ALONG-HAFT GRIP POSITION, not just the distance to the haft line.
+        ///
+        /// THE DEFECT THIS EXISTS FOR (Sponsor soak of round 2, verbatim): "how can i dial that the left hand is not
+        /// on the bottom of the axe". Round 2's objective was purely each hand's PERPENDICULAR distance to the haft
+        /// line; where along the haft the hands landed was never scored, so a butt-end grip and a mid-haft grip were
+        /// indistinguishable to every gate, panel and test. The round-2 fit happened to land the left hand at
+        /// u 0.10..0.30 = clamped at the butt, and it read exactly as badly as the original defect.
+        ///
+        /// THE TARGET (Sponsor-chosen): MID-HAFT, CHOKED UP — left hand up off the butt with VISIBLE haft remaining
+        /// below it, right hand above it nearer the head. So the objective here is to MAXIMISE the left hand's
+        /// WORST-FRAME u (its lowest point over the swing, since that worst frame is what reads as "on the bottom"),
+        /// subject to three hard constraints that keep the round-2 win intact:
+        ///   • the RIGHT hand stays essentially ON the haft (it is the tool's real physical grip);
+        ///   • the RIGHT hand stays BELOW the measured top of the bare haft (<see cref="HaftProfile"/>) — above that
+        ///     the palm is inside the pick head, a worse read than the defect;
+        ///   • the LEFT hand stays within the shipped two-hand cap, so this does not buy grip position by giving back
+        ///     the "haft through both hands" property the whole round-2 fix is defined by.
+        ///
+        /// THE CEILING IS ARITHMETIC, AND IT IS REPORTED. u_right - u_left equals the hand separation PROJECTED onto
+        /// the haft, divided by the haft length. That projection is a property of the CLIP and the mesh, not of any
+        /// fit — so once u_right is capped, the best possible u_left follows and no amount of searching beats it.
+        /// Printing that number is the honest answer to "why isn't the left hand at 0.5".
+        /// </summary>
+        private static void ChokeUpMineSeat(StringBuilder sb, AnimationClip clip, GameObject model,
+            Transform hips, Transform head, Transform lArm, Transform rArm, Transform lHand, Transform rHand,
+            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
+            Vector3 wristR, Vector3 wristL,
+            List<Vector3> lhs, List<float> sws, Vector3 gh, Vector3 hh, Vector3 dMean, float haftLen,
+            float bareHaftTopU)
+        {
+            const float RightHaftCapSW = 0.08f;
+            // Keep the working hand clear of the head mass by this much of the haft, so a frame of jitter (or the
+            // Sponsor nudging one step further) cannot push the palm into the pick.
+            const float HeadMarginU = 0.04f;
+            // FALLBACK when HaftProfile could not measure a head step: 0.85 = round 2's own sweep ceiling, i.e. no
+            // NEW claim is made. Never silently invent a higher ceiling than something measured.
+            float gripCeiling = bareHaftTopU > 0f ? bareHaftTopU - HeadMarginU : 0.85f;
+
+            sb.AppendLine("[choke-up]   --- ALONG-HAFT GRIP POSITION FIT (86cay4282 round 3) ---");
+            sb.AppendLine($"[choke-up]   right-hand ceiling u <= {gripCeiling:F2} " +
+                          (bareHaftTopU > 0f
+                            ? $"(measured bare-haft top {bareHaftTopU:F2} minus a {HeadMarginU:F2} margin)"
+                            : "(UNMEASURED head step — falling back to round 2's own 0.85 sweep ceiling, no new claim)"));
+
+            Vector3 dCur = (hh - gh).normalized;
+            Vector3 dBase = -dMean;   // orientation B: head beyond the RIGHT hand = right hand nearer the head.
+
+            // THE ARITHMETIC CEILING, before any search. u_right - u_left IS the hand separation PROJECTED onto the
+            // haft, over the haft length. With the haft ALIGNED to the hand line (which is what makes both hands sit
+            // ON it) that projection is the full separation, so the left hand's along-haft position is not a free
+            // parameter at all — it is u_right minus a number the CLIP owns.
+            float spanMaxU = 0f, spanMinU = 9f;
+            foreach (var l in lhs)
+            {
+                float s = Mathf.Abs(Vector3.Dot(l, dBase)) / haftLen;
+                spanMaxU = Mathf.Max(spanMaxU, s); spanMinU = Mathf.Min(spanMinU, s);
+            }
+            sb.AppendLine($"[choke-up]   hand span PROJECTED on the ALIGNED haft: {spanMinU:F2}..{spanMaxU:F2} of the " +
+                          $"haft length ({spanMinU * haftLen * 100f:F0}..{spanMaxU * haftLen * 100f:F0} cm of a " +
+                          $"{haftLen * 100f:F0} cm tool, of which only {bareHaftTopU * haftLen * 100f:F0} cm is BARE " +
+                          "haft). The pair therefore fills the stick.");
+            sb.AppendLine($"[choke-up]   => with the haft aligned and the right hand at the very top of the bare haft " +
+                          $"(u {bareHaftTopU:F2}), the left hand's WORST frame lands at u " +
+                          $"{bareHaftTopU - spanMaxU:F2}. A truly MID-HAFT left hand (u 0.50) would need the right " +
+                          $"hand at u {0.50f + spanMaxU:F2} — {(0.50f + spanMaxU - 1f) * 100f:F0}% PAST the head end " +
+                          "of the whole tool. That is not a fit quality; it is arithmetic.");
+            sb.AppendLine("[choke-up]   The only lever left is TILTING the haft off the hand line, which shortens the " +
+                          "projection (lifting u_left) at the exact cost of the left hand's distance to the haft — the " +
+                          "property the two-hand read IS. The Pareto front below prices that trade.");
+
+            Vector3 p1 = Vector3.Cross(dBase, Vector3.up);
+            if (p1.sqrMagnitude < 1e-4f) p1 = Vector3.Cross(dBase, Vector3.right);
+            p1.Normalize();
+            Vector3 p2 = Vector3.Cross(dBase, p1).normalized;
+
+            Vector3 midMean = Vector3.zero;
+            foreach (var l in lhs) midMean += l;
+            midMean /= lhs.Count;
+
+            float bestULeftMin = -99f, bestScore = float.MaxValue;
+            Vector3 bestD = dBase, bestG = Vector3.zero;
+            float bestL = 0f, bestLMean = 0f, bestR = 0f, bestUR = 0f, bestULMax = 0f;
+            float bestA = 0f, bestB = 0f, bestAx = 0f, bestAy = 0f;
+            int considered = 0, rejectRight = 0, rejectCeiling = 0, rejectLeftCap = 0;
+
+            // THE TRADE CURVE (Pareto front). Buckets of the left hand's worst-frame DISTANCE to the haft (the
+            // two-hand-read quality), each holding the best along-haft position achievable at that quality. This is
+            // the honest answer to "just slide it up a bit more": it prices every step in the currency the fix is
+            // defined by, so neither the Sponsor nor a reviewer has to take a trade on trust.
+            const int Fronts = 14;                   // 0.05-SW buckets from 0.40 to 1.10 SW
+            const float FrontLo = 0.40f, FrontStep = 0.05f;
+            var frontU = new float[Fronts];
+            for (int i = 0; i < Fronts; i++) frontU[i] = -99f;
+
+            for (int ix = -6; ix <= 6; ix++)
+            for (int iy = -6; iy <= 6; iy++)
+            {
+                float ax = ix * 5f, ay = iy * 5f;
+                Vector3 d = (Quaternion.AngleAxis(ax, p1) * Quaternion.AngleAxis(ay, p2) * dBase).normalized;
+                for (int ib = 0; ib <= 4; ib++)
+                {
+                    float beta = ib * 0.125f;
+                    Vector3 through = midMean * 0.5f * beta;
+                    // FINER + HIGHER than round 2's 0.30..0.85 in 0.05 steps: the whole point of this pass is to push
+                    // the pair up the haft, so the sweep must reach the measured ceiling and resolve it finely.
+                    for (int ia = 30; ia <= 100; ia++)
+                    {
+                        float aFrac = ia * 0.01f;
+                        Vector3 g = through - d * (aFrac * haftLen);
+                        Vector3 h = g + d * haftLen;
+                        considered++;
+
+                        // u of each hand along THIS candidate haft (right hand is the frame origin).
+                        float uR = Vector3.Dot(-g, d) / haftLen;
+                        if (uR > gripCeiling) { rejectCeiling++; continue; }
+
+                        float lMax = 0f, lSum = 0f, rMax = 0f, uLMin = 9f, uLMax = -9f;
+                        for (int i = 0; i < lhs.Count; i++)
+                        {
+                            float dl = SegDist(lhs[i], g, h) / sws[i];
+                            float dr = SegDist(Vector3.zero, g, h) / sws[i];
+                            lMax = Mathf.Max(lMax, dl); lSum += dl; rMax = Mathf.Max(rMax, dr);
+                            float uL = Vector3.Dot(lhs[i] - g, d) / haftLen;
+                            uLMin = Mathf.Min(uLMin, uL); uLMax = Mathf.Max(uLMax, uL);
+                        }
+                        if (rMax > RightHaftCapSW) { rejectRight++; continue; }
+
+                        // Record the trade curve BEFORE the left-cap filter, so the front shows what a LOOSER cap
+                        // would (and would not) buy — the question a reviewer will ask about the cap.
+                        int fi = (int)((lMax - FrontLo) / FrontStep);
+                        if (fi >= 0 && fi < Fronts && uLMin > frontU[fi]) frontU[fi] = uLMin;
+
+                        if (lMax > TwoHandGripRead.LeftHaftPassSW) { rejectLeftCap++; continue; }
+
+                        // PRIMARY: lift the left hand's WORST frame off the butt. SECONDARY (tie-break within 0.01 u):
+                        // keep it closest to the haft line, so grip position is never bought with a worse two-hand read.
+                        float score = -uLMin + 0.02f * lMax;
+                        if (uLMin > bestULeftMin + 0.01f || (uLMin > bestULeftMin - 0.01f && score < bestScore))
+                        {
+                            if (uLMin > bestULeftMin) bestULeftMin = uLMin;
+                            bestScore = score; bestD = d; bestG = g;
+                            bestL = lMax; bestLMean = lSum / lhs.Count; bestR = rMax;
+                            bestUR = uR; bestULMax = uLMax;
+                            bestA = aFrac; bestB = beta; bestAx = ax; bestAy = ay;
+                        }
+                    }
+                }
+            }
+
+            sb.AppendLine($"[choke-up]   searched {considered} candidates; rejected {rejectCeiling} on the head " +
+                          $"ceiling, {rejectRight} on the right-hand cap ({RightHaftCapSW:F2} SW), {rejectLeftCap} on " +
+                          $"the left-hand two-hand cap ({TwoHandGripRead.LeftHaftPassSW:F2} SW).");
+            sb.AppendLine("[choke-up]   TRADE CURVE — best worst-frame u_left buyable at each left-hand-to-haft " +
+                          "quality (right hand pinned on the haft + below the head throughout):");
+            for (int i = 0; i < Fronts; i++)
+            {
+                if (frontU[i] < -50f) continue;
+                float lo = FrontLo + i * FrontStep;
+                sb.AppendLine($"[choke-up]     lHaft MAX <= {lo + FrontStep:F2} SW  ->  u_left worst {frontU[i]:F2} " +
+                              $"({frontU[i] * haftLen * 100f:F0} cm of haft below the left hand)" +
+                              (lo + FrontStep > TwoHandGripRead.LeftHaftPassSW ? "   [BEYOND the shipped cap]" : ""));
+            }
+            if (bestULeftMin < -50f)
+            {
+                sb.AppendLine("[choke-up]   NO candidate satisfied all three constraints — the round-2 fit stands and " +
+                              "this ticket's grip-position ask needs a LONGER HAFT (a Blender re-author), not a seat " +
+                              "delta. Do not ship a fit that violated a constraint.");
+                return;
+            }
+
+            Quaternion mHand = Quaternion.FromToRotation(dCur, bestD);
+            Vector3 eEuler = NormEuler((Quaternion.Inverse(Quaternion.Euler(seatEuler)) * mHand *
+                                        Quaternion.Euler(seatEuler)).eulerAngles);
+            Vector3 gRot = seatOffset + mHand * (gh - seatOffset);
+            Vector3 dPos = bestG - gRot;
+
+            sb.AppendLine($"[choke-up]   WINNER (cone {bestAx:F0}/{bestAy:F0}deg off B, gripAt {bestA:F2} of the " +
+                          $"haft, slide {bestB:F3} toward the hand midpoint): u_right {bestUR:F2}, u_left " +
+                          $"{bestULeftMin:F2}..{bestULMax:F2}, predicted lHaft mean {bestLMean:F3} MAX {bestL:F3} SW, " +
+                          $"rHaft MAX {bestR:F3} SW. Haft remaining BELOW the left hand at its worst frame: " +
+                          $"{bestULeftMin:F2} of the haft = {bestULeftMin * haftLen * 100f:F0} cm.");
+            Fitted(sb, "CHOKED-UP (live re-measure)", clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
+                   seatOffset, seatEuler, armR, armL, wristR, wristL, dPos, eEuler, haftLen);
+            sb.AppendLine($"[choke-up]     CHOKED-UP BAKE  HeldToolMineSeatOffsetDelta=" +
                           $"({dPos.x:F4}f,{dPos.y:F4}f,{dPos.z:F4}f)  HeldToolMineSeatEulerDelta=" +
                           $"({eEuler.x:F1}f,{eEuler.y:F1}f,{eEuler.z:F1}f)");
         }

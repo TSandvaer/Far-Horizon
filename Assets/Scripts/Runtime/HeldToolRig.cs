@@ -269,5 +269,76 @@ namespace FarHorizon
             headWorld = _haftHolder.TransformPoint(_haftHeadLocal);
             return true;
         }
+
+        /// <summary>
+        /// 86cay4282 round 3 — THE HAFT'S OWN LONG AXIS, expressed in the HAND-LOCAL frame that
+        /// <see cref="mineSeatOffsetDelta"/> lives in, pointing from the GRIP/butt end toward the HEAD.
+        ///
+        /// WHY IT EXISTS. Sliding the grip up or down the stick is ONE physical degree of freedom, but
+        /// <see cref="mineSeatOffsetDelta"/> is expressed in the hand's frame, so that one motion is a blend of all
+        /// three hand-local axes through a large seat rotation. The Sponsor was asked to reach it with arrows (X/Z)
+        /// plus PgUp/PgDn (Y) through a ~(-25, 70, 24) seat delta — three coupled dials for one intent, which is what
+        /// made the grip position undialable. Adding this axis makes it one key pair.
+        ///
+        /// EVALUATED AT FULL MINE WEIGHT, DELIBERATELY. The live haft direction depends on the CURRENT eased weight
+        /// (the rotation delta is scaled by it), so a slide computed from the live pose would follow a different axis
+        /// depending on where in the ease the dial happened to be pressed — and the delta is only ever APPLIED at full
+        /// weight. This returns the axis the tool will actually have when engaged, so a nudge pressed at rest and the
+        /// same nudge pressed mid-swing move the grip identically. (Same family as the engagement-weighted-dial trap in
+        /// procedural-animation-verbs.md §Debug-instrument caveat: a dial whose behaviour silently depends on an
+        /// engagement weight is indistinguishable from a broken one.)
+        ///
+        /// Returns false when no mesh is resolvable — callers must not fall back to a guessed axis (the
+        /// bakeAxisConversion +Z-becomes-+Y trap, unity-conventions.md §FBX).
+        /// </summary>
+        public bool TryGetMineHaftAxisHandLocal(out Vector3 axisHandLocal)
+        {
+            axisHandLocal = Vector3.zero;
+            if (!TryGetHaftSegment(out Vector3 gripWorld, out Vector3 headWorld)) return false;
+            return TryMineHaftAxisHandLocal(transform.rotation, headWorld - gripWorld,
+                                            seatEuler, mineSeatEulerDelta, out axisHandLocal);
+        }
+
+        /// <summary>
+        /// The pure form of <see cref="TryGetMineHaftAxisHandLocal"/>, so an EditMode test can pin the frame algebra
+        /// without a live rig or a live Animator.
+        ///
+        /// The step that makes this exact rather than approximate: the haft direction expressed in the TOOL's OWN
+        /// frame is FRAME-INVARIANT — the mesh sits on a holder rigidly parented to the tool root, so
+        /// <c>Inverse(toolRotation) * haftWorld</c> is the same vector no matter how the rig has the tool oriented this
+        /// frame (or whether <c>LateUpdate</c> has run yet). Re-expressing that constant through the seat rotation the
+        /// tool WILL have at full mine weight gives the hand-local axis, with no dependence on the hand's own
+        /// rotation — which is exactly why the result is facing-invariant, like every other dial on this seat.
+        /// </summary>
+        public static bool TryMineHaftAxisHandLocal(Quaternion toolRotation, Vector3 haftSegWorld,
+                                                    Vector3 seatEuler, Vector3 mineEulerDelta,
+                                                    out Vector3 axisHandLocal)
+        {
+            axisHandLocal = Vector3.zero;
+            if (haftSegWorld.sqrMagnitude < 1e-10f) return false;
+            Vector3 inToolFrame = Quaternion.Inverse(toolRotation) * haftSegWorld.normalized;
+            axisHandLocal = (Quaternion.Euler(seatEuler) * Quaternion.Euler(mineEulerDelta)) * inToolFrame;
+            return true;
+        }
+
+        /// <summary>
+        /// 86cay4282 round 3 — slide the MINE seat along the haft's own long axis by <paramref name="metres"/>, in the
+        /// direction the HANDS appear to travel: POSITIVE moves the hands UP the haft toward the HEAD (choking up),
+        /// NEGATIVE moves them DOWN toward the BUTT.
+        ///
+        /// The sign inversion is deliberate and is the whole reason this is a named method rather than a raw add. The
+        /// hands are posed by the clip and do not move; the TOOL does. So to make the hands read as HIGHER up the
+        /// haft, the tool must translate BUTT-FIRST — the opposite direction to the one the label names. Leaving that
+        /// inversion at the call site is how a dial ends up doing the reverse of its own on-screen hint.
+        ///
+        /// Returns false (and changes nothing) when the haft axis cannot be resolved, so a mis-wired mesh gives no
+        /// silent partial slide along a guessed axis.
+        /// </summary>
+        public bool TrySlideMineSeatAlongHaft(float metres)
+        {
+            if (!TryGetMineHaftAxisHandLocal(out Vector3 axis)) return false;
+            mineSeatOffsetDelta -= axis * metres;
+            return true;
+        }
     }
 }
