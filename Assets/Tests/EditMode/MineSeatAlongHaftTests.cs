@@ -373,6 +373,30 @@ namespace FarHorizon.EditTests
                     "exact failure this round exists to close.");
         }
 
+        [Test]
+        public void TheHintBlock_FitsInsideThePanel_SoNoRowIsDrawnOutsideTheBox()
+        {
+            float lastRowBottom = AxeNudgeTool.FirstHintY +
+                                  (AxeNudgeTool.HintRowCount - 1) * AxeNudgeTool.HintRowStep + AxeNudgeTool.HintRowStep;
+            Assert.LessOrEqual(lastRowBottom, AxeNudgeTool.PanelHeight,
+                $"the last hint row bottom ({lastRowBottom}px) must sit inside PanelHeight " +
+                $"({AxeNudgeTool.PanelHeight}px). Round 3 added two measurement rows AND a second header line; without " +
+                "this contract the next row added silently spills below the box, which is invisible in a code review " +
+                "and only shows up in a capture.");
+        }
+
+        [Test]
+        public void TheMineSeatHeader_FitsOneLine_SoItCannotWrapOntoTheValueRowBelow()
+        {
+            const float perCharPx = 9.5f;           // the 14px bold value style, per AxeNudgeToolPlayModeTests
+            float innerWidth = AxeNudgeTool.PanelWidth - AxeNudgeTool.LabelInset;
+            string drawn = "Editing: " + AxeNudgeTool.MineSeatHeader;
+            Assert.LessOrEqual(drawn.Length * perCharPx, innerWidth,
+                $"\"{drawn}\" is {drawn.Length} chars (~{drawn.Length * perCharPx:F0}px) against a {innerWidth}px inner " +
+                "width. IMGUI WORD-WRAPS by default, and round 2's longer version wrapped onto the SeatOffsetDelta row " +
+                "below it — visible only in the shipped panel capture.");
+        }
+
         // ==============================================================================================================
         // helpers
         // ==============================================================================================================

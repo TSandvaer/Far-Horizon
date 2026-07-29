@@ -198,12 +198,27 @@ namespace FarHorizon
         // measurement + PASS/FAIL line under their dial values, so the box needs one more row of height; every
         // other target leaves that row blank. PanelRect keeps the box on-screen + off the hotbar at the new height
         // (guarded by AxeNudgeToolPlayModeTests, which derives from these consts rather than hard-coding them).
-        // Round 3: 262 -> 306 for the two ADDITIONAL measurement rows (along-haft position + the context row).
-        public const float PanelHeight = 306f;
+        // Round 3: 262 -> 328 for the two ADDITIONAL measurement rows (along-haft position + the context row) PLUS a
+        // second line of room for the "Editing:" header, whose longest target labels word-wrapped onto the value row
+        // below (seen in this round's own shipped panel capture).
+        public const float PanelHeight = 328f;
         // The point size the measurement rows are drawn at, and the inner text width available to them — exposed so
         // the per-line width budget is asserted against the SAME numbers OnGUI uses rather than a copy.
         public const float MeasFontSize = 12f;
         public const float LabelInset = 24f;   // OnGUI draws every label at lx = x + 12 with lw = w - 24
+        // The hint block's geometry, as constants OnGUI itself uses — so "nothing is drawn outside the box" is a
+        // testable contract rather than five hand-kept offsets that silently outgrow PanelHeight the next time a row is
+        // added. Round 3 added two measurement rows and a second header line; without this guard the fifth hint row
+        // would have spilled below the panel with nothing to catch it.
+        public const float FirstHintY = 218f;
+        public const float HintRowStep = 20f;
+        public const int HintRowCount = 5;
+        /// <summary>The MINE-SEAT target's "Editing:" header. A const so its length is assertable: several targets'
+        /// headers are longer than the box is wide and IMGUI word-wraps them, which is why the header now gets two
+        /// lines of room — this one is kept inside ONE line.</summary>
+        // ("MINE to judge" is not repeated here — the euler row already carries the live ENGAGED / not-engaged state,
+        // which is the actionable form of it.)
+        public const string MineSeatHeader = "MINE SEAT — two-hand haft ([R]/[V] slides it)";
 
         /// <summary>
         /// The nudge-panel screen rect for a given screen size — RIGHT-anchored + vertically centred
@@ -927,7 +942,9 @@ namespace FarHorizon
                 ? "HAND (thumb) — " + (_armSel == 0 ? "RIGHT" : "LEFT") + " ([N] switch; orient the thumb below the wrist)"
                 : _target == 9
                 ? "MINE de-grip (left arm — SHIPS ZERO; T/G opens the arms as an A/B; MINE to judge)"
-                : "MINE SEAT — two-hand haft (arrows/PgUp-PgDn slide, T/G/Y/H/U/J turn; MINE to judge)";
+                // Round 3: shortened to ONE line's worth. The key list moved to the value row + the hint rows, which is
+                // where it belongs — this header only has to say WHAT is being edited.
+                : MineSeatHeader;
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
             // 86cay4282 round 2 — a THIRD value row, used only by the MINE + MINE-SEAT targets, carrying the live
@@ -1064,25 +1081,37 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 30f, lw, 20f),
                 "Dial each weapon's position/angle in-game, then read the values to bake.", _hintStyle);
 
-            GUI.Label(new Rect(lx, y + 56f, lw, 22f), "Editing: " + tgt, _style);
+            // The "Editing:" header gets TWO lines of vertical room (86cay4282 round 3). Several targets' labels are
+            // longer than the box is wide — FOOT-YAW's is ~83 chars — and IMGUI WORD-WRAPS by default, so the second
+            // wrapped line was landing ON TOP of the value row below it. Caught by eyeballing this round's own shipped
+            // panel capture, which is exactly what the capture gate is for. Two lines rather than wordWrap=false,
+            // because clipping would silently amputate the tail of those labels (FOOT-YAW would lose its
+            // "default -15") — a fresh instance of the very "the number exists but he cannot read it" failure this
+            // round is closing. Shortening the other targets' labels is left alone: out of scope here.
+            GUI.Label(new Rect(lx, y + 56f, lw, 44f), "Editing: " + tgt, _style);
             // SOAKFIX10 — position + euler on their OWN lines so all three components of EACH are always
             // fully visible inside the (now wider) box, on any screen width. Copyable, never cut off.
-            GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
-            GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
+            GUI.Label(new Rect(lx, y + 100f, lw, 22f), posLine, _style);
+            GUI.Label(new Rect(lx, y + 122f, lw, 22f), eulerLine, _style);
             // The MEASUREMENT block (MINE / MINE-SEAT only) — every field of the grip read a human would judge on.
             // Row 1 = distance to the haft (is one stick through both hands?), row 2 = ALONG-haft position (is a hand
             // stuck at an END? — the round-3 defect), row 3 = separation + angle (what EXPLAINS the residual). Drawn in
             // the smaller _measStyle so all three fit the box; an IMGUI label wider than its Rect is CLIPPED, and a
             // clipped number is a number the Sponsor was not shown.
-            if (gripLine.Length > 0) GUI.Label(new Rect(lx, y + 122f, lw, 20f), gripLine, _measStyle);
-            if (alongLine.Length > 0) GUI.Label(new Rect(lx, y + 144f, lw, 20f), alongLine, _measStyle);
-            if (contextLine.Length > 0) GUI.Label(new Rect(lx, y + 166f, lw, 20f), contextLine, _measStyle);
+            if (gripLine.Length > 0) GUI.Label(new Rect(lx, y + 144f, lw, 20f), gripLine, _measStyle);
+            if (alongLine.Length > 0) GUI.Label(new Rect(lx, y + 166f, lw, 20f), alongLine, _measStyle);
+            if (contextLine.Length > 0) GUI.Label(new Rect(lx, y + 188f, lw, 20f), contextLine, _measStyle);
 
-            GUI.Label(new Rect(lx, y + 196f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE/MINE-SEAT    [N] right<->left", _hintStyle);
-            GUI.Label(new Rect(lx, y + 216f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y      [R]/[V] = slide ALONG the haft (MINE SEAT)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 236f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [F] front-view snap   [B] cycle held weapon", _hintStyle);
-            GUI.Label(new Rect(lx, y + 256f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 276f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
+            string[] hints =
+            {
+                "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE/MINE-SEAT    [N] right<->left",
+                "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y      [R]/[V] = slide ALONG the haft (MINE SEAT)",
+                "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [F] front-view snap   [B] cycle held weapon",
+                "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)",
+                "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.",
+            };
+            for (int i = 0; i < hints.Length && i < HintRowCount; i++)
+                GUI.Label(new Rect(lx, y + FirstHintY + i * HintRowStep, lw, 20f), hints[i], _hintStyle);
         }
 
         // 86caju055 — the "F9 dial: NOT ENGAGED" signpost drawn when the debug-overlay layer is up but this tool
