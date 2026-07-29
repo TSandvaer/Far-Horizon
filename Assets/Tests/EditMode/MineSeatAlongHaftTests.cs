@@ -4,6 +4,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using FarHorizon;
+using FarHorizon.EditorTools;
 
 namespace FarHorizon.EditTests
 {
@@ -44,6 +45,9 @@ namespace FarHorizon.EditTests
                 valid = true,
                 leftHaftSW = 0.123f,
                 rightHaftSW = 0.234f,
+                leftPalmHaftSW = 0.211f,
+                rightPalmHaftSW = 0.077f,
+                palmMeasured = true,
                 leftU = 0.345f,
                 rightU = 0.456f,
                 toolVsHandLineDeg = 32.7f,
@@ -58,13 +62,20 @@ namespace FarHorizon.EditTests
             // field -> the text the panel must contain for it, formatted the way the panel formats it.
             var expected = new Dictionary<string, string>
             {
-                { "leftHaftSW (is the left hand ON the haft line?)", r.leftHaftSW.ToString("F3") },
+                // ROUND 4 — the PASS CRITERION is the LEFT PALM figure. It is listed first because it is the one a
+                // human's verdict now rests on; the wrist figures stay listed because they remain drawn for continuity.
+                { "leftPalmHaftSW (THE round-4 pass criterion — is the palm touching the shaft?)", r.leftPalmHaftSW.ToString("F3") },
+                { "leftHaftSW (the round-2/3 wrist figure, kept so this round's numbers are comparable)", r.leftHaftSW.ToString("F3") },
                 { "rightHaftSW (is the right hand still on its own haft?)", r.rightHaftSW.ToString("F3") },
                 { "leftU (WHERE ALONG the haft the left hand sits — the round-3 defect)", r.leftU.ToString("F2") },
                 { "rightU (where along the haft the right hand sits)", r.rightU.ToString("F2") },
                 { "toolVsHandLineDeg (does the tool agree with the grip the eye reads?)", r.toolVsHandLineDeg.ToString("F1") },
                 { "handSepSW (round 1's metric; it EXPLAINS the residual)", r.handSepSW.ToString("F2") },
                 { "shoulderWidth (the normaliser every SW figure above is in)", r.shoulderWidth.ToString("F3") },
+                // ROUND 4 — the real-world conversion. "0.445 SW" reads as a rounding error and is ~20 cm; a figure the
+                // Sponsor cannot convert mid-soak is a figure he was not really shown, so the cm must be ON the line.
+                { "the LEFT PALM figure in CENTIMETRES beside its SW value", (r.leftPalmHaftSW * r.shoulderWidth * 100f).ToString("F1") },
+                { "the LEFT WRIST figure in CENTIMETRES beside its SW value", (r.leftHaftSW * r.shoulderWidth * 100f).ToString("F1") },
             };
 
             foreach (var kv in expected)
@@ -73,6 +84,19 @@ namespace FarHorizon.EditTests
                     "This ticket has already shipped this exact defect twice — a quantity the code computes, that the " +
                     "whole judgement rests on, and that the panel never draws. If a new field is added to " +
                     "TwoHandGripRead.Read and a human would judge on it, draw it and extend this list.");
+        }
+
+        [Test]
+        public void AnUnmeasuredPalm_RendersAsUnavailable_NeverAsTheWristFigureDressedAsAVerdict()
+        {
+            // ROUND 4. The PASS row's criterion is palm-anchored. If the palm could not be measured, printing the WRIST
+            // figure there would answer an easier question while LOOKING like the verdict — the exact substitution that
+            // let a 28 cm gap ship green. It must say so instead.
+            var wristOnly = MakeRead(0.30f, 0.80f);
+            wristOnly.palmMeasured = false;
+            Assert.AreEqual(AxeNudgeTool.PalmUnavailableLine, AxeNudgeTool.GripDistanceLine(wristOnly, 1f));
+            StringAssert.Contains("NOT a pass", AxeNudgeTool.PalmUnavailableLine,
+                "the notice must state outright that it is not a pass — a bare 'unavailable' invites reading it as fine.");
         }
 
         [Test]
@@ -309,7 +333,7 @@ namespace FarHorizon.EditTests
                 var cycle = weaponGo.AddComponent<HeldWeaponCycleDebug>();
                 var cam = camGo.AddComponent<OrbitCamera>();
 
-                foreach (var key in new[] { tool.haftUpKey, tool.haftDownKey })
+                foreach (var key in new[] { tool.haftUpKey, tool.haftDownKey, tool.reachMoreKey, tool.reachLessKey })
                 {
                     // Legacy Input reads keys by US PHYSICAL POSITION and the Sponsor is on a Danish layout, where
                     // ; ' [ ] = - land on different physical keys (or nowhere). Letters, arrows, PgUp/PgDn, F-keys,
@@ -319,7 +343,12 @@ namespace FarHorizon.EditTests
                         "soak-facing control he physically cannot press is a dead dial (the ';'/'\\'' axe-head dial).");
                 }
 
-                Assert.AreNotEqual(tool.haftUpKey, tool.haftDownKey);
+                // ROUND 4 — all FOUR MINE-SEAT keys must be pairwise distinct (the pin pair and the reach pair).
+                var mineKeys = new[] { tool.haftUpKey, tool.haftDownKey, tool.reachMoreKey, tool.reachLessKey };
+                for (int i = 0; i < mineKeys.Length; i++)
+                    for (int j = i + 1; j < mineKeys.Length; j++)
+                        Assert.AreNotEqual(mineKeys[i], mineKeys[j],
+                            $"MINE-SEAT keys {i} and {j} collide ({mineKeys[i]}) — one press would fire two dials.");
                 var taken = new List<KeyCode>
                 {
                     tool.toggleKey, tool.cycleKey, tool.armSwitchKey,
@@ -329,7 +358,7 @@ namespace FarHorizon.EditTests
                     cycle.cycleKey, cycle.scaleUpKeyDanish, cycle.scaleDownKeyDanish,     // [B] / [O] / [I]
                     cam.frontSnapKey,                                                     // [F] front-view snap
                 };
-                foreach (var key in new[] { tool.haftUpKey, tool.haftDownKey })
+                foreach (var key in mineKeys)
                     Assert.IsFalse(taken.Contains(key),
                         $"{key} is already bound elsewhere — a cross-firing key is the [B] arm-switch/weapon-cycle " +
                         "collision and the Tab inventory collision this tool has already been bitten by twice.");
@@ -363,6 +392,46 @@ namespace FarHorizon.EditTests
                 "the SHIPPED along-haft UP key must be [R]. KeyCode.None here means the field deserialised to the " +
                 "enum's zero and the soak brief would quote a key that moves nothing.");
             Assert.AreEqual(KeyCode.V, tool.haftDownKey, "…and the DOWN key must be [V].");
+            // ROUND 4 — the reach-shell pair, same reasoning: two brand-new public KeyCode fields on a scene-baked
+            // component are exactly where a value silently arrives as KeyCode.None (the enum's zero).
+            Assert.AreEqual(KeyCode.Z, tool.reachMoreKey, "the SHIPPED reach-STRAIGHTER key must be [Z].");
+            Assert.AreEqual(KeyCode.X, tool.reachLessKey, "…and the reach-BENDIER key must be [X].");
+        }
+
+        [Test]
+        public void TheShippedBootScene_CarriesTheLeftArmHaftPin_Wired_NotJustPresent()
+        {
+            // WHY A SCENE TEST. The pin is the WHOLE round-4 fix and it is authored editor-time into a BINARY scene, so
+            // "the component is in source" proves nothing about whether Boot.unity carries it — the named
+            // component-in-source-but-not-serialized failure class (unity-conventions.md §Editor-vs-runtime, the
+            // CaptureGate precedent, where the feature shipped silently inert). And a PRESENT-but-unwired driver is the
+            // same defect with extra steps: every ref below being non-null is what makes it actually pin anything.
+            EditorSceneManager.OpenScene("Assets/Scenes/Boot.unity", OpenSceneMode.Single);
+            CastawayLeftArmHaftIk ik = null;
+            foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+            {
+                ik = root.GetComponentInChildren<CastawayLeftArmHaftIk>(true);
+                if (ik != null) break;
+            }
+            Assert.IsNotNull(ik, "the Boot scene must carry CastawayLeftArmHaftIk — it IS the round-4 fix.");
+            Assert.IsNotNull(ik.leftUpperArm, "leftUpperArm (mixamorig:LeftArm) must be wired or the pin is inert");
+            Assert.IsNotNull(ik.leftForeArm, "leftForeArm (mixamorig:LeftForeArm) must be wired or the pin is inert");
+            Assert.IsNotNull(ik.leftHand, "leftHand must be wired or there is no palm to place");
+            Assert.IsNotNull(ik.leftPalmKnuckle,
+                "the palm-proxy KNUCKLE must be wired. Without it the driver fails closed rather than pinning the " +
+                "WRIST, which would drive the haft through the back of the hand by 5.6 cm — so an unwired knuckle " +
+                "ships the round-3 defect unchanged.");
+            Assert.IsNotNull(ik.heldRig, "heldRig must be wired — there is no haft to pin to otherwise");
+            Assert.IsNotNull(ik.character, "character must be wired or the AttackPickaxe gate never opens");
+            Assert.IsNotNull(ik.modelFrame, "modelFrame must be wired or the pole fallback rotates with nothing");
+
+            // …and the baked values must be the SHIP SOURCE, not the C# field defaults. A serialized scene that never
+            // received the assignment would still carry the initializer, which is the tautological-assert trap: these
+            // pass either way UNLESS the expected value is read from the authoritative constant, as it is here.
+            Assert.AreEqual(MovementCameraScene.LeftArmHaftPinU, ik.pinU, 1e-4f);
+            Assert.AreEqual(MovementCameraScene.LeftArmHaftPinUCeiling, ik.pinUCeiling, 1e-4f);
+            Assert.AreEqual(MovementCameraScene.LeftArmHaftShellFraction, ik.shellFraction, 1e-4f);
+            Assert.Less((MovementCameraScene.LeftArmHaftPoleFallback - ik.poleFallbackLocal).magnitude, 1e-3f);
         }
 
         // ==============================================================================================================
@@ -383,11 +452,14 @@ namespace FarHorizon.EditTests
             // off an end at once (the case a naive over-choked fit produces).
             var worst = new Dictionary<string, string>
             {
-                { "distance row", AxeNudgeTool.GripDistanceLine(MakeRead(0.5f, 0.5f, 1.234f, 0.987f), 1f) },
+                { "distance row", AxeNudgeTool.GripDistanceLine(MakeRead(0.5f, 0.5f, 1.234f, 0.987f, 1.234f), 1f) },
                 { "along-haft row (both flagged)", AxeNudgeTool.AlongHaftLine(MakeRead(-0.88f, 1.99f)) },
                 { "along-haft row (in range)", AxeNudgeTool.AlongHaftLine(MakeRead(0.456f, 0.789f)) },
-                { "context row", AxeNudgeTool.GripContextLine(MakeRead(0.3f, 0.8f)) },
+                { "context row", AxeNudgeTool.GripContextLine(MakeRead(0.3f, 0.8f, 1.234f, 0.987f)) },
                 { "unavailable notice", AxeNudgeTool.GripUnavailableLine },
+                // ROUND 4 rows.
+                { "palm-unavailable notice", AxeNudgeTool.PalmUnavailableLine },
+                { "IK state row (absent)", AxeNudgeTool.IkStateLine(null) },
             };
 
             foreach (var kv in worst)
@@ -429,12 +501,19 @@ namespace FarHorizon.EditTests
         /// <summary>A grip read with the given along-haft positions and (by default) comfortably passing distances, so
         /// each test varies only the quantity it is about.</summary>
         private static TwoHandGripRead.Read MakeRead(float leftU, float rightU,
-                                                     float leftHaft = 0.445f, float rightHaft = 0.012f) =>
+                                                     float leftHaft = 0.445f, float rightHaft = 0.012f,
+                                                     float leftPalm = 0.200f) =>
             new TwoHandGripRead.Read
             {
                 valid = true,
                 leftHaftSW = leftHaft,
                 rightHaftSW = rightHaft,
+                // ROUND 4 — the palm fields must be populated and FLAGGED, or Pass() fails closed and every test that
+                // varies only the along-haft position would fail for the wrong reason. Default 0.200 SW sits under the
+                // 0.293 touching cap so the along-haft tests keep isolating the quantity they are about.
+                leftPalmHaftSW = leftPalm,
+                rightPalmHaftSW = rightHaft,
+                palmMeasured = true,
                 leftU = leftU,
                 rightU = rightU,
                 toolVsHandLineDeg = 32.7f,

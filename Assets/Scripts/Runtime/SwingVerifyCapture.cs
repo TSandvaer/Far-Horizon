@@ -201,6 +201,12 @@ namespace FarHorizon
             float minLeftU = float.MaxValue, maxLeftU = float.MinValue;
             float minRightU = float.MaxValue, maxRightU = float.MinValue;
             bool gripOk = true;
+            // 86cay4282 round 4 — the PALM criterion + the left-arm IK's own live state, so the gate can distinguish
+            // "the pin worked" from "the pin was absent / inert / reaching" instead of inferring it from one number.
+            float worstLeftPalm = -1f, swAtWorst = TwoHandGripRead.ReferenceShoulderWidthM;
+            bool anyPalmMeasured = false, allPalmMeasured = true;
+            int ikSolvedFrames = 0, ikReachingFrames = 0, ikPoleFallbackFrames = 0, ikScoredFrames = 0;
+            float peakPinWeight = 0f, minAchievedU = float.MaxValue, maxAchievedU = float.MinValue;
             if (castaway != null && animator != null)
             {
                 Transform hips = FindBone(animator.transform, "mixamorig:Hips");
@@ -255,6 +261,14 @@ namespace FarHorizon
                     Transform rArm = FindBone(animator.transform, "mixamorig:RightArm");
                     Transform lHand = FindBone(animator.transform, "mixamorig:LeftHand");
                     Transform rHand = FindBone(animator.transform, "mixamorig:RightHand");
+                    // 86cay4282 round 4 — the LEFT-ARM HAFT PIN is what this round ships, so the gate must be able to
+                    // say whether it EXISTS and ENGAGED in the shipped exe, not just whether the number looks good.
+                    var leftIk = Object.FindAnyObjectByType<CastawayLeftArmHaftIk>(FindObjectsInactive.Include);
+                    if (leftIk == null)
+                        Debug.LogWarning("[swing-twohand] no CastawayLeftArmHaftIk in the shipped scene — the LEFT-HAND " +
+                                         "PIN this round delivers is ABSENT from this build. Every palm figure below " +
+                                         "would then be the clip's own unpinned hand; do NOT read a PASS as proof the " +
+                                         "left hand was moved.");
                     // Resolve the HERO tool rig BY NAME, not by FindAnyObjectByType: the latter returns an
                     // arbitrary instance if the scene ever carries a second HeldToolRig, and measuring a tool that
                     // is not the one in the hand would produce plausible-looking nonsense.
@@ -311,12 +325,24 @@ namespace FarHorizon
                         {
                             if (heldRig.TryGetHaftSegment(out Vector3 gripW, out Vector3 headW))
                             {
-                                var read = TwoHandGripRead.Measure(lArm.position, rArm.position,
-                                                                   lHand.position, rHand.position, gripW, headW);
+                                var read = MeasureWithPalms(leftIk, lArm, rArm, lHand, rHand, gripW, headW);
                                 float w = heldRig.MineSeatWeight;
+                                if (leftIk != null)
+                                {
+                                    ikSolvedFrames += leftIk.LastSolved ? 1 : 0;
+                                    ikReachingFrames += leftIk.SpanEmpty ? 1 : 0;
+                                    ikPoleFallbackFrames += leftIk.PoleFromFallback ? 1 : 0;
+                                    peakPinWeight = Mathf.Max(peakPinWeight, leftIk.PinWeight);
+                                    if (!float.IsNaN(leftIk.AchievedU))
+                                    {
+                                        minAchievedU = Mathf.Min(minAchievedU, leftIk.AchievedU);
+                                        maxAchievedU = Mathf.Max(maxAchievedU, leftIk.AchievedU);
+                                    }
+                                }
                                 peakSeatWeight = Mathf.Max(peakSeatWeight, w);
                                 if (read.valid)
                                 {
+                                    ikScoredFrames++;
                                     minHandSep = Mathf.Min(minHandSep, read.handSepSW);
                                     // JUDGE ONLY FULLY-ENGAGED FRAMES. The gate is transition-PAIRED, so it goes
                                     // true on the FIRST frame of the AnyState->AttackPickaxe crossfade — where the
@@ -330,6 +356,13 @@ namespace FarHorizon
                                     else
                                     {
                                         worstRightHaft = Mathf.Max(worstRightHaft, read.rightHaftSW);
+                                        // 86cay4282 ROUND 4 — the PALM figure is the pass criterion now, so it is the
+                                        // one tracked to a worst frame. The wrist figure stays tracked below purely so
+                                        // this round's numbers are comparable with rounds 2-3, which were written in it.
+                                        worstLeftPalm = Mathf.Max(worstLeftPalm, read.leftPalmHaftSW);
+                                        anyPalmMeasured |= read.palmMeasured;
+                                        allPalmMeasured &= read.palmMeasured;
+                                        swAtWorst = read.shoulderWidth;
                                         // 86cay4282 ROUND 3 — WHERE ALONG THE HAFT each hand sits, tracked over the
                                         // whole engaged window. ⚠ REPORT ONLY: deliberately NOT folded into gripOk this
                                         // round, at the Sponsor's explicit call — the right pass window depends on which
@@ -396,17 +429,49 @@ namespace FarHorizon
                         // The gate must have ENGAGED at all — a seat delta that never fires would otherwise pass
                         // silently while the defect ships (the "wired but conditionally inert" family,
                         // procedural-animation-verbs.md §Debug-instrument caveat).
+                        // ===== 86cay4282 ROUND 4 — THE PALM CRITERION IS THE GATE =====
+                        // The Sponsor's soak of round 3 found what round 3's own green gate could not see: 0.80 SW is
+                        // 36.6 cm, so a left hand a quarter of a metre off the shaft PASSED. The left cap is now the
+                        // mesh-derived TOUCHING bound (hand radius + haft radius, 13.4 cm) measured against the PALM
+                        // CENTRE — because the palm, not the wrist 5.6 cm behind it, is what closes around a haft.
+                        // The RIGHT hand's wrist criterion and its 0.30 SW cap are UNCHANGED (out of round-4 scope).
                         bool engaged = peakSeatWeight > 0.5f;
-                        bool leftOn = worstLeftHaft >= 0f && worstLeftHaft <= TwoHandGripRead.LeftHaftPassSW;
+                        bool pinEngaged = leftIk != null && peakPinWeight > 0.5f;
+                        // FAIL CLOSED on an unmeasured palm: scoring a wrist figure against a palm cap is a different,
+                        // easier question, and substituting it silently is how a cap loses its meaning.
+                        bool palmOk = anyPalmMeasured && allPalmMeasured;
+                        bool leftOn = palmOk && worstLeftPalm >= 0f && worstLeftPalm <= TwoHandGripRead.LeftHaftPassSW;
                         bool rightOn = worstRightHaft >= 0f && worstRightHaft <= TwoHandGripRead.RightHaftPassSW;
-                        gripOk = engaged && leftOn && rightOn;
+                        gripOk = engaged && pinEngaged && leftOn && rightOn;
+                        Debug.Log($"[swing-twohand] LEFT-ARM PIN: present={leftIk != null} peak weight " +
+                                  $"{peakPinWeight:F2} solved {ikSolvedFrames}/{ikScoredFrames} frames, " +
+                                  $"REACHING (whole haft past the arm) on {ikReachingFrames}, pole-fallback on " +
+                                  $"{ikPoleFallbackFrames}; achieved u " +
+                                  $"{(minAchievedU == float.MaxValue ? -9f : minAchievedU):F2}.." +
+                                  $"{(maxAchievedU == float.MinValue ? -9f : maxAchievedU):F2} " +
+                                  $"(requested {(leftIk != null ? leftIk.pinU : -9f):F2}, shell " +
+                                  $"{(leftIk != null ? leftIk.shellFraction : -9f):F2}). A high REACHING count is " +
+                                  "EXPECTED and measured (80/166 in the editor sweep): the seat parks the haft up to " +
+                                  "63.4 cm from a 54.0 cm arm, so on those frames the pin aims at the haft's closest " +
+                                  "point instead of handing the frame back to the clip's 20-28 cm gap.");
                         Debug.Log($"[swing-twohand] engaged={engaged} (peak seat weight {peakSeatWeight:F2} > 0.50) " +
-                                  $"leftOnHaft={leftOn} ({worstLeftHaft:F3} <= {TwoHandGripRead.LeftHaftPassSW:F2} SW) " +
-                                  $"rightOnHaft={rightOn} ({worstRightHaft:F3} <= {TwoHandGripRead.RightHaftPassSW:F2} " +
-                                  $"SW) => gripOk={gripOk}. A FALSE 'engaged' means the AttackPickaxe gate never " +
-                                  "fired in the shipped exe; a false 'leftOnHaft' means the seat delta is reverted, " +
-                                  "inverted or too small (pre-fix measured 1.476 SW); a false 'rightOnHaft' means " +
-                                  "the delta pulled the haft out of the hand it is actually seated in.");
+                                  $"pinEngaged={pinEngaged} (peak pin weight {peakPinWeight:F2} > 0.50) " +
+                                  $"palmMeasured={palmOk} " +
+                                  $"leftPalmOnHaft={leftOn} ({worstLeftPalm:F3} SW = " +
+                                  $"{worstLeftPalm * swAtWorst * 100f:F1} cm <= {TwoHandGripRead.LeftHaftPassSW:F3} SW " +
+                                  $"= {TwoHandGripRead.LeftHaftPassSW * swAtWorst * 100f:F1} cm, the mesh-measured " +
+                                  $"touch bound) rightWristOnHaft={rightOn} ({worstRightHaft:F3} <= " +
+                                  $"{TwoHandGripRead.RightHaftPassSW:F2} SW) => gripOk={gripOk}. " +
+                                  "A FALSE 'engaged' means the AttackPickaxe seat gate never fired; a FALSE " +
+                                  "'pinEngaged' means the left-arm IK never engaged (absent, unwired chain, or the " +
+                                  "gate missed) and the left hand shipped unpinned; a FALSE 'palmMeasured' means the " +
+                                  "palm anchor was unresolvable, which fails closed rather than scoring the wrist " +
+                                  "against a palm cap; a FALSE 'leftPalmOnHaft' means the palm is genuinely NOT " +
+                                  "touching (round 3 measured 0.615 SW = 28.2 cm here); a FALSE 'rightWristOnHaft' " +
+                                  "means the seat pulled the haft out of the hand it is actually seated in.");
+                        Debug.Log($"[swing-twohand] WRIST figures, for continuity with rounds 2-3 (NOT the criterion): " +
+                                  $"worst left wrist {worstLeftHaft:F3} SW = {worstLeftHaft * swAtWorst * 100f:F1} cm " +
+                                  $"(round 3 shipped 0.615 SW = 28.2 cm). 1 SW = {swAtWorst:F4} m.");
 
                         // ===== F9 MINE-SEAT PANEL PASS (86cay4282 round 3) =====
                         // WHY A GATE FOR A DEBUG PANEL. Everything this round delivers is an INSTRUMENT the Sponsor
@@ -417,7 +482,7 @@ namespace FarHorizon
                         // discovering the tool was the broken thing. So the shipped exe now proves, before he is asked
                         // to dial anything: the panel's rows POPULATE with real numbers, and the along-haft dial
                         // genuinely MOVES the along-haft read.
-                        yield return MineSeatPanelPass(dir, castaway, heldRig, lArm, rArm, lHand, rHand);
+                        yield return MineSeatPanelPass(dir, castaway, heldRig, leftIk, lArm, rArm, lHand, rHand);
                     }
                 }
             }
@@ -437,7 +502,14 @@ namespace FarHorizon
                       $"leftU={(minLeftU == float.MaxValue ? -9f : minLeftU):F2}..{(maxLeftU == float.MinValue ? -9f : maxLeftU):F2} " +
                       $"rightU={(minRightU == float.MaxValue ? -9f : minRightU):F2}..{(maxRightU == float.MinValue ? -9f : maxRightU):F2} " +
                       $"(u REPORT-ONLY, not gated) " +
-                      $"peakSeatWeight={peakSeatWeight:F2} gripOk={gripOk} => PASS={pass}");
+                      $"peakSeatWeight={peakSeatWeight:F2} " +
+                      // 86cay4282 round 4 — the PALM figure IS the criterion now, so it rides the one-line verdict with
+                      // its centimetre conversion; the wrist figure above stays only for continuity with rounds 2-3.
+                      $"worstLeftPALM={worstLeftPalm:F3}SW={worstLeftPalm * swAtWorst * 100f:F1}cm " +
+                      $"(cap {TwoHandGripRead.LeftHaftPassSW:F3}SW=" +
+                      $"{TwoHandGripRead.LeftHaftPassSW * swAtWorst * 100f:F1}cm) " +
+                      $"palmMeasured={anyPalmMeasured && allPalmMeasured} pinPeakWeight={peakPinWeight:F2} " +
+                      $"pinReaching={ikReachingFrames}/{ikScoredFrames} gripOk={gripOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
         }
 
@@ -462,6 +534,7 @@ namespace FarHorizon
         /// mutates ship state would poison every figure logged after it.
         /// </summary>
         private IEnumerator MineSeatPanelPass(string dir, CastawayCharacter castaway, HeldToolRig heldRig,
+                                              CastawayLeftArmHaftIk leftIk,
                                               Transform lArm, Transform rArm, Transform lHand, Transform rHand)
         {
             var tool = Object.FindAnyObjectByType<AxeNudgeTool>(FindObjectsInactive.Include);
@@ -475,6 +548,7 @@ namespace FarHorizon
 
             bool prevOverlay = DebugOverlays.Visible;
             Vector3 prevDelta = heldRig.mineSeatOffsetDelta;
+            float prevPinU = leftIk != null ? leftIk.pinU : float.NaN;
             DebugOverlays.Show();                                       // the F10 master reveal
             tool.Activate();                                            // the F9 sub-toggle
             tool.SelectTargetForVerify(AxeNudgeTool.MineSeatTargetIndex);
@@ -494,19 +568,35 @@ namespace FarHorizon
             ShotTo(Path.Combine(dir, "swing_pickaxe_panel.png"));
             yield return null;
 
-            // …and now prove the dial MOVES the number, on the live rig, through the production seam.
+            // …and now prove the dial MOVES the number, on the live rig, through the production seam. ROUND 4: the dial
+            // moves the LEFT-HAND PIN, so the reads are the pin's own requested/achieved u AND the live wrist u.
             float uBefore = ReadLeftU(heldRig, lArm, rArm, lHand, rHand);
-            const float slide = 0.10f;
+            float pinBefore = leftIk != null ? leftIk.pinU : float.NaN;
+            float achBefore = leftIk != null ? leftIk.AchievedU : float.NaN;
+            const float slide = -0.10f;   // DOWN the haft: the measured reachable window's low end (u 0.14) sits BELOW
+                                          // the shipped pin (0.35), so a downward slide is the direction guaranteed to
+                                          // be available. Sliding UP can be legitimately refused by the reach clamp,
+                                          // which would read as a broken dial when it is the arm's real limit.
             bool slid = tool.ApplyHaftSlide(slide);
-            yield return null;                                          // let HeldToolRig.LateUpdate reseat the tool
+            yield return null;                                          // let order 100 then 110 re-run
+            yield return null;
             float uAfter = ReadLeftU(heldRig, lArm, rArm, lHand, rHand);
-            bool moved = slid && !float.IsNaN(uBefore) && !float.IsNaN(uAfter) && uAfter > uBefore + 0.02f;
-            Debug.Log($"[swing-panel] ALONG-HAFT DIAL: +{slide:F2}m accepted={slid} => left-hand u {uBefore:F3} -> " +
-                      $"{uAfter:F3} (moved UP the haft = {moved}). This is the [R] key's own code path; a FALSE here " +
-                      "means the dial the Sponsor is being handed does not move the grip, which is the 'wired but " +
-                      "silently inert' class this tool has been bitten by three times.");
+            float pinAfter = leftIk != null ? leftIk.pinU : float.NaN;
+            float achAfter = leftIk != null ? leftIk.AchievedU : float.NaN;
+            bool pinMoved = slid && !float.IsNaN(pinBefore) && !float.IsNaN(pinAfter) &&
+                            pinAfter < pinBefore - 0.01f;
+            bool readMoved = (!float.IsNaN(achBefore) && !float.IsNaN(achAfter) && Mathf.Abs(achAfter - achBefore) > 0.01f)
+                             || (!float.IsNaN(uBefore) && !float.IsNaN(uAfter) && Mathf.Abs(uAfter - uBefore) > 0.01f);
+            Debug.Log($"[swing-panel] LEFT-HAND PIN DIAL: {slide:F2}m accepted={slid} => requested u " +
+                      $"{pinBefore:F3} -> {pinAfter:F3} (moved={pinMoved}); ACHIEVED u {achBefore:F3} -> {achAfter:F3}; " +
+                      $"live wrist u {uBefore:F3} -> {uAfter:F3} (a live read moved = {readMoved}). This is the [R]/[V] " +
+                      "keys' own code path. A FALSE 'moved' means the dial the Sponsor is handed does not move the " +
+                      "grip — the 'wired but silently inert' class this tool has been bitten by three times. Note the " +
+                      "ACHIEVED value can legitimately lag the request when the reach clamp is binding; that is why " +
+                      "BOTH are printed rather than one.");
 
             heldRig.mineSeatOffsetDelta = prevDelta;                    // restore — never ship a mutated seat
+            if (leftIk != null && !float.IsNaN(prevPinU)) leftIk.pinU = prevPinU;   // …nor a mutated pin
             tool.Deactivate();
             DebugOverlays.Visible = prevOverlay;
             yield return null;
@@ -519,6 +609,27 @@ namespace FarHorizon
             if (!rig.TryGetHaftSegment(out Vector3 g, out Vector3 h)) return float.NaN;
             var read = TwoHandGripRead.Measure(lArm.position, rArm.position, lHand.position, rHand.position, g, h);
             return read.valid ? read.leftU : float.NaN;
+        }
+
+        /// <summary>
+        /// 86cay4282 round 4 — one grip read WITH the real palm centres when the shipped rig can supply them. The left
+        /// pass criterion is palm-anchored, so a wrist-only read must be flagged as such (<c>palmMeasured=false</c>)
+        /// rather than quietly scored against a palm cap. The RIGHT palm mirrors the left's definition (midpoint of the
+        /// wrist bone and its index/middle knuckle) and is reported for symmetry only — the right criterion is still the
+        /// wrist figure, unchanged.
+        /// </summary>
+        private static TwoHandGripRead.Read MeasureWithPalms(CastawayLeftArmHaftIk ik,
+            Transform lArm, Transform rArm, Transform lHand, Transform rHand, Vector3 gripW, Vector3 headW)
+        {
+            bool have = ik != null && ik.TryGetPalmWorld(out Vector3 lPalm0);
+            Vector3 lPalm = lHand.position, rPalm = rHand.position;
+            if (have) ik.TryGetPalmWorld(out lPalm);
+            Transform rKnuckle = FindBone(rHand, "mixamorig:RightHandMiddle1")
+                                 ?? FindBone(rHand, "mixamorig:RightHandIndex1");
+            if (rKnuckle != null) rPalm = (rHand.position + rKnuckle.position) * 0.5f;
+            else have = false;
+            return TwoHandGripRead.Measure(lArm.position, rArm.position, lHand.position, rHand.position,
+                                           gripW, headW, lPalm, rPalm, have);
         }
 
         /// <summary>

@@ -64,10 +64,18 @@ namespace FarHorizon.PlayTests
         private const float AvatarScale = 1.8f;
         private const float Dt = 1f / 60f;
 
+        // 86cay4282 round 4 — the LEFT-ARM PIN's own mirrored ship constants + chain. Pinned against their real source
+        // by LeftArmHaftPinTests.TheRuntimeFieldDefaults_MatchTheShipSourceConstants, same discipline as the seat's.
+        private const float PinU = 0.35f;                  // MovementCameraScene.LeftArmHaftPinU
+        private const float PinUCeiling = 0.80f;           // MovementCameraScene.LeftArmHaftPinUCeiling
+        private const float ShellFraction = 0.98f;         // MovementCameraScene.LeftArmHaftShellFraction
+
         private GameObject _player, _tool;
         private Animator _animator;
         private HeldToolRig _rig;
         private Transform _lArm, _rArm, _lHand, _rHand;
+        private Transform _lFore, _lKnuckle;
+        private CastawayLeftArmHaftIk _leftIk;
 
         [SetUp]
         public void SetUp()
@@ -114,6 +122,28 @@ namespace FarHorizon.PlayTests
             _rig.mineSeatOffsetDelta = MineSeatOffsetDelta;
             _rig.mineSeatEulerDelta = MineSeatEulerDelta;
             _rig.character = null;   // no CastawayCharacter in this bare rig; the gate is driven explicitly below
+
+            // 86cay4282 round 4 — the LEFT-ARM HAFT PIN, wired exactly as MovementCameraScene.AddLeftArmHaftIk does.
+            // ⚠ THE KNUCKLE IS RESOLVED FROM A CANDIDATE LIST, not from 'LeftHandMiddle1': the v4 hero is a FIST-HAND
+            // variant whose rig carries only index + thumb finger bones, so the obvious palm proxy does not exist on it
+            // (measured — AttackClipPoseDiag prints the whole 18-bone hand subtree). Hard-coding Middle1 here would
+            // leave _leftIk permanently inert and this fixture would then "prove" the pin works while measuring the
+            // clip's own unpinned hand.
+            _lFore = Find(model, "mixamorig:LeftForeArm");
+            _lKnuckle = Find(model, "mixamorig:LeftHandMiddle1") ?? Find(model, "mixamorig:LeftHandIndex1");
+            Assert.IsNotNull(_lFore, "the live rig must carry mixamorig:LeftForeArm — the IK's mid joint");
+            Assert.IsNotNull(_lKnuckle, "the live rig must carry a palm-proxy knuckle bone, or there is no palm centre");
+            _leftIk = _player.AddComponent<CastawayLeftArmHaftIk>();
+            _leftIk.leftUpperArm = _lArm;
+            _leftIk.leftForeArm = _lFore;
+            _leftIk.leftHand = _lHand;
+            _leftIk.leftPalmKnuckle = _lKnuckle;
+            _leftIk.heldRig = _rig;
+            _leftIk.character = null;      // gate driven explicitly, same as the seat
+            _leftIk.modelFrame = model.transform;
+            _leftIk.pinU = PinU;
+            _leftIk.pinUCeiling = PinUCeiling;
+            _leftIk.shellFraction = ShellFraction;
 
             // GEOMETRY SANITY — diagnose-via-trace, never assume. The Mixamo/Hyper3D FBX bakes a 100x cm->m scale on
             // the MODEL node (unity-conventions.md §FBX/rigs Bug B). If that survives into this rig the SKELETON is
@@ -190,6 +220,10 @@ namespace FarHorizon.PlayTests
             _animator.SetTrigger(CastawayCharacter.ChopParam);
         }
 
+        /// <summary>The PALM CENTRE, defined exactly as the production driver defines it (midpoint of the wrist bone and
+        /// the resolved knuckle) — read from the LIVE bones, so this fixture cannot agree with a solver that is wrong.</summary>
+        private Vector3 PalmWorld() => (_lHand.position + _lKnuckle.position) * 0.5f;
+
         private bool MineOwnsPose()
         {
             bool inTr = _animator.IsInTransition(0);
@@ -217,6 +251,118 @@ namespace FarHorizon.PlayTests
                                            grip, head);
         }
 #endif
+
+        /// <summary>
+        /// 86cay4282 ROUND 4 — THE LOAD-BEARING TEST OF THIS ROUND, on the live posed skeleton.
+        ///
+        /// The Sponsor, soaking round 3, verbatim: <c>"R/V only manipulates the right hand, which is great, but what
+        /// about the left hand? its not even touching the shaft"</c>. The seat moves the TOOL; only a per-frame solve
+        /// moves the LEFT HAND. So the assert has two halves and the CONTROL half comes first, because a fix test whose
+        /// control is not established proves nothing:
+        ///
+        ///   CONTROL — with the pin OFF (weight 0, i.e. the round-3 build) the palm must be measurably OFF the haft,
+        ///             past the mesh-derived touching bound. If this ever stops holding, the premise died and the whole
+        ///             round should be re-derived rather than the test relaxed.
+        ///   FIX     — with the pin ON, at EVERY fully-engaged frame, the palm must be INSIDE that bound.
+        ///
+        /// Both are measured on the SAME animation frames through PRODUCTION code (<see cref="HeldToolRig.ApplySeat"/>
+        /// then <see cref="CastawayLeftArmHaftIk.ApplyPin"/>, in the shipped 100→110 order), and the palm is read off the
+        /// LIVE bones afterwards rather than from the solver's own prediction — round 2's lesson was that two
+        /// instruments sharing one model agree with each other and disagree with the build.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LeftArmPin_PutsThePALMOnTheHaft_WhereTheSeatAloneCannot()
+        {
+#if !UNITY_EDITOR
+            Assert.Ignore("editor-only (loads the rig / controller / weapon FBX via AssetDatabase)");
+            yield break;
+#else
+            yield return null;
+            TriggerMineSwing();
+
+            float worstPalmOff = -1f, worstPalmOn = -1f, worstWristOn = -1f;
+            float minElbowOn = 999f, maxElbowOn = -999f;
+            int frames = 0, reaching = 0, solved = 0, poleFallback = 0;
+            float weight = 0f, sw = 1f;
+
+            for (int f = 0; f < 200; f++)
+            {
+                _animator.Update(Dt);
+                bool owns = MineOwnsPose();
+                weight = CastawayArmPose.NextMineDeGripWeight(weight, owns, 12f, Dt);
+                if (!owns) continue;
+                ApplyPoseChain();                      // orders 50 + 65
+                _rig.ApplySeat(Dt);                    // order 100 — the haft is only placed HERE
+                if (!_rig.TryGetHaftSegment(out Vector3 grip, out Vector3 head)) continue;
+                sw = (_rArm.position - _lArm.position).magnitude;
+                if (sw < 1e-5f) continue;
+                if (weight < 0.95f) continue;          // still handing over — not yet the judged pose
+
+                // CONTROL: the palm BEFORE the pin runs (this is exactly the round-3 build's geometry).
+                float palmOff = TwoHandGripRead.DistanceToSegment(PalmWorld(), grip, head, out _) / sw;
+
+                // FIX — run the REAL driver. Two steps, in this order, both meaningful:
+                //   (a) with the gate CLOSED (no character, force off) ApplyPin must write NOTHING. That is the
+                //       fail-closed property asserted inline on every frame rather than once in a corner case.
+                //   (b) then open the gate via debugForceEngaged (the CastawayFingerCurl.alwaysCurl idiom) and tick the
+                //       PRODUCTION ApplyPin until the production ease saturates. Nothing about the strategy or the solve
+                //       is substituted — only the animation-state gate, which is what a bare rig cannot supply.
+                _leftIk.debugForceEngaged = false;
+                _leftIk.ApplyPin(Dt);
+                Assert.AreEqual(0f, _leftIk.PinWeight, 1e-6f,
+                    "with no character wired and no force, the pin gate must stay CLOSED — a missing wire can never " +
+                    "move the arm in the wrong state.");
+                Assert.IsFalse(_leftIk.LastSolved, "…and it must not have written a bone");
+
+                _leftIk.debugForceEngaged = true;
+                for (int w = 0; w < 60; w++) _leftIk.ApplyPin(Dt);
+                Assert.Greater(_leftIk.PinWeight, 0.99f,
+                    "the production ease must saturate inside the swing (12/s ~= 0.25 s to 95%)");
+
+                float palmOn = TwoHandGripRead.DistanceToSegment(PalmWorld(), grip, head, out _) / sw;
+                float wristOn = TwoHandGripRead.DistanceToSegment(_lHand.position, grip, head, out _) / sw;
+                float elbow = Vector3.Angle(_lArm.position - _lFore.position, PalmWorld() - _lFore.position);
+
+                frames++;
+                worstPalmOff = Mathf.Max(worstPalmOff, palmOff);
+                worstPalmOn = Mathf.Max(worstPalmOn, palmOn);
+                worstWristOn = Mathf.Max(worstWristOn, wristOn);
+                minElbowOn = Mathf.Min(minElbowOn, elbow);
+                maxElbowOn = Mathf.Max(maxElbowOn, elbow);
+                if (_leftIk.LastSolved) solved++;
+                if (_leftIk.SpanEmpty) reaching++;
+                if (_leftIk.PoleFromFallback) poleFallback++;
+            }
+
+            Debug.Log($"[left-pin] engaged frames {frames}: worst PALM-to-haft {worstPalmOff:F3} -> {worstPalmOn:F3} SW " +
+                      $"({worstPalmOff * sw * 100f:F1} -> {worstPalmOn * sw * 100f:F1} cm), cap " +
+                      $"{TwoHandGripRead.LeftHaftPassSW:F3} SW ({TwoHandGripRead.LeftHaftPassSW * sw * 100f:F1} cm); " +
+                      $"worst left WRIST after the pin {worstWristOn:F3} SW; elbow {minElbowOn:F0}..{maxElbowOn:F0}deg; " +
+                      $"solved {solved}, REACHING {reaching}, pole-fallback {poleFallback}; 1 SW = {sw:F4} m");
+
+            Assert.Greater(frames, 20, "need a meaningful sample of FULLY-ENGAGED swing frames (got " + frames + ")");
+            Assert.Greater(solved, frames / 2, "the pin must actually solve on the majority of judged frames");
+
+            // CONTROL — the defect must be present without the pin, or this test proves nothing about a fix.
+            Assert.Greater(worstPalmOff, TwoHandGripRead.LeftHaftPassSW,
+                $"CONTROL: without the pin the PALM must be measurably OFF the haft (worst {worstPalmOff:F3} SW = " +
+                $"{worstPalmOff * sw * 100f:F1} cm, past the {TwoHandGripRead.LeftHaftPassSW:F3} SW touching bound). " +
+                "That is the Sponsor's reported defect — 'its not even touching the shaft'.");
+
+            // FIX — every judged frame must be inside the touching bound.
+            Assert.LessOrEqual(worstPalmOn, TwoHandGripRead.LeftHaftPassSW,
+                $"the PALM must be TOUCHING the haft at every judged frame (worst {worstPalmOn:F3} SW = " +
+                $"{worstPalmOn * sw * 100f:F1} cm, cap {TwoHandGripRead.LeftHaftPassSW:F3} SW = " +
+                $"{TwoHandGripRead.LeftHaftPassSW * sw * 100f:F1} cm). This is the round-4 anchor: one haft passing " +
+                "through both hands means the shaft is inside the closed hand, not a quarter of a metre away.");
+
+            // …and it must never have done so by locking the arm straight — the brief's named ugly failure mode.
+            Assert.Less(maxElbowOn, 175f,
+                $"the left elbow reached {maxElbowOn:F0}deg. A straight arm (180) reads as locked/dislocated; the reach " +
+                "clamp exists to keep it strictly bent even when the haft is beyond reach.");
+            yield return null;
+#endif
+        }
 
         // THE BUG-CLASS ASSERT: on the live posed skeleton the shipped seat delta must bring the LEFT hand ONTO the
         // haft the clip implies, at EVERY frame of the swing — and must not lift the RIGHT hand off it while doing so.
@@ -275,10 +421,23 @@ namespace FarHorizon.PlayTests
                 $"CONTROL: with a zero delta the left hand must be OFF the haft (worst {worstLeftOff:F3} SW) — that " +
                 "is the Sponsor's reported defect. If this fails, the premise this fix rests on no longer holds.");
 
-            // 2. The fix must land BOTH hands on the haft, judged at the WORST frame of the swing.
-            Assert.LessOrEqual(worstLeftOn, TwoHandGripRead.LeftHaftPassSW,
-                $"the LEFT hand must sit on the haft at every frame (worst {worstLeftOn:F3} SW, cap " +
-                $"{TwoHandGripRead.LeftHaftPassSW:F2}) — a two-handed grip is one haft through BOTH hands.");
+            // 2. The SEAT's own contribution: it must move the left hand MATERIALLY closer to the haft.
+            //
+            // ⚠ ROUND-4 CORRECTION TO THIS ASSERT. Round 3 asserted `worstLeftOn <= LeftHaftPassSW` — i.e. that the seat
+            // ALONE landed the left hand inside the pass cap. That was only ever true because the cap (0.80 SW = 36.6 cm)
+            // had been calibrated from what a constant seat could achieve. The Sponsor's soak then found the obvious
+            // thing: 36.6 cm is not touching. The cap is now the mesh-derived TOUCHING bound measured against the PALM
+            // (0.293 SW = 13.4 cm), and the seat alone does NOT reach it — the per-frame left-arm IK is what does, which
+            // is asserted by LeftArmPin_PutsThePALMOnTheHaft_WhereTheSeatAloneCannot below. Re-pointing this assert at
+            // the seat's OWN measured achievement keeps its regression value (a reverted/inverted delta still reds)
+            // without re-stating the false claim that the seat closes the grip.
+            const float SeatAloneWorstLeftWristSW = 0.615f;   // AttackClipPoseDiag MINE-SEAT FIT, live re-measure
+            Assert.LessOrEqual(worstLeftOn, SeatAloneWorstLeftWristSW * 1.15f,
+                $"the SEAT must still deliver its own measured improvement (worst left wrist {worstLeftOn:F3} SW vs the " +
+                $"measured {SeatAloneWorstLeftWristSW:F3}); a reverted, inverted or ungated delta blows past this.");
+            Assert.Less(worstLeftOn, worstLeftOff * 0.6f,
+                $"…and it must be a LARGE improvement over the zero-delta control ({worstLeftOff:F3} -> " +
+                $"{worstLeftOn:F3} SW), not a rounding difference.");
             Assert.LessOrEqual(worstRightOn, TwoHandGripRead.RightHaftPassSW,
                 $"the RIGHT hand must STAY on the haft (worst {worstRightOn:F3} SW, cap " +
                 $"{TwoHandGripRead.RightHaftPassSW:F2}) — the tool is physically seated in that hand, so solving the " +

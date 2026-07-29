@@ -354,6 +354,48 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 HeldToolMineSeatOffsetDelta = new Vector3(-0.2491f, -0.3928f, -0.3109f);
         public static readonly Vector3 HeldToolMineSeatEulerDelta = new Vector3(-24.7f, 70.0f, 23.7f);
 
+        // ===== LEFT-ARM HAFT PIN (86cay4282 ROUND 4 — CastawayLeftArmHaftIk) =====
+        // The Sponsor, soaking round 3, verbatim: "R/V only manipulates the right hand, which is great, but what about
+        // the left hand? its not even touching the shaft". The seat above moves the TOOL, which is the right hand's
+        // grip; nothing had ever moved the LEFT hand. The two round-3 measurements quoted in the block above settle the
+        // shape of the fix: the haft is long enough for both hands, and no CONSTANT seat can close the gap because the
+        // clip's hand-line direction wanders 21.0deg mean / 36.6deg MAX about its mean. So the left hand gets a
+        // PER-FRAME two-bone IK, running at order 110 — AFTER the seat, because the target is a point ON the haft and
+        // the haft is only placed at order 100.
+        //
+        // EVERY VALUE HERE IS MEASURED (AttackClipPoseDiag `[hand-mesh]` / `[left-ik]` / `[left-span]`, 166 judged
+        // frames of the shipped repaired mine clip against the seat above), and the design the obvious reading would
+        // have produced was REFUTED by those measurements — a fixed pin is out of the arm's 54.0 cm reach on ~64% of
+        // frames at EVERY u, so a blend-out-on-over-reach would have shipped an inert driver. The pin is CLAMPED into
+        // the reachable part of the haft instead; where none is reachable (80/166 frames) it aims at the haft's closest
+        // point rather than handing the frame back to the clip's 20-28 cm gap.
+        //
+        // RESULT at these values: palm-to-haft 2.2 cm mean / 10.7 cm worst, against a mesh-derived 13.4 cm touching
+        // bound (TwoHandGripRead.LeftHaftPassSW) — inside it at EVERY judged frame, versus the round-3 build's 20.4 cm
+        // mean / 28.2 cm worst. The residual is a SEAT-DISTANCE consequence, not slack in the solve: the seat parks the
+        // haft up to 63.4 cm from the left shoulder against a 54.0 cm arm. Bringing the tool ~10 cm closer to the body
+        // would drive it to ~0 — a seat re-fit with a left-arm-reach objective, filed as a follow-up, NOT bundled here.
+        //
+        // PREFERRED pin position along the haft (0 = butt, 1 = head). 0.35 is the middle of the measured reachable
+        // window (u 0.14..0.61 = 12..52 cm up an 85 cm haft) and is the Sponsor's mid-haft choked-up grip — now bounded
+        // by ARM REACH rather than by the clip's hand spacing, which is what re-opens it. He dials it live with [R]/[V]
+        // on the F9 MINE-SEAT target and bakes the value here.
+        public const float LeftArmHaftPinU = 0.35f;
+        // Ceiling from the MESH: above u 0.80 the palm is inside the pick HEAD mass (`[haft-profile]` — bare-stick
+        // radius baseline 0.0526 of the haft length, head geometry starts at u=0.80). Re-measure per weapon class.
+        public const float LeftArmHaftPinUCeiling = 0.80f;
+        // How straight the arm may go when the haft is out of reach — the one knob trading palm proximity against arm
+        // extension. MEASURED trade curve over the 166 judged frames: 0.90 -> palm 4.8 cm mean / 15.0 cm worst, elbow
+        // 36..128deg | 0.94 -> 3.4 / 12.9 cm, elbow 36..140deg | 0.98 -> 2.2 / 10.7 cm, elbow 36..157deg. 0.98 ships
+        // because it is the ONLY value whose worst frame is inside the 13.4 cm touching bound at every frame. 157deg is
+        // extended but NOT locked (the solver hard-caps below 180 by construction). If it reads too straight at the
+        // soak, THIS is the value to lower and the cost is priced above — [Z]/[X] dials it live.
+        public const float LeftArmHaftShellFraction = 0.98f;
+        // Pole FALLBACK direction in the MODEL frame, used only when the clip's own elbow cannot define a bend plane.
+        // MEASURED mean clip elbow direction off the left shoulder (`[left-ik]`): essentially straight DOWN with a
+        // slight outward lean. Measured 0 fallback frames across the whole swing, so this is a guard, not the norm.
+        public static readonly Vector3 LeftArmHaftPoleFallback = new Vector3(0.269f, -0.963f, -0.024f);
+
         // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
         // defect). A per-foot yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4 (0 for
         // v3/v2/old → their feet are byte-unchanged). DEFAULT = the Sponsor's DIALED −15.0, BAKED AS-DIALED: he
@@ -1728,6 +1770,75 @@ namespace FarHorizon.EditorTools
                           (v4 ? " [v4 — Sponsor-ACCEPTED dial-7 left (wrist+thumb) + his dialed right wrist; " +
                                 "right thumb 0 = MEASURED inert, its geometry is skinned to the index chain (round-9)]"
                               : " [non-v4 — 0, hands byte-unchanged]") + ")");
+        }
+
+        // The LEFT-ARM IK chain tokens (86cay4282 round 4). The elbow is "leftforearm" (NOT leftarm, the shoulder).
+        public const string LeftForeArmToken = "leftforearm";
+        // The PALM-proxy knuckle, as a CANDIDATE LIST rather than one name: the v4 hero is a FIST-HAND VARIANT whose
+        // rig carries only index + thumb finger bones (bootstrap logs "3 finger + 3 thumb bones"), so
+        // "lefthandmiddle1" — the obvious palm proxy on a full Mixamo hand — DOES NOT EXIST on it. Measured from the
+        // live rig (AttackClipPoseDiag prints the whole hand subtree): the 18 hand bones are LeftHand + Index1..4 +
+        // Thumb1..4 and their right-side mirrors, so "lefthandindex1" is what resolves. Ordered best-proxy-first; a
+        // future full-hand rig would pick Middle1 automatically without an edit here.
+        public static readonly string[] LeftPalmKnuckleTokens =
+        {
+            "lefthandmiddle1", "lefthandindex1", "lefthandring1", "lefthandpinky1",
+        };
+
+        /// <summary>
+        /// Wire the LEFT-ARM HAFT PIN (86cay4282 round 4 — the Sponsor: "what about the left hand? its not even
+        /// touching the shaft"). Resolves the shoulder / elbow / wrist / palm-knuckle bones from the SMR bone array (the
+        /// real skeleton) plus the held-tool rig, the character (the AttackPickaxe gate) and the FACING-CARRYING model
+        /// transform, and serializes the component + every ref into Boot.unity — the component-not-serialized trap
+        /// (unity-conventions.md §Editor-vs-runtime); the runtime Awake fallbacks are a safety net, not the ship path.
+        ///
+        /// State-gated to the pickaxe mine swing, so EVERY other state — carry, idle, walk, run, jump and the other four
+        /// swings — is byte-identical: at weight 0 the driver writes no bone at all.
+        /// </summary>
+        private static void AddLeftArmHaftIk(CastawayCharacter castaway, HeldToolRig heldRig)
+        {
+            var ik = castaway.GetComponent<CastawayLeftArmHaftIk>();
+            if (ik == null) ik = castaway.gameObject.AddComponent<CastawayLeftArmHaftIk>();
+            ik.leftUpperArm = FindBoneByExactToken(castaway.transform, LeftUpperArmToken);
+            ik.leftForeArm = FindBoneByExactToken(castaway.transform, LeftForeArmToken);
+            ik.leftHand = FindBoneByExactToken(castaway.transform, LeftHandToken);
+            ik.leftPalmKnuckle = null;
+            string knuckleTok = "<none>";
+            foreach (var tok in LeftPalmKnuckleTokens)
+            {
+                var b = FindBoneByExactToken(castaway.transform, tok);
+                if (b != null) { ik.leftPalmKnuckle = b; knuckleTok = tok; break; }
+            }
+            ik.heldRig = heldRig;
+            ik.character = castaway;
+            ik.modelFrame = castaway.ModelTransform != null ? castaway.ModelTransform : castaway.transform;
+            ik.pinU = LeftArmHaftPinU;
+            ik.pinUCeiling = LeftArmHaftPinUCeiling;
+            ik.shellFraction = LeftArmHaftShellFraction;
+            ik.poleFallbackLocal = LeftArmHaftPoleFallback;
+
+            // The chain is the WHOLE fix — a missing bone makes it silently inert, which is the "wired but
+            // conditionally inert" class this ticket has already paid for. LogError so the EditMode rebuild test reds.
+            if (ik.leftUpperArm == null || ik.leftForeArm == null || ik.leftHand == null || ik.leftPalmKnuckle == null)
+                Debug.LogError("[MovementCameraScene] could not resolve the LEFT-ARM IK chain for " +
+                               "CastawayLeftArmHaftIk (upper='" + LeftUpperArmToken + "' found=" +
+                               (ik.leftUpperArm != null) + ", fore='" + LeftForeArmToken + "' found=" +
+                               (ik.leftForeArm != null) + ", hand='" + LeftHandToken + "' found=" +
+                               (ik.leftHand != null) + ", palm-knuckle from [" +
+                               string.Join(", ", LeftPalmKnuckleTokens) + "] found=" +
+                               (ik.leftPalmKnuckle != null) + ") — the left hand would NOT be pinned to the haft and " +
+                               "the round-3 defect would ship unchanged.");
+            else if (heldRig == null)
+                Debug.LogError("[MovementCameraScene] CastawayLeftArmHaftIk resolved its bones but has NO HeldToolRig " +
+                               "— there is no haft to pin to, so the pin ships inert.");
+            else
+                Debug.Log("[MovementCameraScene] CastawayLeftArmHaftIk wired (chain=" + ik.leftUpperArm.name + " -> " +
+                          ik.leftForeArm.name + " -> palm midpoint(" + ik.leftHand.name + ", " +
+                          ik.leftPalmKnuckle.name + " via token '" + knuckleTok + "'), pinU=" +
+                          ik.pinU.ToString("F2") + " ceiling=" + ik.pinUCeiling.ToString("F2") + " shell=" +
+                          ik.shellFraction.ToString("F2") + " pole=" + ik.poleFallbackLocal.ToString("F3") +
+                          ", gate=AttackPickaxe via character='" + castaway.name + "', modelFrame='" +
+                          ik.modelFrame.name + "')");
         }
 
         // Resolve a bone whose colon-stripped lowered name EXACTLY equals the token (excludes fingers/dummy/
@@ -4460,7 +4571,26 @@ namespace FarHorizon.EditorTools
             // Boot.unity under the bone (the editor-vs-runtime serialization trap). HasAxe-gated.
             AttachHeroAxeToHand(player);
 
+            // LEFT-ARM HAFT PIN (86cay4282 round 4 — the Sponsor: "what about the left hand? its not even touching the
+            // shaft"). MUST come after AttachHeroAxeToHand: the pin's target is a point ON the seated haft, so the
+            // HeldToolRig has to exist to be wired (and at runtime it runs at order 110, after that rig's order-100
+            // seat, for the same reason). Resolved by name off the player rather than by FindAnyObjectByType so a scene
+            // carrying a second rig can never wire the pin to a tool that is not in the hand.
+            Transform heroToolT = player.transform.Find(HeroAxeObjectName)
+                                  ?? FindDeep(player.transform, HeroAxeObjectName);
+            var heroRig = heroToolT != null ? heroToolT.GetComponent<HeldToolRig>() : null;
+            AddLeftArmHaftIk(castaway, heroRig);
+
             return player;
+        }
+
+        /// <summary>Depth-first search for a named descendant — the hero tool is parented under the RIGHT-HAND BONE,
+        /// several levels below the player root, so a shallow <c>Transform.Find</c> alone does not reach it.</summary>
+        private static Transform FindDeep(Transform root, string name)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name == name) return t;
+            return null;
         }
 
         // ---- Blob/contact shadow anchors (ticket 86ca8ca1m). FIT to the chibi footprint. Radius in

@@ -72,6 +72,24 @@ namespace FarHorizon.EditorTools
             Transform hips = Get(bones, "Hips"), head = Get(bones, "Head");
             Transform lArm = Get(bones, "LeftArm"), lFore = Get(bones, "LeftForeArm"), lHand = Get(bones, "LeftHand");
             Transform rArm = Get(bones, "RightArm"), rFore = Get(bones, "RightForeArm"), rHand = Get(bones, "RightHand");
+            // 86cay4282 round 4 — the PALM proxy for the left-arm IK: the KNUCKLE the palm centre is measured against.
+            // Resolved from a CANDIDATE LIST, not from one assumed name: the v4 hero is a fist-hand variant whose rig
+            // carries only 3 finger + 3 thumb bones (bootstrap: "fist-hand-variant index+thumb only"), so
+            // `LeftHandMiddle1` — the obvious palm proxy on a full Mixamo hand — does NOT exist here. Every candidate
+            // tried and the winner are both PRINTED, so the palm anchor is evidenced rather than asserted.
+            Transform lKnuckle = null; string lKnuckleName = "<none>";
+            foreach (string cand in new[] { "LeftHandMiddle1", "LeftHandIndex1", "LeftHandRing1", "LeftHandPinky1" })
+            {
+                lKnuckle = Get(bones, cand);
+                if (lKnuckle != null) { lKnuckleName = cand; break; }
+            }
+            var handBones = new List<string>();
+            foreach (var k in bones.Keys) if (k.Contains("Hand")) handBones.Add(k);
+            handBones.Sort();
+            sb.AppendLine("[clip-diag] HAND-SUBTREE bones on this rig (" + handBones.Count + "): " +
+                          string.Join(", ", handBones));
+            sb.AppendLine("[clip-diag] palm-proxy knuckle resolved = " + lKnuckleName +
+                          " (86cay4282 r4 — the palm centre is midpoint(wrist, this bone))");
             if (hips == null || head == null || lArm == null || lFore == null || lHand == null ||
                 rArm == null || rFore == null || rHand == null)
             {
@@ -136,7 +154,7 @@ namespace FarHorizon.EditorTools
             AnimationClip shippedPickaxe = repaired ?? targets.Find(t => t.label == "pickaxe").clip;
             AnimationClip shippedAxe = targets.Find(t => t.label == "axe").clip;
             PropSeatSection(sb, model, hips, head, lArm, rArm, lHand, rHand, rFore,
-                            shippedPickaxe, shippedAxe);
+                            lFore, lKnuckle, shippedPickaxe, shippedAxe);
 
             Object.DestroyImmediate(playerRoot);
             sb.AppendLine("[clip-diag] ===== END =====");
@@ -516,6 +534,7 @@ namespace FarHorizon.EditorTools
         private static void PropSeatSection(StringBuilder sb, GameObject model,
             Transform hips, Transform head, Transform lArm, Transform rArm,
             Transform lHand, Transform rHand, Transform rFore,
+            Transform lFore, Transform lMid1,
             AnimationClip pickaxeClip, AnimationClip axeClip)
         {
             sb.AppendLine("[prop-diag] ===== PROP-IN-HAND SEAT GEOMETRY (86cay4282) =====");
@@ -613,6 +632,14 @@ namespace FarHorizon.EditorTools
                     // two hand grip"), so the clip is right and the TOOL is in the wrong place. Fit the seat.
                     MineSeatFit(sb, clip, model, hips, head, lArm, rArm, lHand, rHand,
                                 prop, seatOffset, seatEuler, armR, armL, wristR, wristL, bareHaftTopU);
+                    // 86cay4282 ROUND 4 — the Sponsor: "R/V only manipulates the right hand, which is great, but what
+                    // about the left hand? its not even touching the shaft". A CONSTANT seat cannot close it (the
+                    // hand-line direction wanders 21.1deg mean / 36.5deg MAX about its own mean — measured above), so
+                    // the left hand gets a PER-FRAME two-bone IK. Everything the fix needs is measured first: what
+                    // TOUCHING means off the meshes, and how far up the haft the arm can actually reach.
+                    HandTouchGeometry(sb, model, lHand, lMid1, prop, bareHaftTopU);
+                    LeftArmIkSweep(sb, clip, model, hips, head, lArm, lFore, lHand, lMid1, rArm, rHand,
+                                   prop, seatOffset, seatEuler, armR, armL, wristR, wristL, bareHaftTopU);
                 }
 
                 Object.DestroyImmediate(prop.root.gameObject);
@@ -748,8 +775,14 @@ namespace FarHorizon.EditorTools
         /// RETURNS the u of the top of the bare haft — the ceiling any grip-position fit must respect. The whole
         /// profile table is printed so the number is evidenced rather than asserted.
         /// </summary>
+        /// <summary>86cay4282 round 4 — the bare-haft cross-section radius as a FRACTION of the haft length, carried out
+        /// of <see cref="HaftProfile"/> so <see cref="HandTouchGeometry"/> can turn it into metres against the WORLD haft
+        /// length rather than re-deriving the bucket maths beside it. -1 = not measurable (never substitute a guess).</summary>
+        private static float _bareHaftRadiusFrac = -1f;
+
         private static float HaftProfile(StringBuilder sb, in PropRig prop)
         {
+            _bareHaftRadiusFrac = -1f;
             sb.AppendLine("[haft-profile]   --- HAFT PROFILE ALONG ITS OWN LENGTH (86cay4282 round 3) ---");
             sb.AppendLine("[haft-profile]   u: 0 = BUTT / grip end, 1 = HEAD end (the TwoHandGripRead convention).");
             sb.AppendLine("[haft-profile]   r = that slice's cross-section radius as a FRACTION of the haft length");
@@ -799,6 +832,7 @@ namespace FarHorizon.EditorTools
             for (int i = 0; i < Buckets / 2; i++) if (radii[i] > 0f) lowHalf.Add(radii[i]);
             lowHalf.Sort();
             float baseR = lowHalf.Count > 0 ? lowHalf[lowHalf.Count / 2] : -1f;
+            _bareHaftRadiusFrac = baseR;
 
             // The head is the first slice, scanning UP from the middle, whose radius exceeds the bare-haft baseline by
             // this factor. 2.0x is deliberately generous: a subtle taper or a collar must not be mistaken for the
@@ -1278,6 +1312,533 @@ namespace FarHorizon.EditorTools
         }
 
         /// <summary>Distance from a point to the SEGMENT a..b (the same clamped measure the runtime read uses).</summary>
+        // ==================================================================================================
+        // 86cay4282 ROUND 4 — WHAT "TOUCHING" MEANS, AND WHETHER THE ARM CAN REACH IT.
+        //
+        // The Sponsor, soaking round 3, verbatim: "R/V only manipulates the right hand, which is great, but what about
+        // the left hand? its not even touching the shaft". He is right, and the numbers to prove it were already in
+        // round 3's own log: at the measured mean shoulder width 0.4580 m the shipped left hand sits 0.445 SW = 20.4 cm
+        // mean / 0.615 SW = 28.2 cm worst off the haft, while TwoHandGripRead.LeftHaftPassSW = 0.80 SW PERMITS 36.6 cm.
+        // That cap was calibrated from what a static seat could ACHIEVE, not from what "one haft through both hands"
+        // MEANS — so the gate was green on a hand gripping air by a quarter of a metre.
+        //
+        // TWO THINGS ROUND 3 ALREADY SETTLED, not re-derived here: the haft is NOT too short ("fits-on-the-haft? max
+        // separation 0.72"), and no single CONSTANT seat can close the gap (the hand-line direction wanders 21.1deg
+        // mean / 36.5deg MAX about its own mean, and the residual IS that wander). Hence a per-frame solve.
+        //
+        // THESE TWO PASSES ARE THE MEASUREMENTS THE FIX IS ALLOWED TO USE:
+        //   (1) HandTouchGeometry — the geometric definition of touching, off the MESHES: two cylinders touch when
+        //       their axis separation is <= the sum of their radii. So hand radius + haft radius, in metres, plus the
+        //       wrist->palm offset (because the metric's anchor is the WRIST BONE while the percept is the PALM).
+        //   (2) LeftArmIkSweep — the reach envelope. The seat is fixed, so the haft moves through the swing; whether a
+        //       pin at a given u_left is reachable at EVERY frame is a measurement, not an assumption. This is the pass
+        //       that decides the DIAL's honest range, and it also scores the pole plane's conditioning per u so the
+        //       elbow-flip guard is chosen from evidence.
+        // ==================================================================================================
+
+        /// <summary>
+        /// 86cay4282 round 4 — measure TOUCHING off the meshes. Prints, in metres AND in shoulder-widths (the units the
+        /// caps live in), so a cap can be re-derived from a definition instead of from what a fit happened to achieve.
+        ///
+        /// SCALE DISCIPLINE (unity-conventions.md §FBX — the walk-float saga's Bug B). The castaway's
+        /// SkinnedMeshRenderer transform carries a baked 100x cm->m scale, so ANY world-space vertex measurement via
+        /// <c>localToWorldMatrix</c> DOUBLE-APPLIES it and returns garbage. This pass never does that: the hand's
+        /// vertex cloud is measured in the HAND BONE's own BIND space (via <c>mesh.bindposes</c>), and the single scale
+        /// factor to metres is derived from two LIVE BONE POSITIONS (wrist and knuckle) whose distance is already
+        /// world-correct. No skinned-mesh matrix is touched.
+        /// </summary>
+        private static void HandTouchGeometry(StringBuilder sb, GameObject model, Transform lHand, Transform lMid1,
+                                              in PropRig prop, float bareHaftTopU)
+        {
+            sb.AppendLine("[hand-mesh]   --- WHAT 'TOUCHING' MEANS, MEASURED OFF THE MESHES (86cay4282 round 4) ---");
+            sb.AppendLine("[hand-mesh]   Two cylinders TOUCH when their axis separation <= rHand + rHaft. That is the");
+            sb.AppendLine("[hand-mesh]   definition TwoHandGripRead's left cap must come from — round 3's 0.80 SW came");
+            sb.AppendLine("[hand-mesh]   from what a constant seat could achieve, which is a different question.");
+
+            if (lMid1 == null)
+            {
+                sb.AppendLine("[hand-mesh]   ABORT — 'mixamorig:LeftHandMiddle1' not on this rig, so there is NO palm");
+                sb.AppendLine("[hand-mesh]   proxy and NO measured hand radius. Do NOT substitute a guessed cap.");
+                return;
+            }
+
+            // ---- the HAFT radius: the bare-stick cross-section, as a fraction of the haft length x the WORLD length.
+            Vector3 gripW = prop.holder.TransformPoint(prop.gripLocal);
+            Vector3 headW = prop.holder.TransformPoint(prop.headLocal);
+            float haftLenWorld = (headW - gripW).magnitude;
+            float rHaft = _bareHaftRadiusFrac > 0f ? _bareHaftRadiusFrac * haftLenWorld : -1f;
+
+            // ---- the HAND radius, in the hand bone's own bind space, scaled to metres by a live bone distance.
+            var smr = model.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            float rHandMedian = -1f, rHandMax = -1f;
+            int handVerts = 0;
+            if (smr != null && smr.sharedMesh != null && smr.bones != null)
+            {
+                Mesh mesh = smr.sharedMesh;
+                int handIdx = -1, mid1Idx = -1;
+                for (int i = 0; i < smr.bones.Length; i++)
+                {
+                    if (smr.bones[i] == null) continue;
+                    if (smr.bones[i] == lHand) handIdx = i;
+                    else if (smr.bones[i] == lMid1) mid1Idx = i;
+                }
+                var bind = mesh.bindposes;
+                var bw = mesh.boneWeights;
+                var verts = mesh.vertices;
+                if (handIdx < 0 || mid1Idx < 0 || bind == null || bind.Length <= Mathf.Max(handIdx, mid1Idx) ||
+                    bw == null || bw.Length != verts.Length)
+                {
+                    sb.AppendLine($"[hand-mesh]   hand-radius UNMEASURABLE (handIdx={handIdx} mid1Idx={mid1Idx} " +
+                                  $"bindposes={(bind == null ? 0 : bind.Length)} weights={(bw == null ? 0 : bw.Length)} " +
+                                  $"verts={verts.Length}) — no cap may be derived from a missing measurement.");
+                }
+                else
+                {
+                    // The knuckle origin expressed in the HAND bone's bind space, and the same distance in WORLD
+                    // metres off the live bones. Their ratio is the ONE scale factor used below.
+                    Vector3 knuckleInHandBind = bind[handIdx].MultiplyPoint3x4(
+                        bind[mid1Idx].inverse.MultiplyPoint3x4(Vector3.zero));
+                    float dBind = knuckleInHandBind.magnitude;
+                    float dWorld = (lMid1.position - lHand.position).magnitude;
+                    if (dBind < 1e-6f || dWorld < 1e-6f)
+                    {
+                        sb.AppendLine("[hand-mesh]   hand-radius UNMEASURABLE — degenerate wrist->knuckle distance " +
+                                      $"(bind {dBind:F6}, world {dWorld:F6}).");
+                    }
+                    else
+                    {
+                        float k = dWorld / dBind;                       // bind units -> world metres
+                        Vector3 axisBind = knuckleInHandBind / dBind;   // the palm's own long axis, bind space
+                        var radii = new List<float>();
+                        for (int v = 0; v < verts.Length; v++)
+                        {
+                            // DOMINANT-weight membership: a vertex belongs to the hand when the hand carries its
+                            // largest weight. Enumerated from the real weights rather than assumed from a Y-band —
+                            // the documented mis-attribution trap (unity-conventions.md §FBX, the chibi atlas round).
+                            var w = bw[v];
+                            int top = w.boneIndex0;
+                            float best = w.weight0;
+                            if (w.weight1 > best) { best = w.weight1; top = w.boneIndex1; }
+                            if (w.weight2 > best) { best = w.weight2; top = w.boneIndex2; }
+                            if (w.weight3 > best) { top = w.boneIndex3; }
+                            if (top != handIdx) continue;
+                            Vector3 p = bind[handIdx].MultiplyPoint3x4(verts[v]);
+                            radii.Add(Vector3.ProjectOnPlane(p, axisBind).magnitude * k);
+                        }
+                        handVerts = radii.Count;
+                        if (handVerts > 0)
+                        {
+                            radii.Sort();
+                            rHandMedian = radii[radii.Count / 2];
+                            rHandMax = radii[radii.Count - 1];
+                        }
+                    }
+                }
+            }
+            if (handVerts == 0 && rHandMedian < 0f)
+                sb.AppendLine("[hand-mesh]   NOTE: zero vertices dominant-weighted to the LEFT HAND bone.");
+
+            float palmOffset = (lMid1.position - lHand.position).magnitude * 0.5f;
+            sb.AppendLine($"[hand-mesh]   haft: length {haftLenWorld:F4} m; bare-stick radius fraction " +
+                          $"{_bareHaftRadiusFrac:F4} => rHaft {rHaft:F4} m ({rHaft * 100f:F1} cm; diameter " +
+                          $"{rHaft * 200f:F1} cm) — bare haft spans u 0.00..{bareHaftTopU:F2}.");
+            sb.AppendLine($"[hand-mesh]   hand: {handVerts} verts dominant-weighted to mixamorig:LeftHand; " +
+                          $"cross-section radius about the wrist->knuckle axis MEDIAN {rHandMedian:F4} m " +
+                          $"({rHandMedian * 100f:F1} cm), MAX {rHandMax:F4} m ({rHandMax * 100f:F1} cm).");
+            sb.AppendLine($"[hand-mesh]   palm centre = midpoint(wrist, knuckle) => {palmOffset:F4} m " +
+                          $"({palmOffset * 100f:F1} cm) IN FRONT OF THE WRIST BONE. This is why a wrist-anchored " +
+                          "metric is not a palm-anchored one: pinning the WRIST to the axis would drive the haft " +
+                          "through the back of the hand by that much.");
+            if (rHaft > 0f && rHandMedian > 0f)
+                sb.AppendLine($"[hand-mesh]   => TOUCH TOLERANCE rHand + rHaft = {rHandMedian + rHaft:F4} m " +
+                              $"({(rHandMedian + rHaft) * 100f:F1} cm). Divide by the live shoulder width to get the " +
+                              "cap in SW; the sweep below prints it at the measured mean SW.");
+        }
+
+        /// <summary>
+        /// 86cay4282 round 4 — THE LEFT-ARM IK REACH ENVELOPE, and the post-solve palm-to-haft it actually achieves.
+        ///
+        /// The seat is unchanged (it is the RIGHT hand's grip and the Sponsor approved its head-driving-down read), so
+        /// the haft sweeps through the swing and the question is entirely about the LEFT arm: for a pin at u_left, is
+        /// the target within reach at EVERY judged frame, and where does the palm actually land once solved?
+        ///
+        /// Three things are reported per candidate u, and each one is a decision the fix would otherwise have to guess:
+        ///   • reach: the worst-frame target distance as a fraction of full extension, and how many frames exceed the
+        ///     solver's shell — i.e. where the DIAL's honest range ends. Beyond it the arm blends out rather than
+        ///     snapping straight, so an over-reaching u is not a crash, it is a silently-inert dial position.
+        ///   • the post-solve PALM-to-haft distance (metres + SW), through the PRODUCTION solver. If this is not ~0 at
+        ///     a reachable u, the solve is wrong and no amount of dialling will fix it.
+        ///   • the pole plane's conditioning: the clip elbow's perpendicular offset off the shoulder->target axis, and
+        ///     how often it falls below the solver's threshold and needs the named fallback. That is the elbow-flip
+        ///     guard chosen from evidence rather than from a hunch.
+        ///
+        /// The judged window starts at <c>EasedInNt</c>, matching the shipped gate, which scores only frames at seat
+        /// weight >= 0.95: the first ~0.25 s is a deliberate hand-over where the tool is CORRECTLY still at the
+        /// approved one-handed seat, and scoring it manufactures a failure that has nothing to do with the fix.
+        /// </summary>
+        private static void LeftArmIkSweep(StringBuilder sb, AnimationClip clip, GameObject model,
+            Transform hips, Transform head, Transform lArm, Transform lFore, Transform lHand, Transform lMid1,
+            Transform rArm, Transform rHand,
+            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
+            Vector3 wristR, Vector3 wristL, float bareHaftTopU)
+        {
+            sb.AppendLine("[left-ik]   --- LEFT-ARM TWO-BONE IK: REACH ENVELOPE + POST-SOLVE PALM (86cay4282 r4) ---");
+            if (lFore == null || lMid1 == null)
+            {
+                sb.AppendLine("[left-ik]   ABORT — LeftForeArm=" + (lFore != null) + " LeftHandMiddle1=" +
+                              (lMid1 != null) + ". No chain, no measurement; a fix must NOT be sized without one.");
+                return;
+            }
+
+            const int N = 181;                       // ~0.03 s per sample on a 5.2 s clip
+            const float EasedInNt = 0.08f;           // the gate's >=0.95 seat-weight window, in clip-normalised time
+            const float ReachFalloff = 0.06f;        // 6 cm of over-reach to fully blend out (sized below, reported)
+            var qR = Quaternion.Euler(armR);
+            var qL = Quaternion.Euler(armL);
+            var qWristR = Quaternion.Euler(wristR);
+            var qWristL = Quaternion.Euler(wristL);
+            Quaternion seatQ = Quaternion.Euler(seatEuler) * Quaternion.Euler(MovementCameraScene.HeldToolMineSeatEulerDelta);
+            Vector3 seatPos = seatOffset + MovementCameraScene.HeldToolMineSeatOffsetDelta;
+
+            sb.AppendLine($"[left-ik]   chain = mixamorig:LeftArm -> LeftForeArm -> PALM (midpoint of LeftHand and the " +
+                          $"resolved knuckle '{lMid1.name}' — the point the haft must pass through, not the wrist bone).");
+            sb.AppendLine($"[left-ik]   seat under test = the SHIPPED round-3 delta (offset " +
+                          $"{MovementCameraScene.HeldToolMineSeatOffsetDelta:F4}, euler " +
+                          $"{MovementCameraScene.HeldToolMineSeatEulerDelta:F1}) — UNCHANGED by this round; the IK is " +
+                          "purely additive on the left arm, and the right hand's grip is out of scope.");
+            sb.AppendLine($"[left-ik]   judged window nt >= {EasedInNt:F2} (the gate scores seat weight >= 0.95 only). " +
+                          $"reachFalloff = {ReachFalloff:F2} m.");
+
+            // Per-u accumulators. u runs to the measured bare-haft top: above it the palm is inside the head mass.
+            float uTop = bareHaftTopU > 0f ? bareHaftTopU : 0.80f;
+            int steps = 17;                                       // 0.00 .. uTop inclusive
+            var rows = new List<string>();
+            float swMean = 0f; int swN = 0;
+            float aLenMean = 0f, bLenMean = 0f;
+            Vector3 poleLocalSum = Vector3.zero;
+            int bestUIdx = -1; float bestPalmMax = float.MaxValue;
+            float reachableLo = float.NaN, reachableHi = float.NaN;
+
+            for (int s = 0; s < steps; s++)
+            {
+                float u = uTop * s / (float)(steps - 1);
+                float reachFracMax = 0f, palmMax = 0f, palmSum = 0f;
+                float poleParMin = float.MaxValue;
+                int overShell = 0, fallbackFrames = 0, unsolved = 0, n = 0;
+                float swSum = 0f;
+
+                for (int i = 0; i < N; i++)
+                {
+                    float nt = i / (float)(N - 1);
+                    if (nt < EasedInNt) continue;
+                    clip.SampleAnimation(model, nt * clip.length);
+                    rArm.localRotation = rArm.localRotation * qR;              // order 50
+                    lArm.localRotation = lArm.localRotation * qL;
+                    rHand.localRotation = rHand.localRotation * qWristR;       // order 65
+                    lHand.localRotation = lHand.localRotation * qWristL;
+                    prop.root.position = rHand.position + rHand.rotation * seatPos;   // order 100
+                    prop.root.rotation = rHand.rotation * seatQ;
+
+                    float sw = (rArm.position - lArm.position).magnitude;
+                    if (sw < 1e-5f) continue;
+                    Vector3 gripW = prop.holder.TransformPoint(prop.gripLocal);
+                    Vector3 headW = prop.holder.TransformPoint(prop.headLocal);
+                    Vector3 target = Vector3.Lerp(gripW, headW, u);
+
+                    Vector3 root = lArm.position, mid = lFore.position;
+                    Vector3 palm = (lHand.position + lMid1.position) * 0.5f;
+                    float aLen = (mid - root).magnitude, bLen = (palm - mid).magnitude;
+                    float c = (target - root).magnitude;
+                    float shell = (aLen + bLen) * TwoBoneIkSolver.StraightArmFraction;
+                    reachFracMax = Mathf.Max(reachFracMax, c / (aLen + bLen));
+                    if (c > shell) overShell++;
+
+                    // pole conditioning: how far the CLIP's elbow stands off the shoulder->target axis.
+                    Vector3 axis = (target - root).normalized;
+                    float polePar = Vector3.ProjectOnPlane(mid - root, axis).magnitude;
+                    poleParMin = Mathf.Min(poleParMin, polePar);
+
+                    var res = TwoBoneIkSolver.Solve(root, lArm.rotation, mid, lFore.rotation, palm, target,
+                                                    poleHint: mid,
+                                                    poleFallbackDir: model.transform.rotation * Vector3.back,
+                                                    reachFalloff: ReachFalloff);
+                    if (!res.solved) { unsolved++; continue; }
+                    if (res.poleFromFallback) fallbackFrames++;
+
+                    // APPLY exactly as the runtime will (upper first, then lower), then RE-MEASURE off the live bones
+                    // — never off the solver's own prediction.
+                    lArm.rotation = res.upperRotation;
+                    lFore.rotation = res.lowerRotation;
+                    Vector3 palmAfter = (lHand.position + lMid1.position) * 0.5f;
+                    float d = SegDist(palmAfter, gripW, headW);
+                    palmMax = Mathf.Max(palmMax, d);
+                    palmSum += d;
+                    swSum += sw; n++;
+                    if (s == 0) { aLenMean += aLen; bLenMean += bLen; poleLocalSum += Quaternion.Inverse(model.transform.rotation) * (mid - root).normalized; }
+                }
+
+                if (n == 0) { rows.Add($"[left-ik]   u {u:F2}: no valid samples"); continue; }
+                float sw0 = swSum / n;
+                if (s == 0) { swMean = sw0; swN = n; aLenMean /= n; bLenMean /= n; poleLocalSum /= n; }
+                bool reachable = overShell == 0 && unsolved == 0;
+                if (reachable)
+                {
+                    if (float.IsNaN(reachableLo)) reachableLo = u;
+                    reachableHi = u;
+                }
+                if (reachable && palmMax < bestPalmMax) { bestPalmMax = palmMax; bestUIdx = s; }
+                rows.Add($"[left-ik]   u {u:F2}: reach worst {reachFracMax:F3} of full extension, {overShell}/{n} " +
+                         $"frames past the {TwoBoneIkSolver.StraightArmFraction:F2} shell{(reachable ? " (REACHABLE)" : "")} | " +
+                         $"post-solve PALM->haft mean {palmSum / n:F4} m ({palmSum / n * 100f:F1} cm) MAX {palmMax:F4} m " +
+                         $"({palmMax * 100f:F1} cm; {palmMax / sw0:F3} SW) | pole perp MIN {poleParMin:F4} m, " +
+                         $"{fallbackFrames} fallback frames, {unsolved} unsolved");
+            }
+
+            sb.AppendLine($"[left-ik]   left arm: shoulder->elbow {aLenMean:F4} m ({aLenMean * 100f:F1} cm), " +
+                          $"elbow->palm {bLenMean:F4} m ({bLenMean * 100f:F1} cm) => FULL EXTENSION " +
+                          $"{aLenMean + bLenMean:F4} m ({(aLenMean + bLenMean) * 100f:F1} cm), usable shell " +
+                          $"{(aLenMean + bLenMean) * TwoBoneIkSolver.StraightArmFraction:F4} m. Mean shoulder width " +
+                          $"{swMean:F4} m over {swN} judged samples.");
+            sb.AppendLine($"[left-ik]   measured pole direction (clip elbow off the shoulder, MODEL frame, mean) = " +
+                          $"{poleLocalSum.normalized:F3} — the FALLBACK constant to bake, so a degenerate frame uses a " +
+                          "measured direction rather than a guessed one.");
+            foreach (var r in rows) sb.AppendLine(r);
+            if (!float.IsNaN(reachableLo))
+                sb.AppendLine($"[left-ik]   => REACHABLE u_left RANGE (all judged frames inside the shell): " +
+                              $"{reachableLo:F2}..{reachableHi:F2} of the haft = " +
+                              $"{reachableLo * (prop.holder.TransformPoint(prop.headLocal) - prop.holder.TransformPoint(prop.gripLocal)).magnitude * 100f:F0}" +
+                              $"..{reachableHi * (prop.holder.TransformPoint(prop.headLocal) - prop.holder.TransformPoint(prop.gripLocal)).magnitude * 100f:F0} cm up an " +
+                              $"{(prop.holder.TransformPoint(prop.headLocal) - prop.holder.TransformPoint(prop.gripLocal)).magnitude * 100f:F0} cm haft. " +
+                              "THIS is the dial's honest range — a choked-up grip is now bounded by ARM REACH, not by " +
+                              "the clip's hand spacing.");
+            else
+                sb.AppendLine("[left-ik]   => NO u is reachable at every judged frame. Report that, do not pick one.");
+            if (bestUIdx >= 0)
+                sb.AppendLine($"[left-ik]   best reachable u = {uTop * bestUIdx / (float)(steps - 1):F2} " +
+                              $"(worst-frame palm->haft {bestPalmMax:F4} m = {bestPalmMax * 100f:F1} cm)");
+
+            LeftArmReachableSpan(sb, clip, model, lArm, lFore, lHand, lMid1, rArm, rHand,
+                                 prop, seatPos, seatQ, qR, qL, qWristR, qWristL, uTop, N, EasedInNt);
+        }
+
+        /// <summary>
+        /// 86cay4282 round 4 — THE DECISIVE PASS, added AFTER the fixed-pin sweep above REFUTED the obvious design.
+        ///
+        /// The sweep found a pin at ANY fixed u_left is beyond the left arm's 54.0 cm full extension on ~64% of judged
+        /// frames at best (worst-frame reach 1.18-1.49x extension across u 0.00..0.80), so a fixed pin plus a
+        /// blend-out-on-over-reach would leave the IK INERT for most of the swing and the Sponsor would see the same
+        /// defect. That is a design assumption dying to a measurement, which is the point of measuring first.
+        ///
+        /// So the real question is not "is u reachable" but "WHICH PART of the haft is reachable, per frame". This pass
+        /// answers it directly: intersect the haft SEGMENT with the sphere of the arm's usable shell about the left
+        /// shoulder and report the interval. If that interval is non-empty at (nearly) every frame, the honest design is
+        /// a pin that tracks the Sponsor's PREFERRED u but is CLAMPED into the reachable interval each frame — the palm
+        /// then sits ON the haft always, the elbow only extends as far as it must, and u stays a real dial whose
+        /// ACHIEVED value is reported. If the interval is empty, no left-arm IK can satisfy the anchor against this seat
+        /// and the right answer is to say so rather than ship a stretch.
+        ///
+        /// The clip's own tightest LEFT elbow is 90deg (measured above), so how far the solve EXTENDS that elbow is
+        /// itself a judgement quantity — a near-straight arm is the ugly failure mode the brief names. It is reported
+        /// per preferred-u alongside the palm distance, never left implicit.
+        /// </summary>
+        private static void LeftArmReachableSpan(StringBuilder sb, AnimationClip clip, GameObject model,
+            Transform lArm, Transform lFore, Transform lHand, Transform lMid1, Transform rArm, Transform rHand,
+            in PropRig prop, Vector3 seatPos, Quaternion seatQ,
+            Quaternion qR, Quaternion qL, Quaternion qWristR, Quaternion qWristL,
+            float uTop, int N, float easedInNt)
+        {
+            sb.AppendLine("[left-span]   --- WHICH PART OF THE HAFT IS REACHABLE, PER FRAME (86cay4282 r4) ---");
+            sb.AppendLine("[left-span]   The fixed-pin sweep above is REFUTED: no single u sits inside the arm's shell at");
+            sb.AppendLine("[left-span]   every frame. This intersects the haft SEGMENT with the shell SPHERE about the");
+            sb.AppendLine("[left-span]   left shoulder instead, so a pin can be CLAMPED into what the arm can hold.");
+
+            int n = 0, empty = 0;
+            float closestWorst = 0f, closestBest = float.MaxValue;
+            float spanLoMin = 9f, spanLoMax = -9f, spanHiMin = 9f, spanHiMax = -9f;
+            float uAtClosestMin = 9f, uAtClosestMax = -9f;
+            // THE PRODUCTION STRATEGY, swept over its two free parameters so the choice is priced, not guessed:
+            //   preferred u  x  shell fraction (how straight the arm is allowed to go when the haft is out of reach).
+            var prefs = new[] { 0.20f, 0.30f, 0.35f, 0.40f, 0.50f };
+            var shells = new[] { 0.90f, 0.94f, 0.98f };
+            int C = prefs.Length * shells.Length;
+            var achLo = new float[C]; var achHi = new float[C];
+            var palmMax = new float[C]; var palmSum = new float[C];
+            var elbowMin = new float[C]; var elbowMax = new float[C]; var swSum = new float[C];
+            var fellBack = new int[C]; var uSum = new float[C];
+            // 86cay4282 round 4 — the PER-FRAME ELBOW STEP and the pole's own conditioning, on the REAL clip. The
+            // EditMode continuity test found that a pole nearly parallel to the chain axis amplifies target motion into
+            // elbow motion ~5x; the production idiom (pole = the clip's own elbow) should de-amplify instead, and that
+            // claim has to be MEASURED on the shipped clip rather than argued from the algebra.
+            var elbowStepMax = new float[C]; var prevElbow = new Vector3[C]; var haveElbow = new bool[C];
+            float polePerpMin = float.MaxValue, poleAmpMax = 0f;
+            for (int p = 0; p < C; p++) { achLo[p] = 9f; achHi[p] = -9f; elbowMin[p] = 999f; elbowMax[p] = -999f; }
+
+            for (int i = 0; i < N; i++)
+            {
+                float nt = i / (float)(N - 1);
+                if (nt < easedInNt) continue;
+
+                clip.SampleAnimation(model, nt * clip.length);
+                rArm.localRotation = rArm.localRotation * qR;
+                lArm.localRotation = lArm.localRotation * qL;
+                rHand.localRotation = rHand.localRotation * qWristR;
+                lHand.localRotation = lHand.localRotation * qWristL;
+                prop.root.position = rHand.position + rHand.rotation * seatPos;
+                prop.root.rotation = rHand.rotation * seatQ;
+
+                float sw = (rArm.position - lArm.position).magnitude;
+                if (sw < 1e-5f) continue;
+                Vector3 gripW = prop.holder.TransformPoint(prop.gripLocal);
+                Vector3 headW = prop.holder.TransformPoint(prop.headLocal);
+                Vector3 S = lArm.position;
+                float aLen = (lFore.position - S).magnitude;
+                float bLen = ((lHand.position + lMid1.position) * 0.5f - lFore.position).magnitude;
+                float R = (aLen + bLen) * TwoBoneIkSolver.StraightArmFraction;
+
+                // Closest approach of the haft SEGMENT to the shoulder, and where along it that lands. THIS is the one
+                // number that decides whether any left-arm IK can work against this seat at all.
+                float dClosest = SegDistU(S, gripW, headW, out float uClosest);
+                closestWorst = Mathf.Max(closestWorst, dClosest);
+                closestBest = Mathf.Min(closestBest, dClosest);
+                uAtClosestMin = Mathf.Min(uAtClosestMin, uClosest);
+                uAtClosestMax = Mathf.Max(uAtClosestMax, uClosest);
+
+                n++;
+                for (int si = 0; si < shells.Length; si++)
+                {
+                    float Rs = (aLen + bLen) * shells[si];
+                    // Segment-sphere span, restricted to the BARE haft (a palm above uTop is inside the head mass).
+                    bool has = SegmentSphereSpan(gripW, headW, S, Rs, out float t0, out float t1);
+                    t0 = Mathf.Max(t0, 0f); t1 = Mathf.Min(t1, uTop);
+                    bool spanEmpty = !has || t1 < t0;
+                    if (si == shells.Length - 1)   // the span statistics are reported for the widest shell
+                    {
+                        if (spanEmpty) empty++;
+                        else
+                        {
+                            spanLoMin = Mathf.Min(spanLoMin, t0); spanLoMax = Mathf.Max(spanLoMax, t0);
+                            spanHiMin = Mathf.Min(spanHiMin, t1); spanHiMax = Mathf.Max(spanHiMax, t1);
+                        }
+                    }
+
+                    for (int p = 0; p < prefs.Length; p++)
+                    {
+                        int k = si * prefs.Length + p;
+                        // THE STRATEGY. Span non-empty -> pin at the reachable point NEAREST the Sponsor's preferred u
+                        // (palm lands exactly ON the haft, elbow only as extended as it must be). Span EMPTY -> pin at
+                        // the CLOSEST point of the haft and let the solver's shell clamp hold the arm aimed at it. The
+                        // fallback is the load-bearing choice: blending the IK OUT there would hand the frame back to
+                        // the clip pose (the 20-28 cm defect) on roughly half the swing, which is worse than a reach.
+                        float u = spanEmpty ? uClosest : Mathf.Clamp(prefs[p], t0, t1);
+                        if (spanEmpty) fellBack[k]++;
+                        achLo[k] = Mathf.Min(achLo[k], u); achHi[k] = Mathf.Max(achHi[k], u); uSum[k] += u;
+                        Vector3 target = Vector3.Lerp(gripW, headW, u);
+                        Vector3 mid = lFore.position, palm = (lHand.position + lMid1.position) * 0.5f;
+                        Quaternion upper0 = lArm.rotation, lower0 = lFore.rotation;
+                        var res = TwoBoneIkSolver.Solve(S, upper0, mid, lower0, palm, target,
+                                                        poleHint: mid,
+                                                        poleFallbackDir: model.transform.rotation * Vector3.back,
+                                                        reachFalloff: 0.30f,
+                                                        straightArmFraction: shells[si]);
+                        if (!res.solved) continue;
+                        // POLE CONDITIONING, on the production idiom (pole = the clip's own elbow). The amplification of
+                        // axis rotation into plane rotation is (parallel / perpendicular) of the pole about the axis;
+                        // <= 1 means the plane is DE-sensitised, which is the flip-free regime.
+                        if (si == shells.Length - 1 && p == 0)
+                        {
+                            Vector3 ax = (target - S).normalized;
+                            Vector3 rel = mid - S;
+                            float perp = Vector3.ProjectOnPlane(rel, ax).magnitude;
+                            float par = Mathf.Abs(Vector3.Dot(rel, ax));
+                            polePerpMin = Mathf.Min(polePerpMin, perp);
+                            if (perp > 1e-6f) poleAmpMax = Mathf.Max(poleAmpMax, par / perp);
+                        }
+                        lArm.rotation = res.upperRotation;
+                        lFore.rotation = res.lowerRotation;
+                        Vector3 palmAfter = (lHand.position + lMid1.position) * 0.5f;
+                        float d = SegDist(palmAfter, gripW, headW);
+                        palmMax[k] = Mathf.Max(palmMax[k], d); palmSum[k] += d; swSum[k] += sw;
+                        // the ELBOW INTERIOR angle after the solve — the "never snap the arm straight" read.
+                        float e = Vector3.Angle(S - lFore.position, palmAfter - lFore.position);
+                        elbowMin[k] = Mathf.Min(elbowMin[k], e);
+                        elbowMax[k] = Mathf.Max(elbowMax[k], e);
+                        // …and the FRAME-TO-FRAME elbow displacement, the quantity a flip actually renders as.
+                        Vector3 elbowNow = lFore.position;
+                        if (haveElbow[k]) elbowStepMax[k] = Mathf.Max(elbowStepMax[k], (elbowNow - prevElbow[k]).magnitude);
+                        prevElbow[k] = elbowNow; haveElbow[k] = true;
+                        lArm.rotation = upper0; lFore.rotation = lower0;   // restore before the next candidate
+                    }
+                }
+            }
+
+            if (n == 0) { sb.AppendLine("[left-span]   no valid samples"); return; }
+            sb.AppendLine($"[left-span]   CLOSEST haft point to the LEFT SHOULDER over {n} judged frames: best " +
+                          $"{closestBest:F4} m ({closestBest * 100f:F1} cm), WORST {closestWorst:F4} m " +
+                          $"({closestWorst * 100f:F1} cm); it lands at u {uAtClosestMin:F2}..{uAtClosestMax:F2}. " +
+                          "Against the arm's usable shell printed above: WORST < shell means SOME part of the haft is " +
+                          "always holdable, which is what makes a clamped pin viable.");
+            sb.AppendLine($"[left-span]   frames with an EMPTY reachable span at the 0.98 shell: {empty}/{n} — on those " +
+                          "the WHOLE haft is beyond the arm, so the strategy pins the CLOSEST haft point and the shell " +
+                          "clamp holds the arm aimed at it. Reachable interval over the bare haft: lo " +
+                          $"{spanLoMin:F2}..{spanLoMax:F2}, hi {spanHiMin:F2}..{spanHiMax:F2}.");
+            sb.AppendLine("[left-span]   TRADE CURVE — shell fraction (how straight the arm may go) vs how close the palm");
+            sb.AppendLine("[left-span]   gets. 'elbow' is the INTERIOR angle range after the solve; the clip's own");
+            sb.AppendLine("[left-span]   tightest is 90deg and 180 would be a locked/straight arm.");
+            for (int si = 0; si < shells.Length; si++)
+                for (int p = 0; p < prefs.Length; p++)
+                {
+                    int k = si * prefs.Length + p;
+                    if (n <= 0 || swSum[k] <= 0f) { sb.AppendLine($"[left-span]   shell {shells[si]:F2} pref u {prefs[p]:F2}: nothing scored"); continue; }
+                    float swAvg = swSum[k] / n;
+                    sb.AppendLine($"[left-span]   shell {shells[si]:F2} pref u {prefs[p]:F2}: ACHIEVED u " +
+                                  $"{achLo[k]:F2}..{achHi[k]:F2} MEAN {uSum[k] / n:F3} ({fellBack[k]}/{n} frames on the closest-point " +
+                                  $"fallback) | palm->haft mean {palmSum[k] / n:F4} m ({palmSum[k] / n * 100f:F1} cm) " +
+                                  $"MAX {palmMax[k]:F4} m ({palmMax[k] * 100f:F1} cm; {palmMax[k] / swAvg:F3} SW) | " +
+                                  $"elbow {elbowMin[k]:F0}..{elbowMax[k]:F0}deg | worst frame-to-frame elbow step " +
+                                  $"{elbowStepMax[k] * 100f:F2} cm");
+                }
+            sb.AppendLine($"[left-span]   POLE CONDITIONING on the production idiom (pole = the clip's OWN elbow): " +
+                          $"perpendicular offset off the shoulder->target axis MIN {polePerpMin:F4} m " +
+                          $"({polePerpMin * 100f:F1} cm); worst plane-sensitivity amplification (parallel/perp) " +
+                          $"{poleAmpMax:F2}. <= ~1 means axis motion is DE-amplified into plane motion, i.e. the " +
+                          "flip-free regime. A FIXED world-space pole nearly parallel to the axis measures ~5x " +
+                          "amplification instead (TwoBoneIkSolverTests), which is why the fallback is a last resort.");
+        }
+
+        /// <summary>Distance from <paramref name="p"/> to the segment a..b, also reporting the CLAMPED position along it
+        /// — the "which part of the haft is nearest" read.</summary>
+        private static float SegDistU(Vector3 p, Vector3 a, Vector3 b, out float u)
+        {
+            Vector3 ab = b - a;
+            float len2 = ab.sqrMagnitude;
+            if (len2 < 1e-12f) { u = 0f; return (p - a).magnitude; }
+            u = Mathf.Clamp01(Vector3.Dot(p - a, ab) / len2);
+            return (p - (a + ab * u)).magnitude;
+        }
+
+        /// <summary>
+        /// The sub-interval [t0,t1] of the segment a..b (parameterised 0..1) lying INSIDE the sphere of radius
+        /// <paramref name="r"/> about <paramref name="c"/>. False when the segment misses the sphere entirely.
+        /// Plain quadratic on |a + t(b−a) − c|² = r².
+        /// </summary>
+        private static bool SegmentSphereSpan(Vector3 a, Vector3 b, Vector3 c, float r, out float t0, out float t1)
+        {
+            t0 = t1 = 0f;
+            Vector3 d = b - a, f = a - c;
+            float A = d.sqrMagnitude;
+            if (A < 1e-12f) { t1 = 1f; return f.magnitude <= r; }
+            float B = 2f * Vector3.Dot(f, d);
+            float C = f.sqrMagnitude - r * r;
+            float disc = B * B - 4f * A * C;
+            if (disc < 0f) return false;
+            float sq = Mathf.Sqrt(disc);
+            t0 = (-B - sq) / (2f * A);
+            t1 = (-B + sq) / (2f * A);
+            if (t1 < 0f || t0 > 1f) return false;
+            t0 = Mathf.Max(t0, 0f); t1 = Mathf.Min(t1, 1f);
+            return true;
+        }
+
         private static float SegDist(Vector3 p, Vector3 a, Vector3 b)
         {
             Vector3 ab = b - a;

@@ -114,22 +114,75 @@ namespace FarHorizon.EditTests
             // hands sitting ON it -> the anchor sentence is satisfied and the read must pass.
             Vector3 lArm = new Vector3(-0.5f, 0f, 0f), rArm = new Vector3(0.5f, 0f, 0f);
             Vector3 grip = new Vector3(-0.6f, 1f, 0f), head = new Vector3(0.9f, 1f, 0f);
-            var on = TwoHandGripRead.Measure(lArm, rArm, new Vector3(-0.3f, 1f, 0f), new Vector3(0.4f, 1f, 0f),
-                                             grip, head);
+            Vector3 lOn = new Vector3(-0.3f, 1f, 0f), rOn = new Vector3(0.4f, 1f, 0f);
+            // ROUND 4: the LEFT criterion is the PALM CENTRE, so palms must be SUPPLIED — the 6-arg overload flags
+            // palmMeasured=false and Pass() then fails CLOSED on purpose (a wrist figure scored against a palm cap is a
+            // different, easier question). That fail-closed behaviour is asserted separately below.
+            var on = TwoHandGripRead.Measure(lArm, rArm, lOn, rOn, grip, head, lOn, rOn, palmMeasured: true);
             Assert.IsTrue(on.valid);
             Assert.IsTrue(TwoHandGripRead.Pass(on),
-                $"both hands on one haft IS a two-hand grip (L {on.leftHaftSW:F3} / R {on.rightHaftSW:F3} SW).");
+                $"both hands on one haft IS a two-hand grip (L palm {on.leftPalmHaftSW:F3} / R wrist " +
+                $"{on.rightHaftSW:F3} SW).");
             Assert.Less(on.toolVsHandLineDeg, 1f, "a haft through both hands lies along the line through them.");
 
             // Now lift ONLY the left hand well off the haft — the exact defect shape (the right hand still grips the
             // tool, the left grips air). It MUST fail, and it must fail on the LEFT cap.
-            var off = TwoHandGripRead.Measure(lArm, rArm, new Vector3(-0.3f, 1.9f, 0f), new Vector3(0.4f, 1f, 0f),
-                                              grip, head);
+            Vector3 lOff = new Vector3(-0.3f, 1.9f, 0f);
+            var off = TwoHandGripRead.Measure(lArm, rArm, lOff, rOn, grip, head, lOff, rOn, palmMeasured: true);
             Assert.IsTrue(off.valid);
-            Assert.Greater(off.leftHaftSW, TwoHandGripRead.LeftHaftPassSW);
+            Assert.Greater(off.leftPalmHaftSW, TwoHandGripRead.LeftHaftPassSW);
             Assert.IsFalse(TwoHandGripRead.Pass(off),
                 "a left hand gripping air must FAIL — that is the Sponsor's reported defect, and a read that passes " +
                 "it cannot be used as the gate for this fix.");
+        }
+
+        [Test]
+        public void AnUNMEASURED_Palm_FailsClosed_NeverScoringTheWristAgainstThePalmCap()
+        {
+            // 86cay4282 round 4. The whole reason the round-3 gate was green on a hand 28 cm off the shaft is that the
+            // criterion answered an easier question than the anchor sentence. The palm cap must therefore refuse to
+            // score a WRIST figure: an unmeasured palm is "we do not know", and this project's cautionary case (the
+            // pond lift->mound saga) is exactly a metric that stayed green on nonsense.
+            Vector3 lArm = new Vector3(-0.5f, 0f, 0f), rArm = new Vector3(0.5f, 0f, 0f);
+            Vector3 grip = new Vector3(-0.6f, 1f, 0f), head = new Vector3(0.9f, 1f, 0f);
+            Vector3 lOn = new Vector3(-0.3f, 1f, 0f), rOn = new Vector3(0.4f, 1f, 0f);
+
+            var wristOnly = TwoHandGripRead.Measure(lArm, rArm, lOn, rOn, grip, head);   // 6-arg = no palms
+            Assert.IsTrue(wristOnly.valid, "the read itself is valid — the geometry is measurable");
+            Assert.IsFalse(wristOnly.palmMeasured);
+            Assert.IsFalse(TwoHandGripRead.Pass(wristOnly),
+                "…yet it must NOT pass: the left criterion is palm-anchored, and silently accepting a wrist figure in " +
+                "its place is how a cap loses the meaning this round just gave it. Same geometry WITH palms supplied " +
+                "passes (asserted above), so this is a real fail-closed and not an unsatisfiable gate.");
+        }
+
+        [Test]
+        public void TheLeftCap_IsDerivedFromTheMeshGeometry_NotFromWhatAFitAchieved()
+        {
+            // THE ROUND-4 CORRECTION, pinned. Round 3's left cap was 0.80 SW because that is what a constant seat could
+            // ACHIEVE with headroom; the Sponsor's soak then found 0.80 SW is 36.6 cm, i.e. a hand a quarter of a metre
+            // off the shaft passing. This asserts the cap is now the GEOMETRIC definition of contact, computed from the
+            // two mesh-measured radii — so it cannot drift back into being calibrated against achievability.
+            Assert.AreEqual((TwoHandGripRead.LeftHandRadiusM + TwoHandGripRead.HaftRadiusM) /
+                            TwoHandGripRead.ReferenceShoulderWidthM,
+                            TwoHandGripRead.LeftHaftPassSW, 1e-6f,
+                "LeftHaftPassSW must BE (hand radius + haft radius) / shoulder width — the definition of the two solids " +
+                "touching. If this ever becomes a hand-tuned literal again, the cap has stopped meaning 'touching'.");
+
+            // …and it must be a real tightening, in units a human reads. NOT a tautology: both operands trace to
+            // independently-measured mesh quantities, and the 0.80 is the literal round-3 value it replaces.
+            const float Round3Cap = 0.80f;
+            Assert.Less(TwoHandGripRead.LeftHaftPassSW, Round3Cap * 0.5f,
+                $"the cap must TIGHTEN substantially: round 3 permitted {Round3Cap:F2} SW = " +
+                $"{Round3Cap * TwoHandGripRead.ReferenceShoulderWidthM * 100f:F1} cm; round 4 permits " +
+                $"{TwoHandGripRead.LeftHaftPassSW:F3} SW = " +
+                $"{TwoHandGripRead.LeftHaftPassSW * TwoHandGripRead.ReferenceShoulderWidthM * 100f:F1} cm.");
+
+            // The snug (median-radius) bound is reported alongside and must be strictly tighter than the graze bound
+            // that gates — if they ever coincide, one of the two measurements has been lost.
+            Assert.Less(TwoHandGripRead.LeftHaftSnugSW, TwoHandGripRead.LeftHaftPassSW,
+                "the 'haft well inside the fist' bound (median hand radius) must be tighter than the 'grazing' bound " +
+                "(max hand radius) that gates; the gate uses the generous one so jitter cannot red an approved build.");
         }
 
         [Test]
@@ -154,17 +207,33 @@ namespace FarHorizon.EditTests
         // ==============================================================================================
 
         [Test]
-        public void TheCaps_SitAboveTheShippedFit_AndBelowThePreFixGeometry()
+        public void TheCaps_BracketTheRound4Measurement_AndTheRound3BuildNowREDS()
         {
-            // A cap under the shipped worst frame reds the build the Sponsor approved; a cap over the pre-fix worst
-            // frame cannot catch a revert. Both ends have to hold, or the gate proves nothing either way.
-            Assert.Greater(TwoHandGripRead.LeftHaftPassSW, ShippedWorstLeftSW,
-                $"the LEFT cap ({TwoHandGripRead.LeftHaftPassSW:F2}) must clear the shipped worst frame " +
-                $"({ShippedWorstLeftSW:F3} SW) with headroom, so frame-timing jitter or a Sponsor re-dial cannot red " +
-                "a build over a taste change.");
+            // ROUND 4 REVERSES THE ROUND-3 BRACKET, DELIBERATELY. Round 3 asserted the LEFT cap sat ABOVE its own
+            // shipped worst frame (0.615 SW) so a re-dial could not red a build. That headroom is precisely what let a
+            // 28 cm gap pass, and the Sponsor's soak caught it. The cap is now the geometric touching bound, which is
+            // BELOW the round-3 build's worst frame — i.e. the build this round replaces now REDS. That is the point.
+            Assert.Less(TwoHandGripRead.LeftHaftPassSW, ShippedWorstLeftSW,
+                $"the LEFT cap ({TwoHandGripRead.LeftHaftPassSW:F3} SW = " +
+                $"{TwoHandGripRead.LeftHaftPassSW * TwoHandGripRead.ReferenceShoulderWidthM * 100f:F1} cm) must now sit " +
+                $"BELOW round 3's shipped worst frame ({ShippedWorstLeftSW:F3} SW = " +
+                $"{ShippedWorstLeftSW * TwoHandGripRead.ReferenceShoulderWidthM * 100f:F1} cm). If it does not, the cap " +
+                "still permits the defect the Sponsor reported.");
             Assert.Less(TwoHandGripRead.LeftHaftPassSW, PreFixWorstLeftSW,
-                $"the LEFT cap must sit BELOW the pre-fix worst frame ({PreFixWorstLeftSW:F3} SW) or a reverted / " +
-                "inverted / ungated delta would pass the gate.");
+                $"…and a fortiori below the pre-fix worst frame ({PreFixWorstLeftSW:F3} SW), so a reverted / inverted / " +
+                "ungated delta cannot pass either.");
+
+            // The ROUND-4 shipped measurement must fit UNDER the cap with real jitter margin, or the gate flaps red on
+            // an approved build. Measured on the live rig: worst-frame PALM->haft 0.1075 m at the shipped shell.
+            const float Round4WorstPalmM = 0.1075f;
+            float capM = TwoHandGripRead.LeftHaftPassSW * TwoHandGripRead.ReferenceShoulderWidthM;
+            Assert.Less(Round4WorstPalmM, capM,
+                $"the shipped round-4 worst frame ({Round4WorstPalmM * 100f:F1} cm) must fit under the cap " +
+                $"({capM * 100f:F1} cm).");
+            Assert.Greater(capM - Round4WorstPalmM, 0.015f,
+                $"…with at least 1.5 cm of margin (measured {(capM - Round4WorstPalmM) * 100f:F1} cm). A cap sitting " +
+                "millimetres above the shipped measurement red-flaps on real frame-timing jitter in the 60 fps gate — " +
+                "which is why the GRAZE bound (max hand radius) gates and the snug bound only reports.");
 
             Assert.Greater(TwoHandGripRead.RightHaftPassSW, ShippedWorstRightSW,
                 $"the RIGHT cap ({TwoHandGripRead.RightHaftPassSW:F2}) must clear the shipped {ShippedWorstRightSW:F3} SW.");
@@ -172,9 +241,12 @@ namespace FarHorizon.EditTests
                 "the RIGHT cap is not a revert-detector (the right hand was already near its own haft pre-fix at " +
                 $"{PreFixWorstRightSW:F3} SW) — it exists to catch a delta that pulls the haft OUT of the hand the " +
                 "tool is physically seated in, which no left-hand cap can see.");
-            Assert.Less(TwoHandGripRead.RightHaftPassSW, TwoHandGripRead.LeftHaftPassSW,
-                "the RIGHT cap must be TIGHTER than the left: the right hand is the tool's real physical grip, so a " +
-                "right hand off its own haft is a worse defect than a phantom left hand slightly off it.");
+            // NOTE: round 3 asserted RIGHT < LEFT ("the right cap must be tighter"). That comparison is now MEANINGLESS
+            // and is deliberately NOT re-asserted: the two caps no longer answer the same question or use the same
+            // anchor. The right cap is a WRIST tolerance chosen to catch the haft leaving the hand it is seated in; the
+            // left cap is a PALM-anchored geometric contact bound. Round 4's left cap happens to be the tighter of the
+            // two (0.293 vs 0.300) precisely because it is derived rather than chosen, and asserting an ordering between
+            // two different quantities would just re-introduce a number nobody can justify.
         }
 
         // ==============================================================================================
