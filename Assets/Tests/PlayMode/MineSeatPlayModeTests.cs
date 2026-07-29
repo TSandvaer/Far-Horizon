@@ -153,7 +153,7 @@ namespace FarHorizon.PlayTests
             // shoulder-width-normalised number stays in a believable range because both hands are simply far from a
             // tiny haft. Log the three numbers that discriminate it and assert the tool/skeleton scales agree.
             ApplyPoseChain();
-            _rig.ApplySeat(Dt);
+            SeatToolAt(0f);   // the approved one-handed seat is fine for a pure SCALE sanity check
             _rig.TryGetHaftSegment(out Vector3 g0, out Vector3 h0);
             float sw0 = (_rArm.position - _lArm.position).magnitude;
             Debug.Log($"[mineseat-rig] modelLocalScale={model.transform.localScale} " +
@@ -244,13 +244,30 @@ namespace FarHorizon.PlayTests
         /// different frames would be comparing POSES, not seats.</summary>
         private TwoHandGripRead.Read ReadAt(float weight)
         {
+            SeatToolAt(weight);
+            if (!_rig.TryGetHaftSegment(out Vector3 grip, out Vector3 head)) return default;
+            return TwoHandGripRead.Measure(_lArm.position, _rArm.position, _lHand.position, _rHand.position,
+                                           grip, head);
+        }
+
+        /// <summary>
+        /// Place the tool exactly where the production seat puts it at a CHOSEN mine weight, through the shipped
+        /// <see cref="HeldToolRig.ComposeSeat"/>.
+        ///
+        /// ⚠ WHY NOT <c>_rig.ApplySeat(dt)</c> — CI caught this. <c>ApplySeat</c> derives its own weight from the
+        /// AttackPickaxe gate, and this bare rig has <c>character = null</c> (deliberately: the fail-closed property is
+        /// under test), so the gate reads CLOSED and the mine delta is NEVER applied. A test that seats via ApplySeat is
+        /// therefore measuring against the ONE-HANDED seat while believing it has the two-hand one. The tell was
+        /// unmistakable once printed: the left-arm-pin test's control read 1.438 SW, which is the documented ZERO-delta
+        /// control (1.476 SW) rather than the shipped seat's 0.615 SW. Same family as every other instrument bug on this
+        /// ticket — a chain modelled with one production step missing.
+        /// </summary>
+        private void SeatToolAt(float weight)
+        {
             HeldToolRig.ComposeSeat(_rHand.position, _rHand.rotation, SeatOffset, SeatEuler,
                                     MineSeatOffsetDelta, MineSeatEulerDelta, weight,
                                     out Vector3 pos, out Quaternion rot);
             _tool.transform.SetPositionAndRotation(pos, rot);
-            if (!_rig.TryGetHaftSegment(out Vector3 grip, out Vector3 head)) return default;
-            return TwoHandGripRead.Measure(_lArm.position, _rArm.position, _lHand.position, _rHand.position,
-                                           grip, head);
         }
 #endif
 
@@ -267,7 +284,7 @@ namespace FarHorizon.PlayTests
         ///             round should be re-derived rather than the test relaxed.
         ///   FIX     — with the pin ON, at EVERY fully-engaged frame, the palm must be INSIDE that bound.
         ///
-        /// Both are measured on the SAME animation frames through PRODUCTION code (<see cref="HeldToolRig.ApplySeat"/>
+        /// Both are measured on the SAME animation frames through PRODUCTION code (<see cref="HeldToolRig.ComposeSeat"/>
         /// then <see cref="CastawayLeftArmHaftIk.ApplyPin"/>, in the shipped 100→110 order), and the palm is read off the
         /// LIVE bones afterwards rather than from the solver's own prediction — round 2's lesson was that two
         /// instruments sharing one model agree with each other and disagree with the build.
@@ -313,7 +330,7 @@ namespace FarHorizon.PlayTests
                 weight = CastawayArmPose.NextMineDeGripWeight(weight, owns, 12f, Dt);
                 if (!owns) continue;
                 ApplyPoseChain();                      // orders 50 + 65
-                _rig.ApplySeat(Dt);                    // order 100 — the haft is only placed HERE
+                SeatToolAt(1f);                        // order 100 at FULL mine weight — see SeatToolAt's note
                 if (!_rig.TryGetHaftSegment(out Vector3 grip, out Vector3 head)) continue;
                 sw = (_rArm.position - _lArm.position).magnitude;
                 if (sw < 1e-5f) continue;
