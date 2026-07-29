@@ -350,7 +350,7 @@ namespace FarHorizon
             // down the stick) that the rig resolves onto the haft's OWN axis, then writes into the hand-local position
             // delta. Doing it here rather than folding it into `dp` keeps the axis resolution — and its failure mode —
             // in one place.
-            if (_target == 10 && _heldRig != null)
+            if (_target == MineSeatTargetIndex && _heldRig != null)
             {
                 float slide = 0f;
                 if (Input.GetKeyDown(haftUpKey)) slide += ps;
@@ -360,7 +360,7 @@ namespace FarHorizon
                     // A refused slide is REPORTED, never silent: an unresolvable haft axis is exactly the case where a
                     // guessed axis would move the tool somewhere plausible-looking and wrong (the bakeAxisConversion
                     // trap), and a dial that quietly does nothing is the trap that burned the Sponsor twice already.
-                    if (_heldRig.TrySlideMineSeatAlongHaft(slide)) { changed = true; }
+                    if (ApplyHaftSlide(slide)) { changed = true; }
                     else Debug.LogWarning("[AxeNudgeTool] MINE SEAT along-haft slide REFUSED — the held tool's haft " +
                                           "axis could not be resolved (no displayed mesh?), so nothing moved. Select " +
                                           "the pickaxe ([B] / the belt) and try again; the tool will NOT guess an axis.");
@@ -596,13 +596,57 @@ namespace FarHorizon
             return read.valid;
         }
 
+        /// <summary>
+        /// THE THREE MEASUREMENT ROWS exactly as the panel draws them, for a given engagement weight — one seam used by
+        /// OnGUI, by the bake log, AND by the shipped-build gate's panel pass, so those three can never show different
+        /// subsets of the same read. (Round 2's along-haft numbers went undrawn precisely because the panel assembled
+        /// its own lines inline; a single seam makes "computed but undrawn" a test-visible property — see
+        /// MineSeatAlongHaftTests.EveryJudgeableFieldOfTheGripRead_IsRenderedBySomePanelRow.)
+        ///
+        /// Row 0 = distance to the haft + PASS/FAIL, row 1 = ALONG-haft position, row 2 = separation/angle context.
+        /// An unmeasurable rig yields the unavailable notice in row 0 and empty rows after it — never a plausible zero.
+        /// </summary>
+        public string[] GripReadoutRows(float weight)
+        {
+            if (!TryGripRead(out TwoHandGripRead.Read r))
+                return new[] { GripUnavailableLine, "", "" };
+            return new[] { GripDistanceLine(r, weight), AlongHaftLine(r), GripContextLine(r) };
+        }
+
         /// <summary>The PASS/FAIL line for the MINE panels — the explicit threshold read, never just a raw value
         /// (a bare number leaves the Sponsor guessing what "good" is; the round-1 panel's omission of it is exactly
         /// what sent him hunting).</summary>
-        private string GripVerdictLine(float weight)
+        private string GripVerdictLine(float weight) => GripReadoutRows(weight)[0];
+
+        /// <summary>The MINE-SEAT target's index in the [K] cycle. Named rather than left as a literal 10 because a
+        /// dispatch brief that says "press K ten times" breaks silently the moment a target is added or reordered
+        /// (unity-conventions.md §Input System — instruct a cycler by its on-screen LABEL, never by press-count).</summary>
+        public const int MineSeatTargetIndex = 10;
+
+        /// <summary>
+        /// VERIFY/CAPTURE-ONLY: select a nudge target directly, so the shipped-build gate can photograph the MINE-SEAT
+        /// panel without synthesizing eleven [K] key-downs (legacy Input cannot be driven from inside a player).
+        /// Resolves the target's components, exactly as the [K] handler does, so the captured panel is the real one.
+        /// </summary>
+        public void SelectTargetForVerify(int target)
         {
-            if (!TryGripRead(out TwoHandGripRead.Read r)) return GripUnavailableLine;
-            return GripDistanceLine(r, weight);
+            _target = ((target % TargetCount) + TargetCount) % TargetCount;
+            Resolve();
+        }
+
+        /// <summary>
+        /// THE ALONG-HAFT SLIDE, as one seam. <see cref="Update"/>'s [R]/[V] handler calls THIS, and so does the
+        /// shipped-build gate's panel pass — so the gate proves the real mechanism (axis resolution, sign, and that the
+        /// live along-haft read actually moves) rather than a re-implementation beside it. The only link a headless or
+        /// automated pass structurally cannot close is legacy Input's key-down itself; the key CONSTANTS and the panel's
+        /// hint text are pinned by MineSeatAlongHaftTests instead, and a human keypress closes it at the soak.
+        ///
+        /// Returns false when the haft axis cannot be resolved — the caller must SAY SO rather than move nothing quietly.
+        /// </summary>
+        public bool ApplyHaftSlide(float metres)
+        {
+            if (_heldRig == null) return false;
+            return _heldRig.TrySlideMineSeatAlongHaft(metres);
         }
 
         // ==============================================================================================================
@@ -959,8 +1003,8 @@ namespace FarHorizon
                 eulerLine = _armPose.MineDeGripWeight > 0.5f
                     ? $"MINE ENGAGED ✓ weight={_armPose.MineDeGripWeight:F2} (judge NOW — mid-swing)"
                     : $"mine weight={_armPose.MineDeGripWeight:F2} — equip the PICKAXE + click a boulder to engage; every other state untouched";
-                gripLine = GripVerdictLine(_armPose.MineDeGripWeight);
-                DrawableGripRows(out alongLine, out contextLine);
+                string[] rows = GripReadoutRows(_armPose.MineDeGripWeight);
+                gripLine = rows[0]; alongLine = rows[1]; contextLine = rows[2];
             }
             else if (_target == 10 && _heldRig != null)
             {
@@ -972,8 +1016,8 @@ namespace FarHorizon
                 posLine = $"SeatOffsetDelta=({o.x:F3}, {o.y:F3}, {o.z:F3})   ([R]/[V] slide ALONG the haft)";
                 eulerLine = $"SeatEulerDelta=({e.x:F1}, {e.y:F1}, {e.z:F1})   (T/G/Y/H/U/J — turn it onto the hand line)" +
                             (_heldRig.MineSeatWeight > 0.5f ? "  ENGAGED ✓" : "  [not engaged — MINE to judge]");
-                gripLine = GripVerdictLine(_heldRig.MineSeatWeight);
-                DrawableGripRows(out alongLine, out contextLine);
+                string[] rows = GripReadoutRows(_heldRig.MineSeatWeight);
+                gripLine = rows[0]; alongLine = rows[1]; contextLine = rows[2];
             }
             else if (_target == 5 && _footYaw != null)
             {
@@ -1039,22 +1083,6 @@ namespace FarHorizon
             GUI.Label(new Rect(lx, y + 236f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [F] front-view snap   [B] cycle held weapon", _hintStyle);
             GUI.Label(new Rect(lx, y + 256f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
             GUI.Label(new Rect(lx, y + 276f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
-        }
-
-        /// <summary>The two ADDITIONAL measurement rows for the MINE panels, or the unavailable notice for both. Kept
-        /// beside the panel draw (rather than inlined twice) so the MINE de-grip target and the MINE-SEAT target can
-        /// never end up showing different subsets of the same read — which is how the along-haft numbers went undrawn
-        /// in the first place.</summary>
-        private void DrawableGripRows(out string alongLine, out string contextLine)
-        {
-            if (!TryGripRead(out TwoHandGripRead.Read r))
-            {
-                alongLine = GripUnavailableLine;
-                contextLine = "";
-                return;
-            }
-            alongLine = AlongHaftLine(r);
-            contextLine = GripContextLine(r);
         }
 
         // 86caju055 — the "F9 dial: NOT ENGAGED" signpost drawn when the debug-overlay layer is up but this tool

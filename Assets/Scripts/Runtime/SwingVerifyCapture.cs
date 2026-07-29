@@ -45,7 +45,9 @@ namespace FarHorizon
     /// Captures: swing_axe.png, swing_pickaxe.png, swing_dagger.png, swing_spear.png, swing_sword.png,
     ///           swing_pickaxe_fold.png (gameplay cam at the peak fold), swing_pickaxe_fold_side.png (side profile),
     ///           swing_pickaxe_twohand.png (gameplay cam at the WORST two-hand-grip frame — 86cay4282 round 2),
-    ///           swing_pickaxe_twohand_front.png (a CLOSE FRONTAL shot — the plane a hand-on-haft read lives in).
+    ///           swing_pickaxe_twohand_front.png (a CLOSE FRONTAL shot — the plane a hand-on-haft read lives in),
+    ///           swing_pickaxe_panel.png (the F9 MINE-SEAT panel drawn in the SHIPPED exe with its rows populated —
+    ///           86cay4282 round 3, so the Sponsor is handed a picture of the instrument he is asked to find).
     ///
     /// MINE TWO-HAND GRIP PASS (86cay4282 round 2 — the Sponsor's DIRECTION REVERSAL). The second defect from the
     /// same soak — "he is swinging like he is handing the axe with both hands". Round 1 treated the mine clip's
@@ -405,6 +407,17 @@ namespace FarHorizon
                                   "fired in the shipped exe; a false 'leftOnHaft' means the seat delta is reverted, " +
                                   "inverted or too small (pre-fix measured 1.476 SW); a false 'rightOnHaft' means " +
                                   "the delta pulled the haft out of the hand it is actually seated in.");
+
+                        // ===== F9 MINE-SEAT PANEL PASS (86cay4282 round 3) =====
+                        // WHY A GATE FOR A DEBUG PANEL. Everything this round delivers is an INSTRUMENT the Sponsor
+                        // drives, and this project's scar tissue on that is specific: an F9 panel has already drawn
+                        // NOTHING for him twice (the F9-without-F10 master-gate briefs), a nudge dial has already
+                        // accepted input with zero visible effect twice (run-lower's engagement weight), and the
+                        // round-2 verdict line was being CLIPPED by its own box. Each of those is a soak cycle spent
+                        // discovering the tool was the broken thing. So the shipped exe now proves, before he is asked
+                        // to dial anything: the panel's rows POPULATE with real numbers, and the along-haft dial
+                        // genuinely MOVES the along-haft read.
+                        yield return MineSeatPanelPass(dir, castaway, heldRig, lArm, rArm, lHand, rHand);
                     }
                 }
             }
@@ -426,6 +439,86 @@ namespace FarHorizon
                       $"(u REPORT-ONLY, not gated) " +
                       $"peakSeatWeight={peakSeatWeight:F2} gripOk={gripOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
+        }
+
+        /// <summary>
+        /// 86cay4282 round 3 — prove the F9 MINE-SEAT INSTRUMENT works IN THE SHIPPED EXE, then photograph it.
+        ///
+        /// Three things are established here, in order, each one a documented past failure of this exact tool:
+        ///   1. THE PANEL DRAWS. It is behind TWO gates — the F10 <see cref="DebugOverlays"/> master AND the tool's own
+        ///      F9 toggle — and "F9 alone draws nothing" has already cost two soak rounds. Both are opened here and a
+        ///      frame is captured, so the Sponsor is handed a picture of the panel he is being asked to find.
+        ///   2. ITS ROWS CARRY REAL NUMBERS. The rows come from the SAME <see cref="AxeNudgeTool.GripReadoutRows"/>
+        ///      seam OnGUI draws, logged verbatim; a row reading the unavailable notice here means the panel would show
+        ///      the Sponsor nothing useful, which is reported rather than left for him to discover.
+        ///   3. THE ALONG-HAFT DIAL ACTUALLY MOVES THE ALONG-HAFT READ. The slide is driven through
+        ///      <see cref="AxeNudgeTool.ApplyHaftSlide"/> — the identical call the [R]/[V] key handler makes — and the
+        ///      live <c>leftU</c> is re-measured after it. This is the "verify the binding MOVES the value, not merely
+        ///      that a hint string exists" rule (unity-conventions.md §Input System). The one link that structurally
+        ///      cannot be closed from inside a player is legacy Input's own key-down; the key constants and the hint
+        ///      text are pinned by MineSeatAlongHaftTests, and a keypress at the soak closes it.
+        ///
+        /// The dial is RESTORED afterwards, so this pass cannot leave the shipped seat delta moved — a verify pass that
+        /// mutates ship state would poison every figure logged after it.
+        /// </summary>
+        private IEnumerator MineSeatPanelPass(string dir, CastawayCharacter castaway, HeldToolRig heldRig,
+                                              Transform lArm, Transform rArm, Transform lHand, Transform rHand)
+        {
+            var tool = Object.FindAnyObjectByType<AxeNudgeTool>(FindObjectsInactive.Include);
+            if (tool == null)
+            {
+                Debug.LogWarning("[swing-panel] no AxeNudgeTool in the shipped scene — the F9 MINE-SEAT instrument this " +
+                                 "round delivers is ABSENT from this build. Do NOT read the PASS above as proof the " +
+                                 "Sponsor has a dial.");
+                yield break;
+            }
+
+            bool prevOverlay = DebugOverlays.Visible;
+            Vector3 prevDelta = heldRig.mineSeatOffsetDelta;
+            DebugOverlays.Show();                                       // the F10 master reveal
+            tool.Activate();                                            // the F9 sub-toggle
+            tool.SelectTargetForVerify(AxeNudgeTool.MineSeatTargetIndex);
+            Debug.Log($"[swing-panel] overlay={DebugOverlays.Visible} f9Active={tool.IsActive} " +
+                      "target=MINE SEAT — both gates open (F10 master + F9 sub-toggle; F9 alone draws nothing).");
+
+            // Re-fire the swing so the seat weight is ENGAGED while the panel is photographed: at weight 0 the rows are
+            // truthful but describe the one-handed seat, which is not what he is being asked to judge.
+            castaway.TriggerAttack(CastawayCharacter.WeaponClassPickaxe, 1f);
+            float t0 = Time.time;
+            while (Time.time - t0 < FoldWindowSec * 0.5f && heldRig.MineSeatWeight < EngagedWeightFloor) yield return null;
+            Debug.Log($"[swing-panel] seat weight at capture {heldRig.MineSeatWeight:F2}");
+
+            foreach (string row in tool.GripReadoutRows(heldRig.MineSeatWeight))
+                Debug.Log("[swing-panel] ROW | " + row);
+
+            ShotTo(Path.Combine(dir, "swing_pickaxe_panel.png"));
+            yield return null;
+
+            // …and now prove the dial MOVES the number, on the live rig, through the production seam.
+            float uBefore = ReadLeftU(heldRig, lArm, rArm, lHand, rHand);
+            const float slide = 0.10f;
+            bool slid = tool.ApplyHaftSlide(slide);
+            yield return null;                                          // let HeldToolRig.LateUpdate reseat the tool
+            float uAfter = ReadLeftU(heldRig, lArm, rArm, lHand, rHand);
+            bool moved = slid && !float.IsNaN(uBefore) && !float.IsNaN(uAfter) && uAfter > uBefore + 0.02f;
+            Debug.Log($"[swing-panel] ALONG-HAFT DIAL: +{slide:F2}m accepted={slid} => left-hand u {uBefore:F3} -> " +
+                      $"{uAfter:F3} (moved UP the haft = {moved}). This is the [R] key's own code path; a FALSE here " +
+                      "means the dial the Sponsor is being handed does not move the grip, which is the 'wired but " +
+                      "silently inert' class this tool has been bitten by three times.");
+
+            heldRig.mineSeatOffsetDelta = prevDelta;                    // restore — never ship a mutated seat
+            tool.Deactivate();
+            DebugOverlays.Visible = prevOverlay;
+            yield return null;
+        }
+
+        /// <summary>The live along-haft position of the LEFT hand, through the production read. NaN when unmeasurable —
+        /// never 0, which would read as "the hand is at the butt" (a specific, wrong claim).</summary>
+        private static float ReadLeftU(HeldToolRig rig, Transform lArm, Transform rArm, Transform lHand, Transform rHand)
+        {
+            if (!rig.TryGetHaftSegment(out Vector3 g, out Vector3 h)) return float.NaN;
+            var read = TwoHandGripRead.Measure(lArm.position, rArm.position, lHand.position, rHand.position, g, h);
+            return read.valid ? read.leftU : float.NaN;
         }
 
         /// <summary>
