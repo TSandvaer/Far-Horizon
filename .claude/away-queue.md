@@ -776,3 +776,75 @@ gh pr merge 353 --admin --squash --delete-branch
 
 ### Open item worth a `/name-the-bar` pass
 No confirmed quality bar covers **UI-panel visual read** — bars 1-9 are world/prop/motion. Priya flagged it on `86cay4k73` rather than inventing one.
+
+---
+
+## 2026-07-29 ~20:41Z — AWAY TICK 1: four consecutive agent deaths, API 529 storm
+
+**Away mode armed 20:31Z** — cron `3100202c`, 15-min tick at :07/:22/:37/:52. Stay-awake verified ON (display mode, pwsh PID 24664 alive — checked the PID, not just the state file).
+
+**FOUR consecutive background-agent deaths, all `API Error: 529 Overloaded`:**
+1. Drew — `86cay4282` round 4 (left-arm Two-Bone IK), first dispatch
+2. Drew — same task, re-dispatch
+3. Priya — #352 fix round + `86caxjx26` re-scope + 2 follow-up tickets + board hygiene
+4. Tess — QA pass on PR #351 / `86cah7y5b`
+
+**Nothing was lost.** Verified: `drew-swings-wt` still at `1bc10ac` with 56 dirty entries (the pre-existing deliberate churn, intact); PR #354 unchanged at `1bc10ac`; no commits from any of the four dispatches.
+
+**Decision: STOPPED dispatching** rather than re-firing into an overloaded API. This is a transient server-side fault, not a denial and not a per-task problem — a tight retry loop would just kill more agents. The away cron is the retry mechanism; next fire ~20:52Z will re-scan and re-dispatch.
+
+**0 agents in flight as of 20:41Z.**
+
+**Board scan (fresh, 31 open tickets) — the structural finding:** ZERO non-build tickets sit in `to do`. The only docs-lane ticket (`86cay47zh`, #352) is already `in review` awaiting Priya's fix round. So the non-build parallel lane can only be fed by review / spec / board work, never from the ticket pool as it currently stands. Worth a Sponsor decision on whether to seed some non-build tickets so the fan-out lane has fuel when the single Unity build slot is occupied.
+
+**Not dispatched, with reasons (fill-or-justify):**
+- **Uma** — candidates `86cagfn8h` (open-horizon / remove distant mountains) and `86cacewju` (chamfer-highlight bevel) exist, but only their TITLES have been read. Dispatching a UX spec off a title violates read-the-ticket-body-before-dispatch. Needs a body read first.
+- **Devon** — every remaining `to do` ticket is build-lane and the single build slot belongs to Drew's IK round. He is also the assigned reviewer for both Drew's and Priya's in-flight work.
+
+**Board hygiene deliberately NOT done inline** (Priya owns the board; inline ClickUp writes make the orchestrator unresponsive). Queued in her brief: `86cau4za2` sits in the open `to do` pool despite its own title saying `[DEFERRED — NOT standalone-dispatchable]`, and `86cavj6p1` has a mojibake char where an em-dash belongs. No status flips this tick either — a same-turn ClickUp read+write trips the anti-fabrication hook.
+
+## 2026-07-29 ~20:47Z — AWAY TICK 2: 3 re-dispatched; a board-shelving defect found
+
+**API recovered.** Three re-dispatches launched after tick 1's 529 storm (agentIds returned = launched; liveness not yet confirmed): Drew on `86cay4282` round-4 left-arm Two-Bone IK; Priya on the #352 fix round + `86caxjx26` re-scope + 2 follow-up tickets + hygiene; Tess on the never-QA'd PR #351.
+
+**Incidental good news:** `priya-wt` HEAD is `c751d43` — her CC-BY purge work IS committed. The #352 blockers are review fixes on top of real work, not a lost branch.
+
+### 🔴 BOARD-SHELVING DEFECT — the dispatch pool is overstated
+Read the two Uma candidates' BODIES (not titles) before dispatching, and **both are non-dispatchable while sitting in plain `to do` with zero tags**:
+
+- **`86cagfn8h`** (open-horizon / remove distant mountains) — its own body says *"NOT autonomously dispatchable; surfaces to the Sponsor for the soak verdict"*, is a Unity-build ticket behind the single slot, owner **Devon or Drew** (not Uma), and requires a **`/name-the-bar` pass to confirm the open-horizon quality bar BEFORE dispatch**. Uma's part is already DONE and MERGED (`team/uma-ux/open-horizon-direction-spec.md`, #199).
+- **`86cacewju`** (chamfer-highlight bevel) — **explicitly DEFERRED by the Sponsor 2026-06-22** with a named trigger ("when hero props are re-authored in the unified Blender style"), owner orch Blender-MCP R&D-lane. Not Uma, not now.
+
+**That makes THREE tickets now confirmed mis-shelved** — `86cau4za2`, `86cacewju`, `86cagfn8h` — all deferred-or-gated yet indistinguishable from dispatchable in a status scan. **This is why the "dispatch pool" reads as 22 tickets when the genuinely-dispatchable set is a fraction of that**, and it is the mechanism behind the 2026-06-28 idle-hours failure. The board has no `blocked` status by design, so the fix is tags (`sponsor-gate` / a deferred marker). Queued for Priya's NEXT round — I could not write it this tick because a same-turn ClickUp read+write trips the anti-fabrication hook, and I had just read these two bodies.
+
+### Fill-or-justify, now evidence-backed
+- **Uma — idle, and correctly so.** Both candidate tickets are non-dispatchable per their own bodies (above); her open-horizon spec is already merged. No UX work exists on this board that isn't gated or already done.
+- **Devon — idle, justified.** Single Unity build slot is Drew's; every remaining `to do` is build-lane. He is reviewer-on-deck for both Drew's and Priya's in-flight work.
+
+### 🟡 SPONSOR ITEM (new)
+**`86cagfn8h` is blocked on a `/name-the-bar` pass** to confirm the open-horizon quality bar — and naming a standing quality bar is a Sponsor-confirmed, subjective call I will not auto-decide. That bar is a hard prerequisite in the ticket's own body, so the open-horizon work cannot dispatch until you name it.
+
+**Staged this tick:** nothing new. #348/#349/#350/#353 remain the four one-click merges. #354 is soak-gated (not staged regardless of CI). #351 needs your browser merge; #352 is mid-fix.
+
+## 2026-07-29 ~20:52Z — AWAY TICK 3: root cause found — OPUS is overloaded, not the tasks
+
+**SEVEN consecutive persona-agent deaths**, all `API Error: 529 Overloaded`: Drew ×3 (`86cay4282` round-4 IK), Priya ×2 (#352 fix + hygiene), Tess ×2 (#351 QA).
+
+**Root cause, evidence-backed — it is the MODEL, not the work.** In the same window a **Sonnet** Explore helper ran a full board scan cleanly. Checked the persona frontmatter: `drew`, `priya`, `tess`, `uma`, `devon` are all **`model: opus`**; `erik` is **`model: sonnet`**. So: Opus capacity is exhausted, Sonnet is healthy, and every opus-backed persona dies on dispatch while sonnet-backed agents succeed.
+
+**Nothing lost across all seven.** `drew-swings-wt` still `1bc10ac` / 56 dirty (deliberate churn intact); `priya-wt` `c751d43`; `tess-wt` `b5e5724`; PR #354 unchanged. No half-written state anywhere.
+
+**Dispatched the one persona that CAN run:** Erik (sonnet) on `86cag93zb` research — headless RenderTexture-readback capture viability. Chosen because it is the only research-shaped ticket on the board that needs no repo-code access (he has no worktree, and the orch tree's `Assets/` is ~230 commits stale), and because it is the ticket's own AC1 pre-work. High leverage: it targets the 1-runner capture pin that serializes the whole team behind a single Unity build slot.
+
+**Board re-scanned fresh (gate-mandated): 31 open, 26 to do / 3 in review / 2 ready-for-qa — IDENTICAL to the 20:34 baseline.** No ticket had a `date_updated` inside the window, confirming none of the dead agents wrote anything.
+
+### 🔴 SPONSOR DECISION NEEDED — the only lever that unblocks the team
+**Should opus-backed personas temporarily fall back to `model: sonnet` while Opus is overloaded?**
+
+I will NOT auto-decide this. The all-implementation-work-runs-on-opus policy is a documented Sponsor quality decision, and Drew's current task (two-bone IK maths, bone-axis measurement, reach clamping) is exactly the kind of work where model capability shows. Downgrading it is a quality-vs-throughput trade that is yours, not mine.
+
+- **Option A — hold on Opus.** The cron keeps retrying; work resumes at full quality when capacity returns. Cost: the team is stalled meanwhile, possibly for hours.
+- **Option B — temporary sonnet fallback for mechanical work only** (Priya's board hygiene, Tess's QA read) while Drew's IK waits for Opus. Keeps the non-build lane alive without risking the hard task.
+- **Option C — sonnet across the board** until Opus recovers. Maximum throughput, accepts quality risk on the IK round.
+
+I have queued nothing further into Opus — seven deaths is decisive evidence, not a guess, and re-firing would just burn more agents.
