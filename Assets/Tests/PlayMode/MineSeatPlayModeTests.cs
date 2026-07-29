@@ -280,7 +280,26 @@ namespace FarHorizon.PlayTests
             yield break;
 #else
             yield return null;
+
+            // FAIL-CLOSED, asserted ONCE up front rather than inside the frame loop. (The first version of this test
+            // asserted it every frame and CI caught the mistake: the pin weight PERSISTS across frames by design — it is
+            // an eased value — so after the first forced frame it is no longer 0 and a per-frame assert reds on frame 2.
+            // The property itself is real and is also covered in EditMode by
+            // LeftArmHaftPinTests.AtZeroWeight_NoBoneIsWritten_SoEveryNonMiningStateIsByteUnchanged.)
+            _leftIk.debugForceEngaged = false;
+            _leftIk.ApplyPin(Dt);
+            Assert.AreEqual(0f, _leftIk.PinWeight, 1e-6f,
+                "with no character wired and no force, the pin gate must read CLOSED — a missing wire can never move " +
+                "the arm in the wrong state.");
+            Assert.IsFalse(_leftIk.LastSolved, "…and it must not have written a bone");
+
             TriggerMineSwing();
+            // From here the gate is FORCED for the whole run (the CastawayFingerCurl.alwaysCurl idiom): a bare rig has no
+            // CastawayCharacter to supply the animation-state gate, and the alternative — mirroring the solve beside the
+            // driver — is the tautological-assert trap this file exists to avoid. Nothing about the strategy or the solve
+            // is substituted; ApplyPin is ticked ONCE PER FRAME exactly as LateUpdate does, so the production ease builds
+            // on the real clock rather than being forced to 1 synthetically.
+            _leftIk.debugForceEngaged = true;
 
             float worstPalmOff = -1f, worstPalmOn = -1f, worstWristOn = -1f;
             float minElbowOn = 999f, maxElbowOn = -999f;
@@ -303,23 +322,12 @@ namespace FarHorizon.PlayTests
                 // CONTROL: the palm BEFORE the pin runs (this is exactly the round-3 build's geometry).
                 float palmOff = TwoHandGripRead.DistanceToSegment(PalmWorld(), grip, head, out _) / sw;
 
-                // FIX — run the REAL driver. Two steps, in this order, both meaningful:
-                //   (a) with the gate CLOSED (no character, force off) ApplyPin must write NOTHING. That is the
-                //       fail-closed property asserted inline on every frame rather than once in a corner case.
-                //   (b) then open the gate via debugForceEngaged (the CastawayFingerCurl.alwaysCurl idiom) and tick the
-                //       PRODUCTION ApplyPin until the production ease saturates. Nothing about the strategy or the solve
-                //       is substituted — only the animation-state gate, which is what a bare rig cannot supply.
-                _leftIk.debugForceEngaged = false;
+                // FIX — run the REAL driver, ONE tick per frame, exactly as LateUpdate does (order 110, after the seat
+                // at 100 above). The eased weight therefore builds on the real clock; frames before it saturates are
+                // skipped below rather than forced, because a partially-eased pin is a deliberate hand-over and not the
+                // pose being judged.
                 _leftIk.ApplyPin(Dt);
-                Assert.AreEqual(0f, _leftIk.PinWeight, 1e-6f,
-                    "with no character wired and no force, the pin gate must stay CLOSED — a missing wire can never " +
-                    "move the arm in the wrong state.");
-                Assert.IsFalse(_leftIk.LastSolved, "…and it must not have written a bone");
-
-                _leftIk.debugForceEngaged = true;
-                for (int w = 0; w < 60; w++) _leftIk.ApplyPin(Dt);
-                Assert.Greater(_leftIk.PinWeight, 0.99f,
-                    "the production ease must saturate inside the swing (12/s ~= 0.25 s to 95%)");
+                if (_leftIk.PinWeight < 0.99f) continue;
 
                 float palmOn = TwoHandGripRead.DistanceToSegment(PalmWorld(), grip, head, out _) / sw;
                 float wristOn = TwoHandGripRead.DistanceToSegment(_lHand.position, grip, head, out _) / sw;
