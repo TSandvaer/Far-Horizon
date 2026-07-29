@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using FarHorizon;
 
 namespace FarHorizon.EditTests
@@ -338,6 +340,29 @@ namespace FarHorizon.EditTests
                 Object.DestroyImmediate(weaponGo);
                 Object.DestroyImmediate(camGo);
             }
+        }
+
+        [Test]
+        public void TheShippedBootScene_CarriesTheAlongHaftKeys_AsRAndV_NotKeyCodeNone()
+        {
+            // WHY A SCENE TEST FOR TWO KeyCode FIELDS. Boot.unity is BINARY, so the serialized value of a new field
+            // cannot be grepped — and the AxeNudgeTool in it is SERIALIZED, not Awake-built. A new public field on a
+            // scene-baked component is exactly where a value silently arrives as the enum's zero (KeyCode.None = 0)
+            // instead of its C# initializer, which would hand the Sponsor two keys that do nothing. This tool has
+            // already shipped a dead key to him twice (the ';'/'\'' axe-head dial on his Danish layout, and PgUp/PgDn
+            // silently no-oping behind an unstated precondition), so the shipped value gets read, not reasoned about.
+            EditorSceneManager.OpenScene("Assets/Scenes/Boot.unity", OpenSceneMode.Single);
+            AxeNudgeTool tool = null;
+            foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+            {
+                tool = root.GetComponentInChildren<AxeNudgeTool>(true);
+                if (tool != null) break;
+            }
+            Assert.IsNotNull(tool, "the Boot scene must carry the AxeNudgeTool — it is the instrument this round ships");
+            Assert.AreEqual(KeyCode.R, tool.haftUpKey,
+                "the SHIPPED along-haft UP key must be [R]. KeyCode.None here means the field deserialised to the " +
+                "enum's zero and the soak brief would quote a key that moves nothing.");
+            Assert.AreEqual(KeyCode.V, tool.haftDownKey, "…and the DOWN key must be [V].");
         }
 
         // ==============================================================================================================
