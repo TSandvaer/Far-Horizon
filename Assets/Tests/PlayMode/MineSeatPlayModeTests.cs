@@ -50,8 +50,15 @@ namespace FarHorizon.PlayTests
         private static readonly Vector3 CarryLeftEuler = new Vector3(-5f, 22f, 0f);     // CastawayV4LeftArmEuler
         private static readonly Vector3 SeatOffset = new Vector3(0.0182f, 0.0415f, 0.0492f); // HeldAxeV4LocalOffsetFromHand
         private static readonly Vector3 SeatEuler = new Vector3(-48.9f, -125.0f, -106.3f);   // HeldAxeV4RelEuler
-        private static readonly Vector3 MineSeatOffsetDelta = new Vector3(0.2351f, -0.2781f, -0.3045f);
-        private static readonly Vector3 MineSeatEulerDelta = new Vector3(55.9f, 88.6f, 56.1f);
+        private static readonly Vector3 MineSeatOffsetDelta = new Vector3(-0.2491f, -0.3928f, -0.3109f);
+        private static readonly Vector3 MineSeatEulerDelta = new Vector3(-24.7f, 70.0f, 23.7f);
+        // ⚠ LOAD-BEARING. CastawayHandPose (DefaultExecutionOrder 65) right-multiplies these onto the HAND bones —
+        // AFTER CastawayArmPose (50) and BEFORE HeldToolRig (100), which seats the tool off hand.ROTATION. An earlier
+        // version of this fixture omitted them, and so did the editor fit; both therefore agreed with each other at
+        // 0.61 SW while the SHIPPED exe measured 1.22 SW. Two instruments sharing one blind spot look like
+        // corroboration — only the shipped-build gate caught it. Never model this chain without order 65.
+        private static readonly Vector3 RightWristEuler = new Vector3(-22.0f, 250.0f, -30.0f);  // CastawayV4RightWristEuler
+        private static readonly Vector3 LeftWristEuler = new Vector3(-21.8f, 282.6f, 3.7f);     // CastawayV4LeftWristEuler
         private const float HeldScaleUniform = 0.45f;   // HeldAxeLocalScaleUniform
         private const float GripShiftY = 0f;            // HeldAxeGripShiftY
         private const float AvatarScale = 1.8f;
@@ -113,6 +120,7 @@ namespace FarHorizon.PlayTests
             // 100x the tool, so every distance-to-haft figure is meaningless while still LOOKING plausible — a
             // shoulder-width-normalised number stays in a believable range because both hands are simply far from a
             // tiny haft. Log the three numbers that discriminate it and assert the tool/skeleton scales agree.
+            ApplyPoseChain();
             _rig.ApplySeat(Dt);
             _rig.TryGetHaftSegment(out Vector3 g0, out Vector3 h0);
             float sw0 = (_rArm.position - _lArm.position).magnitude;
@@ -158,13 +166,19 @@ namespace FarHorizon.PlayTests
             if (rootMr != null) Object.DestroyImmediate(rootMr);
         }
 
-        /// <summary>Pose the arms exactly as CastawayArmPose.LateUpdate (order 50) does — the additive right-multiply
-        /// on the UPPER arms, composed on the clip pose the Animator just wrote. The MINE de-grip is deliberately
-        /// omitted: after the round-2 reversal it ships ZERO, so the arms are exactly as authored.</summary>
-        private void ApplyArmPose()
+        /// <summary>Pose the rig exactly as the shipped LateUpdate chain does, IN ORDER: CastawayArmPose (50) on the
+        /// UPPER arms, then CastawayHandPose (65) on the HAND bones. Both are additive right-multiplies composed on
+        /// the clip pose the Animator just wrote. The MINE de-grip is deliberately omitted — after the round-2
+        /// reversal it ships ZERO, so the arms are exactly as authored.
+        ///
+        /// Order 65 is NOT optional here: HeldToolRig (100) seats the tool off hand.ROTATION, so skipping the wrist
+        /// measures the tool against a right hand a quarter-turn from the live one.</summary>
+        private void ApplyPoseChain()
         {
             _rArm.localRotation = _rArm.localRotation * Quaternion.Euler(CarryRightEuler);
             _lArm.localRotation = _lArm.localRotation * Quaternion.Euler(CarryLeftEuler);
+            _rHand.localRotation = _rHand.localRotation * Quaternion.Euler(RightWristEuler);
+            _lHand.localRotation = _lHand.localRotation * Quaternion.Euler(LeftWristEuler);
         }
 
         private void TriggerMineSwing()
@@ -234,7 +248,7 @@ namespace FarHorizon.PlayTests
                 // be asserting against a pose the player is not being shown as a mine swing.
                 weight = CastawayArmPose.NextMineDeGripWeight(weight, owns, 12f, Dt);
                 if (!owns) continue;
-                ApplyArmPose();
+                ApplyPoseChain();
 
                 var off = ReadAt(0f);   // pre-86cay4282 one-handed seat
                 var on = ReadAt(1f);    // the shipped MINE seat, fully engaged — SAME animation frame

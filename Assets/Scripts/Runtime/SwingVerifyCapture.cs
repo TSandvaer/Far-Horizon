@@ -96,6 +96,9 @@ namespace FarHorizon
         // the transition-paired gate engages before the seat has eased in, so the early frames legitimately show the
         // approved one-handed seat and must not be judged as a failed two-hand grip.
         private const float EngagedWeightFloor = 0.95f;
+        // The hero held-tool object name (must match MovementCameraScene.HeroAxeObjectName — kept as a literal so
+        // Runtime has no Editor-asm dependency, the same convention AxeNudgeTool follows).
+        private const string HeroToolObjectName = "HeroAxe";
 
         // The 5 per-class swings, in WeaponClass order (mirror CastawayCharacter.WeaponClass*). Names drive the PNG.
         private static readonly (int weaponClass, string name)[] Swings =
@@ -236,7 +239,41 @@ namespace FarHorizon
                     Transform rArm = FindBone(animator.transform, "mixamorig:RightArm");
                     Transform lHand = FindBone(animator.transform, "mixamorig:LeftHand");
                     Transform rHand = FindBone(animator.transform, "mixamorig:RightHand");
-                    var heldRig = Object.FindAnyObjectByType<HeldToolRig>(FindObjectsInactive.Include);
+                    // Resolve the HERO tool rig BY NAME, not by FindAnyObjectByType: the latter returns an
+                    // arbitrary instance if the scene ever carries a second HeldToolRig, and measuring a tool that
+                    // is not the one in the hand would produce plausible-looking nonsense.
+                    Transform heroTool = null;
+                    foreach (var tr in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include,
+                                                                           FindObjectsSortMode.None))
+                        if (tr.name == HeroToolObjectName) { heroTool = tr; break; }
+                    var heldRig = heroTool != null ? heroTool.GetComponent<HeldToolRig>() : null;
+
+                    // ⚠ DISPLAY THE PICKAXE BEFORE JUDGING A PICKAXE SWING. The held mesh SYNCS TO THE BELT
+                    // SELECTION (HeldWeaponCycleDebug.SelectionIndexFor), and this verify run selects nothing, so
+                    // the hand shows the DEFAULT stone AXE while TriggerAttack plays the PICKAXE clip. The seat
+                    // delta is fitted to the pickaxe's own haft + per-class holder dial, so scoring it against the
+                    // axe mesh measures a combination that CANNOT occur in play (a mine swing requires a pickaxe
+                    // selected) — the first run of this gate reported 1.589 SW for exactly that reason before the
+                    // mesh was pinned. ShowWeaponForCaptureDebug is the existing capture-only forcing path
+                    // (86cam9q5f, the -verifyHeldPickaxe idiom); it is not a gameplay path.
+                    var cycle = heroTool != null ? heroTool.GetComponent<HeldWeaponCycleDebug>() : null;
+                    if (cycle != null)
+                    {
+                        cycle.ShowWeaponForCaptureDebug(HeldWeaponCycleDebug.PickaxeStoneFamilyIndex);
+                        for (int i = 0; i < 3; i++) yield return null;
+                        Debug.Log($"[swing-twohand] displayed held weapon forced to " +
+                                  $"'{cycle.CurrentLabel}' (index {cycle.CurrentIndex}, expected " +
+                                  $"{HeldWeaponCycleDebug.PickaxeStoneFamilyIndex}) — the mine swing is only " +
+                                  "reachable with a pickaxe selected, so this is the combination that ships.");
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[swing-twohand] no HeldWeaponCycleDebug on '" + HeroToolObjectName +
+                                         "' — cannot force the pickaxe mesh; the grip figures below would be " +
+                                         "measured against whatever mesh happens to be displayed. Treat them as " +
+                                         "UNRELIABLE rather than as a verdict.");
+                    }
+
                     if (lArm == null || rArm == null || lHand == null || rHand == null || heldRig == null)
                     {
                         Debug.LogWarning("[SwingVerifyCapture] two-hand grip pass SKIPPED — arm/hand bones (" +
@@ -325,7 +362,7 @@ namespace FarHorizon
                                   $"rightOnHaft={rightOn} ({worstRightHaft:F3} <= {TwoHandGripRead.RightHaftPassSW:F2} " +
                                   $"SW) => gripOk={gripOk}. A FALSE 'engaged' means the AttackPickaxe gate never " +
                                   "fired in the shipped exe; a false 'leftOnHaft' means the seat delta is reverted, " +
-                                  "inverted or too small (pre-fix measured 1.445 SW); a false 'rightOnHaft' means " +
+                                  "inverted or too small (pre-fix measured 1.476 SW); a false 'rightOnHaft' means " +
                                   "the delta pulled the haft out of the hand it is actually seated in.");
                     }
                 }

@@ -67,10 +67,15 @@ namespace FarHorizon
         // delta applies to the entire swing by construction and the required delta closes analytically rather than
         // needing a search: rotate the haft onto the line through both hands, then slide it so the line passes
         // through the (real) right-hand grip. Result, live re-measure:
-        //     left hand to haft   mean 1.269 -> 0.454 SW   MAX 1.445 -> 0.612 SW
-        //     right hand to haft  mean 0.166 -> 0.025 SW   MAX 0.179 -> 0.027 SW
-        //     tool vs hand line   MAX  89.7  -> 31.9 deg
-        //     haft-to-torso clearance MIN 0.326 -> 0.559 SW   (it moves AWAY from the body — no traded defect)
+        //     left hand to haft   mean 1.277 -> 0.445 SW   MAX 1.476 -> 0.615 SW
+        //     right hand to haft  mean 0.166 -> 0.000 SW   MAX 0.179 -> 0.000 SW
+        //     tool vs hand line   MAX  90.0  -> 32.7 deg
+        //     haft-to-torso clearance MIN 0.468 -> 0.557 SW   (it moves AWAY from the body — no traded defect)
+        //
+        // The fit MUST include CastawayHandPose's order-65 WRIST offset. It is composed onto the hand bones
+        // between the arm pose (50) and this seat (100), and this seat reads hand.ROTATION — so a measurement that
+        // skips it fits the tool to a right hand a quarter-turn away from the live one. An earlier pass did skip it
+        // and the shipped-build gate measured 1.220 SW against a predicted 0.611.
         //
         // WHY IT IS STATE-GATED, not a global re-seat: this delta is only correct for the ONE clip whose hands are
         // locked on a shared haft. Every other state — carry, idle, walk, run, jump, and the other four swings —
@@ -90,13 +95,13 @@ namespace FarHorizon
                  "its LINE passes through both hands. Zero elsewhere. Baked editor-time from " +
                  "MovementCameraScene.HeldToolMineSeatOffsetDelta (the authoritative ship source); the F9 " +
                  "AxeNudgeTool MINE-SEAT target dials it live and the Sponsor bakes the value back there.")]
-        public Vector3 mineSeatOffsetDelta = new Vector3(0.2351f, -0.2781f, -0.3045f);
+        public Vector3 mineSeatOffsetDelta = new Vector3(-0.2491f, -0.3928f, -0.3109f);
 
         [Tooltip("TOOL-LOCAL rotation delta right-multiplied onto seatEuler at full MINE weight — turns the haft " +
-                 "onto the line through both hands (the measured fit: 89.7 deg off -> 31.9 deg). Composed in the " +
+                 "onto the line through both hands (the measured fit: 90.0 deg off -> 32.7 deg). Composed in the " +
                  "tool's OWN frame (unity6-mastery.md §5: right-multiply, never per-component euler accumulation), " +
                  "the same frame the F9 dial nudges in, so dialled == baked == applied.")]
-        public Vector3 mineSeatEulerDelta = new Vector3(55.9f, 88.6f, 56.1f);
+        public Vector3 mineSeatEulerDelta = new Vector3(-24.7f, 70.0f, 23.7f);
 
         [Tooltip("Per-second blend rate for the MINE seat weight. Matches CastawayArmPose.mineDeGripBlendRate (12/s " +
                  "~= 0.25 s to 95%) DELIBERATELY: the two offsets share one gate and one ease so the haft never " +

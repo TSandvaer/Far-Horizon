@@ -558,6 +558,19 @@ namespace FarHorizon.EditorTools
 
             Vector3 armR = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4RightArmEuler : Vector3.zero;
             Vector3 armL = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4LeftArmEuler : Vector3.zero;
+            // ⚠ THE WRIST OFFSETS ARE LOAD-BEARING FOR A HELD PROP AND WERE MISSING FROM THIS INSTRUMENT.
+            // CastawayHandPose (DefaultExecutionOrder 65) right-multiplies these onto the HAND bones — i.e. AFTER
+            // CastawayArmPose (50) and BEFORE HeldToolRig (100), which seats the prop off `hand.rotation`. The v4
+            // right wrist ships (-22, 250, -30), so omitting it measures the prop against a right-hand orientation
+            // that differs from the live one by a quarter-turn. That omission made this pass (and the PlayMode
+            // fixture, which shared it) predict a 0.611 SW two-hand fit that the SHIPPED exe measured at 1.220 SW —
+            // both instruments were blind the same way, and only the shipped-build gate caught it. The commonly
+            // quoted chain "Animator -> CastawayArmPose (50) -> HeldAxeRig (100)" is INCOMPLETE for anything that
+            // reads a hand transform.
+            Vector3 wristR = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4RightWristEuler : Vector3.zero;
+            Vector3 wristL = CharacterAssetGen.UseCastawayV4 ? MovementCameraScene.CastawayV4LeftWristEuler : Vector3.zero;
+            sb.AppendLine($"[prop-diag] shipped wrist (order 65, CastawayHandPose): right={wristR:F1} left={wristL:F1} " +
+                          "— composed onto the HAND bones BEFORE the seat reads hand.rotation.");
 
             foreach (var (label, clip, fbx, idx) in work)
             {
@@ -573,9 +586,9 @@ namespace FarHorizon.EditorTools
                 // offset. Pass 1 = the shipped chain. Pass 2 = the SAME chain with the arm offset forced to
                 // identity. If the two agree, the arm offset does not own the defect — measured, not argued.
                 PropSeatPass(sb, label, clip, model, hips, head, lArm, rArm, lHand, rHand, rFore,
-                             prop, seatOffset, seatEuler, armR, armL, applyArmPose: true, verbose: true);
+                             prop, seatOffset, seatEuler, armR, armL, wristR, wristL, applyArmPose: true, verbose: true);
                 PropSeatPass(sb, label, clip, model, hips, head, lArm, rArm, lHand, rHand, rFore,
-                             prop, seatOffset, seatEuler, armR, armL, applyArmPose: false, verbose: false);
+                             prop, seatOffset, seatEuler, armR, armL, wristR, wristL, applyArmPose: false, verbose: false);
 
                 // The de-grip SIZING pass runs only on the two-handed suspect.
                 if (label == "pickaxe")
@@ -585,7 +598,7 @@ namespace FarHorizon.EditorTools
                     // 86cay4282 ROUND 2 — the Sponsor REVERSED the direction ("we need to position the axe for a
                     // two hand grip"), so the clip is right and the TOOL is in the wrong place. Fit the seat.
                     MineSeatFit(sb, clip, model, hips, head, lArm, rArm, lHand, rHand,
-                                prop, seatOffset, seatEuler, armR, armL);
+                                prop, seatOffset, seatEuler, armR, armL, wristR, wristL);
                 }
 
                 Object.DestroyImmediate(prop.root.gameObject);
@@ -730,11 +743,20 @@ namespace FarHorizon.EditorTools
         private static void MineSeatFit(StringBuilder sb, AnimationClip clip, GameObject model,
             Transform hips, Transform head, Transform lArm, Transform rArm,
             Transform lHand, Transform rHand,
-            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL)
+            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
+            Vector3 wristR, Vector3 wristL)
         {
-            const int N = 61;
+            // DENSE sampling (86cay4282 round 2). 61 samples over a ~5.2 s clip is one every ~0.085 s, and the
+            // FINE-window pass measures whole-skeleton steps up to ~20.8 deg per AUTHORED frame — so a coarse grid
+            // can STEP OVER a fast hand-line excursion and report a fit that the 60 fps shipped gate then fails.
+            // That is exactly what happened: the 61-sample fit predicted a 0.612 SW worst frame and the shipped
+            // exe measured 1.220 SW. This is the registry's own documented caveat on this instrument ("a feature
+            // narrower than clip_length/24 is invisible") biting the pass that was added to it.
+            const int N = 361;
             var qR = Quaternion.Euler(armR);
             var qL = Quaternion.Euler(armL);
+            var qWristR = Quaternion.Euler(wristR);
+            var qWristL = Quaternion.Euler(wristL);
             var qSeat = Quaternion.Euler(seatEuler);
 
             sb.AppendLine("[seat-fit]   --- MINE-STATE SEAT FIT (86cay4282 round 2: move the HAFT to the HANDS) ---");
@@ -752,6 +774,8 @@ namespace FarHorizon.EditorTools
                 clip.SampleAnimation(model, nt * clip.length);
                 rArm.localRotation = rArm.localRotation * qR;
                 lArm.localRotation = lArm.localRotation * qL;
+                rHand.localRotation = rHand.localRotation * qWristR;   // order 65 — feeds the seat's hand.rotation
+                lHand.localRotation = lHand.localRotation * qWristL;
                 prop.root.position = rHand.position + rHand.rotation * seatOffset;
                 prop.root.rotation = rHand.rotation * qSeat;
 
@@ -832,7 +856,7 @@ namespace FarHorizon.EditorTools
                 // Re-measure the WHOLE clip with the candidate applied — the fit is judged on the real per-frame
                 // geometry, never on the mean it was derived from.
                 Fitted(sb, tag, clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
-                       seatOffset, seatEuler, armR, armL, dPos, eEuler, haftLen);
+                       seatOffset, seatEuler, armR, armL, wristR, wristL, dPos, eEuler, haftLen);
                 sb.AppendLine($"[seat-fit]     {tag} BAKE  HeldToolMineSeatOffsetDelta=" +
                               $"({dPos.x:F4}f,{dPos.y:F4}f,{dPos.z:F4}f)  HeldToolMineSeatEulerDelta=" +
                               $"({eEuler.x:F1}f,{eEuler.y:F1}f,{eEuler.z:F1}f)");
@@ -840,7 +864,7 @@ namespace FarHorizon.EditorTools
 
             // The ZERO-DELTA control, same metrics, so the improvement is a measured delta not a claim.
             Fitted(sb, "ZERO (shipped today)", clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
-                   seatOffset, seatEuler, armR, armL, Vector3.zero, Vector3.zero, haftLen);
+                   seatOffset, seatEuler, armR, armL, wristR, wristL, Vector3.zero, Vector3.zero, haftLen);
 
             // ---- REFINE. The two closed-form fits above aim the haft at the MEAN hand-line direction and pin the
             // line through the right hand exactly, so the whole 36.6deg direction spread lands on the LEFT hand.
@@ -852,7 +876,7 @@ namespace FarHorizon.EditorTools
             // winner is then RE-MEASURED through the live SampleAnimation path (Fitted) as the cross-check that the
             // closed-form maths and the real skeleton agree.
             RefineMineSeat(sb, clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
-                           seatOffset, seatEuler, armR, armL, lhs, sws, gh, hh, dMean, haftLen);
+                           seatOffset, seatEuler, armR, armL, wristR, wristL, lhs, sws, gh, hh, dMean, haftLen);
         }
 
         /// <summary>
@@ -864,6 +888,7 @@ namespace FarHorizon.EditorTools
         private static void RefineMineSeat(StringBuilder sb, AnimationClip clip, GameObject model,
             Transform hips, Transform head, Transform lArm, Transform rArm, Transform lHand, Transform rHand,
             in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
+            Vector3 wristR, Vector3 wristL,
             List<Vector3> lhs, List<float> sws, Vector3 gh, Vector3 hh, Vector3 dMean, float haftLen)
         {
             // The right hand IS the physical grip; keep it essentially on the haft. 0.08 SW ~= 3.7 cm at this rig.
@@ -930,7 +955,7 @@ namespace FarHorizon.EditorTools
                           $"haft, slide {bestB:F3} toward the hand midpoint): predicted lHaft mean {bestLMean:F3} " +
                           $"MAX {bestL:F3} SW, rHaft MAX {bestR:F3} SW (cap {RightHaftCapSW:F2})");
             Fitted(sb, "REFINED (live re-measure)", clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
-                   seatOffset, seatEuler, armR, armL, dPos, eEuler, haftLen);
+                   seatOffset, seatEuler, armR, armL, wristR, wristL, dPos, eEuler, haftLen);
             sb.AppendLine($"[seat-fit]     REFINED BAKE  HeldToolMineSeatOffsetDelta=" +
                           $"({dPos.x:F4}f,{dPos.y:F4}f,{dPos.z:F4}f)  HeldToolMineSeatEulerDelta=" +
                           $"({eEuler.x:F1}f,{eEuler.y:F1}f,{eEuler.z:F1}f)");
@@ -953,9 +978,11 @@ namespace FarHorizon.EditorTools
         private static void Fitted(StringBuilder sb, string tag, AnimationClip clip, GameObject model,
             Transform hips, Transform head, Transform lArm, Transform rArm, Transform lHand, Transform rHand,
             in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
-            Vector3 posDelta, Vector3 eulerDelta, float haftLen)
+            Vector3 wristR, Vector3 wristL, Vector3 posDelta, Vector3 eulerDelta, float haftLen)
         {
-            const int N = 61;
+            // DENSE — see the note in MineSeatFit: a coarse grid steps over the transient the shipped 60 fps gate
+            // catches, so a fit scored on it over-promises.
+            const int N = 361;
             var qR = Quaternion.Euler(armR);
             var qL = Quaternion.Euler(armL);
             Quaternion seatQ = Quaternion.Euler(seatEuler) * Quaternion.Euler(eulerDelta);
@@ -977,6 +1004,8 @@ namespace FarHorizon.EditorTools
                 clip.SampleAnimation(model, nt * clip.length);
                 rArm.localRotation = rArm.localRotation * qR;
                 lArm.localRotation = lArm.localRotation * qL;
+                rHand.localRotation = rHand.localRotation * Quaternion.Euler(wristR);   // order 65
+                lHand.localRotation = lHand.localRotation * Quaternion.Euler(wristL);
                 prop.root.position = rHand.position + rHand.rotation * (seatOffset + posDelta);
                 prop.root.rotation = rHand.rotation * seatQ;
 
@@ -1052,11 +1081,13 @@ namespace FarHorizon.EditorTools
             Transform hips, Transform head, Transform lArm, Transform rArm,
             Transform lHand, Transform rHand, Transform rFore,
             in PropRig prop, Vector3 seatOffset, Vector3 seatEuler,
-            Vector3 armR, Vector3 armL, bool applyArmPose, bool verbose)
+            Vector3 armR, Vector3 armL, Vector3 wristR, Vector3 wristL, bool applyArmPose, bool verbose)
         {
             const int N = 31;
             var qR = Quaternion.Euler(armR);
             var qL = Quaternion.Euler(armL);
+            var qWristR = Quaternion.Euler(wristR);
+            var qWristL = Quaternion.Euler(wristL);
 
             float gripMin = float.MaxValue, gripMax = float.MinValue;
             float foreMin = 999f, foreMax = -999f;
@@ -1091,6 +1122,11 @@ namespace FarHorizon.EditorTools
                     rArm.localRotation = rArm.localRotation * qR;
                     lArm.localRotation = lArm.localRotation * qL;
                 }
+
+                // Replicate CastawayHandPose.LateUpdate (order 65) — the WRIST offsets, composed on the HAND bones
+                // between the arm pose and the seat. Load-bearing: the seat below reads rHand.ROTATION.
+                rHand.localRotation = rHand.localRotation * qWristR;
+                lHand.localRotation = lHand.localRotation * qWristL;
 
                 // Replicate HeldToolRig.LateUpdate (order 100) on the already-posed hand.
                 prop.root.position = rHand.position + rHand.rotation * seatOffset;

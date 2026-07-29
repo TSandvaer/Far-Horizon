@@ -254,8 +254,8 @@ namespace FarHorizon.EditTests
             if (q > 180f) q = 360f - q;
 
             Assert.Greater(q, 40f,
-                $"|Q|={q:F1} deg — the measured two-hand fit turns the haft from 89.7 deg off the hand line to " +
-                "31.9 deg, which is a large rotation by necessity, not by accident.");
+                $"|Q|={q:F1} deg — the measured two-hand fit turns the haft from 90.0 deg off the hand line to " +
+                "32.7 deg, which is a large rotation by necessity, not by accident.");
             Assert.IsFalse(CastawayCharacter.MineSwingOwnsPoseFor(Hash(CastawayCharacter.IdleState), false, 0),
                 $"|Q|={q:F1} deg is far into the '>~40 deg needs a state gate' band, so the seat delta MUST be inert " +
                 "outside its own state. If this ever passes for a locomotion state the seat is leaking into every " +

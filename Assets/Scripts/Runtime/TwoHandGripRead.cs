@@ -29,13 +29,18 @@ namespace FarHorizon
         // THRESHOLDS — set FROM MEASUREMENT (AttackClipPoseDiag MINE-SEAT FIT pass on the live rig, 61 samples of
         // the shipped repaired pickaxe clip; full table in the PR body):
         //
-        //   pre-fix (zero delta)      lHaft mean 1.269  MAX 1.445 SW | rHaft mean 0.166 MAX 0.179 SW | 89.7 deg off
-        //   SHIPPED (refined fit)     lHaft mean 0.454  MAX 0.612 SW | rHaft mean 0.025 MAX 0.027 SW | 31.9 deg off
+        //   pre-fix (zero delta)      lHaft mean 1.277  MAX 1.476 SW | rHaft mean 0.166 MAX 0.179 SW | 90.0 deg off
+        //   SHIPPED (refined fit)     lHaft mean 0.445  MAX 0.615 SW | rHaft mean 0.000 MAX 0.000 SW | 32.7 deg off
         //
-        // The LEFT cap is deliberately LOOSE (0.80 vs the shipped 0.612): it sits clear above the shipped worst frame
+        // Both rows are WRIST-INCLUSIVE: CastawayHandPose (order 65) composes the wrist offset onto the hand bones
+        // between the arm pose (50) and the seat (100), and the seat reads hand.rotation, so a fit measured without
+        // it aims the haft at a hand a quarter-turn away. An earlier pass omitted it and the shipped gate measured
+        // 1.220 SW against a predicted 0.611.
+        //
+        // The LEFT cap is deliberately LOOSE (0.80 vs the shipped 0.615): it sits clear above the shipped worst frame
         // so neither real frame-timing jitter nor the Sponsor re-dialling the seat at the soak can red a build over a
-        // taste change, yet well below the 1.445 pre-fix worst frame so a reverted / inverted / ungated delta DOES
-        // red. The RIGHT cap is TIGHT (0.30 vs the shipped 0.027) because the right hand is the tool's REAL physical
+        // taste change, yet well below the 1.476 pre-fix worst frame so a reverted / inverted / ungated delta DOES
+        // red. The RIGHT cap is TIGHT (0.30 vs the shipped 0.000) because the right hand is the tool's REAL physical
         // grip — a right hand off its own haft is a worse defect than a phantom left hand slightly off it, and a
         // single shared loose cap would not catch it.
         //

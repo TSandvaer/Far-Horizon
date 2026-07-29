@@ -16,8 +16,9 @@ namespace FarHorizon.EditTests
     /// THE MEASUREMENT (AttackClipPoseDiag MINE-SEAT FIT pass, live rig, shipped repaired pickaxe clip, 61 samples;
     /// the live re-measure of the shipped delta reproduced the closed-form prediction exactly):
     ///     candidate            left-hand-to-haft      right-hand-to-haft   tool vs hand line   haft-torso clear
-    ///     ZERO (round-1 seat)  mean 1.269  MAX 1.445  mean 0.166 / 0.179   89.7 deg            0.326
-    ///     SHIPPED (refined)    mean 0.454  MAX 0.612  mean 0.025 / 0.027   31.9 deg            0.559
+    ///     ZERO (round-1 seat)  mean 1.277  MAX 1.476  mean 0.166 / 0.179   90.0 deg            0.468
+    ///     SHIPPED (refined)    mean 0.445  MAX 0.615  mean 0.000 / 0.000   32.7 deg            0.557
+    /// (both rows are WRIST-INCLUSIVE: CastawayHandPose order 65 feeds the seat's hand.rotation)
     ///
     /// WHAT THIS FILE PINS — each a bug CLASS, not a value:
     ///   1. REST IS BYTE-UNCHANGED. At weight 0 both seat channels are the exact identity, so the carry / idle /
@@ -38,10 +39,10 @@ namespace FarHorizon.EditTests
         private const float Dt = 1f / 60f;
 
         // The measured figures the caps are calibrated against (AttackClipPoseDiag MINE-SEAT FIT, live re-measure).
-        private const float PreFixWorstLeftSW = 1.445f;
-        private const float ShippedWorstLeftSW = 0.612f;
+        private const float PreFixWorstLeftSW = 1.476f;
+        private const float ShippedWorstLeftSW = 0.615f;
         private const float PreFixWorstRightSW = 0.179f;
-        private const float ShippedWorstRightSW = 0.027f;
+        private const float ShippedWorstRightSW = 0.000f;
 
         // ==============================================================================================
         // 1 + 2 — REST IS BYTE-UNCHANGED, AND THE DELTA REALLY MOVES THE HAFT.
@@ -76,13 +77,13 @@ namespace FarHorizon.EditTests
             Vector3 dRot = MovementCameraScene.HeldToolMineSeatEulerDelta;
 
             Assert.Greater(dPos.magnitude, 0.05f,
-                "the shipped seat must actually SLIDE the haft (measured fit: 0.235, -0.278, -0.305 hand-local) — a " +
+                "the shipped seat must actually SLIDE the haft (measured fit: -0.249, -0.393, -0.311 hand-local) — a " +
                 "zero here means the round-2 fix ships inert and the Sponsor gets the identical broken build back.");
             float turned = Quaternion.Angle(Quaternion.Euler(seatEuler),
                                             Quaternion.Euler(seatEuler) * Quaternion.Euler(dRot));
             Assert.Greater(turned, 40f,
                 $"the shipped seat must actually TURN the haft onto the hand line (got {turned:F1} deg); the measured " +
-                "fit takes the tool from 89.7 deg off the hand line to 31.9 deg.");
+                "fit takes the tool from 90.0 deg off the hand line to 32.7 deg.");
         }
 
         // ==============================================================================================
@@ -208,10 +209,15 @@ namespace FarHorizon.EditTests
             // silent-drift hole: a re-bake would leave the PlayMode test measuring a fiction while staying green.
             // This closes it from the EditMode side (which CAN see both) — change a bake constant and THIS reds,
             // naming the file to update. The pre-existing MineDeGripPlayModeTests mirror is pinned here too.
-            Assert.AreEqual(new Vector3(0.2351f, -0.2781f, -0.3045f), MovementCameraScene.HeldToolMineSeatOffsetDelta,
+            Assert.AreEqual(new Vector3(-0.2491f, -0.3928f, -0.3109f), MovementCameraScene.HeldToolMineSeatOffsetDelta,
                 "MineSeatPlayModeTests.MineSeatOffsetDelta mirror is stale");
-            Assert.AreEqual(new Vector3(55.9f, 88.6f, 56.1f), MovementCameraScene.HeldToolMineSeatEulerDelta,
+            Assert.AreEqual(new Vector3(-24.7f, 70.0f, 23.7f), MovementCameraScene.HeldToolMineSeatEulerDelta,
                 "MineSeatPlayModeTests.MineSeatEulerDelta mirror is stale");
+            Assert.AreEqual(new Vector3(-22.0f, 250.0f, -30.0f), MovementCameraScene.CastawayV4RightWristEuler,
+                "MineSeatPlayModeTests.RightWristEuler mirror is stale - LOAD-BEARING: the seat reads hand.rotation, " +
+                "so a wrist change silently re-aims the haft");
+            Assert.AreEqual(new Vector3(-21.8f, 282.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
+                "MineSeatPlayModeTests.LeftWristEuler mirror is stale");
             Assert.AreEqual(new Vector3(0.0182f, 0.0415f, 0.0492f), MovementCameraScene.HeldAxeV4LocalOffsetFromHand,
                 "MineSeatPlayModeTests.SeatOffset mirror is stale");
             Assert.AreEqual(new Vector3(-48.9f, -125.0f, -106.3f), MovementCameraScene.HeldAxeV4RelEuler,

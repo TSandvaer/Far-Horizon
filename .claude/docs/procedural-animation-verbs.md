@@ -12,11 +12,18 @@ The codebase has exactly ONE arm-modification idiom: a `LateUpdate` ADDITIVE bon
 
 ```
 Animator (writes clip pose)
-  → CastawayArmPose.LateUpdate [DefaultExecutionOrder 50]  (additive offset + run-lower)
-      → HeldAxeRig.LateUpdate  [DefaultExecutionOrder 100] (seats axe on hand)
+  → CastawayArmPose.LateUpdate    [DefaultExecutionOrder 50]  (additive arm offset + run-lower + mine de-grip)
+      → CastawayFingerCurl        [DefaultExecutionOrder 60]  (finger/thumb curl)
+      → CastawayHandPose          [DefaultExecutionOrder 65]  (WRIST + thumb euler on the HAND bones)
+      → CastawayFootYaw           [DefaultExecutionOrder 70]  (per-foot yaw)
+          → HeldAxeRig/HeldToolRig.LateUpdate [DefaultExecutionOrder 100] (seats the tool on the hand)
 ```
 
 Any action-verb driver MUST run at `DefaultExecutionOrder` < 50 when it writes from `LateUpdate` (so it feeds `CastawayArmPose` BEFORE order 50 applies it). `HeldAxeRig` (order 100) reads the FINAL posed hand and follows automatically — never move the axe directly from the verb driver.
+
+> ⚠ **`CastawayHandPose` (order 65) is part of the held-prop chain, and the short "Animator → CastawayArmPose (50) → HeldAxeRig (100)" form of this chain is INCOMPLETE for anything that reads a hand transform.** The seat is `position = hand.position + hand.rotation * offset` / `rotation = hand.rotation * Euler(seatEuler)` — it consumes **`hand.rotation`**, and order 65 right-multiplies a wrist euler onto that very bone *after* the arm pose and *before* the seat. On v4 that wrist offset is **large** (`CastawayV4RightWristEuler = (-22, 250, -30)` — roughly a quarter-turn), so a measurement, fit or test rig that models orders 50 + 100 but skips 65 aims the prop at a right hand that does not exist. Rotating the hand bone does NOT move `hand.position`, so hand-to-hand DISTANCES look right and only ORIENTATION-dependent quantities go wrong — which makes the omission quiet.
+>
+> **Incident (86cay4282 round 2).** The two-hand-grip seat fit was solved in `AttackClipPoseDiag` and independently re-measured by a live-Animator PlayMode fixture; both replicated orders 50 and 100 only. They agreed with each other at a predicted worst-frame left-hand-to-haft of **0.611–0.615 SW**, and the SHIPPED exe's `-verifySwings` gate then measured **1.220 SW**. Two instruments sharing one blind spot read as corroboration — only the shipped-build gate caught it. Adding order 65 to both changed the fitted delta materially and brought all three into agreement (editor 0.615 / PlayMode 0.615 / shipped 0.629 SW). **Rule: when replicating this chain in any instrument or test rig, enumerate the orders from the component list, not from memory — and treat agreement between two rigs you wrote yourself as weaker evidence than one shipped-build measurement.**
 
 ---
 
