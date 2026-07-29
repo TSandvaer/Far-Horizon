@@ -44,16 +44,19 @@ namespace FarHorizon
     ///   FarHorizon.exe -screen-fullscreen 0 -verifySwings -captureDir &lt;dir&gt;
     /// Captures: swing_axe.png, swing_pickaxe.png, swing_dagger.png, swing_spear.png, swing_sword.png,
     ///           swing_pickaxe_fold.png (gameplay cam at the peak fold), swing_pickaxe_fold_side.png (side profile),
-    ///           swing_pickaxe_degrip.png (gameplay cam at the TIGHTEST-hands frame — 86cay4282),
-    ///           swing_pickaxe_degrip_front.png (FRONTAL, the plane lateral hand separation is visible in).
+    ///           swing_pickaxe_twohand.png (gameplay cam at the WORST two-hand-grip frame — 86cay4282 round 2),
+    ///           swing_pickaxe_twohand_front.png (a CLOSE FRONTAL shot — the plane a hand-on-haft read lives in).
     ///
-    /// MINE DE-GRIP PASS (86cay4282). The second defect from the same soak — "he is swinging like he is handing the
-    /// axe with both hands". Measured cause: the mine clip is authored TWO-HANDED (hands locked 1.09-1.29
-    /// shoulder-widths apart across the whole swing vs the approved idle carry's 1.65-1.89), so the eye reads a haft
-    /// between the hands that the one-handed tool then sits 63.8-89.7 deg off. Same two-pass shape as the fold: pass
-    /// 1 measures the live composed hand separation each frame and finds the TIGHTEST frame, pass 2 re-fires and
-    /// shoots it from the gameplay cam and a FRONTAL cam. Self-asserts BOTH that the de-grip gate actually engaged
-    /// in the shipped exe and that the hands opened past the pre-fix band.
+    /// MINE TWO-HAND GRIP PASS (86cay4282 round 2 — the Sponsor's DIRECTION REVERSAL). The second defect from the
+    /// same soak — "he is swinging like he is handing the axe with both hands". Round 1 treated the mine clip's
+    /// locked-together hands as the defect and gated on the hands OPENING; the Sponsor then reversed the premise
+    /// ("we need to position the axe for a two hand grip"), so the clip is right and the SEAT is the defect. The
+    /// anchor is therefore the real-world one: a two-hand grip is ONE HAFT PASSING THROUGH BOTH HANDS. Same two-pass
+    /// shape as the fold: pass 1 measures each hand's live distance to the haft LINE every frame and finds the WORST
+    /// frame (not the best — shooting the best frame is the false-green class this project has paid for repeatedly),
+    /// pass 2 re-fires and shoots it from the gameplay cam and a CLOSE frontal cam. Self-asserts BOTH that the
+    /// state-gated seat delta actually engaged in the shipped exe and that BOTH hands sit on the haft within the
+    /// shared <see cref="TwoHandGripRead"/> caps.
     /// </summary>
     public class SwingVerifyCapture : MonoBehaviour
     {
@@ -77,14 +80,22 @@ namespace FarHorizon
         // Side-profile stand-off. The castaway is ~1.8u tall; 3u at 45deg FOV frames the whole body with headroom.
         private const float SideProfileDistU = 3f;
 
-        // === MINE DE-GRIP PASS (86cay4282) ===
-        // Live floor for the MINIMUM hand separation (shoulder-widths) across the pickaxe swing. Pre-fix the clip
-        // measures 1.08-1.30 SW (hands locked together = the phantom two-handed grip); the shipped de-grip's editor
-        // sweep predicts 1.51-1.97, and the Sponsor-approved idle carry sits at 1.65-1.89. 1.20 is a deliberately
-        // LOOSE regression floor: it sits clear above the pre-fix minimum so a reverted/inverted/ungated offset
-        // reds, but well below the predicted value so the Sponsor re-dialing the amplitude DOWN at the soak does not
-        // red a build over a taste change. The paired assert on peak weight is what catches "gate never fired".
-        private const float MinHandSeparationSW = 1.20f;
+        // === MINE TWO-HAND GRIP PASS (86cay4282 round 2 — the Sponsor's DIRECTION REVERSAL) ===
+        // Round 1 gated on the hands OPENING (min separation >= 1.20 SW), because it read the mine clip's locked-
+        // together hands as the defect. The Sponsor reversed that premise — "we need to position the axe for a two
+        // hand grip" — so close hands are now CORRECT and that assert is not merely obsolete, it is BACKWARDS: it
+        // would red the very build he asked for. It is replaced by the quantity the reversed goal is defined by,
+        // each hand's distance to the haft LINE (TwoHandGripRead — the same maths + the same caps the F9 panel
+        // draws and the EditMode suite pins, so a gate, a panel and a test cannot disagree about what passes).
+        // Separation is still LOGGED (it explains the residual) but is no longer a pass criterion.
+        // Stand-off for the two-hand grip close-up. 1.6u at 45deg FOV frames chest-to-hands; the 3u whole-body
+        // profile stand-off used for the FOLD read cannot resolve which hand is on the haft (Tess confirmed the
+        // default gameplay frame renders the castaway at ~55x95 px — the reason the front-snap key exists too).
+        private const float GripShotDistU = 1.6f;
+        // Only frames at or above this eased seat weight are SCORED (and shot). See the note at the scoring loop:
+        // the transition-paired gate engages before the seat has eased in, so the early frames legitimately show the
+        // approved one-handed seat and must not be judged as a failed two-hand grip.
+        private const float EngagedWeightFloor = 0.95f;
 
         // The 5 per-class swings, in WeaponClass order (mirror CastawayCharacter.WeaponClass*). Names drive the PNG.
         private static readonly (int weaponClass, string name)[] Swings =
@@ -168,9 +179,9 @@ namespace FarHorizon
             // ===== PICKAXE DEEP-FOLD PASS (86cav8xg9) =====
             float peakTilt = 0f;
             bool foldOk = true;
-            // 86cay4282 — the de-grip pass's readings, hoisted so the final verdict line carries them.
-            float minHandSep = float.MaxValue, peakDeGripWeight = 0f;
-            bool deGripOk = true;
+            // 86cay4282 round 2 — the two-hand-grip pass's readings, hoisted so the final verdict line carries them.
+            float worstLeftHaft = -1f, worstRightHaft = -1f, minHandSep = float.MaxValue, peakSeatWeight = 0f;
+            bool gripOk = true;
             if (castaway != null && animator != null)
             {
                 Transform hips = FindBone(animator.transform, "mixamorig:Hips");
@@ -213,76 +224,109 @@ namespace FarHorizon
                               "(authored) — above the ceiling means the repaired .anim is not the clip being played.");
                     for (int i = 0; i < 18; i++) yield return null;
 
-                    // ===== MINE DE-GRIP PASS (86cay4282) =====
+                    // ===== MINE TWO-HAND GRIP PASS (86cay4282 round 2) =====
                     // Same two-pass shape as the fold, on the OTHER defect the Sponsor reported at the same soak
-                    // ("swinging like he is handing the axe with both hands"). The quantity is HAND SEPARATION in
-                    // shoulder-widths — scale-immune, and the number the whole fix is defined by. Measured on the
-                    // LIVE runtime skeleton so it includes the Animator playback AND the CastawayArmPose de-grip
-                    // composition at its real eased weight: an editor SampleAnimation figure cannot prove the
-                    // shipped exe engages the gate at all.
+                    // ("swinging like he is handing the axe with both hands") — but from the REVERSED direction he
+                    // then chose: the clip is authored two-handed and that is what he wants, so the question is
+                    // whether the HAFT runs through both hands. The quantity is each hand's distance to the haft
+                    // LINE, shoulder-width-normalised (scale-immune). Measured on the LIVE runtime skeleton so it
+                    // includes the Animator playback AND the state-gated seat delta at its real eased weight: an
+                    // editor SampleAnimation figure cannot prove the shipped exe engages the gate at all.
                     Transform lArm = FindBone(animator.transform, "mixamorig:LeftArm");
                     Transform rArm = FindBone(animator.transform, "mixamorig:RightArm");
                     Transform lHand = FindBone(animator.transform, "mixamorig:LeftHand");
                     Transform rHand = FindBone(animator.transform, "mixamorig:RightHand");
-                    var armPose = castaway.GetComponentInChildren<CastawayArmPose>(true);
-                    if (lArm == null || rArm == null || lHand == null || rHand == null)
+                    var heldRig = Object.FindAnyObjectByType<HeldToolRig>(FindObjectsInactive.Include);
+                    if (lArm == null || rArm == null || lHand == null || rHand == null || heldRig == null)
                     {
-                        Debug.LogWarning("[SwingVerifyCapture] de-grip pass SKIPPED — arm/hand bones not found on " +
-                                         "the live rig; the two-handed-read evidence is MISSING from this run (do " +
-                                         "NOT read a PASS here as proof the phantom grip is broken).");
+                        Debug.LogWarning("[SwingVerifyCapture] two-hand grip pass SKIPPED — arm/hand bones (" +
+                                         (lArm != null) + "/" + (rArm != null) + "/" + (lHand != null) + "/" +
+                                         (rHand != null) + ") or the HeldToolRig (" + (heldRig != null) + ") not " +
+                                         "found on the live rig; the two-hand-grip evidence is MISSING from this " +
+                                         "run (do NOT read a PASS here as proof the haft sits in both hands).");
                     }
                     else
                     {
-                        // pass 1 — MEASURE the tightest-hands moment (the worst frame for the two-handed read).
+                        // pass 1 — MEASURE, and find the WORST frame for the two-hand read (the largest left-hand
+                        // gap to the haft). The worst frame is what gets shot: a capture of the best frame is the
+                        // false-green class this project has paid for seven times.
                         castaway.TriggerAttack(CastawayCharacter.WeaponClassPickaxe, 1f);
                         start = Time.time;
-                        float tightAt = 0f;
-                        float weightAtTight = 0f;
+                        float worstAt = 0f, angAtWorst = 0f, weightAtWorst = 0f, rAtWorst = 0f;
+                        int easingFrames = 0;
                         while (Time.time - start < FoldWindowSec)
                         {
-                            float sw = (rArm.position - lArm.position).magnitude;
-                            if (sw > 1e-5f)
+                            if (heldRig.TryGetHaftSegment(out Vector3 gripW, out Vector3 headW))
                             {
-                                float sep = (lHand.position - rHand.position).magnitude / sw;
-                                if (sep < minHandSep)
+                                var read = TwoHandGripRead.Measure(lArm.position, rArm.position,
+                                                                   lHand.position, rHand.position, gripW, headW);
+                                float w = heldRig.MineSeatWeight;
+                                peakSeatWeight = Mathf.Max(peakSeatWeight, w);
+                                if (read.valid)
                                 {
-                                    minHandSep = sep;
-                                    tightAt = Time.time - start;
-                                    weightAtTight = armPose != null ? armPose.MineDeGripWeight : float.NaN;
+                                    minHandSep = Mathf.Min(minHandSep, read.handSepSW);
+                                    // JUDGE ONLY FULLY-ENGAGED FRAMES. The gate is transition-PAIRED, so it goes
+                                    // true on the FIRST frame of the AnyState->AttackPickaxe crossfade — where the
+                                    // arms are still a BLEND of idle and the mine pose and the eased seat weight is
+                                    // still ~0, i.e. the tool is CORRECTLY still at the approved one-handed seat.
+                                    // Scoring those frames measured a worst-case ~1.45 SW that has nothing to do
+                                    // with the fix (found by instrumenting the PlayMode fixture, which hit exactly
+                                    // this and reported 1.451 before the window was corrected). The ~0.25 s ease-in
+                                    // is a deliberate hand-over, not a defect to gate on.
+                                    if (w < EngagedWeightFloor) { easingFrames++; }
+                                    else
+                                    {
+                                        worstRightHaft = Mathf.Max(worstRightHaft, read.rightHaftSW);
+                                        if (read.leftHaftSW > worstLeftHaft)
+                                        {
+                                            worstLeftHaft = read.leftHaftSW;
+                                            worstAt = Time.time - start;
+                                            angAtWorst = read.toolVsHandLineDeg;
+                                            rAtWorst = read.rightHaftSW;
+                                            weightAtWorst = w;
+                                        }
+                                    }
                                 }
-                                peakDeGripWeight = Mathf.Max(peakDeGripWeight,
-                                                             armPose != null ? armPose.MineDeGripWeight : 0f);
                             }
                             worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
                             yield return null;
                         }
-                        Debug.Log($"[swing-degrip] pass 1: MIN hand separation {minHandSep:F3} shoulder-widths at " +
-                                  $"+{tightAt:F2}s (de-grip weight there {weightAtTight:F2}, peak over the swing " +
-                                  $"{peakDeGripWeight:F2}). Pre-fix the clip measured 1.08-1.30 SW; the Sponsor-" +
-                                  "approved idle carry sits at 1.65-1.89.");
+                        Debug.Log($"[swing-twohand] scored frames at seat weight >= {EngagedWeightFloor:F2}; " +
+                                  $"{easingFrames} frames skipped while the seat eased in (the deliberate hand-over " +
+                                  "window — the tool is still at the approved one-handed seat there).");
+                        Debug.Log($"[swing-twohand] pass 1: WORST left-hand-to-haft {worstLeftHaft:F3} SW at " +
+                                  $"+{worstAt:F2}s (right hand {rAtWorst:F3} SW there, tool {angAtWorst:F1}deg off " +
+                                  $"the hand line, seat weight {weightAtWorst:F2}); worst right-hand-to-haft over " +
+                                  $"the swing {worstRightHaft:F3} SW; peak seat weight {peakSeatWeight:F2}; min hand " +
+                                  $"separation {minHandSep:F3} SW (logged for context — NOT a pass criterion since " +
+                                  "the Sponsor's reversal made close hands correct).");
                         for (int i = 0; i < 18; i++) yield return null;
 
-                        // pass 2 — SHOOT that moment: gameplay cam (what he actually sees) + a FRONTAL cam (the
-                        // plane lateral hand separation is visible in — a sagittal shot hides it by occlusion).
+                        // pass 2 — SHOOT that moment: gameplay cam (what he actually sees) + a CLOSE FRONTAL cam
+                        // (hand-on-haft is a LATERAL read; a sagittal shot hides it because the near hand occludes
+                        // the far one, and the gameplay frame is too small to resolve it at all).
                         castaway.TriggerAttack(CastawayCharacter.WeaponClassPickaxe, 1f);
                         start = Time.time;
-                        while (Time.time - start < tightAt) yield return null;
-                        ShotTo(Path.Combine(dir, "swing_pickaxe_degrip.png"));
+                        while (Time.time - start < worstAt) yield return null;
+                        ShotTo(Path.Combine(dir, "swing_pickaxe_twohand.png"));
                         yield return null;
-                        yield return FrontalShot(Path.Combine(dir, "swing_pickaxe_degrip_front.png"), hips, head,
-                                                 castaway.ModelTransform);
+                        yield return FrontalShot(Path.Combine(dir, "swing_pickaxe_twohand_front.png"), hips, head,
+                                                 castaway.ModelTransform, GripShotDistU);
 
-                        // The gate must have ENGAGED at all — a de-grip that never fires would otherwise pass
+                        // The gate must have ENGAGED at all — a seat delta that never fires would otherwise pass
                         // silently while the defect ships (the "wired but conditionally inert" family,
                         // procedural-animation-verbs.md §Debug-instrument caveat).
-                        bool engaged = peakDeGripWeight > 0.5f;
-                        bool opened = minHandSep >= MinHandSeparationSW;
-                        deGripOk = engaged && opened;
-                        Debug.Log($"[swing-degrip] engaged={engaged} (peak weight {peakDeGripWeight:F2} > 0.50) " +
-                                  $"opened={opened} (min sep {minHandSep:F3} >= {MinHandSeparationSW:F2} SW) => " +
-                                  $"deGripOk={deGripOk}. A FALSE 'engaged' means the AttackPickaxe gate never fired " +
-                                  "in the shipped exe; a false 'opened' means the offset is present but too small " +
-                                  "or inverted.");
+                        bool engaged = peakSeatWeight > 0.5f;
+                        bool leftOn = worstLeftHaft >= 0f && worstLeftHaft <= TwoHandGripRead.LeftHaftPassSW;
+                        bool rightOn = worstRightHaft >= 0f && worstRightHaft <= TwoHandGripRead.RightHaftPassSW;
+                        gripOk = engaged && leftOn && rightOn;
+                        Debug.Log($"[swing-twohand] engaged={engaged} (peak seat weight {peakSeatWeight:F2} > 0.50) " +
+                                  $"leftOnHaft={leftOn} ({worstLeftHaft:F3} <= {TwoHandGripRead.LeftHaftPassSW:F2} SW) " +
+                                  $"rightOnHaft={rightOn} ({worstRightHaft:F3} <= {TwoHandGripRead.RightHaftPassSW:F2} " +
+                                  $"SW) => gripOk={gripOk}. A FALSE 'engaged' means the AttackPickaxe gate never " +
+                                  "fired in the shipped exe; a false 'leftOnHaft' means the seat delta is reverted, " +
+                                  "inverted or too small (pre-fix measured 1.445 SW); a false 'rightOnHaft' means " +
+                                  "the delta pulled the haft out of the hand it is actually seated in.");
                     }
                 }
             }
@@ -290,13 +334,14 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.4f);
 
             bool meshStayed = smr != null && worstMeshGap <= ConeExplosionRadiusU;
-            bool pass = allRouted && meshStayed && foldOk && deGripOk;
+            bool pass = allRouted && meshStayed && foldOk && gripOk;
             Debug.Log($"[SwingVerifyCapture] verification complete -> {dir} allRouted={allRouted} " +
                       $"worstMeshGap={worstMeshGap:F2}u (<= {ConeExplosionRadiusU} = mesh stayed at the player, NO " +
                       $"cone-explosion — the Generic-rig bind, 86ca8rdkp) meshStayed={meshStayed} " +
                       $"pickaxePeakTilt={peakTilt:F1}deg foldOk={foldOk} " +
+                      $"worstLeftHaft={worstLeftHaft:F3}SW worstRightHaft={worstRightHaft:F3}SW " +
                       $"minHandSep={(minHandSep == float.MaxValue ? -1f : minHandSep):F3}SW " +
-                      $"peakDeGripWeight={peakDeGripWeight:F2} deGripOk={deGripOk} => PASS={pass}");
+                      $"peakSeatWeight={peakSeatWeight:F2} gripOk={gripOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
         }
 
@@ -312,7 +357,8 @@ namespace FarHorizon
             // The axis comes from the FACING-CARRYING model transform (CastawayCharacter yaws the _model child:
             // "the visual owns facing", unity-conventions.md §FBX/rigs) — NOT from a pelvis BONE axis, whose local
             // frame on an imported Mixamo rig is arbitrary and would aim the camera at a guessed angle.
-            yield return ProfileShot(file, hips, head, facing != null ? facing.right : Vector3.right);
+            yield return ProfileShot(file, hips, head, facing != null ? facing.right : Vector3.right,
+                                     SideProfileDistU);
         }
 
         /// <summary>
@@ -323,14 +369,17 @@ namespace FarHorizon
         /// and for a two-handed-vs-one-handed grip read that plane is the FRONTAL one. #337's side-profile fold shot
         /// is untouched and still taken — this is an ADDITIONAL angle, never a replacement.
         /// </summary>
-        private IEnumerator FrontalShot(string file, Transform hips, Transform head, Transform facing)
+        private IEnumerator FrontalShot(string file, Transform hips, Transform head, Transform facing, float distU)
         {
-            yield return ProfileShot(file, hips, head, facing != null ? facing.forward : Vector3.forward);
+            yield return ProfileShot(file, hips, head, facing != null ? facing.forward : Vector3.forward, distU);
         }
 
         /// <summary>Shared implementation: a level, chest-height shot from a stand-off along the given world axis.
-        /// A raised/angled shot flattens the very geometry these captures exist to judge (the pond top-down lesson).</summary>
-        private IEnumerator ProfileShot(string file, Transform hips, Transform head, Vector3 axis)
+        /// A raised/angled shot flattens the very geometry these captures exist to judge (the pond top-down lesson).
+        /// The stand-off is a PARAMETER, not a constant: the fold read needs the whole body in frame (3u) while the
+        /// two-hand grip read needs the hands legible (1.6u), and using one distance for both makes one of the two
+        /// captures unable to show its own subject.</summary>
+        private IEnumerator ProfileShot(string file, Transform hips, Transform head, Vector3 axis, float distU)
         {
             var wasEnabled = new System.Collections.Generic.List<Camera>();
             foreach (var c in Camera.allCameras)
@@ -343,7 +392,7 @@ namespace FarHorizon
             Vector3 centre = (hips.position + head.position) * 0.5f;
             Vector3 side = Vector3.ProjectOnPlane(axis, Vector3.up);
             if (side.sqrMagnitude < 1e-4f) side = Vector3.right;
-            go.transform.position = centre + side.normalized * SideProfileDistU + Vector3.up * 0.1f;
+            go.transform.position = centre + side.normalized * distU + Vector3.up * 0.1f;
             go.transform.LookAt(centre);
             foreach (var c in wasEnabled) c.enabled = false;
             yield return null;

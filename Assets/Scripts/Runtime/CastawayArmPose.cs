@@ -153,22 +153,29 @@ namespace FarHorizon
                  "sprint start/stop inside the lane never uses this rate, so 86caa83wn's feel is byte-unchanged.")]
         public float runLowerOverlayReleaseRate = 30f;
 
-        [Header("MINE de-grip (86cay4282 — break the pickaxe clip's phantom two-handed grip)")]
+        /// MINE DE-GRIP — RETAINED AS A DIAL, SHIPPED NEUTRAL (86cay4282 round 2, the Sponsor's DIRECTION REVERSAL).
+        ///
+        /// Round 1 read the pickaxe MINE clip's locked-together hands as a defect and opened the LEFT upper arm off
+        /// the haft the clip implies (measured sweep: (-40,0,20) lifted the tightest frame's hand separation from
+        /// 1.08 to 1.51 shoulder-widths). The Sponsor soaked that and reversed the premise, verbatim: "we need to
+        /// position the axe for a two hand grip". So the clip's two-handed motion is what he WANTS — the animation
+        /// was right all along and the TOOL was in the wrong place. The fix moved to the other side of the chain:
+        /// HeldToolRig's state-gated MINE seat delta turns the haft onto the line through both hands.
+        ///
+        /// The MECHANISM IS DELIBERATELY KEPT rather than deleted: it is measured, state-gated, already covered by
+        /// the EditMode + PlayMode suites, and shipping it at ZERO amplitude keeps a free A/B — the F9 MINE target
+        /// dials it live, so if the two-hand seat ever needs the arms opened a touch the knob is already there and
+        /// already gated. Only the shipped AMPLITUDE changed, from (-40,0,20) to zero.
+        [Header("MINE de-grip (86cay4282 — RETAINED as a dial, ships NEUTRAL after the Sponsor's reversal)")]
         [Tooltip("Additive LOCAL-euler offset (deg) blended onto the LEFT upper arm while the AttackPickaxe swing " +
-                 "owns the pose, on top of the carry. The Mixamo mine take is authored TWO-HANDED — measured on the " +
-                 "live rig it locks the hands 1.09-1.29 shoulder-widths apart for the whole swing (idle carry is " +
-                 "1.65-1.89), so the eye reads a haft between them that the one-handed tool then disagrees with by " +
-                 "63.8-89.7 deg. This opens the LEFT arm off that phantom haft. The axis is MEASURED, not assumed: " +
-                 "on this rig's LEFT upper arm a NEGATIVE local-X separates the hands AND increases torso " +
-                 "clearance, while the +X the shipped cheat-sheet calls 'outward' pulls them TOGETHER here (the " +
-                 "left arm is reaching ACROSS the body in this clip, so 'outward from the torso' is not 'away from " +
-                 "the right hand' — +40 X measures lRHand 0.61-0.97, WORSE than the 1.08-1.30 defect). Sweep at 61 " +
-                 "samples, scored on separation AND left-hand clearance to the torso axis: (0,0,0) 1.08-1.30/0.65; " +
-                 "(-25,0,0) 1.23-1.63/0.89; (-40,0,0) 1.30-1.84/0.94; (-40,0,20) 1.51-1.97/1.06 = SHIPPED. Zero at " +
-                 "rest -> identity -> the locked carry/idle/walk/run pose is byte-unchanged. The F9 AxeNudgeTool " +
-                 "(MINE target) dials it in-game; paste MineDeGripEuler to bake into " +
-                 "MovementCameraScene.ArmMineDeGripEuler (the authoritative ship source).")]
-        public Vector3 mineDeGripEuler = new Vector3(-40f, 0f, 20f);
+                 "owns the pose, on top of the carry. SHIPS AT ZERO (round 2): the Sponsor wants the mine swing to " +
+                 "read TWO-HANDED, so the arms are left exactly as the clip authors them and the haft is moved onto " +
+                 "the hands instead (HeldToolRig.mineSeatOffsetDelta / mineSeatEulerDelta). Zero -> identity " +
+                 "quaternion -> EVERY state including the mine swing keeps its authored left-arm pose. The knob is " +
+                 "kept for the A/B: the F9 AxeNudgeTool (MINE target) dials it in-game, and the measured round-1 " +
+                 "sizing was (-40,0,20) = hand separation 1.08 -> 1.51 SW at the tightest frame. Paste " +
+                 "MineDeGripEuler to bake into MovementCameraScene.ArmMineDeGripEuler (the ship source).")]
+        public Vector3 mineDeGripEuler = Vector3.zero;
 
         [Tooltip("Per-second blend rate for the mine de-grip weight. The swing is reached by a 0.06s " +
                  "AnyState->AttackPickaxe crossfade, so the arm must be open by the time the strike reads: 12/s is " +

@@ -259,22 +259,53 @@ namespace FarHorizon.EditorTools
         public static readonly Vector3 ArmRunLowerEuler = new Vector3(-10f, 12f, -42f); // soak #3 dialed run carry
 
         // 86cay4282 — the MINE de-grip: an additive LEFT-upper-arm offset applied only while the AttackPickaxe swing
-        // owns layer 0, breaking the mine clip's phantom two-handed grip. MEASURED, not guessed: the 61-sample sweep
-        // in AttackClipPoseDiag's DE-GRIP SIZING pass scored every candidate on the metric the defect is DEFINED by
-        // (hand separation, shoulder-widths) AND on left-hand clearance to the torso axis, so a candidate that
-        // "fixes" the grip by driving the arm into the body is visible rather than silently picked:
-        //     ( 0,0,  0)  lRHand 1.08-1.30  torsoClear 0.65   <- the defect
-        //     (+40,0, 0)  lRHand 0.61-0.97  torsoClear 0.29   <- the cheat-sheet's "outward" sign: WORSE
-        //     (-25,0, 0)  lRHand 1.23-1.63  torsoClear 0.89
-        //     (-40,0, 0)  lRHand 1.30-1.84  torsoClear 0.94
-        //     (-40,0,20)  lRHand 1.51-1.97  torsoClear 1.06   <- SHIPPED (dominates on all three metrics)
-        //     (-55,0,20)  lRHand 1.56-2.18  torsoClear 1.10
-        //     (  0,0,25)  lRHand 1.24-1.58  torsoClear 0.49   <- +Z ALONE swings the arm across the body
-        // The Sponsor-approved idle carry sits at 1.65-1.89, so the shipped value lifts the swing's TIGHTEST frame
-        // (1.08 -> 1.51) to just under the pose he already accepted, while nearly doubling torso clearance. |Q| =
-        // 44.6deg is in the ">~40deg needs a state gate" band (procedural-animation-verbs.md / 86caxgwbz) — which it
-        // has. Amplitude is a LOOK call: the F9 MINE target dials it live and the Sponsor bakes the value HERE.
-        public static readonly Vector3 ArmMineDeGripEuler = new Vector3(-40f, 0f, 20f);
+        // owns layer 0. ROUND 1 sized it by measurement to break what it read as a phantom two-handed grip; the
+        // 61-sample sweep (AttackClipPoseDiag DE-GRIP SIZING) scored candidates on hand separation AND left-hand
+        // clearance to the torso axis, and (-40,0,20) dominated (separation 1.08 -> 1.51 SW at the tightest frame,
+        // torso clearance 0.65 -> 1.06).
+        //
+        // ROUND 2 — SHIPS ZERO. The Sponsor soaked round 1 and REVERSED the direction, verbatim: "we need to
+        // position the axe for a two hand grip". The mine clip's locked-together hands are therefore CORRECT and
+        // wanted; the defect is the one-handed SEAT, fixed on the tool side by HeldToolMineSeat*Delta below. The
+        // de-grip MECHANISM is kept (state-gated, measured, test-covered) and only its amplitude goes to zero, so
+        // the F9 MINE target remains a live A/B knob if the two-hand seat ever wants the arms opened a touch. The
+        // round-1 value is preserved in this comment as the re-dial starting point, not as a fallback.
+        public static readonly Vector3 ArmMineDeGripEuler = Vector3.zero;
+
+        // ===== 86cay4282 round 2 — THE MINE-STATE HELD-WEAPON SEAT (the Sponsor's "position the axe for a two hand
+        // grip"). A state-gated delta on the held-tool seat, applied ONLY while the AttackPickaxe swing owns layer 0
+        // and eased from zero, so every other state's Sponsor-approved one-handed seat is BYTE-IDENTICAL.
+        //
+        // THE ANCHOR (lowpoly-quality.md §0): a two-handed grip is ONE HAFT PASSING THROUGH BOTH HANDS — both palms
+        // closed on the same stick, so the stick's LINE runs through both of them. The build has to satisfy that
+        // sentence, so the metric is each hand's distance to the haft LINE, not a byte or an angle in isolation.
+        //
+        // MEASURED, not guessed (AttackClipPoseDiag MINE-SEAT FIT pass — the round-2 extension; live rig, shipped
+        // repaired pickaxe clip, 61 samples). The seat is RIGID in the hand's own frame (grip/head drift 1e-6 m over
+        // the whole swing), so ONE constant delta covers the swing by construction and the fit closes analytically:
+        // rotate the haft onto the line through both hands, then slide it so that line passes through the real
+        // right-hand grip. The haft is 1.86 shoulder-widths long and the hands sit 1.02-1.33 SW apart (0.72 of the
+        // haft), so both hands genuinely FIT on it — the fix is geometrically possible, not a compromise.
+        //     candidate                    lHaft mean/MAX   rHaft mean/MAX   toolVsHandLine MAX   torsoClear MIN
+        //     ZERO (round-1 seat)          1.269 / 1.445    0.166 / 0.179    89.7 deg             0.326
+        //     A head past the LEFT hand    0.424 / 0.678    0.000 / 0.000    36.6 deg             0.494
+        //     B head past the RIGHT hand   0.425 / 0.678    0.000 / 0.000    36.6 deg             0.494
+        //     REFINED (B + cone search)    0.454 / 0.612    0.025 / 0.027    31.9 deg             0.559  <- SHIPPED
+        // ORIENTATION was measured, not assumed — a haft read is a LINE, so which end carries the head is a free
+        // choice the geometry does not make. The discriminator is where the tool HEAD lands in the character's own
+        // torso frame at the deepest-fold (strike) frame: A puts it out across the body to the LEFT and LEVEL
+        // (out -1.12, up +0.28) = a shouldered pole; B drives it DOWN and to the working side (out +0.60, up -1.15)
+        // = a mining strike. B also lands the grip geometry a real two-handed swing has: left hand at the butt
+        // (u 0.03-0.22), right hand up the haft (u 0.72), head beyond the right hand.
+        // SELF-INTERSECTION was checked, not hoped: aligning a long haft with the hand line parks its butt end
+        // somewhere, so the fit is scored on haft-to-torso-axis and haft-to-head clearance too. Both IMPROVE
+        // (torso 0.326 -> 0.559 SW, head 0.546 -> 0.796 SW) — the haft moves AWAY from the body, no traded defect.
+        // THE RESIDUAL IS THE CLIP'S, not slack in the fix: the hand-line direction itself swings 21.0 deg mean /
+        // 36.6 deg max about its own mean in the hand's frame, and ONE constant delta can only match the mean.
+        // Removing the rest needs a per-frame solve (IK) — explicitly out of scope on this ticket.
+        // The F9 AxeNudgeTool MINE-SEAT target dials both channels live; the Sponsor bakes his values HERE.
+        public static readonly Vector3 HeldToolMineSeatOffsetDelta = new Vector3(0.2351f, -0.2781f, -0.3045f);
+        public static readonly Vector3 HeldToolMineSeatEulerDelta = new Vector3(55.9f, 88.6f, 56.1f);
 
         // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
         // defect). A per-foot yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4 (0 for
@@ -1105,6 +1136,18 @@ namespace FarHorizon.EditorTools
             // passes through immediately (the raw hand carries the facing yaw). A LIGHT damp is available to
             // de-jitter without re-locking (followDamp); it defaults to 0 so the per-step swing is visible.
             rig.followDamp = HeldAxeFollowDamp;
+            // 86cay4282 round 2 — bake the MINE-STATE SEAT DELTA so it ships in Boot.unity (the component-not-
+            // serialized trap; the runtime field defaults are only the fallback). `character` is the gate source:
+            // the delta engages ONLY while the AttackPickaxe swing owns layer 0, so every other state keeps the
+            // seat above byte-identical. Wired editor-time rather than left to the Awake fallback so a serialized
+            // scene carries it (unity-conventions.md §Editor-vs-runtime — component-in-source-but-not-in-scene).
+            rig.character = castaway;
+            rig.mineSeatOffsetDelta = HeldToolMineSeatOffsetDelta;
+            rig.mineSeatEulerDelta = HeldToolMineSeatEulerDelta;
+            Debug.Log("[MovementCameraScene] held-tool MINE seat delta baked (86cay4282): offsetDelta=" +
+                      HeldToolMineSeatOffsetDelta.ToString("F4") + " eulerDelta=" +
+                      HeldToolMineSeatEulerDelta.ToString("F1") + " gate=AttackPickaxe via character='" +
+                      castaway.name + "'");
             // 86caa83wn soak #2 — NO axe-side vertical clamp. The earlier per-state world-Y ceiling clamp (which
             // moved the AXE down independently of the hand) DETACHED the axe from the grip during the run
             // arm-swing ("when i run the axe is no longer in the hand"). It is REMOVED — the axe rides the hand

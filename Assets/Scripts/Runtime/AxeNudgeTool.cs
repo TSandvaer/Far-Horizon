@@ -78,11 +78,14 @@ namespace FarHorizon
     /// the axe head is AUTHORED Blender geometry now (wpn_axe_stone_01), so runtime vertex-scaling it distorts
     /// the knapped biface (the rejected "chipping") — head SIZE is a Blender re-author, not a runtime dial.
     /// Overall held-scale is dialed on the HELD target (HeldWeaponCycleDebug's O/I Danish-safe letter keys) +
-    /// the settings-console HeldScale row. TargetCount is 9 (held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/
-    /// HAND — FOOT-YAW..GRIP-CURL added 86catvb6u for the v4-activation defect round; WRIST is now L/R-switchable
-    /// ([N]) and drives BOTH hand bones, HAND (round-8) is a per-side THUMB knob so the Sponsor can orient the
-    /// thumb independently of the wrist). A NOT-ENGAGED signpost (absorbs 86caju055) shows when the debug-overlay
-    /// layer is up but F9 is asleep, so the Sponsor doesn't nudge into the void.
+    /// the settings-console HeldScale row. **TargetCount is 11**: held / stump / arm / GROUND-Y / RUN / FOOT-YAW /
+    /// GRIP-CURL / WRIST / HAND / MINE / MINE-SEAT (FOOT-YAW..GRIP-CURL added 86catvb6u for the v4-activation defect
+    /// round; WRIST is L/R-switchable ([N]) and drives BOTH hand bones; HAND (round-8) is a per-side THUMB knob so
+    /// the Sponsor can orient the thumb independently of the wrist; MINE + MINE-SEAT added 86cay4282 — MINE dials
+    /// the left-arm de-grip, MINE-SEAT dials the two-hand haft placement). *(The count in this comment was stale at
+    /// "9" while the code already had 10 — it is now derived from the same list the code enumerates; if you add a
+    /// target, update BOTH.)* A NOT-ENGAGED signpost (absorbs 86caju055) shows when the debug-overlay layer is up
+    /// but F9 is asleep, so the Sponsor doesn't nudge into the void.
     ///
     /// Pure legacy-Input + IMGUI (the project's input + HUD idiom — ClickToMove/OrbitCamera/BootHud), no
     /// new-Input-System or shader dependency, build-safe.
@@ -121,15 +124,18 @@ namespace FarHorizon
         private const string StumpAxeName = "StumpAxe";
 
         private bool _active;
-        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL,7=WRIST(L/R),8=HAND(thumb,L/R),9=MINE de-grip
+        private int _target;            // 0=held,1=stump,2=arm,3=GROUND-Y,4=RUN,5=FOOT-YAW,6=GRIP-CURL,7=WRIST(L/R),8=HAND(thumb,L/R),9=MINE de-grip,10=MINE SEAT
         // 86cakkfz9: the old AXE-HEAD-size target + its mouse slider are REMOVED — head SIZE is authored Blender
         // geometry now, not a runtime dial. 86catvb6u: FOOT-YAW (CastawayFootYaw.footYawDeg, the v4 pigeon-toe
         // counter-rotate; Y/H) + GRIP-CURL (CastawayFingerCurl.fingerCurlDeg, softens the chunky-hand grip fold;
         // T/G) added. Round-8: WRIST now dials CastawayHandPose's per-side WRIST euler (both hand bones, [N]-switch
         // L/R) + HAND dials its per-side THUMB euler (orient the thumb below the wrist) — T/G/Y/H/U/J = all 3 axes.
-        // 86cay4282: 9 -> 10, adding 9=MINE (CastawayArmPose.mineDeGripEuler — the left-arm de-grip that breaks the
-        // pickaxe mine clip's phantom two-handed grip). Amplitude is a LOOK call, so it gets a live dial.
-        private const int TargetCount = 10;
+        // 86cay4282: 9 -> 10, adding 9=MINE (CastawayArmPose.mineDeGripEuler — the left-arm de-grip; RETAINED as a
+        // live A/B knob but now SHIPPING ZERO after the Sponsor's direction reversal). 86cay4282 round 2: 10 -> 11,
+        // adding 10=MINE SEAT (HeldToolRig.mineSeatOffsetDelta / mineSeatEulerDelta — the state-gated two-hand haft
+        // placement, the round-2 fix). MINE SEAT is the ONLY target with BOTH a position and a rotation channel on
+        // an engagement-weighted value, so its panel draws the live grip measurement + a PASS/FAIL line.
+        private const int TargetCount = 11;
         private int _armSel;            // shared L/R side selector for the ARM(2)/WRIST(7)/HAND(8) targets: 0=right, 1=left
         private HeldAxeRig _heldRig;    // SOAKFIX9 — the held axe is pose-driven; the tool nudges the RIG's fields
         private CastawayFootYaw _footYaw;      // 86catvb6u — FOOT-YAW target dials its footYawDeg (v4 pigeon-toe fix)
@@ -143,6 +149,11 @@ namespace FarHorizon
         private Transform _stump;
         private CastawayArmPose _armPose; // RE-SOAK — the tool nudges its per-arm LOCAL-euler offsets
         private CastawayCharacter _castaway; // 4th-attempt — the tool nudges its groundYOffset (feet-on-ground knob)
+        // 86cay4282 round 2 — the arm/hand bones the TWO-HAND GRIP read is measured from. Resolved on Resolve()
+        // alongside every other target so the MINE + MINE-SEAT panels can DRAW the live geometry: round 1 shipped a
+        // panel that printed only the engagement weight while the number the fix is defined by existed solely inside
+        // the shipped-build gate — so the Sponsor was sent looking for a value the panel never printed.
+        private Transform _lArmBone, _rArmBone, _lHandBone, _rHandBone;
         private GUIStyle _style, _hintStyle, _titleStyle;
 
         // Panel size (SOAKFIX6 — carries a purpose header + a "what this does" line + the controls).
@@ -151,7 +162,11 @@ namespace FarHorizon
         // margin) and TALLER (one extra value row). The width still leaves the right-anchored box fully on
         // any screen ≥ the narrowest test size (800px: 532 + 0 margin < 800 → x ≥ 0; PanelRect also clamps).
         public const float PanelWidth = 532f;
-        public const float PanelHeight = 236f;
+        // 86cay4282 round 2: 236 -> 262 for a THIRD value row. The MINE + MINE-SEAT targets draw a live
+        // measurement + PASS/FAIL line under their dial values, so the box needs one more row of height; every
+        // other target leaves that row blank. PanelRect keeps the box on-screen + off the hotbar at the new height
+        // (guarded by AxeNudgeToolPlayModeTests, which derives from these consts rather than hard-coding them).
+        public const float PanelHeight = 262f;
 
         /// <summary>
         /// The nudge-panel screen rect for a given screen size — RIGHT-anchored + vertically centred
@@ -267,7 +282,8 @@ namespace FarHorizon
                             : _target == 6 ? _fingerCurl != null     // GRIP-CURL (v4 grip fold)
                             : _target == 7 ? _hand != null           // WRIST (both hand bones, L/R)
                             : _target == 8 ? _hand != null           // HAND (thumb, L/R)
-                            : _armPose != null;                      // MINE de-grip (86cay4282) — on the arm pose
+                            : _target == 9 ? _armPose != null        // MINE de-grip (86cay4282) — on the arm pose
+                            : _heldRig != null;                      // MINE SEAT (86cay4282 r2) — on the held rig
             if (!haveTarget) { if (Input.GetKeyDown(cycleKey)) Resolve(); return; }
 
             float ps = posStep * StepMul();
@@ -378,6 +394,21 @@ namespace FarHorizon
                     // (weight 0 elsewhere), so MINE A BOULDER to judge; the panel shows the live weight.
                     if (_armPose != null) _armPose.mineDeGripEuler += dr;
                 }
+                else if (_target == 10)
+                {
+                    // MINE SEAT (86cay4282 round 2 — the Sponsor: "we need to position the axe for a two hand grip").
+                    // The ONLY dual-channel target: arrows/PgUp/PgDn slide the haft (hand-local position delta) and
+                    // T/G/Y/H/U/J turn it (tool-local rotation delta) so its LINE runs through both hands. Rotation
+                    // composes via ComposeLocalRot — the shipped delta pitches ~56/89/56 deg, so per-component euler
+                    // accumulation would hit the documented gimbal dead zone (unity6-mastery.md §5) and some
+                    // orientations would be UNREACHABLE. INERT except during the pickaxe swing (weight 0 elsewhere),
+                    // so MINE A BOULDER to judge; the panel draws the live weight AND the hand-to-haft distances.
+                    if (_heldRig != null)
+                    {
+                        _heldRig.mineSeatOffsetDelta += dp;
+                        _heldRig.mineSeatEulerDelta = ComposeLocalRot(_heldRig.mineSeatEulerDelta, dr);
+                    }
+                }
                 else if (_target == 5)
                 {
                     // FOOT-YAW (86catvb6u — the v4 pigeon-toe counter-rotate). Y/H dials the per-foot OUTWARD yaw
@@ -451,6 +482,10 @@ namespace FarHorizon
             _footYaw = Object.FindAnyObjectByType<CastawayFootYaw>(FindObjectsInactive.Include);
             _fingerCurl = Object.FindAnyObjectByType<CastawayFingerCurl>(FindObjectsInactive.Include);
             _hand = Object.FindAnyObjectByType<CastawayHandPose>(FindObjectsInactive.Include);
+            // 86cay4282 round 2 — the four bones the two-hand-grip read needs. Resolved by exact Mixamo name off the
+            // live model (the same names AttackClipPoseDiag + SwingVerifyCapture use), so the panel measures the
+            // SAME geometry the shipped gate scores.
+            ResolveGripBones();
             if (held == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName + "' not found");
             else if (_heldRig == null) Debug.LogWarning("[AxeNudgeTool] held axe '" + HeldAxeName +
                 "' has no HeldAxeRig — cannot nudge its world-offset/relEuler (soakfix9 driver missing)");
@@ -466,7 +501,54 @@ namespace FarHorizon
             : _target == 5 ? "FOOT-YAW (v4 pigeon-toe)" : _target == 6 ? "GRIP-CURL (v4 hand)"
             : _target == 7 ? "WRIST (v4 hand un-twist, " + Side() + ")"
             : _target == 8 ? "HAND (v4 thumb, " + Side() + ")"
-            : "MINE de-grip (left arm off the phantom haft)";
+            : _target == 9 ? "MINE de-grip (left arm, ships ZERO — A/B knob)"
+            : "MINE SEAT (two-hand haft placement)";
+
+        // 86cay4282 round 2 — resolve the four bones the two-hand grip read is measured from, off the live model.
+        private void ResolveGripBones()
+        {
+            _lArmBone = _rArmBone = _lHandBone = _rHandBone = null;
+            Transform root = _castaway != null ? _castaway.ModelTransform : null;
+            if (root == null && _castaway != null) root = _castaway.transform;
+            if (root == null) return;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name == "mixamorig:LeftArm") _lArmBone = t;
+                else if (t.name == "mixamorig:RightArm") _rArmBone = t;
+                else if (t.name == "mixamorig:LeftHand") _lHandBone = t;
+                else if (t.name == "mixamorig:RightHand") _rHandBone = t;
+            }
+        }
+
+        /// <summary>
+        /// The LIVE two-hand grip geometry this frame, or valid=false when it cannot be measured. Round 1's MINE
+        /// panel printed only the engagement weight, so the number the whole fix is DEFINED by (each hand's distance
+        /// to the haft line) existed only inside the shipped-build gate's log — the Sponsor was pointed at a value
+        /// the panel never drew. This is that gap closed: same <see cref="TwoHandGripRead"/> maths, same thresholds,
+        /// same numbers the gate asserts.
+        /// </summary>
+        private bool TryGripRead(out TwoHandGripRead.Read read)
+        {
+            read = default;
+            if (_lArmBone == null || _rArmBone == null || _lHandBone == null || _rHandBone == null) return false;
+            if (_heldRig == null || !_heldRig.TryGetHaftSegment(out Vector3 grip, out Vector3 head)) return false;
+            read = TwoHandGripRead.Measure(_lArmBone.position, _rArmBone.position,
+                                           _lHandBone.position, _rHandBone.position, grip, head);
+            return read.valid;
+        }
+
+        /// <summary>The PASS/FAIL line for the MINE panels — the explicit threshold read, never just a raw value
+        /// (a bare number leaves the Sponsor guessing what "good" is; the round-1 panel's omission of it is exactly
+        /// what sent him hunting).</summary>
+        private string GripVerdictLine(float weight)
+        {
+            if (!TryGripRead(out TwoHandGripRead.Read r))
+                return "grip read UNAVAILABLE — arm/hand bones or the held mesh not resolved (NOT a pass)";
+            bool pass = TwoHandGripRead.Pass(r);
+            return $"L->haft {r.leftHaftSW:F3} (cap {TwoHandGripRead.LeftHaftPassSW:F2})  " +
+                   $"R->haft {r.rightHaftSW:F3} (cap {TwoHandGripRead.RightHaftPassSW:F2})  SW  " +
+                   (pass ? "PASS ✓" : "FAIL ✗") + $"   [w={weight:F2}]";
+        }
 
         // Shared L/R label for the ARM/WRIST/HAND targets ([N] toggles _armSel).
         private string Side() => _armSel == 0 ? "RIGHT" : "LEFT";
@@ -540,10 +622,21 @@ namespace FarHorizon
             {
                 // 86cay4282 — the Sponsor reads this off the log to bake into MovementCameraScene.ArmMineDeGripEuler.
                 // mineWeight shows whether the de-grip is engaged THIS frame (rises toward 1 only while the
-                // AttackPickaxe swing owns layer 0 — i.e. only while there IS something to judge).
+                // AttackPickaxe swing owns layer 0 — i.e. only while there IS something to judge). The grip verdict
+                // rides along so the log carries the SAME measured numbers the panel draws.
                 Vector3 mg = _armPose.mineDeGripEuler;
                 Debug.Log($"[AxeNudgeTool] MINE  ArmMineDeGripEuler=({mg.x:F1}f,{mg.y:F1}f,{mg.z:F1}f)  " +
-                          $"(mineWeight={_armPose.MineDeGripWeight:F2})");
+                          $"(mineWeight={_armPose.MineDeGripWeight:F2})  " +
+                          GripVerdictLine(_armPose.MineDeGripWeight));
+            }
+            else if (_target == 10 && _heldRig != null)
+            {
+                // 86cay4282 round 2 — the Sponsor reads these off the log to bake into
+                // MovementCameraScene.HeldToolMineSeatOffsetDelta / HeldToolMineSeatEulerDelta.
+                Vector3 o = _heldRig.mineSeatOffsetDelta, e = _heldRig.mineSeatEulerDelta;
+                Debug.Log($"[AxeNudgeTool] MINE SEAT  HeldToolMineSeatOffsetDelta=({o.x:F4}f,{o.y:F4}f,{o.z:F4}f)  " +
+                          $"HeldToolMineSeatEulerDelta=({e.x:F1}f,{e.y:F1}f,{e.z:F1}f)  " +
+                          GripVerdictLine(_heldRig.MineSeatWeight));
             }
             else if (_target == 5 && _footYaw != null)
                 // 86catvb6u — bake into MovementCameraScene.CastawayV4FootYawDeg (the v4 pigeon-toe counter-rotate).
@@ -653,10 +746,15 @@ namespace FarHorizon
                 ? "WRIST — " + (_armSel == 0 ? "RIGHT hand" : "LEFT hand") + " un-twist ([N] switch; T/G/Y/H/U/J all 3 axes)"
                 : _target == 8
                 ? "HAND (thumb) — " + (_armSel == 0 ? "RIGHT" : "LEFT") + " ([N] switch; orient the thumb below the wrist)"
-                : "MINE de-grip (left arm off the pickaxe clip's phantom haft — T/G; MINE to judge)";
+                : _target == 9
+                ? "MINE de-grip (left arm — SHIPS ZERO; T/G opens the arms as an A/B; MINE to judge)"
+                : "MINE SEAT — two-hand haft (arrows/PgUp-PgDn slide, T/G/Y/H/U/J turn; MINE to judge)";
             // SOAKFIX10 — the position line and the euler line are now SEPARATE so neither can overflow the
             // box (the Sponsor's "the 3rd rotation value is cut off the right edge" report). Each is short.
-            string posLine, eulerLine;
+            // 86cay4282 round 2 — a THIRD value row, used only by the MINE + MINE-SEAT targets, carrying the live
+            // two-hand grip MEASUREMENT + an explicit PASS/FAIL against the shipped caps. Blank for every other
+            // target (they have nothing measurable to draw).
+            string posLine, eulerLine, gripLine = "";
             if (_target == 0)
             {
                 // 86cabh907 soak round 2 — per-weapon. NON-axe weapons show their mesh-holder offset+euler
@@ -717,12 +815,26 @@ namespace FarHorizon
                 // 86cay4282 — the MINE de-grip. Surfacing the live WEIGHT is MANDATORY on an engagement-weighted
                 // CastawayArmPose field (procedural-animation-verbs.md §Debug-instrument caveat): without it a dial
                 // that is simply not engaged is indistinguishable from a broken handler — the exact trap that burned
-                // the Sponsor twice on run-lower. T/G = pitch/X is the measured separating axis.
+                // the Sponsor twice on run-lower. Round 2: it SHIPS ZERO (the Sponsor reversed the direction), so the
+                // label says so — a knob reading 0 with no explanation looks broken too.
                 Vector3 mg = _armPose.mineDeGripEuler;
-                posLine = $"MineDeGripEuler=({mg.x:F1}, {mg.y:F1}, {mg.z:F1})  (T/G = pitch/X; MORE negative opens the left arm)";
+                posLine = $"MineDeGripEuler=({mg.x:F1}, {mg.y:F1}, {mg.z:F1})  (ships ZERO — T/G opens the arms as an A/B)";
                 eulerLine = _armPose.MineDeGripWeight > 0.5f
                     ? $"MINE ENGAGED ✓ weight={_armPose.MineDeGripWeight:F2} (judge NOW — mid-swing)"
                     : $"mine weight={_armPose.MineDeGripWeight:F2} — equip the PICKAXE + click a boulder to engage; every other state untouched";
+                gripLine = GripVerdictLine(_armPose.MineDeGripWeight);
+            }
+            else if (_target == 10 && _heldRig != null)
+            {
+                // 86cay4282 round 2 — the MINE SEAT (the two-hand haft placement). Dual channel: the position delta
+                // slides the haft, the euler delta turns it. Both are engagement-weighted, so the weight is drawn
+                // for the same reason as above — and the THIRD row carries the live hand-to-haft measurement plus an
+                // explicit PASS/FAIL against the shipped caps, which is what round 1's panel was missing.
+                Vector3 o = _heldRig.mineSeatOffsetDelta, e = _heldRig.mineSeatEulerDelta;
+                posLine = $"SeatOffsetDelta=({o.x:F3}, {o.y:F3}, {o.z:F3})   (arrows=X/Z  PgUp/PgDn=Y — slide the haft)";
+                eulerLine = $"SeatEulerDelta=({e.x:F1}, {e.y:F1}, {e.z:F1})   (T/G/Y/H/U/J — turn it onto the hand line)" +
+                            (_heldRig.MineSeatWeight > 0.5f ? "  ENGAGED ✓" : "  [not engaged — MINE to judge]");
+                gripLine = GripVerdictLine(_heldRig.MineSeatWeight);
             }
             else if (_target == 5 && _footYaw != null)
             {
@@ -759,7 +871,9 @@ namespace FarHorizon
             }
             else { posLine = _target == 2 ? "(arm pose not found)" : _target == 3 ? "(castaway not found)"
                             : _target == 5 ? "(foot-yaw not found)" : _target == 6 ? "(finger-curl not found)"
-                            : (_target == 7 || _target == 8) ? "(hand pose not found)" : "(arm pose not found)"; eulerLine = ""; }
+                            : (_target == 7 || _target == 8) ? "(hand pose not found)"
+                            : _target == 10 ? "(held-tool rig not found — the MINE seat cannot be dialed)"
+                            : "(arm pose not found)"; eulerLine = ""; }
 
             float lx = x + 12f, lw = w - 24f;
             // PURPOSE header + a one-line "what this does" so the tool is self-explanatory (was unclear).
@@ -772,12 +886,14 @@ namespace FarHorizon
             // fully visible inside the (now wider) box, on any screen width. Copyable, never cut off.
             GUI.Label(new Rect(lx, y + 78f, lw, 22f), posLine, _style);
             GUI.Label(new Rect(lx, y + 100f, lw, 22f), eulerLine, _style);
+            // The MEASUREMENT row (MINE / MINE-SEAT only) — the number the fix is defined by, with its threshold.
+            if (gripLine.Length > 0) GUI.Label(new Rect(lx, y + 122f, lw, 22f), gripLine, _style);
 
-            GUI.Label(new Rect(lx, y + 126f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE    [N] right<->left (arm/wrist/hand)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 146f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y", _hintStyle);
-            GUI.Label(new Rect(lx, y + 166f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 186f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
-            GUI.Label(new Rect(lx, y + 206f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
+            GUI.Label(new Rect(lx, y + 152f, lw, 20f), "[K] held/stump/arm/GROUND-Y/RUN/FOOT-YAW/GRIP-CURL/WRIST/HAND/MINE/MINE-SEAT    [N] right<->left", _hintStyle);
+            GUI.Label(new Rect(lx, y + 172f, lw, 20f), "Move:   ←/→ = X    ↑/↓ = Z    PgUp/PgDn = Y      [F] front-view snap (close-up on the hands)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 192f, lw, 20f), "Rotate: T/G = pitch   Y/H = yaw   U/J = roll    [B] cycle held weapon (axe/knife/sword/spear)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 212f, lw, 20f), "Scale (held weapon): [O] bigger / [I] smaller — Danish-safe (axe LOCKED; use settings HeldScale row)", _hintStyle);
+            GUI.Label(new Rect(lx, y + 232f, lw, 20f), "Hold Shift = 5x step    Hold Ctrl = 0.2x step    Values print to the log to bake.", _hintStyle);
         }
 
         // 86caju055 — the "F9 dial: NOT ENGAGED" signpost drawn when the debug-overlay layer is up but this tool

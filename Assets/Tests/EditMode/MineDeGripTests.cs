@@ -20,6 +20,16 @@ namespace FarHorizon.EditTests
     ///   * the real one-handed tool then sits 63.8-89.7 deg off the line through both hands (the axe chop reaches
     ///     6.8 deg — it lines up with its own swing), so the tool visibly disagrees with the grip the eye reads.
     ///
+    /// ⚠ ROUND 2 — THE SPONSOR REVERSED THE FIX DIRECTION. He soaked round 1's arm-side de-grip and said, verbatim:
+    /// "we need to position the axe for a two hand grip". The measurement above still stands and is still the right
+    /// diagnosis of WHAT the clip does — but its INTERPRETATION flipped: the locked-together hands are what he
+    /// WANTS, so the animation was right all along and the one-handed SEAT is the defect. The de-grip therefore
+    /// ships at ZERO amplitude with its mechanism retained as an A/B dial (tests 5 below), and the actual fix — a
+    /// state-gated MINE seat delta that turns the haft onto the line through both hands — is pinned by
+    /// <c>MineSeatTests</c> / <c>MineSeatPlayModeTests</c>. Everything this file pins about the GATE (naming a real
+    /// state, transition pairing, fail-closed, byte-unchanged rest) is unchanged and now guards BOTH offsets, since
+    /// the seat delta rides the same gate and the same eased-weight policy function.
+    ///
     /// WHAT THIS FILE PINS — each a bug CLASS, not a value:
     ///   1. THE GATE NAMES A REAL STATE, and only that one: "AttackPickaxe" must exist in the SHIPPED controller
     ///      (a rename in CharacterAssetGen reds here instead of silently making the de-grip dead code), and every
@@ -156,16 +166,23 @@ namespace FarHorizon.EditTests
         public void AtZeroWeight_TheComposedLeftArmRotation_IsByteIdenticalToThePreFixPose()
         {
             // The production composition is  clipPose * _leftOffsetQ * Euler(mineDeGripEuler * weight).
+            // NOTE the probe amplitude is DELIBERATELY non-zero and NOT the shipped constant: the shipped value is
+            // now zero, so reading it here would make the assert tautological (Euler(0*0) is trivially the identity
+            // whether or not the weight gating works). Using a large dialed amplitude asserts the real guarantee —
+            // the mechanism is inert AT REST no matter what the Sponsor dials into it.
             var clipPose = Quaternion.Euler(13f, -47f, 8f);       // an arbitrary non-identity clip frame
             var leftOffset = Quaternion.Euler(MovementCameraScene.CastawayV4LeftArmEuler);
-            Vector3 deGrip = MovementCameraScene.ArmMineDeGripEuler;
+            Vector3 dialedProbe = new Vector3(-40f, 0f, 20f);     // round 1's measured amplitude, as a probe
 
             Quaternion preFix = clipPose * leftOffset;
-            Quaternion atRest = clipPose * leftOffset * Quaternion.Euler(deGrip * 0f);
+            Quaternion atRest = clipPose * leftOffset * Quaternion.Euler(dialedProbe * 0f);
 
             Assert.AreEqual(0f, Quaternion.Angle(preFix, atRest), 1e-4f,
                 "at weight 0 Euler(deGrip*0) is the identity, so every non-mining state — idle, walk, run, jump, " +
                 "crouch, the other four swings — keeps the Sponsor's locked left-arm pose exactly.");
+            Assert.Greater(Quaternion.Angle(preFix, clipPose * leftOffset * Quaternion.Euler(dialedProbe)), 1f,
+                "control: the SAME composition with weight 1 must genuinely move the arm — otherwise the assert " +
+                "above would pass against a mechanism that does nothing at any weight.");
         }
 
         [Test]
@@ -198,26 +215,51 @@ namespace FarHorizon.EditTests
         }
 
         // ==============================================================================================
-        // 5 — THE |Q| / STATE-GATE CONTRACT.
+        // 5 — THE ROUND-2 REVERSAL: the de-grip MECHANISM survives, its AMPLITUDE ships neutral.
         // ==============================================================================================
 
         [Test]
-        public void AnyDialOverTheBlastRadiusBand_MustBeStateGated()
+        public void ShippedDeGrip_IsNeutral_BecauseTheSponsorReversedTheDirection()
         {
-            Quaternion.Euler(MovementCameraScene.ArmMineDeGripEuler).ToAngleAxis(out float q, out _);
+            // The Sponsor soaked round 1's arm-side de-grip and reversed the premise, verbatim: "we need to position
+            // the axe for a two hand grip". So the mine clip's locked-together hands are CORRECT and the arms must be
+            // left exactly as authored; the fix moved to the TOOL side (HeldToolRig's MINE seat delta). This pins the
+            // reversal so a later well-meaning "restore the measured -40,0,20" cannot silently re-open his complaint.
+            Assert.AreEqual(Vector3.zero, MovementCameraScene.ArmMineDeGripEuler,
+                "ArmMineDeGripEuler must ship ZERO after the round-2 reversal — the mine swing is meant to READ " +
+                "two-handed, so the arms keep their authored pose and the HAFT is what moves.");
+        }
+
+        [Test]
+        public void TheDeGripMechanism_IsRetained_NotDeleted_SoTheDialStillExists()
+        {
+            // Deliberately kept rather than removed: it is measured, state-gated and test-covered, and shipping it
+            // at zero amplitude leaves a free A/B on the F9 MINE target if the two-hand seat ever wants the arms
+            // opened a touch. This asserts the PLUMBING is still live (the weight still rises inside the gate), which
+            // is what makes the knob usable — a deleted mechanism would leave the panel target dialing nothing.
+            float w = 0f;
+            for (int i = 0; i < 120; i++) w = CastawayArmPose.NextMineDeGripWeight(w, true, Rate, Dt);
+            Assert.Greater(w, 0.99f,
+                "the de-grip weight policy must still reach full engagement inside the gate — the mechanism is " +
+                "retained as a dial, only its shipped amplitude is zero.");
+        }
+
+        [Test]
+        public void TheStateGateContract_NowGuardsTheSeatDelta_WhoseQIsInTheGatedBand()
+        {
+            // The rule (procedural-animation-verbs.md / 86caxgwbz): under ~25 deg is clip-safe by construction; over
+            // ~40 deg needs a state gate. Round 1's de-grip was the dial in that band; after the reversal the large
+            // offset is the SEAT euler delta, so the contract has to follow it there rather than lapse.
+            Quaternion.Euler(MovementCameraScene.HeldToolMineSeatEulerDelta).ToAngleAxis(out float q, out _);
             if (q > 180f) q = 360f - q;
 
-            // The rule (procedural-animation-verbs.md / 86caxgwbz): under ~25 deg is clip-safe by construction;
-            // over ~40 deg needs a state gate. The shipped de-grip is deliberately in the gated band — this test
-            // exists so that stays TRUE BY CONSTRUCTION rather than by memory if the Sponsor dials it further.
-            Assert.Greater(q, 25f,
-                $"|Q|={q:F1} deg — a de-grip small enough to be clip-safe by construction would not move the hands " +
-                "apart enough to break the two-handed read (the 61-sample sweep: -25 deg only reaches lRHand " +
-                "1.23-1.63, against the approved carry's 1.65-1.89).");
+            Assert.Greater(q, 40f,
+                $"|Q|={q:F1} deg — the measured two-hand fit turns the haft from 89.7 deg off the hand line to " +
+                "31.9 deg, which is a large rotation by necessity, not by accident.");
             Assert.IsFalse(CastawayCharacter.MineSwingOwnsPoseFor(Hash(CastawayCharacter.IdleState), false, 0),
-                $"|Q|={q:F1} deg is in the >~40 deg 'needs a state gate' band, so the offset MUST be inert outside " +
-                "its own state. If this ever passes for a locomotion state, the dial is leaking into every clip — " +
-                "the exact 86caxj30g defect one layer over.");
+                $"|Q|={q:F1} deg is far into the '>~40 deg needs a state gate' band, so the seat delta MUST be inert " +
+                "outside its own state. If this ever passes for a locomotion state the seat is leaking into every " +
+                "clip — the 86caxj30g defect one layer over, and it would move the Sponsor-approved carry seat.");
         }
 
         // ==============================================================================================

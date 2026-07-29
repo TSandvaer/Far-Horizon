@@ -579,8 +579,14 @@ namespace FarHorizon.EditorTools
 
                 // The de-grip SIZING pass runs only on the two-handed suspect.
                 if (label == "pickaxe")
+                {
                     DeGripSweep(sb, clip, model, hips, head, lArm, rArm, lHand, rHand, rFore,
                                 prop, seatOffset, seatEuler, armR, armL);
+                    // 86cay4282 ROUND 2 — the Sponsor REVERSED the direction ("we need to position the axe for a
+                    // two hand grip"), so the clip is right and the TOOL is in the wrong place. Fit the seat.
+                    MineSeatFit(sb, clip, model, hips, head, lArm, rArm, lHand, rHand,
+                                prop, seatOffset, seatEuler, armR, armL);
+                }
 
                 Object.DestroyImmediate(prop.root.gameObject);
             }
@@ -693,6 +699,340 @@ namespace FarHorizon.EditorTools
                               $"| lTorsoClearMin {torsoMin:F2} | lHaftMin {haftMin:F2}");
             }
         }
+
+        /// <summary>
+        /// 86cay4282 ROUND 2 — MINE-STATE SEAT FIT. The Sponsor reversed the round-1 premise: "we need to position
+        /// the axe for a two hand grip". So the two-handed clip is CORRECT and the one-handed SEAT is the defect —
+        /// the fix is to move the haft onto the hands, not the hand off the haft.
+        ///
+        /// WHAT IT SOLVES, and why it is a SOLVE rather than a sweep. The seat is rigid in the hand's own frame
+        /// (`axisSpreadInHand` measured 0.000deg), so everything below is expressed in that frame and the geometry
+        /// closes analytically:
+        ///     Gh, Hh  = the tool's grip / head endpoints in the RIGHT HAND's frame (metres) — CONSTANT.
+        ///     Lh_i    = the LEFT HAND's offset from the right hand in that same frame, per clip sample.
+        ///     Rh      = 0 (the right hand IS that frame's origin).
+        /// A two-hand grip means the haft LINE contains both hand points. So the required rotation delta is the
+        /// one that turns the haft direction onto the hand-to-hand direction, and the required position delta is
+        /// the one that slides the resulting line onto the right hand. Both are computed, not searched.
+        ///
+        /// THE LOAD-BEARING NUMBER is the ANGULAR SPREAD of Lh_i over the swing: the delta is ONE constant, so a
+        /// small spread means one constant fits the whole swing and a large spread means it cannot (and the honest
+        /// answer would be that no constant seat can). It is reported FIRST, before any candidate.
+        ///
+        /// TWO ORIENTATIONS are fitted and printed, never assumed — a haft read is a LINE, so which END carries
+        /// the head is a free choice the geometry does not make for us:
+        ///     A = head beyond the LEFT hand  (grip end at the right hand; right hand low on the haft)
+        ///     B = head beyond the RIGHT hand (grip end at the left hand = the butt; right hand up the haft)
+        /// The discriminator printed for each is where the tool HEAD lands in the character's own torso frame at
+        /// the STRIKE frame: a mining strike drives the head AWAY from the body and DOWN/FORWARD, so the fit whose
+        /// head goes there is the one that reads as a strike rather than as a shouldered pole.
+        /// </summary>
+        private static void MineSeatFit(StringBuilder sb, AnimationClip clip, GameObject model,
+            Transform hips, Transform head, Transform lArm, Transform rArm,
+            Transform lHand, Transform rHand,
+            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL)
+        {
+            const int N = 61;
+            var qR = Quaternion.Euler(armR);
+            var qL = Quaternion.Euler(armL);
+            var qSeat = Quaternion.Euler(seatEuler);
+
+            sb.AppendLine("[seat-fit]   --- MINE-STATE SEAT FIT (86cay4282 round 2: move the HAFT to the HANDS) ---");
+            sb.AppendLine("[seat-fit]   All vectors in the RIGHT HAND's own frame (metres). Right hand = origin.");
+
+            // ---- pass 1: gather the constants + the per-sample hand line ----
+            Vector3 gh = Vector3.zero, hh = Vector3.zero;      // grip / head in the hand frame (constant)
+            float ghDrift = 0f, hhDrift = 0f;
+            var lhs = new List<Vector3>(N);                    // left hand in the hand frame, per sample
+            var sws = new List<float>(N);
+            float swMean = 0f;
+            for (int i = 0; i < N; i++)
+            {
+                float nt = i / (float)(N - 1);
+                clip.SampleAnimation(model, nt * clip.length);
+                rArm.localRotation = rArm.localRotation * qR;
+                lArm.localRotation = lArm.localRotation * qL;
+                prop.root.position = rHand.position + rHand.rotation * seatOffset;
+                prop.root.rotation = rHand.rotation * qSeat;
+
+                float sw = (rArm.position - lArm.position).magnitude;
+                if (sw < 1e-5f) continue;
+
+                Quaternion inv = Quaternion.Inverse(rHand.rotation);
+                Vector3 g = inv * (prop.holder.TransformPoint(prop.gripLocal) - rHand.position);
+                Vector3 h = inv * (prop.holder.TransformPoint(prop.headLocal) - rHand.position);
+                Vector3 l = inv * (lHand.position - rHand.position);
+                if (i == 0) { gh = g; hh = h; }
+                else { ghDrift = Mathf.Max(ghDrift, (g - gh).magnitude); hhDrift = Mathf.Max(hhDrift, (h - hh).magnitude); }
+                lhs.Add(l); sws.Add(sw); swMean += sw;
+            }
+            if (lhs.Count < 8) { sb.AppendLine("[seat-fit]   ABORT — too few valid samples"); return; }
+            swMean /= lhs.Count;
+
+            float haftLen = (hh - gh).magnitude;
+            Vector3 dCur = (hh - gh).normalized;
+            sb.AppendLine($"[seat-fit]   RIGIDITY CHECK: grip drift {ghDrift:F6} m, head drift {hhDrift:F6} m over " +
+                          $"{lhs.Count} samples (0 = the seat is rigid in the hand frame, so ONE constant delta " +
+                          "applies to the whole swing by construction).");
+            sb.AppendLine($"[seat-fit]   haft length {haftLen:F4} m = {haftLen / swMean:F2} shoulder-widths " +
+                          $"(mean SW {swMean:F4} m). grip {gh:F4} head {hh:F4}");
+
+            // The hand-to-hand line, in the hand frame. Mean direction + the SPREAD about it = whether one
+            // constant delta can fit the whole swing at all.
+            Vector3 dSum = Vector3.zero;
+            float sepMin = float.MaxValue, sepMax = 0f, sepMean = 0f;
+            foreach (var l in lhs)
+            {
+                dSum += l.normalized;
+                float s = l.magnitude;
+                sepMin = Mathf.Min(sepMin, s); sepMax = Mathf.Max(sepMax, s); sepMean += s;
+            }
+            sepMean /= lhs.Count;
+            Vector3 dMean = dSum.normalized;
+            float spreadMax = 0f, spreadMean = 0f;
+            foreach (var l in lhs)
+            {
+                float a = Vector3.Angle(l.normalized, dMean);
+                spreadMax = Mathf.Max(spreadMax, a); spreadMean += a;
+            }
+            spreadMean /= lhs.Count;
+            sb.AppendLine($"[seat-fit]   HAND-LINE in the hand frame: dir spread about its mean {spreadMean:F1}deg " +
+                          $"mean / {spreadMax:F1}deg MAX  |  separation {sepMin:F4}..{sepMax:F4} m " +
+                          $"({sepMin / swMean:F2}..{sepMax / swMean:F2} SW), mean {sepMean:F4} m");
+            sb.AppendLine($"[seat-fit]   fits-on-the-haft? max separation {sepMax / haftLen:F2} of the haft length " +
+                          "(<1 = both hands can sit ON the haft; >1 = the haft is too short and no seat can do it).");
+            sb.AppendLine($"[seat-fit]   current haft dir vs the mean hand line: " +
+                          $"{Vector3.Angle(dCur, dMean):F1}deg (fold to a LINE: " +
+                          $"{Mathf.Min(Vector3.Angle(dCur, dMean), 180f - Vector3.Angle(dCur, dMean)):F1}deg) " +
+                          "— this IS the disagreement the Sponsor sees.");
+
+            // ---- the two candidate fits ----
+            // A: head beyond the LEFT hand — the haft runs right-hand -> left-hand, grip end just below the
+            //    right hand. B: head beyond the RIGHT hand — the grip end (butt) sits at the LEFT hand.
+            float uRightOnHaftA = 0.10f;                       // where the right hand sits along the haft, fit A
+            var fits = new (string tag, Vector3 dWant, float aAlong)[]
+            {
+                ("A head-past-LEFT ", dMean,  uRightOnHaftA * haftLen),
+                ("B head-past-RIGHT", -dMean, sepMean),
+            };
+
+            foreach (var (tag, dWant, aAlong) in fits)
+            {
+                // ROTATION: the minimal rotation taking the haft direction onto the wanted hand-line direction,
+                // expressed back in the TOOL's own frame (the frame HeldToolRig right-multiplies the delta in).
+                Quaternion mHand = Quaternion.FromToRotation(dCur, dWant);
+                Quaternion eQ = Quaternion.Inverse(qSeat) * mHand * qSeat;
+                Vector3 eEuler = NormEuler(eQ.eulerAngles);
+
+                // POSITION: after the rotation, slide the haft so its line passes through the right hand with the
+                // grip end `aAlong` metres BEFORE it along the haft.
+                Vector3 gRot = seatOffset + mHand * (gh - seatOffset);
+                Vector3 dPos = -aAlong * dWant - gRot;
+
+                // Re-measure the WHOLE clip with the candidate applied — the fit is judged on the real per-frame
+                // geometry, never on the mean it was derived from.
+                Fitted(sb, tag, clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
+                       seatOffset, seatEuler, armR, armL, dPos, eEuler, haftLen);
+                sb.AppendLine($"[seat-fit]     {tag} BAKE  HeldToolMineSeatOffsetDelta=" +
+                              $"({dPos.x:F4}f,{dPos.y:F4}f,{dPos.z:F4}f)  HeldToolMineSeatEulerDelta=" +
+                              $"({eEuler.x:F1}f,{eEuler.y:F1}f,{eEuler.z:F1}f)");
+            }
+
+            // The ZERO-DELTA control, same metrics, so the improvement is a measured delta not a claim.
+            Fitted(sb, "ZERO (shipped today)", clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
+                   seatOffset, seatEuler, armR, armL, Vector3.zero, Vector3.zero, haftLen);
+
+            // ---- REFINE. The two closed-form fits above aim the haft at the MEAN hand-line direction and pin the
+            // line through the right hand exactly, so the whole 36.6deg direction spread lands on the LEFT hand.
+            // A constant seat cannot beat that spread, but it CAN spend it better: the search below sweeps the haft
+            // DIRECTION over a cone about the chosen orientation, how far along the haft the grip end sits, and how
+            // far the line slides off the right hand toward the hand midpoint — scoring the real per-frame geometry.
+            // It is exact + cheap because the seat is RIGID in the hand frame (drift 1e-6 m above): the hand points
+            // in that frame were already captured, so every candidate is pure vector maths with NO re-sampling. The
+            // winner is then RE-MEASURED through the live SampleAnimation path (Fitted) as the cross-check that the
+            // closed-form maths and the real skeleton agree.
+            RefineMineSeat(sb, clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
+                           seatOffset, seatEuler, armR, armL, lhs, sws, gh, hh, dMean, haftLen);
+        }
+
+        /// <summary>
+        /// Search the best CONSTANT MINE seat delta against the captured per-frame hand geometry (86cay4282 round 2).
+        /// Objective: get BOTH hands onto the haft line — minimise the LEFT hand's worst-frame distance to the haft
+        /// while holding the RIGHT hand (the real, physical grip) within <c>RightHaftCapSW</c>, because a right hand
+        /// visibly off its own haft is a worse defect than a phantom left hand slightly off it.
+        /// </summary>
+        private static void RefineMineSeat(StringBuilder sb, AnimationClip clip, GameObject model,
+            Transform hips, Transform head, Transform lArm, Transform rArm, Transform lHand, Transform rHand,
+            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
+            List<Vector3> lhs, List<float> sws, Vector3 gh, Vector3 hh, Vector3 dMean, float haftLen)
+        {
+            // The right hand IS the physical grip; keep it essentially on the haft. 0.08 SW ~= 3.7 cm at this rig.
+            const float RightHaftCapSW = 0.08f;
+            Vector3 dCur = (hh - gh).normalized;
+            Vector3 dBase = -dMean;                       // orientation B (head past the RIGHT hand) — chosen above
+            // Two axes perpendicular to dBase to sweep the cone in.
+            Vector3 p1 = Vector3.Cross(dBase, Vector3.up);
+            if (p1.sqrMagnitude < 1e-4f) p1 = Vector3.Cross(dBase, Vector3.right);
+            p1.Normalize();
+            Vector3 p2 = Vector3.Cross(dBase, p1).normalized;
+
+            Vector3 midMean = Vector3.zero;
+            foreach (var l in lhs) midMean += l;
+            midMean /= lhs.Count;                          // the mean left-hand offset; its half is the hand midpoint
+
+            float bestScore = float.MaxValue;
+            Vector3 bestD = dBase, bestG = Vector3.zero;
+            float bestL = 0f, bestLMean = 0f, bestR = 0f, bestA = 0f, bestB = 0f, bestAx = 0f, bestAy = 0f;
+
+            for (int ix = -6; ix <= 6; ix++)
+            for (int iy = -6; iy <= 6; iy++)
+            {
+                float ax = ix * 5f, ay = iy * 5f;
+                Vector3 d = (Quaternion.AngleAxis(ax, p1) * Quaternion.AngleAxis(ay, p2) * dBase).normalized;
+                for (int ib = 0; ib <= 4; ib++)
+                {
+                    float beta = ib * 0.125f;              // 0 = the line through the right hand, 1 = through the mid
+                    Vector3 through = midMean * 0.5f * beta;
+                    for (int ia = 6; ia <= 17; ia++)
+                    {
+                        float aFrac = ia * 0.05f;          // where along the haft the grip end sits
+                        Vector3 g = through - d * (aFrac * haftLen);
+                        Vector3 h = g + d * haftLen;
+
+                        float lMax = 0f, lSum = 0f, rMax = 0f;
+                        for (int i = 0; i < lhs.Count; i++)
+                        {
+                            float dl = SegDist(lhs[i], g, h) / sws[i];
+                            float dr = SegDist(Vector3.zero, g, h) / sws[i];
+                            lMax = Mathf.Max(lMax, dl); lSum += dl; rMax = Mathf.Max(rMax, dr);
+                        }
+                        if (rMax > RightHaftCapSW) continue;
+                        float score = lMax + 0.5f * (lSum / lhs.Count);
+                        if (score < bestScore)
+                        {
+                            bestScore = score; bestD = d; bestG = g;
+                            bestL = lMax; bestLMean = lSum / lhs.Count; bestR = rMax;
+                            bestA = aFrac; bestB = beta; bestAx = ax; bestAy = ay;
+                        }
+                    }
+                }
+            }
+
+            if (bestScore == float.MaxValue) { sb.AppendLine("[seat-fit]   REFINE: no candidate met the right-hand cap"); return; }
+
+            Quaternion mHand = Quaternion.FromToRotation(dCur, bestD);
+            Vector3 eEuler = NormEuler((Quaternion.Inverse(Quaternion.Euler(seatEuler)) * mHand *
+                                        Quaternion.Euler(seatEuler)).eulerAngles);
+            Vector3 gRot = seatOffset + mHand * (gh - seatOffset);
+            Vector3 dPos = bestG - gRot;
+
+            sb.AppendLine($"[seat-fit]   REFINE (cone {bestAx:F0}/{bestAy:F0}deg off B, gripAt {bestA:F2} of the " +
+                          $"haft, slide {bestB:F3} toward the hand midpoint): predicted lHaft mean {bestLMean:F3} " +
+                          $"MAX {bestL:F3} SW, rHaft MAX {bestR:F3} SW (cap {RightHaftCapSW:F2})");
+            Fitted(sb, "REFINED (live re-measure)", clip, model, hips, head, lArm, rArm, lHand, rHand, prop,
+                   seatOffset, seatEuler, armR, armL, dPos, eEuler, haftLen);
+            sb.AppendLine($"[seat-fit]     REFINED BAKE  HeldToolMineSeatOffsetDelta=" +
+                          $"({dPos.x:F4}f,{dPos.y:F4}f,{dPos.z:F4}f)  HeldToolMineSeatEulerDelta=" +
+                          $"({eEuler.x:F1}f,{eEuler.y:F1}f,{eEuler.z:F1}f)");
+        }
+
+        /// <summary>Distance from a point to the SEGMENT a..b (the same clamped measure the runtime read uses).</summary>
+        private static float SegDist(Vector3 p, Vector3 a, Vector3 b)
+        {
+            Vector3 ab = b - a;
+            float len2 = ab.sqrMagnitude;
+            if (len2 < 1e-12f) return (p - a).magnitude;
+            float u = Mathf.Clamp01(Vector3.Dot(p - a, ab) / len2);
+            return (p - (a + ab * u)).magnitude;
+        }
+
+        /// <summary>Re-measure the whole pickaxe clip with a candidate MINE seat delta applied, reporting the two
+        /// quantities the two-hand read is DEFINED by — each hand's distance to the haft LINE (shoulder-widths) and
+        /// where along the haft it lands — plus the tool head's torso-frame landing at the strike frame (the
+        /// orientation discriminator).</summary>
+        private static void Fitted(StringBuilder sb, string tag, AnimationClip clip, GameObject model,
+            Transform hips, Transform head, Transform lArm, Transform rArm, Transform lHand, Transform rHand,
+            in PropRig prop, Vector3 seatOffset, Vector3 seatEuler, Vector3 armR, Vector3 armL,
+            Vector3 posDelta, Vector3 eulerDelta, float haftLen)
+        {
+            const int N = 61;
+            var qR = Quaternion.Euler(armR);
+            var qL = Quaternion.Euler(armL);
+            Quaternion seatQ = Quaternion.Euler(seatEuler) * Quaternion.Euler(eulerDelta);
+
+            float lMax = 0f, rMax = 0f, lSum = 0f, rSum = 0f;
+            float ulMin = 9f, ulMax = -9f, urMin = 9f, urMax = -9f;
+            float angMax = 0f;
+            // SELF-INTERSECTION GUARD. Aligning the haft with the hand line puts a long butt end SOMEWHERE — and
+            // a fit that solves the grip read by driving the haft THROUGH the torso or the head has traded one
+            // defect for a worse one. Same discipline as the de-grip sweep's lTorsoClearMin: measure the cost of
+            // the candidate, don't just score its benefit.
+            float torsoClearMin = float.MaxValue, headClearMin = float.MaxValue;
+            // the head's torso-frame landing at the DEEPEST-fold frame (the strike) — the orientation read.
+            float deepest = -1f; Vector3 headAtStrike = Vector3.zero;
+            int n = 0;
+            for (int i = 0; i < N; i++)
+            {
+                float nt = i / (float)(N - 1);
+                clip.SampleAnimation(model, nt * clip.length);
+                rArm.localRotation = rArm.localRotation * qR;
+                lArm.localRotation = lArm.localRotation * qL;
+                prop.root.position = rHand.position + rHand.rotation * (seatOffset + posDelta);
+                prop.root.rotation = rHand.rotation * seatQ;
+
+                if (!TorsoFrame(hips, head, lArm, rArm, out Vector3 rightAxis, out Vector3 up,
+                                out Vector3 fwdAxis, out Vector3 chest, out float sw)) continue;
+                Vector3 gripW = prop.holder.TransformPoint(prop.gripLocal);
+                Vector3 headW = prop.holder.TransformPoint(prop.headLocal);
+                Vector3 seg = headW - gripW;
+                if (seg.sqrMagnitude < 1e-8f) continue;
+
+                float ul = Vector3.Dot(lHand.position - gripW, seg) / seg.sqrMagnitude;
+                float ur = Vector3.Dot(rHand.position - gripW, seg) / seg.sqrMagnitude;
+                float dl = (lHand.position - (gripW + seg * Mathf.Clamp01(ul))).magnitude / sw;
+                float dr = (rHand.position - (gripW + seg * Mathf.Clamp01(ur))).magnitude / sw;
+                float ang = Vector3.Angle(seg, rHand.position - lHand.position);
+                if (ang > 90f) ang = 180f - ang;
+
+                lMax = Mathf.Max(lMax, dl); rMax = Mathf.Max(rMax, dr);
+                lSum += dl; rSum += dr; n++;
+                ulMin = Mathf.Min(ulMin, ul); ulMax = Mathf.Max(ulMax, ul);
+                urMin = Mathf.Min(urMin, ur); urMax = Mathf.Max(urMax, ur);
+                angMax = Mathf.Max(angMax, ang);
+
+                // Sample the haft and measure its closest approach to the torso AXIS (hips->head) and to the head
+                // bone, both in shoulder-widths.
+                for (int k = 0; k <= 8; k++)
+                {
+                    Vector3 pt = gripW + seg * (k / 8f);
+                    torsoClearMin = Mathf.Min(torsoClearMin, SegDist(pt, hips.position, head.position) / sw);
+                    headClearMin = Mathf.Min(headClearMin, (pt - head.position).magnitude / sw);
+                }
+
+                float tilt = Vector3.Angle(head.position - hips.position, Vector3.up);
+                if (tilt > deepest)
+                {
+                    deepest = tilt;
+                    Vector3 dh = (headW - chest) / sw;
+                    headAtStrike = new Vector3(Vector3.Dot(dh, rightAxis), Vector3.Dot(dh, fwdAxis),
+                                               Vector3.Dot(dh, up));
+                }
+            }
+            if (n == 0) { sb.AppendLine($"[seat-fit]     {tag}: no valid samples"); return; }
+            sb.AppendLine($"[seat-fit]     {tag}: lHaft mean {lSum / n:F3} MAX {lMax:F3} SW | rHaft mean " +
+                          $"{rSum / n:F3} MAX {rMax:F3} SW | u_left {ulMin:F2}..{ulMax:F2} u_right " +
+                          $"{urMin:F2}..{urMax:F2} | toolVsHandLine MAX {angMax:F1}deg | head at the deepest fold " +
+                          $"(tilt {deepest:F0}deg) out={headAtStrike.x:F2} fwd={headAtStrike.y:F2} up={headAtStrike.z:F2}");
+            sb.AppendLine($"[seat-fit]     {tag}: CLEARANCE haft-to-torso-axis MIN {torsoClearMin:F3} SW | " +
+                          $"haft-to-head MIN {headClearMin:F3} SW  (small = the haft passes through the body)");
+        }
+
+        private static Vector3 NormEuler(Vector3 e)
+        {
+            return new Vector3(NormAngle(e.x), NormAngle(e.y), NormAngle(e.z));
+        }
+
+        private static float NormAngle(float a) { a %= 360f; if (a > 180f) a -= 360f; return a; }
 
         private static bool TorsoFrame(Transform hips, Transform head, Transform lArm, Transform rArm,
             out Vector3 rightAxis, out Vector3 up, out Vector3 fwdAxis, out Vector3 chest, out float sw)

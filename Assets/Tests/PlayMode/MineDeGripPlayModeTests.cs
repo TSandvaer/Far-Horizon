@@ -35,6 +35,13 @@ namespace FarHorizon.PlayTests
     /// <c>CastawayCharacter.MineSwingOwnsPoseFor</c> overload fed from the live layer-0 readings — exactly what the
     /// instance property does.
     ///
+    /// ⚠ ROUND-2 STATUS. The Sponsor reversed the fix direction ("we need to position the axe for a two hand grip"),
+    /// so the de-grip now SHIPS AT ZERO and the real fix is the state-gated MINE seat delta pinned by
+    /// <c>MineSeatPlayModeTests</c>. <see cref="DeGripEuler"/> below is therefore a PROBE AMPLITUDE (round 1's
+    /// measured value), not the shipped constant: these tests keep pinning that the retained MECHANISM still works
+    /// and still points the right way, which is what makes the F9 MINE target a usable A/B knob. They must NOT be
+    /// re-pointed at the shipped constant — that would make them tautologically green against zero.
+    ///
     /// EDITOR-ONLY (loads the rig + controller via AssetDatabase); Ignores in a player build.
     /// </summary>
     public class MineDeGripPlayModeTests
@@ -45,7 +52,8 @@ namespace FarHorizon.PlayTests
         private const string RiggedFbxPath = "Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx";
         private static readonly Vector3 CarryRightEuler = new Vector3(-5f, -22f, 0f); // MovementCameraScene.CastawayV4RightArmEuler
         private static readonly Vector3 CarryLeftEuler = new Vector3(-5f, 22f, 0f);   // MovementCameraScene.CastawayV4LeftArmEuler
-        private static readonly Vector3 DeGripEuler = new Vector3(-40f, 0f, 20f);     // MovementCameraScene.ArmMineDeGripEuler
+        // ROUND-1's MEASURED amplitude, kept as a PROBE (the shipped constant is now zero — see the class docs).
+        private static readonly Vector3 DeGripEuler = new Vector3(-40f, 0f, 20f);
         private const float Dt = 1f / 60f;
 
         private GameObject _root;
