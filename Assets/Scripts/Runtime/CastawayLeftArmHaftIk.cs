@@ -114,10 +114,18 @@ namespace FarHorizon
                  "Dialed live with [Z]/[X]. Bake into MovementCameraScene.LeftArmHaftShellFraction.")]
         [Range(0.5f, 0.98f)] public float shellFraction = 0.98f;
 
-        [Tooltip("Metres of over-reach beyond the shell across which the pin BLENDS OUT entirely. Deliberately LARGE " +
-                 "(0.30 m) so it never fires against the shipped seat: the measured worst shortfall is 10.5 cm, and a " +
-                 "tight falloff here is precisely what would have made this driver inert on ~half the swing. It exists " +
-                 "as the guard for an absurd target (a re-seated tool parked a metre away), not as normal behaviour.")]
+        [Tooltip("Metres of over-reach HELD AT FULL STRENGTH before the blend-out begins. ⚠ THIS FIELD EXISTS BECAUSE " +
+                 "THE SHIPPED GATE CAUGHT ITS ABSENCE. Round 4's first build had no hold band, so the ease began at the " +
+                 "shell edge and the frames with the LARGEST over-reach — exactly the ones needing the reach most — got " +
+                 "the pin at partial strength: the worst frame ran at reachWeight 0.65 and measured a 13.5 cm palm gap " +
+                 "against a 13.0 cm touching bound, i.e. the blend-out itself caused the FAIL. A clamped solve is " +
+                 "already safe (the arm cannot pass the shell), so full strength across the real working range is " +
+                 "correct. 0.25 m sits clear above the measured worst over-reach of 10.5 cm.")]
+        public float reachHoldMetres = 0.25f;
+
+        [Tooltip("Metres of over-reach BEYOND the hold band across which the pin blends out entirely. The guard for an " +
+                 "absurd target (a re-seated tool parked a metre away), not normal behaviour: with the hold band above " +
+                 "it measures 0 frames of partial weight across the shipped swing.")]
         public float reachFalloff = 0.30f;
 
         [Tooltip("Pole FALLBACK direction, in the model frame, used only when the clip's own elbow projects too close " +
@@ -254,7 +262,8 @@ namespace FarHorizon
                                             poleFallbackDir: poleFallbackWorld,
                                             reachFalloff: reachFalloff,
                                             straightArmFraction: Mathf.Clamp(shellFraction, 0.5f,
-                                                                             TwoBoneIkSolver.StraightArmFraction));
+                                                                             TwoBoneIkSolver.StraightArmFraction),
+                                            reachHold: reachHoldMetres);
             _reachWeight = res.reachWeight;
             _poleFallback = res.poleFromFallback;
             if (!res.solved) return;                        // refused: leave the clip pose alone, write NOTHING

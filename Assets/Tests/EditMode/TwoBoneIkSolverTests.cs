@@ -115,36 +115,65 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void ReachWeight_EasesFrom1To0_AcrossTheFalloff_NeverPoppingAtTheShellEdge()
+        public void ReachWeight_HoldsFullStrengthAcrossTheHOLDBand_ThenEasesTo0_Monotonically()
         {
+            // ⚠ THE HOLD BAND IS THE ROUND-4 SHIPPED-GATE CORRECTION, pinned. Without it the ease begins at the shell
+            // edge, so the frames with the LARGEST over-reach — exactly the ones that need the reach most — get the pin
+            // at PARTIAL strength and the tip ends up further from its target than the clamped solve would have put it.
+            // Measured on the shipped exe: worst frame reachWeight 0.65 and a 13.5 cm palm gap against a 13.0 cm bound,
+            // i.e. the blend-out itself caused the FAIL. A clamped solve cannot over-extend the arm, so holding full
+            // strength across the real working range is the correct behaviour and the ease guards only absurd targets.
             Chain(out Vector3 root, out Quaternion rootRot, out Vector3 mid, out Quaternion midRot, out Vector3 tip);
-            const float falloff = 0.20f;
+            const float falloff = 0.20f, hold = 0.25f;
             float shell = (ALen + BLen) * TwoBoneIkSolver.StraightArmFraction;
 
             float AtDistance(float d)
             {
                 var r = TwoBoneIkSolver.Solve(root, rootRot, mid, midRot, tip, root + Vector3.forward * d,
-                                              poleHint: mid, poleFallbackDir: Vector3.back, reachFalloff: falloff);
+                                              poleHint: mid, poleFallbackDir: Vector3.back, reachFalloff: falloff,
+                                              straightArmFraction: TwoBoneIkSolver.StraightArmFraction,
+                                              reachHold: hold);
                 return r.reachWeight;
             }
 
             Assert.AreEqual(1f, AtDistance(shell - 0.01f), 1e-5f, "inside the shell the pin is at full strength");
-            Assert.AreEqual(1f, AtDistance(shell), 1e-4f,
-                "…and exactly AT the shell edge it is still 1 — the falloff starts past it, so there is no step there");
-            float mid50 = AtDistance(shell + falloff * 0.5f);
+            Assert.AreEqual(1f, AtDistance(shell), 1e-4f, "…and exactly AT the shell edge, with no step");
+            Assert.AreEqual(1f, AtDistance(shell + 0.105f), 1e-4f,
+                "…and at the MEASURED worst over-reach against the shipped seat (10.5 cm) it must STILL be 1. This is " +
+                "the assert that would have caught round 4's first build, which ran 0.65 here.");
+            Assert.AreEqual(1f, AtDistance(shell + hold), 1e-4f, "…all the way to the end of the hold band");
+
+            float mid50 = AtDistance(shell + hold + falloff * 0.5f);
             Assert.Greater(mid50, 0.3f); Assert.Less(mid50, 0.7f);
-            Assert.AreEqual(0f, AtDistance(shell + falloff + 0.01f), 1e-5f,
-                "beyond the falloff the pin is fully released, so the arm is back on the clip pose rather than holding " +
+            Assert.AreEqual(0f, AtDistance(shell + hold + falloff + 0.01f), 1e-5f,
+                "beyond the falloff the pin is fully released, so the limb is back on the clip pose rather than holding " +
                 "a stretch at an absurd target");
 
-            // MONOTONIC across the band — a non-monotonic weight would read as the arm hunting.
+            // MONOTONIC across the whole range — a non-monotonic weight would read as the limb hunting.
             float prev = 1.0001f;
-            for (int i = 0; i <= 20; i++)
+            for (int i = 0; i <= 30; i++)
             {
-                float w = AtDistance(shell + falloff * i / 20f);
-                Assert.LessOrEqual(w, prev + 1e-5f, "reachWeight must fall monotonically across the falloff band");
+                float w = AtDistance(shell + (hold + falloff) * i / 30f);
+                Assert.LessOrEqual(w, prev + 1e-5f, "reachWeight must fall monotonically");
                 prev = w;
             }
+        }
+
+        [Test]
+        public void WithNoHoldBand_TheEaseStartsAtTheShellEdge_TheRegressionTheShippedGateCaught()
+        {
+            // The NEGATIVE control for the test above: prove the hold band is doing real work rather than being a
+            // no-op parameter. With reachHold = 0 (round 4's first build) the measured worst over-reach lands at a
+            // partial weight — which is precisely the defect, so this must FAIL to be 1.
+            Chain(out Vector3 root, out Quaternion rootRot, out Vector3 mid, out Quaternion midRot, out Vector3 tip);
+            float shell = (ALen + BLen) * TwoBoneIkSolver.StraightArmFraction;
+            var r = TwoBoneIkSolver.Solve(root, rootRot, mid, midRot, tip, root + Vector3.forward * (shell + 0.105f),
+                                          poleHint: mid, poleFallbackDir: Vector3.back, reachFalloff: 0.30f,
+                                          straightArmFraction: TwoBoneIkSolver.StraightArmFraction, reachHold: 0f);
+            Assert.Less(r.reachWeight, 0.7f,
+                $"with NO hold band the measured worst over-reach must ease to a partial weight (got " +
+                $"{r.reachWeight:F2}; the shipped gate measured 0.65). If this ever reads 1, the hold-band parameter has " +
+                "stopped mattering and the test above is vacuous.");
         }
 
         // =================================================================================================

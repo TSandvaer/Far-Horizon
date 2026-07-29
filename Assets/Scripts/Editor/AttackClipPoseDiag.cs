@@ -1664,14 +1664,14 @@ namespace FarHorizon.EditorTools
             var achLo = new float[C]; var achHi = new float[C];
             var palmMax = new float[C]; var palmSum = new float[C];
             var elbowMin = new float[C]; var elbowMax = new float[C]; var swSum = new float[C];
-            var fellBack = new int[C]; var uSum = new float[C];
+            var fellBack = new int[C]; var uSum = new float[C]; var reachWMin = new float[C];
             // 86cay4282 round 4 — the PER-FRAME ELBOW STEP and the pole's own conditioning, on the REAL clip. The
             // EditMode continuity test found that a pole nearly parallel to the chain axis amplifies target motion into
             // elbow motion ~5x; the production idiom (pole = the clip's own elbow) should de-amplify instead, and that
             // claim has to be MEASURED on the shipped clip rather than argued from the algebra.
             var elbowStepMax = new float[C]; var prevElbow = new Vector3[C]; var haveElbow = new bool[C];
             float polePerpMin = float.MaxValue, poleAmpMax = 0f;
-            for (int p = 0; p < C; p++) { achLo[p] = 9f; achHi[p] = -9f; elbowMin[p] = 999f; elbowMax[p] = -999f; }
+            for (int p = 0; p < C; p++) { achLo[p] = 9f; achHi[p] = -9f; elbowMin[p] = 999f; elbowMax[p] = -999f; reachWMin[p] = 9f; }
 
             for (int i = 0; i < N; i++)
             {
@@ -1739,7 +1739,8 @@ namespace FarHorizon.EditorTools
                                                         poleHint: mid,
                                                         poleFallbackDir: model.transform.rotation * Vector3.back,
                                                         reachFalloff: 0.30f,
-                                                        straightArmFraction: shells[si]);
+                                                        straightArmFraction: shells[si],
+                                                        reachHold: MovementCameraScene.LeftArmHaftReachHoldMetres);
                         if (!res.solved) continue;
                         // POLE CONDITIONING, on the production idiom (pole = the clip's own elbow). The amplification of
                         // axis rotation into plane rotation is (parallel / perpendicular) of the pole about the axis;
@@ -1753,11 +1754,19 @@ namespace FarHorizon.EditorTools
                             polePerpMin = Mathf.Min(polePerpMin, perp);
                             if (perp > 1e-6f) poleAmpMax = Mathf.Max(poleAmpMax, par / perp);
                         }
-                        lArm.rotation = res.upperRotation;
-                        lFore.rotation = res.lowerRotation;
+                        // ⚠ APPLY THE reachWeight SLERP, exactly as CastawayLeftArmHaftIk.ApplyPin does. Omitting it is
+                        // how round 4's FIRST build diverged from this instrument: the diag applied the solve at full
+                        // strength and predicted a 10.7 cm worst palm gap, while the runtime scaled by reachWeight (0.65
+                        // on the worst frame) and the shipped gate measured 13.5 cm. Same shape as the round-2 order-65
+                        // omission — an instrument that models all but one production step reads as corroboration and is
+                        // not. Every production step, or the number is a fiction.
+                        float wApply = res.reachWeight;
+                        lArm.rotation = Quaternion.Slerp(upper0, res.upperRotation, wApply);
+                        lFore.rotation = Quaternion.Slerp(lower0, res.lowerRotation, wApply);
                         Vector3 palmAfter = (lHand.position + lMid1.position) * 0.5f;
                         float d = SegDist(palmAfter, gripW, headW);
                         palmMax[k] = Mathf.Max(palmMax[k], d); palmSum[k] += d; swSum[k] += sw;
+                        reachWMin[k] = Mathf.Min(reachWMin[k], wApply);
                         // the ELBOW INTERIOR angle after the solve — the "never snap the arm straight" read.
                         float e = Vector3.Angle(S - lFore.position, palmAfter - lFore.position);
                         elbowMin[k] = Mathf.Min(elbowMin[k], e);
@@ -1795,7 +1804,7 @@ namespace FarHorizon.EditorTools
                                   $"fallback) | palm->haft mean {palmSum[k] / n:F4} m ({palmSum[k] / n * 100f:F1} cm) " +
                                   $"MAX {palmMax[k]:F4} m ({palmMax[k] * 100f:F1} cm; {palmMax[k] / swAvg:F3} SW) | " +
                                   $"elbow {elbowMin[k]:F0}..{elbowMax[k]:F0}deg | worst frame-to-frame elbow step " +
-                                  $"{elbowStepMax[k] * 100f:F2} cm");
+                                  $"{elbowStepMax[k] * 100f:F2} cm | MIN reachWeight {reachWMin[k]:F2}");
                 }
             sb.AppendLine($"[left-span]   POLE CONDITIONING on the production idiom (pole = the clip's OWN elbow): " +
                           $"perpendicular offset off the shoulder->target axis MIN {polePerpMin:F4} m " +

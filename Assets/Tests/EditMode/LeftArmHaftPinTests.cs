@@ -261,6 +261,20 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
+        public void TheReachHoldBand_ClearsTheMEASUREDWorstOverReach_OrThePinRunsAtPartialStrength()
+        {
+            // The shipped gate caught this: with no hold band the blend-out fires on the frames with the LARGEST
+            // over-reach and the pin runs at partial strength there, which is what produced round 4's first FAIL
+            // (reachWeight 0.65, palm 13.5 cm vs a 13.0 cm bound). The band must clear the measured worst over-reach
+            // with margin, or the same defect returns silently.
+            const float MeasuredWorstOverReachM = 0.105f;   // AttackClipPoseDiag [left-span] / the shipped gate
+            Assert.Greater(MovementCameraScene.LeftArmHaftReachHoldMetres, MeasuredWorstOverReachM * 1.5f,
+                $"the hold band ({MovementCameraScene.LeftArmHaftReachHoldMetres:F2} m) must clear the measured worst " +
+                $"over-reach ({MeasuredWorstOverReachM:F3} m) with real margin — otherwise the pin eases out exactly " +
+                "where it is needed most.");
+        }
+
+        [Test]
         public void TheForceEngageFlag_ShipsFALSE_SoGameplayIsGatedPurelyOnTheAnimationState()
         {
             var go = new GameObject("ForceDefault");
@@ -333,6 +347,7 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(MovementCameraScene.LeftArmHaftPinU, ik.pinU, 1e-4f);
                 Assert.AreEqual(MovementCameraScene.LeftArmHaftPinUCeiling, ik.pinUCeiling, 1e-4f);
                 Assert.AreEqual(MovementCameraScene.LeftArmHaftShellFraction, ik.shellFraction, 1e-4f);
+                Assert.AreEqual(MovementCameraScene.LeftArmHaftReachHoldMetres, ik.reachHoldMetres, 1e-4f);
                 Assert.Less((MovementCameraScene.LeftArmHaftPoleFallback - ik.poleFallbackLocal).magnitude, 1e-3f);
             }
             finally { Object.DestroyImmediate(go); }

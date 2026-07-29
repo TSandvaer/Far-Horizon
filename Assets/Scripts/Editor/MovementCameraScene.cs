@@ -391,6 +391,17 @@ namespace FarHorizon.EditorTools
         // extended but NOT locked (the solver hard-caps below 180 by construction). If it reads too straight at the
         // soak, THIS is the value to lower and the cost is priced above — [Z]/[X] dials it live.
         public const float LeftArmHaftShellFraction = 0.98f;
+        // Metres of over-reach HELD AT FULL PIN STRENGTH before the blend-out begins. ⚠ THIS CONSTANT EXISTS BECAUSE THE
+        // SHIPPED GATE CAUGHT ITS ABSENCE — the exact reason the shipped-build gate is the verdict and an editor
+        // instrument is not. Round 4's first build had no hold band, so the ease started at the shell edge and the
+        // frames with the LARGEST over-reach (the ones needing the reach most) ran at PARTIAL pin strength: worst frame
+        // reachWeight 0.65, palm gap 13.5 cm against the 13.0 cm touching bound => the blend-out itself caused the FAIL.
+        // The editor sweep had predicted 10.7 cm because it applied the solve at FULL strength and never modelled the
+        // reachWeight multiply — the same one-missing-production-step divergence as round 2's order-65 omission, and the
+        // diag now applies the slerp so it cannot recur. A clamped solve is already safe (the arm physically cannot pass
+        // the shell), so full strength across the real working range is correct; 0.25 m clears the measured worst
+        // over-reach of 10.5 cm with margin.
+        public const float LeftArmHaftReachHoldMetres = 0.25f;
         // Pole FALLBACK direction in the MODEL frame, used only when the clip's own elbow cannot define a bend plane.
         // MEASURED mean clip elbow direction off the left shoulder (`[left-ik]`): essentially straight DOWN with a
         // slight outward lean. Measured 0 fallback frames across the whole swing, so this is a guard, not the norm.
@@ -1815,6 +1826,7 @@ namespace FarHorizon.EditorTools
             ik.pinU = LeftArmHaftPinU;
             ik.pinUCeiling = LeftArmHaftPinUCeiling;
             ik.shellFraction = LeftArmHaftShellFraction;
+            ik.reachHoldMetres = LeftArmHaftReachHoldMetres;
             ik.poleFallbackLocal = LeftArmHaftPoleFallback;
 
             // The chain is the WHOLE fix — a missing bone makes it silently inert, which is the "wired but

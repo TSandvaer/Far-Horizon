@@ -103,7 +103,7 @@ namespace FarHorizon
         // Stand-off for the two-hand grip close-up. 1.6u at 45deg FOV frames chest-to-hands; the 3u whole-body
         // profile stand-off used for the FOLD read cannot resolve which hand is on the haft (Tess confirmed the
         // default gameplay frame renders the castaway at ~55x95 px — the reason the front-snap key exists too).
-        private const float GripShotDistU = 1.6f;
+        private const float GripShotDistU = 1.15f;
         // Only frames at or above this eased seat weight are SCORED (and shot). See the note at the scoring loop:
         // the transition-paired gate engages before the seat has eased in, so the early frames legitimately show the
         // approved one-handed seat and must not be judged as a failed two-hand grip.
@@ -207,6 +207,9 @@ namespace FarHorizon
             bool anyPalmMeasured = false, allPalmMeasured = true;
             int ikSolvedFrames = 0, ikReachingFrames = 0, ikPoleFallbackFrames = 0, ikScoredFrames = 0;
             float peakPinWeight = 0f, minAchievedU = float.MaxValue, maxAchievedU = float.MinValue;
+            int transitionFrames = 0;
+            float palmWorstAt = -1f, palmWorstU = float.NaN, palmWorstReachW = -1f, palmWorstSep = -1f;
+            bool palmWorstReaching = false;
             if (castaway != null && animator != null)
             {
                 Transform hips = FindBone(animator.transform, "mixamorig:Hips");
@@ -352,17 +355,49 @@ namespace FarHorizon
                                     // with the fix (found by instrumenting the PlayMode fixture, which hit exactly
                                     // this and reported 1.451 before the window was corrected). The ~0.25 s ease-in
                                     // is a deliberate hand-over, not a defect to gate on.
-                                    if (w < EngagedWeightFloor) { easingFrames++; }
+                                    // ⚠ 86cay4282 ROUND 4 — ALSO SKIP ANIMATOR TRANSITION FRAMES, not just low-weight
+                                    // ones. Round 2 excluded the hand-over window by testing the EASED SEAT WEIGHT,
+                                    // which works only if the weight starts near 0. It does not here: this pass runs
+                                    // AFTER the fold pass, which already drove the same AttackPickaxe gate, so the
+                                    // weight is still saturated when scoring begins and the `< EngagedWeightFloor`
+                                    // guard skips NOTHING ("0 frames skipped" in the round-4 first run). The frames it
+                                    // was supposed to exclude were therefore scored: during an AnyState->AttackPickaxe
+                                    // CROSSFADE the Animator outputs a BLEND of idle and the mine pose, which is a pose
+                                    // the clip never contains and nothing was ever fitted to.
+                                    //
+                                    // THE EVIDENCE THIS IS THE RIGHT DISCRIMINATOR, not a convenient exclusion: the
+                                    // first round-4 run reported `min hand separation 0.482 SW` while the clip's own
+                                    // measured separation range is 1.01..1.33 SW (AttackClipPoseDiag MINE-SEAT FIT, 361
+                                    // samples). A hand separation less than HALF the clip's minimum cannot come from the
+                                    // clip; it is the crossfade. Excluding transition frames must restore that figure to
+                                    // ~1.0 SW, which is the falsifiable check on this change.
+                                    bool inTransition = animator.IsInTransition(0);
+                                    if (w < EngagedWeightFloor || inTransition)
+                                    {
+                                        easingFrames++;
+                                        if (inTransition) transitionFrames++;
+                                    }
                                     else
                                     {
                                         worstRightHaft = Mathf.Max(worstRightHaft, read.rightHaftSW);
                                         // 86cay4282 ROUND 4 — the PALM figure is the pass criterion now, so it is the
                                         // one tracked to a worst frame. The wrist figure stays tracked below purely so
                                         // this round's numbers are comparable with rounds 2-3, which were written in it.
-                                        worstLeftPalm = Mathf.Max(worstLeftPalm, read.leftPalmHaftSW);
                                         anyPalmMeasured |= read.palmMeasured;
                                         allPalmMeasured &= read.palmMeasured;
                                         swAtWorst = read.shoulderWidth;
+                                        // The WORST PALM frame's full state, so a marginal miss is diagnosable from the
+                                        // log alone instead of costing a build cycle to instrument (round 4's first run
+                                        // missed by 5 mm and the log could not say which frame or why).
+                                        if (read.leftPalmHaftSW > worstLeftPalm)
+                                        {
+                                            worstLeftPalm = read.leftPalmHaftSW;
+                                            palmWorstAt = Time.time - start;
+                                            palmWorstU = leftIk != null ? leftIk.AchievedU : float.NaN;
+                                            palmWorstReaching = leftIk != null && leftIk.SpanEmpty;
+                                            palmWorstReachW = leftIk != null ? leftIk.ReachWeight : -1f;
+                                            palmWorstSep = read.handSepSW;
+                                        }
                                         // 86cay4282 ROUND 3 — WHERE ALONG THE HAFT each hand sits, tracked over the
                                         // whole engaged window. ⚠ REPORT ONLY: deliberately NOT folded into gripOk this
                                         // round, at the Sponsor's explicit call — the right pass window depends on which
@@ -388,9 +423,12 @@ namespace FarHorizon
                             worstMeshGap = Mathf.Max(worstMeshGap, MeshGap(smr, playerRoot));
                             yield return null;
                         }
-                        Debug.Log($"[swing-twohand] scored frames at seat weight >= {EngagedWeightFloor:F2}; " +
-                                  $"{easingFrames} frames skipped while the seat eased in (the deliberate hand-over " +
-                                  "window — the tool is still at the approved one-handed seat there).");
+                        Debug.Log($"[swing-twohand] scored frames at seat weight >= {EngagedWeightFloor:F2} AND not in " +
+                                  $"an Animator transition; {easingFrames} frames skipped total, of which " +
+                                  $"{transitionFrames} were CROSSFADE frames (an AnyState->AttackPickaxe blend outputs " +
+                                  "a pose the clip never contains). The round-4 first run skipped 0 and scored those " +
+                                  "blends — its tell was a min hand separation of 0.482 SW against the clip's own " +
+                                  "measured 1.01..1.33 SW range.");
                         // 86cay4282 ROUND 3 — the ALONG-HAFT report. Its own line, with the convention spelled out and
                         // the off-the-end cases called by name, because this is the number the Sponsor's round-2 soak
                         // defect ("the left hand is on the bottom of the axe") actually lives in — and `Pass()` scores
@@ -423,8 +461,9 @@ namespace FarHorizon
                         while (Time.time - start < worstAt) yield return null;
                         ShotTo(Path.Combine(dir, "swing_pickaxe_twohand.png"));
                         yield return null;
-                        yield return FrontalShot(Path.Combine(dir, "swing_pickaxe_twohand_front.png"), hips, head,
-                                                 castaway.ModelTransform, GripShotDistU);
+                        // The judged frame: aimed from the SUBJECT (chest -> hand midpoint) and framed on the HANDS.
+                        yield return GripShot(Path.Combine(dir, "swing_pickaxe_twohand_front.png"), lHand, rHand,
+                                              lArm, rArm, GripShotDistU);
 
                         // The gate must have ENGAGED at all — a seat delta that never fires would otherwise pass
                         // silently while the defect ships (the "wired but conditionally inert" family,
@@ -469,6 +508,10 @@ namespace FarHorizon
                                   "against a palm cap; a FALSE 'leftPalmOnHaft' means the palm is genuinely NOT " +
                                   "touching (round 3 measured 0.615 SW = 28.2 cm here); a FALSE 'rightWristOnHaft' " +
                                   "means the seat pulled the haft out of the hand it is actually seated in.");
+                        Debug.Log($"[swing-twohand] WORST-PALM FRAME detail: +{palmWorstAt:F2}s, achieved u " +
+                                  $"{palmWorstU:F3}, reaching={palmWorstReaching}, reachWeight {palmWorstReachW:F2}, " +
+                                  $"hand separation {palmWorstSep:F3} SW. A separation far below the clip's own " +
+                                  "1.01..1.33 SW range means a blend pose was scored, not the mine pose.");
                         Debug.Log($"[swing-twohand] WRIST figures, for continuity with rounds 2-3 (NOT the criterion): " +
                                   $"worst left wrist {worstLeftHaft:F3} SW = {worstLeftHaft * swAtWorst * 100f:F1} cm " +
                                   $"(round 3 shipped 0.615 SW = 28.2 cm). 1 SW = {swAtWorst:F4} m.");
@@ -661,12 +704,62 @@ namespace FarHorizon
             yield return ProfileShot(file, hips, head, facing != null ? facing.forward : Vector3.forward, distU);
         }
 
+        /// <summary>
+        /// 86cay4282 round 4 — A GRIP SHOT THAT CAN ACTUALLY SEE THE GRIP. Round 3's frontal shot took its axis from
+        /// <c>ModelTransform.forward</c> — a RIG CONVENTION — and the round-4 capture came out looking at the back of the
+        /// head with both hands cropped: the gate's logic was green while the judged IMAGE could not show its own
+        /// subject. That is the 8th instance of the false-green-capture family (unity-conventions.md
+        /// §Editor-vs-runtime), and the specific lesson is that a capture axis must be derived from the SUBJECT, not
+        /// from an assumed forward.
+        ///
+        /// So the aim is measured: the camera stands off along the horizontal direction from the CHEST to the HAND
+        /// MIDPOINT, which by construction puts the hands between the lens and the body whatever the rig's forward
+        /// happens to mean and whichever way the character has yawed. It also FRAMES ON THE HANDS rather than on the
+        /// hips→head midpoint, because the quantity being judged is 10 cm across and was previously ~1/8 of the frame
+        /// height away from centre.
+        ///
+        /// The shot LOGS what it could see (both hands' distance from the lens and their angular separation), so
+        /// "this frame can resolve which hand is on the haft" is evidence in the log rather than an assumption — the
+        /// gate has to be able to say the image is judgeable, not just that it was written.
+        /// </summary>
+        private IEnumerator GripShot(string file, Transform lHand, Transform rHand, Transform chestA, Transform chestB,
+                                     float distU)
+        {
+            Vector3 handMid = (lHand.position + rHand.position) * 0.5f;
+            Vector3 chest = (chestA.position + chestB.position) * 0.5f;
+            Vector3 aim = Vector3.ProjectOnPlane(handMid - chest, Vector3.up);
+            if (aim.sqrMagnitude < 1e-4f) aim = Vector3.forward;   // hands directly above/below the chest: any side works
+            aim.Normalize();
+
+            Vector3 camPos = handMid + aim * distU;
+            float dL = (lHand.position - camPos).magnitude, dR = (rHand.position - camPos).magnitude;
+            float sep = Vector3.Angle(lHand.position - camPos, rHand.position - camPos);
+            Debug.Log($"[swing-grip-shot] aim={aim:F3} (measured chest->hand-midpoint, NOT a rig 'forward'), " +
+                      $"standoff {distU:F2}u; left hand {dL:F2}u from the lens, right hand {dR:F2}u, angular " +
+                      $"separation {sep:F1}deg at a 45deg FOV => the two hands occupy ~{sep / 45f * 100f:F0}% of the " +
+                      "frame width, so a hand-on-haft read is resolvable in this image. Round 3's shot took its axis " +
+                      "from ModelTransform.forward and framed the BACK of the head with the hands cropped.");
+            yield return ProfileShotAt(file, camPos, handMid);
+        }
+
         /// <summary>Shared implementation: a level, chest-height shot from a stand-off along the given world axis.
         /// A raised/angled shot flattens the very geometry these captures exist to judge (the pond top-down lesson).
         /// The stand-off is a PARAMETER, not a constant: the fold read needs the whole body in frame (3u) while the
         /// two-hand grip read needs the hands legible (1.6u), and using one distance for both makes one of the two
         /// captures unable to show its own subject.</summary>
         private IEnumerator ProfileShot(string file, Transform hips, Transform head, Vector3 axis, float distU)
+        {
+            Vector3 centre = (hips.position + head.position) * 0.5f;
+            Vector3 side = Vector3.ProjectOnPlane(axis, Vector3.up);
+            if (side.sqrMagnitude < 1e-4f) side = Vector3.right;
+            yield return ProfileShotAt(file, centre + side.normalized * distU + Vector3.up * 0.1f, centre);
+        }
+
+        /// <summary>The shared camera mechanics: one frame from an EXPLICIT world position looking at an explicit point.
+        /// Follows the #223 camera-race discipline — every other camera is disabled, this one takes depth 100, and the
+        /// whole roster is logged, because two enabled cameras at equal depth have UNDEFINED render order and the capture
+        /// then intermittently samples the wrong one.</summary>
+        private IEnumerator ProfileShotAt(string file, Vector3 camPos, Vector3 lookAt)
         {
             var wasEnabled = new System.Collections.Generic.List<Camera>();
             foreach (var c in Camera.allCameras)
@@ -676,11 +769,8 @@ namespace FarHorizon
             var cam = go.AddComponent<Camera>();
             cam.depth = 100f;
             cam.fieldOfView = 45f;
-            Vector3 centre = (hips.position + head.position) * 0.5f;
-            Vector3 side = Vector3.ProjectOnPlane(axis, Vector3.up);
-            if (side.sqrMagnitude < 1e-4f) side = Vector3.right;
-            go.transform.position = centre + side.normalized * distU + Vector3.up * 0.1f;
-            go.transform.LookAt(centre);
+            go.transform.position = camPos;
+            go.transform.LookAt(lookAt);
             foreach (var c in wasEnabled) c.enabled = false;
             yield return null;
             ShotTo(file);

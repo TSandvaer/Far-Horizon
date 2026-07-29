@@ -69,6 +69,7 @@ namespace FarHorizon.PlayTests
         private const float PinU = 0.35f;                  // MovementCameraScene.LeftArmHaftPinU
         private const float PinUCeiling = 0.80f;           // MovementCameraScene.LeftArmHaftPinUCeiling
         private const float ShellFraction = 0.98f;         // MovementCameraScene.LeftArmHaftShellFraction
+        private const float ReachHoldMetres = 0.25f;       // MovementCameraScene.LeftArmHaftReachHoldMetres
 
         private GameObject _player, _tool;
         private Animator _animator;
@@ -144,6 +145,7 @@ namespace FarHorizon.PlayTests
             _leftIk.pinU = PinU;
             _leftIk.pinUCeiling = PinUCeiling;
             _leftIk.shellFraction = ShellFraction;
+            _leftIk.reachHoldMetres = ReachHoldMetres;
 
             // GEOMETRY SANITY — diagnose-via-trace, never assume. The Mixamo/Hyper3D FBX bakes a 100x cm->m scale on
             // the MODEL node (unity-conventions.md §FBX/rigs Bug B). If that survives into this rig the SKELETON is

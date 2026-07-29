@@ -118,8 +118,17 @@ namespace FarHorizon
         /// measured 0 frames of use across the shipped mine clip, not a co-equal option.</param>
         /// <param name="poleFallbackDir">WORLD direction used when <paramref name="poleHint"/> projects too close to
         /// the chain axis to define a plane. Must be a real measured direction, not a guess.</param>
-        /// <param name="reachFalloff">metres of over-reach across which <see cref="Result.reachWeight"/> eases 1→0.
-        /// 0 = a hard cut at the shell edge (not recommended: it pops).</param>
+        /// <param name="reachHold">metres of over-reach HELD AT FULL STRENGTH before the ease begins. Sizing this from
+        /// measurement is load-bearing, and getting it wrong is what round 4's first shipped gate caught: with no hold
+        /// band the ease starts at the shell edge, so the frames where the target is FURTHEST out — precisely the frames
+        /// that need the reach most — get the pin applied at partial strength and the palm ends up further from the haft
+        /// than the clamped solve would have put it. Measured: the worst over-reach against the shipped seat is 10.5 cm,
+        /// and a 0.30 m falloff starting at the shell gave `reachWeight 0.65` on the worst frame and a 13.5 cm palm gap
+        /// against a 13.0 cm bound. A clamped solve is ALREADY safe (the arm cannot pass the shell), so holding full
+        /// strength across the real working range is correct and the ease exists only for an absurd target.</param>
+        /// <param name="reachFalloff">metres of over-reach BEYOND <paramref name="reachHold"/> across which
+        /// <see cref="Result.reachWeight"/> eases 1→0. 0 = a hard cut at the end of the hold band (not recommended: it
+        /// pops).</param>
         /// <param name="straightArmFraction">the fraction of full extension the target is clamped to. Exposed rather
         /// than fixed at <see cref="StraightArmFraction"/> because it is the ONE knob trading "how close does the tip
         /// get" against "how straight does the arm go", and that trade must be priced from measurement per rig/verb
@@ -129,7 +138,8 @@ namespace FarHorizon
                                    Vector3 tipPos, Vector3 target,
                                    Vector3 poleHint, Vector3 poleFallbackDir,
                                    float reachFalloff,
-                                   float straightArmFraction = StraightArmFraction)
+                                   float straightArmFraction = StraightArmFraction,
+                                   float reachHold = 0f)
         {
             var res = new Result
             {
@@ -151,9 +161,9 @@ namespace FarHorizon
             res.maxReach = aLen + bLen;
 
             // REACH WEIGHT. Measured against the SAME shell the clamp uses, so "clamped" and "blending out" cannot
-            // disagree: at the shell edge the weight is exactly 1 and starts falling only past it.
+            // disagree: full strength through the shell AND through the HOLD BAND beyond it, easing only past that.
             float shell = res.maxReach * Mathf.Clamp(straightArmFraction, 0.10f, StraightArmFraction);
-            float over = c - shell;
+            float over = c - shell - Mathf.Max(0f, reachHold);
             res.reachWeight = over <= 0f ? 1f
                             : reachFalloff <= 1e-6f ? 0f
                             : Mathf.Clamp01(1f - over / reachFalloff);
