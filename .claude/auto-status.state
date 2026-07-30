@@ -1,5 +1,5 @@
 # auto-status state — managed by the auto-status skill. Do not edit by hand.
-enabled=true
+enabled=false
 mode=away
 interval=15m
-last_tick=2026-07-30T05:22:13Z
+last_tick=2026-07-30T05:37:04Z
