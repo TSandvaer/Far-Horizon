@@ -127,3 +127,26 @@ A green gate is only worth trusting if it can go RED. When a verify-gate is SUSP
 3. **Verdict:** the gate is trustworthy ONLY if the should-fail case actually goes RED. If both go green, the gate is not discriminating — fix the gate before trusting ANY of its greens. Trust the POST-gate artifact log + a UTF-16LE DLL string search over a managed assembly (ASCII grep/`strings` lies on wide literals), never a pre-gate `ci-out/` upload.
 
 Borrowed from the reference "earned-autonomy" suite's `probe` skill (contrastive-pair + pre-registration), applied to **gate-trust** rather than agent-reasoning. Use it the next time a soak contradicts a green gate, not as a standing per-PR gate.
+
+---
+
+## Doc-staleness greps — negate the marker context, and DEMONSTRATE the red (ticket `86cayw6ve`)
+
+The sibling of the section above, for the **docs** lane. A docs ticket's success test is usually a grep — *"`grep '<retired phrase>' <doc>` → zero hits."* That form is **unpassable by construction** the moment the doc does the right thing, because the two legitimate shapes both CONTAIN the phrase:
+
+- a **`⚠ CORRECTED` retirement marker**, which quotes the wording it retires *in order to* retire it (the house pattern this doc family merged — `team/uma-ux/item-icon-bake-recipe.md` §2.1's markers quote the retired axe descriptor verbatim); and
+- a **DECISIONS citation**, which is accurate AS HISTORY and is protected precisely because rewriting it falsifies the record.
+
+**Why an unpassable test is worse than no test.** A future reader does one of two things with a guard that can never go green: deletes it (the guard is lost), or "fixes" the doc to satisfy it — striking the correction marker or the DECISIONS citation. **The second outcome is the damaging one:** it destroys the record of what was wrong, which is the whole reason the marker exists. Observed on `86caynyq7` / PR #358: `grep -n 'slate/steel' team/uma-ux/ui-toolkit-panels-ux-spec.md` → zero hits reported **2 hits before AND after** the fix, and satisfying it literally would have required breaking two of the ticket's own constraints to satisfy a third.
+
+**The keepable form — negate the CONTEXT MARKER, never the line number:**
+
+    grep -n '<retired phrase>' <doc> | grep -v 'CORRECTED\|DECISIONS'   # → expect ZERO LINES
+
+- **Judge the OUTPUT, not the exit code** — a clean run's trailing `grep -v` exits **1**, so an exit-code check reads a passing guard as a failure (same family as "grep the `-testResults` XML's `result=` line, exit codes lie" in item 2 of the rubric).
+- **Anchor on the marker word** (`CORRECTED` / `DECISIONS` / `RETIRED`), **never on a line number.** Line numbers move; `86caynyq7` deliberately refused to quote its own pre-merge anchors as current for exactly this reason.
+- **State the real bar in words too:** "no line *asserts* the retired phrase as CURRENT" — that is the criterion; the grep is only its mechanical proxy.
+
+**The gate — a staleness grep is not keepable until its RED has been DEMONSTRATED.** Same discipline as the contrastive-pair section above, at docs cost: inject a live claim carrying the phrase into the file, run the guard, confirm it emits the line, revert. Then **state in the PR body which half you actually proved** (green-on-current-tree, red-on-injected-claim, or both). A guard that cannot fail is a false-confidence generator — the `LeftHaftPassSW` cap printed `PASS ✓` for three rounds on a defect it could not see.
+
+**Disclose the residual hole.** The `grep -v` form is line-scoped, so a live claim reintroduced ON a line that also contains `CORRECTED` or `DECISIONS` still slips through. That narrows the hole; it does not close it (closing it needs sentence-level parsing — deliberately not built). Say so when citing this pattern, the same way the source-scan-guard entry in `.claude/docs/unity-conventions.md` states that per-file counting narrows but does not close its hole.
