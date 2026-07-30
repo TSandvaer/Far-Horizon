@@ -32,11 +32,40 @@ filing the technique here makes it discoverable, it does not replace the source.
   `Matrix4x4.TRS(pos, rot, Vector3.one)`, never `localToWorldMatrix`** (it re-applies the 100× scale → garbage
   sole-Y). *De-duped — the full mechanism (the 100× cm→m double-apply + the walk-float saga's 8 false-greens)
   is owned by `unity-conventions.md` §FBX / rigs / characters (Bug B). Reach there; don't re-explain it here.*
-- **The elite path for real foot-planting on uneven terrain is Animation Rigging Two-Bone IK**
-  (`com.unity.animation.rigging`; Unity Learn "Working with Animation Rigging"). This is the
-  durable upgrade beyond the fixed-offset snap — adopt it when terrain stops being near-flat.
-  (Open Q for Devon: confirm `com.unity.animation.rigging` is in the package manifest before the
-  next character PR.)
+- **Two-bone IK is now ADOPTED — but HAND-ROLLED, not `com.unity.animation.rigging` (86cay4282 round 4, PR #354).**
+  The package is still NOT in `Packages/manifest.json` (checked), and the adoption deliberately did not add it.
+  The shipped implementation is `Assets/Scripts/Runtime/TwoBoneIkSolver.cs` (a ~120-line pure static analytic
+  solve) driven by `CastawayLeftArmHaftIk` (`DefaultExecutionOrder` 110). **The deciding reason is ORDER, and it
+  generalizes to every held-prop IK this project will want:** Animation Rigging constraints evaluate inside the
+  Animator's `PlayableGraph`, i.e. during `Animator.Update`, which runs BEFORE every MonoBehaviour `LateUpdate` —
+  so a constraint cannot see anything produced by the order-50/60/65/100 driver chain, and its own output is
+  overwritten by that chain immediately afterwards. Any IK whose TARGET depends on a held prop (a hand on a haft,
+  a hand on a bow, a foot on a moving platform posed in LateUpdate) is therefore in the same position. Secondary
+  reasons: the additive-`LateUpdate`-offset idiom forbids inserting an Animator layer
+  (`procedural-animation-verbs.md`), a pure static is EditMode-testable with no PlayableGraph, and adding a package
+  re-triggers cold-cache package resolution on the single self-hosted runner — a documented CI flake class
+  (`unity-conventions.md` §Headless, the #103 stale-scene incident). **Reach for Animation Rigging only when the
+  target is available BEFORE the Animator ticks** (pure terrain foot-planting is the plausible case); reach for
+  the in-tree solver whenever the target comes out of the LateUpdate chain.
+  - **Two gotchas the adoption paid for, both measured (`AttackClipPoseDiag` `[left-ik]`/`[left-span]`,
+    `TwoBoneIkSolverTests`):**
+    - **PASS THE CHAIN'S OWN JOINT AS THE POLE, never a fixed world point.** The bend plane comes from the pole's
+      component PERPENDICULAR to the root→target axis, so as a pole nears parallel with that axis the perpendicular
+      shrinks and its direction becomes hypersensitive: the plane swings by ~(parallel/perp) × the axis rotation and
+      the elbow moves proportionally. Measured: a fixed straight-down pole with a target sweeping through
+      straight-down turns a 4 mm target step into a **2.1 cm elbow step** (~5× amplification) — it renders as the
+      limb twitching. Using the chain's own mid joint makes the components `a·cos(A)` and `a·sin(A)`, so the factor
+      is `cot(A) ≤ 1` for any root angle ≥ 45° — de-amplifying. A named fallback direction is a LAST RESORT (0
+      frames of use measured across the shipped clip), not a co-equal option.
+    - **"Clamp + blend out on over-reach" can make the whole driver INERT — measure the reach envelope before
+      choosing it.** The obvious design (pin at a fixed target, ease the IK out when unreachable) was REFUTED here:
+      the target was beyond the arm's 54.0 cm extension on ~64% of judged frames at *every* candidate position, so
+      blending out would have handed the pose back to the clip for most of the swing. The shipped strategy instead
+      CLAMPS the target into the reachable part of the geometry (segment ∩ shell-sphere) and, where nothing is
+      reachable, aims at the nearest point — plus a hard ceiling strictly below full extension so the limb never
+      locks straight. Keep the blend-out, but size its falloff so it guards absurd targets rather than normal ones.
+  - **Cross-refs:** the chain-order contract + the post-seat IK stage live in `procedural-animation-verbs.md`;
+    `unity-conventions.md` §FBX / rigs / characters owns the scaled-skinned-mesh measurement traps.
 - **Cross-ref:** `unity-conventions.md` §FBX / rigs / characters (the ground-snap / sole-vs-root
   finding + the intrinsic-height-normalization rule live there).
 
