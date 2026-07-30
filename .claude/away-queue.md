@@ -3,6 +3,19 @@
 ## ▶▶▶ CURRENT — 2026-07-30 ~21:25Z (AWAY armed, cron `471609c0`, 15-min; main `51f4623`)
 
 ### ⭐ SPONSOR QUEUE (drain via /sponsor-questions-walkthrough on return)
+
+0. **⭐ ONE-CLICK MERGE — PR #369 (`86caynve9`, CI-wire `-verifySwings`), head `81b71a2`.** Say the word and I run it; it touches `.github/**` so it cannot be label-merged, and unlike #365 I have no specific approval for it.
+   ```
+   gh pr merge 369 --admin --squash --delete-branch
+   ```
+   **Gate evidence — the strongest-evidenced PR of the night:**
+   - **All FOUR jobs SUCCESS** on run `30589555914` — `structure`, `build`, `capture` AND `playmode`. Capture log confirms `SWINGS CAPTURE GATE PASSED`, all six needles `evidence OK` **on the shipped exe**.
+   - **Gate suite 188 passed / 0 failed**, and Devon did NOT treat his clean merge as proof: he mutation-tested the wiring twice — de-registering the gate → `185p/1f`, unwiring the `ci.yml` invocation → `186p/1f`, both restored. That directly answers the #351 trap where a clean merge left a gate registered nowhere.
+   - **What it fixes:** `-verifySwings` had **zero** occurrences in `ci.yml`, so the two-hand palm gate and #354's arm-release term had only ever been proven by an author running the exe by hand.
+   - **Drew's NIT folded in and NARROWED:** `castaway == null` was already fatal via `allRouted` (`:164`), so the real false-green was specifically `animator == null`. Devon added the missing `else` emitting the existing `fold pass SKIPPED` needle (inert on green), a header sentence marking the four in-block needles LOAD-BEARING, and **S4b** — a fixture for the silent-guard shape, mutation-proven (pruning those four needles yields `rc=0` on a run that measured nothing, `185p/3f`).
+   - ⚠ **Merge-order:** its diff enters `ci.yml`'s stale-clear region (adds `verify-swings.log` + `swings-caps`). Verified still `MERGEABLE/CLEAN` against post-#365 `main` (`e054aa7`), `merge-tree` clean. **#370 collides in that same region** — whichever lands second needs an **additive union** of the log/caps names, never take-one-side.
+   - Pending: Drew's re-review verdict on the `b8ae2fd..81b71a2` delta (dispatched).
+
 1. **#351 SOAK — STAGED AND PLAYED. Run this:**
    ```
    C:\Trunk\PRIVATE\Far-Horizon\Build\soak-351\FarHorizon.exe
