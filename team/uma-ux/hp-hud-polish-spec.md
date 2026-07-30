@@ -200,6 +200,16 @@ Chips live on the **HP row**, immediately right of the segment run: `x = 16 + 26
 
 ## 6. Enemy-HP read — transient, above-head, never a nameplate
 
+> **⚠ SUPERSEDED FOR IMPLEMENTATION DETAIL — read [`enemy-hp-read-spec.md`](enemy-hp-read-spec.md) FIRST.**
+> This section established WHAT and WHY and its ACs still stand; the ticket it was routed into (`86caxhfg2`) now
+> has its own implementable spec, which **corrects two premises below**: (1) `LootPrompt` anchors above the
+> **PLAYER's** head, not the target's (`LootPrompt.cs:112`), so the "shared anchor" is a shared code path, not a
+> shared screen position, and the enemy head needs its own deterministic stack; and (2) the player's HP bar is
+> still **10** segments on `main` (`SurvivalHud.cs:44`), so "matching the player's 5-block grammar" is a forward
+> dependency on `86cah7z2q` — the 5 is geometry-forced regardless. It also settles pips-vs-bar with the shipped
+> damage arithmetic (hits-to-kill spans **2 … 9** on a medium boar → pips are a quantized PROPORTION, never
+> "hits remaining") and adds the draining-pip fix for sub-pip hits. Where the two docs disagree, that one wins.
+
 The player needs to answer *"is it nearly down?"* — and the calm tone forbids a persistent bar over every animal. So:
 
 - **Primary read stays the BODY:** the `_HitFlash` material-instance pulse + the flinch/hit-react + the dust puff (`combat-cluster-design-brief.md` §1.2 / §2.5). Most of the "am I hurting it" answer must come from the creature itself. **No enemy HP element is drawn until the enemy has been hit at least once.**
