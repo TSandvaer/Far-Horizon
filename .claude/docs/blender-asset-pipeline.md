@@ -7,14 +7,14 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 
 ## 0. The Style Contract — Read This Before You Open Blender
 
-The weapon/tool/prop family lives in a **single flat-shaded palette world**. The deciding constraint is the shading model: a per-asset baked texture atlas (what the current shipped axe uses) imports its own lighting and reads as a foreign object beside faceted flat geometry. That approach is BANNED for new assets.
+The weapon/tool/prop family lives in a **single flat-shaded palette world**. The deciding constraint is the shading model: a per-asset baked texture atlas (what the RETIRED CC-BY axe used) imports its own lighting and reads as a foreign object beside faceted flat geometry. That approach is BANNED for new assets.
 
 Every new asset must:
 - Use the **shared palette material** (one URP/Unlit mat + one 128×128 `weapon_palette.png`) — never a per-asset texture.
 - Match the inspiration board (`inspiration/21h08_08.png` for axe; `21h06_54`, `21h07_20`, `21h07_42` for the full family). Look at the actual images before modeling anything.
 - Be faceted and chunky, not smooth or machined.
 
-> The current shipped axe (`Assets/Art/Props/CastawayAxe/`) is a **placeholder, NOT the style anchor**. Do not tune its look as if it were final.
+> **History — the warning that produced this contract (RESOLVED 2026-06-23, PR #100).** The axe that shipped *before* this pipeline (`CastawayAxe/` — Viktor.G "One-handed stylized axe", Sketchfab CC-BY, baked photographic atlas) was a **placeholder, NEVER the style anchor**. It is **gone**: PR #100 (`031d43a`, ticket `86cabh907`) shipped the in-house weapon SET and deleted that asset folder together with its CC-BY license file. **Do not go looking for `CastawayAxe/` — the path does not exist.** The live family is `Assets/Art/Props/WeaponPack/` on the shared palette material, and **that** set is the anchor. The lesson survives the asset: a per-asset sourced/atlased one-off is what broke cohesion, so do not re-source one to sidestep this contract.
 
 ---
 
@@ -424,7 +424,7 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | Leave origin at world (0,0,0) | Set origin to grip midpoint before export |
 | Add a MeshCollider in Unity | Add a Box Collider |
 | Let Unity auto-create material stubs | Material Creation Mode = None; assign manually |
-| Tune the current shipped axe as the style reference | The shipped axe is a placeholder — use `21h08_08` as the target |
+| Treat a sourced / atlas-textured one-off axe as the style reference (the pre-#100 placeholder) | That placeholder is GONE — deleted in PR #100 (`031d43a`, `86cabh907`, 2026-06-23; see §0 History). **The shipped in-house set `Assets/Art/Props/WeaponPack/` on the shared palette material IS the anchor** (§0), with `21h08_08` as the board target it was authored against |
 | Reblock a new same-tier tool from scratch | Duplicate the approved sibling, delete only its head island (verify identity via §12 item 5 first), keep haft/grip/pommel verbatim |
 | Use a diamond/lens eye section on a crosswise-mounted head (pickaxe/hammer/mattock) | Use a BOX-section eye wide enough to enclose the haft; taper to diamond only on the arms |
 | Extrude a new knife/sword blade from the handle stump after deleting the old one | Build a fresh closed shell (rings + apex) and `Join` it — knife/sword blades are a separate closed shell, not an open ring |

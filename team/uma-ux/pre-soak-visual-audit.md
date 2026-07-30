@@ -1,6 +1,15 @@
 # Pre-Soak Visual Audit — surface the NEXT likely soak-rejects BEFORE the next soak
 
-**Owner:** Uma · **Type:** proactive visual audit (direction only, no implementation) · **Status:** PUNCH-LIST for the current fix-wave.
+**Owner:** Uma · **Type:** proactive visual audit (direction only, no implementation) · **Status:** PUNCH-LIST for the **2026-06 fix-wave** (stamp `31ce95c`) — **read as a dated record, not as current state.**
+
+> **⚠ DATED-DOC MARKER 2026-07-29 (`86cay47zh`).** Every "the shipped X **is** …" below is present
+> tense **as of 2026-06**. Two assets this audit cites by path have since been DELETED from the tree:
+> the sourced hatchet folder `CastawayAxe/` + its CC-BY licence (PR #100, `031d43a`, `86cabh907`,
+> 2026-06-23 — see item 1's status line) and the `MiniChibiKid/` chibi base (gone with the Hyper3D
+> castaway line; the live hero is castaway **v4**). Those paths are kept verbatim because they are
+> this audit's own evidence, but **do not treat them as routable and do not cite this doc for what
+> ships today.**
+
 **Why this exists:** the Sponsor has been catching visual issues ONE PER SOAK (hair spike→tuft, clothes-too-subtle, axe-placement, gray slab) — each one a full reject→fix→re-soak round-trip. This audit looks ahead to fold the high-severity next-issues into the CURRENT wave instead of paying another round-trip each.
 
 **What I audited against (ground truth):**
@@ -18,7 +27,7 @@
 
 | Rank | Item | Severity | One-line |
 |---|---|---|---|
-| **1** | Axe is a *realistic* rustic hatchet, not the board's flat barn-red faceted axe | **HIGH** | Placement is fixed; the STYLE still mismatches the board's whole tool language — adjacent to the in-flight placement item but a distinct call. |
+| **1** | ~~Axe is a *realistic* rustic hatchet, not the board's flat barn-red faceted axe~~ **✅ CLOSED 2026-06-23 (PR #100)** | ~~HIGH~~ | Placement is fixed; the STYLE still mismatches the board's whole tool language — adjacent to the in-flight placement item but a distinct call. **Resolved via fix-route (b): the in-house Blender weapon SET replaced it — see §1's status line.** |
 | **2** | No clouds anywhere in the sky | **HIGH** | The board puts bright teal puffy clouds in the sky of *every* world ref; an empty sky reads flat + un-toylike. |
 | **3** | No far-horizon mountain/vista backdrop | **HIGH** | The north-star is literally "the far horizon"; the board's vistas are snow-capped faceted peaks. The horizon is currently empty fog. |
 | **4** | Sky tint reads cool/muted, not bright open daylight | **MED** | `SkyTint` is cool-blue + exposure modest; board skies are brighter, warmer-clean, more saturated. |
@@ -30,8 +39,20 @@ Everything below details each, plus the MED/LOW tail.
 
 ## HIGH — fold these into the current wave
 
-### 1. The axe is a realistic sourced hatchet, not the board's flat-faceted barn-red axe — HIGH
-**What's off:** The shipped axe is the sourced "rustic hatchet" FBX (`Assets/Art/Props/CastawayAxe/`). Its baseColor atlas (`Material_002_baseColor_png.png`) is a *realistic* texture — wood-grain striations, metallic gradient blade, and a literal **spiral screw/bolt motif** on the head. The board's axe (`21h08_08`) is the opposite: **flat barn-red head, a single crisp near-white edge-bevel plane, a smooth gently-bent brown haft, zero surface texture.** The board's *entire tool language* (style-guide-v2 §3) is "faceted flat-shaded + one white edge-bevel + no painted detail." The shipped axe violates all three.
+### 1. ~~The axe is a realistic sourced hatchet, not the board's flat-faceted barn-red axe~~ — **✅ CLOSED**
+
+> **⚠ STATUS 2026-07-29 (`86cay47zh`) — CLOSED, and the present tense below is HISTORICAL.** This
+> item was written against the stamp-`31ce95c` build; it was resolved on 2026-06-23 by **fix-route
+> (b)** below — the in-house Blender weapon SET shipped in **PR #100** (`031d43a`, `86cabh907`) and
+> **deleted the sourced hatchet folder together with its CC-BY licence file**. The live family is
+> `Assets/Art/Props/WeaponPack/` on the shared palette material and THAT set is the anchor
+> ([`blender-asset-pipeline.md`](../../.claude/docs/blender-asset-pipeline.md) §0). **The
+> `CastawayAxe/` path and its `Material_002_baseColor_png.png` atlas no longer exist — do not go
+> looking for them, and do not read the paragraphs below as a description of what ships today.** The
+> audit prose is kept verbatim as the record of what was observed then; the standing lesson (a
+> realistic atlased prop breaks the toy read) survives unchanged.
+
+**What's off (as of the audit, 2026-06):** The shipped axe is the sourced "rustic hatchet" FBX (`Assets/Art/Props/CastawayAxe/`). Its baseColor atlas (`Material_002_baseColor_png.png`) is a *realistic* texture — wood-grain striations, metallic gradient blade, and a literal **spiral screw/bolt motif** on the head. The board's axe (`21h08_08`) is the opposite: **flat barn-red head, a single crisp near-white edge-bevel plane, a smooth gently-bent brown haft, zero surface texture.** The board's *entire tool language* (style-guide-v2 §3) is "faceted flat-shaded + one white edge-bevel + no painted detail." The shipped axe violates all three.
 
 **Why it's likely the next reject:** the axe is the loop's hero tool, in-hand, on-screen constantly. The Sponsor already soaked the axe twice (re-do `86ca8ce6y`, then placement). Once placement reads right, the eye moves to the *surface* — and a wood-grained, screw-bolted, glinty-metal hatchet next to a chunky flat-shaded toy castaway is exactly the "realistic prop breaks the toy" failure style-guide-v2 §0 warns about. This is **adjacent to the in-flight placement item but a distinct call** (placement = where it sits in the hand; style = what it's made of).
 
