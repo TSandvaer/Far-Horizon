@@ -1,6 +1,29 @@
 # Away-queue — Far Horizon
 
-## ▶▶▶ CURRENT — 2026-07-19 ~03:2xZ (AWAY armed, cron `15416af4` fires :07/:22/:37/:52; main `e4ba470`; resumed from the 07-18 drain-save)
+## ▶▶▶ CURRENT — 2026-07-30 ~21:25Z (AWAY armed, cron `471609c0`, 15-min; main `51f4623`)
+
+### ⭐ SPONSOR QUEUE (drain via /sponsor-questions-walkthrough on return)
+1. **#351 soak — the oldest outstanding item on the board.** ⚠ It has gone **CONFLICTING** (main moved 12+ commits under it); needs `git merge origin/main` + plain push (NEVER a rebase/force-push — hard-denied) before a soak build can be cut. CI was 4/4 SUCCESS on the stale base.
+2. **#368 — Uma's About/credits spec needs 4 decisions from you.** She established the attribution actually owed is exactly two: **Mixamo/Adobe** (rig + clips, covers live v4) and **Hyper3D Rodin** (v1/v2/v3 meshes) — **no CC-BY debt**. Open: **S1** the upstream Rodin/Mixamo terms have *never been read* (the attribution file says so itself, `:49-52`); **S2** team-credits/tooling in or out; **S3** whether to file an engine-licence follow-up; **S4** copy sign-off.
+3. **#365** — you approved merging it on green. Its `capture` re-run has NOT gone green yet (see below).
+4. ⚠ **The runner disconnect watchdog is DISABLED** (your call, 2026-07-23, over the 5-min window flash). Nothing self-heals a runner death. It died tonight and stalled all CI for ~8h.
+
+### ✅ RESOLVED TONIGHT — do not re-ask
+- **#366 soak APPROVED** ("soak approved" + "can hold mouse down on boulder, iron ore and tree no problem"). The two defects it exposed were **FILED, not folded**: `86caz4mpy` (3 visible hits, 1 rock reaction) + `86caz4mq8` (impact delay — boulder shakes while the pickaxe is still at your side). Both `needs-soak`.
+- **Icon picks made** — treatment **B** (slot-well chip `#3A302A`) + ore variant **S2** (rust-vein pile). Recorded on `86camyvwn`; `sponsor-gate` removed; it is now a Unity-build implementation ticket.
+- **Build-slot spike `86cabkhjg` cleared** for implementation (sponsor-gate removed). Erik's Q4 verdict: it is NOT hard-dependent on the CI split — dispatchable now.
+- **#354 merged** (`3992e96`) · **#367 merged** (`51f4623`).
+- **Runner root-caused and durably fixed** — `NoDefaultCurrentDirectoryInExePath=1` blocks the bare `run.cmd` in `start-fh-runner.cmd`; launcher now uses the full path. Memory: `runner-start-blocked-by-nodefaultcurrentdir`.
+
+### ⚠ OPEN TECHNICAL ISSUE FOR THE NEXT TICK
+Capture-job re-runs on **#366** and **#365** both came back **CANCELLED**, cause **unknown** — `ci.yml`'s concurrency group is `ci-${{ github.ref }}` with `cancel-in-progress: true`, which groups per-ref and therefore should NOT explain cross-PR cancellation. Do not assert a mechanism without evidence. Retry them **one at a time** once the runner queue (#369 capture → #370 build → #363 capture) drains, and watch what actually happens.
+
+### Sequencing (from Drew's #369 review — 4-way, not 2-way)
+`#351` adds a capture step at the same insertion point as `#363` and must register in the same glob-driven `gate-wiring` loop (`test_gate_scripts.sh:902`); `#370` and `#365` collide on the `ci.yml` stale-clear region. Whichever merges second needs a mechanical merge-from-main.
+
+---
+
+## ▶▶▶ SUPERSEDED — 2026-07-19 ~03:2xZ (AWAY armed, cron `15416af4` fires :07/:22/:37/:52; main `e4ba470`; resumed from the 07-18 drain-save)
 
 ### ⭐ SPONSOR QUEUE (drain via /sponsor-questions-walkthrough on return)
 1. ✅ RESOLVED 2026-07-19 07:34Z — **#299 MERGED (`d757c2e`) by ORCH DIRECT `gh pr merge --admin`** on the Sponsor's in-walkthrough authorization ("you can do it. yes merge now") — the workflow-file wall applies only to the auto-merge ACTION's token, NOT the orch CLI. `86camk1x4` complete; #308 rebase dispatched. Original: **⭐ BROWSER-MERGE — PR #299 (-verifyMine CI gate, `86camk1x4`): FULLY GATED** (Devon gate-evidence run 29655784048 + Drew APPROVE 5012453071 + required CI green; workflow-file token wall `86cafhehe`): https://github.com/TSandvaer/Far-Horizon/pull/299 — one browser click; on merge the orch flips `86camk1x4` complete and `86cag93zb` AC4 un-holds. **SEQUENCE NOTE (Drew, #308 review): merge #299 FIRST** — #308 (placement gate, staging once its gates land) edits the same ci.yml capture-job/stale-log lists; whichever merges second needs a mechanical rebase, and the orch will route #308's merge-from-main to a persona after your #299 click. Also unlocks `86catr79g` (-verifyBoulder clone of the mine gate).
