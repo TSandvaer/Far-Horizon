@@ -344,5 +344,3 @@ Mixamo clips (axe, pickaxe, dagger, spear, sword-slash). Sponsor-decided 2026-07
 - `.claude/docs/character-pipeline.md` §3-4 (Mixamo Without-Skin, Generic-not-Humanoid, retarget).
 - Code: `CastawayCharacter.cs`, `Combat/MeleeAttack.cs`, `Combat/WeaponCatalog.cs`, `Combat/WeaponDef.cs`,
   `Editor/CharacterAssetGen.cs`, `CastawayAnimator.controller`; metas cited inline in §1.
-</content>
-</invoke>

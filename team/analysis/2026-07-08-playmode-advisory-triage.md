@@ -103,5 +103,3 @@ Decisive log evidence (PR #279 run playmode.log): at the failing assert (`…cs:
 - XML summaries: #265 run `total=271 failed=10`; #279 run `total=272 failed=10`.
 - Commits: #249 `581668a` (2026-07-03), #255 `8785d57` (2026-07-05), #270 `8d49cb3`, #275 `bfdbbc2` (2026-07-07 21:01), #279 `ddd92aa` (2026-07-07 22:13), enter-play-options `e49bcc3` (#61).
 - Source: `ChopTreePlayModeTests.cs:66-76,142`; `HeldWeaponDialPlayModeTests.cs:129-154` + `HeldWeaponCycleDebug.cs:144` (`WeaponMeshScale`); `LeftClickConsume.cs:121-197` + `UiInputGate.cs:24,54-57`.
-</content>
-</invoke>

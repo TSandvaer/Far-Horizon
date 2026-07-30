@@ -963,6 +963,147 @@ assert_rc_and_grep 0 "TEST GATE PASSED" \
   "parse strict (no flag): all-Passed → GREEN (EditMode normal path unchanged)" \
   -- python3 "$PARSE" "$PT/pass.xml" EditMode
 
+echo "=== check_docs_markup.sh — leaked tool-call markup in committed *.md (86cayxtw8) ==="
+# THE BUG CLASS: an authoring agent's own tool-call closing tags land in a doc's BODY,
+# always as a bare tag alone on a line at column 0, always at the file's end. Five
+# committed *.md carried it at b9abf7b and every one had PASSED a peer review — the
+# blind spot is that reviewers read diff hunks, never the last two lines.
+#
+# Both DIRECTIONS are proven here, per team/TESTING_BAR.md § "Doc-staleness greps"
+# ("a staleness grep is not keepable until its RED has been DEMONSTRATED"): the guard
+# must go RED on a real offender AND GREEN on a clean tree. A guard proven only in the
+# passing direction proves nothing.
+#
+# The GREEN cases double as the EXIT-CODE-TRAP regression (#360): a grep-based guard
+# exits non-zero when it finds NOTHING, so a `$?`-gated implementation would red on a
+# clean tree. Every GREEN assertion below pins rc=0.
+DM="$SCRIPTS/check_docs_markup.sh"
+
+# mk_md_repo <dir> — a minimal tracked git tree the guard can enumerate with ls-files.
+# autocrlf pinned OFF so the CRLF fixture stays CRLF on disk on every platform.
+mk_md_repo() {
+  local d="$1"; mkdir -p "$d"
+  git -C "$d" init -q 2>/dev/null
+  git -C "$d" config core.autocrlf false
+  git -C "$d" config commit.gpgsign false
+}
+add_md() { # add_md <dir> <relpath>  (content on stdin) — writes then TRACKS the file
+  local d="$1" p="$2"; mkdir -p "$(dirname "$d/$p")"; cat > "$d/$p"
+  git -C "$d" add -- "$p" 2>/dev/null
+}
+
+DMT="$TMP/docsmarkup"
+
+# --- (1) GREEN: a clean tracked tree. Also the exit-code-trap guard (empty output ⇒ rc 0).
+mk_md_repo "$DMT/clean"
+printf '# Doc\n\nA normal paragraph.\n' | add_md "$DMT/clean" "team/a.md"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: clean tracked tree → GREEN (rc=0; empty grep output must NOT be read as failure)" \
+  -- bash "$DM" "$DMT/clean"
+
+# --- (2) RED: the real shipped shape — bare closing tags alone on a line, LF, at EOF.
+mk_md_repo "$DMT/lf"
+printf '# Doc\n\nBody.\n</content>\n</invoke>\n' | add_md "$DMT/lf" "team/b.md"
+assert_rc_and_grep 1 "leaked tool-call markup" \
+  "docs-markup: LF offender (the shipped 5-for-5 shape) → RED" \
+  -- bash "$DM" "$DMT/lf"
+assert_rc_and_grep 1 "team/b.md:4" \
+  "docs-markup: RED output NAMES the offending file:line (attribution, not just a count)" \
+  -- bash "$DM" "$DMT/lf"
+
+# --- (3) RED: CRLF offender. .gitattributes pins eol for *.sh/*.py/*.yml/*.yaml/*.ps1 and
+# packages-lock.json but NOT *.md, so a CRLF-in-blob *.md is possible. On a Linux runner
+# grep does NOT strip the CR, so a strict `>$` anchor would MISS it — a SILENT false
+# GREEN, the failure direction that never gets looked at. (Git-for-Windows grep 3.0 opens
+# text-mode and strips CR, so this case only DISCRIMINATES on the Ubuntu runner; the
+# static assertion in (7) is what keeps the tolerance from being "simplified" away.)
+mk_md_repo "$DMT/crlf"
+printf '# Doc\r\n\r\nBody.\r\n</content>\r\n</invoke>\r\n' | add_md "$DMT/crlf" "team/c.md"
+assert_rc_and_grep 1 "leaked tool-call markup" \
+  "docs-markup: CRLF offender → RED (trailing-CR tolerance; strict >\$ would false-GREEN on Linux)" \
+  -- bash "$DM" "$DMT/crlf"
+
+# --- (4) GREEN: an INDENTED fenced XML example. This is the column-0 anchor earning its
+# keep — the leak mechanism always emits at column 0, while a legitimate doc example is
+# almost always indented. Deliberately NOT solved with a fenced-block EXCLUSION: an
+# exclusion grows the exclusion set ⇒ false GREEN, silent (see the AC4 asymmetry).
+mk_md_repo "$DMT/fence"
+printf '# Doc\n\nExample:\n\n```xml\n <invoke>\n  <parameter>x</parameter>\n </invoke>\n```\n' \
+  | add_md "$DMT/fence" "team/d.md"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: INDENTED fenced XML example → GREEN (column-0 anchor discriminates)" \
+  -- bash "$DM" "$DMT/fence"
+
+# --- (5) GREEN: prose that MENTIONS the tags inline (backticked). The guard's own
+# documentation must not self-red, or the next author deletes the guard.
+mk_md_repo "$DMT/prose"
+printf '# Doc\n\nThe guard matches a bare `%s` or `%s` alone on a line.\n' '</content>' '</invoke>' \
+  | add_md "$DMT/prose" "team/e.md"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: inline backticked mention in prose → GREEN (guard docs don't self-red)" \
+  -- bash "$DM" "$DMT/prose"
+
+# --- (6) RED for the WIDE tag vocabulary, open AND close forms, incl. the antml: prefix.
+# None of these appear in the measured 5-file set; they are matched on purpose because
+# widening the MATCH set can only yield a false RED — loud, someone looks at it. One
+# assertion per variant so a narrowed vocabulary reds a NAMED case instead of silently
+# shrinking coverage. Tags are COMPOSED from parts, never written literally: writing a
+# bare closing tag into a file is how this whole bug class propagates (it truncated an
+# authoring call while this very test block was being written — the mechanism is live).
+CT='</'; OT='<'; GT='>'
+dm_variants=(
+  "${CT}parameter${GT}"
+  "${CT}function_calls${GT}"
+  "${CT}function_results${GT}"
+  "${OT}invoke${GT}"
+  "${CT}invoke${GT}"
+  "${CT}antml:invoke${GT}"
+  "${CT}antml:parameter${GT}"
+)
+vi=0
+for tag in "${dm_variants[@]}"; do
+  vi=$((vi + 1))
+  dmd="$DMT/v$vi"; mk_md_repo "$dmd"
+  printf '# Doc\n\nBody.\n%s\n' "$tag" | add_md "$dmd" "team/v.md"
+  assert_rc_and_grep 1 "leaked tool-call markup" \
+    "docs-markup: vocabulary variant '$tag' alone at column 0 → RED" \
+    -- bash "$DM" "$dmd"
+done
+
+# --- (7) STATIC assertions on the pattern itself. Behavioural case (3) only
+# DISCRIMINATES on Linux (Git-for-Windows grep 3.0 opens text-mode and strips the CR,
+# measured), so a static assert is what stops a future "simplification" from
+# reintroducing the silent CRLF false-GREEN. Mirrors assert_launch_windowed's
+# anchored-static-grep style earlier in this file.
+if grep -q 'PATTERN=' "$DM" && grep -q '\[\[:space:\]\]\*\$' "$DM"; then
+  ok "docs-markup: pattern keeps trailing-whitespace tolerance — a CRLF-in-blob *.md cannot false-GREEN on the Ubuntu runner"
+else
+  bad "docs-markup: pattern LOST its trailing-whitespace tolerance — a CRLF-in-blob *.md would silently pass on Linux"
+fi
+if grep -q "PATTERN='\^" "$DM"; then
+  ok "docs-markup: pattern stays anchored at column 0 — indented fenced XML examples stay GREEN"
+else
+  bad "docs-markup: pattern lost its column-0 anchor — indented XML examples will false-RED"
+fi
+
+# --- (8) The SCOPE claims are TESTED, not merely asserted in the header/PR body:
+# (a) an UNTRACKED offending *.md is out of scope (the guard enumerates git ls-files);
+# (b) a NON-.md offender is out of scope (AC3 scopes the guard to *.md).
+# Both are disclosed holes; a disclosed hole with a test is a bound, a disclosed hole
+# without one is a promise.
+mk_md_repo "$DMT/untracked"
+printf '# Doc\n\nok\n' | add_md "$DMT/untracked" "team/tracked.md"
+printf '# Stray\n%s\n' "${CT}content${GT}" > "$DMT/untracked/team/stray.md"   # written, NOT git-added
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: UNTRACKED offending *.md → GREEN (scope is TRACKED files — disclosed bound, not an oversight)" \
+  -- bash "$DM" "$DMT/untracked"
+mk_md_repo "$DMT/nonmd"
+printf '# Doc\n\nok\n' | add_md "$DMT/nonmd" "team/ok.md"
+printf 'notes\n%s\n' "${CT}content${GT}" | add_md "$DMT/nonmd" "team/notes.txt"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: offending *.txt → GREEN (scope is *.md only — the AC3 bound)" \
+  -- bash "$DM" "$DMT/nonmd"
+
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || { echo "GATE-SCRIPT TESTS FAILED"; exit 1; }
