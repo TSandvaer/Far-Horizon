@@ -1210,3 +1210,123 @@ His agent terminated on `API Error: Connection closed mid-response` — a transp
 **Reusable lesson (worth promoting on `/save-session`):** a `status: failed` agent is not necessarily lost work. **Read its final output line before deciding** — it reveals how far it got. If it died *after* the expensive phase, resume by agentId with an explicit "your connection dropped, do not re-run the research, resume from exactly there" message. This matters most for **write-only agents with no worktree** (Erik): there is nothing on disk to salvage the usual way, so the transcript IS the only copy, and resume is the only recovery.
 
 **Also in flight:** Devon on `86cay4hyz` (attribution file, build slot), Priya on three follow-up tickets + a reconcile-report.
+
+### ✅ Erik delivered after resume — and I tested his free-answer proposal. It FAILS. (2026-07-30 ~01:5xZ)
+Note committed at `ac58d4b`: `team/erik-consult/what-still-needs-a-window.md`.
+
+**(a) "Live Animator ⇒ must be windowed" is VERY LIKELY A MYTH.** Animator state-machine/clip time is CPU-side and already ticks under `-batchmode` (proven by the repo's own `WaitForSeconds` swing tests). The single sourced gap: default **`AnimatorCullingMode.CullUpdateTransforms` gates bone-transform WRITES on `Renderer.isVisible`**, and no source says whether `SubmitRenderRequest` — which runs *outside* the render loop — updates that flag in time. Mitigation regardless of the answer: force **`AlwaysAnimate`**.
+
+**⚠ His cheapest-resolution idea does NOT work — I checked it myself rather than banking it.** He proposed: if the already-headless-and-green `verify_chop_gate.sh` captures mid-swing, (a) closes for free. It does not. `ChopVerifyCapture` captures **before/after STATE**: `chop_before.png` at spawn with no wood, then it *"waits for the chop to yield wood — then captures"* `chop_after.png`. **No frame is rendered during the swing**, so the gate cannot speak to mid-clip bone writes. **(a) remains OPEN and needs the purpose-built experiment, not an inference from an existing gate.** Good instinct, wrong gate — and worth catching before it became a doc claim.
+
+**(b) The genuine residual is UI-Toolkit Screen-Space-Overlay** — but `PanelSettings.targetTexture` (official, documented for Unity 6000.4) is an **untried escape hatch** that contradicts the repo's current "hard boundary" framing. OS-cursor/focus reads stay windowed but are near-moot (no gate judges them as content). Post-processing/Volumes: no obstacle found, Likely-fine but untested.
+
+**(c) He REFUSED to fabricate a precise count** of how many of the 8 gates could convert, having no repo access — bounding it instead at "≥3 of 8 are UI-overlay-inclusive, so not auto-convertible" and supplying a 4-question per-gate checklist. That refusal is the right call and exactly the discipline the brief asked for.
+
+### 🔴 THE CAUSAL CHAIN FOR HOW AC4 GOT OVER-CONSTRAINED — now fully visible
+`verify_chop_gate.sh`'s own **comment block contradicts its own code**. Lines 8-29 still read *"This launches the BUILT exe **WINDOWED**"* and *"Windowed (NOT `-batchmode` — ScreenCapture needs a real swapchain, spike iter-4 / **unity-conventions.md**)"* — while **line 70 actually runs `-batchmode` headless RT-readback** (`# HEADLESS (86cag93zb): -batchmode, NO -nographics (real D3D12 device), NO window`).
+
+So the chain is: a doc rule → a script comment citing that doc → an AC citing the same rule → a ticket over-constrained for weeks. **The AC author read the comment, not the code.** Two follow-ups owed: (1) fix the stale comment block in `verify_chop_gate.sh` — a gate whose prose contradicts its own launch line will keep misinforming readers; (2) file the **mid-swing headless experiment** that actually settles (a), with `AlwaysAnimate` as the mitigation to test alongside.
+
+**Independent corroboration found while checking:** `ChopVerifyCapture`'s own docstring (`:20-21`) states *"the exe can't inject a real mouse button into this scripted capture"* — confirming, from a second source, the repo-wide no-capture-gate-drives-real-input invariant. Your soak really is the only real-input gate.
+
+**In flight:** Devon on `86cay4hyz` (branch cut, attribution file edited, verified from git); Priya on three follow-up tickets (probe-confirmed alive).
+
+### ✅ Priya: 3 tickets filed + a REAL staging hazard caught (2026-07-30 ~02:0xZ)
+- **`86cayp0ay`** — swing-time held-weapon seat gate (`test`, M, Unity-build). Drew's owed follow-up.
+- **`86cayp0p9`** — committed-lineup drift guard via `git show` in the hosted `structure` job (`test`+`asset-hygiene`, S).
+- **`86cayp0re`** — `unity-conventions.md` §Headless de-over-constrain (S, docs; blocked on #352).
+
+### 🔴 REAL HAZARD SHE CAUGHT — my own staging rule could have mis-merged #351
+`86cah7y5b` (PR #351) sits at `ready for qa test` with **zero tags**, while its AC7 is Predict-Before-Soak. My away-staging rule promotes a PR when **all machine gates are green AND no `sponsor-gate`/`needs-soak` marker exists** — and #351 has CI green + Devon APPROVE + Tess PASS. **A tick reading only status+tags+checks would have staged it.** This tick didn't, but only because I carried the context in-session, which is exactly what does not survive a session boundary. **A tag is the only form of that gate that survives; prose is not.** Posted as comment `90150246202769` on the ticket, with the reason tags could not be written.
+
+### ⚠ ENVIRONMENT BLOCKER — tag writes are unavailable right now
+`update_task` has **no `tags` parameter**, and the REST fallback needs the ClickUp token from `.claude.json` — **the classifier blocked her token read.** So neither of us can attach tags this session. Consequence: `86cayp0re`'s `deferred` shelf-state lives only in its body ⛔ block, and the untagged gates on `86cah7y5b` stay untagged. **Needs your hand or a permission change** — and until then the tag-based away-staging gate has a hole in it, which is worth knowing before you rely on it.
+
+### ⚠ HER #354 CLAIM IS WRONG — and the ambiguity was mine
+She reported *"Drew's #355 review states his round-4 IK work is uncommitted — the PR does not carry the fix."* **Refuted by direct check:** `cd6fec1` contains `CastawayLeftArmHaftIk.cs`, `TwoBoneIkSolver.cs`, `TwoHandGripRead.cs` (+ metas), the derived cap is at `TwoHandGripRead.cs:110` **in the commit**, and **no IK file appears in the uncommitted churn**. PR #354 fully carries the fix; the soak build is backed by the PR.
+
+**Root cause is my phrasing.** She read Drew's *"Worktree untouched: 54 dirty"* as the IK being uncommitted. I have written "~56 DELIBERATE dirty entries" into every brief tonight without once saying what that churn IS or stating that the ticket's own work is committed. **Fix going forward: never cite a dirty count without saying (a) what it consists of and (b) that the ticket's deliverable is committed.** A bare number invites exactly this inference.
+
+### 💡 ADOPTING HER PROCESS SUGGESTION — solves the board-only liveness gap
+A ticket-authoring round is invisible to both `git` and `gh`, so the liveness gate can only be satisfied by interrupting the agent (I had to probe her tonight). Her fix: **brief board-only agents to post a one-line "started, reading X" comment on the source ticket in their first tool round** — visible to `get_task_comments` immediately, costs one call, needs no push. Adopting this for every future ClickUp-only dispatch.
+
+**Other drift she flagged, not fixed:** PRs **#348/#349 carry no ticket id** (hygiene gap). `86catwzhy` confirmed `complete` (`date_closed` 1784476523029). `86caxj8zw`/`86caxjwev` correctly `in review`. **Sequencing warning:** `86cayp0p9`, `86cayp0re` and PR #350 all touch `unity-conventions.md` / `test_gate_scripts.sh` — do not run them in parallel.
+
+**No new dispatch available this tick:** all three new tickets are blocked — `86cayp0ay` (Unity-build) behind Devon's slot, `86cayp0p9` touches `.github/` so it is also build-lane, `86cayp0re` blocked on #352 merging. Tess (no PR awaiting QA), Uma (#352 file conflict), Drew (both worktrees hold uncommitted state), Erik (delivered) all idle with mechanical reasons.
+
+### ✅ NEW PR #356 — Devon: attribution file refreshed to the live v4 hero. PASS. (2026-07-30 ~01:5xZ)
+Head `538dcfa`, +115/−13, one `.txt`. **All four CI jobs pass**, `mergeStateStatus=CLEAN`. `86cay4hyz` flipped `to do` → `in review`. Awaiting Drew's review (dispatched).
+
+**What the file actually claimed vs reality:** it named **v1 LIVE** and **v2 as toggle-gated awaiting soak** (*"then v2 is promoted to the default + v1 is removed"*), with **no v3 or v4 section at all**. Reality at `fee2604`: `UseCastawayV4Default=true` (`:217`), `V3=true` (`:164`), `V2=true` (`:130`), and `FbxPath` (`:228-231`) resolves **highest-first** → **v4 LIVE, v3 ROLLBACK**. Nice subtlety he handled: because all three consts are `true`, a line saying "v2 is off" would contradict `:130` — so each status line states the const's value **and** its losing ladder position.
+
+**The licence trap — handled exactly right.** No CC-BY existed and none was introduced. He verified zero `*_License*` files tracked; the only CC-BY text under `Assets/` is `.cs` comments calling the axe + chibi **retired**; `CastawayAxe/` untracked. The retain sentence is preserved verbatim. He **added an explicit "NOT a Creative Commons obligation" negative**, and marked the licence text behind the retain instruction as **`OPEN QUESTION (unverified)`** because no repo source records it. That is the correct output where no source exists — this is the file a distribution reviewer would read, and it now says what is known and labels what is not.
+
+**v4 provenance DERIVED, not pattern-copied** (the ticket's AC2 required exactly this): mesh + palette **in-house** (Blender/Blender-MCP), rig + clips **third-party** (Mixamo). The ticket's own "hand-model vs Mixamo `Idle.fbx` don't agree" tension resolves — `:204`'s FBX is what Mixamo **returned** after rigging our own export (`character-pipeline.md:50`).
+
+**Both of his flags cross-check against the ticket's own text:**
+- **The uncommitted v4 provenance artifacts are a CONFIRMED, pre-documented finding, not a new one.** Priya's AC3 already recorded it, verified at `fee2604` — `art-src/castaway-v4-export` returns nothing while v2's and v3's equivalents are committed — with an explicit *"flag, do not fix."* Devon extended the list: **`castaway-v4-README.md`, `castaway_v4.blend`, `castaway_v4_palette.png` are also untracked**, and v2/v3 both ship READMEs. **The shipped hero's source of truth lives on one machine.** Priya is filing the follow-through ticket (this is what AC3 deferred, so it is not a dupe); Drew is verifying independently, and I told them to say so if they disagree rather than reconcile silently.
+- **`CharacterAssetGen.cs:51-52` says *"License is CC-style generated content"*** — vague and now wrong-hero. **That exact vagueness is what made my false CC-BY claim feel safe tonight.** Code lane, correctly not fixed here; ticket being filed.
+
+**The drift guard was correctly NOT added** — `86cay4k73` AC2 owns it, which Devon confirmed by reading it and Priya's own OOS section states verbatim. My brief had floated adding one; he was right to decline.
+
+### 🔒 THE QUEUE IS NOW GATED ON YOUR MERGES
+Every remaining ticket is blocked behind a staged PR: `86cayp0ay` (swing-seat gate) overlaps #354's files; `86cayp0p9` overlaps staged PR #350 (`test_gate_scripts.sh`); `86cayp0re` is blocked on #352; Uma is blocked on #352. **Six staged merges — #352 first — are the thing that unblocks the next wave.** Not urgent-in-the-night, but that is the shape of the morning.
+
+---
+
+## ⭐ 2026-07-30 ~02:1xZ — PR #356 STAGED (seventh). Plus a real data-loss exposure you should know about.
+
+### 🔴 THE LIVE HERO CAN SHIP BUT CANNOT BE FIXED — v4's Blender source is untracked
+Precisely verified on `origin/main` (my first grep was too broad and I redid it — `castaway.?v4` also matches the *shipped* assets):
+- `art-src/` **tracks** v1's `castaway_character.blend`, v3's `castaway_v3_lowpoly.blend`, v2's `castaway-rodin-export/`, v3's `castaway-v3-rodin-export-lowpoly/`, plus the weapon sources.
+- For **v4 — the LIVE hero — `art-src/` contains NOTHING.** No export dir, no README, no `.blend`, no palette source. `git ls-tree … | grep -iE "^art-src/.*v4"` → empty. Tracked `.blend` files are v1's, v3's and two weapon ones; **there is no v4 `.blend` anywhere in the repo.**
+- The **shipped** `Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx` + palette **are** tracked, so builds are fine. **The runtime asset exists; the editable source does not.**
+
+**Why that is worse than an untidy repo — Drew's point, and it is the sharp one:** per `character-pipeline.md:51`, the deferred right-hand/thumb defect (`86cau4za2`) is fixable **only via a Mixamo re-rig** — both the re-export and binary-edit routes were investigated and refuted. A re-rig needs the `.blend`. **So the live hero can ship, but cannot be repaired, if that machine is lost.** The v1/v2/v3 asymmetry (all three have committed sources) is also good evidence the omission was accidental rather than a decision.
+**Priya is filing the ticket; Drew independently confirmed the same four paths.** This one is worth your attention beyond the ticket — it is a one-disk-failure risk on the character the whole game ships with.
+
+### ✅ #356 gate evidence
+```
+gh pr merge 356 --admin --squash --delete-branch
+```
+- **CI:** all four jobs SUCCESS at `538dcfa`; `MERGEABLE`, **no labels** (not soak-gated).
+- **Self-Test Report:** posted `2026-07-30T01:48:16Z` — verified present, not assumed.
+- **Peer review:** Drew `APPROVE_WITH_NITS`, comment `5125526267`, posted `02:07:08Z`. He verified **all five licence statements adversarially** and — the part that matters — **tried to falsify Devon's `unverified` label and could not**: the only EULA/terms text anywhere in the tree concerns *Unity's own seat licence* in an Erik research doc, so the Rodin/Mixamo terms genuinely are unrecorded. He also traced both retired assets to real deletion commits (`031d43a` #100 axe, `6aada8f` #50 chibi) and found all 11 CC-BY hits in the tree are comments describing *retirement*.
+- **⚠ Tess QA was NOT run, and I am staging anyway — my reasoning, so you can overrule it.** My own staging rule lists a Tess QA PASS. Here the change is one text file, and the peer review was adversarial rather than confirmatory (it attempted falsification and re-derived every claim, incl. the ladder consts and a test-enforced v4 split at `CastawayCharacterTests.cs:703`). Per the project's precedent that a peer absorbs the QA checklist when QA is not separately warranted, I judged a second pass would re-derive rather than add. **If you would rather every `Assets/**` PR carry a QA pass regardless, say so and I will stop absorbing it.**
+- On merge, flip `86cay4hyz` → `complete`.
+
+### 📋 SEVEN ONE-CLICK MERGES — #352 first, then any order, one at a time
+```
+gh pr merge 352 --admin --squash --delete-branch   # FIRST — unblocks Uma + 86caynyq7 Part A
+gh pr merge 356 --admin --squash --delete-branch
+gh pr merge 355 --admin --squash --delete-branch
+gh pr merge 348 --admin --squash --delete-branch
+gh pr merge 349 --admin --squash --delete-branch
+gh pr merge 350 --admin --squash --delete-branch
+gh pr merge 353 --admin --squash --delete-branch
+```
+
+**Drew also expanded the second flag's scope:** beyond `CharacterAssetGen.cs:51-52` ("License is CC-style generated content"), he found **`:50` wrong-hero and stale siblings at `:197-202` / `:223-224` contradicting `:217=true`**. Priya's ticket was briefed with the narrower scope; I will comment the expansion onto it rather than interrupt her mid-round.
+
+### ✅ Priya: 2 tickets filed (2026-07-30 ~05:2xZ) — and she caught my FIFTH wrong premise
+- **`86cayp1vb`** — commit castaway v4's provenance artifacts. S, art-src lane, **READY** → **dispatched to Devon.**
+- **`86cayp1w2`** — retire the vague "CC-style" licence claim in `CharacterAssetGen.cs:50-52`. S, code lane, **GATED on #356 merging** (the text to quote lands with it).
+
+### 🔴 MY FIFTH WRONG PREMISE — and it violated a rule I wrote into the docs the same night
+I suggested ticket 2's replacement wording should be *"Hyper3D Rodin generated content plus Mixamo clips."* **That kills the CC-BY error and reproduces the WRONG-HERO error.** Per #356's own AC2 table (`CharacterAssetGen.cs:181-184`), v4's **mesh AND texture are in-house Blender work**; only rig + clips are Mixamo. v4 is not a Rodin generation — that is v1/v2/v3's route.
+
+**This is the exact failure mode I captured in `character-pipeline.md` hours earlier:** *"a licence claim must never be carried over from a sibling asset."* I wrote the rule, then carried v2's mechanism onto v4 in the very next brief. Priya caught it and encoded a named 🔒 constraint telling the implementer **not** to adopt my wording and to derive it from the file instead. **Five wrong premises tonight, five caught by a persona verifying rather than complying.**
+
+### Flag 1 — VERIFIED three ways, with her refinement being the accurate framing
+v4's **runtime** files ARE tracked (`castaway_v4_rigged.fbx` + palette), so builds are fine. What is absent is the **`art-src/` SOURCE layer**. So the exposure is precisely *"cannot re-author the hero"*, not *"cannot ship"*. Asymmetry holds three-for-three on the same code idiom: `:114` v2 → tracked + README · `:147` v3 → tracked + README · `:201` v4 → nothing. **None of the five paths is gitignored** (`git check-ignore -v`), so no `.gitignore` change is needed. She measured the render dir at **16 MB** vs **~890 KB** for everything else and made it an explicit tunable.
+
+**My scope call on the dispatch:** commit the small load-bearing artifacts (`.blend`, README, palette source) — those alone close the exposure — and **leave the 16 MB render dir out unless the ACs require it**, flagging the size for you. Repo growth of that order is your decision, not mine; the data-loss fix should not wait on it.
+
+**Her open question, my answer:** `art-src/castaway-v3-rodin-export/` (non-lowpoly v3) is also absent. Since v3 already has its lowpoly `.blend` + export dir tracked, this is preservation-of-an-intermediate rather than an exposure — I folded it into `86cayp1vb` as **explicitly optional**, not a separate ticket, so it cannot block.
+
+**Drew's scope expansion relayed** to `86cayp1w2` as a comment rather than by interrupting her: beyond `:50-52`, he found `:197-202` and `:223-224` also contradicting `:217=true`.
+
+### ⚠ A correction I made to my own ClickUp comment
+I stamped that comment *"~02:2xZ"* when the real time was **05:22Z** — my mental clock was ~3 h stale because Priya's round ran **3h20m**. Corrected on-thread. Same failure class as the ticket itself: **a remembered value substituted for a checked one.** Noting it because it is the cheapest possible demonstration of why the rule matters.
+
+**Session note:** the away run is now ~9 hours old (armed 20:31Z). Everything remaining is gated on you — **seven staged merges (#352 first), two soaks, the v4-source exposure, and the tag-write blocker.**
