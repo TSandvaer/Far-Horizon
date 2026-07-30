@@ -58,6 +58,13 @@ namespace FarHorizon.EditTests
     /// BOUNDED — what this still does NOT check, and the one FALSE-POSITIVE shape:
     /// - It counts SOURCE SITES, not runtime instantiations. A rig built inside a `for` loop (one site, N
     ///   objects) with one declaration passes. Not observed in-tree; `ignoreFailingMessages` is the escape.
+    /// - **Counting is per FILE, not per TEST** (86caxjwev, Tess's #345 review comment 5096994680). A file with
+    ///   2 rig sites in two separate tests, with BOTH declarations sitting inside test A, counts 2-vs-2 and
+    ///   scans CLEAN — while at runtime BOTH tests red (test A leaves an unfulfilled `Expect`, test B emits an
+    ///   undeclared error). Reproduced by Tess: `rigSites=2 declarationSites=2 offenders=NONE - scans CLEAN`.
+    ///   NOT a regression — the presence-based form missed this too — but per-file counting NARROWS the hole
+    ///   rather than closing it. Closing it needs per-test attribution (real C# parsing), deliberately NOT
+    ///   built here; `ignoreFailingMessages` in `[SetUp]` remains the escape for a file that needs it.
     /// - It does not check declaration ORDER. It does not need to: UTF matches `Expect` against messages the
     ///   test has ALREADY received, so a declaration later in the same setup still consumes an earlier message
     ///   (`CastawayGroundSnapPlayModeTests` adds the rig at :85, declares at :92, and is green). What fails is
@@ -201,8 +208,24 @@ namespace FarHorizon.EditTests
             Assert.GreaterOrEqual(scan.WithRig, 10,
                 "at least 10 PlayMode suites are known to build a bare castaway rig; found " + scan.WithRig +
                 " — the AddsCastaway pattern has drifted or the scan lost files");
-            Assert.GreaterOrEqual(scan.RigSites, scan.WithRig,
-                "rig SITES cannot be fewer than the files carrying them — counting is broken");
+            // The floor is deliberately 15 — ABOVE today's withRig (14), BELOW today's rigSites (19). Above the
+            // file count so a regression that collapses per-SITE counting back into per-FILE presence
+            // (`Matches.Count` -> `IsMatch ? 1 : 0`) can only score <= 14 and REDS here; below today's real
+            // number so legitimately retiring a suite or two does not red the gate. (The earlier form compared
+            // RigSites against WithRig, which can never fail: `RigSites += rigs` runs on the same branch as
+            // `WithRig++` behind `if (rigs == 0) continue`, so rigs >= 1 always — #345 review NIT 2, 86caxjwev.)
+            // MARGIN 1 on that collapse-detection half: it holds only while withRig < 15, and withRig is 14 —
+            // a single new rig-carrying file lapses it (the collapse would then score 15 >= 15, GREEN). The
+            // UNCONDITIONAL collapse net is Guard_RedsOnASecondBareRig_InAnAlreadyDeclaringFile_CountNotPresence
+            // (its Assert.AreEqual(4, scan.RigSites) over a synthetic 1-file/4-rig tree — the collapse scores
+            // 1 there whatever the real tree measures). Read THIS assert as the staleness floor; read that
+            // control as the collapse guarantee. (#350 review NIT 2, comment 5110025056.)
+            Assert.GreaterOrEqual(scan.RigSites, 15,
+                "rig SITE count collapsed to " + scan.RigSites + " (floor 15; the tree measured 19 across 14 " +
+                "files at the merged-#338 head). At or below the file count this is the signature of per-SITE " +
+                "counting degrading into per-FILE presence — which is exactly the hole 86caxh9b5 closed. This " +
+                "is a staleness floor, NOT a target: if suites were genuinely retired, re-derive the number " +
+                "before lowering it");
             Assert.IsTrue(
                 Directory.GetFiles(PlayModeTestDir, "CombatPlayModeTests.cs", SearchOption.AllDirectories).Any(),
                 "CombatPlayModeTests.cs (the 86cavj8pf reference suite) must be in the scanned set");
@@ -233,7 +256,11 @@ namespace FarHorizon.EditTests
 
         private static void Nuke(string root)
         {
-            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (IOException) { /* temp dir */ }
+            // Catch broadly on purpose: this runs in a `finally`, so ANY escaping cleanup exception (an
+            // UnauthorizedAccessException from the recursive delete, not just IOException) would REPLACE the
+            // test's real failure with a teardown error. A temp-dir leak is the cheaper outcome.
+            // (#345 review NIT 4, 86caxjwev.)
+            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (Exception) { /* temp dir */ }
         }
 
         [Test]
