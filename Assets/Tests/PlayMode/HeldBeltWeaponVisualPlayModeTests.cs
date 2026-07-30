@@ -241,5 +241,77 @@ namespace FarHorizon.PlayTests
             Assert.IsTrue(_cycle.IsAxeHeld, "selection re-asserted the AXE over the debug view");
             Assert.AreSame(_cycle.AxeOriginalMesh, Holder(), "the AXE mesh is back (no stale debug mesh)");
         }
+
+        // 86cav8y74 — the ALL-FIVE wood table at the component seam. WoodAxeSelected_… above covers only the wood
+        // AXE (the Sponsor's literal soak-3 case); nothing anywhere asserted that the OTHER four wood tools
+        // (dagger / sword / spear / pickaxe) each resolve to THEIR OWN family index through the live
+        // Inventory.Changed -> SyncHeldVisualToSelection seam — a wood tier that fell through the sync would render
+        // whatever the previous selection left in the hand, and every existing test would stay green.
+        //
+        // SCOPE SPLIT (deliberate, matching the WoodAxeSelected_… caveat above): this asserts VISIBILITY + INDEX
+        // only, NOT mesh identity. A no-bootstrap run can read a committed lineup prefab that drifted short of the
+        // wood nodes (the #304 / 86catwzhy class), in which case ApplyCurrent legitimately falls back to the axe
+        // mesh while the index + visibility contract this test owns is still correct. Mesh IDENTITY is gated one
+        // layer out, where the prefab is always freshly baked: the shipped-build -verifyHeldWood capture gate
+        // (AxeVerifyCapture.RunHeldWoodVerification) asserts the holder's sharedMesh IS the lineup node for the
+        // selected index, and CommittedLineupDriftGuardTests + WoodTierShippedGateTests pin the committed prefab's
+        // wood nodes in EditMode. Do not "strengthen" this test into asserting identity — it would go red for the
+        // stale-prefab reason rather than the behaviour it guards.
+        //
+        // Belt is 5 slots and there are exactly 5 wood tools, so the belt fills and there is no known-empty slot
+        // to deselect into — the deselect->hidden half stays owned by the single-tool test above.
+        [UnityTest]
+        public IEnumerator EveryWoodTool_Selected_ShowsInHand_AtItsOwnWoodIndex()
+        {
+            yield return null; // OnEnable wiring
+            Assert.IsFalse(_renderer.enabled, "spawn: nothing owned -> hidden");
+
+            var tools = new (string id, int index, string label)[]
+            {
+                (ItemCatalog.AxeWoodId,     HeldWeaponCycleDebug.AxeWoodFamilyIndex,     "wood axe"),
+                (ItemCatalog.DaggerWoodId,  HeldWeaponCycleDebug.DaggerWoodFamilyIndex,  "wood dagger"),
+                (ItemCatalog.SwordWoodId,   HeldWeaponCycleDebug.SwordWoodFamilyIndex,   "wood sword"),
+                (ItemCatalog.SpearWoodId,   HeldWeaponCycleDebug.SpearWoodFamilyIndex,   "wood spear"),
+                (ItemCatalog.PickaxeWoodId, HeldWeaponCycleDebug.PickaxeWoodFamilyIndex, "wood pickaxe"),
+            };
+            Assert.GreaterOrEqual(_inv.BeltSlotCount, tools.Length,
+                "precondition: the belt holds all five wood tools at once");
+
+            var slots = new int[tools.Length];
+            for (int n = 0; n < tools.Length; n++)
+            {
+                var placed = _inv.Model.AddToolToBelt(_inv.Catalog.ById(tools[n].id));
+                Assert.IsTrue(placed.HasValue, tools[n].label + " acquired onto the belt (a belt-eligible Tool)");
+                Assert.AreEqual(SlotArea.Belt, placed.Value.Area,
+                    tools[n].label + " landed on the BELT, not the pack (a pack landing would make the SelectBelt " +
+                    "below select an unrelated slot and the assertions would judge a state never driven)");
+                slots[n] = placed.Value.Index;
+            }
+
+            for (int n = 0; n < tools.Length; n++)
+            {
+                _inv.Model.SelectBelt(slots[n]);
+                yield return null;
+                Assert.IsTrue(_renderer.enabled,
+                    "soak-3 CLASS: " + tools[n].label + " selected -> seat SHOWN (the defect was EMPTY hands for " +
+                    "every wood id — HeldAxe.ShouldShow reads IsHeldVisualWeaponSelected, which must cover this tier)");
+                Assert.AreEqual(tools[n].index, _cycle.CurrentIndex,
+                    tools[n].label + " selected -> ITS OWN wood family index is displayed. A wood tier missing from " +
+                    "WoodSelectionIndexFor leaves the PREVIOUS selection's weapon in the hand — which reads as the " +
+                    "wrong weapon, not as empty hands, so a visibility-only assert would pass right through it.");
+                Assert.IsFalse(_cycle.DebugViewActive,
+                    "the BELT SELECTION owns the visual for " + tools[n].label + " (not the [B] debug view)");
+            }
+
+            // The crossed-state regression in its WOOD flavour (the soak-224 shape, never tested on wood): after
+            // the other four have been displayed, re-selecting the wood AXE must come back to the wood-axe index —
+            // never leave the wood pickaxe's mesh in the hand.
+            _inv.Model.SelectBelt(slots[0]);
+            yield return null;
+            Assert.IsTrue(_renderer.enabled, "wood axe re-selected -> shown");
+            Assert.AreEqual(HeldWeaponCycleDebug.AxeWoodFamilyIndex, _cycle.CurrentIndex,
+                "CROSSED-STATE (wood flavour): selecting the wood AXE after the other four wood tools were " +
+                "displayed must return the WOOD-AXE index, never leave the last tool's mesh in the hand");
+        }
     }
 }

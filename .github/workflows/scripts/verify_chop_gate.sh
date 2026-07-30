@@ -14,19 +14,40 @@
 # when _pickables.Count==0 but a serialized pickable keeps it >0) slipped straight through GREEN CI —
 # caught only by code review. This gate closes that hole: a pile-not-discovered regression turns CI RED.
 #
-# This launches the BUILT exe WINDOWED with -verifyChop, which drives ChopVerifyCapture: it gets the axe
-# (craft seam), fells the DEMO tree + loots its dropped pile via the real PickableLooter.RequestLoot path,
+# This launches the BUILT exe HEADLESS (-batchmode, no -nographics) with -verifyChop, which drives
+# ChopVerifyCapture: it gets the axe (craft seam), fells the DEMO tree + loots its dropped pile via the
+# real PickableLooter.RequestLoot path,
 # then fells + loots a REAL seed-42 SCATTER tree (discovered at runtime, never hardcoded) for a SECOND,
 # INDEPENDENT wood gain. It writes chop_before.png (spawn, no wood) + chop_after.png (demo tree, wood in
-# readout) + chop_scatter.png (scatter tree, MORE wood) and SELF-ASSERTS:
+# readout) + chop_wood_axe.png (the WOOD axe selected + in hand) + chop_scatter.png (scatter tree, MORE
+# wood) and SELF-ASSERTS:
 #   demoWood (felled + LOOTED the demo pile) && scatterDiscovered (InstanceCount>1 — the scatter LP_Trees
-#   were found, not just the demo) && scatterTarget (a reachable scatter tree was picked) && scatterWood
-#   (a 2nd independent wood gain from the scatter tree's pile).
-# It calls Application.Quit(pass ? 0 : 1), so the exe's exit code IS the gate verdict — this wrapper just
-# launches it windowed and propagates that, with a frame_check.py backstop on the PNGs (a real swapchain
-# frame, not black/uniform/magenta).
+#   were found, not just the demo) && scatterTarget (a reachable scatter tree was picked) &&
+#   woodAxeSelected && scatterWood (a 2nd independent wood gain from the scatter tree's pile).
 #
-# Windowed (NOT -batchmode — ScreenCapture needs a real swapchain, spike iter-4 / unity-conventions.md).
+# It calls Application.Quit(pass ? 0 : 1), so the exe's exit code IS the gate verdict — this wrapper just
+# launches it and propagates that, with a frame_check.py backstop on the PNGs (real rendered content, not
+# black/uniform/magenta).
+#
+# TIER COVERAGE (86cav8y74, from Tess's PR #327 comment 5031539815 NIT 2, verbatim: "-verifyChop drives the
+# STONE axe, so the WOOD-tier chop is not shipped-build-gated. […] selecting a wood axe (instead of
+# PickUpAxe) in ChopVerifyCapture would make the exact soak-4 regression class shipped-build-gated"). The
+# DEMO-tree phase still uses the STONE axe (that coverage is unchanged); the SCATTER phase now GRANTS +
+# SELECTS the **WOOD** axe through the real AddToolToBelt/SelectBelt seams and asserts the discriminator
+# triple — wood-axe selected AND IsAnyAxeSelectedInBelt AND **NOT** IsAxeSelectedInBelt (the stone-only
+# predicate MUST be false; without that term a "fix" that re-selected stone would green this gate while the
+# wood chop stayed broken). soak-4 was exactly a stone-only chop gate: the Sponsor tested WOOD first and
+# could not chop. If ChopTree's axe gate ever re-narrows to stone-only, the scatter chop yields no wood and
+# this gate goes RED.
+#
+# HEADLESS since 86cag93zb: -batchmode, NO -nographics, NO window — ChopVerifyCapture.ShotTo renders
+# Camera.main into an OFFSCREEN RenderTexture (RenderTextureCapture -> SubmitRenderRequest), which works
+# without a swapchain; the legacy backbuffer ScreenCapture does not. (86cav8y74 corrected this header: it
+# still claimed the gate was windowed-and-not-batchmode long after the conversion — a reviewer re-running
+# the gate off that stale line would re-add the windowed/nographics flags and get black false-empty frames,
+# the #287 trap. tests/scripts/test_gate_scripts.sh's launch-mode invariant is the machine-checked source of
+# truth. NOTE that invariant greps the WHOLE file for the windowed flag literal, so do NOT spell that flag
+# out anywhere in a headless gate's comments — it reads as a windowed launch and reds the check.)
 # A wall-clock timeout fails a hung launch instead of blocking CI forever (mirrors capture_gate.sh). Note
 # the chop loop drives TWO trees with multi-second NavMesh moves + chop/loot cooldowns, so the cap is
 # higher than the settings/loot/pond gates' 120s.
@@ -62,7 +83,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # process can't linger into the retry / the next gate.
 LAUNCH_TIMEOUT=300
 
-# launch_once — clear stale artifacts, launch the windowed exe under timeout, set exe_rc.
+# launch_once — clear stale artifacts, launch the headless exe under timeout, set exe_rc.
 # Re-clears EVERY attempt so a partial first-attempt capture/log can't mask the retry.
 launch_once() {
   rm -f "$ABS_CAP"/chop_*.png

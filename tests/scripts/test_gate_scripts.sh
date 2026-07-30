@@ -821,7 +821,7 @@ echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ===
 # wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
 # the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
 # its aggregate fail path, so the grep needle is uniform too.
-for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar; do
+for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood; do
   G="$SCRIPTS/verify_${g}_gate.sh"
   make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
   assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
@@ -867,16 +867,54 @@ assert_launch_windowed() { # <script-name>
     bad "launch-mode: $1 MUST keep -screen-fullscreen 0 on its LAUNCH LINE (its IMGUI/UI-Toolkit overlay is dead headless; a header-comment mention does not count)"
   fi
 }
-for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh verify_placement_gate.sh verify_mine_gate.sh verify_boulder_gate.sh; do
-  assert_launch_headless "$s"
-done
+HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh
+                verify_placement_gate.sh verify_mine_gate.sh verify_boulder_gate.sh verify_heldwood_gate.sh)
 # verify_boar_gate.sh (86cavg2k1 NIT 2) belongs on the WINDOWED side for the same reason as
 # verify_weaponset_gate.sh: BoarVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame,
 # both dead under -batchmode — a "helpful" headless conversion would silently produce black frames while
 # the logic half still exited 0 (the #287 false-empty class). This entry reds that conversion.
-for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh verify_buildmenu_gate.sh verify_boar_gate.sh; do
-  assert_launch_windowed "$s"
-done
+WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
+                verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
+                verify_buildmenu_gate.sh verify_boar_gate.sh)
+for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
+for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
+
+echo "=== every verify_*_gate.sh is CI-WIRED + launch-mode-registered (86cav8y74) ==="
+# THE BUG CLASS THIS GUARDS: a capture gate that is authored, self-asserting, and PASSES when run by hand
+# — but that ci.yml never invokes, so it gates NOTHING and a real regression ships behind green CI. This is
+# not hypothetical: `-verifySwings` (SwingVerifyCapture.cs) has ZERO hits under .github/ as of 86cav8y74 —
+# it has passed manually since PR #327 and has never blocked a merge. -verifyMine (#299), -verifyBoulder
+# (#303) and -verifyBoar (86cavg2k1 NIT 2) each spent weeks in exactly that state before someone noticed by
+# grep. Both gaps THIS ticket closes are the same shape one layer down (a gate covering stone/iron but not
+# wood). So: make the omission MECHANICAL rather than grep-when-you-remember.
+#   (a) every wrapper must be INVOKED in ci.yml — an unwired wrapper is dead weight pretending to be a gate;
+#   (b) every wrapper must appear in exactly one launch-mode list above — so its -batchmode-vs-windowed
+#       choice is pinned and a "helpful" conversion reds (the #287 false-empty class).
+# Deliberately scoped to the WRAPPERS, not to every -verify* flag: several flags (-verifyAxe,
+# -verifyHeldPickaxe, -verifyCastaway, -verifySwings…) are author-run Self-Test evidence BY DESIGN and have
+# no wrapper — asserting on flags would demand a CI gate for each, which is a scope call, not a defect.
+# Adding a wrapper is the act that declares "this should gate", and that is what this check holds you to.
+ALL_LAUNCH_REGISTERED=("${HEADLESS_GATES[@]}" "${WINDOWED_GATES[@]}")
+CI_YML="$ROOT/.github/workflows/ci.yml"
+if [ ! -f "$CI_YML" ]; then
+  bad "gate-wiring: ci.yml not found at $CI_YML"
+else
+  for path in "$SCRIPTS"/verify_*_gate.sh; do
+    g="$(basename "$path")"
+    if grep -qF "scripts/$g" "$CI_YML"; then
+      ok "gate-wiring: $g is invoked by ci.yml"
+    else
+      bad "gate-wiring: $g exists but ci.yml NEVER invokes it — it gates nothing (the -verifySwings class). Wire it into the capture job or delete it."
+    fi
+    reg=0
+    for r in "${ALL_LAUNCH_REGISTERED[@]}"; do [ "$r" = "$g" ] && reg=1; done
+    if [ "$reg" -eq 1 ]; then
+      ok "gate-wiring: $g is registered in a launch-mode list"
+    else
+      bad "gate-wiring: $g is not in HEADLESS_GATES or WINDOWED_GATES — its launch mode is unpinned (a headless/windowed flip would regress silently)"
+    fi
+  done
+fi
 
 echo "=== parse_test_results.py skip-handling (86camz787 — PlayMode advisory→required) ==="
 # THE bug class this guards: the shared NUnit result gate must treat SKIPPED/IGNORED
