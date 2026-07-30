@@ -34,12 +34,22 @@ namespace FarHorizon
     ///     there, and asserts a SECOND, INDEPENDENT wood gain on top of the demo-tree wood.
     /// Exits non-zero if EITHER the demo-tree chop OR the scatter-tree choppability fails to be proven.
     ///
+    /// CHANGE (b) TIER COVERAGE (86cav8y74, from Tess's PR #327 comment 5031539815 NIT 2): the demo-tree phase
+    /// acquires the STONE axe via PickUpAxe, so before this change the WOOD-tier chop — the EXACT soak-4 repro
+    /// ("I cannot chop a tree after you introduced the swing when clicking in the air"; the Sponsor tested WOOD
+    /// first) — had NO shipped-build evidence at all. The SCATTER phase now grants + SELECTS the **WOOD** axe
+    /// through the real belt seams and asserts the discriminator triple (wood selected AND any-axe-selected AND
+    /// **NOT** stone-selected) before chopping, so a re-narrowing of ChopTree's axe gate to stone-only reds this
+    /// gate. The demo-tree phase keeps STONE coverage — both tiers are now gated, neither traded away.
+    ///
     /// Inert unless launched with -verifyChop (so the normal game / boot capture is unaffected).
     /// HEADLESS via RT-readback (86cag93zb): captures render Camera.main into an offscreen RT, so it runs
-    /// under -batchmode (no window). Self-asserts are LOGIC (WoodCount / InstanceCount), unaffected.
+    /// under -batchmode (no window). Self-asserts are LOGIC (WoodCount / InstanceCount / belt-selection
+    /// predicates), unaffected.
     ///   FarHorizon.exe -batchmode -verifyChop -captureDir &lt;dir&gt;
-    /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the demo tree, wood in readout)
-    /// + chop_scatter.png (at a real scatter tree, MORE wood), then quits non-zero if either proof failed.
+    /// Captures: chop_before.png (at spawn, no wood) + chop_after.png (at the demo tree, STONE-axe wood in
+    /// readout) + chop_wood_axe.png (the WOOD axe selected + in hand) + chop_scatter.png (at a real scatter
+    /// tree, MORE wood — chopped with the wood axe), then quits non-zero if any proof failed.
     /// </summary>
     public class ChopVerifyCapture : MonoBehaviour
     {
@@ -154,10 +164,56 @@ namespace FarHorizon
             bool haveScatterTarget = TryPickReachableScatterTree(out chosen);
             Debug.Log("[ChopVerifyCapture] scatter target picked: " + haveScatterTarget + " at " + chosen);
 
+            // 5. 86cav8y74 — SWITCH TO THE **WOOD** AXE for the scatter chop. Closes the shipped-build coverage gap
+            //    Tess raised on PR #327 (comment 5031539815 NIT 2): this gate acquired the STONE axe via PickUpAxe, so
+            //    the WOOD-tier chop — the EXACT soak-4 repro ("I cannot chop a tree", the Sponsor tested WOOD first)
+            //    — had no built-frame evidence and rode PlayMode + a code read only. The demo-tree phase above keeps
+            //    STONE coverage; only the scatter phase moves to wood, so nothing is traded away.
+            //    Granted through the REAL model seams (AddToolToBelt + SelectBelt — the crafting-menu grant + a hotbar
+            //    click; the same pattern BoulderVerifyCapture uses for its wood pickaxe), NOT a new gameplay path.
+            bool woodAxeSelected = false;
+            if (inventory != null && inventory.Model != null && inventory.Catalog != null)
+            {
+                if (!inventory.Model.OwnsItem(ItemCatalog.AxeWoodId))
+                {
+                    var wa = inventory.Catalog.ById(ItemCatalog.AxeWoodId);
+                    if (wa != null) inventory.Model.AddToolToBelt(wa);
+                }
+                SelectBeltSlotById(ItemCatalog.AxeWoodId);
+                yield return null;
+                // The LOAD-BEARING discriminator triple. `IsAxeSelectedInBelt == false` is what makes this a WOOD-tier
+                // proof: without it, a future "fix" that re-selects the stone axe would green the gate while the wood
+                // chop stayed broken. `IsAnyAxeSelectedInBelt` is the actual chop gate (ChopTree.ShouldChopOnClick's
+                // axeSelected term) — if it ever narrows back to stone-only (the soak-4 regression), the wood chop
+                // below never fires and this gate goes RED.
+                woodAxeSelected = inventory.IsAxeWoodSelectedInBelt
+                                  && inventory.IsAnyAxeSelectedInBelt
+                                  && !inventory.IsAxeSelectedInBelt;
+                Debug.Log("[ChopVerifyCapture] WOOD-AXE switch: woodSelected=" + inventory.IsAxeWoodSelectedInBelt +
+                          " anyAxeSelected=" + inventory.IsAnyAxeSelectedInBelt +
+                          " stoneAxeSelected=" + inventory.IsAxeSelectedInBelt +
+                          " (the stone flag MUST be false — that is what proves the wood TIER is what chops below)" +
+                          " => woodAxeSelected=" + woodAxeSelected);
+            }
+            for (int i = 0; i < 8; i++) yield return null; // let the held visual swap to the wood axe before the shot
+            ShotTo(Path.Combine(dir, "chop_wood_axe.png"));
+            yield return null;
+
             if (haveScatterTarget)
             {
                 bool setScatter = TeleportPlayer(chosen);
                 Debug.Log("[ChopVerifyCapture] teleport to scatter tree set: " + setScatter + " target=" + chosen);
+                // 86cav8y74 — arbitration ground truth for the WOOD tier: with a wood axe selected and a standing tree
+                // in range the chop verb must CLAIM the click, which is what suppresses MeleeAttack's whiff swing
+                // (verb-wins-over-whiff). Diagnostic only — the wood-gain assert below is the verdict — but it names
+                // WHY a wood-chop failure happened (tool-select vs range) instead of just "no wood".
+                if (chop != null)
+                {
+                    var d = chop.ClickGateDiag();
+                    Debug.Log("[ChopVerifyCapture] WOOD-AXE arbitration: WouldClaimClick=" + chop.WouldClaimClick() +
+                              " toolSelected=" + d.ToolSelected + " nearestTree d=" + d.NearestDist.ToString("F2") +
+                              "/" + d.Range.ToString("F2"));
+                }
                 start = Time.time;
                 while (Time.time - start < 20f)
                 {
@@ -171,7 +227,8 @@ namespace FarHorizon
                 gotScatterWood = woodAfterScatter > woodAfterDemo;
                 Debug.Log("[ChopVerifyCapture] scatter-tree wood yielded: " + gotScatterWood + " (wood " +
                           woodAfterDemo + " -> " + woodAfterScatter + "; true means a REAL scatter LP_Tree was " +
-                          "reached AND chopped — CHANGE (a) proven in the shipped exe)");
+                          "reached AND chopped WITH THE **WOOD** AXE SELECTED — CHANGE (a) + the 86cav8y74 wood-tier " +
+                          "proof in the shipped exe)");
 
                 for (int i = 0; i < 8; i++) yield return null;
                 ShotTo(Path.Combine(dir, "chop_scatter.png"));
@@ -179,13 +236,40 @@ namespace FarHorizon
             }
             yield return new WaitForSeconds(0.5f);
 
-            bool pass = gotDemoWood && scatterDiscovered && haveScatterTarget && gotScatterWood;
+            // 86cav8y74 — woodAxeSelected joins the verdict: a green gate now REQUIRES that the scatter chop happened
+            // with the WOOD axe as the selected belt item (stone flag false). Without it in the pass expression the
+            // wood switch would be decoration a regression could quietly skip past.
+            bool pass = gotDemoWood && scatterDiscovered && haveScatterTarget && woodAxeSelected && gotScatterWood;
             Debug.Log("[ChopVerifyCapture] verification complete -> " + dir +
                       " demoWood=" + gotDemoWood + " scatterDiscovered=" + scatterDiscovered +
-                      " scatterTarget=" + haveScatterTarget + " scatterWood=" + gotScatterWood +
+                      " scatterTarget=" + haveScatterTarget + " woodAxeSelected=" + woodAxeSelected +
+                      " scatterWood(wood tier)=" + gotScatterWood +
                       " => PASS=" + pass);
-            // Fail loud in the shipped build if the demo-tree chop OR the scatter choppability wasn't proven.
+            // Fail loud in the shipped build if the STONE demo-tree chop, the scatter choppability, the WOOD-axe
+            // switch, or the WOOD-tier scatter chop wasn't proven.
             Application.Quit(pass ? 0 : 1);
+        }
+
+        // 86cav8y74 — select the belt slot holding the given item id (the input-independent analog of a hotbar click /
+        // number key; sibling of BoulderVerifyCapture.SelectWoodPickaxeBeltSlot). Goes through InventoryModel.SelectBelt
+        // so Inventory.Changed fires and the whole selection→gate/held-visual chain runs exactly as it does in play.
+        // Returns false when the id is not on the belt (the caller's discriminator triple then reads false → gate RED).
+        private bool SelectBeltSlotById(string itemId)
+        {
+            if (inventory == null || inventory.Model == null) return false;
+            var belt = inventory.Model.BeltSlots;
+            for (int i = 0; i < belt.Count; i++)
+            {
+                var s = belt[i];
+                if (!s.IsEmpty && s.Def != null && s.Def.Id == itemId)
+                {
+                    inventory.Model.SelectBelt(i);
+                    return true;
+                }
+            }
+            Debug.LogError("[ChopVerifyCapture] SelectBeltSlotById: '" + itemId + "' is not on the belt — cannot " +
+                           "select it (the grant fell through to the pack, or the catalog id changed)");
+            return false;
         }
 
         // Discover the world's scatter LP_Tree positions at runtime (from chop.scatterRoot, or a
