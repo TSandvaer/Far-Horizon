@@ -154,6 +154,37 @@ namespace FarHorizon
         [Tooltip("Don't pull the camera closer than this when a hill occludes the player (avoids a face-zoom).")]
         public float minCollisionDistance = 2.5f;
 
+        // ---- FRONT-VIEW SNAP (86cay4282 round 2 — framing must not be the Sponsor's problem) ----
+        // WHY: the default orbit framing (pitch 55, distance 14) renders the castaway at roughly 55x95 px in a
+        // 1280x720 frame — Tess opened the round-1 capture and confirmed it PHYSICALLY CANNOT resolve which hand is
+        // on the haft. Judging a two-hand grip from that view is impossible, and asking the Sponsor to fight the
+        // orbit + the 6u zoom floor for every judgement is the same "make the human do the precision work" failure
+        // the nudge-tool class exists to remove. This is one key that puts the camera where the read is legible.
+        // It is a DEBUG framing aid: gated behind the F10 dev-overlay master (like every other dev handle), a
+        // TOGGLE that restores the previous orbit exactly, and it never runs in a normal soak.
+        [Header("Front-view snap (debug framing aid, 86cay4282)")]
+        [Tooltip("Snap to / release a close FRONT view of the character. [F] — a LETTER key, so it is layout-" +
+                 "agnostic on the Sponsor's Danish keyboard (punctuation keys shift; unity-conventions.md §Input). " +
+                 "Only acts while the F10 dev-overlay layer is up, and never while a modal UI panel has input.")]
+        public KeyCode frontSnapKey = KeyCode.F;
+        [Tooltip("Camera distance while front-snapped. DELIBERATELY BELOW minDistance (the 6u gameplay zoom floor) " +
+                 "— that floor is what makes the hands unreadable, so the snap bypasses it while active and the " +
+                 "floor is restored on release.")]
+        public float frontSnapDistance = 2.6f;
+        [Tooltip("Camera pitch while front-snapped — near level, because hand-on-haft is a LATERAL read and a " +
+                 "high pitch foreshortens exactly the geometry being judged (the pond top-down lesson).")]
+        public float frontSnapPitch = 12f;
+        [Tooltip("Extra height added to the follow point while front-snapped, to raise the aim from the hip-height " +
+                 "default toward the chest/hands.")]
+        public float frontSnapTargetLift = 0.25f;
+
+        private bool _frontSnap;
+        private float _preSnapYaw, _preSnapPitch, _preSnapDistance;
+
+        /// <summary>Is the debug front-view snap engaged? Exposed so a capture/verify path and the regression guard
+        /// can assert the snap state without synthesising the legacy-Input key-down.</summary>
+        public bool FrontSnapActive => _frontSnap;
+
         private float _yaw;
         private float _pitch;
         private Vector3 _followPos;
@@ -202,6 +233,11 @@ namespace FarHorizon
                 Cursor.visible = visible;
             }
 
+            // FRONT-VIEW SNAP toggle (86cay4282). Behind the F10 dev-overlay master + the modal-UI gate, so a normal
+            // soak never sees it and typing in a panel can never fire it.
+            if (DebugOverlays.Visible && !UiInputGate.CaptureWorldInput && Input.GetKeyDown(frontSnapKey))
+                ToggleFrontSnap();
+
             if (rmbHeld)
             {
                 _yaw += Input.GetAxisRaw("Mouse X") * yawSpeed * Time.deltaTime;
@@ -217,7 +253,10 @@ namespace FarHorizon
             if (Mathf.Abs(scroll) > 0.0001f)
             {
                 distance -= scroll * zoomSpeed;
-                distance = Mathf.Clamp(distance, minDistance, maxDistance);
+                // While front-snapped the zoom FLOOR drops to the snap distance, so a stray wheel tick cannot yank
+                // the camera back out to the 6u gameplay floor mid-judgement. The gameplay floor is restored the
+                // moment the snap releases.
+                distance = Mathf.Clamp(distance, ZoomFloor(), maxDistance);
             }
 
             Apply(instant: false);
@@ -236,6 +275,9 @@ namespace FarHorizon
                 bool airborne = jumpHeightSource != null && jumpHeightSource.IsAirborne;
                 Vector3 desired = target.position + targetOffset;
                 desired.y = DesiredFollowY(target.position.y, targetOffset.y, jumpY);
+                // Front-snapped: raise the aim from the hip-height default toward the chest/hands, which is what
+                // the snap exists to frame.
+                if (_frontSnap) desired.y += frontSnapTargetLift;
 
                 // HORIZONTAL follow target. GROUNDED: lead the X/Z by the agent's velocity × leadTime so the
                 // exponential follower's steady-state lag (v/k) is cancelled and the player stays framed during a
@@ -419,6 +461,70 @@ namespace FarHorizon
             return false;
         }
 
+        /// <summary>The live zoom floor — the gameplay <see cref="minDistance"/> normally, or the (closer)
+        /// front-snap distance while snapped. Pure-ish accessor so the snap's clamp behaviour is assertable.</summary>
+        public float ZoomFloor() => _frontSnap ? Mathf.Min(frontSnapDistance, minDistance) : minDistance;
+
+        /// <summary>
+        /// Toggle the debug front-view snap. ON: remembers the current orbit, then aims the camera at the
+        /// character's FRONT from close range. OFF: restores the remembered orbit EXACTLY, so using the aid can
+        /// never leave the Sponsor's framing changed behind his back. Public so the toggle is testable without
+        /// synthesising a legacy-Input key-down.
+        /// </summary>
+        public void ToggleFrontSnap()
+        {
+            if (!_frontSnap)
+            {
+                _preSnapYaw = _yaw; _preSnapPitch = _pitch; _preSnapDistance = distance;
+                _frontSnap = true;
+                _yaw = FrontSnapYaw(FacingForward());
+                _pitch = Mathf.Clamp(frontSnapPitch, minPitch, maxPitch);
+                distance = Mathf.Clamp(frontSnapDistance, ZoomFloor(), maxDistance);
+            }
+            else
+            {
+                _frontSnap = false;
+                _yaw = _preSnapYaw;
+                _pitch = Mathf.Clamp(_preSnapPitch, minPitch, maxPitch);
+                distance = Mathf.Clamp(_preSnapDistance, ZoomFloor(), maxDistance);
+            }
+            Apply(instant: true);
+        }
+
+        /// <summary>
+        /// The character's FACING direction (world, horizontal). Read from the FACING-CARRYING model child, not the
+        /// player root: CastawayCharacter applies facing to <c>_model</c> ("the visual owns facing") and the root
+        /// never yaws, so a root-forward read would aim the snap at a fixed world heading regardless of which way
+        /// the character is actually looking (unity-conventions.md §FBX/rigs — the same trap that made the held-prop
+        /// grip anchor eat the facing). Falls back to the target's forward, then world forward.
+        /// </summary>
+        private Vector3 FacingForward()
+        {
+            // jumpHeightSource IS this rig's CastawayCharacter reference (wired editor-time for the jump arc); the
+            // facing read reuses it rather than adding a second serialized field for the same object. A runtime
+            // fallback resolve keeps the snap working on a rig where it was not wired.
+            if (jumpHeightSource == null) jumpHeightSource = Object.FindAnyObjectByType<CastawayCharacter>();
+            Transform model = jumpHeightSource != null ? jumpHeightSource.ModelTransform : null;
+            if (model != null) return model.forward;
+            if (target != null) return target.forward;
+            return Vector3.forward;
+        }
+
+        /// <summary>
+        /// PURE — the orbit yaw that places the camera in FRONT of a character facing
+        /// <paramref name="facingForward"/>. The camera looks along its own yaw heading, so to see the character's
+        /// front it must look along the OPPOSITE of the facing. Degenerate (near-vertical) input falls back to 0.
+        /// Static + dependency-free so the "the snap really does face the character" contract is unit-asserted with
+        /// no scene, and so a sign error cannot hide behind a visual.
+        /// </summary>
+        public static float FrontSnapYaw(Vector3 facingForward)
+        {
+            Vector3 f = Vector3.ProjectOnPlane(facingForward, Vector3.up);
+            if (f.sqrMagnitude < 1e-6f) return 0f;
+            f.Normalize();
+            return Mathf.Atan2(-f.x, -f.z) * Mathf.Rad2Deg;
+        }
+
         // ---- Test / programmatic hooks ----
         /// <summary>Set yaw and re-apply instantly (orbit-from-code; used by camera tests).</summary>
         public void SetYaw(float yaw) { _yaw = yaw; Apply(true); }
@@ -429,8 +535,8 @@ namespace FarHorizon
         /// </summary>
         public void SetPitch(float pitch) { _pitch = Mathf.Clamp(pitch, minPitch, maxPitch); Apply(true); }
 
-        /// <summary>Set zoom distance (clamped) and re-apply instantly.</summary>
-        public void SetDistance(float d) { distance = Mathf.Clamp(d, minDistance, maxDistance); Apply(true); }
+        /// <summary>Set zoom distance (clamped to the live <see cref="ZoomFloor"/>) and re-apply instantly.</summary>
+        public void SetDistance(float d) { distance = Mathf.Clamp(d, ZoomFloor(), maxDistance); Apply(true); }
 
         public float Yaw => _yaw;
         public float Pitch => _pitch;

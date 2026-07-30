@@ -98,13 +98,17 @@ namespace FarHorizon
         // ARM side via CastawayArmPose.runLowerEuler). The base HeldToolRig has no clamp field, so the
         // HeroAxeSceneTests "no clamp field" reflection guard stays green.
 
-        protected override void LateUpdate()
+        /// <summary>Sync the axe's serialized ALIAS fields into the shared base seat BEFORE the base drives, so an
+        /// F9 AxeNudgeTool runtime nudge to worldOffsetFromHand / relEuler still moves the axe this frame. This is an
+        /// OVERRIDE (not a `new` hide) deliberately: the sync must happen however the seat is reached — LateUpdate,
+        /// the test seam, or a base-typed reference — because a caller holding a HeldToolRig reference would
+        /// otherwise silently seat the axe from stale base fields, exactly the tested-path-diverges-from-shipped-path
+        /// class this project keeps paying for.</summary>
+        public override void ApplySeat(float dt)
         {
-            // Sync the axe's serialized alias fields into the shared base seat BEFORE the base drives, so an
-            // F9 AxeNudgeTool runtime nudge to worldOffsetFromHand / relEuler still moves the axe this frame.
             seatOffsetFromHand = worldOffsetFromHand;
             seatEuler = relEuler;
-            base.LateUpdate();
+            base.ApplySeat(dt);
         }
     }
 }
