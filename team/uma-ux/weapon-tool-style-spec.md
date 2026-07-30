@@ -31,8 +31,15 @@ materials/shaders — not decided in the abstract.
 > haft-brown + tan cut facets + fire-hardened tip; **stone** = straight wood haft +
 > `haft-wood-shadow`-dark (W2) grip band, NO lashing; **iron** = iron handle + segmented LEATHER
 > grip (dark-brown, the `#5A3B22` W2 block repurposed as leather per the two-tier memory; no wood
-> on iron). NO red on any tier — the shipped axe reads "dark leather-wrapped grip / do NOT recolor
-> to barn-red" (gameplay-ui-direction.md, shipped-axe icon row). **§2 slot W8 `grip-wrap-red` is
+> on iron). **NO red on any tier** — authority is the Sponsor's "remove the red things" above, plus
+> the standing "do NOT recolor to barn-red" rule (DECISIONS 2026-06-14, barn-red recolor DROPPED;
+> restated in `item-icon-bake-recipe.md` §2.1). **⚠ CORRECTED 2026-07-29 (`86cay47zh`): this line
+> previously justified the no-red rule with *"the shipped axe reads 'dark leather-wrapped grip'
+> (gameplay-ui-direction.md, shipped-axe icon row)."* Both halves were wrong — the leather-wrap
+> descriptor was inherited from the RETIRED CC-BY hatchet and contradicts §4.1 below ("NO lashing,
+> NO rawhide, NO cord" on stone; leather is the IRON tier only), and the citation resolved to
+> `gameplay-ui-direction.md`'s icon row, which carried the same stale descriptor (corrected in the
+> same PR). The load-bearing rule — no red — is unchanged.** **§2 slot W8 `grip-wrap-red` is
 > RETIRED from the weapon set** (it survives only as a `style-guide-v2 §3/§6` UI-era anchor; no
 > shipped weapon uses it).
 >
