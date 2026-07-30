@@ -2,7 +2,29 @@
 
 This file is the orchestrator's source of truth between ticks. The first section is always the live "Resume next-action" header — if a session dies, the next orchestrator starts there.
 
-## RESUME NEXT-ACTION — 2026-07-30 ~08:4xZ (Sponsor PRESENT; auto-status OFF — arming is his call)
+## RESUME NEXT-ACTION — 2026-07-30 ~13:0xZ (Sponsor PRESENT; auto-status OFF — arming is his call)
+
+**12 PRs MERGED this session.** main `fee2604` → **`b9abf7b`**. In order: #352 `414e510` · #356 `03bca30` · #348 `451f6cc` · #349 `098a941` · #350 `0335e58` · #353 `c69e0a2` · #355 `a5fee62` · #358 `1588996` · #357 `840a1c6` · #359 `05e8f3e` · #361 `0a1bcfe` · #360 `b9abf7b`.
+
+**⭐ #354 SOAK APPROVED** (Sponsor verbatim *"soak approved, with one new bug to report"*). Both judged bars now signed off — round 4's reach, round 5's arm release. ⚠ **Merge is gated on `86cayy770` AC1, NOT just CI+review:** if the new hold-jerk bug turns out to be INTRODUCED by round 5 rather than pre-existing, #354 REOPENS. My pre-existing call is a `Hypothesis:`, unverified. CI on `7ccdf10` in progress.
+
+**⭐ NEW SPONSOR BUG → `86cayy770`, PR #366 OPEN (unreviewed at time of writing).** Verbatim: *"when I hold down the left mouse the animation jerks 3 times (starts over before finishing) and the stone is harvested… should run from start -> finish, the amount of times it takes to harvest. I think this but also exists when harvesting ore or tree."* Evidence in ClickUp comment `90150246382367`. **Load-bearing measured fact:** a programmatic held seam exists for every verb (`ChopTree.SetChopHeld:792`, `MineBoulder.SetMineHeld:509`, `MineOre.SetMineHeld:536`) and **NO capture gate calls any of them** — all drive the one-shot `Request*Click` seam; the only held-seam callers are EditMode tests asserting the NEGATIVE case. So the hold cadence has never had a positive test or a capture. ⚠ Plausibly the *genuine* machine-gun bug that `unity-conventions.md`'s cadence-over-count warning said not to blind-quarantine.
+
+**7 PRs OPEN:** #366 (`86cayy770`, Drew, NEW/unreviewed) · #365 (`86cayxtw8`, Tess, Devon reviewing — **`.github/**` so it CANNOT be label-merged; needs orch `gh pr merge` + specific Sponsor approval**) · #364 (`86cayxjq1`, Devon, Tess reviewing) · #363 (`86caynve7`, Devon, Tess reviewing) · #362 (`86cav8ybj`, Uma, **REQUEST_CHANGES → round 2 in progress**) · #354 (see above) · #351 (`86cah7y5b`, soak-gated, tags `needs-soak`+`sponsor-gate`).
+
+**IN FLIGHT ×4 (all probe-verified alive; re-probe before trusting this line):** Drew `86cayy770` in `drew-swings-wt` (⚠ 57 pre-existing dirty files, clean/reset FORBIDDEN) · Tess reviewing #363+#364 in `tess-wt` (⚠ 48 stashes, `stash@{0}` must survive; read-only, no checkout) · Devon reviewing #365 in `devon-wt` (⚠ 2 pre-existing untracked `BuildMenuPanelSettings` files — leave them) · Uma #362 round 2 in `uma-wt`.
+
+**SPONSOR DECISIONS TAKEN THIS SESSION:** (1) #354 round-5 soak APPROVED; (2) the six-PR merge batch + #355 direct-merge approved; (3) **Tess's extra workflow file `.github/workflows/docs-markup.yml` ACCEPTED** — recorded on PR #365 comment `5130986356`.
+
+**✅ TWO BLOCKERS CLOSED:** v4 repairability (#357 committed the `art-src` layer; Tess verified re-rig feasibility end-to-end incl. a sorted-vertex digest identical across `.blend`/rawfix-FBX/shipped runtime) · the tag-write hole (**the ORCHESTRATOR's own `curl` to `api.clickup.com` clears the classifier; a SUB-AGENT's does not** — `86cah7y5b` now carries `needs-soak`+`sponsor-gate`. Standing rule: orch owns ALL tag writes; `update_task` has no `tags` param).
+
+**STILL SPONSOR-ONLY:** **#351 soak** (oldest outstanding; AC7 is Predict-Before-Soak and his play is structurally the only real-input gate — no capture gate can inject a real mouse click) · **#365 merge approval** (`.github`) · **icon contact-sheet picks `86camyvwn`** (needs him to LOOK at `Far-Horizon-drew-wt/art-src/iconbaker-proto/contact-sheet.png`; **this is the ONLY in-lane item for Uma, so it is a real idle cause**) · canonical orch-branch cleanup (hard-denied force-push) · branch-protection click · `/name-the-bar` on the two-hand-grip bars (reach + release both now soak-passed → both earned promotion) which also unblocks `86cagfn8h`.
+
+**MY OWN ERRORS CORRECTED THIS SESSION — calibrate against these:** (1) the save file handed the Sponsor seven `gh pr merge` commands, violating the never-route-commands rule — merges are label/orch-executed. (2) I claimed `#351`'s "browser merge only" was live; that class was retired 2026-07-08. (3) **`86cayxtw8`'s lane note mis-read `paths-ignore` as job-scoped — it is RUN-scoped**, so a docs-only PR starts NO run and a `structure`-job guard catches nothing (Tess caught it; memory `ci-paths-ignore-skips-the-whole-run`). (4) Missed the `in progress` flip on TWO in-flight tickets; caught only by verifying an agent's own flip claim. (5) Nearly filed a ticket for a coverage gap the owning script's header already declares.
+
+**NEXT DISPATCHABLE when a lane frees** (non-build must never idle): `86caywfjq` (v4 Join recipe, art-src+docs) · `86caywf84` (bone-count comment — `Assets/Scripts` ⇒ BUILD lane) · `86cayp0p9` ⚠ overlaps `test_gate_scripts.sh` with #363/#365 — sequence behind them · `86caynve9` (CI-wire `-verifySwings`, `ci.yml`) · `86caxgyc4` · `86caxjwhh` · `86cavj6p1` · `86caxhk6v` · the DEV factual-check of #348's shader/GPU claims. Build lane is AT CAP (Drew).
+
+## (superseded 2026-07-30 ~13:0xZ) RESUME NEXT-ACTION — 2026-07-30 ~08:4xZ (Sponsor PRESENT; auto-status OFF — arming is his call)
 
 **7 PRs MERGED this morning.** main `fee2604` → `a5fee62`, CI 4/4 green on the tip. #352 `414e510` · #356 `03bca30` · #348 `451f6cc` · #349 `098a941` · #350 `0335e58` · #353 `c69e0a2` · #355 `a5fee62`. Tickets `86cay47zh` / `86cay4hyz` / `86cav8y74` / `86caxjwev` / `86caxj8zw` flipped `complete`. #348 and #349 are legitimately ticketless (Priya verified by name+description search; do NOT create tickets to close them).
 
