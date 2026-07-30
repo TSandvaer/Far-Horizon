@@ -1039,8 +1039,31 @@ echo "=== gate launch-mode invariant (86cag93zb — headless RT-readback vs wind
 # match a '#'-prefixed comment; '-screen-fullscreen 0' appears only in the windowed launch flag line) —
 # zero Unity dependency, runs every PR in the license-free structure job. A NEW gate must be added to the
 # matching list here (mirrors the wedge-retry loop above — this is the launch-mode regression guard).
+#
+# ⚠ RESIDUAL BLIND SPOTS of BOTH asserts below (86caynve7 AC3) — DOCUMENTED, deliberately NOT chased.
+# They are the price of a static grep in a deliberately Unity-free job; the runtime-truth guard for
+# what actually reaches the exe is the capture gate itself. Do not read either assert as complete.
+#   1. LINE-START IS NOT LAUNCH-POSITION. `^[[:space:]]*` pins a flag to the start of SOME line, not
+#      to the `timeout … "$EXE" \` continuation it belongs to. A stale flags block, a commented-out
+#      -launch leftover, or a second launch site that drops the flag would still green. Latent only
+#      today: each windowed gate has 3 `"$EXE"` references, of which 2 are `-z`/`-f` guards and
+#      exactly 1 is a real launch. The same axis cuts the other way on an anchored NEGATIVE — a
+#      `-batchmode` appended MID-line (`-screen-fullscreen 0 -batchmode \`) escapes the anchor and
+#      greens. Anchoring the windowed negative is nonetheless required, because the unanchored
+#      alternative reds all 8 windowed gates on their header prose (see the asymmetry note below).
+#   2. STATIC IS NOT RUNTIME. Nothing here proves the flag reaches the exe — a conditional launch, an
+#      `EXTRA_FLAGS` var, or a `$@` passthrough all defeat it.
 assert_launch_headless() { # <script-name>
   local s="$SCRIPTS/$1"
+  # ⚠ LEAVE THE NEGATIVE HALF BELOW UNANCHORED — DELIBERATELY. This is NOT an oversight and NOT a
+  # symmetry bug to "clean up" against the anchored negative in assert_launch_windowed. Verbatim
+  # from the 86caynve7 source review (#353 comment 5109934787 §3): "Anchoring L849 to
+  # `^[[:space:]]*` would *introduce* a false-PASS, not remove one: a headless gate that appended
+  # the flag mid-line (`-batchmode -screen-fullscreen 0 \`) would stop being detected and would
+  # green. The current unanchored form is the conservative one. Any follow-up should record 'leave
+  # L849 unanchored deliberately', not 'anchor L849 for symmetry'." Proven empirically on this
+  # branch: appending `-screen-fullscreen 0` mid-line to verify_chop_gate.sh's launch line REDS the
+  # unanchored form and FALSE-PASSES an anchored one. Cheap to re-check — it is a 2-line mutation.
   if grep -qE '^[[:space:]]*-batchmode' "$s" && ! grep -q -- '-screen-fullscreen 0' "$s"; then
     ok "launch-mode: $1 launches -batchmode (headless RT-readback), no windowed swapchain"
   else
@@ -1056,10 +1079,29 @@ assert_launch_windowed() { # <script-name>
   # loop exists to red. `^[[:space:]]*` pins the flag to the start of a continuation line (all 8
   # windowed gates write it as the first token of the flags line), which a `#`-prefixed comment
   # can never satisfy. Mirrors the already-anchored '^[[:space:]]*-batchmode' above.
-  if grep -qE '^[[:space:]]*-screen-fullscreen 0' "$s"; then
-    ok "launch-mode: $1 keeps -screen-fullscreen 0 on the launch line (overlay/soak-fragile gate needs a window)"
+  #
+  # TWO-SIDED (86caynve7): the presence half above is not sufficient on its own. Until this ticket
+  # the assert tested ONLY for presence of the windowed flag, so a gate carrying BOTH `-batchmode`
+  # AND the window flags stayed GREEN — mutation-proven on verify_boar_gate.sh with `-batchmode`
+  # added as its own flag line and the window flags left intact: `134 passed, 0 failed`, exit 0,
+  # `[ OK ] launch-mode: verify_boar_gate.sh keeps -screen-fullscreen 0 on the launch line`. That
+  # mutation is exactly the regression this loop exists to red: `-batchmode` kills
+  # ScreenCapture.CaptureScreenshot + WaitForEndOfFrame, so the gate captures BLACK FRAMES while
+  # its logic half still exits 0 (the #287 false-empty class). The negative half below closes it.
+  #
+  # ⚠ THE ASYMMETRY WITH assert_launch_headless IS DELIBERATE — do NOT "fix" it. THIS side's
+  # negative must be ANCHORED; the HEADLESS side's negative must stay UNANCHORED (see the verbatim
+  # do-not-anchor note in that function). Measured on origin/main @ 840a1c6, re-measured on this
+  # branch: all 8 windowed gates name `-batchmode` in header PROSE — 1 unanchored hit each for
+  # settings/loot/water/invdragghostpos/pond/buildmenu, 2 for weaponset/boar — but 0 of them have
+  # an ANCHORED hit, so an anchored negative reds NONE of them today while an unanchored one would
+  # red all eight immediately. The 8 headless gates carry 0 `-screen-fullscreen 0` hits of ANY
+  # kind, and for a negation unanchored is the conservative direction. They are not symmetric, and
+  # not by accident. Re-measure both counts before touching either needle.
+  if grep -qE '^[[:space:]]*-screen-fullscreen 0' "$s" && ! grep -qE '^[[:space:]]*-batchmode' "$s"; then
+    ok "launch-mode: $1 keeps -screen-fullscreen 0 and adds no -batchmode on the launch line (overlay/soak-fragile gate needs a window)"
   else
-    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 on its LAUNCH LINE (its IMGUI/UI-Toolkit overlay is dead headless; a header-comment mention does not count)"
+    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 on its LAUNCH LINE **AND** MUST NOT add -batchmode there (its IMGUI/UI-Toolkit overlay is dead headless — an added -batchmode yields BLACK frames while the logic half still exits 0; a header-comment mention of either flag does not count)"
   fi
 }
 HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh
