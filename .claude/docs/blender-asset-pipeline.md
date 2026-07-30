@@ -47,6 +47,22 @@ Every new asset must:
 
 **Why:** SRP Batcher batches by shader variant, not by material count. One URP/Unlit shader across 20 weapons = effectively 1 draw call. A unique baked texture per weapon = a draw-call break per weapon — kills batching. (Unity 6 Manual, "SRPBatcher in URP," official doc.)
 
+### A rim / Fresnel highlight is NOT reachable on the weapon material — and setting one FAILS SILENTLY (from the #351 `86cah7y5b` find-in-world hand-off, 2026-07-31)
+
+The flip side of the **Why** above. The whole weapon set shares ONE material on **URP/Unlit**, and URP/Unlit has **no rim / Fresnel property at all**. Re-measured on `origin/main` @ `e054aa7`:
+
+- `Assets/Scripts/Editor/WeaponPackAssetGen.cs:273` — `Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");` — assigned onto the shared material at `:281` (`new Material(unlit)`) / `:285` (`mat.shader = unlit`), i.e. `Assets/Art/Props/WeaponPack/Mat_WeaponPalette.mat`.
+- `Assets/Art/Props/WeaponPack/Mat_WeaponPalette.mat` — `grep -ciE "rim|fresnel"` returns **0**. Its serialized property set is URP/Unlit's own and nothing else (`_BaseMap`, `_MainTex`, `_BaseColor`, `_Color`, `_Surface`, `_Blend`, `_Cull`, `_Cutoff`, `_SrcBlend`/`_DstBlend`, `_ZWrite`, …).
+- That directory holds **1** `.mat` against **15** `.fbx` — the one-material invariant, measured rather than assumed.
+
+**The dangerous part is the failure MODE, not the absence.** Setting a rim here is not a compile error and not an exception: `mat.SetFloat("_RimIntensity", 1f)` — or a hand-added `_RimIntensity:` line in the `.mat` — runs fine, saves fine, and renders **identically**, because no shader binding exists for that name. A green build, a green capture gate and green tests can all sit on top of a cue that was never drawn. Nothing in the toolchain says a word.
+
+⚠ **The specific trap: a working rim DOES exist in this repo — on a DIFFERENT shader.** `Assets/Shaders/LowPolyVertexColor.shader` ships the Fresnel term (`_RimColor`/`_RimPower`/`_RimIntensity` at `:77-79`, in-cbuffer at `:160-162`, `finalCol += _RimColor.rgb * rim * _RimIntensity` at `:322-323`) — that is `lowpoly-quality.md` §2 Rec 4, live for **world** geometry (terrain / canopy / water / procedural props). It is unreachable from a weapon because a weapon is not on that shader. Do **not** read "we have a rim" as "the axe can have a rim" — and note the sibling enumeration in `unity-conventions.md` §Build stripping & shaders lists those three properties as present, which is true and about the same world shader.
+
+**Reaching a rim on a weapon therefore means FORKING the shared material** — a second material, or moving the set onto `LowPolyVertexColor` — which is precisely the one-material / ~1-draw-call invariant this section exists to hold (SRP Batcher batches by shader VARIANT, so a second shader is a batch break per weapon, not a free addition). **"Add a rim to the axe" is a DESIGN TRADE — escalated and decided — never a dev tweak folded into a feature ticket.** If it is genuinely wanted, price the batching cost and say so out loud.
+
+**So build attract / affordance cues in the TRANSFORM channel, not the shader channel.** A cue that must draw the eye to a weapon (ground pickup, craftable, highlighted tool) uses bob (translate), sway/tilt (rotate about an axis), slow yaw spin, or a scale pulse — none of which touch the material, so the invariant is untouched and no fork is needed. **Give each channel a NON-MATCHING rate:** channels sharing one period (or exact multiples of it) fuse visually into a single pulse and read as one mechanical throb instead of as something alive — so pick rates that beat against each other, plus a per-instance phase offset (the same discipline as `game-juice.md` §1 item 5's "seed a per-instance phase offset so they don't pulse in sync"). Amplitude stays inside the calm-tone caps of `game-juice.md` §0.
+
 **Palette starter (12 slots for the weapon set):**
 
 | Slot | Hex | Usage |
@@ -417,6 +433,7 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | If you're tempted to... | Do this instead |
 |---|---|
 | Create a per-weapon texture / bake normals | Use the shared `weapon_palette.png` + palette UV placement |
+| Give a weapon a rim/Fresnel highlight by setting a property on `Mat_WeaponPalette` | It has none — URP/Unlit carries no rim property, so the set is a **silent no-op** (no error, identical pixels). A rim needs a FORKED material = a design trade on the one-material invariant. Use a transform-channel cue (bob / sway / spin) at non-matching rates instead — §2 |
 | Use Edge Split modifier for hard edges | Mark Sharp in Edit Mode (Blender 4.1+ workflow) |
 | Start with a high-sided cylinder for an axe head | Start with a Plane + Mirror Modifier |
 | Add loops for surface detail | Add loops only to push the silhouette shape |
