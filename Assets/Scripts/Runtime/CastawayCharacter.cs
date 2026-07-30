@@ -625,13 +625,46 @@ namespace FarHorizon
                 // sets its class immediately before firing + reading, so this returns the length of the clip that is
                 // actually about to play. Unknown class → the axe swing (AttackClipNameForClass default).
                 string clipName = AttackClipNameForClass(_lastWeaponClass);
+                // 86cayy770 — TWO passes: an EXACT name match wins, else an in-pipeline REPAIRED/SMOOTHED VARIANT of
+                // the same clip ("<base>_repaired", "<base>_smoothed" — see ClipNameMatchesClass). A single exact-only
+                // match SILENTLY returned 0 the moment a curve-repair swapped the bound asset: #337 (fee2604) pointed
+                // the AttackPickaxe state at CastawayPickaxeSwing_repaired while this lookup still asked for
+                // CastawayPickaxeSwing, so the mine hold-cadence fell back to the 1.6s serialized default against a
+                // 5.2s clip -> the Animator was re-triggered at ~31% of the swing and the strike visibly restarted
+                // mid-play (the Sponsor's "the animation jerks 3 times"). Variant-tolerance makes the next clip repair
+                // non-breaking; the guard that PROVES the resolution is HoldSwingCadenceTests (it compares this
+                // against the clip the controller state actually binds, not against a sibling constant).
                 for (int i = 0; i < clips.Length; i++)
                 {
                     var c = clips[i];
                     if (c != null && c.name == clipName) return c.length;
                 }
+                for (int i = 0; i < clips.Length; i++)
+                {
+                    var c = clips[i];
+                    if (c != null && ClipNameMatchesClass(c.name, clipName)) return c.length;
+                }
                 return 0f;
             }
+        }
+
+        /// <summary>
+        /// 86cayy770 — does <paramref name="clipName"/> name an in-pipeline VARIANT of the per-class swing
+        /// <paramref name="baseName"/>? True for the exact name and for a <c>&lt;baseName&gt;_&lt;suffix&gt;</c>
+        /// variant (the project's curve-repair convention: <c>CastawayPickaxeSwing_repaired</c> from
+        /// <c>PickaxeMineCurveFix</c>-class editor fixes, mirroring the CrouchWalk <c>_smoothed</c> swap — those
+        /// types live in the EDITOR asmdef, which the runtime asmdef cannot reference, hence no cref).
+        /// The trailing <c>'_'</c> is REQUIRED so this can never widen across classes — no
+        /// per-class base name is a prefix of another (axe / pickaxe / dagger / spear / sword all differ before any
+        /// underscore). PURE + static so an EditMode test pins the matcher independently of any Animator.
+        /// </summary>
+        public static bool ClipNameMatchesClass(string clipName, string baseName)
+        {
+            if (string.IsNullOrEmpty(clipName) || string.IsNullOrEmpty(baseName)) return false;
+            if (clipName == baseName) return true;
+            return clipName.Length > baseName.Length + 1
+                   && clipName[baseName.Length] == '_'
+                   && clipName.StartsWith(baseName, System.StringComparison.Ordinal);
         }
 
         /// <summary>
