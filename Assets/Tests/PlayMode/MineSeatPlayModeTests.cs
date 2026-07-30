@@ -587,8 +587,30 @@ namespace FarHorizon.PlayTests
             Assert.Greater(fx.crossfadeFrames, 0,
                 "the Animator must actually crossfade OUT of AttackPickaxe inside the window — if it never does, the " +
                 "timeline this test measures against does not exist and no verdict here is meaningful.");
-            Assert.AreEqual(ctl.crossfadeFrames, fx.crossfadeFrames,
-                "both passes must see the same controller crossfade, or they are not comparable.");
+            // Both passes must be measuring the SAME authored transition — and the bar for that is the AUTHORED
+            // duration read from the shipped controller, NOT the two passes agreeing with each other.
+            //
+            // Why a tolerance at all: 0.12 s at 60 Hz is 7.2 frames, so a pass legitimately lands on 7 OR 8 depending
+            // on where the transition opens inside a frame, and that phase is not fixed between passes (measured 7/7 in
+            // an isolated run, 8/7 in a full-suite run). ±1 frame is exactly that quantisation and nothing more.
+            //
+            // ⚠ WHAT THIS REDS ON — stated because a tolerance is where a bar goes to die on this ticket (the 0.80 SW
+            // cap calibrated from what a constant seat could reach printed PASS for three rounds). AttackPickaxe
+            // authors TWO exits at m_ExitTime 0.9: 0.12 s on !Moving (this fixture's, since TriggerMineSwing leaves
+            // Moving false) and 0.10 s on Moving. The other one is 6 frames — 1.2 frames off 7.2 — so it FAILS here.
+            // That is the concrete way these two passes could come to measure different transitions, and this catches
+            // it. A pairwise AreEqual(ctl, fx, 1) would NOT: 7 vs 6 is within one frame. Comparability then follows for
+            // free, since both passes landing in {7, 8} bounds their spread at a single frame.
+            float authoredSec = AuthoredMineExitCrossfadeSeconds();
+            float expectFrames = authoredSec / Dt;
+            Assert.AreEqual(expectFrames, ctl.crossfadeFrames, 1f,
+                $"CONTROL measured a {ctl.crossfadeFrames}-frame crossfade out, but the controller authors " +
+                $"{authoredSec:F3}s = {expectFrames:F1} frames for the AttackPickaxe exit this fixture triggers. Off by " +
+                "more than the 60 Hz phase, so this pass is on a DIFFERENT transition than the budget is derived from.");
+            Assert.AreEqual(expectFrames, fx.crossfadeFrames, 1f,
+                $"FIX measured a {fx.crossfadeFrames}-frame crossfade out against the authored {authoredSec:F3}s = " +
+                $"{expectFrames:F1} frames (CONTROL saw {ctl.crossfadeFrames}). Both passes must be on the same " +
+                "authored transition or the A/B is not a comparison.");
 
             float budgetSec = fx.budgetFrames * Dt;
             Debug.Log($"[mine-release] BUDGET = the body's own MEASURED crossfade out {fx.crossfadeFrames * Dt:F3}s " +
@@ -655,6 +677,42 @@ namespace FarHorizon.PlayTests
         }
 
         private Release _lastRelease;
+
+        /// <summary>
+        /// The AUTHORED crossfade the release budget is derived from, READ FROM THE SHIPPED CONTROLLER: the
+        /// AttackPickaxe exit this fixture actually triggers. <c>TriggerMineSwing</c> leaves <c>Moving</c> FALSE and
+        /// never raises it, so that is the <c>IfNot Moving</c> branch — m_TransitionDuration 0.12 with
+        /// m_HasFixedDuration set, i.e. SECONDS (the sibling Moving branch authors 0.10).
+        ///
+        /// READ, not hard-coded, deliberately. A literal 0.12 here would keep agreeing with a controller that had been
+        /// re-authored away from it — the assert would then be pinned to a number the build no longer ships, which is
+        /// the same "bar calibrated against something other than what it means" failure this ticket already paid for
+        /// once. Resolved via LoadAllAssetsAtPath so it is indifferent to how the state is nested in sub-state-machines.
+        /// </summary>
+        private static float AuthoredMineExitCrossfadeSeconds()
+        {
+            foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(ControllerPath))
+            {
+                var st = obj as AnimatorState;
+                if (st == null || st.name != CastawayCharacter.AttackPickaxeState) continue;
+                foreach (var tr in st.transitions)
+                {
+                    bool exitsWhenNotMoving = false;
+                    foreach (var c in tr.conditions)
+                        if (c.parameter == CastawayCharacter.MovingParam && c.mode == AnimatorConditionMode.IfNot)
+                            exitsWhenNotMoving = true;
+                    if (!exitsWhenNotMoving) continue;
+
+                    Assert.IsTrue(tr.hasFixedDuration,
+                        "the AttackPickaxe exit must author a FIXED (seconds) transition duration — a normalized one " +
+                        "would scale with clip length and the frame budget below would not be the seconds it claims.");
+                    return tr.duration;
+                }
+            }
+            Assert.Fail($"the shipped controller must author an AttackPickaxe exit on !{CastawayCharacter.MovingParam} " +
+                        "— that transition IS the timeline this test measures the release against.");
+            return -1f;
+        }
 
         /// <summary>
         /// One full mine swing, ticked frame by frame through the PRODUCTION driver, measuring the release.
