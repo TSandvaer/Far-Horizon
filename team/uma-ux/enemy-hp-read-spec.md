@@ -15,7 +15,20 @@
 parent — PR #339, `e13a51e`). §6 established WHAT and WHY; this doc establishes HOW, and **corrects two premises
 in it** (§1.3 and §1.4 below). Where the two disagree, this doc wins and §6 should be read with the pointer here.
 
-**Builds on (do NOT duplicate):** [`combat-cluster-design-brief.md`](combat-cluster-design-brief.md) §1.2 / §2.5
+**⚠ Sibling spec that AMENDS this one — read it before implementing §3.2:**
+[`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md), the body-level read owned by **`86caxjwb3`**. Its
+**§1.3 amends this spec's §3.2**: *the lost-pip extinguish flash fires ONLY when no body flash fired within
+`enemy_hit_flash_seconds`* — which in practice makes it a **bleed/DoT-only accent**, because a strike always brings
+a body flash. That amendment is marked inline at **every** place this doc states the extinguish (**§3.2, §5.2,
+§5.3, §7**) and is carried in **§13**'s draft; the suppression **input** it requires is specified in **§7**'s row
+record, **§8**'s const accounting and **§9**'s test list. Precedence is **one-directional**: the body is never
+suppressed because the pip carries something. This is not a new arbitration — it is §5.3's own *"lower the row,
+never raise the body"* applied **by construction instead of by tuning**. Where the two specs disagree on the
+extinguish, **the sibling wins**; everywhere else this doc is the implementation source.
+
+**Builds on (do NOT duplicate):** [`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) (the BODY read —
+`_HitFlash` + flinch + dust puff, owned by `86caxjwb3`; cited not absorbed, and the source of the §3.2 amendment
+above) · [`combat-cluster-design-brief.md`](combat-cluster-design-brief.md) §1.2 / §2.5
 (the BODY read — owned by `86caxjwb3`, cited not absorbed) + §4 (primitive discipline) ·
 [`status-effect-readability-spec.md`](status-effect-readability-spec.md) §3.2 (the head-anchor precedence rule
 this spec extends to enemy heads) · [`style-guide-v2.md`](style-guide-v2.md) §6 (the bone anchor `#CFC6AD`,
@@ -80,7 +93,7 @@ Every value below was read during this spec's authoring. Four of them change wha
 | Snake resistance | pierce **×1.6**, slash ×1.0 | `SnakeEnemy.cs:36` |
 | Enemy `damageTakenMul` | stays **1.0** — `BoarEnemy`/`SnakeEnemy.ApplyDifficulty` write `Health.max` / gore / bite only, never `damageTakenMul` | `BoarEnemy.cs:117-131`, `SnakeEnemy.cs:95-100` |
 | The player→enemy strike seam | `PerformAttack` → `float removed = target.ApplyDamage(...)`; `if (removed > 0f) HitsLanded++` | `MeleeAttack.cs:229-231` |
-| Weapon damage set | 15 defs, 4 → 21 base damage | `WeaponCatalog.cs:62-129` |
+| Weapon damage set | 15 defs, **6 → 21** base damage — min **6** (`PickaxeWoodDamage:89`, `SpearWoodDamage:92`, `DaggerWoodDamage:95`), max **21** (`SwordIronDamage:127`). **No def deals 4.** | `WeaponCatalog.cs:62-129` |
 | Emptied-segment colour | `Charcoal` `#2E2A2B` (0.18, 0.165, 0.17) | `SurvivalHud.cs:83` |
 | Warm-cream | `Cream` `#EAD9B8` (0.92, 0.85, 0.72) | `SurvivalHud.cs:84` |
 | Bone anchor | `#CFC6AD` (0.81, 0.78, 0.68) | `style-guide-v2.md` §6 |
@@ -115,9 +128,15 @@ the arbitration design, not the reuse mandate. The mandate stands: reuse the pat
 ### 1.5 The body read this is secondary to (still not shipped — the reason for the deferral)
 
 `_HitFlash` appears only in Uma spec docs; no `ParticleSystem` / `ObjectPool` / `OnParticleSystemStopped` anywhere
-in `Assets/Scripts`. That is **`86caxjwb3`'s** scope. **Cited, not absorbed** — nothing in this doc specifies a
-flash, a flinch, or a puff, and §5's amplitude budget is written *relative* to a body read that will exist by the
+in `Assets/Scripts`. That is **`86caxjwb3`'s** scope, specified in
+[`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md). **Cited, not absorbed** — nothing in this doc specifies
+a flash, a flinch, or a puff, and §5's amplitude budget is written *relative* to a body read that will exist by the
 time this ships.
+
+**One exception to "not absorbed," and it runs the other way:** that spec's **§1.3 amends this spec's §3.2**
+(extinguish suppression) and its **§10** owns the `enemy_hit_flash_seconds` this spec reads. So the dependency is
+**not purely citational** — see the ⚠ sibling-spec block in the header. Do not read "cited, not absorbed" as
+licence to implement §3.2's extinguish unconditionally.
 
 ---
 
@@ -134,7 +153,7 @@ time this ships.
 
 | Weapon | Base | Type | Effective | Hits to kill | Pips per hit (1 pip = 8 HP) |
 |---|---|---|---|---|---|
-| `dagger_wood` | 6 | Slash | 4.5 | **9** | 0.56 |
+| `dagger_wood` / `pickaxe_wood` | 6 | Slash | 4.5 | **9** | 0.56 |
 | `dagger_stone` / `pickaxe_stone` | 8 | Slash | 6.0 | 7 | 0.75 |
 | `axe_wood` | 10 | Slash | 7.5 | 6 | 0.94 |
 | `dagger_iron` | 10 | Slash | 7.5 | 6 | 0.94 |
@@ -149,8 +168,12 @@ time this ships.
 | `spear_iron` | 12 | Pierce | 24.0 | **2** | 3.00 |
 
 **Hits-to-kill spans 2 … 9 on one enemy at one tier.** On a snake (24 HP flat, pierce ×1.6) it spans 2 … 4. A
-fixed 5-pip row therefore **cannot** mean "hits remaining" — it would be wrong for 13 of 14 weapon/enemy pairings
-and would actively lie (5 pips, 9 hits) exactly where the player is weakest and most needs honesty.
+fixed 5-pip row therefore **cannot** mean "hits remaining" — it would be wrong for **13 of the 15 defs** and would
+actively lie (5 pips, 9 hits) exactly where the player is weakest and most needs honesty.
+
+*(Exactly **two** defs land on 5 hits vs a medium boar — `sword_wood` and `pickaxe_iron`, both 12 Slash → 9.0
+effective → `ceil(40 / 9.0) = 5`. Every other def misses. The denominator is **defs**, not weapon×enemy pairings —
+that product would be 30, and the 13 above is a count of defs at one enemy/tier.)*
 
 > *(Which of the 15 defs are reachable in combat today is a wiring question — `WeaponCatalog.cs:33-58` records
 > wood- and new-tier combat wiring as follow-up. The spec must survive all of them because the def set IS the
@@ -158,10 +181,19 @@ and would actively lie (5 pips, 9 hits) exactly where the player is weakest and 
 
 ### 2.2 So what the row means: **a 5-block quantized PROPORTION**
 
-The pips are a **chunky bar**, not a counter. `filled = FloorToInt(Current01 × 5)`, clamped 0..5 — the same FLOOR
-rule the shipped HUD uses (`SurvivalHud.cs:361`), which never over-reports. The read the player learns is
-*"about a fifth gone / about half gone / nearly out"*, which is exactly the question AC1 names and is
-weapon-agnostic by construction.
+The pips are a **chunky bar**, not a counter. `filled = FloorToInt(Current01 × 5)`, clamped 0..5 — **pure FLOOR,
+which never over-reports.** The read the player learns is *"about a fifth gone / about half gone / nearly out"*,
+which is exactly the question AC1 names and is weapon-agnostic by construction.
+
+> **⚠ FLOOR ONLY — do NOT reuse `SurvivalHud.FilledSegments`.** The shipped player-HUD helper is *not* a pure
+> floor: after `FloorToInt(c * SegmentCount)` (`SurvivalHud.cs:361`) it **promotes `N-1 → N` when
+> `c >= TopSegmentThreshold = 0.95f`** (`:343`, `:365`) — a deliberate top-segment policy so a continuously-decaying
+> full need shows and holds 10/10 instead of capping at 9 (ticket `86cafc6ty`). That promotion **over-reports by
+> design**, and inheriting it here would fail this spec's own §9 assert (`Current01 = 0.999` must read **4 filled +
+> a draining pip**, never 5) — an enemy at 99.9 % must never read as untouched. The enemy row wants the *lower*-
+> segment behaviour only. Write the three-line floor locally; cite `:361` as the **shape** of the rule, not as a
+> call site to reuse. (The player HUD is right to promote — a need you just filled should read full; an enemy you
+> just scratched must not read full. Same arithmetic, opposite honesty requirement.)
 
 **This is a re-labelling, not a redesign** — the ticket's geometry, colour and count all stand. But it must be
 written down, because "pips = hits" is the intuition a dev or a reviewer will bring, and it will produce wrong
@@ -173,7 +205,7 @@ A pip is 20 % of max HP. **Any hit landing under 20 % moves nothing.** From the 
 
 | Weapon | Pips/hit | Share of hits that change NOTHING on the row |
 |---|---|---|
-| `dagger_wood` | 0.56 | **~44 %** |
+| `dagger_wood`, `pickaxe_wood` | 0.56 | **~44 %** |
 | `dagger_stone`, `pickaxe_stone` | 0.75 | ~25 % |
 | `axe_wood`, `dagger_iron` | 0.94 | ~6 % |
 
@@ -269,6 +301,12 @@ rather than stacking timers").
   `Charcoal` over **0.18 s**. **Total ≤ 0.24 s.** This is the player HUD's lost-segment flash
   (`hp-hud-polish-spec.md` §2.3 layer A) at roughly **60 % amplitude and half the duration** — because this is the
   secondary read and it must stay quieter than the body.
+  > **⚠ AMENDED by [`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) §1.3 — fires ONLY when no body flash
+  > fired within `enemy_hit_flash_seconds`; in practice a bleed/DoT-only accent.** A strike always brings a body
+  > flash, so the extinguish is **suppressed on strikes**; a bleed tick that empties a pip inside an already-live
+  > row brings no body flash, and there the extinguish is the only thing marking the change — so it keeps a real
+  > job. **Do not implement this bullet unconditionally.** The suppression input is in §7's row record; the const
+  > is in §8; the assert is in §9. Precedence is one-directional — never suppress the body for the pip.
 
 ### 3.3 Death
 
@@ -399,18 +437,32 @@ pickable-drop prop is a later ticket. `combat-cluster-design-brief.md` §2.5 say
 | Row fade-in | alpha 0 → 1, ease-out | **0.12 s**, alpha only |
 | Row fade-out | alpha 1 → 0, ease-out | **0.4 s**, alpha only |
 | Draining-pip alpha ease | to the new `drainA`, eased | **0.12 s** |
-| Lost-pip extinguish | `#EAD9B8` at **α ≤ 0.85**, hold 0.06 s, ease to `Charcoal` 0.18 s | total **≤ 0.24 s** |
+| Lost-pip extinguish **— ⚠ CONDITIONAL, see below** | `#EAD9B8` at **α ≤ 0.85**, hold 0.06 s, ease to `Charcoal` 0.18 s | total **≤ 0.24 s** |
 | Death empty | 5 × `Charcoal` over 0.25 s, then the standard fade | whole death read **≤ 0.7 s** |
 
 **Every animation on this element is alpha or colour-value. Nothing moves, nothing scales, nothing shakes.** That
 is the amplitude discipline in one sentence, and it is trivially auditable at review.
 
+> **⚠ AMENDED by [`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) §1.3** — the lost-pip extinguish row
+> above is **conditional**: it fires only when no body flash fired within `enemy_hit_flash_seconds`, making it a
+> bleed/DoT-only accent. On a normal strike the ALLOWED set for this element reduces to the fade and the
+> draining-pip ease. Every other row in this table is unconditional.
+
 ### 5.3 The loudness ordering (the soak's real test)
 
 On any single impact frame, in descending prominence: **body `_HitFlash` > flinch > dust puff > pip-row change >
 everything else.** If the soak capture shows the pip-row as the most eye-catching change in the frame, the
-element is miscalibrated — and the correct fix is to **lower the pip-row** (drop the extinguish flash to
-α ≤ 0.6, or remove it entirely and keep only the value change), **never to raise the body**.
+element is miscalibrated — and the correct fix is to **lower the pip-row** (drop the extinguish flash on the DoT
+path to α ≤ 0.6, or soften the draining-pip ease), **never to raise the body**.
+
+> **⚠ AMENDED by [`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) §1.3 — on the strike path this rule is
+> now satisfied by CONSTRUCTION, not by tuning.** Because the extinguish flash is suppressed whenever a body flash
+> fired within `enemy_hit_flash_seconds`, the loudest lever this section contemplated is **already gone on impact
+> frames**; what remains on a strike is the draining-pip alpha ease. **Grade the soak accordingly:** an extinguish
+> flash visible on a *strike* frame is a **BUG** (the amendment did not land) — not a miscalibration to tune down.
+> §1.3 also refines the ordering across the whole event: on the impact frame the ordering above stands, but the
+> **flinch is the longest-lived** beat and is what makes the hit read as weight. **Grade the capture on the impact
+> frame; grade the feel on the event.**
 
 ---
 
@@ -462,7 +514,7 @@ otherwise have to compute, published so two implementations cannot disagree.
 | Filled pip | bone `#CFC6AD` (0.81, 0.78, 0.68) — `style-guide-v2.md` §6 |
 | Draining pip | bone `#CFC6AD` at α `Lerp(0.35, 1.0, rem)` |
 | Spent pip | `Charcoal` `#2E2A2B` (0.18, 0.165, 0.17) — `SurvivalHud.cs:83` |
-| Extinguish flash | `Cream` `#EAD9B8` (0.92, 0.85, 0.72) at α ≤ 0.85 — `SurvivalHud.cs:84` |
+| Extinguish flash **— ⚠ CONDITIONAL** | `Cream` `#EAD9B8` (0.92, 0.85, 0.72) at α ≤ 0.85 — `SurvivalHud.cs:84`. **AMENDED by [`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) §1.3: fires only when no body flash fired within `enemy_hit_flash_seconds` — a bleed/DoT-only accent.** |
 
 **Fixed pixel size at every distance** — no distance scaling. A distance-scaled row is unreadable far away and
 oversized in close melee; a fixed 64 × 10 chip is a stable, learnable object.
@@ -476,10 +528,32 @@ IL2CPP release, which is why the whole HUD is IMGUI.
 
 **Architecture shape that satisfies AC2 (Devon reviews; not over-prescribed):** ONE scene-level component in the
 HUD family owning a **fixed-capacity** array of `MaxRows` row records `{ Health, Transform, anchorY, armTime,
-last01, drainA, extinguishAt }`. Armed from the `MeleeAttack` strike seam; subscribes `Health.Changed` + `Died`
+last01, drainA, extinguishAt, lastBodyFlashTime }`. Armed from the `MeleeAttack` strike seam; subscribes `Health.Changed` + `Died`
 per armed target and **unsubscribes on expiry / death / destroy** (AC5's no-leaked-handlers test). Fixed capacity
 = no per-frame allocation. `OnGUI` draws ≤ 3 rows from cached state and re-projects the anchors — **no
 `FindObjectsOfType`, no `Current01` polling, no allocation in `OnGUI`** (`unity6-mastery.md` §5/§6).
+
+**The suppression INPUT the §3.2 amendment requires (the constraint; the mechanism is Drew's to pick).** The row
+must be able to answer one question before it lights an extinguish flash: **"did a body flash fire on THIS target
+within `enemy_hit_flash_seconds`?"** As originally written the row record had no input that could answer it, so the
+amendment was un-implementable from this doc even by a dev who knew about it. Hence `lastBodyFlashTime` in the
+record above — **a per-row timestamp, not a new registry id**:
+
+- **What is pinned:** the input **exists**, it is **per-target** (a global "someone flashed recently" would suppress
+  the flash on enemy B because enemy A was hit), and the predicate is `Time.time - lastBodyFlashTime >=
+  enemy_hit_flash_seconds` → extinguish permitted, else suppressed. **Suppression is one-directional** — this
+  predicate may only ever *withhold* a pip beat; nothing here may gate, delay or dim the body.
+- **What is NOT pinned (Devon reviews the choice):** how the value gets there. The natural seam is the same
+  `MeleeAttack` strike callback that already arms the row — the strike that triggers the body flash is the strike
+  that arms, so stamping `lastBodyFlashTime = Time.time` at arm-time costs nothing and needs no cross-component
+  reference. A direct query into the body-feedback component is also acceptable but couples two HUD-adjacent
+  systems; prefer the stamp.
+- **Why this does not break §8's two-id budget:** `enemy_hit_flash_seconds` is **owned and registered by
+  [`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) §10** (default `0.08`) — this spec **reads** it and
+  mints nothing. `lastBodyFlashTime` is a private field, not a tunable. **This spec still adds exactly two ids.**
+- **If `86caxjwb3` ships without that id** (soak revert, rename, or the body read closes this ticket), fall back to
+  the code const `BodyFlashSuppressSeconds = 0.08f` and record the divergence — do **not** mint a registry id, and
+  do **not** silently restore the unconditional flash.
 
 ---
 
@@ -496,9 +570,15 @@ dial must write **both** the active field **and** the active tier's map entry, o
 (the documented **dead-knob** class, `SettingsCatalog.cs` `PopulateBoar` note). Any new key binding must be
 Danish-layout-agnostic (`[[sponsor-danish-keyboard-layout]]`).
 
+**Read but NOT owned:** `enemy_hit_flash_seconds` (default **0.08**) — registered by
+[`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) **§10**, consumed here **read-only** as the §3.2
+extinguish-suppression window (§7). This spec **mints nothing for it**, so the two-id budget above is unchanged. If
+that id does not ship, use the code const `BodyFlashSuppressSeconds = 0.08f` (§7) — never a third registry id.
+
 **Do NOT mint further ids.** These are **code consts**, deliberately: `MaxRows = 3`, `DrainMinAlpha = 0.35f`,
 `HeadClearance = 0.25f`, `StatusBandH = 26f`, `MaxDrawDistance = 40f`, `FadeInSeconds = 0.12f`,
-`FadeOutSeconds = 0.4f`. Rationale: the ticket's two-id budget is part of its M-sizing, and every one of these is
+`FadeOutSeconds = 0.4f`, and the §7 fallback `BodyFlashSuppressSeconds = 0.08f` (used only if
+`enemy_hit_flash_seconds` is absent). Rationale: the ticket's two-id budget is part of its M-sizing, and every one of these is
 a structural constant the Sponsor has no reason to dial — the two things he *will* want to dial (how long it
 lingers, whether it exists) are exactly the two ids above.
 
@@ -507,7 +587,14 @@ lingers, whether it exists) are exactly the two ids above.
 ## 9. Success-tests this spec ADDS to AC5 (the ticket's list stands; these sharpen it)
 
 - **Proportion, not hits.** `filled = FloorToInt(Current01 × 5)` over a swept `Current01` — assert monotonic and
-  never over-reporting; assert `Current01 = 0.999` → 4 filled + a draining pip, not 5.
+  never over-reporting; assert `Current01 = 0.999` → 4 filled + a draining pip, not 5. **Assert this against the
+  row's OWN floor helper, and additionally assert it is NOT `SurvivalHud.FilledSegments`** — that helper promotes
+  `N-1 → N` at 0.95 (`SurvivalHud.cs:365`) and would return 5 here, failing this assert (§2.2).
+- **Extinguish suppression (the §3.2 amendment).** With a body flash stamped at `t`, a pip emptied at
+  `t + 0.5 × enemy_hit_flash_seconds` must produce **NO** extinguish flash; the same pip emptied at
+  `t + 2 × enemy_hit_flash_seconds` (the bleed/DoT path) **must** produce one. Assert **per-target**: a body flash
+  on enemy A must not suppress the extinguish on enemy B. Assert the predicate is one-directional — no test may
+  show the body flash withheld, shortened or dimmed because a pip changed.
 - **The draining pip moves on a sub-pip hit.** Drive `dagger_wood`-magnitude damage (4.5 effective) on a 40 HP
   boar and assert `drainA` **strictly decreases** on every hit, including the ~44 % of hits where `filled` is
   unchanged. *(This is the test that proves the ticket's core promise for low-damage weapons.)*
@@ -584,8 +671,10 @@ defensible outcome.
 
 ## 12. Out of scope
 
-The enemy **body** read — `_HitFlash`, flinch / hit-react, dust puff, death topple (**`86caxjwb3`** — cited
-throughout, absorbed nowhere). Implementing any of this (spec-only PR). The player's own HP HUD (`86cah7z2q`).
+The enemy **body** read — `_HitFlash`, flinch / hit-react, dust puff, death topple (**`86caxjwb3`**, specified in
+[`enemy-hit-feedback-spec.md`](enemy-hit-feedback-spec.md) — cited throughout, absorbed nowhere; **the single
+exception is that spec's §1.3 amendment to this spec's §3.2**, which this doc honours inline rather than restating).
+Implementing any of this (spec-only PR). The player's own HP HUD (`86cah7z2q`).
 Status-effect **definitions** and their cue visuals (`86cah7yuh` / `status-effect-readability-spec.md`) beyond
 the head-stack arbitration in §4.3a. Persistent enemy HP bars, nameplates, level labels, target-locked panels,
 floating damage numbers, a combat log, any text hint (**forbidden, not deferred** — quality-bar #9). Re-balancing
@@ -601,7 +690,8 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
 
 - **Decision draft:** The enemy pip-row is a **5-block quantized PROPORTION read, explicitly NOT "hits
   remaining"** — hits-to-kill spans **2 … 9** on a medium boar across the 15 shipped `WeaponCatalog` defs
-  (`spear_iron` 2 → `dagger_wood` 9), so a fixed pip count cannot mean hits for any weapon but one. Five is
+  (`spear_iron` 2 → `dagger_wood` / `pickaxe_wood` 9), so a fixed 5-pip row would be wrong for **13 of the 15
+  defs** — only `sword_wood` and `pickaxe_iron` (both 12 Slash → 9.0 effective) land on 5. Five is
   additionally **geometry-forced**: ten pips in the pinned 64 px pill would be 4.0 px each. A continuous bar was
   considered and rejected (forks the HUD grammar, loses its leading edge at orbit distance, single-channel under
   quality-bar #10). (`enemy-hp-read-spec.md` §2.)
@@ -633,9 +723,14 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
 - **Decision draft:** The element's **entire animation budget is alpha and colour-value** — nothing moves, scales
   or shakes. No row-nudge (that idiom means *you* were hit), no scale-pop, no plate flash, no hue shift, no
   particles, no Impulse or hit-stop of its own. The one permitted accent is a lost-pip extinguish at
-  **~60 % of the player HUD's amplitude and half its duration** (`#EAD9B8` α ≤ 0.85, ≤ 0.24 s total). The gate is
-  the **loudness ordering**: body flash > flinch > dust > pip-row; if the soak shows the row as the loudest thing
-  on an impact, lower the row, never raise the body. (`enemy-hp-read-spec.md` §5.)
+  **~60 % of the player HUD's amplitude and half its duration** (`#EAD9B8` α ≤ 0.85, ≤ 0.24 s total), and that
+  accent is **CONDITIONAL: it fires only when no body flash fired on that target within `enemy_hit_flash_seconds`**
+  — in practice a **bleed/DoT-only** accent, since a strike always brings a body flash. The gate is the **loudness
+  ordering**: body flash > flinch > dust > pip-row — and on the strike path that gate is now met **by construction
+  rather than by tuning**, so an extinguish flash on a strike frame is a bug, not a miscalibration. Suppression is
+  **one-directional**: the body is never suppressed, shortened or dimmed because the pip carries something.
+  (`enemy-hp-read-spec.md` §5 + §7, **amended by** `enemy-hit-feedback-spec.md` §1.3 — this draft and that spec's
+  §13 extinguish draft state the SAME rule; batch them as one entry, not two.)
 - **Decision draft:** **Difficulty changes only the generosity of TIME, never the read.** Form, colour, count,
   position, trigger and state machine are identical at all three tiers; only `enemy_hp_pip_hold`
   (3.5 / 2.0 / 1.2 s) moves, and `enemy_hp_pips_enabled` stays **global and ON at every tier** (turning it off on
@@ -667,15 +762,18 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   ×0.75, `:117-131` `ApplyDifficulty`) · `Combat/SnakeEnemy.cs` (`:32` flat 24 HP, `:36` pierce ×1.6, `:95-100`
   `ApplyDifficulty`) · `Combat/ResistanceProfile.cs` (`:41-53` `Multiplier`) · `Combat/WeaponCatalog.cs`
   (`:62-129` the 15 defs' damage consts) · `SurvivalHud.cs` (`:44` `SegmentCount = 10`, `:47` `PlateAlpha`,
-  `:83` `Charcoal`, `:84` `Cream`, `:361` the FLOOR rule) · `Combat/DeathHandler.cs` (`:20-21` corpse-pickable is
+  `:83` `Charcoal`, `:84` `Cream`, `:361` the FLOOR rule — **and `:343`/`:365` the `TopSegmentThreshold = 0.95f`
+  `N-1 → N` promotion that makes `FilledSegments` unsafe to reuse here, §2.2**) · `Combat/DeathHandler.cs` (`:20-21` corpse-pickable is
   a later ticket) · `Settings/SettingsCatalog.cs` (id convention + dead-knob precedent).
 - **Docs:** `.claude/docs/game-juice.md` §0 (amplitude is the whole game) / §1 (easing, hit-stop cap, audio
   variation, pooling) / §2 (hard don'ts — every cap in §5) · `.claude/docs/art-direction.md` +
   `inspiration/2026-06-12_21h16_13.png`, `21h13_31.png` (looked at them — the high-key world that makes the dark
   plate the load-bearing value) · `.claude/docs/vision-far-horizon-game-concept.md` (kid → adult difficulty) ·
   `.claude/docs/unity6-mastery.md` §2 (GRD / no MPB) / §5-§6 (no alloc or Find in hot paths).
-- **Uma specs:** `hp-hud-polish-spec.md` §6 (the merged parent this implements + corrects) · `§2.3`/`§2.4` (the
-  player-side wince + DoT debounce the enemy side deliberately does NOT copy) ·
+- **Uma specs:** **`enemy-hit-feedback-spec.md`** (the sibling body read — `86caxjwb3`; its **§1.3 amends this
+  spec's §3.2** extinguish rule, its **§10** owns `enemy_hit_flash_seconds`, and its §13 extinguish draft is the
+  same entry as this doc's) · `hp-hud-polish-spec.md` §6 (the merged parent this implements + corrects) ·
+  `§2.3`/`§2.4` (the player-side wince + DoT debounce the enemy side deliberately does NOT copy) ·
   `status-effect-readability-spec.md` §3.2 (head-anchor precedence, honoured verbatim) ·
   `combat-cluster-design-brief.md` §1.2 / §2.5 (the body read — `86caxjwb3`) / §4 (primitive discipline) ·
   `style-guide-v2.md` §6 (bone `#CFC6AD`, sub-1.0, the plate-over-saturated-green watch item) ·
