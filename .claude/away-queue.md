@@ -23,8 +23,25 @@
 - **#354 merged** (`3992e96`) · **#367 merged** (`51f4623`).
 - **Runner root-caused and durably fixed** — `NoDefaultCurrentDirectoryInExePath=1` blocks the bare `run.cmd` in `start-fh-runner.cmd`; launcher now uses the full path. Memory: `runner-start-blocked-by-nodefaultcurrentdir`.
 
-### ⚠ OPEN TECHNICAL ISSUE FOR THE NEXT TICK
-Capture-job re-runs on **#366** and **#365** both came back **CANCELLED**, cause **unknown** — `ci.yml`'s concurrency group is `ci-${{ github.ref }}` with `cancel-in-progress: true`, which groups per-ref and therefore should NOT explain cross-PR cancellation. Do not assert a mechanism without evidence. Retry them **one at a time** once the runner queue (#369 capture → #370 build → #363 capture) drains, and watch what actually happens.
+### ⚠ OPEN TECHNICAL ISSUE — capture-job cancellations, now 4 instances and PARTLY diagnosable
+
+**The blocker:** #366 (your soak-approved cadence fix) has everything green except its `capture` gate. Attempt 1 = `failure`, attempt 2 (my rerun) = `cancelled`.
+
+**Breakthrough — the per-attempt endpoint WORKS.** Devon reported the decisive check was unanswerable because `runs/<id>/jobs` returns only the latest attempt. But `gh api repos/<owner>/<repo>/actions/runs/<id>/attempts/<n>/jobs` enumerates per-attempt:
+```
+#366 capture attempt 1: failure    steps=40
+#366 capture attempt 2: cancelled  steps=0
+```
+`steps=0` means the job was **created and cancelled without ever starting** — matching Devon's measurement of instance 2 (1 s, `steps: 0`). The diagnosis he had to leave `SPECULATIVE` is now reachable; use this endpoint.
+
+**Hypothesis — NOT confirmed, do not cite as settled:** every instance may share *"the capture job was created while the single runner was already occupied."* Tonight's cancellation happened while main's run `30583441672` was `in_progress` with #370's queued behind it. **The case any real mechanism must explain:** #363's capture DID queue successfully for 5 m 23 s in the same `unity-capture` group (`cancel-in-progress: false`, `ci.yml:491-493`), so queueing demonstrably works sometimes.
+
+**Actionable half, needs no mechanism: request a capture rerun ONLY when `gh api …/actions/runners` reports `busy=false`.** Retrying while busy reproduced the zero-step cancellation.
+
+**Separately — the pond gate failure on #366 attempt 1 is a WEDGE, not a regression.** `verify-pond.log` ends after the world-trace lines with **no `GATE-PASS` and no `GATE-FAIL` verdict line**; the gate found the pond (`FreshwaterPond found: True`), framed it, traced the water material, then stopped. A real assertion failure writes an explicit `GATE-FAIL` with a measurement. Caveat carried honestly: the log also shows `Failed to create agent because there is no valid NavMesh` ×3, which the triage doc lists as a corrupt-build canary — unknown whether that is normal for this gate. Both readings point to re-run, not code. **Main's own run at `c8ce948` will settle flaky-vs-genuinely-broken; its capture was `in_progress` at ~21:5xZ.**
+
+### ⚠ #373 needs a Priya round 2 — Uma REQUEST_CHANGES (scoped)
+Uma refuted the PR's own premise with data: **11 of 102 `DECISIONS.md` entries already amend an earlier one** via title markers (`supersedes` / `reverses` / `WITHDRAWN`), and `main:595` already performs Priya's exact three-way split inline against a merged entry. So "no correction shape existed" is false, and the new header paragraph (`DECISIONS.md:16`) introduces a SECOND convention while implying `grep CORRECTION:` is complete. Scoped: header paragraph only is `REQUEST_CHANGES`; the `:279` fix and the `CORRECTION:` entry are APPROVE. She also found "still-stands" undersells once — the withdrawn clause was *"beside the source `.blend`"*, i.e. provenance-by-adjacency, not a path.
 
 ### Sequencing (from Drew's #369 review — 4-way, not 2-way)
 `#351` adds a capture step at the same insertion point as `#363` and must register in the same glob-driven `gate-wiring` loop (`test_gate_scripts.sh:902`); `#370` and `#365` collide on the `ci.yml` stale-clear region. Whichever merges second needs a mechanical merge-from-main.
