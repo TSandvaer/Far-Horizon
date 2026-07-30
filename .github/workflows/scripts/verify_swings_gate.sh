@@ -25,24 +25,24 @@
 # and score the LEFT PALM (not the wrist 5.6 cm behind it) against the mesh-derived touch bound;
 # prove the F9 mine-seat panel draws + its rows carry real numbers; then fire one more mine swing
 # with the panel CLOSED and watch the left-arm pin RELEASE frame by frame. It calls
-# Application.Quit(pass ? 0 : 1) (SwingVerifyCapture.cs:569), so the exe's exit code IS the gate
+# Application.Quit(pass ? 0 : 1) (SwingVerifyCapture.cs:588), so the exe's exit code IS the gate
 # verdict -- this wrapper propagates it, and adds the two checks below.
 #
 # CHECK 2 IS NOT DECORATION -- THE EXIT CODE ALONE CANNOT SEE A SKIPPED PASS. SwingVerifyCapture
 # deliberately makes a missing precondition LOUD IN THE LOG rather than RED, and says so in its own
 # source: _releaseOk "defaults TRUE only so a SKIPPED pass cannot red the whole gate; a skip is LOUD
-# in the log instead" (SwingVerifyCapture.cs:574). The same shape holds for the fold pass (:224),
+# in the log instead" (SwingVerifyCapture.cs:593). The same shape holds for the fold pass (:224),
 # the two-hand grip pass (:317), the left-arm pin (:276), the held-weapon force (:309) and the F9
-# panel (:730) -- each warns verbatim "do NOT read a PASS here as proof ...". Concretely: if
+# panel (:749) -- each warns verbatim "do NOT read a PASS here as proof ...". Concretely: if
 # mixamorig:Hips/Head do not resolve on the live rig, the ENTIRE fold + grip + panel + release block
 # is skipped, foldOk/gripOk/_releaseOk all stay at their `true` initialisers, and
-# `pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk` (:545) is TRUE with the palm
+# `pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk` (:564) is TRUE with the palm
 # never measured once. Exit 0. Green CI. That is the very false-green class this ticket exists to
 # close, so CI-wiring the exit code WITHOUT converting those warnings into a red would ship a gate
 # that can rubber-stamp the defect it was built for. Check 2 does that conversion.
 #
 # WINDOWED (-screen-fullscreen 0), NOT -batchmode: SwingVerifyCapture captures via
-# ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:943), which reads the BACKBUFFER -- dead
+# ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:962), which reads the BACKBUFFER -- dead
 # under -batchmode (no swapchain). That is the boundary sentence in unity-conventions.md Headless
 # verbatim: a gate MUST stay WINDOWED "iff any judged pixel comes from the BACKBUFFER -- i.e.
 # ScreenCapture.CaptureScreenshot / WaitForEndOfFrame, or a screen-space IMGUI / UI-Toolkit
@@ -126,7 +126,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Check 1 -- the exit code IS the gate. SwingVerifyCapture self-asserts
-# `allRouted && meshStayed && foldOk && gripOk && _releaseOk` (SwingVerifyCapture.cs:545) where
+# `allRouted && meshStayed && foldOk && gripOk && _releaseOk` (SwingVerifyCapture.cs:564) where
 # `gripOk = engaged && pinEngaged && leftOn && rightOn` (:489), else Quit(1). A non-zero exe_rc
 # means a swing failed to route, the mesh cone-exploded, the pickaxe fold went past its ceiling, the
 # left PALM left the haft, the seat pulled the haft out of the right hand, or the left arm never let
@@ -153,13 +153,33 @@ fi
 # Every needle below was validated against a REAL passing -verifySwings Player.log from the round-5
 # build (Drew's soak4-swings run, 12/12 frames, `releaseOk=True => PASS=True`): each REQUIRED needle
 # matched >= 1 line, each ABSENT needle matched 0.
+# ⚠ DO NOT PRUNE THIS LIST AS "REDUNDANT WITH THE SUMMARY LINE" -- the four IN-BLOCK needles are the
+# only thing standing between this gate and a silent false-green. Verbatim from Drew's #369 review
+# (comment 5136309565): SwingVerifyCapture.cs's `if (castaway != null && animator != null)` guard wraps
+# the WHOLE measurement block, and a run with `castaway != null && animator == null` skips every check
+# while `allRouted` still computes TRUE (:164) and foldOk/gripOk/_releaseOk keep their `true`
+# INITIALISERS -- so the verdict line prints `foldOk=True gripOk=True releaseOk=True => PASS=True` and
+# the exe exits 0 having measured NOTHING. Consequence for the needle set below:
+#   * `verification complete` and `releaseOk=True` are printed by that SUMMARY line and are therefore
+#     TAUTOLOGIES on the skipped path -- they prove the coroutine finished, never that anything was
+#     measured. They stay because they catch the TRUNCATED run (S7), not because they carry the skip.
+#   * `pinEngaged=True`, `palmMeasured=True`, `leftPalmOnHaft=True`, `rightWristOnHaft=True` are emitted
+#     ONLY from inside the guard. They are the load-bearing four: delete any one and the skipped-rig run
+#     loses a detector; delete all four and it greens outright.
+# The 86caynve9 round also added an `else` on that guard emitting the existing "fold pass SKIPPED"
+# ABSENT needle, so the path now reddens on BOTH halves of Check 2 -- but the presence half must remain
+# sufficient on its own, because a future refactor can drop a warning far more easily than a criterion
+# log line. Regression-guarded by `verify_swings S4b` in tests/scripts/test_gate_scripts.sh, which
+# models the WORST shape (silent guard, no skip warning at all) and asserts RED.
 REQUIRED_NEEDLES=(
-  "[SwingVerifyCapture] verification complete"  # the coroutine reached its verdict at all
-  "pinEngaged=True"                             # the left-arm haft IK existed AND engaged
-  "palmMeasured=True"                           # the palm anchor resolved (fails closed if not)
-  "leftPalmOnHaft=True"                         # THE round-4 criterion: palm within the touch bound
-  "rightWristOnHaft=True"                       # the seat did not pull the haft out of the right hand
-  "releaseOk=True"                              # THE round-5 term: the left arm let go on time
+  "[SwingVerifyCapture] verification complete"  # the coroutine reached its verdict at all (TAUTOLOGY on
+                                                #   the skipped-rig path -- see the header; keeps S7 honest)
+  "pinEngaged=True"                             # LOAD-BEARING (in-block): left-arm haft IK existed AND engaged
+  "palmMeasured=True"                           # LOAD-BEARING (in-block): palm anchor resolved (fails closed)
+  "leftPalmOnHaft=True"                         # LOAD-BEARING (in-block): THE round-4 palm-touch criterion
+  "rightWristOnHaft=True"                       # LOAD-BEARING (in-block): seat kept the haft in the right hand
+  "releaseOk=True"                              # THE round-5 term: the left arm let go on time (TAUTOLOGY on
+                                                #   the skipped-rig path -- see the header)
 )
 # Each of these is a verbatim fragment of a Debug.LogWarning whose own text says some variant of
 # "do NOT read a PASS here as proof ...". Any hit means the evidence for a criterion is MISSING from
@@ -168,11 +188,11 @@ ABSENT_NEEDLES=(
   "fold pass SKIPPED"            # SwingVerifyCapture.cs:224 -- Hips/Head unresolved; the WHOLE
                                  #   fold+grip+panel+release block never ran
   "two-hand grip pass SKIPPED"   # :317 -- arm/hand bones or the HeldToolRig unresolved
-  "[swing-release] SKIPPED"      # :609 -- release pass skipped; _releaseOk keeps its `true` default
-  "no CastawayLeftArmHaftIk"     # :276 / :609 -- the left-hand PIN is absent from this build
+  "[swing-release] SKIPPED"      # :628 -- release pass skipped; _releaseOk keeps its `true` default
+  "no CastawayLeftArmHaftIk"     # :276 / :628 -- the left-hand PIN is absent from this build
   "no HeldWeaponCycleDebug"      # :309 -- the held weapon was never forced to the pickaxe, so any
                                  #   grip figure describes whatever tool happened to be in hand
-  "no AxeNudgeTool"              # :730 -- the F9 mine-seat instrument is absent from this build
+  "no AxeNudgeTool"              # :749 -- the F9 mine-seat instrument is absent from this build
 )
 
 evidence_rc=0

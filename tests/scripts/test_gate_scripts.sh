@@ -837,10 +837,10 @@ echo "=== verify_swings_gate.sh — evidence-presence check (86caynve9) ==="
 # THE bug class this guards, and why the exit code alone cannot: SwingVerifyCapture DELIBERATELY
 # makes a missing precondition LOUD IN THE LOG rather than RED. Its own source says so —
 # `_releaseOk` "defaults TRUE only so a SKIPPED pass cannot red the whole gate; a skip is LOUD in
-# the log instead" (SwingVerifyCapture.cs:574) — and the fold pass (:224), the two-hand grip pass
-# (:317), the left-arm pin (:276), the held-weapon force (:309) and the F9 panel (:730) each warn
+# the log instead" (SwingVerifyCapture.cs:593) — and the fold pass (:224), the two-hand grip pass
+# (:317), the left-arm pin (:276), the held-weapon force (:309) and the F9 panel (:749) each warn
 # verbatim "do NOT read a PASS here as proof …" while leaving their criterion flag at its `true`
-# initialiser. So `pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk` (:545) can be
+# initialiser. So `pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk` (:564) can be
 # TRUE on a build where the palm was never measured once — exit 0, green CI, and #354's headline
 # regression guard silently gating nothing. CI-wiring the exit code WITHOUT converting those
 # warnings into a red would ship exactly the rubber-stamp this ticket exists to remove.
@@ -886,15 +886,34 @@ for nm in names[:n]:
 PY
 
 # write_swings_log <outfile> <mode> — a token-faithful -verifySwings Player.log body.
-# Modes are the real shapes: pass / skip-ik / skip-bones / palm-fail / release-fail / truncated.
+# Modes are the real shapes: pass / skip-ik / skip-bones / skip-guard / palm-fail / release-fail / truncated.
 write_swings_log() {
   local out="$1" mode="$2"
   : > "$out"
-  echo "[SwingVerifyCapture] agent on NavMesh: True castaway=True animator=True smr=True" >> "$out"
+  if [ "$mode" = "skip-guard" ]; then
+    echo "[SwingVerifyCapture] agent on NavMesh: True castaway=True animator=False smr=True" >> "$out"
+  else
+    echo "[SwingVerifyCapture] agent on NavMesh: True castaway=True animator=True smr=True" >> "$out"
+  fi
   for c in "0 (axe)" "1 (pickaxe)" "2 (dagger)" "3 (spear)" "4 (sword)"; do
     echo "[SwingVerifyCapture] fired swing class=$c routed=True" >> "$out"
   done
   if [ "$mode" = "truncated" ]; then return 0; fi     # died before any verdict was reported
+  if [ "$mode" = "skip-guard" ]; then
+    # 86caynve9 (Drew's #369 review, comment 5136309565) — the WORST shape, and the reason the four
+    # in-block REQUIRED_NEEDLES may never be pruned as "redundant with the summary line". Models the
+    # PRE-else `if (castaway != null && animator != null)` guard being false with castaway NON-null:
+    # every measurement is skipped with ZERO log output — NO "fold pass SKIPPED", NO "two-hand grip pass
+    # SKIPPED", NO "[swing-release] SKIPPED", NO "no CastawayLeftArmHaftIk" — so EVERY ABSENT needle is
+    # silent and the ABSENT half of Check 2 cannot see this run at all. allRouted still computes TRUE
+    # (SwingVerifyCapture.cs:164 = `castaway != null`) and foldOk/gripOk/_releaseOk keep their `true`
+    # INITIALISERS, so the summary line below is a full-green PASS on a run that measured nothing, and
+    # the exe exits 0. ONLY the four in-block presence needles (pinEngaged / palmMeasured /
+    # leftPalmOnHaft / rightWristOnHaft) are missing here. If a future cleanup prunes them because
+    # "releaseOk=True already covers it", THIS case greens and the gate is a rubber stamp.
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    return 0
+  fi
   if [ "$mode" = "skip-bones" ]; then
     # SwingVerifyCapture.cs:224 — Hips/Head unresolved, so the WHOLE fold+grip+panel+release block
     # never runs and foldOk/gripOk/_releaseOk keep their `true` initialisers.
@@ -903,7 +922,7 @@ write_swings_log() {
     return 0
   fi
   if [ "$mode" = "skip-ik" ]; then
-    # :276 / :609 — the left-arm haft PIN is absent from the build, so both the grip pass's palm
+    # :276 / :628 — the left-arm haft PIN is absent from the build, so both the grip pass's palm
     # figures and the release pass are meaningless; the component says so and passes anyway.
     echo "[swing-twohand] no CastawayLeftArmHaftIk in the shipped scene — the LEFT-HAND PIN this round delivers is ABSENT from this build. Every palm figure below would then be the clip's own unpinned hand; do NOT read a PASS as proof the left hand was moved." >> "$out"
     echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
@@ -994,6 +1013,22 @@ make_swings_exe "$TMP/swings_skipbones.sh" "$TMP/swings_skipbones.body" 0 5
 assert_rc_and_grep 1 "evidence SKIPPED : 'fold pass SKIPPED'" \
   "verify_swings S4: exit-0 run whose fold/grip/release block never ran → RED" \
   -- bash "$SWINGS_GATE" "$TMP/swings_skipbones.sh" "$TMP/swings_skipbones_caps" "$TMP/swings_skipbones.log"
+
+# S4b (86caynve9, Drew's #369 review comment 5136309565) — the SILENT sibling of S4, and the anti-pruning
+# guard on the four in-block REQUIRED_NEEDLES. S4's skipped block at least SHOUTS ("fold pass SKIPPED"), so
+# the ABSENT half of Check 2 reds it. This shape shouts NOTHING: the whole measurement block is skipped by
+# the `castaway != null && animator != null` guard with castaway NON-null, so no skip warning of any kind is
+# written, EVERY ABSENT needle is silent, `allRouted` still computes TRUE and the summary line reports
+# `foldOk=True gripOk=True releaseOk=True => PASS=True` on a run that measured nothing. The ONLY detectors
+# left are the four in-block presence needles. PRE-REGISTERED: exit 1, naming a load-bearing in-block
+# criterion (pinEngaged) as MISSING — and it must be an `evidence MISSING`, never an `evidence SKIPPED`,
+# because proving the PRESENCE half is sufficient ALONE is the entire point of this case. Prune any of the
+# four needles and this test greens; that is the regression it exists to catch.
+write_swings_log "$TMP/swings_skipguard.body" "skip-guard"
+make_swings_exe "$TMP/swings_skipguard.sh" "$TMP/swings_skipguard.body" 0
+assert_rc_and_grep 1 "evidence MISSING : 'pinEngaged=True'" \
+  "verify_swings S4b: exit-0 run whose rig-guard skipped every check SILENTLY (no skip warning at all) → RED via the in-block needles alone" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_skipguard.sh" "$TMP/swings_skipguard_caps" "$TMP/swings_skipguard.log"
 
 # S5 — the AC2 mutation shape: zero the left-arm pin weight, the palm leaves the haft at the round-3
 # figure the Sponsor rejected (0,615 SW = 28,2 cm), gripOk=False, exe exits 1.
@@ -1111,7 +1146,7 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # both dead under -batchmode — a "helpful" headless conversion would silently produce black frames while
 # the logic half still exited 0 (the #287 false-empty class). This entry reds that conversion.
 # verify_swings_gate.sh (86caynve9) is WINDOWED on BOTH halves of the boundary sentence:
-# SwingVerifyCapture captures via ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:943 — a
+# SwingVerifyCapture captures via ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:962 — a
 # BACKBUFFER read, dead under -batchmode) AND its F9 mine-seat pass photographs a screen-space IMGUI
 # OVERLAY (swing_pickaxe_panel.png), which never composites into a camera RenderTexture. A "helpful"
 # headless conversion would silently produce BLACK frames while the logic half still exited 0 (the

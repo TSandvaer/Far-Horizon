@@ -538,6 +538,25 @@ namespace FarHorizon
                     }
                 }
             }
+            else
+            {
+                // 86caynve9 (Drew's #369 review, comment 5136309565): the guard above had NO else, so a run
+                // that reached here with an unresolved rig skipped EVERY measurement with ZERO log output.
+                // `castaway == null` is already fatal (allRouted := castaway != null, :164 -> PASS=False), but
+                // `castaway != null && animator == null` was NOT: foldOk/gripOk/_releaseOk keep their `true`
+                // initialisers, so the verdict line below prints `foldOk=True gripOk=True releaseOk=True =>
+                // PASS=True` and the exe exits 0 having measured nothing. The gate still reddens on the four
+                // IN-BLOCK evidence needles being absent (see the REQUIRED_NEEDLES header in
+                // verify_swings_gate.sh), but it had no positive signal naming the cause. This warning gives it
+                // one, and reuses the EXISTING "fold pass SKIPPED" ABSENT needle so no gate needle changes:
+                // the run now reddens on BOTH halves of Check 2 instead of the presence half alone.
+                // INERT on any healthy run -- the block above runs, so this branch never fires.
+                Debug.LogWarning("[SwingVerifyCapture] fold pass SKIPPED -- the rig never resolved (castaway=" +
+                                 (castaway != null) + " animator=" + (animator != null) + "), so the fold, " +
+                                 "two-hand grip, mine-seat panel and release passes ALL never ran. foldOk/gripOk/" +
+                                 "releaseOk below are their `true` INITIALISERS, not measurements: do NOT read a " +
+                                 "PASS here as proof of anything.");
+            }
 
             yield return new WaitForSeconds(0.4f);
 
