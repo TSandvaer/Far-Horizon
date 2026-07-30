@@ -504,7 +504,7 @@ the least feedback in it, which is backwards.
   immunity cannot be authored.
 - `damageTakenMul` stays **1.0** on both enemies — `BoarEnemy.ApplyDifficulty` / `SnakeEnemy.ApplyDifficulty`
   write `Health.max`, gore and bite only.
-- Every one of the 15 `WeaponCatalog` defs has damage > 0 (4 … 21 base).
+- Every one of the 15 `WeaponCatalog` defs has damage > 0 (6 … 21 base).
 - There is no block, parry, guard, armour or shield system anywhere in `Runtime/Combat/`.
 
 **So `removed == 0` happens in exactly two situations, and NEITHER may produce body feedback:**
