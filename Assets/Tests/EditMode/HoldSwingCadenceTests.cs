@@ -197,11 +197,22 @@ namespace FarHorizon.EditTests
                     float liveCadence = bound.length / playback;
                     float fallbackCadence = fallback / playback;
 
-                    // A cadence SHORTER than the clip it is spacing is precisely the mid-clip-restart defect.
-                    Assert.GreaterOrEqual(liveCadence, bound.length / playback - 0.001f,
-                        label + ": the live cadence must span the whole bound clip at its real playback rate");
+                    // NOT a tautology check (unity-conventions.md §Editor-vs-runtime warns about asserts whose
+                    // operands share a source): `liveCadence >= bound.length / playback` would merely restate its
+                    // own definition. What is worth pinning is that the two BRANCHES disagree — i.e. that which
+                    // branch runs actually changes the pacing — so a future lookup miss cannot be harmless.
                     Assert.Greater(liveCadence, 0f, label + ": live cadence must be positive");
                     Assert.Greater(fallbackCadence, 0f, label + ": fallback cadence must be positive");
+                    Assert.AreNotEqual(0f, bound.length, label + ": bound clip must have a real length");
+
+                    bool branchesAgree = Mathf.Abs(liveCadence - fallbackCadence) <= 0.05f * liveCadence;
+                    if (weaponClass == CastawayCharacter.WeaponClassPickaxe)
+                        Assert.IsFalse(branchesAgree,
+                            label + ": the live cadence (" + liveCadence.ToString("F3") + "s) and the fallback " +
+                            "cadence (" + fallbackCadence.ToString("F3") + "s) must MEASURABLY differ — that gap is " +
+                            "what a missed lookup silently substituted, and it is why the clip restarted mid-play " +
+                            "(86cayy770). If these ever converge, this verb's live branch is no longer load-bearing " +
+                            "and the guard above is the only thing holding the contract.");
 
                     Debug.Log("[hold-cadence] " + label + " state=" + stateName + " boundClip=" + bound.name +
                               " len=" + bound.length.ToString("F3") + "s playback=" + playback.ToString("F2") +
