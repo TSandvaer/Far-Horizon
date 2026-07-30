@@ -625,13 +625,46 @@ namespace FarHorizon
                 // sets its class immediately before firing + reading, so this returns the length of the clip that is
                 // actually about to play. Unknown class → the axe swing (AttackClipNameForClass default).
                 string clipName = AttackClipNameForClass(_lastWeaponClass);
+                // 86cayy770 — TWO passes: an EXACT name match wins, else an in-pipeline REPAIRED/SMOOTHED VARIANT of
+                // the same clip ("<base>_repaired", "<base>_smoothed" — see ClipNameMatchesClass). A single exact-only
+                // match SILENTLY returned 0 the moment a curve-repair swapped the bound asset: #337 (fee2604) pointed
+                // the AttackPickaxe state at CastawayPickaxeSwing_repaired while this lookup still asked for
+                // CastawayPickaxeSwing, so the mine hold-cadence fell back to the 1.6s serialized default against a
+                // 5.2s clip -> the Animator was re-triggered at ~31% of the swing and the strike visibly restarted
+                // mid-play (the Sponsor's "the animation jerks 3 times"). Variant-tolerance makes the next clip repair
+                // non-breaking; the guard that PROVES the resolution is HoldSwingCadenceTests (it compares this
+                // against the clip the controller state actually binds, not against a sibling constant).
                 for (int i = 0; i < clips.Length; i++)
                 {
                     var c = clips[i];
                     if (c != null && c.name == clipName) return c.length;
                 }
+                for (int i = 0; i < clips.Length; i++)
+                {
+                    var c = clips[i];
+                    if (c != null && ClipNameMatchesClass(c.name, clipName)) return c.length;
+                }
                 return 0f;
             }
+        }
+
+        /// <summary>
+        /// 86cayy770 — does <paramref name="clipName"/> name an in-pipeline VARIANT of the per-class swing
+        /// <paramref name="baseName"/>? True for the exact name and for a <c>&lt;baseName&gt;_&lt;suffix&gt;</c>
+        /// variant (the project's curve-repair convention: <c>CastawayPickaxeSwing_repaired</c> from
+        /// <c>PickaxeMineCurveFix</c>-class editor fixes, mirroring the CrouchWalk <c>_smoothed</c> swap — those
+        /// types live in the EDITOR asmdef, which the runtime asmdef cannot reference, hence no cref).
+        /// The trailing <c>'_'</c> is REQUIRED so this can never widen across classes — no
+        /// per-class base name is a prefix of another (axe / pickaxe / dagger / spear / sword all differ before any
+        /// underscore). PURE + static so an EditMode test pins the matcher independently of any Animator.
+        /// </summary>
+        public static bool ClipNameMatchesClass(string clipName, string baseName)
+        {
+            if (string.IsNullOrEmpty(clipName) || string.IsNullOrEmpty(baseName)) return false;
+            if (clipName == baseName) return true;
+            return clipName.Length > baseName.Length + 1
+                   && clipName[baseName.Length] == '_'
+                   && clipName.StartsWith(baseName, System.StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -754,6 +787,90 @@ namespace FarHorizon
         private static readonly int LocomotionStateHash = Animator.StringToHash(LocomotionState);
         private static readonly int JumpIdleStateHash = Animator.StringToHash(JumpIdleState);
         private static readonly int JumpRunningStateHash = Animator.StringToHash(JumpRunningState);
+
+        // 86cay4282 — THE MINE-SWING LANE (one state, not a family). The pickaxe MINE clip is authored TWO-HANDED:
+        // measured on the live rig, it holds the two hands 1.09–1.29 shoulder-widths apart across the whole swing
+        // (range 0.20) — CLOSER together and steadier than the character stands at rest (idle carry 1.65–1.89) —
+        // while the axe chop swings them 1.77–2.86 apart (range 1.09). Locked-together hands are the signature of a
+        // shared haft grip, and the real one-handed tool then sits 63.8–89.7 deg off the line through both hands, so
+        // the eye reads a phantom second-hand grip that the tool disagrees with. The de-grip offset that breaks that
+        // read is legitimate ONLY on this one clip, so the gate names the state rather than a lane family: the axe /
+        // dagger / spear / sword swings measure fine and must be handed back to their clips untouched.
+        public const string AttackPickaxeState = "AttackPickaxe";
+        private static readonly int AttackPickaxeStateHash = Animator.StringToHash(AttackPickaxeState);
+
+        /// <summary>
+        /// THE MINE-SWING GATE as a pure function of the three layer-0 readings (86cay4282), so its transition
+        /// semantics are pinned in EditMode with no Animator rig — the same shape as
+        /// <see cref="LocomotionLaneOwnsPoseFor(int,bool,int)"/>, and transition-PAIRED for the same reason: a
+        /// current-state-only read still reports "Locomotion" for the whole <c>AnyState -&gt; AttackPickaxe</c>
+        /// crossfade, so the de-grip would engage a full transition-duration late, after the swing already reads.
+        ///
+        /// The polarity is the MIRROR of the locomotion gate, deliberately: this one is true while the mine swing
+        /// owns the pose. It engages on the FIRST frame of the crossfade IN (current=Locomotion, next=AttackPickaxe)
+        /// and stays engaged through the crossfade OUT (current=AttackPickaxe, next=Locomotion) until layer 0 has
+        /// fully settled back — conservative at BOTH ends, so the offset is never half-applied across a frame the
+        /// swing is visible in.
+        /// </summary>
+        public static bool MineSwingOwnsPoseFor(int currentShortNameHash, bool inTransition, int nextShortNameHash)
+            => currentShortNameHash == AttackPickaxeStateHash ||
+               (inTransition && nextShortNameHash == AttackPickaxeStateHash);
+
+        /// <summary>Live layer-0 read of <see cref="MineSwingOwnsPoseFor(int,bool,int)"/>. FAIL-CLOSED with no
+        /// Animator/controller (returns false) — the OPPOSITE default to the locomotion gate, and for the same
+        /// reason: each gate fails toward LEAVING THE CLIP ALONE. This one can only ever ADD the de-grip, so a rig
+        /// without a controller must never get it; the locomotion gate can only ever SUBTRACT run-lower, so it
+        /// fails open. A missing controller therefore reproduces pre-86cay4282 behaviour exactly.</summary>
+        public bool MineSwingOwnsPose
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                bool inTransition = _animator.IsInTransition(0);
+                int next = inTransition ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                return MineSwingOwnsPoseFor(_animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
+                                            inTransition, next);
+            }
+        }
+
+        /// <summary>
+        /// 86cay4282 ROUND 5 — IS THE MINE SWING STILL *HOLDING* THE POSE, as opposed to handing it back?
+        ///
+        /// <see cref="MineSwingOwnsPoseFor(int,bool,int)"/> is deliberately conservative at BOTH ends and stays true
+        /// through the crossfade OUT. That is right for an ADDITIVE offset (a de-grip must not vanish while the swing
+        /// is still visible) and WRONG for the left-arm IK PIN, which OVERRIDES the arm: measured on the live rig, at
+        /// the first frame layer 0 has fully left AttackPickaxe the pin was still writing at weight 0.819 and pulling
+        /// the palm 58.4 cm / the upper arm 60.1deg off the pose the Idle clip had already taken — then easing back
+        /// over 0.350 s. That overhang IS the Sponsor's round-4 defect, verbatim: <c>"the reach is ok but the left arm
+        /// does not return to normal position after the pickaxe two hand motion"</c>. The clip is not the cause: its
+        /// own hand separation holds 1.08..1.31 SW right to the last frame of the state and jumps to 1.74 SW (the idle
+        /// carry) only at the state change, so the grip never tapers — the RELEASE POLICY was the whole defect.
+        ///
+        /// So this is the ENGAGE target: <see cref="MineSwingOwnsPoseFor(int,bool,int)"/> MINUS the hand-back window.
+        /// It still engages on the FIRST frame of the crossfade IN (unchanged — that half was never the problem) and
+        /// now drops on the FIRST frame of the crossfade OUT, so the arm starts returning on the same frame the body
+        /// does instead of a crossfade later.
+        /// </summary>
+        public static bool MineSwingHoldsPoseFor(int currentShortNameHash, bool inTransition, int nextShortNameHash)
+            => MineSwingOwnsPoseFor(currentShortNameHash, inTransition, nextShortNameHash) &&
+               !(currentShortNameHash == AttackPickaxeStateHash && inTransition &&
+                 nextShortNameHash != AttackPickaxeStateHash);
+
+        /// <summary>Live layer-0 read of <see cref="MineSwingHoldsPoseFor(int,bool,int)"/>. FAIL-CLOSED with no
+        /// Animator/controller for the same reason <see cref="MineSwingOwnsPose"/> is: every consumer of this gate can
+        /// only ever ADD an offset, so a rig without a controller must reproduce pre-86cay4282 behaviour exactly.
+        /// This is the gate the three mine-swing offsets (arm de-grip, seat delta, left-arm pin) now share.</summary>
+        public bool MineSwingHoldsPose
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                bool inTransition = _animator.IsInTransition(0);
+                int next = inTransition ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                return MineSwingHoldsPoseFor(_animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
+                                             inTransition, next);
+            }
+        }
 
         /// <summary>Is this layer-0 state name part of the LOCOMOTION LANE the run-lower was dialed against
         /// (Idle / Locomotion / JumpIdle / JumpRunning)? Pure + name-based so the allow-list is exhaustively
