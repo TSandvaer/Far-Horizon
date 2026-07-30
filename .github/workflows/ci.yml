@@ -166,6 +166,27 @@ jobs:
           chmod +x tests/scripts/test_anti_idle_hook.sh
           tests/scripts/test_anti_idle_hook.sh
 
+      # COMMITTED-BYTES drift guard for Assets/Resources/WeaponSetLineup.prefab
+      # (86cayp0p9). Reads BOTH the prefab and the generator that bakes it out of
+      # the COMMIT via `git show`, and reds when the committed node set diverges
+      # from the generator's row-set contract, naming the missing nodes.
+      #
+      # THIS JOB, deliberately: `BootstrapProject.Run` appears in this file at
+      # exactly two step sites (the `build` job and the `playmode` job), and each
+      # RE-BAKES the prefab on disk before anything reads it — which is why the
+      # EditMode guard (Assets/Tests/EditMode/CommittedLineupDriftGuardTests.cs,
+      # 86catwzhy) is green on CI even when the committed bytes are stale, exactly
+      # as its own SCOPE heading declares. That test is not broken and is not
+      # replaced; this is a second guard at the one layer that can go red
+      # unconditionally. `structure` never bootstraps, has no Unity, and is hosted,
+      # so it also costs nothing against the single self-hosted Unity build slot.
+      #
+      # `HEAD` here is the checkout@v4 pull_request merge ref — i.e. the guard
+      # grades the bytes the PR would actually merge. fetch-depth: 0 above already
+      # gives `git show` full history to read from.
+      - name: Committed weapon-lineup drift guard
+        run: python3 .github/workflows/scripts/check_committed_lineup.py HEAD
+
   # ---------------------------------------------------------------------------
   # Build gate — self-hosted Windows runner, HEADLESS half (2nd-runner-SAFE).
   # ANY [self-hosted, windows, unity] runner can pick this up. Bootstrap ->
