@@ -821,7 +821,7 @@ echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ===
 # wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
 # the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
 # its aggregate fail path, so the grep needle is uniform too.
-for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood; do
+for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood swings; do
   G="$SCRIPTS/verify_${g}_gate.sh"
   make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
   assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
@@ -832,6 +832,201 @@ for g in settings loot water chop sky heldbelt invdragghostpos placement mine bo
     -- bash "$G" "$TMP/${g}_ha.sh" "$TMP/${g}_ha_caps" "$TMP/${g}_ha.log"
   assert_attempts "$TMP/${g}_ha.sh" 2 "verify_${g}: persistent 124-hang ran exactly TWICE (one retry, no loop)"
 done
+
+echo "=== verify_swings_gate.sh — evidence-presence check (86caynve9) ==="
+# THE bug class this guards, and why the exit code alone cannot: SwingVerifyCapture DELIBERATELY
+# makes a missing precondition LOUD IN THE LOG rather than RED. Its own source says so —
+# `_releaseOk` "defaults TRUE only so a SKIPPED pass cannot red the whole gate; a skip is LOUD in
+# the log instead" (SwingVerifyCapture.cs:574) — and the fold pass (:224), the two-hand grip pass
+# (:317), the left-arm pin (:276), the held-weapon force (:309) and the F9 panel (:730) each warn
+# verbatim "do NOT read a PASS here as proof …" while leaving their criterion flag at its `true`
+# initialiser. So `pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk` (:545) can be
+# TRUE on a build where the palm was never measured once — exit 0, green CI, and #354's headline
+# regression guard silently gating nothing. CI-wiring the exit code WITHOUT converting those
+# warnings into a red would ship exactly the rubber-stamp this ticket exists to remove.
+#
+# TWO-SIDED, on the #363 model: every case below states the expected verdict BEFORE the run, the
+# NEGATIVES are the real defect shapes (not synthetic strings), and case S3 is the load-bearing
+# CONTRASTIVE PAIR — it proves the false-green is real by showing that BOTH checks the
+# verify_boar_gate.sh template carries (exit code + frame backstop) PASS that same input, so the
+# evidence check is the only thing standing between it and a green.
+#
+# Fixture provenance: every token in the PASS body is copied from a REAL passing -verifySwings
+# Player.log (Drew's round-5 soak4-swings run: 12/12 frames, `releaseOk=True => PASS=True`), floats
+# included — the fixtures keep that run's COMMA decimal separator on purpose, so these cases also
+# pin the gate's locale-invariance (a numeric needle would false-red on a Danish-locale runner).
+SWINGS_GATE="$SCRIPTS/verify_swings_gate.sh"
+
+# Writes the 12 frames a full PASS run produces, under their real names (the gate's per-attempt
+# stale-clear globs swing_*.png, so the names are load-bearing).
+SWING_PNG_HELPER="$TMP/_make_swing_pngs.py"
+cat > "$SWING_PNG_HELPER" <<'PY'
+import os, sys, struct, zlib
+d = sys.argv[1]
+names = ["swing_axe", "swing_pickaxe", "swing_dagger", "swing_spear", "swing_sword",
+         "swing_pickaxe_fold", "swing_pickaxe_fold_side", "swing_pickaxe_twohand",
+         "swing_pickaxe_twohand_front", "swing_pickaxe_panel", "swing_pickaxe_release",
+         "swing_pickaxe_release_side"]
+n = int(sys.argv[2]) if len(sys.argv) > 2 else len(names)
+os.makedirs(d, exist_ok=True)
+def chunk(typ, data):
+    return struct.pack(">I", len(data)) + typ + data + struct.pack(">I", zlib.crc32(typ+data)&0xFFFFFFFF)
+def write_png(path, w=64, h=64):
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)
+        for x in range(w):
+            base = (x*3) % 200 + 20
+            raw += bytes((base, base//2+30, 200-base//2))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                +chunk(b"IDAT", zlib.compress(bytes(raw)))+chunk(b"IEND", b""))
+for nm in names[:n]:
+    write_png(os.path.join(d, nm + ".png"))
+PY
+
+# write_swings_log <outfile> <mode> — a token-faithful -verifySwings Player.log body.
+# Modes are the real shapes: pass / skip-ik / skip-bones / palm-fail / release-fail / truncated.
+write_swings_log() {
+  local out="$1" mode="$2"
+  : > "$out"
+  echo "[SwingVerifyCapture] agent on NavMesh: True castaway=True animator=True smr=True" >> "$out"
+  for c in "0 (axe)" "1 (pickaxe)" "2 (dagger)" "3 (spear)" "4 (sword)"; do
+    echo "[SwingVerifyCapture] fired swing class=$c routed=True" >> "$out"
+  done
+  if [ "$mode" = "truncated" ]; then return 0; fi     # died before any verdict was reported
+  if [ "$mode" = "skip-bones" ]; then
+    # SwingVerifyCapture.cs:224 — Hips/Head unresolved, so the WHOLE fold+grip+panel+release block
+    # never runs and foldOk/gripOk/_releaseOk keep their `true` initialisers.
+    echo "[SwingVerifyCapture] fold pass SKIPPED — mixamorig:Hips/Head not found on the live rig; the mine-pose evidence is MISSING from this run (do not read a PASS here as proof the fold is fixed)." >> "$out"
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    return 0
+  fi
+  if [ "$mode" = "skip-ik" ]; then
+    # :276 / :609 — the left-arm haft PIN is absent from the build, so both the grip pass's palm
+    # figures and the release pass are meaningless; the component says so and passes anyway.
+    echo "[swing-twohand] no CastawayLeftArmHaftIk in the shipped scene — the LEFT-HAND PIN this round delivers is ABSENT from this build. Every palm figure below would then be the clip's own unpinned hand; do NOT read a PASS as proof the left hand was moved." >> "$out"
+    echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+    echo "[swing-release] SKIPPED — no CastawayLeftArmHaftIk in the shipped scene, so there is nothing to release; do NOT read the PASS above as proof the left arm lets go." >> "$out"
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    return 0
+  fi
+  echo "[SwingVerifyCapture] pickaxe fold: peakTilt=42,1deg <= 50deg ceiling => foldOk=True" >> "$out"
+  echo "[swing-twohand] LEFT-ARM PIN: present=True peak weight 1,00 solved 82/156 frames, REACHING on 74, pole-fallback on 0" >> "$out"
+  case "$mode" in
+    palm-fail)
+      # The AC2 mutation shape: zero the left-arm pin weight and the palm leaves the haft. Round 3
+      # measured 0,615 SW = 28,2 cm here — the figure the Sponsor rejected by eye.
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=False (0,615 SW = 28,2 cm <= 0,293 SW = 13,0 cm, the mesh-measured touch bound) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=False." >> "$out"
+      echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=False releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True => PASS=False" >> "$out";;
+    release-fail)
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+      echo "[swing-release] FAIL — crossfadeOutFrames=6 settleFrames=28 (peak pin weight 1,00). A NEGATIVE settle means the arm never let go, which IS the Sponsor's reported defect." >> "$out"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=28 releaseBudgetFrames=11 releaseOk=False => PASS=False" >> "$out";;
+    *)
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+      echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True worstMeshGap=1,94u meshStayed=True pickaxePeakTilt=42,1deg foldOk=True worstLeftPALM=0,239SW=10,6cm palmMeasured=True pinPeakWeight=1,00 gripOk=True releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True => PASS=True" >> "$out";;
+  esac
+}
+
+# make_swings_exe <exe> <log-body-file> <exit-rc> [frame-count]
+make_swings_exe() {
+  local exe="$1" body="$2" rc="$3" frames="${4:-12}"
+  local counter="$exe.attempts"; rm -f "$counter"
+  cat > "$exe" <<FAKE
+#!/usr/bin/env bash
+capdir=""; logf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -captureDir) capdir="\$2"; shift 2;;
+    -logFile)    logf="\$2"; shift 2;;
+    *) shift;;
+  esac
+done
+n=\$(( \$(cat "$counter" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$counter"
+python3 "$SWING_PNG_HELPER" "\$capdir" $frames
+cat "$body" >> "\$logf"
+exit $rc
+FAKE
+  chmod +x "$exe"
+}
+
+# S1 (positive) — a faithful PASS run: exit 0, 12 real frames, every criterion reported True and no
+# skip warning. PRE-REGISTERED: gate exits 0 and prints SWINGS CAPTURE GATE PASSED.
+write_swings_log "$TMP/swings_pass.body" "pass"
+make_swings_exe "$TMP/swings_pass.sh" "$TMP/swings_pass.body" 0
+assert_rc_and_grep 0 "SWINGS CAPTURE GATE PASSED" \
+  "verify_swings S1: faithful PASS run (all criteria True, no skips) → GREEN" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pass.sh" "$TMP/swings_pass_caps" "$TMP/swings_pass.log"
+
+# S2 — locale invariance, stated separately because it is the reason the needles are boolean-only.
+# S1's fixture carries the shipped Danish-locale COMMA decimals (0,239SW / 42,1deg) throughout; a
+# numeric needle would red that build on the real runner while greening an en-US one.
+assert_rc_and_grep 0 "evidence OK      : 'leftPalmOnHaft=True'" \
+  "verify_swings S2: comma-decimal (Danish-locale) floats do NOT disturb the boolean needles" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pass.sh" "$TMP/swings_locale_caps" "$TMP/swings_locale.log"
+
+# S3 (THE load-bearing negative + contrastive pair) — the left-arm haft IK is ABSENT from the build,
+# so the palm figures describe the clip's own unpinned hand and the release pass never ran. The
+# component says exactly that in two warnings and STILL exits 0 with PASS=True, by design.
+# PRE-REGISTERED: gate exits 1, naming the missing-pin evidence; and the two checks the
+# verify_boar_gate.sh template carries would BOTH have greened it (proven in S3b/S3c).
+write_swings_log "$TMP/swings_skipik.body" "skip-ik"
+make_swings_exe "$TMP/swings_skipik.sh" "$TMP/swings_skipik.body" 0
+assert_rc_and_grep 1 "evidence SKIPPED : 'no CastawayLeftArmHaftIk'" \
+  "verify_swings S3: exit-0 run whose left-arm PIN is absent → RED (the false-green this gate closes)" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_skipik.sh" "$TMP/swings_skipik_caps" "$TMP/swings_skipik.log"
+# S3b — the SAME input under an exit-code-only gate: the exe itself returns 0.
+assert_rc 0 "verify_swings S3b: contrastive — that same input EXITS 0 (an exit-code-only gate greens it)" \
+  -- bash "$TMP/swings_skipik.sh" -captureDir "$TMP/swings_ctl_caps" -logFile "$TMP/swings_ctl.log"
+# S3c — and its frames are real content, so the frame backstop greens it too. Exit code + frames are
+# the ENTIRE gate in the boar/mine template; only the evidence check separates S3 from S1.
+assert_rc_and_grep 0 "CAPTURE GATE PASSED" \
+  "verify_swings S3c: contrastive — that same input's frames PASS frame_check (the backstop greens it too)" \
+  -- python3 "$FRAME_CHECK" "$TMP/swings_ctl_caps" --min-frames 5
+
+# S4 — the OTHER skip shape: Hips/Head unresolved, so the whole fold+grip+panel+release block never
+# runs and all three flags keep their `true` initialisers. PRE-REGISTERED: exit 1, naming the fold skip.
+write_swings_log "$TMP/swings_skipbones.body" "skip-bones"
+make_swings_exe "$TMP/swings_skipbones.sh" "$TMP/swings_skipbones.body" 0 5
+assert_rc_and_grep 1 "evidence SKIPPED : 'fold pass SKIPPED'" \
+  "verify_swings S4: exit-0 run whose fold/grip/release block never ran → RED" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_skipbones.sh" "$TMP/swings_skipbones_caps" "$TMP/swings_skipbones.log"
+
+# S5 — the AC2 mutation shape: zero the left-arm pin weight, the palm leaves the haft at the round-3
+# figure the Sponsor rejected (0,615 SW = 28,2 cm), gripOk=False, exe exits 1.
+# PRE-REGISTERED: exit 1, and the palm criterion is named as missing.
+write_swings_log "$TMP/swings_palm.body" "palm-fail"
+make_swings_exe "$TMP/swings_palm.sh" "$TMP/swings_palm.body" 1
+assert_rc_and_grep 1 "evidence MISSING : 'leftPalmOnHaft=True'" \
+  "verify_swings S5: left palm off the haft (the round-3 defect) → RED, naming the palm criterion" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_palm.sh" "$TMP/swings_palm_caps" "$TMP/swings_palm.log"
+assert_attempts "$TMP/swings_palm.sh" 1 "verify_swings S5: a real palm failure ran the exe ONCE (never retried)"
+
+# S6 — the round-5 term: the left arm does not let go inside its budget. PRE-REGISTERED: exit 1,
+# naming the release criterion. This is the #354 half that has no other automated coverage at all.
+write_swings_log "$TMP/swings_release.body" "release-fail"
+make_swings_exe "$TMP/swings_release.sh" "$TMP/swings_release.body" 1
+assert_rc_and_grep 1 "evidence MISSING : 'releaseOk=True'" \
+  "verify_swings S6: left arm never releases (the round-4 soak defect) → RED, naming the release term" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_release.sh" "$TMP/swings_release_caps" "$TMP/swings_release.log"
+
+# S7 — a run that dies before reporting a verdict but still exits 0 (frames present). Without the
+# "verification complete" needle this is indistinguishable from a pass. PRE-REGISTERED: exit 1.
+write_swings_log "$TMP/swings_trunc.body" "truncated"
+make_swings_exe "$TMP/swings_trunc.sh" "$TMP/swings_trunc.body" 0
+assert_rc_and_grep 1 "evidence MISSING : '[SwingVerifyCapture] verification complete'" \
+  "verify_swings S7: exit-0 run that never reached its verdict → RED" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_trunc.sh" "$TMP/swings_trunc_caps" "$TMP/swings_trunc.log"
+
+# S8 — a run that produces a perfect log but almost no frames still reds on the backstop, so the
+# evidence check cannot substitute for real swapchain content (the #287 false-empty class).
+make_swings_exe "$TMP/swings_fewframes.sh" "$TMP/swings_pass.body" 0 2
+assert_rc_and_grep 1 "SWINGS CAPTURE GATE FAILED" \
+  "verify_swings S8: perfect log but only 2 frames → RED (evidence check does not replace the frame backstop)" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_fewframes.sh" "$TMP/swings_few_caps" "$TMP/swings_few.log"
 
 echo "=== gate launch-mode invariant (86cag93zb — headless RT-readback vs windowed overlay) ==="
 # THE bug class this guards: a HEADLESS-converted scene-content gate silently reverting to a windowed
@@ -873,9 +1068,15 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # verify_weaponset_gate.sh: BoarVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame,
 # both dead under -batchmode — a "helpful" headless conversion would silently produce black frames while
 # the logic half still exited 0 (the #287 false-empty class). This entry reds that conversion.
+# verify_swings_gate.sh (86caynve9) is WINDOWED on BOTH halves of the boundary sentence:
+# SwingVerifyCapture captures via ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:943 — a
+# BACKBUFFER read, dead under -batchmode) AND its F9 mine-seat pass photographs a screen-space IMGUI
+# OVERLAY (swing_pickaxe_panel.png), which never composites into a camera RenderTexture. A "helpful"
+# headless conversion would silently produce BLACK frames while the logic half still exited 0 (the
+# #287 false-empty class). This entry reds that conversion.
 WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
                 verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
-                verify_buildmenu_gate.sh verify_boar_gate.sh)
+                verify_buildmenu_gate.sh verify_boar_gate.sh verify_swings_gate.sh)
 for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
 for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
 
