@@ -3,7 +3,19 @@
 ## ▶▶▶ CURRENT — 2026-07-30 ~21:25Z (AWAY armed, cron `471609c0`, 15-min; main `51f4623`)
 
 ### ⭐ SPONSOR QUEUE (drain via /sponsor-questions-walkthrough on return)
-1. **#351 SOAK — READY. Every machine gate is clear; you are the only thing left.** Drew un-conflicted it (head `b1560cf`) and run `30586659470` is **`structure` + `build` + `capture` all SUCCESS** (playmode cancelled — advisory, and main's own run shows the same shape, so pre-existing). Drew is staging the exe from the CI artifact into `Build/soak-351/` with a played-verification and a keys-named checklist; the exe path + verbatim HUD stamp will be appended here when he reports.
+1. **#351 SOAK — STAGED AND PLAYED. Run this:**
+   ```
+   C:\Trunk\PRIVATE\Far-Horizon\Build\soak-351\FarHorizon.exe
+   ```
+   **HUD stamp must read exactly:** `BUILD zoned | 2026-07-30T22:19:59Z | d9b88cd` — `d9b88cd` **independently verified** by the orchestrator as `refs/pull/351/merge`, so it is the merge sha, not the branch sha, and the string is correct as printed. (The stamp *string* itself rests on Drew's HUD + `resources.assets` read; the orchestrator's `strings` extraction returned nothing on the packed assets, same as on soak-366.)
+   **Full 9-step checklist is posted on the PR:** https://github.com/TSandvaer/Far-Horizon/pull/351#issuecomment-5137194461
+   - **Getting there:** at spawn just **hold `S` for ~4 s**. No hunting. Then right-mouse-drag to lower the camera — from directly overhead your own character hides the stump.
+   - **The real question is step 3, not "does it work":** does the sword-in-stump read as *special* on bob+sway alone, without becoming a loot beacon? Drew's honest finding: **at default overhead framing it did NOT draw his eye** — the prompt told him he'd arrived; it only read clearly once the camera dropped. That is the bar this soak exists to settle.
+   - **The Fresnel rim the ticket asked for was CUT and is genuinely unreachable** — the whole weapon set shares one URP/**Unlit** material with no rim property; a rim means forking it and breaking the one-material invariant. So if bob+sway is too quiet, that is a finding about the material model, not a dev tweak.
+   - ⚠ **Step 9's dial STICKS across restart** (he set 4, quit, relaunched, still 4). He left it at 1 for you. Pre-existing console behaviour, not introduced here.
+   - Known, not a new defect: the iron sword reads **short in the hand** — held-seat scaling is `86catvb6u` §3. Judge step 7 on visibility, not scale.
+
+1b. **Original entry — every machine gate is clear; you are the only thing left.** Drew un-conflicted it (head `b1560cf`) and run `30586659470` is **`structure` + `build` + `capture` all SUCCESS** (playmode cancelled — advisory, and main's own run shows the same shape, so pre-existing). Drew is staging the exe from the CI artifact into `Build/soak-351/` with a played-verification and a keys-named checklist; the exe path + verbatim HUD stamp will be appended here when he reports.
    - ⚠ **The stamp will be the MERGE-commit sha, NOT `b1560cf`** — do not try to verify the branch sha against the HUD.
    - **What the ticket ships:** a second weapon-acquisition route — `sword_iron` found in a stump.
    - **How #351 nearly shipped broken, worth knowing before you judge it:** git merged `test_gate_scripts.sh` **cleanly** while leaving #351's new capture gate **unregistered** in both `HEADLESS_GATES` and `WINDOWED_GATES` — a clean auto-merge is NOT evidence a gate is wired. Caught at `170 pass / 1 fail`, fixed to `176/0`.
