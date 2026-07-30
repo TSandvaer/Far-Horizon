@@ -75,6 +75,20 @@ namespace FarHorizon.EditTests
                 Assert.Greater(bound.length, 0f, stateName + "'s bound clip must have a real length");
 
                 string lookupKey = CastawayCharacter.AttackClipNameForClass(weaponClass);
+
+                // FAIL-BEFORE, recorded MECHANICALLY rather than as a one-off local log (86cayy770 AC3 asks the
+                // gate to red on the pre-fix behaviour). The pre-fix resolution was EXACT-match-only; on this
+                // controller that predicate is FALSE for the pickaxe, which IS the defect — so anyone can
+                // reproduce the fail-before by re-running this test against the old exact-only resolution.
+                // Also reds if the repaired asset is ever renamed to the bare key, which would silently stop
+                // exercising the variant path this fix added.
+                if (weaponClass == CastawayCharacter.WeaponClassPickaxe)
+                    Assert.AreNotEqual(lookupKey, bound.name,
+                        "AttackPickaxe is expected to bind the REPAIRED variant clip (fee2604 / #337), so the " +
+                        "pre-fix EXACT-only lookup could not resolve it and MeleeClipLength returned 0. If this " +
+                        "is now an exact match, the '_repaired' swap was reverted or renamed — re-check that the " +
+                        "variant-tolerant resolution is still needed and still covered.");
+
                 Assert.IsTrue(CastawayCharacter.ClipNameMatchesClass(bound.name, lookupKey),
                     stateName + " binds the clip '" + bound.name + "' but the runtime hold-cadence source " +
                     "(CastawayCharacter.MeleeClipLength) looks it up by '" + lookupKey + "'. A name the lookup " +
