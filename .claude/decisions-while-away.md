@@ -626,3 +626,22 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **#364's stalled label:** it was applied while the PR object was desynced (`mergeable=UNKNOWN`), so the Action no-opped and did NOT re-fire after Devon's resync made it `MERGEABLE/CLEAN`. Remove + re-add the label to give the Action a fresh trigger. Deliberately NOT closing/reopening the PR — memory `github-actions-run-creation-outage` records that close/reopen DROPS labels. Anchor integrity re-verified post-resync: `:861-922` and the `HEADLESS_GATES=(`/`WINDOWED_GATES=(` re-find rule both intact at `a0d3597`.
 - **Reversibility:** each reverts in 1 PR.
 - **Status:** pending review
+
+## 2026-07-31 0130 UTC — Label-merge PR #373 (art-src location correction, round 3)
+
+- **Decided:** label-merge PR #373 (`86caz4td5`, head `1b2e559`) — `MERGEABLE/CLEAN`, docs-only.
+- **Foundation:** `classifier-blocks-merge-to-protected-main` standing auto-merge. **Uma APPROVE** (comment 5136906545) — she **WITHDREW** the amended-entries index demand that had been her `REQUEST_CHANGES`, after verifying Priya's counter-argument rather than deferring to it: at `1b2e559`, `grep 'art-src'` returns the `**Withdrawn:**` line at `:31` alongside the amended entry at `:52`, so the withdrawn quote genuinely IS the back-pointer and the table is redundant rather than merely second-best. Same for `export script` and `preferred form`.
+- **Two things Uma found that strengthen the outcome beyond a plain approval:** (1) Priya's control case is stronger than Priya claimed — `grep 'Join'` returns an affirmative `Still stands, unchanged:` line at `:33`, not silence. (2) Priya's cited `:25`/`:43` were **round-1 (`f220424`) line numbers**, which proves Priya's own ground-3 argument *against herself*: Uma's proposed table was line-keyed and would have been stale on arrival. Ground 1 verified 4/4 (`far-ring` = 1 hit, the amending title itself; `hp_low_warning_threshold` absent from all code files). Census: 12 on branch / 11 on `main`.
+- **Why this matters procedurally:** this is a reviewer raising a blocking objection, the author declining it with reasons, and the reviewer then verifying the decline and withdrawing — with the disagreement resolved by measurement on both sides and neither party deferring on authority. Both sides also recorded their own errors in the thread (Uma her stale-base mistake, Priya her stale line numbers). That is the outcome the peer-review gate exists to produce.
+- **Carried NIT, comment-only, no commit:** the stale `:25`/`:43` labelled "on this branch"; nothing stale reached the file.
+- **Reversibility:** revert in 1 PR; append-only diff, 21/0 vs `main`.
+- **Status:** pending review
+
+## 2026-07-31 0150 UTC — Label-merge PR #377 (min-damage correction to a merged spec)
+
+- **Decided:** label-merge PR #377 (head `2f57e28`, `MERGEABLE/CLEAN`, docs-only, +1/-1).
+- **Foundation:** `classifier-blocks-merge-to-protected-main` standing auto-merge. **Devon APPROVE** (comment 5136962484) with an independent derivation rather than a check of Uma's: he enumerated all 15 ids in `SetAll` (`WeaponCatalog.cs:323-326`) through their `*Damage` consts → `{6,6,6,8,8,9,10,10,12,12,12,14,16,18,21}`, min **6** (three-way tie `:89`/`:92`/`:95`), max **21** (`:127`), and additionally closed the gap the const list leaves by confirming `WeaponDef.Create` (`WeaponDef.cs:76`) is pure assignment with no clamp or scale — so the consts ARE base damage. Third independent agreement on min 6 (Uma, Priya, Devon).
+- **Completeness verified, not assumed:** 4 patterns swept over merged `.md` on `origin/main`; no second instance. The only `4…21`-shaped hit is a false positive (`4-21` inside `114-217u`, `STATE.md:201`).
+- **Notable history worth recording:** the CORRECT `6 → 21` line landed EARLIER in #371 (`59a6e53`); the WRONG `4 … 21` landed AFTER it in #376 (`7d6d96f`). So #376 regressed a value its sibling already had right — an argument for the compose-check Priya ran, not just for proofreading.
+- **Reversibility:** revert in 1 PR; one line.
+- **Status:** pending review
