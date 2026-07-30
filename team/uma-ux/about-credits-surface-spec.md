@@ -2,7 +2,7 @@
 
 **Ticket:** `86cay4k73` (feat(ui): in-game credits/about surface) · **Owner (impl):** Devon · **Reviewer:** Drew · **Direction:** Uma
 **Status:** DIRECTION — docs only. No implementation here.
-**Verified against:** `origin/main` @ `3992e96`. Every path, line number and quoted string below was read in this worktree; none is relayed.
+**Verified against:** `origin/main` @ `c8ce948`. Every path, line number and quoted string below was read in this worktree; none is relayed. *(Re-verified at `c8ce948` during round 2 — the `SettingsPanel.uxml` / `.uss` / `.cs`, `SettingsCategory.cs`, `BootHud.cs`, `BootstrapProject.cs` and `Castaway_Attribution.txt` refs cited below all still resolve, with no drift from the original `3992e96` pin.)*
 
 ---
 
@@ -185,6 +185,19 @@ Both captions check out against the source: Mixamo covers rig + clips **includin
 the tree (`:32-37`). *"still carried in this build"* is the honest phrasing of the rollback chain — plainer than
 "fallbacks," and it does not leak dev vocabulary at the player.
 
+**⚠ The displayed label is NOT the guard's match key.** `Mixamo  (Adobe)` does **not** occur in the attribution
+text — the file says *"Mixamo animation clips (Adobe, free account)"* (`:28`). So each entry carries **two distinct
+strings**, and §4.3's **G3 asserts on the token, never on the displayed label**:
+
+| Entry | `Source` (displayed to the player) | `MatchToken` (what G3 asserts) |
+|---|---|---|
+| 1 | `Mixamo  (Adobe)` | `Mixamo` |
+| 2 | `Hyper3D Rodin` | `Hyper3D Rodin` |
+
+Verified against `origin/main` @ `c8ce948`: `Mixamo` and `Hyper3D Rodin` are both present in
+`Castaway_Attribution.txt`; `Mixamo  (Adobe)` and `Mixamo (Adobe)` are **both absent**. Conflating the two fields
+is what makes G3 go red on day one — see §4.3.
+
 ### 3.3 Build stamp — the last line
 
 ```
@@ -241,7 +254,8 @@ because a violation is visible to the player as a wrong or missing credit:
   it exists (a hand-copy *is* the drift).
 - **P2 — the warm caption layer is AUTHORED, and paired to the generated set by a guard.** The captions in §3.2
   cannot be derived from prose, so they are hand-written — and therefore every caption must be pinned to a real
-  generated source, and every generated source must have a caption. Neither may exist alone.
+  generated source **via its `MatchToken`, not via its displayed label** (see the row shape below), and every
+  generated source must have a caption. Neither may exist alone.
 
 **Recommended route (non-binding on Devon):**
 
@@ -253,6 +267,27 @@ because a violation is visible to the player as a wrong or missing credit:
 - **Caption table** — a pure-C# static table (no `UnityEngine` types), so the guard runs in EditMode with no scene
   and no play mode. **Precedent:** `SettingsCategory.cs:20-24` states this discipline explicitly — *"Pure C# (no
   UnityEngine) so the categorization guard (AC4) is fully EditMode-testable with no scene."* Same shape here.
+
+  **Row shape — UX-binding, because G3's correctness depends on it.** Four fields, and `Source` and `MatchToken`
+  **must be separate**:
+
+  | Field | Role | Example |
+  |---|---|---|
+  | `Group` | §3.4 grouping (`Character` / `World` / `Sound` / `Engine & tools`) | `Character` |
+  | `Source` | **Displayed** to the player — §3.2's name line. Free-form; may add parentheticals, spacing, punctuation. | `Mixamo  (Adobe)` |
+  | `MatchToken` | **Asserted by G3** as a substring of the bundled text. Never rendered. | `Mixamo` |
+  | `Caption` | §3.2's warm one-liner beneath the name. | *"The castaway's skeleton, and every animation he plays."* |
+
+  **Why they cannot be one field:** the displayed label is a *design* string and must stay free to read well
+  (`Mixamo  (Adobe)`, double-space and parenthetical per §5.2); the match token is an *evidentiary* string and must
+  stay exactly as the vendor is named in the attribution file (`Mixamo`). Fusing them forces one of the two to be
+  wrong — either the guard fails on a correct credit, or the copy is bent to satisfy a substring test. **The panel
+  renders `Source` + `Caption`; the guard reads `MatchToken` + the bundle. They never swap.**
+
+  **`MatchToken` constraint (keeps G3 from being trivially satisfiable):** it must be the vendor / source proper
+  name **as written in the attribution file**, `Trim()`-non-empty and **≥ 4 characters**. A short or generic token
+  (`"a"`, `"the"`, `"free"`) would match any prose and silently disarm the over-crediting catch that is G3's whole
+  purpose. Assert the constraint in the guard itself (**G3b**) so a future entry cannot weaken G3 by construction.
 - **File-scan net for the guard** — match, under `Assets/`, any `.txt` whose filename matches
   `(?i)(attribution|licen[cs]e|notice|third[-_]?party)`. That is deliberately wider than today's single
   `*_Attribution.txt`, because it also catches the retired `*_License_CC-Attribution.txt` convention named at
@@ -264,12 +299,22 @@ because a violation is visible to the player as a wrong or missing credit:
 |---|---|---|
 | **G1** | The set of file paths in the bundle == the set found by the scan. | **The ADD case** (AC2's named priority), plus remove and rename. |
 | **G2** | For each path, bundled text == on-disk text, byte-for-byte. | The EDIT case — an attribution file changed without regenerating. |
-| **G3** | Every caption's source string occurs as a substring in at least one bundled text. | **Over-crediting (AC4).** A resurrected "Viktor.G" or "joaobaltieri" caption matches nothing and goes RED. |
-| **G4** | Every bundled file has ≥1 caption pointing at it. | **Under-crediting at the readable layer** — a new sourced asset ships its attribution file, and the panel silently says nothing about it. |
+| **G3** | Every entry's **`MatchToken`** (never its displayed `Source`) occurs as a substring in at least one bundled text. | **Over-crediting (AC4).** A resurrected "Viktor.G" or "joaobaltieri" entry matches nothing and goes RED. |
+| **G3b** | Every `MatchToken` is `Trim()`-non-empty and **≥ 4 chars**. | A degenerate token (`"a"`, `"the"`) that would match any prose and silently disarm G3. |
+| **G4** | Every bundled file has ≥1 entry pointing at it. | **Under-crediting at the readable layer** — a new sourced asset ships its attribution file, and the panel silently says nothing about it. |
 
-G1+G2 are file compares; G3+G4 are set operations. None needs Unity. G3 is the assertion I care most about beyond
-the ticket's letter — it is the only one that makes the *human-readable* layer factually accountable to the shipped
-files, and it is precisely the error class `86cay47zh` just spent a whole ticket cleaning up.
+G1+G2 are file compares; G3+G3b+G4 are set/string operations. None needs Unity. G3 is the assertion I care most
+about beyond the ticket's letter — it is the only one that makes the *human-readable* layer factually accountable to
+the shipped files, and it is precisely the error class `86cay47zh` just spent a whole ticket cleaning up.
+
+> **⚠ G3 asserts the token, NOT the displayed label — this is the difference between the guard working and the
+> guard failing on day one.** Verified at `origin/main` @ `c8ce948`: with today's two entries, asserting the
+> *displayed* label would go **RED immediately** — `Mixamo  (Adobe)` is absent from
+> `Castaway_Attribution.txt` (and so is the single-spaced `Mixamo (Adobe)`); the file says *"Mixamo animation clips
+> (Adobe, free account)"* (`:28`). Asserting `MatchToken` passes: `Mixamo` and `Hyper3D Rodin` are both present.
+> **The `Source`/`MatchToken` split in the row shape above is therefore load-bearing, not a nicety** — and G3 must
+> be written against `MatchToken` in its very first implementation, because a guard that is red on arrival gets
+> quarantined instead of trusted.
 
 ---
 
@@ -324,6 +369,12 @@ rhythm, it scans faster, and it grows without ever changing shape.
 Unregistered text is the *only* text in the panel that would ignore the `UI text scale` dial — an obvious
 inconsistency the moment anyone moves that slider. No fixed-px value columns here, so `RegisterScaledWidth`
 (`:455-460`) is not needed.
+
+> **Note on visibility, so nobody reaches for a seam that isn't there:** `RegisterText` is **`private`**
+> (`SettingsPanel.cs:444`). This instruction works because the About view is built **inside `SettingsPanel`** — the
+> same way every other row is. It is **not** a public API. If the build ever moves to a separate class, the call
+> must go with it or the registration has to be handed in explicitly; **do not make it public just to reach it
+> from outside**, and do not read this line as licence to do so.
 
 ### 5.3 The footer
 
@@ -411,7 +462,9 @@ cue, no bus, no dB target — this surface is silent by design, §5.4).
 **Decision draft:** *In-game attribution ships as an ABOUT VIEW inside the F1 player Settings drawer (footer
 `About` button → view-swap), not as a settings row, a tab, or a new panel. The legally-load-bearing attribution text
 is machine-generated from the shipped attribution files; the human-readable caption layer is authored and pinned to
-that generated set by an EditMode guard that fails on add, edit, over-credit and under-credit. Ticket `86cay4k73`;
+that generated set by an EditMode guard that fails on add, edit, over-credit and under-credit — pinned via a
+**match token held separately from the displayed label**, so the player-facing copy stays free to read well while
+the guard still asserts against the vendor name exactly as the attribution file writes it. Ticket `86cay4k73`;
 spec `team/uma-ux/about-credits-surface-spec.md`.*
 
 ---
