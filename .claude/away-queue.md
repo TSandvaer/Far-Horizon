@@ -848,3 +848,146 @@ I will NOT auto-decide this. The all-implementation-work-runs-on-opus policy is 
 - **Option C — sonnet across the board** until Opus recovers. Maximum throughput, accepts quality risk on the IK round.
 
 I have queued nothing further into Opus — seven deaths is decisive evidence, not a guess, and re-firing would just burn more agents.
+
+## 2026-07-29 ~23:0xZ — AWAY TICK 4: Erik delivered; Opus still down (8th death); hygiene defect is 2× bigger than thought
+
+**Opus still 529.** An 8th persona death (Drew round-4 IK, 4th attempt). Sonnet remains healthy — both Explore scans and Erik's full research task completed cleanly on it. **The model-fallback decision below is still the only lever that unblocks Drew/Priya/Tess/Uma/Devon.**
+
+**✅ Erik DELIVERED — and refuted the ticket's own AC1.** Committed at `b21f258`: `team/erik-consult/headless-rendertexture-readback-research.md` (24 KB). Verified the load-bearing claims are in the file itself, not just his summary.
+
+### 🔴 `86cag93zb`'s AC1 is WRONG — correct it before anyone spends a build slot
+AC1 currently says "prove it produces a valid frame under **`-batchmode -nographics`**". Per Erik (Strong evidence, official Unity Manual): **`-nographics` skips graphics-device init entirely, so it precludes ALL RenderTexture rendering — not just backbuffer capture.** That flag combo can never work. The viable target is **`-batchmode` alone**.
+- **`Camera.Render()` is documented unsupported under URP** (Unity-staff-confirmed) and separately issue-tracker-reported to halt scene time under `-batchmode` on Windows. The correct path is passive per-frame rendering into `targetTexture`, or URP's `SubmitRenderRequest`/`SingleCameraRequest`. A naive implementation will hit this.
+- **"Session-independent" is over-promised.** Removing the swapchain/compositor contention that pins captures to one runner IS achievable and evidence-supported — but true Session-0/no-login headless rendering is NOT: Windows Session-0 isolation blocks GPU/Direct3D for services at the OS level, independent of any Unity flag. The ticket title's promise needs narrowing.
+- **Cheap side-finding worth testing first:** `Application.runInBackground` defaults to `false` — a candidate alternate explanation for some of the observed 2-runner contention.
+- **Dependency satisfied:** `86cafz9tg` (the CI-split) is `complete` per live fetch, so the "sequence after" note no longer blocks.
+- Erik flagged frame-warmup count, URP swapchain specifics, and N-runner GPU contention as **Moderate-to-Hypothesis** — exactly what the AC1 spike must MEASURE rather than assume.
+
+### 🔴 HYGIENE DEFECT IS 10 TICKETS, NOT 5
+A body-text sweep for gating language found **ten** open tickets that are deferred or soak-gated in their own text while carrying no `sponsor-gate`/`needs-soak` tag:
+- Previously known: `86cau4za2`, `86cacewju`, `86cagfn8h`, `86cajt6k4`, `86caa9zju`
+- **NEW:** `86caxjwb3` (AC6 soak-gated), `86cay4282` (soak-gated feel+visual), `86cah7z2q` (AC7), `86cah7yuh` (AC9), `86cah7y5b` (AC7)
+- `86cag93zb` carries **no tag at all**.
+
+**Why this matters:** a status-level scan cannot see AC-level gating, so the "dispatchable pool" reads far larger than it is — the exact mechanism behind the 2026-06-28 idle-hours failure. **Recommend a standing rule: if a ticket's ACs contain a soak gate, the ticket carries `needs-soak` at the ticket level.** That is a process change, so it is yours to approve, not mine to impose.
+
+The sweep correctly rejected false positives (`86cay4k73` says "Not soak-gated" — negated; `86cau6prr`'s gating text is marked SUPERSEDED), which is the negated-find trap documented in `unity-conventions.md`.
+
+**Board otherwise unchanged:** 31 open / 26 to do / 3 in review / 2 ready-for-qa, byte-identical to the 20:34 and 20:49 scans. No `date_updated` after 20:49Z — independent confirmation that none of the eight dead agents wrote anything.
+
+**Staged:** nothing new. #348/#349/#350/#353 remain the four one-click merges.
+
+### ⚠ CORRECTION to tick 4's hygiene claim (same tick, before you read it)
+I wrote that ten tickets are mis-shelved and that this inflates the dispatchable pool. **That overstated it, and the distinction matters:**
+
+- **An AC-level soak gate gates the MERGE, not the DISPATCH.** `86caxjwb3`, `86cah7z2q`, `86cah7yuh` are soak-gated in their ACs but their *implementation* is fully dispatchable — per CLAUDE.md a sponsor gate blocks only hard-dependents. Listing them as "non-dispatchable" was wrong. Same for `86cay4282` / `86cah7y5b`, already in QA.
+- **The genuine, pool-inflating problem is narrower:** untagged *deferrals* and *hard-dependency* gates — `86cau4za2`, `86cacewju`, `86cagfn8h`, `86cajt6k4`, `86caa9zju` (deferred/gated in body), plus `86caxjwhh` (hard-dep: PR #346 must merge first), `86caxhk6v` (#341), `86caxgyc4` (#337). Those DO read as dispatchable to a status scan and are not.
+- **`86cag93zb` is now UNBLOCKED** — its only gate was "sequence after `86cafz9tg`", and Erik confirmed that ticket is `complete` via live fetch. Its next step is the AC1 spike (build lane), with the corrected flags now on the ticket.
+
+### ✅ THE ACCURATE PICTURE — the blocker is Opus, nothing else
+**Ten tickets are genuinely dispatchable right now:** `86cay4k73`, `86cay4hyz`, `86caxjx26`, `86caxjwb3`, `86cavj6p1`, `86cav8y74`, `86cau6prr`, `86camz787`, `86cah7z2q`, `86cah7yuh`.
+
+**All ten are build-lane, and the Unity build slot is FREE** (Drew is dead, not working). So the team is not blocked by dependencies, by the build slot, or by your gates — it is blocked *solely* because every build-capable persona runs on Opus and Opus is returning 529. Erik (sonnet) cleared the only research-shaped ticket on the board and has no further ungated, repo-free work.
+
+**That makes the model-fallback question the entire critical path.** With sonnet fallback, ten tickets and a free build slot are immediately workable. Without it, the team does nothing until Opus recovers.
+
+**Board verified unchanged:** 31 open / 26 to do / 3 in review / 2 ready-for-qa. Only `86cag93zb` moved (`date_updated` 2026-07-29T21:19:42Z) — my AC1-correction comment, confirmed landed.
+
+---
+
+## 2026-07-30 ~01:1xZ — AWAY TICK 6: OPUS RECOVERED. Drew's IK landed. Three slots filled.
+
+**Opus is back** after 8 consecutive 529 deaths. **The model-fallback question from tick 3 is now MOOT — no decision needed from you.** Ignore Options A/B/C; the team is running on Opus as your policy requires.
+
+### ⭐ #354 ROUND 4 — the left hand now actually touches the haft. SOAK READY.
+**Exe:** `C:\Trunk\PRIVATE\Far-Horizon-drew-swings-wt\Build\soak-twohand-3\FarHorizon.exe`
+**HUD stamp — verified baked into the build, not computed:** `zoned | 2026-07-29T23:03:52Z | 0a4af5e`
+(`0a4af5e` is the parent of PR head `cd6fec1` — the usual committed-stamp lag. Drew played it before reporting and re-verified the gate against the served copy.)
+
+**Steps:** pickaxe on belt → click a boulder → **F10** → **F9** → **K** until the panel reads `MINE SEAT` → **F** front-snap. `[R]`/`[V]` slide the haft; **`[Z]`/`[X]` are new reach keys**. All Danish-safe.
+
+**Result, verified:** worst palm-to-haft **28.2 cm → 10.6 cm**, against a re-derived **13.0 cm** touching bound. PR head `cd6fec1`, MERGEABLE, **all four CI jobs SUCCESS**.
+
+**The important structural fix:** the left-hand cap is no longer a hand-tuned number — it is now DERIVED from geometry: `LeftHaftPassSW = (LeftHandRadiusM + HaftRadiusM) / ReferenceShoulderWidthM` (`TwoHandGripRead.cs:110`). The old cap (0.80 SW ≈ 37 cm) had been calibrated from what a static seat could ACHIEVE, which is why it printed PASS for three rounds on a hand you could see wasn't touching. **Tightening it means the round-3 build now REDS** — a bar that rejects the previously-passing state is a real bar. He also moved the left measurement from hand-origin to PALM CENTRE.
+
+**⚠ Honest limitation — the fix is good but not complete.** Drew measured that the seat parks the haft up to **63.4 cm** from a **54.0 cm** left arm, so **~47% of swing frames are genuinely out of reach**. The residual 10.6 cm is therefore seat DISTANCE, not IK solve slack — more IK tuning cannot fix it. Moving the seat ~10 cm closer drives it to ~0. Filed as a follow-up in Priya's brief (MINE-seat re-fit with a left-arm-reach objective). **Judge the soak knowing some frames still cannot reach.**
+
+**Credit where due:** Drew refuted three of his own hypotheses this round and reported it — including that his "frontal" capture was actually showing the back of the head. The shipped-build gate caught every one that mattered.
+
+### Dispatched this tick (3)
+- **Devon** — peer-review PR #354 round 4 (solver reach-clamp + elbow-flip guards, the order-110 placement, the derived cap, and the two late test-fix commits whose own messages say the fixture had been measuring the ONE-HANDED seat).
+- **Priya** — six items: #352 fix round, `86caxjx26` re-scope, `86cag93zb` AC1 rewrite, three follow-up tickets, the untagged-gating hygiene pass, status reconcile.
+- **Tess** — the never-QA'd PR #351.
+- **Uma** — still no ungated UX work on the board; her open-horizon spec is already merged.
+
+**Staged:** #348/#349/#350/#353 unchanged. #354 stays unstaged — soak-gated on you, and now genuinely worth your eyes.
+
+### ✅ #354 round 4 — Devon: APPROVE_WITH_NITS, no blockers (2026-07-30 ~01:3xZ)
+Comment `5124613534`. Verified independently by him at `cd6fec1`, MERGEABLE/CLEAN, 4/4 SUCCESS (run `30499962400`). He **re-derived every number rather than reading Drew's table** — all six review axes pass:
+- Solver clamps structurally (`TwoBoneIkSolver.cs:165,172`); he re-derived the shipped **157.0° elbow** from the segment lengths and it matches. Elbow side pinned via `n = axis × poleDir` using the clip's own elbow as pole (`:190,198`); an unusable plane refuses outright (`:184`). **Both ugly IK failure modes are genuinely guarded.**
+- Ordering clean: 50/60/65/70/100/110 verified in source; orders 60+65 write `localRotation` only, so the order-110 world write preserves them, and nothing runs after 110.
+- Cap genuinely mesh-derived: `(0.0894+0.0448)/0.4580 = 0.293 SW`. **Note a small figure discrepancy — Devon computes 13.42 cm where Drew's report said 13.0 cm.** Immaterial to the verdict (round-3's 28.2 cm reds under either anchor) but it is an unreconciled number between two reports; his NIT about "two test asserts being cross-anchor" may be the same root.
+- He swept for the late test-fix defect shape and found `ApplyPoseChain` omits order 60 — harmless because finger-curl is right-hand-only (`MovementCameraScene.cs:1639-1668`).
+- **He confirms the reach arithmetic and agrees the remedy is a seat re-fit, not IK tuning** (0.6340 − 0.5293 = 10.47 cm over-reach vs 10.75 cm residual; `shellFraction` is already at its hard ceiling).
+
+**6 NITs, none blocking. The one that matters for YOUR soak:** the ~0.25 s ease-in is skipped by every judged assert (`MineSeatPlayModeTests.cs:347`) — so the blend-in is effectively untested. If the pin looks like it *snaps* on rather than easing, that is the untested path, not your imagination.
+
+**#354 gate state:** CI ✅ · peer review ✅ · **soak ⏳ YOURS** · Tess QA not run on this PR. Staying unstaged — soak-gated by policy regardless of the green gates.
+
+### ✅ PR #351 — Tess: PASS_WITH_NITS, no blockers (2026-07-30 ~01:4xZ)
+Comment `5124620618`. AC1–AC6 met; **AC7 is present and complete and awaits YOUR soak** (gates the merge, not QA).
+
+**She cleared Devon's B1 with independent evidence:** run `30396988792` is now `run_attempt 2 / success`; capture job `90407851703` = **40 steps, success**, `20:58:31Z→21:02:51Z` — versus attempt 1 (`90403560377`, `steps=0`, cancelled, 1 s). Step 37 "Weapon-find capture gate" succeeded. **Capture evidence genuine and fresh:** artifact created `21:02:43Z`, inside the executing window; `54f301c…` = `Merge 259d890 into fee2604` and `main` tip is still `fee2604`, so the merge-ref is current. She downloaded it, read `PASS=True`, and eyeballed all three frames.
+
+**Her findings that Devon missed:**
+- **F1 (the one that matters):** E-loot is exercised only via a `RequestLoot()` latch + `agent.Warp` teleport (`WeaponFindVerifyCapture.cs:217/240`, `WeaponFindPlayModeTests.cs:126`). `Input.GetKeyDown` is never tested — **your soak is the only real-input gate on this feature.** She notes it is the same layer that burned soak-5.
+- **F3:** `DefaultLootRadius = 1.6f` is the loosest radius in the game (siblings are 1.4 / 1.0). Worth a look during the soak — loot may trigger further away than feels right.
+- **F4/F5:** a seat-rig fork that a side-profile pose cannot discriminate.
+- **B2** downgraded to a NIT (ticket body stale; corrected on-thread). Owed: a #351 body edit + an `86caxjx26` comment — routed to Priya, who is already mid-flight on that re-scope.
+
+**⚠ CORRECTION — my dispatch brief contained a wrong premise, and she caught it.** I told her a new acquisition verb must join the shared left-click claim chain AND `MineVerbArbitrationTests`. **False:** E-loot is not on the left-click chain at all (`MeleeAttack.cs:276-278`), so those tests are correctly untouched. The real untested gap is nearest-wins arbitration against a second `IPickable`, plus ~32 scatter bushes missing from the avoid-list. I wrote an untested assumption as fact in a brief — the exact failure this project has a standing rule against.
+
+**#351 gate state:** CI ✅ · Devon APPROVE_WITH_NITS ✅ · Tess PASS_WITH_NITS ✅ · **soak ⏳ YOURS** · and it **touches `ci.yml`, so only a browser merge works** (our token lacks `workflow` perm). Two independent sponsor gates — not stageable as a one-click command.
+
+### Dispatched: Devon → `86cav8y74` (wood-in-hand + wood-chop capture gaps)
+He is the ticket's named owner, Drew reviews. Takes the single Unity build slot. Briefed with Tess's F1 finding, since the teleport-not-real-input weakness she just documented is precisely the class of gap this ticket exists to close.
+
+**Drew — idle, justified.** Round 4 is done and awaiting your soak; the build slot is now Devon's, and every remaining `to do` is build-lane. He is reviewer-on-deck for Devon's PR.
+
+### ✅ Priya — all six items complete (2026-07-30 ~00:0xZ). She refuted THREE of my premises.
+PR #352 @ `2dc6684`, MERGEABLE, no CI by design (`paths-ignore` skips docs-only). Drew dispatched to re-review (Devon raised the blockers but is on `86cav8y74`).
+
+**1 — #352 fix round landed.** Both Devon blockers + both his optional items. The in-hand-scale bullet now enumerates **three** axes instead of collapsing them: CC-BY Viktor.G (*no origin measurement is held — the doc no longer asserts one*), in-house flint `wpn_axe_01` (**owns** the ~49% midpoint + `+0.34235` shift, retired `86cajkk7h`), `wpn_axe_stone_01` (grip origin ~24%, zero shift). She re-derived every fact from `origin/main` herself.
+
+### 🔴 THREE CORRECTIONS TO MY OWN BRIEF — one would have caused real damage
+1. **`86caxjwhh` / `86caxhk6v` / `86caxgyc4` are NOT dependency-gated.** I instructed her to tag them as blocked on PRs #346/#341/#337. **All three PRs are MERGED** — I verified independently: #346 `2026-07-27T21:53:02Z`, #341 `2026-07-27T19:01:45Z`, #337 `2026-07-28T19:49:46Z` (and `fee2604`, which I have been quoting as main's tip all night, *is* #337's merge commit — I had the evidence in front of me). **Tagging them would have HIDDEN three ready tickets from every future scan.** She refused the instruction, posted correction comments instead, and applied no tags. The genuinely dispatchable pool is **13, not 10**.
+2. **`-verifySwings` has no gate script at all** — not merely no CI call, as I briefed. Her counts also differ from mine (`verifyMine` 19 / `verifyBoulder` 13 vs my 17/11) because we measured at different SHAs.
+3. **`86cay4282`:** she found Devon's review had already landed and left the status alone, adding `needs-soak` + `sponsor-gate` rather than advancing it.
+
+**2 — `86caxjx26`** stale scope block replaced: **2 of 6** (`dagger_stone` + `sword_stone` + AC3), conditional on #351. She verified 4 iron predicates on Drew's branch, 0 on main.
+**3 — `86cag93zb`** retitled + rewritten: AC1/2/3 already DONE (#248/#250), AC1 corrected to `-batchmode` alone, `Camera.Render()` banned, AC4 narrowed to a conditional split (**the runner pin STAYS**), session-independence refuted, dep confirmed complete. Tagged `parked`.
+**4 — Three tickets filed:** `86caynve7` (one-sided assert — **Devon wants it folded into open PR #353**, cross-posted), `86caynve9` (CI-wire `-verifySwings`), `86caynveb` (MINE-seat re-fit; **Bar 8 governs — you dial, no guessing**).
+**5 — Tags applied:** `86cau4za2`/`86cacewju` `deferred`; `86cagfn8h` `sponsor-gate`+`needs-soak`; `86cajt6k4` `parked`; `86caa9zju` `sponsor-gate`+`deferred`. `86caxjwb3`/`86cah7z2q`/`86cah7yuh` correctly untouched (AC-level soak gates the merge, not the dispatch).
+
+### 🟢 FIXED BY ORCH THIS TICK — a defect in the always-loaded config
+`CLAUDE.md:66` claimed *"the shipped axe is a placeholder, not the anchor"* — the same stale claim she fixed at `blender-asset-pipeline.md:427`. Because `CLAUDE.md` auto-loads into **every** session, that line has been telling every agent the shipped asset is not the style reference. Corrected against her authoritative `:17` text: the live in-house `Assets/Art/Props/WeaponPack/` set **is** the anchor; the CC-BY `CastawayAxe/` placeholder was deleted with its licence in PR #100 (`031d43a`, `86cabh907`). She was right to leave project config to the orchestrator.
+
+### 🟡 STILL OWED (not lost)
+- **STATE.md not bumped** — `main` is 282 lines behind `orch/coordination`; she avoided editing it from her branch because it would collide at harvest. Correct call.
+- **An unconfirmed quality-bar candidate** — #354's "one haft passing through both hands" — is recorded in `86caynveb` labelled `Hypothesis:`. **Promote it to `team/quality-bars.md` only if your #354 soak passes.** That is a `/name-the-bar` call and it is yours.
+
+### 🔴 PR #352 — Drew: REQUEST_CHANGES (2026-07-30 ~00:2xZ). Priya dispatched on round 2.
+Comment `5124773039`. **Devon's two original blockers ARE genuinely fixed** — Drew re-derived the attribution himself rather than reading her table: the ~49% midpoint + `+0.34235` shift belong to the retired **flint** `wpn_axe_01` (`MovementCameraScene.cs:129-130`, `WeaponPackAssetGen.cs:101-102`, `:1128`), and `031d43a --name-status` shows `D CastawayAxe.fbx` + `D …_License_CC-Attribution.txt` alongside `A wpn_axe_01.fbx`. Her gate-pair relabel also holds — he ran both greps and the result sets intersect in exactly one line, so neither half alone is sufficient.
+
+**Two NEW blockers, both the same self-contradiction shape:**
+1. **`team/uma-ux/gameplay-ui-direction.md:148`** — the §6.2 icon-recipe table still says *"the SHIPPED `CastawayAxe.fbx`"* and *"the SHIPPED atlas"*, **16 lines below this PR's own `:132` correction.**
+2. **`weapon-tool-style-spec.md:34`** — she triaged it "live, correct"; refuted by this PR's own `item-icon-bake-recipe.md:60` and §4.1 (`:309` "NO lashing, NO rawhide, NO cord"), and `:34`'s citation resolves to `:148` — the line in blocker 1.
+
+**The root cause is a grep-anchoring failure, and it is the interesting part.** Both of Priya's sweep patterns MISS `:148` because that line uses a **bare filename** (no path) and **capital `SHIPPED`**. A path-anchored, case-sensitive pattern is exactly why round 1 looked complete and wasn't. Her round-2 brief requires a case-insensitive unanchored re-sweep of `team/`, `.claude/`, and `docs/` — fixing **every** hit, not just the two he named. This is a fresh instance of the grep-anchoring rule already in `unity-conventions.md`.
+
+**2 NITs folded in:** the construct-grep table enumerates 5 of 6 lines (`research:95` unlisted); the PR body cites `:139` for `HeldAxeGripShiftY = 0f` where the real line is `:138`.
+
+**Reviewer stays Drew.** `CLAUDE.md` confirmed absent from her diff — the orchestrator's `:66` fix is separate and stays that way.
+
+**Devon** — alive on `devon/86cav8y74-wood-capture-gaps` (branch cut off `fee2604`, dirty count 2→7 at 00:17Z). No PR yet. Verified from git, not probed.
+**Uma** — still no ungated standalone work. The three tickets Priya un-gated (`86caxjwhh`, `86caxhk6v`, `86caxgyc4`) are all build/test lane and Devon holds the single build slot.
