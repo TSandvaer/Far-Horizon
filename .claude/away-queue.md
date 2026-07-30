@@ -991,3 +991,222 @@ Comment `5124773039`. **Devon's two original blockers ARE genuinely fixed** — 
 
 **Devon** — alive on `devon/86cav8y74-wood-capture-gaps` (branch cut off `fee2604`, dirty count 2→7 at 00:17Z). No PR yet. Verified from git, not probed.
 **Uma** — still no ungated standalone work. The three tickets Priya un-gated (`86caxjwhh`, `86caxhk6v`, `86caxgyc4`) are all build/test lane and Devon holds the single build slot.
+
+### ✅ PR #352 round 2 landed `588be01` — then round 3 dispatched to fix MY scope error (2026-07-30 ~00:4xZ)
+Comment `5124878798`. **No blockers.** She did the re-sweep FIRST as briefed: case-insensitive, unanchored, 9 constructs, **67 raw hits counted from a clean `git archive`** (not her worktree), all 67 triaged in the PR body. Drew's root-cause call was right.
+
+**Three in-class sites fixed — his two plus one he never named:**
+- `gameplay-ui-direction.md:148` — both cells re-pointed to `wpn_axe_stone_01.fbx` + §4.1 hexes; the atlas named as banned.
+- `weapon-tool-style-spec.md:34-35` — **she overturned her own round-1 "live, correct" verdict** and re-cited to Sponsor + DECISIONS 2026-06-14.
+- `pre-soak-visual-audit.md` header + item 1 — was live present tense with no status marker; now dated + `CLOSED (PR #100)` with the prose kept verbatim.
+
+Correctly left out of class: 12 `CastawayAxeSwing`/`CastawayMelee` clip names, 5 unrelated "placeholder" hits, and the DECISIONS/STATE historical records. Both NITs done.
+
+### 🔴 MY ERROR — the scope boundary I set was blocking the fix from reaching anyone
+I told her `CLAUDE.md` was project config and out of her scope; the orchestrator would own it. She complied and flagged it. **Then she verified the consequence and she is right:** `CLAUDE.md:66` is **still stale on `origin/main` @ `fee2604`** — I confirmed independently. My fix lives only on `orch/coordination`, a working branch that never merges (harvest is port-not-merge). So the correction reached **nobody**, while `CLAUDE.md` auto-loads into every session and every persona working off main keeps reading the wrong claim. **My scope rule produced a fix that cannot ship.**
+
+Round 3 dispatched: fold `CLAUDE.md:66` into PR #352 (the sweep PR for this exact defect class), plus two dead-path references she had classed out-of-bounds in **main's** `.claude/docs/unity-conventions.md` — `:168` and `:173`, both citing the deleted `Assets/Art/Props/CastawayAxe/`. Instructed to **retire the EXAMPLE, not the rule** at `:173`: the CC-BY attribution obligation is still live because the castaway base is CC-BY and `86cay4hyz` exists for exactly that staleness. Then one final widened sweep including `CLAUDE.md` and `.claude/docs/`.
+
+**Lesson worth keeping:** a doc-retirement sweep that excludes the always-loaded config leaves the most-read copy wrong, and an orchestrator "I'll own that file" carve-out is worthless if the orchestrator's branch never reaches main. Captured in `unity-conventions.md`.
+
+**Orch churn protectively committed** at `77f7802` (CLAUDE.md correction + tonight's captures) so nothing is lost pending harvest.
+**Devon** — alive: wrote `AxeVerifyCapture.cs` + `ChopVerifyCapture.cs` within the prior 20 min, dirty 7→8, no PR yet. From file mtimes, not a probe.
+
+### 🔴 MY FOURTH WRONG PREMISE TONIGHT — and this one would have been a false LICENCE claim
+Priya's round 3 landed `06596fa` (PR #352: `CLAUDE.md:66` + main's `unity-conventions.md`). She **refused part of my brief and was right.**
+
+I asserted: *"the CC-BY attribution obligation is still LIVE: the castaway base is CC-BY."* **It is not CC-BY.** I read the real file to check her, at a path I had to find rather than guess (`Assets/Art/Character/Castaway/Castaway_Attribution.txt` — singular `Character`; my first guess used the plural and silently found nothing). Verbatim:
+
+> *"This is GENERATED 3D content (Hyper3D Rodin, Creator-tier web export) animated with Mixamo clips (Adobe, free account). Retain this attribution in any distribution of the game (an in-game / about-screen credits entry covers it)."*
+
+The obligation is real; the **mechanism** is generated-content + Mixamo clip terms, with **no Creative Commons licence anywhere**. Had she complied, a false licence claim would now sit in a MANDATORY-read doc. She named the risk in exactly those terms. **A licence statement is the one class of doc claim where a confident guess is worse than silence — and I guessed.**
+
+**Her other claim also verified precisely:** `chibi|joaobalt` → **0 hits in asset/licence file paths** on `origin/main`, 25 in prose/code. So the chibi asset is genuinely discharged by the same test as the axe; only prose still discusses it. Her "zero hits" was correctly scoped to the asset.
+
+**And the ticket she flagged as unverified is real:** `86cay4hyz` = *"Castaway_Attribution.txt is two hero-versions stale — it names v1 as LIVE and v2 as toggle-gated; v4 has been the live hero since 2026-07-19 [S, text-only]"*. Independently corroborates her `CharacterAssetGen.cs:217 UseCastawayV4Default = true` finding.
+
+### Uma — finally has real work, but it is HARD-BLOCKED on #352 merging
+The one in-class hit Priya deliberately left: `wpn_axe_01.fbx` at `blender-asset-pipeline.md:27`/`:220` — deleted in `1a55491` (#254) while the three-tier names arrived in `dd5dd11` (#304), so it is a **different retirement event** and the replacement naming convention is **Uma's call**, not a guess to make inside someone else's PR. Her judgement is correct.
+
+**Why Uma cannot start yet:** `blender-asset-pipeline.md` is already in #352's diff (her round-1 edits). A parallel Uma branch touching the same file conflicts. This is a genuine hard dependency — the first time tonight Uma's idleness has a mechanical cause rather than an empty backlog. **Dispatch her the moment #352 merges.** A follow-up ticket for it goes in Priya's next board round.
+
+### In flight
+**Drew** — final #352 review pass @ `06596fa`, briefed to independently verify the licence mechanism, the third site, the overturned round-1 verdict, and to judge whether deferring the `wpn_axe_01` hit is correct.
+**Devon** — alive on `86cav8y74`: wrote `WoodTierShippedGateTests.cs` (EditMode) + `HeldBeltWeaponVisualPlayModeTests.cs` (PlayMode) in the prior 15 min, dirty 11, no PR yet. Paired EditMode/PlayMode is the right shape per the testing bar. From file mtimes, not a probe.
+
+### ✅ NEW PR #355 — Devon closed the wood capture gaps (2026-07-30 ~00:5xZ)
+Head `8873f90`, `MERGEABLE`, **all four CI jobs pass** (run `30503644348`; `EditMode 1278/1278 inconclusive=0`, `PlayMode failed=0`). Self-Test Report `5125056059` + CI addendum `5125061768`. Ticket `86cav8y74`.
+
+**He did the thing I asked for and it paid off — he stated the coverage BOUNDARY explicitly instead of implying full coverage.** Covered: the whole `SelectBelt → Inventory.Changed → SyncHeldVisualToSelection → WoodSelectionIndexFor → ApplyCurrent → HeldAxe.ShouldShow → pixels` chain, plus everything downstream of the click edge in `ChopTree.Update`. **NOT covered:** the raw `Input.GetMouseButton*` edge and the number-key→`SelectBelt` bind — *legacy Input Manager has no injection API, and he found zero captures repo-wide that drive real `Input`* — plus locomotion and look/proportion judgement. That last measurement is worth keeping: **no capture gate in this repo drives real input. Your soak is structurally the only real-input gate on every verb.**
+
+### 🟡 ONE REVIEWER DECISION PENDING (Drew's, not mine to make)
+He shipped the gate **HEADLESS**, contradicting AC4's "windowed" — flagged openly in the PR body under §DELIBERATE DEVIATION rather than silently overridden, with a two-line revert available. Drew decides as the ticket's named reviewer, after he finishes #352.
+
+**Why this is bigger than one AC:** Erik's research established that `-nographics` precludes ALL RenderTexture rendering while `-batchmode` alone keeps a real graphics device — and the windowed launches exist *only* because backbuffer capture goes black. **If Devon's headless gate genuinely works, that is live evidence for `86cag93zb`** — the ticket about removing the 1-runner capture pin that serializes the whole team behind a single build slot. Tess has been asked to say whether it counts.
+
+### 🔴 A GUARD WE BELIEVE IN MAY BE VACUOUS
+Devon's side-finding: committed `WeaponSetLineup.prefab` on `main` still has **10 of 15 nodes** (no wood — `86catwzhy`), so `CommittedLineupDriftGuardTests` is **vacuous in CI**, because CI re-bakes before EditMode runs. He A/B-proved it: 10 nodes → `failed=1`; post-bootstrap 15 nodes → `18/18`. Same family as the known committed-procedural-assets-go-stale trap. Tess is verifying independently. **If it holds, a drift guard we rely on is protecting nothing** — that outlives this PR.
+
+**Also:** his cleanup command was denied by the destructive-bash hook and **he left the scratch artifacts in place rather than routing around the block.** Correct call, worth noting as the behaviour we want.
+
+**Doc-worthy (queued for capture):** the launch-mode invariant greps the *whole* gate script for the windowed-flag literal — so merely *mentioning* that flag in a headless gate's comment reds the check.
+
+**Dispatched:** Tess → QA on #355. She is the right reviewer because **these were HER gaps** (from her own PR #327 comments `5025894753` / `5031539815`), and she has been told to judge the diff against what she actually asked for rather than the ticket's paraphrase.
+
+### ✅ PR #352 — Drew: APPROVE_WITH_NITS @ `06596fa`, blockers cleared (2026-07-30 ~01:0xZ)
+Comment `5125072153`. Merge-base = `fee2604` = current `origin/main`, so no drift. `unity-conventions.md` carries only her two round-3 hunks. The CC-BY **rule** at `:175` survived clause-by-clause — only the examples moved into the `:176`-`:178` ledger, and `:179` strengthens it. `CLAUDE.md:66` and `blender-asset-pipeline.md:17` now agree. `.claude/agents/tess.md` correctly absent (11 files).
+
+**My licence error is now confirmed wrong by BOTH of them, independently.** Drew: `Castaway_Attribution.txt` never says CC-BY; **zero `*_License*` files anywhere in the tree**; `031d43a` shows `D Assets/Art/Props/CastawayAxe/CastawayAxe_License_CC-Attribution.txt`. Priya's "zero hits" was path-scoped **by construction** (`ls-tree` emits paths) — he reproduced it at exit 1, and the 8 remaining `chibi` prose hits are covered by `:177`'s historical-notes disclaimer. **Refusing my instruction was correct.**
+
+**He closed my open question too:** the `wpn_axe_01` deferral is right — but on **scope**, not ownership: `:27`/`:220` are filename *examples*, never "a retired asset ships" claims, so they were never this sweep's class. And he sharpened the ownership split I had accepted too loosely: the shipped **names** are observable from the repo, hence mechanical; only *"is the tier token mandatory"* is genuinely Uma's. The follow-up ticket now carries that split.
+
+**Orch action he raised — CLOSED.** He asked for `86cay4hyz` to be verified at `unity-conventions.md:178` ("unverified by both of us"). I had already verified it: the ticket is real, *"Castaway_Attribution.txt is two hero-versions stale … v4 has been the live hero since 2026-07-19"*. Citation stands.
+
+**Final NIT round dispatched.** Two of his three NITs applied; the third (`ui-toolkit-panels-ux-spec.md:179`) is out of scope and goes to the follow-up. ⚠ **I am treating `item-icon-bake-recipe.md:120` as effectively blocking despite his NIT rating** — staging a staleness-purge PR that still contains a stale line is precisely the self-contradiction this PR spent three rounds removing. Same call I made on PR #350.
+
+**#352 will be STAGEABLE the moment that lands:** peer APPROVE ✅ · no `sponsor-gate`/`needs-soak` ✅ · no CI by design (docs-only `paths-ignore`, same basis on which #348/#349 were staged) ✅. **Uma unblocks the moment #352 merges** — `blender-asset-pipeline.md` leaves #352's diff and her naming-convention question can start.
+
+### ✅ PR #352 NIT round landed `b11cfcf` — awaiting a confirm-only APPROVE at the new SHA
+Both of Drew's in-scope NITs applied (`unity-conventions.md:175` EXAMPLES plural + the second example named; `item-icon-bake-recipe.md:120` re-anchored to `wpn_axe_stone_01.fbx` from that file's own §2.1). NIT 3 correctly left out of the PR.
+
+**Why one more Drew pass instead of staging now:** his APPROVE read `06596fa`; the head is `b11cfcf`. **An APPROVE covers only the SHA it read**, so staging on the older one would be a false gate. Dispatched a short delta-only check, with one real question in it: she added a **leave-alone note for `item-icon-bake-recipe.md:112`** (protecting a correct historical DECISIONS citation from a future sweep) that he did not ask for — his call whether it stays.
+
+### 🆕 Ticket `86caynyq7` — VERIFIED REAL, and the best-authored ticket of the session
+*"dead flint `wpn_*_01` filename examples + one stale shipped slate/steel axe claim — mechanical rename pass + 1 scoped Uma convention call [S, text-only]"*, `to do`, priority normal. Every claim carries its own verification command and SHA. Structure: **Part A mechanical** (A1/A2 the four dead flint filenames at `blender-asset-pipeline.md:27`/`:220`; A3 `ui-toolkit-panels-ux-spec.md:179`; **A4 an explicit leave-alone guard** for `prop_crate_wood_01`/`env_rock_03`, which read as dead but are forward-looking placeholders for classes that never shipped) and **Part B exactly one yes/no for Uma** — is the tier token mandatory in the naming convention — with an AC that **A does not wait on B**.
+
+### 🔴 A FINDING THAT LIMITS WHAT I WROTE IN THE DOCS TONIGHT
+The ticket records that **all nine grep constructs in #352's sweep missed A3**, because `shipped[ _-]*(axe|atlas|hatchet)` cannot match *"shipped slate/steel FBX"* — the line names the retired asset by **descriptor**, using none of its names. Drew rules this a **confirmation** of the honest-residual claim, not a contradiction, and his conclusion is the durable part: **"No grep closes this class; only reading the file does."**
+
+That materially qualifies the rule I captured earlier tonight (case-insensitive + unanchored). Case-insensitivity and dropping the path anchor fix the *syntactic* misses; they do nothing for a **semantic** miss where the prose describes the thing without naming it. **A staleness sweep's grep bounds the mechanical pass; it can never bound the class — the honest PR body says which residual class remains unswept.** Queued for capture.
+
+### Sponsor note — #352 is a small merge that UNBLOCKS things
+Merging #352 releases `blender-asset-pipeline.md` from its diff, which unblocks **Uma** (idle all session for want of ungated work) **and** Part A of `86caynyq7`. It is docs-only, peer-approved, no CI by design. Worth doing early in your queue rather than last.
+
+---
+
+## ⭐ 2026-07-30 ~01:10Z — PR #352 IS NOW STAGED. Five one-click merges waiting.
+
+### ✅ #352 gate evidence (all machine gates met)
+```
+gh pr merge 352 --admin --squash --delete-branch
+```
+- **Peer APPROVE at the EXACT head SHA:** Drew, `APPROVE` at `b11cfcf003c0322fdff2187f025941ac70dbefee`, comment `5125147126`. He measured the delta rather than assuming it: `compare/06596fa...b11cfcf` = **ahead 1, behind 0, 2 files, +1/−1 each**. This mattered — his earlier `APPROVE_WITH_NITS` read `06596fa`, and an APPROVE covers only the SHA it read, so I sent him back rather than stage on a stale approval.
+- **Verified now:** head `b11cfcf`, `MERGEABLE`, `OPEN`, **no `sponsor-gate` / `needs-soak` labels**.
+- **0 CI checks — expected, not missing:** docs-only, and `ci.yml`'s `paths-ignore` covers `**/*.md` + `.claude/**`. Same basis on which #348 and #349 were staged.
+- **Four review rounds:** Devon's 2 original blockers → Drew's 2 more → my scope reversal (`CLAUDE.md`) → NITs. Every fact re-derived from `origin/main` by the author, then independently re-derived by the reviewer.
+- On merge, flip `86cay47zh` → `complete`.
+
+### 📋 ALL FIVE ONE-CLICK MERGES — run in this order
+```
+gh pr merge 352 --admin --squash --delete-branch
+gh pr merge 348 --admin --squash --delete-branch
+gh pr merge 349 --admin --squash --delete-branch
+gh pr merge 350 --admin --squash --delete-branch
+gh pr merge 353 --admin --squash --delete-branch
+```
+**#352 first, deliberately** — it is the one that unblocks other work (see below). The rest are order-independent; run them one at a time rather than pasting all five, since batching merge-gate label operations has raced before.
+
+### 🔓 WHY #352 FIRST — it is the only merge tonight that unblocks people
+Merging it releases `blender-asset-pipeline.md` from its diff, which immediately unblocks:
+- **Uma** — idle the entire session for want of ungated work. Her naming-convention question (`86caynyq7` Part B) can start.
+- **`86caynyq7` Part A** — the mechanical dead-filename rename pass, which is currently conflict-blocked on the same file.
+
+### Still yours, unchanged
+- **#354** — the two-hand grip soak. `Build\soak-twohand-3\FarHorizon.exe`, stamp `zoned | 2026-07-29T23:03:52Z | 0a4af5e`. Left hand now genuinely touches the haft (28.2 → 10.6 cm against a 13.0 cm derived bound). ⚠ ~47% of frames remain out of reach by seat geometry, and the ~0.25 s ease-in is untested by any assert.
+- **#351** — find-in-world. Devon APPROVE_WITH_NITS + Tess PASS_WITH_NITS, but **touches `ci.yml` so only a browser merge works**, and AC7 is soak-gated. Your soak is its ONLY real-input gate.
+- **#355** — Devon's wood capture gaps, CI 4/4 green, **in Tess's QA now**. Carries one open reviewer decision: he shipped the gate HEADLESS against AC4's "windowed", flagged openly. That decision may bear on `86cag93zb` (removing the 1-runner capture pin).
+- The orch-branch cleanup (needs a hard-denied force-push), the icon contact-sheet picks (`86camyvwn`), the branch-protection click.
+- **A `/name-the-bar` call:** promote #354's *"one haft passing through both hands"* to `team/quality-bars.md` only if the soak passes (recorded as `Hypothesis:` on `86caynveb`).
+
+**Tess** — no #355 verdict yet at 01:09Z, ~14 min in; worktree clean **by design** (read-only review), so there is no git tell for a reviewer. Inside the expected window; not probed, because a truncated QA pass reads like a verdict.
+
+### ✅ PR #355 — Tess: PASS_WITH_NITS (2026-07-30 ~01:1xZ). Comment `5125171680`.
+**Her two original gaps are closed — and gap 1 closed HARDER than she asked.** She had offered `ShowWeaponForCaptureDebug` as the mechanism; **Devon refused her own suggestion for judged states** (using it only for the baseline, `AxeVerifyCapture.cs:395`) and drove the real `SelectBelt` seam instead, then added true **mesh identity** (`:464` — versus the pickaxe sibling's weaker vertex-count proxy at `:286`), a pre-grant negative control (`:388`), and a crossed-state return (`:497`). Gap 2: `woodAxeSelected` is a genuine `pass` term (`ChopVerifyCapture.cs:242`), not decoration. An author declining a reviewer's suggested implementation because it was weaker is the behaviour we want.
+
+### 🔴 THREE UNCOVERED LAYERS DEVON DID NOT NAME — this qualifies the praise I gave his boundary statement
+I credited him for stating the coverage boundary honestly. It was honest but **incomplete**, and one of the gaps is serious:
+1. **The chain ends at `Renderer.enabled`, NOT pixels.** `frame_check.py` floors are luma 6.0 / var 8.0, and `held_wood_empty` = **75.2 / 263.7** vs `held_wood_axe` = **75.3 / 258.4** — **the control and the positive case are indistinguishable to the only pixel check that runs.** The PR body's "→ pixels" is unsupported.
+2. **The strongest finding, and it ties tonight's two threads together:** the weapon is evidenced only **AT REST** — no `TriggerChop` — so the order-50/65/100 seat chain is never exercised. **`86cay4282` round 4 proved a seat can be ~20 cm wrong while renderer + mesh identity are both green.** So this gate structurally cannot exclude the exact defect class Drew just spent four rounds fixing.
+3. Recipe→item-id layer (`InventoryModel.cs:340`) unnamed — and **soak-3, the escape this ticket exists to prevent, started at "I craft."**
+
+### ⚠ CORRECTION — I overstated the CI-vacuity alarm, and I have corrected the doc
+I logged it as "a guard we believe in may be protecting nothing." Tess: the **mechanism holds** (main `fee2604` = 10 nodes/0 wood; bootstrap `ci.yml:279` precedes EditMode `:290`) but **no false belief existed** — the guard's own docstring already declares that scope verbatim. The alarm framing was mine, not the evidence's. **The real residue is narrower and more useful: `86catwzhy` has NO CI guard at all**, fixable with a `git show` read in the hosted `structure` job (which doesn't bootstrap).
+She also caught a **circularity in my documentation**: `unity-conventions.md:421-422` were written *from this PR's own report*, so citing them back at the PR would manufacture a second source for a single observation. Both the scope correction and an explicit circularity warning are now in the doc.
+
+### ⚠ CORRECTION — I was too optimistic about `86cag93zb`
+I wrote that a working headless gate would be "live evidence" for removing the 1-runner capture pin. Tess's measured read: **supporting, NOT unblocking — 8 gates remain structurally windowed.** Headless does answer the ScreenCapture half decisively (`device=Direct3D12`; she eyeballed **11/11 real frames** from artifact `8744596538`), but it does not answer "live Animator", because the gate drives no Animator at all — **the gap is the missing swing, not the window.**
+
+**Dispatched Drew** for the #355 peer review plus the AC4 headless-vs-windowed ruling, which is his alone. Briefed with Tess's three layers to verify (not to re-derive) and asked to rate each blocking vs NIT himself — I am not pre-judging it.
+
+**Board hygiene owed (mine):** `86cav8y74` still reads `to do` despite an open PR with QA passed — flip to `in review` next tick; the orchestrator owns status.
+**Liveness note:** the probe I sent Tess did NOT truncate her — she completed a full 45-tool-use pass. Framing it explicitly as "not a stop signal, do not post a partial verdict" appears to have worked.
+
+---
+
+## ⭐ 2026-07-30 ~01:30Z — PR #355 STAGED. Six one-click merges now waiting.
+
+### ✅ #355 gate evidence — every machine gate met
+```
+gh pr merge 355 --admin --squash --delete-branch
+```
+- **CI:** all FOUR jobs SUCCESS at head `8873f90` (run `30503644348`), including the advisory PlayMode lane. Verified now: `MERGEABLE`, `OPEN`, **no labels** — so no `sponsor-gate`, no `needs-soak`.
+- **Self-Test Report:** comment `5125056059` + CI addendum `5125061768` — Tess verified it **accurate**, every value re-derived from the run.
+- **QA:** Tess `PASS_WITH_NITS`, comment `5125171680`. Both of her original #327 gaps closed — gap 1 closed *harder* than she asked.
+- **Peer review:** Drew `APPROVE_WITH_NITS`, comment `5125266402`.
+- Not soak-gated: a test/capture ticket with no visual or feel judgement in it.
+- On merge, flip `86cav8y74` → `complete`.
+
+### ⚖️ AC4 headless-vs-windowed — DECIDED by Drew (reviewer), accepted, no revert
+Devon deviated from AC4's "windowed" and shipped headless, flagging it openly. Drew accepted it, and the reasoning is the strongest of the session — all three of AC4's grounds fail **on this gate**, verified from source:
+1. `grep "ScreenCapture\|WaitForEndOfFrame" AxeVerifyCapture.cs` → **0 hits**; it uses the pre-existing `CaptureHeldFrame` → **`SubmitRenderRequest`** (`:537`) — which is *exactly* the render path Erik's research prescribed hours earlier, independently arrived at.
+2. `grep "Trigger\|Animator\|Swing\|SetBool\|Play("` → **1 hit, and it is a comment.** So AC4's "live Animator" ground is both mis-derived **and vacuous** — the gate drives no Animator at all.
+3. **Decisive:** `verify_chop_gate.sh` and `verify_heldbelt_gate.sh` were **already headless on `main`**, so obeying AC4 would have **regressed already-merged `86cag93zb` work.**
+
+What AC4 actually protected — false-empty frames — is now covered by `device=Direct3D12` (artifact `8744596538`, which he read himself), `frame_check` 11/11 at luma 73.1–75.4 against a floor of 6.0, and `test_gate_scripts.sh:863-873`. **What AC4 reached for — a judged live Animator — is genuinely unprotected, and never was the window: it is the missing swing.** That is the honest residual.
+
+### Tess's three layers — Drew rates all NIT, none blocking, with reasons
+- **(a) Confirmed exact**, and worse than she framed it: control variance is *higher* than the positive case (`75.2/263.7` vs `75.3/258.4`). Claim-accuracy issue only; already propagated into `unity-conventions.md`.
+- **(b) The strongest — needs a TICKET, not a block.** His own round 4 recorded a **28.2 cm** worst seat error passing under a **36.6 cm** cap that printed `PASS`. He rules it a *different bug class* from soak-3 and therefore out of this ticket's scope. **A follow-up is owed: a gate that exercises the seat chain during the action, not just the prop at rest.**
+- **(c) Thinner than graded** — `CraftingSeamTests.cs:53-54` already covers the recipe→item-id layer.
+- **Her CI-vacuity correction HOLDS:** `CommittedLineupDriftGuardTests.cs:27-34` on `origin/main` declares that scope verbatim. My "guard protecting nothing" alarm was wrong; the doc is corrected.
+
+### 📋 ALL SIX ONE-CLICK MERGES — #352 first, then any order, one at a time
+```
+gh pr merge 352 --admin --squash --delete-branch   # do this one FIRST — it unblocks Uma + 86caynyq7 Part A
+gh pr merge 355 --admin --squash --delete-branch
+gh pr merge 348 --admin --squash --delete-branch
+gh pr merge 349 --admin --squash --delete-branch
+gh pr merge 350 --admin --squash --delete-branch
+gh pr merge 353 --admin --squash --delete-branch
+```
+Run them individually rather than pasting the block — batching merge-gate label operations has raced before.
+
+### Still genuinely yours
+- **#354 soak** — `Build\soak-twohand-3\FarHorizon.exe`, stamp `zoned | 2026-07-29T23:03:52Z | 0a4af5e`. ⚠ ~47% of frames still out of reach by seat geometry; the ~0.25 s ease-in is untested by any assert.
+- **#351 soak + browser merge** (touches `ci.yml`; your soak is its ONLY real-input gate — no capture gate in this repo drives real input).
+- Orch-branch force-push · icon contact-sheet picks (`86camyvwn`) · branch-protection click.
+- **`/name-the-bar`:** promote #354's *"one haft passing through both hands"* only if the soak passes (`86caynveb`, recorded as `Hypothesis:`).
+
+### ⚠ CORRECTION to my #355 AC4 summary — I read the actual AC text after logging, and it is more specific than either report conveyed
+`86cav8y74` status flipped `to do` → `ready for qa test` (verified from the API response). Reading the body that came back, **AC4 says more than "run it windowed"**, verbatim:
+
+> *"🔒 Constraint — windowed capture. Run the new/extended gate windowed (NOT batchmode) per the `verify_*_gate.sh` convention. WHY: ScreenCapture + a live Animator need a real swapchain; headless lies about live runtime (unity-conventions §Headless — **RT-readback works for pure world-camera gates, but a held-mesh + live Animator judge stays windowed**)."*
+
+So AC4 already contained the carve-out. Its exclusion is a **conjunction** — *held-mesh **+** live Animator* — and this gate is unambiguously a held-mesh judge while provably not an Animator judge. Drew read the conjunction as unsatisfied and accepted headless. **That is a defensible reading, not an obvious one**, and I presented his ruling as cleaner than the AC text supports. Recording it so a future reader can disagree with us.
+
+**His third ground is the one that actually carries the decision, and it is stronger than the Animator argument:** AC4's stated WHY appeals to "the `verify_*_gate.sh` convention" — but `verify_chop_gate.sh` and `verify_heldbelt_gate.sh` were **already headless on `main`**. **The AC cites a convention the repo no longer follows.** Obeying it would have regressed merged `86cag93zb` work. A stale premise inside an AC is a stronger reason to deviate than a vacuous one.
+
+**Second, UNFLAGGED deviation — both reviewers accepted it, nobody labelled it.** AC4's sibling constraint reads *"reuse the existing capture hook … Use `HeldWeaponCycleDebug.ShowWeaponForCaptureDebug(index)` … do NOT add a new mesh path."* Devon **declined it for judged states** and drove the real `SelectBelt` seam instead (using the hook only for the baseline). Tess — who originally *offered* that hook — approved of the refusal, saying gap 1 closed harder than she asked. So the change is better than the AC asked for. But **Devon's PR body flagged only the headless deviation, not this one**, and two reviewers passed over it without naming it as a deviation. No harm here; the pattern is the note: an AC deviation that IMPROVES on the AC still needs flagging, or the ticket's record silently diverges from what shipped.
+
+**Doc follow-up:** `unity-conventions.md` §Headless is cited *by this ticket* as the source of the windowed rule for held-mesh gates. Devon's `SubmitRenderRequest` gate plus Erik's research now partly supersede that. The doc should say RT-readback/`SubmitRenderRequest` covers held-mesh gates too, and that only a **judged live Animator** still needs a window — otherwise the next ticket will inherit the same stale constraint. Queued for capture.
+
+### 🔧 Erik died mid-task and was SALVAGED by resume, not re-dispatch (2026-07-30 ~01:4xZ)
+His agent terminated on `API Error: Connection closed mid-response` — a transport failure, not a task failure, and distinct from the Opus 529 storm earlier (he is `model: sonnet`, which stayed healthy all night).
+
+**The tell that made salvage worth trying:** his final output line was *"Now I have sufficient evidence. Let me write the research note."* — so he had finished the expensive part (research) and died before the cheap part (writing). Verified `team/erik-consult/what-still-needs-a-window.md` does **not** exist, confirming nothing reached disk.
+
+**Resumed via `SendMessage` to the agentId instead of dispatching fresh** → `"was stopped (failed); resumed it in the background with your message"`. His transcript context is intact, so the gathered evidence survives. A fresh dispatch would have discarded ~40 tool-uses of research and re-run every fetch.
+
+**Reusable lesson (worth promoting on `/save-session`):** a `status: failed` agent is not necessarily lost work. **Read its final output line before deciding** — it reveals how far it got. If it died *after* the expensive phase, resume by agentId with an explicit "your connection dropped, do not re-run the research, resume from exactly there" message. This matters most for **write-only agents with no worktree** (Erik): there is nothing on disk to salvage the usual way, so the transcript IS the only copy, and resume is the only recovery.
+
+**Also in flight:** Devon on `86cay4hyz` (attribution file, build slot), Priya on three follow-up tickets + a reconcile-report.

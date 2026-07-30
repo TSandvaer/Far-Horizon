@@ -111,3 +111,19 @@ The in-hand seat (scale + local offset of the mesh-holder) is a property of the 
 The round-7 "same dial for rock and metal" bake (Sponsor-directed, verbatim) RETIRED the previous per-tier seat outright, INCLUDING the original approved stone-axe value — the axe class was no longer a zero-locked seat once the Sponsor dialed a real in-hand seat for the whole class. **Rule: when a per-material dial turns out to be geometry-driven (class-level, not tier-level), collapse it to one dial per class and retire the old per-instance values — even previously-approved ones — rather than preserving them as a fallback.** Re-verify against the current per-class table before assuming a new tier needs its own dial; a new tier of an existing class reuses the class dial, since per-tier duplication drifts silently the next time the class dial is retuned.
 
 This is a SEATING concern (mesh-holder transform), distinct from the `CastawayArmPose`→`HeldAxeRig` arm-pose chain documented elsewhere in this file — the class dial composes UNDER whatever pose the arm chain produces; it does not participate in it.
+
+## Two-handed imported clips: reseat the PROP, don't de-grip the hand (`86cay4282`, PR #354 — pending merge)
+
+⚠ **Unmerged at time of writing** (branch `drew/86cay4282-swing-defects`) — treat file/line cites against this ticket as unverifiable until merge; the RULE below is what carries.
+
+Two pickaxe-MINE soak defects — *"swinging like he is handling the axe with both hands"* and *"the axe is still pivoting"* — resolved to ONE root cause: the Mixamo pickaxe-MINE clip is authored **two-handed**. (Confirmed by `AttackClipPoseDiag`'s prop-seat pass: the tool's seat is perfectly rigid — `axisSpreadInHand` = 0.000° on every clip — while the clip's hands lock 1.09–1.29 SW apart with the tool 63.8–89.7° off the hand line.) The first fix built a state-gated LEFT-ARM de-grip via the additive `CastawayArmPose` idiom, to pull the left hand off the phantom haft.
+
+**On soak the Sponsor reversed the direction, verbatim: "we need to position the axe for a two hand grip"** — keep the clip's authored two-handed pose and move the PROP so it seats into both hands, instead of pulling a hand away from the prop.
+
+**Why the reversal is the better default:** an imported two-handed clip already places both hands roughly COLLINEAR along a phantom haft — that collinearity *is* what "looks two-handed" means, i.e. the animator's own intent. An arm-pose override fights that intent and can only ever pull one hand away; a state-gated **PROP-SEAT offset** accepts the authored hand pose as ground truth and moves one cheap prop transform to meet it — no new bone-rotation math, and none of the de-grip's `|Q|` blast-radius / self-intersection exposure (see the sizing-heuristic section above).
+
+**Rule: when a held-prop defect on an imported clip can be framed either as "fix the arm" or "fix the prop seat", default to reseating the PROP.** Reach for the arm-pose idiom only when the clip's authored grip is genuinely WRONG for the prop geometry — not merely because it "looks two-handed".
+
+**Scope discipline:** locked to the pickaxe MINE state only. The chop seat (`HeldAxeRelEuler`) is locked across soak rounds 1-5 and stays OUT of scope. **The abandoned de-grip mechanism is KEPT at weight 0, not deleted** — it stays as an A/B dial. Don't treat an abandoned-direction mechanism as dead code to delete on sight; a Sponsor reversal can still want the old dial for comparison, and it costs nothing parked at zero.
+
+**A direction reversal is not a defect report.** The de-grip was correctly built, tested, and green; what changed was the Sponsor's chosen answer to the same defect. Grade the round on that basis rather than as a failed implementation.
