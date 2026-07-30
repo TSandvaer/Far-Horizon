@@ -2,7 +2,24 @@
 
 This file is the orchestrator's source of truth between ticks. The first section is always the live "Resume next-action" header — if a session dies, the next orchestrator starts there.
 
-## RESUME NEXT-ACTION — 2026-07-28 ~20:0xZ (Sponsor PRESENT; auto-status OFF — arming is his call)
+## RESUME NEXT-ACTION — 2026-07-30 ~08:4xZ (Sponsor PRESENT; auto-status OFF — arming is his call)
+
+**7 PRs MERGED this morning.** main `fee2604` → `a5fee62`, CI 4/4 green on the tip. #352 `414e510` · #356 `03bca30` · #348 `451f6cc` · #349 `098a941` · #350 `0335e58` · #353 `c69e0a2` · #355 `a5fee62`. Tickets `86cay47zh` / `86cay4hyz` / `86cav8y74` / `86caxjwev` / `86caxj8zw` flipped `complete`. #348 and #349 are legitimately ticketless (Priya verified by name+description search; do NOT create tickets to close them).
+
+**⭐ #354 SOAKED — the ticket's own bar PASSED, one new defect.** Sponsor verbatim: *"the reach is ok but the left arm does not return to normal position after the pickaxe two hand motion."* Full evidence + the panel transcription is ClickUp comment `90150246331772` on `86cay4282`. Scoped as a regression of the round-4 IK work → fixed on PR #354, NOT a follow-up ticket. The pin-weight-latches mechanism is a **`Hypothesis:` only** — unmeasured across the disengage transition; the brief forbids patching on it unconfirmed.
+
+**IN FLIGHT ×3 (dispatched ~08:4xZ, all background). ⚠ Two agents died on 529 opus-capacity minutes earlier — if these die, check worktree git state BEFORE re-briefing:**
+- **Drew** `drew-354-armrelease` in `drew-swings-wt` (branch `drew/86cay4282-swing-defects` @ `cd6fec1`, 54 pre-existing dirty files — clean/reset FORBIDDEN). Holds the single Unity-build slot. Owes a `soak-twohand-4` exe + an assert that REDS on today's build. Reviewer Devon.
+- **Tess** `tess-357-359-review` in `tess-wt`, READ-ONLY no-checkout (preserves `stash@{0}` — do NOT drop). Reviews #357 (`86cayp1vb`) + #359. #357 is a FRESH pass: Drew finished verifying it and died on a 529 before posting, so those findings are unrecoverable.
+- **Devon** `devon-358-review` in `devon-wt`, READ-ONLY no-checkout (2 pre-existing untracked `BuildMenuPanelSettings` files — leave them). Reviews #358 (`86caynyq7`).
+
+**✅ TAG-WRITE BLOCKER CLOSED (orch-side).** The prior session recorded it as "the classifier blocked the agent's token read" — **that was wrong.** The token read succeeds; the classifier denies a SUB-AGENT's outbound `curl` to `api.clickup.com`, but **the orchestrator's own curl clears it.** `86cah7y5b` now carries `needs-soak` + `sponsor-gate`, verified by read-back — which closes the away-staging hole where a tick reading status+tags could have staged soak-gated #351 for merge. Standing rule: **orch owns ALL tag writes**; `update_task` has no `tags` param at schema level, so personas cannot do it by any route. No settings change needed.
+
+**STILL SPONSOR-ONLY:** #351 soak (its AC7 is Predict-Before-Soak; his play is structurally the only real-input gate — no capture gate in this repo can inject a real mouse click) · icon contact-sheet picks `86camyvwn` (needs him to LOOK at `Far-Horizon-drew-wt/art-src/iconbaker-proto/contact-sheet.png`) · canonical orch-branch cleanup (needs a hard-denied force-push) · branch-protection browser click · `/name-the-bar` on the two-hand-grip bar — now soak-informed: the REACH bar earned promotion, the arm-RELEASE bar is newly owed · `86cagfn8h` stays hard-blocked on a `/name-the-bar` pass.
+
+**NEXT DISPATCHABLE when a lane frees** (non-build lane must never idle): `86cayp0p9` · `86cayp0re` (its #352 gate is now merged — unblocked) · `86cayp1w2` (its #356 gate is now merged — unblocked) · `86caynve7` · `86caynve9` · `86caxgyc4` · `86caxjwhh` · `86cavj6p1` · `86caxhk6v` · the DEV factual-check of #348's shader/GPU claims. ⚠ Sequencing: `86cayp0p9` + `86cayp0re` both touch `unity-conventions.md` / `test_gate_scripts.sh` — never parallel. `86cayp0ay` overlaps #354's files. Build lane is AT CAP (Drew).
+
+## (superseded 2026-07-30) RESUME NEXT-ACTION — 2026-07-28 ~20:0xZ (Sponsor PRESENT; auto-status OFF — arming is his call)
 
 **#337 IS MERGED** (`fee2604` on main, `86cav8xg9` complete) — that thread is closed; `86caxgyc4` is unblocked. Board on resume: 2 open PRs (#348, #349, both docs-only so neither spawns CI), 0 prior agents (all resume-IDs died with the 07-27 session).
 
