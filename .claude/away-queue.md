@@ -20,6 +20,19 @@
    - **Two NITs from his review are ticketed, not folded:** `86caz5jxp` (needle mis-attribution) and `86caz5jxq` (no scene-presence test for `SwingVerifyCapture` / `MineVerifyCapture` / `WeaponSetVerifyCapture`).
      - ⚠ *Orchestrator note: this line first carried two FABRICATED ids (`86caz5b8k` / `86caz5b9x`) — written in the same message that created the tickets, i.e. before their real ids existed. Corrected to the real ids from the create responses. The two tickets' own `RELATED:` cross-references were fabricated the same way and have been fixed by comment.*
 
+0b. **⭐ ONE-CLICK MERGE — PR #370 (`86cayp0p9`, committed-prefab drift guard), head `7eeba1b`.** Same routing as #369: `.github/**`, so no label; say the word and I run it.
+   ```
+   gh pr merge 370 --admin --squash --delete-branch
+   ```
+   - **ALL FOUR jobs SUCCESS** — `structure`, `build`, `capture` (succeeded on attempt 2, requested while the runner was idle) and `playmode`.
+   - **Devon APPROVE_WITH_NITS** (comment 5136338832), and he **reproduced both halves himself** on a detached scratch worktree: `3992e96` → exit 1 naming the 5 missing wood nodes; `917d2c2`/`f058ac7` → exit 0 with 15 nodes. Suite 182/0 locally, all 13 lineup cases OK.
+   - **The guard has no literals** — zero weapon names, zero counts; it derives the expected node set from `WeaponPackAssetGen.cs` source. Devon grepped for smuggled literals and found none, which is what stops it being self-fulfilling.
+   - **Tess caught a hole in her own fixture during authoring:** a negative fixture's `sed` silently no-op'd, so a "red" case was passing green while testing nothing. Devon then verified the fix by deliberately breaking the `sed` whitespace and confirming the pin fails **by name**.
+   - ⚠ **Merge-order with #369:** both edit `ci.yml`'s stale-clear region. Whichever lands second needs an **additive union** of the log/caps names — never take-one-side, or a gate loses its stale-clear silently.
+   - Related ticket filed from her work: `86caz4x88` (`globalScale` `.meta` staleness, ~0.47% on every weapon, soak required — she deliberately did NOT ship that churn).
+
+0c. **Cleanup, your call — a stray scratch worktree.** `C:/Trunk/PRIVATE/fh-369-review` (detached at `2d0e3f7`, an unpushed local merge Drew used to measure #369 against current main). His own `rm -rf` cleanup was denied by the destructive-bash hook, so it is still on disk. Harmless and reproducible; I have not removed it because worktree deletion is a delete-class action. `Far-Horizon-drew-docs-wt` is NOT stray — it holds #379's live branch.
+
 1. **#351 SOAK — STAGED AND PLAYED. Run this:**
    ```
    C:\Trunk\PRIVATE\Far-Horizon\Build\soak-351\FarHorizon.exe
