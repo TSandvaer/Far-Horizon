@@ -76,19 +76,17 @@ namespace FarHorizon.EditTests
 
                 string lookupKey = CastawayCharacter.AttackClipNameForClass(weaponClass);
 
-                // FAIL-BEFORE, recorded MECHANICALLY rather than as a one-off local log (86cayy770 AC3 asks the
-                // gate to red on the pre-fix behaviour). The pre-fix resolution was EXACT-match-only; on this
-                // controller that predicate is FALSE for the pickaxe, which IS the defect — so anyone can
-                // reproduce the fail-before by re-running this test against the old exact-only resolution.
-                // Also reds if the repaired asset is ever renamed to the bare key, which would silently stop
-                // exercising the variant path this fix added.
-                if (weaponClass == CastawayCharacter.WeaponClassPickaxe)
-                    Assert.AreNotEqual(lookupKey, bound.name,
-                        "AttackPickaxe is expected to bind the REPAIRED variant clip (fee2604 / #337), so the " +
-                        "pre-fix EXACT-only lookup could not resolve it and MeleeClipLength returned 0. If this " +
-                        "is now an exact match, the '_repaired' swap was reverted or renamed — re-check that the " +
-                        "variant-tolerant resolution is still needed and still covered.");
-
+                // NOTE (measured, 86cayy770): this reads whatever controller is ON DISK, which is NOT necessarily
+                // what ships. CharacterAssetGen REGENERATES the controller on every BootstrapProject.Run
+                // (CharacterAssetGen.cs:1291), and the COMMITTED CastawayAnimator.controller is STALE relative to
+                // #337 — grepping the committed asset for the repaired .anim's guid
+                // (1321a24be98149341925ced6343b6ba8) returns 0 refs, while the raw Attack_Pickaxe.fbx guid returns 1.
+                // So a BARE local EditMode run sees the RAW clip bound (exact name match) while a post-bootstrap run
+                // (CI, and every soak build) sees the REPAIRED clip bound. That is
+                // [[unity-procedural-committed-assets-go-stale]], and it is why this defect was invisible locally.
+                // This assert therefore holds for EITHER binding — the invariant is "whatever is bound must be
+                // resolvable", never "the repaired one is bound". The bootstrap-INDEPENDENT guard for the actual
+                // defect is RepairedPickaxeClipName_IsResolvableByTheRuntimeLookup below.
                 Assert.IsTrue(CastawayCharacter.ClipNameMatchesClass(bound.name, lookupKey),
                     stateName + " binds the clip '" + bound.name + "' but the runtime hold-cadence source " +
                     "(CastawayCharacter.MeleeClipLength) looks it up by '" + lookupKey + "'. A name the lookup " +
@@ -96,6 +94,42 @@ namespace FarHorizon.EditTests
                     "serialized swingClipLengthSeconds and the swing clip gets RE-TRIGGERED mid-play (86cayy770). " +
                     "Either name the bound clip '" + lookupKey + "' or '" + lookupKey + "_<variant>'.");
             }
+        }
+
+        /// <summary>
+        /// THE BOOTSTRAP-INDEPENDENT REGRESSION GUARD for 86cayy770 — the clean fail-before / pass-after gate.
+        ///
+        /// The defect in one line: <c>PickaxeMineCurveFix</c> generates a clip named
+        /// <c>CastawayPickaxeSwing_repaired</c>, <c>CharacterAssetGen</c> binds THAT to the AttackPickaxe state, and
+        /// the runtime hold-cadence source looks the clip up by <c>CastawayPickaxeSwing</c>. This asserts the two
+        /// names are reconcilable by the runtime resolver — which is exactly what was false before the fix, and is
+        /// checkable WITHOUT a bootstrap, a controller on disk, or an Animator (so it cannot false-red on a bare
+        /// local run the way a controller read can — see the note in the guard above).
+        ///
+        /// Pre-fix, the resolver was an exact-match-only string compare, so this assert is FALSE
+        /// ("CastawayPickaxeSwing_repaired" != "CastawayPickaxeSwing") → RED. Post-fix → GREEN.
+        /// Reverting <see cref="CastawayCharacter.ClipNameMatchesClass"/> to an exact compare reds it again.
+        /// </summary>
+        [Test]
+        public void RepairedPickaxeClipName_IsResolvableByTheRuntimeLookup()
+        {
+            string generated = PickaxeMineCurveFix.RepairedClipName;
+            string lookupKey = CastawayCharacter.PickaxeSwingClipName;
+
+            Assert.AreNotEqual(lookupKey, generated,
+                "precondition: the repair pipeline names its output differently from the raw take — if these are " +
+                "equal the variant path is no longer exercised and this guard has stopped protecting anything");
+
+            Assert.IsTrue(CastawayCharacter.ClipNameMatchesClass(generated, lookupKey),
+                "the clip PickaxeMineCurveFix generates ('" + generated + "') must be resolvable by the runtime " +
+                "hold-cadence lookup key ('" + lookupKey + "'). When it is not, CastawayCharacter.MeleeClipLength " +
+                "returns 0 and the mine cadence silently falls back to the serialized swingClipLengthSeconds — " +
+                "1.6s against a 5.2s clip, so the Animator is re-triggered at ~31% of the swing and the strike " +
+                "visibly restarts mid-play (the Sponsor's 'the animation jerks 3 times'). 86cayy770 / fee2604.");
+
+            // Same contract for the OTHER in-pipeline clip swap, so the sibling cannot regress unnoticed.
+            Assert.IsTrue(CastawayCharacter.ClipNameMatchesClass("CastawayCrouchWalk_smoothed", "CastawayCrouchWalk"),
+                "the CrouchWalk '_smoothed' swap follows the same convention and must resolve the same way");
         }
 
         /// <summary>
