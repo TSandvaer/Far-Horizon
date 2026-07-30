@@ -244,9 +244,21 @@ UX job is to make that emergence *legible* so the player learns the lesson thems
 
 ### 2.5 Impact / hit-react / death feedback (boar)
 
-- **Hit-react flinch:** the boar needs its own flinch (a brief recoil / head-toss) on taking a hit — the
-  animal analog of the castaway hit-react states (`procedural-animation-verbs.md`). Reads "that
-  connected"; interrupts nothing at hard tier (it keeps coming), staggers briefly at easy tier.
+- **Hit-react flinch:** the boar needs its own flinch (a brief recoil / head-toss) on taking a hit.
+  **This is a FEEL analog of the castaway's hit-react — NOT a mechanism analog.** The feel to hit: a
+  sharp, weight-bearing hitch that reads *"that connected, and it felt it,"* resolving straight back
+  into its stance — the boar is briefly interrupted, never puppeted. The mechanism is deliberately
+  different, because it has to be: the castaway's hit-react is **5 Mixamo-clip Animator overlay
+  states** (`procedural-animation-verbs.md` "Per-verb status" table, `86cackb3j`), and **neither enemy
+  has an Animator to add a state to** — `BoarBodyRig`'s own doc comment: *"There is NO Animator, NO
+  rig, NO skinned mesh: the parts are plain baked meshes and the pose IS this LateUpdate"* (a sibling
+  idiom to `SnakeBodyChain`). So build the flinch as **one more additive `LateUpdate` offset term** in
+  `BoarBodyRig` / `SnakeBodyChain`, driven by a `Time.time`-anchored `HitReactNormT` cut from the same
+  cloth as the existing `WindupNormT` / `ChargeNormT` tells, and composed exactly the way the windup
+  head-lower and charge-lean already compose in that per-part loop. **Do not add an Animator to a
+  boar.** (Mechanism research + the `_HitFlash` / dust-puff shape:
+  `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md`.)
+  Tier behaviour: interrupts nothing at hard tier (it keeps coming), staggers briefly at easy tier.
 - **Hit-flash + dust puff + thunk** per §1.2 — dust-brown, never red.
 - **Death = a gentle TOPPLE, not a gib.** The boar tips over, a soft dust puff, a descending
   "huff-out." Then it settles as a lootable (meat/hide per the survival vision) or fades — the calm
@@ -398,6 +410,9 @@ Damage-flash + low-HP pulse amplitude (calm-tone).
   `21h00_32`), `.claude/docs/lowpoly-quality.md` (§0 anchor+silhouette, Rec 4 rim), `.claude/docs/
   vision-far-horizon-game-concept.md` (kid→adult difficulty), `.claude/docs/unity6-mastery.md` §2
   (GRD/MPB), `.claude/docs/blender-asset-pipeline.md` (weapon family).
+- **Erik consults:** `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md` (the buildable
+  mechanism behind §1.2/§2.5: per-instance-Material `_HitFlash` CBUFFER term, pooled Shuriken dust
+  puff, and the no-Animator flinch route confirmed on BOTH enemies).
 - **Uma specs:** `weapon-tool-style-spec.md` (⚠ §2/§4 red-lashing STALE — see §3.1),
   `hud-three-bar-spec.md` / `need-meter-3bar-direction.md` / `u2-5-survival-hud-spec.md` (HUD pattern),
   `tree-chop-logpile-visual-spec.md` (PickableLooter loot-prompt precedent, faceted-prop palette),

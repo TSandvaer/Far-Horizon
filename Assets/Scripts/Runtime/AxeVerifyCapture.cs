@@ -70,6 +70,13 @@ namespace FarHorizon
             // Its OWN flag (isolation rule); no new component so Boot.unity needs no regen.
             else if (HasArg("-verifyHeldPickaxe"))
                 StartCoroutine(RunHeldPickaxeVerification());
+            // 86cav8y74 — the WOOD tier through the hand, driven by the REAL belt selection. -verifyHeldBelt covers
+            // stone axe/spear and -verifyHeldPickaxe covers stone/iron pickaxe, so the wood tier had ZERO shipped-build
+            // evidence — the exact soak-3 defect ("I craft a wooden axe, select it, nothing is in the hand") could
+            // re-break behind green CI (Tess PR #327 comment 5025894753). Its OWN flag per the isolation rule; no new
+            // component, so Boot.unity needs no regen (HeroAxeSceneTests already gates this component's authoring).
+            else if (HasArg("-verifyHeldWood"))
+                StartCoroutine(RunHeldWoodVerification());
             else if (HasArg("-verifyAxe"))
                 StartCoroutine(RunVerification());
         }
@@ -293,6 +300,208 @@ namespace FarHorizon
             Application.Quit(pass ? 0 : 1);
         }
 
+        // 86cav8y74 — the five WOOD tools in cycle order (index, catalog id, label, frame file). Indices come from
+        // HeldWeaponCycleDebug's own constants so a family reorder can never silently point this gate at the wrong tier.
+        private static readonly (int index, string itemId, string label, string file)[] WoodTiers =
+        {
+            (HeldWeaponCycleDebug.AxeWoodFamilyIndex,     ItemCatalog.AxeWoodId,     "AXE WOOD",     "held_wood_axe.png"),
+            (HeldWeaponCycleDebug.DaggerWoodFamilyIndex,  ItemCatalog.DaggerWoodId,  "DAGGER WOOD",  "held_wood_dagger.png"),
+            (HeldWeaponCycleDebug.SwordWoodFamilyIndex,   ItemCatalog.SwordWoodId,   "SWORD WOOD",   "held_wood_sword.png"),
+            (HeldWeaponCycleDebug.SpearWoodFamilyIndex,   ItemCatalog.SpearWoodId,   "SPEAR WOOD",   "held_wood_spear.png"),
+            (HeldWeaponCycleDebug.PickaxeWoodFamilyIndex, ItemCatalog.PickaxeWoodId, "PICKAXE WOOD", "held_wood_pickaxe.png"),
+        };
+
+        /// <summary>
+        /// 86cav8y74 — the SHIPPED-BUILD gate for the soak-3 bug class ("if I craft a wooden axe … nothing is in the
+        /// hand when it's selected"). Closes the coverage gap Tess raised on PR #327 (comment 5025894753): round-3 fixed
+        /// the wood belt→held path but shipped NO capture that drives a wood index through the hand.
+        ///
+        /// DRIVE LAYER — deliberately the REAL BELT-SELECTION seam, NOT <see cref="HeldWeaponCycleDebug.ShowWeaponForCaptureDebug"/>.
+        /// The soak-3 mechanism is <c>InventoryModel.SelectBelt → Inventory.Changed → SyncHeldVisualToSelection →
+        /// WoodSelectionIndexFor → ApplyCurrent</c> for the MESH plus <c>HeldAxe.ShouldShow → IsHeldVisualWeaponSelected</c>
+        /// for VISIBILITY. <c>ShowWeaponForCaptureDebug</c> FORCES an index and bypasses BOTH, so a gate built on it would
+        /// prove the mesh-swap path while the selection path — the half that actually broke — stayed untested (the same
+        /// "the gate exercises a different layer than the bug" trap flagged on PR #351). It is used here for ONE thing:
+        /// seating the index-0 axe BASELINE mesh for the swap proof. Every JUDGED state comes from a real SelectBelt.
+        /// No new mesh path is added — ResolveMeshes/ApplyCurrent is the same code -verifyHeldBelt already drives.
+        ///
+        /// MESH-IDENTITY ASSERT (the assert the PlayMode sibling structurally CANNOT make): the expected mesh per wood
+        /// tool is read from the committed <c>Resources/WeaponSetLineup.prefab</c> node named
+        /// <c>HeldWeaponCycleDebug.WeaponNodeNames[index]</c>, and the holder's sharedMesh must be THAT EXACT mesh. A
+        /// stale/short lineup prefab makes <c>ApplyCurrent</c> fall back to the AXE mesh — visually "a stone axe in hand
+        /// where a wood sword should be", which a renderer-enabled OR a vertex-count-differs assert both MISS.
+        /// <c>HeldBeltWeaponVisualPlayModeTests.WoodAxeSelected_ShowsInHand_AtTheWoodAxeIndex</c> deliberately skips mesh
+        /// identity because a no-bootstrap run reads the stale committed prefab; the shipped build ALWAYS bootstraps
+        /// (PrepareWeaponPack re-bakes the 15 nodes), so this is the only layer where identity is checkable.
+        ///
+        /// Headless-capable via RT-readback (86cag93zb) — self-asserts are LOGIC (renderer enabled + index + mesh
+        /// identity), so the capture mechanism never touches the verdict.
+        ///   FarHorizon.exe -batchmode -verifyHeldWood -captureDir &lt;dir&gt;
+        /// Frames: held_wood_empty.png (the negative control) + held_wood_&lt;tool&gt;.png/_close.png ×5 (11 total).
+        /// Quits non-zero on ANY failed state or missing wiring, so the exe's exit code IS the gate verdict.
+        /// </summary>
+        private IEnumerator RunHeldWoodVerification()
+        {
+            string dir = ResolveDir();
+            Directory.CreateDirectory(dir);
+
+            GameObject axe = FindHeroAxe();
+            if (axe == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-WOOD: HeroAxe not in scene — the held seat is missing");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var cycle = axe.GetComponent<HeldWeaponCycleDebug>();
+            var gate = axe.GetComponent<HeldAxe>();
+            if (cycle == null || gate == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-WOOD: HeroAxe lacks HeldWeaponCycleDebug/HeldAxe " +
+                               "(cycle=" + (cycle != null) + " gate=" + (gate != null) + ") — build-side regression");
+                yield return null; Application.Quit(1); yield break;
+            }
+            var inventory = gate.inventory != null ? gate.inventory : Object.FindAnyObjectByType<Inventory>();
+            var castaway = Object.FindAnyObjectByType<CastawayCharacter>();
+            if (inventory == null || castaway == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-WOOD: missing Inventory (" + (inventory != null) +
+                               ") or CastawayCharacter (" + (castaway != null) + ")");
+                yield return null; Application.Quit(1); yield break;
+            }
+
+            var orbit = Object.FindAnyObjectByType<OrbitCamera>();
+            if (orbit != null) orbit.enabled = false;
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-WOOD: no Camera.main");
+                yield return null; Application.Quit(1); yield break;
+            }
+            cam.fieldOfView = 40f;
+            for (int i = 0; i < 8; i++) yield return null; // Awake/OnEnable wiring settle
+
+            // Face the castaway toward the camera so the right-hand weapon reads in frame.
+            castaway.FaceWorldYawInstant(heldBeltViewYaw + 165f);
+
+            // --- STATE 0: NEGATIVE CONTROL — belt empty at boot -> empty hands. Runs BEFORE anything is granted or
+            //     force-shown, so it proves the gate can distinguish shown-from-hidden (a gate that only ever asserts
+            //     "shown" cannot tell a working seat from a permanently-visible one).
+            bool emptyHiddenAtBoot = !AnyRendererEnabled(axe);
+            Debug.Log("[AxeVerifyCapture] HELD-WOOD STATE-0 (empty belt): hidden=" + emptyHiddenAtBoot);
+            yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                          Path.Combine(dir, "held_wood_empty.png"));
+
+            // Baseline: seat index 0 so AxeOriginalMesh + its vertexCount are the swap reference. This is the ONLY
+            // ShowWeaponForCaptureDebug use here — no judged state comes from it (see the summary's DRIVE LAYER note).
+            cycle.ShowWeaponForCaptureDebug(HeldWeaponCycleDebug.AxeFamilyIndex);
+            yield return null;
+            int axeVerts = HolderVerts(cycle);
+            Mesh axeBaseline = cycle.AxeOriginalMesh;
+
+            // Read the EXPECTED per-tool mesh straight off the committed lineup prefab (the same source ResolveMeshes
+            // reads). A missing node here IS the stale-prefab defect — fail loud rather than let ApplyCurrent's silent
+            // axe fallback pass as "a wood weapon in hand".
+            var expected = new Mesh[HeldWeaponCycleDebug.WeaponNodeNames.Length];
+            var lineup = Resources.Load<GameObject>(HeldWeaponCycleDebug.LineupResourcePath);
+            if (lineup == null)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-WOOD: Resources/" + HeldWeaponCycleDebug.LineupResourcePath +
+                               " missing from the shipped build — no wood mesh can resolve");
+                Application.Quit(1); yield break;
+            }
+            foreach (var mf in lineup.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                for (int i = 0; i < HeldWeaponCycleDebug.WeaponNodeNames.Length; i++)
+                    if (mf.name == HeldWeaponCycleDebug.WeaponNodeNames[i]) expected[i] = mf.sharedMesh;
+            }
+
+            // GRANT + SELECT each wood tool through the REAL model seams (the same AddToolToBelt/SelectBelt pair the
+            // crafting-menu grant + a hotbar click drive; BoulderVerifyCapture uses the identical pattern for the wood
+            // pickaxe). The belt is 5 slots and there are exactly 5 wood tools, so they all fit.
+            bool pass = emptyHiddenAtBoot;
+            var slots = new int[WoodTiers.Length];
+            for (int n = 0; n < WoodTiers.Length; n++)
+            {
+                var t = WoodTiers[n];
+                slots[n] = -1;
+                var def = inventory.Catalog != null ? inventory.Catalog.ById(t.itemId) : null;
+                if (def == null)
+                {
+                    Debug.LogError("[AxeVerifyCapture] HELD-WOOD " + t.label + ": catalog has no item id '" +
+                                   t.itemId + "' — the wood tier is not in the shipped ItemCatalog");
+                    pass = false;
+                    continue;
+                }
+                var placed = inventory.Model.AddToolToBelt(def);
+                if (!placed.HasValue)
+                {
+                    Debug.LogError("[AxeVerifyCapture] HELD-WOOD " + t.label + ": AddToolToBelt refused '" +
+                                   t.itemId + "' — not belt-eligible or both the belt AND the pack are full");
+                    pass = false;
+                    continue;
+                }
+                // AddToolToBelt falls back to the PACK when the belt is full and returns an Inventory-area SlotRef —
+                // feeding that index to SelectBelt would silently select the WRONG belt slot and the gate would judge a
+                // state it never drove. Fail loud instead (5 belt slots vs 5 wood tools should always fit on a fresh boot).
+                if (placed.Value.Area != SlotArea.Belt)
+                {
+                    Debug.LogError("[AxeVerifyCapture] HELD-WOOD " + t.label + ": '" + t.itemId + "' landed in " +
+                                   placed.Value + ", not the BELT — the belt was already occupied at boot, so this " +
+                                   "gate cannot drive a belt selection for it");
+                    pass = false;
+                    continue;
+                }
+                slots[n] = placed.Value.Index;
+                inventory.Model.SelectBelt(slots[n]);
+                for (int i = 0; i < 10; i++) yield return null;
+
+                bool shown = AnyRendererEnabled(axe);
+                int woodSelIndex = HeldWeaponCycleDebug.WoodSelectionIndexFor(inventory);
+                Mesh holder = cycle.MeshHolder != null ? cycle.MeshHolder.sharedMesh : null;
+                int verts = HolderVerts(cycle);
+                bool indexRight = cycle.CurrentIndex == t.index;
+                bool selectionMaps = woodSelIndex == t.index;
+                bool meshRight = holder != null && expected[t.index] != null && holder == expected[t.index];
+                bool notAxeFallback = holder != null && holder != axeBaseline;
+                bool selectionOwnsVisual = !cycle.DebugViewActive;
+                bool ok = shown && indexRight && selectionMaps && meshRight && notAxeFallback && selectionOwnsVisual;
+                pass &= ok;
+                Debug.Log("[AxeVerifyCapture] HELD-WOOD " + t.label + " (belt slot " + slots[n] + " selected): shown=" +
+                          shown + " index=" + cycle.CurrentIndex + "/" + t.index + " woodSelectionIndex=" + woodSelIndex +
+                          " meshIsExpectedNode=" + meshRight + " ('" + HeldWeaponCycleDebug.WeaponNodeNames[t.index] +
+                          "', holder='" + (holder != null ? holder.name : "<null>") + "' verts=" + verts +
+                          "; axe baseline verts=" + axeVerts + ") notAxeFallback=" + notAxeFallback +
+                          " selectionOwnsVisual=" + selectionOwnsVisual + " => " + (ok ? "OK" : "FAIL"));
+                yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                              Path.Combine(dir, t.file));
+                yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltCloseDistance,
+                                              Path.Combine(dir, t.file.Replace(".png", "_close.png")));
+            }
+
+            // --- FINAL STATE: re-select the WOOD AXE after the other four were displayed -> the WOOD-AXE mesh must
+            //     RETURN. This is the soak-224 crossed-state regression in its WOOD flavour (selecting tool A after
+            //     tool B was shown must never leave B's stale mesh in the hand); untested anywhere else.
+            bool axeReturns = false;
+            if (slots[0] >= 0)
+            {
+                inventory.Model.SelectBelt(slots[0]);
+                for (int i = 0; i < 10; i++) yield return null;
+                Mesh holder = cycle.MeshHolder != null ? cycle.MeshHolder.sharedMesh : null;
+                axeReturns = AnyRendererEnabled(axe) &&
+                             cycle.CurrentIndex == HeldWeaponCycleDebug.AxeWoodFamilyIndex &&
+                             holder != null && holder == expected[HeldWeaponCycleDebug.AxeWoodFamilyIndex];
+                Debug.Log("[AxeVerifyCapture] HELD-WOOD FINAL (wood axe re-selected after the other four): returns=" +
+                          axeReturns + " index=" + cycle.CurrentIndex + " holder='" +
+                          (holder != null ? holder.name : "<null>") + "'");
+            }
+            pass &= axeReturns;
+
+            Debug.Log("[AxeVerifyCapture] HELD-WOOD verification complete (emptyHiddenAtBoot=" + emptyHiddenAtBoot +
+                      " woodAxeReturns=" + axeReturns + ") => " + (pass ? "GATE-PASS" : "GATE-FAIL") + " -> " + dir);
+            yield return new WaitForSeconds(0.3f);
+            Application.Quit(pass ? 0 : 1);
+        }
+
         private static int HolderVerts(HeldWeaponCycleDebug cycle)
             => cycle.MeshHolder != null && cycle.MeshHolder.sharedMesh != null
                ? cycle.MeshHolder.sharedMesh.vertexCount : -1;
@@ -335,7 +544,9 @@ namespace FarHorizon
             var cam = camGo.GetComponent<Camera>();
             Texture2D tex = RenderTextureCapture.CaptureCameraToTexture(cam, captureWidth, captureHeight, file);
             if (tex != null) Object.Destroy(tex);
-            Debug.Log("[AxeVerifyCapture] HELD-BELT wrote " + file);
+            // 86cav8y74: label kept tier-neutral — this helper is shared by the held-belt, held-pickaxe AND held-wood
+            // paths, and a "HELD-BELT wrote held_wood_sword.png" line reads as evidence from the wrong gate.
+            Debug.Log("[AxeVerifyCapture] HELD wrote " + file);
         }
 
         // SOAKFIX8 FIX1 + 86ca9xz00 (AC5 — DYNAMIC facing, NOT static per-facing snapshots). The prior version

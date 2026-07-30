@@ -821,7 +821,7 @@ echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ===
 # wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
 # the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
 # its aggregate fail path, so the grep needle is uniform too.
-for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar; do
+for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood weaponfind; do
   G="$SCRIPTS/verify_${g}_gate.sh"
   make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
   assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
@@ -844,8 +844,31 @@ echo "=== gate launch-mode invariant (86cag93zb — headless RT-readback vs wind
 # match a '#'-prefixed comment; '-screen-fullscreen 0' appears only in the windowed launch flag line) —
 # zero Unity dependency, runs every PR in the license-free structure job. A NEW gate must be added to the
 # matching list here (mirrors the wedge-retry loop above — this is the launch-mode regression guard).
+#
+# ⚠ RESIDUAL BLIND SPOTS of BOTH asserts below (86caynve7 AC3) — DOCUMENTED, deliberately NOT chased.
+# They are the price of a static grep in a deliberately Unity-free job; the runtime-truth guard for
+# what actually reaches the exe is the capture gate itself. Do not read either assert as complete.
+#   1. LINE-START IS NOT LAUNCH-POSITION. `^[[:space:]]*` pins a flag to the start of SOME line, not
+#      to the `timeout … "$EXE" \` continuation it belongs to. A stale flags block, a commented-out
+#      -launch leftover, or a second launch site that drops the flag would still green. Latent only
+#      today: each windowed gate has 3 `"$EXE"` references, of which 2 are `-z`/`-f` guards and
+#      exactly 1 is a real launch. The same axis cuts the other way on an anchored NEGATIVE — a
+#      `-batchmode` appended MID-line (`-screen-fullscreen 0 -batchmode \`) escapes the anchor and
+#      greens. Anchoring the windowed negative is nonetheless required, because the unanchored
+#      alternative reds all 8 windowed gates on their header prose (see the asymmetry note below).
+#   2. STATIC IS NOT RUNTIME. Nothing here proves the flag reaches the exe — a conditional launch, an
+#      `EXTRA_FLAGS` var, or a `$@` passthrough all defeat it.
 assert_launch_headless() { # <script-name>
   local s="$SCRIPTS/$1"
+  # ⚠ LEAVE THE NEGATIVE HALF BELOW UNANCHORED — DELIBERATELY. This is NOT an oversight and NOT a
+  # symmetry bug to "clean up" against the anchored negative in assert_launch_windowed. Verbatim
+  # from the 86caynve7 source review (#353 comment 5109934787 §3): "Anchoring L849 to
+  # `^[[:space:]]*` would *introduce* a false-PASS, not remove one: a headless gate that appended
+  # the flag mid-line (`-batchmode -screen-fullscreen 0 \`) would stop being detected and would
+  # green. The current unanchored form is the conservative one. Any follow-up should record 'leave
+  # L849 unanchored deliberately', not 'anchor L849 for symmetry'." Proven empirically on this
+  # branch: appending `-screen-fullscreen 0` mid-line to verify_chop_gate.sh's launch line REDS the
+  # unanchored form and FALSE-PASSES an anchored one. Cheap to re-check — it is a 2-line mutation.
   if grep -qE '^[[:space:]]*-batchmode' "$s" && ! grep -q -- '-screen-fullscreen 0' "$s"; then
     ok "launch-mode: $1 launches -batchmode (headless RT-readback), no windowed swapchain"
   else
@@ -854,22 +877,96 @@ assert_launch_headless() { # <script-name>
 }
 assert_launch_windowed() { # <script-name>
   local s="$SCRIPTS/$1"
-  if grep -q -- '-screen-fullscreen 0' "$s"; then
-    ok "launch-mode: $1 keeps -screen-fullscreen 0 (overlay/soak-fragile gate needs a window)"
+  # ANCHORED (86caxj8zw, #344 NIT): the needle must match a LAUNCH LINE, not header PROSE. An
+  # unanchored `grep -q -- '-screen-fullscreen 0'` false-PASSED verify_boar_gate.sh — the only
+  # windowed gate whose header comment also names the flag (2 hits vs the other seven's 1) — so
+  # deleting its real launch flags left the assert GREEN, exactly the headless conversion this
+  # loop exists to red. `^[[:space:]]*` pins the flag to the start of a continuation line (all 8
+  # windowed gates write it as the first token of the flags line), which a `#`-prefixed comment
+  # can never satisfy. Mirrors the already-anchored '^[[:space:]]*-batchmode' above.
+  #
+  # TWO-SIDED (86caynve7): the presence half above is not sufficient on its own. Until this ticket
+  # the assert tested ONLY for presence of the windowed flag, so a gate carrying BOTH `-batchmode`
+  # AND the window flags stayed GREEN — mutation-proven on verify_boar_gate.sh with `-batchmode`
+  # added as its own flag line and the window flags left intact: `134 passed, 0 failed`, exit 0,
+  # `[ OK ] launch-mode: verify_boar_gate.sh keeps -screen-fullscreen 0 on the launch line`. That
+  # mutation is exactly the regression this loop exists to red: `-batchmode` kills
+  # ScreenCapture.CaptureScreenshot + WaitForEndOfFrame, so the gate captures BLACK FRAMES while
+  # its logic half still exits 0 (the #287 false-empty class). The negative half below closes it.
+  #
+  # ⚠ THE ASYMMETRY WITH assert_launch_headless IS DELIBERATE — do NOT "fix" it. THIS side's
+  # negative must be ANCHORED; the HEADLESS side's negative must stay UNANCHORED (see the verbatim
+  # do-not-anchor note in that function). Measured on origin/main @ 840a1c6, re-measured on this
+  # branch: all 8 windowed gates name `-batchmode` in header PROSE — 1 unanchored hit each for
+  # settings/loot/water/invdragghostpos/pond/buildmenu, 2 for weaponset/boar — but 0 of them have
+  # an ANCHORED hit, so an anchored negative reds NONE of them today while an unanchored one would
+  # red all eight immediately. The 8 headless gates carry 0 `-screen-fullscreen 0` hits of ANY
+  # kind, and for a negation unanchored is the conservative direction. They are not symmetric, and
+  # not by accident. Re-measure both counts before touching either needle.
+  if grep -qE '^[[:space:]]*-screen-fullscreen 0' "$s" && ! grep -qE '^[[:space:]]*-batchmode' "$s"; then
+    ok "launch-mode: $1 keeps -screen-fullscreen 0 and adds no -batchmode on the launch line (overlay/soak-fragile gate needs a window)"
   else
-    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 (its IMGUI/UI-Toolkit overlay is dead headless)"
+    bad "launch-mode: $1 MUST keep -screen-fullscreen 0 on its LAUNCH LINE **AND** MUST NOT add -batchmode there (its IMGUI/UI-Toolkit overlay is dead headless — an added -batchmode yields BLACK frames while the logic half still exits 0; a header-comment mention of either flag does not count)"
   fi
 }
-for s in capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh verify_placement_gate.sh verify_mine_gate.sh verify_boulder_gate.sh; do
-  assert_launch_headless "$s"
-done
+HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh verify_sky_gate.sh
+                verify_placement_gate.sh verify_mine_gate.sh verify_boulder_gate.sh verify_heldwood_gate.sh)
 # verify_boar_gate.sh (86cavg2k1 NIT 2) belongs on the WINDOWED side for the same reason as
 # verify_weaponset_gate.sh: BoarVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame,
 # both dead under -batchmode — a "helpful" headless conversion would silently produce black frames while
 # the logic half still exited 0 (the #287 false-empty class). This entry reds that conversion.
-for s in verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh verify_buildmenu_gate.sh verify_boar_gate.sh; do
-  assert_launch_windowed "$s"
-done
+#
+# verify_weaponfind_gate.sh (86cah7y5b) registers WINDOWED for the same reason, and it is registered HERE
+# rather than on #351's own branch because the two changes never touched the same file: the glob-driven
+# gate-wiring loop below (86cav8y74) landed on main AFTER #351 forked, so git merged this file with ZERO
+# textual conflict while the loop's launch-mode-registration half went red on the new wrapper — a SEMANTIC
+# collision the merge itself cannot surface. Measured on the merged tree, not assumed: the wrapper carries
+# an ANCHORED '-screen-fullscreen 0' on its launch line (verify_weaponfind_gate.sh:63) and ZERO anchored
+# '-batchmode' hits, so it satisfies BOTH halves of the two-sided assert above (86caynve7). It must stay
+# windowed: WeaponFindVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame, and
+# weaponfind_side.png is the side-profile silhouette a human eyeballs before review.
+WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
+                verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
+                verify_buildmenu_gate.sh verify_boar_gate.sh verify_weaponfind_gate.sh)
+for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
+for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
+
+echo "=== every verify_*_gate.sh is CI-WIRED + launch-mode-registered (86cav8y74) ==="
+# THE BUG CLASS THIS GUARDS: a capture gate that is authored, self-asserting, and PASSES when run by hand
+# — but that ci.yml never invokes, so it gates NOTHING and a real regression ships behind green CI. This is
+# not hypothetical: `-verifySwings` (SwingVerifyCapture.cs) has ZERO hits under .github/ as of 86cav8y74 —
+# it has passed manually since PR #327 and has never blocked a merge. -verifyMine (#299), -verifyBoulder
+# (#303) and -verifyBoar (86cavg2k1 NIT 2) each spent weeks in exactly that state before someone noticed by
+# grep. Both gaps THIS ticket closes are the same shape one layer down (a gate covering stone/iron but not
+# wood). So: make the omission MECHANICAL rather than grep-when-you-remember.
+#   (a) every wrapper must be INVOKED in ci.yml — an unwired wrapper is dead weight pretending to be a gate;
+#   (b) every wrapper must appear in exactly one launch-mode list above — so its -batchmode-vs-windowed
+#       choice is pinned and a "helpful" conversion reds (the #287 false-empty class).
+# Deliberately scoped to the WRAPPERS, not to every -verify* flag: several flags (-verifyAxe,
+# -verifyHeldPickaxe, -verifyCastaway, -verifySwings…) are author-run Self-Test evidence BY DESIGN and have
+# no wrapper — asserting on flags would demand a CI gate for each, which is a scope call, not a defect.
+# Adding a wrapper is the act that declares "this should gate", and that is what this check holds you to.
+ALL_LAUNCH_REGISTERED=("${HEADLESS_GATES[@]}" "${WINDOWED_GATES[@]}")
+CI_YML="$ROOT/.github/workflows/ci.yml"
+if [ ! -f "$CI_YML" ]; then
+  bad "gate-wiring: ci.yml not found at $CI_YML"
+else
+  for path in "$SCRIPTS"/verify_*_gate.sh; do
+    g="$(basename "$path")"
+    if grep -qF "scripts/$g" "$CI_YML"; then
+      ok "gate-wiring: $g is invoked by ci.yml"
+    else
+      bad "gate-wiring: $g exists but ci.yml NEVER invokes it — it gates nothing (the -verifySwings class). Wire it into the capture job or delete it."
+    fi
+    reg=0
+    for r in "${ALL_LAUNCH_REGISTERED[@]}"; do [ "$r" = "$g" ] && reg=1; done
+    if [ "$reg" -eq 1 ]; then
+      ok "gate-wiring: $g is registered in a launch-mode list"
+    else
+      bad "gate-wiring: $g is not in HEADLESS_GATES or WINDOWED_GATES — its launch mode is unpinned (a headless/windowed flip would regress silently)"
+    fi
+  done
+fi
 
 echo "=== parse_test_results.py skip-handling (86camz787 — PlayMode advisory→required) ==="
 # THE bug class this guards: the shared NUnit result gate must treat SKIPPED/IGNORED

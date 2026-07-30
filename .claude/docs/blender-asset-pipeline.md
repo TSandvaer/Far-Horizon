@@ -7,14 +7,14 @@ This is the concise decision-forcing checklist. Full citations and depth at `tea
 
 ## 0. The Style Contract — Read This Before You Open Blender
 
-The weapon/tool/prop family lives in a **single flat-shaded palette world**. The deciding constraint is the shading model: a per-asset baked texture atlas (what the current shipped axe uses) imports its own lighting and reads as a foreign object beside faceted flat geometry. That approach is BANNED for new assets.
+The weapon/tool/prop family lives in a **single flat-shaded palette world**. The deciding constraint is the shading model: a per-asset baked texture atlas (what the RETIRED CC-BY axe used) imports its own lighting and reads as a foreign object beside faceted flat geometry. That approach is BANNED for new assets.
 
 Every new asset must:
 - Use the **shared palette material** (one URP/Unlit mat + one 128×128 `weapon_palette.png`) — never a per-asset texture.
 - Match the inspiration board (`inspiration/21h08_08.png` for axe; `21h06_54`, `21h07_20`, `21h07_42` for the full family). Look at the actual images before modeling anything.
 - Be faceted and chunky, not smooth or machined.
 
-> The current shipped axe (`Assets/Art/Props/CastawayAxe/`) is a **placeholder, NOT the style anchor**. Do not tune its look as if it were final.
+> **History — the warning that produced this contract (RESOLVED 2026-06-23, PR #100).** The axe that shipped *before* this pipeline (`CastawayAxe/` — Viktor.G "One-handed stylized axe", Sketchfab CC-BY, baked photographic atlas) was a **placeholder, NEVER the style anchor**. It is **gone**: PR #100 (`031d43a`, ticket `86cabh907`) shipped the in-house weapon SET and deleted that asset folder together with its CC-BY license file. **Do not go looking for `CastawayAxe/` — the path does not exist.** The live family is `Assets/Art/Props/WeaponPack/` on the shared palette material, and **that** set is the anchor. The lesson survives the asset: a per-asset sourced/atlased one-off is what broke cohesion, so do not re-source one to sidestep this contract.
 
 ---
 
@@ -24,7 +24,8 @@ Every new asset must:
 - **Save the `.blend` source OUTSIDE `Assets/`** — `art-src/weapons_reauthor.blend` is the live source (established 2026-07-03). Unity auto-imports any `.blend` under `Assets/` when Blender is installed on the machine, so a WIP source dropped next to the FBXs would pollute the Unity project with a duplicate auto-imported model. Only the exported FBX goes into `Assets/Art/Props/WeaponPack/`.
 - **Character reference:** 1.8m cube in the scene at all times — all weapon proportions scale against it. Hafts read "chunky" at ~0.08m diameter vs 1.8m height.
 - **Collections:** `Blockout` / `LowPoly` / `Export`. Keep finished weapons in `Export` collection for FBX selection.
-- **Naming convention:** `wpn_axe_01`, `wpn_knife_01`, `wpn_sword_01`, `wpn_spear_01`, `prop_crate_wood_01`, `env_rock_03`. Consistent prefix (`wpn_` / `prop_` / `env_`) + material + index. Unity mirrors the filename as the asset name.
+- **Naming convention:** `wpn_axe_stone_01`, `wpn_knife_iron_01`, `wpn_sword_wood_01`, `wpn_pickaxe_stone_01`, `prop_crate_wood_01`, `env_rock_03`. Consistent prefix (`wpn_` / `prop_` / `env_`) + material + index. Unity mirrors the filename as the asset name.
+  - **The tier/material token is MANDATORY as soon as a noun has sibling variants — including on the FIRST sibling authored** (decided 2026-07-30, ticket `86caynyq7`). If a noun ships, or is planned to ship, in more than one tier or material, every sibling carries the token — `wpn_axe_stone_01`, never the token-less `wpn_<noun>_<index>` form. If the noun has exactly one variant and no tier ladder, omit it — **`env_rock_03` is correct as it stands and must NOT be churned into a false material token.** WHY: the token is the only field that separates same-noun siblings, so a token-less name in a tierable family is a guaranteed rename the moment the second variant lands — exactly what happened when the three-tier set replaced the untiered flint axe (#254, `1a55491`). It is also the file's first line of spec: the tier IS the surface recipe (`weapon-tool-style-spec.md` §4.1 — wood crude/pale · stone knapped/grey · iron forged/cool), so a tier-bearing filename tells the next dev which recipe binds the mesh before they open it.
 - **Tier-row convention in `weapons_reauthor.blend`** (wood-tier weapon burst, 2026-07-08): tiers are laid out by Y-row — iron at `y=0.6`, stone at `y=0.0`, wood at `y=-0.6`. `ref_character_18m` is the permanent scale-reference object (the 1.8m character-reference cube from the bullet above) — **never delete it**; reference it by name (`bpy.data.objects['ref_character_18m']`) when scaling new assets against it.
 
 ---
@@ -217,7 +218,7 @@ Run these IN ORDER before File > Export > FBX:
 
 **PDF note:** The attached PDF guide recommends `Apply Transform = ON` and `Smoothing = Face`. These are WRONG for this project. `Apply Transform` corrupts rigged meshes and is deprecated; `Smoothing = Face` discards the Mark Sharp normal data and falls back to flat-shaded per-face normals (loses the Shade Smooth gradient on grip cylinders). Use the settings in the table above.
 
-Save FBX to `Assets/Art/Props/WeaponPack/`: `wpn_axe_01.fbx` etc.
+Save FBX to `Assets/Art/Props/WeaponPack/`: `wpn_axe_stone_01.fbx` etc. — tier token per the §1 naming rule.
 
 > **§8 is for weapons/props/static meshes ONLY — NEVER for a character headed to Mixamo (castaway v4, `86catpwc4`, 2026-07-18).** These settings declare `Up=+Z / Front=+Y` in the FBX GlobalSettings and rely on Unity's Bake-Axis-Conversion to digest that; **Mixamo has no such option** and auto-rigs the character BACKWARD (back-facing load; Orient-step rotation + correct markers do NOT save it). Characters destined for Mixamo export with **Blender's FBX defaults** (`-Z Forward / Y Up / FBX_SCALE_NONE`, no geometry rotation) — confirmed root cause, the raw-parse verification ritual, and the full recipe live in `character-pipeline.md` §Step 3.
 
@@ -277,7 +278,7 @@ MCP (`execute_blender_code`) is useful for mechanical batch steps. It cannot mak
 
 Write the `bpy` operations (material setup, UV placement, transform-apply, normals, FBX export) as a standalone `.py` script and pass it via `--python`. **The `bpy` API is identical** — every snippet that would run in `execute_blender_code` runs unchanged in the script; every YES/PARTIAL row in the table above is achievable this way. Exit code 0 = success; non-zero = a Python exception (read stdout for the traceback). Commit the script next to the FBX so future passes re-run deterministically.
 
-**Empirical precedent (PR #100, ticket `86cabh907`):** Devon re-authored `Assets/Art/Props/WeaponPack/wpn_axe_01.fbx` (axe-head shrink to 0.8×) by running Blender 5.1 `--background --python` headlessly — scaling only the 45 blade verts about the head-base pivot, preserving grip-point origin (0,0,0) + +Z forward axis + the single `WeaponPalette` material slot, then re-exporting FBX (`-Y Forward / Z Up / Normals Only`) — *because the MCP tools were not exposed to his agent.*
+**Empirical precedent (PR #100, ticket `86cabh907`):** Devon re-authored the then-current hero axe FBX in `Assets/Art/Props/WeaponPack/` (axe-head shrink to 0.8×) by running Blender 5.1 `--background --python` headlessly — scaling only the 45 blade verts about the head-base pivot, preserving grip-point origin (0,0,0) + +Z forward axis + the single `WeaponPalette` material slot, then re-exporting FBX (`-Y Forward / Z Up / Normals Only`) — *because the MCP tools were not exposed to his agent.* (That axe was the single-tier **flint** predecessor of today's three-tier set; its filename was retired in #254 / `1a55491` and is not a live path, so it is deliberately not quoted here — the METHOD is what carries forward.)
 
 | Route | Who | When |
 |---|---|---|
@@ -393,7 +394,7 @@ Check every item against the inspiration board (`21h08_08` for axe; `21h06_54`, 
 1. **Measure in Blender (preferred).** After the headless scale op, print the actual vertex bounds of the resized component:
    ```python
    import bpy
-   obj = bpy.data.objects["wpn_axe_01"]  # adjust mesh name
+   obj = bpy.data.objects["wpn_axe_stone_01"]  # adjust mesh name
    xs = [(obj.matrix_world @ v.co).x for v in obj.data.vertices]
    print(f"Head X-width: {max(xs)-min(xs):.4f}m")
    ```
@@ -424,7 +425,7 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | Leave origin at world (0,0,0) | Set origin to grip midpoint before export |
 | Add a MeshCollider in Unity | Add a Box Collider |
 | Let Unity auto-create material stubs | Material Creation Mode = None; assign manually |
-| Tune the current shipped axe as the style reference | The shipped axe is a placeholder — use `21h08_08` as the target |
+| Treat a sourced / atlas-textured one-off axe as the style reference (the pre-#100 placeholder) | That placeholder is GONE — deleted in PR #100 (`031d43a`, `86cabh907`, 2026-06-23; see §0 History). **The shipped in-house set `Assets/Art/Props/WeaponPack/` on the shared palette material IS the anchor** (§0), with `21h08_08` as the board target it was authored against |
 | Reblock a new same-tier tool from scratch | Duplicate the approved sibling, delete only its head island (verify identity via §12 item 5 first), keep haft/grip/pommel verbatim |
 | Use a diamond/lens eye section on a crosswise-mounted head (pickaxe/hammer/mattock) | Use a BOX-section eye wide enough to enclose the haft; taper to diamond only on the arms |
 | Extrude a new knife/sword blade from the handle stump after deleting the old one | Build a fresh closed shell (rings + apex) and `Join` it — knife/sword blades are a separate closed shell, not an open ring |

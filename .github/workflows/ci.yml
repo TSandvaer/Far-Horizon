@@ -463,7 +463,9 @@ jobs:
   #
   # HEADLESS RT-READBACK CONVERSION (86cag93zb AC2/AC3, 2026-07-03) — 4 SCENE-CONTENT gates now launch
   # -batchmode (NO -nographics, NO window): the GENERIC capture gate (capture_gate.sh), CHOP
-  # (verify_chop_gate.sh), HELD-BELT (verify_heldbelt_gate.sh) + SKY (verify_sky_gate.sh). Their
+  # (verify_chop_gate.sh), HELD-BELT (verify_heldbelt_gate.sh) + SKY (verify_sky_gate.sh); HELD-WOOD
+  # (verify_heldwood_gate.sh, 86cav8y74) was AUTHORED headless from day one, riding the same
+  # AxeVerifyCapture RT-readback helper as its held-belt sibling. Their
   # components render Camera.main / a dedicated cam into an OFFSCREEN RenderTexture
   # (RenderTextureCapture.CaptureCameraToTexture → RenderPipeline.SubmitRenderRequest, full URP post) and
   # read the pixels back — a real D3D12 device inits under -batchmode (proven on the shipped standalone
@@ -515,12 +517,14 @@ jobs:
                 ci-out/verify-water.log ci-out/verify-chop.log ci-out/capture.log \
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
                 ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
-                ci-out/verify-boulder.log ci-out/verify-buildmenu.log ci-out/verify-boar.log
+                ci-out/verify-boulder.log ci-out/verify-buildmenu.log ci-out/verify-boar.log \
+                ci-out/verify-heldwood.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
                  ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
-                 ci-out/boulder-caps ci-out/buildmenu-caps ci-out/boar-caps
+                 ci-out/boulder-caps ci-out/buildmenu-caps ci-out/boar-caps \
+                 ci-out/heldwood-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -780,7 +784,14 @@ jobs:
       #     the gate verdict; frame_check.py is a swapchain-content backstop. Runs only when
       #     the build produced an exe; frames + log upload AFTER (if: always()) so the chop
       #     evidence survives a fail.
-      - name: Chop capture gate (fell → pile → E-loot → wood in inventory)
+      #     TIER COVERAGE (86cav8y74, from Tess's PR #327 comment 5031539815 NIT 2): the demo-tree
+      #     phase acquires the STONE axe, so the WOOD-tier chop — the exact soak-4 repro, the tier
+      #     the Sponsor tested FIRST — used to have no shipped-build evidence. The SCATTER phase now
+      #     grants + SELECTS the WOOD axe through the real belt seams and the gate additionally
+      #     SELF-ASSERTs `woodAxeSelected` (wood selected AND any-axe-selected AND **NOT**
+      #     stone-selected), so a re-narrowing of ChopTree's axe gate to stone-only reds this step.
+      #     Both tiers are gated now; nothing was traded away. One extra frame: chop_wood_axe.png.
+      - name: Chop capture gate (fell → pile → E-loot → wood in inventory; stone tier + WOOD tier)
         if: always()
         shell: bash
         run: |
@@ -1123,7 +1134,54 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-      # 17. FIND-IN-WORLD WEAPON gate (86cah7y5b) — the SECOND acquisition route. The generic -captureGate
+      # 19. WOOD-TIER-IN-HAND shipped-build capture gate (ticket 86cav8y74 — closing the coverage gap Tess
+      #     raised on PR #327, comment 5025894753, verbatim: "round-3 fixed the wood belt→held path but
+      #     shipped NO shipped-build capture that drives a wood index through the hand. -verifyHeldBelt
+      #     covers stone axe/spear; -verifyHeldPickaxe covers stone/iron pickaxe. […] This is the 'green
+      #     test ≠ rendered-in-hand' gap that let soak-3 ship"). The soak-3 defect was "I craft a wooden
+      #     axe, select it, and NOTHING is in the hand"; round-3 fixed it but no shipped gate reached the
+      #     wood tier — the generic -captureGate (step 7) shoots the spawn frame with nothing acquired,
+      #     -verifyHeldBelt (step 12) drives stone axe + spear and CANNOT be extended to carry wood (the
+      #     belt is 5 slots, so 5 more tools would fill it and destroy that gate's "empty slot -> hidden"
+      #     STATE-3), and -verifyHeldPickaxe is author-run evidence that CI never invokes. So a re-break
+      #     would slip through GREEN CI exactly like the #165 chop / -verifyMine / -verifyBoulder class.
+      #     This launches the SAME built exe with -verifyHeldWood, driving AxeVerifyCapture's held-wood
+      #     path: assert EMPTY hands with an empty belt (the negative control), then GRANT + SELECT each of
+      #     the five wood tools through the REAL AddToolToBelt/SelectBelt seams (Inventory.Changed ->
+      #     SyncHeldVisualToSelection -> WoodSelectionIndexFor -> ApplyCurrent, the exact soak-3
+      #     mechanism — NOT the ShowWeaponForCaptureDebug force-path, which would bypass the half that
+      #     broke) and per tool SELF-ASSERT renderer-enabled + the wood family index + that the holder's
+      #     sharedMesh IS the committed lineup-prefab node for that index (an identity check: a stale/short
+      #     prefab silently falls back to the AXE mesh, which a vertex-count assert MISSES) + selection-owns-
+      #     the-visual, then re-select the wood axe and require its mesh RETURNS. The component Quit(1)s on
+      #     any failed state (or missing wiring), so the exe's exit code IS the gate verdict; frame_check.py
+      #     is a content backstop. HEADLESS (-batchmode, no -nographics) like its held-belt sibling. Runs
+      #     only when the build produced an exe; frames + log upload AFTER (if: always()).
+      - name: Held-wood capture gate (every wood tool renders its own mesh in-hand)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_heldwood_gate.sh
+            .github/workflows/scripts/verify_heldwood_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/heldwood-caps ci-out/verify-heldwood.log
+          else
+            echo "[verify-heldwood] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload held-wood frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-heldwood-caps-${{ github.sha }}
+          path: |
+            ci-out/heldwood-caps/*.png
+            ci-out/verify-heldwood.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 20. FIND-IN-WORLD WEAPON gate (86cah7y5b) — the SECOND acquisition route. The generic -captureGate
       #     (step 7) only shoots the DEFAULT SPAWN frame, and the seeded find sits ~10-16u out in the walkable
       #     annulus, so BOTH halves of this deliverable (the resting sword + the sword IN HAND after the loot)
       #     would otherwise have ZERO built-frame evidence. This launches the SAME built exe WINDOWED with

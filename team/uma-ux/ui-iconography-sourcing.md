@@ -31,7 +31,7 @@ The buckets are ordered by volume: A is a handful of objects, B is *most* of the
 Per `gameplay-ui-direction.md` §6.1: render the actual in-game low-poly prop to a flat sprite via a small offscreen-camera editor utility — **never hand-author a separate 2D drawing of the item**. The whole point is coherence: the icon *is* the same object the castaway holds, so the player never sees "two different axes."
 
 - **Recipe (verbatim from §6.2):** prop FBX in an offscreen scene → world soft key + fill + contact shadow → orthographic camera at a ~3/4 hero angle → render a 256×256 transparent PNG (displayed at 64px) → import as `Sprite (2D and UI)` into `Assets/Art/Icons/`.
-- **Source meshes:** axe = the shipped `Assets/Art/Props/CastawayAxe/` FBX (slate/steel head, **not** barn-red — DECISIONS 2026-06-14); wood/stone = simple faceted props scripted via Blender-MCP (`.claude/docs/unity-conventions.md` §Asset creation), the same mesh doubling as world pickup AND icon source.
+- **Source meshes:** axe = the shipped in-house `Assets/Art/Props/WeaponPack/wpn_axe_stone_01.fbx` (surface per `weapon-tool-style-spec.md` §4.1, **not** barn-red — DECISIONS 2026-06-14; **⚠ CORRECTED 2026-07-28 — this used to name `CastawayAxe/`, deleted in PR #100 `031d43a`**); wood/stone = simple faceted props scripted via Blender-MCP (`.claude/docs/unity-conventions.md` §Asset creation), the same mesh doubling as world pickup AND icon source.
 - **Re-bake on style change** = one command; the icon never drifts out of sync with the prop. This is why renders beat any drawn/generated 2D art for game objects.
 - **Fallback (§6.3):** a chunky warm-cream letter chip (`A`/`W`/`S` on a `slot-empty` well) if a bake lags — shippable, on-tone, swappable. Renders are still the target.
 
