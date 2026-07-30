@@ -601,6 +601,12 @@ namespace FarHorizon.PlayTests
             // That is the concrete way these two passes could come to measure different transitions, and this catches
             // it. A pairwise AreEqual(ctl, fx, 1) would NOT: 7 vs 6 is within one frame. Comparability then follows for
             // free, since both passes landing in {7, 8} bounds their spread at a single frame.
+            //
+            // THE RED IS MEASURED, NOT ARGUED. Forcing this fixture onto the sibling exit (TriggerMineSwing setting
+            // Moving TRUE) was run headless: the pass measured "crossfade out MEASURED 6 frames (0,100s)" and THIS
+            // assert is the one that fired — "Expected: 7.1999993324279785d +/- 1.0d / But was: 6.0d". And in the 16
+            // in-band observations on the real !Moving path (N=8 runs x 2 passes) the value was only ever 7 or 8, never
+            // 6 and never 9 — so the tolerance admits exactly the quantisation and nothing else.
             float authoredSec = AuthoredMineExitCrossfadeSeconds();
             float expectFrames = authoredSec / Dt;
             Assert.AreEqual(expectFrames, ctl.crossfadeFrames, 1f,
