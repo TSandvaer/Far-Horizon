@@ -177,12 +177,25 @@ namespace FarHorizon
                  "MineDeGripEuler to bake into MovementCameraScene.ArmMineDeGripEuler (the ship source).")]
         public Vector3 mineDeGripEuler = Vector3.zero;
 
-        [Tooltip("Per-second blend rate for the mine de-grip weight. The swing is reached by a 0.06s " +
+        [Tooltip("Per-second ENGAGE rate for the mine de-grip weight. The swing is reached by a 0.06s " +
                  "AnyState->AttackPickaxe crossfade, so the arm must be open by the time the strike reads: 12/s is " +
-                 "~0.25s to 95%, which lands inside the clip's wind-up rather than popping on the strike. Both " +
-                 "directions use this rate — unlike run-lower's asymmetry, because this offset is ADDED by an " +
-                 "overlay rather than handed BACK to one, so there is no 'must out-run the swing' release deadline.")]
+                 "~0.25s to 95%, which lands inside the clip's wind-up rather than popping on the strike.")]
         public float mineDeGripBlendRate = 12f;
+
+        [Tooltip("86cay4282 ROUND 5 — per-second RELEASE rate for the mine weight, the FAST hand-back. ⚠ THE PRIOR " +
+                 "TOOLTIP HERE CLAIMED THE SYMMETRY WAS DELIBERATE ('no must-out-run-the-swing release deadline') AND " +
+                 "THE SPONSOR'S SOAK REFUTED IT: there IS a release deadline, because this gate also drives the " +
+                 "left-arm IK PIN, which OVERRIDES the arm rather than adding to it. Measured on the live rig at 12/s " +
+                 "symmetric: on the first frame layer 0 had left AttackPickaxe the pin still displaced the upper arm " +
+                 "60.1deg / the palm 58.4cm off the Idle pose the body had already taken, settling only 0.350s later. " +
+                 "DERIVED, not picked: 60deg -> 1deg takes ln(60)/rate, and the deadline is the SHORTER crossfade out " +
+                 "this controller authors (0.10s -> Locomotion, 0.12s -> Idle), so rate >= ln(60)/0.10 = 40.9/s; 42/s " +
+                 "clears it at 0.097s so the arm and the body finish returning on the same frame. The first draft " +
+                 "reused the sibling 30/s (runLowerOverlayReleaseRate) and the crossfade-derived EditMode assert redded " +
+                 "it at 0.136s - precedent breaks ties between values that both satisfy the requirement, it does not " +
+                 "replace deriving one. ALL THREE mine offsets (this, HeldToolRig.mineSeatReleaseRate, " +
+                 "CastawayLeftArmHaftIk.releaseBlendRate) carry the same pair so they cannot ease out of step.")]
+        public float mineDeGripReleaseRate = 42f;
 
         // (86caa4c5c change-(b)) The chop SWING is now the Mixamo melee Animator Attack state
         // (CastawayCharacter.TriggerChop), NOT an additive bone offset — the rejected procedural ChopPoseDriver +
@@ -210,9 +223,33 @@ namespace FarHorizon
 
         /// <summary>The mine de-grip weight policy as a pure function (86cay4282) — symmetric ease toward 1 while
         /// the AttackPickaxe swing owns layer 0, toward 0 otherwise. LateUpdate calls THIS, so the EditMode ease
-        /// tests drive production math rather than a mirrored copy (the tautological-assert trap).</summary>
+        /// tests drive production math rather than a mirrored copy (the tautological-assert trap).
+        ///
+        /// ⚠ ROUND 5: this SYMMETRIC overload is retained for the EditMode ease-profile tests that pin the shape of one
+        /// rate; the three PRODUCTION consumers now call the ASYMMETRIC overload below.</summary>
         public static float NextMineDeGripWeight(float current, bool mineOwnsPose, float ratePerSec, float dt)
-            => StepRunWeight(current, mineOwnsPose ? 1f : 0f, ratePerSec, dt);
+            => NextMineDeGripWeight(current, mineOwnsPose, ratePerSec, ratePerSec, dt);
+
+        /// <summary>
+        /// 86cay4282 ROUND 5 — THE ASYMMETRIC MINE WEIGHT POLICY. Same shape, and for the same reason, as
+        /// <see cref="NextRunWeight"/>'s asymmetry (Devon's #343 review ADJUST 1): an offset that SEIZES the pose must
+        /// release FAST, while the ENGAGE rate stays the soaked one so the hand can never arrive before the haft does.
+        ///
+        /// WHY, MEASURED. With one symmetric 12/s rate, the shipped left-arm pin was still displacing the upper arm
+        /// 60.1deg (palm 58.4 cm) on the first frame layer 0 had left AttackPickaxe — the body already in Idle — and
+        /// took 0.350 s to come back. That is the round-4 soak defect. The release rate is DERIVED from the deadline:
+        /// falling 60deg to under 1deg takes ln(60)/rate, and the binding window is the SHORTER crossfade out this
+        /// controller authors (0.10 s -> Locomotion, vs 0.12 s -> Idle), so rate >= 40.9/s; the shipped 42/s clears it
+        /// at 0.097 s and the arm and body finish returning together instead of the arm lagging a third of a second
+        /// behind. All THREE consumers (arm de-grip, seat delta, left-arm pin) call this with the same pair of rates, so
+        /// the documented "one gate, one ease, never out of step" invariant is preserved by construction.
+        /// </summary>
+        /// <param name="holdsPose">CastawayCharacter.MineSwingHoldsPose — owns-the-pose MINUS the hand-back window.</param>
+        /// <param name="engageRate">the soaked ease-in rate (12/s ≈ 0.25 s to 95%).</param>
+        /// <param name="releaseRate">the fast hand-back rate (42/s), used whenever the target is 0.</param>
+        public static float NextMineDeGripWeight(float current, bool holdsPose, float engageRate, float releaseRate,
+                                                float dt)
+            => StepRunWeight(current, holdsPose ? 1f : 0f, holdsPose ? engageRate : releaseRate, dt);
 
         void Awake()
         {
@@ -296,8 +333,13 @@ namespace FarHorizon
             // is the documented trap shape this codebase already paid for once (86caxj30g / 884c611). The live gate
             // FAILS CLOSED with no character/Animator, so the offset can never engage on a rig that has no
             // controller — the carry/idle/walk/run pose stays byte-identical to pre-86cay4282 there.
-            bool mineOwnsPose = character != null && character.MineSwingOwnsPose;
-            _mineWeight = NextMineDeGripWeight(_mineWeight, mineOwnsPose, mineDeGripBlendRate, Time.deltaTime);
+            //
+            // ROUND 5 — the gate is now MineSwingHoldsPose (owns MINUS the hand-back window) and the ease is
+            // ASYMMETRIC, so the offset starts returning on the FIRST frame of the crossfade out and is gone inside
+            // it. Both changes are release-side only: the engage half (crossfade IN, 12/s) is byte-unchanged.
+            bool mineHoldsPose = character != null && character.MineSwingHoldsPose;
+            _mineWeight = NextMineDeGripWeight(_mineWeight, mineHoldsPose, mineDeGripBlendRate, mineDeGripReleaseRate,
+                                              Time.deltaTime);
 
             // Compose the offset ON the clip's animated localRotation for THIS frame (the Animator already
             // ran). bone.localRotation here is the clip pose; right-multiplying by the offset rotates in the

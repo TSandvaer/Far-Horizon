@@ -143,10 +143,24 @@ namespace FarHorizon
                  "purely on the AttackPickaxe state as designed.")]
         public bool debugForceEngaged;
 
-        [Tooltip("Per-second blend rate for the pin weight. Matches CastawayArmPose.mineDeGripBlendRate and " +
+        [Tooltip("Per-second ENGAGE rate for the pin weight. Matches CastawayArmPose.mineDeGripBlendRate and " +
                  "HeldToolRig.mineSeatBlendRate (12/s ~= 0.25 s to 95%) DELIBERATELY: the arm offset, the seat delta " +
-                 "and this pin share ONE gate and ONE ease, so the hand can never arrive before the haft does.")]
+                 "and this pin share ONE gate and ONE ease, so the hand can never arrive before the haft does. " +
+                 "Measured: reaches 0.95 at ~0.26 s after the trigger (asserted, round 5).")]
         public float blendRate = 12f;
+
+        [Tooltip("86cay4282 ROUND 5 — per-second RELEASE rate. ⚠ THIS FIELD EXISTS BECAUSE THE SPONSOR'S SOAK FOUND " +
+                 "WHAT FOUR GREEN GATES COULD NOT: rounds 1-4 only ever measured this pin ENGAGED. Nothing measured it " +
+                 "DISENGAGING, and at the shipped symmetric 12/s the live trace shows that on the FIRST frame layer 0 " +
+                 "had left AttackPickaxe — body already in Idle — the pin was still writing at weight 0.819, pulling " +
+                 "the palm 58.4 cm and the upper arm 60.1deg off the idle pose, and it took 0.350 s to settle. " +
+                 "Verbatim: 'the left arm does not return to normal position after the pickaxe two hand motion'. " +
+                 "DERIVED from the deadline rather than picked: 60deg -> 1deg takes ln(60)/rate and the binding window " +
+                 "is the SHORTER crossfade out the controller authors (0.10 s -> Locomotion), so rate >= 40.9/s; 42/s " +
+                 "clears it at 0.097 s and the arm returns WITH the body. Shared with " +
+                 "CastawayArmPose.mineDeGripReleaseRate + HeldToolRig.mineSeatReleaseRate so the three cannot ease out " +
+                 "of step. Ship source: MovementCameraScene.MineWeightReleaseRate.")]
+        public float releaseBlendRate = 42f;
 
         // ---- live state, all instance fields (no mutable runtime statics — StaticStateResetTests stays green) ----
         private float _weight;
@@ -232,9 +246,13 @@ namespace FarHorizon
             // read — gating an additive offset on a gameplay signal is the trap this codebase already paid for once
             // (86caxj30g / 884c611). Stepped by the SAME production policy function the arm offset and the seat delta
             // use, so all three ease together by construction.
+            //
+            // ROUND 5 — the gate is MineSwingHoldsPose (owns MINUS the hand-back window) and the ease is ASYMMETRIC.
+            // Both are release-side only; the crossfade-IN engagement at 12/s is byte-unchanged. This pin is the
+            // channel the Sponsor's release defect was MEASURED on — see releaseBlendRate.
             if (character == null) character = GetComponentInParent<CastawayCharacter>();
-            bool mineOwnsPose = debugForceEngaged || (character != null && character.MineSwingOwnsPose);
-            _weight = CastawayArmPose.NextMineDeGripWeight(_weight, mineOwnsPose, blendRate, dt);
+            bool mineHoldsPose = debugForceEngaged || (character != null && character.MineSwingHoldsPose);
+            _weight = CastawayArmPose.NextMineDeGripWeight(_weight, mineHoldsPose, blendRate, releaseBlendRate, dt);
             if (_weight <= 0.0001f) return;                 // byte-identical to pre-86cay4282 at rest
 
             if (leftUpperArm == null || leftForeArm == null || heldRig == null) return;

@@ -349,6 +349,11 @@ namespace FarHorizon.EditTests
                 Assert.AreEqual(MovementCameraScene.LeftArmHaftShellFraction, ik.shellFraction, 1e-4f);
                 Assert.AreEqual(MovementCameraScene.LeftArmHaftReachHoldMetres, ik.reachHoldMetres, 1e-4f);
                 Assert.Less((MovementCameraScene.LeftArmHaftPoleFallback - ik.poleFallbackLocal).magnitude, 1e-3f);
+                // 86cay4282 round 5 — the fast hand-back rate (the Sponsor's round-4 release defect).
+                Assert.AreEqual(MovementCameraScene.MineWeightReleaseRate, ik.releaseBlendRate, 1e-4f,
+                    "the pin's release-rate default must match the ship source — a default that disagrees with the " +
+                    "baked scene reintroduces the arm-lags-the-body overhang on the rollback path ONLY, which is the " +
+                    "hardest kind of divergence to find.");
             }
             finally { Object.DestroyImmediate(go); }
         }

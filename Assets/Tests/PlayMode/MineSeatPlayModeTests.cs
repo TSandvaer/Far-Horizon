@@ -70,6 +70,11 @@ namespace FarHorizon.PlayTests
         private const float PinUCeiling = 0.80f;           // MovementCameraScene.LeftArmHaftPinUCeiling
         private const float ShellFraction = 0.98f;         // MovementCameraScene.LeftArmHaftShellFraction
         private const float ReachHoldMetres = 0.25f;       // MovementCameraScene.LeftArmHaftReachHoldMetres
+        // 86cay4282 ROUND 5 — the fast hand-back rate, mirrored from MovementCameraScene.MineWeightReleaseRate (the
+        // editor asmdef is intentionally NOT referenced here). Pinned against its real source by
+        // MineSeatTests.MirroredConstants_MatchTheShipSource, so a bake-time change reds EditMode instead of silently
+        // making this fixture measure a fiction.
+        private const float MineWeightReleaseRate = 42f;
 
         private GameObject _player, _tool;
         private Animator _animator;
@@ -511,6 +516,250 @@ namespace FarHorizon.PlayTests
             yield return null;
 #endif
         }
+
+        /// <summary>
+        /// 86cay4282 ROUND 5 — THE RELEASE, MEASURED. Sponsor soak of round 4, verbatim: <c>"the reach is ok but the
+        /// left arm does not return to normal position after the pickaxe two hand motion"</c>. Rounds 1-4 measured this
+        /// pin ENGAGED, exhaustively. NOTHING in this repo ever measured it DISENGAGING — which is exactly how a release
+        /// defect shipped behind four green gates, and is why this test exists in the shape it does.
+        ///
+        /// ⚠ THE TICKET'S HYPOTHESIS IS REFUTED BY THIS MEASUREMENT, AND THE REFUTATION IS PART OF THE TEST'S VALUE.
+        /// The reported hypothesis was that the pin weight LATCHES at 1.00 and never blends back (the F9 panel read
+        /// <c>[not engaged]</c> and <c>w 1,00</c> in one frame). It does not latch. Two separate things produced that
+        /// screenshot and neither is a latch: (1) the panel's <c>w 1,00</c> is
+        /// <see cref="CastawayLeftArmHaftIk.PinWeight"/>, which INCLUDES <c>debugForceEngaged</c> — set true by the F9
+        /// tool for as long as the MINE-SEAT target is selected — while the same frame's <c>[not engaged]</c> is
+        /// <see cref="HeldToolRig.MineSeatWeight"/>, which does not; the two <c>w</c>s are different quantities, exactly
+        /// as the ticket warned they might be. (2) The REAL defect is a RELEASE OVERHANG: the weight only begins falling
+        /// once layer 0 has COMPLETED the crossfade out, and then takes 0.350 s at the symmetric 12/s — so for ~0.47 s
+        /// the body is already in Idle while the pin still displaces the upper arm up to 60.1deg and the palm 58.4 cm.
+        /// That is the LARGEST palm displacement of the entire sequence, and it happens after the swing is over.
+        ///
+        /// THE CLIP IS NOT THE CAUSE, ALSO MEASURED: its own hand separation holds 1.08..1.31 SW right through the last
+        /// frame of the state and only jumps to 1.74 SW (the idle carry) at the state change. The grip never tapers, so
+        /// there is no "the clip lets go early" to accommodate — the RELEASE POLICY was the whole defect.
+        ///
+        /// WHAT IS MEASURED — the one quantity the Sponsor's sentence is about: how many DEGREES the pin displaces the
+        /// left UPPER ARM away from the pose the clip + carry offsets put it in. Read by capturing the bone rotation
+        /// after orders 50+65 and again after order 110 on the SAME frame, so it is this driver's own contribution and
+        /// nothing else's. "Returns to normal position" == that displacement goes to ~0 and stays there.
+        ///
+        /// TWO PASSES OVER THE SAME SWING, CONTROL FIRST — the discipline this file already uses, because a fix test
+        /// whose control is not established proves nothing:
+        ///   CONTROL = the SHIPPED round-4 policy, reproduced THROUGH the production driver by putting the release rate
+        ///             back equal to the engage rate (symmetric 12/s) and feeding it
+        ///             <see cref="CastawayCharacter.MineSwingOwnsPoseFor"/>, which stays true through the crossfade OUT.
+        ///   FIX     = <see cref="CastawayCharacter.MineSwingHoldsPoseFor"/> + the asymmetric fast release.
+        /// Nothing is mirrored: <c>ApplyPin</c>, <c>ComposeSeat</c> and the weight policy are called directly, so
+        /// neither pass can go green against a broken production path. Both are measured from the SAME clock origin —
+        /// the frame the ANIMATOR ITSELF begins leaving AttackPickaxe, a raw layer-0 reading that neither predicate
+        /// defines — so the comparison is on one timeline owned by the controller.
+        ///
+        /// THE BAR IS DERIVED FROM WHAT IT MEANS, NOT FROM WHAT THE FIX ACHIEVES (this ticket has already paid for the
+        /// other kind once — the 0.80 SW cap calibrated from what a constant seat could reach): a hand that has let go
+        /// of a haft is simply not on it any more, so the arm must be back by the time the BODY has finished returning,
+        /// i.e. within the controller's own crossfade out. That duration is MEASURED here (frames between the crossfade
+        /// starting and layer 0 having left the state) rather than hard-coded, plus 4 frames of frame-timing slack.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator AfterTheMineSwing_TheLeftArmReturnsToTheClipPose_WithinTheBodysOwnCrossfade()
+        {
+#if !UNITY_EDITOR
+            Assert.Ignore("editor-only (loads the rig / controller / weapon FBX via AssetDatabase)");
+            yield break;
+#else
+            yield return null;
+
+            // CONTROL — the shipped round-4 policy: one symmetric rate + the owns-the-pose gate.
+            var control = MeasureRelease(symmetricRelease: true, useHoldsGate: false, label: "CONTROL(round-4)");
+            while (control.MoveNext()) yield return control.Current;
+            Release ctl = _lastRelease;
+
+            // Settle fully back to idle so the FIX pass starts from the same state the CONTROL pass did.
+            _leftIk.debugForceEngaged = false;
+            for (int i = 0; i < 90; i++) { _animator.Update(Dt); ApplyPoseChain(); _leftIk.ApplyPin(Dt); }
+
+            // FIX — round 5: the holds-the-pose gate + the fast asymmetric hand-back.
+            var fix = MeasureRelease(symmetricRelease: false, useHoldsGate: true, label: "FIX(round-5)");
+            while (fix.MoveNext()) yield return fix.Current;
+            Release fx = _lastRelease;
+
+            Assert.Greater(fx.crossfadeFrames, 0,
+                "the Animator must actually crossfade OUT of AttackPickaxe inside the window — if it never does, the " +
+                "timeline this test measures against does not exist and no verdict here is meaningful.");
+            Assert.AreEqual(ctl.crossfadeFrames, fx.crossfadeFrames,
+                "both passes must see the same controller crossfade, or they are not comparable.");
+
+            float budgetSec = fx.budgetFrames * Dt;
+            Debug.Log($"[mine-release] BUDGET = the body's own MEASURED crossfade out {fx.crossfadeFrames * Dt:F3}s " +
+                      $"(the controller authors m_TransitionDuration 0.12 to Idle / 0.10 to Locomotion at " +
+                      $"m_ExitTime 0.9) + 4 frames slack = {budgetSec:F3}s.\n" +
+                      $"[mine-release]   CONTROL(round-4): {ctl.degAtBudget:F1}deg / {ctl.palmCmAtBudget:F1}cm still " +
+                      $"displaced AT the budget; settled +{ctl.settleSec:F3}s; worst {ctl.worstDeg:F1}deg / " +
+                      $"{ctl.worstPalmCm:F1}cm.\n" +
+                      $"[mine-release]   FIX(round-5):     {fx.degAtBudget:F1}deg / {fx.palmCmAtBudget:F1}cm at the " +
+                      $"budget; settled +{fx.settleSec:F3}s; worst {fx.worstDeg:F1}deg / {fx.worstPalmCm:F1}cm.");
+
+            Assert.Greater(ctl.worstEngagedDeg, 20f,
+                $"CONTROL sanity: the pin must measurably own the arm during the swing ({ctl.worstEngagedDeg:F1}deg). " +
+                "Without that this test cannot say anything about it letting go.");
+
+            // 1. THE DEFECT MUST BE PRESENT IN THE CONTROL, or the premise round 5 rests on is dead and the fix should
+            //    be re-derived rather than this assert relaxed.
+            Assert.Greater(ctl.degAtBudget, 5f,
+                $"CONTROL: the shipped round-4 policy must STILL be dragging the arm out of the idle pose once the " +
+                $"body's crossfade is over — it measured {ctl.degAtBudget:F1}deg of upper-arm displacement " +
+                $"({ctl.palmCmAtBudget:F1} cm of palm) AT +{budgetSec:F3}s, settling only at +{ctl.settleSec:F3}s. " +
+                "That is the Sponsor's defect: 'the left arm does not return to normal position after the pickaxe two " +
+                "hand motion'. If this assert ever fails, the release is no longer the thing to fix.");
+
+            // 2. THE FIX: back on the clip pose inside the body's own crossfade.
+            Assert.LessOrEqual(fx.degAtBudget, SettledDeg,
+                $"the left arm must be back on the clip pose by the time the BODY has finished returning: " +
+                $"{fx.degAtBudget:F1}deg of upper-arm displacement ({fx.palmCmAtBudget:F1} cm of palm) was still being " +
+                $"written at +{budgetSec:F3}s (settled at +{fx.settleSec:F3}s).");
+            Assert.GreaterOrEqual(fx.settleSec, 0f,
+                $"…and it must settle at all (worst from the crossfade onward {fx.worstDeg:F1}deg).");
+            Assert.Less(fx.settleSec, ctl.settleSec,
+                $"…and strictly sooner than the control ({fx.settleSec:F3}s vs {ctl.settleSec:F3}s), or the change is " +
+                "not doing what it claims.");
+
+            // 3. THE ENGAGE HALF IS UNTOUCHED — the ~0.25 s ease-in round 4 shipped with NO assert behind it (named
+            //    explicitly in the round-5 dispatch). ln(20)/12 = 0.2497 s to weight 0.95 at the shipped engage rate.
+            float expectEaseIn = Mathf.Log(20f) / _leftIk.blendRate;
+            Assert.AreEqual(expectEaseIn, fx.easeInSec, 3f * Dt,
+                $"the ENGAGE ease must still be the soaked ~0.25 s hand-over: measured {fx.easeInSec:F3}s to pin " +
+                $"weight 0.95 against the ln(20)/{_leftIk.blendRate:F0} = {expectEaseIn:F3}s the rate implies. Round 5 " +
+                "is a RELEASE-side change only; if this moved, the fast rate leaked into the engage direction and the " +
+                "hand can now arrive before the haft does.");
+            Assert.AreEqual(expectEaseIn, ctl.easeInSec, 3f * Dt,
+                $"…and the control's ease-in must match it ({ctl.easeInSec:F3}s), proving the two passes differ ONLY " +
+                "in the release.");
+            yield return null;
+#endif
+        }
+
+#if UNITY_EDITOR
+        // 1 deg of upper-arm rotation is below any visible arm displacement (the pin owns 20-75 deg while engaged).
+        private const float SettledDeg = 1f;
+
+        private struct Release
+        {
+            public int crossfadeFrames;   // frames from the crossfade OUT starting to layer 0 having left the state
+            public int budgetFrames;      // crossfadeFrames + 4 frames of frame-timing slack
+            public float settleSec;       // seconds from the crossfade starting until displacement <= SettledDeg
+            public float worstDeg, worstPalmCm;
+            public float degAtBudget, palmCmAtBudget;   // the ACTUAL readings on the budget frame
+            public float worstEngagedDeg;
+            public float easeInSec;       // seconds from the trigger to pin weight >= 0.95
+        }
+
+        private Release _lastRelease;
+
+        /// <summary>
+        /// One full mine swing, ticked frame by frame through the PRODUCTION driver, measuring the release.
+        ///
+        /// The two knobs round 5 changed are the ONLY parameters: <paramref name="symmetricRelease"/> puts the release
+        /// rate back to the engage rate (the round-4 shipped policy) and <paramref name="useHoldsGate"/> chooses which
+        /// gate predicate feeds it. Everything else — <c>ApplyPin</c>, <c>ComposeSeat</c>, the weight policy function —
+        /// is production code called directly.
+        ///
+        /// The gate is delivered through <c>debugForceEngaged</c> because this bare rig deliberately carries no
+        /// CastawayCharacter (the fail-closed property is under test elsewhere in this file). <c>debugForceEngaged</c>
+        /// ORs into exactly the same boolean the live property supplies, so the driver cannot tell the difference.
+        /// </summary>
+        private IEnumerator MeasureRelease(bool symmetricRelease, bool useHoldsGate, string label)
+        {
+            float engageRate = _leftIk.blendRate;
+            float releaseRate = symmetricRelease ? engageRate : MineWeightReleaseRate;
+            _leftIk.releaseBlendRate = releaseRate;
+
+            int pickaxeHash = Animator.StringToHash(CastawayCharacter.AttackPickaxeState);
+            TriggerMineSwing();
+
+            const int Tail = 48;                      // frames of post-crossfade history kept for the exact budget read
+            var degAfter = new float[Tail];
+            var palmAfter = new float[Tail];
+            float seatW = 0f;
+            int crossfadeStartAt = -1, leftStateAt = -1, settledAt = -1, easeInAt = -1;
+            float worstDeg = 0f, worstPalmCm = 0f, worstEngagedDeg = 0f;
+            var trace = new System.Text.StringBuilder();
+
+            for (int f = 0; f < 420; f++)              // 7 s at 60 Hz; the clip is ~5.2 s and exits at nt 0.9
+            {
+                _animator.Update(Dt);
+
+                // RAW layer-0 readings — the timeline both passes are measured on, defined by the Animator and not by
+                // either gate predicate.
+                bool inTr = _animator.IsInTransition(0);
+                int cur = _animator.GetCurrentAnimatorStateInfo(0).shortNameHash;
+                int next = inTr ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                if (crossfadeStartAt < 0 && cur == pickaxeHash && inTr && next != pickaxeHash) crossfadeStartAt = f;
+                if (leftStateAt < 0 && crossfadeStartAt >= 0 && cur != pickaxeHash) leftStateAt = f;
+
+                bool gate = useHoldsGate
+                    ? CastawayCharacter.MineSwingHoldsPoseFor(cur, inTr, next)
+                    : CastawayCharacter.MineSwingOwnsPoseFor(cur, inTr, next);
+
+                ApplyPoseChain();                                                    // orders 50 + 65
+                seatW = CastawayArmPose.NextMineDeGripWeight(seatW, gate, _rig.mineSeatBlendRate, releaseRate, Dt);
+                SeatToolAt(seatW);                                                   // order 100
+
+                Quaternion armClip = _lArm.rotation;
+                Vector3 palmClip = PalmWorld();
+
+                _leftIk.debugForceEngaged = gate;
+                _leftIk.ApplyPin(Dt);                                                // order 110
+
+                float armDeg = Quaternion.Angle(armClip, _lArm.rotation);
+                float palmCm = (PalmWorld() - palmClip).magnitude * 100f;
+
+                if (easeInAt < 0 && _leftIk.PinWeight >= 0.95f) easeInAt = f;
+                if (gate) worstEngagedDeg = Mathf.Max(worstEngagedDeg, armDeg);
+
+                if (crossfadeStartAt >= 0)
+                {
+                    int k = f - crossfadeStartAt;
+                    if (k < Tail) { degAfter[k] = armDeg; palmAfter[k] = palmCm; }
+                    worstDeg = Mathf.Max(worstDeg, armDeg);
+                    worstPalmCm = Mathf.Max(worstPalmCm, palmCm);
+                    if (settledAt < 0 && armDeg <= SettledDeg) settledAt = f;
+                    if (k <= 30)
+                        trace.AppendLine($"[mine-release] {label} +{k * Dt:F3}s gate={gate,-5} " +
+                                         $"pinW={_leftIk.PinWeight:F3} seatW={seatW:F3} armDisp={armDeg:F1}deg " +
+                                         $"palmDisp={palmCm:F1}cm " +
+                                         $"{(cur == pickaxeHash ? "(still AttackPickaxe)" : "(layer 0 has LEFT it)")}");
+                }
+                yield return null;
+            }
+
+            _leftIk.debugForceEngaged = false;
+
+            int crossfade = leftStateAt >= 0 ? leftStateAt - crossfadeStartAt : 0;
+            int budget = Mathf.Min(crossfade + 4, Tail - 1);
+            var r = new Release
+            {
+                crossfadeFrames = crossfade,
+                budgetFrames = budget,
+                settleSec = settledAt >= 0 ? (settledAt - crossfadeStartAt) * Dt : -1f,
+                worstDeg = worstDeg,
+                worstPalmCm = worstPalmCm,
+                worstEngagedDeg = worstEngagedDeg,
+                easeInSec = easeInAt >= 0 ? easeInAt * Dt : -1f,
+                degAtBudget = degAfter[budget],
+                palmCmAtBudget = palmAfter[budget],
+            };
+
+            Debug.Log(trace.ToString());
+            Debug.Log($"[mine-release] {label}: gate={(useHoldsGate ? "MineSwingHoldsPose" : "MineSwingOwnsPose")} " +
+                      $"engage {engageRate:F0}/s release {releaseRate:F0}/s => crossfade out MEASURED {crossfade} " +
+                      $"frames ({crossfade * Dt:F3}s); worst upper-arm displacement while the gate was open " +
+                      $"{worstEngagedDeg:F1}deg; from the crossfade onward worst {worstDeg:F1}deg / {worstPalmCm:F1}cm, " +
+                      $"AT the +{budget} frame budget {r.degAtBudget:F1}deg / {r.palmCmAtBudget:F1}cm; settled " +
+                      $"(<= {SettledDeg}deg) at +{r.settleSec:F3}s; ease-in to pin weight 0.95 {r.easeInSec:F3}s.");
+            _lastRelease = r;
+        }
+#endif
 
         // A bare rig with no CastawayCharacter must never engage the delta — FAIL-CLOSED toward leaving the approved
         // seat alone. This is the shape that would otherwise ship the delta in every state on a mis-wired scene.

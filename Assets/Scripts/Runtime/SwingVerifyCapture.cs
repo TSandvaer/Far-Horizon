@@ -111,6 +111,11 @@ namespace FarHorizon
         // The hero held-tool object name (must match MovementCameraScene.HeroAxeObjectName — kept as a literal so
         // Runtime has no Editor-asm dependency, the same convention AxeNudgeTool follows).
         private const string HeroToolObjectName = "HeroAxe";
+        // === MINE RELEASE PASS (86cay4282 round 5) ===
+        // The pin weight at or below which it is no longer moving the arm visibly. Not a tolerance chosen to fit: the
+        // measured worst pin displacement is ~60 deg of upper-arm rotation, so 0.02 of it is ~1.2 deg — below any
+        // visible arm displacement, and the same 1-deg settle definition the PlayMode release A/B uses.
+        private const float ReleasedWeight = 0.02f;
 
         // The 5 per-class swings, in WeaponClass order (mirror CastawayCharacter.WeaponClass*). Names drive the PNG.
         private static readonly (int weaponClass, string name)[] Swings =
@@ -526,6 +531,10 @@ namespace FarHorizon
                         // to dial anything: the panel's rows POPULATE with real numbers, and the along-haft dial
                         // genuinely MOVES the along-haft read.
                         yield return MineSeatPanelPass(dir, castaway, heldRig, leftIk, lArm, rArm, lHand, rHand);
+
+                        // ===== MINE RELEASE PASS (86cay4282 round 5 — the Sponsor's round-4 soak defect) =====
+                        yield return MineReleasePass(dir, castaway, animator, heldRig, leftIk, lArm, rArm, lHand, rHand,
+                                                     hips, head);
                     }
                 }
             }
@@ -533,7 +542,7 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.4f);
 
             bool meshStayed = smr != null && worstMeshGap <= ConeExplosionRadiusU;
-            bool pass = allRouted && meshStayed && foldOk && gripOk;
+            bool pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk;
             Debug.Log($"[SwingVerifyCapture] verification complete -> {dir} allRouted={allRouted} " +
                       $"worstMeshGap={worstMeshGap:F2}u (<= {ConeExplosionRadiusU} = mesh stayed at the player, NO " +
                       $"cone-explosion — the Generic-rig bind, 86ca8rdkp) meshStayed={meshStayed} " +
@@ -552,8 +561,143 @@ namespace FarHorizon
                       $"(cap {TwoHandGripRead.LeftHaftPassSW:F3}SW=" +
                       $"{TwoHandGripRead.LeftHaftPassSW * swAtWorst * 100f:F1}cm) " +
                       $"palmMeasured={anyPalmMeasured && allPalmMeasured} pinPeakWeight={peakPinWeight:F2} " +
-                      $"pinReaching={ikReachingFrames}/{ikScoredFrames} gripOk={gripOk} => PASS={pass}");
+                      $"pinReaching={ikReachingFrames}/{ikScoredFrames} gripOk={gripOk} " +
+                      // 86cay4282 round 5 — the RELEASE rides the one-line verdict, because "the arm never let go" is
+                      // invisible to every engaged-frame figure above it and that is exactly how it shipped.
+                      $"releaseSettleFrames={_releaseSettleFrames} releaseBudgetFrames={_releaseBudgetFrames} " +
+                      $"releaseOk={_releaseOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
+        }
+
+        // ===== MINE RELEASE PASS state (86cay4282 round 5) =====
+        // Hoisted to fields so the one-line verdict can carry them, the same way the grip pass's readings are.
+        private bool _releaseOk = true;          // defaults TRUE only so a SKIPPED pass cannot red the whole gate; a
+                                                 // skip is LOUD in the log instead (see the pass's warnings).
+        private int _releaseSettleFrames = -1;
+        private int _releaseBudgetFrames = -1;
+
+        /// <summary>
+        /// 86cay4282 ROUND 5 — DOES THE LEFT ARM LET GO? Sponsor soak of round 4, verbatim: <c>"the reach is ok but the
+        /// left arm does not return to normal position after the pickaxe two hand motion"</c>.
+        ///
+        /// WHY THIS PASS HAD TO EXIST. Every figure the grip pass above logs is measured on ENGAGED frames — by
+        /// construction, since a grip read on a non-engaged frame is meaningless. So a defect that lives entirely in the
+        /// DISENGAGE was invisible to the gate, to the EditMode suite, to the PlayMode fixture and to the F9 panel, all
+        /// four of which were green. It took the Sponsor's eye. This pass closes that hole in the shipped exe: it fires
+        /// one more mine swing with the F9 tool CLOSED (so <c>debugForceEngaged</c> is false and the gate is purely the
+        /// production animation-state read), then watches the release frame by frame.
+        ///
+        /// THE TIMELINE ORIGIN is a raw layer-0 reading — the frame the ANIMATOR begins crossfading out of
+        /// AttackPickaxe — not either gate predicate, so the measurement does not depend on the thing under test. The
+        /// BUDGET is the controller's OWN measured crossfade-out length + 4 frames of slack: a hand that has let go of a
+        /// haft is not on it any more, so the arm must be back by the time the BODY has finished returning.
+        ///
+        /// WHAT IS OBSERVED, and why these quantities: a coroutine reads the pose the previous frame's LateUpdate chain
+        /// wrote, so an intra-frame before/after displacement is not available here (the PlayMode fixture measures that
+        /// directly). The two outside-observable proxies are exact enough: the pin's own
+        /// <see cref="CastawayLeftArmHaftIk.PinWeight"/> — the pin writes NOTHING at weight 0, so a released weight IS a
+        /// released arm — and the HAND SEPARATION, which the clip holds at ~1.2 SW while gripping and which returns to
+        /// the ~1.7 SW idle carry once the arm is handed back. Both are logged per frame.
+        /// </summary>
+        private IEnumerator MineReleasePass(string dir, CastawayCharacter castaway, Animator animator,
+                                            HeldToolRig heldRig, CastawayLeftArmHaftIk leftIk,
+                                            Transform lArm, Transform rArm, Transform lHand, Transform rHand,
+                                            Transform hips, Transform head)
+        {
+            if (leftIk == null)
+            {
+                Debug.LogWarning("[swing-release] SKIPPED — no CastawayLeftArmHaftIk in the shipped scene, so there is " +
+                                 "no release to measure. The round-5 evidence is MISSING from this run; do NOT read the " +
+                                 "PASS above as proof the left arm lets go.");
+                yield break;
+            }
+            // The F9 tool force must be OFF, or this pass measures the debug hold rather than the production gate — and
+            // that confusion is precisely what produced the round-4 screenshot the ticket's hypothesis was built on.
+            if (leftIk.debugForceEngaged)
+            {
+                Debug.LogWarning("[swing-release] debugForceEngaged was still TRUE entering this pass — the panel pass " +
+                                 "should have cleared it via AxeNudgeTool.Deactivate(). Forcing it false; if this line " +
+                                 "appears, the panel's release path regressed.");
+                leftIk.debugForceEngaged = false;
+            }
+
+            int pickaxeHash = Animator.StringToHash(CastawayCharacter.AttackPickaxeState);
+            castaway.TriggerAttack(CastawayCharacter.WeaponClassPickaxe, 1f);
+
+            int crossfadeStart = -1, leftState = -1, settled = -1, f = 0;
+            float peakPin = 0f, sepWhileHeld = float.NaN, sepAtSettle = float.NaN;
+            float worstPinAfterCrossfade = 0f;
+            var trace = new System.Text.StringBuilder();
+            float t0 = Time.time;
+
+            while (Time.time - t0 < FoldWindowSec * 2.5f)
+            {
+                bool inTr = animator.IsInTransition(0);
+                int cur = animator.GetCurrentAnimatorStateInfo(0).shortNameHash;
+                int next = inTr ? animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                if (crossfadeStart < 0 && cur == pickaxeHash && inTr && next != pickaxeHash) crossfadeStart = f;
+                if (leftState < 0 && crossfadeStart >= 0 && cur != pickaxeHash) leftState = f;
+
+                float sw = (rArm.position - lArm.position).magnitude;
+                float sep = sw > 1e-5f ? (lHand.position - rHand.position).magnitude / sw : float.NaN;
+                peakPin = Mathf.Max(peakPin, leftIk.PinWeight);
+                if (crossfadeStart < 0 && leftIk.PinWeight > 0.95f) sepWhileHeld = sep;
+
+                if (crossfadeStart >= 0)
+                {
+                    worstPinAfterCrossfade = Mathf.Max(worstPinAfterCrossfade, leftIk.PinWeight);
+                    if (settled < 0 && leftIk.PinWeight <= ReleasedWeight) { settled = f; sepAtSettle = sep; }
+                    if (f - crossfadeStart <= 30)
+                        trace.AppendLine($"[swing-release]   +{f - crossfadeStart,2} frames pinW={leftIk.PinWeight:F3} " +
+                                         $"seatW={heldRig.MineSeatWeight:F3} solved={leftIk.LastSolved,-5} " +
+                                         $"handSep={sep:F2}SW " +
+                                         $"{(cur == pickaxeHash ? "(still AttackPickaxe)" : "(layer 0 has LEFT it)")}");
+                }
+                f++;
+                yield return null;
+                if (settled >= 0 && f - settled > 45) break;      // measured through settle plus margin
+            }
+
+            int crossfade = (crossfadeStart >= 0 && leftState >= 0) ? leftState - crossfadeStart : -1;
+            _releaseBudgetFrames = crossfade >= 0 ? crossfade + 4 : -1;
+            _releaseSettleFrames = (settled >= 0 && crossfadeStart >= 0) ? settled - crossfadeStart : -1;
+            float sepNow = (rArm.position - lArm.position).magnitude > 1e-5f
+                ? (lHand.position - rHand.position).magnitude / (rArm.position - lArm.position).magnitude
+                : float.NaN;
+
+            Debug.Log(trace.ToString());
+            if (crossfade < 0 || _releaseSettleFrames < 0)
+            {
+                _releaseOk = false;
+                Debug.LogWarning($"[swing-release] FAIL — crossfadeOutFrames={crossfade} settleFrames=" +
+                                 $"{_releaseSettleFrames} (peak pin weight {peakPin:F2}). A NEGATIVE crossfade means the " +
+                                 "Animator never left AttackPickaxe inside the window; a NEGATIVE settle means the pin " +
+                                 $"weight never fell to {ReleasedWeight:F2} — i.e. the arm never let go, which IS the " +
+                                 "Sponsor's reported defect.");
+            }
+            else
+            {
+                _releaseOk = _releaseSettleFrames <= _releaseBudgetFrames;
+                Debug.Log($"[swing-release] crossfade OUT measured {crossfade} frames; pin weight fell to " +
+                          $"<= {ReleasedWeight:F2} at +{_releaseSettleFrames} frames (budget {_releaseBudgetFrames} = " +
+                          $"the body's own crossfade + 4 frames of slack) => releaseOk={_releaseOk}. Peak pin weight " +
+                          $"this pass {peakPin:F2}; worst weight from the crossfade onward {worstPinAfterCrossfade:F2}; " +
+                          $"hand separation {sepWhileHeld:F2} SW while GRIPPED -> {sepAtSettle:F2} SW at release -> " +
+                          $"{sepNow:F2} SW settled (the clip's own grip measures 1.01..1.33 SW and its idle carry " +
+                          "1.65..1.89, so separation returning to the upper band is the geometric confirmation that " +
+                          "the arm is back on the clip rather than on the haft). At the round-4 symmetric 12/s rate " +
+                          "this settled ~28 frames after the crossfade — 0.47 s of the left arm still pulled onto a " +
+                          "haft the character had already let go of.");
+            }
+
+            // The picture of the judged moment: the frame the bar is evaluated on, from the gameplay cam and a SIDE
+            // PROFILE — an arm that has not come back down reads as a silhouette defect, and up-vs-down/in-vs-out is
+            // what a side profile is for (lowpoly-quality.md §0).
+            ShotTo(Path.Combine(dir, "swing_pickaxe_release.png"));
+            yield return null;
+            if (hips != null && head != null)
+                yield return SideProfileShot(Path.Combine(dir, "swing_pickaxe_release_side.png"), hips, head,
+                                            castaway.ModelTransform);
         }
 
         /// <summary>

@@ -302,6 +302,134 @@ namespace FarHorizon.EditTests
                 "MineSeatPlayModeTests.HeldScaleUniform mirror is stale");
             Assert.AreEqual(0f, MovementCameraScene.HeldAxeGripShiftY, 1e-4f,
                 "MineSeatPlayModeTests.GripShiftY mirror is stale");
+            // 86cay4282 round 5 — the fast hand-back rate is mirrored in MineSeatPlayModeTests.MineWeightReleaseRate.
+            Assert.AreEqual(42f, MovementCameraScene.MineWeightReleaseRate, 1e-4f,
+                "MineSeatPlayModeTests.MineWeightReleaseRate mirror is stale — the release-side A/B in " +
+                "AfterTheMineSwing_TheLeftArmReturnsToTheClipPose_WithinTheBodysOwnCrossfade would then measure a " +
+                "release rate the build does not ship.");
+        }
+
+        // ==============================================================================================
+        // 5b — 86cay4282 ROUND 5: THE RELEASE POLICY (the Sponsor's round-4 soak defect).
+        // ==============================================================================================
+
+        [Test]
+        public void TheThreeMineOffsets_ShareOneRELEASERate_SoTheHandCannotLeaveBeforeTheHaft()
+        {
+            // The ENGAGE rate has been pinned as shared since round 2 (section 6 below). The RELEASE rate is new and
+            // needs the identical guard for a sharper reason: round 5 makes the release FAST, and a fast pin against a
+            // slow seat would pull the LEFT HAND off a haft still being carried back to the one-handed seat — the exact
+            // out-of-step failure the shared-ease invariant exists to prevent.
+            var go = new GameObject("MineReleaseRateProbe");
+            try
+            {
+                var rig = go.AddComponent<HeldToolRig>();
+                var pose = go.AddComponent<CastawayArmPose>();
+                var ik = go.AddComponent<CastawayLeftArmHaftIk>();
+                Assert.AreEqual(MovementCameraScene.MineWeightReleaseRate, pose.mineDeGripReleaseRate, 1e-4f,
+                    "CastawayArmPose.mineDeGripReleaseRate must be the one ship-source release rate");
+                Assert.AreEqual(MovementCameraScene.MineWeightReleaseRate, rig.mineSeatReleaseRate, 1e-4f,
+                    "HeldToolRig.mineSeatReleaseRate must be the one ship-source release rate");
+                Assert.AreEqual(MovementCameraScene.MineWeightReleaseRate, ik.releaseBlendRate, 1e-4f,
+                    "CastawayLeftArmHaftIk.releaseBlendRate must be the one ship-source release rate");
+                Assert.Greater(pose.mineDeGripReleaseRate, pose.mineDeGripBlendRate,
+                    "the release must be FASTER than the engage — that asymmetry IS the round-5 fix. Equal rates are " +
+                    "the round-4 policy that shipped a 0.47 s arm overhang past the body's own crossfade.");
+                // The release must clear the controller's authored crossfade out or the arm still trails the body.
+                // The BINDING window is the SHORTER of the two the controller authors from AttackPickaxe
+                // (m_TransitionDuration 0.10 -> Locomotion, 0.12 -> Idle): satisfying only the longer one leaves the
+                // walk-away case still trailing. The measured worst pin displacement is 60 deg, and 60 -> 1 deg takes
+                // ln(60)/rate seconds. THIS ASSERT ALREADY EARNED ITS KEEP — it redded the first draft's borrowed 30/s
+                // (0.136 s) and forced the rate to be DERIVED instead of reused from a sibling channel.
+                const float CrossfadeOutSec = 0.10f;
+                float fallSec = Mathf.Log(60f) / pose.mineDeGripReleaseRate;
+                Assert.LessOrEqual(fallSec, CrossfadeOutSec,
+                    $"the release rate must fall the measured worst 60deg of pin displacement under 1deg inside the " +
+                    $"body's own {CrossfadeOutSec:F2}s crossfade out (ln(60)/{pose.mineDeGripReleaseRate:F0} = " +
+                    $"{fallSec:F3}s). Slower and the arm returns after the body has, which IS the defect.");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        [Test]
+        public void TheMineGate_DropsOnTheFirstFrameOfTheCROSSFADEOUT_ButStillEngagesOnTheCrossfadeIN()
+        {
+            // The gate half of the round-5 fix, as a pure function. MineSwingOwnsPoseFor is deliberately conservative at
+            // BOTH ends (right for an ADDITIVE offset); MineSwingHoldsPoseFor keeps the conservative ENTRY and drops the
+            // conservative EXIT, because the left-arm pin OVERRIDES the arm rather than adding to it — measured: at the
+            // first frame after the crossfade the pin still displaced the upper arm 60.1deg / the palm 58.4 cm while the
+            // body was already in Idle.
+            int mine = Animator.StringToHash(CastawayCharacter.AttackPickaxeState);
+            int loco = Animator.StringToHash(CastawayCharacter.LocomotionState);
+            int idle = Animator.StringToHash(CastawayCharacter.IdleState);
+
+            // ENTRY — unchanged: both predicates true on the first crossfade-IN frame.
+            Assert.IsTrue(CastawayCharacter.MineSwingOwnsPoseFor(loco, true, mine), "owns: crossfade IN");
+            Assert.IsTrue(CastawayCharacter.MineSwingHoldsPoseFor(loco, true, mine),
+                "holds must ALSO engage on the first frame of the crossfade IN — the entry half was never the defect, " +
+                "and dropping it would put the offsets a full transition late (the round-1 transition-pairing finding).");
+
+            // MID-SWING — true.
+            Assert.IsTrue(CastawayCharacter.MineSwingHoldsPoseFor(mine, false, 0), "holds: mid-swing");
+
+            // EXIT — THIS is the change: owns stays true through the crossfade out, holds does not.
+            Assert.IsTrue(CastawayCharacter.MineSwingOwnsPoseFor(mine, true, idle),
+                "owns is documented as staying engaged through the crossfade OUT — unchanged by round 5");
+            Assert.IsFalse(CastawayCharacter.MineSwingHoldsPoseFor(mine, true, idle),
+                "holds must DROP on the first frame of the crossfade out to Idle — that is the round-5 fix: the arm " +
+                "starts returning on the same frame the body does instead of a whole crossfade later.");
+            Assert.IsFalse(CastawayCharacter.MineSwingHoldsPoseFor(mine, true, loco),
+                "…and to Locomotion (walking out of the swing) for the same reason.");
+
+            // The SELF-transition must NOT read as a hand-back, or a rapid second mine click would drop the grip
+            // between swings and then re-engage at the slow rate. The controller authors m_CanTransitionToSelf: 1.
+            Assert.IsTrue(CastawayCharacter.MineSwingHoldsPoseFor(mine, true, mine),
+                "an AttackPickaxe->AttackPickaxe self-transition is a CONTINUING swing, not a hand-back.");
+
+            // OUTSIDE the swing — false, fail-closed, exactly as owns is.
+            Assert.IsFalse(CastawayCharacter.MineSwingHoldsPoseFor(idle, false, 0), "settled idle");
+            Assert.IsFalse(CastawayCharacter.MineSwingHoldsPoseFor(loco, true, loco), "an unrelated transition");
+        }
+
+        [Test]
+        public void TheAsymmetricPolicy_ReleasesAtTheReleaseRate_AndEngagesAtTheEngageRate()
+        {
+            // Drive the POLICY FUNCTION LateUpdate calls, never a mirror. Two properties: target selection unchanged,
+            // and the RATE used depends on the DIRECTION.
+            const float D = 1f / 60f, Engage = 12f;
+            float ReleaseR = MovementCameraScene.MineWeightReleaseRate;
+
+            float sym = CastawayArmPose.NextMineDeGripWeight(0f, true, Engage, D);
+            float asym = CastawayArmPose.NextMineDeGripWeight(0f, true, Engage, ReleaseR, D);
+            Assert.AreEqual(sym, asym, 1e-6f,
+                "engaging must be byte-identical to the round-4 symmetric policy — round 5 is release-side only.");
+
+            float slowRelease = CastawayArmPose.NextMineDeGripWeight(1f, false, Engage, Engage, D);
+            float fastRelease = CastawayArmPose.NextMineDeGripWeight(1f, false, Engage, ReleaseR, D);
+            Assert.Less(fastRelease, slowRelease,
+                $"releasing must use the RELEASE rate ({fastRelease:F4} vs {slowRelease:F4} after one frame) — if the " +
+                "engage rate is used in both directions the round-4 overhang is back.");
+
+            Assert.AreEqual(slowRelease, CastawayArmPose.NextMineDeGripWeight(1f, false, Engage, D), 1e-6f,
+                "the retained 4-arg overload must stay SYMMETRIC, or every existing ease-profile assert silently " +
+                "changes meaning.");
+
+            // End to end on the measured worst case: 60 deg of displacement under 1 deg inside the crossfade.
+            float w = 1f;
+            int frames = 0;
+            while (w * 60f > 1f && frames < 240)
+            {
+                w = CastawayArmPose.NextMineDeGripWeight(w, false, Engage, ReleaseR, D);
+                frames++;
+            }
+            // Compare FRAMES, not seconds: 6 * (1f/60f) is 0.100000009f in float and a seconds comparison against
+            // 0.10f reds on the last ULP for a value that is exactly on the deadline. The frame count is the honest
+            // quantity anyway — the ease is stepped once per frame.
+            int deadlineFrames = Mathf.CeilToInt(0.10f / D);
+            Assert.LessOrEqual(frames, deadlineFrames,
+                $"the measured worst 60deg of pin displacement must fall under 1deg inside the SHORTER crossfade out " +
+                $"the controller authors (0.10s -> Locomotion = {deadlineFrames} frames at {1f / D:F0} Hz); took " +
+                $"{frames} frames = {frames * D:F3}s.");
         }
 
         // ==============================================================================================

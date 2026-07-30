@@ -103,11 +103,21 @@ namespace FarHorizon
                  "the same frame the F9 dial nudges in, so dialled == baked == applied.")]
         public Vector3 mineSeatEulerDelta = new Vector3(-24.7f, 70.0f, 23.7f);
 
-        [Tooltip("Per-second blend rate for the MINE seat weight. Matches CastawayArmPose.mineDeGripBlendRate (12/s " +
-                 "~= 0.25 s to 95%) DELIBERATELY: the two offsets share one gate and one ease so the haft never " +
+        [Tooltip("Per-second ENGAGE rate for the MINE seat weight. Matches CastawayArmPose.mineDeGripBlendRate (12/s " +
+                 "~= 0.25 s to 95%) DELIBERATELY: the three mine offsets share one gate and one ease so the haft never " +
                  "moves out of step with the arm — and 0.25 s lands inside the clip's wind-up rather than snapping " +
                  "the tool across the hands under the strike.")]
         public float mineSeatBlendRate = 12f;
+
+        [Tooltip("86cay4282 ROUND 5 — per-second RELEASE rate for the MINE seat weight; matches " +
+                 "CastawayArmPose.mineDeGripReleaseRate and CastawayLeftArmHaftIk.releaseBlendRate for the SAME " +
+                 "shared-ease reason the engage rate matches. This channel is NOT what the Sponsor's round-4 release " +
+                 "defect was measured on (that was the left-arm pin), but the three weights are deliberately one ease: " +
+                 "releasing the pin fast while the seat still crawled back at 12/s would let the HAND leave before the " +
+                 "HAFT — exactly the out-of-step failure the shared rate exists to prevent. The dialed seat VALUES " +
+                 "(mineSeatOffsetDelta / mineSeatEulerDelta) are untouched; only when they hand back changes. The value " +
+                 "is DERIVED in MovementCameraScene.MineWeightReleaseRate from the controller's own crossfade out.")]
+        public float mineSeatReleaseRate = 42f;
 
         private Vector3 _dampedPos;
         private Quaternion _dampedRot;
@@ -184,9 +194,13 @@ namespace FarHorizon
             // production policy function the arm-side offset uses, not a mirrored copy, so the haft and the arm can
             // never ease out of step (and no second implementation can drift). Lazy re-resolve keeps a null-at-Awake
             // reference recoverable without ever caching the miss.
+            //
+            // ROUND 5 — MineSwingHoldsPose (owns MINUS the hand-back window) + the ASYMMETRIC ease, so the seat starts
+            // returning on the FIRST frame of the crossfade out at the fast release rate. Engage half unchanged.
             if (character == null) character = GetComponentInParent<CastawayCharacter>();
-            bool mineOwnsPose = character != null && character.MineSwingOwnsPose;
-            _mineWeight = CastawayArmPose.NextMineDeGripWeight(_mineWeight, mineOwnsPose, mineSeatBlendRate, dt);
+            bool mineHoldsPose = character != null && character.MineSwingHoldsPose;
+            _mineWeight = CastawayArmPose.NextMineDeGripWeight(_mineWeight, mineHoldsPose, mineSeatBlendRate,
+                                                              mineSeatReleaseRate, dt);
 
             // POSITION in HAND-LOCAL space: rotate the cm-scale offset by the hand rotation so it TRACKS the
             // hand through every facing. We rotate by followRot (the SAME hand rotation the ROTATION channel

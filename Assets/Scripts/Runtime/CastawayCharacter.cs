@@ -800,6 +800,45 @@ namespace FarHorizon
             }
         }
 
+        /// <summary>
+        /// 86cay4282 ROUND 5 — IS THE MINE SWING STILL *HOLDING* THE POSE, as opposed to handing it back?
+        ///
+        /// <see cref="MineSwingOwnsPoseFor(int,bool,int)"/> is deliberately conservative at BOTH ends and stays true
+        /// through the crossfade OUT. That is right for an ADDITIVE offset (a de-grip must not vanish while the swing
+        /// is still visible) and WRONG for the left-arm IK PIN, which OVERRIDES the arm: measured on the live rig, at
+        /// the first frame layer 0 has fully left AttackPickaxe the pin was still writing at weight 0.819 and pulling
+        /// the palm 58.4 cm / the upper arm 60.1deg off the pose the Idle clip had already taken — then easing back
+        /// over 0.350 s. That overhang IS the Sponsor's round-4 defect, verbatim: <c>"the reach is ok but the left arm
+        /// does not return to normal position after the pickaxe two hand motion"</c>. The clip is not the cause: its
+        /// own hand separation holds 1.08..1.31 SW right to the last frame of the state and jumps to 1.74 SW (the idle
+        /// carry) only at the state change, so the grip never tapers — the RELEASE POLICY was the whole defect.
+        ///
+        /// So this is the ENGAGE target: <see cref="MineSwingOwnsPoseFor(int,bool,int)"/> MINUS the hand-back window.
+        /// It still engages on the FIRST frame of the crossfade IN (unchanged — that half was never the problem) and
+        /// now drops on the FIRST frame of the crossfade OUT, so the arm starts returning on the same frame the body
+        /// does instead of a crossfade later.
+        /// </summary>
+        public static bool MineSwingHoldsPoseFor(int currentShortNameHash, bool inTransition, int nextShortNameHash)
+            => MineSwingOwnsPoseFor(currentShortNameHash, inTransition, nextShortNameHash) &&
+               !(currentShortNameHash == AttackPickaxeStateHash && inTransition &&
+                 nextShortNameHash != AttackPickaxeStateHash);
+
+        /// <summary>Live layer-0 read of <see cref="MineSwingHoldsPoseFor(int,bool,int)"/>. FAIL-CLOSED with no
+        /// Animator/controller for the same reason <see cref="MineSwingOwnsPose"/> is: every consumer of this gate can
+        /// only ever ADD an offset, so a rig without a controller must reproduce pre-86cay4282 behaviour exactly.
+        /// This is the gate the three mine-swing offsets (arm de-grip, seat delta, left-arm pin) now share.</summary>
+        public bool MineSwingHoldsPose
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return false;
+                bool inTransition = _animator.IsInTransition(0);
+                int next = inTransition ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                return MineSwingHoldsPoseFor(_animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
+                                             inTransition, next);
+            }
+        }
+
         /// <summary>Is this layer-0 state name part of the LOCOMOTION LANE the run-lower was dialed against
         /// (Idle / Locomotion / JumpIdle / JumpRunning)? Pure + name-based so the allow-list is exhaustively
         /// testable in EditMode against the shipped controller's authored state set (86caxj30g).</summary>

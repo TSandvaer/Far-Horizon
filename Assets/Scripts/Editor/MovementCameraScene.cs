@@ -407,6 +407,30 @@ namespace FarHorizon.EditorTools
         // slight outward lean. Measured 0 fallback frames across the whole swing, so this is a guard, not the norm.
         public static readonly Vector3 LeftArmHaftPoleFallback = new Vector3(0.269f, -0.963f, -0.024f);
 
+        // ===== THE MINE-WEIGHT RELEASE RATE (86cay4282 ROUND 5 — the Sponsor's round-4 soak defect) =====
+        // Sponsor, verbatim: "the reach is ok but the left arm does not return to normal position after the pickaxe two
+        // hand motion". ONE ship source for all three mine offsets' RELEASE rate (arm de-grip, seat delta, left-arm pin)
+        // — they share one gate and one ease by design, so a single-channel release would let the hand leave before the
+        // haft. The ENGAGE rate stays the soaked 12/s; only the hand-back is fast.
+        //
+        // MEASURED CAUSE, not a hypothesis. The ticket's own hypothesis (a pin weight LATCHED at 1.00 and never blended
+        // back) is REFUTED: on the production gate the live trace shows the weight easing 0.819 -> 0.000 and the arm
+        // fully back — it just takes 0.350 s, starting only once layer 0 has COMPLETED the crossfade to Idle. So at the
+        // first post-swing frame the body is already idle while the pin still displaces the upper arm 60.1deg and the
+        // palm 58.4 cm, which is the largest palm displacement of the entire sequence.
+        //
+        // THE VALUE IS DERIVED FROM THE REQUIREMENT, NOT PICKED. The arm must be back by the time the BODY is, so the
+        // binding window is the SHORTER of the two crossfades this controller authors out of AttackPickaxe:
+        // m_TransitionDuration 0.10 (-> Locomotion) and 0.12 (-> Idle). Falling the measured worst 60deg of pin
+        // displacement under 1deg takes ln(60)/rate seconds, so the requirement is rate >= ln(60)/0.10 = 40.9/s; 42/s
+        // clears it at 0.097 s. THIS CONSTANT WAS CAUGHT BY ITS OWN ASSERT: the first draft reused the 30/s already
+        // shipped for the sibling "an overlay hands the pose back" case
+        // (CastawayArmPose.runLowerOverlayReleaseRate, Devon's #343 ADJUST 1), and the crossfade-derived EditMode assert
+        // REDDED it at ln(60)/30 = 0.136 s. Precedent reuse breaks ties between values that both satisfy the
+        // requirement; it is not a substitute for deriving one. The sibling's 30/s stands on its own numbers (a ~47deg
+        // offset against a longer window) — the two constants are allowed to differ because their deadlines do.
+        public const float MineWeightReleaseRate = 42f;
+
         // ===== CASTAWAY v4 FOOT-YAW counter-rotate (86catvb6u — the Sponsor's chosen fix for the v4 pigeon-toe
         // defect). A per-foot yaw offset (CastawayFootYaw, additive-LateUpdate idiom) applied ONLY for v4 (0 for
         // v3/v2/old → their feet are byte-unchanged). DEFAULT = the Sponsor's DIALED −15.0, BAKED AS-DIALED: he
@@ -1828,6 +1852,16 @@ namespace FarHorizon.EditorTools
             ik.shellFraction = LeftArmHaftShellFraction;
             ik.reachHoldMetres = LeftArmHaftReachHoldMetres;
             ik.poleFallbackLocal = LeftArmHaftPoleFallback;
+            // ROUND 5 — the fast hand-back. Set EXPLICITLY here (not left to the field default) for the same reason
+            // every other dial on this component is: the SHIPPED build reads the committed Boot.unity snapshot, so a
+            // release rate that lives only as a C# default is invisible to the bake source the Sponsor is pointed at.
+            ik.releaseBlendRate = MineWeightReleaseRate;
+            // …and the sibling channels, so the three mine weights cannot ease out of step in the serialized scene
+            // either. HeldToolRig is the seat; CastawayArmPose is the (zero-amplitude) de-grip.
+            if (heldRig != null) heldRig.mineSeatReleaseRate = MineWeightReleaseRate;
+            var armPose = castaway.GetComponent<CastawayArmPose>()
+                          ?? castaway.GetComponentInChildren<CastawayArmPose>(true);
+            if (armPose != null) armPose.mineDeGripReleaseRate = MineWeightReleaseRate;
 
             // The chain is the WHOLE fix — a missing bone makes it silently inert, which is the "wired but
             // conditionally inert" class this ticket has already paid for. LogError so the EditMode rebuild test reds.
