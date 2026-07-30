@@ -62,6 +62,7 @@ Sample `SampleSceneDepth` → `LinearEyeDepth`, subtract the fragment's own eye 
 `rim = pow(1 − saturate(dot(normalWS, viewDirWS)), _RimPower)`; `finalCol += _RimColor.rgb * rim * _RimIntensity`. At `_RimPower ~2-3` a soft silhouette highlight; ~6-8 a thin outline. One property block + one line after the fog-cap block.
 - `_RimIntensity` defaults to 0 → zero cost on all current materials; per-prop instances opt in.
 - It is a FALLBACK for props that never get a Blender pass — NOT an exact substitute for the chamfer plane (Rec 5).
+- ⚠ **"Per-prop instances opt in" EXCLUDES the weapon/tool set.** Those 15 FBXs share ONE URP/Unlit material (`Mat_WeaponPalette`), and URP/Unlit declares no rim property at all — so `SetFloat("_RimIntensity", …)` on a weapon is a **silent no-op** (no error, identical pixels), and reaching a rim there means FORKING the shared material. Details + the fork-free cue alternatives: `blender-asset-pipeline.md` §2, "A rim / Fresnel highlight is NOT reachable on the weapon material".
 
 ### Rec 5 — Chamfer-highlight geometry in Blender for hero props
 The white "caught-sun" edge on the board's axe/pickaxe/sword (`inspiration/2026-06-12_21h08_08.png` etc.) is a DISCRETE bright polygon face on the bevel — geometry, not a shader Fresnel wrap. Author it in Blender MCP: a bevel/chamfer face on the top edge with a distinct material slot carrying `Color(0.92, 0.90, 0.84)`. Authoring-time, per hero prop (axe, campfire, stump, chest). Fresnel (Rec 4) is the cheap fallback; the chamfer is the exact board match.
