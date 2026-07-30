@@ -34,4 +34,17 @@ referenced by `team/TESTING_BAR.md` § Predict-Before-Soak.
 
 ## Open / unconfirmed (drop new inferences here for the next `/name-the-bar` pass)
 
-_(none yet — add cited, falsifiable inferences awaiting Sponsor confirmation)_
+- **Candidate — interactive-vs-scenery must be readable by POSTURE.** Two world objects that share a
+  material family must not share a *posture*. If one carries a verb and the other does not, the
+  non-interactive one changes — it lies down, drops below the interactive class's floor by ≥2× in standing
+  height, and travels in company; the interactive one stands alone. **The class that changes is always the
+  one with no gameplay contract attached** (no verb, no yield, no navmesh carve, no timer, no capture
+  harness) — never the hero prop. **Check: desaturate the shipped-build capture and ask "point at the ones
+  you can use."** WHY: the mine gate can be perfectly correct and the world still invite dead-clicks; a
+  shared-palette style deliberately removes hue as a discriminator, so posture is the only channel that
+  scales across a whole prop family. **Surfaces:** decorative-vs-interactive prop pairs (scatter rock vs
+  minable boulder/ore node; future: driftwood vs choppable log, bush vs berry bush).
+  **Source:** ticket `86cav8ybj` direction spec `team/uma-ux/rock-affordance-direction.md` §9; composes with
+  Bar 10 (this is Bar 10's FORM rank applied to world props) and Bar 3 (material-honest → hue is unavailable
+  as a discriminator by construction). **Provenance:** derived from a source audit, NOT yet soak-confirmed —
+  the affordance impl half of `86cav8ybj` is the soak that confirms or corrects it.
