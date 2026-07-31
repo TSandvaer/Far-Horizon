@@ -142,6 +142,22 @@ jobs:
           chmod +x .github/workflows/scripts/structure_check.sh
           .github/workflows/scripts/structure_check.sh
 
+      # Leaked tool-call markup in committed *.md (86cayxtw8). Hosted + licence-free,
+      # zero Unity dependency, does not touch the self-hosted build slot.
+      # WARNING — THIS JOB CANNOT BE THE ONLY HOME FOR THIS GUARD: the workflow-level
+      # `paths-ignore` above lists '**/*.md' + 'team/**', so a DOCS-ONLY PR triggers NO
+      # run of this workflow at all. Ground-truthed on PR #360 and #358 (both docs-only;
+      # `gh pr checks` shows the `auto-merge` check ONLY — no structure / build /
+      # capture). All five files this guard was written for arrived on docs-only PRs
+      # (#112, #125, #268, #282, #323), so a structure-job-only guard would have caught
+      # 0 of 5. `.github/workflows/docs-markup.yml` is the *.md-path-triggered sibling
+      # that closes that gap; this step covers mixed docs+code PRs and any PR touching a
+      # non-ignored path. Same script, one behaviour, unit-tested once below.
+      - name: Docs tool-call-markup check
+        run: |
+          chmod +x .github/workflows/scripts/check_docs_markup.sh
+          .github/workflows/scripts/check_docs_markup.sh
+
       # The gate scripts are tested too (the bar applies to itself). Zero Unity
       # dependency, so it runs in the license-free job on every PR: console-error
       # gate nit fixes + the capture gate's black/empty/uniform/magenta/zero-frame

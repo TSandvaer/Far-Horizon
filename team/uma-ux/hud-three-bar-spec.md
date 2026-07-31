@@ -188,5 +188,3 @@ The hunger/thirst NEED models + decay + satisfaction (`86caamkp8` / `86caamkv7`)
 - `.claude/docs/art-direction.md` + `inspiration/` (`21h16_52` lake, `21h16_13` river — looked at them; the warm-bright water blue the thirst bar borrows) — chunky-cartoon board, sub-1.0 warm carry-overs.
 - `.claude/docs/unity-conventions.md` / `.claude/docs/lowpoly-quality.md` — IMGUI build-safety; HDR-clamp/sub-1.0 flat-fill discipline; real-`Time.time`-window test rule (AC5).
 - DECISIONS 2026-06-17 (M-U2 → three needs) · 2026-06-19 (`SurvivalNeed` base, Pattern A).
-</content>
-</invoke>

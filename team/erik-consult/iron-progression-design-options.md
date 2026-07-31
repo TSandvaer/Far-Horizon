@@ -186,5 +186,3 @@ PR/away-queue history; verify their exact scope before locking any composition c
    should be absorbed as the "find raw iron" component of Model D.
 3. Whether a **pickaxe** is wanted as a new tool (only Model A needs one; it'd extend the
    Sponsor-locked weapon set with a 5th type per tier).
-</content>
-</invoke>
