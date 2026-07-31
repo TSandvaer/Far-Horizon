@@ -39,7 +39,14 @@ Bar #10 was written, then amended twice, and merged KNOWN-INCOMPLETE because eve
 ran on the **cued instance alone** — so all of them measured **presence** and none measured
 **discrimination**, which is the entire job of a cue. These four checks replace that single-sided
 pair. Each states **what it returns on an instance that should FAIL**, because a check that has only
-ever been shown passing is not a check (the "How to use" bullet above; `86caz5nr2`).
+ever been shown passing is not a check (the "How to use" bullet above; `86caz5nr2`) — **except C4,
+which is unbuilt and therefore states PREDICTIONS, labelled as such and not counted as coverage.**
+
+**Two things this section does NOT deliver, stated up front so nobody reads past them.** (a) **The C1
+pixel floor is not set** — C1 mandates that a floor be stated and recomputable, and lists the three
+inputs whoever sets it must reconcile; it does not pick the number. (b) **C4 is unbuilt**, so C3's
+comparison set has no consumer and no cue has yet been judged two-sided. Both are named at their own
+headings below as well.
 
 **Scope — the whole class, not one ticket.** These govern every surface in bar #10's Surfaces
 column: HUD bars, status chips, world-anchored readouts, attract/affordance cues on world objects,
@@ -73,15 +80,60 @@ down, inside the instrument.
 
 ### C1 — AMPLITUDE. A channel's magnitude is measured, at a stated framing, in pixels
 
-**The rule.** Every counted channel carries a **magnitude**, stated as **peak on-screen displacement
-(for a motion channel) or on-screen extent (for a form/position/colour channel), in pixels, at the
-default gameplay framing above**. State it as both an absolute pixel figure and a fraction of the
-cued object's own on-screen extent — 3 px on a 900 px HUD bar and 3 px on a 40 px world prop are not
-the same read. "Identifiable" is not a magnitude; neither is "varies".
+**The rule.** Every counted channel carries a **magnitude**, and the magnitude is the **DELTA between
+the cued and the non-cued state of that channel** — never the channel's absolute extent on the cued
+instance. Stated in pixels, at the default gameplay framing above:
+
+- **Motion channel** — the **peak-to-peak on-screen travel of the DIFFERENCE signal** (cued position
+  minus the non-cued instance's position at the same instant), not the cued instance's own travel.
+- **Form / position / colour channel** — the on-screen extent the non-cued instance **does not also
+  have**: the added mesh, the offset, the repainted area.
+
+State it as both an absolute pixel figure and a fraction of the cued object's own on-screen extent —
+3 px on a 900 px HUD bar and 3 px on a 40 px world prop are not the same read. "Identifiable" is not
+a magnitude; neither is "varies".
+
+**Why the delta and not the extent — this is bar #10's own root cause, reproduced one level in
+(Devon, #386 review, M1).** The row's variance clause only asks whether the property DIFFERS. A
+magnitude then taken on the cued instance alone re-answers *"is the channel big"* instead of *"is the
+DIFFERENCE big"* — i.e. presence-not-discrimination rebuilt inside the check written to close it.
+**The same-instance motion-extremes pair below measures the delta ONLY when the non-cued value is
+ZERO** — when the channel is absent from the non-cued instance entirely. Whenever the non-cued
+instance carries some of the channel, that pair overstates, and it overstates without bound (second
+worked example below).
+
+**Rotation channels — the reading must be NAMED, because a yaw has neither a "displacement" nor an
+"extent" until you say what moved (M2).** A rotation's magnitude is the **lateral travel of the
+channel's most-displaced point**: for a full angular swing Δ about an axis, a point at horizontal
+radius `r` from that axis travels a chord `2 · r · sin(Δ/2)`, so at the framing above
+`px_p2p = 2 · r · sin(Δ/2) × 62.0798`. **`r` must be stated** — the measured horizontal distance from
+the rotation axis to the vertex the author claims the read from, never the object's bounding radius.
+Worked at #351's shipped `WorldWeaponFind.DefaultSwayDegrees = 4f` (its `SwayOffset` returns
+`sin(…) · degrees`, so the yaw runs −4° → +4° and the **full swing is Δ = 8°**): `2 · sin 4° =
+0.139513` ⇒ **8.6609 px per world-unit of `r`** ⇒ **`r` ≥ 0.1155 u buys 1 px** peak-to-peak. Under a
+peak-from-centre reading the same channel needs `r` ≥ 0.2308 u — exactly **2×**. That fork is why the
+convention is written down rather than left to the reader: **peak-to-peak** is the reading this
+section uses everywhere, and it is the quantity the rendered extremes pair actually captures.
+
+**Displacement and lit-AREA are different claims in different units and may not be traded.** A 4° yaw
+of a broad flat blade also changes the lit face's on-screen AREA, and that reading differs from the
+displacement reading by an order of magnitude. **Displacement is the default** — it is what makes a
+rotation commensurable with the other motion channels and with the px floor. An author claiming the
+read comes from area instead is making a FORM/colour claim that owes its own magnitude in **px²**; it
+may not be quoted as though it were the displacement figure.
+
+**#351's CH2 currently has NO stated magnitude, and under this wording that is a C1 FAIL rather than
+an omission.** `r` for the sway is the horizontal distance from the weapon's yaw axis to its
+most-displaced vertex, which rides the import-time `WeaponPackAssetGen.familyGlobalScale`
+(`Assets/Scripts/Editor/WeaponPackAssetGen.cs:170`/`:173`, derived from `NewFamilyAxeTargetLongestU`)
+and is **not derivable from the serialized defaults alone**. **No px figure for CH2 is claimed here** —
+measuring it is the first thing C1 asks of whoever re-serves that cue.
 
 **How it is judged — a pure-geometry EditMode test, no capture, no runner contention.** World-unit
-amplitude → on-screen pixels is trigonometry: `px = amplitude × pixelHeight / (2 × distance ×
-tan(fov/2))`. This belongs beside `VerifyCaptureFraming.ComputeFrame`
+amplitude → on-screen pixels is trigonometry: `px = Δworld × pixelHeight / (2 × distance ×
+tan(fov/2))`, where **`Δworld` is the cued-minus-non-cued delta from "The rule" above, not the cued
+instance's own extent** — the whole point of C1 is which quantity gets fed in here. This belongs
+beside `VerifyCaptureFraming.ComputeFrame`
 (`Assets/Scripts/Runtime/VerifyCaptureFraming.cs`, `public static class VerifyCaptureFraming` —
 documented DETERMINISTIC, "no floors, no fallbacks"), pinned by the existing
 `Assets/Tests/EditMode/VerifyCaptureFramingTests.cs`. **One correction for whoever implements it:**
@@ -90,37 +142,103 @@ function following that class's pattern and test file, not a reuse of `ComputeFr
 
 **Rendered backstop, and its honest limit.** Geometry cannot see occlusion, fog, contrast or AA, so a
 geometry-green channel can still be invisible. `.github/workflows/scripts/frames_differ.py`
-(`DEFAULT_MIN_FRAC = 0.0005` of 1280×720 = **461 changed px** at `PIXEL_DELTA = 16`) measures a real
+(`DEFAULT_MIN_FRAC = 0.0005` at `PIXEL_DELTA = 16` — that is **≥ 26 changed SAMPLES of 51,360**, not
+461 px; see "Setting the floor" below, and do not quote the full-frame equivalent) measures a real
 rendered delta between two frames. It applies **only where a live frame pair exists**: for a MOTION
-channel, the two extremes of the travel on the same instance (live, no second instance needed). For
+channel, the two extremes of the travel on the same instance (live, no second instance needed).
+**⚠ That same-instance pair is a valid stand-in for the DELTA only when the non-cued instance's value
+in that channel is ZERO** — otherwise it measures the cued instance's own travel, which is the
+absolute reading this check no longer accepts. Where the non-cued instance also carries the channel,
+the pair is not the magnitude; the difference signal is, and that needs C4's two-instance frame. For
 FORM / POSITION / colour there is no live pair (see C4), so geometry is the whole mechanical story
 and the rest is C4's human read. **Do not diff a cued frame against a cue-disabled frame on `86cah7y5b`:**
 `WeaponFindPool.ApplyActiveCount` does `site.gameObject.SetActive(on)`, so dialling the count down
 removes the **whole site including the stump** — that diff measures the site's footprint, not the
 channel's magnitude.
 
-**What C1 returns on an instance that should FAIL.** The constructed evasion — a **2 cm marker
-pebble** (FORM) plus a **±3 mm bob** (MOTION), both genuinely varying with cue state, both
-hue-independent, both surviving desaturation. At 62 px/m the pebble spans **≈ 1.2 px** and the bob's
-full peak-to-peak travel **≈ 0.4 px**. The geometry test asserts against a stated pixel floor and
-returns **FAIL on both channels** with the computed values; a sub-pixel channel cannot pass a
-pixel-floor assertion. Under the old wording this cue passed every clause.
+**What C1 returns on an instance that should FAIL — example 1, where absolute HAPPENS to equal
+delta.** The constructed evasion — a **2 cm marker pebble** (FORM) plus a **±3 mm bob** (MOTION), both
+genuinely varying with cue state, both hue-independent, both surviving desaturation. The non-cued
+instance has **no pebble and no bob**, so here the delta *is* the absolute figure: at 62.0798 px/m the
+pebble spans **1.2416 px** and the bob's full peak-to-peak travel **0.3725 px**. The geometry test
+asserts against a stated pixel floor and returns **FAIL on both channels** with the computed values; a
+sub-pixel channel cannot pass a pixel-floor assertion. Under the old wording this cue passed every
+clause.
 
-**Setting the floor.** No perceptual threshold is invented here — inventing one is how a metric goes
+**Example 2 — where absolute ≠ delta, which example 1 structurally CANNOT expose (Devon, #386 review,
+M1).** A cued sword bobbing **±0.30 u** beside a non-cued sword bobbing **±0.29 u**. The row's
+variance clause passes: the property genuinely differs. Under the **absolute** reading C1 returns the
+cued instance's own travel — **0.60 u p2p = 37.2479 px** — and clears any plausible floor. Under the
+**delta** reading the difference signal is `0.01 · sin(ωt)`, i.e. **0.02 u p2p = 1.2416 px**: a **30×**
+overstatement, and the delta lands on *exactly* the **1.2416 px** the marker pebble scores. So the
+corrected C1 fails it for the same reason it fails example 1, and the old wording PASSED it at 18.6 px
+peak / 37.2 px p2p. **Rule for anyone extending this section: a worked example in which absolute
+equals delta demonstrates nothing about which quantity is being measured** — every future example set
+must contain at least one case where the two differ.
+
+**Setting the floor — the number is NOT set in this section, and three facts must be reconciled
+before anyone sets it.** No perceptual threshold is invented here — inventing one is how a metric goes
 green on nonsense (bar #4, the pond-in-a-mound). The floor is a **named number the author states and
-the reviewer can recompute**, seeded at `frames_differ.py`'s existing 461-changed-px "visibly
-different" floor for the rendered half, and **corrected by the first soak that exercises it** — the
-same provenance discipline the row's own Provenance note uses. What C1 forbids is not a low number;
-it is an **unstated** one.
+the reviewer can recompute**, **corrected by the first soak that exercises it** — the same provenance
+discipline the row's own Provenance note uses. What C1 forbids is not a low number; it is an
+**unstated** one. Note what that costs this section honestly: C1's verdict on example 1 ("FAIL on both
+channels") holds only against a floor **above 1.2416 px**, and that is the entire strength of the
+claim. The three inputs, none optional (Devon, #386 review, M3/M5):
+
+1. **`frames_differ.py`'s `DEFAULT_MIN_FRAC = 0.0005` is NOT a linear-pixel floor and must not be
+   copied as one.** It is an **area fraction of SUBSAMPLED pixels**. At 1280×720 its `changed_fraction`
+   takes `step_x = w // 200 = 6` and `step_y = h // 200 = 3`, so it compares **214 × 240 = 51,360
+   samples** and the threshold it actually applies is `0.0005 × 51,360 = 25.68` ⇒ **≥ 26 changed
+   SAMPLES**. The "461 changed px" figure (`0.0005 × 1280 × 720 = 460.8`) is a full-frame *equivalent*
+   the script never computes. **Authoritative: the ≥26-sample figure**, for the RENDERED backstop only.
+   The decision quantum is one sample ≈ **18 full-res px**, and a feature thinner than the 6×3 stride
+   can be missed outright — which matters precisely because C1 adjudicates features in the 1–10 px
+   band. An earlier draft of this section seeded C1's floor at "461 px"; that number is retired here.
+2. **An area fraction INVERTS C1's own scale rule, so it cannot seed the geometry floor at all.** It
+   rewards a large object with a tiny motion (a 900 × 20 px HUD bar shifted 1 px repaints ~900 px →
+   passes) and punishes a small object with a large motion (a ~40 × 8 px world prop moved fully clear
+   of itself changes ≤ ~640 px → marginal) — the exact inversion of this section's own *"3 px on a 900
+   px HUD bar and 3 px on a 40 px world prop are not the same read"*. **The geometry half has no seed
+   today; say so rather than borrowing this one.** Express the floor as an **expression over the
+   framing table above** rather than a bare literal, so it re-derives when the framing moves and can be
+   audited against its own justification. A number lifted from an instrument's achievability constant
+   guards regressions; it does not establish correctness.
+3. **The floor COLLIDES with the project's own prescribed juice value — name that collision when you
+   pick the number.** `.claude/docs/game-juice.md` §1 must-have 5 prescribes collectible float-bob at
+   **±0.05 u**, and that is #351's shipped `WorldWeaponFind.DefaultBobAmplitude = 0.05f`. At the
+   framing above that is **6.2080 px** p2p frame-plane / **3.5607 px** p2p foreshortened / **3.1040 px**
+   peak frame-plane / **1.7804 px** peak foreshortened. So **any floor above 1.7804 px reds the house
+   value under at least one reading, and any floor above 6.2080 px reds it under all four.** Not
+   resolvable inside either doc alone: either the floor sits under the house value, or the house value
+   moves, or bar #10 records that it deliberately reds it.
+
+**This is also C1 run against the one LIVE cue on the board, not only against the instance built to
+fail it — and the live verdict FLIPS on the reading, which is why the convention above had to be
+pinned.** At the shipped `±0.05 u`, a 1 px floor passes the live bob under all four readings; a 4 px
+floor passes it **only** under p2p frame-plane and reds it under the other three. That is a real
+verdict on shipped values rather than a construct, and it is also the concrete demonstration that
+"peak vs peak-to-peak" and "frame-plane vs foreshortened" are not pedantry: the same cue, the same
+floor, opposite outcomes. C1's demonstrated-red on a *constructed* instance (examples 1 and 2) and its
+verdict on a *live* one are different evidence; both are now present, and neither substitutes for the
+floor actually being chosen.
 
 **Derived vs measured — the honesty line.** The pixel figures in this section are **arithmetic from
 serialized defaults, not measurements**; no build was run to produce them (this was authored in the
-non-build lane). Cross-checked against the one measured anchor in the tree — `OrbitCamera`'s comment
-that the castaway renders ≈ 55 × 95 px at pitch 55 / distance 14 in 1280×720, consistent with ≈ 62
-px/m for a ~1.5 m figure. A vertical world extent additionally foreshortens at pitch 55, so the
-62 px/m figures above are **generous upper bounds** — the charitable direction, deliberately: an
-evasion that fails a generous bound fails a strict one. C1 requires the *measurement*; this
-arithmetic only sizes the evasion.
+non-build lane). **They are FRAME-PLANE figures and they are upper bounds.** A world-VERTICAL extent
+foreshortens at pitch 55 by `cos 55° = 0.573576`, so vertical motion reads at **35.6075 px/m**, not
+62.0798 — quote the pair, not one number.
+
+**The one anchor in the tree does NOT validate either reading, and this paragraph previously claimed
+that it did (Devon, #386 review, M6).** `OrbitCamera`'s source comment that the castaway renders
+≈ 55 × 95 px at pitch 55 / distance 14 in 1280×720 implies **95 / 62.0798 = 1.5303 m** under the
+frame-plane scale and **95 / 35.6075 = 2.6680 m** under the foreshortened one. The first is plausible
+and the second is not — which is evidence about how rough a source comment is, not a cross-check of
+the model, since a genuine validation would have to survive the same foreshortening the very next
+sentence invokes. The earlier wording asserted the anchor as confirmation of 62 px/m and then
+introduced the foreshortening that refutes it; both cannot hold, so the confirmation claim is
+withdrawn. **The conclusion is unchanged and stays in the charitable direction:** both examples above
+are sub-pixel under BOTH readings, and an evasion that fails a generous bound fails a strict one. C1
+requires the *measurement*; this arithmetic only sizes the evasion.
 
 ### C2 — FAILURE INDEPENDENCE. Two channels one null reference kills together are ONE channel
 
@@ -128,6 +246,15 @@ arithmetic only sizes the evasion.
 reference, the GameObject/prefab reference, the material, the shader property, the component, the
 guarded code path. **If two channels name the same thing, they count as one** and the cue has not met
 ≥2. Independence in *kind* (translation vs rotation) is not independence in *failure*.
+
+**Tie-breaker — because "name the thing" is AUTHOR-NAMING, and author-naming has unbounded
+granularity (Devon, #386 review).** That is the same property this bar uses two paragraphs up to
+demote the invariance desk check to *"not evidence"*, so C2 does not get to keep it uncaveated. **Name
+the nearest common dependency on the code path both channels actually traverse — never a leaf
+property.** #351 is the demonstration: at leaf granularity CH1 and CH2 name `visual.localPosition` and
+`visual.localRotation`, two different things ⇒ count = 2, while one `if (visual == null) return;` kills
+both. **Where a count is contested, settle it by INJECTION, not by naming** — null or disable the named
+dependency and assert both channels stop. The injection is the evidence; the name is only the claim.
 
 Shared-domain forms, each from a real project incident: one **transform reference** driving both
 channels; one **GameObject/prefab reference** whose null makes both vanish; one **material or shader
@@ -173,6 +300,14 @@ instance of the same kind"* and collecting silence, which reads as not-failed. C
 which obliges the author to name neighbours; if they name none, C3 returns **FAIL** (a frame with no
 context cannot evidence discrimination). Silence is no longer an available output.
 
+**C3 COLLECTS; C4 JUDGES — C3 returns no discrimination verdict about the set it builds (Devon, #386
+review).** C3 discriminates against **silence**, not against **sameness**: an author who names ≥ 1
+neighbour passes it even where the cue is visually identical to every member named. That is deliberate
+— the thing that consumes the set and returns a verdict is **C4**, which is unbuilt. **State the
+consequence plainly rather than letting the row read as adjudication: until C4 ships, C3 is a naming
+obligation with no consumer, and a cue can pass C1–C3 and still be indistinguishable from the
+neighbours it named.** Do not cite a C3 PASS as a discrimination result.
+
 **Applied to `86cah7y5b` / PR #351 — the bar CAN now adjudicate it.** Step 1 is genuinely empty at
 the default dial, verified on PR #351's head: `WeaponFindPool.DefaultFindCount = 1` with easy ==
 medium == hard == 1, `WeaponFindSiteCount = FindCountMax = 4` authored sites, and `ApplyActiveCount`
@@ -212,8 +347,14 @@ world at any dial setting: every found weapon gets the same cue uniformly, and `
 count/rarity dial raises **how many cued** instances spawn rather than producing a cued+non-cued
 pairing. So C4 needs a **purpose-built two-instance scene** — a new component on the established
 `*VerifyCapture` pattern (`WeaponSetVerifyCapture` is the closest sibling; bounds via
-`Encapsulate()` over both instances, pose via `VerifyCaptureFraming`), and it must run **windowed**
-on the runner-1-pinned capture lane, so on-demand invocation rather than a per-PR blocking step.
+`Encapsulate()` over both instances, pose via `VerifyCaptureFraming`). **Its launch mode is decided by
+`unity-conventions.md` §Headless/CLI rituals' BOUNDARY SENTENCE, and is NOT asserted here** — an
+earlier draft said "must run windowed", which is stronger than the tree supports (M7): a two-prop
+world-camera capture with no IMGUI / UI-Toolkit overlay is the RT-readback class, so it MAY run
+`-batchmode` (no `-nographics`); it stays windowed only if any judged pixel comes from the backbuffer.
+Quote that sentence at implementation time rather than restating it. **Either way it is on-demand
+rather than a per-PR blocking step**, and the `86cag93zb` runner-1 pin does not move for either mode
+while any windowed gate still shares the `capture` job.
 
 **What the capture must contain:**
 
@@ -231,15 +372,31 @@ on the runner-1-pinned capture lane, so on-demand invocation rather than a per-P
   Self-Test Report records who was asked, the answer, and whether it was right **first try, no second
   look**. Hesitation or a wrong point is a FAIL.
 
-**What C4 returns on an instance that should FAIL.** The sub-pixel construct fails C1's geometry
-floor before a capture is ever made, so it never reaches a human. An always-on channel (the white
-edge-highlight plane) contributes **zero** cued-vs-non-cued difference in `cue_pair.png` by
-construction, so it cannot be the thing carrying the read. And the case that motivates C4's
-existence: a cue that is unmistakably **present** — bright, large, live on the shipped material —
-whose neighbours are equally bright, passes every mechanical check and **fails the human point**.
-That split is the whole reason the human half is not removable, and the reason C4 does not replace
-**desaturate**: desaturate tests hue-independence, C4 tests discrimination, and neither substitutes
-for the other.
+**What C4 is PREDICTED to return on an instance that should FAIL — NONE of this is measured (Devon,
+#386 review).** C4 returns nothing on any instance today: it is unbuilt, there is no artifact, and no
+human has been asked. The three items below are therefore **predictions**, labelled as such per the
+project's hypothesis-labelling rule. Publishing an unmeasured claim under a "what it returns" heading
+is the exact defect this section exists to prohibit, so the heading is corrected rather than the
+claims quietly kept.
+
+- **Predicted — and VACUOUS; do not count it as coverage.** The sub-pixel construct fails C1's
+  geometry floor before a capture is ever made, so it never reaches C4. That is **C1's** verdict
+  credited to C4: a clearance of an error C4 structurally cannot reach, which is the same
+  declared-clean-of-what-it-never-ran-on shape bar #10 was written against.
+- **Predicted (analytic; no capture exists).** An always-on channel (the white edge-highlight plane)
+  contributes **zero** cued-vs-non-cued difference in `cue_pair.png` by construction, so it cannot be
+  the thing carrying the read.
+- **Predicted (no human has been asked).** The case that motivates C4's existence: a cue that is
+  unmistakably **present** — bright, large, live on the shipped material — whose neighbours are
+  equally bright, passes every mechanical check and **fails the human point**.
+
+**C4's own red case is OWED, not delivered — and that is the load-bearing gap in this section.** AC4
+is this ticket's load-bearing AC, and C1's delta gap and C3's missing consumer are precisely the holes
+C4 was meant to cover, so the one check that would close them is the one that did not ship. C4 is
+demonstrated red the first time the artifact is built and a naive viewer points at the wrong prop;
+until then it carries predictions only. The present/discriminable split is still why the human half is
+not removable, and why C4 does not replace **desaturate**: desaturate tests hue-independence, C4 tests
+discrimination, and neither substitutes for the other.
 
 ## Open / unconfirmed (drop new inferences here for the next `/name-the-bar` pass)
 
