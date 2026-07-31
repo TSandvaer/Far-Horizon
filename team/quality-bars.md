@@ -17,6 +17,7 @@ referenced by `team/TESTING_BAR.md` § Predict-Before-Soak.
 - **When a soak corrects a bar:** update the row here AND the cited memory; note the date.
 - **When WRITING or AMENDING a bar — state what its check returns on an instance that should FAIL it.** A check that runs only on the passing case measures **presence, not discrimination**: it cannot catch a thing that is technically present and useless. This is the two-sidedness the project already demands of its test gates (PR #363 made `assert_launch_windowed` **red** on an added `-batchmode`, not merely green on a good launch) — bar #10 was written and then amended twice without anyone asking it of the bar itself, which is how three evasions survived to review (`86caz5na6`).
 - **Row shape:** `Bar` — the one-line standard | `Surfaces` — where it applies | `Source` — memory slug / soak date.
+- **When a bar outgrows its row, MOVE the overflow into an appendix — never trim it.** House ceiling: **~400 characters in the `Bar` cell** (bar 9's measured 391 is the house number; bars 1–8 sit at 112–245). A bar over it gets a **`## Bar N — <topic>`** section below, carrying the standard in full plus its provenance and motivating instances; the row keeps the **one-line standard + the channel ranking + `see § Bar N`**, and its `Source` cell keeps memory slugs / ticket ids / soak dates + the same pointer. **The move must be reviewable, which is what makes it a move and not a trim:** the PR body carries a **completeness ledger** — every clause removed from the row → the subsection it now lives in — and the reviewer walks it for orphans. A trim cannot be checked that way. **Precedent: PR #386**, which created `§ Bar 10` for `86caz5na6`'s four checks; this rule generalises that pattern rather than arguing with it (`86cazhjw4`, 2026-07-31). Bars 1–9 predate the rule and are not retrofitted by it.
 
 ## Bars
 
@@ -31,9 +32,9 @@ referenced by `team/TESTING_BAR.md` § Predict-Before-Soak.
 | 7 | Every system is designed with **3 difficulty tiers** (easy / medium / hard), kid-friendly → adult-challenging. | needs, enemies, combat, survival | `[[difficulty-settings-easy-medium-hard]]` |
 | 8 | When a spatial/visual tweak stalls (~2 soak-rejects), give the Sponsor a **direct-tweak instrument** (nudge tool / slider / discrete picker) so he dials it himself, then bake the values — don't grind blind iterations. | any fiddly placement/sizing | `[[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]`, composes with `/unstick` |
 | 9 | A weapon-vs-mob matchup reads as **EMERGENT, not scripted** — the "right tool" (e.g. spear-beats-boar) is LEGIBLE to the player from two independent systemic facts (the weapon's REACH + the mob's damage-type WEAKNESS tag), with NO hardcoded weapon×mob matchup table; the weaker tool stays usable (worse, not blocked). Confirmed emergently at the boar soak (reach + pierce-tag, zero table). | enemies, weapons, combat matchups | boar soak PASS 2026-07-22 (`86cah7ydt` AC8b, PR #332, DECISIONS 2026-07-22) |
-| 10 | **No cue may rest on a SINGLE channel.** Colour-only is the most common way it fails, but motion-only fails identically. Every HUD / world readout / attract cue must be identifiable on **≥2 channels, at least one of them independent of hue** — **FORM** first (segment count, silhouette, size), then **POSITION** (a fixed slot per kind; an inactive kind leaves its slot EMPTY, never packed, so "the third slot is lit" is itself the read), then **MOTION**; colour ranks LAST of the four, never first, and text is a last-resort fallback. **A "channel" is a property that DIFFERS between an instance in the cued state and one that is not** (clause added 2026-07-31) — a property present on **every** instance is **style, not a cue**: it answers "what KIND of thing is this", never "WHICH one is cued", so it contributes nothing to the ≥2 however well it reads. **Variance is the precondition for being a channel at all**; the FORM → POSITION → MOTION → colour ranking orders **read-speed among channels that already pass it**, and never admits one that doesn't. **Name the ≥2 channels the cue rides on, and verify each is actually LIVE on the shipped material/shader** — a shader property the assigned shader does not declare is a silent no-op that collapses the cue to one channel with no error. **Four checks — C1 amplitude, C2 failure-independence, C3 comparison set, C4 two-sided capture; all required, spelled out in § "Bar 10 — the four checks" below** (`86caz5na6`, 2026-07-31). Two things that used to be "the checks" changed status there: the **invariance desk question** — *"what does this channel look like on a non-cued instance of the same kind? if the answer is 'the same', strike it and re-count"* — is **retained but DEMOTED to a free pre-filter**, because it needs no build (so it runs at dispatch time and kills invariant channels cheaply) but its only input is the author's own sentence, so it is **not evidence**; and **desaturate the shipped-build capture** (if the cue is gone, it failed) stays **required**, because hue-independence is a different question from discrimination and C4 does not test it. WHY: the world is saturated mid-green and will happily eat a hue cue; form survives a colour-blind player and reads faster at peripheral glance; a cue that silently loses a channel degrades with nothing anywhere reporting it; and an always-on channel is indistinguishable from the material it is painted on — the player's question is never "is this a sword", it is "is THIS sword the one I can take". | HUD bars, status chips, world-anchored readouts, **attract / affordance cues on world objects (rim, glow, outline)**, any new UI element | Sponsor decision 2026-07-27 (HP bar = 5 chunky segments over 10 thin ones — form over colour; `86cah7z2q` AC1) + Uma's three-channel rule ratified via PR #339 `e13a51e`. **Provenance note:** ratified by a Sponsor pick + a merged spec, not yet by a shipped soak — re-confirm or correct at the first HUD soak that exercises it. **Second motivating instance (Devon, PR #349 review 2026-07-27):** a find-in-world attract cue lost its Fresnel rim and now rests on motion alone — the earlier colour-only wording of this bar would have PASSED it, which is why the invariant is single-channel collapse, not colour-only. Mechanism he verified: `_RimIntensity` is declared on exactly one shader (`Assets/Shaders/LowPolyVertexColor.shader:79` property / `:162` CBUFFER / `:323` use) and every setter is `HasProperty`-guarded (`LowPolyZoneGen.cs:1937`), so assigning it to a material whose shader does not declare it is a silent no-op. **Third motivating instance (PR #379 + PR #351 review, 2026-07-31) — and the reason the "channel" definition above exists:** the plain **≥2-channels** wording passed **motion + invariant-form** for exactly the reason the older colour-only wording had passed motion-only — it counted channel *types*, not channel *information*. #351's find-in-world attract cue rides float-bob + sway, which are both MOTION (one channel), so a second was needed; the orchestrator and Uma independently proposed §3's white edge-highlight plane as the FORM channel, and Drew declined it. His reason IS the clause: the plane is genuinely fork-free (`EdgeWhite #F5F5F0` is a slot on the shared `weapon_palette.png` and §3 UVs the inset strip to it — same material, no fork), **but** `.claude/docs/blender-asset-pipeline.md` §11's sign-off checklist mandates it on **every blade** ("White edge-highlight plane exists on every blade") and §2's palette row scopes it to **all weapons** ("Blade edge-highlight plane (all weapons)") — both re-verified against `origin/main` at **two** refs: @ `e054aa7` the §2 palette row was `:58`, the §3 rule `:94`, the §11 sign-off `:377`; PR #379 then merged as `fe4af11`, inserting +28 lines into §2, and **all three shifted** — re-measured on `fe4af11` as `:86` / `:122` / `:405`, texts identical. Which is the point: the durable citation is the **§ anchor, never the line number**. Invariant across the whole set ⇒ it cannot answer *"which of these three swords is the pickable one?"* ⇒ the cue stays collapsed on MOTION by a different route. Hence **a channel that is always on is not a cue** — it passes "is it fork-free?" and passes "is it FORM?" and still fails. **Ranking NOT changed:** FORM → POSITION → MOTION → colour orders read-speed, which is orthogonal to variance; the fix belonged in what qualifies as a channel, not in how qualifying channels rank. **Provenance:** source-verified from the docs + the #351 review, not soak-confirmed — the re-served #351 cue is the first soak that exercises it. **The three evasions the four checks exist to close (`86caz5na6`, 2026-07-31 — this row was merged KNOWN-INCOMPLETE and is no longer).** The clause above was approved on PR #380 as *"correct and better; incomplete, not wrong"*, and three cues then passed **every** clause of it while being useless: variance was tested as a **boolean, never a magnitude** (a 2 cm marker + a 3 mm bob passes and is invisible at the gameplay framing → now **C1**); two counted channels were allowed to share **one failure domain** (one marker mesh is both FORM and POSITION, so a single null reference kills both silently → now **C2**); and the invariance check returned **no verdict at all** on a unique instance, which is #351's own case at the default dial (→ now **C3**). Root cause: **every check on this bar ran on the CUED instance alone, so it measured presence and never discrimination** — which is what **C4**'s two-sided artifact addresses structurally. **Status: C1–C3 are live now. C4 is SPECIFIED, not built** — it is build-lane, it needs a purpose-built two-instance scene (no cued/non-cued pair occurs anywhere in live gameplay), and its verdict is human, not mechanical; feasibility is `team/erik-consult/two-sided-capture-feasibility.md`. |
+| 10 | **No cue may rest on a SINGLE channel** — colour-only and motion-only fail identically. Every cue must be identifiable on **≥2 channels, ≥1 hue-independent**, each **varying between a cued and a non-cued instance** and each **LIVE on the shipped material/shader**. Rank **FORM → POSITION → MOTION → colour**; text last-resort. Gates: **C1–C4 + desaturate required, invariance a free pre-filter**. Full text: **§ Bar 10**. | HUD bars, status chips, world-anchored readouts, **attract / affordance cues on world objects (rim, glow, outline)**, any new UI element | Sponsor decision 2026-07-27 (`86cah7z2q` AC1) + Uma's three-channel rule, PR #339 `e13a51e`; amended PR #380 `90d024b` and PR #386 (`86caz5na6`); row dieted `86cazhjw4`. **Not soak-confirmed.** Provenance, the three motivating instances and the three evasions: **§ Bar 10 → History**. |
 
-## Bar 10 — the four checks (`86caz5na6`, 2026-07-31)
+## Bar 10 — the standard in full, and the four checks (`86caz5na6` + `86cazhjw4`, 2026-07-31)
 
 Bar #10 was written, then amended twice, and merged KNOWN-INCOMPLETE because every check it carried
 ran on the **cued instance alone** — so all of them measured **presence** and none measured
@@ -58,6 +59,58 @@ again.
 **Cite the SYMBOL, never the line number.** All three line citations in bar #10's Source column
 shifted when PR #379 merged (the N1 finding on PR #380). Every value below was re-measured on `main`
 at `90d024b`; the symbol is the durable anchor.
+
+### The standard in full
+
+**Moved here verbatim from the Bars-table row** at `0f14b4f`, by `86cazhjw4` — the cell had reached
+**2,523 characters** against bar 9's 391 and bars 1–8's 112–245, so the table had stopped being
+scannable. This is a MOVE: every clause below is the row's own wording. The single adaptation is the
+self-reference — the row said *"spelled out in § 'Bar 10 — the four checks' below"* and now says
+*"spelled out below"*, because it is inside that section.
+
+**The dieted row lands at 423 characters, over the ~400 house ceiling, and that is deliberate.** The
+standard carries five things the row cannot drop without weakening it — the single-channel invariant,
+≥2-with-one-hue-independent, the variance qualifier, the LIVE-on-the-shipped-shader check, and the
+rank order — and compressing further starts paraphrasing them. A paraphrased bar is a weakened bar,
+which is the failure `86caz5na6` spent a whole review closing, so the ceiling gives way rather than
+the standard (`86cazhjw4`; the ceiling is a trigger for this section, not a budget to game).
+
+**No cue may rest on a SINGLE channel.** Colour-only is the most common way it fails, but motion-only
+fails identically. Every HUD / world readout / attract cue must be identifiable on **≥2 channels, at
+least one of them independent of hue** — **FORM** first (segment count, silhouette, size), then
+**POSITION** (a fixed slot per kind; an inactive kind leaves its slot EMPTY, never packed, so "the
+third slot is lit" is itself the read), then **MOTION**; colour ranks LAST of the four, never first,
+and text is a last-resort fallback.
+
+**A "channel" is a property that DIFFERS between an instance in the cued state and one that is not**
+(clause added 2026-07-31) — a property present on **every** instance is **style, not a cue**: it
+answers "what KIND of thing is this", never "WHICH one is cued", so it contributes nothing to the ≥2
+however well it reads. **Variance is the precondition for being a channel at all**; the FORM →
+POSITION → MOTION → colour ranking orders **read-speed among channels that already pass it**, and
+never admits one that doesn't.
+
+**Name the ≥2 channels the cue rides on, and verify each is actually LIVE on the shipped
+material/shader** — a shader property the assigned shader does not declare is a silent no-op that
+collapses the cue to one channel with no error.
+
+**Four checks — C1 amplitude, C2 failure-independence, C3 comparison set, C4 two-sided capture; all
+required, spelled out below** (`86caz5na6`, 2026-07-31). Two things that used to be "the checks"
+changed status there: the **invariance desk question** — *"what does this channel look like on a
+non-cued instance of the same kind? if the answer is 'the same', strike it and re-count"* — is
+**retained but DEMOTED to a free pre-filter**, because it needs no build (so it runs at dispatch time
+and kills invariant channels cheaply) but its only input is the author's own sentence, so it is **not
+evidence**; and **desaturate the shipped-build capture** (if the cue is gone, it failed) stays
+**required**, because hue-independence is a different question from discrimination and C4 does not
+test it.
+
+WHY: the world is saturated mid-green and will happily eat a hue cue; form survives a colour-blind
+player and reads faster at peripheral glance; a cue that silently loses a channel degrades with
+nothing anywhere reporting it; and an always-on channel is indistinguishable from the material it is
+painted on — the player's question is never "is this a sword", it is "is THIS sword the one I can
+take".
+
+**Surfaces** (unchanged, still in the row): HUD bars, status chips, world-anchored readouts,
+attract / affordance cues on world objects (rim, glow, outline), any new UI element.
 
 ### The default gameplay framing — the one framing a magnitude claim may be stated against
 
@@ -397,6 +450,70 @@ demonstrated red the first time the artifact is built and a naive viewer points 
 until then it carries predictions only. The present/discriminable split is still why the human half is
 not removable, and why C4 does not replace **desaturate**: desaturate tests hue-independence, C4 tests
 discrimination, and neither substitutes for the other.
+
+### History — motivating instances
+
+**Moved here verbatim from the row's `Source` column** at `0f14b4f`, by `86cazhjw4` (the column had
+reached **4,187 characters**). One class of change: **the four line-number citations the row carried
+are converted to § anchors / symbol names** — `LowPolyVertexColor.shader:79` / `:162` / `:323` and
+`LowPolyZoneGen.cs:1937`. All four still resolved on `0f14b4f` when converted, so this is not a bug
+fix; it is the row ceasing to argue against its own third instance, which is a story about line
+numbers drifting. **The `blender-asset-pipeline.md` line numbers inside that instance are NOT
+converted and must not be** — they are the evidence of the drift, and rewriting them as anchors would
+delete the finding. Nothing else is re-worded.
+
+**Origin.** Sponsor decision 2026-07-27 (HP bar = 5 chunky segments over 10 thin ones — form over
+colour; `86cah7z2q` AC1) + Uma's three-channel rule ratified via PR #339 `e13a51e`. **Provenance
+note:** ratified by a Sponsor pick + a merged spec, not yet by a shipped soak — re-confirm or correct
+at the first HUD soak that exercises it.
+
+**Second motivating instance (Devon, PR #349 review 2026-07-27):** a find-in-world attract cue lost
+its Fresnel rim and now rests on motion alone — the earlier colour-only wording of this bar would
+have PASSED it, which is why the invariant is single-channel collapse, not colour-only. Mechanism he
+verified: `_RimIntensity` is declared on exactly one shader — `Assets/Shaders/LowPolyVertexColor.shader`,
+as a `Properties` entry, restated in the `ForwardLit` pass's `CBUFFER_START(UnityPerMaterial)` and
+consumed in that pass's fragment (`finalCol += _RimColor.rgb * rim * _RimIntensity`) — and every
+setter is `HasProperty`-guarded (`LowPolyZoneGen.RockVertexColorMat`, in
+`Assets/Scripts/Editor/LowPolyZoneGen.cs`), so assigning it to a material whose shader does not
+declare it is a silent no-op.
+
+**Third motivating instance (PR #379 + PR #351 review, 2026-07-31) — and the reason the "channel"
+definition above exists:** the plain **≥2-channels** wording passed **motion + invariant-form** for
+exactly the reason the older colour-only wording had passed motion-only — it counted channel *types*, not
+channel *information*. #351's find-in-world attract cue rides float-bob + sway, which are both MOTION
+(one channel), so a second was needed; the orchestrator and Uma independently proposed §3's white
+edge-highlight plane as the FORM channel, and Drew declined it. His reason IS the clause: the plane is
+genuinely fork-free (`EdgeWhite #F5F5F0` is a slot on the shared `weapon_palette.png` and §3 UVs the
+inset strip to it — same material, no fork), **but** `.claude/docs/blender-asset-pipeline.md` §11's
+sign-off checklist mandates it on **every blade** ("White edge-highlight plane exists on every blade")
+and §2's palette row scopes it to **all weapons** ("Blade edge-highlight plane (all weapons)") — both
+re-verified against `origin/main` at **two** refs: @ `e054aa7` the §2 palette row was `:58`, the §3
+rule `:94`, the §11 sign-off `:377`; PR #379 then merged as `fe4af11`, inserting +28 lines into §2,
+and **all three shifted** — re-measured on `fe4af11` as `:86` / `:122` / `:405`, texts identical.
+Which is the point: the durable citation is the **§ anchor, never the line number**. Invariant across
+the whole set ⇒ it cannot answer *"which of these three swords is the pickable one?"* ⇒ the cue stays
+collapsed on MOTION by a different route. Hence **a channel that is always on is not a cue** — it
+passes "is it fork-free?" and passes "is it FORM?" and still fails.
+
+**Ranking NOT changed:** FORM → POSITION → MOTION → colour orders read-speed, which is orthogonal to
+variance; the fix belonged in what qualifies as a channel, not in how qualifying channels rank.
+**Provenance:** source-verified from the docs + the #351 review, not soak-confirmed — the re-served
+#351 cue is the first soak that exercises it.
+
+**The three evasions the four checks exist to close (`86caz5na6`, 2026-07-31 — this row was merged
+KNOWN-INCOMPLETE and is no longer).** The clause above was approved on PR #380 as *"correct
+and better; incomplete, not wrong"*, and three cues then passed **every** clause of it while being
+useless: variance was tested as a **boolean, never a magnitude** (a 2 cm marker + a 3 mm bob passes
+and is invisible at the gameplay framing → now **C1**); two counted channels were allowed to share
+**one failure domain** (one marker mesh is both FORM and POSITION, so a single null reference kills
+both silently → now **C2**); and the invariance check returned **no verdict at all** on a unique
+instance, which is #351's own case at the default dial (→ now **C3**). Root cause: **every check on
+this bar ran on the CUED instance alone, so it measured presence and never discrimination** — which
+is what **C4**'s two-sided artifact addresses structurally.
+
+**Status: C1–C3 are live now. C4 is SPECIFIED, not built** — it is build-lane, it needs a
+purpose-built two-instance scene (no cued/non-cued pair occurs anywhere in live gameplay), and its
+verdict is human, not mechanical; feasibility is `team/erik-consult/two-sided-capture-feasibility.md`.
 
 ## Open / unconfirmed (drop new inferences here for the next `/name-the-bar` pass)
 
