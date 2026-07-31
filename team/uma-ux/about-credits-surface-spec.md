@@ -16,6 +16,18 @@
 > | 3 | R1 does not state the Danish-keyboard constraint on its entry point, nor the footer-swap wiring trap. | **§10** |
 > | 4 | R1 has no developer-verifiable AC list and no crisp OOS list. | **§13**, **§14** |
 >
+> **R2 fix round — 2026-07-31, re-verified at `origin/main` @ `721701d`** *(Tess's PR #388 REQUEST_CHANGES).*
+> **Blocker:** §9.2's own marker insert shifted the block to `:23-42`, invalidating the `sed -n '22,41p'`
+> reproduction that §9.3, **AC-D1** and **AC-D11** all rest on — so **AC-D1 read FALSE on a correct
+> implementation**, and §9.3 then told the developer their extraction was wrong. **Fixed durably**, by making
+> the extraction **marker-relative** rather than by re-pinning the range: §9.3 (+ a three-way failure-value
+> table), **AC-D1**, **AC-D11**, and a new **§9.6** stating the pre-marker `+0 / +1 / +2` cite rule once for the
+> whole document. The `sha256` pin is **unchanged** and reproduces at `721701d`. Also closed, from her six NITs:
+> **N1** `BarredStrings` (one named 9-string constant at both layers, §9.2), **N2** new **G6** pinned
+> change-detector, **N3** AC-D9 made mechanical, **N4** §4.3's scan net widened **with a `.meta` exclusion**,
+> **N5** AC-D12 quotes the boundary clause verbatim, **N6** the `CC-Attribution` under-credit caveat.
+> **S5 and S7 remain open Sponsor items — neither is decided here, and S5's ask is unchanged (§14.3).**
+>
 > **Drift check at `8ad6e24`:** `git diff --stat c8ce948..8ad6e24` over `SettingsPanel.cs` / `.uss` /
 > `.uxml`, `Palette.uss` and `Castaway_Attribution.txt` is **empty** — every R1 line-ref still resolves
 > (spot-checked `:409`, `:444`, `:579`, `:619`, `:637`, `:645`, `:671`). The §1 debt scan re-run at
@@ -311,12 +323,31 @@ because a violation is visible to the player as a wrong or missing credit:
   name **as written in the attribution file**, `Trim()`-non-empty and **≥ 4 characters**. A short or generic token
   (`"a"`, `"the"`, `"free"`) would match any prose and silently disarm the over-crediting catch that is G3's whole
   purpose. Assert the constraint in the guard itself (**G3b**) so a future entry cannot weaken G3 by construction.
-- **File-scan net for the guard** — match, under `Assets/`, any `.txt` whose filename matches
-  `(?i)(attribution|licen[cs]e|notice|third[-_]?party)`. That is deliberately wider than today's single
-  `*_Attribution.txt`, because it also catches the retired `*_License_CC-Attribution.txt` convention named at
-  `Castaway_Attribution.txt:44-45` — so a future asset arriving with *either* naming convention trips the guard.
+- **File-scan net for the guard.** **⚠ WIDENED BY §9 (Tess N4, PR #388) — implement the widened form, not the
+  original.** R1 matched, under `Assets/`, any **`.txt`** whose filename matches
+  `(?i)(attribution|licen[cs]e|notice|third[-_]?party)`. That was already wider than today's single
+  `*_Attribution.txt` — it also catches the retired `*_License_CC-Attribution.txt` convention named at
+  `Castaway_Attribution.txt:44-45` — **but it has a blind spot that R2's new G0 now rides on**, so it must be
+  closed here rather than inherited. A future third-party asset shipping `Foo_Credits.txt`, `COPYRIGHT`,
+  `AUTHORS`, `NOTICE.md` or `Foo_Attribution.md` falls **outside** the net: G0, G1 and G4 all stay green and the
+  credit silently never renders — AC2's named ADD case surviving the guard.
 
-**The four assertions (all EditMode, no scene, no build, no play mode):**
+  **Widened net (binding):** under `Assets/`, match any file whose **filename** matches
+  `(?i)(attribution|licen[cs]e|notice|third[-_]?party|credits?|copyright|authors?)` — **no extension
+  restriction** (so extensionless `COPYRIGHT` / `AUTHORS` and `.md` are caught).
+
+  > ⚠ **Excluding `.meta` is NOT optional — dropping the `.txt` restriction is a day-one RED without it.**
+  > Measured at `origin/main` @ `721701d`: today's net matches exactly one file
+  > (`Assets/Art/Character/Castaway/Castaway_Attribution.txt`); the widened net with no extension rule matches
+  > **two** — that file **and its Unity sidecar `Castaway_Attribution.txt.meta`**, which matches `attribution`
+  > and will never carry markers. G0 would go RED on arrival, and §4.3's own warning applies: *a guard that is
+  > red on arrival gets quarantined instead of trusted.* **So: exclude `.meta` explicitly** (and, for the same
+  > reason, exclude any other Unity sidecar the scan surfaces). With `.meta` excluded the widened net matches
+  > exactly the same one file today — the widening is pure future-proofing with **zero** behaviour change now.
+
+**The four assertions (all EditMode, no scene, no build, no play mode). ⚠ §9.2 is the CURRENT suite** — it adds
+**G0** (markers present), **G5** (`BarredStrings`) and **G6** (pinned marker-relative `sha256`) and amends **G2**
+to compare the between-markers text. Implement §9.2's table; this one is the R1 foundation it builds on.
 
 | # | Assertion | Catches |
 |---|---|---|
@@ -500,7 +531,9 @@ spec `team/uma-ux/about-credits-surface-spec.md`.*
 
 # REVISION 2 — §§9–14
 
-*Everything below was added 2026-07-31 and verified at `origin/main` @ `8ad6e24`.*
+*Everything below was added 2026-07-31 and verified at `origin/main` @ `8ad6e24`; the fix round for Tess's
+PR #388 review was re-verified at `origin/main` @ `721701d`, where `Castaway_Attribution.txt` is byte-identical
+to `8ad6e24` (146 lines / 11624 bytes / zero CR) and the `sha256` pin still reproduces.*
 
 ---
 
@@ -555,7 +588,35 @@ re-indenting, no marker lines. **The guard suite changes as follows:**
 | **G1** | Bundle path-set == scan path-set. | Unchanged (§4.3). |
 | **G2** | Bundled text == the on-disk **between-markers** text, byte-for-byte. | **Amended** — was "on-disk text". |
 | **G3 / G3b / G4** | `MatchToken` present / ≥4 chars / every file has ≥1 entry. | Unchanged (§4.3). |
-| **G5** *(new)* | No bundled text contains `Viktor.G`, `joaobaltieri`, `Mini Chibi Kid`, or `CC-Attribution`. | **New.** A *belt-and-braces* assert of AC4's named bar, at the bundle layer. If a future marker move re-admits `:43-48`, this goes RED instead of shipping. Cheap, and it is the assertion that would have caught this defect. |
+| **G5** *(new)* | No bundled text contains any string in **`BarredStrings`** (the nine below). | **New.** A *belt-and-braces* assert of AC4's named bar, at the bundle layer. If a future marker move re-admits `:43-48`, this goes RED instead of shipping. Cheap, and it is the assertion that would have caught this defect. |
+| **G6** *(new)* | The marker-relative `sha256` of the on-disk block equals a **pinned expected value** stored beside the guard (today `5b178b65…d375a8`). RED on change → regenerate the bundle **and** re-pin, in the same PR. | **New — Tess N2, PR #388.** G0 and G2 both stay **green if a marker is MOVED and the bundle regenerated**; only the deny-list would catch the widened content, and today's containment is *incidental* (you cannot reach `:54-58`'s *"EXPLODED the skinned mesh into a cone"* — on no list — without first passing `:46-48`, which G5 catches). A pinned change-detector makes the deny-list a **backstop** rather than the primary defence, and gives **AC-D1** a home that survives edits instead of expiring at the next wording pass. |
+
+**`BarredStrings` — ONE named constant, asserted at BOTH layers.** R2 first shipped a 4-string list in G5 and a
+9-string list in AC-D2 with nothing reconciling them — a developer implementing "the guard suite" ships four,
+and the ninth only appears at a second assertion site (Tess N1, PR #388). They are the same list; name it once
+and have **G5 (bundle layer)** and **AC-D2 (composed-view layer)** both read it:
+
+```
+BarredStrings = [ "Viktor.G", "joaobaltieri", "Mini Chibi Kid", "CC-Attribution",
+                  "CharacterAssetGen", "UseCastawayV4Default", "helicopter",
+                  "OPEN QUESTION", "STATUS 2026-" ]
+```
+
+**Promoting all nine to the bundle layer is verified day-one clean, and the list is a real boundary assertion —
+not decoration.** Counted at `origin/main` @ `721701d` against the between-markers block and against the whole
+file: **every one of the nine occurs 0× in the block**, so G5 cannot be red on arrival (§4.3's own warning — *a
+guard that is red on arrival gets quarantined instead of trusted*). And **eight of the nine occur in the file
+outside the block** — `Viktor.G` 1×, `Mini Chibi Kid` 1×, `CC-Attribution` 1×, `CharacterAssetGen` 10×,
+`UseCastawayV4Default` 3×, `helicopter` 1×, `OPEN QUESTION` 2×, `STATUS 2026-` 5× — so the list discriminates
+*block* from *whole file* exactly. The ninth, `joaobaltieri`, occurs **0× anywhere** (the file names the asset,
+never the author's handle); it stays because AC4 bars it **by name**, and a forward-looking bar costs nothing.
+
+> ⚠ **One honest caveat on `CC-Attribution` (Tess N6).** That string bars a **live** class, not only a retired
+> one. If the project ever adopts a CC-BY asset again, `CC-Attribution` is precisely the text the credits
+> surface would legitimately need to carry. Risk is low as written — G5 reads bundled *text*, and a future
+> `Foo_License_CC-Attribution.txt` need not repeat its own filename in its body — but if this guard ever goes
+> RED, **check whether it is catching an under-credit before you "fix" the content.** The rest of
+> `BarredStrings` has no such double life.
 
 ### 9.3 The exact text — verbatim, as it must render today
 
@@ -586,18 +647,46 @@ ATTRIBUTION — WHAT THIS BUILD OWES CREDIT FOR
       was generated by a third-party service nor sourced from an asset library.
 ```
 
-**Checksum (so review is a diff, not a judgement):**
+**Checksum (so review is a diff, not a judgement). Extract MARKER-RELATIVE, never by line number:**
 
 ```
-$ sed -n '22,41p' Assets/Art/Character/Castaway/Castaway_Attribution.txt | sha256sum
+$ sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' \
+      Assets/Art/Character/Castaway/Castaway_Attribution.txt | sed '1d;$d' | sha256sum
 5b178b654c23acafde48f5b8d94b75f7430ad13faa50fa42006bd38443d375a8
 ```
 
-I ran that command in this worktree at `8ad6e24`. If the generated block's `sha256` differs and
-`Castaway_Attribution.txt` has not changed, **the extraction is wrong** — do not "fix" it by editing the
-expected value here.
+**Run this one, not a line range.** ⚠ **`:22-41` is the PRE-marker range and it stops reproducing the pin the
+moment §9.2 lands** — §9.2 inserts `BEGIN` immediately *before* line 22, so the block moves to `:23-42` and
+`sed -n '22,41p'` returns the marker line plus 19 of the 20 content lines. Measured on a file with §9.2 applied
+exactly (`awk` insert at the two stated positions, `origin/main` @ `721701d`): 148 lines, `git diff` `+2`,
+`BEGIN` at `:22` / `END` at `:43`, and
+
+```
+$ sed -n '22,41p'  <post-marker file> | sha256sum
+e940fc0fd923032dd79a48790ca21b7858c4c8d243a5a5ceb51611f8052d2a45   ← NOT the pin
+$ sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' <post-marker file> | sed '1d;$d' | sha256sum
+5b178b654c23acafde48f5b8d94b75f7430ad13faa50fa42006bd38443d375a8   ← the pin, 20 lines
+```
+
+*(Independently recomputed 2026-07-31 in this worktree; Tess reached the same two values in her PR #388 review.
+The pin itself is unchanged and holds at `8ad6e24`, `750f190`, `721701d` and PR head `9053893` — the file is
+byte-identical across all four, 146 lines / 11624 bytes / zero CR.)*
+
+**The command is a three-way discriminator — read the value you got before concluding anything:**
+
+| You got | What it means | Do |
+|---|---|---|
+| `5b178b65…d375a8`, **20 lines** | Correct. | Nothing. |
+| `e3b0c442…7852b855`, **0 lines** | The sha256 of **empty input** — `BEGIN` is not in the file. The markers have not landed yet (S5, §9.5). | Apply §9.2 first. **This is not an extraction bug.** |
+| Anything else, **≫20 lines** | `END` is missing, so `sed`'s range ran to EOF. Measured with `END` deleted: **124 lines**, `c4336267…40927f` — a silent over-extraction that would ship the whole tail of the file. | **G0** (§9.2) is the guard that must catch this. Restore the marker. |
+| Anything else, **≈20 lines** | The extraction trims, reflows or re-indents. | Fix the extraction — do **not** edit the expected value here. |
+
+If the generated block's `sha256` differs and the between-markers text has not changed, **the extraction is
+wrong** — do not "fix" it by editing the expected value here.
 
 ### 9.4 Where the boundary is, and the one wart I am NOT hiding
+
+*(All line numbers in this subsection are **pre-marker** — §9.6.)*
 
 **Included** (`:22-41`): the heading, the retain instruction, what is owed (Mixamo rig + clips; Rodin v1/v2/v3
 meshes), and what is **not** owed (the in-house v4 mesh + palette). The last part stays in deliberately — drop it
@@ -627,6 +716,30 @@ line range is the drift AC2 forbids.
 **But it is still a diff to a file this ticket puts OOS, so it is flagged, not assumed** → **S5 (§14.3)**.
 If Priya or the Sponsor prefers, the markers can land as a separate 2-line ticket ahead of implementation; this
 spec is unchanged either way.
+
+**One caveat for whoever answers S5** (raised by Tess, PR #388 review): `+2` is the *diff*, but it **renumbers
+every downstream line reference into that file** — including this spec's own. That is not a reason to refuse;
+it is a reason to land the markers and the re-cite together. §9.6 discharges the renumbering for this document.
+
+### 9.6 Every `Castaway_Attribution.txt` line cite in this spec is PRE-marker — the +0 / +1 / +2 rule
+
+This spec cites `Castaway_Attribution.txt` by line in a dozen places (§9.1's table, §9.4's boundary, the
+cross-references). **All of them are read against the file as it stands today** — `origin/main` @ `721701d`,
+**146 lines**, markers not yet applied. §9.2 then shifts most of them. Rather than re-pin a dozen numbers that
+would drift again the next time anything above the block moves, one rule discharges the whole class:
+
+> **Every `Castaway_Attribution.txt` line ref in this document is PRE-marker.** After §9.2 lands:
+> **`:1-21` unchanged · `:22-41` (the block) `+1` · `:42-146` (after `END`) `+2`.**
+
+Spot-verified on the simulated post-marker file: `:4-6` still the `STATUS 2026-07-30` block (unchanged);
+`:46-48` → **`:48-50`**, the `(Viktor.G)` / `"Mini Chibi Kid"` lines; `:49-52` → **`:51-54`**, the
+`OPEN QUESTION` about the unread licence text; `:141-146` → **`:143-148`**, the file's last line. So
+`:22-41` → `:23-42` and the cross-reference block's `:24-25` / `:27-41` / `:43-48` become `:25-26` / `:28-42` /
+`:45-50`.
+
+**Do not convert this document to post-marker numbers.** The rule above is stable under the one edit this
+ticket makes; a re-pinned number is not, and the pin's own reproduction command (§9.3) is now marker-relative
+precisely so that nothing load-bearing depends on a line number at all.
 
 ---
 
@@ -800,18 +913,18 @@ this spec's own; it sits **under** the ticket's AC1–AC4, which remain authorit
 
 | # | Criterion | How it is verified |
 |---|---|---|
-| **AC-D1** | The generated bundle's block for `Castaway_Attribution.txt` equals `sed -n '22,41p' <file>` byte-for-byte at `8ad6e24`, `sha256 = 5b178b65…d375a8` (§9.3). | EditMode (G2) + a one-line `sha256sum` in the Self-Test Report. |
-| **AC-D2** | The rendered surface contains **none** of `Viktor.G`, `joaobaltieri`, `Mini Chibi Kid`, `CC-Attribution`; and **none** of `CharacterAssetGen`, `UseCastawayV4Default`, `helicopter`, `OPEN QUESTION`, `STATUS 2026-`. | EditMode G5 over the bundle + a substring assert over the composed view text. |
+| **AC-D1** | The generated bundle's block for `Castaway_Attribution.txt` equals the file's **between-markers** text byte-for-byte, `sha256 = 5b178b65…d375a8` (§9.3). **Extract marker-relative, not by line number** — `sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' <file> \| sed '1d;$d' \| sha256sum`. ⚠ `sed -n '22,41p'` is the **pre-marker** range and returns `e940fc0f…` once §9.2 lands; §9.3's table reads the three failure values. | EditMode (G2) + that one-line `sha256sum` in the Self-Test Report. |
+| **AC-D2** | The rendered surface contains **none** of the nine strings in **`BarredStrings`** (§9.2) — the same named constant G5 asserts over the bundle, not a second hand-maintained list. | EditMode G5 over the bundle + a substring assert over the composed view text, **both reading `BarredStrings`**. |
 | **AC-D3** | **Reset-on-close.** F1 → `About` → F1 → F1 shows the **Settings** rows, header `Settings`. | PlayMode: `SetPlayerOpen(true)`, open About, `SetPlayerOpen(false)`, `SetPlayerOpen(true)`, assert the About container is `DisplayStyle.None` and the title `Label.text == "Settings"`. |
 | **AC-D4** | `← Back` returns to Settings with the drawer still open (`IsPlayerOpen == true`). | PlayMode, real `ClickEvent` / `Button.clicked` — not a direct field poke. |
 | **AC-D5** | Reset-to-defaults still works after an About open/close cycle, and `settings-reset` is never re-texted or re-bound. | The existing AC10 reset test, re-run after an About round-trip; plus assert `Q<Button>("settings-reset").text == "Reset to defaults"`. |
 | **AC-D6** | No `About` control exists in the **F3 dev** drawer. | EditMode/PlayMode: `devContainer.Q<Button>("settings-about") == null`. |
 | **AC-D7** | `SettingsPanel.uxml` is unmodified by this PR. | `git diff --stat origin/main -- Assets/UI/SettingsPanel.uxml` is empty. |
 | **AC-D8** | No new USS custom property, colour literal, or font is introduced; every colour resolves to a `Palette.uss` token. | Review + `grep -E "#[0-9A-Fa-f]{6}|rgba?\(" ` over the PR's USS diff returns only the widened `.settings-reset` selector. |
-| **AC-D9** | **No horizontal scrollbar** in the About view at 1920×1080 or 1280×720, verbatim block expanded. | Shipped-build capture frames at both resolutions. |
+| **AC-D9** | **No horizontal scrollbar** in the About view at 1920×1080 or 1280×720, verbatim block expanded. | **Mechanical, primary:** PlayMode — expand the block, then assert the About `ScrollView`'s `horizontalScroller` resolved style is `DisplayStyle.None` (equivalently: content `layout.width` ≤ `contentViewport.layout.width`) at both panel resolutions. **Capture frames at both resolutions are CORROBORATION, not the check** — an eyeballed PNG is a judgement call, which §13's own bar bars. *(Tess N3, PR #388.)* |
 | **AC-D10** | Expanding the verbatim block does not scroll-jump (§11.1). | PlayMode: record `scrollOffset`, expand, assert the expander is still within the viewport rect. |
-| **AC-D11** | The retained block's line breaks match the source's (§11.2). | Assert the rendered text's newline count equals the source block's. At `8ad6e24` the block is **20 lines** (`sed -n '22,41p' … \| wc -l` = 20) → **19** `\n` separators. Assert against the source, not against the literal 19, so the check survives an edit. |
-| **AC-D12** | **A `credits_*` capture frame from the BUILT exe** shows the About view populated, driven the `SettingsVerifyCapture` way (programmatic open + real `ChangeEvent`s), wired into the CI capture gate. | Ticket AC3. An editor `RenderTexture` shot does **not** satisfy it — `unity-conventions.md:197` (⚠ **the ticket cites `:182`; that ref has DRIFTED** — see §13.2). The About view is a **UI-Toolkit overlay**, so per the boundary sentence at `unity-conventions.md:9` the capture **MUST stay WINDOWED** (`-screen-fullscreen 0`, no `-batchmode`): overlays composite to the swapchain and never into a camera's `RenderTexture`. |
+| **AC-D11** | The retained block's line breaks match the source's (§11.2). | Assert the rendered text's newline count equals the **source block's, extracted marker-relative** — `sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' <file> \| sed '1d;$d' \| wc -l`. At `721701d` that is **20 lines** → **19** `\n` separators. Assert against the source, never against the literal 19 and never against a line range, so the check survives both an edit and the §9.2 marker insert. |
+| **AC-D12** | **A `credits_*` capture frame from the BUILT exe** shows the About view populated, driven the `SettingsVerifyCapture` way (programmatic open + real `ChangeEvent`s), wired into the CI capture gate. | Ticket AC3. An editor `RenderTexture` shot does **not** satisfy it — `unity-conventions.md:197` (⚠ **the ticket cites `:182`; that ref has DRIFTED** — see §13.2). The About view is a **UI-Toolkit overlay**, so the capture **MUST stay WINDOWED**. The boundary sentence (`unity-conventions.md:9`) says *"cite it verbatim, do not paraphrase it … and if you find yourself writing a launch-mode constraint in an AC, quote it there too"* — so, quoted: *"it MUST stay WINDOWED (`-screen-fullscreen 0`, no `-batchmode`) **iff any judged pixel comes from the BACKBUFFER** — i.e. `ScreenCapture.CaptureScreenshot` / `WaitForEndOfFrame`, or a screen-space IMGUI / UI-Toolkit OVERLAY (overlays composite to the swapchain, never into a camera's `RenderTexture`)."* Also register the new gate in `tests/scripts/test_gate_scripts.sh`'s `WINDOWED_GATES` — an unregistered gate reds the wiring check. |
 | **AC-D13** | **G0 goes RED on a marker-less file.** Add a throwaway `Assets/Art/_guardprobe_Attribution.txt` with no markers → the EditMode guard fails; delete it → green. | Demonstrate the RED in the Self-Test Report (`team/TESTING_BAR.md`; PR #383 is tightening this rule — *a gate is not a gate until demonstrated RED*). |
 | **AC-D14** | **G1 goes RED on the ADD case** (ticket AC2's named priority): a new marker-carrying attribution file with no bundle entry fails. | Same probe-then-delete demonstration. |
 | **AC-D15** | Every text element in the About view scales with the `UI text scale` dial. | PlayMode: change the scale, assert each About `Label`'s `fontSize` changed (R1 §5.2). |
@@ -872,6 +985,13 @@ Implementation of any kind; UXML/USS/C# authoring; the capture harness; the Edit
   §9.5 gives my reading (not the edit the OOS bars: no assertion, wording or fact changes) and the alternative
   (land the markers as a separate 2-line ticket first). **Recommend: allow it inside this ticket** — a separate
   ticket for a two-line delimiter costs a full build slot. Needs a Priya/Sponsor nod either way.
+  **⚠ The fix round for Tess's PR #388 blocker did NOT change what S5 asks for.** The ask is still exactly the
+  same two marker lines, at the same two positions, `git diff` still exactly `+2`, and the alternative is still
+  the same separate 2-line ticket. What changed is only on *this document's* side: §9.3 / AC-D1 / AC-D11 now
+  extract **marker-relative** instead of by line range, and §9.6 states the pre-marker cite rule — so the spec
+  no longer breaks when the markers land. Tess's caveat for whoever answers: `+2` is the diff, but it renumbers
+  every downstream line ref into that file; §9.6 discharges that for this spec, and the re-cite should land with
+  the markers rather than after them. **The decision itself is untouched and still open.**
 - **S6 — dev-voice inside the retained block.** The included `:22-41` still says
   `CastawayAnimator.controller`, `ticket 86catpwc4`, and *"a Unity build-inclusion question this file
   deliberately does not assert either way."* §12's framing line mitigates it; a genuine fix is a wording pass on
@@ -931,8 +1051,10 @@ guards G0 (markers present) and G5 (no barred name in the bundle) enforce it. Th
 ### Added by Revision 2
 
 - `Assets/Art/Character/Castaway/Castaway_Attribution.txt` — **`:22-41`** the marker-delimited block (§9.3,
-  `sha256 5b178b65…d375a8`); **`:46-48`** the `Viktor.G` / `"Mini Chibi Kid"` names that make the whole-file
-  route an AC4 violation; `:4-6`, `:14-20`, `:49-52`, `:54-58`, `:137-146` the excluded internals.
+  `sha256 5b178b65…d375a8`, extracted **marker-relative**); **`:46-48`** the `Viktor.G` / `"Mini Chibi Kid"`
+  names that make the whole-file route an AC4 violation; `:4-6`, `:14-20`, `:49-52`, `:54-58`, `:137-146` the
+  excluded internals. ⚠ **Every line ref to this file in this document is PRE-marker — see §9.6's +0 / +1 / +2
+  rule.**
 - `Assets/Scripts/Editor/MovementCameraScene.cs:4906-4907` — `toggleKey = KeyCode.F1` / `devToggleKey =
   KeyCode.F3`, the ONLY place the shipped keys are assigned.
 - `Assets/Scripts/Runtime/Settings/SettingsPanel.cs` — `:138` the in-code "Danish-safe (an F-key)" certification;
