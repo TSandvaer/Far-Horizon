@@ -158,6 +158,20 @@ could never land on the capture-pinned runner). The team shipped the simpler opt
   cross-runner interaction as a live risk even with clean label separation.
 
 **What still blocks raising the cap to 2, concretely:**
+
+> ⚠ **CORRECTED 2026-07-31 (`86cazhtn1`) — this list is INCOMPLETE and item 1 is out of date. Do not use it
+> as the cap→2 checklist.** It omits the thing that actually holds the cap: `.github/workflows/ci.yml:226-228`
+> puts every `build` job in an **ABSOLUTE** `concurrency: group: unity-build` (no ref suffix,
+> `cancel-in-progress: false`), so all `build` jobs queue repo-wide into ONE lane **regardless of runner
+> count or labels** — and `gh api repos/TSandvaer/Far-Horizon/actions/runners` → `total_count: 1`
+> (measured 2026-07-31 on `origin/main` @ `721701d`). **BOTH must change; a 2nd runner alone buys nothing.**
+> Item 1 is stale — the spike has since run (write-up in PR **#387**), and it found EPERM **absent** in its
+> two resolving legs, so the EPERM axis cannot move the cap either. Item 2's "that discrepancy should be
+> resolved" **is now resolved**: CLAUDE.md's prose was stale in its stated *mechanism*, and the cap is
+> nonetheless still correctly 1 — see the ✅ RESOLVED action item below. Erik's numbered assessment is kept
+> verbatim as his 2026-07 reading. ⛔ The cap NUMBER is Sponsor-gated; authoritative statement is `CLAUDE.md`
+> § Autonomous orchestration → the **Unity-build cap = 1** bullet.
+
 1. `86cabkhjg` itself hasn't run yet (status: to do) — the local-worktree EPERM question is untested.
 2. No canary evidence I can verify shows `build`-on-runner-2 concurrent with `capture`-on-runner-1
    surviving cleanly under load, more than once, over time. The memory's "canary-green 2026-07-02" claim

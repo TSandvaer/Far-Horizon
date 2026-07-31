@@ -4,6 +4,17 @@
 **Research basis:** `team/erik-consult/unity-concurrent-build-cache-isolation.md`
 **Status:** ✅ DONE + VERIFIED 2026-06-29. The draft body below is Erik's reference; the corrections box records what was ACTUALLY run.
 
+> ⛔ **STOP — the cap→2 RESULT below (§ACTUAL SETUP, "build-slot cap bumped 1→2") was WALKED BACK. The cap
+> is `≤1` and runner-2 is OFFLINE.** #182 bumped it; **#190 reverted it** because a 2nd runner's presence
+> breaks the windowed-capture gates (A/B-confirmed 2026-06-29 —
+> `team/spikes/second-runner-breaks-windowed-captures-finding.md`). This banner is stated HERE because that
+> file is where the walk-back was recorded, and a reader arriving at this doc directly would never see it.
+> ⚠ Also note the setup steps below predate `86cafz9tg` (PR #203, 2026-07-01), which split the single
+> `unity` job into `build` + `capture` — read `unity` job references below as historical. The single
+> authoritative statement of why the cap is 1 is `CLAUDE.md` § Autonomous orchestration → the
+> **Unity-build cap = 1** bullet; ⛔ the number itself is Sponsor-gated. (Banner added 2026-07-31,
+> `86cazhtn1`; the setup steps themselves are unreviewed by that ticket and remain `86caffc23`'s.)
+
 ---
 
 ## ✅ ACTUAL SETUP (2026-06-29, verified) — corrections to the draft below
