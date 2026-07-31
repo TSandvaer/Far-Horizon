@@ -120,6 +120,7 @@ The shared-palette convention above (every UV island scaled to zero and parked o
 - **Haft/handle:** 5–6-sided cylinder. 8+ sides is too round for this style.
 - **Chunky cartoon look comes from off-center axe heads, notched grip bands, and faceted facets — NOT a bent haft.** The HAFT is STRAIGHT (Sponsor decision 2026-06-23: the whole weapon family — axe/knife/sword/spear — has straight handles, matching the board axe `21h08_08`; the earlier "slight 2–5° haft bend" rule is RETIRED). Keep the imperfection in the head / grip / facet detail, not in a curved handle.
 - **White edge-highlight plane** (the crisp read in the inspiration board): inset (I, ~0.05m) the front blade face → separate that thin strip as its own mesh island → UV it to the `EdgeWhite` palette block. This is physical geometry, NOT a shader effect.
+  - **This is the ONE sanctioned route to that feature — it supersedes `lowpoly-quality.md` Rec 5's "distinct material slot" mechanism** (retired 2026-07-31, ticket `86caz5m75`: Rec 5 predates this pipeline by two days and its slot would fork `Mat_WeaponPalette`). A mesh island costs no extra material and no extra draw call, so the §2 invariant holds. **Scope caveat, per §2:** this is the style BASELINE — mandated on every blade by §11 — so it is invariant across the set and is NOT a discriminating attract/affordance cue.
 
 **Triangle budgets (Far Horizon style):**
 
