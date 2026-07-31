@@ -1,6 +1,7 @@
-# Finding — concurrent Unity builds on ONE machine: the PackageCache EPERM did NOT reproduce, and the real hazard is the opposite of the documented remedy
+# Finding — concurrent Unity builds on ONE machine: the PackageCache EPERM did not reproduce in the 2 resolving legs, and deleting `PackageCache` alone can itself wedge a warm checkout
 
 **Status:** ✅ measured 2026-07-31 (spike `86cabkhjg`, editor `6000.4.11f1`).
+**⚠ Text corrected 2026-07-31** (`86cazhkx9`, from the [#387 peer review](https://github.com/TSandvaer/Far-Horizon/pull/387#issuecomment-5145440412)): four over-claims narrowed — the effective sample (§Legs), the EPERM detector's missing negative control (§Negative control), the unscoped safety claim (§Recommendation), and this title. **No measurement changed and no leg was re-run**; the same raw logs are the source. What was measured stands — what it *supports* is narrower.
 **Spec this answers:** `team/spikes/unity-concurrent-build-cache-isolation-spike.md`.
 **Prior research this tests:** `team/erik-consult/concurrent-unity-build-isolation-research.md` (routes 1–4)
 and `team/erik-consult/unity-concurrent-build-cache-isolation.md`.
@@ -11,22 +12,35 @@ and `team/erik-consult/unity-concurrent-build-cache-isolation.md`.
 
 ## Headline
 
-1. **The EPERM did not reproduce — in any of 8 legs, under any cache condition.** Two Unity
-   `-batchmode` instances running concurrently from two worktrees completed cleanly — bootstrap
-   *and* full `BuildWindows` — whether they SHARED one cold cache root, shared the REAL warm user
-   cache *and* the real Bee cache, or had fully isolated roots. `EPERM: operation not permitted,
-   rename` count = **0** in every log. **The spike's success criterion (two concurrent builds, no
-   EPERM) is met with NO fix applied** — which means the isolation bake it was meant to justify has
-   nothing to justify it.
+1. **The EPERM did not reproduce — `EPERM` count = 0 in all 18 logs — but only 2 of the 8 legs can
+   bear weight on that.** Two Unity `-batchmode` instances running concurrently from two worktrees
+   completed cleanly — bootstrap *and* full `BuildWindows` — whether they SHARED one cold cache
+   root, shared the REAL warm user cache *and* the real Bee cache, or had fully isolated roots.
+   **⚠ Scope, added on review:** the EPERM is a rename at the `.tmp-* → com.unity.X@hash`
+   extraction site, which exists **only during package resolution**. Only legs **1** and **5**
+   actually resolved (`Done resolving packages in` = 1); legs **2/3** aborted pre-resolve and legs
+   **6/7/8** are builds against a warm `PackageCache` — all five show `doneResolve=0`, so their
+   "no EPERM" is **vacuous** (see §Legs). The honest line is **two concurrent resolving trials,
+   four resolving instances, exactly one of them (leg 5) on the real user cache — all clean.**
+   Against a documented low-rate flake, N=1 on the production condition is a **hint, not a
+   refutation**. The isolation bake it was meant to justify still has nothing to justify it.
 2. **Per-project `Library/PackageCache` is not a shared surface across worktrees at all** —
    so the documented rename collision is *structurally* not a cross-worktree contention.
    Unity prints the absolute per-checkout path for every registered package.
-3. **The real hazard found is the project's own documented remedy.** Deleting
-   `Library/PackageCache` while the rest of `Library/` is warm **WEDGES** the checkout, and
-   a bare re-run does **not** clear it. `touch Packages/manifest.json` clears it in one run.
-4. **Cache isolation is not what caps Unity concurrency here.** One registered runner plus a
-   repo-wide `concurrency: group: unity-build` in `ci.yml` cap CI at one build regardless of
-   caches. **Recommendation: do NOT raise the build-slot cap.**
+3. **The documented wedge remedy is INCOMPLETE — the delete alone can itself wedge a warm
+   checkout.** Deleting `Library/PackageCache` while the rest of `Library/` is warm **WEDGES** the
+   checkout, and a bare re-run does **not** clear it. `touch Packages/manifest.json` clears it in
+   one run. **⚠ Scope, added on review:** this was measured from a **healthy warm** checkout. The
+   documented remedy targets a **different initial state** — an already-partial/wedged
+   `PackageCache` after a failed resolve, where `Library/PackageManager`'s validity is untested.
+   So the finding is *"pair the delete with a state-cache invalidation"*, **not** *"the old remedy
+   was simply wrong"* (see §Two things this corrects).
+4. **Cache isolation is not what caps Unity concurrency here — and this result does NOT reopen the
+   build-slot cap.** The cap rests on two **cache-independent** constraints: `ci.yml:226-228`
+   (`concurrency:` / `group: unity-build` / `cancel-in-progress: false`, **no ref suffix** → one
+   build job repo-wide regardless of caches) and `total_count: 1` registered runners. **The cap was
+   never held in place by the EPERM, so proving the EPERM absent does not move it.** Do not re-run
+   this spike expecting the cap to change. **Recommendation: do NOT raise the build-slot cap.**
 
 ---
 
@@ -55,25 +69,53 @@ All legs: editor `6000.4.11f1`, worktrees `Far-Horizon-drew-conc-a-wt` (branch) 
 `Far-Horizon-drew-conc-b-wt` (detached), both at `90d024b`, `git status` clean. Runner verified
 `status=online busy=false`, `total_count=1`, no in-flight runs, before and during.
 
-| # | Leg | Cache condition | Result |
-|---|---|---|---|
-| 1 | 2 concurrent bootstraps, both worktrees fully COLD (no `Library/` at all) | ONE shared cold throwaway root | **BOTH `[BootstrapProject] complete`.** `EPERM=0` in both. Resolve 41.23 s (A) / 34.80 s (B), 33 packages each. |
-| 2 | 2 concurrent bootstraps × 3 trials, warm `Library/` + deleted `PackageCache` | real shared user cache (no env vars) | **6/6 FAILED** — `error CS0234` × 15, ~5 s each, `EPERM=0`. See §The wedge. |
-| 3 | 2 concurrent bootstraps, NO reset at all (bare re-run of leg 2's state) | real shared user cache | **2/2 FAILED identically.** `EPERM=0`. Proves the state does not self-heal. |
-| 4 | 1 bootstrap (control) after `touch Packages/manifest.json` | real shared user cache | **`[BootstrapProject] complete`**, `csErr=0`, `PackageCache` back to 33 entries. |
-| 5 | 2 concurrent FORCED re-resolves (`touch` both manifests) | real shared user cache — the faithful production condition | **`EPERM=0` in both.** Resolve 1.22 s (A) / 26.78 s (B), both `[BootstrapProject] complete`. |
-| 6 | **2 concurrent FULL `BuildWindows` builds** | real shared user cache + **real shared Bee cache**, no env vars at all | **BOTH `[FarHorizonBuilder] result=Succeeded size=115335954 bytes`.** A `00:59:00.293→01:01:17.459`, B `00:59:00.293→01:01:17.528` (≈2 m 17 s each, identical exe size). |
-| 7 | 2 concurrent `BuildWindows` builds, incremental | fully ISOLATED per-instance `UPM_*` + `BEE_CACHE_DIRECTORY` | Both `result=Succeeded size=115335954 bytes`. A 20.3 s, B 20.5 s. |
-| 8 | 1 `BuildWindows` build, incremental (control) | isolated throwaway root | `result=Succeeded size=115335954 bytes`, 16.8 s. |
+`doneResolve` = count of `Done resolving packages in` in that leg's log(s). **It is the column that
+decides whether a leg's `EPERM=0` means anything**, because the EPERM is a rename at the
+`.tmp-* → com.unity.X@hash` extraction site and that site is touched **only during resolution**.
 
-**Leg 6 is the ticket's actual success criterion** — two Unity *builds* running concurrently from
-different worktrees, no PackageCache EPERM — and it passed with **no fix applied at all**: no cache
-env vars, both instances sharing the real UPM store *and* the real Bee cache. Overlap measured:
-`Unity.exe 105544` + `Unity.exe 169688` both live at `00:59:25.622`, ~1.2 GB RSS each.
+| # | Leg | Cache condition | `doneResolve` | Bears weight on EPERM? | Result |
+|---|---|---|---|---|---|
+| **1** | 2 concurrent bootstraps, both worktrees fully COLD (no `Library/` at all) | ONE shared cold throwaway root | **1 / 1** | ✅ **YES** | **BOTH `[BootstrapProject] complete`.** `EPERM=0` in both. Resolve 41.23 s (A) / 34.80 s (B), 33 packages each. |
+| 2 | 2 concurrent bootstraps × 3 trials, warm `Library/` + deleted `PackageCache` | real shared user cache (no env vars) | **0** (×6) | ❌ vacuous — aborted pre-resolve | **6/6 FAILED** — `error CS0234` × 15, ~5 s each, `EPERM=0`. See §The wedge. |
+| 3 | 2 concurrent bootstraps, NO reset at all (bare re-run of leg 2's state) | real shared user cache | **0** (×2) | ❌ vacuous — same pre-resolve abort | **2/2 FAILED identically.** `EPERM=0`. Proves the state does not self-heal. |
+| 4 | 1 bootstrap (control) after `touch Packages/manifest.json` | real shared user cache | 1 | ❌ **solo** — 1 instance, cannot evidence *concurrent* contention | **`[BootstrapProject] complete`**, `csErr=0`, `PackageCache` back to 33 entries. |
+| **5** | 2 concurrent FORCED re-resolves (`touch` both manifests) | real shared user cache — the faithful production condition | **1 / 1** | ✅ **YES** — and the only leg on the **real user cache** | **`EPERM=0` in both.** Resolve 1.22 s (A) / 26.78 s (B), both `[BootstrapProject] complete`. |
+| 6 | **2 concurrent FULL `BuildWindows` builds** | real shared user cache + **real shared Bee cache**, no env vars at all | **0** | ❌ **vacuous** — warm `PackageCache`, rename site never touched | **BOTH `[FarHorizonBuilder] result=Succeeded size=115335954 bytes`.** A `00:59:00.293→01:01:17.459`, B `00:59:00.293→01:01:17.528` (≈2 m 17 s each, identical exe size). |
+| 7 | 2 concurrent `BuildWindows` builds, incremental | fully ISOLATED per-instance `UPM_*` + `BEE_CACHE_DIRECTORY` | **0** | ❌ **vacuous** — same | Both `result=Succeeded size=115335954 bytes`. A 20.3 s, B 20.5 s. |
+| 8 | 1 `BuildWindows` build, incremental (control) | isolated throwaway root | **0** | ❌ **vacuous** — same, and solo | `result=Succeeded size=115335954 bytes`, 16.8 s. |
 
-**Overlap is measured in every concurrent leg, not asserted.** Leg 1's probe at `00:43:21.118`
-printed `Unity.exe 73152` and `Unity.exe 183616`, launched 67 ms apart (`00:42:55.909` /
-`00:42:55.976`).
+**⚠ Corrected on review (`86cazhkx9`) — `2 of 8 legs are load-bearing`, not 8.** Reproduce the split
+with one command over the surviving logs:
+`grep -c "Done resolving packages in" %TEMP%\fh-conc\logs\*.log`.
+
+**⚠ The claim "leg 6 IS the ticket's actual success criterion" is withdrawn as stated.** Legs
+**6, 7 and 8 all show `doneResolve=0`** — they are builds against an already-warm `PackageCache`, so
+no package was extracted, no rename occurred, and "no EPERM" follows **by construction**. Leg 6
+therefore **cannot be evidence about the EPERM at all**; it satisfies "no EPERM" vacuously.
+
+Leg 6 *is* strong evidence for a **different and still-useful claim**: two concurrent full builds
+complete and emit byte-identical artifacts (`result=Succeeded size=115335954 bytes` in all five
+build logs). **Keep the two claims separate** — the build-completion claim is well supported; the
+EPERM claim rests only on legs 1 and 5.
+
+**Overlap is measured, not asserted — by licensing timestamp, not by the probe.** Each Unity log
+carries its own wall-clock `[Licensing::IpcConnector] Successfully connected` ISO line
+(`build-default-1-A.log:12`); bracketing it against each log's final write:
+
+| Leg | A start (Z) | B start (Z) | both end (Z) | overlap |
+|---|---|---|---|---|
+| 1 `shared-1` | `00:43:00.6055159` | `00:43:00.7208457` | `00:46:42.02` / `00:46:42.76` | ~3 m 41 s |
+| 5 `faithful-default` | `00:55:34.865295` | `00:55:34.8483611` | `00:57:14.41` / `00:57:14.61` | ~1 m 39 s |
+| **6 `build-default-1`** | `00:59:00.9687991` | `00:59:00.9288133` | `01:01:17.20` / `01:01:17.28` | **~2 m 16 s** |
+| 7 `build-isolated-1` | `01:01:19.6131416` | `01:01:19.4283865` | `01:01:38.77` / `01:01:38.90` | ~19.3 s |
+
+**⚠ Method correction (`86cazhkx9`):** the earlier sentence *"overlap is measured in every concurrent
+leg"* was false as to method. The `tasklist` probe fires at `T+25 s`, and leg 7's two instances both
+exited at ~19.3 s, so that probe printed nothing for leg 7 (and no probe output was captured for
+legs 2/3/5/7). The overlap is real — the licensing-timestamp bracket above shows it — but the probe
+demonstrates it only for legs 1 and 6. Leg 1's probe at `00:43:21.118` printed `Unity.exe 73152` and
+`Unity.exe 183616`, launched 67 ms apart; leg 6's at `00:59:25.622` printed `105544` + `169688`,
+~1.2 GB RSS each.
 
 ### Measured throughput — and why the number is weak
 
@@ -84,6 +126,35 @@ the absolute times (17–20 s) are small enough that fixed process-startup cost 
 proportionally large. A full-build pair (leg 6's ≈2 m 17 s class) was not run solo, so the
 throughput multiple for a *cold* build is unmeasured. Anyone acting on a throughput number owes a
 proper N≥8 measurement first.
+
+---
+
+## Negative control — the EPERM detector IS demonstrated to fire
+
+**Added on review (`86cazhkx9`).** As originally written, the whole negative result rested on an
+assertion that had **never been shown capable of going RED**. That is exactly the failure class this
+project committed as a rule in **PR #383 (`ebaaf82`)**, and which `unity-conventions.md` §CI
+architecture already states (`86cav8y74`): *"run the negative control through the SAME assertion and
+require it to RED… a threshold nothing fails is not a threshold."*
+
+The detector is `unity_concurrency_trial.sh:189` —
+`grep -qE "EPERM: operation not permitted, rename"`. Run verbatim against a fixture built from the
+real EPERM text quoted in `bootstrap_with_retry.sh:11-13`, and against a genuinely clean spike log:
+
+```
+=== POSITIVE CONTROL (known-bad fixture) ===
+eperm=EPERM   <-- detector FIRED (RED)
+=== same regex over build-default-1-A.log (real, clean) ===
+eperm=-       <-- correctly silent
+```
+
+**The detector discriminates**: it reds on the real failure string and stays silent on a clean log.
+So `EPERM=0` is no longer resting on an unexercised grep.
+
+**Two limits, stated plainly:** the fixture is a *synthetic* reproduction of the string, not a
+naturally-occurring EPERM — nobody has yet observed this detector fire on a real run in this repo;
+and the widened bare-token `EPERM` grep across all 18 logs independently returns **0**, which covers
+the "narrow pattern missed it" risk from the other direction.
 
 ---
 
@@ -153,6 +224,17 @@ repopulates to 33 entries (leg 4).
    here, that delete is **what creates** a wedge that a bare re-run cannot clear. The delete needs
    to be paired with a state-cache invalidation (`touch Packages/manifest.json`, or delete
    `Library/PackageManager` alongside it).
+
+   **⚠ Initial-state caveat (added on review, `86cazhkx9`) — this does NOT mean the old remedy was
+   simply wrong.** The experiment deleted `PackageCache` from a **healthy warm** checkout (leg 1
+   finished clean at 02:46; leg 2 deleted at 02:49). The documented remedy targets a **different
+   initial state**: an already-partial/wedged `PackageCache` *after a failed resolve*, where
+   `Library/PackageManager`'s validity is untested. That these are genuinely different states is
+   supported by `bootstrap_with_retry.sh:6-7`, which records run `27699769706` EPERM'ing on a
+   **cold** runner with **no pre-existing `Library/PackageCache`** — and that run *re-resolved*
+   rather than restoring, so no state cache was valid there. The defensible statement is
+   **"INCOMPLETE — pair the delete with a state-cache invalidation"**, which is safe and correct in
+   *both* initial states. Do not upgrade it to "the remedy IS the wedge" on one run on one machine.
 2. §Process notes also says *"A 2nd self-hosted runner on the SAME machine does NOT add throughput
    either — both share the `PackageCache`"*. The two checkouts do **not** share
    `Library/PackageCache` (per-checkout `location:` paths above). The 2nd-runner conclusion still
@@ -188,6 +270,22 @@ So the EPERM was never the binding constraint, and per-instance cache isolation 
 CI** as currently configured. The only reachable win is **local two-worktree concurrency** — and
 that already works today with **zero** env-var changes (legs 1 and 5).
 
+### ⛔ The single-build-slot cap is UNAFFECTED by this result — do not re-run this spike expecting it to move
+
+**Recorded explicitly (`86cazhkx9`) so a future reader does not repeat the experiment hoping the cap
+will shift.** CLAUDE.md's `≤1 Unity-build ticket in flight` cap is held by
+**`.github/workflows/ci.yml:226-228`** — the `unity-build` `concurrency` group with
+`cancel-in-progress: false` and **no ref suffix** — plus `total_count: 1` registered runners. Both
+are **cache-independent**. **The cap was never held in place by the EPERM, so proving the EPERM
+absent does not reopen it.** Any downstream ticket that was expected to shrink on this spike's
+result should be re-planned on that basis.
+
+What this spike *does* change is the **reason** attached to the cap: it removes a wrong one ("both
+share the `PackageCache`" — they do not, the paths are per-checkout) while leaving the right
+conclusion standing on the A/B-confirmed windowed-capture pin. `unity-conventions.md` §Process notes
+already recorded the right root in June: *"ONE self-hosted runner … THAT is the hard serialization
+ceiling; the PackageCache EPERM race is a SECONDARY amplifier, NOT the root."* That still holds.
+
 ---
 
 ## Recommendation
@@ -204,10 +302,23 @@ that already works today with **zero** env-var changes (legs 1 and 5).
   *with* two concurrent instances in the same log window.
 - **Fix the documented wedge remedy** (this PR) and **file the `bootstrap_with_retry.sh`
   hypothesis** as a follow-up to verify against a real EPERM.
-- **Two local concurrent builds are safe to run when the runner is idle** — demonstrated in leg 6
-  (both `result=Succeeded`, ~1.2 GB RSS each, no isolation) — but they share cores, RAM and disk.
-  The one measured multiple here is ≈1.64× on incremental builds at N=1; treat it as a hint, not a
-  figure, and measure properly (N≥8, full builds) before any decision rests on it.
+- **⚠ SCOPED CLAIM (corrected on review, `86cazhkx9`) — two local concurrent *bare `BuildWindows`*
+  invocations against a WARM `PackageCache` completed cleanly when the runner is idle** —
+  demonstrated in leg 6 (both `result=Succeeded`, ~1.2 GB RSS each, no isolation) — but they share
+  cores, RAM and disk. **This claim does NOT extend to `serve_soak`.** The original wording ("two
+  local concurrent builds are safe") invites the reading *"two personas can `serve_soak` at once"*,
+  which this spike **did not test**:
+  - **`serve_soak` is untested** — it bootstraps (a real resolve) *and then* runs a **windowed
+    capture**. Neither half was exercised concurrently.
+  - **`-verify*` / capture gates are untested and were touched by no leg** — the runner-1-pinned
+    windowed gates (`ci.yml:503`, `:507-508`) are the A/B-confirmed breakage surface, and **that is
+    precisely where the runner-1 pinning constraint lives**.
+  - **The CI composite is untested** — CI's `build` job chains `bootstrap_with_retry.sh` → EditMode
+    → `BuildWindows` in one workspace (`ci.yml:295-337`); the spike never ran that concurrently.
+
+  **Concurrent `serve_soak` / `-verify` remains untested and unclaimed.** The one measured
+  throughput multiple here is ≈1.64× on incremental builds at N=1; treat it as a hint, not a figure,
+  and measure properly (N≥8, full builds) before any decision rests on it.
 
 ## Out of scope (unchanged)
 
