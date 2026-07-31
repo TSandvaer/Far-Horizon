@@ -26,6 +26,17 @@
 > **N1** `BarredStrings` (one named 9-string constant at both layers, §9.2), **N2** new **G6** pinned
 > change-detector, **N3** AC-D9 made mechanical, **N4** §4.3's scan net widened **with a `.meta` exclusion**,
 > **N5** AC-D12 quotes the boundary clause verbatim, **N6** the `CC-Attribution` under-credit caveat.
+>
+> **N7 — 2026-08-01** *(Tess's APPROVE_WITH_NITS, PR #388).* §4.3's **"Widened net (binding)"** line stated the
+> pattern but left the mandatory `.meta` exclusion in the callout beneath it — **the same shape as the blocker
+> above**: the load-bearing constraint sitting one paragraph away from the thing a developer copies. The binding
+> line now carries the exclusion itself and is complete without anything below it. **Swept the document for the
+> general form** — a binding line whose correctness depends on a qualifier that lives only in prose beneath it.
+> Two further sites, both `Castaway_Attribution.txt` line cites reading as current rather than pre-marker,
+> now carry §9.4's `pre-marker — §9.6` pointer: **§9.1's table** and the **R1 cross-reference bullet**. Every
+> other line labelled *binding* — §4.3's P1/P2, §4.3's row shape, §10.1's layout-agnostic key set, §11.2's
+> line-break requirement, §10.4's wiring contract, and the AC-D1 / AC-D2 / AC-D11 / AC-D12 rows — was read and
+> is **self-sufficient as written**, each carrying its own qualifier inline.
 > **S5 and S7 remain open Sponsor items — neither is decided here, and S5's ask is unchanged (§14.3).**
 >
 > **Drift check at `8ad6e24`:** `git diff --stat c8ce948..8ad6e24` over `SettingsPanel.cs` / `.uss` /
@@ -333,8 +344,12 @@ because a violation is visible to the player as a wrong or missing credit:
   credit silently never renders — AC2's named ADD case surviving the guard.
 
   **Widened net (binding):** under `Assets/`, match any file whose **filename** matches
-  `(?i)(attribution|licen[cs]e|notice|third[-_]?party|credits?|copyright|authors?)` — **no extension
-  restriction** (so extensionless `COPYRIGHT` / `AUTHORS` and `.md` are caught).
+  `(?i)(attribution|licen[cs]e|notice|third[-_]?party|credits?|copyright|authors?)`, with **no extension
+  restriction** (so extensionless `COPYRIGHT` / `AUTHORS` and `.md` are caught), **excluding `*.meta` and
+  any other Unity sidecar the scan surfaces.** The exclusion is *part of* the net, not a refinement of it:
+  drop it and the net matches `Castaway_Attribution.txt.meta`, which will never carry markers, so **G0 is
+  RED on arrival**. Implement this line as written and nothing below it is needed — the callout carries the
+  measurement, not an additional requirement.
 
   > ⚠ **Excluding `.meta` is NOT optional — dropping the `.txt` restriction is a day-one RED without it.**
   > Measured at `origin/main` @ `721701d`: today's net matches exactly one file
@@ -544,6 +559,8 @@ in a way that ships an AC4 violation.** This section replaces it with a delimite
 verbatim, and pins it with a checksum so QA can diff rather than judge.
 
 ### 9.1 The defect, stated concretely
+
+*(All line numbers in this subsection are **pre-marker** — §9.6.)*
 
 `Assets/Art/Character/Castaway/Castaway_Attribution.txt` is **146 lines** (`wc -l`, at `8ad6e24`). It is an
 *engineering* document, not a player-facing one. Rendering it whole puts all of the following in front of a
@@ -1026,7 +1043,7 @@ guards G0 (markers present) and G5 (no barred name in the bundle) enforce it. Th
   **`86cay4hyz`** + PR #356 (the attribution-text correction — **landed**, `03bca30`) · **`86cabh907`** + PR #100
   (the axe + its CC-BY licence file deleted).
 - `Assets/Art/Character/Castaway/Castaway_Attribution.txt` — the single source of the debt (`:24-25` retain
-  instruction, `:27-41` what is owed, `:43-48` no-CC, `:49-52` the open question).
+  instruction, `:27-41` what is owed, `:43-48` no-CC, `:49-52` the open question). **Pre-marker — §9.6.**
 - `Assets/Scripts/Runtime/Settings/SettingsPanel.cs` — `:134-155` key map, `:409-426` the open/fade idiom to reuse,
   `:444-449` `RegisterText`, `:579-583` the shared shell clone (why not to touch the UXML), `:619-623` ScrollView
   setup, `:637-639` the per-drawer title, `:645-655` `BuildCornerPicker` (the per-drawer-scoped precedent),
