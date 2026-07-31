@@ -1,5 +1,9 @@
 # auto-status state — managed by the auto-status skill. Do not edit by hand.
-enabled=true
+# STOPPED 2026-07-31 ~04:00Z: account hit its WEEKLY limit (resets Aug 2, 6am
+# Europe/Copenhagen). Every sub-agent dispatch dies immediately, so the away
+# loop could not perform its function — it would have failed every 15 min for
+# ~2 days. Re-arm with `/auto-status away` (or `on`) after the reset.
+enabled=false
 mode=away
 interval=15m
-last_tick=2026-07-31T00:38:00Z
+last_tick=2026-07-31T04:00:00Z

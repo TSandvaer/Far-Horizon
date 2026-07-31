@@ -1,5 +1,25 @@
 # Away-queue — Far Horizon
 
+## ⛔ HARD STOP 2026-07-31 ~04:00Z — ACCOUNT WEEKLY LIMIT, resets **Aug 2, 6am** (Europe/Copenhagen)
+
+**The away loop is STOPPED and auto-status is OFF.** Every sub-agent dispatch now dies immediately on the weekly limit, so the loop could not do its job — it would have failed every 15 minutes for ~2 days. Re-arm with `/auto-status away` (or `on`) after the reset. Nothing is lost; nothing is mid-flight.
+
+**Four agents died on the limit. Three were early; ONE was not, and its work SURVIVED:**
+- **Drew, `86cabkhjg` build-slot spike — pushed `624732b` and opened PR #387 before dying.** ⭐ **His result may remove the constraint the whole board has been serialising around:** all 8 legs complete with **`EPERM=0` in EVERY leg**, including **two concurrent full builds sharing the real UPM+Bee caches UNFIXED** — both `result=Succeeded`, 115,335,954 bytes each. If that holds under review, the single-Unity-build-slot cap may not be needed at all. **Do not act on it before review** — it is one run on one machine, and it contradicts a constraint this project has treated as settled for weeks.
+- **Tess, #383 review** — reported *"Verification complete. Writing the review"*, so her analysis was done but the verdict was never posted. Re-dispatch will need to redo it.
+- **Devon, #386 maths review** — died at Step 0, nothing lost.
+- **Priya, bar-cell diet ticket** — died at Step 0, nothing lost. The ticket is unfiled; her measurement (bar 10 cell 2,523 chars vs bar 9's 391, 13.4×) is recorded in `decisions-while-away.md` and in her #386 review comment.
+
+**Also hit:** the auto-mode classifier was briefly unavailable (`claude-sonnet-5[1m] temporarily unavailable`), blocking one Bash call. Unrelated to the weekly limit, resolved on its own.
+
+### On return, in this order
+1. **Your three merges + your soak** — unchanged, all below: #369, #370 (one click each), and #351's soak.
+2. **Review PR #387** (Drew's spike) before believing it. If `EPERM=0` holds, the build-slot cap question reopens and several tickets shrink.
+3. **Re-dispatch** Tess (#383 verdict), Devon (#386 maths), Priya (bar-diet ticket).
+4. **Nine PRs are open** — #351 #369 #370 #381 #383 #384 #385 #386 #387. Of those, **#381 / #384 / #385 carry Uma APPROVEs and are merge-ready**; #381 must land before #386 (dangling citation).
+
+---
+
 ## ▶▶▶ CURRENT — 2026-07-30 ~21:25Z (AWAY armed, cron `471609c0`, 15-min; main `51f4623`)
 
 ### ⭐ SPONSOR QUEUE (drain via /sponsor-questions-walkthrough on return)
