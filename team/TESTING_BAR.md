@@ -90,11 +90,34 @@ So every PR carries the same shape of proof (and reviewers/CI know exactly what 
 | Gate | Script (under `.github/workflows/scripts/`) | What it proves | Fails on |
 |------|--------|----------------|----------|
 | Structure | `structure_check.sh` | repo hygiene, asmdefs, entry-point methods present | committed artifacts, missing `.meta`, renamed entry point |
-| Docs tool-call markup | `check_docs_markup.sh` | no committed `*.md` carries an authoring agent's leaked tool-call tags | a tool-call tag alone on a line at column 0 in any tracked `*.md` (`86cayxtw8`). **Wired TWICE on purpose:** in the hosted `structure` job AND in the `*.md`-path-triggered `docs-markup` workflow — `ci.yml`'s `paths-ignore` lists `'**/*.md'` + `'team/**'`, which skips the WHOLE run, so a docs-only PR gets no `structure` check at all (ground-truthed on PRs #360/#358: `auto-merge` was their only check). All 5 files the guard was written for arrived on docs-only PRs, so a `structure`-only wiring would have caught 0 of 5. |
+| Docs tool-call markup | `check_docs_markup.sh` | no committed `*.md` carries an authoring agent's leaked tool-call tags | a tool-call tag alone on a line at column 0 in any tracked `*.md` (`86cayxtw8`). **Wired TWICE on purpose:** in the hosted `structure` job AND in the `*.md`-path-triggered `docs-markup` workflow — `ci.yml`'s `paths-ignore` lists `'**/*.md'` + `'team/**'`, which skips the WHOLE run, so a docs-only PR gets no `structure` check at all (ground-truthed on PRs #360/#358, both filed BEFORE the `docs-markup` workflow existed: `auto-merge` was their only check). All 5 files the guard was written for arrived on docs-only PRs, so a `structure`-only wiring would have caught 0 of 5. ⚠ **Do not read that #360/#358 measurement forward** — since `docs-markup.yml` shipped, a docs-only PR DOES get one real check. See § *What CI actually covers, by PR lane* below. |
 | Console-error | `check_unity_log.sh` | no compile/fatal errors in any Unity log | `error CS####` / `Compilation failed` / `Fatal error` / `Unhandled exception` (URP first-import + recovered-NavMesh-race lines allowlisted by **shape**, never subtracted from the error scan) |
 | Test-result | `parse_test_results.py` | EditMode + PlayMode genuinely green | `result != Passed`, any failure, or `total == 0` (an empty run is a failure) |
 | Build-result | `ci.yml` build-gate | the Windows exe actually built | no `[FarHorizonBuilder] result=Succeeded` line |
 | **Shipped-build capture** | `capture_gate.sh` + `frame_check.py` | the BUILT exe renders REAL frames (editor-vs-runtime backstop) | black / empty / uniform / all-magenta (shader-strip) frames, or **zero** frames captured |
+
+### What CI actually covers, by PR lane
+
+**This is the canonical statement. Cite it; do not re-derive it from `paths-ignore` alone** — reasoning from that filter in isolation is what produced the "docs-only PRs get ZERO checks" claim that propagated into five tickets and a PR body before Drew measured it on PR #389 (2026-07-31).
+
+Two workflows decide a PR's coverage, and they trigger **independently**:
+
+- **`ci.yml`** — jobs `structure` (line 133), `build` (223), `capture` (501), `playmode` (1247). Carries a **workflow-level** `paths-ignore` — `'**/*.md'`, `'team/**'`, `'inspiration/**'`, `'.claude/**'`, `'docs/**'` (`:96-101` push / `:104-109` pull_request). When EVERY changed path matches, the run does not start at all, so **none** of those four jobs report. (The old single `unity` job was split into `build` + `capture` + `playmode` by `86cafz9tg` — a ticket or comment still saying "the `unity` job fires" is using a retired name.)
+- **`docs-markup.yml`** — a SEPARATE workflow, GitHub-hosted, no Unity, no licence, ~10s. Triggers on `paths: ['**/*.md', <the workflow>, <its script>]` for both `push:main` and `pull_request:main`. `ci.yml`'s `paths-ignore` has **no effect on it**.
+
+| PR lane (what the diff touches) | `structure` / `build` / `capture` / `playmode` | `docs-markup` |
+|---|---|---|
+| Any `Assets/**`, `.github/**`, or other non-ignored path | run — full merge gate | runs too, if the diff also contains any `*.md` |
+| `*.md` only (incl. `team/**/*.md`, `.claude/docs/*.md`) | **do not run — no result at all** | **runs — one real pass/fail** |
+| Only non-`.md` ignored paths (e.g. `inspiration/*.png`, a `.claude/*.json`) | do not run | **does not run either** — its `paths:` filter is `**/*.md`. This lane genuinely has zero checks. |
+
+⚠ **`auto-merge` is not a gate.** It shows up under `gh pr checks` on any label-merged PR (measured on #381 / #383 / #384, 2026-07-31) and it is the merge Action reporting itself, not a quality check. Never count it when saying what a PR was verified by.
+
+**Three rules that follow, and the third is the one people get wrong:**
+
+1. **An absent check is never a pass.** `paths-ignore` makes the run not trigger; it does not report a skipped required check as success (`ci.yml:89-95` says so in its own comment).
+2. **Never claim "CI green" on a docs-only PR.** Name the check you actually got: *"`docs-markup` pass; `ci.yml` did not run — no build or test result on this PR."*
+3. **But "docs-only ⇒ zero CI checks" is FALSE, and writing it is its own over-claim.** A docs-only PR gets one real, hosted, licence-free gate. Measured on PR #389 (`86caz42fr`, Drew, 2026-07-31): `gh pr checks 389` → `docs-markup (hosted, no license)   pass   11s`, run `30649924290`. Independently confirmed `SUCCESS` on PRs #381, #383, #384, #385, #386. What the green does NOT cover is the build and the tests — that is the real caution, and it is not the same sentence as "no checks ran".
 
 **Author evidence on the PR (UX-visible PRs):**
 

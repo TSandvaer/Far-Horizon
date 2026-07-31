@@ -2,8 +2,11 @@
 
 **Ticket:** `86caxjwb3` (feat(combat): enemy body-level hit feedback).
 **Owner (impl):** Drew · **Reviewer:** Devon · **Spec author:** Uma · **Lane:** Unity-build, soak-gated.
-**Work-type:** design spec (design-only; no code in this PR — docs-only, so **zero CI checks fire**,
-`[[ci-paths-ignore-skips-the-whole-run]]`).
+**Work-type:** design spec (design-only; no code in this PR — docs-only, so `ci.yml` does not start and there is
+**no `structure` / `build` / `capture` / `playmode` result**; the separate `docs-markup` workflow **does** run and
+gives one real hosted green. See `team/TESTING_BAR.md` § *What CI actually covers, by PR lane*.
+*Corrected 2026-07-31 — this line previously read "zero CI checks fire", which is false;
+`[[ci-paths-ignore-skips-the-whole-run]]` is `ci.yml`-scoped only.*)
 
 **Builds on, does NOT re-run:** `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md` — the
 TECHNIQUE research. Read its **CORRECTIONS block first**; where the block and the note's body disagree, the

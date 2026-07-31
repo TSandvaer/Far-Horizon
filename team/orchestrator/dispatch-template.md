@@ -435,6 +435,26 @@ The harness denies self-merge of one's own PR via `gh pr review --approve` (retu
 
 Every ticket carries a free-text tag from `impl` / `spec` / `investigation` / `test` / `chore` / `cleanup`. The tag drives which acceptance gates apply: **impl** needs a green paired test; **spec** needs PR-opens-to-template; **investigation** needs question-answered-in-PR-body; **test** needs a failing-first contract; **chore** needs no behavior change; **cleanup** needs comment-only or follow-up reframe. Without the tag, the testing-bar rubric mis-scores spec/investigation tickets as low quality. Priya applies the tag at ticket creation; the orchestrator checks it pre-dispatch. (Imported from MarianLearning's 2026-05-22 retro.)
 
+## Lane + CI-coverage line (ticket-level, Priya applies at creation — PASTE, do not re-derive)
+
+Every ticket carries a **Lane** line telling the dispatcher whether it consumes the single Unity build slot, and telling the author what CI will actually say about their PR. **Paste the matching block verbatim.** Deriving this line fresh from `ci.yml`'s `paths-ignore` is exactly how the false "docs-only ⇒ ZERO CI checks" premise got into five tickets and a PR body (caught 2026-07-31, PR #389). Canonical reference: `team/TESTING_BAR.md` § *What CI actually covers, by PR lane*.
+
+**Unity-build lane** (diff touches `Assets/**`, `.github/**`, or any path not in `ci.yml`'s `paths-ignore`):
+
+```markdown
+⚠ **Unity-BUILD lane.** `Assets/**` is absent from `ci.yml`'s `paths-ignore` (`.github/workflows/ci.yml:96-101` push / `:104-109` pull_request), so the full run fires — `structure` + `build` + `capture` + advisory `playmode` — and this **consumes the single Unity build slot** (`[[single-unity-build-slot-serializes-orchestration]]`). ⚠ `.github/**` in the diff additionally means the PR **cannot be label-merged** (`[[auto-merge-fails-on-workflow-file-prs]]`).
+```
+
+**Non-build (docs-only, `*.md`) lane:**
+
+```markdown
+✅ **NON-build lane — dispatchable while the Unity build slot is occupied.** Every changed path is in `ci.yml`'s workflow-level `paths-ignore` (`**/*.md`, `team/**`, `inspiration/**`, `.claude/**`, `docs/**` — `.github/workflows/ci.yml:96-101` push / `:104-109` pull_request), so `ci.yml` does not start: **no `structure`, `build`, `capture` or `playmode` result on this PR.**
+
+ℹ **"Non-build" is NOT "no CI".** `.github/workflows/docs-markup.yml` is a **separate** workflow triggered on `paths: '**/*.md'`, so it **does** run and gives one real hosted pass/fail (~10s, no licence). **Report it precisely:** *"`docs-markup` pass; `ci.yml` did not run — no build or test result."* Do NOT write "CI green" (the build was never exercised) and do NOT write "zero CI checks" (a real gate ran). `auto-merge` is the merge Action, not a gate — never count it. Peer review is the substantive gate.
+```
+
+**Third lane, rare but real** — a diff of ONLY non-`.md` ignored paths (e.g. `inspiration/*.png`, a `.claude/*.json`): neither workflow triggers. That lane genuinely has zero checks; say so explicitly rather than letting it pass as the docs lane.
+
 ## Pre-dispatch checklist (orchestrator-side)
 
 Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dispatch time when fixing them is a one-line brief edit — not after the agent's burned cycles on an under-specified task.
@@ -445,6 +465,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **Ticket-body hard gates.** Ticket body carries an explicit OOS list + a named success-test. Missing either → bounce to Priya for flesh-out BEFORE dispatch (or the orchestrator fills them per the ticket-flesh-out auto-decide class when it has the context).
 - [ ] **AC shape (Commander's Intent).** The AC leads with the 🎯 destination (what + why) and separates 🔒 constraints from 🎚️ tunable defaults (see § Acceptance-criteria shape). If the destination is buried under implementation route, or a tunable value reads as a mandate, bounce to Priya.
 - [ ] **Work-type tag present** on the ticket (`impl`/`spec`/`investigation`/`test`/`chore`/`cleanup`) — drives which acceptance gates apply.
+- [ ] **Lane line present and PASTED from § Lane + CI-coverage line**, not re-derived. Bounce any ticket whose Lane claims a docs-only PR gets "zero CI checks" / "NO checks at all" — that is false since `docs-markup.yml` shipped, and it is the phrasing this project has already had to correct on five tickets.
 - [ ] **Branch name** follows `<role>/<id>-<slug>` format.
 - [ ] **Scoped contract block present** — owned files, read-only references, OOS, conflict rule. OOS named explicitly; if the agent should not touch a tempting adjacent file, NAME IT.
 - [ ] **Reviewer named** per Done clause reviewer-track (game-side → Drew, harness/inventory → Devon, Tess PRs → peer by surface, Priya docs → Devon or Drew by surface).
