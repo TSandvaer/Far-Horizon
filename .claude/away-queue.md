@@ -33,7 +33,12 @@
    - ⚠ **Merge-order with #369:** both edit `ci.yml`'s stale-clear region. Whichever lands second needs an **additive union** of the log/caps names — never take-one-side, or a gate loses its stale-clear silently.
    - Related ticket filed from her work: `86caz4x88` (`globalScale` `.meta` staleness, ~0.47% on every weapon, soak required — she deliberately did NOT ship that churn).
 
-0c. **Cleanup, your call — a stray scratch worktree.** `C:/Trunk/PRIVATE/fh-369-review` (detached at `2d0e3f7`, an unpushed local merge Drew used to measure #369 against current main). His own `rm -rf` cleanup was denied by the destructive-bash hook, so it is still on disk. Harmless and reproducible; I have not removed it because worktree deletion is a delete-class action. `Far-Horizon-drew-docs-wt` is NOT stray — it holds #379's live branch.
+0c. **Cleanup, your call — THREE stale scratch worktrees.** All harmless and all reproducible; I have not removed any because worktree deletion is a delete-class action.
+   - `C:/Trunk/PRIVATE/fh-369-review` — detached at `2d0e3f7`, the unpushed local merge Drew used to measure #369 against current main. His own `rm -rf` cleanup was **denied by the destructive-bash hook**, which is why it survived.
+   - `C:/Trunk/PRIVATE/fh-351-merge` — detached at `b1560cf`, where he resolved #351's conflicts *without touching* `drew-wt`'s 53 dirty files. That was the right call; the leftover is the cost of it.
+   - `C:/Trunk/PRIVATE/fh-261-fold` — on `tmp/261-fold`, older than tonight, provenance unknown to me.
+   - **NOT stray, do not remove:** `drew-docs-wt` (#379's branch), `drew-conc-a-wt` + `drew-conc-b-wt` (Drew's live two-worktree concurrency rig for `86cabkhjg`), `drew-cadence-wt`, `drew-swings-wt`, `drew-wt`, `erik2-wt`.
+   - **Pattern worth noting:** the scratch-worktree habit is *correct* — it is what protected `drew-wt`'s 53 dirty files and `tess-wt`'s 48 stashes all night. The residue is the side-effect of good discipline plus a cleanup step the destructive-bash hook blocks. A `git worktree prune`-friendly convention (or an allowlisted cleanup path) would fix the cause rather than the symptom.
 
 1. **#351 SOAK — STAGED AND PLAYED. Run this:**
    ```
